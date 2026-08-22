@@ -23,7 +23,7 @@ export interface LayoutProps {
   children: React.ReactNode;
 }
 
-const RAIL_ICONS = ['>_', '⊞', '', '🛡', '⚙'];
+const RAIL_ICONS = ['>_', '⊞', '≡', '🛡', '⚙'];
 
 export function Layout({
   view,
