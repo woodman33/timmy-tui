@@ -3,9 +3,11 @@
 // [3] Telemetry & LogRain, [4] Escrow & Receipts. Legacy panels are reused
 // as content; the shell owns navigation, budget and chrome.
 import React from 'react';
-import { Box } from 'ink';
+import { Box, Text } from 'ink';
 import type { Agent } from '../agent/core.js';
 import { CommandView } from './components/CommandView.js';
+import { LogRelay } from './components/LogRelay.js';
+import { theme } from './theme.js';
 import { SlatePanel } from './panels/SlatePanel.js';
 import { GensPanel } from './panels/GensPanel.js';
 import { LogsPanel } from './panels/LogsPanel.js';
@@ -31,9 +33,26 @@ export function ViewStage({ view, paneFocus, agent, setInspector, setModalInput,
   const pane = (i: number): boolean => paneFocus === i;
 
   if (view === 0) {
-    // v1.0.2: ONLY the conversation + one clean prompt box. No rail, no
-    // cards, no rain, no debug chatter.
-    return <CommandView agent={agent} />;
+    // v1.0.4 cyber-command: 60% round conversation card + 40% LIVE relay
+    return (
+      <Box flexDirection="row" flexGrow={1}>
+        <Box flexGrow={3} flexDirection="column" paddingRight={1}>
+          <Box
+            flexDirection="column"
+            flexGrow={1}
+            borderStyle="round"
+            borderColor={pane(0) ? theme.focus : theme.borderMuted}
+            paddingX={1}
+          >
+            <Text bold color={pane(0) ? theme.focus : theme.brandDim} wrap="truncate">{pane(0) ? '◆' : '◇'} COMMAND POST</Text>
+            <CommandView agent={agent} setModalInput={setModalInput} inputLocked={inputLocked} />
+          </Box>
+        </Box>
+        <Box flexGrow={2} flexDirection="column" paddingLeft={1}>
+          <LogRelay height={height} />
+        </Box>
+      </Box>
+    );
   }
 
   if (view === 1) {

@@ -1,6 +1,6 @@
 {
   "name": "timmy-tui",
-  "version": "1.0.2",
+  "version": "1.0.5",
   "description": "TIMMY TUI, a terminal-first Agent Trust OS.",
   "type": "module",
   "main": "dist/cli.js",
@@ -84,6 +84,7 @@
     "@mcpc/core": "npm:@jsr/mcpc__core@^0.3.48",
     "@openfeature/server-sdk": "^1.21.0",
     "@openrouter/sdk": "latest",
+    "@quiverai/sdk": "^0.9.0",
     "@rive-app/canvas": "^2.36.0",
     "@theatre/core": "^0.7.2",
     "chalk": "^5.4.0",
@@ -109,6 +110,7 @@
     "@types/ws": "^8.5.13",
     "@typescript/native-preview": "^7.0.0-dev.20260707.2",
     "@vercel/sandbox": "^2.0.0",
+    "ink-testing-library": "^4.0.0",
     "tsx": "^4.19.0",
     "typescript": "^7.0.2",
     "vite": "^6.0.0",

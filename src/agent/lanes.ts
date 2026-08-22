@@ -25,6 +25,9 @@ export interface LaneRunner {
   blurb?: string;
   /** One-shot delegation template; {task} replaced at delegate time */
   task?: string;
+  /** Non-interactive probe used in the pane script when the bare cmd is an
+      interactive Commander CLI that exits on help (v1.0.5 minds fix) */
+  probe?: string;
   /** For API lanes: env var holding the key; absence = not_configured */
   key?: string;
 }
@@ -71,6 +74,7 @@ export const LANE_RUNNERS: Record<string, LaneRunner> = {
   },
   minds: {
     cmd: 'minds',
+    probe: 'minds --version',
     label: 'Minds CLI (Animoca Builder)',
     expected: '/opt/homebrew/bin/minds',
     install: 'Animoca Brands Builder CLI — see your Animoca toolchain access',
@@ -228,7 +232,7 @@ export function laneStartupScript(runnerKey: string | undefined, jti: string, vi
     script.push('sleep 3');
     script.push(`if command -v ${runner.cmd} >/dev/null 2>&1; then`);
     script.push(`  printf '\\033[38;5;121m[Runner]\\033[0m ${runner.label}: connected (${runner.cmd})\\n'`);
-    script.push(`  ${runner.cmd} || printf '\\n\\033[31m[Agent Alert] ${runner.label} exited with code $?\\n\\033[0m'`);
+    script.push(`  ${runner.probe ?? runner.cmd} || printf '\\n\\033[31m[Agent Alert] ${runner.label} exited with code $?\\n\\033[0m'`);
     script.push('else');
     script.push(`  printf '\\n\\033[38;5;215m[Runner]\\033[0m ${runner.label}: not found. Install: ${runner.install || runner.expected}\\n'`);
     script.push('fi');

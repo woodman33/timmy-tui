@@ -39,11 +39,24 @@ const wrap = (text: string, width: number): string[] => {
 
 interface Line { text: string; kind: 'user' | 'agent' | 'err' }
 
-export function CommandView({ agent }: { agent: Agent }) {
+interface CommandViewProps {
+  agent: Agent;
+  /** v1.0.5-fix input sovereignty: INPUT mode holds the global keyboard lock */
+  setModalInput?: (b: boolean) => void;
+  inputLocked?: boolean;
+}
+
+export function CommandView({ agent, setModalInput, inputLocked }: CommandViewProps) {
   const { w: width, h: height } = React.useContext(ViewportContext);
   const state = useAgent(agent);
   const [input, setInput] = useState('');
   const [scroll, setScroll] = useState(0); // lines up from the tail
+  const [focused, setFocused] = useState(true); // INPUT mode by default
+
+  React.useEffect(() => {
+    setModalInput?.(focused);
+    return () => setModalInput?.(false);
+  }, [focused, setModalInput]);
 
   const lines = React.useMemo(() => {
     const out: Line[] = [];
@@ -74,6 +87,16 @@ export function CommandView({ agent }: { agent: Agent }) {
   const visible = lines.slice(Math.max(0, end - viewH), end);
 
   useInput((char, key) => {
+    if (inputLocked) return;
+    if (!focused) {
+      // NAV mode: only Enter re-enters INPUT; every other key falls through
+      // to the root handler (1-4 / Tab / ^K / q / ?)
+      if (key.return) setFocused(true);
+      return;
+    }
+    // defense in depth: INPUT mode never dispatches navigation — printable
+    // chars (incl. 1/q/l/?) go to the buffer; Esc blurs to NAV
+    if (key.escape) { setFocused(false); return; }
     if (key.upArrow) { setScroll(s => Math.min(maxScroll, s + 1)); return; }
     if (key.downArrow) { setScroll(s => Math.max(0, s - 1)); return; }
     if (key.return) {
@@ -96,6 +119,14 @@ export function CommandView({ agent }: { agent: Agent }) {
   return (
     <Box flexDirection="column" flexGrow={1}>
       <Box flexDirection="column" flexGrow={1}>
+        {lines.length === 0 && (
+          <Box flexDirection="column" borderStyle="round" borderColor={theme.borderMuted} paddingX={1} marginTop={1}>
+            <Text bold color={theme.focus} wrap="truncate">◆ COMMAND POST — cold start</Text>
+            <Text color={theme.textSecondary} wrap="truncate">Type a mission to start — every run seals a cryptographic receipt.</Text>
+            <Text color={theme.textTertiary} wrap="truncate">[2] MISSION · DAG + capsules  [3] TELEMETRY · audit + bus  [4] ESCROW · locks + refunds</Text>
+            <Text color={theme.textTertiary} wrap="truncate">[?] keymap · [Esc] releases the keyboard to navigation</Text>
+          </Box>
+        )}
         {visible.map((l, i) => (
           <Text
             key={i}
@@ -107,9 +138,10 @@ export function CommandView({ agent }: { agent: Agent }) {
           </Text>
         ))}
       </Box>
-      <Box borderStyle="single" borderColor={theme.focus} paddingX={1} flexShrink={0}>
+      {/* input bar lives inside the round card — no nested borders (v1.0.4) */}
+      <Box flexShrink={0} marginTop={1}>
         <Text color={theme.focus}>▶ </Text>
-        <Text color={input ? theme.textPrimary : theme.textTertiary}>{input ? `${input}▌` : '[Type command or prompt...]▌'}</Text>
+        <Text color={input ? theme.textPrimary : theme.textTertiary}>{input ? `${input}▌` : `${width < 70 ? '[Type a command...]' : '[Type a command or mission prompt...]'}▌`}</Text>
       </Box>
     </Box>
   );

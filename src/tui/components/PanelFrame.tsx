@@ -34,16 +34,16 @@ export function PanelFrame({ icon, title, status, statusKind, statusColor, expla
   const ctxActive = React.useContext(PaneFocusContext);
   const isActive = active ?? ctxActive;
   return (
-    <Box flexDirection="column" flexGrow={1} borderStyle="single" borderColor={isActive ? theme.focus : theme.borderMuted} paddingX={gutter}>
+    <Box flexDirection="column" flexGrow={1} borderStyle="round" borderColor={isActive ? theme.focus : theme.borderMuted} paddingX={gutter}>
+      {/* v1.0.5: title sits alone on the top edge; status stacks below so
+          narrow cards never collide title with status */}
       <Box flexDirection="column" marginBottom={1} flexShrink={0}>
-        <Box justifyContent="space-between">
-          <Text bold={isActive} color={isActive ? theme.focus : theme.brandDim} wrap="truncate">{isActive ? '◆ ' : ''}{icon} {title}</Text>
-          {g || status ? (
-            <Text color={statusColor ?? (g ? g.color : theme.textSecondary)} wrap="truncate">
-              {g ? `${g.glyph} ${g.label}` : ''}{g && status ? ' · ' : ''}{status ?? ''}
-            </Text>
-          ) : null}
-        </Box>
+        <Text bold={isActive} color={isActive ? theme.focus : theme.brandDim} wrap="truncate">{isActive ? '◆ ' : '◇ '}{icon} {title}</Text>
+        {g || status ? (
+          <Text color={statusColor ?? (g ? g.color : theme.textSecondary)} wrap="truncate">
+            {g ? `${g.glyph} ${g.label}` : ''}{g && status ? ' · ' : ''}{status ?? ''}
+          </Text>
+        ) : null}
         {explain ? <Text color={theme.textTertiary} wrap="truncate">{explain}</Text> : null}
       </Box>
       {children}

@@ -20,9 +20,12 @@ export const VIEWS = [
   { key: '4', label: 'ESCROW', sub: 'ledger + receipts' }
 ] as const;
 
-export const FOOTER_KEYS = '[Tab] Focus  [1-4] Views  [^K] Models/Palette  [?] Help  [q] Quit';
+export const FOOTER_KEYS = '[Tab] Switch Card  [1-4] Switch View  [^K] Model Palette  [?] Help  [q] Quit';
 
-export const footerKeysLine = (width: number): string => truncateVisible(FOOTER_KEYS, width);
+export const footerKeysLine = (width: number): string => {
+  const compact = '[Tab] Card  [1-4] View  [^K] Models  [q] Quit';
+  return truncateVisible(width >= 66 ? FOOTER_KEYS : compact, width);
+};
 
 /** model switching lives strictly in the ^K palette (v1.0.2) */
 export const PALETTE_MODELS = [
@@ -33,7 +36,7 @@ export const PALETTE_MODELS = [
   { id: 'qwen/qwen-2.5-coder-32b-instruct', label: 'Qwen 2.5 Coder · open weights' }
 ];
 
-/** Active Pane Invariant: focused pane bright #7dcfff + glyph; others muted. */
+/** Active Pane Invariant (v1.0.5): focused card #7dcfff + ◆; others muted. */
 export function chromeFor(active: boolean): { border: string; title: string; glyph: string; bold: boolean } {
   return active
     ? { border: theme.focus, title: theme.focus, glyph: '◆', bold: true }

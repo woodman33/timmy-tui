@@ -4,13 +4,14 @@ import { listPlans } from '../../utils/dispatch.js';
 import { theme } from '../theme.js';
 import { truncateVisible } from '../utils/text.js';
 
+// v1.0.5: status pills per the dual-card spec
 const LIFE_GLYPH: Record<string, { g: string; c: string }> = {
-  needs_approval: { g: '○', c: theme.warning },
-  armed: { g: '⛨', c: theme.focus },
-  running: { g: '●', c: theme.success },
-  judging: { g: '◆', c: theme.warning },
-  passed: { g: '✓', c: theme.success },
-  failed: { g: '✕', c: theme.error }
+  needs_approval: { g: '[QUEUED]', c: theme.warning },
+  armed: { g: '[QUEUED]', c: theme.warning },
+  running: { g: '[RUNNING]', c: theme.focus },
+  judging: { g: '[RUNNING]', c: theme.focus },
+  passed: { g: '[DONE]', c: theme.success },
+  failed: { g: '[FAIL]', c: theme.error }
 };
 
 // v1.0.1: concise J-BANG action cards — the dispatch rail's signal without

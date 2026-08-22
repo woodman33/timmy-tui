@@ -24,15 +24,14 @@ describe('v1.0.2 de-cluttered shell', () => {
       const line = footerKeysLine(w);
       expect(line.length).toBeLessThanOrEqual(w);
     }
-    expect(footerKeysLine(200)).toContain('[Tab] Focus');
-    expect(footerKeysLine(200)).toContain('[1-4] Views');
-    expect(footerKeysLine(200)).toContain('[^K] Models/Palette');
-    expect(footerKeysLine(200)).toContain('[?] Help');
+    expect(footerKeysLine(200)).toContain('[Tab] Switch Card');
+    expect(footerKeysLine(200)).toContain('[1-4] Switch View');
+    expect(footerKeysLine(200)).toContain('[^K] Model Palette');
     expect(footerKeysLine(200)).toContain('[q] Quit');
     expect(footerKeysLine(200)).not.toContain('J-BANG');
   });
 
-  it('Active Pane Invariant: bright #7dcfff + ◆ when active, muted #292e42 + ◇ when not', () => {
+  it('Active Pane Invariant: card #7dcfff + ◆ when active, muted #292e42 + ◇ when not', () => {
     const on = chromeFor(true);
     const off = chromeFor(false);
     expect(on.border).toBe('#7dcfff');

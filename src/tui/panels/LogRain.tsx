@@ -11,7 +11,7 @@ interface LogRainProps {
 }
 
 const REFRESH_MS = 2000;
-const MAX_LINES = 120;
+const MAX_LINES = 200; // v1.0.2 mission spec: 200-line ring buffer
 const TAIL_BYTES = 64 * 1024;
 
 // Tail-only read: a CF event burst must never force a full-file parse on the
@@ -77,7 +77,8 @@ export const LogRain = memo(function LogRain({ height, focused }: LogRainProps) 
   const live = offset === 0;
 
   return (
-    <Box flexDirection="column" borderStyle="single" borderColor={focused ? theme.focus : theme.borderDefault} paddingX={1} flexShrink={0} height={height}>
+    <Box flexDirection="column" borderStyle="round" borderColor={focused ? theme.focus : theme.borderMuted} paddingX={1} flexShrink={0} height={height}>
+      <Text bold color={focused ? theme.focus : theme.brandDim} wrap="truncate">{focused ? '◆' : '◇'} LIVE EVENT BUS</Text>
       <Box justifyContent="space-between">
         <Text bold color={focused ? theme.brand : theme.textSecondary}>⛆ WHAT'S HAPPENING ↓</Text>
         <Text color={live ? theme.success : theme.warning}>{live ? '▼ live' : `⏸ +${offset}`}</Text>

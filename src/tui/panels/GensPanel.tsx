@@ -161,7 +161,7 @@ export function GensPanel({ agent, zone = 0, setZone, setModalInput, inputLocked
   return (
     <PanelFrame
       icon="🎬"
-      title="GENS — GENERATION CONTROL ROOM"
+      title="GENERATION CONTROL ROOM"
       status={generationsOverview()}
       statusColor={theme.brand}
       explain="Queue prompts at any provider; watch statuses flip live; every run ledgered, costed, sealed."

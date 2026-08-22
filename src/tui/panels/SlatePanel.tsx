@@ -153,7 +153,7 @@ export function SlatePanel({ agent, zone = 0, setZone, setModalInput, inputLocke
   return (
     <PanelFrame
       icon="📐"
-      title="SLATE — TIMMY VISUAL LANGUAGE"
+      title="SLATE DAG & STORYBOARDS"
       status={`${listProjects().length} projects · ${listTemplates().length} templates`}
       statusColor={theme.brand}
       explain="Author storyboards + projects in the terminal; watch them live in a carbonyl canvas. One schema → HyperFrames, sites, tldraw."

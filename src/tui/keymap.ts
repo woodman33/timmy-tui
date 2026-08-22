@@ -2,23 +2,22 @@ import type { Mode } from './router.js';
 
 export interface KeyHint { key: string; label: string }
 
-// ─── ONE GRAMMAR, EVERY TAB ────────────────────────────────────────────────
-// A verb keeps its key everywhere; each tab only shows the verbs it has.
-//   Tab/⇧Tab  walk the left menu        ←→   move between panes
-//   ↑↓        move inside focused pane  ↵    ALWAYS select / submit
-//   Esc       ALWAYS back / cancel      ?    this keymap
-// Verb keys (same letter on every tab that has the verb):
-//   n new · k kill · t type-into · g approve · o open/attach outside ·
-//   v visual view · p preview · P publish · d detail · s sync ·
-//   f follow · h human/raw · e export · i reindex · 1-9 positional pick
+// ─── ONE GRAMMAR, EVERY VIEW (v1.0.5-fix: aligned to the 4-view shell) ───
+// Only keys the shell actually implements are listed here. Legacy verb
+// letters (n/k/g/v/t/o/…) live on inside the mounted panels that still
+// implement them (Slate/Gens/Logs) and are documented per-panel, not
+// globally.
+//   1-4 views · Tab/⇧Tab switch card · ↵ input/select · Esc back/blur
+//   ^K model palette · ? keymap · q quit
 
 export const GLOBAL_KEYS: KeyHint[] = [
-  { key: 'Tab/⇧Tab', label: 'menu ↓↑' },
-  { key: '←→', label: 'panes' },
-  { key: '↑↓', label: 'move' },
-  { key: '↵', label: 'select' },
-  { key: 'Esc', label: 'back' },
-  { key: '?', label: 'keys' }
+  { key: '1-4', label: 'views' },
+  { key: 'Tab/⇧Tab', label: 'switch card' },
+  { key: '↵', label: 'input / select' },
+  { key: 'Esc', label: 'back / blur input' },
+  { key: '^K', label: 'model palette' },
+  { key: '?', label: 'keys' },
+  { key: 'q', label: 'quit' }
 ];
 
 export const MODE_KEYS: Record<Mode, KeyHint[]> = {

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useApp } from 'ink';
+import { checkDocker, checkComfyCli } from '../utils/doctor.js';
 import { appendFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { Agent } from '../agent/core.js';
@@ -13,7 +14,17 @@ interface OnboardingProps {
   onDone: () => void;
 }
 
-type Step = 'provider' | 'key' | 'cloud' | 'cloudUrl' | 'logs' | 'done';
+type Step = 'splash' | 'provider' | 'key' | 'cloud' | 'cloudUrl' | 'logs' | 'teachMission' | 'teachPalette' | 'teachBack' | 'done';
+
+// v1.0.5-fix: brand wordmark, cyan → purple down the rows
+const WORDMARK = [
+  '████████ ██ ███    ███ ███    ███ ██    ██',
+  '   ██    ██ ████  ████ ████  ████  ██  ██ ',
+  '   ██    ██ ██ ████ ██ ██ ████ ██   ████  ',
+  '   ██    ██ ██  ██  ██ ██  ██  ██    ██   ',
+  '   ██    ██ ██      ██ ██      ██   ██    '
+];
+const MARK_COLORS = ['#00f0ff', '#7dcfff', '#9ece6a', '#bb9af7', '#7a5ff0'];
 
 /**
  * First-run onboarding: pick a brain (local Ollama, OpenRouter key, or both),
@@ -21,7 +32,16 @@ type Step = 'provider' | 'key' | 'cloud' | 'cloudUrl' | 'logs' | 'done';
  * Local-first by design — TIMMY must work with zero accounts.
  */
 export function Onboarding({ agent, onDone }: OnboardingProps) {
-  const [step, setStep] = useState<Step>('provider');
+  const { exit } = useApp();
+  const [step, setStep] = useState<Step>('splash');
+  const [envNote] = useState(() => {
+    try {
+      const bad: string[] = [];
+      if (checkDocker().state !== 'ok') bad.push('docker down');
+      if (checkComfyCli().state !== 'ok') bad.push('comfy-cli missing');
+      return bad.length ? `degraded deps: ${bad.join(' · ')} — TIMMY still runs; lanes fail closed honestly` : '';
+    } catch { return ''; }
+  });
   const [ollama, setOllama] = useState<{ ok: boolean; models: string[] } | null>(null);
   const [keyInput, setKeyInput] = useState('');
   const [urlInput, setUrlInput] = useState('');
@@ -52,6 +72,26 @@ export function Onboarding({ agent, onDone }: OnboardingProps) {
   };
 
   useInput((char, key) => {
+    if (step === 'splash') {
+      if (key.return) setStep('provider');
+      if (char === 'q') exit();
+      return;
+    }
+    if (step === 'teachMission') {
+      if (char === '2') { setNote(''); setStep('teachPalette'); }
+      else if (char && !key.ctrl && !key.meta) setNote('not that one — press [2] to open MISSION');
+      return;
+    }
+    if (step === 'teachPalette') {
+      if (key.ctrl && char === 'k') { setNote(''); setStep('teachBack'); }
+      else if (char && !key.ctrl && !key.meta) setNote('not that one — press [^K] to open the palette');
+      return;
+    }
+    if (step === 'teachBack') {
+      if (char === '1') { setNote(''); finish(pendingCloud, pendingCloud === 'custom' ? urlInput.trim() : undefined); }
+      else if (char && !key.ctrl && !key.meta) setNote('not that one — press [1] to return to COMMAND');
+      return;
+    }
     if (step === 'provider') {
       if (char === 'o') { setChoice('ollama'); setStep('cloud'); }
       if (char === 'k') { setChoice('key'); setStep('key'); }
@@ -102,7 +142,7 @@ export function Onboarding({ agent, onDone }: OnboardingProps) {
           baseDir: logBase === 'home' ? '~/TIMMY-archive' : join('.timmy', 'archive'),
           naming: logNaming
         });
-        finish(pendingCloud, pendingCloud === 'custom' ? urlInput.trim() : undefined);
+        setStep('teachMission');
       }
       if (key.escape) setLogQ('base');
       return;
@@ -118,8 +158,39 @@ export function Onboarding({ agent, onDone }: OnboardingProps) {
   return (
     <Box flexDirection="column" paddingX={2} paddingY={1}>
       <Box borderStyle="double" borderColor={theme.brand} paddingX={2} flexDirection="column">
-        <Text bold color={theme.brand}>⚡ TIMMY FIRST RUN — 60-second setup</Text>
-        <Text color={theme.textSecondary}>Local-first: everything works with zero accounts. The rest is enhancement.</Text>
+        {step === 'splash' && (
+          <Box flexDirection="column" marginTop={1}>
+            {WORDMARK.map((l, i) => <Text key={i} bold color={MARK_COLORS[i]}>{l}</Text>)}
+            <Text bold color={theme.focus}>Terminal-first Agent Trust OS — Flight Recorder for AI Agent Runs</Text>
+            <Text color={theme.textSecondary}>Every action seals a cryptographic receipt. Targets are not receipts.</Text>
+            {envNote && <Text color={theme.warning}>{envNote}</Text>}
+            <Text color={theme.textTertiary}>[Enter] Begin setup · [q] Quit</Text>
+          </Box>
+        )}
+        {step === 'teachMission' && (
+          <Box flexDirection="column" marginTop={1}>
+            <Text bold color={theme.focus}>◆ TEACH 1/3 — press [2] to open MISSION (DAG + capsules)</Text>
+            <Text color={theme.textTertiary}>wrong keys are swallowed with a gentle hint</Text>
+          </Box>
+        )}
+        {step === 'teachPalette' && (
+          <Box flexDirection="column" marginTop={1} borderStyle="double" borderColor={theme.brand} paddingX={1}>
+            <Text bold color={theme.brand}>🏛️ TIMMY COMMAND PALETTE — solid overlay, numbered rows</Text>
+            <Text color={theme.textSecondary}> 1. model · local qwen (on-device)</Text>
+            <Text color={theme.textTertiary}>◆ TEACH 2/3 — press [^K] to open it for real</Text>
+          </Box>
+        )}
+        {step === 'teachBack' && (
+          <Box flexDirection="column" marginTop={1}>
+            <Text bold color={theme.focus}>◆ TEACH 3/3 — press [1] to return to COMMAND</Text>
+          </Box>
+        )}
+        {step !== 'splash' && (
+          <>
+            <Text bold color={theme.brand}>⚡ TIMMY FIRST RUN — 60-second setup</Text>
+            <Text color={theme.textSecondary}>Local-first: everything works with zero accounts. The rest is enhancement.</Text>
+          </>
+        )}
 
         {step === 'provider' ? (
           <Box flexDirection="column" marginTop={1}>

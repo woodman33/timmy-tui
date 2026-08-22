@@ -56,8 +56,8 @@ export function EscrowReceiptsView({ paneFocus, width, height }: { paneFocus: nu
               {escrows.map(e => (
                 <Text key={e.escrow_id} color={theme.textSecondary} wrap="truncate">
                   <Text color={STATE_COLOR[e.state] ?? theme.textTertiary}>{e.state.padEnd(8)}</Text>
-                  {' '}{truncateVisible(e.escrow_id, 14)} · ceil {e.ceiling_usd} · drawn {e.drawn_usd}
-                  {e.refund_usd !== undefined ? ` · refund ${e.refund_usd}` : ''}
+                  {' '}{truncateVisible(e.escrow_id, 12)} · ceil {e.ceiling_usd} · drawn {e.drawn_usd}
+                  {` · refund=${(e.ceiling_usd - e.drawn_usd).toFixed(2)}`}
                   {e.qa_value !== undefined ? ` · qa ${e.qa_value}` : ''}
                 </Text>
               ))}
@@ -71,9 +71,13 @@ export function EscrowReceiptsView({ paneFocus, width, height }: { paneFocus: nu
             <Box flexDirection="column">
               {tail.map((r, i) => (
                 <Text key={`${r.hash}-${i}`} color={r.status === 'ok' ? theme.textSecondary : theme.error} wrap="truncate">
-                  {truncateVisible(`${r.hash} · ${r.subject}`, half)}
+                  <Text bold color={r.status === 'ok' ? theme.neonEmerald : theme.error}>{r.status === 'ok' ? '[SEALED]' : '[FAIL]'}</Text>
+                  {' '}{truncateVisible(`${r.hash} · ${r.subject}`, half - 10)}
                 </Text>
               ))}
+              <Text color={chain.ok ? theme.focus : theme.error} wrap="truncate">
+                {chain.ok ? '[VERIFIED] ' : '[BROKEN] '}chain {chain.ok ? `ok · ${chain.count} receipts` : `at ${chain.brokenAt}`}
+              </Text>
             </Box>
           </PanelFrame>
         </PaneFocusContext.Provider>

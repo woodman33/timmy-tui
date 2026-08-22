@@ -26,7 +26,7 @@ interface AppProps {
   graphicsType?: string;
 }
 
-function App({ config, graphicsType = 'auto' }: AppProps) {
+export function App({ config, graphicsType = 'auto' }: AppProps) {
   const { exit } = useApp();
 
   // v1.0.1 view grammar: 0 COMMAND · 1 MISSION · 2 TELEMETRY · 3 ESCROW
@@ -130,6 +130,8 @@ function App({ config, graphicsType = 'auto' }: AppProps) {
       safeExit();
       return;
     }
+    // onboarding holds the keyboard — root hotkeys stay silent (v1.0.5-fix)
+    if (showOnboard) return;
     if (key.ctrl && input === 'k') {
       setCommandPaletteOpen(prev => !prev);
       setPaletteIdx(0);
@@ -193,47 +195,56 @@ function App({ config, graphicsType = 'auto' }: AppProps) {
           inputLocked={commandPaletteOpen}
         />
 
+        {/* v1.0.4: SOLID full-card overlay — opaque #16161e field, never
+            a transparent float over text */}
         {commandPaletteOpen && (
           <Box
             position="absolute"
-            top={3}
-            left={25}
+            top={2}
+            left={20}
             borderStyle="double"
             borderColor={theme.brand}
+            backgroundColor={theme.bgDeep}
             paddingX={2}
             flexDirection="column"
-            width={45}
-            height={paletteItems.length + 3}
+            width={52}
+            height={paletteItems.length + 4}
           >
-            <Text bold color={theme.brand}>🏛️ TIMMY COMMAND PALETTE (Ctrl+K)</Text>
-            <Text color={theme.textSecondary}>─────────────────────────────────────────</Text>
+            <Text bold color={theme.brand}>🏛️ TIMMY COMMAND PALETTE (^K)</Text>
+            <Text color={theme.borderDefault}>──────────────────────────────────────────────</Text>
             {paletteItems.map((item, idx) => {
               const isSelected = idx === paletteIdx;
               return (
-                <Text key={item.label} color={isSelected ? theme.success : theme.textPrimary} bold={isSelected}>
-                  {isSelected ? '▶ ' : '  '}
-                  {item.label}
-                </Text>
+                <Box key={item.label} backgroundColor={isSelected ? theme.surfaceOverlay : undefined}>
+                  <Text color={isSelected ? theme.focus : theme.textPrimary} bold={isSelected}>
+                    {String(idx + 1).padStart(2, ' ')}. {item.label}
+                  </Text>
+                </Box>
               );
             })}
-            <Text color={theme.textSecondary}>─────────────────────────────────────────</Text>
-            <Text color={theme.textSecondary} dimColor>Arrows to scroll | Enter to choose | Esc to exit</Text>
+            <Text color={theme.borderDefault}>──────────────────────────────────────────────</Text>
+            <Text color={theme.textTertiary}>Arrows scroll · Enter choose · Esc dismiss</Text>
           </Box>
         )}
 
         {helpOpen && (
           <Box
             position="absolute"
-            top={3}
-            left={25}
+            top={2}
+            left={20}
             borderStyle="double"
             borderColor={theme.success}
+            backgroundColor={theme.bgDeep}
             paddingX={2}
             flexDirection="column"
             width={52}
           >
             <Text bold color={theme.success}>❓ VIEW GRAMMAR — {VIEWS[view]?.label}</Text>
             <Text color={theme.textSecondary}>────────────────────────────────────────────────</Text>
+            <Text bold color={theme.focus}>What is TIMMY?</Text>
+            <Text color={theme.textSecondary}>Terminal-first Agent Trust OS — a flight recorder for AI agent runs.</Text>
+            <Text color={theme.textSecondary}>What is a receipt? Every action seals a SHA-256 / ed25519 receipt; chains verify from [4] ESCROW.</Text>
+            <Text color={theme.borderDefault}>──────────────────────────────────────────────</Text>
             <Text color={theme.textPrimary}>[1-4]     switch top-level views</Text>
             <Text color={theme.textPrimary}>[Tab]     cycle pane focus (⇧Tab reverses)</Text>
             <Text color={theme.textPrimary}>[L]       jump to TELEMETRY</Text>
@@ -250,6 +261,12 @@ function App({ config, graphicsType = 'auto' }: AppProps) {
 
 export function startTUI(config: AgentConfig, mode?: string, graphicsType = 'auto') {
   void mode; // legacy --mode flag accepted; the 4-view shell owns navigation
+  // v1.0.4: alternate screen buffer + cleared scrollback; the UI lives in a
+  // strict full-screen bounding box and restores the terminal on exit.
+  process.stdout.write('\x1b[?1049h\x1b[3J\x1b[H');
+  process.on('exit', () => {
+    try { process.stdout.write('\x1b[?1049l'); } catch { /* terminal gone */ }
+  });
   render(<App config={config} graphicsType={graphicsType} />, {
     exitOnCtrlC: false,
     debug: false,
