@@ -39,8 +39,16 @@ const wrap = (text: string, width: number): string[] => {
 
 interface Line { text: string; kind: 'user' | 'agent' | 'err' }
 
-export function CommandView({ agent }: { agent: Agent }) {
-  const { w: width, h: height } = React.useContext(ViewportContext);
+interface CommandViewProps {
+  agent: Agent;
+  width?: number;
+  height?: number;
+}
+
+export function CommandView({ agent, width: localWidth, height: localHeight }: CommandViewProps) {
+  const { w: viewportWidth, h: viewportHeight } = React.useContext(ViewportContext);
+  const width = localWidth ?? viewportWidth;
+  const height = localHeight ?? viewportHeight;
   const state = useAgent(agent);
   const [input, setInput] = useState('');
   const [scroll, setScroll] = useState(0); // lines up from the tail

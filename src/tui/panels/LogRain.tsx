@@ -73,7 +73,8 @@ export const LogRain = memo(function LogRain({ height, focused }: LogRainProps) 
     if (key.upArrow) setOffset(o => Math.max(0, o - 1));
   }, { isActive: focused });
 
-  const visible = rain.slice(offset, offset + Math.max(3, height - 3));
+  const chromeRows = 4 + (telCount > 0 ? 1 : 0);
+  const visible = rain.slice(offset, offset + Math.max(1, height - chromeRows));
   const live = offset === 0;
 
   return (

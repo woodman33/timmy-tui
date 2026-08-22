@@ -33,6 +33,8 @@ export function ViewStage({ view, paneFocus, agent, setInspector, setModalInput,
   const pane = (i: number): boolean => paneFocus === i;
 
   if (view === 0) {
+    const commandWidth = Math.max(24, Math.floor(width * 0.6) - 5);
+    const commandHeight = Math.max(6, height - 3);
     // v1.0.4 cyber-command: 60% round conversation card + 40% LIVE relay
     return (
       <Box flexDirection="row" flexGrow={1}>
@@ -45,7 +47,7 @@ export function ViewStage({ view, paneFocus, agent, setInspector, setModalInput,
             paddingX={1}
           >
             <Text bold color={pane(0) ? theme.focus : theme.brandDim} wrap="truncate">{pane(0) ? '◆' : '◇'} COMMAND POST</Text>
-            <CommandView agent={agent} />
+            <CommandView agent={agent} width={commandWidth} height={commandHeight} />
           </Box>
         </Box>
         <Box flexGrow={2} flexDirection="column" paddingLeft={1}>
