@@ -6,6 +6,8 @@ import React from 'react';
 import { Box } from 'ink';
 import type { Agent } from '../agent/core.js';
 import { CommandView } from './components/CommandView.js';
+import { LogRelay } from './components/LogRelay.js';
+import { theme } from './theme.js';
 import { SlatePanel } from './panels/SlatePanel.js';
 import { GensPanel } from './panels/GensPanel.js';
 import { LogsPanel } from './panels/LogsPanel.js';
@@ -31,9 +33,25 @@ export function ViewStage({ view, paneFocus, agent, setInspector, setModalInput,
   const pane = (i: number): boolean => paneFocus === i;
 
   if (view === 0) {
-    // v1.0.2: ONLY the conversation + one clean prompt box. No rail, no
-    // cards, no rain, no debug chatter.
-    return <CommandView agent={agent} />;
+    // v1.0.4 cyber-command: 60% round conversation card + 40% LIVE relay
+    return (
+      <Box flexDirection="row" flexGrow={1}>
+        <Box flexGrow={3} flexDirection="column" paddingRight={1}>
+          <Box
+            flexDirection="column"
+            flexGrow={1}
+            borderStyle="round"
+            borderColor={pane(0) ? theme.cardFocus : theme.borderMuted}
+            paddingX={1}
+          >
+            <CommandView agent={agent} />
+          </Box>
+        </Box>
+        <Box flexGrow={2} flexDirection="column" paddingLeft={1}>
+          <LogRelay height={height} />
+        </Box>
+      </Box>
+    );
   }
 
   if (view === 1) {

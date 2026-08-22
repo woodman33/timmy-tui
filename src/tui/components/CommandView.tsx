@@ -107,9 +107,10 @@ export function CommandView({ agent }: { agent: Agent }) {
           </Text>
         ))}
       </Box>
-      <Box borderStyle="single" borderColor={theme.focus} paddingX={1} flexShrink={0}>
+      {/* input bar lives inside the round card — no nested borders (v1.0.4) */}
+      <Box flexShrink={0} marginTop={1}>
         <Text color={theme.focus}>▶ </Text>
-        <Text color={input ? theme.textPrimary : theme.textTertiary}>{input ? `${input}▌` : '[Type command or prompt...]▌'}</Text>
+        <Text color={input ? theme.textPrimary : theme.textTertiary}>{input ? `${input}▌` : `${width < 70 ? '[Type a command...]' : '[Type a command or mission prompt...]'}▌`}</Text>
       </Box>
     </Box>
   );

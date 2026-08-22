@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Complete visual rebuild — Cyber-Command Post design system (v1.0.4, refs
+  tui3/tui6/tui7): alternate-screen boot with cleared scrollback and a
+  strict full-screen bounding box; 5-col icon rail (`>_ ⊞ ≡ 🛡 ⚙`, active
+  glows `#7dcfff`); 1-row header `[TIMMY TRUST OS v…]` + MODEL/SESSION +
+  right-aligned `● DOCKER / ● COMFY / COST` pills; 1-row footer with
+  keymap pills; View [1] is a 60/40 split — round conversation card
+  (`#2ac3de` focused / `#292e42` inactive, no nested borders) beside the
+  LIVE INVERTED LOG RELAY & PASSPORT (green timestamps, `[WORKER] /
+  [ESCROW] / [SEAL]` channel badges, `[SHA-256 SEALED]` emerald badge).
+- `^K` palette is now a SOLID full-card overlay (opaque `#16161e` field,
+  `#bb9af7` border, numbered rows) — no transparent floats; help overlay
+  likewise.
+- Neon Tokyo Night tokens added to the single-source theme (`bgDeep`,
+  `neonCyan`, `cardFocus`, `emerald`, `neonEmerald`); adaptive footer
+  keymap + input placeholder keep 80×24 chrome wrap-free.
+- Yoga layout fix: relay title/seal wrapped in shrink-0 boxes so an
+  over-tall event list can never collapse panel headers.
+
+### Changed
 - Radical View [1] de-clutter (v1.0.2): new `CommandView` — ONLY the
   conversation plus one clean bordered prompt box (`▶ [Type command or
   prompt...]`). The OPENROUTER MODELS sidebar is gone (model switching +

@@ -27,6 +27,12 @@ export const theme = {
   assistantColor: '#c0caf5',    // neutral for assistant
   toolColor: '#a9b1d6',         // greyed tool output
   reasoningColor: '#565f89',    // very dim mono
+  // v1.0.4 cyber-command tokens (design refs tui3/tui6/tui7)
+  bgDeep: '#16161e',            // palette/overlay field (solid, never transparent)
+  neonCyan: '#00f0ff',          // neon accent (header brand block)
+  cardFocus: '#2ac3de',         // focused card border
+  emerald: '#73daca',           // status pills (docker/comfy ready)
+  neonEmerald: '#00ff9d',       // passport seal green
 };
 
 // TrueColor vs ANSI-256: Ink/chalk down-convert these hex tokens automatically
