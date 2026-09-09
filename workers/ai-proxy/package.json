@@ -12,6 +12,7 @@
     "delete:preview": "wrangler delete --name timmy-ai-proxy-preview --force",
     "dev:local": "wrangler dev --port 8799",
     "typecheck": "tsc --noEmit",
+    "pretest": "node scripts/check-zod.mjs",
     "test": "vitest run"
   },
   "dependencies": {
