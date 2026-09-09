@@ -1,83 +1,54 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf-8" />
-<title>TIMMY Mission Map</title>
-<link rel="stylesheet" href="https://esm.sh/tldraw@3.15.0/tldraw.css" />
-<style>
-  html, body { margin: 0; height: 100%; background: #0a0e12; }
-  #ui { position: fixed; top: 8px; left: 8px; z-index: 50; display: flex; gap: 6px; flex-wrap: wrap;
-    font: 12px ui-monospace, monospace; color: #c9d1d9; }
-  #ui button { background: #101418; border: 1px solid #2d333b; color: #a98bff; border-radius: 6px;
-    font: inherit; padding: 4px 10px; cursor: pointer; }
-  #ui .stat { border: 1px solid #2d333b; border-radius: 6px; padding: 4px 10px; background: #101418; }
-  .tldraw__editor { height: 100%; }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>TIMMY · Vision Studio</title>
+  <link rel="stylesheet" href="https://esm.sh/tldraw@3.15.0/tldraw.css" />
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="importmap">{"imports":{"react":"https://esm.sh/react@18.3.1","react/jsx-runtime":"https://esm.sh/react@18.3.1/jsx-runtime","react/jsx-dev-runtime":"https://esm.sh/react@18.3.1/jsx-dev-runtime","react-dom":"https://esm.sh/react-dom@18.3.1?external=react","react-dom/client":"https://esm.sh/react-dom@18.3.1/client?external=react","tldraw":"https://esm.sh/tldraw@3.15.0?external=react,react-dom"}}</script>
 </head>
 <body>
-<div id="ui">
-  <span class="stat">TIMMY Mission Map · plans compile into DispatchPlan controller</span>
-  <button id="sync">sync plans</button>
-  <button id="capsule">+ Task Capsule</button>
-  <button id="gate">+ Gate</button>
-  <button id="receipt">+ Receipt node</button>
-</div>
-<div id="root" style="height:100%"></div>
-<script type="module">
-import { Tldraw, createShapeId, DefaultTheme } from "https://esm.sh/tldraw@3.15.0";
-
-const COMPANION = "http://localhost:4310";
-const COLORS = { ready: "#8b949e", armed: "#f5b540", running: "#a98bff", judging: "#4aa8ff",
-  passed: "#3fb950", failed: "#f87171", needs_approval: "#f5b540", archived: "#5a6470" };
-
-let editor = null;
-const root = document.getElementById("root");
-root.innerHTML = "";
-
-// mount tldraw (full control: dark theme, custom handlers)
-import("https://esm.sh/tldraw@3.15.0").then(async (mod) => {
-  const { Tldraw } = mod;
-  const React = (await import("https://esm.sh/react@18.3.1")).default;
-  const ReactDOM = await import("https://esm.sh/react-dom@18.3.1/client");
-  ReactDOM.createRoot(root).render(React.createElement(Tldraw, {
-    forceDarkMode: true,
-    onMount: (ed) => { editor = ed; syncPlans(); }
-  }));
-});
-
-async function syncPlans() {
-  if (!editor) return setTimeout(syncPlans, 1000);
-  let plans = [];
-  try { plans = await (await fetch(COMPANION + "/dispatch")).json(); } catch { /* companion down */ }
-  editor.selectAll(); editor.deleteShapes(editor.getSelectedShapeIds());
-  plans.forEach((p, i) => {
-    const id = createShapeId();
-    editor.createShape({
-      id, type: "note", x: 80 + (i % 3) * 320, y: 80 + Math.floor(i / 3) * 260,
-      props: { text: `${p.id}\n${p.lifecycle}\n${p.harness}\nhash ${(p.plan_hash || "").slice(0, 10)}…`,
-        color: COLORS[p.lifecycle] ?? "grey", size: "m" }
-    });
-  });
-}
-
-document.getElementById("sync").onclick = syncPlans;
-const addNode = (label, color) => {
-  if (!editor) return;
-  const id = createShapeId();
-  editor.createShape({ id, type: "note",
-    x: (editor.getViewportPageBounds().centerX ?? 400) - 100, y: 420,
-    props: { text: label, color, size: "m" } });
-};
-document.getElementById("capsule").onclick = () => addNode("Task Capsule\nobjective: …\nharness: openhands\napproval: manual", "violet");
-document.getElementById("gate").onclick = () => addNode("Gate\nplan-hash token\nsingle-use · 5min", "yellow");
-document.getElementById("receipt").onclick = () => addNode("Result / Receipt\nhash …\nverify ✓", "green");
-
-setInterval(syncPlans, 5000);
-</script>
-<div style="position:fixed;right:12px;bottom:12px;font:11px ui-monospace,Menlo,monospace">
-  <a href="http://localhost:4310/mission" target="_blank"
-     style="color:#7dcfff;border:1px solid #3b4261;background:#1f2337;border-radius:6px;padding:6px 10px;text-decoration:none">
-    Mission Studio · compile + playback ↗</a>
-</div>
+  <header class="app-header">
+    <a class="brand" href="/" aria-label="Timmy Vision Studio"><span class="brand-mark">T</span><strong>TIMMY</strong><span class="brand-divider"></span><span>Vision Studio</span></a>
+    <div class="header-actions"><span class="status-pill" id="connection-status">Checking inference</span><button id="check-status" class="quiet">Refresh status</button><button id="export-board">Export canvas</button></div>
+  </header>
+  <main class="workspace">
+    <aside class="library" aria-label="Template library">
+      <div class="eyebrow">START WITH A RECIPE</div>
+      <h1>See it.<br>Check it.<br><span>Keep the proof.</span></h1>
+      <p class="intro">Reusable visual templates for your Roboflow inspections.</p>
+      <div id="template-list" class="template-list"></div>
+      <div class="library-footer"><span class="mini-label">YOUR MISSION MAP</span><div class="node-tools"><button id="capsule">+ Task</button><button id="gate">+ Gate</button><button id="receipt">+ Receipt</button></div><button id="sync-plans" class="text-button">Sync companion plans ↗</button><span id="plan-status" class="muted small">Manual sync preserves your canvas edits.</span></div>
+      <a class="docs-link" href="https://tldraw.dev/starter-kits/workflow" target="_blank" rel="noreferrer">tldraw Workflow starter kit ↗</a><a class="docs-link" href="./README.md" target="_blank">Studio guide & SDK sources ↗</a>
+    </aside>
+    <section class="canvas-column" aria-label="Visual blueprint">
+      <div class="canvas-heading"><div><div class="eyebrow">VISUAL BLUEPRINT</div><h2 id="template-title">Packing & seal check</h2></div><button id="insert-template" class="primary">+ Add to canvas</button></div>
+      <div class="canvas-subtitle"><span id="template-description"></span><span class="saved-indicator" id="canvas-save-state">Saved in this browser</span></div>
+      <div class="canvas-wrap"><div id="canvas-root"></div><div id="canvas-loading"><div class="loading-symbol">⌘</div><strong>Opening your canvas</strong><p>Loading the pinned tldraw SDK.</p></div></div>
+      <div class="canvas-footer"><span><span class="legend-dot"></span> Editable blueprint · select a step to customize it</span><span>Run uses the model or saved Workflow in the inspector.</span></div>
+    </section>
+    <aside class="inspector" aria-label="Inspection configuration">
+      <div class="inspector-heading"><div class="eyebrow">INSPECTION</div><h2>Choose. Inspect. Review.</h2><details><summary>About this blueprint</summary><p id="template-needs"></p></details></div>
+      <div class="endpoint-block"><span class="mini-label">PROCESSING WITH</span><strong id="server-endpoint">Checking configuration…</strong><span class="small muted" id="server-detail">Credentials stay on the Timmy server.</span></div>
+      <form id="run-form">
+        <div class="segmented" role="group" aria-label="Inference mode"><button type="button" data-mode="workflow" class="active">Saved Workflow</button><button type="button" data-mode="model">Model</button></div>
+        <div id="workflow-fields"><label>Roboflow Workflow<select id="workflow-picker"><option value="">Loading your Workflows…</option></select></label><div class="section-heading"><span class="small muted" id="catalog-status"></span><button type="button" class="text-button" id="refresh-catalog">Refresh</button></div><p class="small muted" id="workflow-description"></p><details><summary>Enter a Workflow manually</summary><label>Workspace<input id="workspace-name" autocomplete="off" placeholder="Your workspace slug" /></label><label>Workflow ID<input id="workflow-id" autocomplete="off" placeholder="Your saved Workflow ID" /></label></details></div>
+        <div id="model-fields" hidden><label>Model ID<input id="model-id" autocomplete="off" placeholder="Your project/version or model alias" /></label></div>
+        <label>Source / box / job ID <span class="optional">optional</span><input id="source-id" autocomplete="off" placeholder="Associate this observation" /></label>
+        <details id="workflow-options"><summary>Workflow options</summary><label>Image input name<input id="image-input" value="image" /></label><label>Parameters <span class="optional">JSON</span><textarea id="parameters" rows="3" spellcheck="false">{}</textarea></label></details>
+        <label class="upload-zone" for="image-file"><span id="upload-icon">↥</span><strong id="upload-label">Choose an inspection image</strong><span>JPEG, PNG or WebP · up to 12 MB</span><input type="file" id="image-file" accept="image/jpeg,image/png,image/webp" /></label>
+        <img id="image-preview" alt="Selected inspection image" hidden />
+        <button type="submit" id="run-inspection" class="primary run-button">Run inspection <span>↗</span></button>
+        <p class="small muted" id="run-guidance">Enter a saved Workflow or model ID, then choose an image.</p>
+      </form>
+      <section id="selection-editor" hidden><div class="section-rule"></div><span class="mini-label">SELECTED BLUEPRINT STEP</span><label>Step title<input id="step-title" /></label><label>Instructions<textarea id="step-detail" rows="3"></textarea></label><button id="save-step">Update step</button></section>
+      <section class="observations"><div class="section-rule"></div><details><summary>Evidence storage</summary><span id="storage-path" class="small muted">configured on the Timmy server</span></details><div class="section-heading"><h3>Evidence & review</h3><button id="refresh-events" class="text-button">Refresh</button></div><div id="events-list"><p class="empty-state">No observations loaded yet.</p></div></section>
+      <section id="result-panel" hidden><div class="section-rule"></div><div class="section-heading"><h3>Selected observation</h3><button id="close-result" class="text-button">Close</button></div><p id="result-detections" class="detection-summary"></p><p id="result-summary" class="small muted"></p><figure id="evidence-view" hidden><div class="evidence-picture"><img id="evidence-image" alt="Stored source image for this observation" /><svg id="evidence-overlay" aria-label="Predicted regions"></svg></div><figcaption id="evidence-caption" class="small muted"></figcaption><div class="evidence-links"><a id="open-result-image" target="_blank" rel="noreferrer">Open full image ↗</a><a id="open-source-image" target="_blank" rel="noreferrer">Original ↗</a></div></figure><details><summary>Prediction details & receipt</summary><pre id="result-json"></pre></details><label>Correction / review note<textarea id="feedback-note" rows="3" placeholder="What did you see? What needs correcting?"></textarea></label><div class="feedback-buttons"><button data-verdict="correct">Correct</button><button data-verdict="incorrect">Incorrect</button><button data-verdict="inconclusive">Inconclusive</button></div><p class="small muted" id="feedback-status">Your review is recorded separately from the model output.</p><details class="cloud-sync"><summary>Roboflow Vision Events</summary><label class="checkbox-label"><input type="checkbox" id="include-source-image" /> Include the source image</label><button id="sync-event" disabled>Send observation to Roboflow</button><p class="small muted" id="cloud-sync-status"></p></details></section>
+    </aside>
+  </main>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+  <script type="module" src="./app.js"></script>
 </body>
 </html>
