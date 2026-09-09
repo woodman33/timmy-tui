@@ -15,10 +15,17 @@
     "LICENSE",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
-    "SECURITY.md"
+    "SECURITY.md",
+    "scripts/vision-bridge.py",
+    "scripts/vision-doctor.py",
+    "scripts/vision-stream.py",
+    "studio/tldraw-mission-map",
+    "templates/vision",
+    "deploy/vision",
+    "docs/ROBOFLOW-VISION.md"
   ],
   "scripts": {
-    "start": "tsx cli.tsx",
+    "start": "node boot.cjs",
     "timmy": "tsx src/cli.ts",
     "timmy:doctor": "tsx src/cli.ts doctor",
     "timmy:setup": "tsx src/cli.ts setup",
@@ -54,7 +61,10 @@
     "cmcp": "tsx src/mcp/cmcp-bridge.ts",
     "oapi": "deno run --allow-all --node-modules-dir=auto jsr:@mcpc/oapi-invoker-mcp/bin",
     "roboflow-mcp": "tsx scripts/roboflow-mcp-server.ts",
-    "mission-map": "python3 -m http.server 4321 -d studio/tldraw-mission-map"
+    "mission-map": "tsx src/cli.ts vision serve --port 4321",
+    "vision:studio": "tsx src/cli.ts vision serve",
+    "vision:doctor": "tsx src/cli.ts vision doctor",
+    "build:cli": "node scripts/build-cli.mjs"
   },
   "repository": {
     "type": "git",
@@ -84,6 +94,9 @@
     "@mcpc/core": "npm:@jsr/mcpc__core@^0.3.48",
     "@openfeature/server-sdk": "^1.21.0",
     "@openrouter/sdk": "latest",
+    "@opentui/core": "^0.5.10",
+    "@opentui/core-darwin-arm64": "^0.5.10",
+    "@opentui/react": "^0.5.10",
     "@quiverai/sdk": "^0.9.0",
     "@rive-app/canvas": "^2.36.0",
     "@theatre/core": "^0.7.2",
@@ -112,6 +125,7 @@
     "@typescript/native-preview": "^7.0.0-dev.20260707.2",
     "@vercel/sandbox": "^2.0.0",
     "ink-testing-library": "^4.0.0",
+    "react-devtools-core": "^7.0.1",
     "tsx": "^4.19.0",
     "typescript": "^7.0.2",
     "vite": "^6.0.0",

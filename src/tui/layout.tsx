@@ -59,9 +59,15 @@ export function Layout({
 
   return (
     // key={view}: full remount per view — ink's TTY diff can drop the header
-    // row when switching between tall panels (p10 PTY evidence)
-    <Box key={view} flexDirection="column" width={W} height={H}>
-      {/* ══ HEADER — 1 row: brand · center view tabs · right pills ══ */}
+    // row when switching between tall panels (p10 PTY evidence).
+    // v2 exemption: the shell owns its tabs; remounting here would reset the
+    // shell machine on every legacy digit (the digit-shadowing damage, C3).
+    <Box key={process.env.TIMMY_SHELL === 'v1' ? view : undefined} flexDirection="column" width={W} height={H}>
+      {/* ══ HEADER — 1 row: brand · center view tabs · right pills ══
+          v2 shell prints its own header cluster from the bus (spec §03), and
+          the legacy pills paint DOCKER: DOWN in red — a contract violation
+          (off is dim, red is refusals only). Hidden behind the cutover flag. */}
+      {process.env.TIMMY_SHELL === 'v1' && (
       <Box paddingX={1} flexShrink={0} height={1}>
         <Text bold color={theme.accent} wrap="truncate">[TIMMY TRUST OS v{VERSION}]</Text>
         <Box flexGrow={1} justifyContent="center">
@@ -79,6 +85,7 @@ export function Layout({
         {W >= 90 && <Text color={env.comfy ? theme.accent : theme.danger} wrap="truncate">● COMFY: {env.comfy ? 'READY' : 'OFF'} </Text>}
         {W >= 90 && <Text color={theme.accent} wrap="truncate">COST: ${totalCost.toFixed(2)}</Text>}
       </Box>
+      )}
 
       {/* ══ BODY — full-width dual-card viewport (rail removed v1.0.5) ══ */}
       <Box flexDirection="row" flexGrow={1}>
@@ -89,7 +96,10 @@ export function Layout({
         </Box>
       </Box>
 
-      {/* ══ FOOTER — 1 row, single pre-padded Text (no flex contention) ══ */}
+      {/* ══ FOOTER — 1 row, single pre-padded Text (no flex contention) ══
+          v2 shell prints its own ShellFooter (spec §02: ONE footer is the
+          source of truth), so the legacy line hides behind the cutover flag. */}
+      {process.env.TIMMY_SHELL === 'v1' && (
       <Box paddingX={1} flexShrink={0}>
         <Text wrap="truncate">
           <Text color={theme.textMuted}>{W >= 100 ? `~/timmy · ${sess}` : ''}</Text>
@@ -98,6 +108,7 @@ export function Layout({
           <Text color={theme.textSecondary}>{footerKeysLine(Math.max(40, W - 24))}</Text>
         </Text>
       </Box>
+      )}
     </Box>
   );
 }
