@@ -28,13 +28,15 @@ export interface OtioOptions {
   timebase?: number;
 }
 
-/** Absolute or ~home media urls become bundle-relative; fragments survive. */
+/** Absolute, ~home or <home>-placeholder media urls become bundle-relative;
+ *  fragments survive. The <home> token is the privacy gate's placeholder for
+ *  the operator home dir (privacy-d5n9), so it sanitizes like a real path. */
 export function sanitizeMediaUrl(url: string): string {
   const m = url.match(/^(.+?)(#t=.*)?$/);
   const frag = m?.[2] ?? '';
   const p = m?.[1] ?? url;
   const base = p.split('/').filter(Boolean).pop() ?? p;
-  return (p.startsWith('/') || p.startsWith('~')) ? `media/${base}${frag}` : `${p}${frag}`;
+  return (p.startsWith('/') || p.startsWith('~') || p.startsWith('<home>/')) ? `media/${base}${frag}` : `${p}${frag}`;
 }
 
 export function edlToOtio(edl: Edl, extra: OtioExtras = {}, opts: OtioOptions = {}): Record<string, unknown> {
