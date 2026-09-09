@@ -17,6 +17,7 @@ import { dropRoot, SHIPPED_RULES } from '../../drop/index.js';
 import { listEscrows, lockEscrow, cancelEscrow, type Escrow } from '../../utils/escrow-engine.js';
 import { journeyRows, journeyDoneCount } from '../journey.js';
 import * as warroom from '../../harness/warroom.js';
+import * as w2 from '../../harness/warroom2.js';
 import { CommanderClient, edgeToken, type CommanderEvent } from '../../harness/commander.js';
 import { Card } from '../ui/Card.js';
 import { useAgent } from '../hooks/useAgent.js';
@@ -54,6 +55,11 @@ const DIM: typeof theme = {
   textPrimary: theme.textMuted, textSecondary: theme.textMuted,
 };
 let PAL: typeof theme = theme;
+// warroom-v2-c4m8 picker domains — the swarm schema's enums, in schema order
+const TOPOLOGIES = ['fanout', 'fusion', 'relay', 'coordinator', 'tournament', 'council', 'crew', 'closed'];
+const BUDGETS = [0, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 1];
+const JUDGES = ['local', 'edge', 'frontier'];
+const POLICIES = ['open', 'tailnet', 'closed'];
 
 // SPEC §01/§02 — the sovereign chat drawer. Without a live agent (direct
 // ShellV2 renders in tests) a noop agent keeps the hook contract intact.
@@ -99,6 +105,11 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   const ccRef = useRef<CommanderClient | null>(null);
   // chat turns handed to the durable commander, keyed by ws command id
   const pendingChat = useRef<Map<string, string>>(new Map());
+  // warroom-v2-c4m8: SWARM sub-tab pickers + ENGINE ROOM / BULKHEADS / SKILLS
+  const [swarmOn, setSwarmOn] = useState(false);
+  const [swPick, setSwPick] = useState({ preset: 0, topology: 0, size: 0, budget: 0, judge: 0, policy: 0 });
+  const [focusHarness, setFocusHarness] = useState('jcode');
+  const [war2, setWar2] = useState<{ presets: w2.SwarmPreset[]; runs: w2.SwarmRun[]; nodes: w2.NodeStat[]; sbx: w2.SbxRun[]; ports: Record<string, string>; abilities: w2.AbilityRow[]; projects: w2.ProjectRow[] }>({ presets: [], runs: [], nodes: [], sbx: [], ports: {}, abilities: [], projects: [] });
   const [warPanes, setWarPanes] = useState<warroom.WarPane[]>([]);
   const [spend, setSpend] = useState(0);
   const [handoff, setHandoff] = useState<{ harness: string; model: string } | null>(null);
@@ -182,12 +193,26 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
     });
     cc.connect();
     ccRef.current = cc;
+    let tick = 0;
     const poll = setInterval(() => {
+      tick += 1;
       setCommanderOnline(cc.online);
       setWarPanes(warroom.panes());
       try {
+        const chainNow = readChain('runs');
         const day = new Date().toISOString().slice(0, 10);
-        setSpend(readChain('runs').filter(r => String(r.ts).slice(0, 10) === day).reduce((n, r) => n + (r.cost_usd ?? 0), 0));
+        setSpend(chainNow.filter(r => String(r.ts).slice(0, 10) === day).reduce((n, r) => n + (r.cost_usd ?? 0), 0));
+        // warroom-v2 readers over Claude Code's artifacts: runs + node stats
+        // refresh every tick; the static shelves load once; docker every 5th
+        setWar2(prev => ({
+          presets: prev.presets.length ? prev.presets : w2.swarmPresets(),
+          runs: w2.swarmRuns(chainNow.filter(r => String(r.subject).includes('swarm.airgap'))),
+          nodes: w2.nodeStats(chainNow),
+          sbx: prev.sbx.length ? prev.sbx : w2.sbxRuns(),
+          ports: tick % 5 === 1 ? w2.dockerPorts() : prev.ports,
+          abilities: prev.abilities.length ? prev.abilities : w2.abilities(),
+          projects: prev.projects.length ? prev.projects : w2.projects(),
+        }));
       } catch { /* chain unreadable */ }
     }, 2000);
     return () => { h.stop(); clearInterval(poll); cc.close(); ccRef.current = null; };
@@ -261,6 +286,49 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
         const nxt = { ...sRef.current, mode: 'CHAT' as const };
         sRef.current = nxt;
         setS(nxt);
+      }
+      // warroom-v2-c4m8: SWARM sub-tab — pickers cycle the schema enums,
+      // launch composes a spec and hands it to lanes/swarm/swarm.mjs, [X]
+      // kills the whole swarm through the governor's kill file
+      if (a === 'swarm-toggle') setSwarmOn(v => !v);
+      if (a === 'sw-preset-next' || a === 'sw-preset-prev') {
+        setSwPick(p => {
+          const n = war2.presets.length || 1;
+          const preset = (((p.preset + (a === 'sw-preset-next' ? 1 : -1)) % n) + n) % n;
+          const pr = war2.presets[preset];
+          if (!pr) return p;
+          const idx = (v: string | number, arr: (string | number)[]): number => Math.max(0, arr.indexOf(v as never));
+          return { preset, topology: idx(pr.topology, TOPOLOGIES), size: Math.max(0, pr.size - 1), budget: idx(pr.budget.usd, BUDGETS), judge: idx(pr.judge.tier, JUDGES), policy: idx(pr.policy, POLICIES) };
+        });
+      }
+      if (a === 'sw-topology') setSwPick(p => ({ ...p, topology: (p.topology + 1) % TOPOLOGIES.length }));
+      if (a === 'sw-size') setSwPick(p => ({ ...p, size: (p.size + 1) % Math.max(1, war2.presets[p.preset]?.members.length ?? 1) }));
+      if (a === 'sw-budget') setSwPick(p => ({ ...p, budget: (p.budget + 1) % BUDGETS.length }));
+      if (a === 'sw-judge') setSwPick(p => ({ ...p, judge: (p.judge + 1) % JUDGES.length }));
+      if (a === 'sw-policy') setSwPick(p => ({ ...p, policy: (p.policy + 1) % POLICIES.length }));
+      if (a === 'sw-focus') setFocusHarness(f => { const ids = profile.harnesses.map(x => x.id); return ids[(ids.indexOf(f) + 1) % ids.length] ?? f; });
+      if (a === 'sw-launch') {
+        const pr = war2.presets[swPick.preset];
+        if (!pr) setFlash('no swarm presets — lanes/swarm/presets is empty');
+        else {
+          const res = w2.launchSwarm(pr, {
+            topology: TOPOLOGIES[swPick.topology], size: swPick.size + 1,
+            budgetUsd: BUDGETS[swPick.budget], judgeTier: JUDGES[swPick.judge], policy: POLICIES[swPick.policy],
+          }, sRef.current.input.trim() || `war room probe · ${pr.name}`, 'war-room');
+          setFlash(res.ok ? `swarm ${pr.name} launched · governor armed · panes materialized` : `swarm launch failed: ${res.note ?? 'unknown'}`);
+          const nxt = { ...sRef.current, input: '' };
+          sRef.current = nxt;
+          setS(nxt);
+        }
+      }
+      if (a === 'cmd-kill') {
+        if (swarmOn) {
+          const r = w2.killSwarm('war-room');
+          setFlash(r.ok ? `swarm killed via governor · ${r.panes} pane(s) closed` : 'governor kill failed — see .timmy/runs');
+        } else {
+          warroom.killWar();
+          setFlash('kill switch — war room session down');
+        }
       }
       // SPEC §04: Enter on a sealed run jumps to its receipts in CHAIN
       if (a === 'open' && sRef.current.tab === 'RUN') {
@@ -479,6 +547,18 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
     return flat;
   }, [models, s.filter]);
   const selectableModels = modelsView.filter(x => x.m).map(x => x.m as ModelEntry);
+  // warroom-v2-c4m8: MODELS rows carry FIT + node — the node from node.*
+  // receipts, the fit from lanes/swarm/fit.mjs (imported, cached)
+  const modelFits = useMemo(() => {
+    const m = new Map<string, { node: string; fit: string }>();
+    for (const e of selectableModels) {
+      const n = w2.nodeForModel(e.id, war2.nodes);
+      if (!n) { m.set(e.id, { node: 'edge', fit: '—' }); continue; }
+      const f = w2.modelFit(n.id, e.id);
+      m.set(e.id, { node: n.id, fit: f === null ? '?' : f ? 'FIT' : 'NOFIT' });
+    }
+    return m;
+  }, [selectableModels, war2.nodes]);
   const selModel = selectableModels[Math.min(s.selected, Math.max(0, selectableModels.length - 1))] ?? null;
   const boards = useMemo(() => {
     const ls = (p: string) => { try { return readdirSync(p).filter(f => !f.startsWith('.')); } catch { return [] as string[]; } };
@@ -574,11 +654,19 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
           {s.tab === 'CHAIN' && <ChainPane recs={recs} filtered={filtered} selected={Math.min(s.selected, Math.max(0, filtered.length - 1))} chain={chain} verified={verified} filter={s.filter} />}
           {s.tab === 'CHAT' && <ChatPane recs={recs} />}
           {s.tab === 'COMMAND' && (
-            <CommandPane profile={profile} online={commanderOnline} events={cmdEvents} spend={spend} handoff={handoff} />
+            <>
+              <CommandPane profile={profile} online={commanderOnline} events={cmdEvents} spend={spend} handoff={handoff} />
+              {swarmOn && (
+                <>
+                  <Box height={1} />
+                  <SwarmPane presets={war2.presets} runs={war2.runs} pick={swPick} focus={focusHarness} />
+                </>
+              )}
+            </>
           )}
           {s.tab === 'LIBRARY' && (
             <>
-              <ModelsPane view={modelsView} selected={Math.min(s.selected, Math.max(0, selectableModels.length - 1))} sel={selModel} filter={s.filter} compact={compact} />
+              <ModelsPane view={modelsView} selected={Math.min(s.selected, Math.max(0, selectableModels.length - 1))} sel={selModel} filter={s.filter} compact={compact} fits={modelFits} />
               {/* FIX 2: BOARDS + PROJECTS live under MODELS on the left */}
               <Box height={1} />
               <BoardsPane boards={boards} projects={projects} />
@@ -592,7 +680,22 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
         )}
         {assembled && !narrow && s.tab === 'COMMAND' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            <HarnessPanes profile={profile} panes={warPanes} lanes={lanes} recs={recs} />
+            <HarnessPanes profile={profile} panes={warPanes} lanes={lanes} recs={recs}
+              menu={{
+                harness: focusHarness,
+                sandbox: war2.abilities.find(x => x.harness === focusHarness)?.isolation ? 'isolated' : 'none',
+                policy: 'open',
+                mcp: war2.abilities.find(x => x.harness === focusHarness)?.mcpMode ?? 'none',
+                skills: war2.abilities.find(x => x.harness === focusHarness)?.skills.length ?? 0,
+                plans: war2.projects[0]?.plans.length ?? 0,
+                project: war2.projects[0]?.name ?? 'none',
+                drop: war2.projects[0]?.drop.length ?? 0,
+                model: String(profile.harnesses.find(x => x.id === focusHarness)?.model ?? profile.commander.model).split('/').pop() ?? '',
+              }} />
+            <Box height={1} />
+            <EnginePane nodes={war2.nodes} />
+            <Box height={1} />
+            <BulkheadsPane sbx={war2.sbx} ports={war2.ports} runs={war2.runs} />
           </Box>
         )}
         {assembled && !narrow && s.tab === 'HOME' && (
@@ -628,6 +731,8 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
           /* FIX 2: FLEET owns the full-height right rail */
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
             <FleetPane lanes={lanes} policy={policy} />
+            <Box height={1} />
+            <SkillsTree projects={war2.projects} />
           </Box>
         )}
         {assembled && !narrow && s.tab === 'RUN' && (
@@ -945,7 +1050,7 @@ function EscrowPane({ escrow, requester }: { escrow: Escrow; requester: string }
 // the harness→model route from harness.policy), BOARDS + PROJECTS.
 function ModelsPane(props: {
   view: { role?: string; m?: ModelEntry }[]; selected: number; sel: ModelEntry | null;
-  filter: string; compact: boolean;
+  filter: string; compact: boolean; fits?: Map<string, { node: string; fit: string }>;
 }) {
   let mi = -1;
   return (
@@ -974,14 +1079,17 @@ function ModelsPane(props: {
           const caps = `${cp.includes('tools') ? 'T' : '·'}${cp.includes('vision') || cp.includes('image') ? 'V' : '·'}${cp.includes('reasoning') ? 'R' : '·'}`.padEnd(9);
           const sp = m.spend_usd ?? 0;
           const spend = (sp < 10 ? `$${sp.toFixed(2)}` : sp < 100 ? `$${sp.toFixed(1)}` : `$${Math.round(sp)}`).padEnd(6).slice(0, 6);
+          // warroom-v2-c4m8: FIT + node ride the muted tail; the model column
+          // gives up 10 cols so no cell ever needs an ellipsis
+          const fit = props.fits?.get(m.id);
           return (
             // pin rides the marker column (✦) so no cell ever overflows the
             // 71-col budget — FIX 1 forbids ellipsis in any cell
             <Text key={m.id} wrap="truncate">
               <Text color={sel ? PAL.textPrimary : PAL.textSecondary}>
-                {`${sel ? '▶' : m.pinned ? '✦' : ' '} ${m.id.slice(0, 30).padEnd(30)} ${ctx} ${price}`}
+                {`${sel ? '▶' : m.pinned ? '✦' : ' '} ${m.id.slice(0, 20).padEnd(20)} ${ctx} ${price}`}
               </Text>
-              <Text color={PAL.textMuted}>{` ${caps} ${spend}`}</Text>
+              <Text color={PAL.textMuted}>{` ${caps} ${spend} ${(fit?.node ?? 'edge').slice(0, 6).padEnd(6)} ${(fit?.fit ?? '—').padEnd(5)}`}</Text>
             </Text>
           );
         })}
@@ -1098,9 +1206,20 @@ function CommandPane(props: {
 
 // COMMAND tab right: harness panes = tmux PTYs; header name·model·state,
 // color from connector, height by activity weight.
-function HarnessPanes(props: { profile: warroom.WarProfile; panes: warroom.WarPane[]; lanes: { id: string; available: boolean }[]; recs: Receipt[] }) {
+function HarnessPanes(props: {
+  profile: warroom.WarProfile; panes: warroom.WarPane[]; lanes: { id: string; available: boolean }[]; recs: Receipt[];
+  menu?: { harness: string; sandbox: string; policy: string; mcp: string; skills: number; plans: number; project: string; drop: number; model: string };
+}) {
   return (
     <Card title="HARNESS PANES" purpose="tmux PTYs · height = activity weight" flexGrow={1}>
+      {props.menu && (
+        <>
+          {/* warroom-v2-c4m8: the pane header carries the bulkhead line and
+              the project-folder menu for the focused harness */}
+          <Text color={PAL.textMuted}>{`sbx ${props.menu.sandbox.slice(0, 8).padEnd(8)} · ${props.menu.policy.slice(0, 6).padEnd(6)} · mcp ${props.menu.mcp.slice(0, 5)}`}</Text>
+          <Text color={PAL.textMuted}>{`sk ${String(props.menu.skills).padStart(2)} · pl ${String(props.menu.plans).padStart(2)} · ${props.menu.project.slice(0, 8).padEnd(8)} · dp ${String(props.menu.drop).padStart(2)} · ${props.menu.model.slice(0, 12)}`}</Text>
+        </>
+      )}
       {props.profile.harnesses.map((h, i) => {
         const pane = props.panes.find(pn => pn.name === h.id);
         const lane = props.lanes.find(l => l.id === h.id);
@@ -1116,6 +1235,105 @@ function HarnessPanes(props: { profile: warroom.WarProfile; panes: warroom.WarPa
         );
       })}
       <Text color={PAL.textMuted}>{props.panes.length ? 'war room live · tmux -t timmy-war' : 'not started · timmy profile --restore'}</Text>
+    </Card>
+  );
+}
+
+// warroom-v2-c4m8 — SWARM sub-tab ([w]): the cue-vetted presets, the schema
+// pickers, the live run header (members · spent · tokens_thinking · judge ·
+// policy, air-gap glyph on closed runs), and the harness agents under the
+// focused harness. Launch/kill drive lanes/swarm/swarm.mjs — never a copy.
+function SwarmPane(props: {
+  presets: w2.SwarmPreset[]; runs: w2.SwarmRun[];
+  pick: { preset: number; topology: number; size: number; budget: number; judge: number; policy: number };
+  focus: string;
+}) {
+  const p = props.presets[props.pick.preset] ?? null;
+  const run = props.runs[0] ?? null;
+  const underAll = props.presets
+    .flatMap(x => x.members.filter(m => m.kind === 'harness' && m.harness === props.focus).map(m => ({ from: x.name, id: m.id, role: m.role ?? '' })))
+    .concat((run?.members ?? []).filter(m => m.kind === 'harness' && m.harness === props.focus).map(m => ({ from: run?.preset ?? '?', id: m.id, role: m.role ?? '' })));
+  const under = underAll.filter((u, i) => underAll.findIndex(x => x.id === u.id) === i);
+  return (
+    <Card title="SWARM" purpose={props.presets.length ? `${props.presets.length} presets · cue-vetted` : 'lanes/swarm/presets empty'} flexGrow={1}>
+      <Text color={PAL.textPrimary}>{`preset ${(p ? p.name : 'none').padEnd(14)} [ ] cycle`}</Text>
+      {p && (
+        <>
+          <Text color={PAL.textSecondary}>{`topology ${TOPOLOGIES[props.pick.topology].padEnd(11)} members ${String(Math.min(props.pick.size + 1, p.members.length)).padStart(2)}/${String(p.members.length).padStart(2)}`}</Text>
+          <Text color={PAL.textSecondary}>{`size     ${String(props.pick.size + 1).padEnd(11)} budget  $${BUDGETS[props.pick.budget].toFixed(2)}`}</Text>
+          <Text color={PAL.textSecondary}>{`judge    ${JUDGES[props.pick.judge].padEnd(11)} policy  ${POLICIES[props.pick.policy]}`}</Text>
+        </>
+      )}
+      {run ? (
+        <Text color={run.ok ? PAL.seal : PAL.danger}>
+          {`${run.closed ? '⊘' : ' '} ${run.preset.slice(0, 12).padEnd(12)} n=${String(run.size).padStart(2)} $${run.usd.toFixed(4)} tk${String(run.tokensThinking).padStart(4)} ${run.judge.slice(0, 10).padEnd(10)} ${run.policy}${run.airgap ? ` ag${run.airgap.egress}` : ''}`}
+        </Text>
+      ) : (
+        <Text color={PAL.textMuted}>no swarm runs yet — [l] launches the pick</Text>
+      )}
+      <Text color={PAL.textMuted}>{`under ${props.focus.slice(0, 8)}: ${under.length ? under.slice(0, 3).map(u => u.id).join(',') : 'no harness agents'}`}</Text>
+      <Text color={PAL.textMuted}>[w] close [T S U J P] pick [l] launch [X] kill</Text>
+    </Card>
+  );
+}
+
+// warroom-v2-c4m8 — ENGINE ROOM: fleet/nodes.json for identity, node.*
+// receipts for reachable · memory · loaded models · tok-per-s.
+function EnginePane(props: { nodes: w2.NodeStat[] }) {
+  return (
+    <Card title="ENGINE ROOM" purpose="fleet/nodes.json + node receipts">
+      {props.nodes.length === 0 ? (
+        <Text color={PAL.textMuted}>fleet/nodes.json missing</Text>
+      ) : props.nodes.map(n => (
+        <Text key={n.id} color={n.reachable ? PAL.seal : PAL.textMuted}>
+          {`${n.id.slice(0, 7).padEnd(7)} ${n.reachable ? 'up  ' : 'down'} ${(n.memGb ? `${n.memGb}G` : 'mem?').padEnd(5)} ${String(n.models.length).padStart(2)}mdl ${(n.tokPerS ? `${Math.round(n.tokPerS)}t/s` : 't/s?').padEnd(6)}`}
+        </Text>
+      ))}
+    </Card>
+  );
+}
+
+// warroom-v2-c4m8 — BULKHEADS: sbx sandboxes (lanes/sandbox runs + sandboxed
+// swarm members), live docker ports, and the network policy that bounds them.
+function BulkheadsPane(props: { sbx: w2.SbxRun[]; ports: Record<string, string>; runs: w2.SwarmRun[] }) {
+  const memberRows = (props.runs[0]?.members ?? [])
+    .filter(m => m.sandbox && m.sandbox !== 'none')
+    .map(m => ({ id: m.id, sandbox: String(m.sandbox), ports: '—', policy: props.runs[0]?.policy ?? '—' }));
+  const sbxRows = props.sbx.slice(0, 4).map(r => ({
+    id: r.id.slice(3, 11), sandbox: r.sandbox,
+    ports: Object.entries(props.ports).find(([name]) => name.includes(r.id.slice(3, 8)))?.[1].split('->')[0].trim() ?? 'none',
+    policy: '—',
+  }));
+  const rows = [...memberRows, ...sbxRows].slice(0, 5);
+  return (
+    <Card title="BULKHEADS" purpose="sbx sandboxes · ports · policy" flexGrow={1}>
+      {rows.length === 0 ? (
+        <Text color={PAL.textMuted}>{Object.keys(props.ports).length ? 'docker up · no sandboxes' : 'no sandboxes · docker quiet'}</Text>
+      ) : rows.map((r, i) => (
+        <Text key={`${r.id}${i}`} color={PAL.textSecondary}>
+          {`${r.id.slice(0, 10).padEnd(10)} ${r.sandbox.slice(0, 9).padEnd(9)} ${r.ports.slice(0, 12).padEnd(12)} ${r.policy.slice(0, 6)}`}
+        </Text>
+      ))}
+    </Card>
+  );
+}
+
+// warroom-v2-c4m8 — LIBRARY › SKILLS: the project folders' skill trees, read
+// through fleet/harness-menu.mjs; [f] opens the yazi pane on the folder.
+function SkillsTree(props: { projects: w2.ProjectRow[] }) {
+  return (
+    <Card title="SKILLS" purpose="project folders · [f] yazi" flexGrow={1}>
+      {props.projects.length === 0 ? (
+        <Text color={PAL.textMuted}>no project folders</Text>
+      ) : props.projects.map(pj => (
+        <React.Fragment key={pj.name}>
+          <Text color={PAL.textSecondary}>{`${pj.name.slice(0, 14)}/ ${pj.budget !== null ? `$${pj.budget}` : ''}`}</Text>
+          {pj.skills.slice(0, 4).map(sk => (
+            <Text key={sk} color={PAL.textMuted}>{`  └ ${sk.slice(0, 36)}`}</Text>
+          ))}
+          {pj.skills.length === 0 ? <Text color={PAL.textMuted}>  └ (no skills)</Text> : null}
+        </React.Fragment>
+      ))}
     </Card>
   );
 }

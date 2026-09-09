@@ -20,7 +20,8 @@ const tmux = (args: string[]): { status: number; out: string } => {
   return { status: r.status ?? 1, out: r.stdout ?? '' };
 };
 const CMD: Record<string, string> = {
-  jcode: 'jcode', opencode: 'opencode', pi: 'pi', hermes: 'hermes', minds: 'minds', openhands: 'openhands',
+  // warroom-v2-c4m8: a jcode pane ATTACHES to the running daemon, never spawns a second
+  jcode: 'jcode connect', opencode: 'opencode', pi: 'pi', hermes: 'hermes', minds: 'minds', openhands: 'openhands',
 };
 const cmdFor = (id: string): string => id.startsWith('sh:') ? id.slice(3) : (CMD[id] ?? id);
 

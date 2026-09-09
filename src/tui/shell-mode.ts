@@ -111,6 +111,17 @@ export function shellOnKey(s: ShellState, key: string): ShellStep {
     if (key === 'M') { st.overlay = 'cmdharness'; st.pick = 0; return { state: st, handled: true, actions: ['cmd-harness-model'] }; }
     if (key === 'K') return { state: st, handled: true, actions: ['cmd-handoff'] };
     if (key === 'X') return { state: st, handled: true, actions: ['cmd-kill'] };
+    // warroom-v2-c4m8: SWARM sub-tab keys ([w] view, pickers, launch)
+    if (key === 'w') return { state: st, handled: true, actions: ['swarm-toggle'] };
+    if (key === '[') return { state: st, handled: true, actions: ['sw-preset-prev'] };
+    if (key === ']') return { state: st, handled: true, actions: ['sw-preset-next'] };
+    if (key === 'T') return { state: st, handled: true, actions: ['sw-topology'] };
+    if (key === 'S') return { state: st, handled: true, actions: ['sw-size'] };
+    if (key === 'U') return { state: st, handled: true, actions: ['sw-budget'] };
+    if (key === 'J') return { state: st, handled: true, actions: ['sw-judge'] };
+    if (key === 'P') return { state: st, handled: true, actions: ['sw-policy'] };
+    if (key === 'H') return { state: st, handled: true, actions: ['sw-focus'] };
+    if (key === 'l') return { state: st, handled: true, actions: ['sw-launch'] };
   }
   // LIBRARY [f]: yazi/broot tmux pane over skills/projects folders
   if (key === 'f' && st.tab === 'LIBRARY') return { state: st, handled: true, actions: ['open-files'] };
