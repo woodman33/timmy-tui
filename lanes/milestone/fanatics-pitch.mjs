@@ -34,13 +34,13 @@ const routes = JSON.parse(readFileSync(probeOut, 'utf8'));
 
 // ---------------------------------------------------------------- 2. pitch materials
 // They live on the Desktop, not in the repo. Hash in place and record where.
-const PITCH = '/Users/williammeldman/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06';
+const PITCH = '<home>/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06';
 const materials = [
   { role: 'deck · one-page brief', path: `${PITCH}/deck/Three-Step-Proposal.pdf` },
   { role: 'deck · brief + final deck', path: `${PITCH}/deck/Fanatics-Combined-Pitch.pdf` },
   { role: 'deck · final v2', path: `${PITCH}/deck/Fanatics-Vault-Custody-Timmy.pdf` },
   { role: 'deck · editable', path: `${PITCH}/deck/Fanatics-Vault-Custody-Timmy.pptx` },
-  { role: 'deck · earlier final', path: '/Users/williammeldman/Desktop/VAULT_CUSTODY_x_TIMMY_deck_FINAL.pdf' },
+  { role: 'deck · earlier final', path: '<home>/Desktop/VAULT_CUSTODY_x_TIMMY_deck_FINAL.pdf' },
   { role: 'walkthrough · 30s deck cut (ships in the package)', path: `${PITCH}/media/Vault-Custody-walkthrough-30s.mp4` },
   { role: 'walkthrough · v4 review cut', path: join(ROOT, 'renders', 'walkthrough', 'walkthrough.mp4') },
   { role: 'trailer · Timmy v17', path: `${PITCH}/media/Timmy-working-trailer-v17.mp4` },

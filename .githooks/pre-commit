@@ -1,0 +1,7 @@
+#!/bin/sh
+# ORDER privacy-d5n9 — the public-repo privacy gate as a pre-commit hook.
+# Enable once per clone:  git config core.hooksPath .githooks
+# A staged match at medium or above blocks the commit; --allow-privacy is not
+# accepted here (that override lives only on `timmy seal`, and is recorded).
+root=$(git rev-parse --show-toplevel)
+exec node "$root/lanes/privacy/scan.mjs" scan --staged --fail-on medium --quiet

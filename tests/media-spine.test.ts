@@ -99,7 +99,7 @@ describe('OTIO multi-track + timebase + sanitization', () => {
     edl_version: 1,
     output: 'out.mp4',
     timebase: 30,
-    clips: [{ src: '/Users/williammeldman/media/a.mp4#t=1,3' }],
+    clips: [{ src: '<home>/media/a.mp4#t=1,3' }],
     audio_stems: [
       { src: 'studio/score.flac#t=0,5', kind: 'music', duck_db: -12 },
       { src: 'studio/vo.flac#t=0,4', kind: 'vo' }
@@ -129,7 +129,7 @@ describe('OTIO multi-track + timebase + sanitization', () => {
       .toBe('media/a.mp4');
     const raw = edlToOtio(edl) as any;
     expect(raw.tracks.children[0].children[0].media_references.DEFAULT_MEDIA.target_url)
-      .toBe('/Users/williammeldman/media/a.mp4');
+      .toBe('<home>/media/a.mp4');
     expect(sanitizeMediaUrl('~/x/vo.flac#t=0,4')).toBe('media/vo.flac#t=0,4');
     expect(sanitizeMediaUrl('studio/rel.mp4')).toBe('studio/rel.mp4');
   });
