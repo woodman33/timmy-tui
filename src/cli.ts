@@ -574,6 +574,13 @@ if (command === 'nfc' || command === 'custody') {
   process.exit(r.status ?? 1);
 }
 
+if (command === 'demo') {
+  // chain-views-e6p2: scripted, replayable war-room session on placeholder
+  // data — cast + gif + mp4 + demo.cast seal. Runs under tsx (ink render).
+  const r = spawnSync('npx', ['tsx', 'src/demo/cast.ts', ...args], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
 if (command === 'privacy') {
   // privacy-d5n9: `timmy privacy scan|audit|fixture|hook` — the public-repo privacy gate.
   const lane = fileURLToPath(new URL('../lanes/privacy/scan.mjs', import.meta.url));
