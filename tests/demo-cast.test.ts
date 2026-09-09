@@ -39,8 +39,9 @@ describe('timmy demo', { timeout: 300000 }, () => {
     expect(frames.some(f => f.includes('swarm.airgap'))).toBe(true);  // CHAIN airgap
     expect(existsSync(join(a, 'demo.mp4'))).toBe(true);
     expect(readFileSync(join(a, 'demo.mp4')).equals(readFileSync(join(b, 'demo.mp4')))).toBe(true);
-    // placeholder-only: no real hosts, paths or names in the cast
+    // placeholder-only: no real hosts, paths, names or live-lane ids in the cast
     expect(castA).not.toMatch(/workers\.dev/);
     expect(castA).not.toMatch(/\/Users\//);
+    expect(castA).not.toMatch(/swarm_mts|sb_mtr|spark[0-9]/);
   });
 });

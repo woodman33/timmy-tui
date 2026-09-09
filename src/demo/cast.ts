@@ -53,6 +53,24 @@ async function main(): Promise<void> {
   const { appendReceipt } = await import('../utils/receipts.js');
   const seed = (subject: string, sources: Record<string, unknown>, status = 'ok') =>
     appendReceipt('runs', { kind: 'seal', subject, policy: 'auto', status, env_lock: DEMO_LOCK, sources: [sources] } as never);
+  // the war-room readers (presets/runs/nodes/sbx/abilities/projects) must see
+  // PLACEHOLDER artifacts, not the operator's live lanes: seed a fixture tree
+  // under the store and point TIMMY_REPO_ROOT at it (deterministic + private)
+  const w = (rel: string, body: string) => {
+    const p = join(store, rel);
+    mkdirSync(join(p, '..'), { recursive: true });
+    writeFileSync(p, body);
+  };
+  w('lanes/swarm/presets/closed-3.cue', `package swarm\n\nswarm: {\n\tid: "closed-3"\n\tpreset: "closed-3"\n\ttopology: "closed"\n\tmembers: [\n\t\t{id: "slot-1", kind: "model", model: "placeholder/qwen", provider: "ollama", node: "mac", sandbox: "closed"},\n\t\t{id: "slot-2", kind: "model", model: "placeholder/qwen", provider: "ollama", node: "mac", sandbox: "closed"},\n\t\t{id: "slot-3", kind: "harness", harness: "harn-a", node: "mac", sandbox: "closed"},\n\t]\n\tsize: 3\n\tbudget: {usd: 0.05, max_calls: 9}\n\tjudge: {tier: "local", model: "placeholder/qwen"}\n\tnetwork: {policy: "closed"}\n}\n`);
+  w('lanes/swarm/runs/swarm_demo0001_aaaa.json', JSON.stringify({ where: 'local', room: 'war-room', spec: { v: 1, id: 'closed-3', preset: 'closed-3', topology: 'closed', size: 3, members: [{ id: 'slot-1', kind: 'model', sandbox: 'closed' }, { id: 'slot-2', kind: 'model', sandbox: 'closed' }, { id: 'slot-3', kind: 'harness', harness: 'harn-a', sandbox: 'closed' }], budget: { usd: 0.05, max_calls: 9 }, judge: { tier: 'local', model: 'placeholder/qwen' }, network: { policy: 'closed' } }, task: 'placeholder task', result: { ok: true, run_id: 'swarm_demo0001_aaaa', usd: 0.0312, ms: 4200, calls: [{ member: 'slot-1', tokens_reasoning: 214 }, { member: 'slot-2', tokens_reasoning: 198 }] }, receipt: 'demo' }));
+  w('lanes/sandbox/runs/sb_demo0001_aaaa.json', JSON.stringify({ id: 'sb_demo0001_aaaa', label: 'seed:demo', image: 'placeholder/img:1', model: 'placeholder/one', platform: 'linux/arm64', files: 2, driver_exit: 0, result: { ok: true } }));
+  w('lanes/abilities/results/harn-a.json', JSON.stringify({ harness: 'harn-a', abilities: { one_shot: { value: true }, mcp: { value: true } }, isolation: 'private home', mcp_setup_files: [{ path: '/placeholder/mcp.json' }] }));
+  w('projects/proj-a/profile.cue', `package profile\n\nprofile: {\n\tname: "proj-a"\n\towner: "placeholder"\n\tbudget: max_spend_usd: 2\n\tharnesses: allowed: ["harn-a"]\n}\n`);
+  w('projects/proj-a/drop/input.txt', 'placeholder input');
+  w('projects/proj-a/plans/plan-a.md', '# placeholder plan');
+  w('fleet/nodes.json', JSON.stringify({ v: 1, note: 'demo fixture', nodes: [{ id: 'node-a', tailnet_name: 'node-a', tailnet_ip: '0.0.0.0', kind: 'fixture', ssh: 'ssh node-a', status: 'joined', role: ['ollama'] }] }));
+  process.env.TIMMY_REPO_ROOT = store;
+  process.env.TIMMY_PROJECTS_ROOT = join(store, 'projects');
   seed('doctor.cli · demo fixture', { checks: '4/4' });
   seed('lane.start · demo-lane', { lane: 'demo-lane' });
   seed('swarm.run', { run_id: 'swarm_demo0001_aaaa', swarm_id: 'closed-3', preset: 'closed-3', topology: 'closed', size: '3', where: 'local', room: 'war-room', ok: 'true', usd: '0.0312', ms: '4200', judge_tier: 'local', policy: 'closed', task_sha256: sha('placeholder task') });
