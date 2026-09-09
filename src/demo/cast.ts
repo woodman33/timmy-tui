@@ -100,7 +100,11 @@ async function main(): Promise<void> {
   grab(1.0);                                   // boot → HOME settled
   await press('2'); await settle(f => f.includes('RUNS')); grab(1.0);   // RUN
   await press('6'); await settle(f => f.includes('COMMANDER'));
-  await press('w'); await settle(f => f.includes('SWARM')); grab(1.2);   // SWARM view (closed-3 preset first)
+  await press('w');
+  // wait for the war-room readers (fixture presets + projects) so the grab
+  // never races the first poll tick under machine load
+  await settle(f => f.includes('SWARM') && f.includes('closed-3') && f.includes('proj-a'));
+  grab(1.2);   // SWARM view (closed-3 preset, fixture readers loaded)
   await press('l'); await sleep(200); grab(1.0);                        // launch beat (demo-guarded)
   await press('3'); await settle(f => f.includes('RECEIPTS'));
   await press('/'); await press('swarm.airgap', 160); await press('\x1b'); await settle(f => f.includes('swarm.airgap'));
