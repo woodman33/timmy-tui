@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { render, useApp, Box, Text } from 'ink';
 import { FocusProvider, useFocus, useKeyDispatcher } from './hooks/useKeyDispatcher.js';
+import { operatorLabel, edgeUrlOrNull, inertEdgeUrl } from '../utils/edge-host.js';
 import { Card } from './ui/Card.js';
 import { createAgent } from '../agent/core.js';
 import type { AgentConfig } from '../types/index.js';
@@ -63,7 +64,7 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
     config,
     activeRunId,
     activeReceiptUrl,
-    operator: 'William Meldman'
+    operator: operatorLabel()
   });
 
   useCompanionSync({ agent, messages: agentState.messages, activeRunId, activeReceiptUrl });
@@ -74,7 +75,7 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
       agentLogger.info(`run.created: ${JSON.stringify(data)}`);
       if (data && data.runId) {
         setActiveRunId(data.runId);
-        setActiveReceiptUrl(`https://timmy-ai-proxy.wmeldman33.workers.dev/runs/${data.runId}/receipt`);
+        setActiveReceiptUrl(edgeUrlOrNull(`/runs/${data.runId}/receipt`) ?? inertEdgeUrl(`/runs/${data.runId}/receipt`));
       }
     };
     const handleTelemetryRun = (data: any) => {
@@ -96,7 +97,7 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
     const startupRunId = `run_${Math.random().toString(36).substring(2, 9)}`;
     agent.emit('run.created' as any, {
       runId: startupRunId,
-      receiptUrl: `https://timmy-ai-proxy.wmeldman33.workers.dev/runs/${startupRunId}/receipt`,
+      receiptUrl: edgeUrlOrNull(`/runs/${startupRunId}/receipt`) ?? inertEdgeUrl(`/runs/${startupRunId}/receipt`),
       source: 'timmy-tui-startup',
       timestamp: Date.now()
     });
