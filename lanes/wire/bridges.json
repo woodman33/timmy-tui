@@ -1,0 +1,187 @@
+{
+  "_about": "ORDER shelf-w6d3 step 3 registry for lanes/wire/wire.mjs. A wire = a stdio/HTTP MCP connection Timmy uses; a bridge = an MCP server that fronts another tool. NO secret values here: only env var NAMES (envNames) and where the runtime reads them from (envFrom). Paths use $ROOT for the worktree root and ~ for $HOME.",
+  "version": 1,
+  "tools": {
+    "mcpsnoop": { "bin": "/opt/homebrew/bin/mcpsnoop", "version": "0.18.0", "role": "transparent stdio/HTTP proxy that records every JSON-RPC frame; export json/har; check signals" },
+    "mcp-probe": { "bin": "~/.cargo/bin/mcp-probe", "version": "0.3.0", "role": "protocol-compliance validate + automated test suite; stdio (single --args value per occurrence, repeatable) or --http-stream/--http-sse" },
+    "apisnip": { "bin": "~/.cargo/bin/apisnip", "version": "1.4.60", "role": "trim an OpenAPI surface (interactive ratatui TUI; only -h/-V flags)" },
+    "mcpc": { "bin": "npx -y @apify/mcpc@0.6.0", "version": "0.6.0", "role": "universal MCP CLI client with named background sessions; stdio servers must come from a config file entry (file:entry)" },
+    "cmcp": { "src": "$WIRE_SCRATCH/cmcp-main", "upstream": "github.com/lopezm94/cmcp (main, tarball dated 2025-08-22)", "needs": "Go 1.21+ toolchain + Claude CLI; wraps `claude mcp add/add-json/remove/list/get`", "role": "Claude-CLI MCP registration manager (does not speak MCP)" }
+  },
+  "bridges": [
+    {
+      "name": "timmy", "kind": "wire", "transport": "stdio",
+      "command": "node_modules/.bin/tsx", "args": ["src/cli.ts", "mcp", "serve"], "cwd": ".",
+      "call": { "tool": "timmy_env_lock", "args": {} },
+      "methodsCheck": true, "probeTimeoutSec": 8,
+      "source": "worktree src/mcp/server.ts via src/cli.ts `mcp serve`",
+      "notes": "Timmy's own MCP server (23 tools at time of writing). Known schema defects from 2026-09-06: timmy_promo_apply.beats is an array without items; timmy_gen_run has a parameter named kind. The server replies to initialize in ~0.4 s."
+    },
+    {
+      "name": "timmy-ro", "kind": "wire", "transport": "stdio",
+      "command": "node", "args": ["scripts/timmy-mcp.mjs"], "cwd": ".", "envSet": { "TIMMY_HOME": "$ROOT" },
+      "call": { "tool": "timmy_fleet", "args": {} },
+      "source": "worktree scripts/timmy-mcp.mjs (Porter outbound, read-only)",
+      "notes": "Hand-rolled JSON-RPC loop; 4 tools; answers unknown methods with an empty result instead of a JSON-RPC error."
+    },
+    {
+      "name": "houdini-gen", "kind": "bridge", "transport": "stdio",
+      "command": "/Users/williammeldman/ZCodeProject/houdini-gen-mcp/.venv/bin/python", "args": ["-m", "houdini_gen_mcp.server"], "cwd": "/Users/williammeldman/ZCodeProject/houdini-gen-mcp",
+      "envFrom": "claude.json:houdini-gen", "envNames": ["PYTHONPATH", "HOUDINI_GEN_ENV"],
+      "call": { "tool": "houdini_health", "args": {} },
+      "source": "~/.claude.json mcpServers.houdini-gen (also ~/.cursor/mcp.json)",
+      "notes": "Fronts Houdini + gen providers (meshy/tripo/krea/wavespeed/gemini/openrouter); mcporter reports 54 tools. Env values are read from ~/.claude.json at launch by exec.mjs and never written to disk."
+    },
+    {
+      "name": "rive-pro", "kind": "bridge", "transport": "stdio",
+      "command": "node", "args": ["/Users/williammeldman/.claude/skills/rive-ui-pro-max/engine/mcp/server.mjs"], "cwd": "/Users/williammeldman/.claude/skills/rive-ui-pro-max/engine/mcp",
+      "call": { "tool": "rive_presets", "args": {} },
+      "source": "~/.claude.json mcpServers.rive-pro",
+      "notes": "Fronts the Rive desktop bridge (rive_doctor/rive_raw_call); 26 recipe tools."
+    },
+    {
+      "name": "hyperforge", "kind": "bridge", "transport": "stdio",
+      "command": "node", "args": ["/Users/williammeldman/Desktop/Kimi_Agent_Canva_Research/hyperforge-studio/mcp-local/src/server.mjs"],
+      "gate": "missing_entrypoint",
+      "source": "~/.claude.json mcpServers.hyperforge",
+      "notes": "The whole /Users/williammeldman/Desktop/Kimi_Agent_Canva_Research tree is absent on this Mac; ~/.claude.json and mcporter both report Connection closed. Nothing to snoop or probe until the tree is restored or the registration removed."
+    },
+    {
+      "name": "forge", "kind": "wire", "transport": "http", "url": "http://127.0.0.1:3141/mcp",
+      "source": "~/.claude.json mcpServers.forge (streamable HTTP)",
+      "notes": "Local streamable-HTTP server; the order says do not start it. Recorded as unreachable when nothing listens on :3141."
+    },
+    {
+      "name": "rive", "kind": "wire", "transport": "http", "url": "http://127.0.0.1:9791/mcp",
+      "source": "~/.cursor/mcp.json (rive) + Claude Code session config",
+      "notes": "Local HTTP bridge into the Rive editor; do not start. Recorded as unreachable when nothing listens on :9791."
+    },
+    {
+      "name": "kimi-cu", "kind": "bridge", "transport": "stdio",
+      "command": "/Applications/KimiCU.app/Contents/MacOS/kimi-cu", "args": ["mcp", "-s", "user"],
+      "call": { "tool": "list_apps", "args": {} },
+      "source": "mcporter (~/.cursor/mcp.json, also ~/.claude.json)",
+      "notes": "Kimi computer-use bridge; 10 tools."
+    },
+    {
+      "name": "openhuman", "kind": "bridge", "transport": "stdio",
+      "command": "/Applications/OpenHuman.app/Contents/MacOS/OpenHuman", "args": ["mcp"],
+      "source": "mcporter (~/.cursor/mcp.json)",
+      "notes": "13 tools per mcporter; harmless call auto-picked from the allow-list."
+    },
+    {
+      "name": "open-design", "kind": "bridge", "transport": "stdio",
+      "command": "/Applications/Open Design.app/Contents/Frameworks/Open Design Helper.app/Contents/MacOS/Open Design Helper",
+      "args": ["/Applications/Open Design.app/Contents/Resources/app/prebundled/daemon/daemon-cli.mjs", "mcp"],
+      "envFrom": "claude.json:open-design", "envNames": ["OD_DATA_DIR", "OD_SIDECAR_IPC_PATH", "ELECTRON_RUN_AS_NODE"],
+      "call": { "tool": "list_projects", "args": {} },
+      "source": "mcporter (~/.cursor/mcp.json, ~/.claude.json)",
+      "notes": "Open Design local daemon; 18 tools."
+    },
+    {
+      "name": "wordpress-studio", "kind": "bridge", "transport": "stdio",
+      "command": "studio", "args": ["mcp"],
+      "call": { "tool": "site_list", "args": {} },
+      "source": "mcporter (~/.claude.json)",
+      "notes": "WordPress Studio CLI (~/.local/bin/studio); 25 tools."
+    },
+    {
+      "name": "notebooklm-mcp", "kind": "bridge", "transport": "stdio",
+      "command": "/Users/williammeldman/.local/bin/notebooklm-mcp", "args": [],
+      "source": "mcporter (~/.claude/settings.json)",
+      "notes": "uv tool notebooklm-mcp-cli; 38 tools; harmless call auto-picked."
+    },
+    {
+      "name": "node_repl", "kind": "bridge", "transport": "stdio",
+      "command": "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl", "args": [],
+      "source": "mcporter (~/.codex/config.toml)",
+      "notes": "ChatGPT desktop node REPL bridge; 4 tools; exec-style tools are on the deny-list so the call may be skipped."
+    },
+    {
+      "name": "rive_animator", "kind": "bridge", "transport": "stdio",
+      "command": "node", "args": ["/Users/williammeldman/.codex/mcp-servers/rive-animator/dist/index.js"], "cwd": "/Users/williammeldman/.codex/mcp-servers/rive-animator",
+      "source": "mcporter (~/.codex/config.toml)",
+      "notes": "3 tools."
+    },
+    {
+      "name": "mux-stdio", "kind": "bridge", "transport": "stdio",
+      "command": "npx", "args": ["-y", "@mux/mcp"],
+      "source": "mcporter (~/.cursor/mcp.json entry @mux/mcp)",
+      "notes": "npx-fetched; 2 tools; may need MUX_TOKEN_ID/MUX_TOKEN_SECRET for real calls (names only)."
+    },
+    {
+      "name": "canva-dev", "kind": "bridge", "transport": "stdio",
+      "command": "npx", "args": ["-y", "@canva/cli@latest", "mcp"],
+      "source": "mcporter (~/.cursor/mcp.json)",
+      "notes": "npx-fetched @canva/cli; 11 tools."
+    },
+    {
+      "name": "roboflow", "kind": "bridge", "transport": "stdio",
+      "command": "node_modules/.bin/tsx", "args": ["scripts/roboflow-mcp-server.ts"], "cwd": ".", "timeoutMs": 40000, "probeTimeoutSec": 8,
+      "source": "worktree config/mcporter.json (roboflow) — Timmy's own mcporter registry",
+      "notes": "Key-gated by ROBOFLOW_API_KEY (name only); mcporter reports Timeout. 60 s cap here."
+    },
+    {
+      "name": "3minapi", "kind": "bridge", "transport": "http", "url": "https://3minapi.com/api/mcp",
+      "gate": "not_configured", "envNames": ["THREEMINAPI_KEY"],
+      "source": "worktree config/mcporter.json (3minapi) — x-api-key header from THREEMINAPI_KEY",
+      "notes": "mcporter: header substitution fails because THREEMINAPI_KEY is unset. Paid/keyed lane, never on the critical path."
+    },
+    {
+      "name": "motion", "kind": "bridge", "transport": "stdio",
+      "command": "npx", "args": ["-y", "https://api.motion.dev/registry.tgz?package=motion-studio-mcp&version=5.4.4"],
+      "gate": "not_configured", "envNames": ["TOKEN"],
+      "source": "mcporter (~/.cursor/mcp.json, ~/.claude.json)",
+      "notes": "motion.dev studio MCP needs TOKEN; mcporter and Claude Code both report Connection closed."
+    },
+    {
+      "name": "computer-use", "kind": "bridge", "transport": "stdio",
+      "command": "./Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient", "args": ["mcp"],
+      "gate": "missing_entrypoint",
+      "source": "mcporter (~/.codex/config.toml)",
+      "notes": "Registered with a relative app path; spawn fails from any cwd."
+    },
+    {
+      "name": "unreal-mcp", "kind": "bridge", "transport": "stdio", "gate": "not_registered",
+      "source": "named in the order; absent from mcporter list, ~/.claude.json, ~/.cursor/mcp.json, ~/.codex/config.toml",
+      "notes": "Nothing registered under this name on this Mac (the unreal-engine-skills plugin ships a skill, not a running server)."
+    },
+    {
+      "name": "allyson", "kind": "bridge", "transport": "stdio", "gate": "not_configured", "envNames": ["ALLYSON_API_KEY"],
+      "source": "named in the order; Timmy's timmy_allyson_run lane calls allyson-mcp through mcporter stdio",
+      "notes": "Not registered in mcporter on this Mac and key-gated by ALLYSON_API_KEY."
+    },
+    {
+      "name": "apify", "kind": "bridge", "transport": "http", "url": "https://link.mcpmarket.com/wmeldman33/apify/mcp",
+      "gate": "not_configured", "envNames": ["APIFY_API_TOKEN"],
+      "source": "mcporter (~/.cursor/mcp.json); Timmy's timmy_apify_run uses mcp.apify.com with a bearer from APIFY_API_TOKEN",
+      "notes": "mcporter: 401 (auth required)."
+    },
+    { "name": "Notion", "kind": "bridge", "transport": "http", "url": "https://mcp.notion.com/mcp", "gate": "not_configured", "source": "mcporter (~/.cursor/mcp.json)", "notes": "OAuth; mcporter 401." },
+    { "name": "cloudflare", "kind": "bridge", "transport": "http", "url": "https://mcp.cloudflare.com/mcp", "gate": "not_configured", "source": "mcporter (~/.cursor/mcp.json)", "notes": "OAuth; mcporter 401." },
+    { "name": "wix-mcp-remote", "kind": "bridge", "transport": "http", "url": "https://mcp.wix.com/mcp", "gate": "not_configured", "source": "mcporter (~/.cursor/mcp.json)", "notes": "OAuth; mcporter 401." },
+    { "name": "elevenlabs", "kind": "bridge", "transport": "http", "url": "https://link.mcpmarket.com/wmeldman33/elevenlabs/mcp", "gate": "not_configured", "source": "mcporter (~/.cursor/mcp.json)", "notes": "OAuth; mcporter 401." },
+    { "name": "quiverai", "kind": "bridge", "transport": "http", "url": "https://app.quiver.ai/mcp", "gate": "not_configured", "source": "mcporter (~/.cursor/mcp.json)", "notes": "OAuth; mcporter 401." },
+    { "name": "krea-ai", "kind": "bridge", "transport": "http", "url": "https://api.krea.ai/mcp", "gate": "not_configured", "source": "mcporter (~/.cursor/mcp.json)", "notes": "OAuth; mcporter 401." },
+    { "name": "heygen-docs", "kind": "bridge", "transport": "http", "url": "https://developers.heygen.com/mcp", "source": "mcporter (~/.cursor/mcp.json 'HeyGen Documentation')", "notes": "Public docs server; 3 tools." },
+    { "name": "modelslab-docs", "kind": "bridge", "transport": "http", "url": "https://docs.modelslab.com/mcp", "source": "mcporter (~/.cursor/mcp.json 'ModelsLab')", "notes": "Public docs server; 3 tools." },
+    { "name": "notion-docs", "kind": "bridge", "transport": "http", "url": "https://developers.notion.com/mcp", "source": "mcporter (~/.cursor/mcp.json 'Notion Docs')", "notes": "Public docs server; 3 tools." },
+    { "name": "cometchat-docs", "kind": "bridge", "transport": "http", "url": "https://www.cometchat.com/docs/mcp", "source": "mcporter (~/.cursor/mcp.json 'CometChat Docs')", "notes": "Public docs server; 3 tools." },
+    { "name": "n8n-docs", "kind": "bridge", "transport": "http", "url": "https://docs.n8n.io/~gitbook/mcp", "source": "mcporter (~/.cursor/mcp.json)", "notes": "Public docs server; 3 tools." },
+    { "name": "openai-docs", "kind": "bridge", "transport": "http", "url": "https://developers.openai.com/mcp", "source": "mcporter (~/.codex/config.toml openaiDeveloperDocs)", "notes": "Public docs server; 5 tools." },
+    { "name": "mux-http", "kind": "bridge", "transport": "http", "url": "https://mcp.mux.com/", "source": "mcporter (~/.codex/config.toml mux)", "notes": "2 tools per mcporter." },
+    { "name": "descript", "kind": "bridge", "transport": "http", "url": "https://api.descript.com/v2/mcp", "source": "mcporter (~/.cursor/mcp.json)", "notes": "mcporter: HTTP 405 on SSE; probed here for the record." },
+    { "name": "paddle-docs", "kind": "bridge", "transport": "http", "url": "https://paddlehq.mcp.kapa.ai/", "source": "mcporter (~/.cursor/mcp.json)", "notes": "mcporter: HTTP 405 on SSE; probed here for the record." },
+    { "name": "novita-docs", "kind": "bridge", "transport": "http", "url": "https://novita.ai/docs/mcp", "source": "mcporter (~/.cursor/mcp.json 'Documentation')", "notes": "mcporter: offline (fetch failed)." },
+    { "name": "paper", "kind": "bridge", "transport": "http", "url": "http://127.0.0.1:29979/mcp", "source": "mcporter (~/.cursor/mcp.json)", "notes": "Local app bridge; do not start; offline unless the app is running." }
+  ],
+  "openapi": [
+    { "name": "openrouter", "spec_url": "https://openrouter.ai/openapi.json", "referenced_by": "fleet/openrouter/map.mjs + capabilities.map.json (\"timmy oapi (spec_url openrouter.ai/openapi.json)\") feeding timmy_oapi_run" },
+    { "name": "petstore3", "spec_url": "https://petstore3.swagger.io/api/v3/openapi.json", "referenced_by": "scripts/audit-mcp-tools.ts fixture for timmy_oapi_run (src/mcp/server.ts takes spec_url as a parameter; no SPEC_URL constant in src)" }
+  ],
+  "harmless_call_policy": {
+    "allow": "(^|[_-])(list|ls|status|health|doctor|presets|docs|ping|version|info|whoami|help|env_lock|fleet|capabilities|get_config|projects|sites|apps|voices|balance)([_-]|$)",
+    "deny": "(delete|remove|reset|kill|stop|write|create|deploy|publish|send|pay|purchase|buy|topup|generate|render|execute|exec|eval|run|import|export|save|load|new|update|set[_-]|click|type|press|drag|scroll|start|install|move|edit|upload|download|apply|submit|post|patch|put|screenshot|capture)",
+    "rule": "explicit call in the entry wins; otherwise the first tool with no required properties whose name matches allow and not deny; otherwise the call is skipped and recorded"
+  }
+}

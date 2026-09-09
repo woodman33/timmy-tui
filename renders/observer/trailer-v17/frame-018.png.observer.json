@@ -1,0 +1,54 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-018.png",
+ "image_sha256": "00253b2b75db20680c46e87a065d58d09815cd561ccaaf5d2a807af8bad3b18a",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 16189,
+  "lines": [
+   "EXAMPLE 001: THE BREAK",
+   "Tonight's example a card break."
+  ],
+  "text_sha256": "303b8d09c16dd7033009517069d1df4fae8120bb91db73b1832315647b05f3e9"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 28764,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "banner",
+    "conf": 0.092,
+    "x": 960,
+    "y": 542,
+    "w": 814,
+    "h": 126
+   }
+  ],
+  "sha256": "52311182cb34cfce73dd2f51f205a8901c06136cf13a54bb9496dfd93acebf45"
+ },
+ "observed_at": "2026-09-07T13:08:59.026Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 18,
+  "frames": 63
+ }
+}

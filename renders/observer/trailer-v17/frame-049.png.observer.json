@@ -1,0 +1,46 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-049.png",
+ "image_sha256": "0b2c75bc88bf203dacfaacb76479a4245486c7137eaa64ed6234d2fb112b0dec",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 21659,
+  "lines": [
+   "TIMMY TUI. =",
+   "re_mtduhfm5gt44 - rc_mtduhfs6_jorn - re_ntduhvdw_otpo - rc_mtduiaze_ubas - rc_mtduj68w_Ofaa - re_ntdujlvj_zeqo a rc_",
+   "Timmy TUI."
+  ],
+  "text_sha256": "3164c2bb512924a8a24fdd13a89f987f483627600d2a22b67bdf90a99eaa9b54"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 7194,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [],
+  "sha256": "2739a847ab76965fd37691135ed6d3e0b676b67c5634cb65caa61a34d63dafa8"
+ },
+ "observed_at": "2026-09-07T13:15:45.052Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 49,
+  "frames": 63
+ }
+}

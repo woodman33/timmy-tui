@@ -1,0 +1,88 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/walkthrough-deck-30s-7a339f0ac353/frame-015.png",
+ "image_sha256": "4298517e756ec1263f134a59481cbd7bb4e504eccdba4de6fe569d65e9b0e41f",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 11281,
+  "lines": [
+   "VAULT CUSTODY x TIMMY",
+   "Gateway Profile Boxes Singles Locations Provenance Where the boxes went",
+   "1",
+   "5",
+   "i",
+   "ErseS",
+   "a",
+   "osES",
+   "SRSSE -ss",
+   "a",
+   "st ss",
+   "<",
+   "A",
+   "a",
+   "8o",
+   "EP",
+   "SPM",
+   "Fo",
+   "7",
+   "4",
+   "The two-seal box nothing printed on any card",
+   "Series 001 pilot",
+   "sign out",
+   "Every",
+   "box a",
+   "1/1.",
+   "A receipt every box carries with it, and any phone can",
+   "read. The seal signs the tap. The band remembers the",
+   "break.",
+   "Pick a hat",
+   "See the provenance",
+   "It goes on the box you already make.",
+   "Sianadta"
+  ],
+  "text_sha256": "dcf0d2540a2f817ef54691a67c1b099257fa1896ddf7ed1761279100a561dcdb"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 3255,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "box",
+    "conf": 0.715,
+    "x": 404,
+    "y": 433,
+    "w": 469,
+    "h": 370
+   }
+  ],
+  "sha256": "d849d23a26779c8221156787bc5cf19979cb4f23b3edec3d0e0f4ce8726755f3"
+ },
+ "observed_at": "2026-09-07T13:40:48.923Z",
+ "source": {
+  "source_receipt": "sha256_92c15f507ba0d40d760d752fc0711589414fd3e3be26d53bd2fd6a0972949732",
+  "source_subject": "render.review",
+  "video": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/walkthrough-deck/walkthrough-deck-30s.mp4",
+  "video_sha256_12": "7a339f0ac353",
+  "frame": 15,
+  "frames": 30
+ }
+}

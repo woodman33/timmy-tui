@@ -1,0 +1,150 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-030.png",
+ "image_sha256": "aee110973d0d4f506b5389b7dbde2fdb0a1f22472196b9eb5e7b521c1b74b708",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 12866,
+  "lines": [
+   "pack.open",
+   "rc_mtdujlvj_zego",
+   "-",
+   "4149",
+   "By the time the first pack was opened, the proof already existed.",
+   "JAUBTTL STIDI",
+   "II",
+   "ROOKIE",
+   "JUMBO",
+   ": IBELA : FAIRIOTA"
+  ],
+  "text_sha256": "bc189e77dcb1187e7ba61f7930b25a798fce9a6da567c0ed54b8cebe45a84e1f"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 3651,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "person",
+    "conf": 0.773,
+    "x": 751,
+    "y": 354,
+    "w": 184,
+    "h": 202
+   },
+   {
+    "label": "person",
+    "conf": 0.754,
+    "x": 248,
+    "y": 728,
+    "w": 425,
+    "h": 646
+   },
+   {
+    "label": "person",
+    "conf": 0.305,
+    "x": 1413,
+    "y": 389,
+    "w": 215,
+    "h": 257
+   },
+   {
+    "label": "box",
+    "conf": 0.303,
+    "x": 1416,
+    "y": 484,
+    "w": 960,
+    "h": 938
+   },
+   {
+    "label": "person",
+    "conf": 0.297,
+    "x": 925,
+    "y": 758,
+    "w": 1458,
+    "h": 635
+   },
+   {
+    "label": "card",
+    "conf": 0.115,
+    "x": 743,
+    "y": 757,
+    "w": 706,
+    "h": 570
+   },
+   {
+    "label": "person",
+    "conf": 0.1,
+    "x": 1260,
+    "y": 396,
+    "w": 96,
+    "h": 206
+   },
+   {
+    "label": "card",
+    "conf": 0.087,
+    "x": 1293,
+    "y": 479,
+    "w": 488,
+    "h": 531
+   },
+   {
+    "label": "box",
+    "conf": 0.048,
+    "x": 747,
+    "y": 362,
+    "w": 308,
+    "h": 281
+   },
+   {
+    "label": "box",
+    "conf": 0.046,
+    "x": 743,
+    "y": 760,
+    "w": 702,
+    "h": 557
+   },
+   {
+    "label": "card",
+    "conf": 0.032,
+    "x": 746,
+    "y": 362,
+    "w": 309,
+    "h": 282
+   },
+   {
+    "label": "banner",
+    "conf": 0.031,
+    "x": 1725,
+    "y": 118,
+    "w": 286,
+    "h": 108
+   }
+  ],
+  "sha256": "d5ba39c647b686a24cb86a2577ac5b8f76ded63933e56e186dc7f59a8827daa5"
+ },
+ "observed_at": "2026-09-07T12:42:10.805Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 30,
+  "frames": 63
+ }
+}

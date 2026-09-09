@@ -1,0 +1,66 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-013.png",
+ "image_sha256": "f30d3b7bf57de7fc5cafb48a5c6daad41bb84830fd22176e82636070bfac4bab",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 51606,
+  "lines": [
+   "FR0GE089am_33h REGELROR.heartbeat",
+   "rc_mtdv2aox_gaoj session.heartbeat",
+   "rc_ntdv3l4w_uxit session.heartbeat",
+   "rc_mtdv4vkx_q5x6 session.heartbeat",
+   "rc_utdv6615_ypn6 session.heartbeat",
+   "rc_mtdv7ghh_7nge session.heartbeat",
+   "re_ntdv@qxv_3sue session.heartbeat",
+   "rc_mtdvaldz_fi7u session.heartbeat",
+   "rc_mtdvbbty_ev4t session.heartbeat",
+   "rc_mtdvcma7_Osdt session.heartbeat",
+   "rc_mtdvdwag. 1812 session.heartbeat",
+   "rc_mtdvf76j 139m session.heartbeat",
+   "rc_ntdvghmg_kk89 session.heartbeat",
+   "re_ntdvhs2e_fs0d session.heartbeat"
+  ],
+  "text_sha256": "b92d72bf387c0e94d035f365d2bf5000d30ad6b7144a09b16a2a007b31269472"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 14603,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "banner",
+    "conf": 0.143,
+    "x": 963,
+    "y": 525,
+    "w": 938,
+    "h": 733
+   }
+  ],
+  "sha256": "d82a56d11408ca44894db2b5f833c1c01289743cdf298705c765e93b66dc741b"
+ },
+ "observed_at": "2026-09-07T13:03:24.670Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 13,
+  "frames": 63
+ }
+}

@@ -1,0 +1,92 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/walkthrough-deck-30s-7a339f0ac353/frame-013.png",
+ "image_sha256": "d4a1b5fc4693085a2948e329e6e8bcb7920943a9cea3d870c56c5483f83933b3",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 10564,
+  "lines": [
+   "VAULT CUSTODY x TIMMY",
+   "Gateway Profile Boxes Singles Locations Provenance Where the boxes went",
+   "RA",
+   "EHERCE CSSIS",
+   "A",
+   "CINRt SSR -one",
+   "sos",
+   "SUASLST",
+   "Sruee",
+   "The two-seal box nothing printed on any card",
+   "ne",
+   "<",
+   "BEREES",
+   "0",
+   "ERIESE",
+   "2026",
+   "VCo9oT",
+   "-",
+   "SEAL",
+   "Series 001 pilot",
+   "sign out",
+   "Every box a 1/1.",
+   "A receipt every box carries with it, and any phone can",
+   "read. The seal signs the tap. The band remembers the",
+   "break.",
+   "Pick a hat",
+   "See the provenance",
+   "It goes on the box you already make.",
+   "Sianadta"
+  ],
+  "text_sha256": "1611c0ef12851a21ccaf0ceaa98b0e9e7b99de6b04e22c88aaa38c964002a0aa"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 2384,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "box",
+    "conf": 0.655,
+    "x": 416,
+    "y": 426,
+    "w": 491,
+    "h": 363
+   },
+   {
+    "label": "banner",
+    "conf": 0.031,
+    "x": 329,
+    "y": 864,
+    "w": 523,
+    "h": 72
+   }
+  ],
+  "sha256": "78773df20c0a41f94a8663ba152e80d9f978d14fd9de4a185d5b934d05f127c3"
+ },
+ "observed_at": "2026-09-07T13:40:08.639Z",
+ "source": {
+  "source_receipt": "sha256_92c15f507ba0d40d760d752fc0711589414fd3e3be26d53bd2fd6a0972949732",
+  "source_subject": "render.review",
+  "video": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/walkthrough-deck/walkthrough-deck-30s.mp4",
+  "video_sha256_12": "7a339f0ac353",
+  "frame": 13,
+  "frames": 30
+ }
+}

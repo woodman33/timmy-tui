@@ -1,0 +1,47 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-009.png",
+ "image_sha256": "b2a4b11c574acaaaacbe1b3210511e9b2b8e48fa00c40360eeb0bb0894b65ff2",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 17683,
+  "lines": [
+   "prompt A hashed",
+   "command L signed",
+   "action h chain -",
+   "Every prompt, every command, every action"
+  ],
+  "text_sha256": "a3ee4c4f4db7c621728506b5e4e95a72106409a9b96487b5adfec21d47f87b1d"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 17773,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [],
+  "sha256": "2739a847ab76965fd37691135ed6d3e0b676b67c5634cb65caa61a34d63dafa8"
+ },
+ "observed_at": "2026-09-07T12:59:24.426Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 9,
+  "frames": 63
+ }
+}

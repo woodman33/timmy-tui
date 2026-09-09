@@ -1,0 +1,198 @@
+{
+  "metadata": {
+    "generated_at": "2026-09-07T12:33:55.758610+00:00",
+    "mcp_probe_version": "0.3.0",
+    "total_duration_ms": 933,
+    "transport_type": "stdio"
+  },
+  "protocol_info": {
+    "available_protocols": [
+      {
+        "endpoints": [
+          "/mcp"
+        ],
+        "session_management": "Mcp-Session-Id header",
+        "spec_date": "2025-03-26",
+        "supported_methods": [
+          "initialize",
+          "initialized",
+          "tools/list",
+          "tools/call",
+          "resources/list",
+          "resources/read",
+          "prompts/list",
+          "prompts/get",
+          "logging/setLevel",
+          "notifications/*"
+        ],
+        "version": "Modern Streamable HTTP"
+      },
+      {
+        "endpoints": [
+          "/sse",
+          "/events"
+        ],
+        "session_management": "sessionId query parameter",
+        "spec_date": "2024-11-05",
+        "supported_methods": [
+          "initialize",
+          "initialized",
+          "tools/list",
+          "tools/call",
+          "resources/list",
+          "resources/read",
+          "prompts/list",
+          "prompts/get",
+          "logging/setLevel"
+        ],
+        "version": "Legacy HTTP+SSE"
+      },
+      {
+        "endpoints": [
+          "stdio"
+        ],
+        "session_management": "N/A (stdio)",
+        "spec_date": "2025-03-26",
+        "supported_methods": [
+          "initialize",
+          "initialized",
+          "tools/list",
+          "tools/call",
+          "resources/list",
+          "resources/read",
+          "prompts/list",
+          "prompts/get",
+          "logging/setLevel",
+          "notifications/*"
+        ],
+        "version": "Standard Transport"
+      }
+    ],
+    "detected_protocol": {
+      "endpoints": [
+        "stdio"
+      ],
+      "session_management": "N/A (stdio)",
+      "spec_date": "2025-03-26",
+      "supported_methods": [
+        "initialize",
+        "initialized",
+        "tools/list",
+        "tools/call",
+        "resources/list",
+        "resources/read",
+        "prompts/list",
+        "prompts/get",
+        "logging/setLevel",
+        "notifications/*"
+      ],
+      "version": "Standard Transport"
+    }
+  },
+  "results": [
+    {
+      "details": null,
+      "duration_ms": 0,
+      "message": "Successfully created MCP client",
+      "name": "Connection",
+      "status": "PASS"
+    },
+    {
+      "details": {
+        "name": "timmy-porter",
+        "protocol_version": "2024-11-05",
+        "version": "1.0.0"
+      },
+      "duration_ms": 127,
+      "message": "Connected to timmy-porter v1.0.0",
+      "name": "Initialization",
+      "status": "PASS"
+    },
+    {
+      "details": null,
+      "duration_ms": 1,
+      "message": "Server capabilities discovered successfully",
+      "name": "Capability Discovery",
+      "status": "PASS"
+    },
+    {
+      "details": [
+        {
+          "description": "Walk TIMMY receipt chains (gens/harness/runs/exports); detect tampering",
+          "input_schema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "timmy_verify"
+        },
+        {
+          "description": "List the generation ledger: prompts, providers, models, costs, statuses",
+          "input_schema": {
+            "properties": {
+              "limit": {
+                "type": "number"
+              }
+            },
+            "type": "object"
+          },
+          "name": "timmy_gens"
+        },
+        {
+          "description": "Read a TIMMY Slate project (beats, cast call-sheet, branches, refs)",
+          "input_schema": {
+            "properties": {
+              "project": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "project"
+            ],
+            "type": "object"
+          },
+          "name": "timmy_slate"
+        },
+        {
+          "description": "List the Porter fleet (houdini #1, roboflow #2, comfyui #3…) with detection status",
+          "input_schema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "timmy_fleet"
+        }
+      ],
+      "duration_ms": 1,
+      "message": "Successfully listed 4 tools",
+      "name": "Tools Listing",
+      "status": "PASS"
+    },
+    {
+      "details": null,
+      "duration_ms": 0,
+      "message": "Resources listing: Serialization error: missing field `resources`",
+      "name": "Resources Listing",
+      "status": "FAIL"
+    },
+    {
+      "details": null,
+      "duration_ms": 0,
+      "message": "Prompts listing: Serialization error: missing field `prompts`",
+      "name": "Prompts Listing",
+      "status": "FAIL"
+    },
+    {
+      "details": null,
+      "duration_ms": 0,
+      "message": "Should return error for invalid methods",
+      "name": "Error Handling",
+      "status": "FAIL"
+    }
+  ],
+  "summary": {
+    "failed": 3,
+    "passed": 4,
+    "skipped": 0,
+    "total_tests": 7,
+    "warnings": 0
+  }
+}

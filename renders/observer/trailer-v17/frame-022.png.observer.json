@@ -1,0 +1,92 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-022.png",
+ "image_sha256": "14f4874af6eaab33054c62b43a530cf45f767bcba9c954ba929ddda2c524566b",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 10670,
+  "lines": [
+   "Petaitlintake",
+   "FC mtduhfs6-jorn",
+   "C",
+   "PANINI",
+   "PANINI",
+   "PHOTOGENIC",
+   "2023-24",
+   "NBA TRADING CARDS",
+   "5",
+   "CARDI",
+   "R",
+   "BIEe",
+   "H PIRCEASE",
+   "BEAET IE IEE FIE DTE",
+   "Every box went into the record before the wrap ever came off",
+   "PHOTOGENIC",
+   "2023-24",
+   "NBA TRADING CARDS",
+   "5",
+   "ARDI",
+   "PE",
+   "AEE",
+   "H PRERIE BEEEELUET MI 144 E",
+   "the ones we"
+  ],
+  "text_sha256": "1443d10b0b984595875dc6ecf4c4f1c04d65c829be75afa262d70461e80102cd"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 1401,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "person",
+    "conf": 0.89,
+    "x": 425,
+    "y": 665,
+    "w": 769,
+    "h": 778
+   },
+   {
+    "label": "box",
+    "conf": 0.828,
+    "x": 1452,
+    "y": 494,
+    "w": 893,
+    "h": 964
+   },
+   {
+    "label": "card",
+    "conf": 0.109,
+    "x": 792,
+    "y": 556,
+    "w": 361,
+    "h": 491
+   }
+  ],
+  "sha256": "173df4ae154de2b4139714cf3b0558ad5a9350570a7959e7738caed0816e1de5"
+ },
+ "observed_at": "2026-09-07T12:40:04.283Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 22,
+  "frames": 63
+ }
+}

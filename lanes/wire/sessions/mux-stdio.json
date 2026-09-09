@@ -1,0 +1,532 @@
+{
+  "generated_at": "2026-09-07T12:41:24.446157Z",
+  "session": {
+    "id": "mux-stdio-45130-dc063cf6b88f",
+    "label": "mux-stdio",
+    "first": "2026-09-07T05:41:18.824777-07:00",
+    "last": "2026-09-07T05:41:22.747476-07:00",
+    "requests": 3,
+    "responses": 3,
+    "notifications": 1,
+    "errors": 0,
+    "pending": 0,
+    "late_results": 0,
+    "missing_frames": 0
+  },
+  "summary": {
+    "definitions": {
+      "tools": 2,
+      "bytes": 2116,
+      "complete": true,
+      "per_tool": [
+        {
+          "name": "execute",
+          "bytes": 1438,
+          "description_bytes": 1173,
+          "schema_bytes": 217
+        },
+        {
+          "name": "search_docs",
+          "bytes": 678,
+          "description_bytes": 179,
+          "schema_bytes": 411
+        }
+      ]
+    },
+    "tools": [],
+    "slowest_calls": []
+  },
+  "capabilities": {
+    "protocol_version": "2025-11-25",
+    "client_info": {
+      "name": "mcpc",
+      "version": "0.6.0"
+    },
+    "server_info": {
+      "name": "mux",
+      "version": "15.0.0"
+    },
+    "client": {
+      "tasks": {
+        "list": {},
+        "cancel": {}
+      }
+    },
+    "server": {
+      "tools": {},
+      "logging": {}
+    },
+    "instructions": "\n  This is the mux MCP server.\n\n  Available tools:\n  - search_docs: Search SDK documentation to find the right methods and parameters.\n  - execute: Run TypeScript code against a pre-authenticated SDK client. Define an async run(client) function.\n\n  Workflow:\n  - If unsure about the API, call search_docs first.\n  - Write complete solutions in a single execute call when possible. For large datasets, use API filters to narrow results or paginate within a single execute block.\n  - If execute returns an error, read the error and fix your code rather than retrying the same approach.\n  - Variables do not persist between execute calls. Return or log all data you need.\n  - Individual HTTP requests to the API have a 30-second timeout. If a request times out, try a smaller query or add filters.\n  - Code execution has a total timeout of approximately 5 minutes. If your code times out, simplify it or break it into smaller steps.\n  "
+  },
+  "calls": [
+    {
+      "index": 0,
+      "id": "0",
+      "method": "initialize",
+      "direction": "c2s",
+      "state": "completed",
+      "status": "ok",
+      "is_tool": false,
+      "is_error": false,
+      "tool_error": false,
+      "started_at": "2026-09-07T05:41:18.82658-07:00",
+      "ended_at": "2026-09-07T05:41:22.494094-07:00",
+      "duration_ms": 3667.514,
+      "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "tasks": {
+            "list": {},
+            "cancel": {}
+          }
+        },
+        "clientInfo": {
+          "name": "mcpc",
+          "version": "0.6.0"
+        }
+      },
+      "result": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "tools": {},
+          "logging": {}
+        },
+        "serverInfo": {
+          "name": "mux",
+          "version": "15.0.0"
+        },
+        "instructions": "\n  This is the mux MCP server.\n\n  Available tools:\n  - search_docs: Search SDK documentation to find the right methods and parameters.\n  - execute: Run TypeScript code against a pre-authenticated SDK client. Define an async run(client) function.\n\n  Workflow:\n  - If unsure about the API, call search_docs first.\n  - Write complete solutions in a single execute call when possible. For large datasets, use API filters to narrow results or paginate within a single execute block.\n  - If execute returns an error, read the error and fix your code rather than retrying the same approach.\n  - Variables do not persist between execute calls. Return or log all data you need.\n  - Individual HTTP requests to the API have a 30-second timeout. If a request times out, try a smaller query or add filters.\n  - Code execution has a total timeout of approximately 5 minutes. If your code times out, simplify it or break it into smaller steps.\n  "
+      }
+    },
+    {
+      "index": 1,
+      "id": "1",
+      "method": "tools/list",
+      "direction": "c2s",
+      "state": "completed",
+      "status": "ok",
+      "is_tool": false,
+      "is_error": false,
+      "tool_error": false,
+      "started_at": "2026-09-07T05:41:22.507453-07:00",
+      "ended_at": "2026-09-07T05:41:22.508478-07:00",
+      "duration_ms": 1.025,
+      "params": {},
+      "result": {
+        "tools": [
+          {
+            "name": "execute",
+            "description": "Runs JavaScript code to interact with the Mux API.\n\nYou are a skilled TypeScript programmer writing code to interface with the service.\nDefine an async function named \"run\" that takes a single parameter of an initialized SDK client and it will be run.\nFor example:\n\n```\nasync function run(client) {\n  const asset = await client.video.assets.create({ inputs: [{ url: 'https://storage.googleapis.com/muxdemofiles/mux-video-intro.mp4' }], playback_policies: ['public'] });\n\n  console.log(asset.id);\n}\n```\n\nYou will be returned anything that your function returns, plus the results of any console.log statements.\nDo not add try-catch blocks for single API calls. The tool will handle errors for you.\nDo not add comments unless necessary for generating better code.\nCode will run in a container, and cannot interact with the network outside of the given SDK client.\nVariables will not persist between calls, so make sure to return or log any data you might need later.\nRemember that you are writing TypeScript code, so you need to be careful with your types.\nAlways type dynamic key-value stores explicitly as Record<string, YourValueType> instead of {}.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "description": "Code to execute."
+                },
+                "intent": {
+                  "type": "string",
+                  "description": "Task you are trying to perform. Used for improving the service."
+                }
+              },
+              "required": [
+                "code"
+              ]
+            }
+          },
+          {
+            "name": "search_docs",
+            "description": "Search SDK documentation to find methods, parameters, and usage examples for interacting with the API. Use this before writing code when you need to discover the right approach.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "description": "The query to search for."
+                },
+                "language": {
+                  "type": "string",
+                  "description": "The language for the SDK to search for.",
+                  "enum": [
+                    "http",
+                    "python",
+                    "go",
+                    "typescript",
+                    "javascript",
+                    "terraform",
+                    "ruby",
+                    "java",
+                    "kotlin"
+                  ]
+                },
+                "detail": {
+                  "type": "string",
+                  "description": "The amount of detail to return.",
+                  "enum": [
+                    "default",
+                    "verbose"
+                  ]
+                }
+              },
+              "required": [
+                "query",
+                "language"
+              ]
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "id": "2",
+      "method": "tools/list",
+      "direction": "c2s",
+      "state": "completed",
+      "status": "ok",
+      "is_tool": false,
+      "is_error": false,
+      "tool_error": false,
+      "started_at": "2026-09-07T05:41:22.74616-07:00",
+      "ended_at": "2026-09-07T05:41:22.747476-07:00",
+      "duration_ms": 1.316,
+      "params": {},
+      "result": {
+        "tools": [
+          {
+            "name": "execute",
+            "description": "Runs JavaScript code to interact with the Mux API.\n\nYou are a skilled TypeScript programmer writing code to interface with the service.\nDefine an async function named \"run\" that takes a single parameter of an initialized SDK client and it will be run.\nFor example:\n\n```\nasync function run(client) {\n  const asset = await client.video.assets.create({ inputs: [{ url: 'https://storage.googleapis.com/muxdemofiles/mux-video-intro.mp4' }], playback_policies: ['public'] });\n\n  console.log(asset.id);\n}\n```\n\nYou will be returned anything that your function returns, plus the results of any console.log statements.\nDo not add try-catch blocks for single API calls. The tool will handle errors for you.\nDo not add comments unless necessary for generating better code.\nCode will run in a container, and cannot interact with the network outside of the given SDK client.\nVariables will not persist between calls, so make sure to return or log any data you might need later.\nRemember that you are writing TypeScript code, so you need to be careful with your types.\nAlways type dynamic key-value stores explicitly as Record<string, YourValueType> instead of {}.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "description": "Code to execute."
+                },
+                "intent": {
+                  "type": "string",
+                  "description": "Task you are trying to perform. Used for improving the service."
+                }
+              },
+              "required": [
+                "code"
+              ]
+            }
+          },
+          {
+            "name": "search_docs",
+            "description": "Search SDK documentation to find methods, parameters, and usage examples for interacting with the API. Use this before writing code when you need to discover the right approach.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "description": "The query to search for."
+                },
+                "language": {
+                  "type": "string",
+                  "description": "The language for the SDK to search for.",
+                  "enum": [
+                    "http",
+                    "python",
+                    "go",
+                    "typescript",
+                    "javascript",
+                    "terraform",
+                    "ruby",
+                    "java",
+                    "kotlin"
+                  ]
+                },
+                "detail": {
+                  "type": "string",
+                  "description": "The amount of detail to return.",
+                  "enum": [
+                    "default",
+                    "verbose"
+                  ]
+                }
+              },
+              "required": [
+                "query",
+                "language"
+              ]
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "seq": 2,
+      "timestamp": "2026-09-07T05:41:18.82658-07:00",
+      "direction": "c2s",
+      "kind": "request",
+      "method": "initialize",
+      "id": "0",
+      "call_index": 0,
+      "raw": {
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2025-11-25",
+          "capabilities": {
+            "tasks": {
+              "list": {},
+              "cancel": {}
+            }
+          },
+          "clientInfo": {
+            "name": "mcpc",
+            "version": "0.6.0"
+          }
+        },
+        "jsonrpc": "2.0",
+        "id": 0
+      }
+    },
+    {
+      "seq": 3,
+      "timestamp": "2026-09-07T05:41:22.407346-07:00",
+      "direction": "stderr",
+      "kind": "stderr",
+      "text": "{\"level\":\"info\",\"time\":\"2026-09-07T12:41:22.406Z\",\"pid\":45403,\"hostname\":\"Williams-MacBook-Pro-2.local\",\"tools\":[\"execute\",\"search_docs\"],\"msg\":\"MCP Server starting with 2 tools\"}"
+    },
+    {
+      "seq": 4,
+      "timestamp": "2026-09-07T05:41:22.488722-07:00",
+      "direction": "stderr",
+      "kind": "stderr",
+      "text": "{\"level\":\"info\",\"time\":\"2026-09-07T12:41:22.488Z\",\"pid\":45403,\"hostname\":\"Williams-MacBook-Pro-2.local\",\"msg\":\"MCP Server running on stdio\"}"
+    },
+    {
+      "seq": 5,
+      "timestamp": "2026-09-07T05:41:22.494094-07:00",
+      "direction": "s2c",
+      "kind": "response",
+      "id": "0",
+      "call_index": 0,
+      "raw": {
+        "result": {
+          "protocolVersion": "2025-11-25",
+          "capabilities": {
+            "tools": {},
+            "logging": {}
+          },
+          "serverInfo": {
+            "name": "mux",
+            "version": "15.0.0"
+          },
+          "instructions": "\n  This is the mux MCP server.\n\n  Available tools:\n  - search_docs: Search SDK documentation to find the right methods and parameters.\n  - execute: Run TypeScript code against a pre-authenticated SDK client. Define an async run(client) function.\n\n  Workflow:\n  - If unsure about the API, call search_docs first.\n  - Write complete solutions in a single execute call when possible. For large datasets, use API filters to narrow results or paginate within a single execute block.\n  - If execute returns an error, read the error and fix your code rather than retrying the same approach.\n  - Variables do not persist between execute calls. Return or log all data you need.\n  - Individual HTTP requests to the API have a 30-second timeout. If a request times out, try a smaller query or add filters.\n  - Code execution has a total timeout of approximately 5 minutes. If your code times out, simplify it or break it into smaller steps.\n  "
+        },
+        "jsonrpc": "2.0",
+        "id": 0
+      }
+    },
+    {
+      "seq": 6,
+      "timestamp": "2026-09-07T05:41:22.499079-07:00",
+      "direction": "c2s",
+      "kind": "notification",
+      "method": "notifications/initialized",
+      "raw": {
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized"
+      }
+    },
+    {
+      "seq": 7,
+      "timestamp": "2026-09-07T05:41:22.507453-07:00",
+      "direction": "c2s",
+      "kind": "request",
+      "method": "tools/list",
+      "id": "1",
+      "call_index": 1,
+      "raw": {
+        "method": "tools/list",
+        "params": {},
+        "jsonrpc": "2.0",
+        "id": 1
+      }
+    },
+    {
+      "seq": 8,
+      "timestamp": "2026-09-07T05:41:22.508478-07:00",
+      "direction": "s2c",
+      "kind": "response",
+      "id": "1",
+      "call_index": 1,
+      "raw": {
+        "result": {
+          "tools": [
+            {
+              "name": "execute",
+              "description": "Runs JavaScript code to interact with the Mux API.\n\nYou are a skilled TypeScript programmer writing code to interface with the service.\nDefine an async function named \"run\" that takes a single parameter of an initialized SDK client and it will be run.\nFor example:\n\n```\nasync function run(client) {\n  const asset = await client.video.assets.create({ inputs: [{ url: 'https://storage.googleapis.com/muxdemofiles/mux-video-intro.mp4' }], playback_policies: ['public'] });\n\n  console.log(asset.id);\n}\n```\n\nYou will be returned anything that your function returns, plus the results of any console.log statements.\nDo not add try-catch blocks for single API calls. The tool will handle errors for you.\nDo not add comments unless necessary for generating better code.\nCode will run in a container, and cannot interact with the network outside of the given SDK client.\nVariables will not persist between calls, so make sure to return or log any data you might need later.\nRemember that you are writing TypeScript code, so you need to be careful with your types.\nAlways type dynamic key-value stores explicitly as Record<string, YourValueType> instead of {}.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "description": "Code to execute."
+                  },
+                  "intent": {
+                    "type": "string",
+                    "description": "Task you are trying to perform. Used for improving the service."
+                  }
+                },
+                "required": [
+                  "code"
+                ]
+              }
+            },
+            {
+              "name": "search_docs",
+              "description": "Search SDK documentation to find methods, parameters, and usage examples for interacting with the API. Use this before writing code when you need to discover the right approach.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "description": "The query to search for."
+                  },
+                  "language": {
+                    "type": "string",
+                    "description": "The language for the SDK to search for.",
+                    "enum": [
+                      "http",
+                      "python",
+                      "go",
+                      "typescript",
+                      "javascript",
+                      "terraform",
+                      "ruby",
+                      "java",
+                      "kotlin"
+                    ]
+                  },
+                  "detail": {
+                    "type": "string",
+                    "description": "The amount of detail to return.",
+                    "enum": [
+                      "default",
+                      "verbose"
+                    ]
+                  }
+                },
+                "required": [
+                  "query",
+                  "language"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            }
+          ]
+        },
+        "jsonrpc": "2.0",
+        "id": 1
+      }
+    },
+    {
+      "seq": 9,
+      "timestamp": "2026-09-07T05:41:22.74616-07:00",
+      "direction": "c2s",
+      "kind": "request",
+      "method": "tools/list",
+      "id": "2",
+      "call_index": 2,
+      "raw": {
+        "method": "tools/list",
+        "params": {},
+        "jsonrpc": "2.0",
+        "id": 2
+      }
+    },
+    {
+      "seq": 10,
+      "timestamp": "2026-09-07T05:41:22.747476-07:00",
+      "direction": "s2c",
+      "kind": "response",
+      "id": "2",
+      "call_index": 2,
+      "raw": {
+        "result": {
+          "tools": [
+            {
+              "name": "execute",
+              "description": "Runs JavaScript code to interact with the Mux API.\n\nYou are a skilled TypeScript programmer writing code to interface with the service.\nDefine an async function named \"run\" that takes a single parameter of an initialized SDK client and it will be run.\nFor example:\n\n```\nasync function run(client) {\n  const asset = await client.video.assets.create({ inputs: [{ url: 'https://storage.googleapis.com/muxdemofiles/mux-video-intro.mp4' }], playback_policies: ['public'] });\n\n  console.log(asset.id);\n}\n```\n\nYou will be returned anything that your function returns, plus the results of any console.log statements.\nDo not add try-catch blocks for single API calls. The tool will handle errors for you.\nDo not add comments unless necessary for generating better code.\nCode will run in a container, and cannot interact with the network outside of the given SDK client.\nVariables will not persist between calls, so make sure to return or log any data you might need later.\nRemember that you are writing TypeScript code, so you need to be careful with your types.\nAlways type dynamic key-value stores explicitly as Record<string, YourValueType> instead of {}.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "description": "Code to execute."
+                  },
+                  "intent": {
+                    "type": "string",
+                    "description": "Task you are trying to perform. Used for improving the service."
+                  }
+                },
+                "required": [
+                  "code"
+                ]
+              }
+            },
+            {
+              "name": "search_docs",
+              "description": "Search SDK documentation to find methods, parameters, and usage examples for interacting with the API. Use this before writing code when you need to discover the right approach.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "description": "The query to search for."
+                  },
+                  "language": {
+                    "type": "string",
+                    "description": "The language for the SDK to search for.",
+                    "enum": [
+                      "http",
+                      "python",
+                      "go",
+                      "typescript",
+                      "javascript",
+                      "terraform",
+                      "ruby",
+                      "java",
+                      "kotlin"
+                    ]
+                  },
+                  "detail": {
+                    "type": "string",
+                    "description": "The amount of detail to return.",
+                    "enum": [
+                      "default",
+                      "verbose"
+                    ]
+                  }
+                },
+                "required": [
+                  "query",
+                  "language"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            }
+          ]
+        },
+        "jsonrpc": "2.0",
+        "id": 2
+      }
+    }
+  ]
+}

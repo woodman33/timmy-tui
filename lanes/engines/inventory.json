@@ -1,0 +1,248 @@
+{
+ "v": 1,
+ "standard": "engine-shelf/v0",
+ "measured_at": "2026-09-07T13:29:17.908Z",
+ "engines": [
+  {
+   "id": "houdini",
+   "label": "Houdini 22 (Current) · Apprentice licence",
+   "fleet_id": "houdini-sceneforge",
+   "installed": true,
+   "version": "22.0.429 (Current → /Applications/Houdini/Houdini22.0.429; 21.0.753 also on disk; hython reports licenseCategoryType.Apprentice: .hipnc scenes, Karma watermark)",
+   "bridge": [
+    "cli",
+    "mcp"
+   ],
+   "binaries": {
+    "hython": "/Applications/Houdini/Current/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hython",
+    "hbatch": "/Applications/Houdini/Current/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hbatch",
+    "husk": "/Applications/Houdini/Current/Frameworks/Houdini.framework/Versions/Current/Resources/bin/husk",
+    "usdcat": "/Applications/Houdini/Current/Frameworks/Houdini.framework/Versions/Current/Resources/bin/usdcat"
+   },
+   "primary_binary": "/Applications/Houdini/Current/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hython",
+   "envlock_sha256": "381b459627480cb8ea00c8ca82e63d2f0a3e16ee9dc0d293f1fd234e94430719",
+   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/houdini/env-lock.json",
+   "mcp": "houdini-gen",
+   "templates": [
+    "karma-still",
+    "procedural-asset",
+    "usd-export"
+   ],
+   "templates_complete": 3,
+   "proven": [
+    "karma-still",
+    "procedural-asset",
+    "usd-export"
+   ],
+   "unproven": []
+  },
+  {
+   "id": "unreal",
+   "label": "Unreal Engine",
+   "fleet_id": "unreal",
+   "installed": false,
+   "version": null,
+   "bridge": [
+    "cli",
+    "mcp"
+   ],
+   "binaries": {
+    "UnrealEditor": null
+   },
+   "primary_binary": null,
+   "envlock_sha256": "c79526097803f19e0ecd691abbb55d6e1cc7970981df20e059f7a2d815ca6050",
+   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/unreal/env-lock.json",
+   "mcp": "unreal-mcp",
+   "templates": [
+    "blueprint-bake",
+    "level-import",
+    "movie-render-queue"
+   ],
+   "templates_complete": 3,
+   "proven": [],
+   "unproven": [
+    "blueprint-bake",
+    "level-import",
+    "movie-render-queue"
+   ]
+  },
+  {
+   "id": "usd",
+   "label": "OpenUSD tools",
+   "fleet_id": "usd",
+   "installed": true,
+   "version": "Apple USD Tools 0.25.2 (+ Houdini 21 usdcat)",
+   "bridge": [
+    "cli"
+   ],
+   "binaries": {
+    "usdcat": "/usr/bin/usdcat",
+    "usdzip": "/usr/bin/usdzip"
+   },
+   "primary_binary": "/usr/bin/usdcat",
+   "envlock_sha256": "ba29c8f0c6cb797ddd1d71813dbe0a0bf1eced8cfe3015567d892a711c0eb9c5",
+   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/usd/env-lock.json",
+   "mcp": null,
+   "templates": [
+    "usd-flatten",
+    "usd-validate",
+    "usdz-package"
+   ],
+   "templates_complete": 3,
+   "proven": [
+    "usd-flatten",
+    "usd-validate",
+    "usdz-package"
+   ],
+   "unproven": []
+  },
+  {
+   "id": "unity",
+   "label": "Unity",
+   "fleet_id": "unity",
+   "installed": false,
+   "version": null,
+   "bridge": [
+    "cli"
+   ],
+   "binaries": {
+    "unity-editor": null
+   },
+   "primary_binary": null,
+   "envlock_sha256": "c494190a6841529b9ba19534517ce76934407b0d5d0fdc9b33dfd8f776739c3f",
+   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/unity/env-lock.json",
+   "mcp": null,
+   "templates": [
+    "asset-import",
+    "batch-build",
+    "test-runner"
+   ],
+   "templates_complete": 3,
+   "proven": [],
+   "unproven": [
+    "asset-import",
+    "batch-build",
+    "test-runner"
+   ]
+  },
+  {
+   "id": "defold",
+   "label": "Defold 1.13.1",
+   "fleet_id": "defold",
+   "installed": true,
+   "version": "1.13.1 (engine 574678c7d44be490d874fbed2d0ae6211feec4d9)",
+   "bridge": [
+    "cli",
+    "api"
+   ],
+   "binaries": {
+    "java": "/Applications/Defold.app/Contents/Resources/packages/jdk-25+36/bin/java",
+    "bob": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/defold/.cache/bob-574678c7.jar",
+    "defold": "/Applications/Defold.app/Contents/MacOS/Defold"
+   },
+   "primary_binary": "/Applications/Defold.app/Contents/Resources/packages/jdk-25+36/bin/java",
+   "envlock_sha256": "2ccb19439e15568d10efc52038ee45f3eb7458e80093b3f54ce7a03279d8cafb",
+   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/defold/env-lock.json",
+   "mcp": null,
+   "templates": [
+    "html5-bundle",
+    "resolve-and-lint",
+    "sprite-atlas"
+   ],
+   "templates_complete": 3,
+   "proven": [
+    "html5-bundle",
+    "resolve-and-lint",
+    "sprite-atlas"
+   ],
+   "unproven": []
+  },
+  {
+   "id": "cocos",
+   "label": "Cocos Creator CLI",
+   "fleet_id": "cocos",
+   "installed": false,
+   "version": null,
+   "bridge": [
+    "cli"
+   ],
+   "binaries": {
+    "cocos": null
+   },
+   "primary_binary": null,
+   "envlock_sha256": "93bbe2c9f63e0ef7ea1696dae1e8334095de71c72597d619971309214c21d555",
+   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/cocos/env-lock.json",
+   "mcp": null,
+   "templates": [
+    "asset-pack",
+    "scene-lint",
+    "web-build"
+   ],
+   "templates_complete": 3,
+   "proven": [],
+   "unproven": [
+    "asset-pack",
+    "scene-lint",
+    "web-build"
+   ]
+  },
+  {
+   "id": "godot",
+   "label": "Godot",
+   "fleet_id": "godot",
+   "installed": false,
+   "version": null,
+   "bridge": [
+    "cli"
+   ],
+   "binaries": {
+    "godot": null
+   },
+   "primary_binary": null,
+   "envlock_sha256": "793c47a331e9e2c85320c54e9ae8d79a6ada9d952d07a6cb4a654eda8fdb18e2",
+   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/godot/env-lock.json",
+   "mcp": null,
+   "templates": [
+    "gdscript-run",
+    "headless-export",
+    "import-only"
+   ],
+   "templates_complete": 3,
+   "proven": [],
+   "unproven": [
+    "gdscript-run",
+    "headless-export",
+    "import-only"
+   ]
+  },
+  {
+   "id": "blender",
+   "label": "Blender 5.1.1",
+   "fleet_id": "blender",
+   "installed": true,
+   "version": "5.1.1",
+   "bridge": [
+    "cli"
+   ],
+   "binaries": {
+    "blender": "/Applications/Blender.app/Contents/MacOS/Blender"
+   },
+   "primary_binary": "/Applications/Blender.app/Contents/MacOS/Blender",
+   "envlock_sha256": "708ba4d85d0229d343cf5146fa06a2fcd98ddbc7aa5c1549e7e9992f74f102d4",
+   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/blender/env-lock.json",
+   "mcp": null,
+   "templates": [
+    "glb-export",
+    "render-still",
+    "usd-export"
+   ],
+   "templates_complete": 3,
+   "proven": [
+    "glb-export",
+    "render-still",
+    "usd-export"
+   ],
+   "unproven": []
+  }
+ ]
+}

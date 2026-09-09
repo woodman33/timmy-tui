@@ -1,0 +1,756 @@
+{
+  "metadata": {
+    "generated_at": "2026-09-07T12:34:32.742956Z",
+    "validator_version": "1.0.0",
+    "transport_type": "stdio",
+    "total_duration": {
+      "secs": 0,
+      "nanos": 805224750
+    },
+    "config": {
+      "test_timeout": {
+        "secs": 30,
+        "nanos": 0
+      },
+      "total_timeout": {
+        "secs": 300,
+        "nanos": 0
+      },
+      "strict_schema_validation": true,
+      "test_error_conditions": true,
+      "validate_tool_schemas": true,
+      "test_capability_discovery": true,
+      "max_tools_to_test": 10,
+      "custom_rules": []
+    }
+  },
+  "summary": {
+    "total_tests": 11,
+    "passed": 9,
+    "info": 0,
+    "warnings": 2,
+    "errors": 0,
+    "critical": 0,
+    "skipped": 0,
+    "compliance_percentage": 81.81818181818183
+  },
+  "results": [
+    {
+      "test_id": "transport_connection",
+      "test_name": "Transport Connection",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Successfully connected via stdio",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 15086000
+      },
+      "timestamp": "2026-09-07T12:34:31.952815Z"
+    },
+    {
+      "test_id": "initialization",
+      "test_name": "MCP Initialization",
+      "category": "Initialization",
+      "status": "Pass",
+      "message": "Successfully initialized with open-design v0.2.0",
+      "details": {
+        "capabilities": {
+          "logging": null,
+          "prompts": null,
+          "resources": {
+            "available_resources": [],
+            "list_changed": null,
+            "subscribe": null
+          },
+          "tools": {
+            "available_tools": [],
+            "list_changed": null
+          }
+        },
+        "name": "open-design",
+        "protocol_version": "2024-11-05",
+        "version": "0.2.0"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 704532250
+      },
+      "timestamp": "2026-09-07T12:34:32.657368Z"
+    },
+    {
+      "test_id": "json_rpc_compliance",
+      "test_name": "JSON-RPC 2.0 Compliance",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "All messages follow JSON-RPC 2.0 specification",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:34:32.657712Z"
+    },
+    {
+      "test_id": "tools_listing",
+      "test_name": "Tools Listing",
+      "category": "Tools",
+      "status": "Pass",
+      "message": "Successfully retrieved tools list",
+      "details": {
+        "tools": [
+          {
+            "annotations": {
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+              "title": "List Open Design projects"
+            },
+            "description": "List every Open Design project on this daemon.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "list_projects"
+          },
+          {
+            "annotations": {
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+              "title": "What is the user looking at?"
+            },
+            "description": "Project + file the user has open in Open Design right now. Returns {active:false, hint:\"...\"} when no project is active so the agent can ask the user to interact with Open Design (the active context expires ~5 minutes after the last user interaction). Most tools default to this when project is omitted, so you rarely need to call this directly.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "get_active_context"
+          },
+          {
+            "annotations": {
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+              "title": "Pull design bundle"
+            },
+            "description": "PREFER THIS over multiple get_file calls. Bundles the entry file plus every sibling it references (HTML <script>/<link>/<img>/srcset, JSX import/require, CSS url()/@import) up to depth 3, skipping CDN/data URLs. include=\"all\" returns every file in the project; include=\"shallow\" returns just the entry.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "entry": {
+                  "description": "Entry file path relative to project root. Defaults to the active file or project's metadata.entryFile. Active-file fallback expires after ~5 minutes of no Open Design activity.",
+                  "type": "string"
+                },
+                "include": {
+                  "description": "auto (default) | all | shallow",
+                  "enum": [
+                    "auto",
+                    "all",
+                    "shallow"
+                  ],
+                  "type": "string"
+                },
+                "maxBytes": {
+                  "description": "Soft cap on total text bytes (default 1_500_000). Also capped at 200 files. Excess files are dropped and truncated:true is set.",
+                  "type": "number"
+                },
+                "project": {
+                  "description": "Project id (UUID) or name substring. Optional; defaults to the active project (expires after ~5 minutes of no Open Design activity).",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "get_artifact"
+          },
+          {
+            "annotations": {
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+              "title": "Get Open Design project"
+            },
+            "description": "Single project metadata: name, active skill/design-system ids, entryFile, kind, timestamps, resolvedDir, and (when it has an entry file) a browser-openable previewUrl.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "project": {
+                  "description": "Project id (UUID) or name substring. Optional; defaults to the active project (expires after ~5 minutes of no Open Design activity).",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "get_project"
+          },
+          {
+            "annotations": {
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+              "title": "Read project file"
+            },
+            "description": "Read one project file. Text mimes only (HTML, JSX, CSS, JSON, SVG, Markdown). Binary files return an error; use list_files for metadata. Returns up to `limit` lines starting at `offset` (defaults: offset=0, limit=2000), mirroring Claude Code's Read tool. For files longer than the slice, the response carries an `[od:file-window ...]` marker with totalLines so you can page by re-calling with the next offset. For multi-file designs prefer get_artifact.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "limit": {
+                  "description": "Maximum number of lines to return. Defaults to 2000.",
+                  "type": "number"
+                },
+                "offset": {
+                  "description": "0-indexed starting line of the slice to return. Defaults to 0.",
+                  "type": "number"
+                },
+                "path": {
+                  "description": "File path relative to project root, forward slashes. Optional; defaults to the active file when project is also omitted. Active-file fallback expires after ~5 minutes of no Open Design activity.",
+                  "type": "string"
+                },
+                "project": {
+                  "description": "Project id (UUID) or name substring. Optional; defaults to the active project (expires after ~5 minutes of no Open Design activity).",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "get_file"
+          },
+          {
+            "annotations": {
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+              "title": "Search project files"
+            },
+            "description": "Case-insensitive literal-substring search across textual files in a project. Returns up to max matches with file, 1-indexed line, and snippet.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "max": {
+                  "description": "Cap on matches (default 200, hard cap 1000).",
+                  "type": "number"
+                },
+                "pattern": {
+                  "description": "Optional glob on file name, e.g. \"*.jsx\".",
+                  "type": "string"
+                },
+                "project": {
+                  "description": "Project id (UUID) or name substring. Optional; defaults to the active project (expires after ~5 minutes of no Open Design activity).",
+                  "type": "string"
+                },
+                "query": {
+                  "description": "Literal substring (not a regex), case-insensitive.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            },
+            "name": "search_files"
+          },
+          {
+            "annotations": {
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+              "title": "List project files"
+            },
+            "description": "Project file metadata: name, path, mime, kind, size, mtime, optional artifactManifest. Pass since=<unix-ms> to cheap-poll for changes.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "project": {
+                  "description": "Project id (UUID) or name substring. Optional; defaults to the active project (expires after ~5 minutes of no Open Design activity).",
+                  "type": "string"
+                },
+                "since": {
+                  "description": "Unix-ms; only return files with mtime > since.",
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "name": "list_files"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": false,
+              "openWorldHint": false,
+              "readOnlyHint": false,
+              "title": "Create Open Design artifact"
+            },
+            "description": "Create one normal Open Design project artifact entry file. Writes name+content, rejects existing targets, and persists artifactManifest when supplied. HTML, Markdown, and SVG entries get a default manifest when omitted. Project optional; defaults to the active project.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "artifactManifest": {
+                  "additionalProperties": true,
+                  "description": "Optional ArtifactManifest sidecar. If omitted, Open Design infers one for HTML, Markdown, or SVG entry files.",
+                  "type": "object"
+                },
+                "content": {
+                  "description": "Entry file contents. Use encoding=\"base64\" for base64 content.",
+                  "type": "string"
+                },
+                "encoding": {
+                  "description": "utf8 (default) | base64",
+                  "enum": [
+                    "utf8",
+                    "base64"
+                  ],
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Output path relative to the project root, for example \"codex-product/index.html\" or \"deck.html\".",
+                  "type": "string"
+                },
+                "project": {
+                  "description": "Project id (UUID) or name substring. Optional; defaults to the active project (expires after ~5 minutes of no Open Design activity).",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "content"
+              ],
+              "type": "object"
+            },
+            "name": "create_artifact"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": false,
+              "openWorldHint": false,
+              "readOnlyHint": false,
+              "title": "Write Open Design project file"
+            },
+            "description": "Write (or overwrite) a project file. Unlike create_artifact this does not require an ArtifactManifest and tolerates existing targets, so it is the right tool for iterating on a file the agent (or the user) already created. Project optional; defaults to the active project.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "description": "File contents. Use encoding=\"base64\" for binary payloads.",
+                  "type": "string"
+                },
+                "encoding": {
+                  "description": "utf8 (default) | base64",
+                  "enum": [
+                    "utf8",
+                    "base64"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "description": "Output path relative to the project root, e.g. \"deck.html\" or \"components/Hero.tsx\".",
+                  "type": "string"
+                },
+                "project": {
+                  "description": "Project id (UUID) or name substring. Optional; defaults to the active project (expires after ~5 minutes of no Open Design activity).",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "type": "object"
+            },
+            "name": "write_file"
+          },
+          {
+            "annotations": {
+              "destructiveHint": true,
+              "idempotentHint": false,
+              "openWorldHint": false,
+              "readOnlyHint": false,
+              "title": "Delete Open Design project file"
+            },
+            "description": "Delete one file from a project. Supports nested paths (e.g. \"codex-product/index.html\"). Project optional; defaults to the active project.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "description": "Project-relative path of the file to delete.",
+                  "type": "string"
+                },
+                "project": {
+                  "description": "Project id (UUID) or name substring. Optional; defaults to the active project (expires after ~5 minutes of no Open Design activity).",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            },
+            "name": "delete_file"
+          },
+          {
+            "annotations": {
+              "destructiveHint": true,
+              "idempotentHint": false,
+              "openWorldHint": false,
+              "readOnlyHint": false,
+              "title": "Delete Open Design project"
+            },
+            "description": "Permanently delete an Open Design project including its files and conversations. Requires both an explicit project id/name AND confirm:true — there is no active-project fallback because the operation is irreversible.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "confirm": {
+                  "description": "Must be literally true. Guards against an agent accidentally deleting a project while cleaning up.",
+                  "type": "boolean"
+                },
+                "project": {
+                  "description": "Project id (UUID) or name substring. Required — active-context fallback is intentionally disabled.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project",
+                "confirm"
+              ],
+              "type": "object"
+            },
+            "name": "delete_project"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": false,
+              "openWorldHint": false,
+              "readOnlyHint": false,
+              "title": "Create Open Design project"
+            },
+            "description": "Create a new empty Open Design project to generate into, then call start_run against it. Returns the project (with its id) plus a conversationId. The id is derived from name unless you pass one explicitly.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "designSystem": {
+                  "description": "Optional design system id to attach (see the od://design-systems/... resources).",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "Optional project id slug ([A-Za-z0-9._-], <=128 chars). Derived from name when omitted.",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Human-readable project name.",
+                  "type": "string"
+                },
+                "skill": {
+                  "description": "Optional skill id to seed the project with.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            },
+            "name": "create_project"
+          },
+          {
+            "annotations": {
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+              "title": "List Open Design skills"
+            },
+            "description": "List Open Design skills you can pass to start_run as a recipe. Discovery only — Open Design runs the skill, not you.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "list_skills"
+          },
+          {
+            "annotations": {
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+              "title": "List Open Design plugins"
+            },
+            "description": "List installed Open Design plugins (packaged design workflows) you can pass to start_run as plugin + inputs.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "list_plugins"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": false,
+              "openWorldHint": false,
+              "readOnlyHint": false,
+              "title": "Generate with Open Design"
+            },
+            "description": "Commission Open Design to generate or refine a design. Open Design spawns its own agent to do the work and returns a runId immediately. Poll get_run(runId) until status is terminal, then get_artifact to pull the result. Project optional; defaults to the active project. Requires an existing project (create one first with create_project).",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "agent": {
+                  "description": "Which agent Open Design should run, e.g. 'claude' | 'codex' | 'gemini'. Optional; defaults to the user's configured agent.",
+                  "type": "string"
+                },
+                "inputs": {
+                  "additionalProperties": true,
+                  "description": "Plugin inputs object (only meaningful with plugin). Optional.",
+                  "type": "object"
+                },
+                "model": {
+                  "description": "Model id override for the run. Optional.",
+                  "type": "string"
+                },
+                "plugin": {
+                  "description": "Plugin id from list_plugins to drive the run. Optional.",
+                  "type": "string"
+                },
+                "project": {
+                  "description": "Project id (UUID) or name substring. Optional; defaults to the active project (expires after ~5 minutes of no Open Design activity).",
+                  "type": "string"
+                },
+                "prompt": {
+                  "description": "What to make or change, in natural language. Optional when a plugin supplies its own brief.",
+                  "type": "string"
+                },
+                "skill": {
+                  "description": "Skill id from list_skills to drive the run. Optional.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "start_run"
+          },
+          {
+            "annotations": {
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+              "title": "Check Open Design run"
+            },
+            "description": "Poll a run started by start_run. Returns status (queued|running|succeeded|failed|canceled) plus error info. On success, adds previewUrl (open it in a browser to view the rendered design) and agentMessage (the inner agent's textual output reassembled from the event stream — show this when there is no previewUrl, e.g. when the agent asked the user a clarifying question instead of producing files).",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "runId": {
+                  "description": "Run id returned by start_run.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "runId"
+              ],
+              "type": "object"
+            },
+            "name": "get_run"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": false,
+              "openWorldHint": false,
+              "readOnlyHint": false,
+              "title": "Cancel Open Design run"
+            },
+            "description": "Request cancellation of an in-flight run started by start_run.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "runId": {
+                  "description": "Run id returned by start_run.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "runId"
+              ],
+              "type": "object"
+            },
+            "name": "cancel_run"
+          },
+          {
+            "annotations": {
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+              "title": "List Open Design agents"
+            },
+            "description": "List the agent CLIs Open Design can run for start_run.agent. Returns only installed (available) agents by default — pass includeUnavailable:true to also see agents we know about but that are not on PATH (each carries an installUrl for the user). Each entry includes id, name, version, and up to 10 sample models (modelsCount carries the real total).",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "includeUnavailable": {
+                  "description": "When true, include agents whose binary is not installed. Defaults to false.",
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            },
+            "name": "list_agents"
+          }
+        ]
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 2010292
+      },
+      "timestamp": "2026-09-07T12:34:32.659765Z"
+    },
+    {
+      "test_id": "resources_listing",
+      "test_name": "Resources Listing",
+      "category": "Resources",
+      "status": "Pass",
+      "message": "Successfully retrieved resources list",
+      "details": {
+        "resources": [
+          {
+            "description": "The project/file the user has open in Open Design right now.",
+            "mimeType": "application/json",
+            "name": "Active Open Design context",
+            "uri": "od://focus/active"
+          }
+        ]
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 75778333
+      },
+      "timestamp": "2026-09-07T12:34:32.735606Z"
+    },
+    {
+      "test_id": "prompts_listing",
+      "test_name": "Prompts Listing",
+      "category": "Prompts",
+      "status": "Warning",
+      "message": "Prompts listing returned no results",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 3087458
+      },
+      "timestamp": "2026-09-07T12:34:32.738761Z"
+    },
+    {
+      "test_id": "transport_info",
+      "test_name": "Transport Information",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Using stdio transport",
+      "details": {
+        "connected": true,
+        "connected_since": {
+          "nanos_since_epoch": 952745000,
+          "secs_since_epoch": 1788784471
+        },
+        "errors": 0,
+        "metadata": {
+          "args": [
+            "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/wire/exec.mjs",
+            "open-design"
+          ],
+          "command": "/opt/homebrew/Cellar/node/26.6.0/bin/node",
+          "environment_vars": 0,
+          "has_process": true,
+          "process_id": 20925,
+          "timeout": 30,
+          "working_dir": null
+        },
+        "notifications_received": 0,
+        "notifications_sent": 0,
+        "requests_sent": 4,
+        "responses_received": 4,
+        "transport_type": "stdio"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:34:32.738790Z"
+    },
+    {
+      "test_id": "connection_stability",
+      "test_name": "Connection Stability",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Transport connection is stable",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:34:32.738796Z"
+    },
+    {
+      "test_id": "invalid_method_handling",
+      "test_name": "Invalid Method Handling",
+      "category": "ErrorHandling",
+      "status": "Pass",
+      "message": "Server correctly rejects invalid methods",
+      "details": {
+        "code": -32601,
+        "message": "Method not found"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 2176833
+      },
+      "timestamp": "2026-09-07T12:34:32.740993Z"
+    },
+    {
+      "test_id": "invalid_params_handling",
+      "test_name": "Invalid Parameters Handling",
+      "category": "ErrorHandling",
+      "status": "Warning",
+      "message": "Server returned unexpected error code: -32603",
+      "details": {
+        "code": -32603,
+        "message": "[\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"params\",\n      \"protocolVersion\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  },\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"params\",\n      \"capabilities\"\n    ],\n    \"message\": \"Invalid input: expected object, received undefined\"\n  },\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"params\",\n      \"clientInfo\"\n    ],\n    \"message\": \"Invalid input: expected object, received undefined\"\n  }\n]"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 1914000
+      },
+      "timestamp": "2026-09-07T12:34:32.742928Z"
+    },
+    {
+      "test_id": "schema_validation",
+      "test_name": "Schema Validation",
+      "category": "Schema",
+      "status": "Pass",
+      "message": "All 0 messages conform to expected schemas",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 3208
+      },
+      "timestamp": "2026-09-07T12:34:32.742944Z"
+    }
+  ],
+  "server_info": null,
+  "performance": {
+    "initialization_time": {
+      "secs": 0,
+      "nanos": 704532250
+    },
+    "average_request_time": {
+      "secs": 0,
+      "nanos": 10305612
+    },
+    "total_requests": 11,
+    "failed_requests": 0,
+    "timeouts": 0
+  }
+}

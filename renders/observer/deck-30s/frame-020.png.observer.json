@@ -1,0 +1,81 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/deck-30s/frame-020.png",
+ "image_sha256": "58c1726029152270773218dca3368c29ce52ab91c2b0fccc3a3398c37cb7f43d",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 23221,
+  "lines": [
+   "VAULT CUSTODY",
+   "receipt - epoch 903",
+   "Tap verified - signature valid",
+   "counter 61 receipt 8c3db1c8 tamper CC 3:26:36 AM",
+   "OPENED",
+   "Box VC0007",
+   "Opened Sep 14, 2026, 19:22 PT - Henderson, NV . by the",
+   "claimed owner",
+   "Seal",
+   "broken - stored on chip reported at tap #4",
+   "Reveal tag",
+   "signed - Sep 14 - 19:22:07 - counter 1",
+   "Owner",
+   "claimed Sep 12, 13:05 - W. M.",
+   "Packs",
+   "24 of 24 opened - 19:24 * 20:41",
+   "Cards attached",
+   "312 scanned - 4 hits : 2 numbered",
+   "Custody timeline",
+   "Sealed at Paradise Card Breaks",
+   "Sep 12 12:41 Las Vegas"
+  ],
+  "text_sha256": "cab1e5eb878b700f39725ec1a293eb9a491a4e53340f371cc9868efe9bfbbdff"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 2812,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "banner",
+    "conf": 0.147,
+    "x": 719,
+    "y": 581,
+    "w": 702,
+    "h": 286
+   },
+   {
+    "label": "banner",
+    "conf": 0.051,
+    "x": 859,
+    "y": 451,
+    "w": 1162,
+    "h": 896
+   }
+  ],
+  "sha256": "0fcfc1a029e1841e54da0d185c10d7a90587927e22331d0472fc707a104cf19f"
+ },
+ "observed_at": "2026-09-07T13:23:12.633Z",
+ "source": {
+  "backfill": "walkthrough deck 30s cut (renders/walkthrough-deck/walkthrough-deck-30s.mp4 sha 7a339f0ac35345da, 1 fps)",
+  "frame": 20,
+  "frames": 30
+ }
+}

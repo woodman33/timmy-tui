@@ -1,0 +1,32 @@
+{
+ "kind": "blueprint",
+ "name": "Unreal · level-import",
+ "source": "lanes/engines/unreal/templates/level-import/plan.cue",
+ "date": "2026-09-07",
+ "engine": "unreal",
+ "workflow": "level-import",
+ "proven": false,
+ "note": "AUTHORED, UNPROVEN: there is no Unreal Editor on this Mac (expected under /Users/Shared/Epic Games/UE_5.*). The command is Epic's ImportAssets commandlet run headless; it becomes proven the first time a runner with the editor executes it through a drop folder and seals engine.run.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "mesh", "value": "*.fbx · *.obj", "note": "rules: run (needs a .uproject sidecar)" },
+   { "label": "project", "value": "*.uproject + its folder", "note": "rules: stage until a mesh arrives" },
+   { "label": "refused", "value": "> 1 GB", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 import", "value": "UnrealEditor-Cmd <uproject> -run=ImportAssets -source=<mesh> -dest=/Game/Shelf -replaceexisting -unattended -nopause -nosplash -NullRHI -log=<out>/<stem>.import.log", "note": "headless commandlet" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "log", "value": "{stem}.import.log", "note": "the editor log is the report" },
+   { "label": "asset", "value": "Content/Shelf/<mesh>.uasset (in the project)", "note": "not copied to out/" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "mesh sha256 · log sha256 · UnrealEditor env-lock", "note": "" },
+   { "label": "extra", "value": "imported", "note": "parsed from the log" }
+  ] },
+  { "id": "sources", "title": "Sources", "rows": [
+   { "label": "commandlets", "value": "https://dev.epicgames.com/documentation/en-us/unreal-engine/command-line-arguments-in-unreal-engine", "note": "-run=<Commandlet>, -unattended, -nopause, -nosplash, -log=, -NullRHI" },
+   { "label": "ImportAssets", "value": "https://dev.epicgames.com/documentation/en-us/unreal-engine/asset-import-commandlet?application_version=5.5", "note": "-source= -dest= -replaceexisting" }
+  ] }
+ ]
+}

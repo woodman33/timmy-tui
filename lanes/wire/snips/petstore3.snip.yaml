@@ -1,0 +1,454 @@
+components:
+  schemas:
+    ApiResponse:
+      properties:
+        code:
+          format: int32
+          type: integer
+        message:
+          type: string
+        type:
+          type: string
+      type: object
+      xml:
+        name: '##default'
+    Category:
+      properties:
+        id:
+          example: 1
+          format: int64
+          type: integer
+        name:
+          example: Dogs
+          type: string
+      type: object
+      xml:
+        name: category
+    Order:
+      properties:
+        complete:
+          type: boolean
+        id:
+          example: 10
+          format: int64
+          type: integer
+        petId:
+          example: 198772
+          format: int64
+          type: integer
+        quantity:
+          example: 7
+          format: int32
+          type: integer
+        shipDate:
+          format: date-time
+          type: string
+        status:
+          description: Order Status
+          enum:
+          - placed
+          - approved
+          - delivered
+          example: approved
+          type: string
+      type: object
+      xml:
+        name: order
+    Pet:
+      properties:
+        category:
+          $ref: '#/components/schemas/Category'
+        id:
+          example: 10
+          format: int64
+          type: integer
+        name:
+          example: doggie
+          type: string
+        photoUrls:
+          items:
+            type: string
+            xml:
+              name: photoUrl
+          type: array
+          xml:
+            wrapped: true
+        status:
+          description: pet status in the store
+          enum:
+          - available
+          - pending
+          - sold
+          type: string
+        tags:
+          items:
+            $ref: '#/components/schemas/Tag'
+          type: array
+          xml:
+            wrapped: true
+      required:
+      - name
+      - photoUrls
+      type: object
+      xml:
+        name: pet
+    Tag:
+      properties:
+        id:
+          format: int64
+          type: integer
+        name:
+          type: string
+      type: object
+      xml:
+        name: tag
+    User:
+      properties:
+        email:
+          example: john@email.com
+          type: string
+        firstName:
+          example: John
+          type: string
+        id:
+          example: 10
+          format: int64
+          type: integer
+        lastName:
+          example: James
+          type: string
+        password:
+          example: '12345'
+          type: string
+        phone:
+          example: '12345'
+          type: string
+        userStatus:
+          description: User Status
+          example: 1
+          format: int32
+          type: integer
+        username:
+          example: theUser
+          type: string
+      type: object
+      xml:
+        name: user
+  securitySchemes:
+    petstore_auth:
+      flows:
+        implicit:
+          authorizationUrl: https://petstore3.swagger.io/oauth/authorize
+          scopes:
+            read:pets: read your pets
+            write:pets: modify pets in your account
+      type: oauth2
+externalDocs:
+  description: Find out more about Swagger
+  url: https://swagger.io
+info:
+  contact:
+    email: apiteam@swagger.io
+  description: |-
+    This is a sample Pet Store Server based on the OpenAPI 3.0 specification.  You can find out more about
+    Swagger at [https://swagger.io](https://swagger.io). In the third iteration of the pet store, we've switched to the design first approach!
+    You can now help us improve the API whether it's by making changes to the definition itself or to the code.
+    That way, with time, we can improve the API in general, and expose some of the new features in OAS3.
+
+    Some useful links:
+    - [The Pet Store repository](https://github.com/swagger-api/swagger-petstore)
+    - [The source API definition for the Pet Store](https://github.com/swagger-api/swagger-petstore/blob/master/src/main/resources/openapi.yaml)
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: https://swagger.io/terms/
+  title: Swagger Petstore - OpenAPI 3.0
+  version: 1.0.27
+openapi: 3.0.4
+paths:
+  /pet:
+    post:
+      description: Add a new pet to the store.
+      operationId: addPet
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Pet'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Pet'
+          application/xml:
+            schema:
+              $ref: '#/components/schemas/Pet'
+        description: Create a new pet in the store
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+            application/xml:
+              schema:
+                $ref: '#/components/schemas/Pet'
+          description: Successful operation
+        '400':
+          description: Invalid input
+        '422':
+          description: Validation exception
+        default:
+          description: Unexpected error
+      security:
+      - petstore_auth:
+        - write:pets
+        - read:pets
+      summary: Add a new pet to the store.
+      tags:
+      - pet
+    put:
+      description: Update an existing pet by Id.
+      operationId: updatePet
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Pet'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Pet'
+          application/xml:
+            schema:
+              $ref: '#/components/schemas/Pet'
+        description: Update an existent pet in the store
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+            application/xml:
+              schema:
+                $ref: '#/components/schemas/Pet'
+          description: Successful operation
+        '400':
+          description: Invalid ID supplied
+        '404':
+          description: Pet not found
+        '422':
+          description: Validation exception
+        default:
+          description: Unexpected error
+      security:
+      - petstore_auth:
+        - write:pets
+        - read:pets
+      summary: Update an existing pet.
+      tags:
+      - pet
+  /pet/findByTags:
+    get:
+      description: Multiple tags can be provided with comma separated strings. Use tag1, tag2, tag3 for testing.
+      operationId: findPetsByTags
+      parameters:
+      - description: Tags to filter by
+        explode: true
+        in: query
+        name: tags
+        required: true
+        schema:
+          items:
+            type: string
+          type: array
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/Pet'
+                type: array
+            application/xml:
+              schema:
+                items:
+                  $ref: '#/components/schemas/Pet'
+                type: array
+          description: successful operation
+        '400':
+          description: Invalid tag value
+        default:
+          description: Unexpected error
+      security:
+      - petstore_auth:
+        - write:pets
+        - read:pets
+      summary: Finds Pets by tags.
+      tags:
+      - pet
+  /pet/{petId}/uploadImage:
+    post:
+      description: Upload image of the pet.
+      operationId: uploadFile
+      parameters:
+      - description: ID of pet to update
+        in: path
+        name: petId
+        required: true
+        schema:
+          format: int64
+          type: integer
+      - description: Additional Metadata
+        in: query
+        name: additionalMetadata
+        required: false
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/octet-stream:
+            schema:
+              format: binary
+              type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+          description: successful operation
+        '400':
+          description: No file uploaded
+        '404':
+          description: Pet not found
+        default:
+          description: Unexpected error
+      security:
+      - petstore_auth:
+        - write:pets
+        - read:pets
+      summary: Uploads an image.
+      tags:
+      - pet
+  /store/order:
+    post:
+      description: Place a new order in the store.
+      operationId: placeOrder
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Order'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Order'
+          application/xml:
+            schema:
+              $ref: '#/components/schemas/Order'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+          description: successful operation
+        '400':
+          description: Invalid input
+        '422':
+          description: Validation exception
+        default:
+          description: Unexpected error
+      summary: Place an order for a pet.
+      tags:
+      - store
+  /user:
+    post:
+      description: This can only be done by the logged in user.
+      operationId: createUser
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/User'
+          application/xml:
+            schema:
+              $ref: '#/components/schemas/User'
+        description: Created user object
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+            application/xml:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: successful operation
+        default:
+          description: Unexpected error
+      summary: Create user.
+      tags:
+      - user
+  /user/login:
+    get:
+      description: Log into the system.
+      operationId: loginUser
+      parameters:
+      - description: The user name for login
+        in: query
+        name: username
+        required: false
+        schema:
+          type: string
+      - description: The password for login in clear text
+        in: query
+        name: password
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+          description: successful operation
+          headers:
+            X-Expires-After:
+              description: date in UTC when token expires
+              schema:
+                format: date-time
+                type: string
+            X-Rate-Limit:
+              description: calls per hour allowed by the user
+              schema:
+                format: int32
+                type: integer
+        '400':
+          description: Invalid username/password supplied
+        default:
+          description: Unexpected error
+      summary: Logs user into the system.
+      tags:
+      - user
+servers:
+- url: /api/v3
+tags:
+- description: Everything about your Pets
+  externalDocs:
+    description: Find out more
+    url: https://swagger.io
+  name: pet
+- description: Access to Petstore orders
+  externalDocs:
+    description: Find out more about our store
+    url: https://swagger.io
+  name: store
+- description: Operations about user
+  name: user

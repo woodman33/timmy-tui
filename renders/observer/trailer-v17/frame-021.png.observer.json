@@ -1,0 +1,103 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-021.png",
+ "image_sha256": "c2a81ea184c4df95a0b91df6b76140734ebc1cab1d39e0634d34ce9cf9048200",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 17437,
+  "lines": [
+   "a",
+   "ni",
+   "1011 pan",
+   "HU (nIRI",
+   "me",
+   "u",
+   "IVA",
+   "retail. intake",
+   "re_mtduhfs6_jorn",
+   "Lr Carde",
+   "Every box went into the record before the wrap ever came off"
+  ],
+  "text_sha256": "943df4b02e880b2e80350f4e116b89c27de96e32be4481388822e2d3c9ccd26d"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 9918,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "person",
+    "conf": 0.704,
+    "x": 282,
+    "y": 784,
+    "w": 479,
+    "h": 547
+   },
+   {
+    "label": "banner",
+    "conf": 0.408,
+    "x": 926,
+    "y": 486,
+    "w": 1273,
+    "h": 948
+   },
+   {
+    "label": "banner",
+    "conf": 0.089,
+    "x": 1720,
+    "y": 119,
+    "w": 286,
+    "h": 105
+   },
+   {
+    "label": "card",
+    "conf": 0.086,
+    "x": 927,
+    "y": 488,
+    "w": 1277,
+    "h": 945
+   },
+   {
+    "label": "phone",
+    "conf": 0.081,
+    "x": 926,
+    "y": 487,
+    "w": 1276,
+    "h": 944
+   },
+   {
+    "label": "person",
+    "conf": 0.068,
+    "x": 881,
+    "y": 540,
+    "w": 1680,
+    "h": 1028
+   }
+  ],
+  "sha256": "583c3ebdadf37c26b1e8b5da31c87d882e7d82e9cd454c021e61d2be31bc4397"
+ },
+ "observed_at": "2026-09-07T12:39:50.916Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 21,
+  "frames": 63
+ }
+}

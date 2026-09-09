@@ -1,0 +1,116 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-026.png",
+ "image_sha256": "78365a6437e4a30c502735f87bdb50407d37bdfec5393094b6c9c0577df33464",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 10701,
+  "lines": [
+   "Iununumt",
+   "gift.intake",
+   "CNE",
+   "8/20/26",
+   "rc_ntduiaze_u6as",
+   "ONE",
+   "a",
+   "Wil",
+   "Every box went into the record before the wrap ever came off",
+   "bought, and the one Fanatics sent us, letter and all.",
+   "B",
+   "ENCASED",
+   "the ones we",
+   "* MINT",
+   "CARD",
+   "GUMBANTE"
+  ],
+  "text_sha256": "0515b3a8a2503cb4c0b65b71bde8499c15398b735ef9013f758baafeb483133b"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 2302,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "person",
+    "conf": 0.675,
+    "x": 214,
+    "y": 874,
+    "w": 376,
+    "h": 382
+   },
+   {
+    "label": "person",
+    "conf": 0.659,
+    "x": 1663,
+    "y": 393,
+    "w": 241,
+    "h": 360
+   },
+   {
+    "label": "banner",
+    "conf": 0.181,
+    "x": 853,
+    "y": 454,
+    "w": 1395,
+    "h": 807
+   },
+   {
+    "label": "banner",
+    "conf": 0.154,
+    "x": 1723,
+    "y": 404,
+    "w": 371,
+    "h": 809
+   },
+   {
+    "label": "person",
+    "conf": 0.07,
+    "x": 1715,
+    "y": 893,
+    "w": 385,
+    "h": 371
+   },
+   {
+    "label": "card",
+    "conf": 0.059,
+    "x": 853,
+    "y": 452,
+    "w": 1391,
+    "h": 803
+   },
+   {
+    "label": "phone",
+    "conf": 0.032,
+    "x": 1750,
+    "y": 376,
+    "w": 110,
+    "h": 200
+   }
+  ],
+  "sha256": "4eadf039961afa8376d824f922d845ad0fd385dc7f181e58b539a468fa3ae4fa"
+ },
+ "observed_at": "2026-09-07T12:41:03.778Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 26,
+  "frames": 63
+ }
+}

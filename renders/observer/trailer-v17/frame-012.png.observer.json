@@ -1,0 +1,64 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-012.png",
+ "image_sha256": "a3ce660f6dc5d6898a7a333b7384b735e5db086879e81e5d05619d40ebb77384",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 33036,
+  "lines": [
+   "EPOCH 903 1 598 RECEIPTS",
+   "re_ntduujy7_dsbo session.heartbeat",
+   "rc_mtduvueu 5pgr session.heartbeat",
+   "re_mtduxév7_e14) session.heartbeat",
+   "re_mtduyfbi_lfzm session.heartbeat",
+   "re_ntduzpru_fewi session.heartbeat",
+   "rc_utdv108m_33mb session.heartbeat",
+   "re_mtdv2aox_gaoj session.heartbeat",
+   "re_ntdv3l4w_uxit session.heartbeat",
+   "rc_mtdv4vkx_q5x6 session.heartbeat",
+   "rc_mtdv6615_ypn6 session.heartbeat",
+   "Nothing deleted. Nothing hidden."
+  ],
+  "text_sha256": "094ad7ede63cabc20893257e603b7bbffa10a2ac99ddd389ac8139975838b318"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 30439,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "banner",
+    "conf": 0.121,
+    "x": 821,
+    "y": 576,
+    "w": 644,
+    "h": 462
+   }
+  ],
+  "sha256": "ad06606b119a8cd06e06ae85e77097fc26dddd6bdd5f274789b55dba5fae3753"
+ },
+ "observed_at": "2026-09-07T13:02:15.623Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 12,
+  "frames": 63
+ }
+}

@@ -1,0 +1,122 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-028.png",
+ "image_sha256": "20568b2c7fb4a1a66a969243d39eda9e8643404205265ad748658c6b9b2b27f1",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 7627,
+  "lines": [
+   "nu Ununn",
+   "gift.intake",
+   "CNE",
+   "8/20/26",
+   "rc_ntduiaze_u6as",
+   "10",
+   "-",
+   "ONE",
+   "Wil",
+   ".",
+   "ENCASEDO",
+   "* MINT",
+   "CARD",
+   "CUARANTE"
+  ],
+  "text_sha256": "8aabff8c88a4e577cf59299a1a682e60cc5e89e42a47679b3460bb5defd5ebd0"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 1455,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "person",
+    "conf": 0.683,
+    "x": 210,
+    "y": 877,
+    "w": 382,
+    "h": 383
+   },
+   {
+    "label": "person",
+    "conf": 0.63,
+    "x": 1670,
+    "y": 392,
+    "w": 246,
+    "h": 360
+   },
+   {
+    "label": "banner",
+    "conf": 0.174,
+    "x": 1729,
+    "y": 405,
+    "w": 374,
+    "h": 811
+   },
+   {
+    "label": "phone",
+    "conf": 0.166,
+    "x": 857,
+    "y": 554,
+    "w": 1417,
+    "h": 1014
+   },
+   {
+    "label": "banner",
+    "conf": 0.129,
+    "x": 852,
+    "y": 496,
+    "w": 1405,
+    "h": 900
+   },
+   {
+    "label": "person",
+    "conf": 0.103,
+    "x": 1724,
+    "y": 895,
+    "w": 378,
+    "h": 367
+   },
+   {
+    "label": "card",
+    "conf": 0.091,
+    "x": 853,
+    "y": 548,
+    "w": 1407,
+    "h": 1001
+   },
+   {
+    "label": "box",
+    "conf": 0.064,
+    "x": 851,
+    "y": 506,
+    "w": 1397,
+    "h": 919
+   }
+  ],
+  "sha256": "a46667bfd4a5427d389a17e49155e180c2e7354042c09432161f28b4c230bf79"
+ },
+ "observed_at": "2026-09-07T12:41:32.856Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 28,
+  "frames": 63
+ }
+}

@@ -1,0 +1,101 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-000.png",
+ "image_sha256": "f443b7c903302ffe0a3e3156143d18f1285bec63a1f15ccdc4e438e1b714622b",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 32553,
+  "lines": [
+   "a a williammeldman - 0 Qwen - williammeldman",
+   "- caffeinate node joptihomebrew/bin/ewen 114x30",
+   "N=$(node -p \"try(require(\"./.t timmy/receipts/EPOCH.json').current-1)catch(e)(6)\"): echo",
+   "\"rotating epoch to SN\"; timmy epoch \"SN\" \"WALNUT shoot autopilot\"; timmy seal film.plan",
+   "--meta shoot=walnut-curtain-call --meta mode-autopilot; bof printf 'In##### %s #####In'",
+   "\"$1\"; }: b 'SEAL 1/6 - retail.intake - Photogenic NBA'; timmy seal retail.intake -meta",
+   "'vendor=Burbank Sports Cards' --meta 'item-2023-24 Panini Photogenic NBA hobby' -meta",
+   "method=human --meta evidence-printed-receipt; sleep 20; b 'SEAL 2/6 - retail.intake",
+   "National Treasures'; timmy seal retail.intake --meta \"vendor=Burbank Sports Cards' -meta",
+   "'item=2019 National Treasures football' --meta method=human --meta",
+   "evidence-printed-receipt: sleep 20; b 'SEAL 3/6 - gift. intake - Marvel Mint'; timmy seal",
+   "gift.intake -meta source-Fanatics' --meta 'contact=Mike Hermalyn' -meta 'item=2026",
+   "Marvel Mint' -meta evidence=handwritten-letter -meta method=human; sleep 20; b 'SEAL 4/6",
+   "provenance.1 request'; timmy seal provenance.request --meta scopesall-intakes --meta",
+   "status=async; sleep 20; b 'SEAL 5/6 - box.verify': timmy seal box.verify -meta",
+   "scope-session --meta method=human; sleep 20; b 'SEAL 6/6 - pack.open': timmy seal",
+   "pack.open --meta scope=session -meta method=human; printf 'In##### SEQUENCE COMPLETE",
+   "####In' [in /Users/williammeldman/Desktop/Code-Projects/timmy-tuil [timeout: 300000ms]",
+   "(ROLL: owner.word + WALNUT epoch + film.plan, then the six autopilot seals at 20s spacing)",
+   "#HE",
+   "ROLL HHEHTHEHHE",
+   "TIMMY TUI",
+   "I",
+   "0.1 KB",
+   ": Have you tried turning it off and on again? (The loading screen, not me.) (Os",
+   "2.5k tokens - esc to cancel)",
+   ">",
+   "Type your message or epath/to/file",
+   "I",
+   "+ williammeldman . qwen/qwen3 8-max . 1. Om Context 22 1% used N",
+   "TOCARDS",
+   "Enter to",
+   "This",
+   "1+Q to queue",
+   "Auto mode (shift",
+   "tab",
+   "SHIPPING ADDR ISS",
+   "DrA M",
+   "CUST",
+   "Witu",
+   "4800"
+  ],
+  "text_sha256": "cb566d094d360d114c9a7e0b92398a7cad8d510ecb721a96da3bb2288672cff7"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 7311,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "banner",
+    "conf": 0.072,
+    "x": 932,
+    "y": 460,
+    "w": 1854,
+    "h": 789
+   },
+   {
+    "label": "banner",
+    "conf": 0.043,
+    "x": 1461,
+    "y": 997,
+    "w": 914,
+    "h": 166
+   }
+  ],
+  "sha256": "5c0e36ff10beaabe2bda00b7618b4805028d6bd6f471bbe30ea520fa2920ae69"
+ },
+ "observed_at": "2026-09-07T12:52:52.734Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 0,
+  "frames": 63
+ }
+}

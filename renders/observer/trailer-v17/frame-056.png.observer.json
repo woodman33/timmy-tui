@@ -1,0 +1,54 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-056.png",
+ "image_sha256": "178dac2d2f3e6ffbf7e2c623e8740bfb734e3a545c7de04caffd0adf7633f2a9",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 15150,
+  "lines": [
+   "Buy the break.",
+   "Keep the",
+   "proof.",
+   "github.com/woodman33/timmy-tui",
+   "ok:true",
+   "receipts:598",
+   "epochs:6",
+   "PII redacted for privacy; redact.map sealed.",
+   "computed from epoch 903 verify: timmy verify @ v1.0.8 - VO: synthetic, sealed.",
+   "Code it, browse it, render it = - Timmy proves every move. If you use or build",
+   "AI"
+  ],
+  "text_sha256": "78910dc1116be02af45e51d61c213a29cf3e54905a6c00b38a4574ca552e7163"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 18393,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [],
+  "sha256": "2739a847ab76965fd37691135ed6d3e0b676b67c5634cb65caa61a34d63dafa8"
+ },
+ "observed_at": "2026-09-07T13:18:12.604Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 56,
+  "frames": 63
+ }
+}

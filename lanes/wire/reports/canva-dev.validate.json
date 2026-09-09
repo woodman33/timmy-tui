@@ -1,0 +1,457 @@
+{
+  "metadata": {
+    "generated_at": "2026-09-07T12:43:47.941951Z",
+    "validator_version": "1.0.0",
+    "transport_type": "stdio",
+    "total_duration": {
+      "secs": 5,
+      "nanos": 372347583
+    },
+    "config": {
+      "test_timeout": {
+        "secs": 30,
+        "nanos": 0
+      },
+      "total_timeout": {
+        "secs": 300,
+        "nanos": 0
+      },
+      "strict_schema_validation": true,
+      "test_error_conditions": true,
+      "validate_tool_schemas": true,
+      "test_capability_discovery": true,
+      "max_tools_to_test": 10,
+      "custom_rules": []
+    }
+  },
+  "summary": {
+    "total_tests": 11,
+    "passed": 10,
+    "info": 0,
+    "warnings": 1,
+    "errors": 0,
+    "critical": 0,
+    "skipped": 0,
+    "compliance_percentage": 90.9090909090909
+  },
+  "results": [
+    {
+      "test_id": "transport_connection",
+      "test_name": "Transport Connection",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Successfully connected via stdio",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1770375
+      },
+      "timestamp": "2026-09-07T12:43:42.571318Z"
+    },
+    {
+      "test_id": "initialization",
+      "test_name": "MCP Initialization",
+      "category": "Initialization",
+      "status": "Pass",
+      "message": "Successfully initialized with Canva CLI MCP Server v0.0.1-beta.1",
+      "details": {
+        "capabilities": {
+          "logging": null,
+          "prompts": {
+            "available_prompts": [],
+            "list_changed": null
+          },
+          "resources": {
+            "available_resources": [],
+            "list_changed": null,
+            "subscribe": null
+          },
+          "tools": {
+            "available_tools": [],
+            "list_changed": null
+          }
+        },
+        "name": "Canva CLI MCP Server",
+        "protocol_version": "2024-11-05",
+        "version": "0.0.1-beta.1"
+      },
+      "duration": {
+        "secs": 5,
+        "nanos": 359439708
+      },
+      "timestamp": "2026-09-07T12:43:47.931066Z"
+    },
+    {
+      "test_id": "json_rpc_compliance",
+      "test_name": "JSON-RPC 2.0 Compliance",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "All messages follow JSON-RPC 2.0 specification",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:43:47.931115Z"
+    },
+    {
+      "test_id": "tools_listing",
+      "test_name": "Tools Listing",
+      "category": "Tools",
+      "status": "Pass",
+      "message": "Successfully retrieved tools list",
+      "details": {
+        "tools": [
+          {
+            "description": "Read the Canva Connect developer documentation index. This is a resource that contains a list of all the pages in the documentation for building Connect integrations on Canva.\n    It documents the Connect API, authentication, design guidelines, best practices, examples and much more. Everything you need to build a Connect integration on Canva, can be found here.",
+            "execution": {
+              "taskSupport": "forbidden"
+            },
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "properties": {},
+              "type": "object"
+            },
+            "name": "read-canva-connect-documentation-index"
+          },
+          {
+            "description": "Read the Canva Apps SDK developer documentation index. This is a resource that contains a list of all the pages in the documentation for building apps on Canva.\n    It documents Apps SDK, App UI Kit, App i18n kit, design guidelines, best practices, examples and much more. Everything you need to build an app on Canva, can be found here.",
+            "execution": {
+              "taskSupport": "forbidden"
+            },
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "properties": {},
+              "type": "object"
+            },
+            "name": "read-canva-apps-sdk-documentation-index"
+          },
+          {
+            "description": "Read specific pages of the Canva developer documentation. The pages are specified by url, which must be valid URLs and be from the output from read-canva-apps-sdk-documentation-index, read-canva-connect-documentation-index,\n    or a previous call to read-canva-apps-documentation-page. In the response, you will receive each url followed by the content of that page. You can request multiple pages at once.",
+            "execution": {
+              "taskSupport": "forbidden"
+            },
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "urls": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "urls"
+              ],
+              "type": "object"
+            },
+            "name": "read-canva-documentation-pages"
+          },
+          {
+            "description": "Read the Canva App UI Kit components index. This resource provides a comprehensive catalog of all available UI components in the @canva/app-ui-kit package, including:\n    - Text/Typography components (Title, Text in various sizes)\n    - Form components (Input, Select, Checkbox, Radio, etc.)\n    - Navigation components (Tabs, FlyoutMenu, Flyout)\n    - Layout components (Box, Grid, Columns, Rows)\n    - Feedback components (Alert, Progress bar, Loading indicator)\n    - Media components (ImageCard, VideoCard, AudioCard)\n    - Interactive components (Button, Switch, Slider)\n    - Icons\n    - And many more components with their variations and example code.\n    Each component entry includes the different components, props_metadata, variations and implementation code examples.\n    Any components code generated from this catalog MUST strictly adhere to the exact props and component specifications outlined in the catalog and the props_metadata looked\n     up from the read-canva-app-ui-kit-page tool.\n    The generated code should not invent, modify, or hallucinate any props that aren't explicitly defined in this catalog. If unsure, always use the read-canva-app-ui-kit-page tool to discover what components, patterns, icons and props are available.\n    Any code suggestions must use only the documented props with their correct types, valid values, and proper implementation patterns as shown in the examples.\n    The components catalog should be used in conjunction with the canva-app-ui-kit-patterns-catalog to ensure consistent and accessible user experiences across Canva apps.",
+            "execution": {
+              "taskSupport": "forbidden"
+            },
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "properties": {},
+              "type": "object"
+            },
+            "name": "read-canva-app-ui-kit-index"
+          },
+          {
+            "description": "Read the Canva App UI Kit patterns json catalog. This resource provides a collection of common UI patterns and best practices for building Canva apps, including:\n    - Surface Header patterns for navigation and page structure\n    - Credit Counter patterns for managing user credits\n    - And other common UI patterns that combine multiple components\n    Each pattern includes detailed descriptions, implementation guidelines, and example code. These patterns help ensure consistent and accessible user experiences across Canva apps.\n    These patterns are not included directly in the @canva/app-ui-kit package, but are a composite of multiple components to create a new component that is a pattern.",
+            "execution": {
+              "taskSupport": "forbidden"
+            },
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "properties": {},
+              "type": "object"
+            },
+            "name": "read-canva-app-ui-kit-patterns-catalog"
+          },
+          {
+            "description": "Read the extended props definitions for specific components of the Canva App UI Kit. This tool is especially useful when you need to know the\n    extended props of a component and the possible values, when composing recommended code that uses Canva App UI Kit components. The excepted\n    arguments to this tool is the project_root of the app (to resolve the path to the @canva/app-ui-kit package from node_modules) and the\n    props_metadata of the component. The props_metadata is an array of objects that contains the component_name, props_name and file_path, which\n    can be found in the output of read-canva-app-ui-kit-index. In the response, you will receive each result if successful, component name, props\n    name and props with possible values, types and examples. You can request multiple components props_metadata once.",
+            "execution": {
+              "taskSupport": "forbidden"
+            },
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
+              "properties": {
+                "project_root": {
+                  "description": "The absolute path to the root directory of the app (e.g. '/Users/username/projects/my-app'), used to understand where the @canva/app-ui-kit package can be resolved from node_modules. Agents are encouraged to search for where node_modules can be found if not found in the project_root.",
+                  "type": "string"
+                },
+                "props_metadata": {
+                  "description": "The array of metadata of the component props (component and props exports name and file_path to the ui kit props definition).",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "component_name": {
+                        "description": "The name of the component to get the props for.",
+                        "type": "string"
+                      },
+                      "file_path": {
+                        "description": "The file path of the component to get the props for. Assumed to be installed in node_modules in the project_root.",
+                        "type": "string"
+                      },
+                      "props_name": {
+                        "description": "The name of the props to get the values for.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "component_name",
+                      "props_name",
+                      "file_path"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "project_root",
+                "props_metadata"
+              ],
+              "type": "object"
+            },
+            "name": "read-canva-app-ui-kit-page"
+          },
+          {
+            "description": "Read the Canva CLI documentation. Read this *before* running any canva CLI commands to make sure you understand. This is a resource that includes instructions on how to use the Canva CLI including commands like login, app creation, preview, doctor, and other commands. This is based on the CLI's README plus extra guidance for AI usage.",
+            "execution": {
+              "taskSupport": "forbidden"
+            },
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "properties": {},
+              "type": "object"
+            },
+            "name": "read-canva-cli-documentation"
+          },
+          {
+            "description": "These are the design guidelines for releasing Apps SDK apps on Canva. All apps released on Canva must follow these guidelines. The guidelines describe the various UI resources and libraries that Canva provides and how to use them to build your app. It also provides help on accessibility, internationalization, design principles, and best practices.",
+            "execution": {
+              "taskSupport": "forbidden"
+            },
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "properties": {},
+              "type": "object"
+            },
+            "name": "read-canva-apps-sdk-design-guidelines"
+          },
+          {
+            "description": "Instructions on how to review the design of an app. If you are asked to review an app, a canva app, or do a design review, you MUST check this first.\n    Includes details on what you should be provided, what you should look for, and what other tools you should make use of.\n    ",
+            "execution": {
+              "taskSupport": "forbidden"
+            },
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "properties": {},
+              "type": "object"
+            },
+            "name": "design-review-instructions"
+          },
+          {
+            "description": "\nInstructions for creating a new Canva Apps SDK app. If you are asked to create an app, or an intent, you will need to follow these instructions. \n\nThese instructions require the following tools, if you do not have them, direct the user to the documentation at https://canva.dev instead.\n\n* PROPOSE a command to run on behalf of the user such as run_terminal_cmd or run_command or run_in_terminal\n* Read the contents of a file such as read_file or view_file\n\n",
+            "execution": {
+              "taskSupport": "forbidden"
+            },
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "properties": {},
+              "type": "object"
+            },
+            "name": "create-canva-app-instructions"
+          },
+          {
+            "description": "Instructions for using the Canva Apps migrate command and a list of available migration and upgrade guides. If you are asked about migrating a Canva app, or updating apps to newer patterns/APIs, you should inform the user about the migrate command.",
+            "execution": {
+              "taskSupport": "forbidden"
+            },
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "properties": {},
+              "type": "object"
+            },
+            "name": "canva-apps-migration-instructions"
+          }
+        ]
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 4802292
+      },
+      "timestamp": "2026-09-07T12:43:47.935931Z"
+    },
+    {
+      "test_id": "resources_listing",
+      "test_name": "Resources Listing",
+      "category": "Resources",
+      "status": "Pass",
+      "message": "Successfully retrieved resources list",
+      "details": {
+        "resources": [
+          {
+            "name": "Canva Apps Documentation",
+            "uri": "https://www.canva.dev/docs/apps/llms-full.txt"
+          },
+          {
+            "name": "Canva Connect Documentation",
+            "uri": "https://www.canva.dev/docs/connect/llms-full.txt"
+          },
+          {
+            "name": "Canva Apps SDK Design Guidelines",
+            "uri": "https://www.canva.dev/docs/apps/design-guidelines/llms-full.txt"
+          },
+          {
+            "name": "Canva Apps Migration Instructions",
+            "uri": "https://www.canva.dev/docs/apps/upgrades-and-migrations.md"
+          }
+        ]
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 2463375
+      },
+      "timestamp": "2026-09-07T12:43:47.938548Z"
+    },
+    {
+      "test_id": "prompts_listing",
+      "test_name": "Prompts Listing",
+      "category": "Prompts",
+      "status": "Pass",
+      "message": "Successfully retrieved prompts list",
+      "details": {
+        "prompts": [
+          {
+            "name": "Canva Apps SDK Design Review"
+          },
+          {
+            "name": "Create a new Canva Apps SDK App"
+          }
+        ]
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 1070084
+      },
+      "timestamp": "2026-09-07T12:43:47.939672Z"
+    },
+    {
+      "test_id": "transport_info",
+      "test_name": "Transport Information",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Using stdio transport",
+      "details": {
+        "connected": true,
+        "connected_since": {
+          "nanos_since_epoch": 571301000,
+          "secs_since_epoch": 1788785022
+        },
+        "errors": 0,
+        "metadata": {
+          "args": [
+            "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/wire/exec.mjs",
+            "canva-dev"
+          ],
+          "command": "/opt/homebrew/Cellar/node/26.6.0/bin/node",
+          "environment_vars": 0,
+          "has_process": true,
+          "process_id": 54029,
+          "timeout": 30,
+          "working_dir": null
+        },
+        "notifications_received": 0,
+        "notifications_sent": 0,
+        "requests_sent": 4,
+        "responses_received": 4,
+        "transport_type": "stdio"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:43:47.939698Z"
+    },
+    {
+      "test_id": "connection_stability",
+      "test_name": "Connection Stability",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Transport connection is stable",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:43:47.939703Z"
+    },
+    {
+      "test_id": "invalid_method_handling",
+      "test_name": "Invalid Method Handling",
+      "category": "ErrorHandling",
+      "status": "Pass",
+      "message": "Server correctly rejects invalid methods",
+      "details": {
+        "code": -32601,
+        "message": "Method not found"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 1111625
+      },
+      "timestamp": "2026-09-07T12:43:47.940833Z"
+    },
+    {
+      "test_id": "invalid_params_handling",
+      "test_name": "Invalid Parameters Handling",
+      "category": "ErrorHandling",
+      "status": "Warning",
+      "message": "Server returned unexpected error code: -32603",
+      "details": {
+        "code": -32603,
+        "message": "[\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"params\",\n      \"protocolVersion\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  },\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"params\",\n      \"capabilities\"\n    ],\n    \"message\": \"Invalid input: expected object, received undefined\"\n  },\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"params\",\n      \"clientInfo\"\n    ],\n    \"message\": \"Invalid input: expected object, received undefined\"\n  }\n]"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 1088958
+      },
+      "timestamp": "2026-09-07T12:43:47.941934Z"
+    },
+    {
+      "test_id": "schema_validation",
+      "test_name": "Schema Validation",
+      "category": "Schema",
+      "status": "Pass",
+      "message": "All 0 messages conform to expected schemas",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1792
+      },
+      "timestamp": "2026-09-07T12:43:47.941943Z"
+    }
+  ],
+  "server_info": null,
+  "performance": {
+    "initialization_time": {
+      "secs": 5,
+      "nanos": 359439708
+    },
+    "average_request_time": {
+      "secs": 0,
+      "nanos": 1530850
+    },
+    "total_requests": 11,
+    "failed_requests": 0,
+    "timeouts": 0
+  }
+}

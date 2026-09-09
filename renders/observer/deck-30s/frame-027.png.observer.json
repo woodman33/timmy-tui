@@ -1,0 +1,61 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/deck-30s/frame-027.png",
+ "image_sha256": "1b47b9062edcddf20d254b3f4afb04e2f643227cfdd6dd21381222201991c0e1",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 51420,
+  "lines": [
+   "VAULT CUSTODY x TIMMY",
+   "Gateway Profile Boxes Singles Locations Provenance Where thel boxes went",
+   "VC0007 - 2026 hobby box",
+   "14 chain events, every one stamped with its hat. One list, two",
+   "views.",
+   "Timeline 3D Travel map",
+   "903.0401 custody.manufacture Manufactured Series 001. lot 14",
+   "903.0405 custodv.ship",
+   "Shipped: reaion 4. pallet 22",
+   "provenance - VC0007",
+   "sign out",
+   "OPENED",
+   "Manufacturer L Distributor a Retailer Collector A Seller Grader chain",
+   "Click an event.",
+   "manufacturer Duryea, PA",
+   "distributor Reno. NV",
+   "genesis c0alf9e4",
+   "c0alf9e4 e07b4d92"
+  ],
+  "text_sha256": "d538bb2485e56ce1ce06d4220026200af2d122a7b8f94c5380e49d294f44396e"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 2848,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [],
+  "sha256": "2739a847ab76965fd37691135ed6d3e0b676b67c5634cb65caa61a34d63dafa8"
+ },
+ "observed_at": "2026-09-07T13:26:58.238Z",
+ "source": {
+  "backfill": "walkthrough deck 30s cut (renders/walkthrough-deck/walkthrough-deck-30s.mp4 sha 7a339f0ac35345da, 1 fps)",
+  "frame": 27,
+  "frames": 30
+ }
+}

@@ -1,0 +1,72 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-020.png",
+ "image_sha256": "91748b0552250bf0c1111d3a837ade81a5fd351db9f12530c2cfba9322f56412",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 8818,
+  "lines": [
+   "HEAD",
+   "1",
+   "an",
+   "Every box went into the record before the wrap ever came"
+  ],
+  "text_sha256": "f008bde0396544f47f5dbbe2d0f22eed99df834edaade9a61704e0e864ca5d72"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 3282,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "person",
+    "conf": 0.715,
+    "x": 293,
+    "y": 801,
+    "w": 497,
+    "h": 507
+   },
+   {
+    "label": "banner",
+    "conf": 0.191,
+    "x": 996,
+    "y": 489,
+    "w": 1237,
+    "h": 954
+   },
+   {
+    "label": "person",
+    "conf": 0.134,
+    "x": 923,
+    "y": 537,
+    "w": 1762,
+    "h": 1026
+   }
+  ],
+  "sha256": "998b181b5203b9bb3438f917f226e71a00694cbd3c74e38b0202039343088b0f"
+ },
+ "observed_at": "2026-09-07T12:39:22.195Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 20,
+  "frames": 63
+ }
+}

@@ -1,0 +1,73 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/deck-30s/frame-005.png",
+ "image_sha256": "a613dfd7be98a99e6ea74241e17cdc6d84cc772c09fb56da3373abb2c4a07475",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 10308,
+  "lines": [
+   "VAULT CUSTODY x TIMMY",
+   "Series 001 pilot",
+   "Every box a",
+   "1/1.",
+   "A receipt every box carries with it, and any phone can",
+   "Gateway Profile Boxes Singles Locations Provenance Where the boxes went",
+   "sign out",
+   "read. The seal signs the tap. The band remembers the",
+   "break.",
+   "Pick a hat",
+   "See the provenance",
+   "It goes on the box you already make.",
+   "Cieu"
+  ],
+  "text_sha256": "956024c7bc581684b4a7eded15bb51c11d3eb4723f12bb031e0ea12a2eb43e76"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 1826,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "banner",
+    "conf": 0.057,
+    "x": 1043,
+    "y": 526,
+    "w": 201,
+    "h": 59
+   },
+   {
+    "label": "banner",
+    "conf": 0.052,
+    "x": 1067,
+    "y": 425,
+    "w": 533,
+    "h": 264
+   }
+  ],
+  "sha256": "0436193035f2f48ff98247c6e82dc583cadf4f8dc7ad6a225a6c2b58cbfef32a"
+ },
+ "observed_at": "2026-09-07T12:49:10.838Z",
+ "source": {
+  "backfill": "walkthrough deck 30s cut (renders/walkthrough-deck/walkthrough-deck-30s.mp4 sha 7a339f0ac35345da, 1 fps)",
+  "frame": 5,
+  "frames": 30
+ }
+}

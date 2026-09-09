@@ -1,0 +1,49 @@
+{
+ "v": 1,
+ "id": "sb_mtr8b5k3_pxhb",
+ "label": "smoke",
+ "repo": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/sandbox",
+ "snapshot_sha256": "c930ba562d43e0930bb16c3fa7c83a3100799e2486021a9ef3365cf519cfada0",
+ "files": 7,
+ "task": "List the files in /workspace with ls -la, then reply with exactly one line: DONE <number of files>.",
+ "task_sha256": "a35337c46fea71191988c7a24e5aaf637628055b90352abf70f01a6888e42b24",
+ "image": "ghcr.io/openhands/agent-server:1.21.0-python",
+ "dev_image": false,
+ "model": "openrouter/google/gemini-3.7-flash",
+ "platform": "linux/arm64",
+ "driver_exit": 0,
+ "result": {
+  "v": 1,
+  "ok": true,
+  "task": "List the files in /workspace with ls -la, then reply with exactly one line: DONE <number of files>.",
+  "model": "openrouter/google/gemini-3.7-flash",
+  "base_url": "https://openrouter.ai/api/v1",
+  "image": "ghcr.io/openhands/agent-server:1.21.0-python",
+  "dev_image": false,
+  "platform": "linux/arm64",
+  "workspace": "/Users/williammeldman/.timmy-sandbox/sb_mtr8b5k3_pxhb/workspace",
+  "events": 75,
+  "tool_calls": 27,
+  "final": null,
+  "error": null,
+  "container": "eca1574c197568bed8c434e53fd4f94f115bdba0be2603aae9cb7b01865bee88",
+  "cost_usd": 0,
+  "tokens": {
+   "prompt": 0,
+   "completion": 0
+  },
+  "ms": 163292,
+  "host": "http://localhost:34512",
+  "status": ""
+ },
+ "diff": {
+  "changed": 0,
+  "added": 0,
+  "removed": 0,
+  "sample": []
+ },
+ "collected": [],
+ "ms": 164124,
+ "ts": "2026-09-07T12:43:26.089Z",
+ "dir": "/Users/williammeldman/.timmy-sandbox/sb_mtr8b5k3_pxhb"
+}

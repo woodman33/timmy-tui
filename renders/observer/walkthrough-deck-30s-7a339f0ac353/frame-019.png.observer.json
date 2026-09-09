@@ -1,0 +1,84 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/walkthrough-deck-30s-7a339f0ac353/frame-019.png",
+ "image_sha256": "9d012d814b4e015bb4e0175c4e2628ea66c61dd7a6d2c52c3f03d9f88661ed9d",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 18336,
+  "lines": [
+   "VAULT CUSTODY",
+   "receipt - epoch 903",
+   "Tap verified - signature valid",
+   "counter 61 receipt 8c3db1c8 tamper CC 3:26:36 AM",
+   "OPENED",
+   "Box VC0007",
+   "Opened Sep 14, 2026, 19:22 PT - Henderson, NV - by the",
+   "claimed owner",
+   "Seal",
+   "broken * stored on chip - reported at tap #4",
+   "Reveal tag",
+   "signed - Sep 14 - 19:22:07 - counter 1",
+   "Owner",
+   "claimed Sep 12, 13:05 - W. M.",
+   "Packs",
+   "24 of 24 opened - 19:24 - 20:41",
+   "Cards attached",
+   "312 scanned : 4 hits - 2 numbered",
+   "Custody timeline",
+   "Sealed at Paradise Card Breaks",
+   "Sep 12 12:41 Las Vegas"
+  ],
+  "text_sha256": "d5ee5cd9b8bdb0fa10310e8c6cd3f5c6f490bd5b3ce7292a5659c4c2e1c501f0"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 2375,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "banner",
+    "conf": 0.131,
+    "x": 720,
+    "y": 579,
+    "w": 700,
+    "h": 282
+   },
+   {
+    "label": "banner",
+    "conf": 0.036,
+    "x": 683,
+    "y": 451,
+    "w": 1367,
+    "h": 898
+   }
+  ],
+  "sha256": "15269fd2009f56f154abfd431d12a6df764ff8f1e359dc90a18d8a67448f340c"
+ },
+ "observed_at": "2026-09-07T13:42:03.527Z",
+ "source": {
+  "source_receipt": "sha256_92c15f507ba0d40d760d752fc0711589414fd3e3be26d53bd2fd6a0972949732",
+  "source_subject": "render.review",
+  "video": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/walkthrough-deck/walkthrough-deck-30s.mp4",
+  "video_sha256_12": "7a339f0ac353",
+  "frame": 19,
+  "frames": 30
+ }
+}

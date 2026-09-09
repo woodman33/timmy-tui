@@ -1,0 +1,100 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-032.png",
+ "image_sha256": "abcfb2001c1e51ca2d70e2ee62c0c598823d74e1d44c56f0280a5f230f7c5691",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 16056,
+  "lines": [
+   "packvopen",
+   "rc_mtdujlvj_zeqo",
+   "0",
+   "JARRETT STIDIT I M",
+   "II",
+   "By",
+   "the time the",
+   "a",
+   "first pack",
+   "was",
+   "JUMBO",
+   "a",
+   "49/49",
+   "opened,",
+   "the",
+   "proof already existed."
+  ],
+  "text_sha256": "e47c3e3f193c09098731b77f1bcdb99e7f5dc3e324dc2c539f0eac52c26173e1"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 6685,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "person",
+    "conf": 0.775,
+    "x": 265,
+    "y": 609,
+    "w": 477,
+    "h": 908
+   },
+   {
+    "label": "person",
+    "conf": 0.624,
+    "x": 1247,
+    "y": 597,
+    "w": 682,
+    "h": 701
+   },
+   {
+    "label": "phone",
+    "conf": 0.378,
+    "x": 1420,
+    "y": 477,
+    "w": 971,
+    "h": 944
+   },
+   {
+    "label": "box",
+    "conf": 0.251,
+    "x": 1419,
+    "y": 481,
+    "w": 974,
+    "h": 946
+   },
+   {
+    "label": "card",
+    "conf": 0.214,
+    "x": 654,
+    "y": 464,
+    "w": 657,
+    "h": 465
+   }
+  ],
+  "sha256": "53635c89dc505504342486d8227cf53a9ff8ef3eb8e7c7e520d83eff71facfd9"
+ },
+ "observed_at": "2026-09-07T12:42:52.264Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 32,
+  "frames": 63
+ }
+}

@@ -1,0 +1,68 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/walkthrough-deck-30s-7a339f0ac353/frame-001.png",
+ "image_sha256": "6de69b0c97ec83c3ae0949deec24632c0daf46b60dacab07657affd57bb97ac3",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 21782,
+  "lines": [
+   "VAULT CUSTODY x TIMMY",
+   "Series 001 pilot",
+   "Every box a",
+   "1/1.",
+   "A receipt every box carries with it, and any phone can",
+   "Gateway Profile Boxes Singles Locations Provenance Where the boxes went",
+   "sign out",
+   "read. The seal signs the tap. The band remembers the",
+   "break.",
+   "Pick a hat",
+   "See the provenance",
+   "It goes on the box you already make.",
+   "Cieu"
+  ],
+  "text_sha256": "956024c7bc581684b4a7eded15bb51c11d3eb4723f12bb031e0ea12a2eb43e76"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 16677,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "banner",
+    "conf": 0.049,
+    "x": 1067,
+    "y": 424,
+    "w": 535,
+    "h": 264
+   }
+  ],
+  "sha256": "faaf9e8013d6ea465a75b93a6d3922da16197b805641a7984f28975f66241831"
+ },
+ "observed_at": "2026-09-07T13:31:31.511Z",
+ "source": {
+  "source_receipt": "sha256_92c15f507ba0d40d760d752fc0711589414fd3e3be26d53bd2fd6a0972949732",
+  "source_subject": "render.review",
+  "video": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/walkthrough-deck/walkthrough-deck-30s.mp4",
+  "video_sha256_12": "7a339f0ac353",
+  "frame": 1,
+  "frames": 30
+ }
+}

@@ -1,0 +1,54 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-035.png",
+ "image_sha256": "c97b0a4e5ca3631c6a993fa5c589743928ab71fba4ba8f8380a7085cb7079b6b",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 10234,
+  "lines": [
+   "timmy verify",
+   "ok:true - receipts:598 - epochs:6"
+  ],
+  "text_sha256": "8b6ce99def93f5b8898b542d86d6edbd44931fee7d9f9f7291cb5f90c2fdc543"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 4182,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "banner",
+    "conf": 0.076,
+    "x": 1548,
+    "y": 368,
+    "w": 519,
+    "h": 139
+   }
+  ],
+  "sha256": "3cbbc74a21284b8efb89a34cf03a5ca599cb26b4c87a15b13f5199a261c5cfa7"
+ },
+ "observed_at": "2026-09-07T12:43:40.167Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 35,
+  "frames": 63
+ }
+}

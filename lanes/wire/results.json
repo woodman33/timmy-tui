@@ -1,0 +1,2787 @@
+{
+ "order": "shelf-w6d3 step 3 — wire",
+ "bridges": {
+  "timmy-ro": {
+   "kind": "wire",
+   "transport": "stdio",
+   "command": "node scripts/timmy-mcp.mjs",
+   "source": "worktree scripts/timmy-mcp.mjs (Porter outbound, read-only)",
+   "notes": "Hand-rolled JSON-RPC loop; 4 tools; answers unknown methods with an empty result instead of a JSON-RPC error.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/timmy-ro.json",
+    "sha256": "cecd228d0c8b6dfb60d1e719135ce02ecea7cd768ed8f1f537d5d1c3e4ee878e",
+    "frames": 9,
+    "tools": 4,
+    "ok": true,
+    "note": "",
+    "server": {
+     "name": "timmy-porter",
+     "version": "1.0.0"
+    },
+    "protocol": "2024-11-05",
+    "connect_ms": 1148,
+    "tools_file": "lanes/wire/sessions/timmy-ro.tools.json",
+    "tools_sha256": "4740327fa99fab6e1ce2ea5e23b753cfbdd5325d6a408b9bf95ab1c2058ac56a",
+    "tool_names": [
+     "timmy_verify",
+     "timmy_gens",
+     "timmy_slate",
+     "timmy_fleet"
+    ],
+    "call": {
+     "tool": "timmy_fleet",
+     "exit": 0,
+     "ms": 217,
+     "isError": false,
+     "preview": "{\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"\\\"default fleet (fleet.json absent): houdini-sceneforge #1, roboflow #2, comfyui #3, runcomfy #4, comfydeploy #5, wavespeed #6\\\"\"\n    }\n  ]\n}\n"
+    },
+    "swept": [],
+    "sessions_in_trace": 2,
+    "trace_file": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/traces/timmy-ro.jsonl",
+    "session_id": "timmy-ro-18190-b2cd1cf3255e",
+    "frames_all_sessions": 11,
+    "export_summary": {
+     "requests": 4,
+     "responses": 4,
+     "notifications": 1,
+     "errors": 0,
+     "pending": 0,
+     "tool_calls": 1,
+     "protocol": "2024-11-05"
+    },
+    "check": {
+     "exit": 0,
+     "summary": "errors=0 invalid=0 warnings=0 mismatches=0 pending=0 late_results=0 deprecated=0 missing_frames=0 schema_findings=0"
+    }
+   },
+   "probe": {
+    "validate_report": "lanes/wire/reports/timmy-ro.validate.json",
+    "validate_sha256": "4fad02aefffea0117a4791b75e8ca31a72427b6e4e26f1cbe4fa78e7a6e61f66",
+    "test_report_dir": "lanes/wire/reports/timmy-ro",
+    "passed": 13,
+    "failed": 5,
+    "findings": [
+     "Invalid Method Handling: Server should return error for invalid methods",
+     "Invalid Parameters Handling: Server should return error for invalid parameters",
+     "Resources Listing: Resources listing: Serialization error: missing field `resources`",
+     "Prompts Listing: Prompts listing: Serialization error: missing field `prompts`",
+     "Error Handling: Should return error for invalid methods"
+    ],
+    "ok": true,
+    "note": "",
+    "validate": {
+     "total": 11,
+     "passed": 9,
+     "warnings": 0,
+     "errors": 2,
+     "critical": 0,
+     "compliance_pct": 82,
+     "ms": 150
+    },
+    "test_report": "lanes/wire/reports/timmy-ro/20260907-test-report-123355.json",
+    "test_sha256": "e5f282541fc47ee3a447f0fc4c2686ca49b6e0554a044d4114786c918a420750",
+    "test": {
+     "total": 7,
+     "passed": 4,
+     "failed": 3,
+     "warnings": 0,
+     "ms": 955
+    },
+    "swept": []
+   }
+  },
+  "timmy": {
+   "kind": "wire",
+   "transport": "stdio",
+   "command": "node_modules/.bin/tsx src/cli.ts mcp serve",
+   "source": "worktree src/mcp/server.ts via src/cli.ts `mcp serve`",
+   "notes": "Timmy's own MCP server (23 tools at time of writing). Known schema defects from 2026-09-06: timmy_promo_apply.beats is an array without items; timmy_gen_run has a parameter named kind. The server replies to initialize in ~0.4 s.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/timmy.json",
+    "sha256": "f494820db93b178c622c9468221ad50fbccf4fb892bbb0bfd0eb6aa2a0689836",
+    "frames": 10,
+    "tools": 23,
+    "ok": true,
+    "note": "",
+    "server": {
+     "name": "timmy",
+     "version": "0.4.0"
+    },
+    "protocol": "2024-11-05",
+    "connect_ms": 12825,
+    "tools_file": "lanes/wire/sessions/timmy.tools.json",
+    "tools_sha256": "334670ae36d1bd83b438d4c261003ce1240ca4d108466e8ed5d1de81f12417c3",
+    "tool_names": [
+     "timmy_env_lock",
+     "timmy_events_tail",
+     "timmy_receipt_verify",
+     "timmy_clip_replay",
+     "timmy_gen_run",
+     "timmy_promo_apply",
+     "timmy_llm_call",
+     "timmy_fusion_plan",
+     "timmy_promo_judge",
+     "timmy_allyson_run",
+     "timmy_apify_run",
+     "timmy_3minapi_run",
+     "timmy_openhands_run",
+     "timmy_oapi_run",
+     "timmy_roboflow_run",
+     "timmy_list_lanes",
+     "timmy_plan_dispatch",
+     "timmy_mission_compile",
+     "timmy_dispatch_plan",
+     "timmy_tail_lane",
+     "timmy_pause_or_cancel_lane",
+     "timmy_collect_run",
+     "timmy_judge_loop"
+    ],
+    "call": {
+     "tool": "timmy_env_lock",
+     "exit": 0,
+     "ms": 2699,
+     "isError": false,
+     "preview": "{\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"{\\\"os\\\":{\\\"platform\\\":\\\"darwin\\\",\\\"build\\\":\\\"25G83\\\",\\\"version\\\":\\\"26.6.2\\\"},\\\"arch\\\":\\\"arm64\\\",\\\"tools\\\":{\\\"ffmpeg\\\":{\\\"path\\\":\\\"/opt/homebrew/Cellar/ffmpeg/9.0.1/bin/ffmpeg\\\",\\\"sha256\\\":\\\"cebe04356214a938aec846e4fc423de3fc18eda07f64e34e56d55f9963473a20\\\",\\\"size\\\":426496,\\\"mtime\\\":1786783182299.5347},\\\"ffprobe\\\":{\\\"path\\\":\\\"/opt/homebrew…[+190 chars]"
+    },
+    "swept": [],
+    "sessions_in_trace": 2,
+    "trace_file": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/traces/timmy.jsonl",
+    "session_id": "timmy-4556-a1d6f51259ac",
+    "frames_all_sessions": 11,
+    "export_summary": {
+     "requests": 5,
+     "responses": 4,
+     "notifications": 1,
+     "errors": 0,
+     "pending": 1,
+     "tool_calls": 1,
+     "protocol": "2024-11-05"
+    },
+    "check": {
+     "exit": 1,
+     "summary": "errors=0 invalid=0 warnings=0 mismatches=0 pending=1 late_results=0 deprecated=0 missing_frames=0 schema_findings=0"
+    }
+   },
+   "probe": {
+    "validate_report": "lanes/wire/reports/timmy.validate.json",
+    "validate_sha256": "82be0bc715874a099ac7d0536d6f3513e742cc1eef4cb6f38dcf850d5d36aceb",
+    "test_report_dir": null,
+    "passed": 6,
+    "failed": 2,
+    "findings": [
+     "Resources Listing: Resources listing not supported: Transport error: Operation timed out (stdio): Request list_resources_1 timed out after 30s",
+     "Prompts Listing: Prompts listing not supported: Transport error: Operation timed out (stdio): Request list_prompts_1 timed out after 30s",
+     "Invalid Method Handling: Transport error during invalid method test: Transport error: Operation timed out (stdio): Request invalid_method_1 timed out after 30s",
+     "Invalid Parameters Handling: Server should return error for invalid parameters",
+     "Schema Validation: Found 3 schema issues out of 1 validated messages",
+     "local-lint: timmy_gen_run has a parameter named \"kind\"",
+     "local-lint: timmy_promo_apply.beats is an array without items",
+     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123134.log",
+     "wire: server never replies to resources/list, prompts/list, ping, wire/bogus_method (JSON-RPC requires a response or -32601; this is why mcp-probe waits its full per-request timeout on each)"
+    ],
+    "ok": true,
+    "note": "",
+    "validate": {
+     "total": 11,
+     "passed": 6,
+     "warnings": 4,
+     "errors": 1,
+     "critical": 0,
+     "compliance_pct": 55,
+     "ms": 93591
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": null,
+     "timedOut": true,
+     "ms": 120006,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123134.log"
+    },
+    "methods": {
+     "ms": 16757,
+     "methods": {
+      "initialize": "result",
+      "tools/list": "result",
+      "resources/list": "NO REPLY",
+      "prompts/list": "NO REPLY",
+      "ping": "NO REPLY",
+      "wire/bogus_method": "NO REPLY"
+     },
+     "unanswered": [
+      "resources/list",
+      "prompts/list",
+      "ping",
+      "wire/bogus_method"
+     ]
+    },
+    "swept": []
+   }
+  },
+  "houdini-gen": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "command": "/Users/williammeldman/ZCodeProject/houdini-gen-mcp/.venv/bin/python -m houdini_gen_mcp.server",
+   "source": "~/.claude.json mcpServers.houdini-gen (also ~/.cursor/mcp.json)",
+   "env_names": [
+    "PYTHONPATH",
+    "HOUDINI_GEN_ENV"
+   ],
+   "notes": "Fronts Houdini + gen providers (meshy/tripo/krea/wavespeed/gemini/openrouter); mcporter reports 54 tools. Env values are read from ~/.claude.json at launch by exec.mjs and never written to disk.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/houdini-gen.json",
+    "sha256": "4f750d196cf74e2904fb324e7bc2138f25035e82e9efb516de05dd791999fd55",
+    "frames": 9,
+    "tools": 54,
+    "ok": true,
+    "note": "",
+    "server": {
+     "name": "houdini-gen-mcp",
+     "version": "3.4.3"
+    },
+    "protocol": "2025-11-25",
+    "connect_ms": 6333,
+    "tools_file": "lanes/wire/sessions/houdini-gen.tools.json",
+    "tools_sha256": "fc574ed92aa341887047b3bdc53b8aaa8256535978f0bd5bdd4a40423a407b01",
+    "tool_names": [
+     "houdini_get_scene_info",
+     "houdini_new_scene",
+     "houdini_save_scene",
+     "houdini_load_scene",
+     "houdini_import_file",
+     "houdini_export_file",
+     "houdini_create_node",
+     "houdini_delete_node",
+     "houdini_get_node_info",
+     "houdini_get_parameter",
+     "houdini_set_parameter",
+     "houdini_create_material",
+     "houdini_assign_material",
+     "houdini_set_texture",
+     "houdini_viewport_screenshot",
+     "houdini_karma_xpu_render",
+     "houdini_execute_python",
+     "houdini_create_camera",
+     "houdini_set_current_camera",
+     "houdini_create_light",
+     "houdini_frame_selection",
+     "houdini_health",
+     "tripo_text_to_model",
+     "tripo_image_to_model",
+     "tripo_texture",
+     "tripo_poll",
+     "tripo_download_and_import",
+     "wavespeed_generate_3d",
+     "wavespeed_generate_image",
+     "wavespeed_generate_video",
+     "wavespeed_fetch",
+     "wavespeed_download_and_import",
+     "krea_generate_image",
+     "krea_generate_video",
+     "krea_list_node_apps",
+     "krea_execute_node_app",
+     "krea_poll",
+     "krea_download_and_import",
+     "meshy_text_to_3d",
+     "meshy_image_to_3d",
+     "meshy_text_to_texture",
+     "meshy_remesh",
+     "meshy_poll",
+     "meshy_download_and_import",
+     "openrouter_chat",
+     "openrouter_list_models",
+     "openrouter_credits",
+     "gemini_generate_image",
+     "gemini_edit_image",
+     "gemini_generate_video",
+     "gemini_poll_video",
+     "gemini_download_video",
+     "balance_check",
+     "topup"
+    ],
+    "call": {
+     "tool": "houdini_health",
+     "exit": 0,
+     "ms": 602,
+     "isError": false,
+     "preview": "{\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"{\\\"status\\\":\\\"ok\\\",\\\"houdini_version\\\":\\\"22.0.429\\\",\\\"hip_file\\\":\\\"/Users/williammeldman/Documents/Houdini Anomaly Final/Anomaly_Compact_v3_depth_preview.hipnc\\\",\\\"fps\\\":24.0,\\\"pid\\\":35005,\\\"uptime_s\\\":111407.59,\\\"bridge_version\\\":\\\"0.3.1\\\"}\"\n    }\n  ],\n  \"structuredContent\": {\n    \"status\": \"ok\",\n    \"houdini_version\": \"22.0.429\",\n    \"h…[+222 chars]"
+    },
+    "swept": [],
+    "sessions_in_trace": 2,
+    "trace_file": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/traces/houdini-gen.jsonl",
+    "session_id": "houdini-gen-18671-e60760ec6a14",
+    "frames_all_sessions": 11,
+    "export_summary": {
+     "requests": 4,
+     "responses": 4,
+     "notifications": 1,
+     "errors": 0,
+     "pending": 0,
+     "tool_calls": 1,
+     "protocol": "2025-11-25"
+    },
+    "check": {
+     "exit": 1,
+     "summary": "errors=0 invalid=0 warnings=0 mismatches=0 pending=0 late_results=0 deprecated=0 missing_frames=0 schema_findings=25"
+    }
+   },
+   "probe": {
+    "validate_report": "lanes/wire/reports/houdini-gen.validate.json",
+    "validate_sha256": "a1413963fdafb3255f4f48776c269c7ec140145654d1d376c51909642a7495e7",
+    "test_report_dir": "lanes/wire/reports/houdini-gen",
+    "passed": 14,
+    "failed": 0,
+    "findings": [
+     "Invalid Method Handling: Server returned unexpected error code: -32602",
+     "Resources Listing: No resources available",
+     "Prompts Listing: No prompts available",
+     "Error Handling: Unexpected error code: -32602"
+    ],
+    "ok": true,
+    "note": "",
+    "validate": {
+     "total": 11,
+     "passed": 10,
+     "warnings": 1,
+     "errors": 0,
+     "critical": 0,
+     "compliance_pct": 91,
+     "ms": 2455
+    },
+    "test_report": "lanes/wire/reports/houdini-gen/20260907-test-report-123410.json",
+    "test_sha256": "955916218e882104a43093d9a5f931f22d92487b89fefe178adf5797e4f720e0",
+    "test": {
+     "total": 7,
+     "passed": 4,
+     "failed": 0,
+     "warnings": 3,
+     "ms": 2570
+    },
+    "swept": []
+   }
+  },
+  "rive-pro": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "command": "node /Users/williammeldman/.claude/skills/rive-ui-pro-max/engine/mcp/server.mjs",
+   "source": "~/.claude.json mcpServers.rive-pro",
+   "notes": "Fronts the Rive desktop bridge (rive_doctor/rive_raw_call); 26 recipe tools.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/rive-pro.json",
+    "sha256": "2e7c326a1871a9e813f4ad1da52a6cbed6e3432faaf6b60b44a203cad06d3106",
+    "frames": 9,
+    "tools": 26,
+    "ok": true,
+    "note": "",
+    "server": {
+     "name": "rive-ui-pro-max",
+     "version": "1.0.0"
+    },
+    "protocol": "2025-06-18",
+    "connect_ms": 1330,
+    "tools_file": "lanes/wire/sessions/rive-pro.tools.json",
+    "tools_sha256": "865002904cf6bb7a76e946bcaec0b6a961a0960fd07eea61364ca7b9ff4ba85c",
+    "tool_names": [
+     "rive_scaffold_overlay",
+     "rive_glass_panel",
+     "rive_staggered_cascade",
+     "rive_signature_reveal",
+     "rive_breathe_loop",
+     "rive_gold_foil_sweep",
+     "rive_vignette",
+     "rive_marquee",
+     "rive_wire_reveal_sm",
+     "rive_holo_shimmer",
+     "rive_count_up",
+     "rive_sheen",
+     "rive_depth_shadow",
+     "rive_kinetic_type",
+     "rive_rect",
+     "rive_divider",
+     "rive_focus_ring",
+     "rive_particle_assemble",
+     "rive_state_driven_theme",
+     "rive_scramble_text",
+     "rive_magnetic_hover",
+     "rive_parallax_depth",
+     "rive_doctor",
+     "rive_raw_call",
+     "rive_presets",
+     "rive_docs"
+    ],
+    "call": {
+     "tool": "rive_presets",
+     "exit": 0,
+     "ms": 162,
+     "isError": false,
+     "preview": "{\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"{\\n  \\\"easings\\\": {\\n    \\\"expo-out\\\": {\\n      \\\"cubic\\\": [\\n        0.16,\\n        1,\\n        0.3,\\n        1\\n      ],\\n      \\\"use\\\": \\\"The signature settle. Snappy decel that arrives with authority — entrances, docks, reveals.\\\"\\n    },\\n    \\\"power4-out\\\": {\\n      \\\"cubic\\\": [\\n        0.22,\\n        1,\\n        0.36,\\n        1\\n…[+7118 chars]"
+    },
+    "swept": [],
+    "sessions_in_trace": 2,
+    "trace_file": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/traces/rive-pro.jsonl",
+    "session_id": "rive-pro-19436-a99098f350f3",
+    "frames_all_sessions": 11,
+    "export_summary": {
+     "requests": 4,
+     "responses": 4,
+     "notifications": 1,
+     "errors": 0,
+     "pending": 0,
+     "tool_calls": 1,
+     "protocol": "2025-06-18"
+    },
+    "check": {
+     "exit": 0,
+     "summary": "errors=0 invalid=0 warnings=0 mismatches=0 pending=0 late_results=0 deprecated=0 missing_frames=0 schema_findings=0"
+    }
+   },
+   "probe": {
+    "validate_report": "lanes/wire/reports/rive-pro.validate.json",
+    "validate_sha256": "3d6a77b264b1c366f73e751163d867997856ac78d5b476c3495dea8386442a62",
+    "test_report_dir": "lanes/wire/reports/rive-pro",
+    "passed": 13,
+    "failed": 1,
+    "findings": [
+     "Resources Listing: Resources listing returned no results",
+     "Prompts Listing: Prompts listing returned no results",
+     "Invalid Parameters Handling: Server should return error for invalid parameters",
+     "Resources Listing: No resources available",
+     "Prompts Listing: No prompts available"
+    ],
+    "ok": true,
+    "note": "",
+    "validate": {
+     "total": 11,
+     "passed": 8,
+     "warnings": 2,
+     "errors": 1,
+     "critical": 0,
+     "compliance_pct": 73,
+     "ms": 369
+    },
+    "test_report": "lanes/wire/reports/rive-pro/20260907-test-report-123415.json",
+    "test_sha256": "8ac71e6c0583bfab5c1b5abe399159d8e461062049c7f6892e706b1dce4080b5",
+    "test": {
+     "total": 7,
+     "passed": 5,
+     "failed": 0,
+     "warnings": 2,
+     "ms": 1236
+    },
+    "swept": []
+   }
+  },
+  "hyperforge": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "command": "node /Users/williammeldman/Desktop/Kimi_Agent_Canva_Research/hyperforge-studio/mcp-local/src/server.mjs",
+   "source": "~/.claude.json mcpServers.hyperforge",
+   "gate": "missing_entrypoint",
+   "notes": "The whole /Users/williammeldman/Desktop/Kimi_Agent_Canva_Research tree is absent on this Mac; ~/.claude.json and mcporter both report Connection closed. Nothing to snoop or probe until the tree is restored or the registration removed.",
+   "snoop": {
+    "ok": false,
+    "gate": "missing_entrypoint",
+    "note": "The whole /Users/williammeldman/Desktop/Kimi_Agent_Canva_Research tree is absent on this Mac; ~/.claude.json and mcporter both report Connection closed. Nothing to snoop or probe until the tree is restored or the registration removed."
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "The whole /Users/williammeldman/Desktop/Kimi_Agent_Canva_Research tree is absent on this Mac; ~/.claude.json and mcporter both report Connection closed. Nothing to snoop or probe until the tree is restored or the registration removed.",
+    "gate": "missing_entrypoint"
+   }
+  },
+  "forge": {
+   "kind": "wire",
+   "transport": "http",
+   "url": "http://127.0.0.1:3141/mcp",
+   "source": "~/.claude.json mcpServers.forge (streamable HTTP)",
+   "notes": "Local streamable-HTTP server; the order says do not start it. Recorded as unreachable when nothing listens on :3141.",
+   "snoop": {
+    "session_file": null,
+    "sha256": null,
+    "frames": 0,
+    "tools": 0,
+    "ok": false,
+    "note": "unreachable: ECONNREFUSED (nothing listening / DNS / TLS) — not started, per order",
+    "reach": {
+     "reachable": false,
+     "error": "ECONNREFUSED"
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "unreachable: ECONNREFUSED — not started, per order",
+    "reach": {
+     "reachable": false,
+     "error": "ECONNREFUSED"
+    }
+   }
+  },
+  "rive": {
+   "kind": "wire",
+   "transport": "http",
+   "url": "http://127.0.0.1:9791/mcp",
+   "source": "~/.cursor/mcp.json (rive) + Claude Code session config",
+   "notes": "Local HTTP bridge into the Rive editor; do not start. Recorded as unreachable when nothing listens on :9791.",
+   "snoop": {
+    "session_file": null,
+    "sha256": null,
+    "frames": 0,
+    "tools": 0,
+    "ok": false,
+    "note": "unreachable: ECONNREFUSED (nothing listening / DNS / TLS) — not started, per order",
+    "reach": {
+     "reachable": false,
+     "error": "ECONNREFUSED"
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "unreachable: ECONNREFUSED — not started, per order",
+    "reach": {
+     "reachable": false,
+     "error": "ECONNREFUSED"
+    }
+   }
+  },
+  "kimi-cu": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "command": "/Applications/KimiCU.app/Contents/MacOS/kimi-cu mcp -s user",
+   "source": "mcporter (~/.cursor/mcp.json, also ~/.claude.json)",
+   "notes": "Kimi computer-use bridge; 10 tools.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/kimi-cu.json",
+    "sha256": "fe03fdec98941d86b6a7ef98ccbe74225bf5cc6467bf93d4733cbf4123f46103",
+    "frames": 9,
+    "tools": 10,
+    "ok": true,
+    "note": "",
+    "server": {
+     "name": "kimi-cu",
+     "version": "0.5.8"
+    },
+    "protocol": "2025-11-25",
+    "connect_ms": 1130,
+    "tools_file": "lanes/wire/sessions/kimi-cu.tools.json",
+    "tools_sha256": "04cd6d301b42f60c2141a6c4212ec4d642006fc6aba9c06b4e7078ae1c324463",
+    "tool_names": [
+     "list_apps",
+     "get_app_state",
+     "click",
+     "type_text",
+     "press_key",
+     "scroll",
+     "set_value",
+     "perform_secondary_action",
+     "select_text",
+     "drag"
+    ],
+    "call": {
+     "tool": "list_apps",
+     "exit": 0,
+     "ms": 2917,
+     "isError": false,
+     "preview": "{\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"{\\\"apps\\\":[{\\\"name\\\":\\\"Safari\\\",\\\"bundle_id\\\":\\\"com.apple.Safari\\\",\\\"pid\\\":1614},{\\\"name\\\":\\\"ChatGPT Classic\\\",\\\"bundle_id\\\":\\\"com.openai.chat\\\",\\\"pid\\\":1623},{\\\"name\\\":\\\"Terminal\\\",\\\"bundle_id\\\":\\\"com.apple.Terminal\\\",\\\"pid\\\":1633},{\\\"name\\\":\\\"Cursor\\\",\\\"bundle_id\\\":\\\"com.apple.Safari.WebApp.577B4306-6C3B-4DFF-8DF8-DC324399A203\\\",\\\"pid\\\"…[+1863 chars]"
+    },
+    "swept": [],
+    "sessions_in_trace": 2,
+    "trace_file": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/traces/kimi-cu.jsonl",
+    "session_id": "kimi-cu-19773-a98389d5dfbc",
+    "frames_all_sessions": 11,
+    "export_summary": {
+     "requests": 4,
+     "responses": 4,
+     "notifications": 1,
+     "errors": 0,
+     "pending": 0,
+     "tool_calls": 1,
+     "protocol": "2025-11-25"
+    },
+    "check": {
+     "exit": 0,
+     "summary": "errors=0 invalid=0 warnings=0 mismatches=0 pending=0 late_results=0 deprecated=0 missing_frames=0 schema_findings=0"
+    }
+   },
+   "probe": {
+    "validate_report": "lanes/wire/reports/kimi-cu.validate.json",
+    "validate_sha256": "2bd4c33dd5d4da4626e08eab9ad04cfe7f9c00edca3cb1e5ac2290b54d45bbb0",
+    "test_report_dir": "lanes/wire/reports/kimi-cu",
+    "passed": 12,
+    "failed": 1,
+    "findings": [
+     "Resources Listing: Resources listing returned no results",
+     "Prompts Listing: Prompts listing returned no results",
+     "Invalid Parameters Handling: Server should return error for invalid parameters",
+     "Resources Listing: No resources available",
+     "Prompts Listing: No prompts available",
+     "Error Handling: Unexpected error code: -32600"
+    ],
+    "ok": true,
+    "note": "",
+    "validate": {
+     "total": 11,
+     "passed": 8,
+     "warnings": 2,
+     "errors": 1,
+     "critical": 0,
+     "compliance_pct": 73,
+     "ms": 236
+    },
+    "test_report": "lanes/wire/reports/kimi-cu/20260907-test-report-123422.json",
+    "test_sha256": "7b8a87310eee478c2798091ee5d1b04267dfda8620aa32d1736347c46dee4029",
+    "test": {
+     "total": 7,
+     "passed": 4,
+     "failed": 0,
+     "warnings": 3,
+     "ms": 941
+    },
+    "swept": []
+   }
+  },
+  "openhuman": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "command": "/Applications/OpenHuman.app/Contents/MacOS/OpenHuman mcp",
+   "source": "mcporter (~/.cursor/mcp.json)",
+   "notes": "13 tools per mcporter; harmless call auto-picked from the allow-list.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/openhuman.json",
+    "sha256": "603dce3c8e396b40c0253b799bd865c8ec0deea417995f7adef25e7c832d4f8e",
+    "frames": 7,
+    "tools": 13,
+    "ok": true,
+    "note": "",
+    "server": {
+     "name": "openhuman-core",
+     "version": "0.63.7"
+    },
+    "protocol": "2025-11-25",
+    "connect_ms": 1573,
+    "tools_file": "lanes/wire/sessions/openhuman.tools.json",
+    "tools_sha256": "6f3a4f6cff48702e974af2117c44d4cd1f206b2d83bc8e32c34f4440180646a3",
+    "tool_names": [
+     "core.list_tools",
+     "core.tool_instructions",
+     "agent.list_subagents",
+     "agent.run_subagent",
+     "memory.search",
+     "memory.recall",
+     "tree.read_chunk",
+     "tree.browse",
+     "tree.top_entities",
+     "tree.list_sources",
+     "memory.store",
+     "memory.note",
+     "tree.tag"
+    ],
+    "call": {
+     "skipped": "no zero-required-arg tool matched the harmless allow-list"
+    },
+    "swept": [],
+    "sessions_in_trace": 2,
+    "trace_file": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/traces/openhuman.jsonl",
+    "session_id": "openhuman-20257-be627c9a4cbb",
+    "frames_all_sessions": 9,
+    "export_summary": {
+     "requests": 3,
+     "responses": 3,
+     "notifications": 1,
+     "errors": 0,
+     "pending": 0,
+     "tool_calls": 0,
+     "protocol": "2025-11-25"
+    },
+    "check": {
+     "exit": 0,
+     "summary": "errors=0 invalid=0 warnings=0 mismatches=0 pending=0 late_results=0 deprecated=0 missing_frames=0 schema_findings=0"
+    }
+   },
+   "probe": {
+    "validate_report": "lanes/wire/reports/openhuman.validate.json",
+    "validate_sha256": "2f9d1f09a6b4dd1330baedfecadba0835368d3b3af7ecba59718fb50b3357146",
+    "test_report_dir": "lanes/wire/reports/openhuman",
+    "passed": 15,
+    "failed": 1,
+    "findings": [
+     "Prompts Listing: Prompts listing returned no results",
+     "Invalid Parameters Handling: Server should return error for invalid parameters",
+     "local-lint: tree.top_entities has a parameter named \"kind\"",
+     "Prompts Listing: No prompts available"
+    ],
+    "ok": true,
+    "note": "",
+    "validate": {
+     "total": 11,
+     "passed": 9,
+     "warnings": 1,
+     "errors": 1,
+     "critical": 0,
+     "compliance_pct": 82,
+     "ms": 103
+    },
+    "test_report": "lanes/wire/reports/openhuman/20260907-test-report-123427.json",
+    "test_sha256": "a2d4918a211ec9679520edc7fd9f8af50a761f3e191ae9a64bf356d92ed5fc8e",
+    "test": {
+     "total": 7,
+     "passed": 6,
+     "failed": 0,
+     "warnings": 1,
+     "ms": 920
+    },
+    "swept": []
+   }
+  },
+  "open-design": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "command": "/Applications/Open Design.app/Contents/Frameworks/Open Design Helper.app/Contents/MacOS/Open Design Helper /Applications/Open Design.app/Contents/Resources/app/prebundled/daemon/daemon-cli.mjs mcp",
+   "source": "mcporter (~/.cursor/mcp.json, ~/.claude.json)",
+   "env_names": [
+    "OD_DATA_DIR",
+    "OD_SIDECAR_IPC_PATH",
+    "ELECTRON_RUN_AS_NODE"
+   ],
+   "notes": "Open Design local daemon; 18 tools.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/open-design.json",
+    "sha256": "d78881ea32503475ba2fb3e686a12f960ebe5037ceb745120ddd2d27ef0a319b",
+    "frames": 9,
+    "tools": 18,
+    "ok": true,
+    "note": "",
+    "server": {
+     "name": "open-design",
+     "version": "0.2.0"
+    },
+    "protocol": "2025-11-25",
+    "connect_ms": 1498,
+    "tools_file": "lanes/wire/sessions/open-design.tools.json",
+    "tools_sha256": "377af91b6646926029090d6073bc49010c72185b1daafeb755f43ce6b5996fbb",
+    "tool_names": [
+     "list_projects",
+     "get_active_context",
+     "get_artifact",
+     "get_project",
+     "get_file",
+     "search_files",
+     "list_files",
+     "create_artifact",
+     "write_file",
+     "delete_file",
+     "delete_project",
+     "create_project",
+     "list_skills",
+     "list_plugins",
+     "start_run",
+     "get_run",
+     "cancel_run",
+     "list_agents"
+    ],
+    "call": {
+     "tool": "list_projects",
+     "exit": 2,
+     "ms": 446,
+     "isError": true,
+     "preview": "{\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"cannot reach the Open Design daemon at http://127.0.0.1:7456. Is it running? Start it with `pnpm tools-dev`.\"\n    }\n  ],\n  \"isError\": true\n}\n"
+    },
+    "swept": [],
+    "sessions_in_trace": 2,
+    "trace_file": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/traces/open-design.jsonl",
+    "session_id": "open-design-20548-6551b95cf4fa",
+    "frames_all_sessions": 11,
+    "export_summary": {
+     "requests": 4,
+     "responses": 4,
+     "notifications": 1,
+     "errors": 1,
+     "pending": 0,
+     "tool_calls": 1,
+     "protocol": "2025-11-25"
+    },
+    "check": {
+     "exit": 1,
+     "summary": "errors=1 invalid=0 warnings=0 mismatches=0 pending=0 late_results=0 deprecated=0 missing_frames=0 schema_findings=0"
+    }
+   },
+   "probe": {
+    "validate_report": "lanes/wire/reports/open-design.validate.json",
+    "validate_sha256": "b131884459c3a4ab7849b625ffd762d7a01c1f611ca2ce30769d7537a45ba62c",
+    "test_report_dir": null,
+    "passed": 9,
+    "failed": 1,
+    "findings": [
+     "Prompts Listing: Prompts listing returned no results",
+     "Invalid Parameters Handling: Server returned unexpected error code: -32603",
+     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123432.log"
+    ],
+    "ok": true,
+    "note": "",
+    "validate": {
+     "total": 11,
+     "passed": 9,
+     "warnings": 2,
+     "errors": 0,
+     "critical": 0,
+     "compliance_pct": 82,
+     "ms": 965
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": null,
+     "timedOut": true,
+     "ms": 120006,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123432.log"
+    },
+    "swept": []
+   }
+  },
+  "wordpress-studio": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "command": "studio mcp",
+   "source": "mcporter (~/.claude.json)",
+   "notes": "WordPress Studio CLI (~/.local/bin/studio); 25 tools.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/wordpress-studio.json",
+    "sha256": "e79849347863c15cc25f92953df1c7961f640f29171a273d2e37871d2a6f9ed6",
+    "frames": 9,
+    "tools": 25,
+    "ok": true,
+    "note": "",
+    "server": {
+     "name": "studio",
+     "version": "1.0.0"
+    },
+    "protocol": "2025-11-25",
+    "connect_ms": 7036,
+    "tools_file": "lanes/wire/sessions/wordpress-studio.tools.json",
+    "tools_sha256": "59e305c0ce905150ca7d6b3cb9edc5afb0ddaa3f8e7bba79845bc8ec90e3c852",
+    "tool_names": [
+     "site_create",
+     "site_list",
+     "site_info",
+     "site_start",
+     "site_stop",
+     "site_delete",
+     "preview_create",
+     "preview_list",
+     "preview_update",
+     "preview_delete",
+     "wp_cli",
+     "scaffold_theme",
+     "validate_blocks",
+     "take_screenshot",
+     "inspect_design",
+     "install_taxonomy_scripts",
+     "need_for_speed",
+     "rank_me_up",
+     "site_connected_remote_sites",
+     "site_push",
+     "site_pull",
+     "site_import",
+     "site_export",
+     "open_annotation_browser",
+     "wait_for_annotations"
+    ],
+    "call": {
+     "tool": "site_list",
+     "exit": 0,
+     "ms": 610,
+     "isError": false,
+     "preview": "{\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"[{\\\"id\\\":\\\"eccd9556-454f-4f51-9f0b-3741f5a199cf\\\",\\\"name\\\":\\\"3D-Printed-Toy-Blog\\\",\\\"path\\\":\\\"/Users/williammeldman/Studio/3d-printed-toy-blog\\\",\\\"port\\\":8881,\\\"phpVersion\\\":\\\"8.3\\\",\\\"runtime\\\":\\\"playground\\\",\\\"enableHttps\\\":false,\\\"adminUsername\\\":\\\"admin\\\",\\\"adminPassword\\\":\\\"aEYjdXlZMGpKRzIpZjVvY3FoM3ZnKXFX\\\",\\\"adminEmail\\\":\\\"wmeldman3…[+662 chars]"
+    },
+    "swept": [],
+    "sessions_in_trace": 2,
+    "trace_file": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/traces/wordpress-studio.jsonl",
+    "session_id": "wordpress-studio-27667-6c8ddc8d4f72",
+    "frames_all_sessions": 11,
+    "export_summary": {
+     "requests": 4,
+     "responses": 4,
+     "notifications": 1,
+     "errors": 0,
+     "pending": 0,
+     "tool_calls": 1,
+     "protocol": "2025-11-25"
+    },
+    "check": {
+     "exit": 0,
+     "summary": "errors=0 invalid=0 warnings=0 mismatches=0 pending=0 late_results=0 deprecated=0 missing_frames=0 schema_findings=0"
+    }
+   },
+   "probe": {
+    "validate_report": "lanes/wire/reports/wordpress-studio.validate.json",
+    "validate_sha256": "5f57cf7629598071776f8915626b17590341e15d2a7a1a74a523e3c8b9b1980b",
+    "test_report_dir": null,
+    "passed": 8,
+    "failed": 1,
+    "findings": [
+     "Resources Listing: Resources listing returned no results",
+     "Prompts Listing: Prompts listing returned no results",
+     "Invalid Parameters Handling: Server returned unexpected error code: -32603",
+     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123645.log"
+    ],
+    "ok": true,
+    "note": "",
+    "validate": {
+     "total": 11,
+     "passed": 8,
+     "warnings": 3,
+     "errors": 0,
+     "critical": 0,
+     "compliance_pct": 73,
+     "ms": 2895
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": null,
+     "timedOut": true,
+     "ms": 120031,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123645.log"
+    },
+    "swept": []
+   }
+  },
+  "notebooklm-mcp": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "command": "/Users/williammeldman/.local/bin/notebooklm-mcp",
+   "source": "mcporter (~/.claude/settings.json)",
+   "notes": "uv tool notebooklm-mcp-cli; 38 tools; harmless call auto-picked.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/notebooklm-mcp.json",
+    "sha256": "2ff2474f2947771f5310a7d944fdabe4718dedbbddccc648ecd6d54626eb9086",
+    "frames": 9,
+    "tools": 38,
+    "ok": true,
+    "note": "",
+    "server": {
+     "name": "notebooklm",
+     "version": "3.2.0"
+    },
+    "protocol": "2025-11-25",
+    "connect_ms": 6600,
+    "tools_file": "lanes/wire/sessions/notebooklm-mcp.tools.json",
+    "tools_sha256": "00c4f79993cc0079a7dac6f4a71dafc22fbffcd2648d2aeb50b0397e4b735d3c",
+    "tool_names": [
+     "refresh_auth",
+     "save_auth_tokens",
+     "batch",
+     "notebook_query",
+     "chat_configure",
+     "notebook_query_start",
+     "notebook_query_status",
+     "cross_notebook_query",
+     "download_artifact",
+     "export_artifact",
+     "notebook_list",
+     "notebook_get",
+     "notebook_describe",
+     "notebook_create",
+     "notebook_rename",
+     "notebook_delete",
+     "note",
+     "pipeline",
+     "research_start",
+     "research_status",
+     "research_import",
+     "server_info",
+     "notebook_share_status",
+     "notebook_share_public",
+     "notebook_share_invite",
+     "notebook_share_batch",
+     "tag",
+     "source_add",
+     "source_list_drive",
+     "source_sync_drive",
+     "source_rename",
+     "source_delete",
+     "source_describe",
+     "source_get_content",
+     "studio_create",
+     "studio_status",
+     "studio_delete",
+     "studio_revise"
+    ],
+    "call": {
+     "tool": "notebook_list",
+     "exit": 0,
+     "ms": 2390,
+     "isError": false,
+     "preview": "{\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"{\\\"status\\\":\\\"error\\\",\\\"error\\\":\\\"Failed to list notebooks: Authentication expired. Run 'nlm login' in your terminal to re-authenticate.\\\"}\"\n    }\n  ],\n  \"structuredContent\": {\n    \"status\": \"error\",\n    \"error\": \"Failed to list notebooks: Authentication expired. Run 'nlm login' in your terminal to re-authenticate.\"\n  },\n  \"isError\": fals…[+4 chars]"
+    },
+    "swept": [],
+    "sessions_in_trace": 2,
+    "trace_file": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/traces/notebooklm-mcp.jsonl",
+    "session_id": "notebooklm-mcp-35793-f09f7b06de6f",
+    "frames_all_sessions": 11,
+    "export_summary": {
+     "requests": 4,
+     "responses": 4,
+     "notifications": 1,
+     "errors": 0,
+     "pending": 0,
+     "tool_calls": 1,
+     "protocol": "2025-11-25"
+    },
+    "check": {
+     "exit": 1,
+     "summary": "errors=0 invalid=0 warnings=0 mismatches=0 pending=0 late_results=0 deprecated=0 missing_frames=0 schema_findings=17"
+    }
+   },
+   "probe": {
+    "validate_report": "lanes/wire/reports/notebooklm-mcp.validate.json",
+    "validate_sha256": "86591b3c8f6ff9a4106c432a83ffcca104c375bd867e38302863621bd187aca3",
+    "test_report_dir": "lanes/wire/reports/notebooklm-mcp",
+    "passed": 14,
+    "failed": 0,
+    "findings": [
+     "Invalid Method Handling: Server returned unexpected error code: -32602",
+     "Resources Listing: No resources available",
+     "Prompts Listing: No prompts available",
+     "Error Handling: Unexpected error code: -32602"
+    ],
+    "ok": true,
+    "note": "",
+    "validate": {
+     "total": 11,
+     "passed": 10,
+     "warnings": 1,
+     "errors": 0,
+     "critical": 0,
+     "compliance_pct": 91,
+     "ms": 2286
+    },
+    "test_report": "lanes/wire/reports/notebooklm-mcp/20260907-test-report-123902.json",
+    "test_sha256": "e78b1c04ace109c07054f2cf9c8dda18bfcb2a145cc005b748625d196799e33b",
+    "test": {
+     "total": 7,
+     "passed": 4,
+     "failed": 0,
+     "warnings": 3,
+     "ms": 2289
+    },
+    "swept": []
+   }
+  },
+  "node_repl": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "command": "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl",
+   "source": "mcporter (~/.codex/config.toml)",
+   "notes": "ChatGPT desktop node REPL bridge; 4 tools; exec-style tools are on the deny-list so the call may be skipped.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/node-repl.json",
+    "sha256": "dfa514b15ed5e8234d114ee4f693c7ea848f6766c7143ae66320eb25c211bb5c",
+    "frames": 7,
+    "tools": 4,
+    "ok": true,
+    "note": "",
+    "server": {
+     "name": "rmcp",
+     "version": "1.5.0"
+    },
+    "protocol": "2025-11-25",
+    "connect_ms": 1903,
+    "tools_file": "lanes/wire/sessions/node-repl.tools.json",
+    "tools_sha256": "471855419126b2f31590699c60a849dc583396eaea530fe21d49fef34815c698",
+    "tool_names": [
+     "js",
+     "js_add_node_module_dir",
+     "js_reset",
+     "turn_ended"
+    ],
+    "call": {
+     "skipped": "no zero-required-arg tool matched the harmless allow-list"
+    },
+    "swept": [],
+    "sessions_in_trace": 2,
+    "trace_file": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/traces/node-repl.jsonl",
+    "session_id": "node_repl-36815-31fa8b41f195",
+    "frames_all_sessions": 8,
+    "export_summary": {
+     "requests": 3,
+     "responses": 3,
+     "notifications": 1,
+     "errors": 0,
+     "pending": 0,
+     "tool_calls": 0,
+     "protocol": "2025-11-25"
+    },
+    "check": {
+     "exit": 0,
+     "summary": "errors=0 invalid=0 warnings=0 mismatches=0 pending=0 late_results=0 deprecated=0 missing_frames=0 schema_findings=0"
+    }
+   },
+   "probe": {
+    "validate_report": "lanes/wire/reports/node-repl.validate.json",
+    "validate_sha256": "d15f11f686a8008910dfc687ee5a803bc28f8d8de43284fe9168bea02282ac5e",
+    "test_report_dir": "lanes/wire/reports/node-repl",
+    "passed": 15,
+    "failed": 0,
+    "findings": [
+     "Invalid Parameters Handling: Server returned unexpected error code: -32601",
+     "Resources Listing: No resources available",
+     "Prompts Listing: No prompts available"
+    ],
+    "ok": true,
+    "note": "",
+    "validate": {
+     "total": 11,
+     "passed": 10,
+     "warnings": 1,
+     "errors": 0,
+     "critical": 0,
+     "compliance_pct": 91,
+     "ms": 420
+    },
+    "test_report": "lanes/wire/reports/node-repl/20260907-test-report-123907.json",
+    "test_sha256": "3d03291b25ba0df57abae39c88e8e8933ab9c4d641dd1103c3bfbd916c11aeea",
+    "test": {
+     "total": 7,
+     "passed": 5,
+     "failed": 0,
+     "warnings": 2,
+     "ms": 1134
+    },
+    "swept": []
+   }
+  },
+  "rive_animator": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "command": "node /Users/williammeldman/.codex/mcp-servers/rive-animator/dist/index.js",
+   "source": "mcporter (~/.codex/config.toml)",
+   "notes": "3 tools.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/rive-animator.json",
+    "sha256": "1e3192a5f713d33c55352b4c61b65d1c26738b6da2bb521a457c638857fd6af9",
+    "frames": 7,
+    "tools": 3,
+    "ok": true,
+    "note": "",
+    "server": {
+     "name": "rive-animator",
+     "version": "0.1.0"
+    },
+    "protocol": "2025-11-25",
+    "connect_ms": 1425,
+    "tools_file": "lanes/wire/sessions/rive-animator.tools.json",
+    "tools_sha256": "29cef677bee2f3c246b7efd631fe5f9bebba692158b3ad569f354531443ee704",
+    "tool_names": [
+     "rive_editor_status",
+     "rive_list_editor_tools",
+     "rive_call_editor_tool"
+    ],
+    "call": {
+     "skipped": "no zero-required-arg tool matched the harmless allow-list"
+    },
+    "swept": [],
+    "sessions_in_trace": 2,
+    "trace_file": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/traces/rive-animator.jsonl",
+    "session_id": "rive_animator-37112-d72d6d1e6d57",
+    "frames_all_sessions": 9,
+    "export_summary": {
+     "requests": 3,
+     "responses": 3,
+     "notifications": 1,
+     "errors": 0,
+     "pending": 0,
+     "tool_calls": 0,
+     "protocol": "2025-11-25"
+    },
+    "check": {
+     "exit": 1,
+     "summary": "errors=0 invalid=0 warnings=0 mismatches=0 pending=0 late_results=0 deprecated=0 missing_frames=0 schema_findings=3"
+    }
+   },
+   "probe": {
+    "validate_report": "lanes/wire/reports/rive-animator.validate.json",
+    "validate_sha256": "a56e2555cca28a7eee5ffdbf707bf8c998a0eea54891f1b370e785ac5885d108",
+    "test_report_dir": null,
+    "passed": 8,
+    "failed": 1,
+    "findings": [
+     "Resources Listing: Resources listing returned no results",
+     "Prompts Listing: Prompts listing returned no results",
+     "Invalid Parameters Handling: Server returned unexpected error code: -32603",
+     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123911.log"
+    ],
+    "ok": true,
+    "note": "",
+    "validate": {
+     "total": 11,
+     "passed": 8,
+     "warnings": 3,
+     "errors": 0,
+     "critical": 0,
+     "compliance_pct": 73,
+     "ms": 567
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": null,
+     "timedOut": true,
+     "ms": 120005,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123911.log"
+    },
+    "swept": []
+   }
+  },
+  "mux-stdio": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "command": "npx -y @mux/mcp",
+   "source": "mcporter (~/.cursor/mcp.json entry @mux/mcp)",
+   "notes": "npx-fetched; 2 tools; may need MUX_TOKEN_ID/MUX_TOKEN_SECRET for real calls (names only).",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/mux-stdio.json",
+    "sha256": "e2eb87f0f97b19ed80d2800f7af3a811bbfb9a12bf920abbd204da13084d4a2d",
+    "frames": 7,
+    "tools": 2,
+    "ok": true,
+    "note": "",
+    "server": {
+     "name": "mux",
+     "version": "15.0.0"
+    },
+    "protocol": "2025-11-25",
+    "connect_ms": 10516,
+    "tools_file": "lanes/wire/sessions/mux-stdio.tools.json",
+    "tools_sha256": "509a7e1c970e4eeb890449da4cb6fcd6f5ac3ece1aefa187b608323b20cd0c3a",
+    "tool_names": [
+     "execute",
+     "search_docs"
+    ],
+    "call": {
+     "skipped": "no zero-required-arg tool matched the harmless allow-list"
+    },
+    "swept": [],
+    "sessions_in_trace": 2,
+    "trace_file": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/traces/mux-stdio.jsonl",
+    "session_id": "mux-stdio-45130-dc063cf6b88f",
+    "frames_all_sessions": 8,
+    "export_summary": {
+     "requests": 3,
+     "responses": 3,
+     "notifications": 1,
+     "errors": 0,
+     "pending": 0,
+     "tool_calls": 0,
+     "protocol": "2025-11-25"
+    },
+    "check": {
+     "exit": 0,
+     "summary": "errors=0 invalid=0 warnings=0 mismatches=0 pending=0 late_results=0 deprecated=0 missing_frames=0 schema_findings=0"
+    }
+   },
+   "probe": {
+    "validate_report": "lanes/wire/reports/mux-stdio.validate.json",
+    "validate_sha256": "a1561486cbef99850409241f5eb6aedc13e4b94ca76fe1bfa98faad732962617",
+    "test_report_dir": null,
+    "passed": 8,
+    "failed": 1,
+    "findings": [
+     "Resources Listing: Resources listing returned no results",
+     "Prompts Listing: Prompts listing returned no results",
+     "Invalid Parameters Handling: Server returned unexpected error code: -32603",
+     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124128.log"
+    ],
+    "ok": true,
+    "note": "",
+    "validate": {
+     "total": 11,
+     "passed": 8,
+     "warnings": 3,
+     "errors": 0,
+     "critical": 0,
+     "compliance_pct": 73,
+     "ms": 4180
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": null,
+     "timedOut": true,
+     "ms": 120008,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124128.log"
+    },
+    "swept": []
+   }
+  },
+  "canva-dev": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "command": "npx -y @canva/cli@latest mcp",
+   "source": "mcporter (~/.cursor/mcp.json)",
+   "notes": "npx-fetched @canva/cli; 11 tools.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/canva-dev.json",
+    "sha256": "7433ed8214184f6c70b4dc3229ee0c4a2b84870709bdd0a7273dbe52896cf1b4",
+    "frames": 9,
+    "tools": 11,
+    "ok": true,
+    "note": "",
+    "server": {
+     "name": "Canva CLI MCP Server",
+     "version": "0.0.1-beta.1"
+    },
+    "protocol": "2025-11-25",
+    "connect_ms": 11006,
+    "tools_file": "lanes/wire/sessions/canva-dev.tools.json",
+    "tools_sha256": "6c8141088e60c3ad962b5b1c0ed04af9f365956747ae734c75b2c76fedf6d150",
+    "tool_names": [
+     "read-canva-connect-documentation-index",
+     "read-canva-apps-sdk-documentation-index",
+     "read-canva-documentation-pages",
+     "read-canva-app-ui-kit-index",
+     "read-canva-app-ui-kit-patterns-catalog",
+     "read-canva-app-ui-kit-page",
+     "read-canva-cli-documentation",
+     "read-canva-apps-sdk-design-guidelines",
+     "design-review-instructions",
+     "create-canva-app-instructions",
+     "canva-apps-migration-instructions"
+    ],
+    "call": {
+     "tool": "read-canva-apps-sdk-documentation-index",
+     "exit": 0,
+     "ms": 714,
+     "isError": false,
+     "preview": "{\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"# Apps SDK documentation\\n\\nHow to develop apps with the Apps SDK.\\n\\nApps are plugins that add features to Canva. They run in the browser and are built with standard web technologies, such as JavaScript.\\n\\nYou can use the Apps SDK to create apps that import content into Canva, add elements to a user's design, automate common design task…[+58027 chars]"
+    },
+    "swept": [],
+    "sessions_in_trace": 2,
+    "trace_file": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/traces/canva-dev.jsonl",
+    "session_id": "canva-dev-53425-f883135b21d7",
+    "frames_all_sessions": 11,
+    "export_summary": {
+     "requests": 4,
+     "responses": 4,
+     "notifications": 1,
+     "errors": 0,
+     "pending": 0,
+     "tool_calls": 1,
+     "protocol": "2025-11-25"
+    },
+    "check": {
+     "exit": 1,
+     "summary": "errors=0 invalid=0 warnings=0 mismatches=0 pending=0 late_results=0 deprecated=0 missing_frames=0 schema_findings=11"
+    }
+   },
+   "probe": {
+    "validate_report": "lanes/wire/reports/canva-dev.validate.json",
+    "validate_sha256": "44172c3bbd5a8c50a1126fc554ce9341f0ddd3412467009829a9038d2fbc486b",
+    "test_report_dir": null,
+    "passed": 10,
+    "failed": 1,
+    "findings": [
+     "Invalid Parameters Handling: Server returned unexpected error code: -32603",
+     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124347.log"
+    ],
+    "ok": true,
+    "note": "",
+    "validate": {
+     "total": 11,
+     "passed": 10,
+     "warnings": 1,
+     "errors": 0,
+     "critical": 0,
+     "compliance_pct": 91,
+     "ms": 5402
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": null,
+     "timedOut": true,
+     "ms": 120008,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124347.log"
+    },
+    "swept": []
+   }
+  },
+  "roboflow": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "command": "node_modules/.bin/tsx scripts/roboflow-mcp-server.ts",
+   "source": "worktree config/mcporter.json (roboflow) — Timmy's own mcporter registry",
+   "notes": "Key-gated by ROBOFLOW_API_KEY (name only); mcporter reports Timeout. 60 s cap here.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/roboflow.json",
+    "sha256": "1c35768b643cf78918e85bb6f56428e078e9644760bbef792ef3c4b3f77bf5fc",
+    "frames": 7,
+    "tools": 3,
+    "ok": true,
+    "note": "",
+    "server": {
+     "name": "timmy-roboflow",
+     "version": "0.5.0"
+    },
+    "protocol": "2024-11-05",
+    "connect_ms": 6570,
+    "tools_file": "lanes/wire/sessions/roboflow.tools.json",
+    "tools_sha256": "a43b49013bca41a9bf4d67f5c5042490e00fa1e2c916167d08ef97fba840f6ea",
+    "tool_names": [
+     "roboflow_upload",
+     "roboflow_detect",
+     "roboflow_sample"
+    ],
+    "call": {
+     "skipped": "no zero-required-arg tool matched the harmless allow-list"
+    },
+    "swept": [],
+    "sessions_in_trace": 2,
+    "trace_file": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/traces/roboflow.jsonl",
+    "session_id": "roboflow-61942-e5b92601802b",
+    "frames_all_sessions": 8,
+    "export_summary": {
+     "requests": 3,
+     "responses": 3,
+     "notifications": 1,
+     "errors": 0,
+     "pending": 0,
+     "tool_calls": 0,
+     "protocol": "2024-11-05"
+    },
+    "check": {
+     "exit": 0,
+     "summary": "errors=0 invalid=0 warnings=0 mismatches=0 pending=0 late_results=0 deprecated=0 missing_frames=0 schema_findings=0"
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 2,
+    "findings": [
+     "validate: no report written (exit=null, killed at 40 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124557.log",
+     "test: no report written (exit=null, killed at 40 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124637.log"
+    ],
+    "ok": false,
+    "note": "",
+    "validate": {
+     "failed_to_report": true,
+     "exit": null,
+     "timedOut": true,
+     "ms": 40024,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124557.log"
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": null,
+     "timedOut": true,
+     "ms": 40005,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124637.log"
+    },
+    "swept": []
+   }
+  },
+  "3minapi": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://3minapi.com/api/mcp",
+   "source": "worktree config/mcporter.json (3minapi) — x-api-key header from THREEMINAPI_KEY",
+   "gate": "not_configured",
+   "env_names": [
+    "THREEMINAPI_KEY"
+   ],
+   "notes": "mcporter: header substitution fails because THREEMINAPI_KEY is unset. Paid/keyed lane, never on the critical path.",
+   "snoop": {
+    "ok": false,
+    "gate": "not_configured",
+    "note": "mcporter: header substitution fails because THREEMINAPI_KEY is unset. Paid/keyed lane, never on the critical path.",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "mcporter: header substitution fails because THREEMINAPI_KEY is unset. Paid/keyed lane, never on the critical path.",
+    "gate": "not_configured"
+   }
+  },
+  "motion": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "command": "npx -y https://api.motion.dev/registry.tgz?package=motion-studio-mcp&version=5.4.4",
+   "source": "mcporter (~/.cursor/mcp.json, ~/.claude.json)",
+   "gate": "not_configured",
+   "env_names": [
+    "TOKEN"
+   ],
+   "notes": "motion.dev studio MCP needs TOKEN; mcporter and Claude Code both report Connection closed.",
+   "snoop": {
+    "ok": false,
+    "gate": "not_configured",
+    "note": "motion.dev studio MCP needs TOKEN; mcporter and Claude Code both report Connection closed."
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "motion.dev studio MCP needs TOKEN; mcporter and Claude Code both report Connection closed.",
+    "gate": "not_configured"
+   }
+  },
+  "computer-use": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "command": "./Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient mcp",
+   "source": "mcporter (~/.codex/config.toml)",
+   "gate": "missing_entrypoint",
+   "notes": "Registered with a relative app path; spawn fails from any cwd.",
+   "snoop": {
+    "ok": false,
+    "gate": "missing_entrypoint",
+    "note": "Registered with a relative app path; spawn fails from any cwd."
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "Registered with a relative app path; spawn fails from any cwd.",
+    "gate": "missing_entrypoint"
+   }
+  },
+  "unreal-mcp": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "source": "named in the order; absent from mcporter list, ~/.claude.json, ~/.cursor/mcp.json, ~/.codex/config.toml",
+   "gate": "not_registered",
+   "notes": "Nothing registered under this name on this Mac (the unreal-engine-skills plugin ships a skill, not a running server).",
+   "snoop": {
+    "ok": false,
+    "gate": "not_registered",
+    "note": "Nothing registered under this name on this Mac (the unreal-engine-skills plugin ships a skill, not a running server)."
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "Nothing registered under this name on this Mac (the unreal-engine-skills plugin ships a skill, not a running server).",
+    "gate": "not_registered"
+   }
+  },
+  "allyson": {
+   "kind": "bridge",
+   "transport": "stdio",
+   "source": "named in the order; Timmy's timmy_allyson_run lane calls allyson-mcp through mcporter stdio",
+   "gate": "not_configured",
+   "env_names": [
+    "ALLYSON_API_KEY"
+   ],
+   "notes": "Not registered in mcporter on this Mac and key-gated by ALLYSON_API_KEY.",
+   "snoop": {
+    "ok": false,
+    "gate": "not_configured",
+    "note": "Not registered in mcporter on this Mac and key-gated by ALLYSON_API_KEY."
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "Not registered in mcporter on this Mac and key-gated by ALLYSON_API_KEY.",
+    "gate": "not_configured"
+   }
+  },
+  "apify": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://link.mcpmarket.com/wmeldman33/apify/mcp",
+   "source": "mcporter (~/.cursor/mcp.json); Timmy's timmy_apify_run uses mcp.apify.com with a bearer from APIFY_API_TOKEN",
+   "gate": "not_configured",
+   "env_names": [
+    "APIFY_API_TOKEN"
+   ],
+   "notes": "mcporter: 401 (auth required).",
+   "snoop": {
+    "ok": false,
+    "gate": "not_configured",
+    "note": "mcporter: 401 (auth required).",
+    "reach": {
+     "reachable": true,
+     "status": 401
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "mcporter: 401 (auth required).",
+    "gate": "not_configured"
+   }
+  },
+  "Notion": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://mcp.notion.com/mcp",
+   "source": "mcporter (~/.cursor/mcp.json)",
+   "gate": "not_configured",
+   "notes": "OAuth; mcporter 401.",
+   "snoop": {
+    "ok": false,
+    "gate": "not_configured",
+    "note": "OAuth; mcporter 401.",
+    "reach": {
+     "reachable": true,
+     "status": 401
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "OAuth; mcporter 401.",
+    "gate": "not_configured"
+   }
+  },
+  "cloudflare": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://mcp.cloudflare.com/mcp",
+   "source": "mcporter (~/.cursor/mcp.json)",
+   "gate": "not_configured",
+   "notes": "OAuth; mcporter 401.",
+   "snoop": {
+    "ok": false,
+    "gate": "not_configured",
+    "note": "OAuth; mcporter 401.",
+    "reach": {
+     "reachable": true,
+     "status": 401
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "OAuth; mcporter 401.",
+    "gate": "not_configured"
+   }
+  },
+  "wix-mcp-remote": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://mcp.wix.com/mcp",
+   "source": "mcporter (~/.cursor/mcp.json)",
+   "gate": "not_configured",
+   "notes": "OAuth; mcporter 401.",
+   "snoop": {
+    "ok": false,
+    "gate": "not_configured",
+    "note": "OAuth; mcporter 401.",
+    "reach": {
+     "reachable": true,
+     "status": 401
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "OAuth; mcporter 401.",
+    "gate": "not_configured"
+   }
+  },
+  "elevenlabs": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://link.mcpmarket.com/wmeldman33/elevenlabs/mcp",
+   "source": "mcporter (~/.cursor/mcp.json)",
+   "gate": "not_configured",
+   "notes": "OAuth; mcporter 401.",
+   "snoop": {
+    "ok": false,
+    "gate": "not_configured",
+    "note": "OAuth; mcporter 401.",
+    "reach": {
+     "reachable": true,
+     "status": 401
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "OAuth; mcporter 401.",
+    "gate": "not_configured"
+   }
+  },
+  "quiverai": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://app.quiver.ai/mcp",
+   "source": "mcporter (~/.cursor/mcp.json)",
+   "gate": "not_configured",
+   "notes": "OAuth; mcporter 401.",
+   "snoop": {
+    "ok": false,
+    "gate": "not_configured",
+    "note": "OAuth; mcporter 401.",
+    "reach": {
+     "reachable": true,
+     "status": 401
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "OAuth; mcporter 401.",
+    "gate": "not_configured"
+   }
+  },
+  "krea-ai": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://api.krea.ai/mcp",
+   "source": "mcporter (~/.cursor/mcp.json)",
+   "gate": "not_configured",
+   "notes": "OAuth; mcporter 401.",
+   "snoop": {
+    "ok": false,
+    "gate": "not_configured",
+    "note": "OAuth; mcporter 401.",
+    "reach": {
+     "reachable": true,
+     "status": 401
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "OAuth; mcporter 401.",
+    "gate": "not_configured"
+   }
+  },
+  "heygen-docs": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://developers.heygen.com/mcp",
+   "source": "mcporter (~/.cursor/mcp.json 'HeyGen Documentation')",
+   "notes": "Public docs server; 3 tools.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/heygen-docs.json",
+    "sha256": "e966dc59c7a3fba1313eeaa0a03e46481a19e5524fb956467d60bb02a250fba9",
+    "frames": 10,
+    "tools": 3,
+    "ok": true,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "proxy": {
+     "listen": "127.0.0.1:47100",
+     "trace_flag_accepted": false,
+     "alive": true
+    },
+    "server": {
+     "name": "HeyGen Documentation",
+     "version": "1.0.0"
+    },
+    "protocol": "2026-07-28",
+    "connect_ms": 4297,
+    "tool_names": [
+     "search_hey_gen_documentation",
+     "query_docs_filesystem_hey_gen_documentation",
+     "submit_feedback"
+    ],
+    "tools_file": "lanes/wire/sessions/heygen-docs.tools.json",
+    "tools_sha256": "21f48dc30996e7390f44d399b82ac18d8b6e313f30855b54e9c55d1f615bc42d",
+    "call": {
+     "skipped": "no zero-required-arg tool matched the harmless allow-list"
+    },
+    "session_id": "heygen-docs-66980-51bd1c4052d1",
+    "export_summary": {
+     "requests": 5,
+     "responses": 4,
+     "errors": 0,
+     "tool_calls": 0
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 2,
+    "findings": [
+     "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 405 - Initialization failed: {\"error\": {\"code\": \"405\", \"message\": \"Method not allowed\"}}",
+     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124730.log"
+    ],
+    "ok": false,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "validate": {
+     "failed_to_report": true,
+     "exit": 1,
+     "timedOut": false,
+     "ms": 564,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124729.log"
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": 0,
+     "timedOut": false,
+     "ms": 8462,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124730.log"
+    },
+    "swept": []
+   }
+  },
+  "modelslab-docs": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://docs.modelslab.com/mcp",
+   "source": "mcporter (~/.cursor/mcp.json 'ModelsLab')",
+   "notes": "Public docs server; 3 tools.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/modelslab-docs.json",
+    "sha256": "0202040b5382b5437c8b5d167fbdd90e2452e1892ebb6edbf52ffb884226f4ed",
+    "frames": 10,
+    "tools": 3,
+    "ok": true,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "proxy": {
+     "listen": "127.0.0.1:47101",
+     "trace_flag_accepted": false,
+     "alive": true
+    },
+    "server": {
+     "name": "ModelsLab",
+     "version": "1.0.0"
+    },
+    "protocol": "2026-07-28",
+    "connect_ms": 2632,
+    "tool_names": [
+     "search_models_lab",
+     "query_docs_filesystem_models_lab",
+     "submit_feedback"
+    ],
+    "tools_file": "lanes/wire/sessions/modelslab-docs.tools.json",
+    "tools_sha256": "2fa305a59e78ca9378991de1cef5e315ccada01c09a1e369f7bc38ab15f5ab30",
+    "call": {
+     "skipped": "no zero-required-arg tool matched the harmless allow-list"
+    },
+    "session_id": "modelslab-docs-67847-8bb3116a4ffe",
+    "export_summary": {
+     "requests": 5,
+     "responses": 4,
+     "errors": 0,
+     "tool_calls": 0
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 2,
+    "findings": [
+     "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 405 - Initialization failed: {\"error\": {\"code\": \"405\", \"message\": \"Method not allowed\"}}",
+     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124748.log"
+    ],
+    "ok": false,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "validate": {
+     "failed_to_report": true,
+     "exit": 1,
+     "timedOut": false,
+     "ms": 491,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124748.log"
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": 0,
+     "timedOut": false,
+     "ms": 8393,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124748.log"
+    },
+    "swept": []
+   }
+  },
+  "notion-docs": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://developers.notion.com/mcp",
+   "source": "mcporter (~/.cursor/mcp.json 'Notion Docs')",
+   "notes": "Public docs server; 3 tools.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/notion-docs.json",
+    "sha256": "a6ae22de0f187eedc76690cf3fd2156599c1bdf9a18173ac5f7c4b6b6828746c",
+    "frames": 10,
+    "tools": 3,
+    "ok": true,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "proxy": {
+     "listen": "127.0.0.1:47102",
+     "trace_flag_accepted": false,
+     "alive": true
+    },
+    "server": {
+     "name": "Notion Docs",
+     "version": "1.0.0"
+    },
+    "protocol": "2026-07-28",
+    "connect_ms": 2210,
+    "tool_names": [
+     "search_notion_docs",
+     "query_docs_filesystem_notion_docs",
+     "submit_feedback"
+    ],
+    "tools_file": "lanes/wire/sessions/notion-docs.tools.json",
+    "tools_sha256": "0c82cbe9ae540ebb0b9a50001444679bfa1388d8376d3b2f732697a84fe4b934",
+    "call": {
+     "skipped": "no zero-required-arg tool matched the harmless allow-list"
+    },
+    "session_id": "notion-docs-68951-222ac09f9f92",
+    "export_summary": {
+     "requests": 5,
+     "responses": 4,
+     "errors": 0,
+     "tool_calls": 0
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 2,
+    "findings": [
+     "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 405 - Initialization failed: {\"error\": {\"code\": \"405\", \"message\": \"Method not allowed\"}}",
+     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124805.log"
+    ],
+    "ok": false,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "validate": {
+     "failed_to_report": true,
+     "exit": 1,
+     "timedOut": false,
+     "ms": 439,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124804.log"
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": 0,
+     "timedOut": false,
+     "ms": 8477,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124805.log"
+    },
+    "swept": []
+   }
+  },
+  "cometchat-docs": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://www.cometchat.com/docs/mcp",
+   "source": "mcporter (~/.cursor/mcp.json 'CometChat Docs')",
+   "notes": "Public docs server; 3 tools.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/cometchat-docs.json",
+    "sha256": "41350de5ceeeee352e3bf4d50c31bbe13bdf28779b6903f64f3975162258ef4e",
+    "frames": 10,
+    "tools": 3,
+    "ok": true,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "proxy": {
+     "listen": "127.0.0.1:47103",
+     "trace_flag_accepted": false,
+     "alive": true
+    },
+    "server": {
+     "name": "CometChat Docs",
+     "version": "1.0.0"
+    },
+    "protocol": "2026-07-28",
+    "connect_ms": 2779,
+    "tool_names": [
+     "search_comet_chat_docs",
+     "query_docs_filesystem_comet_chat_docs",
+     "submit_feedback"
+    ],
+    "tools_file": "lanes/wire/sessions/cometchat-docs.tools.json",
+    "tools_sha256": "544c2f44595b5f515aaf67f395fab6704f279055f6e84130a4b95084163ee181",
+    "call": {
+     "skipped": "no zero-required-arg tool matched the harmless allow-list"
+    },
+    "session_id": "cometchat-docs-69708-22ab76832ef2",
+    "export_summary": {
+     "requests": 5,
+     "responses": 4,
+     "errors": 0,
+     "tool_calls": 0
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 2,
+    "findings": [
+     "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 405 - Initialization failed: {\"error\": {\"code\": \"405\", \"message\": \"Method not allowed\"}}",
+     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124822.log"
+    ],
+    "ok": false,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "validate": {
+     "failed_to_report": true,
+     "exit": 1,
+     "timedOut": false,
+     "ms": 343,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124822.log"
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": 0,
+     "timedOut": false,
+     "ms": 8430,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124822.log"
+    },
+    "swept": []
+   }
+  },
+  "n8n-docs": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://docs.n8n.io/~gitbook/mcp",
+   "source": "mcporter (~/.cursor/mcp.json)",
+   "notes": "Public docs server; 3 tools.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/n8n-docs.json",
+    "sha256": "ffb635f8c42bd7208915176fab3401296432caeb99310f8c376cd194dd9324c1",
+    "frames": 10,
+    "tools": 3,
+    "ok": true,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "proxy": {
+     "listen": "127.0.0.1:47104",
+     "trace_flag_accepted": false,
+     "alive": true
+    },
+    "server": {
+     "name": "mcp-typescript server on vercel",
+     "version": "0.1.0"
+    },
+    "protocol": "2025-06-18",
+    "connect_ms": 2003,
+    "tool_names": [
+     "searchDocumentation",
+     "getPage",
+     "sendFeedback"
+    ],
+    "tools_file": "lanes/wire/sessions/n8n-docs.tools.json",
+    "tools_sha256": "c9876bd9f4ba72bbefacd926411d9762fd5757d8edbf8e009c63c54603ee1a43",
+    "call": {
+     "skipped": "no zero-required-arg tool matched the harmless allow-list"
+    },
+    "session_id": "n8n-docs-70488-927d34752cb9",
+    "export_summary": {
+     "requests": 4,
+     "responses": 5,
+     "errors": 2,
+     "tool_calls": 0
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 2,
+    "findings": [
+     "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 405 - Initialization failed: {\"error\": {\"code\": \"405\", \"message\": \"Method not allowed\"}}",
+     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124838.log"
+    ],
+    "ok": false,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "validate": {
+     "failed_to_report": true,
+     "exit": 1,
+     "timedOut": false,
+     "ms": 702,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124838.log"
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": 0,
+     "timedOut": false,
+     "ms": 8546,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124838.log"
+    },
+    "swept": []
+   }
+  },
+  "openai-docs": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://developers.openai.com/mcp",
+   "source": "mcporter (~/.codex/config.toml openaiDeveloperDocs)",
+   "notes": "Public docs server; 5 tools.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/openai-docs.json",
+    "sha256": "9c8b80288bf4b9b1067980360774b720580082dd8c2a0d115d2c7ff5e0d7a0c8",
+    "frames": 12,
+    "tools": 5,
+    "ok": true,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "proxy": {
+     "listen": "127.0.0.1:47105",
+     "trace_flag_accepted": false,
+     "alive": true
+    },
+    "server": {
+     "name": "openai-docs-mcp",
+     "version": "1.0.0"
+    },
+    "protocol": "2025-11-25",
+    "connect_ms": 1272,
+    "tool_names": [
+     "search_openai_docs",
+     "list_openai_docs",
+     "fetch_openai_doc",
+     "list_api_endpoints",
+     "get_openapi_spec"
+    ],
+    "tools_file": "lanes/wire/sessions/openai-docs.tools.json",
+    "tools_sha256": "74781685400671d3ff7539a98f34b781c8f78374e7b2d3ce4ad042b85e0af441",
+    "call": {
+     "tool": "list_openai_docs",
+     "exit": 0,
+     "ms": 390,
+     "isError": false,
+     "preview": "{\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"{\\\"hits\\\":[{\\\"url\\\":\\\"https://learn.chatgpt.com/videos\\\",\\\"url_without_anchor\\\":\\\"https://learn.chatgpt.com/videos\\\",\\\"anchor\\\":\\\"\\\",\\\"content\\\":null,\\\"type\\\":\\\"lvl1\\\",\\\"hierarchy\\\":{\\\"lvl0\\\":\\\"Documentation\\\",\\\"lvl1\\\":\\\"Videos | ChatGPT Learn\\\",\\\"lvl2\\\":null,\\\"lvl3\\\":null,\\\"lvl4\\\":null,\\\"lvl5\\\":null,\\\"lvl6\\\":null},\\\"objectID\\\":\\\"0-https:…[+6709 chars]"
+    },
+    "session_id": "openai-docs-71555-1a64cc7a4b6c",
+    "export_summary": {
+     "requests": 5,
+     "responses": 6,
+     "errors": 2,
+     "tool_calls": 1
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 2,
+    "findings": [
+     "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 404 - Initialization failed: Not found",
+     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124853.log"
+    ],
+    "ok": false,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "validate": {
+     "failed_to_report": true,
+     "exit": 1,
+     "timedOut": false,
+     "ms": 256,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124853.log"
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": 0,
+     "timedOut": false,
+     "ms": 7910,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124853.log"
+    },
+    "swept": []
+   }
+  },
+  "mux-http": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://mcp.mux.com/",
+   "source": "mcporter (~/.codex/config.toml mux)",
+   "notes": "2 tools per mcporter.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/mux-http.json",
+    "sha256": "a79e0dc5d8b439aca221c46e47f9a5cdb468d1db9aac957cb9247c32129242e7",
+    "frames": 11,
+    "tools": 2,
+    "ok": true,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "proxy": {
+     "listen": "127.0.0.1:47106",
+     "trace_flag_accepted": false,
+     "alive": true
+    },
+    "server": {
+     "name": "mux",
+     "version": "14.1.0"
+    },
+    "protocol": "2025-11-25",
+    "connect_ms": 1223,
+    "tool_names": [
+     "execute",
+     "search_docs"
+    ],
+    "tools_file": "lanes/wire/sessions/mux-http.tools.json",
+    "tools_sha256": "509a7e1c970e4eeb890449da4cb6fcd6f5ac3ece1aefa187b608323b20cd0c3a",
+    "call": {
+     "skipped": "no zero-required-arg tool matched the harmless allow-list"
+    },
+    "session_id": "mux-http-72425-d76de6f10c2a",
+    "export_summary": {
+     "requests": 4,
+     "responses": 6,
+     "errors": 3,
+     "tool_calls": 0
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 2,
+    "findings": [
+     "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 404 - Initialization failed: <!DOCTYPE html>",
+     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124908.log"
+    ],
+    "ok": false,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "validate": {
+     "failed_to_report": true,
+     "exit": 1,
+     "timedOut": false,
+     "ms": 355,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124907.log"
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": 0,
+     "timedOut": false,
+     "ms": 7722,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124908.log"
+    },
+    "swept": []
+   }
+  },
+  "descript": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://api.descript.com/v2/mcp",
+   "source": "mcporter (~/.cursor/mcp.json)",
+   "notes": "mcporter: HTTP 405 on SSE; probed here for the record.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/descript.json",
+    "sha256": "8e35f81c9f83c8ba757e4235eb9931049cd88e16d486e1990d1bcfb7f2e121af",
+    "frames": 2,
+    "tools": 0,
+    "ok": false,
+    "note": "mcpc connect through mcpsnoop http proxy failed (exit=4): {",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "proxy": {
+     "listen": "127.0.0.1:47107",
+     "trace_flag_accepted": false,
+     "alive": true
+    },
+    "session_id": "descript-73322-c2e4552f3d9d",
+    "export_summary": {
+     "requests": 2,
+     "responses": 0,
+     "errors": 2,
+     "tool_calls": 0
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 2,
+    "findings": [
+     "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 401 - Initialization failed: {\"statusCode\":401,\"error\":\"Unauthorized\",\"message\":\"Missing authentication\"}",
+     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124924.log"
+    ],
+    "ok": false,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "validate": {
+     "failed_to_report": true,
+     "exit": 1,
+     "timedOut": false,
+     "ms": 270,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124923.log"
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": 0,
+     "timedOut": false,
+     "ms": 7681,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124924.log"
+    },
+    "swept": []
+   }
+  },
+  "paddle-docs": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://paddlehq.mcp.kapa.ai/",
+   "source": "mcporter (~/.cursor/mcp.json)",
+   "notes": "mcporter: HTTP 405 on SSE; probed here for the record.",
+   "snoop": {
+    "session_file": "lanes/wire/sessions/paddle-docs.json",
+    "sha256": "548a6b815f3184f7d9e80f5b0316e1434ecaccc901a210ac7fb9d058a7e74c4f",
+    "frames": 1,
+    "tools": 0,
+    "ok": false,
+    "note": "mcpc connect through mcpsnoop http proxy failed (exit=4): {",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "proxy": {
+     "listen": "127.0.0.1:47108",
+     "trace_flag_accepted": false,
+     "alive": true
+    },
+    "session_id": "paddle-docs-74242-a1ad392f9237",
+    "export_summary": {
+     "requests": 1,
+     "responses": 0,
+     "errors": 1,
+     "tool_calls": 0
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 2,
+    "findings": [
+     "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 404 - Initialization failed: Not Found",
+     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124938.log"
+    ],
+    "ok": false,
+    "note": "",
+    "reach": {
+     "reachable": true,
+     "status": 405
+    },
+    "validate": {
+     "failed_to_report": true,
+     "exit": 1,
+     "timedOut": false,
+     "ms": 257,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124938.log"
+    },
+    "test": {
+     "failed_to_report": true,
+     "exit": 0,
+     "timedOut": false,
+     "ms": 7724,
+     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124938.log"
+    },
+    "swept": []
+   }
+  },
+  "novita-docs": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "https://novita.ai/docs/mcp",
+   "source": "mcporter (~/.cursor/mcp.json 'Documentation')",
+   "notes": "mcporter: offline (fetch failed).",
+   "snoop": {
+    "session_file": null,
+    "sha256": null,
+    "frames": 0,
+    "tools": 0,
+    "ok": false,
+    "note": "unreachable: TimeoutError (nothing listening / DNS / TLS) — not started, per order",
+    "reach": {
+     "reachable": false,
+     "error": "TimeoutError"
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "unreachable: TimeoutError — not started, per order",
+    "reach": {
+     "reachable": false,
+     "error": "TimeoutError"
+    }
+   }
+  },
+  "paper": {
+   "kind": "bridge",
+   "transport": "http",
+   "url": "http://127.0.0.1:29979/mcp",
+   "source": "mcporter (~/.cursor/mcp.json)",
+   "notes": "Local app bridge; do not start; offline unless the app is running.",
+   "snoop": {
+    "session_file": null,
+    "sha256": null,
+    "frames": 0,
+    "tools": 0,
+    "ok": false,
+    "note": "unreachable: ECONNREFUSED (nothing listening / DNS / TLS) — not started, per order",
+    "reach": {
+     "reachable": false,
+     "error": "ECONNREFUSED"
+    }
+   },
+   "probe": {
+    "validate_report": null,
+    "validate_sha256": null,
+    "test_report_dir": null,
+    "passed": 0,
+    "failed": 0,
+    "findings": [],
+    "ok": false,
+    "note": "unreachable: ECONNREFUSED — not started, per order",
+    "reach": {
+     "reachable": false,
+     "error": "ECONNREFUSED"
+    }
+   }
+  }
+ },
+ "openapi": {
+  "openrouter": {
+   "spec_url": "https://openrouter.ai/openapi.json",
+   "referenced_by": "fleet/openrouter/map.mjs + capabilities.map.json (\"timmy oapi (spec_url openrouter.ai/openapi.json)\") feeding timmy_oapi_run",
+   "apisnip_ok": true,
+   "out_file": "lanes/wire/snips/openrouter.snip.yaml",
+   "sha256": "80e26ef455e2e44b9fccdd5d8bd65a70ab15daf110ae5f9837f5384ef268a6a1",
+   "endpoints_before": 82,
+   "operations_before": 106,
+   "endpoints_after": 2,
+   "note": "apisnip 1.4.60 is an interactive ratatui picker with no headless flag; driven through a pty by snip-pty.py which selects the first N endpoints and presses w. The selection is positional, not curated.",
+   "spec": {
+    "http_status": 200,
+    "bytes": 1942399,
+    "sha256": "475896c7404e02a237530b4c677a7c88edbe7c357bfeb67dac0d33f46db2f6b5",
+    "openapi": "3.1.0",
+    "title": "OpenRouter API",
+    "version": "1.0.0",
+    "scratch_copy": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/specs/openrouter.json"
+   },
+   "attempts": [
+    {
+     "mode": "direct, stdin=/dev/null (no TTY)",
+     "exit": 1,
+     "timedOut": false,
+     "ms": 784,
+     "stderr": "Error: Device not configured (os error 6)",
+     "mouse_tracking_escapes_emitted": true,
+     "produced_output": false
+    },
+    {
+     "mode": "pty via script(1), stdin=/dev/null, 15 s cap",
+     "exit": null,
+     "timedOut": true,
+     "ms": 15011,
+     "stderr": "",
+     "stdout_bytes": 1488,
+     "tui_text_sample": "^D\b\b\u001b]11;?\u0007",
+     "produced_output": false
+    }
+   ],
+   "operations_after": 13,
+   "driver": "lanes/wire/snip-pty.py (pty: Space+j × N, then w)"
+  },
+  "petstore3": {
+   "spec_url": "https://petstore3.swagger.io/api/v3/openapi.json",
+   "referenced_by": "scripts/audit-mcp-tools.ts fixture for timmy_oapi_run (src/mcp/server.ts takes spec_url as a parameter; no SPEC_URL constant in src)",
+   "apisnip_ok": true,
+   "out_file": "lanes/wire/snips/petstore3.snip.yaml",
+   "sha256": "3bc14e1e0962ae1f73db81a3f30ec63426a148f30da7a3fdbebaf00ad3bc1257",
+   "endpoints_before": 13,
+   "operations_before": 19,
+   "endpoints_after": 6,
+   "note": "apisnip 1.4.60 is an interactive ratatui picker with no headless flag; driven through a pty by snip-pty.py which selects the first N endpoints and presses w. The selection is positional, not curated.",
+   "spec": {
+    "http_status": 200,
+    "bytes": 17106,
+    "sha256": "00441c05add60f28da55eb4563d3fb6bbda364ba8eb7b381e2e2c98613005c82",
+    "openapi": "3.0.4",
+    "title": "Swagger Petstore - OpenAPI 3.0",
+    "version": "1.0.27",
+    "scratch_copy": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/specs/petstore3.json"
+   },
+   "attempts": [
+    {
+     "mode": "direct, stdin=/dev/null (no TTY)",
+     "exit": 1,
+     "timedOut": false,
+     "ms": 611,
+     "stderr": "Error: Device not configured (os error 6)",
+     "mouse_tracking_escapes_emitted": true,
+     "produced_output": false
+    },
+    {
+     "mode": "pty via script(1), stdin=/dev/null, 15 s cap",
+     "exit": null,
+     "timedOut": true,
+     "ms": 15003,
+     "stderr": "",
+     "stdout_bytes": 1488,
+     "tui_text_sample": "^D\b\b\u001b]11;?\u0007",
+     "produced_output": false
+    }
+   ],
+   "operations_after": 7,
+   "driver": "lanes/wire/snip-pty.py (pty: Space+j × N, then w)"
+  }
+ },
+ "evals": {
+  "mcpc": {
+   "tool": "mcpc",
+   "version": "0.6.0",
+   "verdict": "adopt",
+   "transcript": "lanes/wire/transcripts/eval-mcpc.jsonl",
+   "transcript_sha256": "417cd629e2c4efb26c2790bc31cb61a6937962b4cc59b9cc1d2bef674144d183",
+   "evidence": {
+    "connect": {
+     "exit": 0,
+     "ms": 6292,
+     "server": {
+      "name": "timmy",
+      "version": "0.4.0"
+     },
+     "protocol": "2024-11-05",
+     "tool_count_at_connect": 23
+    },
+    "tools_list": {
+     "exit": 0,
+     "ms": 179,
+     "count": 23,
+     "file": "lanes/wire/reports/eval-mcpc.tools-list.json",
+     "sha256": "847880d6f81b649534d4c23e74e4ce8863e36314a4fe39da36413bd961e2e939"
+    },
+    "tools_call_timmy_env_lock": {
+     "exit": 0,
+     "ms": 308,
+     "isError": false,
+     "file": "lanes/wire/reports/eval-mcpc.env_lock.json",
+     "sha256": "4ce7c218ac11dda81ce5acbfbd2bb1bb9978c375b158d90fdfc652b9b3862c23",
+     "preview": "{\"os\":{\"platform\":\"darwin\",\"build\":\"25G83\",\"version\":\"26.6.2\"},\"arch\":\"arm64\",\"tools\":{\"ffmpeg\":{\"path\":\"/opt/homebrew/Cellar/ffmpeg/9.0.1/bin/ffmpeg\",\"sha256\":\"cebe04356214a938aec846e4fc423de3fc18eda07f64e34e56d55f9963473a20\",\"size\":426496,\"mtime\":1786783182299.5347},\"ffprobe\":{\"path\":\"/opt/homebre…[+166 chars]"
+    },
+    "session_overview": "[@wire-eval-timmy → /opt/homebrew/Cellar/node/26.6.0/bin/node /Users/williammeldman/Desktop/Code-Pr…]\n\nMCP: version 2024-11-05 / stdio (stateful)\n\nServer: timmy (version: 0.4.0)\n\nCapabilities:\n* tools (static)\n\nTools (23):\n* `timmy_env_lock ()`\n* `timmy_events_tail (n?:num)`\n* `timmy_receipt_verify (stream:str)`\n* `timmy_clip_replay (jobId:str)`\n* `timmy_gen_run (prompt:str, provider?:str, model?:str, …)`\n* `timmy_promo_apply (beats:[any], from?:str)`\n* `timmy_llm_call (model:str, prompt:str, system?:str, …)`\n* `timmy_fusion_plan ()`\n* `timmy_promo_judge (comp?:str, threshold?:num)`\n* `timmy_a…[+1151 chars]",
+    "grep_lock": "[@wire-eval-timmy → /opt/homebrew/Cellar/node/26.6.0/bin/node /Users/williammeldman/Desktop/Code-Pr…]\n\nTools (1):\n  * `timmy_env_lock ()`\n\n1 match.\n",
+    "stray_processes_killed": []
+   },
+   "reason": "ADOPT. In a real session against Timmy's own MCP server (timmy 0.4.0, protocol 2024-11-05) mcpc 0.6.0 connected in 6292 ms, listed 23 tools as JSON (lanes/wire/reports/eval-mcpc.tools-list.json), and called timmy_env_lock in 308 ms returning a non-error result (lanes/wire/reports/eval-mcpc.env_lock.json). It keeps the server alive across separate shell invocations as a named background session (@wire-eval-timmy), emits strict JSON with --json for scripting, accepts arg:=value / inline JSON / stdin for tool calls, does schema validation before a call (--schema), and speaks HTTP, SSE and stdio (stdio only via a config-file entry, which exec.mjs + a generated mcp.json satisfy). Caveats that do not block adoption: it needs the config-entry indirection for raw commands, its pre-connect server/discover probe spawns the server twice (visible as a second mcpsnoop session), and the npx launcher adds ~1 s per call unless the cached binary is used. It is the driver wire.mjs uses for every snoop session here, so adopting it is already load-bearing."
+  },
+  "cmcp": {
+   "tool": "cmcp",
+   "version": "github.com/lopezm94/cmcp (main, tarball dated 2025-08-22)",
+   "verdict": "reject",
+   "transcript": "lanes/wire/transcripts/eval-cmcp.jsonl",
+   "transcript_sha256": "143a83d5d3c89094dc7a75bb7335efcf07edbd0ce6c7dc2d60da856a760b63ca",
+   "evidence_file": "lanes/wire/reports/eval-cmcp.json",
+   "evidence_sha256": "84212207edd7c25a4fc51926163890610b9547a399a621181e1dda4767c54050",
+   "evidence": {
+    "which_go": {
+     "exit": 1,
+     "stdout": ""
+    },
+    "go_version": {
+     "exit": -2,
+     "error": "ENOENT",
+     "stderr": ""
+    },
+    "go_build": {
+     "exit": -2,
+     "error": "ENOENT",
+     "stderr": ""
+    },
+    "brew_go": {
+     "exit": 1,
+     "stdout": "",
+     "stderr": ""
+    },
+    "facts": {
+     "source_dir": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/cmcp-main",
+     "source_present": false,
+     "go_files": 0,
+     "go_lines": 0,
+     "commands": [],
+     "claude_mcp_calls": [],
+     "deps": [],
+     "readme_claims": []
+    }
+   },
+   "reason": "REJECT. Honest attempt: no Go toolchain on this Mac (which go exit=1, go version -> ENOENT, go build ./... -> ENOENT, brew has no go formula installed), so cmcp cannot be built from the 0-file / 0-line source (go 1.21; deps cobra/survey/promptui/color), and its web-install.sh only git-clones and runs ./scripts/install.sh, which also needs go build. What it would do if built (README + cmd/*.go): keep its own ~/.cmcp/config.json in the standard mcpServers shape and shell out to the Claude CLI — claude mcp add / add-json / remove / list / get — to register or unregister servers per project (start/stop/online/reset/config), with interactive survey multi-select prompts and Docker/Node/Python diagnostics on failure. It never speaks MCP itself: no initialize, no tools/list, no tools/call, no tracing, so it adds nothing to the wire that mcpsnoop, mcp-probe and mcpc do not already cover. Its whole job overlaps Claude CLI's built-in `claude mcp add/remove/list` and Timmy's own registries (config/mcporter.json + fleet/fleet.json, which mcporter already lists across ~/.claude.json, ~/.cursor/mcp.json and ~/.codex/config.toml). Adopting it would add a Go build dependency and a second source of truth for registrations without a single new capability."
+  }
+ },
+ "generated_at": "2026-09-07T12:50:42.905Z",
+ "worktree": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3",
+ "registry": {
+  "file": "lanes/wire/bridges.json",
+  "sha256": "de4a6a5280c4cbeedcee52b84ce204e7879eafedceb5ecdeba98890fd95e23a0"
+ },
+ "tools": {
+  "mcpsnoop": "/opt/homebrew/bin/mcpsnoop",
+  "mcp-probe": "/Users/williammeldman/.cargo/bin/mcp-probe",
+  "apisnip": "/Users/williammeldman/.cargo/bin/apisnip",
+  "mcpc": "/Users/williammeldman/.npm/_npx/09c6cb62db639fb6/node_modules/.bin/mcpc",
+  "versions": {
+   "mcpsnoop": {
+    "bin": "/opt/homebrew/bin/mcpsnoop",
+    "version": "0.18.0",
+    "role": "transparent stdio/HTTP proxy that records every JSON-RPC frame; export json/har; check signals"
+   },
+   "mcp-probe": {
+    "bin": "~/.cargo/bin/mcp-probe",
+    "version": "0.3.0",
+    "role": "protocol-compliance validate + automated test suite; stdio (single --args value per occurrence, repeatable) or --http-stream/--http-sse"
+   },
+   "apisnip": {
+    "bin": "~/.cargo/bin/apisnip",
+    "version": "1.4.60",
+    "role": "trim an OpenAPI surface (interactive ratatui TUI; only -h/-V flags)"
+   },
+   "mcpc": {
+    "bin": "npx -y @apify/mcpc@0.6.0",
+    "version": "0.6.0",
+    "role": "universal MCP CLI client with named background sessions; stdio servers must come from a config file entry (file:entry)"
+   },
+   "cmcp": {
+    "src": "$WIRE_SCRATCH/cmcp-main",
+    "upstream": "github.com/lopezm94/cmcp (main, tarball dated 2025-08-22)",
+    "needs": "Go 1.21+ toolchain + Claude CLI; wraps `claude mcp add/add-json/remove/list/get`",
+    "role": "Claude-CLI MCP registration manager (does not speak MCP)"
+   }
+  }
+ }
+}

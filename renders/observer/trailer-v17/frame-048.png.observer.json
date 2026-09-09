@@ -1,0 +1,72 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-048.png",
+ "image_sha256": "dcaa022a988529c4b3744e15a57bd50370c256c66b8a3b8e3fafd5956a5c8702",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 12857,
+  "lines": [
+   "EVERY VERB SEALS",
+   "timmy 3minapi - receipt",
+   "timmy allyson > receipt",
+   "timmy apify - receipt",
+   "timmy chat - receipt",
+   "timmy clip-replay - receipt",
+   "timmy collect - receipt",
+   "timmy demo - receipt",
+   "timmy dispatch > receipt",
+   "timmy docs - receipt",
+   "timmy doctor - receipt",
+   "timmy env-lock",
+   "receipt",
+   "timmy events - receipt",
+   "timmy fusion - receipt",
+   "timmy gen > receipt",
+   "timmy judge - receipt",
+   "It was never about cards. Any agent, any workflow",
+   "if it acted, there's a",
+   "receipt."
+  ],
+  "text_sha256": "77ae0e9cc86accb2b8adc3f47a739ef52a5238225994cd9b6497b57fcb13746d"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 4724,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "banner",
+    "conf": 0.251,
+    "x": 961,
+    "y": 537,
+    "w": 1013,
+    "h": 773
+   }
+  ],
+  "sha256": "c9305a6464bded8eac9d8f9495b113cf4d4f1e61f6b87b34df3a7b1a93c73b48"
+ },
+ "observed_at": "2026-09-07T13:15:13.730Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 48,
+  "frames": 63
+ }
+}

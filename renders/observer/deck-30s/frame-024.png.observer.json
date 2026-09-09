@@ -1,0 +1,85 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/deck-30s/frame-024.png",
+ "image_sha256": "e8c982ec5694cd10510669d42d9a3b0a81a48b289c24c1ada1a2bfb1ef3a6549",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 23176,
+  "lines": [
+   "Reveal tag",
+   "signed - Sep 14 - 19:22:07 : counter 1",
+   "Owner",
+   "claimed Sep 12, 13:05 - W. M.",
+   "Packs",
+   "24 of 24 opened - 19:24 - 20:41",
+   "Cards attached",
+   "312 scanned - 4 hits - 2 numbered",
+   "Custody timeline",
+   "Sealed at Paradise Card Breaks",
+   "Sep 12 12:41 Las Vegas",
+   "Sold : POS receipt #48812",
+   "Sep 12 - 13:04 counter 2",
+   "Claimed by owner",
+   "Sep 12 13:05 phone tap",
+   "Opened - seal loop broken",
+   "Sep 14 19:22 Henderson, NV",
+   "Pack 1 opened - 12 cards attached",
+   "Sep 14 19:24",
+   "Pack 17 opened - Rookie Auto 14/99 attached",
+   "Sep 14 20:12",
+   "Pack 24 opened",
+   "Sep 14 20:41",
+   "Card VC0007-17-03 transferred - sold on eBay",
+   "Oct 2 08:15 to owner in Phoenix, AZ"
+  ],
+  "text_sha256": "731ad67f1a8903da31cbed5c15a66b6e3605328499fffb50f78854ed193a9011"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 3164,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "banner",
+    "conf": 0.206,
+    "x": 719,
+    "y": 556,
+    "w": 695,
+    "h": 683
+   },
+   {
+    "label": "banner",
+    "conf": 0.097,
+    "x": 719,
+    "y": 100,
+    "w": 699,
+    "h": 199
+   }
+  ],
+  "sha256": "d236ac659b320c3e4bc327a7ea792effe1b8d81a265a0bb5a93c6d61635b8593"
+ },
+ "observed_at": "2026-09-07T13:24:53.751Z",
+ "source": {
+  "backfill": "walkthrough deck 30s cut (renders/walkthrough-deck/walkthrough-deck-30s.mp4 sha 7a339f0ac35345da, 1 fps)",
+  "frame": 24,
+  "frames": 30
+ }
+}

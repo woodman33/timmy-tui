@@ -3,15 +3,29 @@
   "id": "houdini-sceneforge",
   "rank": 1,
   "forms": [
-   "mcp",
-   "sdk",
-   "api",
-   "cli"
+   "cli",
+   "mcp"
   ],
   "detect": {
-   "cmd": "mcporter"
+   "cmd": "/Applications/Houdini/Current/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hython"
   },
-  "note": "Houdini/SceneForge control plane on your Cloudflare worker"
+  "note": "Houdini/SceneForge control plane on your Cloudflare worker",
+  "lane": "lanes/engines/lane.mjs (engine-shelf/v0): timmy engine run houdini <karma-still|procedural-asset|usd-export> --project <p>; env-lock lanes/engines/houdini/env-lock.json",
+  "shelf": {
+   "engine": "houdini",
+   "installed": true,
+   "version": "22.0.429 (Current \u2192 /Applications/Houdini/Houdini22.0.429; 21.0.753 also on disk; hython reports licenseCategoryType.Apprentice: .hipnc scenes, Karma watermark)",
+   "templates": [
+    "karma-still",
+    "procedural-asset",
+    "usd-export"
+   ],
+   "proven": [
+    "karma-still",
+    "procedural-asset",
+    "usd-export"
+   ]
+  }
  },
  {
   "id": "roboflow",
@@ -25,7 +39,7 @@
   "detect": {
    "cmd": "roboflow"
   },
-  "note": "train models on REAL logs/frames — pip install roboflow · roboflow MCP server"
+  "note": "train models on REAL logs/frames \u2014 pip install roboflow \u00b7 roboflow MCP server"
  },
  {
   "id": "rive",
@@ -49,8 +63,23 @@
   "detect": {
    "cmd": "/Applications/Defold.app/Contents/Resources/packages/jdk-25+36/bin/java"
   },
-  "lane": "lanes/defold/build.mjs — bob.jar pinned to the installed engine sha, Defold JDK, build server for native extensions, defold.build receipt with bob/JDK/engine/input/output/.riv hashes",
-  "note": "Defold 1.13.1 · HTML5 Custody Companion (companion/custody-companion) served at /companion/"
+  "lane": "lanes/engines/lane.mjs (engine-shelf/v0): timmy engine run defold <html5-bundle|resolve-and-lint|sprite-atlas> --project <p>; env-lock lanes/engines/defold/env-lock.json",
+  "note": "Defold 1.13.1 \u00b7 HTML5 Custody Companion (companion/custody-companion) served at /companion/",
+  "shelf": {
+   "engine": "defold",
+   "installed": true,
+   "version": "1.13.1 (engine 574678c7d44be490d874fbed2d0ae6211feec4d9)",
+   "templates": [
+    "html5-bundle",
+    "resolve-and-lint",
+    "sprite-atlas"
+   ],
+   "proven": [
+    "html5-bundle",
+    "resolve-and-lint",
+    "sprite-atlas"
+   ]
+  }
  },
  {
   "id": "comfyui",
@@ -62,11 +91,11 @@
   "detect": {
    "url": "http://127.0.0.1:8188"
   },
-  "note": "isolated Docker ComfyUI (lab/comfy) — never system python"
+  "note": "isolated Docker ComfyUI (lab/comfy) \u2014 never system python"
  },
  {
   "id": "tripo",
-  "rank": 7,
+  "rank": 6,
   "forms": [
    "api",
    "sdk",
@@ -75,12 +104,12 @@
   "detect": {
    "url": "https://api.tripo3d.ai/v2/openapi/task"
   },
-  "lane": "none yet — detect only (mindship-v5c2 step 6). Usable when TRIPO_API_KEY is set; the Houdini bridge already carries tripo_text_to_model / tripo_image_to_model / tripo_texture / tripo_poll as MCP tools. A ship.v0 asset lane would seal tripo.generate with the task id + output sha.",
-  "note": "Tripo 3D (text/image → mesh, texture, rig) · api.tripo3d.ai · reachable = network only, not a key"
+  "lane": "none yet \u2014 detect only (mindship-v5c2 step 6). Usable when TRIPO_API_KEY is set; the Houdini bridge already carries tripo_text_to_model / tripo_image_to_model / tripo_texture / tripo_poll as MCP tools. A ship.v0 asset lane would seal tripo.generate with the task id + output sha.",
+  "note": "Tripo 3D (text/image \u2192 mesh, texture, rig) \u00b7 api.tripo3d.ai \u00b7 reachable = network only, not a key"
  },
  {
   "id": "local-judges",
-  "rank": 6,
+  "rank": 7,
   "forms": [
    "api"
   ],
@@ -99,8 +128,8 @@
   "detect": {
    "url": "https://mcp.openrouter.ai/mcp"
   },
-  "lane": "none yet — detect only (swarm-b3k7 step 6, mcp-server). OpenRouter's own MCP server; the commander handoff and the Timmy Durable Objects already speak MCP, so a harness that holds the commander can mount it beside timmy.",
-  "note": "OpenRouter MCP server · mcp.openrouter.ai · reachable = network only, not a key"
+  "lane": "none yet \u2014 detect only (swarm-b3k7 step 6, mcp-server). OpenRouter's own MCP server; the commander handoff and the Timmy Durable Objects already speak MCP, so a harness that holds the commander can mount it beside timmy.",
+  "note": "OpenRouter MCP server \u00b7 mcp.openrouter.ai \u00b7 reachable = network only, not a key"
  },
  {
   "id": "openrouter-openapi",
@@ -112,6 +141,153 @@
    "url": "https://openrouter.ai/openapi.json"
   },
   "lane": "the OpenAPI lane (src/mcp/server.ts timmy_oapi_run, spec_url) pointed at OpenRouter's published spec: every endpoint becomes a receipted oapi.call (swarm-b3k7 step 6, openapi-and-versioning)",
-  "note": "OpenRouter OpenAPI spec · versioned at openrouter.ai/openapi.json"
+  "note": "OpenRouter OpenAPI spec \u00b7 versioned at openrouter.ai/openapi.json"
+ },
+ {
+  "id": "unreal",
+  "rank": 10,
+  "forms": [
+   "cli",
+   "mcp"
+  ],
+  "detect": {
+   "cmd": "unreal"
+  },
+  "lane": "lanes/engines/lane.mjs (engine-shelf/v0): timmy engine run unreal <blueprint-bake|level-import|movie-render-queue> --project <p>; env-lock lanes/engines/unreal/env-lock.json",
+  "shelf": {
+   "engine": "unreal",
+   "installed": false,
+   "version": null,
+   "templates": [
+    "blueprint-bake",
+    "level-import",
+    "movie-render-queue"
+   ],
+   "proven": []
+  },
+  "note": "Unreal Engine \u00b7 not installed on this Mac \u00b7 bridge cli/mcp"
+ },
+ {
+  "id": "usd",
+  "rank": 11,
+  "forms": [
+   "cli"
+  ],
+  "detect": {
+   "cmd": "/usr/bin/usdcat"
+  },
+  "lane": "lanes/engines/lane.mjs (engine-shelf/v0): timmy engine run usd <usd-flatten|usd-validate|usdz-package> --project <p>; env-lock lanes/engines/usd/env-lock.json",
+  "shelf": {
+   "engine": "usd",
+   "installed": true,
+   "version": "Apple USD Tools 0.25.2 (+ Houdini 21 usdcat)",
+   "templates": [
+    "usd-flatten",
+    "usd-validate",
+    "usdz-package"
+   ],
+   "proven": [
+    "usd-flatten",
+    "usd-validate",
+    "usdz-package"
+   ]
+  },
+  "note": "OpenUSD tools \u00b7 installed \u00b7 bridge cli"
+ },
+ {
+  "id": "unity",
+  "rank": 12,
+  "forms": [
+   "cli"
+  ],
+  "detect": {
+   "cmd": "unity"
+  },
+  "lane": "lanes/engines/lane.mjs (engine-shelf/v0): timmy engine run unity <asset-import|batch-build|test-runner> --project <p>; env-lock lanes/engines/unity/env-lock.json",
+  "shelf": {
+   "engine": "unity",
+   "installed": false,
+   "version": null,
+   "templates": [
+    "asset-import",
+    "batch-build",
+    "test-runner"
+   ],
+   "proven": []
+  },
+  "note": "Unity \u00b7 not installed on this Mac \u00b7 bridge cli"
+ },
+ {
+  "id": "cocos",
+  "rank": 13,
+  "forms": [
+   "cli"
+  ],
+  "detect": {
+   "cmd": "cocos"
+  },
+  "lane": "lanes/engines/lane.mjs (engine-shelf/v0): timmy engine run cocos <asset-pack|scene-lint|web-build> --project <p>; env-lock lanes/engines/cocos/env-lock.json",
+  "shelf": {
+   "engine": "cocos",
+   "installed": false,
+   "version": null,
+   "templates": [
+    "asset-pack",
+    "scene-lint",
+    "web-build"
+   ],
+   "proven": []
+  },
+  "note": "Cocos Creator CLI \u00b7 not installed on this Mac \u00b7 bridge cli"
+ },
+ {
+  "id": "godot",
+  "rank": 14,
+  "forms": [
+   "cli"
+  ],
+  "detect": {
+   "cmd": "godot"
+  },
+  "lane": "lanes/engines/lane.mjs (engine-shelf/v0): timmy engine run godot <gdscript-run|headless-export|import-only> --project <p>; env-lock lanes/engines/godot/env-lock.json",
+  "shelf": {
+   "engine": "godot",
+   "installed": false,
+   "version": null,
+   "templates": [
+    "gdscript-run",
+    "headless-export",
+    "import-only"
+   ],
+   "proven": []
+  },
+  "note": "Godot \u00b7 not installed on this Mac \u00b7 bridge cli"
+ },
+ {
+  "id": "blender",
+  "rank": 15,
+  "forms": [
+   "cli"
+  ],
+  "detect": {
+   "cmd": "/Applications/Blender.app/Contents/MacOS/Blender"
+  },
+  "lane": "lanes/engines/lane.mjs (engine-shelf/v0): timmy engine run blender <glb-export|render-still|usd-export> --project <p>; env-lock lanes/engines/blender/env-lock.json",
+  "shelf": {
+   "engine": "blender",
+   "installed": true,
+   "version": "5.1.1",
+   "templates": [
+    "glb-export",
+    "render-still",
+    "usd-export"
+   ],
+   "proven": [
+    "glb-export",
+    "render-still",
+    "usd-export"
+   ]
+  },
+  "note": "Blender 5.1.1 \u00b7 installed \u00b7 bridge cli"
  }
 ]

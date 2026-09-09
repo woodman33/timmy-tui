@@ -1,0 +1,307 @@
+{
+  "metadata": {
+    "generated_at": "2026-09-07T12:41:28.770869Z",
+    "validator_version": "1.0.0",
+    "transport_type": "stdio",
+    "total_duration": {
+      "secs": 4,
+      "nanos": 108952250
+    },
+    "config": {
+      "test_timeout": {
+        "secs": 30,
+        "nanos": 0
+      },
+      "total_timeout": {
+        "secs": 300,
+        "nanos": 0
+      },
+      "strict_schema_validation": true,
+      "test_error_conditions": true,
+      "validate_tool_schemas": true,
+      "test_capability_discovery": true,
+      "max_tools_to_test": 10,
+      "custom_rules": []
+    }
+  },
+  "summary": {
+    "total_tests": 11,
+    "passed": 8,
+    "info": 0,
+    "warnings": 3,
+    "errors": 0,
+    "critical": 0,
+    "skipped": 0,
+    "compliance_percentage": 72.72727272727273
+  },
+  "results": [
+    {
+      "test_id": "transport_connection",
+      "test_name": "Transport Connection",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Successfully connected via stdio",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 8011125
+      },
+      "timestamp": "2026-09-07T12:41:24.669911Z"
+    },
+    {
+      "test_id": "initialization",
+      "test_name": "MCP Initialization",
+      "category": "Initialization",
+      "status": "Pass",
+      "message": "Successfully initialized with mux v15.0.0",
+      "details": {
+        "capabilities": {
+          "logging": {
+            "enabled": true
+          },
+          "prompts": null,
+          "resources": null,
+          "tools": {
+            "available_tools": [],
+            "list_changed": null
+          }
+        },
+        "name": "mux",
+        "protocol_version": "2024-11-05",
+        "version": "15.0.0"
+      },
+      "duration": {
+        "secs": 4,
+        "nanos": 95871292
+      },
+      "timestamp": "2026-09-07T12:41:28.766169Z"
+    },
+    {
+      "test_id": "json_rpc_compliance",
+      "test_name": "JSON-RPC 2.0 Compliance",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "All messages follow JSON-RPC 2.0 specification",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:41:28.766205Z"
+    },
+    {
+      "test_id": "tools_listing",
+      "test_name": "Tools Listing",
+      "category": "Tools",
+      "status": "Pass",
+      "message": "Successfully retrieved tools list",
+      "details": {
+        "tools": [
+          {
+            "description": "Runs JavaScript code to interact with the Mux API.\n\nYou are a skilled TypeScript programmer writing code to interface with the service.\nDefine an async function named \"run\" that takes a single parameter of an initialized SDK client and it will be run.\nFor example:\n\n```\nasync function run(client) {\n  const asset = await client.video.assets.create({ inputs: [{ url: 'https://storage.googleapis.com/muxdemofiles/mux-video-intro.mp4' }], playback_policies: ['public'] });\n\n  console.log(asset.id);\n}\n```\n\nYou will be returned anything that your function returns, plus the results of any console.log statements.\nDo not add try-catch blocks for single API calls. The tool will handle errors for you.\nDo not add comments unless necessary for generating better code.\nCode will run in a container, and cannot interact with the network outside of the given SDK client.\nVariables will not persist between calls, so make sure to return or log any data you might need later.\nRemember that you are writing TypeScript code, so you need to be careful with your types.\nAlways type dynamic key-value stores explicitly as Record<string, YourValueType> instead of {}.",
+            "inputSchema": {
+              "properties": {
+                "code": {
+                  "description": "Code to execute.",
+                  "type": "string"
+                },
+                "intent": {
+                  "description": "Task you are trying to perform. Used for improving the service.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code"
+              ],
+              "type": "object"
+            },
+            "name": "execute"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Search SDK documentation to find methods, parameters, and usage examples for interacting with the API. Use this before writing code when you need to discover the right approach.",
+            "inputSchema": {
+              "properties": {
+                "detail": {
+                  "description": "The amount of detail to return.",
+                  "enum": [
+                    "default",
+                    "verbose"
+                  ],
+                  "type": "string"
+                },
+                "language": {
+                  "description": "The language for the SDK to search for.",
+                  "enum": [
+                    "http",
+                    "python",
+                    "go",
+                    "typescript",
+                    "javascript",
+                    "terraform",
+                    "ruby",
+                    "java",
+                    "kotlin"
+                  ],
+                  "type": "string"
+                },
+                "query": {
+                  "description": "The query to search for.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query",
+                "language"
+              ],
+              "type": "object"
+            },
+            "name": "search_docs"
+          }
+        ]
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 1050834
+      },
+      "timestamp": "2026-09-07T12:41:28.767268Z"
+    },
+    {
+      "test_id": "resources_listing",
+      "test_name": "Resources Listing",
+      "category": "Resources",
+      "status": "Warning",
+      "message": "Resources listing returned no results",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 544625
+      },
+      "timestamp": "2026-09-07T12:41:28.767852Z"
+    },
+    {
+      "test_id": "prompts_listing",
+      "test_name": "Prompts Listing",
+      "category": "Prompts",
+      "status": "Warning",
+      "message": "Prompts listing returned no results",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 922459
+      },
+      "timestamp": "2026-09-07T12:41:28.768785Z"
+    },
+    {
+      "test_id": "transport_info",
+      "test_name": "Transport Information",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Using stdio transport",
+      "details": {
+        "connected": true,
+        "connected_since": {
+          "nanos_since_epoch": 669785000,
+          "secs_since_epoch": 1788784884
+        },
+        "errors": 0,
+        "metadata": {
+          "args": [
+            "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/wire/exec.mjs",
+            "mux-stdio"
+          ],
+          "command": "/opt/homebrew/Cellar/node/26.6.0/bin/node",
+          "environment_vars": 0,
+          "has_process": true,
+          "process_id": 45792,
+          "timeout": 30,
+          "working_dir": null
+        },
+        "notifications_received": 0,
+        "notifications_sent": 0,
+        "requests_sent": 4,
+        "responses_received": 4,
+        "transport_type": "stdio"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:41:28.768814Z"
+    },
+    {
+      "test_id": "connection_stability",
+      "test_name": "Connection Stability",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Transport connection is stable",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:41:28.768819Z"
+    },
+    {
+      "test_id": "invalid_method_handling",
+      "test_name": "Invalid Method Handling",
+      "category": "ErrorHandling",
+      "status": "Pass",
+      "message": "Server correctly rejects invalid methods",
+      "details": {
+        "code": -32601,
+        "message": "Method not found"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 572125
+      },
+      "timestamp": "2026-09-07T12:41:28.769416Z"
+    },
+    {
+      "test_id": "invalid_params_handling",
+      "test_name": "Invalid Parameters Handling",
+      "category": "ErrorHandling",
+      "status": "Warning",
+      "message": "Server returned unexpected error code: -32603",
+      "details": {
+        "code": -32603,
+        "message": "[\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"params\",\n      \"protocolVersion\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  },\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"params\",\n      \"capabilities\"\n    ],\n    \"message\": \"Invalid input: expected object, received undefined\"\n  },\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"params\",\n      \"clientInfo\"\n    ],\n    \"message\": \"Invalid input: expected object, received undefined\"\n  }\n]"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 1390834
+      },
+      "timestamp": "2026-09-07T12:41:28.770831Z"
+    },
+    {
+      "test_id": "schema_validation",
+      "test_name": "Schema Validation",
+      "category": "Schema",
+      "status": "Pass",
+      "message": "All 0 messages conform to expected schemas",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 2500
+      },
+      "timestamp": "2026-09-07T12:41:28.770858Z"
+    }
+  ],
+  "server_info": null,
+  "performance": {
+    "initialization_time": {
+      "secs": 4,
+      "nanos": 95871292
+    },
+    "average_request_time": {
+      "secs": 0,
+      "nanos": 1549450
+    },
+    "total_requests": 11,
+    "failed_requests": 0,
+    "timeouts": 0
+  }
+}

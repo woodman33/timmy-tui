@@ -1,0 +1,109 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-027.png",
+ "image_sha256": "bc7bbd3e87ecf5546432b0feeea51a723ef3934b64583fa38ba84b0c95af4795",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 11954,
+  "lines": [
+   "lunununt",
+   "gift.intake",
+   "CNE",
+   "8/20/26",
+   "rc_ntduiaze_u6as",
+   "D)",
+   "a",
+   "Wil",
+   "Every box went into the record before the wrap ever came off",
+   "bought, and the one Fanatics sent us, letter and all.",
+   ".",
+   "&",
+   "ONE ENCASED MINT",
+   "*",
+   "CARD",
+   "OGUABANTE",
+   "the ones we"
+  ],
+  "text_sha256": "0ee046caf9aded055ec5abf073f2a78e377a260903cf755e2462c38c7bd82d18"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 5490,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "person",
+    "conf": 0.669,
+    "x": 210,
+    "y": 875,
+    "w": 379,
+    "h": 386
+   },
+   {
+    "label": "person",
+    "conf": 0.659,
+    "x": 1667,
+    "y": 393,
+    "w": 245,
+    "h": 358
+   },
+   {
+    "label": "banner",
+    "conf": 0.175,
+    "x": 852,
+    "y": 451,
+    "w": 1401,
+    "h": 805
+   },
+   {
+    "label": "banner",
+    "conf": 0.157,
+    "x": 1726,
+    "y": 406,
+    "w": 373,
+    "h": 811
+   },
+   {
+    "label": "card",
+    "conf": 0.076,
+    "x": 854,
+    "y": 453,
+    "w": 1402,
+    "h": 806
+   },
+   {
+    "label": "person",
+    "conf": 0.071,
+    "x": 1716,
+    "y": 894,
+    "w": 391,
+    "h": 368
+   }
+  ],
+  "sha256": "dccd5a14bc488dc989b821c009a82c445e7422e3c48fbe04aff445a6d856f7f4"
+ },
+ "observed_at": "2026-09-07T12:41:22.506Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 27,
+  "frames": 63
+ }
+}

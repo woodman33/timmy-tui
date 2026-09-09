@@ -1,0 +1,725 @@
+{
+  "metadata": {
+    "generated_at": "2026-09-07T12:31:34.553697Z",
+    "validator_version": "1.0.0",
+    "transport_type": "stdio",
+    "total_duration": {
+      "secs": 93,
+      "nanos": 269933125
+    },
+    "config": {
+      "test_timeout": {
+        "secs": 30,
+        "nanos": 0
+      },
+      "total_timeout": {
+        "secs": 300,
+        "nanos": 0
+      },
+      "strict_schema_validation": true,
+      "test_error_conditions": true,
+      "validate_tool_schemas": true,
+      "test_capability_discovery": true,
+      "max_tools_to_test": 10,
+      "custom_rules": []
+    }
+  },
+  "summary": {
+    "total_tests": 11,
+    "passed": 6,
+    "info": 0,
+    "warnings": 4,
+    "errors": 1,
+    "critical": 0,
+    "skipped": 0,
+    "compliance_percentage": 54.54545454545454
+  },
+  "results": [
+    {
+      "test_id": "transport_connection",
+      "test_name": "Transport Connection",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Successfully connected via stdio",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 30803416
+      },
+      "timestamp": "2026-09-07T12:30:01.314089Z"
+    },
+    {
+      "test_id": "initialization",
+      "test_name": "MCP Initialization",
+      "category": "Initialization",
+      "status": "Pass",
+      "message": "Successfully initialized with timmy v0.4.0",
+      "details": {
+        "capabilities": {
+          "logging": null,
+          "prompts": null,
+          "resources": null,
+          "tools": {
+            "available_tools": [],
+            "list_changed": null
+          }
+        },
+        "name": "timmy",
+        "protocol_version": "2024-11-05",
+        "version": "0.4.0"
+      },
+      "duration": {
+        "secs": 3,
+        "nanos": 143913792
+      },
+      "timestamp": "2026-09-07T12:30:04.488877Z"
+    },
+    {
+      "test_id": "json_rpc_compliance",
+      "test_name": "JSON-RPC 2.0 Compliance",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "All messages follow JSON-RPC 2.0 specification",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:30:04.489033Z"
+    },
+    {
+      "test_id": "tools_listing",
+      "test_name": "Tools Listing",
+      "category": "Tools",
+      "status": "Pass",
+      "message": "Successfully retrieved tools list",
+      "details": {
+        "tools": [
+          {
+            "description": "Environment lock: OS build, arch, tool BUILD HASHES (sha256 of binaries, not version strings).",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "timmy_env_lock"
+          },
+          {
+            "description": "Last N events from the timmy event bus (NDJSON spine).",
+            "inputSchema": {
+              "properties": {
+                "n": {
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "name": "timmy_events_tail"
+          },
+          {
+            "description": "Walk the hash chain of a receipt stream; returns ok/brokenAt.",
+            "inputSchema": {
+              "properties": {
+                "stream": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "stream"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_receipt_verify"
+          },
+          {
+            "description": "Replay a sealed clip job from its EDL cut-list alone; verifies output sha match.",
+            "inputSchema": {
+              "properties": {
+                "jobId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "jobId"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_clip_replay"
+          },
+          {
+            "description": "Queue + execute a generation through the gen bridge (OpenRouter/local providers); sealed receipt on completion.",
+            "inputSchema": {
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "provider": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "prompt"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_gen_run"
+          },
+          {
+            "description": "Apply a fused beats delta to the promo comp: replaces claim/sub/evidence text per beat id. from = source comp (default timmy-promo-v8); output is the next version (v9 → v10 etc).",
+            "inputSchema": {
+              "properties": {
+                "beats": {
+                  "type": "array"
+                },
+                "from": {
+                  "description": "source comp dir, default timmy-promo-v8",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "beats"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_promo_apply"
+          },
+          {
+            "description": "Direct chat-completions call through TIMMY: openrouter direct (or the Cloudflare edge proxy when TIMMY_AI_PROXY is set), or the local ollama daemon (bare tags on-device, :cloud tags on ollama cloud; gated by TIMMY_ALLOW_LOCAL_OLLAMA=1). Every call sealed as a receipt with model + usage. Pre-tool hook validates the model (openrouter → ollama) before any call goes out. Bodybuilder-style fan-out = parallel calls; Fusion = one call with the outputs attached.",
+            "inputSchema": {
+              "properties": {
+                "approval": {
+                  "description": "operator token from `timmy approve <planHash>` (single-use, 5min). A bare boolean never approves.",
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "requires_approval": {
+                  "description": "HITL gate: requires an operator approval token bound to this call",
+                  "type": "boolean"
+                },
+                "system": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "model",
+                "prompt"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_llm_call"
+          },
+          {
+            "description": "Resolve the owner-picked judge chain (local nemotron-3.5-lightning + qwen3.8:27b-mlx first, then gemini-3.7-flash floor, grok-4.6 frontier, ollama :cloud tags) against openrouter/ollama and return the available-judges list. Approval is operator-only via `timmy approve <planHash>`.",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "timmy_fusion_plan"
+          },
+          {
+            "description": "Local-first promo judge loop: two free local judges score the current comp copy, a local fusion synthesizes edits + confidence; a frontier model arbitrates ONLY when confidence < threshold. Seals a receipt ($0 when local agrees). Returns proposed beat edits for human review before timmy_promo_apply.",
+            "inputSchema": {
+              "properties": {
+                "comp": {
+                  "description": "studio comp dir, default = latest timmy-promo-vN",
+                  "type": "string"
+                },
+                "threshold": {
+                  "description": "confidence below which frontier escalation fires (default 0.7)",
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "name": "timmy_promo_judge"
+          },
+          {
+            "description": "Allyson lane: animate a source SVG into an animated component via allyson-mcp (mcporter stdio). Every use logged to .timmy/runs/mcp-allyson-*.log + sealed receipt. Needs ALLYSON_API_KEY (allyson.ai) for generation; without it returns an honest needs_key.",
+            "inputSchema": {
+              "properties": {
+                "output_path": {
+                  "description": "absolute output component path",
+                  "type": "string"
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "svg_path": {
+                  "description": "absolute source svg/png path",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "prompt",
+                "svg_path",
+                "output_path"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_allyson_run"
+          },
+          {
+            "description": "Apify lane: call any mcp.apify.com tool (scrapers/actors) via mcporter http with bearer from env. Logged to .timmy/runs/mcp-apify-*.log + sealed receipt. Needs a valid APIFY_API_TOKEN from console.apify.com.",
+            "inputSchema": {
+              "properties": {
+                "args": {
+                  "type": "object"
+                },
+                "tool": {
+                  "description": "apify MCP tool name, e.g. get-actor-list / call-actor",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_apify_run"
+          },
+          {
+            "description": "Optional helper lane: 3minapi no-code API builder (create/test/deploy data-capture endpoints, collaborator keys, webhooks, help topics). mcporter http with x-api-key from THREEMINAPI_KEY. Logged to .timmy/runs/mcp-3minapi-*.log + sealed receipt. Never on the critical path.",
+            "inputSchema": {
+              "properties": {
+                "args": {
+                  "type": "object"
+                },
+                "tool": {
+                  "description": "3minapi MCP tool, e.g. help / endpoints create / api_call / logs / deploy",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_3minapi_run"
+          },
+          {
+            "description": "Command Post first slide: OpenHands headless in a disposable workspace (ephemeral repo copy, docker-backed runtime, scoped limits, deterministic acceptance tests). Real sandbox or nothing — fails closed not_configured. Paid work default-deny: operator token bound to the complete task hash. Returns patch + acceptance record + artifact hashes + child/parent receipts.",
+            "inputSchema": {
+              "properties": {
+                "acceptance": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "approval": {
+                  "type": "string"
+                },
+                "fixture_repo": {
+                  "type": "string"
+                },
+                "max_iterations": {
+                  "type": "number"
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "task": {
+                  "type": "string"
+                },
+                "wall_ms": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "task",
+                "acceptance"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_openhands_run"
+          },
+          {
+            "description": "OpenAPI lane: any OpenAPI spec becomes invocable tools via @mcpc/oapi-invoker-mcp (stdio, SPEC_URL env). list=true lists the spec tools; otherwise calls one. Sensitive fields masked by invoker extensions + timmy redact. Receipted.",
+            "inputSchema": {
+              "properties": {
+                "args": {
+                  "type": "object"
+                },
+                "list": {
+                  "type": "boolean"
+                },
+                "spec_url": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "spec_url"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_oapi_run"
+          },
+          {
+            "description": "Roboflow lane (SDK in project venv .timmy/venv-roboflow): upload images, run detection, or sample video frames as observer evidence (sample = ffmpeg frames -> upload). Key-gated: honest not_configured without ROBOFLOW_API_KEY. Every use receipted.",
+            "inputSchema": {
+              "properties": {
+                "action": {
+                  "description": "upload | detect | sample",
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "number"
+                },
+                "every": {
+                  "type": "number"
+                },
+                "frames": {
+                  "type": "number"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "project": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "number"
+                },
+                "video": {
+                  "type": "string"
+                },
+                "workspace": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action",
+                "project"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_roboflow_run"
+          },
+          {
+            "description": "Command Post: list harness lanes (OpenHands/OpenCode/Pi/jcode/minds/…) with availability + install hints.",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "timmy_list_lanes"
+          },
+          {
+            "description": "Command Post: validate a full DispatchPlan (CUE) and store it ready/needs_approval. Returns plan id + immutable plan hash. Chat prepares; authority launches.",
+            "inputSchema": {
+              "properties": {
+                "plan": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "plan"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_plan_dispatch"
+          },
+          {
+            "description": "Mission Map bridge: compile a tldraw mission doc (capsule/harness-slide/gate/artifact/result nodes + depends/harness/gate/artifact edges) into typed, CUE-validated DispatchPlans — dependency-ordered, sha256-pinned context manifests, gate-driven approval. The map never launches: feed the plans to timmy_plan_dispatch, then authority arms/launches.",
+            "inputSchema": {
+              "properties": {
+                "doc": {
+                  "description": "MissionMapDoc {nodes, edges}",
+                  "type": "object"
+                },
+                "repo_root": {
+                  "description": "repo root for artifact manifest hashing (default: server cwd)",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "doc"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_mission_compile"
+          },
+          {
+            "description": "Command Post: arm (operator token bound to the complete plan hash) and launch a stored plan into its harness lane. Real sandbox or nothing — refuses live-checkout workspaces, post-approval mutation, and unarmed plans. Every outcome receipted.",
+            "inputSchema": {
+              "properties": {
+                "approval": {
+                  "description": "operator token from `timmy approve <planHash>`",
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_dispatch_plan"
+          },
+          {
+            "description": "Command Post: tail the last 40 pane lines of a dispatched plan session.",
+            "inputSchema": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_tail_lane"
+          },
+          {
+            "description": "Command Post: hold (SIGTSTP) or cancel (kill session) a dispatched plan; cancellations seal receipts.",
+            "inputSchema": {
+              "properties": {
+                "action": {
+                  "description": "hold | cancel",
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "action"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_pause_or_cancel_lane"
+          },
+          {
+            "description": "Command Post: collect a dispatched run (tail, wall-limit check, collect receipt, lifecycle → judging).",
+            "inputSchema": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_collect_run"
+          },
+          {
+            "description": "One-command judge loop. Phase 1 (no approval): returns the resolved executor/judge plan + plan hash. Phase 2: requires an operator-minted single-use expiring token bound to that exact plan hash (`timmy approve <planHash>`); a bare boolean never approves. Runs 3-5 executors via Promise.allSettled, one configurable judge, child receipts per executor/judge + one parent receipt linking them. Default-deny on unresolved models or missing approval.",
+            "inputSchema": {
+              "properties": {
+                "approval": {
+                  "description": "operator approval token from `timmy approve <planHash>`",
+                  "type": "string"
+                },
+                "executors": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "judge": {
+                  "type": "string"
+                },
+                "max_spend": {
+                  "description": "approved USD ceiling (AgentPass max_spend); 0 = local/free routes only, paid routes denied",
+                  "type": "number"
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "system": {
+                  "type": "string"
+                },
+                "tier": {
+                  "description": "AgentPass clearance tier (default T0)",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "prompt"
+              ],
+              "type": "object"
+            },
+            "name": "timmy_judge_loop"
+          }
+        ]
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 18433250
+      },
+      "timestamp": "2026-09-07T12:30:04.507515Z"
+    },
+    {
+      "test_id": "resources_listing",
+      "test_name": "Resources Listing",
+      "category": "Resources",
+      "status": "Warning",
+      "message": "Resources listing not supported: Transport error: Operation timed out (stdio): Request list_resources_1 timed out after 30s",
+      "details": {
+        "error": "Transport error: Operation timed out (stdio): Request list_resources_1 timed out after 30s"
+      },
+      "duration": {
+        "secs": 30,
+        "nanos": 4085458
+      },
+      "timestamp": "2026-09-07T12:30:34.511851Z"
+    },
+    {
+      "test_id": "prompts_listing",
+      "test_name": "Prompts Listing",
+      "category": "Prompts",
+      "status": "Warning",
+      "message": "Prompts listing not supported: Transport error: Operation timed out (stdio): Request list_prompts_1 timed out after 30s",
+      "details": {
+        "error": "Transport error: Operation timed out (stdio): Request list_prompts_1 timed out after 30s"
+      },
+      "duration": {
+        "secs": 30,
+        "nanos": 31942583
+      },
+      "timestamp": "2026-09-07T12:31:04.544688Z"
+    },
+    {
+      "test_id": "transport_info",
+      "test_name": "Transport Information",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Using stdio transport",
+      "details": {
+        "connected": true,
+        "connected_since": {
+          "nanos_since_epoch": 314040000,
+          "secs_since_epoch": 1788784201
+        },
+        "errors": 0,
+        "metadata": {
+          "args": [
+            "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/wire/exec.mjs",
+            "timmy"
+          ],
+          "command": "/opt/homebrew/Cellar/node/26.6.0/bin/node",
+          "environment_vars": 0,
+          "has_process": true,
+          "process_id": 5184,
+          "timeout": 30,
+          "working_dir": null
+        },
+        "notifications_received": 0,
+        "notifications_sent": 0,
+        "requests_sent": 4,
+        "responses_received": 2,
+        "transport_type": "stdio"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:31:04.546967Z"
+    },
+    {
+      "test_id": "connection_stability",
+      "test_name": "Connection Stability",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Transport connection is stable",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:31:04.546980Z"
+    },
+    {
+      "test_id": "invalid_method_handling",
+      "test_name": "Invalid Method Handling",
+      "category": "ErrorHandling",
+      "status": "Warning",
+      "message": "Transport error during invalid method test: Transport error: Operation timed out (stdio): Request invalid_method_1 timed out after 30s",
+      "details": {
+        "error": "Transport error: Operation timed out (stdio): Request invalid_method_1 timed out after 30s"
+      },
+      "duration": {
+        "secs": 30,
+        "nanos": 886959
+      },
+      "timestamp": "2026-09-07T12:31:34.548093Z"
+    },
+    {
+      "test_id": "invalid_params_handling",
+      "test_name": "Invalid Parameters Handling",
+      "category": "ErrorHandling",
+      "status": "Error",
+      "message": "Server should return error for invalid parameters",
+      "details": {
+        "id": "invalid_params_1",
+        "jsonrpc": "2.0",
+        "result": {
+          "capabilities": {
+            "tools": {}
+          },
+          "protocolVersion": "2024-11-05",
+          "serverInfo": {
+            "name": "timmy",
+            "version": "0.4.0"
+          }
+        }
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 2620292
+      },
+      "timestamp": "2026-09-07T12:31:34.553597Z"
+    },
+    {
+      "test_id": "schema_validation",
+      "test_name": "Schema Validation",
+      "category": "Schema",
+      "status": "Warning",
+      "message": "Found 3 schema issues out of 1 validated messages",
+      "details": {
+        "errors": [
+          "Missing 'jsonrpc' field in resources_listing",
+          "Missing 'jsonrpc' field in prompts_listing",
+          "Missing 'jsonrpc' field in invalid_method_handling"
+        ]
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 10083
+      },
+      "timestamp": "2026-09-07T12:31:34.553660Z"
+    }
+  ],
+  "server_info": null,
+  "performance": {
+    "initialization_time": {
+      "secs": 3,
+      "nanos": 143913792
+    },
+    "average_request_time": {
+      "secs": 9,
+      "nanos": 9178204
+    },
+    "total_requests": 11,
+    "failed_requests": 1,
+    "timeouts": 3
+  }
+}

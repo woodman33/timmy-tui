@@ -1,0 +1,46 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-015.png",
+ "image_sha256": "a8064f7be240fcc2492d721618c8de7d18d895261f684025cedf72166c6e1b7e",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 87790,
+  "lines": [
+   "trust me",
+   "+ verify mel",
+   "Other agents ask for your trust. Timmy hands"
+  ],
+  "text_sha256": "38ea6b54cea401b89e050b711ed805625fe56dfce3f6e6fb7ea6b8ffcd3fd1e8"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 26133,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [],
+  "sha256": "2739a847ab76965fd37691135ed6d3e0b676b67c5634cb65caa61a34d63dafa8"
+ },
+ "observed_at": "2026-09-07T13:06:21.453Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 15,
+  "frames": 63
+ }
+}

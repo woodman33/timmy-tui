@@ -1,0 +1,88 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/walkthrough-deck-30s-7a339f0ac353/frame-025.png",
+ "image_sha256": "6bbaf86309eabf217fd652e7c7a901732a046587aaa95dff1cebf5e39ca5e27d",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 10679,
+  "lines": [
+   "Reveal tag",
+   "signed - Sep 14 - 19:22:07 - counter 1",
+   "Owner",
+   "claimed Sep 12, 13:05 : W. M.",
+   "Packs",
+   "24 of 24 opened - 19:24 - 20:41",
+   "Cards attached",
+   "312 scanned - 4 hits - 2 numbered",
+   "Custody timeline",
+   "Sealed at Paradise Card Breaks",
+   "Sep 12 12:41 Las Vegas",
+   "Sold - POS receipt #48812",
+   "Sep 12 - 13:04 counter 2",
+   "Claimed by owner",
+   "Sep 12 13:05 * phone tap",
+   "Opened - seal loop broken",
+   "Sep 14 19:22 Henderson, NV",
+   "Pack 1 opened - 12 cards attached",
+   "Sep 14 19:24",
+   "Pack 17 opened - Rookie Auto 14/99 attached",
+   "Sep 14 20:12",
+   "Pack 24 opened",
+   "Sep 14 * 20:41",
+   "Card VC0007-17-03 transferred - sold on eBay",
+   "Oct 2 08:15 to owner in Phoenix, AZ"
+  ],
+  "text_sha256": "299e2846570b5abaa1daea25b998eb8ca03f1cd845c6ea9639f2e25e0d0a1360"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 5202,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "banner",
+    "conf": 0.237,
+    "x": 718,
+    "y": 556,
+    "w": 695,
+    "h": 684
+   },
+   {
+    "label": "banner",
+    "conf": 0.111,
+    "x": 718,
+    "y": 99,
+    "w": 694,
+    "h": 197
+   }
+  ],
+  "sha256": "d77f64ee9790ba06078f182db4e2814956843387a5bd50b83d473088a598ecaa"
+ },
+ "observed_at": "2026-09-07T13:44:20.293Z",
+ "source": {
+  "source_receipt": "sha256_92c15f507ba0d40d760d752fc0711589414fd3e3be26d53bd2fd6a0972949732",
+  "source_subject": "render.review",
+  "video": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/walkthrough-deck/walkthrough-deck-30s.mp4",
+  "video_sha256_12": "7a339f0ac353",
+  "frame": 25,
+  "frames": 30
+ }
+}

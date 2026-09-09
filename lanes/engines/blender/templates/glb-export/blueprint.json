@@ -1,0 +1,29 @@
+{
+ "kind": "blueprint",
+ "name": "Blender · glb-export",
+ "source": "lanes/engines/blender/templates/glb-export/plan.cue",
+ "date": "2026-09-07",
+ "engine": "blender",
+ "workflow": "glb-export",
+ "note": "A mesh or scene dropped into drop/ becomes one .glb in out/ for the web companion and Slate 3D. Headless Blender, one script, one receipt.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "source", "value": "*.obj · *.blend · *.gltf", "note": "rules: run" },
+   { "label": "glb", "value": "*.glb", "note": "already the target: rules: stage" },
+   { "label": "refused", "value": "> 256 MB", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 import", "value": "obj_import / gltf import / open_mainfile", "note": "factory startup, empty scene" },
+   { "label": "2 select", "value": "every MESH object", "note": "use_selection" },
+   { "label": "3 export", "value": "export_scene.gltf GLB, transforms applied", "note": "checks the glTF magic" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "glb", "value": "{stem}.glb", "note": "mesh" },
+   { "label": "report", "value": "{stem}.glb.json", "note": "objects, vertices, bytes, magic_ok" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "input sha256 · glb sha256 · env-lock · template shas", "note": "" },
+   { "label": "extra", "value": "objects · vertices · glb_bytes", "note": "from the report" }
+  ] }
+ ]
+}

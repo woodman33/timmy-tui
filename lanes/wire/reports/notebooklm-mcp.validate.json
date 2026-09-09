@@ -1,0 +1,1925 @@
+{
+  "metadata": {
+    "generated_at": "2026-09-07T12:39:00.185070Z",
+    "validator_version": "1.0.0",
+    "transport_type": "stdio",
+    "total_duration": {
+      "secs": 2,
+      "nanos": 252767166
+    },
+    "config": {
+      "test_timeout": {
+        "secs": 30,
+        "nanos": 0
+      },
+      "total_timeout": {
+        "secs": 300,
+        "nanos": 0
+      },
+      "strict_schema_validation": true,
+      "test_error_conditions": true,
+      "validate_tool_schemas": true,
+      "test_capability_discovery": true,
+      "max_tools_to_test": 10,
+      "custom_rules": []
+    }
+  },
+  "summary": {
+    "total_tests": 11,
+    "passed": 10,
+    "info": 0,
+    "warnings": 1,
+    "errors": 0,
+    "critical": 0,
+    "skipped": 0,
+    "compliance_percentage": 90.9090909090909
+  },
+  "results": [
+    {
+      "test_id": "transport_connection",
+      "test_name": "Transport Connection",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Successfully connected via stdio",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 2564333
+      },
+      "timestamp": "2026-09-07T12:38:57.934844Z"
+    },
+    {
+      "test_id": "initialization",
+      "test_name": "MCP Initialization",
+      "category": "Initialization",
+      "status": "Pass",
+      "message": "Successfully initialized with notebooklm v3.2.0",
+      "details": {
+        "capabilities": {
+          "logging": {
+            "enabled": true
+          },
+          "prompts": {
+            "available_prompts": [],
+            "list_changed": null
+          },
+          "resources": {
+            "available_resources": [],
+            "list_changed": null,
+            "subscribe": false
+          },
+          "tools": {
+            "available_tools": [],
+            "list_changed": null
+          }
+        },
+        "name": "notebooklm",
+        "protocol_version": "2024-11-05",
+        "version": "3.2.0"
+      },
+      "duration": {
+        "secs": 1,
+        "nanos": 947872916
+      },
+      "timestamp": "2026-09-07T12:38:59.883121Z"
+    },
+    {
+      "test_id": "json_rpc_compliance",
+      "test_name": "JSON-RPC 2.0 Compliance",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "All messages follow JSON-RPC 2.0 specification",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:38:59.883175Z"
+    },
+    {
+      "test_id": "tools_listing",
+      "test_name": "Tools Listing",
+      "category": "Tools",
+      "status": "Pass",
+      "message": "Successfully retrieved tools list",
+      "details": {
+        "tools": [
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Reload auth tokens from disk or run headless re-authentication.\n\nCall this after running `nlm login` to pick up new tokens,\nor to attempt automatic re-authentication if Chrome profile has saved login.\n\nReturns status indicating if tokens were refreshed successfully.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "refresh_auth",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Save NotebookLM cookies (FALLBACK method - try `nlm login` first!).\n\nIMPORTANT FOR AI ASSISTANTS:\n- First, run `nlm login` via Bash/terminal (automated, preferred)\n- Only use this tool if the automated CLI fails\n\nArgs:\n    cookies: Cookie header from Chrome DevTools (only needed if CLI fails)\n    csrf_token: Deprecated - auto-extracted\n    session_id: Deprecated - auto-extracted\n    request_body: Optional - contains CSRF if extracting manually\n    request_url: Optional - contains session ID if extracting manually",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "cookies": {
+                  "type": "string"
+                },
+                "csrf_token": {
+                  "default": "",
+                  "type": "string"
+                },
+                "request_body": {
+                  "default": "",
+                  "type": "string"
+                },
+                "request_url": {
+                  "default": "",
+                  "type": "string"
+                },
+                "session_id": {
+                  "default": "",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "cookies"
+              ],
+              "type": "object"
+            },
+            "name": "save_auth_tokens",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Perform batch operations across multiple notebooks.\n\nActions:\n- query: Query multiple notebooks with the same question\n- add_source: Add the same source URL to multiple notebooks\n- create: Create multiple notebooks at once\n- delete: Delete multiple notebooks (IRREVERSIBLE, requires confirm=True)\n- studio: Generate studio artifacts across multiple notebooks\n\nArgs:\n    action: Operation to perform (query, add_source, create, delete, studio)\n    query: Question to ask (for action=query)\n    source_url: URL to add (for action=add_source)\n    titles: Comma-separated notebook titles (for action=create)\n    artifact_type: Artifact type (for action=studio): audio, video, report, etc.\n    notebook_names: Comma-separated notebook names or IDs\n    tags: Comma-separated tags to select notebooks\n    all: Apply to ALL notebooks\n    confirm: Must be True for delete action",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "all": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "artifact_type": {
+                  "default": "audio",
+                  "type": "string"
+                },
+                "confirm": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "notebook_names": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "query": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "source_url": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "tags": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "titles": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "type": "object"
+            },
+            "name": "batch",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Ask AI about EXISTING sources already in notebook. NOT for finding new sources.\n\nUse research_start instead for: deep research, web search, find new sources, Drive search.\n\nArgs:\n    notebook_id: Notebook UUID\n    query: Question to ask\n    source_ids: Source IDs to query (default: all)\n    conversation_id: For follow-up questions\n    timeout: Request timeout in seconds (default: from env NOTEBOOKLM_QUERY_TIMEOUT or 120.0)",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "conversation_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "notebook_id": {
+                  "type": "string"
+                },
+                "query": {
+                  "type": "string"
+                },
+                "source_ids": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "timeout": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "notebook_id",
+                "query"
+              ],
+              "type": "object"
+            },
+            "name": "notebook_query",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Configure notebook chat settings.\n\nArgs:\n    notebook_id: Notebook UUID\n    goal: default|learning_guide|custom\n    custom_prompt: Required when goal=custom (max 10000 chars)\n    response_length: default|longer|shorter",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "custom_prompt": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "goal": {
+                  "default": "default",
+                  "type": "string"
+                },
+                "notebook_id": {
+                  "type": "string"
+                },
+                "response_length": {
+                  "default": "default",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "notebook_id"
+              ],
+              "type": "object"
+            },
+            "name": "chat_configure",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Start a notebook query asynchronously for large notebooks that may timeout.\n\nUse this instead of notebook_query when querying notebooks with many sources\n(50+) where the response may take longer than 60 seconds. Returns immediately\nwith a query_id. Poll notebook_query_status with the query_id to get the result.\n\nWorkflow: notebook_query_start -> poll notebook_query_status until completed.\n\nArgs:\n    notebook_id: Notebook UUID\n    query: Question to ask\n    source_ids: Source IDs to query (default: all)\n    conversation_id: For follow-up questions\n    timeout: Request timeout in seconds (default: from env NOTEBOOKLM_QUERY_TIMEOUT or 120.0)",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "conversation_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "notebook_id": {
+                  "type": "string"
+                },
+                "query": {
+                  "type": "string"
+                },
+                "source_ids": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "timeout": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "notebook_id",
+                "query"
+              ],
+              "type": "object"
+            },
+            "name": "notebook_query_start",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Check the status of an async notebook query started with notebook_query_start.\n\nReturns the query result when completed, or current status if still in progress.\nPoll this tool every few seconds until status is 'completed' or 'error'.\n\nArgs:\n    query_id: The query ID returned by notebook_query_start",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "query_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query_id"
+              ],
+              "type": "object"
+            },
+            "name": "notebook_query_status",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Query multiple notebooks and get aggregated answers with per-notebook citations.\n\nSpecify notebooks by name, by tags, or use all=True for all notebooks.\n\nArgs:\n    query: Question to ask across notebooks\n    notebook_names: Comma-separated notebook names or IDs (e.g. \"AI Research, Dev Tools\")\n    tags: Comma-separated tags to select notebooks (e.g. \"ai,mcp\")\n    all: Query ALL notebooks (use with caution — rate limits apply)",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "all": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "notebook_names": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "query": {
+                  "type": "string"
+                },
+                "tags": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            },
+            "name": "cross_notebook_query",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Download any NotebookLM artifact to a file.\n\nUnified download tool replacing 9 separate download tools.\nSupports all artifact types: audio, video, report, mind_map, slide_deck,\ninfographic, data_table, quiz, flashcards.\n\nArgs:\n    notebook_id: Notebook UUID\n    artifact_type: Type of artifact to download:\n        - audio: Audio Overview (MP4/MP3)\n        - video: Video Overview (MP4)\n        - report: Report (Markdown)\n        - mind_map: Mind Map (JSON)\n        - slide_deck: Slide Deck (PDF or PPTX)\n        - infographic: Infographic (PNG)\n        - data_table: Data Table (CSV)\n        - quiz: Quiz (json|markdown|html)\n        - flashcards: Flashcards (json|markdown|html)\n    output_path: Path to save the file\n    artifact_id: Optional specific artifact ID (uses latest if not provided)\n    output_format: For quiz/flashcards only: json|markdown|html (default: json)\n    slide_deck_format: For slide_deck only: pdf (default) or pptx\n\nReturns:\n    dict with status and saved file path\n\nExample:\n    download_artifact(notebook_id=\"abc123\", artifact_type=\"audio\", output_path=\"podcast.mp3\")\n    download_artifact(notebook_id=\"abc123\", artifact_type=\"quiz\", output_path=\"quiz.html\", output_format=\"html\")\n    download_artifact(notebook_id=\"abc123\", artifact_type=\"slide_deck\", output_path=\"slides.pptx\", slide_deck_format=\"pptx\")",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "artifact_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "artifact_type": {
+                  "type": "string"
+                },
+                "notebook_id": {
+                  "type": "string"
+                },
+                "output_format": {
+                  "default": "json",
+                  "type": "string"
+                },
+                "output_path": {
+                  "type": "string"
+                },
+                "slide_deck_format": {
+                  "default": "pdf",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "notebook_id",
+                "artifact_type",
+                "output_path"
+              ],
+              "type": "object"
+            },
+            "name": "download_artifact",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Export a NotebookLM artifact to Google Docs or Sheets.\n\nSupports:\n- Data Tables → Google Sheets\n- Reports (Briefing Doc, Study Guide, Blog Post) → Google Docs\n\nArgs:\n    notebook_id: Notebook UUID\n    artifact_id: Artifact UUID to export\n    export_type: \"docs\" or \"sheets\"\n    title: Title for exported document (optional)\n\nReturns: URL to the created Google Doc/Sheet",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "artifact_id": {
+                  "type": "string"
+                },
+                "export_type": {
+                  "type": "string"
+                },
+                "notebook_id": {
+                  "type": "string"
+                },
+                "title": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "notebook_id",
+                "artifact_id",
+                "export_type"
+              ],
+              "type": "object"
+            },
+            "name": "export_artifact",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "List all notebooks.\n\nArgs:\n    max_results: Maximum number of notebooks to return (default: 100)",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "max_results": {
+                  "default": 100,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "name": "notebook_list",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Get notebook details with sources.\n\nArgs:\n    notebook_id: Notebook UUID",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "notebook_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "notebook_id"
+              ],
+              "type": "object"
+            },
+            "name": "notebook_get",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Get AI-generated notebook summary with suggested topics.\n\nArgs:\n    notebook_id: Notebook UUID\n\nReturns: summary (markdown), suggested_topics list",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "notebook_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "notebook_id"
+              ],
+              "type": "object"
+            },
+            "name": "notebook_describe",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Create a new notebook.\n\nArgs:\n    title: Optional title for the notebook",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "title": {
+                  "default": "",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "notebook_create",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Rename a notebook.\n\nArgs:\n    notebook_id: Notebook UUID\n    new_title: New title",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "new_title": {
+                  "type": "string"
+                },
+                "notebook_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "notebook_id",
+                "new_title"
+              ],
+              "type": "object"
+            },
+            "name": "notebook_rename",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Delete notebook permanently. IRREVERSIBLE. Requires confirm=True.\n\nArgs:\n    notebook_id: Notebook UUID\n    confirm: Must be True after user approval",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "confirm": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "notebook_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "notebook_id"
+              ],
+              "type": "object"
+            },
+            "name": "notebook_delete",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Manage notes in a notebook. Unified tool for all note operations.\n\nSupports: create, list, update, delete\n\nArgs:\n    notebook_id: Notebook UUID\n    action: Operation to perform:\n        - create: Create a new note\n        - list: List all notes in notebook\n        - update: Update an existing note\n        - delete: Delete a note permanently (requires confirm=True)\n    note_id: Note UUID (required for update/delete)\n    content: Note content (required for create, optional for update)\n    title: Note title (optional for create/update)\n    confirm: Must be True for delete action\n\nReturns:\n    Action-specific response with status\n\nExample:\n    note(notebook_id=\"abc\", action=\"list\")\n    note(notebook_id=\"abc\", action=\"create\", content=\"My note\", title=\"Title\")\n    note(notebook_id=\"abc\", action=\"update\", note_id=\"xyz\", content=\"Updated\")\n    note(notebook_id=\"abc\", action=\"delete\", note_id=\"xyz\", confirm=True)",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "confirm": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "content": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "note_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "notebook_id": {
+                  "type": "string"
+                },
+                "title": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "notebook_id",
+                "action"
+              ],
+              "type": "object"
+            },
+            "name": "note",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Manage and execute multi-step notebook pipelines.\n\nActions:\n- run: Execute a pipeline on a notebook\n- list: List all available pipelines (builtin and user-defined)\n\nArgs:\n    action: Operation to perform (run, list)\n    notebook_id: Target notebook UUID (required for action=run)\n    pipeline_name: Pipeline name (required for action=run, e.g. \"ingest-and-podcast\")\n    input_url: URL variable for pipelines that need it (replaces $INPUT_URL)",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "input_url": {
+                  "default": "",
+                  "type": "string"
+                },
+                "notebook_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "pipeline_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "type": "object"
+            },
+            "name": "pipeline",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Deep research / fast research: Search web or Google Drive to FIND NEW sources.\n\nUse this for: \"deep research on X\", \"find sources about Y\", \"search web for Z\", \"search Drive\".\nWorkflow: research_start -> poll research_status -> research_import.\n\nArgs:\n    query: What to search for (e.g. \"quantum computing advances\")\n    source: web|drive (where to search)\n    mode: fast (~30s, ~10 sources) | deep (~5min, ~40 sources, web only)\n    notebook_id: Existing notebook (creates new if not provided)\n    title: Title for new notebook",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "default": "fast",
+                  "type": "string"
+                },
+                "notebook_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "query": {
+                  "type": "string"
+                },
+                "source": {
+                  "default": "web",
+                  "type": "string"
+                },
+                "title": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            },
+            "name": "research_start",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Poll research progress. Blocks until complete or timeout.\n\nArgs:\n    notebook_id: Notebook UUID\n    poll_interval: Seconds between polls (default: 30)\n    max_wait: Max seconds to wait (default: 300, 0=single poll)\n    compact: If True (default), truncate report and limit sources shown to save tokens.\n            Use compact=False to get full details.\n    task_id: Optional Task ID to poll for a specific research task.\n    query: Optional query text for fallback matching when task_id changes (deep research).\n        Contributed by @saitrogen (PR #15).",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "compact": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "max_wait": {
+                  "default": 300,
+                  "type": "integer"
+                },
+                "notebook_id": {
+                  "type": "string"
+                },
+                "poll_interval": {
+                  "default": 30,
+                  "type": "integer"
+                },
+                "query": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "task_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "notebook_id"
+              ],
+              "type": "object"
+            },
+            "name": "research_status",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Import discovered sources into notebook.\n\nCall after research_status shows status=\"completed\".\n\nArgs:\n    notebook_id: Notebook UUID\n    task_id: Research task ID\n    source_indices: Source indices to import (default: all)\n    timeout: Import timeout in seconds (default: 300, increase for large notebooks)",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "notebook_id": {
+                  "type": "string"
+                },
+                "source_indices": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "integer"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "task_id": {
+                  "type": "string"
+                },
+                "timeout": {
+                  "default": 300.0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "notebook_id",
+                "task_id"
+              ],
+              "type": "object"
+            },
+            "name": "research_import",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Get server version and check for updates.\n\nAI assistants: If update_available is True, inform the user that a new\nversion is available and suggest updating with the provided command.\n\nReturns:\n    dict with version info:\n    - version: Current installed version\n    - latest_version: Latest version on PyPI (or None if check failed)\n    - update_available: True if a newer version exists\n    - update_command: Command to run to update",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "server_info",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Get current sharing settings and collaborators.\n\nArgs:\n    notebook_id: Notebook UUID\n\nReturns: is_public, access_level, collaborators list, and public_link if public",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "notebook_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "notebook_id"
+              ],
+              "type": "object"
+            },
+            "name": "notebook_share_status",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Enable or disable public link access.\n\nArgs:\n    notebook_id: Notebook UUID\n    is_public: True to enable public link, False to disable (default: True)\n\nReturns: public_link if enabled, None if disabled",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "is_public": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "notebook_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "notebook_id"
+              ],
+              "type": "object"
+            },
+            "name": "notebook_share_public",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Invite a collaborator by email.\n\nArgs:\n    notebook_id: Notebook UUID\n    email: Email address to invite\n    role: \"viewer\" or \"editor\" (default: viewer)\n\nReturns: success status",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "email": {
+                  "type": "string"
+                },
+                "notebook_id": {
+                  "type": "string"
+                },
+                "role": {
+                  "default": "viewer",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "notebook_id",
+                "email"
+              ],
+              "type": "object"
+            },
+            "name": "notebook_share_invite",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Invite multiple collaborators in a single request.\n\nArgs:\n    notebook_id: Notebook UUID\n    recipients: List of dicts, each with 'email' (str) and optional 'role' (str).\n                Role defaults to 'viewer'. Example: [{\"email\": \"a@b.com\", \"role\": \"editor\"}]\n    confirm: Must be True after user approval\n\nReturns: invited_count, recipients list, and message",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "confirm": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "notebook_id": {
+                  "type": "string"
+                },
+                "recipients": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "notebook_id",
+                "recipients"
+              ],
+              "type": "object"
+            },
+            "name": "notebook_share_batch",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Manage notebook tags and find relevant notebooks by tag matching.\n\nActions:\n- add: Add tags to a notebook for smart selection\n- remove: Remove tags from a notebook\n- list: List all tagged notebooks with their tags\n- select: Find notebooks relevant to a query using tag matching\n\nArgs:\n    action: Operation to perform (add, remove, list, select)\n    notebook_id: Notebook UUID (required for add, remove)\n    tags: Comma-separated tags (required for add, remove; e.g. \"ai,research,llm\")\n    notebook_title: Optional display title (for add)\n    query: Search query (required for select; e.g. \"ai mcp\" or \"ai,mcp\")",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "notebook_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "notebook_title": {
+                  "default": "",
+                  "type": "string"
+                },
+                "query": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "tags": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "type": "object"
+            },
+            "name": "tag",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Add a source to a notebook. Unified tool for all source types.\n\nSupports: url, text, drive, file\n\nArgs:\n    notebook_id: Notebook UUID\n    source_type: Type of source to add:\n        - url: Web page or YouTube URL\n        - text: Pasted text content\n        - drive: Google Drive document\n        - file: Local file upload (PDF, text, audio)\n    url: URL to add (for source_type=url)\n    urls: List of URLs to add in bulk (for source_type=url, alternative to url)\n    text: Text content to add (for source_type=text)\n    title: Display title (for text sources)\n    file_path: Local file path (for source_type=file)\n    document_id: Google Drive document ID (for source_type=drive)\n    doc_type: Drive doc type: doc|slides|sheets|pdf (for source_type=drive)\n    wait: If True, wait for source processing to complete before returning\n    wait_timeout: Max seconds to wait if wait=True (default 120)\n\nExample:\n    source_add(notebook_id=\"abc\", source_type=\"url\", url=\"https://example.com\")\n    source_add(notebook_id=\"abc\", source_type=\"url\", urls=[\"https://a.com\", \"https://b.com\"])\n    source_add(notebook_id=\"abc\", source_type=\"url\", url=\"https://example.com\", wait=True)\n    source_add(notebook_id=\"abc\", source_type=\"file\", file_path=\"/path/to/doc.pdf\", wait=True)",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "doc_type": {
+                  "default": "doc",
+                  "type": "string"
+                },
+                "document_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "file_path": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "notebook_id": {
+                  "type": "string"
+                },
+                "source_type": {
+                  "type": "string"
+                },
+                "text": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "title": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "url": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "urls": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "wait": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "wait_timeout": {
+                  "default": 120.0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "notebook_id",
+                "source_type"
+              ],
+              "type": "object"
+            },
+            "name": "source_add",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "List sources with types and Drive freshness status.\n\nUse before source_sync_drive to identify stale sources.\n\nArgs:\n    notebook_id: Notebook UUID",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "notebook_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "notebook_id"
+              ],
+              "type": "object"
+            },
+            "name": "source_list_drive",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Sync Drive sources with latest content. Requires confirm=True.\n\nCall source_list_drive first to identify stale sources.\n\nArgs:\n    source_ids: Source UUIDs to sync\n    confirm: Must be True after user approval",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "confirm": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "source_ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "source_ids"
+              ],
+              "type": "object"
+            },
+            "name": "source_sync_drive",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Rename a source in a notebook.\n\nArgs:\n    notebook_id: Notebook UUID containing the source\n    source_id: Source UUID to rename\n    new_title: New display title for the source",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "new_title": {
+                  "type": "string"
+                },
+                "notebook_id": {
+                  "type": "string"
+                },
+                "source_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "notebook_id",
+                "source_id",
+                "new_title"
+              ],
+              "type": "object"
+            },
+            "name": "source_rename",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Delete source(s) permanently. IRREVERSIBLE. Requires confirm=True.\n\nArgs:\n    source_id: Source UUID to delete (single)\n    source_ids: List of source UUIDs to delete (bulk, alternative to source_id)\n    confirm: Must be True after user approval",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "confirm": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "source_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "source_ids": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "type": "object"
+            },
+            "name": "source_delete",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Get AI-generated source summary with keyword chips.\n\nArgs:\n    source_id: Source UUID\n\nReturns: summary (markdown with **bold** keywords), keywords list",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "source_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "source_id"
+              ],
+              "type": "object"
+            },
+            "name": "source_describe",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Get raw text content of a source (no AI processing).\n\nReturns the original indexed text from PDFs, web pages, pasted text,\nor YouTube transcripts. Much faster than notebook_query for content export.\n\nArgs:\n    source_id: Source UUID\n\nReturns: content (str), title (str), source_type (str), char_count (int)",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "source_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "source_id"
+              ],
+              "type": "object"
+            },
+            "name": "source_get_content",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Create any NotebookLM studio artifact. Unified creation tool.\n\nSupports: audio, video, infographic, slide_deck, report, flashcards, quiz, data_table, mind_map\n\nArgs:\n    notebook_id: Notebook UUID\n    artifact_type: Type of artifact to create:\n        - audio: Audio Overview (podcast)\n        - video: Video Overview\n        - infographic: Visual infographic\n        - slide_deck: Presentation slides (PDF)\n        - report: Text report (Briefing Doc, Study Guide, etc.)\n        - flashcards: Study flashcards\n        - quiz: Multiple choice quiz\n        - data_table: Structured data table\n        - mind_map: Visual mind map\n    source_ids: Source IDs to use (default: all sources)\n    confirm: Must be True after user approval\n\n    Type-specific options:\n    - audio: audio_format (deep_dive|brief|critique|debate), audio_length (short|default|long)\n    - video: video_format (explainer|brief|cinematic), visual_style (auto_select|classic|whiteboard|kawaii|anime|watercolor|retro_print|heritage|paper_craft)\n    - infographic: orientation (landscape|portrait|square), detail_level (concise|standard|detailed), infographic_style (auto_select|sketch_note|professional|bento_grid|editorial|instructional|bricks|clay|anime|kawaii|scientific)\n    - slide_deck: slide_format (detailed_deck|presenter_slides), slide_length (short|default)\n    - report: report_format (Briefing Doc|Study Guide|Blog Post|Create Your Own), custom_prompt\n    - flashcards: difficulty (easy|medium|hard)\n    - quiz: question_count (int), difficulty (easy|medium|hard)\n    - data_table: description (required)\n    - mind_map: title\n\n    Common options:\n    - language: BCP-47 code (en, es, fr, de, ja). Defaults to NOTEBOOKLM_HL env var or 'en'\n    - focus_prompt: Optional focus text\n\nExample:\n    studio_create(notebook_id=\"abc\", artifact_type=\"audio\", confirm=True)\n    studio_create(notebook_id=\"abc\", artifact_type=\"quiz\", question_count=5, confirm=True)",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "artifact_type": {
+                  "type": "string"
+                },
+                "audio_format": {
+                  "default": "deep_dive",
+                  "type": "string"
+                },
+                "audio_length": {
+                  "default": "default",
+                  "type": "string"
+                },
+                "confirm": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "custom_prompt": {
+                  "default": "",
+                  "type": "string"
+                },
+                "description": {
+                  "default": "",
+                  "type": "string"
+                },
+                "detail_level": {
+                  "default": "standard",
+                  "type": "string"
+                },
+                "difficulty": {
+                  "default": "medium",
+                  "type": "string"
+                },
+                "focus_prompt": {
+                  "default": "",
+                  "type": "string"
+                },
+                "infographic_style": {
+                  "default": "auto_select",
+                  "type": "string"
+                },
+                "language": {
+                  "default": "",
+                  "type": "string"
+                },
+                "notebook_id": {
+                  "type": "string"
+                },
+                "orientation": {
+                  "default": "landscape",
+                  "type": "string"
+                },
+                "question_count": {
+                  "default": 2,
+                  "type": "integer"
+                },
+                "report_format": {
+                  "default": "Briefing Doc",
+                  "type": "string"
+                },
+                "slide_format": {
+                  "default": "detailed_deck",
+                  "type": "string"
+                },
+                "slide_length": {
+                  "default": "default",
+                  "type": "string"
+                },
+                "source_ids": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "title": {
+                  "default": "Mind Map",
+                  "type": "string"
+                },
+                "video_format": {
+                  "default": "explainer",
+                  "type": "string"
+                },
+                "visual_style": {
+                  "default": "auto_select",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "notebook_id",
+                "artifact_type"
+              ],
+              "type": "object"
+            },
+            "name": "studio_create",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Check studio content generation status and get URLs, or rename an artifact.\n\nArgs:\n    notebook_id: Notebook UUID\n    action: Action to perform:\n        - status (default): List all artifacts with their status and URLs\n        - rename: Rename an artifact (requires artifact_id and new_title)\n        - list_types: List all supported artifact types with their options\n    artifact_id: Required for action=\"rename\" - the artifact UUID to rename\n    new_title: Required for action=\"rename\" - the new title for the artifact\n\nReturns:\n    Dictionary with status and results.\n    For action=\"status\":\n        - status: \"success\"\n        - artifacts: List of artifacts, each containing:\n            - artifact_id: UUID\n            - title: Artifact title\n            - type: audio, video, report, etc.\n            - status: completed, in_progress, failed\n            - url: URL to view/download (if applicable)\n            - custom_instructions: The custom prompt/focus instructions used to generate the artifact (if any)\n        - summary: Counts of total, completed, in_progress",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "default": "status",
+                  "type": "string"
+                },
+                "artifact_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "new_title": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "notebook_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "notebook_id"
+              ],
+              "type": "object"
+            },
+            "name": "studio_status",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Delete studio artifact. IRREVERSIBLE. Requires confirm=True.\n\nArgs:\n    notebook_id: Notebook UUID\n    artifact_id: Artifact UUID (from studio_status)\n    confirm: Must be True after user approval",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "artifact_id": {
+                  "type": "string"
+                },
+                "confirm": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "notebook_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "notebook_id",
+                "artifact_id"
+              ],
+              "type": "object"
+            },
+            "name": "studio_delete",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Revise individual slides in an existing slide deck. Creates a NEW artifact.\n\nOnly slide decks support revision. The original artifact is not modified.\nPoll studio_status after calling to check when the new deck is ready.\n\nArgs:\n    notebook_id: Notebook UUID\n    artifact_id: UUID of the existing slide deck to revise (from studio_status)\n    slide_instructions: List of revision instructions, each with:\n        - slide: Slide number (1-based, slide 1 = first slide)\n        - instruction: Text describing the desired change\n        Example: [{\"slide\": 1, \"instruction\": \"Make the title larger\"}]\n    confirm: Must be True after user approval\n\nExample:\n    studio_revise(\n        notebook_id=\"abc\",\n        artifact_id=\"xyz\",\n        slide_instructions=[\n            {\"slide\": 1, \"instruction\": \"Make the title larger\"},\n            {\"slide\": 3, \"instruction\": \"Remove the image\"}\n        ],\n        confirm=True\n    )",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "artifact_id": {
+                  "type": "string"
+                },
+                "confirm": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "notebook_id": {
+                  "type": "string"
+                },
+                "slide_instructions": {
+                  "items": {},
+                  "type": "array"
+                }
+              },
+              "required": [
+                "notebook_id",
+                "artifact_id",
+                "slide_instructions"
+              ],
+              "type": "object"
+            },
+            "name": "studio_revise",
+            "outputSchema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        ]
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 71715083
+      },
+      "timestamp": "2026-09-07T12:38:59.954905Z"
+    },
+    {
+      "test_id": "resources_listing",
+      "test_name": "Resources Listing",
+      "category": "Resources",
+      "status": "Pass",
+      "message": "Successfully retrieved resources list",
+      "details": {
+        "resources": []
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 106524667
+      },
+      "timestamp": "2026-09-07T12:39:00.061528Z"
+    },
+    {
+      "test_id": "prompts_listing",
+      "test_name": "Prompts Listing",
+      "category": "Prompts",
+      "status": "Pass",
+      "message": "Successfully retrieved prompts list",
+      "details": {
+        "prompts": []
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 100163292
+      },
+      "timestamp": "2026-09-07T12:39:00.161721Z"
+    },
+    {
+      "test_id": "transport_info",
+      "test_name": "Transport Information",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Using stdio transport",
+      "details": {
+        "connected": true,
+        "connected_since": {
+          "nanos_since_epoch": 934807000,
+          "secs_since_epoch": 1788784737
+        },
+        "errors": 0,
+        "metadata": {
+          "args": [
+            "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/wire/exec.mjs",
+            "notebooklm-mcp"
+          ],
+          "command": "/opt/homebrew/Cellar/node/26.6.0/bin/node",
+          "environment_vars": 0,
+          "has_process": true,
+          "process_id": 36398,
+          "timeout": 30,
+          "working_dir": null
+        },
+        "notifications_received": 0,
+        "notifications_sent": 0,
+        "requests_sent": 4,
+        "responses_received": 4,
+        "transport_type": "stdio"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:39:00.161752Z"
+    },
+    {
+      "test_id": "connection_stability",
+      "test_name": "Connection Stability",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Transport connection is stable",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:39:00.161758Z"
+    },
+    {
+      "test_id": "invalid_method_handling",
+      "test_name": "Invalid Method Handling",
+      "category": "ErrorHandling",
+      "status": "Warning",
+      "message": "Server returned unexpected error code: -32602",
+      "details": {
+        "code": -32602,
+        "data": "",
+        "message": "Invalid request parameters"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 20313500
+      },
+      "timestamp": "2026-09-07T12:39:00.182105Z"
+    },
+    {
+      "test_id": "invalid_params_handling",
+      "test_name": "Invalid Parameters Handling",
+      "category": "ErrorHandling",
+      "status": "Pass",
+      "message": "Server correctly rejects invalid parameters",
+      "details": {
+        "code": -32602,
+        "data": "",
+        "message": "Invalid request parameters"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 2929166
+      },
+      "timestamp": "2026-09-07T12:39:00.185050Z"
+    },
+    {
+      "test_id": "schema_validation",
+      "test_name": "Schema Validation",
+      "category": "Schema",
+      "status": "Pass",
+      "message": "All 0 messages conform to expected schemas",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 2541
+      },
+      "timestamp": "2026-09-07T12:39:00.185060Z"
+    }
+  ],
+  "server_info": null,
+  "performance": {
+    "initialization_time": {
+      "secs": 1,
+      "nanos": 947872916
+    },
+    "average_request_time": {
+      "secs": 0,
+      "nanos": 30721258
+    },
+    "total_requests": 11,
+    "failed_requests": 0,
+    "timeouts": 0
+  }
+}

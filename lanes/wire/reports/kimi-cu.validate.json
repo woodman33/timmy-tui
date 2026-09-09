@@ -1,0 +1,584 @@
+{
+  "metadata": {
+    "generated_at": "2026-09-07T12:34:21.941426Z",
+    "validator_version": "1.0.0",
+    "transport_type": "stdio",
+    "total_duration": {
+      "secs": 0,
+      "nanos": 209358542
+    },
+    "config": {
+      "test_timeout": {
+        "secs": 30,
+        "nanos": 0
+      },
+      "total_timeout": {
+        "secs": 300,
+        "nanos": 0
+      },
+      "strict_schema_validation": true,
+      "test_error_conditions": true,
+      "validate_tool_schemas": true,
+      "test_capability_discovery": true,
+      "max_tools_to_test": 10,
+      "custom_rules": []
+    }
+  },
+  "summary": {
+    "total_tests": 11,
+    "passed": 8,
+    "info": 0,
+    "warnings": 2,
+    "errors": 1,
+    "critical": 0,
+    "skipped": 0,
+    "compliance_percentage": 72.72727272727273
+  },
+  "results": [
+    {
+      "test_id": "transport_connection",
+      "test_name": "Transport Connection",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Successfully connected via stdio",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1643583
+      },
+      "timestamp": "2026-09-07T12:34:21.733713Z"
+    },
+    {
+      "test_id": "initialization",
+      "test_name": "MCP Initialization",
+      "category": "Initialization",
+      "status": "Pass",
+      "message": "Successfully initialized with kimi-cu v0.5.8",
+      "details": {
+        "capabilities": {
+          "logging": null,
+          "prompts": null,
+          "resources": null,
+          "tools": {
+            "available_tools": [],
+            "list_changed": null
+          }
+        },
+        "name": "kimi-cu",
+        "protocol_version": "2024-11-05",
+        "version": "0.5.8"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 203349250
+      },
+      "timestamp": "2026-09-07T12:34:21.937078Z"
+    },
+    {
+      "test_id": "json_rpc_compliance",
+      "test_name": "JSON-RPC 2.0 Compliance",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "All messages follow JSON-RPC 2.0 specification",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:34:21.937131Z"
+    },
+    {
+      "test_id": "tools_listing",
+      "test_name": "Tools Listing",
+      "category": "Tools",
+      "status": "Pass",
+      "message": "Successfully retrieved tools list",
+      "details": {
+        "tools": [
+          {
+            "description": "List running apps (name, bundle_id, pid).",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "list_apps"
+          },
+          {
+            "description": "Screenshot and/or convergent Accessibility tree for an app, scoped to its primary window. Requires app or pid. mode=full returns both, mode=image returns only screenshot, mode=ax returns only AX text. Other windows are listed under `windows:` in full/ax output — pass window_id to inspect one. Caches the snapshot for index-based actions when AX is included.",
+            "inputSchema": {
+              "properties": {
+                "app": {
+                  "description": "bundle id",
+                  "type": "string"
+                },
+                "ax_filter": {
+                  "description": "case-insensitive substring filter applied to rendered AX lines",
+                  "type": "string"
+                },
+                "mode": {
+                  "description": "full (default), image-only, or AX-only",
+                  "enum": [
+                    "full",
+                    "image",
+                    "ax"
+                  ],
+                  "type": "string"
+                },
+                "pid": {
+                  "type": "integer"
+                },
+                "window_id": {
+                  "description": "inspect a specific window from the `windows:` directory instead of the primary one",
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "name": "get_app_state"
+          },
+          {
+            "description": "Click by snapshot index (from get_app_state) or by screenshot-pixel coordinates. Requires app or pid. Cursor-safe; never moves the real pointer. mouse_button/button can be left (default), right, or middle.",
+            "inputSchema": {
+              "properties": {
+                "app": {
+                  "type": "string"
+                },
+                "button": {
+                  "description": "mouse button alias",
+                  "enum": [
+                    "left",
+                    "right",
+                    "middle"
+                  ],
+                  "type": "string"
+                },
+                "count": {
+                  "description": "1..3",
+                  "type": "integer"
+                },
+                "hold_ms": {
+                  "description": "mouse-down→up press duration in ms (0-500, default 40). The default spans two 60fps frames so frame-sampled canvas/game UIs (Unity WebGL) register the click reliably; short-tap gesture UIs (e.g. JianYing media-card add-to-track corner) misread 40ms as press-and-hold — use 2-5 there",
+                  "type": "integer"
+                },
+                "index": {
+                  "description": "node index from get_app_state",
+                  "type": "integer"
+                },
+                "mouse_button": {
+                  "description": "mouse button (alias for `button`)",
+                  "enum": [
+                    "left",
+                    "right",
+                    "middle"
+                  ],
+                  "type": "string"
+                },
+                "pid": {
+                  "type": "integer"
+                },
+                "x": {
+                  "description": "screenshot pixel x (origin = top-left of the get_app_state screenshot); tool rescales to the real window",
+                  "type": "number"
+                },
+                "y": {
+                  "description": "screenshot pixel y",
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "name": "click"
+          },
+          {
+            "description": "Type Unicode text into an app. Requires app or pid. Pass index (snapshot index) or x,y (screenshot pixels) to target an input. Omit index/x,y to inject into the target app's current focus. Cursor-safe; background. Use clear+submit to replace-and-send in one call. Some Electron inputs expose no AX text readback; in that case a completed delivery returns ok:true, verified:false, verification_required:\"screenshot\". Call get_app_state and inspect the screenshot before claiming success.",
+            "inputSchema": {
+              "properties": {
+                "activate": {
+                  "description": "FALLBACK ONLY — avoid unless needed. When the target window is fully covered by other windows, macOS defers the keys and nothing lands. Setting this briefly raises the window (a visible flash) to flush the input. Default false = pure background, never raises. Try a normal type_text (and set_value) first; only set activate:true if the result had occluded:true and the text did not land.",
+                  "type": "boolean"
+                },
+                "app": {
+                  "type": "string"
+                },
+                "clear": {
+                  "description": "select-all + delete first, replacing the field's contents instead of appending at the cursor",
+                  "type": "boolean"
+                },
+                "index": {
+                  "description": "snapshot index (from get_app_state) to click-focus before typing",
+                  "type": "integer"
+                },
+                "pid": {
+                  "type": "integer"
+                },
+                "submit": {
+                  "description": "press Return after typing (submits single-line fields like search/address bars; inserts a newline in multi-line editors). For targeted inputs (index or x,y), typed text is readback-verified before Return is sent; post-submit side effects are not verified because successful submit often clears or changes the field.",
+                  "type": "boolean"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "x": {
+                  "description": "screenshot pixel x to click-focus before typing (with y)",
+                  "type": "number"
+                },
+                "y": {
+                  "description": "screenshot pixel y to click-focus before typing (with x)",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "text"
+              ],
+              "type": "object"
+            },
+            "name": "type_text"
+          },
+          {
+            "description": "Press a key or chord (xdotool-style DSL, e.g. \"return\", \"cmd+a\", \"cmd+shift+t\"). Requires app or pid. Focus must be on the target. Cursor-safe; background.",
+            "inputSchema": {
+              "properties": {
+                "activate": {
+                  "description": "FALLBACK ONLY — avoid unless needed. press_key posts keys in the background by default, which lands even when the target window is fully covered by other windows (verified for native apps on macOS 26). Setting this briefly raises a fully covered window (a visible flash) to flush input for apps that drop occluded keys. Default false = pure background, never raises. Try a normal press_key first; only set activate:true if the key did not land.",
+                  "type": "boolean"
+                },
+                "app": {
+                  "type": "string"
+                },
+                "keys": {
+                  "type": "string"
+                },
+                "pid": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "keys"
+              ],
+              "type": "object"
+            },
+            "name": "press_key"
+          },
+          {
+            "description": "Scroll by snapshot index or screenshot-pixel point. Requires app or pid. Prefer page: 1 to scroll up one page, page: -1 down, page: 3 three pages. Legacy dy/dx are still accepted for line-style wheel compatibility. Cursor-safe. Returns ok:false when no movement is detected or the target is already at the end.",
+            "inputSchema": {
+              "properties": {
+                "app": {
+                  "type": "string"
+                },
+                "dx": {
+                  "description": "legacy: positive scrolls right",
+                  "type": "integer"
+                },
+                "dy": {
+                  "description": "legacy: positive scrolls up",
+                  "type": "integer"
+                },
+                "index": {
+                  "description": "node index from get_app_state; use this for scroll areas/lists when available",
+                  "type": "integer"
+                },
+                "page": {
+                  "description": "preferred: positive scrolls up, negative scrolls down, absolute value is the page count",
+                  "type": "integer"
+                },
+                "pid": {
+                  "type": "integer"
+                },
+                "x": {
+                  "description": "screenshot pixel x",
+                  "type": "number"
+                },
+                "y": {
+                  "description": "screenshot pixel y",
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "name": "scroll"
+          },
+          {
+            "description": "Set the value on the element at snapshot index (from get_app_state). Requires app or pid. Native controls use AXValue. Electron/Web text controls use a no-raise background replacement path so existing content is cleared instead of appended; it never moves the real cursor or foregrounds the target app, and it keeps working when the target window is fully covered by other windows (AX-focus + editing-command fallback). Numeric controls (slider/stepper) accept a numeric string, e.g. \"42\".",
+            "inputSchema": {
+              "properties": {
+                "app": {
+                  "type": "string"
+                },
+                "index": {
+                  "type": "integer"
+                },
+                "pid": {
+                  "type": "integer"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "index",
+                "value"
+              ],
+              "type": "object"
+            },
+            "name": "set_value"
+          },
+          {
+            "description": "Perform an element's secondary AX action (default AXShowMenu) at snapshot index. Requires app or pid.",
+            "inputSchema": {
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "app": {
+                  "type": "string"
+                },
+                "index": {
+                  "type": "integer"
+                },
+                "pid": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "index"
+              ],
+              "type": "object"
+            },
+            "name": "perform_secondary_action"
+          },
+          {
+            "description": "Select text in the text element at snapshot index. Requires app or pid. Use start+length for exact offsets, or text (with optional prefix/suffix to disambiguate) to select by visible content. selection can be text (default), cursor_before, or cursor_after. Content selections echo selected_text.",
+            "inputSchema": {
+              "properties": {
+                "app": {
+                  "type": "string"
+                },
+                "index": {
+                  "type": "integer"
+                },
+                "length": {
+                  "type": "integer"
+                },
+                "pid": {
+                  "type": "integer"
+                },
+                "prefix": {
+                  "type": "string"
+                },
+                "selection": {
+                  "enum": [
+                    "text",
+                    "cursor_before",
+                    "cursor_after"
+                  ],
+                  "type": "string"
+                },
+                "start": {
+                  "type": "integer"
+                },
+                "suffix": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "index"
+              ],
+              "type": "object"
+            },
+            "name": "select_text"
+          },
+          {
+            "description": "Drag from (from_x,from_y) to (to_x,to_y) in screenshot pixels (from get_app_state). Requires app or pid. Cursor-safe; unreliable on Chromium.",
+            "inputSchema": {
+              "properties": {
+                "app": {
+                  "type": "string"
+                },
+                "from_x": {
+                  "type": "number"
+                },
+                "from_y": {
+                  "type": "number"
+                },
+                "pid": {
+                  "type": "integer"
+                },
+                "steps": {
+                  "type": "integer"
+                },
+                "to_x": {
+                  "type": "number"
+                },
+                "to_y": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "from_x",
+                "from_y",
+                "to_x",
+                "to_y"
+              ],
+              "type": "object"
+            },
+            "name": "drag"
+          }
+        ]
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 849333
+      },
+      "timestamp": "2026-09-07T12:34:21.938003Z"
+    },
+    {
+      "test_id": "resources_listing",
+      "test_name": "Resources Listing",
+      "category": "Resources",
+      "status": "Warning",
+      "message": "Resources listing returned no results",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 671083
+      },
+      "timestamp": "2026-09-07T12:34:21.938702Z"
+    },
+    {
+      "test_id": "prompts_listing",
+      "test_name": "Prompts Listing",
+      "category": "Prompts",
+      "status": "Warning",
+      "message": "Prompts listing returned no results",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 876333
+      },
+      "timestamp": "2026-09-07T12:34:21.939600Z"
+    },
+    {
+      "test_id": "transport_info",
+      "test_name": "Transport Information",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Using stdio transport",
+      "details": {
+        "connected": true,
+        "connected_since": {
+          "nanos_since_epoch": 733680000,
+          "secs_since_epoch": 1788784461
+        },
+        "errors": 0,
+        "metadata": {
+          "args": [
+            "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/wire/exec.mjs",
+            "kimi-cu"
+          ],
+          "command": "/opt/homebrew/Cellar/node/26.6.0/bin/node",
+          "environment_vars": 0,
+          "has_process": true,
+          "process_id": 20059,
+          "timeout": 30,
+          "working_dir": null
+        },
+        "notifications_received": 0,
+        "notifications_sent": 0,
+        "requests_sent": 4,
+        "responses_received": 4,
+        "transport_type": "stdio"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:34:21.939649Z"
+    },
+    {
+      "test_id": "connection_stability",
+      "test_name": "Connection Stability",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Transport connection is stable",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:34:21.939658Z"
+    },
+    {
+      "test_id": "invalid_method_handling",
+      "test_name": "Invalid Method Handling",
+      "category": "ErrorHandling",
+      "status": "Pass",
+      "message": "Server correctly rejects invalid methods",
+      "details": {
+        "code": -32601,
+        "message": "method not found: invalid/nonexistent/method"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 518041
+      },
+      "timestamp": "2026-09-07T12:34:21.940209Z"
+    },
+    {
+      "test_id": "invalid_params_handling",
+      "test_name": "Invalid Parameters Handling",
+      "category": "ErrorHandling",
+      "status": "Error",
+      "message": "Server should return error for invalid parameters",
+      "details": {
+        "id": "invalid_params_1",
+        "jsonrpc": "2.0",
+        "result": {
+          "capabilities": {
+            "tools": {}
+          },
+          "protocolVersion": "2025-11-25",
+          "serverInfo": {
+            "name": "kimi-cu",
+            "version": "0.5.8"
+          }
+        }
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 1127459
+      },
+      "timestamp": "2026-09-07T12:34:21.941367Z"
+    },
+    {
+      "test_id": "schema_validation",
+      "test_name": "Schema Validation",
+      "category": "Schema",
+      "status": "Pass",
+      "message": "All 1 messages conform to expected schemas",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 8125
+      },
+      "timestamp": "2026-09-07T12:34:21.941411Z"
+    }
+  ],
+  "server_info": null,
+  "performance": {
+    "initialization_time": {
+      "secs": 0,
+      "nanos": 203349250
+    },
+    "average_request_time": {
+      "secs": 0,
+      "nanos": 869395
+    },
+    "total_requests": 11,
+    "failed_requests": 1,
+    "timeouts": 0
+  }
+}

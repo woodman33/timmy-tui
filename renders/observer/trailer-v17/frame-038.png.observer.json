@@ -1,0 +1,45 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-038.png",
+ "image_sha256": "af64711b98a2f9310bb2b7c46eba372852af551e89493e0a0a448bbb4f43a1cf",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 15039,
+  "lines": [
+   "And when a bad record showed up, Timmy didn't argue",
+   "it refused."
+  ],
+  "text_sha256": "bf15a111eb4adae3d136926fcb8f31967d831c9de23bb454aea775dac3cb5474"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 1382,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [],
+  "sha256": "2739a847ab76965fd37691135ed6d3e0b676b67c5634cb65caa61a34d63dafa8"
+ },
+ "observed_at": "2026-09-07T12:44:30.024Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 38,
+  "frames": 63
+ }
+}

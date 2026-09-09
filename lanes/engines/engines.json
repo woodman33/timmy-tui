@@ -1,0 +1,112 @@
+{
+ "v": 1,
+ "standard": "engine-shelf/v0",
+ "note": "Inventory measured on this Mac on 2026-09-07 (shelf-w6d3 step 4). installed = the binary resolved on this machine; bridge = how Timmy reaches the engine (cli | mcp | sdk | api); envlock_bins = the executables whose sha256 the env-lock pins; templates = three workflows each (plan.cue + blueprint.json + <workflow>.rules.cue). An engine that is not installed keeps its templates and is marked unproven until a receipted run through its drop folder exists.",
+ "engines": [
+  {
+   "id": "houdini",
+   "label": "Houdini 22 (Current) · Apprentice licence",
+   "installed": true,
+   "version": "22.0.429 (Current → /Applications/Houdini/Houdini22.0.429; 21.0.753 also on disk; hython reports licenseCategoryType.Apprentice: .hipnc scenes, Karma watermark)",
+   "bridge": ["cli", "mcp"],
+   "binaries": {
+    "hython": "/Applications/Houdini/Current/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hython",
+    "hbatch": "/Applications/Houdini/Current/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hbatch",
+    "husk": "/Applications/Houdini/Current/Frameworks/Houdini.framework/Versions/Current/Resources/bin/husk",
+    "usdcat": "/Applications/Houdini/Current/Frameworks/Houdini.framework/Versions/Current/Resources/bin/usdcat"
+   },
+   "envlock_bins": ["hython", "husk"],
+   "mcp": { "name": "houdini-gen", "transport": "stdio", "command": "/Users/williammeldman/ZCodeProject/houdini-gen-mcp/.venv/bin/python", "args": ["-m", "houdini_gen_mcp.server"], "note": "registered in ~/.claude.json; carries HOUDINI_GEN_ENV" },
+   "fleet_id": "houdini-sceneforge",
+   "templates": ["procedural-asset", "karma-still", "usd-export"]
+  },
+  {
+   "id": "unreal",
+   "label": "Unreal Engine",
+   "installed": false,
+   "version": null,
+   "bridge": ["cli", "mcp"],
+   "binaries": { "UnrealEditor": "/Users/Shared/Epic Games/UE_5.*/Engine/Binaries/Mac/UnrealEditor" },
+   "envlock_bins": ["UnrealEditor"],
+   "mcp": { "name": "unreal-mcp", "transport": "stdio", "command": "mcporter", "args": ["call", "unreal-mcp"], "note": "lane registry entry (src/agent/lanes.ts unreal-mcp); no editor on this Mac" },
+   "fleet_id": "unreal",
+   "templates": ["level-import", "blueprint-bake", "movie-render-queue"]
+  },
+  {
+   "id": "usd",
+   "label": "OpenUSD tools",
+   "installed": true,
+   "version": "Apple USD Tools 0.25.2 (+ Houdini 21 usdcat)",
+   "bridge": ["cli"],
+   "binaries": { "usdcat": "/usr/bin/usdcat", "usdzip": "/usr/bin/usdzip" },
+   "envlock_bins": ["usdcat", "usdzip"],
+   "mcp": null,
+   "fleet_id": "usd",
+   "templates": ["usd-validate", "usdz-package", "usd-flatten"]
+  },
+  {
+   "id": "unity",
+   "label": "Unity",
+   "installed": false,
+   "version": null,
+   "bridge": ["cli"],
+   "binaries": { "unity-editor": "/Applications/Unity/Hub/Editor/*/Unity.app/Contents/MacOS/Unity" },
+   "envlock_bins": ["unity-editor"],
+   "mcp": null,
+   "fleet_id": "unity",
+   "templates": ["batch-build", "asset-import", "test-runner"]
+  },
+  {
+   "id": "defold",
+   "label": "Defold 1.13.1",
+   "installed": true,
+   "version": "1.13.1 (engine 574678c7d44be490d874fbed2d0ae6211feec4d9)",
+   "bridge": ["cli", "api"],
+   "binaries": {
+    "java": "/Applications/Defold.app/Contents/Resources/packages/jdk-25+36/bin/java",
+    "bob": "lanes/defold/.cache/bob-574678c7.jar",
+    "defold": "/Applications/Defold.app/Contents/MacOS/Defold"
+   },
+   "envlock_bins": ["java"],
+   "mcp": null,
+   "fleet_id": "defold",
+   "templates": ["html5-bundle", "resolve-and-lint", "sprite-atlas"]
+  },
+  {
+   "id": "cocos",
+   "label": "Cocos Creator CLI",
+   "installed": false,
+   "version": null,
+   "bridge": ["cli"],
+   "binaries": { "cocos": "/Applications/CocosCreator.app/Contents/MacOS/CocosCreator" },
+   "envlock_bins": ["cocos"],
+   "mcp": null,
+   "fleet_id": "cocos",
+   "templates": ["web-build", "asset-pack", "scene-lint"]
+  },
+  {
+   "id": "godot",
+   "label": "Godot",
+   "installed": false,
+   "version": null,
+   "bridge": ["cli"],
+   "binaries": { "godot": "/opt/homebrew/bin/godot" },
+   "envlock_bins": ["godot"],
+   "mcp": null,
+   "fleet_id": "godot",
+   "templates": ["headless-export", "gdscript-run", "import-only"]
+  },
+  {
+   "id": "blender",
+   "label": "Blender 5.1.1",
+   "installed": true,
+   "version": "5.1.1",
+   "bridge": ["cli"],
+   "binaries": { "blender": "/Applications/Blender.app/Contents/MacOS/Blender" },
+   "envlock_bins": ["blender"],
+   "mcp": null,
+   "fleet_id": "blender",
+   "templates": ["render-still", "glb-export", "usd-export"]
+  }
+ ]
+}

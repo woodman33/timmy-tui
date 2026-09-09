@@ -1,0 +1,64 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-059.png",
+ "image_sha256": "92b4badb70ef24128260f8c1a3c4d43baba9015eca2c4aced0bafeb214adeaf3",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 9487,
+  "lines": [
+   "LIVE AND DIE BY THI",
+   "Buy the break.",
+   "Keep",
+   "the",
+   "proof.",
+   "github.com/woodman33/timmy-tui",
+   "ok:true",
+   "receipts:598",
+   "epochs:6",
+   "PII redacted for privacy; redact.map sealed.",
+   "computed from epoch 903",
+   "verify: timmy verify @ v1.0.8 - VO: synthetic, sealed."
+  ],
+  "text_sha256": "612678cd86de09286c4cf6728883e65fc826c035e44b64a5a76ca7ae5aaa6866"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 15733,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "banner",
+    "conf": 0.033,
+    "x": 386,
+    "y": 474,
+    "w": 589,
+    "h": 323
+   }
+  ],
+  "sha256": "b58348a2bb4b87367550bada915bab71e9a81ed2121a0d7c76cf275e9e82c410"
+ },
+ "observed_at": "2026-09-07T13:19:19.347Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 59,
+  "frames": 63
+ }
+}

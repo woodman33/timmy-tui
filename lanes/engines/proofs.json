@@ -1,0 +1,89 @@
+{
+ "v": 1,
+ "proofs": {
+  "blender/render-still": {
+   "receipt": "sha256_6314acdd9d75a4c88e521aab7a096d29ae4df8fb94cd86c03809bc87303ac5d3",
+   "ts": "2026-09-07T11:49:04.717Z",
+   "out_dir": "/Users/williammeldman/timmy/projects/shelf/out/blender/render-still/cube-2026-09-07T1149",
+   "input_sha256": "99cbbe81b3f5d1867039b109b359c65925630da233c1a5e4f79d9d37a5f2dd9b",
+   "template_sha256": "651d053a233cd2ff8414435158f8710a1da86960c8535bb27164834428d2e50b"
+  },
+  "blender/glb-export": {
+   "receipt": "sha256_eaeb6cc8ea266885acfb464285297e9db359f8c04c3dbea9a4232ae588e3cc5b",
+   "ts": "2026-09-07T11:49:08.048Z",
+   "out_dir": "/Users/williammeldman/timmy/projects/shelf/out/blender/glb-export/cube-2026-09-07T1149",
+   "input_sha256": "99cbbe81b3f5d1867039b109b359c65925630da233c1a5e4f79d9d37a5f2dd9b",
+   "template_sha256": "cf47e81fda0223b719c43c0ba2647bf0217bf26cdfc96199cc9b3a4ae3c5558c"
+  },
+  "blender/usd-export": {
+   "receipt": "sha256_5b661e9163d1d79817e6e3fc8de5b340f7fb20af1e3f8f3a0c847f8bab7d77bb",
+   "ts": "2026-09-07T11:49:10.919Z",
+   "out_dir": "/Users/williammeldman/timmy/projects/shelf/out/blender/usd-export/cube-2026-09-07T1149",
+   "input_sha256": "99cbbe81b3f5d1867039b109b359c65925630da233c1a5e4f79d9d37a5f2dd9b",
+   "template_sha256": "8ba9153deb531cdb86044cdbab0a94a1ed3e30a31a0b91f1b8d29c4d0256ef65"
+  },
+  "houdini/procedural-asset": {
+   "receipt": "sha256_ab12dafac8ea05eac3fe402ef4a47dc3e46fea221fa732f820898934d8c139f8",
+   "ts": "2026-09-07T13:27:55.052Z",
+   "out_dir": "/Users/williammeldman/timmy/projects/shelf/out/houdini/procedural-asset/cube-2026-09-07T1327",
+   "input_sha256": "99cbbe81b3f5d1867039b109b359c65925630da233c1a5e4f79d9d37a5f2dd9b",
+   "template_sha256": "d2dd999b65fda25e117462ae594454b188bc9fc9dde7decf178f0f88c66ea2dc"
+  },
+  "houdini/usd-export": {
+   "receipt": "sha256_a5967b44fe184c17bbea2ae5e302a0e17337d49cd2f3deab966482803a397649",
+   "ts": "2026-09-07T13:28:11.377Z",
+   "out_dir": "/Users/williammeldman/timmy/projects/shelf/out/houdini/usd-export/cube-2026-09-07T1327",
+   "input_sha256": "99cbbe81b3f5d1867039b109b359c65925630da233c1a5e4f79d9d37a5f2dd9b",
+   "template_sha256": "9fbcc48fad5046381f7d9221b08f9ff13259b4f4582ad6d647ce9f3b66639e9f"
+  },
+  "houdini/karma-still": {
+   "receipt": "sha256_07f3962903e1504d3f2024d9bdc6bd55c35e3bb805f403b23e9c5c633d6d1a97",
+   "ts": "2026-09-07T13:28:38.438Z",
+   "out_dir": "/Users/williammeldman/timmy/projects/shelf/out/houdini/karma-still/cube-2026-09-07T1328",
+   "input_sha256": "99cbbe81b3f5d1867039b109b359c65925630da233c1a5e4f79d9d37a5f2dd9b",
+   "template_sha256": "09e572c34698869d45c4bb040002ebe146146e29089f0292fa47cfa0ec76a40c"
+  },
+  "usd/usd-validate": {
+   "receipt": "sha256_d52536755c02be17df5b4cb81a8e2839d388b5a6ef600f178b01a5a42b2f5d80",
+   "ts": "2026-09-07T13:28:40.240Z",
+   "out_dir": "/Users/williammeldman/timmy/projects/shelf/out/usd/usd-validate/cube-2026-09-07T1328",
+   "input_sha256": "37ffc0ed6cd04a851aa07d99859c4430467e380cf32b9ea51028f144e8474cd6",
+   "template_sha256": "cc3aba84b7cec91e80121f53613484aa0f636c9a0a55a01c3f536600ea34a52e"
+  },
+  "usd/usd-flatten": {
+   "receipt": "sha256_11ff03017b260e8529de0dfaa5d58129c644dffacb0c67a58cc679790997144f",
+   "ts": "2026-09-07T13:28:41.662Z",
+   "out_dir": "/Users/williammeldman/timmy/projects/shelf/out/usd/usd-flatten/cube-2026-09-07T1328",
+   "input_sha256": "37ffc0ed6cd04a851aa07d99859c4430467e380cf32b9ea51028f144e8474cd6",
+   "template_sha256": "2800bf3c983946a6dd66095b751c4013ded0ac9b6ebc94d1c56f58030fff4c45"
+  },
+  "usd/usdz-package": {
+   "receipt": "sha256_00b5d788bf20556afb0ac341a8cfb50ed203ec9b4c187dbab532be4ffee43a79",
+   "ts": "2026-09-07T13:28:43.117Z",
+   "out_dir": "/Users/williammeldman/timmy/projects/shelf/out/usd/usdz-package/cube-2026-09-07T1328",
+   "input_sha256": "37ffc0ed6cd04a851aa07d99859c4430467e380cf32b9ea51028f144e8474cd6",
+   "template_sha256": "c202e65809b7d0f5e1c35a3921be48730184816b920913e78a6d6a40c7480a8f"
+  },
+  "defold/resolve-and-lint": {
+   "receipt": "sha256_f7d609d77979a0db0d1c45debecfb5f72375c631a61088efeb004407658bc3ea",
+   "ts": "2026-09-07T13:28:53.882Z",
+   "out_dir": "/Users/williammeldman/timmy/projects/shelf/out/defold/resolve-and-lint/minimal.defold-2026-09-07T1328",
+   "input_sha256": "1231c25e55b82e3946ee3166eba742a42b9bf5c392276be8455baeb55e248704",
+   "template_sha256": "36d7c5a8f211e221c5e996d32a37a29ba11e75a4a29413732442b049dd4887a6"
+  },
+  "defold/sprite-atlas": {
+   "receipt": "sha256_58b7b6e48e5a395e6922be81e37fa4b7cd08734e75f5caecfd18ed05cb9c3855",
+   "ts": "2026-09-07T13:28:59.757Z",
+   "out_dir": "/Users/williammeldman/timmy/projects/shelf/out/defold/sprite-atlas/minimal.defold-2026-09-07T1328",
+   "input_sha256": "1231c25e55b82e3946ee3166eba742a42b9bf5c392276be8455baeb55e248704",
+   "template_sha256": "29a82e6ef1f278d9345d6432f4217efb2d0a234b1d31627c8ab83c2ae918a737"
+  },
+  "defold/html5-bundle": {
+   "receipt": "sha256_446e59c86e7bf75024e1bc073b54d448576f27275a5f73362493ca1d403be163",
+   "ts": "2026-09-07T13:29:10.385Z",
+   "out_dir": "/Users/williammeldman/timmy/projects/shelf/out/defold/html5-bundle/minimal.defold-2026-09-07T1329",
+   "input_sha256": "1231c25e55b82e3946ee3166eba742a42b9bf5c392276be8455baeb55e248704",
+   "template_sha256": "d60fd7a1d79385b4a1233ec502c124473c53f019a749444627486a8d9ee25419"
+  }
+ }
+}

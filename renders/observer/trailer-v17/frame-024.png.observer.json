@@ -1,0 +1,149 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-024.png",
+ "image_sha256": "04aaa28e8afb0c0765dc15efbcb9e07bcb73929f3e9596ee184d571317ecb2e3",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 7106,
+  "lines": [
+   "gift.intake",
+   "rc_ntduiaze_u6as",
+   "ununu",
+   "J",
+   "OO0",
+   "nunununununur",
+   "* MINT*",
+   "=",
+   "DAG",
+   "a",
+   "no",
+   "-",
+   "@",
+   "MARIEL",
+   "I",
+   "C",
+   "14+ a",
+   "E",
+   "G",
+   "ONE ENCASED CARD GUARANTEED PER BOXI",
+   "CUETSUTAT",
+   "TETmPET A",
+   "Every box went into the record before the wrap ever came off",
+   "the ones we",
+   "bought, and the one Fanatics"
+  ],
+  "text_sha256": "3e6a100bc0f2fc9c8ad30409a0c96266a676ce8934db41806a8d1e63bf49fcf3"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 1838,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "person",
+    "conf": 0.63,
+    "x": 876,
+    "y": 483,
+    "w": 480,
+    "h": 579
+   },
+   {
+    "label": "person",
+    "conf": 0.432,
+    "x": 549,
+    "y": 567,
+    "w": 414,
+    "h": 413
+   },
+   {
+    "label": "phone",
+    "conf": 0.389,
+    "x": 838,
+    "y": 499,
+    "w": 1263,
+    "h": 875
+   },
+   {
+    "label": "person",
+    "conf": 0.362,
+    "x": 1525,
+    "y": 829,
+    "w": 625,
+    "h": 499
+   },
+   {
+    "label": "person",
+    "conf": 0.352,
+    "x": 173,
+    "y": 820,
+    "w": 285,
+    "h": 483
+   },
+   {
+    "label": "person",
+    "conf": 0.202,
+    "x": 1212,
+    "y": 551,
+    "w": 336,
+    "h": 425
+   },
+   {
+    "label": "person",
+    "conf": 0.2,
+    "x": 782,
+    "y": 819,
+    "w": 1504,
+    "h": 486
+   },
+   {
+    "label": "banner",
+    "conf": 0.151,
+    "x": 1311,
+    "y": 161,
+    "w": 109,
+    "h": 171
+   },
+   {
+    "label": "banner",
+    "conf": 0.107,
+    "x": 1720,
+    "y": 121,
+    "w": 285,
+    "h": 102
+   },
+   {
+    "label": "card",
+    "conf": 0.046,
+    "x": 845,
+    "y": 500,
+    "w": 1275,
+    "h": 872
+   }
+  ],
+  "sha256": "36d03474aea31e0c2d6189ad013d7a9682db30bcf7a4562cdac628e35cfc180f"
+ },
+ "observed_at": "2026-09-07T12:40:26.550Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 24,
+  "frames": 63
+ }
+}

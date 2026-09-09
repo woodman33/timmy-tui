@@ -1,0 +1,56 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    doc = "Engine shelf fixture: a unit cube mesh with a camera and a key light (engine-shelf/v0, hand-authored)."
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+
+def Xform "World" (
+    kind = "component"
+)
+{
+    def Mesh "Cube" (
+        variants = {
+            string sizeVariant = "unit"
+        }
+        prepend variantSets = "sizeVariant"
+    )
+    {
+        float3[] extent = [(-1, -1, -1), (1, 1, 1)]
+        int[] faceVertexCounts = [4, 4, 4, 4, 4, 4]
+        int[] faceVertexIndices = [0, 3, 2, 1, 4, 5, 6, 7, 0, 1, 5, 4, 1, 2, 6, 5, 2, 3, 7, 6, 4, 7, 3, 0]
+        point3f[] points = [(-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1), (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]
+        color3f[] primvars:displayColor = [(0.8, 0.5, 0.2)]
+        uniform token subdivisionScheme = "none"
+        variantSet "sizeVariant" = {
+            "double" {
+                double3 xformOp:scale = (2, 2, 2)
+                uniform token[] xformOpOrder = ["xformOp:scale"]
+            }
+            "unit" {
+                double3 xformOp:scale = (1, 1, 1)
+                uniform token[] xformOpOrder = ["xformOp:scale"]
+            }
+        }
+    }
+
+    def Camera "Camera"
+    {
+        float2 clippingRange = (0.1, 100)
+        float focalLength = 35
+        float horizontalAperture = 36
+        float verticalAperture = 24
+        double3 xformOp:translate = (4, 3, 5)
+        float3 xformOp:rotateXYZ = (-24, 38, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+    }
+
+    def DistantLight "Key"
+    {
+        float inputs:angle = 2
+        float inputs:intensity = 3
+        float3 xformOp:rotateXYZ = (-40, 30, 0)
+        uniform token[] xformOpOrder = ["xformOp:rotateXYZ"]
+    }
+}

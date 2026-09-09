@@ -1,0 +1,154 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-025.png",
+ "image_sha256": "86ebcc11b557e73d2fc04b5f6b6d5c27dde0f88d916371905aa56b7cf8cb52ad",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 19588,
+  "lines": [
+   "gift.intake",
+   "rc_mtdulaze_u6as",
+   "Untnununun E",
+   "0O0",
+   "qununununlnur",
+   "@",
+   "à - G",
+   "0",
+   "MAKVEL",
+   "* MINT*",
+   "-",
+   "-",
+   "a",
+   "14+",
+   "ONE ENCASED CARD GUARANTEED PER BOXI",
+   "PERNETIRUTATE",
+   "15 T",
+   "5",
+   "E",
+   "Every box went into the record before the wrap ever came off",
+   "the ones we",
+   "bought, and the one Fanatics sent us,"
+  ],
+  "text_sha256": "b211d4c693bb51a9b747fa3c1f4c40c6870b1482be3752d34c3ac04dada0f4e9"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 1738,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "person",
+    "conf": 0.659,
+    "x": 877,
+    "y": 484,
+    "w": 483,
+    "h": 577
+   },
+   {
+    "label": "person",
+    "conf": 0.424,
+    "x": 169,
+    "y": 822,
+    "w": 285,
+    "h": 484
+   },
+   {
+    "label": "person",
+    "conf": 0.423,
+    "x": 1521,
+    "y": 831,
+    "w": 636,
+    "h": 497
+   },
+   {
+    "label": "person",
+    "conf": 0.396,
+    "x": 549,
+    "y": 567,
+    "w": 413,
+    "h": 415
+   },
+   {
+    "label": "phone",
+    "conf": 0.232,
+    "x": 840,
+    "y": 498,
+    "w": 1272,
+    "h": 874
+   },
+   {
+    "label": "person",
+    "conf": 0.185,
+    "x": 1211,
+    "y": 551,
+    "w": 337,
+    "h": 427
+   },
+   {
+    "label": "person",
+    "conf": 0.149,
+    "x": 781,
+    "y": 821,
+    "w": 1512,
+    "h": 487
+   },
+   {
+    "label": "box",
+    "conf": 0.098,
+    "x": 843,
+    "y": 498,
+    "w": 1283,
+    "h": 874
+   },
+   {
+    "label": "banner",
+    "conf": 0.084,
+    "x": 1720,
+    "y": 119,
+    "w": 285,
+    "h": 107
+   },
+   {
+    "label": "banner",
+    "conf": 0.081,
+    "x": 1312,
+    "y": 157,
+    "w": 109,
+    "h": 168
+   },
+   {
+    "label": "card",
+    "conf": 0.077,
+    "x": 843,
+    "y": 498,
+    "w": 1278,
+    "h": 871
+   }
+  ],
+  "sha256": "e3cdf5b6f0420de09bd8a135f11106924ceab03188a34100c99e0c68def5f729"
+ },
+ "observed_at": "2026-09-07T12:40:49.242Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 25,
+  "frames": 63
+ }
+}

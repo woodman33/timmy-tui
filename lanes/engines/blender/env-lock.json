@@ -1,0 +1,21 @@
+{
+ "v": 1,
+ "engine": "blender",
+ "captured_at": "2026-09-07T13:29:17.775Z",
+ "os": {
+  "platform": "darwin",
+  "build": "25G83",
+  "version": "26.6.2"
+ },
+ "arch": "arm64",
+ "tools": {
+  "blender": {
+   "path": "/Applications/Blender.app/Contents/MacOS/Blender",
+   "sha256": "e0a3ac96cb12a8cc48fe7c6955756d6db9f4bbe3059b843a69e386ba004db44c",
+   "size": 167811760,
+   "mtime": 1776133772000,
+   "version": "5.1.1"
+  }
+ },
+ "installed": true
+}

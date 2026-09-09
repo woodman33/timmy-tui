@@ -1,0 +1,346 @@
+{
+  "metadata": {
+    "generated_at": "2026-09-07T12:39:06.702601Z",
+    "validator_version": "1.0.0",
+    "transport_type": "stdio",
+    "total_duration": {
+      "secs": 0,
+      "nanos": 403100791
+    },
+    "config": {
+      "test_timeout": {
+        "secs": 30,
+        "nanos": 0
+      },
+      "total_timeout": {
+        "secs": 300,
+        "nanos": 0
+      },
+      "strict_schema_validation": true,
+      "test_error_conditions": true,
+      "validate_tool_schemas": true,
+      "test_capability_discovery": true,
+      "max_tools_to_test": 10,
+      "custom_rules": []
+    }
+  },
+  "summary": {
+    "total_tests": 11,
+    "passed": 10,
+    "info": 0,
+    "warnings": 1,
+    "errors": 0,
+    "critical": 0,
+    "skipped": 0,
+    "compliance_percentage": 90.9090909090909
+  },
+  "results": [
+    {
+      "test_id": "transport_connection",
+      "test_name": "Transport Connection",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Successfully connected via stdio",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1039458
+      },
+      "timestamp": "2026-09-07T12:39:06.300536Z"
+    },
+    {
+      "test_id": "initialization",
+      "test_name": "MCP Initialization",
+      "category": "Initialization",
+      "status": "Pass",
+      "message": "Successfully initialized with rmcp v1.5.0",
+      "details": {
+        "capabilities": {
+          "logging": null,
+          "prompts": null,
+          "resources": null,
+          "tools": {
+            "available_tools": [],
+            "list_changed": null
+          }
+        },
+        "name": "rmcp",
+        "protocol_version": "2024-11-05",
+        "version": "1.5.0"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 399155625
+      },
+      "timestamp": "2026-09-07T12:39:06.699712Z"
+    },
+    {
+      "test_id": "json_rpc_compliance",
+      "test_name": "JSON-RPC 2.0 Compliance",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "All messages follow JSON-RPC 2.0 specification",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:39:06.699738Z"
+    },
+    {
+      "test_id": "tools_listing",
+      "test_name": "Tools Listing",
+      "category": "Tools",
+      "status": "Pass",
+      "message": "Successfully retrieved tools list",
+      "details": {
+        "tools": [
+          {
+            "description": "Execute JavaScript in a persistent `node_repl` with top-level await. Top-level bindings persist until `js_reset` and can be redeclared. Use `const` for stable values and `let` for changing values. Use dynamic imports such as `await import(\"playwright\")`; top-level static imports and `node:process` are unavailable. Use `nodeRepl.write(value)` for output and `await nodeRepl.emitImage(image)` for images. Execution context is available through `nodeRepl.cwd`, `nodeRepl.homeDir`, `nodeRepl.tmpDir`, and `nodeRepl.requestMeta`. The default timeout is 30000 ms (30 seconds); increase `timeout_ms` for longer operations. Use `js_add_node_module_dir` when an additional package directory is required.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "description": "JavaScript code to execute with top-level await.",
+                  "type": "string"
+                },
+                "timeout_ms": {
+                  "description": "Optional execution timeout in milliseconds. Defaults to 30000 (30 seconds) when omitted.",
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "title": {
+                  "description": "Short user-facing description of what the code does.",
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code"
+              ],
+              "type": "object"
+            },
+            "name": "js"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Add an absolute `node_modules` directory for package imports. The directory remains available after `js_reset`.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "description": "Absolute path to a node_modules directory to add to Node package resolution.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            },
+            "name": "js_add_node_module_dir"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Reset the JavaScript kernel and clear all bindings.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "js_reset"
+          },
+          {
+            "_meta": {
+              "ui": {
+                "visibility": []
+              }
+            },
+            "annotations": {
+              "idempotentHint": true
+            },
+            "description": "Notify trusted libraries that a Codex turn ended. Repeated notifications for the same session and turn are ignored.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "hook_event_name": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "session_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "turn_id": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "hook_event_name",
+                "session_id",
+                "turn_id"
+              ],
+              "type": "object"
+            },
+            "name": "turn_ended"
+          }
+        ]
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 488125
+      },
+      "timestamp": "2026-09-07T12:39:06.700240Z"
+    },
+    {
+      "test_id": "resources_listing",
+      "test_name": "Resources Listing",
+      "category": "Resources",
+      "status": "Pass",
+      "message": "Successfully retrieved resources list",
+      "details": {
+        "resources": []
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 437625
+      },
+      "timestamp": "2026-09-07T12:39:06.700825Z"
+    },
+    {
+      "test_id": "prompts_listing",
+      "test_name": "Prompts Listing",
+      "category": "Prompts",
+      "status": "Pass",
+      "message": "Successfully retrieved prompts list",
+      "details": {
+        "prompts": []
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 666458
+      },
+      "timestamp": "2026-09-07T12:39:06.701505Z"
+    },
+    {
+      "test_id": "transport_info",
+      "test_name": "Transport Information",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Using stdio transport",
+      "details": {
+        "connected": true,
+        "connected_since": {
+          "nanos_since_epoch": 300503000,
+          "secs_since_epoch": 1788784746
+        },
+        "errors": 0,
+        "metadata": {
+          "args": [
+            "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/wire/exec.mjs",
+            "node_repl"
+          ],
+          "command": "/opt/homebrew/Cellar/node/26.6.0/bin/node",
+          "environment_vars": 0,
+          "has_process": true,
+          "process_id": 36966,
+          "timeout": 30,
+          "working_dir": null
+        },
+        "notifications_received": 0,
+        "notifications_sent": 0,
+        "requests_sent": 4,
+        "responses_received": 4,
+        "transport_type": "stdio"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:39:06.701557Z"
+    },
+    {
+      "test_id": "connection_stability",
+      "test_name": "Connection Stability",
+      "category": "Protocol",
+      "status": "Pass",
+      "message": "Transport connection is stable",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 1000000
+      },
+      "timestamp": "2026-09-07T12:39:06.701564Z"
+    },
+    {
+      "test_id": "invalid_method_handling",
+      "test_name": "Invalid Method Handling",
+      "category": "ErrorHandling",
+      "status": "Pass",
+      "message": "Server correctly rejects invalid methods",
+      "details": {
+        "code": -32601,
+        "message": "invalid/nonexistent/method"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 195125
+      },
+      "timestamp": "2026-09-07T12:39:06.701775Z"
+    },
+    {
+      "test_id": "invalid_params_handling",
+      "test_name": "Invalid Parameters Handling",
+      "category": "ErrorHandling",
+      "status": "Warning",
+      "message": "Server returned unexpected error code: -32601",
+      "details": {
+        "code": -32601,
+        "message": "initialize"
+      },
+      "duration": {
+        "secs": 0,
+        "nanos": 770875
+      },
+      "timestamp": "2026-09-07T12:39:06.702554Z"
+    },
+    {
+      "test_id": "schema_validation",
+      "test_name": "Schema Validation",
+      "category": "Schema",
+      "status": "Pass",
+      "message": "All 0 messages conform to expected schemas",
+      "details": null,
+      "duration": {
+        "secs": 0,
+        "nanos": 2541
+      },
+      "timestamp": "2026-09-07T12:39:06.702587Z"
+    }
+  ],
+  "server_info": null,
+  "performance": {
+    "initialization_time": {
+      "secs": 0,
+      "nanos": 399155625
+    },
+    "average_request_time": {
+      "secs": 0,
+      "nanos": 660020
+    },
+    "total_requests": 11,
+    "failed_requests": 0,
+    "timeouts": 0
+  }
+}

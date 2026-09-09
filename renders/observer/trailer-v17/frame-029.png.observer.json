@@ -1,0 +1,112 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-029.png",
+ "image_sha256": "4babba39cd6fe428d34245109cfe78895210234d2171f92313328ed2a4773ccc",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 12665,
+  "lines": [
+   "box. verify",
+   "rc_mtduj68w_Ofaa",
+   "4141",
+   "By the time the first pack was opened, the proof already existed."
+  ],
+  "text_sha256": "dd54809161d6f0b4b7192500228ecb85ea8512543cbbb8e01231ad89875c256c"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 6461,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [
+   {
+    "label": "person",
+    "conf": 0.777,
+    "x": 753,
+    "y": 355,
+    "w": 179,
+    "h": 201
+   },
+   {
+    "label": "person",
+    "conf": 0.25,
+    "x": 1328,
+    "y": 749,
+    "w": 832,
+    "h": 404
+   },
+   {
+    "label": "person",
+    "conf": 0.176,
+    "x": 1401,
+    "y": 382,
+    "w": 190,
+    "h": 245
+   },
+   {
+    "label": "box",
+    "conf": 0.132,
+    "x": 1413,
+    "y": 419,
+    "w": 954,
+    "h": 813
+   },
+   {
+    "label": "box",
+    "conf": 0.131,
+    "x": 520,
+    "y": 846,
+    "w": 880,
+    "h": 321
+   },
+   {
+    "label": "box",
+    "conf": 0.099,
+    "x": 756,
+    "y": 455,
+    "w": 334,
+    "h": 468
+   },
+   {
+    "label": "person",
+    "conf": 0.071,
+    "x": 361,
+    "y": 893,
+    "w": 296,
+    "h": 118
+   },
+   {
+    "label": "person",
+    "conf": 0.046,
+    "x": 98,
+    "y": 922,
+    "w": 110,
+    "h": 267
+   }
+  ],
+  "sha256": "2a50589a136bf8c4301872fd8a85e16e07d927732cb8d3fefec80319583de851"
+ },
+ "observed_at": "2026-09-07T12:41:53.009Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 29,
+  "frames": 63
+ }
+}

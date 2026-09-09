@@ -1,0 +1,48 @@
+{
+ "v": 1,
+ "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-041.png",
+ "image_sha256": "a141b436352b8ac589c6178662383da1210f492eb333367fa4cdb4500708d457",
+ "host": "http://localhost:9001",
+ "local": true,
+ "ocr": {
+  "ok": true,
+  "status": 200,
+  "ms": 16140,
+  "lines": [
+   "REFUSED rc msvbkiwz = zrcm",
+   "REFUSED rc_mt8igfq9 wbnv",
+   "it doesn't get argued. it gets refused.",
+   "And when a bad record showed up, Timmy didn't argue",
+   "it refused."
+  ],
+  "text_sha256": "4b0ce85dd97dd75c1d0eefd912ef8cbd197568452a283dd2132a5c8ca4dccfe6"
+ },
+ "detection": {
+  "ok": true,
+  "status": 200,
+  "ms": 3944,
+  "model": "yolo_world",
+  "prompts": [
+   "card",
+   "badge",
+   "banner",
+   "button",
+   "qr code",
+   "text block",
+   "box",
+   "seal sticker",
+   "phone",
+   "person",
+   "logo",
+   "chart"
+  ],
+  "boxes": [],
+  "sha256": "2739a847ab76965fd37691135ed6d3e0b676b67c5634cb65caa61a34d63dafa8"
+ },
+ "observed_at": "2026-09-07T12:45:29.255Z",
+ "source": {
+  "backfill": "trailer v17 (renders/trailer-ch1-v17.mp4 sha 50275ff885b6c1b8, 1 fps)",
+  "frame": 41,
+  "frames": 63
+ }
+}
