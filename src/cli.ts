@@ -575,9 +575,6 @@ if (command === 'nfc' || command === 'custody') {
   process.exit(r.status ?? 1);
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
 if (command === 'demo') {
   // chain-views-e6p2: scripted, replayable war-room session on placeholder
   // data — cast + gif + mp4 + demo.cast seal. Runs under tsx (ink render).
@@ -585,7 +582,6 @@ if (command === 'demo') {
   process.exit(r.status ?? 1);
 }
 
->>>>>>> origin/order/chain-views-e6p2
 if (command === 'privacy') {
   // privacy-d5n9: `timmy privacy scan|audit|fixture|hook` — the public-repo privacy gate.
   const lane = fileURLToPath(new URL('../lanes/privacy/scan.mjs', import.meta.url));
@@ -593,23 +589,11 @@ if (command === 'privacy') {
   process.exit(r.status ?? 1);
 }
 
-if (command === 'commander' || command === 'cf' || command === 'project' || command === 'sim' || command === 'swarm' || command === 'engine' || command === 'sandbox' || command === 'wire') {
-<<<<<<< HEAD
-  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', engine: '../lanes/engines/lane.mjs', sandbox: '../lanes/sandbox/sandbox.mjs', wire: '../lanes/wire/wire.mjs', swarm: '../lanes/swarm/swarm.mjs' };
-=======
-  // mindship-v5c2 lanes: `timmy commander …` drives the durable Commander on
-  // timmy-ai-proxy; `timmy cf …` is the Cloudflare war-room feed + verbs;
-  // `timmy project new|menu|list` is the project folder standard; `timmy sim
-  // run|replay` is THE SHIP story simulator; `timmy swarm …` (swarm-b3k7) runs
-  // swarm specs on the commander or locally. shelf-w6d3 lanes: `timmy engine …`
-  // is the engine shelf (inventory, env-locks, drop-folder runs), `timmy
-  // sandbox …` the OpenHands SDK container lane, `timmy wire …` the MCP wire
-  // tools. All live under lanes/ and run under tsx so they can import repo
-  // TypeScript where they need it.
-  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', swarm: '../lanes/swarm/swarm.mjs', engine: '../lanes/engines/lane.mjs', sandbox: '../lanes/sandbox/sandbox.mjs', wire: '../lanes/wire/wire.mjs' };
->>>>>>> origin/order/chain-views-e6p2
-  const lane = fileURLToPath(new URL(lanes[command], import.meta.url));
-  const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+if (command === 'commander' || command === 'cf' || command === 'project' || command === 'sim' || command === 'swarm' || command === 'engine' || command === 'sandbox' || command === 'wire' || command === 'jcode' || command === 'schema' || command === 'docker' || command === 'abilities') {
+  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', swarm: '../lanes/swarm/swarm.mjs', engine: '../lanes/engines/lane.mjs', sandbox: '../lanes/sandbox/sandbox.mjs', wire: '../lanes/wire/wire.mjs', jcode: '../lanes/jcode/lane.mjs', schema: '../lanes/schema/lane.mjs', docker: '../lanes/docker/lane.mjs', abilities: '../lanes/abilities/registry.mjs' };
+  const runner = ['jcode', 'schema', 'docker', 'abilities'].includes(command) ? 'node' : 'npx';
+  const runArgs = runner === 'node' ? [fileURLToPath(new URL(lanes[command], import.meta.url)), ...args.slice(1)] : ['tsx', fileURLToPath(new URL(lanes[command], import.meta.url)), ...args.slice(1)];
+  const r = spawnSync(runner, runArgs, { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
 =======
 if (command === 'commander' || command === 'cf' || command === 'project' || command === 'sim' || command === 'jcode' || command === 'schema' || command === 'docker' || command === 'abilities') {
   // mindship-v5c2 lanes: `timmy commander …` drives the durable Commander on
