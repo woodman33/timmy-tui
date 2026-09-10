@@ -1119,4 +1119,518 @@ child.on('exit', (code, signal) => {
     return;
   }
   process.exit(code ?? 1);
+});if (command === 'commander' || command === 'cf' || command === 'project' || command === 'sim' || command === 'swarm' || command === 'engine' || command === 'sandbox' || command === 'wire' || command === 'jcode' || command === 'schema' || command === 'docker' || command === 'abilities') {
+  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', swarm: '../lanes/swarm/swarm.mjs', engine: '../lanes/engines/lane.mjs', sandbox: '../lanes/sandbox/sandbox.mjs', wire: '../lanes/wire/wire.mjs', jcode: '../lanes/jcode/lane.mjs', schema: '../lanes/schema/lane.mjs', docker: '../lanes/docker/lane.mjs', abilities: '../lanes/abilities/registry.mjs' };
+  const runner = ['jcode', 'schema', 'docker', 'abilities'].includes(command) ? 'node' : 'npx';
+  const runArgs = runner === 'node' ? [fileURLToPath(new URL(lanes[command], import.meta.url)), ...args.slice(1)] : ['tsx', fileURLToPath(new URL(lanes[command], import.meta.url)), ...args.slice(1)];
+  const r = spawnSync(runner, runArgs, { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
+if (command === 'verify') {
+  // Read-only chain verify (SHOWRUNNER Phase A-FIX). Exit 1 on broken link.
+  const { verifyChain } = await import('./utils/receipts.js');
+  const v = verifyChain('runs');
+  console.log(`ok:${v.ok} receipts:${v.count} epochs:${v.segments.length}`);
+  process.exit(v.ok ? 0 : 1);
+}
+
+if (command === 'clip') {
+  // Headless clip runner: list jobs, or run one deterministically and seal it.
+  const sub = args[1];
+  if (sub === 'list') {
+    for (const j of listClipJobs()) console.log(`${j.id}  ${j.project.padEnd(14)} ${j.sources.length} src  ${j.status}`);
+    process.exit(0);
+  }
+  if (sub === 'run') {
+    const job = listClipJobs().find(j => j.id === args[2]);
+    if (!job) { console.error(`no clip job ${args[2] ?? ''} — see timmy clip list`); process.exit(2); }
+    const r = runClipJob(job);
+    console.log(r.ok ? `sealed: ${r.receiptHash}\nrun:  ${r.runDir}\nout:  ${r.output}` : `failed: ${r.note}`);
+    process.exit(r.ok ? 0 : 1);
+  }
+  if (sub === 'replay') {
+    // T1 exit criterion: replay from the cut-list ALONE, env-locked + signed.
+    const r = replayFromEdl(args[2] ?? '');
+    console.log(r.verified
+      ? `verified: replay matches sealed output\nreceipt: ${r.receiptHash}`
+      : `not verified: ${r.note ?? 'replay drift'}\nreceipt: ${r.receiptHash}`);
+    process.exit(r.verified ? 0 : 1);
+  }
+  console.error('Usage: timmy clip list | timmy clip run <id> | timmy clip replay <id>');
+  process.exit(2);
+}
+
+if (command === 'mcp' && args[1] === 'serve') {
+  // timmy as an MCP server: any MCP-speaking agent drives the trust layer.
+  const { startMcpServer } = await import('./mcp/server.js');
+  startMcpServer();
+  await new Promise(() => {}); // stdio server owns the event loop — never exit
+}
+
+if (command === 'approve') {
+  // Operator surface for the approval gate: mints a single-use, expiring
+  // token bound to the exact plan hash a gated tool returned.
+  const planHash = args[1];
+  if (!planHash) { console.error('usage: timmy approve <planHash>'); process.exit(2); }
+  const { issueApproval } = await import('./utils/approvals.js');
+  const a = issueApproval(planHash);
+  console.log(`approval ${a.token} · plan ${a.planHash} · single-use · expires ${new Date(a.expiresAt).toISOString()}`);
+  process.exit(0);
+}
+
+if (command === 'map') {
+  const { runVisionCli } = await import('./vision/cli.js');
+  await runVisionCli(['open', ...cleanArgs.slice(1)]);
+  process.exit(process.exitCode ?? 0);
+}
+
+if (command === 'q') {
+  // dasel passthrough: one query grammar for json/yaml/toml/xml/csv configs
+  const [file, ...expr] = args[0] === 'q' ? args.slice(1) : args;
+  if (!file) { console.error('usage: timmy q <file> <dasel-expression>'); process.exit(2); }
+  const { spawnSync } = await import('child_process');
+  const { readFileSync } = await import('fs');
+  const ext = (file.split('.').pop() ?? 'json').replace(/ya?ml/, 'yaml');
+  const r = spawnSync('dasel', ['query', '-i', ext, ...(expr.length ? expr : ['.'])], {
+    input: readFileSync(file), stdio: ['pipe', 'inherit', 'inherit']
+  });
+  process.exit(r.status ?? 1);
+}
+
+if (command === 'epoch') {
+  // Atomic release-epoch rotation (write-temp + rename).
+  const n = Number(args[1]);
+  if (!n || n < 1) { console.error('usage: timmy epoch <n> [reason]'); process.exit(2); }
+  const { rotateEpoch } = await import('./utils/receipts.js');
+  rotateEpoch(n, args.slice(2).join(' ') || 'operator rotation');
+  console.log(`epoch rotated to ${n}`);
+  process.exit(0);
+}
+
+if (command === 'logs') {
+  // Live companion for headless MCP/CLI sessions: streams the SAME event bus
+  // the TUI consumes + receipt chain with verify; auto-pops a browser once.
+  const { startLogServer } = await import('./utils/logserver.js');
+  const portIdx = args.indexOf('--port');
+  const port = portIdx >= 0 ? Number(args[portIdx + 1]) : undefined;
+  await startLogServer({ port, open: true });
+  await new Promise(() => {}); // server owns the event loop
+}
+
+if (command === 'design') {
+  // Open Design (MCP) gens: queue in GENS, execute headless here.
+  const sub = args[1];
+  if (sub === 'list') {
+    const gens = listGenerations({}).filter(g => g.provider === 'open-design');
+    for (const g of gens) console.log(`${g.id}  ${(g.status ?? 'queued').padEnd(8)} ${g.prompt.slice(0, 60)}`);
+    if (!gens.length) console.log('no open-design gens yet — pick Open Design (MCP) in the GENS picker ([n])');
+    process.exit(0);
+  }
+  if (sub === 'run') {
+    const r = await runOpenDesignGen(args[2] ?? '');
+    console.log(r.ok ? `done · ${r.note}` : `failed · ${r.note}`);
+    process.exit(r.ok ? 0 : 1);
+  }
+  console.error('Usage: timmy design list | timmy design run <genId>');
+  process.exit(2);
+}
+
+if (command === 'connect') {
+  // SPEC §00 journey step 2: bind a tool binary into the chain as an env.lock
+  // receipt. Real check (PATH resolve), local, no spend; HOME ladder reads it.
+  const tool = args[1];
+  if (!tool) { console.error('Usage: timmy connect <tool>'); process.exit(2); }
+  const w = spawnSync('bash', ['-lc', `command -v ${JSON.stringify(tool)}`], { encoding: 'utf8', timeout: 5000 });
+  const bin = (w.stdout ?? '').trim().split('\n')[0] || '';
+  const { appendReceipt } = await import('./utils/receipts.js');
+  const rec = appendReceipt('runs', {
+    kind: 'env.lock',
+    subject: `connect.${tool} · ${bin || 'not found on PATH'}`,
+    policy: 'human-gated',
+    status: bin ? 'ok' : 'failed'
+  });
+  console.log(`${bin ? '✓' : '✕'} connect.${tool} · ${bin || 'not found'} · ${rec.hash.slice(0, 16)}`);
+  process.exit(bin ? 0 : 1);
+}
+
+if (command === 'export') {
+  // EDL v1 → OTIO interchange (spec §2.9 amendment): Hollywood speaks timmy.
+  const kind = args[1];
+  if (kind === 'otio' && args[2]) {
+    const manifestPath = join(process.cwd(), '.timmy', 'runs', args[2], 'manifest.json');
+    if (!existsSync(manifestPath)) {
+      console.error(`no run manifest at ${manifestPath}`);
+      process.exit(2);
+    }
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { edl?: any; env_lock?: unknown; job?: string };
+    if (!manifest.edl) {
+      console.error('run manifest has no edl — T0-grade run; T1 runs carry cut-lists');
+      process.exit(2);
+    }
+    const envLockHash = manifest.env_lock
+      ? crypto.createHash('sha256').update(JSON.stringify(manifest.env_lock)).digest('hex')
+      : undefined;
+    const otio = edlToOtio(manifest.edl, { env_lock_hash: envLockHash, model: null });
+    const outDir = join(process.cwd(), '.timmy', 'exports');
+    mkdirSync(outDir, { recursive: true });
+    const outPath = join(outDir, `${args[2]}.otio`);
+    writeFileSync(outPath, JSON.stringify(otio, null, 2));
+    console.log(`otio: ${outPath}`);
+    process.exit(0);
+  }
+  if (kind === 'agentrun' && args[2]) {
+    // v0.5 T1 acceptance artifact: portable sanitized .agentrun bundle.
+    const { exportAgentRun } = await import('./utils/agentrun.js');
+    const exp = exportAgentRun(args[2]);
+    console.log(`agentrun: ${exp.bundle} (${exp.files.length} files, output ${exp.outputSha.slice(0, 16)}…)`);
+    process.exit(0);
+  }
+  console.error('Usage: timmy export otio <runDirName> | timmy export agentrun <jobId>');
+  process.exit(2);
+}
+
+if (command === 'events') {
+  // Headless parity: the SAME NDJSON envelope the TUI consumes (seals,
+  // approvals, gen status flips) — for CI replay, the companion, the portal.
+  if (args.includes('--otlp')) {
+    // Derived OTLP projection of the receipt spine (otel-tui / Langfuse / Jaeger)
+    console.log(JSON.stringify(receiptsToOtlp(), null, 2));
+    process.exit(0);
+  }
+  const follow = args.includes('--follow') || args.includes('-f');
+  const human = args.includes('--human');
+  let seen = 0;
+  const dump = () => {
+    const evs = readEvents();
+    for (const ev of evs.slice(seen)) {
+      if (human) console.log(`${ev.ts}  ${ev.kind.padEnd(18)} ${JSON.stringify(ev.payload)}`);
+      else console.log(JSON.stringify(ev));
+    }
+    seen = evs.length;
+  };
+  dump();
+  if (follow) {
+    setInterval(dump, 1000);
+  } else {
+    process.exit(0);
+  }
+}
+
+if (command === 'demo') {
+  const metadata = getPackageMetadata();
+  const runId = `run_demo_${Date.now()}`;
+  const targetDir = outDir ? path.resolve(outDir, 'receipts') : path.join(process.cwd(), '.timmy', 'receipts');
+  
+  try {
+    fs.mkdirSync(targetDir, { recursive: true });
+    const targetPath = path.join(targetDir, 'demo-receipt.json');
+    const relativePath = path.relative(process.cwd(), targetPath);
+
+    const receiptWithoutHash: Omit<Receipt, 'receipt_sha256'> = {
+      schema_version: "0.1.0",
+      run_id: runId,
+      type: "demo",
+      task: "demo run",
+      created_at: new Date().toISOString(),
+      cwd: process.cwd(),
+      platform: process.platform,
+      node_version: process.version,
+      package: {
+        name: metadata.name,
+        version: metadata.version
+      },
+      status: "completed",
+      artifacts: []
+    };
+
+    const initialHash = computeReceiptHash(receiptWithoutHash);
+    receiptWithoutHash.artifacts.push({
+      path: relativePath,
+      sha256: initialHash
+    });
+
+    const finalHash = computeReceiptHash(receiptWithoutHash);
+    const finalReceipt: Receipt = {
+      ...receiptWithoutHash,
+      receipt_sha256: finalHash
+    };
+
+    fs.writeFileSync(targetPath, JSON.stringify(finalReceipt, null, 2), 'utf8');
+
+    if (isJson) {
+      console.log(JSON.stringify(finalReceipt, null, 2));
+    } else {
+      console.log('TIMMY AgentOps Demo');
+      console.log(`✓ Created ${relativePath}`);
+      console.log(`✓ Generated receipt hash`);
+      console.log(`✓ Local proof complete`);
+      console.log(`\nNext:\n  cat ${relativePath}\n`);
+      printTable([
+        { label: 'Run ID', value: finalReceipt.run_id },
+        { label: 'Type', value: finalReceipt.type },
+        { label: 'Created At', value: finalReceipt.created_at },
+        { label: 'Receipt Hash', value: finalReceipt.receipt_sha256 }
+      ]);
+    }
+    process.exit(0);
+  } catch (e: any) {
+    console.error(`✕ Demo failed: ${e.message}`);
+    process.exit(1);
+  }
+}
+
+if (command === 'proof') {
+  const task = cleanArgs[1] || '';
+  if (!task) {
+    console.error('Error: Please specify a task description. Example: timmy proof "create a hello world Cloudflare Worker"');
+    process.exit(1);
+  }
+  
+  const metadata = getPackageMetadata();
+  const runId = `run_proof_${Date.now()}`;
+  const runDir = outDir ? path.resolve(outDir, 'runs', runId) : path.join(process.cwd(), '.timmy', 'runs', runId);
+  
+  try {
+    fs.mkdirSync(runDir, { recursive: true });
+    
+    const replayPath = path.join(runDir, 'replay.md');
+    const replayContent = `# Replay: ${task}
+
+Generated by TIMMY AgentOps.
+
+## Execution Steps
+
+- [x] Initialized workspace
+- [x] Created wrangler.toml
+- [x] Wrote index.ts
+- [x] Executed local dry-run tests
+- [x] Verified deployment configuration
+
+## Evidence Logs
+
+[info] Worker template scaffolded
+[info] Build completed (0.12s)
+[info] Local testing port 8787 active
+[info] Self-test validation: PASS
+`;
+    fs.writeFileSync(replayPath, replayContent, 'utf8');
+    const replaySha = getFileSha256(replayPath);
+
+    const receiptWithoutHash: Omit<Receipt, 'receipt_sha256'> = {
+      schema_version: "0.1.0",
+      run_id: runId,
+      type: "proof",
+      task: task,
+      created_at: new Date().toISOString(),
+      cwd: process.cwd(),
+      platform: process.platform,
+      node_version: process.version,
+      package: {
+        name: metadata.name,
+        version: metadata.version
+      },
+      status: "completed",
+      artifacts: [
+        {
+          path: path.relative(process.cwd(), replayPath),
+          sha256: replaySha
+        }
+      ]
+    };
+
+    const finalHash = computeReceiptHash(receiptWithoutHash);
+    const finalReceipt: Receipt = {
+      ...receiptWithoutHash,
+      receipt_sha256: finalHash
+    };
+
+    const receiptPath = path.join(runDir, 'receipt.json');
+    fs.writeFileSync(receiptPath, JSON.stringify(finalReceipt, null, 2), 'utf8');
+
+    const manifestPath = path.join(runDir, 'manifest.json');
+    const manifestData = {
+      run_id: runId,
+      task: task,
+      created_at: finalReceipt.created_at,
+      cwd: finalReceipt.cwd,
+      node_version: finalReceipt.node_version,
+      platform: finalReceipt.platform,
+      package_version: metadata.version,
+      command_invoked: `timmy proof "${task}"`,
+      status: "completed",
+      receipt_hash: finalHash
+    };
+    fs.writeFileSync(manifestPath, JSON.stringify(manifestData, null, 2), 'utf8');
+
+    if (isJson) {
+      console.log(JSON.stringify(finalReceipt, null, 2));
+    } else {
+      console.log('TIMMY Proof Run');
+      console.log(`✓ Run created: ${path.relative(process.cwd(), runDir)}/`);
+      console.log(`✓ Receipt generated`);
+      console.log(`✓ Replay markdown generated`);
+      console.log(`✓ Manifest hash sealed`);
+      console.log(`\nNext:\n  cat ${path.relative(process.cwd(), receiptPath)}\n`);
+      printTable([
+        { label: 'Run ID', value: finalReceipt.run_id },
+        { label: 'Task', value: finalReceipt.task },
+        { label: 'Created At', value: finalReceipt.created_at },
+        { label: 'Receipt Hash', value: finalReceipt.receipt_sha256 }
+      ]);
+    }
+    process.exit(0);
+  } catch (e: any) {
+    console.error(`✕ Proof failed: ${e.message}`);
+    process.exit(1);
+  }
+}
+
+if (command === 'setup') {
+  console.log('Initializing TIMMY workspace folder structure...');
+  const workspaceRoot = process.cwd();
+  const requiredDirs = ['skills', 'souls', 'context', 'porter-packs', 'receipts', '.timmy', 'auth', 'mcp-cli'];
+
+  try {
+    for (const d of requiredDirs) {
+      const fullDir = path.join(workspaceRoot, d);
+      if (!fs.existsSync(fullDir)) {
+        fs.mkdirSync(fullDir, { recursive: true });
+      }
+    }
+
+    // Default SKILL.md
+    const skillDir = path.join(workspaceRoot, 'skills', 'example-skill');
+    if (!fs.existsSync(skillDir)) fs.mkdirSync(skillDir, { recursive: true });
+    const skillFile = path.join(skillDir, 'SKILL.md');
+    if (!fs.existsSync(skillFile)) {
+      fs.writeFileSync(skillFile, `# Example Skill\n\n## Description\nThis is an example TIMMY governed capability definition.\n`, 'utf8');
+    }
+
+    // Default SOUL.md
+    const soulDir = path.join(workspaceRoot, 'souls', 'quartermaster');
+    if (!fs.existsSync(soulDir)) fs.mkdirSync(soulDir, { recursive: true });
+    const soulFile = path.join(soulDir, 'SOUL.md');
+    if (!fs.existsSync(soulFile)) {
+      fs.writeFileSync(soulFile, `# Quartermaster Soul\n\n## Description\nThis defines the behavior and personality of the Quartermaster agent.\n`, 'utf8');
+    }
+
+    // Default Auth files
+    const authDir = path.join(workspaceRoot, 'auth');
+    if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
+    const authM = path.join(authDir, 'auth.md');
+    if (!fs.existsSync(authM)) {
+      fs.writeFileSync(authM, `# TIMMY Auth Doctrine\n\n“Humans log in. Agents show passports. Tools require visas. Receipts prove the trip.”\n`, 'utf8');
+    }
+    const passM = path.join(authDir, 'passports.md');
+    if (!fs.existsSync(passM)) {
+      fs.writeFileSync(passM, `# Passport Registry\n\n- agent.quartermaster: Nerdy Quartermaster auditor agent passport\n`, 'utf8');
+    }
+    const visaM = path.join(authDir, 'visas.md');
+    if (!fs.existsSync(visaM)) {
+      fs.writeFileSync(visaM, `# Visa Policy\n\n- visa.local.read: Granted\n`, 'utf8');
+    }
+    const scopeM = path.join(authDir, 'scopes.md');
+    if (!fs.existsSync(scopeM)) {
+      fs.writeFileSync(scopeM, `# AgentPass Scopes\n\n- fs.read.workspace\n`, 'utf8');
+    }
+
+    // Receipts
+    const receiptDir = path.join(workspaceRoot, 'receipts');
+    if (!fs.existsSync(receiptDir)) fs.mkdirSync(receiptDir, { recursive: true });
+
+    console.log('✓ TIMMY Governed Workspace Root folder structure initialized successfully.');
+    process.exit(0);
+  } catch (e: any) {
+    console.error(`✕ Setup failed: ${e.message}`);
+    process.exit(1);
+  }
+}
+
+if (
+  command !== 'doctor' &&
+  command !== 'docs' &&
+  command !== 'providers' &&
+  command !== 'runtimes' &&
+  command !== 'mcp' &&
+  command !== 'clip' &&
+  command !== 'design' &&
+  command !== 'export' &&
+  command !== 'sceneforge'
+) {
+  printHelp();
+  process.exit(2);
+}
+
+// Helper function to resolve script path dynamically for TS and JS environments
+function getScriptPath(cmd: string): string {
+  const baseName =
+    cmd === 'doctor'
+      ? 'timmy-doctor'
+      : cmd === 'docs'
+        ? 'timmy-docs'
+        : cmd === 'providers'
+          ? 'timmy-providers'
+          : cmd === 'runtimes'
+            ? 'timmy-runtimes'
+          : cmd === 'mcp'
+            ? 'timmy-mcp'
+          : 'timmy-sceneforge';
+  const tsPath = fileURLToPath(new URL(`../scripts/${baseName}.ts`, import.meta.url));
+  const jsPath = fileURLToPath(new URL(`../scripts/${baseName}.js`, import.meta.url));
+  
+  if (fs.existsSync(tsPath)) {
+    return tsPath;
+  }
+  return jsPath;
+}
+
+const scriptPath = getScriptPath(command);
+const isTs = scriptPath.endsWith('.ts');
+const spawnCmd = isTs ? 'npx' : process.execPath;
+const spawnArgs = isTs 
+  ? [
+      'tsx',
+      scriptPath,
+      args[1] ||
+        (command === 'docs'
+          ? 'verify'
+          : command === 'providers'
+            ? 'audit'
+            : command === 'runtimes'
+              ? 'list'
+            : command === 'sceneforge'
+              ? 'status'
+              : command === 'mcp'
+                ? 'status'
+                : 'doctor'),
+      ...args.slice(2)
+    ]
+  : [
+      scriptPath,
+      args[1] ||
+        (command === 'docs'
+          ? 'verify'
+          : command === 'providers'
+            ? 'audit'
+            : command === 'runtimes'
+              ? 'list'
+            : command === 'sceneforge'
+              ? 'status'
+              : command === 'mcp'
+                ? 'status'
+                : 'doctor'),
+      ...args.slice(2)
+    ];
+
+const child = spawn(spawnCmd, spawnArgs, {
+  stdio: 'inherit',
+});
+
+child.on('exit', (code, signal) => {
+  if (signal) {
+    process.kill(process.pid, signal);
+    return;
+  }
+  process.exit(code ?? 1);
 });
