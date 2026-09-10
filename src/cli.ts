@@ -557,24 +557,6 @@ if (command === 'seal') {
       process.exit(2);
     }
   }
-<<<<<<< HEAD
-=======
-  // privacy-d5n9 gate: a receipt is public evidence, so the seal tool refuses a
-  // subject or meta value that carries a secret, personal data, or a
-  // site-specific address (lanes/privacy/patterns.json). --allow-privacy is the
-  // operator's override and is itself recorded on the receipt.
-  {
-    const { loadPatterns, scanText } = await import('../lanes/privacy/scan.mjs');
-    const P = loadPatterns();
-    const text = [`subject=${subj}`, ...Object.entries(meta).map(([k, v]) => `${k}=${v}`)].join('\n');
-    const hits = scanText(text, 'seal', P, 'seal').filter((h) => ['critical', 'high', 'medium'].includes(h.severity));
-    if (hits.length && !args.includes('--allow-privacy')) {
-      console.error(`refused: ${hits.length} privacy finding(s) in the seal (${[...new Set(hits.map((h) => h.pattern))].join(', ')}); use node ids, relative paths and no addresses, or pass --allow-privacy`);
-      process.exit(3);
-    }
-    if (hits.length) meta.privacy_override = `allowed ${hits.length}: ${[...new Set(hits.map((h) => h.pattern))].join(',')}`;
-  }
->>>>>>> origin/order/chain-views-e6p2
   const r = appendReceipt('runs', {
     kind: 'seal', subject: subj, policy: 'auto', sources: [meta],
   } as never);
@@ -593,6 +575,7 @@ if (command === 'nfc' || command === 'custody') {
   process.exit(r.status ?? 1);
 }
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 =======
 if (command === 'demo') {
@@ -627,6 +610,22 @@ if (command === 'commander' || command === 'cf' || command === 'project' || comm
 >>>>>>> origin/order/chain-views-e6p2
   const lane = fileURLToPath(new URL(lanes[command], import.meta.url));
   const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+=======
+if (command === 'commander' || command === 'cf' || command === 'project' || command === 'sim' || command === 'jcode' || command === 'schema' || command === 'docker' || command === 'abilities') {
+  // mindship-v5c2 lanes: `timmy commander …` drives the durable Commander on
+  // timmy-ai-proxy; `timmy cf …` is the Cloudflare war-room feed + verbs;
+  // `timmy project new|menu|list` is the project folder standard; `timmy sim
+  // run|replay` is THE SHIP story simulator. captain-y9g4: `timmy jcode …` is
+  // JCODE AS CAPTAIN (isolated home, provider profiles, the Timmy MCP bridge,
+  // serve as the commander handoff target); `timmy schema …` is tool-schema
+  // compliance (Timmy's MCP server against the strictest validator + the
+  // per-model strict|lenient map + the harness×model gate). All run under tsx
+  // (or node) so they can import repo TypeScript where they need it.
+  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', jcode: '../lanes/jcode/lane.mjs', schema: '../lanes/schema/lane.mjs', docker: '../lanes/docker/lane.mjs', abilities: '../lanes/abilities/registry.mjs' };
+  const runner = ['jcode', 'schema', 'docker', 'abilities'].includes(command) ? 'node' : 'npx';
+  const runArgs = runner === 'node' ? [fileURLToPath(new URL(lanes[command], import.meta.url)), ...args.slice(1)] : ['tsx', fileURLToPath(new URL(lanes[command], import.meta.url)), ...args.slice(1)];
+  const r = spawnSync(runner, runArgs, { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+>>>>>>> origin/order/captain-y9g4
   process.exit(r.status ?? 1);
 }
 
