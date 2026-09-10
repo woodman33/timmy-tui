@@ -451,7 +451,6 @@ if (command === 'seal') {
     console.error('usage: timmy seal <subject> [--meta k=v]…');
     process.exit(2);
   }
-<<<<<<< HEAD
   // privacy-d5n9 gate: a receipt is public evidence, so the seal tool refuses a
   // subject or meta value that carries a secret, personal data, or a
   // site-specific address (lanes/privacy/patterns.json). --allow-privacy is the
@@ -468,8 +467,6 @@ if (command === 'seal') {
     if (hits.length) meta.privacy_override = `allowed ${hits.length}: ${[...new Set(hits.map((h) => h.pattern))].join(',')}`;
   }
 
-=======
->>>>>>> origin/order/chain-views-e6p2
   const { appendReceipt, receiptsDir, rootStoreDir } = await import('./utils/receipts.js');
   // STORE PIN preflight (order template line): print resolved store; STOP if not root.
   const rd = receiptsDir();
