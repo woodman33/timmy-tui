@@ -1041,9 +1041,29 @@ document.querySelectorAll(".clip").forEach(function (el) {
     }
   },
   {
+    command: '/vision',
+    description: 'Open Roboflow visual templates or inspect the local vision setup',
+    usage: '/vision [status]',
+    execute: (args, agent) => {
+      const deliver = (content: string) => agent?.emit('message:user', { role: 'assistant', content, timestamp: Date.now() });
+      import('../vision/config.js').then(({ loadVisionEnvironment }) => {
+        loadVisionEnvironment();
+        if (args.trim() === 'status') return import('../vision/runtime.js').then(async ({ getVisionStatus }) => {
+          const status = await getVisionStatus();
+          deliver(`Vision: ${status.state.replaceAll('_', ' ')}\n${status.reasons.join('\n') || status.note}\n/vision opens the template canvas.`);
+        });
+        return import('../vision/cli.js').then(async ({ runVisionCli }) => {
+          await runVisionCli(['open'], { quiet: true });
+          deliver('Vision Studio: http://127.0.0.1:4336 — choose a template, configure a model or saved Workflow, and inspect an image.');
+        });
+      }).catch(() => deliver('Vision Studio could not open. Run timmy vision serve to inspect setup.'));
+      return args.trim() === 'status' ? 'Checking Vision configuration…' : 'Opening Vision Studio…';
+    }
+  },
+  {
     command: '/roboflow',
     description: 'Roboflow connector (#2 in the fleet): status · upload project artifacts to train on real gens',
-    usage: '/roboflow [upload <project>]',
+    usage: '/roboflow [upload <project>] · /vision opens the visual inspector',
     execute: (args, agent) => {
       const [sub, projName] = args.trim().split(/\s+/);
       const deliver = (msg: string) => {

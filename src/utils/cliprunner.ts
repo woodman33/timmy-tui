@@ -3,7 +3,7 @@ import { join, dirname, isAbsolute } from 'path';
 import { homedir } from 'os';
 import crypto from 'crypto';
 import { appendReceipt } from './receipts.js';
-import { appendEvent } from './eventbus.js';
+import { publish as appendEvent } from '../bus/index.js';
 import { captureEnvLock, relHome, type EnvLock } from './envlock.js';
 import { applyEdl, makeFragment, type Edl } from './edl.js';
 import type { ClipJob } from './clip.js';

@@ -1,0 +1,6 @@
+{
+  "openrouter/auto": { "role": "default router", "notes": "lets OpenRouter route; cheapest-capable", "pinned": false },
+  "anthropic/claude-sonnet-4.5": { "role": "workhorse reasoning", "notes": "primary coding lane", "pinned": true, "throughput_tps": 62 },
+  "qwen/qwen3-coder": { "role": "fast code", "notes": "cheap fast code passes", "pinned": false, "throughput_tps": 110 },
+  "google/gemini-3-pro": { "role": "vision + long context", "notes": "frame/sheet reading", "pinned": false, "throughput_tps": 48 }
+}
