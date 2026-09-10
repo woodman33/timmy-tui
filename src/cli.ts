@@ -594,22 +594,6 @@ if (command === 'commander' || command === 'cf' || command === 'project' || comm
   const runner = ['jcode', 'schema', 'docker', 'abilities'].includes(command) ? 'node' : 'npx';
   const runArgs = runner === 'node' ? [fileURLToPath(new URL(lanes[command], import.meta.url)), ...args.slice(1)] : ['tsx', fileURLToPath(new URL(lanes[command], import.meta.url)), ...args.slice(1)];
   const r = spawnSync(runner, runArgs, { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
-=======
-if (command === 'commander' || command === 'cf' || command === 'project' || command === 'sim' || command === 'jcode' || command === 'schema' || command === 'docker' || command === 'abilities') {
-  // mindship-v5c2 lanes: `timmy commander …` drives the durable Commander on
-  // timmy-ai-proxy; `timmy cf …` is the Cloudflare war-room feed + verbs;
-  // `timmy project new|menu|list` is the project folder standard; `timmy sim
-  // run|replay` is THE SHIP story simulator. captain-y9g4: `timmy jcode …` is
-  // JCODE AS CAPTAIN (isolated home, provider profiles, the Timmy MCP bridge,
-  // serve as the commander handoff target); `timmy schema …` is tool-schema
-  // compliance (Timmy's MCP server against the strictest validator + the
-  // per-model strict|lenient map + the harness×model gate). All run under tsx
-  // (or node) so they can import repo TypeScript where they need it.
-  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', jcode: '../lanes/jcode/lane.mjs', schema: '../lanes/schema/lane.mjs', docker: '../lanes/docker/lane.mjs', abilities: '../lanes/abilities/registry.mjs' };
-  const runner = ['jcode', 'schema', 'docker', 'abilities'].includes(command) ? 'node' : 'npx';
-  const runArgs = runner === 'node' ? [fileURLToPath(new URL(lanes[command], import.meta.url)), ...args.slice(1)] : ['tsx', fileURLToPath(new URL(lanes[command], import.meta.url)), ...args.slice(1)];
-  const r = spawnSync(runner, runArgs, { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
->>>>>>> origin/order/captain-y9g4
   process.exit(r.status ?? 1);
 }
 
