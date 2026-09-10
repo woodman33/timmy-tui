@@ -258,19 +258,25 @@ export interface ModelCall {
   counted: boolean;
   content_sha256: string | null;
   error: string | null;
+  /** OpenRouter generation id (e.g. "gen-..."). The join key from this in-call ledger to
+   *  the authoritative OpenRouter generations-API ledger; `timmy reconcile` amends against it.
+   *  Optional so older ModelCall literals stay valid; chatOnce always sets it (null when absent). */
+  generation_id?: string | null;
+  /** Provider OpenRouter actually served the call from — the served-tier record (ledger-r4k2). */
+  served_provider?: string | null;
 }
 
 export interface MindDeps { env: Env; fetch?: typeof fetch; now?: () => number }
 
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
-type OpenRouterChat = { choices?: { message?: { content?: string } }[]; usage?: OpenRouterUsage; error?: unknown };
+type OpenRouterChat = { id?: string; provider?: string; choices?: { message?: { content?: string } }[]; usage?: OpenRouterUsage; error?: unknown };
 
 /** One chat completion through OpenRouter with usage accounting on. Never throws: the call record carries the error. */
 export async function chatOnce(role: ModelCall['role'], model: string, messages: ChatMessage[], deps: MindDeps, maxTokens = 2048): Promise<{ call: ModelCall; content: string }> {
   const f = deps.fetch ?? fetch;
   const now = deps.now ?? Date.now;
   const started = now();
-  const base = { role, model, ok: false, ms: 0, usd: 0, tokens_in: 0, tokens_out: 0, counted: false, content_sha256: null, error: null } as ModelCall;
+  const base = { role, model, ok: false, ms: 0, usd: 0, tokens_in: 0, tokens_out: 0, counted: false, content_sha256: null, error: null, generation_id: null, served_provider: null } as ModelCall;
   if (!deps.env.OPENROUTER_API_KEY) return { call: { ...base, ms: now() - started, error: 'OPENROUTER_API_KEY not set on worker' }, content: '' };
   try {
     const r = await f('https://openrouter.ai/api/v1/chat/completions', {
@@ -280,9 +286,11 @@ export async function chatOnce(role: ModelCall['role'], model: string, messages:
     });
     const j = (await r.json()) as OpenRouterChat;
     const cost = usageCost(j.usage);
-    if (!r.ok) return { call: { ...base, ms: now() - started, ...cost, error: `upstream ${r.status}: ${JSON.stringify(j.error ?? j).slice(0, 300)}` }, content: '' };
+    // capture the generation id + served provider even on an upstream error, if the body carried them.
+    const gen = { generation_id: typeof j.id === 'string' ? j.id : null, served_provider: typeof j.provider === 'string' ? j.provider : null };
+    if (!r.ok) return { call: { ...base, ms: now() - started, ...cost, ...gen, error: `upstream ${r.status}: ${JSON.stringify(j.error ?? j).slice(0, 300)}` }, content: '' };
     const content = j.choices?.[0]?.message?.content ?? '';
-    return { call: { ...base, ok: true, ms: now() - started, ...cost, content_sha256: await sha256Hex(content) }, content };
+    return { call: { ...base, ok: true, ms: now() - started, ...cost, ...gen, content_sha256: await sha256Hex(content) }, content };
   } catch (e) {
     return { call: { ...base, ms: now() - started, error: e instanceof Error ? e.message : String(e) }, content: '' };
   }
@@ -411,7 +419,7 @@ export async function turnReceiptData(req: TurnRequest, r: TurnResult, by: strin
     ok: r.ok,
     task_sha256: await sha256Hex(String(req.task ?? '')),
     answer_sha256: await sha256Hex(r.answer),
-    models: r.calls.map((c) => ({ role: c.role, model: c.model, ok: c.ok, ms: c.ms, usd: c.usd, tokens_in: c.tokens_in, tokens_out: c.tokens_out, counted: c.counted, error: c.error })),
+    models: r.calls.map((c) => ({ role: c.role, model: c.model, ok: c.ok, ms: c.ms, usd: c.usd, tokens_in: c.tokens_in, tokens_out: c.tokens_out, counted: c.counted, error: c.error, generation_id: c.generation_id ?? null, served_provider: c.served_provider ?? null })),
     hands: r.hands,
     hands_note: r.hands_note,
     usd: r.usd,

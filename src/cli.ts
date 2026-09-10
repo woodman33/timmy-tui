@@ -233,13 +233,13 @@ if (command === 'nfc' || command === 'custody') {
   process.exit(r.status ?? 1);
 }
 
-if (command === 'commander' || command === 'cf' || command === 'project' || command === 'sim') {
+if (command === 'commander' || command === 'cf' || command === 'project' || command === 'sim' || command === 'reconcile') {
   // mindship-v5c2 lanes: `timmy commander …` drives the durable Commander on
   // timmy-ai-proxy; `timmy cf …` is the Cloudflare war-room feed + verbs;
   // `timmy project new|menu|list` is the project folder standard; `timmy sim
   // run|replay` is THE SHIP story simulator. All live under lanes/ and run
   // under tsx so they can import repo TypeScript where they need it.
-  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs' };
+  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', reconcile: '../lanes/openrouter/reconcile.mjs' };
   const lane = fileURLToPath(new URL(lanes[command], import.meta.url));
   const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
   process.exit(r.status ?? 1);
