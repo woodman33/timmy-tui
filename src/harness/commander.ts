@@ -9,6 +9,15 @@ export interface CommanderEvent { kind?: string; model?: string; spend?: number;
 // Writes (think/handoff/…) are operator-gated on the worker. Same source order
 // as lanes/commander/cli.mjs: env first, then the worker's .dev.vars (never printed).
 export const edgeToken = (): string | null => {
+  // preview-h9s3: the private overlay (.timmy/private/config.json, the same
+  // file lanes/privacy/overlay.mjs owns) carries the operator token; env overrides
+  try {
+    const op = join(process.cwd(), '.timmy', 'private', 'config.json');
+    if (existsSync(op)) {
+      const v = (JSON.parse(readFileSync(op, 'utf8')) as Record<string, unknown>).edge_token;
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+  } catch { /* overlay unreadable → fall through */ }
   if (process.env.TIMMY_EDGE_TOKEN) return process.env.TIMMY_EDGE_TOKEN;
   try {
     const p = join(process.cwd(), 'workers', 'ai-proxy', '.dev.vars');
