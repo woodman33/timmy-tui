@@ -1546,66 +1546,7 @@ if (
   process.exit(2);
 }
 
-// Helper function to resolve script path dynamically for TS and JS environments
-function getScriptPath(cmd: string): string {
-  const baseName =
-    cmd === 'doctor'
-      ? 'timmy-doctor'
-      : cmd === 'docs'
-        ? 'timmy-docs'
-        : cmd === 'providers'
-          ? 'timmy-providers'
-          : cmd === 'runtimes'
-            ? 'timmy-runtimes'
-          : cmd === 'mcp'
-            ? 'timmy-mcp'
-          : 'timmy-sceneforge';
-  const tsPath = fileURLToPath(new URL(`../scripts/${baseName}.ts`, import.meta.url));
-  const jsPath = fileURLToPath(new URL(`../scripts/${baseName}.js`, import.meta.url));
-  
-  if (fs.existsSync(tsPath)) {
-    return tsPath;
-  }
-  return jsPath;
-}
 
-const scriptPath = getScriptPath(command);
-const isTs = scriptPath.endsWith('.ts');
-const spawnCmd = isTs ? 'npx' : process.execPath;
-const spawnArgs = isTs 
-  ? [
-      'tsx',
-      scriptPath,
-      args[1] ||
-        (command === 'docs'
-          ? 'verify'
-          : command === 'providers'
-            ? 'audit'
-            : command === 'runtimes'
-              ? 'list'
-            : command === 'sceneforge'
-              ? 'status'
-              : command === 'mcp'
-                ? 'status'
-                : 'doctor'),
-      ...args.slice(2)
-    ]
-  : [
-      scriptPath,
-      args[1] ||
-        (command === 'docs'
-          ? 'verify'
-          : command === 'providers'
-            ? 'audit'
-            : command === 'runtimes'
-              ? 'list'
-            : command === 'sceneforge'
-              ? 'status'
-              : command === 'mcp'
-                ? 'status'
-                : 'doctor'),
-      ...args.slice(2)
-    ];
 
 const child = spawn(spawnCmd, spawnArgs, {
   stdio: 'inherit',

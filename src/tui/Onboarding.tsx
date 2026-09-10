@@ -234,7 +234,7 @@ export function Onboarding({ agent, onDone }: OnboardingProps) {
         {step === 'cloud' && (
           <Box flexDirection="column" marginTop={1}>
             <Text bold color={theme.textPrimary}>2 · CLOUDFLARE LOG SYNC (sealed receipts + companion mirror)</Text>
-            <Text color={theme.accent}>  [Enter] Sync to your worker (TIMMY_EDGE_HOST)</Text>
+            <Text color={theme.accent}>  [Enter] Sync to your worker (TIMMY_EDGE_HOST or the overlay)</Text>
             <Text color={theme.textPrimary}>  [c] Custom worker URL</Text>
             <Text color={theme.textPrimary}>  [l] Local-only logs — nothing leaves this machine</Text>
           </Box>

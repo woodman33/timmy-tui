@@ -1,13 +1,11 @@
 // v1.0.1 ergonomic overhaul — app shell. Four top-level views ([1-4],
 // Tab walks pane focus), no left nav, no ambient rain in chat. The shell
 // owns navigation + budget; ViewStage owns content; Layout owns chrome.
-import { EDGE_BASE } from './hooks/useEdgeHealth.js';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { render, useApp, Box, Text } from 'ink';
 import { FocusProvider, useFocus, useKeyDispatcher } from './hooks/useKeyDispatcher.js';
+import { operatorLabel, edgeUrlOrNull, inertEdgeUrl } from '../utils/edge-host.js';
 import { Card } from './ui/Card.js';
-import { ReceiptDetail, ReceiptOpenContext } from './components/ReceiptDetail.js';
-import { readChain } from '../utils/receipts.js';
 import { createAgent } from '../agent/core.js';
 import type { AgentConfig } from '../types/index.js';
 import { Layout } from './layout.js';
@@ -49,8 +47,6 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [paletteIdx, setPaletteIdx] = useState(0);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [detailHash, setDetailHash] = useState<string | null>(null);
-  const openReceiptRef = useRef<(h: string) => void>(() => {});
   const [showOnboard, setShowOnboard] = useState(() => !(config as any).onboarded);
 
   const [activeRunId, setActiveRunId] = useState<string | undefined>(undefined);
@@ -58,14 +54,7 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
 
   const agent = React.useMemo(() => createAgent(config), [config]);
   const agentState = useAgent(agent);
-  // BOOT (opentui-u4e9): the first frame is the header with the chain head —
-  // capability/graphics/telemetry/companion/mode-config probes start AFTER it.
-  const [booted, setBooted] = useState(false);
-  useEffect(() => {
-    const t = setImmediate(() => setBooted(true));
-    return () => clearImmediate(t);
-  }, []);
-  const capsState = useTerminalCapabilities(booted);
+  const capsState = useTerminalCapabilities();
 
   const { telemetryStatus, queuedTelemetryCount } = useTelemetryBridge({
     agent,
@@ -75,19 +64,18 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
     config,
     activeRunId,
     activeReceiptUrl,
-    operator: process.env.TIMMY_OPERATOR ?? '<user>',
-    enabled: booted
+    operator: operatorLabel()
   });
 
-  useCompanionSync({ agent, messages: agentState.messages, activeRunId, activeReceiptUrl, enabled: booted });
-  useModeAgentConfig({ agent, mode: 'brief', config, enabled: booted });
+  useCompanionSync({ agent, messages: agentState.messages, activeRunId, activeReceiptUrl });
+  useModeAgentConfig({ agent, mode: 'brief', config });
 
   useEffect(() => {
     const handleRunCreated = (data: any) => {
       agentLogger.info(`run.created: ${JSON.stringify(data)}`);
       if (data && data.runId) {
         setActiveRunId(data.runId);
-        setActiveReceiptUrl(`${EDGE_BASE}/runs/${data.runId}/receipt`);
+        setActiveReceiptUrl(edgeUrlOrNull(`/runs/${data.runId}/receipt`) ?? inertEdgeUrl(`/runs/${data.runId}/receipt`));
       }
     };
     const handleTelemetryRun = (data: any) => {
@@ -109,7 +97,7 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
     const startupRunId = `run_${Math.random().toString(36).substring(2, 9)}`;
     agent.emit('run.created' as any, {
       runId: startupRunId,
-      receiptUrl: `${EDGE_BASE}/runs/${startupRunId}/receipt`,
+      receiptUrl: edgeUrlOrNull(`/runs/${startupRunId}/receipt`) ?? inertEdgeUrl(`/runs/${startupRunId}/receipt`),
       source: 'timmy-tui-startup',
       timestamp: Date.now()
     });
@@ -123,7 +111,7 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
         ? 'error'
         : 'idle';
 
-  const { pipeline } = useGraphicsPipeline(capsState.capabilities, animState, graphicsType, booted);
+  const { pipeline } = useGraphicsPipeline(capsState.capabilities, animState, graphicsType);
 
   const safeExit = () => {
     try { condenseSession(); } catch { /* best-effort */ }
@@ -155,8 +143,6 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
     { label: 'feature · code review + dashboard', action: () => gotoView(8) },
     // v1.0.2: model switching + health live strictly here, never in a sidebar
     ...PALETTE_MODELS.map(m => ({ label: `model · ${m.label}`, action: () => agentState.switchModel(m.id) })),
-    // C2 (ui.audit): palette receipt results open the detail modal on Enter
-    ...(() => { try { return readChain('runs').slice(-5).reverse().map(r => { const h = String(r.hash ?? ''); return { label: `receipt · ${h.slice(7, 15)} · ${String(r.subject ?? '')}`, action: () => openReceiptRef.current(h.slice(7, 15)) }; }); } catch { return []; } })(),
     { label: 'q · Exit Application', action: safeExit }
   ];
 
@@ -170,11 +156,6 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
   useEffect(() => {
     if (!focus.stack.includes('modal:help')) setHelpOpen(false);
   }, [focus.stack]);
-  useEffect(() => {
-    if (!focus.stack.includes('modal:receipt')) setDetailHash(null);
-  }, [focus.stack]);
-  const openReceipt = (h: string) => { focus.claim('modal:receipt'); setDetailHash(h); };
-  openReceiptRef.current = openReceipt;
 
   useKeyDispatcher({
     view,
@@ -200,7 +181,6 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
   }
 
   return (
-  <ReceiptOpenContext.Provider value={openReceipt}>
     <Layout
       view={view}
       paneFocus={paneFocus}
@@ -237,7 +217,7 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
           </Box>
         )}
 
-        {helpOpen && process.env.TIMMY_SHELL === 'v1' && (
+        {helpOpen && (
           <Box position="absolute" top={2} left={20} backgroundColor={theme.surfaceRaised} paddingX={1} flexDirection="column" width={56}>
             <Card title={`VIEW GRAMMAR — ${VIEWS[view]?.label ?? ''}`} focused purpose="press ? or esc to close">
               <Text bold color={theme.accent}>WHAT IS TIMMY?</Text>
@@ -252,11 +232,8 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
             </Card>
           </Box>
         )}
-
-        {detailHash && <ReceiptDetail hash={detailHash} />}
       </Box>
     </Layout>
-  </ReceiptOpenContext.Provider>
   );
 }
 

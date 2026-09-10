@@ -6,6 +6,7 @@ import { connect } from 'net';
 import { connect as tlsConnect } from 'tls';
 import { request as httpsRequest } from 'https';
 import { appendReceipt } from './receipts.js';
+import { edgeHost, EDGE_INERT_LINE } from './edge-host.js';
 
 // Read-only doctors. External tools (depguard, llmfit, network-doctor ideas)
 // are consumed as ADAPTERS: they inspect, Timmy receipts. Never auto-fix —
@@ -60,8 +61,12 @@ const probe = (host: string): Promise<Layer> => new Promise(resolve => {
 });
 
 export async function networkDoctor(dir?: string): Promise<DoctorRow[]> {
-  const targets = ['openrouter.ai', 'timmy-ai-proxy.wmeldman33.workers.dev'];
+  // hosts-j4t1: the edge host is a config read; unresolved it is inert and
+  // fails with one legible line instead of probing a placeholder
+  const edge = edgeHost();
+  const targets = edge ? ['openrouter.ai', edge] : ['openrouter.ai'];
   const rows: DoctorRow[] = [];
+  if (!edge) rows.push({ label: 'edge', ok: false, note: EDGE_INERT_LINE });
   for (const host of targets) {
     const layer = await probe(host);
     rows.push({
