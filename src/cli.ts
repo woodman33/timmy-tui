@@ -259,6 +259,28 @@ if (command === 'chat') {
   process.exit(r.status ?? 0);
 }
 
+if (command === 'drop') {
+  // warroom-v2-c4m8: `timmy drop --list [project]` — what sits in each project
+  // folder's drop/ shelf, read through Claude Code's harness-menu reader
+  const want = args.find(a => !a.startsWith('--')) ?? null;
+  const hm = await import('../fleet/harness-menu.mjs');
+  const { readdirSync, statSync } = await import('node:fs');
+  const names = (want ? [want] : readdirSync(hm.PROJECTS_ROOT, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)).sort();
+  const rows: { project: string; file: string; bytes: number }[] = [];
+  for (const n of names) {
+    const p = hm.readProject(n, hm.PROJECTS_ROOT);
+    for (const d of p.drop ?? []) {
+      const rel = String(d.path ?? d.name ?? '');
+      try { rows.push({ project: n, file: rel, bytes: statSync(`${p.dir}/drop/${rel}`).size }); }
+      catch { rows.push({ project: n, file: rel, bytes: 0 }); }
+    }
+  }
+  if (args.includes('--json')) console.log(JSON.stringify({ v: 1, count: rows.length, rows }, null, 1));
+  else if (rows.length === 0) console.log('drop shelves empty — timmy drop <project> <file> to feed a run');
+  else for (const r of rows) console.log(`${r.project.padEnd(14)} ${String(r.bytes).padStart(9)}  ${r.file}`);
+  process.exit(0);
+}
+
 if (command === 'profile') {
   // warroom-t3b1: save/restore the war room from ~/timmy/projects/<name>/profile.cue
   const name = String(args[1] ?? 'default');
@@ -427,6 +449,7 @@ if (command === 'nfc' || command === 'custody') {
   process.exit(r.status ?? 1);
 }
 
+<<<<<<< HEAD
 if (command === 'privacy') {
   // privacy-d5n9: `timmy privacy scan|audit|fixture|hook` — the public-repo privacy gate.
   const lane = fileURLToPath(new URL('../lanes/privacy/scan.mjs', import.meta.url));
@@ -439,11 +462,23 @@ if (command === 'commander' || command === command === 'cf' || command === comma
   // timmy-ai-proxy; `timmy cf …` is the Cloudflare war-room feed + verbs;
   // `timmy project new|menu|list` is the project folder standard; `timmy sim
   // run|replay` is THE SHIP story simulator. shelf-w6d3 lanes: `timmy engine …`
+=======
+if (command === 'commander' || command === 'cf' || command === 'project' || command === 'sim' || command === 'swarm' || command === 'engine' || command === 'sandbox' || command === 'wire') {
+  // mindship-v5c2 lanes: `timmy commander …` drives the durable Commander on
+  // timmy-ai-proxy; `timmy cf …` is the Cloudflare war-room feed + verbs;
+  // `timmy project new|menu|list` is the project folder standard; `timmy sim
+  // run|replay` is THE SHIP story simulator; `timmy swarm …` (swarm-b3k7) runs
+  // swarm specs on the commander or locally. shelf-w6d3 lanes: `timmy engine …`
+>>>>>>> origin/order/warroom-v2-c4m8
   // is the engine shelf (inventory, env-locks, drop-folder runs), `timmy
   // sandbox …` the OpenHands SDK container lane, `timmy wire …` the MCP wire
   // tools. All live under lanes/ and run under tsx so they can import repo
   // TypeScript where they need it.
+<<<<<<< HEAD
   const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', engine: '../lanes/engines/lane.mjs', sandbox: '../lanes/sandbox/sandbox.mjs', wire: '../lanes/wire/wire.mjs', swarm: '../lanes/swarm/swarm.mjs' };
+=======
+  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', swarm: '../lanes/swarm/swarm.mjs', engine: '../lanes/engines/lane.mjs', sandbox: '../lanes/sandbox/sandbox.mjs', wire: '../lanes/wire/wire.mjs' };
+>>>>>>> origin/order/warroom-v2-c4m8
   const lane = fileURLToPath(new URL(lanes[command], import.meta.url));
   const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
   process.exit(r.status ?? 1);
