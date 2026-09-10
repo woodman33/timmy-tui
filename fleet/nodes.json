@@ -1,0 +1,45 @@
+{
+ "v": 1,
+ "note": "Engine-room nodes (Part 2). Reached over the tailnet with Tailscale SSH; the LAN address is the fallback only when the operator types the password. status: joined = node.join sealed; waiting-on-will = not on the tailnet yet.",
+ "nodes": [
+  {
+   "id": "spark2",
+   "tailnet_name": "node-a",
+   "tailnet_ip": "<tailnet-ip>",
+   "lan_ip": "<lan-ip>",
+   "mac": "<mac>",
+   "kind": "dgx-spark",
+   "ssh": "ssh node-a",
+   "status": "waiting-on-will",
+   "role": [
+    "ollama",
+    "judge-tier",
+    "harness-provider"
+   ],
+   "ssh_user": null,
+   "note": "2026-09-08: on the tailnet (<tailnet-ip>) but (a) Cloudflare WARP on the Mac refuses the Tailscale relay egress until WARP is off or excludes Tailscale, and (b) Tailscale SSH refused every guessed login (needs ssh_user = the Spark login name). Level 0 slots + the Qwen3.8-27B UD-Q8_K_XL pull run the moment both clear (timmy node probe|join|ollama|pull|serve|register|prove spark2)."
+  },
+  {
+   "id": "spark1",
+   "tailnet_name": "node-b",
+   "tailnet_ip": "<tailnet-ip>",
+   "lan_ip": "<lan-ip>",
+   "mac": "<mac>",
+   "kind": "dgx-spark",
+   "ssh": "ssh node-b",
+   "status": "waiting-on-will",
+   "note": "not on the tailnet yet (last seen 16 d ago); joins when Tailscale is up on it"
+  },
+  {
+   "id": "spark3",
+   "tailnet_name": "node-c",
+   "tailnet_ip": "<tailnet-ip>",
+   "lan_ip": null,
+   "mac": null,
+   "kind": "dgx-spark",
+   "ssh": "ssh node-c",
+   "status": "waiting-on-will",
+   "note": "not on the tailnet yet (last seen 16 d ago; a node-d node also exists); joins when Tailscale is up on it"
+  }
+ ]
+}

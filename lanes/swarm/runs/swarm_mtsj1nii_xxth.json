@@ -1,0 +1,213 @@
+{
+ "where": "local",
+ "room": "war-room",
+ "spec": {
+  "v": 1,
+  "id": "closed-3",
+  "preset": "closed-3",
+  "topology": "closed",
+  "members": [
+   {
+    "id": "air-1",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "closed",
+    "weight": 1,
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "provider": "ollama:mac"
+   },
+   {
+    "id": "air-2",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "closed",
+    "weight": 1,
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "provider": "ollama:mac"
+   },
+   {
+    "id": "air-3",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "closed",
+    "weight": 1,
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "provider": "ollama:mac"
+   }
+  ],
+  "size": 3,
+  "budget": {
+   "usd": 0,
+   "max_calls": 8,
+   "max_ms": 600000
+  },
+  "judge": {
+   "tier": "local",
+   "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL"
+  },
+  "network": {
+   "policy": "closed",
+   "egress_allow": []
+  },
+  "rounds": 2
+ },
+ "task": "In one sentence: why does an air-gapped swarm still need receipts?",
+ "endpoints": {
+  "ollama:mac": "http://127.0.0.1:11435"
+ },
+ "result": {
+  "swarm_id": "closed-3",
+  "run_id": "swarm_mtsj1nii_xxth",
+  "topology": "closed",
+  "size": 3,
+  "ok": true,
+  "answer": "An air-gapped swarm requires receipts to provide verifiable, tamper-evident cryptographic proof of work and state transitions, ensuring internal consensus, accountability, and data integrity without relying on external network connectivity.\nI drew on candidates 1, 2, and 3.",
+  "calls": [
+   {
+    "role": "actor",
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "ok": true,
+    "ms": 7099,
+    "usd": 0,
+    "tokens_in": 55,
+    "tokens_out": 31,
+    "counted": true,
+    "content_sha256": "5f4d5221b38d321fffc75959155f230003b0f755303eb4144ad51ef0c000eacd",
+    "error": null,
+    "provider_used": "ollama:mac",
+    "model_used": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "air-3",
+    "kind": "model",
+    "content": "Receipts provide cryptographic proof of work and state transitions that allow the swarm to verify consensus and detect malicious or faulty nodes without relying on external network connectivity.",
+    "receipt": "sha256_f43055085c48aed2341444aad560ed2fdcc5af77deb981a18030482e26ec3cef",
+    "eval_tok_per_s": 4.8,
+    "load_ms": 6,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "ok": true,
+    "ms": 14076,
+    "usd": 0,
+    "tokens_in": 55,
+    "tokens_out": 31,
+    "counted": true,
+    "content_sha256": "5f4d5221b38d321fffc75959155f230003b0f755303eb4144ad51ef0c000eacd",
+    "error": null,
+    "provider_used": "ollama:mac",
+    "model_used": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "air-1",
+    "kind": "model",
+    "content": "Receipts provide cryptographic proof of work and state transitions that allow the swarm to verify consensus and detect malicious or faulty nodes without relying on external network connectivity.",
+    "receipt": "sha256_3b4aae046255d0f54125813692638e17c7c0a37ef45fe896293b53ff952c8722",
+    "eval_tok_per_s": 5.7,
+    "load_ms": 7,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "ok": true,
+    "ms": 22735,
+    "usd": 0,
+    "tokens_in": 55,
+    "tokens_out": 40,
+    "counted": true,
+    "content_sha256": "c287db34670b6cc0e313bdf4bacf2ecd4b8cda0807e03722774a2287c930b4ba",
+    "error": null,
+    "provider_used": "ollama:mac",
+    "model_used": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "air-2",
+    "kind": "model",
+    "content": "Receipts are necessary in an air-gapped swarm to provide verifiable, tamper-evident proof of completed tasks and data integrity, ensuring accountability and trust without relying on external network validation.",
+    "receipt": "sha256_f45ed971d2257545f0ca8e2dbb0fe678b9e7496786920bd4fdb4b3932ddb4aee",
+    "eval_tok_per_s": 4.9,
+    "load_ms": 6,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "ok": true,
+    "ms": 13823,
+    "usd": 0,
+    "tokens_in": 220,
+    "tokens_out": 57,
+    "counted": true,
+    "content_sha256": "233211b02c3f16b7ac355eb594f990fc5f7ab772dc016f38468df1487517f048",
+    "error": null,
+    "provider_used": "ollama:mac",
+    "model_used": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "judge",
+    "kind": "model",
+    "content": "An air-gapped swarm requires receipts to provide verifiable, tamper-evident cryptographic proof of work and state transitions, ensuring internal consensus, accountability, and data integrity without relying on external network connectivity.\nI drew on candidates 1, 2, and 3.",
+    "receipt": "sha256_d28f6b188a07e128ea95dbf8d74a3a82cb6dd41dfb14d721f5fbd491e00631f4",
+    "eval_tok_per_s": 5.2,
+    "load_ms": 7,
+    "crew_role": "judge",
+    "phase": "judge"
+   }
+  ],
+  "rounds": [],
+  "winner": null,
+  "losers": [],
+  "votes": null,
+  "roles": null,
+  "assignments": null,
+  "budget": {
+   "usd": 0,
+   "spent": 0,
+   "max_calls": 8,
+   "calls": 4,
+   "max_ms": 600000,
+   "ms": 40835,
+   "exhausted": null,
+   "kills": []
+  },
+  "usd": 0,
+  "ms": 40835,
+  "recorded": "b47b7f6c33fd1596de6ce26fd42eefc3cf1274d2eb9ca3def5b42055fff7adcb"
+ },
+ "sealed": [
+  {
+   "member": "air-3",
+   "phase": "answer",
+   "receipt": "sha256_f43055085c48aed2341444aad560ed2fdcc5af77deb981a18030482e26ec3cef"
+  },
+  {
+   "member": "air-1",
+   "phase": "answer",
+   "receipt": "sha256_3b4aae046255d0f54125813692638e17c7c0a37ef45fe896293b53ff952c8722"
+  },
+  {
+   "member": "air-2",
+   "phase": "answer",
+   "receipt": "sha256_f45ed971d2257545f0ca8e2dbb0fe678b9e7496786920bd4fdb4b3932ddb4aee"
+  },
+  {
+   "member": "judge",
+   "phase": "judge",
+   "receipt": "sha256_d28f6b188a07e128ea95dbf8d74a3a82cb6dd41dfb14d721f5fbd491e00631f4"
+  }
+ ],
+ "receipt": "sha256_62e2266707c872e07d5f581e3e52f3c4b27e4f9fd2da7be197d35aeabfdc9ac7",
+ "airgap_receipt": "sha256_530253f89badd33e3554439d45f9db73609c3147c0686adb9a44d4e85cc7cc99",
+ "snoop": {
+  "egress": 0,
+  "frames": 9,
+  "session_file": "/Users/<user>/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-swarm-b3k7/lanes/swarm/.cache/snoop/swarm-closed-3-2026-09-08T10-29-00-649Z.export.json"
+ }
+}
