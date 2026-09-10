@@ -1,3 +1,4 @@
+import { EDGE_BASE } from './useEdgeHealth.js';
 import React, { useState, useEffect, useRef } from 'react';
 import type { Agent } from '../../agent/core.js';
 import type { AgentConfig } from '../../types/index.js';
@@ -61,7 +62,7 @@ export function useTelemetryBridge({
   config,
   activeRunId,
   activeReceiptUrl,
-  operator = 'William Meldman',
+  operator = process.env.TIMMY_OPERATOR ?? '<user>',
   enabled = true
 }: UseTelemetryBridgeProps & { enabled?: boolean }) {
   const [telemetryStatus, setTelemetryStatus] = useState<TelemetryStatus>('online');
@@ -88,7 +89,7 @@ export function useTelemetryBridge({
     if (config.telemetryUrl) return config.telemetryUrl;
     if (process.env.TIMMY_TELEMETRY_URL === 'off') return '';
     if (process.env.TIMMY_TELEMETRY_URL) return process.env.TIMMY_TELEMETRY_URL;
-    return 'https://timmy-ai-proxy.wmeldman33.workers.dev';
+    return EDGE_BASE;
   };
 
   const writeToOfflineSpool = (item: TelemetryQueueItem) => {

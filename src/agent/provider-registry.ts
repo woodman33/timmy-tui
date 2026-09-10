@@ -37,6 +37,7 @@ export type ProviderService =
 
 export interface ProviderEnvVar {
   name: string;
+  aliases?: string[];
   requiredWhenEnabled?: boolean;
   secret?: boolean;
   description: string;
@@ -181,8 +182,7 @@ export const PROVIDER_REGISTRY: readonly ProviderRegistryEntry[] = [
     role: 'External media artifact generator for images, video, and model-hosted creative jobs.',
     services: ['artifact-generation', 'image-generation', 'video'],
     envVars: [
-      { name: 'FAL_KEY', secret: true, description: 'fal API key (canonical).' },
-      { name: 'FALAI_API_KEY', secret: true, description: 'legacy alias accepted by resolveFalCredential.' },
+      { name: 'FAL_KEY', aliases: ['FALAI_API_KEY'], secret: true, description: 'fal API key; FALAI_API_KEY is a fallback alias.' },
     ],
   },
   {
@@ -285,7 +285,7 @@ export const PROVIDER_REGISTRY: readonly ProviderRegistryEntry[] = [
 ] as const;
 
 function isPresent(value: string | undefined): boolean {
-  if (!value) return false;
+  if (!value?.trim()) return false;
   return !/^(false|no|0|your-|paste_|changeme|change_me|example|placeholder)$/i.test(value.trim());
 }
 
@@ -301,12 +301,12 @@ export function auditProvider(
   provider: ProviderRegistryEntry,
   env: NodeJS.ProcessEnv = process.env,
 ): ProviderAuditEntry {
-  const checkedEnvVars = provider.envVars.map((entry) => entry.name);
+  const checkedEnvVars = provider.envVars.flatMap((entry) => [entry.name, ...(entry.aliases ?? [])]);
   const presentEnvVars = checkedEnvVars.filter((name) => isPresent(env[name]));
   const enabled = presentEnvVars.length > 0;
   const missingRequiredEnvVars = enabled
     ? provider.envVars
-        .filter((entry) => entry.requiredWhenEnabled && !isPresent(env[entry.name]))
+        .filter((entry) => entry.requiredWhenEnabled && ![entry.name, ...(entry.aliases ?? [])].some(name => isPresent(env[name])))
         .map((entry) => entry.name)
     : [];
 

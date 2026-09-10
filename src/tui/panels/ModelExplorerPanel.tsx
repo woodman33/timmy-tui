@@ -1,3 +1,4 @@
+import { EDGE_BASE } from '../hooks/useEdgeHealth.js';
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput, useWindowSize } from 'ink';
 import { useFocus, panelMayAct } from '../hooks/useKeyDispatcher.js';
@@ -136,7 +137,7 @@ export function ModelExplorerPanel({ agent, setInspector, focusArea = 'stage' }:
         // Notify companion sync systems
         agent.emit('run.created', {
           runId: newRunId,
-          receiptUrl: `https://timmy-ai-proxy.wmeldman33.workers.dev/runs/${newRunId}/receipt`,
+          receiptUrl: `${EDGE_BASE}/runs/${newRunId}/receipt`,
           source: 'timmy-tui-manual-proof',
           timestamp: Date.now()
         });

@@ -57,99 +57,99 @@
   </div>
 
   <div class="clip" id="s-hook1" data-start="0.4" data-duration="2" data-track-index="0">
-    <div class="claim" style="font-size:48px"><span id="h1t">The agent said done.</span><span id="caret" style="display:inline-block;width:.6ch;height:1.1em;background:#3fb950;vertical-align:text-bottom"></span></div>
+    <div class="claim" style="font-size:48px"><span id="h1t"></span><span id="caret" style="display:inline-block;width:.6ch;height:1.1em;background:#3fb950;vertical-align:text-bottom"></span></div>
   </div>
   <div class="clip" id="s-hook2" data-start="2.4" data-duration="1.3" data-track-index="1">
-    <div class="claim" id="h2" style="font-size:92px">Prove it.</div>
+    <div class="claim" id="h2" style="font-size:92px">it wasn't.</div>
   </div>
   <div class="clip" id="s-turn" data-start="3.7" data-duration="1.6" data-track-index="2">
-    <div class="claim violet" id="t1" style="font-size:80px">Don't trust the model. Trust the receipt.</div>
+    <div class="claim violet" id="t1" style="font-size:80px">⛁ prove it.</div>
   </div>
 
   <video class="clip bg" id="vid-lanes" src="demo-lanes.mp4" muted data-start="5.3" data-duration="3.4" data-track-index="20"></video>
   <div class="clip shade" id="shade-lanes" data-start="5.3" data-duration="3.4" data-track-index="21"></div>
   <div class="clip frame" id="frame-lanes" data-start="5.3" data-duration="3.4" data-track-index="22"><span class="tag">┌ LANES</span></div>
   <div class="clip" id="s-lanes" data-start="5.3" data-duration="3.4" data-track-index="3">
-    <div class="claim" id="c1">Parallel tasks run in isolated lanes.</div>
-    <div class="sub" id="c1s">No cross-lane state leak.<br/>Risky commands wait for your yes.</div>
-    <div class="ev" id="c1e">lane_id=04 status=OK mem=128MB<span class="ok">6/6 alive</span> · approvals sealed ⛁</div>
+    <div class="claim" id="c1">See your agents work — live.</div>
+    <div class="sub" id="c1s">OpenCode · OpenHands · jcode · aichat · deepagents, in real terminals.<br/>Risky commands wait for your yes.</div>
+    <div class="ev" id="c1e"><span class="ok">6/6 alive</span> · approvals sealed ⛁</div>
   </div>
 
   <div class="clip" id="s-cost" data-start="8.7" data-duration="3.4" data-track-index="4">
     <div class="clip frame" id="frame-cost"><span class="tag">┌ COST</span></div>
-    <div class="claim" id="c2">Hard ceiling on token spend.</div>
+    <div class="claim" id="c2">See every cost while it runs.</div>
     <div class="bignum">$<span id="cost-num">0.0000</span></div>
-    <div class="sub" id="c2s">Halts execution on breach.</div>
-    <div class="ev" id="c2e">$0.042 / $0.050 cap [ENFORCED]<span class="amber">AgentPass</span> · clearance T0–T4 today · spend rails on the roadmap</div>
+    <div class="sub" id="c2s">Set a cap. TIMMY stops the spend before it hurts.</div>
+    <div class="ev" id="c2e"><span class="amber">AgentPass</span> · clearance T0–T4 today · spend rails on the roadmap</div>
   </div>
 
   <div class="clip" id="s-receipt" data-start="12.1" data-duration="3.4" data-track-index="5">
     <div class="clip frame" id="frame-receipt"><span class="tag">┌ RECEIPT</span></div>
-    <div class="claim" id="c3">Every run mints a signed receipt.</div>
+    <div class="claim" id="c3">Every run gets a receipt.</div>
     <div class="card" id="c3card">
       <span class="k">hash</span> <span class="v">sha256_1296d9e1…</span> <span class="k">prev</span> <span class="v">sha256_0d67ac78…</span><br/>
       <span class="k">sig</span> <span class="g">ed25519 ✓</span> <span class="k">env</span> <span class="v">25F84 · arm64</span> <span class="k">chain</span> <span class="p">v1→v8</span>
     </div>
-    <div class="ev" id="c3e">sha256:e3b0c44298fc1c149afbf4c8996fb924</div>
+    <div class="ev" id="c3e">hash-chained · signed · tamper-evident · /verify walks it</div>
   </div>
 
   <video class="clip bg" id="vid-replay" src="demo-replay.mp4" muted data-start="15.5" data-duration="3.4" data-track-index="23"></video>
   <div class="clip shade" id="shade-replay" data-start="15.5" data-duration="3.4" data-track-index="24"></div>
   <div class="clip" id="s-replay" data-start="15.5" data-duration="3.4" data-track-index="6">
-    <div class="claim" id="c4" style="font-size:60px">Replay any state deterministically.</div>
+    <div class="claim" id="c4" style="font-size:60px">Don't trust. Replay.</div>
     <div class="card" id="c4card">
       <span class="k">$ timmy clip replay</span><br/>
       <span class="v">output</span> sha256_56a5ab5c… <span class="g">✓</span><br/>
       <span class="v">replay</span> sha256_56a5ab5c… <span class="g">✓ match</span>
     </div>
-    <div class="ev" id="c4e">timmy replay --hash e3b0c442 -> MATCH</div>
+    <div class="ev" id="c4e">deterministic lanes re-execute from the receipt itself</div>
   </div>
 
   <div class="clip" id="s-envlock" data-start="18.9" data-duration="3.4" data-track-index="7">
     <div class="clip frame" id="frame-env"><span class="tag">┌ ENV-LOCK</span></div>
-    <div class="claim" id="c5" style="font-size:60px">Pinned runtime environments.</div>
+    <div class="claim" id="c5" style="font-size:60px">The environment is pinned too.</div>
     <div class="card" id="c5card">
       <span class="k">ffmpeg</span> <span class="v">9.0.1</span> <span class="k">sha256</span> <span class="v">cebe04356214a938…</span><br/>
       <span class="k">os</span> <span class="v">darwin 25F84</span> <span class="k">arch</span> <span class="v">arm64</span>
     </div>
-    <div class="ev" id="c5e">lockfile digest=sha256:8f4a... verified</div>
+    <div class="ev" id="c5e">build hashes, not version strings · replay means replay</div>
   </div>
 
   <div class="clip" id="s-clip" data-start="22.3" data-duration="3.4" data-track-index="8">
     <div class="clip frame" id="frame-clip"><span class="tag">┌ CLIP</span></div>
-    <div class="claim" id="c6" style="font-size:60px">Export timeline cuts directly to OTIO.</div>
+    <div class="claim" id="c6" style="font-size:60px">Even video. With a paper trail.</div>
     <div class="card" id="c6card">
       <span class="k">OTIO_SCHEMA</span> <span class="v">Timeline.1</span> <span class="g">otioconvert exit 0 ✓</span><br/>
       <span class="k">frames</span> <span class="v">prompt → pixel</span> <span class="k">opens in</span> <span class="v">Premiere · Resolve · Avid · Nuke</span>
     </div>
-    <div class="ev" id="c6e">export --format=otio out.otio (24fps)</div>
+    <div class="ev" id="c6e">TIMMY Clip · EDL v1 · W3C Media Fragments · theatre.js → EDL transforms</div>
   </div>
 
   <div class="clip" id="s-local" data-start="25.7" data-duration="3.4" data-track-index="9">
     <div class="clip frame" id="frame-local"><span class="tag">┌ LOCAL</span></div>
-    <div class="claim" id="c7" style="font-size:60px">Runs 100% locally.</div>
-    <div class="sub" id="c7s">Zero external telemetry required.<br/>Nothing leaves unless you say so.</div>
-    <div class="ev" id="c7e">netstat: 0 active outbound sockets<span class="ok">ollama fallback 🟡</span> · zero accounts · restic-immutable archives</div>
+    <div class="claim" id="c7" style="font-size:60px">On your machine.</div>
+    <div class="sub" id="c7s">Your keys. Your models. Works offline.<br/>Nothing leaves unless you say so.</div>
+    <div class="ev" id="c7e"><span class="ok">ollama fallback 🟡</span> · zero accounts · restic-immutable archives</div>
   </div>
 
   <div class="clip" id="s-connect" data-start="29.1" data-duration="3.4" data-track-index="10">
     <div class="clip frame" id="frame-connect"><span class="tag">┌ CONNECTS</span></div>
-    <div class="claim" id="c8" style="font-size:56px">Plugs into existing toolchains.</div>
+    <div class="claim" id="c8" style="font-size:56px">Plays well with your stack.</div>
     <div class="card" id="c8card">
       <span class="p">/hf push</span> <span class="v">→ private HF datasets ✓</span> <span class="dim">·</span> <span class="p">roboflow</span> <span class="v">upload ✓</span><br/>
       <span class="p">mcpsnoop + mcp-probe</span> <span class="v">watching every tool call</span> <span class="dim">·</span> <span class="p">open-edit</span> <span class="v">design lane</span>
     </div>
-    <div class="ev" id="c8e">timmy init --adapter=posix-pty</div>
+    <div class="ev" id="c8e">connectors are data, not code · every one receipted</div>
   </div>
 
   <div class="clip" id="s-grammar" data-start="32.5" data-duration="3.2" data-track-index="11">
-    <div class="claim violet" id="c9" style="font-size:58px">Constrained schema decoding.</div>
+    <div class="claim violet" id="c9" style="font-size:58px">One grammar. Eight tabs.</div>
     <div class="keycaps" id="keys9"><span>Tab</span><span>←→</span><span>↑↓</span><span>↵</span><span>Esc</span><span>?</span></div>
-    <div class="sub" id="c9s">Zero syntax errors on generation.</div>
+    <div class="sub" id="c9s">Every key rhymes. Learned in a minute.</div>
   </div>
 
   <div class="clip" id="s-split" data-start="35.7" data-duration="3.6" data-track-index="12">
-    <div class="claim" id="c10" style="font-size:48px">SHIPS TODAY: CLI, Receipts, OTIO.</div>
+    <div class="claim" id="c10" style="font-size:48px">Proven today. Promised tomorrow. Labeled honestly.</div>
     <div class="split" id="split10">
       <div class="col now"><h4>SHIPS TODAY</h4>receipts · replay · lanes · clip · OTIO<br/>env-lock · local-first · cost column<br/>HF · roboflow · MCP lenses · one grammar</div>
       <div class="col next"><h4>ON THE ROADMAP</h4>agent labor exchange · fleet bidding<br/>hosted receipt portal · execution graph<br/>spend rails · zsh provenance sensor</div>
@@ -158,14 +158,14 @@
 
   <div class="clip" id="s-lockup" data-start="39.3" data-duration="3.2" data-track-index="13">
     <div class="claim violet" id="l1" style="font-size:100px">⛁ TIMMY</div>
-    <div class="claim" id="l2" style="font-size:36px">TIMMY: The Agent Trust OS.</div>
+    <div class="claim" id="l2" style="font-size:36px">Trust the receipt, not the model.</div>
     <div class="registry" id="l3"><span><b>Slate</b> · visual language</span><span><b>Clip</b> · provenance video</span><span><b>AgentPass</b> · clearance</span></div>
     <div class="ev" id="l4">woodman33/timmy-tui</div>
   </div>
 
   <div class="clip" id="s-end" data-start="42.5" data-duration="2.5" data-track-index="14">
     <div class="claim violet" id="e1" style="font-size:64px">⛁</div>
-    <div class="ev" id="e2">$ timmy --version</div>
+    <div class="ev" id="e2">this reel = receipt #8 in the chain · restic-immutable · making-of cast on disk</div>
   </div>
 
   <div class="dip" id="dip1" data-start="2.3" data-duration="0.4" data-track-index="30" style="opacity:0"></div>

@@ -13,7 +13,7 @@ import { runClipJob, replayFromEdl } from './utils/cliprunner.js';
 import { listGenerations } from './utils/generations.js';
 import { runOpenDesignGen } from './utils/designrunner.js';
 import { edlToOtio } from './utils/otio.js';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, appendFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { setModel, readPolicy } from './harness/policy.js';
 import { listModelsSync, listModels, refreshModels } from './models/registry.js';
@@ -164,6 +164,98 @@ if (command === 'model') {
   process.exit(0);
 }
 
+if (command === 'order') {
+  // status-r1e4: orders.log entries and order.execute receipts carry the
+  // executing model, read from the CLI's own session (never hand-typed).
+  const sub = String(args[1] ?? '');
+  const sess = (await import('./utils/session.js')).detectSession();
+  const { ordersLogPath } = await import('./utils/status.js');
+  if (sub === 'log' || sub === 'execute') {
+    const id = String(args[2] ?? `ORD-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(Math.random() * 900) + 100}`);
+    const ti = args.indexOf('--title');
+    const ei = args.indexOf('--evidence');
+    const title = ti > 0 ? String(args[ti + 1] ?? '') : '';
+    const evidence = ei > 0 ? String(args[ei + 1] ?? '') : '';
+    const line = `${id} | ${new Date().toISOString()} | ${sess.short} | ${title} | ${evidence} | actor=${sess.actor} hands=${sess.hands}`;
+    appendFileSync(ordersLogPath(), line + '\n');
+    if (sub === 'execute') {
+      const { appendReceipt } = await import('./utils/receipts.js');
+      const rec = appendReceipt('runs', {
+        kind: 'seal',
+        subject: `order.execute · ${id} · ${title.slice(0, 60)}`,
+        policy: 'human-gated', status: 'ok',
+        sources: [{ actor: sess.actor, hands: sess.hands }],
+      });
+      console.log(`order.execute ${id} → ${rec.hash.slice(0, 16)} · actor=${sess.actor} hands=${sess.hands}`);
+    } else {
+      console.log(`logged ${id} · actor=${sess.actor} hands=${sess.hands}`);
+    }
+    process.exit(0);
+  }
+  console.error('usage: timmy order log|execute <ORD-id> --title <t> [--evidence <e>]');
+  process.exit(2);
+}
+if (command === 'status') {
+  const sess = (await import('./utils/session.js')).detectSession();
+  const st = await import('./utils/status.js');
+  const rep = st.statusReport(st.ordersLogPath());
+  if (args.includes('--json')) {
+    console.log(JSON.stringify({ printedBy: sess, ...rep }, null, 2));
+  } else if (args.includes('--board')) {
+    console.log(st.renderBoard(rep));
+  } else {
+    for (const [actor, rows] of Object.entries(rep.actors)) {
+      console.log(`== ${actor} ==`);
+      for (const r of rows) {
+        console.log(`${r.id} → ${r.title.slice(0, 48).padEnd(48)} ${r.state.padEnd(16)} last=${r.lastReceipt.slice(0, 24).padEnd(24)} next=${r.next}`);
+      }
+    }
+    if (rep.blockedOnWill.length) {
+      console.log('== blocked on will ==');
+      for (const r of rep.blockedOnWill) console.log(`${r.id} — ${r.next}`);
+    }
+  }
+  const { appendReceipt } = await import('./utils/receipts.js');
+  const rec = appendReceipt('runs', {
+    kind: 'seal', subject: `status.print · ${Object.values(rep.actors).reduce((n, r) => n + r.length, 0)} orders`,
+    policy: 'auto', status: 'ok', sources: [{ actor: sess.actor, hands: sess.hands }],
+  });
+  console.log(`sealed ${rec.hash.slice(0, 16)} · status.print`);
+  process.exit(0);
+}
+if (command === 'script') {
+  // toolchain-e2a4 close: script ledger v0 (seal/cut/ledger + sidecar)
+  const sub = String(args[1] ?? '');
+  const file = String(args[2] ?? '');
+  const sl = await import('./utils/scriptledger.js');
+  if (sub === 'seal') {
+    const r = sl.sealScript(file);
+    if (!r.ok) { console.error(`REFUSED: ${r.note}`); process.exit(2); }
+    console.log(`sealed ${file} → ${String(r.receipt).slice(0, 16)} · sidecar ${sl.sidecarPath(file)}`);
+    process.exit(0);
+  }
+  if (sub === 'cut') {
+    const r = sl.cutScript(file, String(args[3] ?? ''));
+    if (!r.ok) { console.error(`REFUSED: ${r.note}`); process.exit(2); }
+    console.log(`cut ${file} → ${args[3]} · ${r.scenes} scenes`);
+    process.exit(0);
+  }
+  if (sub === 'ledger') {
+    const t = sl.ledgerTroff(file);
+    if (!t.ok || !t.troff) { console.error(`REFUSED: ${t.note}`); process.exit(2); }
+    const pi = args.indexOf('--pdf');
+    const hi = args.indexOf('--html');
+    if (pi > 0) {
+      const pr = sl.ledgerPdf(t.troff, String(args[pi + 1] ?? ''));
+      if (!pr.ok) { console.error(pr.note); process.exit(2); }
+    }
+    if (hi > 0) sl.ledgerHtml(file, t.troff, String(args[hi + 1] ?? ''));
+    console.log(`ledger ${file} · ${t.entries} entries`);
+    process.exit(0);
+  }
+  console.error('usage: timmy script seal|cut|ledger <file> [out] [--pdf p] [--html h]');
+  process.exit(2);
+}
 if (command === 'models') {
   // FIX 1 (close): --refresh repopulates the catalog cache (fetched-at stamped)
   if (args.includes('--refresh')) {
@@ -336,9 +428,15 @@ if (command === 'seal') {
   // appends through the canonical writer, never edits chain logic.
   const meta: Record<string, string> = {};
   const subject: string[] = [];
+  const artifacts: string[] = [];
+  const cites: string[] = [];
   for (let i = 1; i < args.length; i++) {
     const a = String(args[i]);
-    if (a === '--meta') {
+    if (a === '--artifact') {
+      artifacts.push(String(args[++i] ?? ''));
+    } else if (a === '--cite') {
+      cites.push(String(args[++i] ?? ''));
+    } else if (a === '--meta') {
       const kv = String(args[++i] ?? '');
       const eq = kv.indexOf('=');
       if (eq > 0) meta[kv.slice(0, eq)] = kv.slice(eq + 1);
@@ -353,6 +451,7 @@ if (command === 'seal') {
     console.error('usage: timmy seal <subject> [--meta k=v]…');
     process.exit(2);
   }
+<<<<<<< HEAD
   // privacy-d5n9 gate: a receipt is public evidence, so the seal tool refuses a
   // subject or meta value that carries a secret, personal data, or a
   // site-specific address (lanes/privacy/patterns.json). --allow-privacy is the
@@ -369,6 +468,8 @@ if (command === 'seal') {
     if (hits.length) meta.privacy_override = `allowed ${hits.length}: ${[...new Set(hits.map((h) => h.pattern))].join(',')}`;
   }
 
+=======
+>>>>>>> origin/order/chain-views-e6p2
   const { appendReceipt, receiptsDir, rootStoreDir } = await import('./utils/receipts.js');
   // STORE PIN preflight (order template line): print resolved store; STOP if not root.
   const rd = receiptsDir();
@@ -377,6 +478,34 @@ if (command === 'seal') {
   if (root && rd !== root) {
     console.error('STOP: resolved store is not the pinned root store');
     process.exit(2);
+  }
+  // DOCTRINE §14 — a seal must cite artifacts that exist at seal time.
+  // --artifact <path> must exist (its sha256 is recorded in the seal);
+  // --cite <hash|id> must resolve to a receipt already on the chain.
+  // Otherwise the tool refuses: no seal is written.
+  if (artifacts.length || cites.length) {
+    const crypto = await import('crypto');
+    const fsx = await import('fs');
+    const shas: string[] = [];
+    for (const ap of artifacts) {
+      if (!ap || !fsx.existsSync(ap)) {
+        console.error(`REFUSED (§14): cited artifact does not exist at seal time: ${ap || '(empty)'}`);
+        process.exit(2);
+      }
+      shas.push(`${ap}@sha256_${crypto.createHash('sha256').update(fsx.readFileSync(ap)).digest('hex')}`);
+    }
+    if (cites.length) {
+      const { readChain } = await import('./utils/receipts.js');
+      const chain = readChain('runs');
+      for (const c of cites) {
+        const hit = chain.some(r => r.hash === c || r.hash.endsWith(c) || r.id === c || String(r.id).includes(c));
+        if (!hit) {
+          console.error(`REFUSED (§14): cited receipt is not on the chain: ${c}`);
+          process.exit(2);
+        }
+      }
+    }
+    if (shas.length) meta.artifact_shas = shas.join(',');
   }
   // DOCTRINE §11 — the roster. A gate that can be forgotten is not a gate:
   // render.cut seals only against a scorecard carrying a row for every
@@ -431,6 +560,24 @@ if (command === 'seal') {
       process.exit(2);
     }
   }
+<<<<<<< HEAD
+=======
+  // privacy-d5n9 gate: a receipt is public evidence, so the seal tool refuses a
+  // subject or meta value that carries a secret, personal data, or a
+  // site-specific address (lanes/privacy/patterns.json). --allow-privacy is the
+  // operator's override and is itself recorded on the receipt.
+  {
+    const { loadPatterns, scanText } = await import('../lanes/privacy/scan.mjs');
+    const P = loadPatterns();
+    const text = [`subject=${subj}`, ...Object.entries(meta).map(([k, v]) => `${k}=${v}`)].join('\n');
+    const hits = scanText(text, 'seal', P, 'seal').filter((h) => ['critical', 'high', 'medium'].includes(h.severity));
+    if (hits.length && !args.includes('--allow-privacy')) {
+      console.error(`refused: ${hits.length} privacy finding(s) in the seal (${[...new Set(hits.map((h) => h.pattern))].join(', ')}); use node ids, relative paths and no addresses, or pass --allow-privacy`);
+      process.exit(3);
+    }
+    if (hits.length) meta.privacy_override = `allowed ${hits.length}: ${[...new Set(hits.map((h) => h.pattern))].join(',')}`;
+  }
+>>>>>>> origin/order/chain-views-e6p2
   const r = appendReceipt('runs', {
     kind: 'seal', subject: subj, policy: 'auto', sources: [meta],
   } as never);
@@ -449,6 +596,16 @@ if (command === 'nfc' || command === 'custody') {
   process.exit(r.status ?? 1);
 }
 
+<<<<<<< HEAD
+=======
+if (command === 'demo') {
+  // chain-views-e6p2: scripted, replayable war-room session on placeholder
+  // data — cast + gif + mp4 + demo.cast seal. Runs under tsx (ink render).
+  const r = spawnSync('npx', ['tsx', 'src/demo/cast.ts', ...args], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
+>>>>>>> origin/order/chain-views-e6p2
 if (command === 'privacy') {
   // privacy-d5n9: `timmy privacy scan|audit|fixture|hook` — the public-repo privacy gate.
   const lane = fileURLToPath(new URL('../lanes/privacy/scan.mjs', import.meta.url));
@@ -457,7 +614,20 @@ if (command === 'privacy') {
 }
 
 if (command === 'commander' || command === 'cf' || command === 'project' || command === 'sim' || command === 'swarm' || command === 'engine' || command === 'sandbox' || command === 'wire') {
+<<<<<<< HEAD
   const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', engine: '../lanes/engines/lane.mjs', sandbox: '../lanes/sandbox/sandbox.mjs', wire: '../lanes/wire/wire.mjs', swarm: '../lanes/swarm/swarm.mjs' };
+=======
+  // mindship-v5c2 lanes: `timmy commander …` drives the durable Commander on
+  // timmy-ai-proxy; `timmy cf …` is the Cloudflare war-room feed + verbs;
+  // `timmy project new|menu|list` is the project folder standard; `timmy sim
+  // run|replay` is THE SHIP story simulator; `timmy swarm …` (swarm-b3k7) runs
+  // swarm specs on the commander or locally. shelf-w6d3 lanes: `timmy engine …`
+  // is the engine shelf (inventory, env-locks, drop-folder runs), `timmy
+  // sandbox …` the OpenHands SDK container lane, `timmy wire …` the MCP wire
+  // tools. All live under lanes/ and run under tsx so they can import repo
+  // TypeScript where they need it.
+  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', swarm: '../lanes/swarm/swarm.mjs', engine: '../lanes/engines/lane.mjs', sandbox: '../lanes/sandbox/sandbox.mjs', wire: '../lanes/wire/wire.mjs' };
+>>>>>>> origin/order/chain-views-e6p2
   const lane = fileURLToPath(new URL(lanes[command], import.meta.url));
   const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
   process.exit(r.status ?? 1);
