@@ -68,12 +68,19 @@ async function until(view: ReturnType<typeof render>, pred: (f: string) => boole
 
 describe('uinext readers', () => {
   it('houdini + strictness + unreal rows read the fixture lanes', () => {
-    const h = houdiniRow([]);
+    const h = houdiniRow([
+      rec('engine.run', { engine: 'houdini', via_drop: 'true' }),
+      rec('engine.refuse', { engine: 'houdini' }),
+      rec('drop.intake fixture.png', { lane: 'houdini' }),
+      rec('drop.result fixture.png', { lane: 'defold' }),
+      rec('engine.run', { engine: 'defold', via_drop: 'true' }),
+    ]);
     expect(h.present).toBe(true);
     expect(h.installed).toBe(true);
     expect(h.bridge).toBe('cli,mcp');
     expect(h.templates).toBe(4);
     expect(h.proven).toBe(1);
+    expect(h.dropRuns).toBe(2);
     const strict = modelStrictness();
     expect(strict.find(r => r.model === 'placeholder/strict-one')?.schema).toBe('strict');
     expect(strict.find(r => r.model === 'placeholder/lenient-two')?.schema).toBe('lenient');

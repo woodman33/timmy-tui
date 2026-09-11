@@ -54,7 +54,7 @@ describe('typed views', () => {
     expect(isTyped(rec('seal', { note: 'x' }))).toBe(false);
   });
   it('every typed line fits the 42-col DETAIL rail without an ellipsis', () => {
-    const subjects = ['swarm.run', 'swarm.member', 'swarm.airgap', 'node.join', 'node.inventory', 'net.policy', 'privacy.audit', 'privacy.gate', 'hands.change', 'escrow.human'];
+    const subjects = ['swarm.run', 'swarm.member', 'swarm.airgap', 'node.join', 'node.inventory', 'net.policy', 'privacy.audit', 'privacy.gate', 'hands.change', 'escrow.human', 'unreal.render'];
     const metas: Record<string, Record<string, unknown>> = {
       'swarm.run': { run_id: 'swarm_fixtures_01', swarm_id: 'fixture-3', topology: 'coordinator', size: '3', where: 'edge', room: 'fixture-room', usd: '0.01234', ms: '12345', ok: 'true', judge_tier: 'frontier', policy: 'tailnet', task_sha256: 'sha256_abcdef0123456789' },
       'swarm.member': { run_id: 'swarm_fixtures_01', member: 'seat-12', kind: 'harness', phase: 'compose', model: 'placeholder/long-model-name', node: 'node-b', provider_used: 'PlaceholderProvider', usd: '0.01234', ms: '12345', ok: 'true', killed: 'true' },
@@ -66,6 +66,7 @@ describe('typed views', () => {
       'privacy.gate': { layers: 'pre-commit + CI + seal-refusal', hook: 'githooks-pre-commit-x', ci: 'github-workflows-privacy', cites_audit: 'sha256_abcdef012345', seal_refusal: 'timmy seal' },
       'hands.change': { before: 'placeholder/long-before-model', after: 'placeholder/long-after-model', trigger: 'operator switched the mind' },
       'escrow.human': { refused: 'spend over the daily cap', approver: 'operator-x', reason: 'approved once' },
+      'unreal.render': { stage: 'world/abcdefghijklmnopqr', cameras: '/Rig/1234567890', ms: '123456', ok: 'true', proof_sha256: 'sha256_abcdef0123456789' },
     };
     for (const subj of subjects) {
       for (const line of typedLines(rec(subj, metas[subj]))) {

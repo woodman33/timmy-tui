@@ -41,13 +41,18 @@ export interface HoudiniRow {
   templates: number; proven: number; dropRuns: number;
 }
 /** Houdini: engine-shelf inventory + drop-lane state (sealed drop runs). */
-export function houdiniRow(recs: { subject: string }[]): HoudiniRow {
+export function houdiniRow(recs: { subject: string; sources?: unknown[] }[]): HoudiniRow {
   const eng = (readJson(join(root(), 'lanes', 'engines', 'engines.json'))?.engines ?? []) as Record<string, unknown>[];
   const inv = (readJson(join(root(), 'lanes', 'engines', 'inventory.json'))?.engines ?? []) as Record<string, unknown>[];
   const e = eng.find(x => x.id === 'houdini') ?? inv.find(x => x.id === 'houdini') ?? null;
   const i = inv.find(x => x.id === 'houdini') ?? null;
   const count = (v: unknown): number => (Array.isArray(v) ? v.length : Number(v ?? 0) || 0);
-  const dropRuns = recs.filter(r => /^engine\.drop|^drop\./.test(String(r.subject))).length;
+  const dropRuns = recs.filter(r => {
+    const subject = String(r.subject);
+    if (subject !== 'engine.run' && subject !== 'engine.refuse') return false;
+    const meta = (Array.isArray(r.sources) && typeof r.sources[0] === 'object' && r.sources[0] !== null ? r.sources[0] : {}) as Record<string, unknown>;
+    return meta.engine === 'houdini';
+  }).length;
   return {
     present: Boolean(e),
     installed: Boolean(e?.installed),

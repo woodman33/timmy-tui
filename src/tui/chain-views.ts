@@ -94,7 +94,7 @@ export function typedLines(r: Receipt): string[] {
       ];
     case 'unreal.render':
       return [
-        `  stage ${s(m, 'stage').split('/').pop()?.slice(0, 18) ?? '—'} · cam ${s(m, 'cameras').split('/').pop()?.slice(0, 10) ?? '—'}`,
+        `  stage ${s(m, 'stage').split('/').pop()?.slice(0, 18) ?? '—'} · cam ${s(m, 'cameras').split('/').pop()?.slice(0, 9) ?? '—'}`,
         `  ${s(m, 'ms').slice(0, 6)}ms ok=${s(m, 'ok').slice(0, 5)} · proof ${h12(s(m, 'proof_sha256', 'stage_sha256'))}`,
       ];
     case 'rig.parity':
