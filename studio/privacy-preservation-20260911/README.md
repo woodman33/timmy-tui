@@ -1,7 +1,7 @@
-# Studio preservation, 2026-09-11
+# Studio preservation
 
-Eight public cast exports were independently sanitized from origin/main. Their 4,666 event timestamps and channels are unchanged. The source and sanitized digests, replacements, and strict scan result are in cast-sanitization.json.
+The eight sanitized public casts are anchored at `e84eb5f7e56e196f836bd8cc5f9553faab7cb677`. Their 4,666 event timestamps and channels were preserved.
 
-The 19,845 previously untracked studio files (10,115,485,009 bytes) are copied into this local working tree and bound by preservation-manifest.json. These original files are not yet committed or approved for publication. The original scan found 259,569 blocking matches in 4,892 files, mostly personal home paths. Numeric OBJ/SVG geometry triggers 15,581 phone-pattern matches; those numbers were not altered. Signed receipts and sealed originals were not rewritten.
+Originals are retained unchanged in the gitignored private archive, protected by directory mode 0700. They must never be committed to timmy-tui. The full file manifest and signed preservation receipt stay private.
 
-The privacy commit hook remains enabled. Committing the preserved originals requires a decision on privacy disposition; this commit records the inventory and sanitized casts only.
+`preservation-manifest.json` contains only the manifest hash, sanitized commit, and `studio.preserve` receipt references. No original files or private file inventory are included.
