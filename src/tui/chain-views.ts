@@ -92,7 +92,36 @@ export function typedLines(r: Receipt): string[] {
         `  refused ${s(m, 'refused', 'what', 'subject_detail').slice(0, 24)}`,
         `  approved by ${s(m, 'approver', 'approved_by', 'who').slice(0, 12)} · ${s(m, 'reason').slice(0, 12)}`,
       ];
+    case 'unreal.render':
+      return [
+        `  stage ${s(m, 'stage').split('/').pop()?.slice(0, 18) ?? '—'} · cam ${s(m, 'cameras').split('/').pop()?.slice(0, 10) ?? '—'}`,
+        `  ${s(m, 'ms').slice(0, 6)}ms ok=${s(m, 'ok').slice(0, 5)} · proof ${h12(s(m, 'proof_sha256', 'stage_sha256'))}`,
+      ];
+    case 'rig.parity':
+      return [
+        `  rig ${s(m, 'rig', 'rig_id').slice(0, 16)} · parity ${s(m, 'parity', 'parity_pct').slice(0, 6)}`,
+        `  deltas ${s(m, 'deltas', 'delta_count').slice(0, 4)} · ${s(m, 'method').slice(0, 16)}`,
+      ];
+    case 'capture.face':
+      return [
+        `  subject ${s(m, 'subject', 'who').slice(0, 14)} · frames ${s(m, 'frames').slice(0, 5)}`,
+        `  quality ${s(m, 'quality', 'score').slice(0, 8)} · ${h12(s(m, 'capture_sha256', 'sha256'))}`,
+      ];
+    case 'tripo.generate': {
+      // ui-next: the never-measured flag is part of the view, not a footnote
+      const measured = m.measured === true || m.measured === 'true';
+      return [
+        `  model ${s(m, 'model').split('/').pop()?.slice(0, 14) ?? '—'} · ${s(m, 'ms').slice(0, 6)}ms ok=${s(m, 'ok').slice(0, 5)}`,
+        measured ? `  measured · ${h12(s(m, 'asset_sha256', 'sha256'))}` : '  NEVER MEASURED — no parity/proof sealed',
+      ];
+    }
     default:
+      if (subj.startsWith('signal.')) {
+        return [
+          `  round ${s(m, 'round', 'checkpoint').slice(0, 4)} · attention ${s(m, 'attention').slice(0, 3)}/20`,
+          `  ledger ${s(m, 'cumulative_reserved_usd', 'usd').slice(0, 6)} · ${s(m, 'type', 'scope').slice(0, 14)}`,
+        ];
+      }
       return [];
   }
 }

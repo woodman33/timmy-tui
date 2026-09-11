@@ -19,10 +19,13 @@ import { journeyRows, journeyDoneCount } from '../journey.js';
 import { typedLines, runIdOf } from '../chain-views.js';
 import * as warroom from '../../harness/warroom.js';
 import * as w2 from '../../harness/warroom2.js';
+import * as un from '../../harness/uinext.js';
 import { CommanderClient, edgeToken, type CommanderEvent } from '../../harness/commander.js';
 import { Card } from '../ui/Card.js';
 import { useAgent } from '../hooks/useAgent.js';
 import type { Agent } from '../../agent/core.js';
+import { IntegrationStatus } from './IntegrationStatus.js';
+import { integrationCatalog } from '../../vision/integrations/registry.js';
 
 // TUI REDESIGN (spec §01/§02/§03) — IA collapse: nine tabs become four.
 // HOME · RUN · CHAIN · LIBRARY. HOME is the journey ladder: seven steps read
@@ -113,6 +116,8 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   const [war2, setWar2] = useState<{ presets: w2.SwarmPreset[]; runs: w2.SwarmRun[]; nodes: w2.NodeStat[]; sbx: w2.SbxRun[]; ports: Record<string, string>; abilities: w2.AbilityRow[]; projects: w2.ProjectRow[] }>({ presets: [], runs: [], nodes: [], sbx: [], ports: {}, abilities: [], projects: [] });
   // chain-views-e6p2: [o] cross-links a swarm.run with its members + airgap
   const [chainLink, setChainLink] = useState<string | null>(null);
+  // ui-next: the Signal game state (null when no checkpoint exists)
+  const signalSt = un.signalState();
   const [warPanes, setWarPanes] = useState<warroom.WarPane[]>([]);
   const [spend, setSpend] = useState(0);
   const [handoff, setHandoff] = useState<{ harness: string; model: string } | null>(null);
@@ -737,17 +742,17 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
                 model: String(profile.harnesses.find(x => x.id === focusHarness)?.model ?? profile.commander.model).split('/').pop() ?? '',
               }} />
             <Box height={1} />
-            <EnginePane nodes={war2.nodes} />
+            <EnginePane nodes={war2.nodes} unreal={un.unrealRow(recs)} houdini={un.houdiniRow(recs)} />
             <Box height={1} />
             <BulkheadsPane sbx={war2.sbx} ports={war2.ports} runs={war2.runs} />
           </Box>
         )}
         {assembled && !narrow && s.tab === 'HOME' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            <Card title="LATEST PROOF" purpose="the only thing that glows green">
+            <Card title="LATEST RECEIPT" purpose="historical record · inspect its checks">
               {last ? (
                 <>
-                  <Text color={theme.seal}>✓ {last.hash.slice(0, 15)}</Text>
+                  <Text color={theme.textSecondary}>{last.hash.slice(0, 15)}</Text>
                   <Text color={theme.textMuted} wrap="truncate">{last.subject} · {stamp(last.ts)} · {ago(last.ts)}</Text>
                 </>
               ) : (
@@ -776,11 +781,14 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
             <FleetPane lanes={lanes} policy={policy} />
             <Box height={1} />
+            <OllamaPane strict={un.modelStrictness()} nodes={war2.nodes} />
+            <Box height={1} />
             <SkillsTree projects={war2.projects} />
           </Box>
         )}
         {assembled && !narrow && s.tab === 'RUN' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
+            {signalSt?.live ? <><SignalPane st={signalSt} /><Box height={1} /></> : null}
             <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} compact={compact} />
             {pendingEscrows[0] ? <><Box height={1} /><EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} /></> : null}
           </Box>
@@ -880,6 +888,7 @@ function HomePane(props: {
   fleet: number; costToday: number; model: string; harness: string; flash: string;
   pendingEscrows: Escrow[]; compact: boolean;
 }) {
+  const [integrations] = useState(() => integrationCatalog());
   const rows = journeyRows(props.recs);
   const done = rows.filter(r => r.state === 'done').length;
   const escrowOrange = props.pendingEscrows.length > 0;
@@ -909,13 +918,14 @@ function HomePane(props: {
       <Box height={1} />
       <Card title="STATUS" purpose={props.compact ? undefined : 'one line · off is dim, never red'} flexGrow={1}>
         <Text wrap="truncate">
-          <Text color={props.fleet > 0 ? PAL.seal : PAL.textMuted}>{`${props.fleet > 0 ? '●' : '○'} fleet ${props.fleet} connected`}</Text>
-          <Text color={props.busLive ? PAL.seal : PAL.textMuted}>{`  ${props.busLive ? '●' : '○'} bus ${props.busLive ? 'live' : 'quiet'}`}</Text>
+          <Text color={PAL.textSecondary}>{`${props.fleet > 0 ? '●' : '○'} fleet · ${props.fleet} available`}</Text>
+          <Text color={PAL.textMuted}>{`  bus ${props.busLive ? 'activity seen' : 'quiet'}`}</Text>
           <Text color={PAL.textMuted}>{`  ${props.docker ? '●' : '○'} docker ${props.docker ? 'on' : 'off'}`}</Text>
         </Text>
         <Text color={PAL.textMuted} wrap="truncate">
-          {`cost today $${props.costToday.toFixed(2)} · model policy: ${props.model} · harness: ${props.harness}`}
+          {`recorded cost $${props.costToday.toFixed(2)} · model policy: ${props.model} · harness: ${props.harness}`}
         </Text>
+        <IntegrationStatus entries={integrations} compact={props.compact} muted={PAL === DIM} />
       </Card>
     </Box>
   );
@@ -1339,7 +1349,7 @@ function SwarmPane(props: {
 
 // warroom-v2-c4m8 — ENGINE ROOM: fleet/nodes.json for identity, node.*
 // receipts for reachable · memory · loaded models · tok-per-s.
-function EnginePane(props: { nodes: w2.NodeStat[] }) {
+function EnginePane(props: { nodes: w2.NodeStat[]; unreal: un.UnrealRow; houdini: un.HoudiniRow }) {
   return (
     <Card title="ENGINE ROOM" purpose="fleet/nodes.json + node receipts">
       {props.nodes.length === 0 ? (
@@ -1349,6 +1359,55 @@ function EnginePane(props: { nodes: w2.NodeStat[] }) {
           {`${n.id.slice(0, 7).padEnd(7)} ${n.reachable ? 'up  ' : 'down'} ${(n.memGb ? `${n.memGb}G` : 'mem?').padEnd(5)} ${String(n.models.length).padStart(2)}mdl ${(n.tokPerS ? `${Math.round(n.tokPerS)}t/s` : 't/s?').padEnd(6)}`}
         </Text>
       ))}
+      {props.unreal.present && (
+        <>
+          <Text color={PAL.textSecondary}>{`unreal  proj ${props.unreal.root.padEnd(6)} RC ${props.unreal.rc ? 'ok  ' : 'miss'} Py ${props.unreal.py}`.slice(0, 40)}</Text>
+          <Text color={PAL.textMuted}>{`  last render ${props.unreal.lastRender ? `${props.unreal.lastRender.hash} ${props.unreal.lastRender.stage}` : 'none yet (collector pending)'}`.slice(0, 40)}</Text>
+        </>
+      )}
+      {props.houdini.present && (
+        <>
+          <Text color={PAL.textSecondary}>{`houdini ${props.houdini.version.slice(0, 10)} ${props.houdini.installed ? 'inst' : 'miss'} · ${props.houdini.bridge.slice(0, 8)}`}</Text>
+          <Text color={PAL.textMuted}>{`  drop ${String(props.houdini.dropRuns).padStart(2)} runs · tpl ${String(props.houdini.templates).padStart(2)} proven ${String(props.houdini.proven).padStart(2)}`}</Text>
+        </>
+      )}
+    </Card>
+  );
+}
+
+// ui-next — Ollama local/cloud model rows with FIT + schema strictness
+// (captain's model-strictness table; unlisted models are 'never' measured)
+function OllamaPane(props: { strict: un.StrictRow[]; nodes: w2.NodeStat[] }) {
+  const strictOf = (id: string): string => props.strict.find(r => r.model === id)?.schema ?? 'never';
+  const local = props.nodes.flatMap(n => n.models.map(m => ({ m, n: n.id })));
+  const cloud = props.strict.filter(r => !local.some(l => l.m === r.model));
+  const rows = [
+    ...local.map(l => {
+      const f = w2.modelFit(l.n, l.m);
+      return { id: l.m, tag: 'local', fit: f === true ? 'FIT' : f === false ? 'NOFIT' : '?', schema: strictOf(l.m) };
+    }),
+    ...cloud.map(c => ({ id: c.model, tag: 'cloud', fit: 'edge', schema: c.schema })),
+  ].slice(0, 8);
+  return (
+    <Card title="OLLAMA LOCAL/CLOUD" purpose="FIT + schema strictness">
+      {rows.length === 0 ? (
+        <Text color={PAL.textMuted}>no models measured</Text>
+      ) : rows.map(r => (
+        <Text key={r.id + r.tag} color={PAL.textSecondary}>
+          {`${r.id.split('/').pop()?.slice(0, 18).padEnd(18) ?? '—'} ${r.tag.padEnd(5)} ${r.fit.padEnd(5)} ${r.schema.slice(0, 7)}`}
+        </Text>
+      ))}
+    </Card>
+  );
+}
+
+// ui-next — SIGNAL panel: round, ledger, Attention while the game is live
+function SignalPane(props: { st: un.SignalState }) {
+  return (
+    <Card title="SIGNAL" purpose="the-signal game · live">
+      <Text color={PAL.seal}>{`round ${String(props.st.round).padStart(2)} · ${props.st.status}`}</Text>
+      <Text color={PAL.textSecondary}>{`Attention ${String(props.st.attention).padStart(2)}/20 · ledger ${props.st.rows} rows`}</Text>
+      <Text color={PAL.textMuted}>{`reserved $${props.st.reserved.toFixed(2)} · cp ${props.st.receipt}`}</Text>
     </Card>
   );
 }
