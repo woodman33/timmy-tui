@@ -182,8 +182,13 @@ if (import.meta.url === new URL(`file://${process.argv[1]}`).href || process.arg
       const fx = join(HERE, 'fixtures', 'must-fail.txt');
       const f = scanText(readFileSync(fx, 'utf8'), relative(ROOT, fx), P, 'fixture');
       const g = gate(f);
-      const ok = g.length >= 8 && ['critical', 'high', 'medium'].every((s) => g.some((x) => x.severity === s));
-      console.log(JSON.stringify({ ok, fixture: relative(ROOT, fx), findings: f.length, gated: g.length, severities: summarize(g).by_severity, note: ok ? 'the negative control trips the gate' : 'THE GATE IS BROKEN: the must-fail fixture did not trip it' }));
+      const trips = g.length >= 8 && ['critical', 'high', 'medium'].every((s) => g.some((x) => x.severity === s));
+      // …and the tree/staged/history scans must skip the fixture itself (patterns.json ignore_paths),
+      // or the negative control would fail every real scan. Both facts are asserted together.
+      const excluded = P.ignore.some((rx) => rx.test(relative(ROOT, fx)));
+      const ok = trips && excluded;
+      const note = !trips ? 'THE GATE IS BROKEN: the must-fail fixture did not trip it' : !excluded ? 'THE GATE IS BROKEN: the fixture is not in ignore_paths, so every tree scan would fail on it' : 'the negative control trips the gate and is excluded from tree scans';
+      console.log(JSON.stringify({ ok, fixture: relative(ROOT, fx), findings: f.length, gated: g.length, severities: summarize(g).by_severity, excluded_from_tree_scans: excluded, note }));
       process.exit(ok ? 0 : 1);
     }
     if (cmd === 'hook') {
