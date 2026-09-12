@@ -70,7 +70,7 @@ response = client.chat.completions.create(
         "service_tier": "{policy.service_tier.lower() if policy.service_tier else 'auto'}"
     }},
     extra_headers={{
-        "HTTP-Referer": "https://founder-terminal.williammeldman.dev",
+        "HTTP-Referer": "https://founder-terminal.example.dev",
         "X-Title": "TIMMY AgentOps Control Plane",
         "OpenRouter-Response-Cache": "{cache_hdr}"
     }}

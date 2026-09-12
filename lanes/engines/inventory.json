@@ -21,7 +21,7 @@
    },
    "primary_binary": "/Applications/Houdini/Current/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hython",
    "envlock_sha256": "381b459627480cb8ea00c8ca82e63d2f0a3e16ee9dc0d293f1fd234e94430719",
-   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/houdini/env-lock.json",
+   "envlock": "<repo>/lanes/engines/houdini/env-lock.json",
    "mcp": "houdini-gen",
    "templates": [
     "karma-still",
@@ -51,7 +51,7 @@
    },
    "primary_binary": null,
    "envlock_sha256": "c79526097803f19e0ecd691abbb55d6e1cc7970981df20e059f7a2d815ca6050",
-   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/unreal/env-lock.json",
+   "envlock": "<repo>/lanes/engines/unreal/env-lock.json",
    "mcp": "unreal-mcp",
    "templates": [
     "blueprint-bake",
@@ -81,7 +81,7 @@
    },
    "primary_binary": "/usr/bin/usdcat",
    "envlock_sha256": "ba29c8f0c6cb797ddd1d71813dbe0a0bf1eced8cfe3015567d892a711c0eb9c5",
-   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/usd/env-lock.json",
+   "envlock": "<repo>/lanes/engines/usd/env-lock.json",
    "mcp": null,
    "templates": [
     "usd-flatten",
@@ -110,7 +110,7 @@
    },
    "primary_binary": null,
    "envlock_sha256": "c494190a6841529b9ba19534517ce76934407b0d5d0fdc9b33dfd8f776739c3f",
-   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/unity/env-lock.json",
+   "envlock": "<repo>/lanes/engines/unity/env-lock.json",
    "mcp": null,
    "templates": [
     "asset-import",
@@ -137,12 +137,12 @@
    ],
    "binaries": {
     "java": "/Applications/Defold.app/Contents/Resources/packages/jdk-25+36/bin/java",
-    "bob": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/defold/.cache/bob-574678c7.jar",
+    "bob": "<repo>/lanes/defold/.cache/bob-574678c7.jar",
     "defold": "/Applications/Defold.app/Contents/MacOS/Defold"
    },
    "primary_binary": "/Applications/Defold.app/Contents/Resources/packages/jdk-25+36/bin/java",
    "envlock_sha256": "2ccb19439e15568d10efc52038ee45f3eb7458e80093b3f54ce7a03279d8cafb",
-   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/defold/env-lock.json",
+   "envlock": "<repo>/lanes/engines/defold/env-lock.json",
    "mcp": null,
    "templates": [
     "html5-bundle",
@@ -171,7 +171,7 @@
    },
    "primary_binary": null,
    "envlock_sha256": "93bbe2c9f63e0ef7ea1696dae1e8334095de71c72597d619971309214c21d555",
-   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/cocos/env-lock.json",
+   "envlock": "<repo>/lanes/engines/cocos/env-lock.json",
    "mcp": null,
    "templates": [
     "asset-pack",
@@ -200,7 +200,7 @@
    },
    "primary_binary": null,
    "envlock_sha256": "793c47a331e9e2c85320c54e9ae8d79a6ada9d952d07a6cb4a654eda8fdb18e2",
-   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/godot/env-lock.json",
+   "envlock": "<repo>/lanes/engines/godot/env-lock.json",
    "mcp": null,
    "templates": [
     "gdscript-run",
@@ -229,7 +229,7 @@
    },
    "primary_binary": "/Applications/Blender.app/Contents/MacOS/Blender",
    "envlock_sha256": "708ba4d85d0229d343cf5146fa06a2fcd98ddbc7aa5c1549e7e9992f74f102d4",
-   "envlock": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/engines/blender/env-lock.json",
+   "envlock": "<repo>/lanes/engines/blender/env-lock.json",
    "mcp": null,
    "templates": [
     "glb-export",

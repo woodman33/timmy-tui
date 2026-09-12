@@ -4607,13 +4607,13 @@
         "content": [
           {
             "type": "text",
-            "text": "{\"status\":\"ok\",\"houdini_version\":\"22.0.429\",\"hip_file\":\"/Users/williammeldman/Documents/Houdini Anomaly Final/Anomaly_Compact_v3_depth_preview.hipnc\",\"fps\":24.0,\"pid\":35005,\"uptime_s\":111407.59,\"bridge_version\":\"0.3.1\"}"
+            "text": "{\"status\":\"ok\",\"houdini_version\":\"22.0.429\",\"hip_file\":\"<home>/Documents/Houdini Anomaly Final/Anomaly_Compact_v3_depth_preview.hipnc\",\"fps\":24.0,\"pid\":35005,\"uptime_s\":111407.59,\"bridge_version\":\"0.3.1\"}"
           }
         ],
         "structuredContent": {
           "status": "ok",
           "houdini_version": "22.0.429",
-          "hip_file": "/Users/williammeldman/Documents/Houdini Anomaly Final/Anomaly_Compact_v3_depth_preview.hipnc",
+          "hip_file": "<home>/Documents/Houdini Anomaly Final/Anomaly_Compact_v3_depth_preview.hipnc",
           "fps": 24.0,
           "pid": 35005,
           "uptime_s": 111407.59,
@@ -8988,13 +8988,13 @@
           "content": [
             {
               "type": "text",
-              "text": "{\"status\":\"ok\",\"houdini_version\":\"22.0.429\",\"hip_file\":\"/Users/williammeldman/Documents/Houdini Anomaly Final/Anomaly_Compact_v3_depth_preview.hipnc\",\"fps\":24.0,\"pid\":35005,\"uptime_s\":111407.59,\"bridge_version\":\"0.3.1\"}"
+              "text": "{\"status\":\"ok\",\"houdini_version\":\"22.0.429\",\"hip_file\":\"<home>/Documents/Houdini Anomaly Final/Anomaly_Compact_v3_depth_preview.hipnc\",\"fps\":24.0,\"pid\":35005,\"uptime_s\":111407.59,\"bridge_version\":\"0.3.1\"}"
             }
           ],
           "structuredContent": {
             "status": "ok",
             "houdini_version": "22.0.429",
-            "hip_file": "/Users/williammeldman/Documents/Houdini Anomaly Final/Anomaly_Compact_v3_depth_preview.hipnc",
+            "hip_file": "<home>/Documents/Houdini Anomaly Final/Anomaly_Compact_v3_depth_preview.hipnc",
             "fps": 24.0,
             "pid": 35005,
             "uptime_s": 111407.59,

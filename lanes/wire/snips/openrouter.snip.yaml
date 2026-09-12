@@ -6684,7 +6684,7 @@ externalDocs:
   url: https://openrouter.ai/docs
 info:
   contact:
-    email: support@openrouter.ai
+    email: <email>
     name: OpenRouter Support
     url: https://openrouter.ai/docs
   description: OpenAI-compatible API with additional OpenRouter features

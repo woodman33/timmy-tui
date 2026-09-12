@@ -296,14 +296,14 @@
       "timestamp": "2026-09-07T05:41:22.407346-07:00",
       "direction": "stderr",
       "kind": "stderr",
-      "text": "{\"level\":\"info\",\"time\":\"2026-09-07T12:41:22.406Z\",\"pid\":45403,\"hostname\":\"Williams-MacBook-Pro-2.local\",\"tools\":[\"execute\",\"search_docs\"],\"msg\":\"MCP Server starting with 2 tools\"}"
+      "text": "{\"level\":\"info\",\"time\":\"2026-09-07T12:41:22.406Z\",\"pid\":45403,\"hostname\":\"<hostname>.local\",\"tools\":[\"execute\",\"search_docs\"],\"msg\":\"MCP Server starting with 2 tools\"}"
     },
     {
       "seq": 4,
       "timestamp": "2026-09-07T05:41:22.488722-07:00",
       "direction": "stderr",
       "kind": "stderr",
-      "text": "{\"level\":\"info\",\"time\":\"2026-09-07T12:41:22.488Z\",\"pid\":45403,\"hostname\":\"Williams-MacBook-Pro-2.local\",\"msg\":\"MCP Server running on stdio\"}"
+      "text": "{\"level\":\"info\",\"time\":\"2026-09-07T12:41:22.488Z\",\"pid\":45403,\"hostname\":\"<hostname>.local\",\"msg\":\"MCP Server running on stdio\"}"
     },
     {
       "seq": 5,

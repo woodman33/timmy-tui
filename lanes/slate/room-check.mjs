@@ -14,7 +14,7 @@ const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d; };
 const ROOM = opt('--room', 'slate:ledger');
 const WORKER = opt('--worker', 'https://timmy-ai-proxy-preview.wmeldman33.workers.dev').replace(/\/$/, '');
-const REPO = process.env.TIMMY_REPO ?? '/Users/williammeldman/Desktop/Code-Projects/timmy-tui';
+const REPO = process.env.TIMMY_REPO ?? '<repo>';
 const PORT = Number(process.env.SLATE_PORT ?? 3112);
 const OUT = join(ROOT, 'vault-custody', 'renders', 'slate3d');
 const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');

@@ -658,7 +658,7 @@
         "errors": 0,
         "metadata": {
           "args": [
-            "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/wire/exec.mjs",
+            "<repo>/lanes/wire/exec.mjs",
             "open-design"
           ],
           "command": "/opt/homebrew/Cellar/node/26.6.0/bin/node",

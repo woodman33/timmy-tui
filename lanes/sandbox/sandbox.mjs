@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const HERE = join(ROOT, 'lanes', 'sandbox');
 const RUNS = join(HERE, 'runs');
-const PY = process.env.OPENHANDS_PY ?? '/Users/williammeldman/.local/share/uv/tools/openhands/bin/python';
+const PY = process.env.OPENHANDS_PY ?? '<home>/.local/share/uv/tools/openhands/bin/python';
 const SCRATCH = process.env.SANDBOX_SCRATCH ?? join(process.env.HOME ?? '/tmp', '.timmy-sandbox');
 const args = process.argv.slice(2);
 const flag = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d; };

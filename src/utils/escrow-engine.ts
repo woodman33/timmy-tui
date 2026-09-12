@@ -6,13 +6,13 @@
 // verified AgentPass Merkle proof + Roboflow QA ≥ threshold at judge time.
 // Every transition is CUE-validated, receipted, and fails closed.
 import { spawnSync } from 'child_process';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, readdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
-import { appendReceipt } from './receipts.js';
-import { appendEvent } from './eventbus.js';
+import { appendReceipt, receiptsDir } from './receipts.js';
+import { publish as appendEvent } from '../bus/index.js';
 import { verifyAgentPass, type AgentPass } from './agent-pass.js';
 
 export type EscrowState = 'armed' | 'locked' | 'judged' | 'settled' | 'slashed';
@@ -53,7 +53,7 @@ export function validateEscrowCue(e: unknown): { ok: boolean; note?: string; err
   return { ok: true };
 }
 
-const escrowPath = (id: string, dir?: string): string => join(dir ?? process.cwd(), '.timmy', 'escrow', `${id}.json`);
+const escrowPath = (id: string, dir?: string): string => join(dir ?? dirname(receiptsDir()), 'escrow', `${id}.json`);
 const readEscrow = (id: string, dir?: string): Escrow | null => {
   try { return JSON.parse(readFileSync(escrowPath(id, dir), 'utf8')) as Escrow; } catch { return null; }
 };
@@ -62,6 +62,19 @@ const writeEscrow = (e: Escrow, dir?: string): void => {
   mkdirSync(dirname(p), { recursive: true });
   writeFileSync(p, JSON.stringify(e, null, 2));
 };
+
+// FIX C (director, tui-redesign step 5): Home needs the pending-escrow set to
+// decide the single orange element. Scans the store's escrow dir (honors the
+// same resolution as receipts, so tests see their own store).
+export function listEscrows(dir?: string): Escrow[] {
+  const base = dir ? join(dir, '.timmy', 'escrow') : join(dirname(receiptsDir()), 'escrow');
+  try {
+    return readdirSync(base)
+      .filter(f => f.endsWith('.json'))
+      .map(f => { try { return JSON.parse(readFileSync(join(base, f), 'utf8')) as Escrow; } catch { return null; } })
+      .filter((e): e is Escrow => Boolean(e));
+  } catch { return []; }
+}
 
 function transition(e: Escrow, to: EscrowState, reason: string | undefined, receiptSubject: string, dir?: string): { ok: boolean; escrow?: Escrow; note?: string } {
   if (!LEGAL[e.state].includes(to)) return { ok: false, note: `illegal transition ${e.state}→${to}` };
@@ -152,13 +165,15 @@ export function settleEscrow(id: string, dir?: string): { ok: boolean; escrow?: 
   return transition(e, 'settled', undefined, `settled · refund ${e.refund_usd}`, dir);
 }
 
-// cancel refunds the undrawn ceiling (register V-03 criterion)
-export function cancelEscrow(id: string, dir?: string): { ok: boolean; escrow?: Escrow; note?: string } {
+// cancel refunds the undrawn ceiling (register V-03 criterion); an optional
+// human reason rides in the transition + receipt discrepancies (spec §02: r
+// refuses with a reason).
+export function cancelEscrow(id: string, reason?: string, dir?: string): { ok: boolean; escrow?: Escrow; note?: string } {
   const e = readEscrow(id, dir);
   if (!e) return { ok: false, note: 'unknown escrow' };
   if (e.state !== 'armed' && e.state !== 'locked') return { ok: false, note: `cancel requires armed|locked (state ${e.state})` };
   e.refund_usd = Math.round((e.ceiling_usd - e.drawn_usd) * 1e6) / 1e6;
-  return transition(e, 'settled', 'cancelled: refund ceiling − drawn', `cancelled · refund ${e.refund_usd}`, dir);
+  return transition(e, 'settled', reason ? `cancelled by human: ${reason}` : 'cancelled: refund ceiling − drawn', `cancelled · refund ${e.refund_usd}`, dir);
 }
 
 export function slashEscrow(id: string, reason: string, dir?: string): { ok: boolean; escrow?: Escrow; note?: string } {

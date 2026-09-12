@@ -6,7 +6,7 @@
  "engine": "unreal",
  "workflow": "level-import",
  "proven": false,
- "note": "AUTHORED, UNPROVEN: there is no Unreal Editor on this Mac (expected under /Users/Shared/Epic Games/UE_5.*). The command is Epic's ImportAssets commandlet run headless; it becomes proven the first time a runner with the editor executes it through a drop folder and seals engine.run.",
+ "note": "AUTHORED, UNPROVEN: there is no Unreal Editor on this Mac (expected under <home>/Epic Games/UE_5.*). The command is Epic's ImportAssets commandlet run headless; it becomes proven the first time a runner with the editor executes it through a drop folder and seals engine.run.",
  "sheets": [
   { "id": "inputs", "title": "Inputs · drop/", "rows": [
    { "label": "mesh", "value": "*.fbx · *.obj", "note": "rules: run (needs a .uproject sidecar)" },

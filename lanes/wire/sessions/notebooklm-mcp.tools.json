@@ -1035,7 +1035,7 @@
  },
  {
   "name": "notebook_share_batch",
-  "description": "Invite multiple collaborators in a single request.\n\nArgs:\n    notebook_id: Notebook UUID\n    recipients: List of dicts, each with 'email' (str) and optional 'role' (str).\n                Role defaults to 'viewer'. Example: [{\"email\": \"a@b.com\", \"role\": \"editor\"}]\n    confirm: Must be True after user approval\n\nReturns: invited_count, recipients list, and message",
+  "description": "Invite multiple collaborators in a single request.\n\nArgs:\n    notebook_id: Notebook UUID\n    recipients: List of dicts, each with 'email' (str) and optional 'role' (str).\n                Role defaults to 'viewer'. Example: [{\"email\": \"<email>\", \"role\": \"editor\"}]\n    confirm: Must be True after user approval\n\nReturns: invited_count, recipients list, and message",
   "inputSchema": {
    "type": "object",
    "properties": {
