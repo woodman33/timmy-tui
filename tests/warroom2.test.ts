@@ -10,6 +10,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ShellV2 } from '../src/tui/components/ShellV2.js';
 import { shellOnKey, initialShell } from '../src/tui/shell-mode.js';
+
+// ui-cockpit-k7m3 C5: rows are bounded now — a 120-column content check needs the
+// 120x40 reference grid, or the rail folds cards it can no longer fit
+Object.defineProperty(process.stdout, 'rows', { value: 40, configurable: true });
 import { footerHintsShellShort } from '../src/tui/keymap.js';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));

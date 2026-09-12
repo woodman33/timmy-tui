@@ -37,10 +37,13 @@ export function ShellFooter({ mode, tab, chainOk, chainCount, busLive, width = 1
   );
 }
 
-export function WhichKeyOverlay({ mode, tab }: { mode: ShellMode; tab: ShellTab }) {
+// ui-cockpit-k7m3 C5: the overlay is as wide as the shell (it was a fixed 100
+// columns, wider than an 80-column terminal) and the caller positions it over
+// the body so it never adds rows below the fold.
+export function WhichKeyOverlay({ mode, tab, width = 100 }: { mode: ShellMode; tab: ShellTab; width?: number }) {
   const groups = whichKeyGroupsShell(mode, tab);
   return (
-    <Box flexDirection="column" backgroundColor={theme.surfaceRaised} paddingX={2} width={100}>
+    <Box flexDirection="column" backgroundColor={theme.surfaceRaised} paddingX={2} width={width}>
       <Text bold color={theme.textPrimary}> KEYS · {mode} · {tab} </Text>
       <Box>
         {groups.map(g => (
