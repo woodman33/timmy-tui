@@ -31,6 +31,9 @@ beforeAll(() => {
   w('lanes/demos/families.json', JSON.stringify({ v: 1, families: [
     { id: 'card-film', family: 'card-film', demo: 'canvas', open: 'renders/card-film/index.html', prediction: { text: 'cheap/local wins', seal: 'sha256_aaaaaaaa11111111' }, evidence: { path: 'cut/x.mp4', seal: 'sha256_bbbbbbbb22222222' }, scope: 'historical', origin: 'intake' },
     { id: 'house', family: 'house', demo: 'native', open: null, prediction: { text: 'span matches', seal: null }, evidence: { path: null, seal: null }, scope: 'cutaway', origin: 'survey' },
+    { id: 'unreal-observatory', family: 'unreal-observatory', demo: 'native', open: null, prediction: { text: 'rc render matches', seal: null }, evidence: { path: null, seal: null }, fill: 'unreal.render', scope: 'cutaway', origin: 'unreal lane' },
+    { id: 'grand-canyon', family: 'grand-canyon', demo: 'native', open: null, prediction: { text: 'stage import survives', seal: null }, evidence: { path: null, seal: null }, fill: 'unreal.stage-import', scope: 'cutaway', origin: 'unreal lane' },
+    { id: 'signal', family: 'signal', demo: 'canvas', open: null, prediction: { text: 'day replays', seal: null }, evidence: { path: null, seal: null }, fill: 'signal.', scope: 'historical', origin: 'signal lane' },
   ] }));
   for (const k of ['TIMMY_REPO_ROOT', 'TIMMY_STORE', 'TIMMY_DEMO']) saved[k] = process.env[k];
   process.env.TIMMY_REPO_ROOT = root;
@@ -58,10 +61,25 @@ async function until(view: ReturnType<typeof render>, pred: (f: string) => boole
 describe('demos readers + typed studio.preserve', () => {
   it('families carry prediction/evidence seals; missing seals are inert dashes', () => {
     const rows = demosRows();
-    expect(rows.length).toBe(2);
+    expect(rows.length).toBe(5);
     expect(rows[0].prediction.seal).toBe('aaaaaaaa');
     expect(rows[0].evidence.seal).toBe('bbbbbbbb');
     expect(rows[1].prediction.seal).toBeNull();
+  });
+  it('null seals fill from unreal.render / unreal.stage-import / signal.* receipts', () => {
+    const render_ = rec('unreal.render', { stage: 'world-01/observatory.usdc', ms: '4200', ok: 'true', prediction_seal: 'sha256_dddddddd44444444' });
+    const sig = rec('signal.round', { round: '3', attention: '9' });
+    const rows = demosRows([render_, sig]);
+    const obs = rows.find(r => r.id === 'unreal-observatory');
+    const canyon = rows.find(r => r.id === 'grand-canyon');
+    const signal = rows.find(r => r.id === 'signal');
+    expect(obs?.evidence.seal).toBe(String(render_.hash).slice(7, 15));
+    expect(obs?.prediction.seal).toBe('dddddddd');
+    expect(canyon?.evidence.seal).toBeNull(); // no unreal.stage-import receipt yet
+    expect(canyon?.prediction.seal).toBeNull();
+    expect(signal?.evidence.seal).toBe(String(sig.hash).slice(7, 15));
+    // families without a fill source keep their static seals/dashes
+    expect(rows.find(r => r.id === 'card-film')?.evidence.seal).toBe('bbbbbbbb');
   });
   it('studio.preserve renders studio, project, preserved count and sha', () => {
     const lines = typedLines(rec('studio.preserve', { studio: 'houdini-22', project: 'house-fix', preserved: '7', preserve_sha256: 'sha256_cccccccc33333333' }));

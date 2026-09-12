@@ -110,23 +110,38 @@ export interface DemoRow {
   id: string; family: string; demo: 'canvas' | 'native'; open: string | null;
   prediction: { text: string; seal: string | null };
   evidence: { path: string | null; seal: string | null };
-  scope: string; origin: string;
+  scope: string; origin: string; fill: string | null;
 }
 /** ui-next-2: the curated portfolio-family demo index (lanes/demos/families.json).
  *  Missing registry ⇒ empty list; null seals render as inert dashes. */
-export function demosRows(): DemoRow[] {
+export function demosRows(recs: { subject: string; hash?: string; sources?: unknown[] }[] = []): DemoRow[] {
   const j = readJson(join(root(), 'lanes', 'demos', 'families.json'));
-  const fams = (j?.families ?? []) as DemoRow[];
-  return fams.map(f => ({
-    id: String(f.id ?? f.family ?? '?'),
-    family: String(f.family ?? f.id ?? '?'),
-    demo: f.demo === 'native' ? 'native' : 'canvas',
-    open: f.open ? String(f.open) : null,
-    prediction: { text: String(f.prediction?.text ?? '—'), seal: f.prediction?.seal ? String(f.prediction.seal).replace(/^sha256_/, '').slice(0, 8) : null },
-    evidence: { path: f.evidence?.path ? String(f.evidence.path) : null, seal: f.evidence?.seal ? String(f.evidence.seal).replace(/^sha256_/, '').slice(0, 8) : null },
-    scope: String(f.scope ?? '—'),
-    origin: String(f.origin ?? '—'),
-  }));
+  const fams = (j?.families ?? []) as (DemoRow & { fill?: string })[];
+  return fams.map(f => {
+    const fill = f.fill ? String(f.fill) : null;
+    // null seals fill from the lane's receipts the moment those exist:
+    // EV from the newest matching receipt, PRED from its prediction reference
+    const src = fill ? [...recs].reverse().find(r => String(r.subject).startsWith(fill)) ?? null : null;
+    const m = (src?.sources?.[0] ?? {}) as Record<string, unknown>;
+    const h8 = (v: unknown): string | null => (typeof v === 'string' && v ? String(v).replace(/^sha256_/, '').slice(0, 8) : null);
+    return {
+      id: String(f.id ?? f.family ?? '?'),
+      family: String(f.family ?? f.id ?? '?'),
+      demo: f.demo === 'native' ? 'native' : 'canvas',
+      open: f.open ? String(f.open) : null,
+      prediction: {
+        text: String(f.prediction?.text ?? '—'),
+        seal: f.prediction?.seal ? h8(f.prediction.seal) : (src ? h8(m.prediction_seal ?? m.prediction_receipt) : null),
+      },
+      evidence: {
+        path: f.evidence?.path ? String(f.evidence.path) : null,
+        seal: f.evidence?.seal ? h8(f.evidence.seal) : (src ? h8(src.hash) : null),
+      },
+      scope: String(f.scope ?? '—'),
+      origin: String(f.origin ?? '—'),
+      fill,
+    };
+  });
 }
 
 /** [Enter] on an armed demo row: canvas opens in the browser worker surface,

@@ -1,12 +1,153 @@
 {
-  "v": 1,
-  "note": "ui-next-2: curated portfolio-family demo index (presentation plan 2026-09-10). demo = the surface that shows the result: canvas (browser worker) or native (the specialist app). prediction/evidence carry seal ids when a sealed prediction or evidence receipt exists; null = not yet sealed (row shows an inert dash, never a fake id). Paths are repo-relative; ignored artifacts stay inert when absent.",
-  "families": [
-    { "id": "card-film", "family": "card-film", "demo": "canvas", "open": "renders/card-film/index.html", "prediction": { "text": "cheap/local completion beats paid route on this cut", "seal": null }, "evidence": { "path": "cut/clips-card/intake.mp4", "seal": null }, "scope": "historical", "origin": "intake receipts" },
-    { "id": "house", "family": "house", "demo": "native", "open": null, "prediction": { "text": "native CAD route reproduces the measured span", "seal": null }, "evidence": { "path": null, "seal": null }, "scope": "cutaway", "origin": "house survey" },
-    { "id": "cad-fabrication", "family": "cad-fabrication", "demo": "native", "open": null, "prediction": { "text": "fabrication print matches the modeled tolerance", "seal": null }, "evidence": { "path": null, "seal": null }, "scope": "cutaway", "origin": "cad lane" },
-    { "id": "courier", "family": "courier", "demo": "canvas", "open": null, "prediction": { "text": "route plan survives the observed delay band", "seal": null }, "evidence": { "path": null, "seal": null }, "scope": "cutaway", "origin": "courier log" },
-    { "id": "material-effects", "family": "material-effects", "demo": "native", "open": null, "prediction": { "text": "houdini sim stays inside the preserved budget", "seal": null }, "evidence": { "path": null, "seal": null }, "scope": "cutaway", "origin": "engines shelf" },
-    { "id": "vector-motion", "family": "vector-motion", "demo": "canvas", "open": null, "prediction": { "text": "vector study replays deterministically from seed", "seal": null }, "evidence": { "path": null, "seal": null }, "scope": "cutaway", "origin": "rive lane" }
-  ]
+ "v": 1,
+ "note": "ui-next-2: curated portfolio-family demo index (presentation plan 2026-09-10). demo = the surface that shows the result: canvas (browser worker) or native (the specialist app). prediction/evidence carry seal ids when a sealed prediction or evidence receipt exists; null = not yet sealed (row shows an inert dash, never a fake id). Paths are repo-relative; ignored artifacts stay inert when absent.",
+ "families": [
+  {
+   "id": "card-film",
+   "family": "card-film",
+   "demo": "canvas",
+   "open": "renders/card-film/index.html",
+   "prediction": {
+    "text": "cheap/local completion beats paid route on this cut",
+    "seal": null
+   },
+   "evidence": {
+    "path": "cut/clips-card/intake.mp4",
+    "seal": null
+   },
+   "scope": "historical",
+   "origin": "intake receipts"
+  },
+  {
+   "id": "house",
+   "family": "house",
+   "demo": "native",
+   "open": null,
+   "prediction": {
+    "text": "native CAD route reproduces the measured span",
+    "seal": null
+   },
+   "evidence": {
+    "path": null,
+    "seal": null
+   },
+   "scope": "cutaway",
+   "origin": "house survey"
+  },
+  {
+   "id": "cad-fabrication",
+   "family": "cad-fabrication",
+   "demo": "native",
+   "open": null,
+   "prediction": {
+    "text": "fabrication print matches the modeled tolerance",
+    "seal": null
+   },
+   "evidence": {
+    "path": null,
+    "seal": null
+   },
+   "scope": "cutaway",
+   "origin": "cad lane"
+  },
+  {
+   "id": "courier",
+   "family": "courier",
+   "demo": "canvas",
+   "open": null,
+   "prediction": {
+    "text": "route plan survives the observed delay band",
+    "seal": null
+   },
+   "evidence": {
+    "path": null,
+    "seal": null
+   },
+   "scope": "cutaway",
+   "origin": "courier log"
+  },
+  {
+   "id": "material-effects",
+   "family": "material-effects",
+   "demo": "native",
+   "open": null,
+   "prediction": {
+    "text": "houdini sim stays inside the preserved budget",
+    "seal": null
+   },
+   "evidence": {
+    "path": null,
+    "seal": null
+   },
+   "scope": "cutaway",
+   "origin": "engines shelf"
+  },
+  {
+   "id": "vector-motion",
+   "family": "vector-motion",
+   "demo": "canvas",
+   "open": null,
+   "prediction": {
+    "text": "vector study replays deterministically from seed",
+    "seal": null
+   },
+   "evidence": {
+    "path": null,
+    "seal": null
+   },
+   "scope": "cutaway",
+   "origin": "rive lane"
+  },
+  {
+   "id": "unreal-observatory",
+   "family": "unreal-observatory",
+   "demo": "native",
+   "open": null,
+   "prediction": {
+    "text": "RC-route render matches the preserved stage import",
+    "seal": null
+   },
+   "evidence": {
+    "path": null,
+    "seal": null
+   },
+   "fill": "unreal.render",
+   "scope": "cutaway",
+   "origin": "unreal lane"
+  },
+  {
+   "id": "grand-canyon",
+   "family": "grand-canyon",
+   "demo": "native",
+   "open": null,
+   "prediction": {
+    "text": "stage import survives the RC/Python channel check",
+    "seal": null
+   },
+   "evidence": {
+    "path": null,
+    "seal": null
+   },
+   "fill": "unreal.stage-import",
+   "scope": "cutaway",
+   "origin": "unreal lane"
+  },
+  {
+   "id": "signal",
+   "family": "signal",
+   "demo": "canvas",
+   "open": null,
+   "prediction": {
+    "text": "authored day replays deterministically from seed",
+    "seal": null
+   },
+   "evidence": {
+    "path": null,
+    "seal": null
+   },
+   "fill": "signal.",
+   "scope": "historical",
+   "origin": "signal lane"
+  }
+ ]
 }

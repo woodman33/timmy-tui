@@ -796,7 +796,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
             <Box height={1} />
             <OllamaPane strict={un.modelStrictness()} nodes={war2.nodes} />
             <Box height={1} />
-            <DemosPane rows={un.demosRows()} sel={demoSel} armed={s.demoArmed} />
+            <DemosPane rows={un.demosRows(recs)} sel={demoSel} armed={s.demoArmed} />
             <Box height={1} />
             <SkillsTree projects={war2.projects} />
           </Box>
