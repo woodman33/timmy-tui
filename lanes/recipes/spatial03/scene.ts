@@ -40,18 +40,19 @@ export function scene(o:any,sourceReceipt:string,revision:string,radius=4.5,disp
  validateObservations(o);if(!Number.isFinite(radius)||radius<3||radius>9)throw Error('Envelope radius must be 3…9 mm');
  const variant=o.variants.find((v:any)=>v.variant==='w140');
  const intentHash=crypto.createHash('sha256').update(JSON.stringify({revision,radius})).digest('hex');
- return sceneSchema.parse({schema:'timmy.scene-ir/1',revision,sourceReceipt,frame:{id:display,unit,origin:'center of exterior base',handedness:'right',up:'+Z',rotationZ:rotation,dimension:3},emptySpaces:variant.features.map((f:any)=>({id:`tool.${f.id}`,name:`Bore ${f.id} axial tool envelope`,kind:'required-empty-space',frame:'part',unit:'mm',center:[...f.axisAtBase.slice(0,2),11],radiusMm:radius,zSpanMm:[11,61],basis:'analytical',nativeBuilt:false})),arrows:[{id:'arrow.build',kind:'materialization',source:'tray.recipe',target:'tray.part',sourceRevision:revision,intentHash,capability:'enclosure.tray/1',state:'proposed'},{id:'arrow.width',kind:'dependency',source:'tray.width',target:'tray.bores',relationship:'edge-offset constraint',executes:false},{id:'arrow.access',kind:'hypothesis',source:'tool.A',target:'tool.path',missingEvidence:'Complete swept volume has not been tested',executes:false}]});
+ return sceneSchema.parse({schema:'timmy.scene-ir/1',revision,sourceReceipt,frame:{id:display,unit,origin:'center of exterior base',handedness:'right',up:'+Z',rotationZ:rotation,dimension:3},emptySpaces:[...variant.features].sort((a:any,b:any)=>a.id.localeCompare(b.id)).map((f:any)=>({id:`tool.${f.id}`,name:`Bore ${f.id} axial tool envelope`,kind:'required-empty-space',frame:'part',unit:'mm',center:[...f.axisAtBase.slice(0,2),11],radiusMm:radius,zSpanMm:[11,61],basis:'analytical',nativeBuilt:false})),arrows:[{id:'arrow.build',kind:'materialization',source:'tray.recipe',target:'tray.part',sourceRevision:revision,intentHash,capability:'enclosure.tray/1',state:'proposed'},{id:'arrow.width',kind:'dependency',source:'tray.width',target:'tray.bores',relationship:'edge-offset constraint',executes:false},{id:'arrow.access',kind:'hypothesis',source:'tool.A',target:'tool.path',missingEvidence:'Complete swept volume has not been tested',executes:false}]});
 }
 export const questions=['clearance','frame','empty spaces','arrows','bore A','coverage'] as const;
+function boreA(s:SceneIR){const feature=s.emptySpaces.find(e=>e.id==='tool.A');if(!feature)throw Error('Bore A missing from SceneIR');return feature;}
 export function answer(s:SceneIR,question:string){
  sceneSchema.parse(s);
- const chip=frameChip(s.frame),gap=10-3-s.emptySpaces[0].radiusMm;
+ const chip=frameChip(s.frame);
  const common={revision:s.revision,sourceReceipt:s.sourceReceipt,frameChip:chip,scope:'Retained native geometry plus analytical envelope; no new native execution',unmeasured:['complete tool path','physical validation']};
- if(question==='clearance')return {...common,question,state:gap>=2?'passed':'failed',basis:'analytical',gapMm:gap,minimumMm:2,formula:'10 mm edge offset − 3 mm wall − envelope radius',claim:'Horizontal wall gap only; not full-path clearance'};
- if(question==='frame')return {...common,question,state:'available',frame:s.frame,point:transform(s.emptySpaces[0].center,s.frame.id==='world'?s.frame.rotationZ:0,s.frame.unit)};
+ if(question==='clearance'){const gap=10-3-boreA(s).radiusMm;return {...common,question,state:gap>=2?'passed':'failed',basis:'analytical',gapMm:gap,minimumMm:2,formula:'10 mm edge offset − 3 mm wall − envelope radius',claim:'Horizontal wall gap only; not full-path clearance'};}
+ if(question==='frame'){const feature=boreA(s);return {...common,question,state:'available',frame:s.frame,point:transform(feature.center,s.frame.id==='world'?s.frame.rotationZ:0,s.frame.unit)};}
  if(question==='empty spaces')return {...common,question,state:'available',features:s.emptySpaces};
  if(question==='arrows')return {...common,question,state:'available',arrows:s.arrows};
- if(question==='bore A')return {...common,question,state:'retained-native',centerMm:s.emptySpaces[0].center,diameterMm:3};
- if(question==='coverage')return {...common,question,state:gap>=2?'passed':'failed',nativeChecks:{passed:72,total:72},analyticalClearance:gap>=2?'passed':'failed',unmeasuredCount:2};
+ if(question==='bore A'){const feature=boreA(s);return {...common,question,state:'retained-native',centerMm:feature.center,diameterMm:3};}
+ if(question==='coverage'){const gap=10-3-boreA(s).radiusMm;return {...common,question,state:gap>=2?'passed':'failed',nativeChecks:{passed:72,total:72},analyticalClearance:gap>=2?'passed':'failed',unmeasuredCount:2};}
  return {...common,question,state:'unsupported',supportedQuestions:questions};
 }
