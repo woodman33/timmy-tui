@@ -121,6 +121,13 @@ export function typedLines(r: Receipt): string[] {
         `  preserved ${s(m, 'preserved', 'assets').slice(0, 4)} · ${h12(s(m, 'preserve_sha256', 'sha256'))}`,
       ];
     default:
+      if (subj.startsWith('judgment.')) {
+        return [
+          `  pred ${s(m, 'predicted').slice(0, 30)}`,
+          `  act  ${s(m, 'actual').slice(0, 30)}`,
+          `  diff ${s(m, 'difference').slice(0, 30)}`,
+        ];
+      }
       if (subj.startsWith('signal.')) {
         return [
           `  round ${s(m, 'round', 'checkpoint').slice(0, 4)} · attention ${s(m, 'attention').slice(0, 3)}/20`,

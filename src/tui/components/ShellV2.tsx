@@ -794,9 +794,9 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
             <FleetPane lanes={lanes} policy={policy} />
             <Box height={1} />
-            <OllamaPane strict={un.modelStrictness()} nodes={war2.nodes} />
-            <Box height={1} />
             <DemosPane rows={un.demosRows(recs)} sel={demoSel} armed={s.demoArmed} />
+            <Box height={1} />
+            <OllamaPane strict={un.modelStrictness()} nodes={war2.nodes} />
             <Box height={1} />
             <SkillsTree projects={war2.projects} />
           </Box>
@@ -1469,7 +1469,7 @@ function DemosPane(props: { rows: un.DemoRow[]; sel: number; armed: boolean }) {
           <Text color={i === props.sel ? PAL.seal : PAL.textSecondary}>
             {`${i === props.sel ? '▶' : ' '} ${r.family.slice(0, 12).padEnd(12)} ${r.demo.slice(0, 6)}`}
           </Text>
-          <Text color={PAL.textMuted}>{`  PRED ${(r.prediction.seal ?? '—').padEnd(6)} EV ${(r.evidence.seal ?? '—').padEnd(6)}${r.evSubject ? ` · ${r.evSubject}` : ''}`.slice(0, 40)}</Text>
+          <Text color={PAL.textMuted}>{`  PRED ${(r.prediction.seal ?? '—').padEnd(5)} EV ${(r.evidence.seal ?? '—').padEnd(5)}${r.evSubject ? ` · ${r.evSubject}` : ''}`.slice(0, 40)}</Text>
         </React.Fragment>
       ))}
     </Card>

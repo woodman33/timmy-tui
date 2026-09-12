@@ -149,7 +149,7 @@ export function demosRows(recs: { subject: string; hash?: string; sources?: unkn
       scope: String(f.scope ?? '—'),
       origin: String(f.origin ?? '—'),
       fill,
-      evSubject: src ? String(src.subject).slice(-12).trim() : null,
+      evSubject: src ? (String(src.subject).split(' ').pop() ?? '').trim() : null,
     };
   });
 }
