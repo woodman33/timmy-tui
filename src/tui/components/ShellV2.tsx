@@ -423,6 +423,19 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
         appendReceipt('runs', { kind: 'seal', subject: 'owner.seal · via HOME [s]', policy: 'human-gated', status: 'ok' });
         setFlash('sealed an owner note onto the chain');
       }
+      if (a === 'status-open') {
+        void (async () => {
+          const stmod = await import('../../utils/status.js');
+          const rep = stmod.statusReport(stmod.ordersLogPath());
+          const lines: string[] = [];
+          for (const [actor, rows] of Object.entries(rep.actors)) {
+            lines.push(`== ${actor} ==`);
+            for (const r of rows.slice(-6)) lines.push(`${r.id} ${r.state} → ${r.title.slice(0, 44)}`);
+          }
+          if (rep.blockedOnWill.length) { lines.push('== blocked on will =='); for (const r of rep.blockedOnWill) lines.push(`${r.id} — ${r.next}`); }
+          setStatusLines(lines);
+        })();
+      }
       if (a === 'open-qr') {
         qr.generate(`http://localhost:${COMPANION_PORT()}`, { small: true }, t => setQrText(t));
       }
@@ -562,10 +575,19 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   const selModel = selectableModels[Math.min(s.selected, Math.max(0, selectableModels.length - 1))] ?? null;
   const boards = useMemo(() => {
     const ls = (p: string) => { try { return readdirSync(p).filter(f => !f.startsWith('.')); } catch { return [] as string[]; } };
+    // companion/boards (claude's tldraw mission + blueprint boards) join the
+    // local blueprints/ and jbone templates in the LIBRARY › BOARDS pane
+    const cb = ls(join(process.cwd(), 'companion', 'boards'));
     return {
       templates: ls(join(process.cwd(), 'src', 'jbone', 'templates')).map(f => f.replace(/\.cue$/, '')),
-      blueprints: ls(join(process.cwd(), 'blueprints')).map(f => f.replace(/\.yaml$/, '')),
-      missions: ls(join(process.cwd(), '.timmy', 'missions')),
+      blueprints: [
+        ...cb.filter(f => f.endsWith('.blueprint.json')).map(f => f.replace(/\.blueprint\.json$/, '')),
+        ...ls(join(process.cwd(), 'blueprints')).map(f => f.replace(/\.yaml$/, '')),
+      ],
+      missions: [
+        ...cb.filter(f => f.endsWith('.mission.json')).map(f => f.replace(/\.mission\.json$/, '')),
+        ...ls(join(process.cwd(), '.timmy', 'missions')),
+      ],
     };
   }, []);
   const projects = useMemo(() => {
@@ -754,6 +776,14 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
             <Text bold color={theme.warn}>SEAL — confirm</Text>
             <Text color={theme.textPrimary}>seal an owner note onto the chain?</Text>
             <Text color={theme.textMuted}>[Enter/s] seal  [Esc] cancel</Text>
+          </Box>
+        )}
+        {s.overlay === 'status' && (
+          <Box position="absolute" top={1} left={6} width={width - 12} backgroundColor={PAL.surfaceRaised} paddingX={1} flexDirection="column">
+            <Text bold color={PAL.textPrimary}>ORDERS STATUS — [Esc] close</Text>
+            {statusLines.slice(0, 24).map((l, i) => (
+              <Text key={i} color={l.startsWith('==') ? PAL.seal : l.includes('blocked') ? PAL.warn : PAL.textSecondary} wrap="truncate">{l}</Text>
+            ))}
           </Box>
         )}
         {s.overlay === 'refuse' && (
@@ -1052,16 +1082,21 @@ function ModelsPane(props: {
   view: { role?: string; m?: ModelEntry }[]; selected: number; sel: ModelEntry | null;
   filter: string; compact: boolean; fits?: Map<string, { node: string; fit: string }>;
 }) {
-  let mi = -1;
+  // windowed list: the catalog is hundreds of models; BOARDS must stay visible
+  const WIN = 16;
+  const selIdx = props.selected;
+  const modelIdx = props.view.map((r, i) => (r.m ? i : -1)).filter(i => i >= 0);
+  const pos = modelIdx.indexOf(selIdx);
+  const from = Math.max(0, (pos < 0 ? 0 : pos) - (WIN - 4));
+  const winSet = new Set(modelIdx.slice(from, from + WIN));
+  const shown = props.view.map((row, g) => ({ row, g })).filter(x => !x.row.m || winSet.has(x.g));
   return (
     <Box flexDirection="column">
-      <Card title="MODELS" purpose={props.compact ? undefined : `from models.registry · ${props.filter ? `/ ${props.filter}` : '[/] fuzzy filter'}`} flexGrow={1}>
-        {props.view.length === 0 ? <Text color={PAL.textMuted}>no models match</Text> : props.view.map((row, i) => {
+      <Card title="MODELS" purpose={props.compact ? undefined : `from models.registry · ${props.filter ? `/ ${props.filter}` : '[/] fuzzy filter'} · ${props.view.length} models`} flexGrow={1}>
+        {shown.length === 0 ? <Text color={PAL.textMuted}>no models match</Text> : shown.map(({ row, g }, i) => {
           if (row.role) return <Text key={`r${i}`} color={PAL.textMuted}>{`role: ${row.role} ▾`}</Text>;
-          mi += 1;
           const m = row.m as ModelEntry;
-          const selIdx = mi;
-          const sel = selIdx === props.selected;
+          const sel = g === props.selected;
           // FIX 1 (director): row budget inside the 71-col panel —
           // model 30 · ctx 5 · $in/$out 10 · caps 9 · spend 6, single-space
           // gutters, role ONLY in the group header, no ellipsis in any cell.

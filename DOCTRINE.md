@@ -83,3 +83,18 @@ Companion to DESIGN.md (Clearinghouse constitution) and decisions.md
   expectation.
 - Gates are not tuned to targets — a threshold chosen to produce a
   desired flag is a fitted instrument.
+
+## 14. CITE-EXISTS
+- A seal that cites an artifact must cite a hash that EXISTS at seal time.
+  `timmy seal --artifact <path>` refuses (exit 2, no seal) when the path is
+  absent; the artifact's sha256 is recorded in the seal so the citation can
+  be re-verified later.
+- `timmy seal --cite <hash|id>` refuses when the cited receipt is not on the
+  chain. Seals may cite receipts; they may not cite ghosts.
+- A seal discovered after the fact to cite a missing or stale artifact is
+  attested with a `receipt.orphan` seal naming the original seal, the cited
+  file/hash, and the store path + cwd it was sealed from. Orphans are
+  evidence, not erasure: the original seal stays on the chain.
+- Toolchain artifacts live IN the repo (tools/, man/, script ledgers). A
+  ledger or roster sealed from outside the repo is an orphan waiting to
+  happen.

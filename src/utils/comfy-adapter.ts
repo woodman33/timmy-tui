@@ -9,7 +9,7 @@ import { join, dirname } from 'path';
 import { homedir } from 'os';
 import crypto from 'crypto';
 import { appendReceipt } from './receipts.js';
-import { appendEvent } from './eventbus.js';
+import { publish as appendEvent } from '../bus/index.js';
 
 export const GOLDEN_SEED = 1337;
 

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { runEscrowBench } from '../src/utils/escrow-bench.js';
+import { dockerPresent } from './service-gate.js';
 
-describe('V-03 graduation benchmark', () => {
+describe.skipIf(!dockerPresent())('V-03 graduation benchmark', () => {
   it('settle + cancel honor refund = ceiling − drawn; chain walks; tamper slashes', () => {
     const r = runEscrowBench();
     expect(r.ok).toBe(true);
