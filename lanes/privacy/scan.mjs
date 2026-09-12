@@ -2,13 +2,19 @@
 // timmy privacy — the public-repo privacy gate (ORDER privacy-d5n9).
 //
 //   timmy privacy scan [--tree <dir>] [--staged] [--ref <ref>] [--history [--all]] [--json out.json] [--md out.md]
-//        [--severity critical,high,medium,review] [--patterns file] [--quiet]
+//        [--severity critical,high,medium,review] [--patterns file] [--quiet] [--base <ref> | --no-base]
 //   timmy privacy audit                          tree (every open order worktree) + full history, report + privacy.audit seal
 //   timmy privacy fixture                        the §12 negative control: scans lanes/privacy/fixtures/must-fail.txt and MUST find it
 //   timmy privacy hook install|check             the pre-commit hook (scans the staged diff; a match blocks the commit)
 //
 // Findings: { file, line, pattern, severity, match (masked), where: tree|staged|history, commit? }.
 // Exit code 1 when any finding at or above --fail-on (default: medium) exists — that is the gate.
+//
+// The base-identical rule (BASE_RULE below, sealed as privacy.rule): the staged and history
+// scans exist to stop NEW exposure, so a blob that is byte-identical to the blob at the same
+// path on the base ref (default origin/main; --base <ref>; --no-base to disable) is skipped and
+// counted as base_identical — it is already public. A `--ref A..B` history scan takes A as its
+// base. The tree scan never applies the rule: the tree is reported exactly as it is.
 // Nothing here writes to the repo besides the reports it is told to write.
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -21,9 +27,28 @@ const ROOT = resolve(HERE, '..', '..');
 const args = process.argv.slice(2);
 const flag = (k, d) => { const i = args.indexOf(k); return i >= 0 && args[i + 1] !== undefined && !args[i + 1].startsWith('--') ? args[i + 1] : d; };
 const has = (k) => args.includes(k);
-const cmd = args.find((a) => !a.startsWith('--') && !['tree', 'staged', 'ref', 'history', 'json', 'md', 'severity', 'patterns', 'fail-on', 'since'].some((f) => args[args.indexOf(a) - 1] === `--${f}`)) ?? 'scan';
+const cmd = args.find((a) => !a.startsWith('--') && !['tree', 'staged', 'ref', 'history', 'json', 'md', 'severity', 'patterns', 'fail-on', 'since', 'base'].some((f) => args[args.indexOf(a) - 1] === `--${f}`)) ?? 'scan';
 const SEV = { critical: 4, high: 3, medium: 2, review: 1 };
 const sha = (s) => createHash('sha256').update(s).digest('hex');
+
+/** The sealed rule text (privacy.rule). Change the version when the semantics change. */
+export const BASE_RULE = 'privacy.rule base-identical v1: a staged or history blob that is byte-identical to the blob at the same path on the base ref (default origin/main; a --ref A..B history scan uses A) is not a new leak and is skipped by the staged and history scans, counted as base_identical. The tree scan never applies this rule. Decided by the operator on 2026-09-11 (ORDER privacy-d5n9, option 1: no force-push, no history rewrite).';
+
+/** The base ref for the base-identical rule, or null when disabled / unresolvable. */
+export function resolveBase(dir, refs = []) {
+  if (has('--no-base')) return null;
+  const range = refs.find((r) => typeof r === 'string' && r.includes('..'));
+  const want = flag('--base', range ? range.split('..')[0] : 'origin/main');
+  if (!want) return null;
+  return git(dir, ['rev-parse', '--verify', '--quiet', `${want}^{commit}`]).ok ? want : null;
+}
+
+/** Blob id of `path` at `base`, or null when the path does not exist there. */
+function baseBlob(dir, base, path) {
+  if (!base) return null;
+  const r = git(dir, ['rev-parse', '--verify', '--quiet', `${base}:${path}`]);
+  return r.ok ? r.out.trim() : null;
+}
 
 export function loadPatterns(file = flag('--patterns', join(HERE, 'patterns.json'))) {
   const p = JSON.parse(readFileSync(file, 'utf8'));
@@ -89,27 +114,32 @@ export function scanTree(dir, P, where = 'tree') {
   return { findings, files: files.length, scanned };
 }
 
-export function scanStaged(dir, P) {
+export function scanStaged(dir, P, base = resolveBase(dir)) {
   const names = git(dir, ['diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z']).out.split('\0').filter(Boolean);
   const findings = [];
+  let baseIdentical = 0;
   for (const f of names) {
     if (P.ignore.some((rx) => rx.test(f))) continue;
+    if (base) {
+      const staged = git(dir, ['rev-parse', '--verify', '--quiet', `:${f}`]).out.trim();
+      if (staged && staged === baseBlob(dir, base, f)) { baseIdentical++; continue; } // BASE_RULE
+    }
     const blob = spawnSync('git', ['show', `:${f}`], { cwd: dir, maxBuffer: 64 * 1024 * 1024 });
     if (blob.status !== 0 || isBinary(blob.stdout)) continue;
     findings.push(...scanText(blob.stdout.toString('utf8'), f, P, 'staged'));
   }
-  return { findings, files: names.length };
+  return { findings, files: names.length, base, base_identical: baseIdentical };
 }
 
 /**
  * Every blob ever reachable from the given refs (default: --all), scanned once per blob and
  * attributed to the first commit that introduced it (oldest first), with the paths it lived at.
  */
-export function scanHistory(dir, P, refs = ['--all']) {
+export function scanHistory(dir, P, refs = ['--all'], base = resolveBase(dir, refs)) {
   const log = git(dir, ['log', ...refs, '--reverse', '--format=%H %ct %s', '--name-status', '--diff-filter=AM', '--no-renames'], true).out;
   const seen = new Map(); // blob sha → finding count (skip repeats)
   const findings = [];
-  let commit = null, when = null, subject = null, blobs = 0, commits = 0;
+  let commit = null, when = null, subject = null, blobs = 0, commits = 0, baseIdentical = 0;
   const lines = log.split('\n');
   for (const l of lines) {
     const mc = l.match(/^([0-9a-f]{40}) (\d+) (.*)$/);
@@ -123,6 +153,7 @@ export function scanHistory(dir, P, refs = ['--all']) {
     const blob = rev.out.trim();
     if (seen.has(blob)) continue;
     seen.set(blob, 0);
+    if (base && blob === baseBlob(dir, base, path)) { baseIdentical++; continue; } // BASE_RULE
     const content = spawnSync('git', ['cat-file', '-p', blob], { cwd: dir, maxBuffer: 64 * 1024 * 1024 });
     if (content.status !== 0 || content.stdout.length > 8 * 1024 * 1024 || isBinary(content.stdout)) continue;
     blobs++;
@@ -130,7 +161,7 @@ export function scanHistory(dir, P, refs = ['--all']) {
     seen.set(blob, f.length);
     findings.push(...f);
   }
-  return { findings, commits, blobs };
+  return { findings, commits, blobs, base, base_identical: baseIdentical };
 }
 
 /** Which findings are still in the current tree vs only in history (the same file+pattern). */
@@ -233,7 +264,7 @@ if (import.meta.url === new URL(`file://${process.argv[1]}`).href || process.arg
     else if (has('--history')) result = scanHistory(ROOT, P, flag('--ref') ? [flag('--ref')] : ['--all']);
     else result = scanTree(resolve(flag('--tree', ROOT)), P);
     const g = gate(result.findings);
-    const out = { ok: g.length === 0, ...summarize(result.findings), gated: g.length, fail_on: flag('--fail-on', 'medium'), patterns_sha256: P.sha256, findings: has('--quiet') ? undefined : result.findings.slice(0, 2000) };
+    const out = { ok: g.length === 0, ...summarize(result.findings), gated: g.length, fail_on: flag('--fail-on', 'medium'), base: result.base ?? undefined, base_identical: result.base_identical ?? undefined, patterns_sha256: P.sha256, findings: has('--quiet') ? undefined : result.findings.slice(0, 2000) };
     if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ ...out, findings: result.findings }, null, 1));
     if (mdOut) writeFileSync(mdOut, markdown('privacy.scan', [{ title: 'Findings', findings: result.findings }]));
     if (!has('--quiet') && !jsonOut) console.log(JSON.stringify(out, null, 1)); else console.log(JSON.stringify({ ...out, findings: undefined }));

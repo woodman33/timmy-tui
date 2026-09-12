@@ -42,12 +42,16 @@ export interface Summary {
   files: number;
 }
 
+/** The sealed base-identical rule text (privacy.rule). */
+export const BASE_RULE: string;
+/** The base ref for the base-identical rule (default origin/main; a `A..B` ref uses A), or null. */
+export function resolveBase(dir: string, refs?: string[]): string | null;
 export function loadPatterns(file?: string): PatternSet;
 export function scanText(text: string, file: string, P: PatternSet, where: string, extra?: Record<string, unknown>): Finding[];
 export function treeFiles(dir: string): string[];
 export function scanTree(dir: string, P: PatternSet, where?: string): { findings: Finding[]; files: number; scanned: number };
-export function scanStaged(dir: string, P: PatternSet): { findings: Finding[]; files: number };
-export function scanHistory(dir: string, P: PatternSet, refs?: string[]): { findings: Finding[]; commits: number; blobs: number };
+export function scanStaged(dir: string, P: PatternSet, base?: string | null): { findings: Finding[]; files: number; base: string | null; base_identical: number };
+export function scanHistory(dir: string, P: PatternSet, refs?: string[], base?: string | null): { findings: Finding[]; commits: number; blobs: number; base: string | null; base_identical: number };
 export function classify(findings: Finding[], treeSet: Set<string>): Array<Finding & { in_tree: boolean }>;
 export function summarize(findings: Finding[]): Summary;
 export function markdown(title: string, sections: Array<{ title: string; note?: string; findings?: Finding[]; limit?: number }>): string;
