@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
+import { join } from 'path';
 import { subscribe, publish, type BusEvent } from '../src/bus/index.js';
 import { appendReceipt } from '../src/utils/receipts.js';
 
@@ -42,7 +43,7 @@ describe('bus (control-plane-k3e7): runs.jsonl as the event stream', () => {
   });
 });
 
-function join0(): string { return tmpdir(); }
+function join0(): string { return join(tmpdir(), 'timmy-bus-'); }
 function waitFor(cond: () => boolean, ms: number): Promise<void> {
   return new Promise((res, rej) => {
     const t0 = Date.now();

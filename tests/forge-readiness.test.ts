@@ -23,7 +23,7 @@ const config = (entry: unknown = {
 function options(overrides: ReadinessOptions = {}): ReadinessOptions {
   return {
     env: enabledEnv(),
-    home: '/example/home',
+    home: '/example/base',
     readConfig: vi.fn(async () => config()),
     executableExists: vi.fn(async () => true),
     canvasResponds: vi.fn(async () => true),
@@ -78,7 +78,7 @@ describe('Cursor discovery describes configuration without claiming execution', 
     const opts = options();
     const report = await inspectForgeReadiness(opts);
 
-    expect(opts.readConfig).toHaveBeenCalledWith('/example/home/.cursor/mcp.json');
+    expect(opts.readConfig).toHaveBeenCalledWith('/example/base/.cursor/mcp.json');
     expect(opts.executableExists).toHaveBeenCalledWith('/example/python', opts.env);
     expect(report.cursor).toEqual({ status: 'configured', server: 'houdini', executable_found: true, launch: 'python_module' });
     expect(report.timmy_wire.status).toBe('unbound');
@@ -162,7 +162,7 @@ describe('command expansion is explicit and does not evaluate shell expressions'
   it.each([
     ['${PYTHON_BIN}', '/python-from-env'],
     ['${env:PYTHON_BIN}', '/python-from-env'],
-    ['~/tools/python', '/example<home>/python'],
+    ['~/tools/python', '/example/base/tools/python'],
   ])('expands %s into the executable probe only', async (command, expanded) => {
     const opts = options({ env: { ...enabledEnv(), PYTHON_BIN: '/python-from-env' }, readConfig: async () => config({ command }) });
     const report = await inspectForgeReadiness(opts);
