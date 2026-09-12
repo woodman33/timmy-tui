@@ -118,6 +118,8 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   const [chainLink, setChainLink] = useState<string | null>(null);
   // ui-next: the Signal game state (null when no checkpoint exists)
   const signalSt = un.signalState();
+  // ui-next-2: LIBRARY DEMOS picker selection
+  const [demoSel, setDemoSel] = useState(0);
   const [warPanes, setWarPanes] = useState<warroom.WarPane[]>([]);
   const [spend, setSpend] = useState(0);
   const [handoff, setHandoff] = useState<{ harness: string; model: string } | null>(null);
@@ -337,6 +339,17 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
           warroom.killWar();
           setFlash('kill switch — war room session down');
         }
+      }
+      // ui-next-2: LIBRARY DEMOS picker
+      if (a === 'demo-arm') setFlash(sRef.current.demoArmed ? 'demos armed — [ ] selects · [Enter] opens · [D] disarms' : 'demos disarmed');
+      if (a === 'demo-next' || a === 'demo-prev') {
+        const nRows = un.demosRows().length || 1;
+        setDemoSel(d => (((d + (a === 'demo-next' ? 1 : -1)) % nRows) + nRows) % nRows);
+      }
+      if (a === 'demo-open') {
+        const rows = un.demosRows();
+        const row = rows[Math.min(demoSel, Math.max(0, rows.length - 1))];
+        setFlash(row ? un.openDemo(row).note : 'no demo families recorded');
       }
       // chain-views-e6p2: [o] on CHAIN cross-links a swarm.run ↔ its members
       if (a === 'open-crosslink' && sRef.current.tab === 'CHAIN') {
@@ -719,6 +732,13 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
               {/* FIX 2: BOARDS + PROJECTS live under MODELS on the left */}
               <Box height={1} />
               <BoardsPane boards={boards} projects={projects} />
+              {/* narrow has no rail: the Reuse moment rides the left column */}
+              {narrow && (
+                <>
+                  <Box height={1} />
+                  <DemosPane rows={un.demosRows(recs)} sel={demoSel} armed={s.demoArmed} />
+                </>
+              )}
             </>
           )}
         </Box>)}
@@ -784,11 +804,15 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
             <OllamaPane strict={un.modelStrictness()} nodes={war2.nodes} />
             <Box height={1} />
             <SkillsTree projects={war2.projects} />
+            <Box height={1} />
+            {/* ink clips an overfull rail from the top: the Reuse moment lives
+                in the LAST card so it stays above the visible bottom */}
+            <DemosPane rows={un.demosRows(recs)} sel={demoSel} armed={s.demoArmed} />
           </Box>
         )}
         {assembled && !narrow && s.tab === 'RUN' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            {signalSt?.live ? <><SignalPane st={signalSt} /><Box height={1} /></> : null}
+            {signalSt ? <><SignalPane st={signalSt} /><Box height={1} /></> : null}
             <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} compact={compact} />
             {pendingEscrows[0] ? <><Box height={1} /><EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} /></> : null}
           </Box>
@@ -899,6 +923,9 @@ function HomePane(props: {
           <Text color={PAL.warn} wrap="truncate">
             {`▶ escrow ${String(props.pendingEscrows[0].escrow_id).slice(0, 12)} · ceiling $${props.pendingEscrows[0].ceiling_usd} awaits lock`}
           </Text>
+        )}
+        {!props.recs.some(r => r.policy === 'human-gated') && (
+          <Text color={PAL.textMuted}>nothing sealed yet — [s] seals your first</Text>
         )}
         {rows.map(r => (
           r.state === 'done' ? (
@@ -1210,10 +1237,10 @@ function BoardsPane(props: { boards: { templates: string[]; blueprints: string[]
   const b = props.boards;
   return (
     <Card title="BOARDS" purpose="mission · blueprint · template">
-      <Text color={PAL.textSecondary} wrap="truncate">{`mission    ${b.missions.length ? b.missions.join(' · ') : '—'}`}</Text>
-      <Text color={PAL.textSecondary} wrap="truncate">{`blueprint  ${b.blueprints.length ? b.blueprints.join(' · ') : '—'}`}</Text>
-      <Text color={PAL.textSecondary} wrap="truncate">{`template   ${b.templates.length ? b.templates.join(' · ') : '—'}`}</Text>
-      <Text color={PAL.textMuted} wrap="truncate">{`PROJECTS  ${props.projects.join(' · ') || '—'}`}</Text>
+      {([['mission   ', b.missions], ['blueprint ', b.blueprints], ['template  ', b.templates]] as [string, string[]][]).map(([label, names]) => (
+        <Text key={label} color={PAL.textSecondary}>{`${label}${names.length ? `${names.slice(0, 2).join(' · ')}${names.length > 2 ? ` +${names.length - 2}` : ''}` : '—'}`.slice(0, 72)}</Text>
+      ))}
+      <Text color={PAL.textMuted}>{`PROJECTS  ${props.projects.slice(0, 4).join(' · ') || '—'}`.slice(0, 72)}</Text>
     </Card>
   );
 }
@@ -1335,9 +1362,12 @@ function SwarmPane(props: {
         </>
       )}
       {run ? (
-        <Text color={run.ok ? PAL.seal : PAL.danger}>
-          {`${run.closed ? '⊘' : ' '} ${run.preset.slice(0, 12).padEnd(12)} n=${String(run.size).padStart(2)} $${run.usd.toFixed(4)} tk${String(run.tokensThinking).padStart(4)} ${run.judge.slice(0, 10).padEnd(10)} ${run.policy}${run.airgap ? ` ag${run.airgap.egress}` : ''}`}
-        </Text>
+        <>
+          <Text color={run.ok ? PAL.seal : PAL.danger}>
+            {`${run.closed ? '⊘' : ' '} ${run.preset.slice(0, 12).padEnd(12)} n=${String(run.size).padStart(2)} $${run.usd.toFixed(4)} tk${String(run.tokensThinking).padStart(4)} ${run.judge.slice(0, 10).padEnd(10)} ${run.policy}${run.airgap ? ` ag${run.airgap.egress}` : ''}`}
+          </Text>
+          <Text color={PAL.textMuted}>{`  run ${run.id.slice(0, 16)}`}</Text>
+        </>
       ) : (
         <Text color={PAL.textMuted}>no swarm runs yet — [l] launches the pick</Text>
       )}
@@ -1404,7 +1434,7 @@ function OllamaPane(props: { strict: un.StrictRow[]; nodes: w2.NodeStat[] }) {
 // ui-next — SIGNAL panel: round, ledger, Attention while the game is live
 function SignalPane(props: { st: un.SignalState }) {
   return (
-    <Card title="SIGNAL" purpose="the-signal game · live">
+    <Card title="SIGNAL" purpose={`the-signal game · ${props.st.label}`}>
       <Text color={PAL.seal}>{`round ${String(props.st.round).padStart(2)} · ${props.st.status}`}</Text>
       <Text color={PAL.textSecondary}>{`Attention ${String(props.st.attention).padStart(2)}/20 · ledger ${props.st.rows} rows`}</Text>
       <Text color={PAL.textMuted}>{`reserved $${props.st.reserved.toFixed(2)} · cp ${props.st.receipt}`}</Text>
@@ -1439,6 +1469,25 @@ function BulkheadsPane(props: { sbx: w2.SbxRun[]; ports: Record<string, string>;
 
 // warroom-v2-c4m8 — LIBRARY › SKILLS: the project folders' skill trees, read
 // through fleet/harness-menu.mjs; [f] opens the yazi pane on the folder.
+// ui-next-2 — DEMOS: one row per portfolio family; PREDICTION beside EVIDENCE
+// with seal ids; [Enter] (armed) opens the canvas/native surface
+function DemosPane(props: { rows: un.DemoRow[]; sel: number; armed: boolean }) {
+  return (
+    <Card title="DEMOS" purpose={props.armed ? 'armed — [ ] selects · [Enter] opens' : 'portfolio families · [D] arms'}>
+      {props.rows.length === 0 ? (
+        <Text color={PAL.textMuted}>no demo families recorded</Text>
+      ) : props.rows.slice(0, 4).map((r, i) => (
+        <React.Fragment key={r.id}>
+          <Text color={i === props.sel ? PAL.seal : PAL.textSecondary}>
+            {`${i === props.sel ? '▶' : ' '} ${r.family.slice(0, 12).padEnd(12)} ${r.demo.slice(0, 6)}`}
+          </Text>
+          <Text color={PAL.textMuted}>{`  PRED ${(r.prediction.seal ?? '—').padEnd(5)} EV ${(r.evidence.seal ?? '—').padEnd(5)}${r.evSubject ? ` · ${r.evSubject}` : ''}`.slice(0, 40)}</Text>
+        </React.Fragment>
+      ))}
+    </Card>
+  );
+}
+
 function SkillsTree(props: { projects: w2.ProjectRow[] }) {
   return (
     <Card title="SKILLS" purpose="project folders · [f] yazi" flexGrow={1}>

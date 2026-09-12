@@ -574,6 +574,12 @@ if (command === 'nfc' || command === 'custody') {
   process.exit(r.status ?? 1);
 }
 
+if (command === 'init') {
+  // ui-next-2: setup wizard screen (store/operator/edge/commander/policy)
+  const r = spawnSync('npx', ['tsx', 'src/tui/wizard-entry.tsx', ...args], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
 if (command === 'demo') {
   // chain-views-e6p2: scripted, replayable war-room session on placeholder
   // data — cast + gif + mp4 + demo.cast seal. Runs under tsx (ink render).
