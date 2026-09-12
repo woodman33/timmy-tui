@@ -1,0 +1,15 @@
+{
+  "schema": "timmy.annotation.receipt/1",
+  "status": "rejected",
+  "packSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+  "sourceRevision": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "inputSha256": "568bb9a0a03ac0f8edb4935f895a1eb0e14b54bcfa93ac5d754d583ce4ee9b84",
+  "annotations": [],
+  "reason": "annotation_ungrounded",
+  "scope": {
+    "modelInterpretationOnly": true,
+    "semanticCorrectnessChecked": false,
+    "nativeEditsExecuted": false,
+    "physicalValidation": false
+  }
+}

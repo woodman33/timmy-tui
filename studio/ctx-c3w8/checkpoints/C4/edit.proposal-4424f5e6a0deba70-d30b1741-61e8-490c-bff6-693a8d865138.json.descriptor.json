@@ -1,0 +1,82 @@
+{
+  "result": {
+    "schema": "timmy.edit.proposal/1",
+    "status": "proposed",
+    "reason": null,
+    "packSha256": "6cb66afc5e0981d5ce78fb2b50637c12e4bf4eb9fb1d370b46ffe459948b053c",
+    "objectId": "volume",
+    "sourceRevision": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+    "document": {
+      "path": "studio/ctx-c3w8/checkpoints/C4/authority/manifest.json",
+      "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "authority": "retained-local-file"
+    },
+    "freshness": {
+      "basis": "direct-authoritative-local-byte-read",
+      "readPerformed": true,
+      "observedRevision": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "observedAtUtc": "2026-09-12T17:07:05.384Z",
+      "leaseHeld": false
+    },
+    "dryRun": {
+      "diff": [
+        {
+          "path": "/construction/boxSideMm",
+          "before": 80,
+          "after": 82
+        }
+      ],
+      "proposedDocumentSha256": "2fa5445988397cfb846344446af5d100bc304837febb5e594cac573422e48cd1",
+      "requiresGeometryRebuild": true,
+      "documentWritten": false
+    },
+    "scope": {
+      "proposalOnly": true,
+      "nativeDocumentFreshness": false,
+      "appliesAutomatically": false,
+      "laterApplyMustRecheckRevision": true
+    }
+  },
+  "artifact": {
+    "path": "studio/ctx-c3w8/checkpoints/C4/edit.proposal-4424f5e6a0deba70-d30b1741-61e8-490c-bff6-693a8d865138.json",
+    "sha256": "4424f5e6a0deba70f28be3b7a23211817186c77c288810c22e4370ffe8a0c336",
+    "bytes": 1220
+  },
+  "receipt": {
+    "v": 1,
+    "id": "rc_mtyn0zxl_beg0",
+    "stream": "runs",
+    "ts": "2026-09-12T17:07:05.577Z",
+    "env_lock": {
+      "os": {
+        "platform": "darwin",
+        "build": "25G83",
+        "version": "26.6.2"
+      },
+      "arch": "arm64",
+      "tools": {},
+      "models": {}
+    },
+    "kind": "edit.proposal",
+    "subject": "edit.proposal",
+    "policy": "Retain immutable spatial evidence; no authority or physical correctness promotion",
+    "status": "ok",
+    "output_sha256": "4424f5e6a0deba70f28be3b7a23211817186c77c288810c22e4370ffe8a0c336",
+    "manifest_sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+    "artifacts": [
+      "studio/ctx-c3w8/checkpoints/C4/edit.proposal-4424f5e6a0deba70-d30b1741-61e8-490c-bff6-693a8d865138.json"
+    ],
+    "sources": [
+      {
+        "source_sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+        "artifact_sha256": "4424f5e6a0deba70f28be3b7a23211817186c77c288810c22e4370ffe8a0c336",
+        "authority": "retained-local-file"
+      }
+    ],
+    "epoch": 903,
+    "prev_hash": "sha256_47eebede32ab658b03c476a3b723e75448709af0ad718e8416a29f482a974ddb",
+    "signer": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAhm/lxmgv+Sm+xKu19Rtsnp74QrpJGrxnoyXm2QAft8s=\n-----END PUBLIC KEY-----\n",
+    "signature": "Iw6/qa+5YYAzuVOlI5qElZeBbmxwA26rNEWA0iyLpb2mnka2hFKH1+DIYaA0Fac3bg7RdJr0MPpEjoflfylfAQ==",
+    "hash": "sha256_e5b5d01eac653b54f05c6bd6defab7a9b189ac347d485ea0c90d50e5f8571802"
+  }
+}

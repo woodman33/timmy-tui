@@ -1,0 +1,15 @@
+{
+  "response": {
+    "model": "ornith:latest",
+    "done": true,
+    "done_reason": "stop",
+    "content": "{\n  \"answers\": [\n    {\n      \"key\": \"knownLocations\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"totalCells\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"empty\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"partial\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"full\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    }\n  ],\n  \"unknowns\": [\n    \"mass\",\n    \"density\",\n    \"material\"\n  ]\n}",
+    "prompt_eval_count": 190,
+    "eval_count": 222,
+    "total_duration": 23258782458,
+    "load_duration": 8985833250,
+    "eval_duration": 13909777000
+  },
+  "malformedTransportBody": null,
+  "error": null
+}

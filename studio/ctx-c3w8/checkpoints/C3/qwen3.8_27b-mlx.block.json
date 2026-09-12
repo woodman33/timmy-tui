@@ -1,0 +1,7 @@
+{
+  "model": "qwen3.8:27b-mlx",
+  "elapsedMs": 587726,
+  "rows": 6,
+  "budgetSeconds": 900,
+  "withinBudget": true
+}

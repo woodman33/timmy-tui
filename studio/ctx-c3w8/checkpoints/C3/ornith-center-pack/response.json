@@ -1,0 +1,15 @@
+{
+  "response": {
+    "model": "ornith:latest",
+    "done": true,
+    "done_reason": "stop",
+    "content": "{\n  \"answers\": [\n    {\n      \"key\": \"centerXmm\",\n      \"value\": 5,\n      \"entityId\": \"cell-center\",\n      \"factIds\": [\n        \"cell-center.location\"\n      ]\n    },\n    {\n      \"key\": \"centerYmm\",\n      \"value\": 5,\n      \"entityId\": \"cell-center\",\n      \"factIds\": [\n        \"cell-center.location\"\n      ]\n    },\n    {\n      \"key\": \"centerZmm\",\n      \"value\": 5,\n      \"entityId\": \"cell-center\",\n      \"factIds\": [\n        \"cell-center.location\"\n      ]\n    },\n    {\n      \"key\": \"fillFraction\",\n      \"value\": 0.046875,\n      \"entityId\": \"cell-center\",\n      \"factIds\": [\n        \"cell-center.fill\"\n      ]\n    }\n  ],\n  \"unknowns\": [\n    \"material\",\n    \"density\"\n  ]\n}",
+    "prompt_eval_count": 5692,
+    "eval_count": 244,
+    "total_duration": 20477019625,
+    "load_duration": 11472792,
+    "eval_duration": 17911535000
+  },
+  "malformedTransportBody": null,
+  "error": null
+}

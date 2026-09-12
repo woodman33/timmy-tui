@@ -1,0 +1,74 @@
+{
+  "schema": "timmy.context-ablation.row/1",
+  "rowId": "granite4.2-counts-pack",
+  "model": "granite4.2:latest",
+  "requested": "granite4.2",
+  "modelDigest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+  "questionId": "counts",
+  "condition": "pack",
+  "elapsedMs": 36112,
+  "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+  "intentReceipt": "sha256_cedc90edae21cfb0cec8104f77409184a4a26009c63498d1ae934fc5da0fc150",
+  "requestSha256": "ca8e76b475d9dadbdcbf2ed285cabe52da3adfda05b235b75c6b42e8b76d1bb9",
+  "responseSha256": "4cf5d4360408db666a72ba74a9368d24bfa34915bea8948fd56db204e4420358",
+  "raw": {
+    "answers": [
+      {
+        "entityId": "volume",
+        "factIds": [
+          "volume.location-count",
+          "volume.total-cells",
+          "volume.fill-coverage"
+        ],
+        "key": "knownLocations",
+        "value": 1000
+      },
+      {
+        "entityId": "volume",
+        "factIds": [
+          "volume.total-cells",
+          "volume.fill-coverage"
+        ],
+        "key": "totalCells",
+        "value": 1000
+      },
+      {
+        "entityId": "volume",
+        "factIds": [
+          "volume.fill-coverage"
+        ],
+        "key": "empty",
+        "value": 488
+      },
+      {
+        "entityId": "volume",
+        "factIds": [
+          "volume.fill-coverage"
+        ],
+        "key": "partial",
+        "value": 96
+      },
+      {
+        "entityId": "volume",
+        "factIds": [
+          "volume.fill-coverage"
+        ],
+        "key": "full",
+        "value": 416
+      }
+    ],
+    "unknowns": []
+  },
+  "score": {
+    "valid": true,
+    "correct": true,
+    "referencesValid": true,
+    "groundedCorrect": 1,
+    "unknownsPreserved": 0,
+    "score": 1,
+    "answerCoverage": 1,
+    "error": null
+  },
+  "error": null
+}

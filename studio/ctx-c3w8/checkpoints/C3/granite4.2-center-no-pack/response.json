@@ -1,0 +1,15 @@
+{
+  "response": {
+    "model": "granite4.2:latest",
+    "done": true,
+    "done_reason": "stop",
+    "content": "{\n  \"answers\": [\n    {\n      \"entityId\": \"centerXmm\",\n      \"factIds\": [],\n      \"key\": \"centerXmm\",\n      \"value\": null\n    },\n    {\n      \"entityId\": \"centerYmm\",\n      \"factIds\": [],\n      \"key\": \"centerYmm\",\n      \"value\": null\n    },\n    {\n      \"entityId\": \"centerZmm\",\n      \"factIds\": [],\n      \"key\": \"centerZmm\",\n      \"value\": null\n    },\n    {\n      \"entityId\": \"fillFraction\",\n      \"factIds\": [],\n      \"key\": \"fillFraction\",\n      \"value\": null\n    }\n  ],\n  \"unknowns\": [\"material\", \"density\", \"mass\"]\n}",
+    "prompt_eval_count": 194,
+    "eval_count": 187,
+    "total_duration": 12838817792,
+    "load_duration": 7811042,
+    "eval_duration": 12356704000
+  },
+  "malformedTransportBody": null,
+  "error": null
+}

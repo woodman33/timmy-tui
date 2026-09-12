@@ -1,0 +1,15 @@
+{
+  "response": {
+    "model": "gemma4:12b-it-qat",
+    "done": true,
+    "done_reason": "stop",
+    "content": "{\n  \"answers\": [\n    {\n      \"key\": \"knownLocations\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"totalCells\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"empty\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"partial\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"full\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    }\n  ],\n  \"unknowns\": [\n    \"material\",\n    \"density\",\n    \"mass\"\n  ]\n}",
+    "prompt_eval_count": 195,
+    "eval_count": 221,
+    "total_duration": 29571610875,
+    "load_duration": 8037238334,
+    "eval_duration": 21013524000
+  },
+  "malformedTransportBody": null,
+  "error": null
+}

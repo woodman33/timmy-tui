@@ -1,0 +1,76 @@
+{
+  "schema": "timmy.ctx-c3w8.c1.result/1",
+  "order": "ctx-c3w8",
+  "checkpoint": "C1",
+  "runId": "1789232710465-6a1c9dc3-7510-4c2f-8e26-9264cc6d93a8",
+  "ok": true,
+  "checks": {
+    "cloudRefusedBeforeTransport": true,
+    "liveLocalCandidates": true,
+    "actualFallbackReturnedControlledReply": true,
+    "controlledRequestCounts": true,
+    "noUnexpectedNodeFetch": true,
+    "focusedProviderTestsPassed": true
+  },
+  "artifacts": [
+    {
+      "path": "studio/ctx-c3w8/C1/1789232710465-6a1c9dc3-7510-4c2f-8e26-9264cc6d93a8/prediction.json",
+      "sha256": "eec2fe4d2d7fb1a838d0bd67ff4d3fbebfcaeacad2657113244019435141cfb6",
+      "bytes": 1829
+    },
+    {
+      "path": "studio/ctx-c3w8/C1/1789232710465-6a1c9dc3-7510-4c2f-8e26-9264cc6d93a8/negative-control.json",
+      "sha256": "6aced18dcf4be33967418fbc5dcb0d602df31bf1c5aca1da3fd6efc35b5e6a72",
+      "bytes": 339
+    },
+    {
+      "path": "studio/ctx-c3w8/C1/1789232710465-6a1c9dc3-7510-4c2f-8e26-9264cc6d93a8/live-metadata.json",
+      "sha256": "57a0d6a2f144be93db56d9e6e3d487fe002e7e810c59056521708fe5ad09e995",
+      "bytes": 463
+    },
+    {
+      "path": "studio/ctx-c3w8/C1/1789232710465-6a1c9dc3-7510-4c2f-8e26-9264cc6d93a8/controlled-fallback.json",
+      "sha256": "045257e16c2df763f2bf95c3fa10676beb199b6b1a3eed6103f22682df4de49a",
+      "bytes": 1214
+    },
+    {
+      "path": "studio/ctx-c3w8/C1/1789232710465-6a1c9dc3-7510-4c2f-8e26-9264cc6d93a8/provider-tests.txt",
+      "sha256": "e9d361b954a64a121c8677fc034df024c966077ac1fce807459baa23729570c4",
+      "bytes": 256
+    },
+    {
+      "path": "studio/ctx-c3w8/C1/1789232710465-6a1c9dc3-7510-4c2f-8e26-9264cc6d93a8/node-transport.json",
+      "sha256": "6197efe496f8033455a97ca6d7cbd2129a95b8abbd4dd6b558478e5a5e1350e7",
+      "bytes": 4857
+    },
+    {
+      "path": "studio/ctx-c3w8/C1/1789232710465-6a1c9dc3-7510-4c2f-8e26-9264cc6d93a8/daemon-egress-finding.json",
+      "sha256": "2d10d38cfdb608b04df2b6255c8095fd422477f0dbf3f275457e33521e3c1990",
+      "bytes": 795
+    }
+  ],
+  "sources": [
+    {
+      "path": "src/agent/providers.ts",
+      "sha256": "3fbf75ad6d2c6355d83aed2b61996afa711afaba767610b033dc612cf03fafbe"
+    },
+    {
+      "path": "src/agent/core.ts",
+      "sha256": "0df7587bdf0e3801b57803eae9a93f6da35ffe2b7e3cd5038b26891c0d0295fd"
+    },
+    {
+      "path": "tests/providers.test.ts",
+      "sha256": "e23330e16db562982d458f97fea983c2eb3c278d8e6f055ac6ed4199c5fa7ec4"
+    },
+    {
+      "path": "tools/ctx-c3w8/c1-checkpoint.ts",
+      "sha256": "1398e5b0c126b7947e106ea5818385c54733691bf75f9b3fa5c20e9867a42840"
+    }
+  ],
+  "limits": {
+    "realModelInferenceCalls": 0,
+    "daemonOsEgress": "unmeasured",
+    "mcpTransport": "not-exercised",
+    "wholeMachineAirgap": "not-established"
+  }
+}

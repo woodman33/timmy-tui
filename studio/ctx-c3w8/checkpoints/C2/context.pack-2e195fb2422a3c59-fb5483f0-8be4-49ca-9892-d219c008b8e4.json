@@ -1,0 +1,551 @@
+{
+  "schema": "timmy.context.pack/1",
+  "context": {
+    "schema": "timmy.spatial-model-context/1",
+    "source": {
+      "kind": "volume",
+      "id": "analytic-box-bore-10",
+      "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65"
+    },
+    "frame": {
+      "id": "fixture",
+      "units": "mm",
+      "origin": [
+        -50,
+        -50,
+        -50
+      ],
+      "dimensions": [
+        10,
+        10,
+        10
+      ],
+      "cellSize": [
+        10,
+        10,
+        10
+      ],
+      "basis": [
+        [
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ]
+    },
+    "entities": [
+      {
+        "id": "volume",
+        "kind": "volume",
+        "label": "Bounded volume"
+      },
+      {
+        "id": "cell-center",
+        "kind": "voxel",
+        "label": "Cell at the center index of the bounded grid",
+        "parentId": "volume",
+        "ijk": [
+          5,
+          5,
+          5
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "volume.location-count",
+        "entityId": "volume",
+        "key": "knownLocations",
+        "value": 1000,
+        "epistemic": "computed",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest",
+          "method": "bounded-grid-count"
+        }
+      },
+      {
+        "id": "volume.total-cells",
+        "entityId": "volume",
+        "key": "totalCells",
+        "value": 1000,
+        "epistemic": "computed",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest",
+          "method": "dimension-product"
+        }
+      },
+      {
+        "id": "volume.fill-coverage",
+        "entityId": "volume",
+        "key": "fillCoverage",
+        "value": {
+          "unknown": 0,
+          "sampled": 1000,
+          "declared": 0,
+          "empty": 488,
+          "partial": 96,
+          "full": 416
+        },
+        "epistemic": "computed",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest+cells",
+          "method": "explicit-null-and-fraction-counts"
+        }
+      },
+      {
+        "id": "volume.material-coverage",
+        "entityId": "volume",
+        "key": "materialCoverage",
+        "value": {
+          "unknown": 1000,
+          "declared": 0,
+          "measured": 0
+        },
+        "epistemic": "computed",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest+cells",
+          "method": "default-and-override-status-counts"
+        }
+      },
+      {
+        "id": "volume.density-coverage",
+        "entityId": "volume",
+        "key": "densityCoverage",
+        "value": {
+          "unknown": 1000,
+          "declared": 0,
+          "measured": 0
+        },
+        "epistemic": "computed",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest+cells",
+          "method": "default-and-override-status-counts"
+        }
+      },
+      {
+        "id": "volume.filled-volume",
+        "entityId": "volume",
+        "key": "completeFilledVolume",
+        "value": {
+          "amount": 476500,
+          "unit": "mm3",
+          "exact": false
+        },
+        "epistemic": "computed",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest+cells",
+          "method": "fraction-sum-times-cell-volume"
+        }
+      },
+      {
+        "id": "volume.accounted-filled-volume",
+        "entityId": "volume",
+        "key": "accountedFilledVolume",
+        "value": {
+          "amount": 476500,
+          "unit": "mm3"
+        },
+        "epistemic": "computed",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest+cells",
+          "method": "sum-known-fractions-only"
+        }
+      },
+      {
+        "id": "volume.unknown-capacity",
+        "entityId": "volume",
+        "key": "unknownCapacity",
+        "value": {
+          "amount": 0,
+          "unit": "mm3"
+        },
+        "epistemic": "computed",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest+cells",
+          "method": "unknown-cell-count-times-cell-volume"
+        }
+      },
+      {
+        "id": "volume.material",
+        "entityId": "volume",
+        "key": "material",
+        "value": null,
+        "epistemic": "unknown",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest+cells",
+          "method": "no-material-identification"
+        }
+      },
+      {
+        "id": "volume.density",
+        "entityId": "volume",
+        "key": "intrinsicDensityKgM3",
+        "value": null,
+        "epistemic": "unknown",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest+cells",
+          "method": "no-density-identification"
+        }
+      },
+      {
+        "id": "volume.physical-validation",
+        "entityId": "volume",
+        "key": "physicalValidation",
+        "value": null,
+        "epistemic": "unknown",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest+cells",
+          "method": "not-performed-by-inspector"
+        }
+      },
+      {
+        "id": "volume.reference-count",
+        "entityId": "volume",
+        "key": "referenceCount",
+        "value": 0,
+        "epistemic": "computed",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest",
+          "method": "count-only-no-reference-fetch"
+        }
+      },
+      {
+        "id": "cell-center.location",
+        "entityId": "cell-center",
+        "key": "center",
+        "value": [
+          5,
+          5,
+          5
+        ],
+        "epistemic": "computed",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest",
+          "method": "origin-plus-column-basis-times-cell-center"
+        }
+      },
+      {
+        "id": "cell-center.fill",
+        "entityId": "cell-center",
+        "key": "fillFraction",
+        "value": 0.046875,
+        "epistemic": "declared",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest+cells",
+          "method": "source-reported-cell-fill"
+        }
+      },
+      {
+        "id": "cell-center.material",
+        "entityId": "cell-center",
+        "key": "material",
+        "value": null,
+        "epistemic": "unknown",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest+cells",
+          "method": "source-reported-cell-material"
+        }
+      },
+      {
+        "id": "cell-center.density",
+        "entityId": "cell-center",
+        "key": "intrinsicDensityKgM3",
+        "value": null,
+        "epistemic": "unknown",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest+cells",
+          "method": "source-reported-cell-density"
+        }
+      },
+      {
+        "id": "cell-center.boundary",
+        "entityId": "cell-center",
+        "key": "boundaryField",
+        "value": {
+          "value": 4.928932189941406,
+          "units": "mm",
+          "representation": "csg-implicit",
+          "exactDistance": false
+        },
+        "epistemic": "declared",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest+cells",
+          "method": "source-reported-boundary-sample"
+        }
+      },
+      {
+        "id": "volume.construction.boxSideMm",
+        "entityId": "volume",
+        "key": "boxSideMm",
+        "value": 80,
+        "epistemic": "declared",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest",
+          "method": "numeric-construction-metadata-only"
+        }
+      },
+      {
+        "id": "volume.construction.boreRadiusMm",
+        "entityId": "volume",
+        "key": "boreRadiusMm",
+        "value": 12,
+        "epistemic": "declared",
+        "source": {
+          "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+          "artifact": "manifest",
+          "method": "numeric-construction-metadata-only"
+        }
+      }
+    ],
+    "limitations": [
+      "Artifact hashes verify local bytes, not producer authentication or physical truth.",
+      "This packet inspector does not parse OpenVDB; native round-trip evidence requires separate review.",
+      "Fill fractions describe occupied volume, not opacity, confidence, or an exact boundary inside each cell.",
+      "Known grid locations do not imply known fill, material, or intrinsic density; outside this domain is unknown.",
+      "Construction dimensions are source declarations, not independently verified geometric measurements.",
+      "Reported material or density measurements remain source declarations here until their provenance is reviewed.",
+      "Only one selected voxel is included; aggregate counts do not establish every local geometric relationship.",
+      "Reference content and unbounded source descriptions are omitted; reference counts do not establish evidence.",
+      "Fact and entity IDs must be interpreted together with the exact source hash; a new source revision requires a new review."
+    ]
+  },
+  "sourceRevision": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "document": {
+    "path": "studio/spatial-volume-20260912/grid10/manifest.json",
+    "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+    "authority": "retained-local-file"
+  },
+  "geometry": [
+    {
+      "id": "volume",
+      "kind": "volume",
+      "provenance": "generated",
+      "artifactSha256": "5f3db71cb0e670e6140ea54e0191247b40341698b0476b15dc9fe4de30f28c62",
+      "units": "mm"
+    },
+    {
+      "id": "volume",
+      "kind": "mesh",
+      "provenance": "reconstructed",
+      "artifactSha256": "d4d527d500e0e0dcb5e29f47046a372e1514768aa775e5ce9f1a4bb98e85e475",
+      "units": "mm"
+    }
+  ],
+  "camera": {
+    "frameId": "fixture",
+    "units": "mm",
+    "provenance": "generated",
+    "projection": "perspective",
+    "position": [
+      140,
+      -150,
+      115
+    ],
+    "target": [
+      0,
+      0,
+      0
+    ],
+    "up": [
+      0,
+      0,
+      1
+    ],
+    "verticalFovDegrees": 50
+  },
+  "measurements": [
+    {
+      "factId": "volume.location-count",
+      "objectId": "volume",
+      "provenance": "generated",
+      "epistemic": "computed",
+      "value": 1000
+    },
+    {
+      "factId": "volume.total-cells",
+      "objectId": "volume",
+      "provenance": "generated",
+      "epistemic": "computed",
+      "value": 1000
+    },
+    {
+      "factId": "volume.fill-coverage",
+      "objectId": "volume",
+      "provenance": "generated",
+      "epistemic": "computed",
+      "value": {
+        "unknown": 0,
+        "sampled": 1000,
+        "declared": 0,
+        "empty": 488,
+        "partial": 96,
+        "full": 416
+      }
+    },
+    {
+      "factId": "volume.material-coverage",
+      "objectId": "volume",
+      "provenance": "generated",
+      "epistemic": "computed",
+      "value": {
+        "unknown": 1000,
+        "declared": 0,
+        "measured": 0
+      }
+    },
+    {
+      "factId": "volume.density-coverage",
+      "objectId": "volume",
+      "provenance": "generated",
+      "epistemic": "computed",
+      "value": {
+        "unknown": 1000,
+        "declared": 0,
+        "measured": 0
+      }
+    },
+    {
+      "factId": "volume.filled-volume",
+      "objectId": "volume",
+      "provenance": "generated",
+      "epistemic": "computed",
+      "value": {
+        "amount": 476500,
+        "unit": "mm3",
+        "exact": false
+      }
+    },
+    {
+      "factId": "volume.accounted-filled-volume",
+      "objectId": "volume",
+      "provenance": "generated",
+      "epistemic": "computed",
+      "value": {
+        "amount": 476500,
+        "unit": "mm3"
+      }
+    },
+    {
+      "factId": "volume.unknown-capacity",
+      "objectId": "volume",
+      "provenance": "generated",
+      "epistemic": "computed",
+      "value": {
+        "amount": 0,
+        "unit": "mm3"
+      }
+    },
+    {
+      "factId": "volume.reference-count",
+      "objectId": "volume",
+      "provenance": "generated",
+      "epistemic": "computed",
+      "value": 0
+    },
+    {
+      "factId": "cell-center.location",
+      "objectId": "cell-center",
+      "provenance": "generated",
+      "epistemic": "computed",
+      "value": [
+        5,
+        5,
+        5
+      ]
+    },
+    {
+      "factId": "cell-center.fill",
+      "objectId": "cell-center",
+      "provenance": "generated",
+      "epistemic": "declared",
+      "value": 0.046875
+    },
+    {
+      "factId": "cell-center.boundary",
+      "objectId": "cell-center",
+      "provenance": "generated",
+      "epistemic": "declared",
+      "value": {
+        "value": 4.928932189941406,
+        "units": "mm",
+        "representation": "csg-implicit",
+        "exactDistance": false
+      }
+    },
+    {
+      "factId": "volume.construction.boxSideMm",
+      "objectId": "volume",
+      "provenance": "generated",
+      "epistemic": "declared",
+      "value": 80
+    },
+    {
+      "factId": "volume.construction.boreRadiusMm",
+      "objectId": "volume",
+      "provenance": "generated",
+      "epistemic": "declared",
+      "value": 12
+    }
+  ],
+  "unknowns": [
+    {
+      "factId": "volume.material",
+      "objectId": "volume",
+      "key": "material"
+    },
+    {
+      "factId": "volume.density",
+      "objectId": "volume",
+      "key": "intrinsicDensityKgM3"
+    },
+    {
+      "factId": "volume.physical-validation",
+      "objectId": "volume",
+      "key": "physicalValidation"
+    },
+    {
+      "factId": "cell-center.material",
+      "objectId": "cell-center",
+      "key": "material"
+    },
+    {
+      "factId": "cell-center.density",
+      "objectId": "cell-center",
+      "key": "intrinsicDensityKgM3"
+    }
+  ],
+  "scope": {
+    "nativeDocumentFreshness": false,
+    "physicalValidation": false,
+    "cameraIsNativeCapture": false,
+    "meaning": "Generated local volume fixture with reconstructed surface and a constructed camera; no physical measurement or live editor attestation."
+  }
+}

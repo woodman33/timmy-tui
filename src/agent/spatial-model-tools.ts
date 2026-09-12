@@ -1,0 +1,9 @@
+import { tool } from '@openrouter/sdk/lib/tool.js';
+import { z } from 'zod/v4';
+import { contextFromSource } from '../vision/spatial/model-cli.js';
+import { localSpatialModels, reviewSpatialContext } from '../vision/spatial/local-model-review.js';
+
+const source = { sourcePath: z.string().max(2048), kind: z.enum(['volume', 'spline', 'hana']).default('volume'), objectId: z.string().max(160).optional() };
+export const spatialModelCatalogTool = tool({ name: 'list_local_spatial_models', description: 'Discover locally installed Ollama models and capabilities. Excludes cloud-backed tags. No downloads or inference.', inputSchema: z.object({}), outputSchema: z.any(), execute: localSpatialModels } as any);
+export const spatialModelContextTool = tool({ name: 'read_spatial_model_context', description: 'Read bounded spatial facts with coordinates, stable entity/fact IDs, source hashes and explicit unknowns. Volume source: verified manifest. Spline/Hana source: retained MCP envelope. No native mutation or inference.', inputSchema: z.object(source), outputSchema: z.any(), execute: async ({ sourcePath, kind, objectId }: any) => contextFromSource(sourcePath, kind, objectId) } as any);
+export const spatialModelReviewTool = tool({ name: 'review_spatial_with_local_model', description: 'Send spatial facts to an explicitly selected locally installed Ollama model. Returns model annotations bound to source/entity/fact IDs and signed execution receipts. Comments are unverified interpretations; proposed actions do not execute. Use when the user requests local-model spatial review; list models first.', inputSchema: z.object({ ...source, model: z.string().max(200), question: z.string().min(1).max(2000) }), outputSchema: z.any(), execute: async ({ sourcePath, kind, objectId, model, question }: any) => reviewSpatialContext(contextFromSource(sourcePath, kind, objectId), { model, question }) } as any);

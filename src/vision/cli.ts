@@ -10,6 +10,10 @@ import { publicVisionEvent } from './presentation.js';
 export async function runVisionCli(args: string[], options: { quiet?: boolean } = {}) {
   loadVisionEnvironment();
   const sub = args.find(a => !a.startsWith('-')) ?? 'open';
+  if (sub === 'spatial') {
+    const { runSpatialCli } = await import('./spatial/cli.js');
+    process.exitCode = await runSpatialCli(args.slice(1)); return;
+  }
   const flag = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
   const print = (v: unknown) => console.log(JSON.stringify(v, null, 2));
   if ((args.includes('--help') || args.includes('-h')) && !['doctor', 'stream'].includes(sub)) {

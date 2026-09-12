@@ -1,0 +1,44 @@
+{
+  "artifact": {
+    "path": "studio/ctx-c3w8/checkpoints/C4/context.pack-6cb66afc5e0981d5-8a57033f-a83e-4fa8-a3d9-23b495b89dd7.json",
+    "sha256": "6cb66afc5e0981d5ce78fb2b50637c12e4bf4eb9fb1d370b46ffe459948b053c",
+    "bytes": 15109
+  },
+  "receipt": {
+    "v": 1,
+    "id": "rc_mtyn0zs0_4y44",
+    "stream": "runs",
+    "ts": "2026-09-12T17:07:05.376Z",
+    "env_lock": {
+      "os": {
+        "platform": "darwin",
+        "build": "25G83",
+        "version": "26.6.2"
+      },
+      "arch": "arm64",
+      "tools": {},
+      "models": {}
+    },
+    "kind": "context.pack",
+    "subject": "context.pack",
+    "policy": "Retain immutable spatial evidence; no authority or physical correctness promotion",
+    "status": "ok",
+    "output_sha256": "6cb66afc5e0981d5ce78fb2b50637c12e4bf4eb9fb1d370b46ffe459948b053c",
+    "manifest_sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+    "artifacts": [
+      "studio/ctx-c3w8/checkpoints/C4/context.pack-6cb66afc5e0981d5-8a57033f-a83e-4fa8-a3d9-23b495b89dd7.json"
+    ],
+    "sources": [
+      {
+        "source_sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+        "artifact_sha256": "6cb66afc5e0981d5ce78fb2b50637c12e4bf4eb9fb1d370b46ffe459948b053c",
+        "authority": "retained-local-file"
+      }
+    ],
+    "epoch": 903,
+    "prev_hash": "sha256_96df8b765f02a00efd30cde0edb7f47ecc251dee3cf2e7cb9fbbdaf71b8d5f3d",
+    "signer": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAhm/lxmgv+Sm+xKu19Rtsnp74QrpJGrxnoyXm2QAft8s=\n-----END PUBLIC KEY-----\n",
+    "signature": "Wj8YSu4yAaZ2X+aFl5yNJ02nC6hHM5PIJ1Us1QepNZj61mQeRKBcnyh40lkWqkMOIR8P16E/v26BLENUvgHYAg==",
+    "hash": "sha256_47eebede32ab658b03c476a3b723e75448709af0ad718e8416a29f482a974ddb"
+  }
+}

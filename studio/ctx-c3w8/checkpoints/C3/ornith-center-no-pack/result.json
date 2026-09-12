@@ -1,0 +1,59 @@
+{
+  "schema": "timmy.context-ablation.row/1",
+  "rowId": "ornith-center-no-pack",
+  "model": "ornith:latest",
+  "requested": "ornith",
+  "modelDigest": "a75697c145891910e312c95e4a9fc1ccb8653e5ef543b23b0403a4665b82fd91",
+  "questionId": "center",
+  "condition": "no-pack",
+  "elapsedMs": 12754,
+  "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "contextPackSha256": null,
+  "intentReceipt": "sha256_f61d5ed15a8f3a7ad3873324028d9aea6d65c7045a84984f079fb1971748958f",
+  "requestSha256": "54182ed1c7676ce24c079120e7b29fcb0e1c4e7ef6cd82f8496f6793f0a0e2a3",
+  "responseSha256": "f26c65a01a2a5fbf53952c8c3caac56ce3a87b5b64b3cea5f2cd5b010fc89873",
+  "raw": {
+    "answers": [
+      {
+        "key": "centerXmm",
+        "value": null,
+        "entityId": null,
+        "factIds": []
+      },
+      {
+        "key": "centerYmm",
+        "value": null,
+        "entityId": null,
+        "factIds": []
+      },
+      {
+        "key": "centerZmm",
+        "value": null,
+        "entityId": null,
+        "factIds": []
+      },
+      {
+        "key": "fillFraction",
+        "value": null,
+        "entityId": null,
+        "factIds": []
+      }
+    ],
+    "unknowns": [
+      "mass",
+      "density",
+      "material"
+    ]
+  },
+  "score": {
+    "valid": true,
+    "correct": false,
+    "referencesValid": true,
+    "groundedCorrect": 0,
+    "unknownsPreserved": 1,
+    "score": 1,
+    "answerCoverage": 0,
+    "error": null
+  },
+  "error": null
+}

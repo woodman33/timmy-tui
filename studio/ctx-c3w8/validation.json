@@ -1,0 +1,267 @@
+{
+  "schema": "timmy.ctx-c3w8.validation/1",
+  "recordedAt": "2026-09-12T17:28:25.102Z",
+  "status": "completed-with-findings",
+  "proof": {
+    "ok": true,
+    "order": "ctx-c3w8",
+    "checkpoints": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5"
+    ],
+    "checkpointStatuses": {
+      "C1": "ok",
+      "C2": "ok",
+      "C3": "failed",
+      "C4": "ok",
+      "C5": "ok"
+    },
+    "allCheckpointsMetCriteria": false,
+    "observedFindings": [
+      {
+        "checkpoint": "C3",
+        "code": "checkpoint_budget_overrun",
+        "elapsedMs": 961286,
+        "budgetMs": 900000,
+        "overrunMs": 61286
+      },
+      {
+        "checkpoint": "C3",
+        "code": "configured_deadline_exceeded",
+        "rowId": "qwen3.8_27b-mlx-center-pack",
+        "configuredInferenceTimeoutMs": 150000,
+        "observedElapsedMs": 239984,
+        "error": "The operation was aborted due to timeout",
+        "cause": "not-established",
+        "scope": "Observed total row elapsed time; cancellation-delay cause is not established."
+      }
+    ],
+    "uniqueReceipts": 73,
+    "verifiedArtifactFiles": 117,
+    "ablationRows": 24,
+    "calibrationRecomputed": true,
+    "exports": {
+      "rerun": {
+        "bytes": 78010,
+        "sha256": "8304232f8a69dba530c246f2b47f5de99f9c23312dd8ff0509b1a75c29d3d36f"
+      },
+      "viser": {
+        "bytes": 16735,
+        "sha256": "f72ae5a4f0edef591eb090da2039b2c4eee445b4a1a081ebd3061170cefca043"
+      }
+    },
+    "externalPreviousLinks": 3,
+    "signerFingerprints": [
+      "33ca0d633ec7666ac678a0ef4246562dab5bb133190dce8c861658e784c1aa37"
+    ],
+    "scope": {
+      "completeChainVerified": false,
+      "embeddedKeysExternallyTrusted": false,
+      "trustedClockVerified": false,
+      "semanticTruthValidated": false,
+      "physicalValidation": false,
+      "nativeV3Validated": false,
+      "meaning": "ok reports retained evidence integrity, not that checkpoint acceptance criteria passed. Checks cover artifact joins, timestamp ordering and frozen-rubric arithmetic; external previous-chain links remain external."
+    }
+  },
+  "validation": {
+    "focused": {
+      "files": 9,
+      "passed": 102,
+      "failed": 0,
+      "logSha256": "5110609fc7c5148604cf3c00ff5ce6111cfe95235b9850d66ecd15556c8fdc4b"
+    },
+    "root": {
+      "passedSuites": 95,
+      "failedSuites": 2,
+      "skippedSuites": 3,
+      "passedTests": 570,
+      "failedTests": 1,
+      "skippedTests": 11,
+      "nonblockingKnownWip": [
+        "tests/vision-templates.test.ts",
+        "tests/receipt-hotfix.test.tsx"
+      ],
+      "logSha256": "829fec78bb15a0454246289a221dcb366027d0a1503ec3dcdee9f05998fb8746"
+    },
+    "python": {
+      "openvdbTestsPassed": 9,
+      "viewerTestsPassed": 4
+    },
+    "build": "passed",
+    "typescript": "tsc and tsgo passed",
+    "privacy": "0 findings at medium or above; staged hook also required"
+  },
+  "findings": {
+    "daemonOsEgress": "unmeasured; retained C1 finding",
+    "c3Budget": "failed; 61286ms overrun",
+    "qwenAbort": "239984ms observed versus 150000ms configured; cause not established"
+  },
+  "sourceFiles": [
+    {
+      "path": "src/agent/core.ts",
+      "sha256": "0df7587bdf0e3801b57803eae9a93f6da35ffe2b7e3cd5038b26891c0d0295fd"
+    },
+    {
+      "path": "src/agent/providers.ts",
+      "sha256": "3fbf75ad6d2c6355d83aed2b61996afa711afaba767610b033dc612cf03fafbe"
+    },
+    {
+      "path": "src/agent/tools.ts",
+      "sha256": "fd3c6b4102ca51984eb1bdb9fafecf036f5b79c3661c17dc1d05e16f677f5d85"
+    },
+    {
+      "path": "src/vision/cli.ts",
+      "sha256": "d526d2b0a321af4d07ae0be7a5ff20960c7b565ee11a9a7b73e112ff232e1c34"
+    },
+    {
+      "path": "tests/providers.test.ts",
+      "sha256": "e23330e16db562982d458f97fea983c2eb3c278d8e6f055ac6ed4199c5fa7ec4"
+    },
+    {
+      "path": "scripts/ctx-c3w8-ablation.mts",
+      "sha256": "aac1aeaa4d0ef42f41833216731b65d13805e219bab2e2823793a23020a569ae"
+    },
+    {
+      "path": "scripts/ctx-c3w8-checkpoints.mts",
+      "sha256": "1f0c92a502e0d8260381f90be8a321cbbef1a6c77d01a172a67175cd44591561"
+    },
+    {
+      "path": "scripts/ctx-c3w8-export.mts",
+      "sha256": "17aedd930403dc05874904fc34532441d81c12f0e347b99bbb3be29f44ae3474"
+    },
+    {
+      "path": "scripts/ctx-c3w8-seal.mts",
+      "sha256": "f96f8d582d690e1c2454918cc74f6e15b1f73f49a5b6f25dbdc239955beb4742"
+    },
+    {
+      "path": "scripts/ctx-c3w8-timing.mts",
+      "sha256": "e12781892d787d4b7a4c7b67edde8d2ed35835206fd05a249f6bf51e370881c3"
+    },
+    {
+      "path": "scripts/ctx-c3w8-verify.mts",
+      "sha256": "aff36052e7b88f2bd2ab3100fbbe3c4caa0c82ed4f0153dad6d8af3fecb3cfa7"
+    },
+    {
+      "path": "src/agent/spatial-model-tools.ts",
+      "sha256": "880ce014e037edb98c2594b4ef6f53f48fa9bd929578b83e5ad4b4947dc47c37"
+    },
+    {
+      "path": "src/vision/spatial/ablation.ts",
+      "sha256": "34377c518d9e187abe03ddd4e13389096d538a0b8a6c697d7f9cf5494c85814b"
+    },
+    {
+      "path": "src/vision/spatial/cli.ts",
+      "sha256": "22b351e755791642afcf1601fe51d274d78b258f061dc783785b4d1de5f2f959"
+    },
+    {
+      "path": "src/vision/spatial/context-order-cli.ts",
+      "sha256": "c7abd9ca9c6d9e3fab1138f722b74f3935e74ef22b49ff68a13f1293175bf272"
+    },
+    {
+      "path": "src/vision/spatial/context-pack.ts",
+      "sha256": "1eebfb0485a62e67579698d517699de05ca5a01dd18caf1153404b1334027cc1"
+    },
+    {
+      "path": "src/vision/spatial/edit-proposal.ts",
+      "sha256": "a0f009ef0af5caf606acd886652afe071f990597b426976801813a8187605a07"
+    },
+    {
+      "path": "src/vision/spatial/local-model-review.ts",
+      "sha256": "5381d3c388b8ccc25a5ac2d3651d79bd3bfecb96811d865027010e40773d8d61"
+    },
+    {
+      "path": "src/vision/spatial/model-cli.ts",
+      "sha256": "b91aaa34f617b03011dafb2ce635b0041cd648bff3d95cbd219f503ee6ef2de9"
+    },
+    {
+      "path": "src/vision/spatial/model-context.ts",
+      "sha256": "53bddc3184ae5ca84cd1f7494cc657cb5b079be4836c2e4ff1a112960eb98a57"
+    },
+    {
+      "path": "src/vision/spatial/native-model-context.ts",
+      "sha256": "07433b5ca33db8a71623d88ff6a4b101e1be1c8d662739a3ff769d33e926c650"
+    },
+    {
+      "path": "src/vision/spatial/volume-cli.ts",
+      "sha256": "1a29c51b7f3962c6837bf107cc4d09a793053ac40f6c36233fe58e7d04e21fbf"
+    },
+    {
+      "path": "src/vision/spatial/volume.ts",
+      "sha256": "b89e31f3a66db1f9d4b20f0d739451a7bfe76d1b5fc89f306448ade10c460cc4"
+    },
+    {
+      "path": "tests/ctx-c3w8-verifier.test.ts",
+      "sha256": "79f0d8df2be4343370684db5d59fd42ad15c8ef8bac5f759d4f085899ec3cc97"
+    },
+    {
+      "path": "tests/fixtures/spatial/granite-ungrounded-response.json",
+      "sha256": "41a9883b4f65c7c50e997dd5ce579b4938cb1a33aa28e646363c98ba4cbfffcb"
+    },
+    {
+      "path": "tests/spatial-ablation.test.ts",
+      "sha256": "5a1d87a13cf6af62a8b2f3ed65b2956e0d5ae7abcd17f1c6c2dbf1b5250c5cc0"
+    },
+    {
+      "path": "tests/spatial-context-cli.test.ts",
+      "sha256": "68f64ad6261846412d74e1c77af6ba945515c83577198a67df28d77e17134b9c"
+    },
+    {
+      "path": "tests/spatial-context-pack.test.ts",
+      "sha256": "8c7a62e46af33704572de2e97b276d1d37b057f18d5f495db1ee428c4001ba65"
+    },
+    {
+      "path": "tests/spatial-edit-proposal.test.ts",
+      "sha256": "b0e475820c1552ab7ea57f2fb5de669d12a54071dc160e674bb9c711945d6ed0"
+    },
+    {
+      "path": "tests/spatial-local-model-review.test.ts",
+      "sha256": "6ca80160332da73de740d7cc6dee8a22a5c23da2f8cba2412a3d41c518658e8e"
+    },
+    {
+      "path": "tests/spatial-model-context.test.ts",
+      "sha256": "54f5f750aa7f305e2b789773c10ac3cb3fafd250e96f60a7e64bceda8623ca26"
+    },
+    {
+      "path": "tests/spatial-volume.test.ts",
+      "sha256": "75d3b62deb6be8f7a24bad13549cea6e09a73e2acbd7b719d40bc7e8506395d6"
+    },
+    {
+      "path": "tools/ctx-c3w8/README.md",
+      "sha256": "35af9f5ace2edbeec63518065f2c4a10553bda33895ff77585c318a5ec64475b"
+    },
+    {
+      "path": "tools/ctx-c3w8/c1-checkpoint.ts",
+      "sha256": "1398e5b0c126b7947e106ea5818385c54733691bf75f9b3fa5c20e9867a42840"
+    },
+    {
+      "path": "tools/spatial-volume/README.md",
+      "sha256": "c84abcb29eb41d8b4e8f63f820b4fd4c68b2a66998369110a5ede78072a9ab11"
+    },
+    {
+      "path": "tools/spatial-volume/build_fixture.py",
+      "sha256": "e4d3b4af79b0747307ad66073404ce6082dac7f27bb34dc70b626445bbf02aaa"
+    },
+    {
+      "path": "tools/spatial-volume/environment-osx-arm64.lock.txt",
+      "sha256": "8ea7b8cedaeefc760f4f6f871d0225c611790c002ed7c9a622197acb8a396772"
+    },
+    {
+      "path": "tools/spatial-volume/export_context_evidence.py",
+      "sha256": "8d97907206e5dac2e72094afdc09dc81d69fd1e038d1aa0285e87c7c263603f1"
+    },
+    {
+      "path": "tools/spatial-volume/test_export_context_evidence.py",
+      "sha256": "a07d561ea45d6f143a5b506a95c66b4cc1c0656e9bae2254a2eb444e3ed3b0c1"
+    },
+    {
+      "path": "tools/spatial-volume/test_fixture.py",
+      "sha256": "81018d9b30014569f9d6a348c36c6c94da5477625e7565fc0f60703f70d8e493"
+    }
+  ],
+  "base": "ca04b1d75631d4ffe946f25869493c69e97204f1",
+  "omma": "No confirmed MCP contract; exports-only stays CC2"
+}

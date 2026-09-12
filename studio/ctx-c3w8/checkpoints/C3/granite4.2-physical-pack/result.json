@@ -1,0 +1,59 @@
+{
+  "schema": "timmy.context-ablation.row/1",
+  "rowId": "granite4.2-physical-pack",
+  "model": "granite4.2:latest",
+  "requested": "granite4.2",
+  "modelDigest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+  "questionId": "physical",
+  "condition": "pack",
+  "elapsedMs": 11747,
+  "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+  "intentReceipt": "sha256_db55fab49c82a070d49070c72c3794b263702f4f922fefa6ff87729cb4cf72d7",
+  "requestSha256": "7909927e7b049a006bf037d5fbf540eac2ac5a6893bec23a51ac4c6845040a07",
+  "responseSha256": "764fbe53cb443e3693c593ec7f73f055fea78dc0b69e117240e8ac27a4dd4db8",
+  "raw": {
+    "answers": [
+      {
+        "entityId": "volume",
+        "factIds": [
+          "volume.material"
+        ],
+        "key": "material",
+        "value": null
+      },
+      {
+        "entityId": "volume",
+        "factIds": [
+          "volume.density"
+        ],
+        "key": "intrinsicDensityKgM3",
+        "value": null
+      },
+      {
+        "entityId": "volume",
+        "factIds": [
+          "volume.density"
+        ],
+        "key": "massKg",
+        "value": null
+      }
+    ],
+    "unknowns": [
+      "material",
+      "density",
+      "mass"
+    ]
+  },
+  "score": {
+    "valid": false,
+    "correct": false,
+    "referencesValid": false,
+    "groundedCorrect": 0,
+    "unknownsPreserved": 0,
+    "score": 0,
+    "answerCoverage": 0,
+    "error": "Missing, duplicate or unexpected answer keys."
+  },
+  "error": null
+}
