@@ -95,7 +95,6 @@
     "@openfeature/server-sdk": "^1.21.0",
     "@openrouter/sdk": "latest",
     "@opentui/core": "^0.5.10",
-    "@opentui/core-darwin-arm64": "^0.5.10",
     "@opentui/react": "^0.5.10",
     "@quiverai/sdk": "^0.9.0",
     "@rive-app/canvas": "^2.36.0",
