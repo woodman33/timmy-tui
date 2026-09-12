@@ -19,6 +19,7 @@ import { journeyRows, journeyDoneCount } from '../journey.js';
 import { typedLines, runIdOf } from '../chain-views.js';
 import * as warroom from '../../harness/warroom.js';
 import * as w2 from '../../harness/warroom2.js';
+import * as ck from '../../harness/cockpit.js';
 import { CommanderClient, edgeToken, type CommanderEvent } from '../../harness/commander.js';
 import { Card } from '../ui/Card.js';
 import { useAgent } from '../hooks/useAgent.js';
@@ -108,6 +109,9 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   const pendingChat = useRef<Map<string, string>>(new Map());
   // warroom-v2-c4m8: SWARM sub-tab pickers + ENGINE ROOM / BULKHEADS / SKILLS
   const [swarmOn, setSwarmOn] = useState(false);
+  // ui-cockpit-k7m3: the HANDS board is private overlay data (.timmy/private/
+  // cockpit/board.json, mode 700). null on a fresh install → no HANDS sub-tab.
+  const [board, setBoard] = useState<ck.Board | null>(() => ck.loadBoard());
   const [swPick, setSwPick] = useState({ preset: 0, topology: 0, size: 0, budget: 0, judge: 0, policy: 0 });
   const [focusHarness, setFocusHarness] = useState('jcode');
   const [war2, setWar2] = useState<{ presets: w2.SwarmPreset[]; runs: w2.SwarmRun[]; nodes: w2.NodeStat[]; sbx: w2.SbxRun[]; ports: Record<string, string>; abilities: w2.AbilityRow[]; projects: w2.ProjectRow[] }>({ presets: [], runs: [], nodes: [], sbx: [], ports: {}, abilities: [], projects: [] });
@@ -240,7 +244,11 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   }, []);
 
   useInput((input, key) => {
-    const k = key.return ? 'Enter' : key.escape ? 'Esc' : key.tab ? 'Tab' : input;
+    // ui-cockpit-k7m3: arrows reach the reducer as names so the HANDS grid
+    // cursor can use them; everything else keeps its raw input char
+    const k = key.return ? 'Enter' : key.escape ? 'Esc' : key.tab ? 'Tab'
+      : key.upArrow ? 'up' : key.downArrow ? 'down' : key.leftArrow ? 'left' : key.rightArrow ? 'right'
+        : input;
     // CHAT Enter ships the buffer: capture before the reducer clears it
     const chatText = sRef.current.mode === 'CHAT' ? sRef.current.input : '';
     // a ref advanced synchronously: pasted/programmatic chunks can arrive in
@@ -294,6 +302,13 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
       // launch composes a spec and hands it to lanes/swarm/swarm.mjs, [X]
       // kills the whole swarm through the governor's kill file
       if (a === 'swarm-toggle') setSwarmOn(v => !v);
+      // ui-cockpit-k7m3: HANDS sub-tab — re-read the private board on toggle;
+      // without one, [h] points at the import verb instead of rendering
+      if (a === 'hands-toggle') {
+        const b = ck.loadBoard();
+        setBoard(b);
+        if (!b) setFlash('no cockpit board — timmy cockpit board import <ROUNDS.md>');
+      }
       if (a === 'sw-preset-next' || a === 'sw-preset-prev') {
         setSwPick(p => {
           const n = war2.presets.length || 1;
@@ -704,6 +719,12 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
                 <>
                   <Box height={1} />
                   <SwarmPane presets={war2.presets} runs={war2.runs} pick={swPick} focus={focusHarness} />
+                </>
+              )}
+              {s.handsOn && board && (
+                <>
+                  <Box height={1} />
+                  <HandsPane board={board} row={Math.min(s.handsRow, Math.max(0, board.hands.length - 1))} col={s.handsCol} showPrompt={s.handsPrompt} />
                 </>
               )}
             </>
@@ -1394,6 +1415,70 @@ function SkillsTree(props: { projects: w2.ProjectRow[] }) {
           {pj.skills.length === 0 ? <Text color={PAL.textMuted}>  └ (no skills)</Text> : null}
         </React.Fragment>
       ))}
+    </Card>
+  );
+}
+
+// ui-cockpit-k7m3 — HANDS sub-tab (beside SWARM): rows are hands, columns are
+// rounds R0–R4. The board is private overlay data (.timmy/private/cockpit/
+// board.json, mode 700, gitignored) so this pane renders ONLY when the owner
+// imported one — a fresh install never shows it. [Enter] opens the cursor
+// cell's full prompt; the viewer is height-bounded and says so when it clips.
+function HandsPane(props: { board: ck.Board; row: number; col: number; showPrompt: boolean }) {
+  const { board, row, col } = props;
+  const hand = board.hands[row];
+  const stateColor = (st: string): string =>
+    st === 'STOP' ? PAL.danger
+      : st === 'needs-approval' ? PAL.warn
+        : st === 'HOLD' ? PAL.seal
+          : st === 'running' ? PAL.accent
+            : PAL.textMuted;
+  const promptText = hand ? board.prompts?.[hand.name]?.[ck.ROUNDS[col]] ?? '' : '';
+  const promptLines = promptText.split('\n');
+  const shown = promptLines.slice(0, 10);
+  return (
+    <Card title="HANDS" purpose={`${board.hands.length} hands · R0–R4 · [Enter] prompt`} flexGrow={1}>
+      <Text color={PAL.textMuted}>{'HAND        TOOL      RD  STATE            SEAL     ' + ck.ROUNDS.map(r => r.padStart(3)).join('')}</Text>
+      {board.hands.map((h, i) => {
+        const sel = i === row;
+        return (
+          <React.Fragment key={h.name}>
+            <Box>
+              <Text bold={sel} color={sel ? PAL.textPrimary : PAL.textSecondary}>
+                {h.name.slice(0, 10).padEnd(12) + h.tool.slice(0, 8).padEnd(10) + h.round.padEnd(4)}
+              </Text>
+              <Text bold={sel} color={stateColor(h.state)}>{h.state.padEnd(17)}</Text>
+              <Text color={PAL.textMuted}>{(h.lastSeal && h.lastSeal !== '—' ? h.lastSeal.slice(7, 15) : '—').padEnd(9)}</Text>
+              {ck.ROUNDS.map((r, c) => {
+                const has = Boolean(board.prompts?.[h.name]?.[r]);
+                const cur = sel && c === col;
+                return (
+                  <Text key={r} bold={cur} color={cur ? PAL.textPrimary : has ? PAL.accent : PAL.textMuted}>
+                    {(has ? '●' : '·').padStart(3)}
+                  </Text>
+                );
+              })}
+            </Box>
+            <Text color={PAL.textMuted}>{`  ${h.worktree} · ${h.order}`.slice(0, 68)}</Text>
+          </React.Fragment>
+        );
+      })}
+      {props.showPrompt && hand && (
+        <>
+          <Box height={1} />
+          <Text bold color={PAL.accent}>{`prompt ${hand.name} ${ck.ROUNDS[col]}`}</Text>
+          {promptText ? (
+            <>
+              {shown.map((l, i) => (<Text key={i} color={PAL.textPrimary} wrap="wrap">{l || ' '}</Text>))}
+              {promptLines.length > shown.length && (
+                <Text color={PAL.textMuted}>{`… ${promptLines.length - shown.length} more lines · full text in board.json`}</Text>
+              )}
+            </>
+          ) : (
+            <Text color={PAL.textMuted}>no prompt recorded for this cell</Text>
+          )}
+        </>
+      )}
     </Card>
   );
 }
