@@ -110,14 +110,20 @@ export function useTelemetryBridge({
   // Drain the offline spool once the endpoint is reachable again: replay a
   // bounded batch per cycle, stop on first failure, rewrite the remainder.
   const lastDrainAtRef = useRef(0);
+  const inertLineLoggedRef = useRef(false);
+
+  const logEdgeInertOnce = () => {
+    if (process.env.TIMMY_TELEMETRY_URL === 'off' || inertLineLoggedRef.current) return;
+    console.error(EDGE_INERT_LINE);
+    inertLineLoggedRef.current = true;
+  };
 
   const drainOfflineSpool = async (endpoint: string) => {
     if (!endpoint || isPlaceholder(endpoint)) {
-      console.error(EDGE_INERT_LINE);
+      logEdgeInertOnce();
       return;
     }
     try {
-      if (!endpoint) return; // telemetry disabled
       if (Date.now() - lastDrainAtRef.current < 10000) return; // throttle: max 1 drain/10s
       const spoolPath = path.join(process.cwd(), '.timmy', 'offline-telemetry.jsonl');
       if (!fs.existsSync(spoolPath)) return;
@@ -232,7 +238,7 @@ export function useTelemetryBridge({
     const endpoint = resolveEndpoint();
     if (!endpoint) {
       // unresolved edge host is inert: one legible line, telemetry stays local
-      if (process.env.TIMMY_TELEMETRY_URL !== 'off') console.error(EDGE_INERT_LINE);
+      logEdgeInertOnce();
       setTelemetryStatus('offline');
       return;
     }
