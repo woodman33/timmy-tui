@@ -248,6 +248,12 @@ if (command === 'nfc' || command === 'custody') {
   process.exit(r.status ?? 1);
 }
 
+if (command === 'inspect') {
+  const lane = fileURLToPath(new URL('../lanes/recipes/spatial03/inspect.ts', import.meta.url));
+  const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
 if (command === 'recipe') {
   const lane = fileURLToPath(new URL('../lanes/recipes/cli.ts', import.meta.url));
   const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });

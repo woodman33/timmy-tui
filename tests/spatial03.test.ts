@@ -1,0 +1,15 @@
+import {describe,it,expect} from 'vitest';
+import {scene,answer,validateObservations,arrowSchema,sceneSchema,transform,frameChip} from '../lanes/recipes/spatial03/scene.js';
+// Synthetic contract fixture only; never written into the native receipt store.
+const fixture=()=>({units:'mm',variants:[100,140,180].map(w=>({variant:`w${w}`,features:['A','B','C','D'].map(id=>({id,radius:1.5,axisAtBase:[['A','C'].includes(id)?-(w/2-10):w/2-10,['A','B'].includes(id)?30:-30,0],zSpan:[0,11],checks:{radius:true,axisParallelZ:true,xEdgeOffset:true,yEdgeOffset:true,zSpan:true,completeCylindricalFace:true}}))}))});
+describe('Study 03 production contract',()=>{
+ it('requires all 72 named checks and independently checks coordinates',()=>{expect(validateObservations(fixture())).toBe(true);const f=fixture();f.variants[0].features.pop();expect(()=>validateObservations(f)).toThrow();const g=fixture();g.variants[0].features[0].axisAtBase[0]+=1;expect(()=>validateObservations(g)).toThrow();});
+ it.each([0,1,2])('missing width %i cannot pass',n=>{const f=fixture();f.variants.splice(n,1);expect(()=>validateObservations(f)).toThrow();});
+ it('a false or missing native check cannot pass',()=>{const f=fixture();f.variants[0].features[0].checks.radius=false;expect(()=>validateObservations(f)).toThrow();delete (f.variants[0].features[0].checks as any).radius;expect(()=>validateObservations(f)).toThrow();});
+ it.each([[4.5,'passed'],[5,'passed'],[5.5,'failed']])('minimum 2 mm boundary: radius %s → %s',(r,state)=>expect(answer(scene(fixture(),'synthetic','fixture',Number(r)),'clearance').state).toBe(state));
+ it('empty space is named, analytical, and never native-built',()=>{const s=scene(fixture(),'synthetic','fixture');expect(s.emptySpaces.map(e=>e.id)).toEqual(['tool.A','tool.B','tool.C','tool.D']);expect(s.emptySpaces.every(e=>!e.nativeBuilt&&e.basis==='analytical')).toBe(true);expect(answer(s,'coverage').unmeasured).toHaveLength(2);});
+ it('three arrows have distinct behavior and cannot self-authorize',()=>{const s=scene(fixture(),'synthetic','fixture');expect(s.arrows.map(a=>a.kind)).toEqual(['materialization','dependency','hypothesis']);expect(()=>arrowSchema.parse({...s.arrows[0],approved:true})).toThrow();expect(()=>arrowSchema.parse({...s.arrows[1],executes:true})).toThrow();});
+ it('known frame conversion and inverse preserve the feature',()=>{expect(transform([-60,30,11],90,'m')).toEqual([-.03,-.06,.011]);let p=[-60,30,11];for(let i=0;i<4;i++)p=transform(p,90,'mm');expect(p).toEqual([-60,30,11]);});
+ it('chip names units, frame, origin, handedness and up',()=>{const s=scene(fixture(),'synthetic','fixture');expect(frameChip(s.frame)).toContain('PART · mm · +Z · RH');expect(()=>sceneSchema.parse({...s,frame:{...s.frame,unit:'px'}})).toThrow();});
+ it('unknown questions remain unsupported',()=>expect(answer(scene(fixture(),'synthetic','fixture'),'is it safe to manufacture?').state).toBe('unsupported'));
+});

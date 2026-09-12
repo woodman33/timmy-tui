@@ -1,0 +1,78 @@
+{
+  "schema": "timmy.public-seal-reference/1",
+  "id": "rc_mtyh9rvk_lrla",
+  "hash": "sha256_4d132cb3b82da90b00673b8aca6cf5d6ace55b851cd98a7e7d0ff094eebfe463",
+  "subject": "spatial-t5k1.phase2",
+  "signatureVerified": true,
+  "chainVerified": true,
+  "sources": [
+    {
+      "path": "src/cli.ts",
+      "sha256": "2e4e9559fddaa09fe59b9fdc92ee097c350d29d889149fd88491471d61259078"
+    },
+    {
+      "path": "tests/spatial03.test.ts",
+      "sha256": "200150a9ca4f90ae4a94b7446d91a0f78bf69af64c70a565a552100a4f8be2df"
+    },
+    {
+      "path": "docs/FILM-PLAN.md",
+      "sha256": "d4940df7d301658e3dd93e37f6b6d24101b81811016f4b953e903502da7cf83f"
+    },
+    {
+      "path": "lanes/recipes/spatial03/inspect.ts",
+      "sha256": "8d57ab2385950bb9cb2af662268a798a9ee29f745553e636ac2c192e9bf7da84"
+    },
+    {
+      "path": "lanes/recipes/spatial03/observe.py",
+      "sha256": "de89d5f37771fb76ebcc913347fbe8370d5bb6a688c974b5b40ae71e17ab6188"
+    },
+    {
+      "path": "lanes/recipes/spatial03/qualify.ts",
+      "sha256": "11f550842e2dfe06586a0213fc9f4740b94c53c779ad5db22b7fefd80d9144de"
+    },
+    {
+      "path": "lanes/recipes/spatial03/scene.ts",
+      "sha256": "b1d49b2b7014e6a6d58567adea75ed2b994d991e5c8bb22545ee8e75d69fb494"
+    },
+    {
+      "path": "lanes/recipes/spatial03/store.ts",
+      "sha256": "818fc7eb1a585ef27552be622fb4cde21fa4ca652b49dc227c964e3284e3ceb5"
+    },
+    {
+      "path": "docs/reference/study03/COMMUNICATION.md",
+      "sha256": "3652f77142880016ced643ae9533fc326f47e6c57e453b2d540b7129b2ff82c1"
+    },
+    {
+      "path": "docs/reference/study03/IMPLEMENTATION.md",
+      "sha256": "a17dd68de5134011dd9f9215491ec3f5197705305b0fd68c9505257b7fcf78ae"
+    },
+    {
+      "path": "docs/reference/study03/TECHNOLOGY.md",
+      "sha256": "fb32143655933faeb0c0454b3d236ddd2815275bc0986364fdeaafa10fc6d8f6"
+    },
+    {
+      "path": "docs/orders/spatial-t5k1/phase2/README.md",
+      "sha256": "340056c9337a8b69e43fc77b88fdcc6345f512bb985a5baa428289d85ea434a9"
+    },
+    {
+      "path": "docs/orders/spatial-t5k1/phase2/evidence.json",
+      "sha256": "6f96197c37c2f9015fd6b8f84e98d285b894693d1e0163dd042ca732aea15e47"
+    },
+    {
+      "path": "docs/orders/spatial-t5k1/phase2/frame-capture.json",
+      "sha256": "d44d5a1e8b6b87cae6bcd5c1cb44cf45889546becb19a245f9f6a8fb143c1f6c"
+    },
+    {
+      "path": "docs/orders/spatial-t5k1/phase2/negative-capture.json",
+      "sha256": "f778b8de1589b6a4a80ab40fc3d386e318036a657401e3bcbc435af296e18d82"
+    }
+  ],
+  "filmPlanSha256": "22777f0304f6fb756164c17f5d4f4c12d1b243b6680ca88c04bc951d344661f5",
+  "childReceipts": [
+    "rc_mtyh4e9v_hh9v",
+    "rc_mtyh6i7y_7t4i",
+    "rc_mtyh6ipa_ezlm",
+    "rc_mtyh6j49_vfur",
+    "rc_mtyh6jip_jpo7"
+  ]
+}

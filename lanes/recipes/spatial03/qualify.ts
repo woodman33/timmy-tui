@@ -1,0 +1,40 @@
+import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';import {fileURLToPath} from 'node:url';import {spawnSync} from 'node:child_process';
+import {appendReceipt,readChain,verifySignature} from '../../../src/utils/receipts.js';import {sha} from '../tray.js';import {scene,answer,validateObservations} from './scene.js';
+const root=process.cwd(),frozen=process.env.TIMMY_SPATIAL03_FREEZE,python=process.env.TIMMY_CADQUERY_PYTHON;
+if(!frozen||!python)throw Error('Set TIMMY_SPATIAL03_FREEZE to frozen workbench and TIMMY_CADQUERY_PYTHON');
+const snapshotManifest=path.join(path.dirname(frozen),'manifest.json'),freeze=readChain('runs').find(r=>r.id==='rc_mtyh4e9v_hh9v');
+if(!freeze||!verifySignature(freeze)||sha(fs.readFileSync(snapshotManifest))!==freeze.manifest_sha256)throw Error('Study freeze seal invalid');
+const frozenEntries=JSON.parse(fs.readFileSync(snapshotManifest,'utf8')).entries;
+const expected=(p:string)=>frozenEntries.find((e:any)=>e.path===p)?.sha256;
+const model=path.join(frozen,'model'),manifest=JSON.parse(fs.readFileSync(path.join(model,'manifest.json'),'utf8'));
+const run=crypto.randomUUID(),dir=path.join(root,'.timmy/spatial03',run);fs.mkdirSync(dir,{recursive:true});
+const observer=path.join(dir,'observe.py');fs.copyFileSync(fileURLToPath(new URL('./observe.py',import.meta.url)),observer);
+const files=[path.join(model,'manifest.json'),...manifest.variants.map((v:any)=>path.join(model,v.files.step.file))];
+for(const f of files)if(sha(fs.readFileSync(f))!==expected(path.relative(frozen,f)))throw Error('Frozen native input drift');
+const prediction={schema:'timmy.spatial03.prediction/1',widths:[100,140,180],features:['A','B','C','D'],checksPerBore:['radius','axisParallelZ','xEdgeOffset','yEdgeOffset','zSpan','completeCylindricalFace'],requiredChecks:72,expected:{radiusMm:1.5,axis:'parallel Z',edgeOffsetMm:10,zSpanMm:[0,11],completeCylinder:true},coverage:'12 bores across exactly three widths; missing observations fail'};
+const pf=path.join(dir,'prediction.json');fs.writeFileSync(pf,JSON.stringify(prediction,null,2));
+const sources=[...files,observer,pf].map(p=>({path:p,sha256:sha(fs.readFileSync(p))}));
+const pre=appendReceipt('runs',{kind:'spatial.prediction',subject:'spatial-t5k1.phase2.native',policy:'auto',status:'ok',sources,cost_usd:0});
+const output=path.join(dir,'observations.json'),child=spawnSync(python,[observer,'--model',model,'--output',output],{encoding:'utf8',timeout:120000});
+fs.writeFileSync(path.join(dir,'native.log'),(child.stdout||'')+(child.stderr||''));
+let observations:any,error:string|undefined;
+try{if(child.error||child.status!==0)throw Error('Native STEP observer failed');observations=JSON.parse(fs.readFileSync(output,'utf8'));validateObservations(observations);}catch(e){error=String(e);}
+const native=appendReceipt('runs',{kind:'spatial.observation',subject:'spatial-t5k1.phase2.native',policy:'auto',status:error?'failed':'ok',child_receipts:[pre.id],sources:[...sources,...(fs.existsSync(output)?[{path:output,sha256:sha(fs.readFileSync(output))}]:[])],discrepancies:error?[error]:[],cost_usd:0});
+if(error)throw Error(error);
+const scenarios=[];
+for(const radius of [4.5,5,5.5]){
+ const dest=path.join(dir,`radius-${radius}`);fs.mkdirSync(dest);
+ const forecast={radiusMm:radius,gapMm:10-3-radius,minimumMm:2,expected:10-3-radius>=2?'passed':'failed',basis:'analytical; horizontal wall gap only',unmeasured:['complete tool path','physical validation']};
+ const p=path.join(dest,'prediction.json');fs.writeFileSync(p,JSON.stringify(forecast,null,2));
+ const forecastReceipt=appendReceipt('runs',{kind:'spatial.prediction',subject:'spatial-t5k1.phase2.clearance',policy:'auto',status:'ok',sources:[{path:p,sha256:sha(fs.readFileSync(p))}],child_receipts:[native.id],cost_usd:0});
+ const s=scene(observations,native.id,sha(fs.readFileSync(output)),radius),result=answer(s,'clearance');
+ if(result.state!==forecast.expected)throw Error('Clearance differs from forecast');
+ const file=path.join(dest,'scene.json');fs.writeFileSync(file,JSON.stringify(s,null,2));
+ const resultFile=path.join(dest,'answer.json');fs.writeFileSync(resultFile,JSON.stringify(result,null,2));
+ const receipt=appendReceipt('runs',{kind:'spatial.scene',subject:'spatial-t5k1.phase2.scene',policy:'auto',status:result.state==='passed'?'ok':'failed',sources:[file,resultFile].map(p=>({path:p,sha256:sha(fs.readFileSync(p))})),child_receipts:[forecastReceipt.id,native.id],cost_usd:0});
+ scenarios.push({radiusMm:radius,gapMm:forecast.gapMm,minimumMm:2,state:result.state,predictionReceipt:forecastReceipt.id,receipt:receipt.id,hash:receipt.hash});
+ if(radius===4.5)fs.writeFileSync(path.join(root,'.timmy/spatial03/current.json'),JSON.stringify({receipt:receipt.id}));
+}
+fs.mkdirSync('docs/orders/spatial-t5k1/phase2',{recursive:true});
+fs.writeFileSync('docs/orders/spatial-t5k1/phase2/evidence.json',JSON.stringify({schema:'timmy.spatial03.acceptance/1',freezeReceipt:freeze.id,freezeHash:freeze.hash,nativePrediction:pre.id,nativeReceipt:native.id,nativeHash:native.hash,nativeChecks:{passed:72,total:72},observationsSha256:sha(fs.readFileSync(output)),scenarios},null,2)+'\n');
+console.log(JSON.stringify({nativeChecks:72,nativeReceipt:native.id,scenarios}));
