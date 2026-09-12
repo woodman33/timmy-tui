@@ -136,7 +136,7 @@ export function demosRows(recs: { subject: string; hash?: string; sources?: unkn
     return {
       id: String(f.id ?? f.family ?? '?'),
       family: String(f.family ?? f.id ?? '?'),
-      demo: f.demo === 'native' ? 'native' : 'canvas',
+      demo: (f.demo === 'native' ? 'native' : 'canvas') as 'native' | 'canvas',
       open: f.open ? String(f.open) : null,
       prediction: {
         text: String(f.prediction?.text ?? '—'),
@@ -151,6 +151,11 @@ export function demosRows(recs: { subject: string; hash?: string; sources?: unkn
       fill,
       evSubject: src ? (String(src.subject).split(' ').pop() ?? '').trim() : null,
     };
+  }).sort((a, b) => {
+    // filled families (sealed evidence) rise so the Reuse moment is above the fold
+    const fa = a.evidence.seal || a.evSubject ? 1 : 0;
+    const fb = b.evidence.seal || b.evSubject ? 1 : 0;
+    return fb - fa;
   });
 }
 
