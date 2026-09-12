@@ -16,7 +16,7 @@
     "usdcat": "/Applications/Houdini/Current/Frameworks/Houdini.framework/Versions/Current/Resources/bin/usdcat"
    },
    "envlock_bins": ["hython", "husk"],
-   "mcp": { "name": "houdini-gen", "transport": "stdio", "command": "/Users/williammeldman/ZCodeProject/houdini-gen-mcp/.venv/bin/python", "args": ["-m", "houdini_gen_mcp.server"], "note": "registered in ~/.claude.json; carries HOUDINI_GEN_ENV" },
+   "mcp": { "name": "houdini-gen", "transport": "stdio", "command": "<home>/ZCodeProject/houdini-gen-mcp/.venv/bin/python", "args": ["-m", "houdini_gen_mcp.server"], "note": "registered in ~/.claude.json; carries HOUDINI_GEN_ENV" },
    "fleet_id": "houdini-sceneforge",
    "templates": ["procedural-asset", "karma-still", "usd-export"]
   },
@@ -26,7 +26,7 @@
    "installed": false,
    "version": null,
    "bridge": ["cli", "mcp"],
-   "binaries": { "UnrealEditor": "/Users/Shared/Epic Games/UE_5.*/Engine/Binaries/Mac/UnrealEditor" },
+   "binaries": { "UnrealEditor": "<home>/Epic Games/UE_5.*/Engine/Binaries/Mac/UnrealEditor" },
    "envlock_bins": ["UnrealEditor"],
    "mcp": { "name": "unreal-mcp", "transport": "stdio", "command": "mcporter", "args": ["call", "unreal-mcp"], "note": "lane registry entry (src/agent/lanes.ts unreal-mcp); no editor on this Mac" },
    "fleet_id": "unreal",

@@ -23,7 +23,7 @@ const config = (entry: unknown = {
 function options(overrides: ReadinessOptions = {}): ReadinessOptions {
   return {
     env: enabledEnv(),
-    home: '/example/home',
+    home: '/example/base',
     readConfig: vi.fn(async () => config()),
     executableExists: vi.fn(async () => true),
     canvasResponds: vi.fn(async () => true),
@@ -78,7 +78,7 @@ describe('Cursor discovery describes configuration without claiming execution', 
     const opts = options();
     const report = await inspectForgeReadiness(opts);
 
-    expect(opts.readConfig).toHaveBeenCalledWith('/example/home/.cursor/mcp.json');
+    expect(opts.readConfig).toHaveBeenCalledWith('/example/base/.cursor/mcp.json');
     expect(opts.executableExists).toHaveBeenCalledWith('/example/python', opts.env);
     expect(report.cursor).toEqual({ status: 'configured', server: 'houdini', executable_found: true, launch: 'python_module' });
     expect(report.timmy_wire.status).toBe('unbound');
@@ -162,7 +162,7 @@ describe('command expansion is explicit and does not evaluate shell expressions'
   it.each([
     ['${PYTHON_BIN}', '/python-from-env'],
     ['${env:PYTHON_BIN}', '/python-from-env'],
-    ['~/tools/python', '/example/home/tools/python'],
+    ['~/tools/python', '/example/base/tools/python'],
   ])('expands %s into the executable probe only', async (command, expanded) => {
     const opts = options({ env: { ...enabledEnv(), PYTHON_BIN: '/python-from-env' }, readConfig: async () => config({ command }) });
     const report = await inspectForgeReadiness(opts);
@@ -240,7 +240,7 @@ describe('canvas checks are restricted to credential-free loopback origins', () 
     'https://localhost:5173',
     'http://example.com:5173',
     'http://localhost.example.com:5173',
-    'http://192.168.1.2:5173',
+    'http://<lan-ip>:5173',
     'http://localhost:5173/path',
     'http://localhost:5173/?token=fixture-url-secret',
     'http://fixture-url-secret@localhost:5173',

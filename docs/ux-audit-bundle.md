@@ -361,7 +361,7 @@ _source: /tmp/audit/view6.txt_
  │                                                            │  │ TIMMY workspace uninitialized                      │
  │ no browser panes yet · [n] spawns carbonyl on any URL      │  │ required governed directories are missing under the│
  │                                                            │  │  workspace root:                                   │
- │                                                            │  │ /Users/williammeldman/Desktop/Code-Projects/timmy-t│
+ │                                                            │  │ <home>/Desktop/Code-Projects/timmy-t│
  │ [n] new pane (url) · [t] type into pane · [k] kill pane    │  │ ui                                                 │
  │                                                            │  │                                                    │
  │                                                            │  │ [Enter] initialize TIMMY workspace folders         │
@@ -409,13 +409,13 @@ _source: /tmp/audit/view7.txt_
  │   c       ▸ slate.json                    …  │  │                     env-locked + signed, replay from cut-list    │
  │   chara…                                     │  │                     alone                                        │
  │   demo-…                                     │  │                                                                  │
- │   icebe…                                     │  │                     · launch render v3 → /Users/williammeldman/… │
- │                                              │  │                     out: /Users/williammeldman/Desktop/Code-Pro… │
+ │   icebe…                                     │  │                     · launch render v3 → <home>/… │
+ │                                              │  │                     out: <home>/Desktop/Code-Pro… │
  │                                              │  │                                                                  │
  │                                              │  │                     deterministic layer ([y] yanks these):       │
- │                                              │  │                       ffmpeg -i '/Users/williammeldman/heygen:h… │
- │                                              │  │                       ffmpeg -i '/Users/williammeldman/heygen:h… │
- │                                              │  │                       ffmpeg -i '/Users/williammeldman/heygen:h… │
+ │                                              │  │                       ffmpeg -i '<home>/heygen:h… │
+ │                                              │  │                       ffmpeg -i '<home>/heygen:h… │
+ │                                              │  │                       ffmpeg -i '<home>/heygen:h… │
  │                                              │  │                                                                  │
  │                                              │  │                                                                  │
  │                                              │  │                                                                  │

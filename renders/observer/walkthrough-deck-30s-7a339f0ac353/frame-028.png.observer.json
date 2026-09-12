@@ -1,6 +1,6 @@
 {
  "v": 1,
- "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/walkthrough-deck-30s-7a339f0ac353/frame-028.png",
+ "image": "<repo>/renders/observer/walkthrough-deck-30s-7a339f0ac353/frame-028.png",
  "image_sha256": "5f0478f5ece246d397a3f1b7053e3cadba444d64ccf682ef04f83c7912b091d8",
  "host": "http://localhost:9001",
  "local": true,
@@ -56,7 +56,7 @@
  "source": {
   "source_receipt": "sha256_92c15f507ba0d40d760d752fc0711589414fd3e3be26d53bd2fd6a0972949732",
   "source_subject": "render.review",
-  "video": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/walkthrough-deck/walkthrough-deck-30s.mp4",
+  "video": "<repo>/renders/walkthrough-deck/walkthrough-deck-30s.mp4",
   "video_sha256_12": "7a339f0ac353",
   "frame": 28,
   "frames": 30

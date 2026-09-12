@@ -9,7 +9,7 @@
 
 ## Learned Workspace Facts
 
-- `/Users/williammeldman/Desktop/timmy-tui` is the primary repo for **TIMMY TUI** (terminal-first Agent Trust OS), not a greenfield scaffold.
+- `<home>/Desktop/timmy-tui` is the primary repo for **TIMMY TUI** (terminal-first Agent Trust OS), not a greenfield scaffold.
 - Git remote: `https://github.com/woodman33/timmy-ai-proxy.git`; common active branch: `antigravity/polish-tui-v2`.
 - Antigravity is the IDE; all project source lives in this repo—no separate Antigravity-only codebase.
 - Core stack: Ink TUI + `@openrouter/agent`, with Rive graphics, companion web UI, and headless-browser capture as major product axes.

@@ -7,8 +7,8 @@
       }
     },
     "roboflow": {
-      "command": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/node_modules/.bin/tsx",
-      "args": ["/Users/williammeldman/Desktop/Code-Projects/timmy-tui/scripts/roboflow-mcp-server.ts"]
+      "command": "<repo>/node_modules/.bin/tsx",
+      "args": ["<repo>/scripts/roboflow-mcp-server.ts"]
     }
   },
   "registries": {

@@ -176,7 +176,7 @@
      "Schema Validation: Found 3 schema issues out of 1 validated messages",
      "local-lint: timmy_gen_run has a parameter named \"kind\"",
      "local-lint: timmy_promo_apply.beats is an array without items",
-     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123134.log",
+     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_123134.log",
      "wire: server never replies to resources/list, prompts/list, ping, wire/bogus_method (JSON-RPC requires a response or -32601; this is why mcp-probe waits its full per-request timeout on each)"
     ],
     "ok": true,
@@ -195,7 +195,7 @@
      "exit": null,
      "timedOut": true,
      "ms": 120006,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123134.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_123134.log"
     },
     "methods": {
      "ms": 16757,
@@ -220,7 +220,7 @@
   "houdini-gen": {
    "kind": "bridge",
    "transport": "stdio",
-   "command": "/Users/williammeldman/ZCodeProject/houdini-gen-mcp/.venv/bin/python -m houdini_gen_mcp.server",
+   "command": "<home>/ZCodeProject/houdini-gen-mcp/.venv/bin/python -m houdini_gen_mcp.server",
    "source": "~/.claude.json mcpServers.houdini-gen (also ~/.cursor/mcp.json)",
    "env_names": [
     "PYTHONPATH",
@@ -303,7 +303,7 @@
      "exit": 0,
      "ms": 602,
      "isError": false,
-     "preview": "{\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"{\\\"status\\\":\\\"ok\\\",\\\"houdini_version\\\":\\\"22.0.429\\\",\\\"hip_file\\\":\\\"/Users/williammeldman/Documents/Houdini Anomaly Final/Anomaly_Compact_v3_depth_preview.hipnc\\\",\\\"fps\\\":24.0,\\\"pid\\\":35005,\\\"uptime_s\\\":111407.59,\\\"bridge_version\\\":\\\"0.3.1\\\"}\"\n    }\n  ],\n  \"structuredContent\": {\n    \"status\": \"ok\",\n    \"houdini_version\": \"22.0.429\",\n    \"h…[+222 chars]"
+     "preview": "{\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"{\\\"status\\\":\\\"ok\\\",\\\"houdini_version\\\":\\\"22.0.429\\\",\\\"hip_file\\\":\\\"<home>/Documents/Houdini Anomaly Final/Anomaly_Compact_v3_depth_preview.hipnc\\\",\\\"fps\\\":24.0,\\\"pid\\\":35005,\\\"uptime_s\\\":111407.59,\\\"bridge_version\\\":\\\"0.3.1\\\"}\"\n    }\n  ],\n  \"structuredContent\": {\n    \"status\": \"ok\",\n    \"houdini_version\": \"22.0.429\",\n    \"h…[+222 chars]"
     },
     "swept": [],
     "sessions_in_trace": 2,
@@ -362,7 +362,7 @@
   "rive-pro": {
    "kind": "bridge",
    "transport": "stdio",
-   "command": "node /Users/williammeldman/.claude/skills/rive-ui-pro-max/engine/mcp/server.mjs",
+   "command": "node <home>/.claude/skills/rive-ui-pro-max/engine/mcp/server.mjs",
    "source": "~/.claude.json mcpServers.rive-pro",
    "notes": "Fronts the Rive desktop bridge (rive_doctor/rive_raw_call); 26 recipe tools.",
    "snoop": {
@@ -473,14 +473,14 @@
   "hyperforge": {
    "kind": "bridge",
    "transport": "stdio",
-   "command": "node /Users/williammeldman/Desktop/Kimi_Agent_Canva_Research/hyperforge-studio/mcp-local/src/server.mjs",
+   "command": "node <home>/Desktop/Kimi_Agent_Canva_Research/hyperforge-studio/mcp-local/src/server.mjs",
    "source": "~/.claude.json mcpServers.hyperforge",
    "gate": "missing_entrypoint",
-   "notes": "The whole /Users/williammeldman/Desktop/Kimi_Agent_Canva_Research tree is absent on this Mac; ~/.claude.json and mcporter both report Connection closed. Nothing to snoop or probe until the tree is restored or the registration removed.",
+   "notes": "The whole <home>/Desktop/Kimi_Agent_Canva_Research tree is absent on this Mac; ~/.claude.json and mcporter both report Connection closed. Nothing to snoop or probe until the tree is restored or the registration removed.",
    "snoop": {
     "ok": false,
     "gate": "missing_entrypoint",
-    "note": "The whole /Users/williammeldman/Desktop/Kimi_Agent_Canva_Research tree is absent on this Mac; ~/.claude.json and mcporter both report Connection closed. Nothing to snoop or probe until the tree is restored or the registration removed."
+    "note": "The whole <home>/Desktop/Kimi_Agent_Canva_Research tree is absent on this Mac; ~/.claude.json and mcporter both report Connection closed. Nothing to snoop or probe until the tree is restored or the registration removed."
    },
    "probe": {
     "validate_report": null,
@@ -490,7 +490,7 @@
     "failed": 0,
     "findings": [],
     "ok": false,
-    "note": "The whole /Users/williammeldman/Desktop/Kimi_Agent_Canva_Research tree is absent on this Mac; ~/.claude.json and mcporter both report Connection closed. Nothing to snoop or probe until the tree is restored or the registration removed.",
+    "note": "The whole <home>/Desktop/Kimi_Agent_Canva_Research tree is absent on this Mac; ~/.claude.json and mcporter both report Connection closed. Nothing to snoop or probe until the tree is restored or the registration removed.",
     "gate": "missing_entrypoint"
    }
   },
@@ -830,7 +830,7 @@
     "findings": [
      "Prompts Listing: Prompts listing returned no results",
      "Invalid Parameters Handling: Server returned unexpected error code: -32603",
-     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123432.log"
+     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_123432.log"
     ],
     "ok": true,
     "note": "",
@@ -848,7 +848,7 @@
      "exit": null,
      "timedOut": true,
      "ms": 120006,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123432.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_123432.log"
     },
     "swept": []
    }
@@ -906,7 +906,7 @@
      "exit": 0,
      "ms": 610,
      "isError": false,
-     "preview": "{\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"[{\\\"id\\\":\\\"eccd9556-454f-4f51-9f0b-3741f5a199cf\\\",\\\"name\\\":\\\"3D-Printed-Toy-Blog\\\",\\\"path\\\":\\\"/Users/williammeldman/Studio/3d-printed-toy-blog\\\",\\\"port\\\":8881,\\\"phpVersion\\\":\\\"8.3\\\",\\\"runtime\\\":\\\"playground\\\",\\\"enableHttps\\\":false,\\\"adminUsername\\\":\\\"admin\\\",\\\"adminPassword\\\":\\\"aEYjdXlZMGpKRzIpZjVvY3FoM3ZnKXFX\\\",\\\"adminEmail\\\":\\\"wmeldman3…[+662 chars]"
+     "preview": "{\n  \"content\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"[{\\\"id\\\":\\\"eccd9556-454f-4f51-9f0b-3741f5a199cf\\\",\\\"name\\\":\\\"3D-Printed-Toy-Blog\\\",\\\"path\\\":\\\"<home>/Studio/3d-printed-toy-blog\\\",\\\"port\\\":8881,\\\"phpVersion\\\":\\\"8.3\\\",\\\"runtime\\\":\\\"playground\\\",\\\"enableHttps\\\":false,\\\"adminUsername\\\":\\\"admin\\\",\\\"adminPassword\\\":\\\"aEYjdXlZMGpKRzIpZjVvY3FoM3ZnKXFX\\\",\\\"adminEmail\\\":\\\"wmeldman3…[+662 chars]"
     },
     "swept": [],
     "sessions_in_trace": 2,
@@ -937,7 +937,7 @@
      "Resources Listing: Resources listing returned no results",
      "Prompts Listing: Prompts listing returned no results",
      "Invalid Parameters Handling: Server returned unexpected error code: -32603",
-     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123645.log"
+     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_123645.log"
     ],
     "ok": true,
     "note": "",
@@ -955,7 +955,7 @@
      "exit": null,
      "timedOut": true,
      "ms": 120031,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123645.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_123645.log"
     },
     "swept": []
    }
@@ -963,7 +963,7 @@
   "notebooklm-mcp": {
    "kind": "bridge",
    "transport": "stdio",
-   "command": "/Users/williammeldman/.local/bin/notebooklm-mcp",
+   "command": "<home>/.local/bin/notebooklm-mcp",
    "source": "mcporter (~/.claude/settings.json)",
    "notes": "uv tool notebooklm-mcp-cli; 38 tools; harmless call auto-picked.",
    "snoop": {
@@ -1168,7 +1168,7 @@
   "rive_animator": {
    "kind": "bridge",
    "transport": "stdio",
-   "command": "node /Users/williammeldman/.codex/mcp-servers/rive-animator/dist/index.js",
+   "command": "node <home>/.codex/mcp-servers/rive-animator/dist/index.js",
    "source": "mcporter (~/.codex/config.toml)",
    "notes": "3 tools.",
    "snoop": {
@@ -1223,7 +1223,7 @@
      "Resources Listing: Resources listing returned no results",
      "Prompts Listing: Prompts listing returned no results",
      "Invalid Parameters Handling: Server returned unexpected error code: -32603",
-     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123911.log"
+     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_123911.log"
     ],
     "ok": true,
     "note": "",
@@ -1241,7 +1241,7 @@
      "exit": null,
      "timedOut": true,
      "ms": 120005,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_123911.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_123911.log"
     },
     "swept": []
    }
@@ -1303,7 +1303,7 @@
      "Resources Listing: Resources listing returned no results",
      "Prompts Listing: Prompts listing returned no results",
      "Invalid Parameters Handling: Server returned unexpected error code: -32603",
-     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124128.log"
+     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124128.log"
     ],
     "ok": true,
     "note": "",
@@ -1321,7 +1321,7 @@
      "exit": null,
      "timedOut": true,
      "ms": 120008,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124128.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124128.log"
     },
     "swept": []
    }
@@ -1394,7 +1394,7 @@
     "failed": 1,
     "findings": [
      "Invalid Parameters Handling: Server returned unexpected error code: -32603",
-     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124347.log"
+     "test: no report written (exit=null, killed at 120 s): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124347.log"
     ],
     "ok": true,
     "note": "",
@@ -1412,7 +1412,7 @@
      "exit": null,
      "timedOut": true,
      "ms": 120008,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124347.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124347.log"
     },
     "swept": []
    }
@@ -1472,8 +1472,8 @@
     "passed": 0,
     "failed": 2,
     "findings": [
-     "validate: no report written (exit=null, killed at 40 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124557.log",
-     "test: no report written (exit=null, killed at 40 s): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124637.log"
+     "validate: no report written (exit=null, killed at 40 s): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124557.log",
+     "test: no report written (exit=null, killed at 40 s): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124637.log"
     ],
     "ok": false,
     "note": "",
@@ -1482,14 +1482,14 @@
      "exit": null,
      "timedOut": true,
      "ms": 40024,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124557.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124557.log"
     },
     "test": {
      "failed_to_report": true,
      "exit": null,
      "timedOut": true,
      "ms": 40005,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124637.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124637.log"
     },
     "swept": []
    }
@@ -1878,7 +1878,7 @@
     "failed": 2,
     "findings": [
      "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 405 - Initialization failed: {\"error\": {\"code\": \"405\", \"message\": \"Method not allowed\"}}",
-     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124730.log"
+     "test: no report written (exit=0): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124730.log"
     ],
     "ok": false,
     "note": "",
@@ -1891,14 +1891,14 @@
      "exit": 1,
      "timedOut": false,
      "ms": 564,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124729.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124729.log"
     },
     "test": {
      "failed_to_report": true,
      "exit": 0,
      "timedOut": false,
      "ms": 8462,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124730.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124730.log"
     },
     "swept": []
    }
@@ -1957,7 +1957,7 @@
     "failed": 2,
     "findings": [
      "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 405 - Initialization failed: {\"error\": {\"code\": \"405\", \"message\": \"Method not allowed\"}}",
-     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124748.log"
+     "test: no report written (exit=0): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124748.log"
     ],
     "ok": false,
     "note": "",
@@ -1970,14 +1970,14 @@
      "exit": 1,
      "timedOut": false,
      "ms": 491,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124748.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124748.log"
     },
     "test": {
      "failed_to_report": true,
      "exit": 0,
      "timedOut": false,
      "ms": 8393,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124748.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124748.log"
     },
     "swept": []
    }
@@ -2036,7 +2036,7 @@
     "failed": 2,
     "findings": [
      "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 405 - Initialization failed: {\"error\": {\"code\": \"405\", \"message\": \"Method not allowed\"}}",
-     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124805.log"
+     "test: no report written (exit=0): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124805.log"
     ],
     "ok": false,
     "note": "",
@@ -2049,14 +2049,14 @@
      "exit": 1,
      "timedOut": false,
      "ms": 439,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124804.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124804.log"
     },
     "test": {
      "failed_to_report": true,
      "exit": 0,
      "timedOut": false,
      "ms": 8477,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124805.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124805.log"
     },
     "swept": []
    }
@@ -2115,7 +2115,7 @@
     "failed": 2,
     "findings": [
      "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 405 - Initialization failed: {\"error\": {\"code\": \"405\", \"message\": \"Method not allowed\"}}",
-     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124822.log"
+     "test: no report written (exit=0): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124822.log"
     ],
     "ok": false,
     "note": "",
@@ -2128,14 +2128,14 @@
      "exit": 1,
      "timedOut": false,
      "ms": 343,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124822.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124822.log"
     },
     "test": {
      "failed_to_report": true,
      "exit": 0,
      "timedOut": false,
      "ms": 8430,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124822.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124822.log"
     },
     "swept": []
    }
@@ -2194,7 +2194,7 @@
     "failed": 2,
     "findings": [
      "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 405 - Initialization failed: {\"error\": {\"code\": \"405\", \"message\": \"Method not allowed\"}}",
-     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124838.log"
+     "test: no report written (exit=0): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124838.log"
     ],
     "ok": false,
     "note": "",
@@ -2207,14 +2207,14 @@
      "exit": 1,
      "timedOut": false,
      "ms": 702,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124838.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124838.log"
     },
     "test": {
      "failed_to_report": true,
      "exit": 0,
      "timedOut": false,
      "ms": 8546,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124838.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124838.log"
     },
     "swept": []
    }
@@ -2279,7 +2279,7 @@
     "failed": 2,
     "findings": [
      "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 404 - Initialization failed: Not found",
-     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124853.log"
+     "test: no report written (exit=0): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124853.log"
     ],
     "ok": false,
     "note": "",
@@ -2292,14 +2292,14 @@
      "exit": 1,
      "timedOut": false,
      "ms": 256,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124853.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124853.log"
     },
     "test": {
      "failed_to_report": true,
      "exit": 0,
      "timedOut": false,
      "ms": 7910,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124853.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124853.log"
     },
     "swept": []
    }
@@ -2357,7 +2357,7 @@
     "failed": 2,
     "findings": [
      "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 404 - Initialization failed: <!DOCTYPE html>",
-     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124908.log"
+     "test: no report written (exit=0): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124908.log"
     ],
     "ok": false,
     "note": "",
@@ -2370,14 +2370,14 @@
      "exit": 1,
      "timedOut": false,
      "ms": 355,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124907.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124907.log"
     },
     "test": {
      "failed_to_report": true,
      "exit": 0,
      "timedOut": false,
      "ms": 7722,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124908.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124908.log"
     },
     "swept": []
    }
@@ -2420,7 +2420,7 @@
     "failed": 2,
     "findings": [
      "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 401 - Initialization failed: {\"statusCode\":401,\"error\":\"Unauthorized\",\"message\":\"Missing authentication\"}",
-     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124924.log"
+     "test: no report written (exit=0): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124924.log"
     ],
     "ok": false,
     "note": "",
@@ -2433,14 +2433,14 @@
      "exit": 1,
      "timedOut": false,
      "ms": 270,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124923.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124923.log"
     },
     "test": {
      "failed_to_report": true,
      "exit": 0,
      "timedOut": false,
      "ms": 7681,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124924.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124924.log"
     },
     "swept": []
    }
@@ -2483,7 +2483,7 @@
     "failed": 2,
     "findings": [
      "validate: no report written (exit=1): ❌ Validation failed: Transport error: HTTP error: 404 - Initialization failed: Not Found",
-     "test: no report written (exit=0): 📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124938.log"
+     "test: no report written (exit=0): 📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124938.log"
     ],
     "ok": false,
     "note": "",
@@ -2496,14 +2496,14 @@
      "exit": 1,
      "timedOut": false,
      "ms": 257,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124938.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124938.log"
     },
     "test": {
      "failed_to_report": true,
      "exit": 0,
      "timedOut": false,
      "ms": 7724,
-     "stderr": "📄 Logs saved to: /Users/williammeldman/.mcp-probe/logs/mcp-probe-20260907_124938.log"
+     "stderr": "📄 Logs saved to: <home>/.mcp-probe/logs/mcp-probe-20260907_124938.log"
     },
     "swept": []
    }
@@ -2696,8 +2696,8 @@
      "sha256": "4ce7c218ac11dda81ce5acbfbd2bb1bb9978c375b158d90fdfc652b9b3862c23",
      "preview": "{\"os\":{\"platform\":\"darwin\",\"build\":\"25G83\",\"version\":\"26.6.2\"},\"arch\":\"arm64\",\"tools\":{\"ffmpeg\":{\"path\":\"/opt/homebrew/Cellar/ffmpeg/9.0.1/bin/ffmpeg\",\"sha256\":\"cebe04356214a938aec846e4fc423de3fc18eda07f64e34e56d55f9963473a20\",\"size\":426496,\"mtime\":1786783182299.5347},\"ffprobe\":{\"path\":\"/opt/homebre…[+166 chars]"
     },
-    "session_overview": "[@wire-eval-timmy → /opt/homebrew/Cellar/node/26.6.0/bin/node /Users/williammeldman/Desktop/Code-Pr…]\n\nMCP: version 2024-11-05 / stdio (stateful)\n\nServer: timmy (version: 0.4.0)\n\nCapabilities:\n* tools (static)\n\nTools (23):\n* `timmy_env_lock ()`\n* `timmy_events_tail (n?:num)`\n* `timmy_receipt_verify (stream:str)`\n* `timmy_clip_replay (jobId:str)`\n* `timmy_gen_run (prompt:str, provider?:str, model?:str, …)`\n* `timmy_promo_apply (beats:[any], from?:str)`\n* `timmy_llm_call (model:str, prompt:str, system?:str, …)`\n* `timmy_fusion_plan ()`\n* `timmy_promo_judge (comp?:str, threshold?:num)`\n* `timmy_a…[+1151 chars]",
-    "grep_lock": "[@wire-eval-timmy → /opt/homebrew/Cellar/node/26.6.0/bin/node /Users/williammeldman/Desktop/Code-Pr…]\n\nTools (1):\n  * `timmy_env_lock ()`\n\n1 match.\n",
+    "session_overview": "[@wire-eval-timmy → /opt/homebrew/Cellar/node/26.6.0/bin/node <home>/Desktop/Code-Pr…]\n\nMCP: version 2024-11-05 / stdio (stateful)\n\nServer: timmy (version: 0.4.0)\n\nCapabilities:\n* tools (static)\n\nTools (23):\n* `timmy_env_lock ()`\n* `timmy_events_tail (n?:num)`\n* `timmy_receipt_verify (stream:str)`\n* `timmy_clip_replay (jobId:str)`\n* `timmy_gen_run (prompt:str, provider?:str, model?:str, …)`\n* `timmy_promo_apply (beats:[any], from?:str)`\n* `timmy_llm_call (model:str, prompt:str, system?:str, …)`\n* `timmy_fusion_plan ()`\n* `timmy_promo_judge (comp?:str, threshold?:num)`\n* `timmy_a…[+1151 chars]",
+    "grep_lock": "[@wire-eval-timmy → /opt/homebrew/Cellar/node/26.6.0/bin/node <home>/Desktop/Code-Pr…]\n\nTools (1):\n  * `timmy_env_lock ()`\n\n1 match.\n",
     "stray_processes_killed": []
    },
    "reason": "ADOPT. In a real session against Timmy's own MCP server (timmy 0.4.0, protocol 2024-11-05) mcpc 0.6.0 connected in 6292 ms, listed 23 tools as JSON (lanes/wire/reports/eval-mcpc.tools-list.json), and called timmy_env_lock in 308 ms returning a non-error result (lanes/wire/reports/eval-mcpc.env_lock.json). It keeps the server alive across separate shell invocations as a named background session (@wire-eval-timmy), emits strict JSON with --json for scripting, accepts arg:=value / inline JSON / stdin for tool calls, does schema validation before a call (--schema), and speaks HTTP, SSE and stdio (stdio only via a config-file entry, which exec.mjs + a generated mcp.json satisfy). Caveats that do not block adoption: it needs the config-entry indirection for raw commands, its pre-connect server/discover probe spawns the server twice (visible as a second mcpsnoop session), and the npx launcher adds ~1 s per call unless the cached binary is used. It is the driver wire.mjs uses for every snoop session here, so adopting it is already load-bearing."
@@ -2745,16 +2745,16 @@
   }
  },
  "generated_at": "2026-09-07T12:50:42.905Z",
- "worktree": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3",
+ "worktree": "<repo>",
  "registry": {
   "file": "lanes/wire/bridges.json",
   "sha256": "de4a6a5280c4cbeedcee52b84ce204e7879eafedceb5ecdeba98890fd95e23a0"
  },
  "tools": {
   "mcpsnoop": "/opt/homebrew/bin/mcpsnoop",
-  "mcp-probe": "/Users/williammeldman/.cargo/bin/mcp-probe",
-  "apisnip": "/Users/williammeldman/.cargo/bin/apisnip",
-  "mcpc": "/Users/williammeldman/.npm/_npx/09c6cb62db639fb6/node_modules/.bin/mcpc",
+  "mcp-probe": "<home>/.cargo/bin/mcp-probe",
+  "apisnip": "<home>/.cargo/bin/apisnip",
+  "mcpc": "<home>/.npm/_npx/09c6cb62db639fb6/node_modules/.bin/mcpc",
   "versions": {
    "mcpsnoop": {
     "bin": "/opt/homebrew/bin/mcpsnoop",

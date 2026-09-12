@@ -1,6 +1,6 @@
 {
  "v": 1,
- "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/deck-30s/frame-007.png",
+ "image": "<repo>/renders/observer/deck-30s/frame-007.png",
  "image_sha256": "ea111571d67d0fcbb23fc0a525ba619ff27c6791a857c78025c077e65ac3de0e",
  "host": "http://localhost:9001",
  "local": true,

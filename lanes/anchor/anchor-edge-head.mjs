@@ -12,7 +12,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const HEAD_URL = process.env.CUSTODY_HEAD_URL ?? 'https://preview.vault-custody.pages.dev/api/head';
-const REPO = process.env.TIMMY_REPO ?? '/Users/williammeldman/Desktop/Code-Projects/timmy-tui';
+const REPO = process.env.TIMMY_REPO ?? '<repo>';
 const LOG = join(REPO, '.timmy', 'anchor.log');
 
 const log = (line) => {

@@ -208,6 +208,6 @@
  "snoop": {
   "egress": 0,
   "frames": 9,
-  "session_file": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-swarm-b3k7/lanes/swarm/.cache/snoop/swarm-closed-3-2026-09-08T10-29-00-649Z.export.json"
+  "session_file": "<repo>/lanes/swarm/.cache/snoop/swarm-closed-3-2026-09-08T10-29-00-649Z.export.json"
  }
 }

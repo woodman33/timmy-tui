@@ -26,7 +26,7 @@
     },
     {
       "name": "houdini-gen", "kind": "bridge", "transport": "stdio",
-      "command": "/Users/williammeldman/ZCodeProject/houdini-gen-mcp/.venv/bin/python", "args": ["-m", "houdini_gen_mcp.server"], "cwd": "/Users/williammeldman/ZCodeProject/houdini-gen-mcp",
+      "command": "<home>/ZCodeProject/houdini-gen-mcp/.venv/bin/python", "args": ["-m", "houdini_gen_mcp.server"], "cwd": "<home>/ZCodeProject/houdini-gen-mcp",
       "envFrom": "claude.json:houdini-gen", "envNames": ["PYTHONPATH", "HOUDINI_GEN_ENV"],
       "call": { "tool": "houdini_health", "args": {} },
       "source": "~/.claude.json mcpServers.houdini-gen (also ~/.cursor/mcp.json)",
@@ -34,17 +34,17 @@
     },
     {
       "name": "rive-pro", "kind": "bridge", "transport": "stdio",
-      "command": "node", "args": ["/Users/williammeldman/.claude/skills/rive-ui-pro-max/engine/mcp/server.mjs"], "cwd": "/Users/williammeldman/.claude/skills/rive-ui-pro-max/engine/mcp",
+      "command": "node", "args": ["<home>/.claude/skills/rive-ui-pro-max/engine/mcp/server.mjs"], "cwd": "<home>/.claude/skills/rive-ui-pro-max/engine/mcp",
       "call": { "tool": "rive_presets", "args": {} },
       "source": "~/.claude.json mcpServers.rive-pro",
       "notes": "Fronts the Rive desktop bridge (rive_doctor/rive_raw_call); 26 recipe tools."
     },
     {
       "name": "hyperforge", "kind": "bridge", "transport": "stdio",
-      "command": "node", "args": ["/Users/williammeldman/Desktop/Kimi_Agent_Canva_Research/hyperforge-studio/mcp-local/src/server.mjs"],
+      "command": "node", "args": ["<home>/Desktop/Kimi_Agent_Canva_Research/hyperforge-studio/mcp-local/src/server.mjs"],
       "gate": "missing_entrypoint",
       "source": "~/.claude.json mcpServers.hyperforge",
-      "notes": "The whole /Users/williammeldman/Desktop/Kimi_Agent_Canva_Research tree is absent on this Mac; ~/.claude.json and mcporter both report Connection closed. Nothing to snoop or probe until the tree is restored or the registration removed."
+      "notes": "The whole <home>/Desktop/Kimi_Agent_Canva_Research tree is absent on this Mac; ~/.claude.json and mcporter both report Connection closed. Nothing to snoop or probe until the tree is restored or the registration removed."
     },
     {
       "name": "forge", "kind": "wire", "transport": "http", "url": "http://127.0.0.1:3141/mcp",
@@ -87,7 +87,7 @@
     },
     {
       "name": "notebooklm-mcp", "kind": "bridge", "transport": "stdio",
-      "command": "/Users/williammeldman/.local/bin/notebooklm-mcp", "args": [],
+      "command": "<home>/.local/bin/notebooklm-mcp", "args": [],
       "source": "mcporter (~/.claude/settings.json)",
       "notes": "uv tool notebooklm-mcp-cli; 38 tools; harmless call auto-picked."
     },
@@ -99,7 +99,7 @@
     },
     {
       "name": "rive_animator", "kind": "bridge", "transport": "stdio",
-      "command": "node", "args": ["/Users/williammeldman/.codex/mcp-servers/rive-animator/dist/index.js"], "cwd": "/Users/williammeldman/.codex/mcp-servers/rive-animator",
+      "command": "node", "args": ["<home>/.codex/mcp-servers/rive-animator/dist/index.js"], "cwd": "<home>/.codex/mcp-servers/rive-animator",
       "source": "mcporter (~/.codex/config.toml)",
       "notes": "3 tools."
     },

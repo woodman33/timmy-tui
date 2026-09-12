@@ -8,8 +8,8 @@ class AgentPassPassport(BaseModel):
     iss: str = "agentpass:iss:timmy"
     sub: str = "agent:timmy-governed-demo"
     aud: str = "timmy:governed:loop"
-    delegated_by: str = "user:wmeldman33"
-    tenant_id: str = "tenant:wmeldman:startup"
+    delegated_by: str = "user:example"
+    tenant_id: str = "tenant:example:startup"
     scopes: List[str] = Field(default_factory=lambda: [
         "workspace.read", 
         "workspace.write", 

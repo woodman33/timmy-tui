@@ -2,7 +2,7 @@
  "v": 1,
  "id": "sb_mtr8b5k3_pxhb",
  "label": "smoke",
- "repo": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/lanes/sandbox",
+ "repo": "<repo>/lanes/sandbox",
  "snapshot_sha256": "c930ba562d43e0930bb16c3fa7c83a3100799e2486021a9ef3365cf519cfada0",
  "files": 7,
  "task": "List the files in /workspace with ls -la, then reply with exactly one line: DONE <number of files>.",
@@ -21,7 +21,7 @@
   "image": "ghcr.io/openhands/agent-server:1.21.0-python",
   "dev_image": false,
   "platform": "linux/arm64",
-  "workspace": "/Users/williammeldman/.timmy-sandbox/sb_mtr8b5k3_pxhb/workspace",
+  "workspace": "<home>/.timmy-sandbox/sb_mtr8b5k3_pxhb/workspace",
   "events": 75,
   "tool_calls": 27,
   "final": null,
@@ -45,5 +45,5 @@
  "collected": [],
  "ms": 164124,
  "ts": "2026-09-07T12:43:26.089Z",
- "dir": "/Users/williammeldman/.timmy-sandbox/sb_mtr8b5k3_pxhb"
+ "dir": "<home>/.timmy-sandbox/sb_mtr8b5k3_pxhb"
 }

@@ -201,7 +201,7 @@ try {
       const providers = existsSync(join(ROOT, 'fleet', 'providers.json')) ? JSON.parse(readFileSync(join(ROOT, 'fleet', 'providers.json'), 'utf8')) : { v: 1, providers: [] };
       const entry = {
         id: `${n.id}-ollama`, node: n.id, kind: 'ollama', base_url: base, openai_compatible: `${base}/v1`, model, tag_for_ollama: model,
-        reach: 'tailnet-only (100.64.0.0/10); the edge commander cannot reach it without a tunnel',
+        reach: 'tailnet-only (<tailnet-ip>/10); the edge commander cannot reach it without a tunnel',
         roles: {
           judge_tier: { how: 'fleet local-judges detect → this node; timmy_fusion_plan lists local judges first', env: { OLLAMA_HOST: base, TIMMY_ALLOW_LOCAL_OLLAMA: '1' } },
           harnesses: { openai_compatible_base_url: `${base}/v1`, api_key: 'ollama', notes: 'pi: models.json provider ollama baseUrl; opencode: provider ollama baseURL; hermes/openhands: OPENAI_BASE_URL + OPENAI_API_KEY=ollama; jcode: provider profile' },

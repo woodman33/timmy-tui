@@ -47,5 +47,5 @@ class DockerWorkspaceStub:
 if __name__ == "__main__":
     stub = DockerWorkspaceStub()
     print("Docker Workspace Sandbox Stub:")
-    print(stub.execute_analysis_job("/Users/williammeldman/Desktop/timmy-tui", "Scan repo structure"))
-    print(stub.execute_write_job("/Users/williammeldman/Desktop/timmy-tui", "Add security scan script"))
+    print(stub.execute_analysis_job("<home>/Desktop/timmy-tui", "Scan repo structure"))
+    print(stub.execute_write_job("<home>/Desktop/timmy-tui", "Add security scan script"))

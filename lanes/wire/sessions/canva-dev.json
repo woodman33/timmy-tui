@@ -312,7 +312,7 @@
               "properties": {
                 "project_root": {
                   "type": "string",
-                  "description": "The absolute path to the root directory of the app (e.g. '/Users/username/projects/my-app'), used to understand where the @canva/app-ui-kit package can be resolved from node_modules. Agents are encouraged to search for where node_modules can be found if not found in the project_root."
+                  "description": "The absolute path to the root directory of the app (e.g. '<home>/projects/my-app'), used to understand where the @canva/app-ui-kit package can be resolved from node_modules. Agents are encouraged to search for where node_modules can be found if not found in the project_root."
                 },
                 "props_metadata": {
                   "type": "array",
@@ -511,7 +511,7 @@
               "properties": {
                 "project_root": {
                   "type": "string",
-                  "description": "The absolute path to the root directory of the app (e.g. '/Users/username/projects/my-app'), used to understand where the @canva/app-ui-kit package can be resolved from node_modules. Agents are encouraged to search for where node_modules can be found if not found in the project_root."
+                  "description": "The absolute path to the root directory of the app (e.g. '<home>/projects/my-app'), used to understand where the @canva/app-ui-kit package can be resolved from node_modules. Agents are encouraged to search for where node_modules can be found if not found in the project_root."
                 },
                 "props_metadata": {
                   "type": "array",
@@ -816,7 +816,7 @@
                 "properties": {
                   "project_root": {
                     "type": "string",
-                    "description": "The absolute path to the root directory of the app (e.g. '/Users/username/projects/my-app'), used to understand where the @canva/app-ui-kit package can be resolved from node_modules. Agents are encouraged to search for where node_modules can be found if not found in the project_root."
+                    "description": "The absolute path to the root directory of the app (e.g. '<home>/projects/my-app'), used to understand where the @canva/app-ui-kit package can be resolved from node_modules. Agents are encouraged to search for where node_modules can be found if not found in the project_root."
                   },
                   "props_metadata": {
                     "type": "array",
@@ -1027,7 +1027,7 @@
                 "properties": {
                   "project_root": {
                     "type": "string",
-                    "description": "The absolute path to the root directory of the app (e.g. '/Users/username/projects/my-app'), used to understand where the @canva/app-ui-kit package can be resolved from node_modules. Agents are encouraged to search for where node_modules can be found if not found in the project_root."
+                    "description": "The absolute path to the root directory of the app (e.g. '<home>/projects/my-app'), used to understand where the @canva/app-ui-kit package can be resolved from node_modules. Agents are encouraged to search for where node_modules can be found if not found in the project_root."
                   },
                   "props_metadata": {
                     "type": "array",
