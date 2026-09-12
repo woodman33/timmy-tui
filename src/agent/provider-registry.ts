@@ -181,7 +181,8 @@ export const PROVIDER_REGISTRY: readonly ProviderRegistryEntry[] = [
     role: 'External media artifact generator for images, video, and model-hosted creative jobs.',
     services: ['artifact-generation', 'image-generation', 'video'],
     envVars: [
-      { name: 'FAL_KEY', requiredWhenEnabled: true, secret: true, description: 'fal API key.' },
+      { name: 'FAL_KEY', secret: true, description: 'fal API key (canonical).' },
+      { name: 'FALAI_API_KEY', secret: true, description: 'legacy alias accepted by resolveFalCredential.' },
     ],
   },
   {
