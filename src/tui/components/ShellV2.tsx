@@ -1050,10 +1050,11 @@ function ChatPane({ recs }: { recs: Receipt[] }) {
         {turns.length === 0 ? <Text color={PAL.textMuted}>no turns yet — type to talk to the commander-backed chat</Text> : turns.map(r => {
           const src = Array.isArray(r.sources) ? r.sources as { role?: string; text?: string }[] : [];
           const you = src.find(x => x.role === 'user')?.text ?? '';
+          const answer = src.find(x => x.role === 'answer')?.text ?? '';
           return (
             <Box key={r.id} flexDirection="column">
               <Text color={PAL.textPrimary} wrap="truncate">{`you: ${you.slice(0, 100)}`}</Text>
-              <Text color={PAL.textSecondary} wrap="truncate">{`${String(r.subject).replace('chat.turn · ', 'answer · ').slice(0, 100)}`}</Text>
+              <Text color={PAL.textSecondary} wrap="truncate">{`answer: ${answer.slice(0, 100)}`}</Text>
               <Text color={PAL.textMuted} wrap="truncate">{`#${r.hash.slice(7, 15)} · $${(r.cost_usd ?? 0).toFixed(4)}`}</Text>
             </Box>
           );
