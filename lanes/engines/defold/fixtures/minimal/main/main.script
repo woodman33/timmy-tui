@@ -1,0 +1,16 @@
+-- minimal: spin the sprite, print on touch/space. No native extensions.
+function init(self)
+    msg.post(".", "acquire_input_focus")
+    self.t = 0
+end
+
+function update(self, dt)
+    self.t = self.t + dt
+    go.set_rotation(vmath.quat_rotation_z(self.t))
+end
+
+function on_input(self, action_id, action)
+    if action.pressed and (action_id == hash("touch") or action_id == hash("jump")) then
+        print("minimal: input", action_id)
+    end
+end

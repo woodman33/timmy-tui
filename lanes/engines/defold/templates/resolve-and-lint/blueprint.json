@@ -1,0 +1,48 @@
+{
+ "kind": "blueprint",
+ "name": "Defold · resolve-and-lint",
+ "source": "lanes/engines/defold/templates/resolve-and-lint/plan.cue",
+ "date": "2026-09-07",
+ "engine": "defold",
+ "workflow": "resolve-and-lint",
+ "note": "One zipped Defold project dropped into a project's drop/ folder is resolved and compiled — never bundled — and the diagnostics land in out/. The lane runs bob.jar (engine sha 574678c7, Defold 1.13.1) under Defold's own JDK 25 in three steps; a non-zero bob exit fails the lint step but the report is still written.",
+ "sheets": [
+  {
+   "id": "inputs",
+   "title": "Inputs · drop/",
+   "rows": [
+    { "label": "project", "value": "*.defold.zip", "note": "game.project at the zip root (or inside one top-level folder)" },
+    { "label": "staged", "value": "game.project · *.script · *.lua · *.collection · *.go · *.atlas · *.gui", "note": "single files have no project to compile (rules: stage)" },
+    { "label": "refused", "value": "> 512 MB", "note": "rules: refuse → engine.refuse receipt" }
+   ]
+  },
+  {
+   "id": "steps",
+   "title": "Steps",
+   "rows": [
+    { "label": "1 unpack", "value": "unzip → out/project + {stem}.project.json", "note": "run.mjs unpack · title, source files by extension, declared dependencies, native extensions, parsed game.project" },
+    { "label": "2 resolve", "value": "java -jar bob.jar --root out/project resolve", "note": "run.mjs resolve · library deps into .internal/lib → {stem}.resolve.json" },
+    { "label": "3 lint", "value": "bob --verbose --platform <host> build", "note": "run.mjs lint · no bundle; bob's WARNING/ERROR/SEVERE lines counted, protobuf JVM chatter filtered and counted apart" },
+    { "label": "4 report", "value": "{stem}.lint.json", "note": "dependencies, warnings, errors, compiled resources under build/default with bytes" }
+   ]
+  },
+  {
+   "id": "outputs",
+   "title": "Outputs · out/",
+   "rows": [
+    { "label": "lint", "value": "{stem}.lint.json", "note": "report · declared + resolved dependencies · warnings · errors · resources · resource_list" },
+    { "label": "step reports", "value": "{stem}.project.json · {stem}.resolve.json", "note": "unpack and resolve details" },
+    { "label": "build tree", "value": "project/build/default/", "note": "bob's compiled output stays beside the reports (directory; not hashed by the lane)" }
+   ]
+  },
+  {
+   "id": "receipt",
+   "title": "Receipt · engine.run",
+   "rows": [
+    { "label": "cites", "value": "input sha256 · report sha256 · env-lock sha256 · template shas", "note": "sealed in the root store by the lane" },
+    { "label": "extra", "value": "resources · warnings · errors · dependency_count · engine_sha · bob_version · platform", "note": "from {stem}.lint.json" },
+    { "label": "acceptance", "value": "report names deps/warnings/errors/resources · bob exit 0 · receipt cites input, report, counts, env-lock", "note": "three lines" }
+   ]
+  }
+ ]
+}

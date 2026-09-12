@@ -1,0 +1,32 @@
+{
+ "kind": "blueprint",
+ "name": "Unreal · movie-render-queue",
+ "source": "lanes/engines/unreal/templates/movie-render-queue/plan.cue",
+ "date": "2026-09-07",
+ "engine": "unreal",
+ "workflow": "movie-render-queue",
+ "proven": false,
+ "note": "AUTHORED, UNPROVEN: no Unreal Editor on this Mac. The command is Epic's documented way to run Movie Render Queue from the command line (-game with a MoviePipelineConfig and the PIE executor). Proven once a runner with the editor executes it through a drop folder.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "project", "value": "*.uproject (+ folder)", "note": "rules: run (needs MRQ_*.uasset sidecar)" },
+   { "label": "config", "value": "MRQ_*.uasset", "note": "MoviePipelinePrimaryConfig; rules: stage alone" },
+   { "label": "refused", "value": "*.mp4 · *.mov", "note": "MRQ renders levels, not videos" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 render", "value": "UnrealEditor-Cmd <uproject> -game -MoviePipelineConfig=/Game/Shelf/MRQ_Config -MoviePipelineLocalExecutorClass=/Script/MovieRenderPipelineCore.MoviePipelinePIEExecutor -windowed -resx=1280 -resy=720 -unattended -nosplash -log=", "note": "the config decides frames, codec and output dir" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "log", "value": "{stem}.mrq.log", "note": "pipeline states, frame count" },
+   { "label": "frames", "value": "*.png · *.exr · *.mov · *.mp4", "note": "what the config wrote into out/" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "project sha256 · log sha256 · frames sha256 · env-lock", "note": "" },
+   { "label": "extra", "value": "frames · resolution", "note": "parsed from the log" }
+  ] },
+  { "id": "sources", "title": "Sources", "rows": [
+   { "label": "MRQ CLI", "value": "https://dev.epicgames.com/documentation/en-us/unreal-engine/movie-render-queue-in-unreal-engine", "note": "-MoviePipelineConfig, -MoviePipelineLocalExecutorClass, PIE executor" },
+   { "label": "flags", "value": "https://dev.epicgames.com/documentation/en-us/unreal-engine/command-line-arguments-in-unreal-engine", "note": "-game -windowed -resx -resy -unattended -log=" }
+  ] }
+ ]
+}

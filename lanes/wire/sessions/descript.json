@@ -1,0 +1,175 @@
+{
+  "generated_at": "2026-09-07T12:49:23.637605Z",
+  "session": {
+    "id": "descript-73322-c2e4552f3d9d",
+    "label": "descript",
+    "first": "2026-09-07T05:49:18.999283-07:00",
+    "last": "2026-09-07T05:49:21.367994-07:00",
+    "requests": 2,
+    "responses": 0,
+    "notifications": 0,
+    "errors": 2,
+    "pending": 2,
+    "late_results": 0,
+    "missing_frames": 0
+  },
+  "summary": {
+    "tools": [],
+    "slowest_calls": []
+  },
+  "capabilities": {
+    "protocol_version": "2026-07-28",
+    "client_info": {
+      "name": "mcpc",
+      "version": "0.6.0"
+    },
+    "client": {
+      "tasks": {
+        "list": {},
+        "cancel": {}
+      }
+    }
+  },
+  "calls": [
+    {
+      "index": 0,
+      "id": "\"server-discover-probe-1\"",
+      "method": "server/discover",
+      "direction": "c2s",
+      "state": "pending",
+      "status": "pending",
+      "is_tool": false,
+      "is_error": false,
+      "tool_error": false,
+      "started_at": "2026-09-07T05:49:18.999283-07:00",
+      "params": {
+        "_meta": {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": {
+            "name": "mcpc",
+            "version": "0.6.0"
+          },
+          "io.modelcontextprotocol/clientCapabilities": {
+            "tasks": {
+              "list": {},
+              "cancel": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "index": 1,
+      "id": "\"server-discover-probe-1\"",
+      "method": "server/discover",
+      "direction": "c2s",
+      "state": "pending",
+      "status": "pending",
+      "is_tool": false,
+      "is_error": false,
+      "tool_error": false,
+      "started_at": "2026-09-07T05:49:21.220298-07:00",
+      "params": {
+        "_meta": {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": {
+            "name": "mcpc",
+            "version": "0.6.0"
+          },
+          "io.modelcontextprotocol/clientCapabilities": {
+            "tasks": {
+              "list": {},
+              "cancel": {}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "events": [
+    {
+      "seq": 1,
+      "timestamp": "2026-09-07T05:49:18.999283-07:00",
+      "direction": "c2s",
+      "kind": "request",
+      "method": "server/discover",
+      "id": "\"server-discover-probe-1\"",
+      "call_index": 0,
+      "raw": {
+        "jsonrpc": "2.0",
+        "id": "server-discover-probe-1",
+        "method": "server/discover",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              "name": "mcpc",
+              "version": "0.6.0"
+            },
+            "io.modelcontextprotocol/clientCapabilities": {
+              "tasks": {
+                "list": {},
+                "cancel": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "seq": 2,
+      "timestamp": "2026-09-07T05:49:19.135038-07:00",
+      "direction": "s2c",
+      "kind": "transport",
+      "http_status": 401,
+      "auth_challenge": "Bearer resource_metadata=\"https://api.descript.com/.well-known/oauth-protected-resource\"",
+      "raw": {
+        "statusCode": 401,
+        "error": "Unauthorized",
+        "message": "Authentication required"
+      }
+    },
+    {
+      "seq": 3,
+      "timestamp": "2026-09-07T05:49:21.220298-07:00",
+      "direction": "c2s",
+      "kind": "request",
+      "method": "server/discover",
+      "id": "\"server-discover-probe-1\"",
+      "call_index": 1,
+      "raw": {
+        "jsonrpc": "2.0",
+        "id": "server-discover-probe-1",
+        "method": "server/discover",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              "name": "mcpc",
+              "version": "0.6.0"
+            },
+            "io.modelcontextprotocol/clientCapabilities": {
+              "tasks": {
+                "list": {},
+                "cancel": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "seq": 4,
+      "timestamp": "2026-09-07T05:49:21.367994-07:00",
+      "direction": "s2c",
+      "kind": "transport",
+      "http_status": 401,
+      "auth_challenge": "Bearer resource_metadata=\"https://api.descript.com/.well-known/oauth-protected-resource\"",
+      "raw": {
+        "statusCode": 401,
+        "error": "Unauthorized",
+        "message": "Authentication required"
+      }
+    }
+  ]
+}

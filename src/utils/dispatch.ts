@@ -10,7 +10,9 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { planHashOf, consumeApproval } from './approvals.js';
 import { appendReceipt } from './receipts.js';
-import { appendEvent } from './eventbus.js';
+import { captureEnvLock, type EnvLock } from './envlock.js';
+import { harnessFields } from '../harness/policy.js';
+import { publish as appendEvent } from '../bus/index.js';
 import { LANE_RUNNERS } from '../agent/lanes.js';
 import { selectFromCone, type ContextCone, type ConeSelection } from './context-cone.js';
 import { openHandsPreflight, runOpenHandsTask } from './openhands-adapter.js';
@@ -251,6 +253,8 @@ export function dispatchPlan(id: string, dir?: string): { ok: boolean; note?: st
     kind: 'run', subject: `dispatch ${id} · ${s.plan.harnesses[0]} · ${s.plan.copies}x`,
     policy: s.plan.approval.mode === 'delegated-envelope' ? 'human-gated' : 'human-gated',
     status: 'ok', plan_hash: s.plan_hash, max_spend: s.plan.limits.cost_usd,
+    ...harnessFields(s.plan.harnesses[0], dir),
+    env_lock: captureEnvLock(['ffmpeg', 'ffprobe', s.plan.harnesses[0]], dir),
     spans: [{ name: `dispatch ${s.plan.harnesses[0]}`, kind: 'invoke_agent' }], artifacts: []
   }, dir);
   return { ok: true, session };
@@ -385,6 +389,8 @@ export function collectRun(id: string, dir?: string): { ok: boolean; lines?: str
     policy: 'human-gated', status: over_wall ? 'failed' : 'ok',
     ...(over_wall ? { error_class: 'wall_time' as const } : {}),
     plan_hash: s.plan_hash, ms: elapsed_ms,
+    ...harnessFields(s.plan.harnesses[0], dir),
+    env_lock: captureEnvLock(['ffmpeg', 'ffprobe', s.plan.harnesses[0]], dir),
     spans: [{ name: `collect ${s.plan.harnesses[0]}`, kind: 'execute_tool' }],
     artifacts: []
   }, dir);

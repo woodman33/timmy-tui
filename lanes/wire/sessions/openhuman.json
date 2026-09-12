@@ -1,0 +1,1825 @@
+{
+  "generated_at": "2026-09-07T12:34:26.483496Z",
+  "session": {
+    "id": "openhuman-20257-be627c9a4cbb",
+    "label": "openhuman",
+    "first": "2026-09-07T05:34:24.628641-07:00",
+    "last": "2026-09-07T05:34:24.963412-07:00",
+    "requests": 3,
+    "responses": 3,
+    "notifications": 1,
+    "errors": 0,
+    "pending": 0,
+    "late_results": 0,
+    "missing_frames": 0
+  },
+  "summary": {
+    "definitions": {
+      "tools": 13,
+      "bytes": 9012,
+      "complete": true,
+      "per_tool": [
+        {
+          "name": "tree.browse",
+          "bytes": 1786,
+          "description_bytes": 379,
+          "schema_bytes": 1273
+        },
+        {
+          "name": "tree.tag",
+          "bytes": 1098,
+          "description_bytes": 392,
+          "schema_bytes": 526
+        },
+        {
+          "name": "memory.store",
+          "bytes": 893,
+          "description_bytes": 171,
+          "schema_bytes": 542
+        },
+        {
+          "name": "tree.top_entities",
+          "bytes": 769,
+          "description_bytes": 272,
+          "schema_bytes": 351
+        },
+        {
+          "name": "tree.list_sources",
+          "bytes": 713,
+          "description_bytes": 299,
+          "schema_bytes": 268
+        },
+        {
+          "name": "memory.note",
+          "bytes": 709,
+          "description_bytes": 176,
+          "schema_bytes": 345
+        },
+        {
+          "name": "agent.run_subagent",
+          "bytes": 633,
+          "description_bytes": 92,
+          "schema_bytes": 355
+        },
+        {
+          "name": "memory.recall",
+          "bytes": 547,
+          "description_bytes": 84,
+          "schema_bytes": 327
+        },
+        {
+          "name": "memory.search",
+          "bytes": 536,
+          "description_bytes": 93,
+          "schema_bytes": 307
+        },
+        {
+          "name": "tree.read_chunk",
+          "bytes": 429,
+          "description_bytes": 104,
+          "schema_bytes": 183
+        },
+        {
+          "name": "core.tool_instructions",
+          "bytes": 312,
+          "description_bytes": 97,
+          "schema_bytes": 62
+        },
+        {
+          "name": "agent.list_subagents",
+          "bytes": 294,
+          "description_bytes": 88,
+          "schema_bytes": 62
+        },
+        {
+          "name": "core.list_tools",
+          "bytes": 293,
+          "description_bytes": 91,
+          "schema_bytes": 62
+        }
+      ]
+    },
+    "tools": [],
+    "slowest_calls": []
+  },
+  "capabilities": {
+    "protocol_version": "2025-11-25",
+    "client_info": {
+      "name": "mcpc",
+      "version": "0.6.0"
+    },
+    "server_info": {
+      "name": "openhuman-core",
+      "version": "0.63.7"
+    },
+    "client": {
+      "tasks": {
+        "list": {},
+        "cancel": {}
+      }
+    },
+    "server": {
+      "resources": {
+        "listChanged": false,
+        "subscribe": false
+      },
+      "tools": {}
+    },
+    "instructions": "OpenHuman MCP exposes first-level core integration: inspect the live tool catalog with core.list_tools or core.tool_instructions, inspect subagents with agent.list_subagents, run a standalone subagent with agent.run_subagent, use searxng_search when self-hosted search is enabled, and use memory.search or memory.recall plus tree.read_chunk for local memory reads."
+  },
+  "calls": [
+    {
+      "index": 0,
+      "id": "0",
+      "method": "initialize",
+      "direction": "c2s",
+      "state": "completed",
+      "status": "ok",
+      "is_tool": false,
+      "is_error": false,
+      "tool_error": false,
+      "started_at": "2026-09-07T05:34:24.631644-07:00",
+      "ended_at": "2026-09-07T05:34:24.741528-07:00",
+      "duration_ms": 109.884,
+      "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "tasks": {
+            "list": {},
+            "cancel": {}
+          }
+        },
+        "clientInfo": {
+          "name": "mcpc",
+          "version": "0.6.0"
+        }
+      },
+      "result": {
+        "capabilities": {
+          "resources": {
+            "listChanged": false,
+            "subscribe": false
+          },
+          "tools": {}
+        },
+        "instructions": "OpenHuman MCP exposes first-level core integration: inspect the live tool catalog with core.list_tools or core.tool_instructions, inspect subagents with agent.list_subagents, run a standalone subagent with agent.run_subagent, use searxng_search when self-hosted search is enabled, and use memory.search or memory.recall plus tree.read_chunk for local memory reads.",
+        "protocolVersion": "2025-11-25",
+        "serverInfo": {
+          "name": "openhuman-core",
+          "version": "0.63.7"
+        }
+      }
+    },
+    {
+      "index": 1,
+      "id": "1",
+      "method": "tools/list",
+      "direction": "c2s",
+      "state": "completed",
+      "status": "ok",
+      "is_tool": false,
+      "is_error": false,
+      "tool_error": false,
+      "started_at": "2026-09-07T05:34:24.760184-07:00",
+      "ended_at": "2026-09-07T05:34:24.76543-07:00",
+      "duration_ms": 5.246,
+      "params": {},
+      "result": {
+        "tools": [
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "List the live core agent tool catalog that OpenHuman exposes to its orchestrator session.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "core.list_tools",
+            "title": "List Core Tools"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Emit the markdown tool-use instructions block that OpenHuman injects into prompt-guided agents.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "core.tool_instructions",
+            "title": "Get Tool Instructions"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "List registered sub-agent definitions that the core can dispatch for specialized work.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "agent.list_subagents",
+            "title": "List Subagents"
+          },
+          {
+            "annotations": {
+              "destructiveHint": true,
+              "idempotentHint": false,
+              "openWorldHint": true,
+              "readOnlyHint": false
+            },
+            "description": "Run a registered OpenHuman sub-agent directly from the core and return its final response.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "agent_id": {
+                  "description": "Registered sub-agent id (for example `researcher`, `planner`, `code_executor`).",
+                  "type": "string"
+                },
+                "prompt": {
+                  "description": "Task prompt for the sub-agent. Include the context it needs because this is a fresh session.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "agent_id",
+                "prompt"
+              ],
+              "type": "object"
+            },
+            "name": "agent.run_subagent",
+            "title": "Run Subagent"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Keyword-search OpenHuman's local memory tree and return matching chunks ordered by recency.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "k": {
+                  "description": "Maximum chunks to return. Defaults to 10; capped at 50.",
+                  "maximum": 50,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "query": {
+                  "description": "Substring to match against stored memory chunks.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            },
+            "name": "memory.search",
+            "title": "Search Memory"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Semantically recall local memory-tree chunks relevant to a natural-language query.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "k": {
+                  "description": "Maximum chunks to return. Defaults to 10; capped at 50.",
+                  "maximum": 50,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "query": {
+                  "description": "Natural-language query to embed and rerank against memory summaries.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            },
+            "name": "memory.recall",
+            "title": "Recall Memory"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Read one memory-tree chunk by id. Use this to inspect the source text behind search or recall results.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "chunk_id": {
+                  "description": "Chunk id returned by memory.search or memory.recall.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "chunk_id"
+              ],
+              "type": "object"
+            },
+            "name": "tree.read_chunk",
+            "title": "Read Memory Chunk"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Paginated listing of memory-tree chunks in reverse-chronological order, with optional filters by source kind, source id, entity id, time window, and substring keyword. Use this when the user wants to enumerate (\"what's recent in my Gmail\", \"show me everything from last week about Alice\") rather than search by query. Returns chunks plus a total match count for pagination.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "entity_ids": {
+                  "description": "Restrict to chunks referencing any of these canonical entity ids (e.g. `person:Alice`, `email:alice@example.com`). Use `tree.top_entities` to discover these.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "k": {
+                  "description": "Maximum chunks per page. Defaults to 10; capped at 50.",
+                  "maximum": 50,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "offset": {
+                  "description": "Pagination offset (number of rows to skip). Defaults to 0.",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "query": {
+                  "description": "Substring keyword filter over the chunk preview text.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "since_ms": {
+                  "description": "Inclusive lower bound on chunk timestamp, in milliseconds since Unix epoch.",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "source_ids": {
+                  "description": "Restrict to specific logical source ids (e.g. a Slack channel id). Use `tree.list_sources` to discover these.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "source_kinds": {
+                  "description": "Restrict to one or more source kinds (e.g. `email`, `chat`, `document`). Omit to include all kinds.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "until_ms": {
+                  "description": "Inclusive upper bound on chunk timestamp, in milliseconds since Unix epoch.",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "name": "tree.browse",
+            "title": "Browse Memory"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "List the most-referenced canonical entities (people, organizations, topics, emails) across the local memory tree. Call this for entity discovery before drilling in with `tree.browse` (passing `entity_ids`) or `memory.search`. Returns entities ordered by reference count.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "k": {
+                  "description": "Maximum entities to return. Defaults to 10; capped at 50.",
+                  "maximum": 50,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "kind": {
+                  "description": "Restrict to a single entity kind (`person`, `email`, `topic`, `org`, …). Omit to span all kinds.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "name": "tree.top_entities",
+            "title": "Top Memory Entities"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "List every distinct ingest source (Gmail account, Slack channel, Notion workspace, email thread, …) that has data in the memory tree, with chunk counts and last-activity timestamps. Use this when the user asks \"what data sources do I have\" or to discover source ids to pass into `tree.browse`.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "user_email_hint": {
+                  "description": "When provided, the user's own email is stripped from email-thread display names so the other party shows up instead. Optional.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "name": "tree.list_sources",
+            "title": "List Memory Sources"
+          },
+          {
+            "annotations": {
+              "destructiveHint": true,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": false
+            },
+            "description": "Create a new memory document from content. The document is stored in the specified namespace (default `mcp`) and can be retrieved via `memory.search` or `memory.recall`.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "description": "The text content to store as a memory document.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "namespace": {
+                  "description": "Namespace to store the document in. Defaults to `mcp` when omitted.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "tags": {
+                  "description": "Optional tags for categorisation and filtering.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "title": {
+                  "description": "Human-readable title for the memory document.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "content"
+              ],
+              "type": "object"
+            },
+            "name": "memory.store",
+            "title": "Store Memory"
+          },
+          {
+            "annotations": {
+              "destructiveHint": true,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": false
+            },
+            "description": "Append a note to an existing memory chunk by storing a linked annotation document. The note references the original chunk_id for provenance and can be retrieved alongside it.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "chunk_id": {
+                  "description": "ID of the memory chunk to annotate. Use an ID from memory.search or memory.recall results.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "note_text": {
+                  "description": "The note text to attach to the chunk.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "chunk_id",
+                "note_text"
+              ],
+              "type": "object"
+            },
+            "name": "memory.note",
+            "title": "Annotate Memory Chunk"
+          },
+          {
+            "annotations": {
+              "destructiveHint": true,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": false
+            },
+            "description": "Apply one or more category tags to an existing memory chunk. Stored as an upsertable tag-record document linked to the target chunk_id, so re-tagging the same chunk replaces the prior tag set rather than accumulating duplicate annotations. Differs from `memory.note` in that the payload is a categorical label list — queryable via the document `tags` field — rather than free-form text.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "chunk_id": {
+                  "description": "ID of the memory chunk to tag. Use an ID from `memory.search`, `memory.recall`, or `tree.browse` results.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "tags": {
+                  "description": "One or more category labels to attach (e.g. `[\"todo\", \"q3-planning\"]`). Re-tagging the same chunk replaces the prior tag set; supply the complete desired set on each call.",
+                  "items": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "chunk_id",
+                "tags"
+              ],
+              "type": "object"
+            },
+            "name": "tree.tag",
+            "title": "Tag Memory Chunk"
+          }
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "id": "2",
+      "method": "tools/list",
+      "direction": "c2s",
+      "state": "completed",
+      "status": "ok",
+      "is_tool": false,
+      "is_error": false,
+      "tool_error": false,
+      "started_at": "2026-09-07T05:34:24.959572-07:00",
+      "ended_at": "2026-09-07T05:34:24.963412-07:00",
+      "duration_ms": 3.84,
+      "params": {},
+      "result": {
+        "tools": [
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "List the live core agent tool catalog that OpenHuman exposes to its orchestrator session.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "core.list_tools",
+            "title": "List Core Tools"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Emit the markdown tool-use instructions block that OpenHuman injects into prompt-guided agents.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "core.tool_instructions",
+            "title": "Get Tool Instructions"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "List registered sub-agent definitions that the core can dispatch for specialized work.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "agent.list_subagents",
+            "title": "List Subagents"
+          },
+          {
+            "annotations": {
+              "destructiveHint": true,
+              "idempotentHint": false,
+              "openWorldHint": true,
+              "readOnlyHint": false
+            },
+            "description": "Run a registered OpenHuman sub-agent directly from the core and return its final response.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "agent_id": {
+                  "description": "Registered sub-agent id (for example `researcher`, `planner`, `code_executor`).",
+                  "type": "string"
+                },
+                "prompt": {
+                  "description": "Task prompt for the sub-agent. Include the context it needs because this is a fresh session.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "agent_id",
+                "prompt"
+              ],
+              "type": "object"
+            },
+            "name": "agent.run_subagent",
+            "title": "Run Subagent"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Keyword-search OpenHuman's local memory tree and return matching chunks ordered by recency.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "k": {
+                  "description": "Maximum chunks to return. Defaults to 10; capped at 50.",
+                  "maximum": 50,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "query": {
+                  "description": "Substring to match against stored memory chunks.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            },
+            "name": "memory.search",
+            "title": "Search Memory"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Semantically recall local memory-tree chunks relevant to a natural-language query.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "k": {
+                  "description": "Maximum chunks to return. Defaults to 10; capped at 50.",
+                  "maximum": 50,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "query": {
+                  "description": "Natural-language query to embed and rerank against memory summaries.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            },
+            "name": "memory.recall",
+            "title": "Recall Memory"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Read one memory-tree chunk by id. Use this to inspect the source text behind search or recall results.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "chunk_id": {
+                  "description": "Chunk id returned by memory.search or memory.recall.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "chunk_id"
+              ],
+              "type": "object"
+            },
+            "name": "tree.read_chunk",
+            "title": "Read Memory Chunk"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Paginated listing of memory-tree chunks in reverse-chronological order, with optional filters by source kind, source id, entity id, time window, and substring keyword. Use this when the user wants to enumerate (\"what's recent in my Gmail\", \"show me everything from last week about Alice\") rather than search by query. Returns chunks plus a total match count for pagination.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "entity_ids": {
+                  "description": "Restrict to chunks referencing any of these canonical entity ids (e.g. `person:Alice`, `email:alice@example.com`). Use `tree.top_entities` to discover these.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "k": {
+                  "description": "Maximum chunks per page. Defaults to 10; capped at 50.",
+                  "maximum": 50,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "offset": {
+                  "description": "Pagination offset (number of rows to skip). Defaults to 0.",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "query": {
+                  "description": "Substring keyword filter over the chunk preview text.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "since_ms": {
+                  "description": "Inclusive lower bound on chunk timestamp, in milliseconds since Unix epoch.",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "source_ids": {
+                  "description": "Restrict to specific logical source ids (e.g. a Slack channel id). Use `tree.list_sources` to discover these.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "source_kinds": {
+                  "description": "Restrict to one or more source kinds (e.g. `email`, `chat`, `document`). Omit to include all kinds.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "until_ms": {
+                  "description": "Inclusive upper bound on chunk timestamp, in milliseconds since Unix epoch.",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "name": "tree.browse",
+            "title": "Browse Memory"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "List the most-referenced canonical entities (people, organizations, topics, emails) across the local memory tree. Call this for entity discovery before drilling in with `tree.browse` (passing `entity_ids`) or `memory.search`. Returns entities ordered by reference count.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "k": {
+                  "description": "Maximum entities to return. Defaults to 10; capped at 50.",
+                  "maximum": 50,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "kind": {
+                  "description": "Restrict to a single entity kind (`person`, `email`, `topic`, `org`, …). Omit to span all kinds.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "name": "tree.top_entities",
+            "title": "Top Memory Entities"
+          },
+          {
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "List every distinct ingest source (Gmail account, Slack channel, Notion workspace, email thread, …) that has data in the memory tree, with chunk counts and last-activity timestamps. Use this when the user asks \"what data sources do I have\" or to discover source ids to pass into `tree.browse`.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "user_email_hint": {
+                  "description": "When provided, the user's own email is stripped from email-thread display names so the other party shows up instead. Optional.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "name": "tree.list_sources",
+            "title": "List Memory Sources"
+          },
+          {
+            "annotations": {
+              "destructiveHint": true,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": false
+            },
+            "description": "Create a new memory document from content. The document is stored in the specified namespace (default `mcp`) and can be retrieved via `memory.search` or `memory.recall`.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "description": "The text content to store as a memory document.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "namespace": {
+                  "description": "Namespace to store the document in. Defaults to `mcp` when omitted.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "tags": {
+                  "description": "Optional tags for categorisation and filtering.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "title": {
+                  "description": "Human-readable title for the memory document.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "content"
+              ],
+              "type": "object"
+            },
+            "name": "memory.store",
+            "title": "Store Memory"
+          },
+          {
+            "annotations": {
+              "destructiveHint": true,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": false
+            },
+            "description": "Append a note to an existing memory chunk by storing a linked annotation document. The note references the original chunk_id for provenance and can be retrieved alongside it.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "chunk_id": {
+                  "description": "ID of the memory chunk to annotate. Use an ID from memory.search or memory.recall results.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "note_text": {
+                  "description": "The note text to attach to the chunk.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "chunk_id",
+                "note_text"
+              ],
+              "type": "object"
+            },
+            "name": "memory.note",
+            "title": "Annotate Memory Chunk"
+          },
+          {
+            "annotations": {
+              "destructiveHint": true,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": false
+            },
+            "description": "Apply one or more category tags to an existing memory chunk. Stored as an upsertable tag-record document linked to the target chunk_id, so re-tagging the same chunk replaces the prior tag set rather than accumulating duplicate annotations. Differs from `memory.note` in that the payload is a categorical label list — queryable via the document `tags` field — rather than free-form text.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "chunk_id": {
+                  "description": "ID of the memory chunk to tag. Use an ID from `memory.search`, `memory.recall`, or `tree.browse` results.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "tags": {
+                  "description": "One or more category labels to attach (e.g. `[\"todo\", \"q3-planning\"]`). Re-tagging the same chunk replaces the prior tag set; supply the complete desired set on each call.",
+                  "items": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "chunk_id",
+                "tags"
+              ],
+              "type": "object"
+            },
+            "name": "tree.tag",
+            "title": "Tag Memory Chunk"
+          }
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "seq": 2,
+      "timestamp": "2026-09-07T05:34:24.631644-07:00",
+      "direction": "c2s",
+      "kind": "request",
+      "method": "initialize",
+      "id": "0",
+      "call_index": 0,
+      "raw": {
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2025-11-25",
+          "capabilities": {
+            "tasks": {
+              "list": {},
+              "cancel": {}
+            }
+          },
+          "clientInfo": {
+            "name": "mcpc",
+            "version": "0.6.0"
+          }
+        },
+        "jsonrpc": "2.0",
+        "id": 0
+      }
+    },
+    {
+      "seq": 3,
+      "timestamp": "2026-09-07T05:34:24.741528-07:00",
+      "direction": "s2c",
+      "kind": "response",
+      "id": "0",
+      "call_index": 0,
+      "raw": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "capabilities": {
+            "resources": {
+              "listChanged": false,
+              "subscribe": false
+            },
+            "tools": {}
+          },
+          "instructions": "OpenHuman MCP exposes first-level core integration: inspect the live tool catalog with core.list_tools or core.tool_instructions, inspect subagents with agent.list_subagents, run a standalone subagent with agent.run_subagent, use searxng_search when self-hosted search is enabled, and use memory.search or memory.recall plus tree.read_chunk for local memory reads.",
+          "protocolVersion": "2025-11-25",
+          "serverInfo": {
+            "name": "openhuman-core",
+            "version": "0.63.7"
+          }
+        }
+      }
+    },
+    {
+      "seq": 4,
+      "timestamp": "2026-09-07T05:34:24.744787-07:00",
+      "direction": "c2s",
+      "kind": "notification",
+      "method": "notifications/initialized",
+      "raw": {
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized"
+      }
+    },
+    {
+      "seq": 5,
+      "timestamp": "2026-09-07T05:34:24.760184-07:00",
+      "direction": "c2s",
+      "kind": "request",
+      "method": "tools/list",
+      "id": "1",
+      "call_index": 1,
+      "raw": {
+        "method": "tools/list",
+        "params": {},
+        "jsonrpc": "2.0",
+        "id": 1
+      }
+    },
+    {
+      "seq": 6,
+      "timestamp": "2026-09-07T05:34:24.76543-07:00",
+      "direction": "s2c",
+      "kind": "response",
+      "id": "1",
+      "call_index": 1,
+      "raw": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "tools": [
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "List the live core agent tool catalog that OpenHuman exposes to its orchestrator session.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              },
+              "name": "core.list_tools",
+              "title": "List Core Tools"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "Emit the markdown tool-use instructions block that OpenHuman injects into prompt-guided agents.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              },
+              "name": "core.tool_instructions",
+              "title": "Get Tool Instructions"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "List registered sub-agent definitions that the core can dispatch for specialized work.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              },
+              "name": "agent.list_subagents",
+              "title": "List Subagents"
+            },
+            {
+              "annotations": {
+                "destructiveHint": true,
+                "idempotentHint": false,
+                "openWorldHint": true,
+                "readOnlyHint": false
+              },
+              "description": "Run a registered OpenHuman sub-agent directly from the core and return its final response.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "agent_id": {
+                    "description": "Registered sub-agent id (for example `researcher`, `planner`, `code_executor`).",
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "description": "Task prompt for the sub-agent. Include the context it needs because this is a fresh session.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "agent_id",
+                  "prompt"
+                ],
+                "type": "object"
+              },
+              "name": "agent.run_subagent",
+              "title": "Run Subagent"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "Keyword-search OpenHuman's local memory tree and return matching chunks ordered by recency.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "k": {
+                    "description": "Maximum chunks to return. Defaults to 10; capped at 50.",
+                    "maximum": 50,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "query": {
+                    "description": "Substring to match against stored memory chunks.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "query"
+                ],
+                "type": "object"
+              },
+              "name": "memory.search",
+              "title": "Search Memory"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "Semantically recall local memory-tree chunks relevant to a natural-language query.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "k": {
+                    "description": "Maximum chunks to return. Defaults to 10; capped at 50.",
+                    "maximum": 50,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "query": {
+                    "description": "Natural-language query to embed and rerank against memory summaries.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "query"
+                ],
+                "type": "object"
+              },
+              "name": "memory.recall",
+              "title": "Recall Memory"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "Read one memory-tree chunk by id. Use this to inspect the source text behind search or recall results.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "chunk_id": {
+                    "description": "Chunk id returned by memory.search or memory.recall.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "chunk_id"
+                ],
+                "type": "object"
+              },
+              "name": "tree.read_chunk",
+              "title": "Read Memory Chunk"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "Paginated listing of memory-tree chunks in reverse-chronological order, with optional filters by source kind, source id, entity id, time window, and substring keyword. Use this when the user wants to enumerate (\"what's recent in my Gmail\", \"show me everything from last week about Alice\") rather than search by query. Returns chunks plus a total match count for pagination.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "entity_ids": {
+                    "description": "Restrict to chunks referencing any of these canonical entity ids (e.g. `person:Alice`, `email:alice@example.com`). Use `tree.top_entities` to discover these.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "k": {
+                    "description": "Maximum chunks per page. Defaults to 10; capped at 50.",
+                    "maximum": 50,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "description": "Pagination offset (number of rows to skip). Defaults to 0.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "query": {
+                    "description": "Substring keyword filter over the chunk preview text.",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "since_ms": {
+                    "description": "Inclusive lower bound on chunk timestamp, in milliseconds since Unix epoch.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "source_ids": {
+                    "description": "Restrict to specific logical source ids (e.g. a Slack channel id). Use `tree.list_sources` to discover these.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "source_kinds": {
+                    "description": "Restrict to one or more source kinds (e.g. `email`, `chat`, `document`). Omit to include all kinds.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "until_ms": {
+                    "description": "Inclusive upper bound on chunk timestamp, in milliseconds since Unix epoch.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "name": "tree.browse",
+              "title": "Browse Memory"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "List the most-referenced canonical entities (people, organizations, topics, emails) across the local memory tree. Call this for entity discovery before drilling in with `tree.browse` (passing `entity_ids`) or `memory.search`. Returns entities ordered by reference count.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "k": {
+                    "description": "Maximum entities to return. Defaults to 10; capped at 50.",
+                    "maximum": 50,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "kind": {
+                    "description": "Restrict to a single entity kind (`person`, `email`, `topic`, `org`, …). Omit to span all kinds.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "name": "tree.top_entities",
+              "title": "Top Memory Entities"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "List every distinct ingest source (Gmail account, Slack channel, Notion workspace, email thread, …) that has data in the memory tree, with chunk counts and last-activity timestamps. Use this when the user asks \"what data sources do I have\" or to discover source ids to pass into `tree.browse`.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "user_email_hint": {
+                    "description": "When provided, the user's own email is stripped from email-thread display names so the other party shows up instead. Optional.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "name": "tree.list_sources",
+              "title": "List Memory Sources"
+            },
+            {
+              "annotations": {
+                "destructiveHint": true,
+                "idempotentHint": true,
+                "openWorldHint": false,
+                "readOnlyHint": false
+              },
+              "description": "Create a new memory document from content. The document is stored in the specified namespace (default `mcp`) and can be retrieved via `memory.search` or `memory.recall`.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "content": {
+                    "description": "The text content to store as a memory document.",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "namespace": {
+                    "description": "Namespace to store the document in. Defaults to `mcp` when omitted.",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "tags": {
+                    "description": "Optional tags for categorisation and filtering.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "title": {
+                    "description": "Human-readable title for the memory document.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "content"
+                ],
+                "type": "object"
+              },
+              "name": "memory.store",
+              "title": "Store Memory"
+            },
+            {
+              "annotations": {
+                "destructiveHint": true,
+                "idempotentHint": true,
+                "openWorldHint": false,
+                "readOnlyHint": false
+              },
+              "description": "Append a note to an existing memory chunk by storing a linked annotation document. The note references the original chunk_id for provenance and can be retrieved alongside it.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "chunk_id": {
+                    "description": "ID of the memory chunk to annotate. Use an ID from memory.search or memory.recall results.",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "note_text": {
+                    "description": "The note text to attach to the chunk.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "chunk_id",
+                  "note_text"
+                ],
+                "type": "object"
+              },
+              "name": "memory.note",
+              "title": "Annotate Memory Chunk"
+            },
+            {
+              "annotations": {
+                "destructiveHint": true,
+                "idempotentHint": true,
+                "openWorldHint": false,
+                "readOnlyHint": false
+              },
+              "description": "Apply one or more category tags to an existing memory chunk. Stored as an upsertable tag-record document linked to the target chunk_id, so re-tagging the same chunk replaces the prior tag set rather than accumulating duplicate annotations. Differs from `memory.note` in that the payload is a categorical label list — queryable via the document `tags` field — rather than free-form text.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "chunk_id": {
+                    "description": "ID of the memory chunk to tag. Use an ID from `memory.search`, `memory.recall`, or `tree.browse` results.",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "tags": {
+                    "description": "One or more category labels to attach (e.g. `[\"todo\", \"q3-planning\"]`). Re-tagging the same chunk replaces the prior tag set; supply the complete desired set on each call.",
+                    "items": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "chunk_id",
+                  "tags"
+                ],
+                "type": "object"
+              },
+              "name": "tree.tag",
+              "title": "Tag Memory Chunk"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "seq": 7,
+      "timestamp": "2026-09-07T05:34:24.959572-07:00",
+      "direction": "c2s",
+      "kind": "request",
+      "method": "tools/list",
+      "id": "2",
+      "call_index": 2,
+      "raw": {
+        "method": "tools/list",
+        "params": {},
+        "jsonrpc": "2.0",
+        "id": 2
+      }
+    },
+    {
+      "seq": 8,
+      "timestamp": "2026-09-07T05:34:24.963412-07:00",
+      "direction": "s2c",
+      "kind": "response",
+      "id": "2",
+      "call_index": 2,
+      "raw": {
+        "id": 2,
+        "jsonrpc": "2.0",
+        "result": {
+          "tools": [
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "List the live core agent tool catalog that OpenHuman exposes to its orchestrator session.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              },
+              "name": "core.list_tools",
+              "title": "List Core Tools"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "Emit the markdown tool-use instructions block that OpenHuman injects into prompt-guided agents.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              },
+              "name": "core.tool_instructions",
+              "title": "Get Tool Instructions"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "List registered sub-agent definitions that the core can dispatch for specialized work.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              },
+              "name": "agent.list_subagents",
+              "title": "List Subagents"
+            },
+            {
+              "annotations": {
+                "destructiveHint": true,
+                "idempotentHint": false,
+                "openWorldHint": true,
+                "readOnlyHint": false
+              },
+              "description": "Run a registered OpenHuman sub-agent directly from the core and return its final response.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "agent_id": {
+                    "description": "Registered sub-agent id (for example `researcher`, `planner`, `code_executor`).",
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "description": "Task prompt for the sub-agent. Include the context it needs because this is a fresh session.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "agent_id",
+                  "prompt"
+                ],
+                "type": "object"
+              },
+              "name": "agent.run_subagent",
+              "title": "Run Subagent"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "Keyword-search OpenHuman's local memory tree and return matching chunks ordered by recency.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "k": {
+                    "description": "Maximum chunks to return. Defaults to 10; capped at 50.",
+                    "maximum": 50,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "query": {
+                    "description": "Substring to match against stored memory chunks.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "query"
+                ],
+                "type": "object"
+              },
+              "name": "memory.search",
+              "title": "Search Memory"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "Semantically recall local memory-tree chunks relevant to a natural-language query.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "k": {
+                    "description": "Maximum chunks to return. Defaults to 10; capped at 50.",
+                    "maximum": 50,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "query": {
+                    "description": "Natural-language query to embed and rerank against memory summaries.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "query"
+                ],
+                "type": "object"
+              },
+              "name": "memory.recall",
+              "title": "Recall Memory"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "Read one memory-tree chunk by id. Use this to inspect the source text behind search or recall results.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "chunk_id": {
+                    "description": "Chunk id returned by memory.search or memory.recall.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "chunk_id"
+                ],
+                "type": "object"
+              },
+              "name": "tree.read_chunk",
+              "title": "Read Memory Chunk"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "Paginated listing of memory-tree chunks in reverse-chronological order, with optional filters by source kind, source id, entity id, time window, and substring keyword. Use this when the user wants to enumerate (\"what's recent in my Gmail\", \"show me everything from last week about Alice\") rather than search by query. Returns chunks plus a total match count for pagination.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "entity_ids": {
+                    "description": "Restrict to chunks referencing any of these canonical entity ids (e.g. `person:Alice`, `email:alice@example.com`). Use `tree.top_entities` to discover these.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "k": {
+                    "description": "Maximum chunks per page. Defaults to 10; capped at 50.",
+                    "maximum": 50,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "description": "Pagination offset (number of rows to skip). Defaults to 0.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "query": {
+                    "description": "Substring keyword filter over the chunk preview text.",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "since_ms": {
+                    "description": "Inclusive lower bound on chunk timestamp, in milliseconds since Unix epoch.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "source_ids": {
+                    "description": "Restrict to specific logical source ids (e.g. a Slack channel id). Use `tree.list_sources` to discover these.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "source_kinds": {
+                    "description": "Restrict to one or more source kinds (e.g. `email`, `chat`, `document`). Omit to include all kinds.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "until_ms": {
+                    "description": "Inclusive upper bound on chunk timestamp, in milliseconds since Unix epoch.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "name": "tree.browse",
+              "title": "Browse Memory"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "List the most-referenced canonical entities (people, organizations, topics, emails) across the local memory tree. Call this for entity discovery before drilling in with `tree.browse` (passing `entity_ids`) or `memory.search`. Returns entities ordered by reference count.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "k": {
+                    "description": "Maximum entities to return. Defaults to 10; capped at 50.",
+                    "maximum": 50,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "kind": {
+                    "description": "Restrict to a single entity kind (`person`, `email`, `topic`, `org`, …). Omit to span all kinds.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "name": "tree.top_entities",
+              "title": "Top Memory Entities"
+            },
+            {
+              "annotations": {
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "List every distinct ingest source (Gmail account, Slack channel, Notion workspace, email thread, …) that has data in the memory tree, with chunk counts and last-activity timestamps. Use this when the user asks \"what data sources do I have\" or to discover source ids to pass into `tree.browse`.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "user_email_hint": {
+                    "description": "When provided, the user's own email is stripped from email-thread display names so the other party shows up instead. Optional.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "name": "tree.list_sources",
+              "title": "List Memory Sources"
+            },
+            {
+              "annotations": {
+                "destructiveHint": true,
+                "idempotentHint": true,
+                "openWorldHint": false,
+                "readOnlyHint": false
+              },
+              "description": "Create a new memory document from content. The document is stored in the specified namespace (default `mcp`) and can be retrieved via `memory.search` or `memory.recall`.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "content": {
+                    "description": "The text content to store as a memory document.",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "namespace": {
+                    "description": "Namespace to store the document in. Defaults to `mcp` when omitted.",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "tags": {
+                    "description": "Optional tags for categorisation and filtering.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "title": {
+                    "description": "Human-readable title for the memory document.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "content"
+                ],
+                "type": "object"
+              },
+              "name": "memory.store",
+              "title": "Store Memory"
+            },
+            {
+              "annotations": {
+                "destructiveHint": true,
+                "idempotentHint": true,
+                "openWorldHint": false,
+                "readOnlyHint": false
+              },
+              "description": "Append a note to an existing memory chunk by storing a linked annotation document. The note references the original chunk_id for provenance and can be retrieved alongside it.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "chunk_id": {
+                    "description": "ID of the memory chunk to annotate. Use an ID from memory.search or memory.recall results.",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "note_text": {
+                    "description": "The note text to attach to the chunk.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "chunk_id",
+                  "note_text"
+                ],
+                "type": "object"
+              },
+              "name": "memory.note",
+              "title": "Annotate Memory Chunk"
+            },
+            {
+              "annotations": {
+                "destructiveHint": true,
+                "idempotentHint": true,
+                "openWorldHint": false,
+                "readOnlyHint": false
+              },
+              "description": "Apply one or more category tags to an existing memory chunk. Stored as an upsertable tag-record document linked to the target chunk_id, so re-tagging the same chunk replaces the prior tag set rather than accumulating duplicate annotations. Differs from `memory.note` in that the payload is a categorical label list — queryable via the document `tags` field — rather than free-form text.",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "chunk_id": {
+                    "description": "ID of the memory chunk to tag. Use an ID from `memory.search`, `memory.recall`, or `tree.browse` results.",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "tags": {
+                    "description": "One or more category labels to attach (e.g. `[\"todo\", \"q3-planning\"]`). Re-tagging the same chunk replaces the prior tag set; supply the complete desired set on each call.",
+                    "items": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "chunk_id",
+                  "tags"
+                ],
+                "type": "object"
+              },
+              "name": "tree.tag",
+              "title": "Tag Memory Chunk"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

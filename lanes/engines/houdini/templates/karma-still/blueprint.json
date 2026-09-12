@@ -1,0 +1,30 @@
+{
+ "kind": "blueprint",
+ "name": "Houdini · karma-still",
+ "source": "lanes/engines/houdini/templates/karma-still/plan.cue",
+ "date": "2026-09-07",
+ "engine": "houdini",
+ "workflow": "karma-still",
+ "note": "A mesh, a USD layer or a spec dropped into drop/ becomes one Karma CPU frame in out/: hython authors the stage and the rig, husk renders, a report step checks the PNG. Apprentice licence here: watermark on the frame, said in the report.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "subject", "value": "*.obj · *.ply · *.geo · *.bgeo · *.usd(a/c) · *.json", "note": "rules: run" },
+   { "label": "textures", "value": "*.png · *.jpg · *.exr · *.rat", "note": "rules: stage" },
+   { "label": "refused", "value": "> 256 MB", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 author", "value": "hython author.py: subject + /shelf_rig/cam + dome + key + /Render/settings 512×384", "note": "{stem}.karma.usdc" },
+   { "label": "2 render", "value": "husk --camera /shelf_rig/cam --settings /Render/settings", "note": "Karma CPU, one frame" },
+   { "label": "3 report", "value": "node report.mjs: PNG IHDR check, husk wall clock", "note": "render_ok in {stem}.karma.json" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "still", "value": "{stem}.karma.png", "note": "image" },
+   { "label": "scene", "value": "{stem}.karma.usdc", "note": "usd" },
+   { "label": "report", "value": "{stem}.karma.json", "note": "resolution, camera, lights, render_ok, husk timing, licence" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "input sha256 · still sha256 · scene sha256 · env-lock", "note": "" },
+   { "label": "extra", "value": "render_ok · resolution · license", "note": "from the report" }
+  ] }
+ ]
+}

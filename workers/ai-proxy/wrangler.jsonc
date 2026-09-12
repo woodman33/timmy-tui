@@ -42,15 +42,25 @@
   "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [{ "binding": "LOADER" }],
   "kv_namespaces": [{ "binding": "CUSTODY_KV", "id": "8d783470266e44d9ab49143de5b88436" }],
+  // 2026-09-08 SWARM RUNTIME (swarm-b3k7): POST /commander/:room/swarm runs a
+  // swarm spec (lanes/swarm/schemas/swarm.cue) on the room — fanout / fusion /
+  // relay / coordinator / tournament / council / crew / closed — with a cost
+  // governor per swarm; every member call is its own swarm.member receipt and
+  // swarm.run cites them all. Timmy is a Level-2 durable agent (McpAgent): one
+  // Durable Object per project room exposing MCP over Durable Object RPC, which
+  // the root commander uses as tools (members of kind timmy). Migration v3 adds
+  // the class; v1/v2 are never edited.
   "durable_objects": {
     "bindings": [
       { "name": "SLATE_ROOM", "class_name": "SlateRoom" },
-      { "name": "COMMANDER", "class_name": "Commander" }
+      { "name": "COMMANDER", "class_name": "Commander" },
+      { "name": "TIMMY", "class_name": "Timmy" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["SlateRoom"] },
-    { "tag": "v2", "new_sqlite_classes": ["Commander"] }
+    { "tag": "v2", "new_sqlite_classes": ["Commander"] },
+    { "tag": "v3", "new_sqlite_classes": ["Timmy"] }
   ],
   "triggers": { "crons": ["5 9 * * *"] },
   "vars": {
