@@ -10,6 +10,7 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from '
 import { spawnSync } from 'node:child_process';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { privatePath, writePrivateJson } from '../privacy/overlay.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(here, '..', '..');
@@ -43,7 +44,7 @@ const DETECT = opt('--detect', 'yolo_world');
 const BOX_PROMPTS = opt('--boxes', 'banner,sign,text,rectangle,badge').split(',').map((s) => s.trim()).filter(Boolean);
 const BOX_THRESHOLD = Number(opt('--box-threshold', 0.02));
 const REPO = process.env.TIMMY_REPO ?? '<repo>';
-const BOARD = join(ROOT, 'companion', 'boards', 'observer.board.json');
+const BOARD_REL = 'companion/boards/observer.board.json';
 // the receipt just sealed (last record with an id and a hash in the pinned root store)
 function lastReceipt() {
   const lines = readFileSync(join(REPO, '.timmy', 'receipts', 'runs.jsonl'), 'utf8').split('\n').filter(Boolean);
@@ -125,7 +126,8 @@ for (const img of batch) {
 // a shape entry (the raw boxes and OCR lines) carrying the receipt id and hash.
 if (results.length) {
   let board = { kind: 'observer', name: 'Observer evidence', source: 'lanes/observer/observe.mjs · roboflow serverless', note: 'An independent observer (Roboflow OCR, CLIP, zero-shot detection) read each lane screenshot; every entry carries the observer.evidence receipt that sealed it.', sheets: [], shapes: [] };
-  if (existsSync(BOARD)) { try { board = JSON.parse(readFileSync(BOARD, 'utf8')); } catch { /* start fresh */ } }
+  const currentBoard = privatePath(BOARD_REL);
+  if (existsSync(currentBoard.path)) { try { board = JSON.parse(readFileSync(currentBoard.path, 'utf8')); } catch { /* start fresh */ } }
   for (const o of results) {
     board.sheets = (board.sheets ?? []).filter((s) => s.id !== o.image);
     board.shapes = (board.shapes ?? []).filter((s) => s.image !== o.image);
@@ -140,8 +142,8 @@ if (results.length) {
     board.shapes.push({ image: o.image, image_sha256: o.image_sha256, receipt_id: o.receipt?.id ?? null, receipt_hash: o.receipt?.hash ?? null, observed_at: o.observed_at, image_size: o.detection.image_size, boxes: o.detection.boxes, ocr_lines: lines, clip: { best: o.clip.best, score: o.clip.best_score }, detection_sha256: o.detection_sha256 });
   }
   board.updated = new Date().toISOString();
-  writeFileSync(BOARD, JSON.stringify(board, null, 1) + '\n');
-  console.log(`board: ${relative(ROOT, BOARD)} · ${board.shapes.length} shape(s)`);
+  const written = writePrivateJson(BOARD_REL, board);
+  console.log(`board: ${relative(ROOT, written)} · ${board.shapes.length} shape(s)`);
 }
 
 if (blocked) {

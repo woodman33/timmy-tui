@@ -10,7 +10,7 @@
   },
   "harnesses": {
     "jcode": {
-      "bin": "<home>/.local/bin/jcode",
+      "bin": "{HOMEDIR}/.local/bin/jcode",
       "kind": "local coding agent (Rust binary, background daemon + client)",
       "model": "google/gemini-3.7-flash",
       "model_route": "OpenRouter via built-in `openrouter` provider; key read from OPENROUTER_API_KEY env",
@@ -137,7 +137,7 @@
       "tool_call_regex": "\"type\":\"tool_execution_start\"|\"type\":\"toolCall\"|\"toolCall\""
     },
     "hermes": {
-      "bin": "<home>/.local/bin/hermes",
+      "bin": "{HOMEDIR}/.local/bin/hermes",
       "kind": "local agent (Python, Nous Hermes Agent); bin is a bash wrapper around ~/.hermes/hermes-agent/venv/bin/hermes",
       "model": "google/gemini-3.7-flash",
       "model_route": "OpenRouter via --provider openrouter -m <model>; key read from OPENROUTER_API_KEY env",
@@ -177,7 +177,7 @@
       "tool_call_note": "-z one-shot prints only the final answer, so tool calls are not visible in the transcript; file_edits (file on disk) is the hard evidence."
     },
     "openhands": {
-      "bin": "<home>/.local/bin/openhands",
+      "bin": "{HOMEDIR}/.local/bin/openhands",
       "kind": "local coding agent CLI (Python, OpenHands SDK); bin is a uv-tool python entry script",
       "model": "google/gemini-3.7-flash",
       "model_route": "OpenRouter via LiteLLM: LLM_MODEL=openrouter/<model>, LLM_BASE_URL=https://openrouter.ai/api/v1, LLM_API_KEY from env, enabled with --override-with-envs",

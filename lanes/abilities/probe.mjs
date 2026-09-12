@@ -186,7 +186,8 @@ class Session {
     fs.writeFileSync(this.transcriptPath, '');
     this.scratch = path.join(SCRATCH_ROOT, name);
     this.home = path.join(this.scratch, 'home');
-    this.ctx = { bin: h.bin, home: this.home, scratch: this.scratch, model: h.model };
+    const bin = fill(h.bin, { bin: h.bin, home: this.home, scratch: this.scratch, model: h.model });
+    this.ctx = { bin, home: this.home, scratch: this.scratch, model: h.model };
     this.raw = {}; // full (untruncated) outputs keyed by line id, for evaluation
   }
   async exec(probe, argv, cwd, extraCtx = {}) {
@@ -292,7 +293,7 @@ async function probeHarness(name) {
     kind: h.kind,
     measured_at: new Date().toISOString(),
     host: { hostname: HOSTNAME, platform: `${os.platform()} ${os.release()} ${os.arch()}`, node: process.version },
-    binary: binaryInfo(h.bin),
+    binary: binaryInfo(S.ctx.bin),
     version: null,
     version_raw: null,
     model: h.model,

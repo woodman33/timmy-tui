@@ -7,8 +7,8 @@
       }
     },
     "roboflow": {
-      "command": "<repo>/node_modules/.bin/tsx",
-      "args": ["<repo>/scripts/roboflow-mcp-server.ts"]
+      "command": "npx",
+      "args": ["tsx", "scripts/roboflow-mcp-server.ts"]
     }
   },
   "registries": {

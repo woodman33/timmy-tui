@@ -23,7 +23,7 @@ const cmd = args[0] ?? 'all';
 
 const trackedText = () => spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 }).stdout.split('\0').filter(Boolean);
 const isBinaryPath = (f) => /\.(png|jpg|jpeg|gif|mp4|webm|mov|pdf|docx|woff2?|ttf|riv|ico)$/i.test(f);
-const EXCLUDE = new Set(['.timmy/store-pin', 'lanes/privacy/sanitize.mjs', 'lanes/privacy/patterns.json', 'lanes/privacy/fixtures/must-fail.txt', 'docs/PRIVACY-AUDIT.md', 'fleet/nodes.example.json', 'lanes/privacy/overlay.mjs']);
+const EXCLUDE = new Set(['.timmy/store-pin', 'lanes/privacy/sanitize.mjs', 'lanes/privacy/patterns.json', 'lanes/privacy/fixtures/must-fail.txt', 'docs/PRIVACY-AUDIT.md', 'fleet/nodes.example.json', 'lanes/privacy/overlay.mjs', 'config/mcporter.json', 'lanes/abilities/harnesses.json']);
 
 function rewriteFile(f, rules) {
   if (EXCLUDE.has(f) || isBinaryPath(f)) return 0;

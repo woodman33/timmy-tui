@@ -64,17 +64,36 @@ export function loadPatterns(file = flag('--patterns', join(HERE, 'patterns.json
 /** A finding's match is masked in reports: first 3 + last 2 chars, so the report never repeats the secret. */
 const mask = (m) => (m.length <= 6 ? m[0] + '…' : m.slice(0, 3) + '…' + m.slice(-2));
 
+function allowSpans(line, P) {
+  const spans = [];
+  for (const a of P.allow) {
+    const rx = new RegExp(a.source, a.flags.includes('g') ? a.flags : `${a.flags}g`);
+    let m;
+    while ((m = rx.exec(line))) {
+      spans.push([m.index, m.index + m[0].length]);
+      if (m.index === rx.lastIndex) rx.lastIndex++;
+    }
+  }
+  return spans;
+}
+
+const overlaps = (a0, a1, b0, b1) => a0 < b1 && b0 < a1;
+
 export function scanText(text, file, P, where, extra = {}) {
   const out = [];
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim()) continue;
-    if (P.allow.some((a) => a.test(line))) continue;
+    const allowed = allowSpans(line, P);
     for (const p of P.patterns) {
       p.rx.lastIndex = 0;
       let m;
       while ((m = p.rx.exec(line))) {
+        if (allowed.some(([start, end]) => overlaps(m.index, m.index + m[0].length, start, end))) {
+          if (m.index === p.rx.lastIndex) p.rx.lastIndex++;
+          continue;
+        }
         out.push({ file, line: i + 1, pattern: p.id, severity: p.severity, match: mask(m[0]), col: m.index + 1, where, ...extra });
         if (m.index === p.rx.lastIndex) p.rx.lastIndex++;
         if (out.length > 5000) return out;
