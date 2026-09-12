@@ -45,7 +45,7 @@ function printHelp() {
 Usage: timmy <command> [options]
 
 Commands:
-  demo            Run a local demo and generate a verifiable receipt
+  demo            Record a deterministic war-room cast and seal demo.cast
   proof <task>    Record a proof receipt for a simulated task
   version         Print package name and version
   setup           Initialize directory and template folder structure
@@ -71,8 +71,8 @@ Commands:
   mcp status|inspect|probe  MCP wire visibility: mcpsnoop + mcp-probe (opt-in)
 
 Options:
-  --json          Output results in raw JSON format (for demo/proof)
-  --out <dir>     Override output folder directory (for demo/proof)
+  --json          Output results in raw JSON format (for proof; demo always prints JSON)
+  --out <dir>     Override output folder directory (demo artifacts or proof run)
 `);
 }
 
@@ -792,69 +792,6 @@ if (command === 'events') {
     setInterval(dump, 1000);
   } else {
     process.exit(0);
-  }
-}
-
-if (command === 'demo') {
-  const metadata = getPackageMetadata();
-  const runId = `run_demo_${Date.now()}`;
-  const targetDir = outDir ? path.resolve(outDir, 'receipts') : path.join(process.cwd(), '.timmy', 'receipts');
-  
-  try {
-    fs.mkdirSync(targetDir, { recursive: true });
-    const targetPath = path.join(targetDir, 'demo-receipt.json');
-    const relativePath = path.relative(process.cwd(), targetPath);
-
-    const receiptWithoutHash: Omit<Receipt, 'receipt_sha256'> = {
-      schema_version: "0.1.0",
-      run_id: runId,
-      type: "demo",
-      task: "demo run",
-      created_at: new Date().toISOString(),
-      cwd: process.cwd(),
-      platform: process.platform,
-      node_version: process.version,
-      package: {
-        name: metadata.name,
-        version: metadata.version
-      },
-      status: "completed",
-      artifacts: []
-    };
-
-    const initialHash = computeReceiptHash(receiptWithoutHash);
-    receiptWithoutHash.artifacts.push({
-      path: relativePath,
-      sha256: initialHash
-    });
-
-    const finalHash = computeReceiptHash(receiptWithoutHash);
-    const finalReceipt: Receipt = {
-      ...receiptWithoutHash,
-      receipt_sha256: finalHash
-    };
-
-    fs.writeFileSync(targetPath, JSON.stringify(finalReceipt, null, 2), 'utf8');
-
-    if (isJson) {
-      console.log(JSON.stringify(finalReceipt, null, 2));
-    } else {
-      console.log('TIMMY AgentOps Demo');
-      console.log(`✓ Created ${relativePath}`);
-      console.log(`✓ Generated receipt hash`);
-      console.log(`✓ Local proof complete`);
-      console.log(`\nNext:\n  cat ${relativePath}\n`);
-      printTable([
-        { label: 'Run ID', value: finalReceipt.run_id },
-        { label: 'Type', value: finalReceipt.type },
-        { label: 'Created At', value: finalReceipt.created_at },
-        { label: 'Receipt Hash', value: finalReceipt.receipt_sha256 }
-      ]);
-    }
-    process.exit(0);
-  } catch (e: any) {
-    console.error(`✕ Demo failed: ${e.message}`);
-    process.exit(1);
   }
 }
 

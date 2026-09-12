@@ -337,14 +337,14 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
       if (a === 'open-crosslink' && sRef.current.tab === 'CHAIN') {
         const rec = filtered[Math.min(sRef.current.selected, Math.max(0, filtered.length - 1))] ?? null;
         if (chainLink) {
-          const nxt = { ...sRef.current, selected: 0 };
+          const nxt = { ...sRef.current, input: '', filter: '', selected: 0 };
           sRef.current = nxt;
           setS(nxt);
           setChainLink(null);
         } else {
           const rid = rec ? runIdOf(rec) : null;
           if (rid) {
-            const nxt = { ...sRef.current, selected: 0 };
+            const nxt = { ...sRef.current, input: '', filter: '', selected: 0 };
             sRef.current = nxt;
             setS(nxt);
             setChainLink(rid);

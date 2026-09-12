@@ -2,6 +2,7 @@ import { existsSync, readFileSync, appendFileSync, mkdirSync, rmdirSync, statSyn
 import { join, dirname } from 'path';
 import { spawnSync } from 'child_process';
 import crypto from 'crypto';
+import { performance } from 'node:perf_hooks';
 import { publish as busPublish } from '../bus/index.js';
 import { signBody, verifyBody } from './signing.js';
 import { captureEnvLock, type EnvLock } from './envlock.js';
@@ -156,9 +157,10 @@ const LOCK_STALE_MS = 10000;
 const pidAlive = (pid: number): boolean => {
   try { process.kill(pid, 0); return true; } catch { return false; }
 };
+const realNowMs = (): number => performance.timeOrigin + performance.now();
 export function withLockDir<T>(lock: string, fn: () => T): T {
   mkdirSync(dirname(lock), { recursive: true });
-  const t0 = Date.now();
+  const t0 = performance.now();
   for (;;) {
     try {
       mkdirSync(lock);
@@ -166,12 +168,12 @@ export function withLockDir<T>(lock: string, fn: () => T): T {
     } catch {
       let steal = false;
       try {
-        const stale = Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS;
+        const stale = realNowMs() - statSync(lock).mtimeMs > LOCK_STALE_MS;
         const pid = Number(readFileSync(join(lock, 'pid'), 'utf8'));
         steal = stale && !pidAlive(pid);
       } catch { steal = false; }
       if (steal) { try { rmSync(lock, { recursive: true, force: true }); } catch { /* raced */ } }
-      if (Date.now() - t0 > 30000) throw new Error(`lock timeout (held by live writer): ${lock}`);
+      if (performance.now() - t0 > 30000) throw new Error(`lock timeout (held by live writer): ${lock}`);
       spawnSync('sleep', ['0.05']);
     }
   }

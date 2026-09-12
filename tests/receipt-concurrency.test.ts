@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { spawn } from 'child_process';
-import { verifyChain, readChain } from '../src/utils/receipts.js';
+import { verifyChain, readChain, withLockDir } from '../src/utils/receipts.js';
 
 // v0.5 concurrency gate: N separate PROCESSES append to the same stream at the
 // same time. The single-writer mkdir lock must serialize read-tail → sign →
@@ -12,6 +12,31 @@ import { verifyChain, readChain } from '../src/utils/receipts.js';
 const WORKERS = 8;
 
 describe('receipt chain concurrency (multi-process)', () => {
+  it('uses a real clock for stale locks even when global Date is frozen', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'timmy-lock-clock-'));
+    const lock = join(dir, '.lock');
+    mkdirSync(lock);
+    writeFileSync(join(lock, 'pid'), String(Number.MAX_SAFE_INTEGER));
+    const RealDate = Date;
+    const staleTime = new RealDate(RealDate.now() - 20000);
+    utimesSync(lock, staleTime, staleTime);
+    class FrozenDate extends RealDate {
+      constructor(...args: unknown[]) {
+        if (args.length === 0) super(1767225600000);
+        else super(...(args as [number]));
+      }
+      static now(): number { return 1767225600000; }
+    }
+    try {
+      (globalThis as unknown as { Date: typeof Date }).Date = FrozenDate as unknown as typeof Date;
+      const result = withLockDir(lock, () => 'ok');
+      expect(result).toBe('ok');
+    } finally {
+      (globalThis as unknown as { Date: typeof Date }).Date = RealDate;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('serializes parallel appends across processes without forks or dupes', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'timmy-conc-'));
     const repo = process.cwd();

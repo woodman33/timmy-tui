@@ -77,7 +77,7 @@ describe('typed views', () => {
 });
 
 describe('CHAIN cross-link [o]', { timeout: 60000 }, () => {
-  it('links a swarm.run to its members and unlinks', async () => {
+  it('links a filtered swarm receipt to its run siblings and unlinks', async () => {
     // placeholder fixtures into this file's isolated store (privacy-d5n9)
     appendReceipt('runs', { kind: 'seal', subject: 'swarm.run', policy: 'auto', status: 'ok', sources: [{ run_id: 'swarm_fix1_a', swarm_id: 'fixture-3', topology: 'council', size: '2', where: 'edge', room: 'fixture-room', usd: '0.01', ms: '900', ok: 'true', judge_tier: 'edge', policy: 'closed' }] } as never);
     appendReceipt('runs', { kind: 'seal', subject: 'swarm.member', policy: 'auto', status: 'ok', sources: [{ run_id: 'swarm_fix1_a', member: 'seat-1', kind: 'model', phase: 'work', model: 'placeholder/one', node: 'edge', usd: '0.002', ms: '300', ok: 'true' }] } as never);
@@ -88,14 +88,18 @@ describe('CHAIN cross-link [o]', { timeout: 60000 }, () => {
     await until(view, x => x.includes('RECEIPTS'));
     view.stdin.write('/');
     await sleep(150);
-    view.stdin.write('swarm.run');
+    view.stdin.write('swarm.airgap');
     await sleep(150);
     view.stdin.write('\x1b');
     await sleep(150);
-    await until(view, x => x.includes('swarm.run'));
+    await until(view, x => x.includes('swarm.airgap'));
     view.stdin.write('o');
     const linked = await until(view, x => x.includes('[o] unlink'));
     expect(linked).toContain('⊗');
+    expect(linked).toContain('[o] unlink · 3');
+    expect(linked).toContain('swarm.run');
+    expect(linked).toContain('swarm.member');
+    expect(linked).toContain('swarm.airgap');
     view.stdin.write('o');
     const unlinked = await until(view, x => !x.includes('[o] unlink'));
     expect(unlinked).toContain('RECEIPTS');
