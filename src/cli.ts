@@ -271,7 +271,7 @@ if (command === 'drop') {
     const p = hm.readProject(n, hm.PROJECTS_ROOT);
     for (const d of p.drop ?? []) {
       const rel = String(d.path ?? d.name ?? '');
-      try { rows.push({ project: n, file: rel, bytes: statSync(`${p.dir}/drop/${rel}`).size }); }
+      try { rows.push({ project: n, file: rel, bytes: statSync(join(p.dir, rel)).size }); }
       catch { rows.push({ project: n, file: rel, bytes: 0 }); }
     }
   }

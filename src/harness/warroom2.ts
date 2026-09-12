@@ -43,6 +43,16 @@ export interface ProjectRow { name: string; skills: string[]; plans: string[]; d
 const root = (): string => process.env.TIMMY_REPO_ROOT ?? process.cwd();
 const num = (s: string, re: RegExp): number | null => { const m = s.match(re); return m ? Number(m[1]) : null; };
 const str = (s: string, re: RegExp): string | null => { const m = s.match(re); return m ? m[1] : null; };
+type ReceiptMeta = {
+  subject: string; sources?: unknown[];
+  run_id?: unknown; egress?: unknown; policy_sha256?: unknown;
+  node?: unknown; model?: unknown; mem_total_gb?: unknown; eval_tok_per_s?: unknown; status?: unknown;
+};
+const sourceMeta = (r: { sources?: unknown[] }): Record<string, unknown> => {
+  const s = Array.isArray(r.sources) ? r.sources[0] : null;
+  return s && typeof s === 'object' && !Array.isArray(s) ? s as Record<string, unknown> : {};
+};
+const withReceiptMeta = (r: ReceiptMeta): ReceiptMeta => ({ ...sourceMeta(r), ...r, subject: String(r.subject) });
 
 /** lanes/swarm/presets/*.cue — the twelve cue-vetted presets, parsed as committed. */
 export function swarmPresets(): SwarmPreset[] {
@@ -79,9 +89,10 @@ export function swarmPresets(): SwarmPreset[] {
 }
 
 /** lanes/swarm/runs/swarm_*.json — what the runtime recorded, newest first. */
-export function swarmRuns(airgapRecs: { subject: string; run_id?: string; egress?: string; policy_sha256?: string }[]): SwarmRun[] {
+export function swarmRuns(airgapRecs: ReceiptMeta[]): SwarmRun[] {
   const dir = join(root(), 'lanes', 'swarm', 'runs');
   if (!existsSync(dir)) return [];
+  const airgap = airgapRecs.map(withReceiptMeta);
   return readdirSync(dir).filter(f => f.endsWith('.json'))
     .map(f => ({ f, m: statSync(join(dir, f)).mtimeMs }))
     .sort((a, b) => b.m - a.m).slice(0, 10)
@@ -91,7 +102,7 @@ export function swarmRuns(airgapRecs: { subject: string; run_id?: string; egress
         const spec = j.spec ?? {};
         const res = j.result ?? {};
         const calls: { tokens_reasoning?: number }[] = res.calls ?? [];
-        const ag = airgapRecs.find(r => String(r.subject).includes('swarm.airgap') && r.run_id === res.run_id) ?? null;
+        const ag = airgap.find(r => String(r.subject).includes('swarm.airgap') && r.run_id === res.run_id) ?? null;
         return {
           id: String(res.run_id ?? f.replace(/\.json$/, '')),
           preset: String(spec.preset ?? spec.id ?? '?'),
@@ -115,14 +126,15 @@ export function swarmRuns(airgapRecs: { subject: string; run_id?: string; egress
 }
 
 /** fleet/nodes.json + node.* receipts: reachable · memory · loaded models · tok-per-s. */
-export function nodeStats(recs: { subject: string; node?: string; model?: string; mem_total_gb?: number; eval_tok_per_s?: string | number; status?: string }[]): NodeStat[] {
+export function nodeStats(recs: ReceiptMeta[]): NodeStat[] {
   const p = join(root(), 'fleet', 'nodes.json');
   if (!existsSync(p)) return [];
   const nodes: { id: string; status: string; kind: string; ssh: string }[] = (JSON.parse(readFileSync(p, 'utf8')).nodes ?? []);
+  const meta = recs.map(withReceiptMeta);
   return nodes.map(n => {
-    const joins = recs.filter(r => String(r.subject).startsWith('node.join') && r.node === n.id);
-    const turns = recs.filter(r => String(r.subject).startsWith('chat.turn') && r.node === n.id && r.eval_tok_per_s !== undefined);
-    const regs = recs.filter(r => String(r.subject).startsWith('provider.register') && r.node === n.id);
+    const joins = meta.filter(r => String(r.subject).startsWith('node.join') && r.node === n.id);
+    const turns = meta.filter(r => String(r.subject).startsWith('chat.turn') && r.node === n.id && r.eval_tok_per_s !== undefined);
+    const regs = meta.filter(r => String(r.subject).startsWith('provider.register') && r.node === n.id);
     const mem = joins.length ? Number(joins[joins.length - 1].mem_total_gb ?? 0) || null : null;
     const models = [...new Set([...regs.map(r => String(r.model ?? '')), ...turns.map(r => String(r.model ?? ''))].filter(Boolean))];
     const lastTurn = turns[turns.length - 1];
@@ -216,19 +228,38 @@ const tmux = (args: string[]): { status: number; out: string } => {
 // not a copy of it). Spawned, never imported: fit.mjs runs its CLI dispatch at
 // module top level, so an import would print a fit report into the TUI.
 const fitCache = new Map<string, boolean | null>();
+const fitPending = new Set<string>();
 export function modelFit(node: string, tag: string): boolean | null {
   const key = `${node}:${tag}`;
   if (fitCache.has(key)) return fitCache.get(key) ?? null;
-  let v: boolean | null = null;
+  if (fitPending.has(key)) return null;
+  fitPending.add(key);
+  let stdout = '';
+  let settled = false;
+  const finish = (v: boolean | null): void => {
+    if (settled) return;
+    settled = true;
+    fitPending.delete(key);
+    fitCache.set(key, v);
+  };
   try {
-    const r = spawnSync('node', [join(root(), 'lanes', 'swarm', 'fit.mjs'), '--node', node, '--model', tag, '--json'], { encoding: 'utf8', timeout: 20000 });
-    if (r.status === 0) {
-      const j = JSON.parse(r.stdout);
-      v = j?.rows?.[0]?.fits ?? null;
-    }
-  } catch { v = null; }
-  fitCache.set(key, v);
-  return v;
+    const child = spawn(process.execPath, [join(root(), 'lanes', 'swarm', 'fit.mjs'), '--node', node, '--model', tag, '--json'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    const timer = setTimeout(() => { child.kill('SIGTERM'); finish(null); }, 20000);
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (d: string) => { stdout += d; });
+    child.on('error', () => { clearTimeout(timer); finish(null); });
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) { finish(null); return; }
+      try {
+        const j = JSON.parse(stdout) as { rows?: { fits?: boolean | null }[] };
+        finish(j.rows?.[0]?.fits ?? null);
+      } catch { finish(null); }
+    });
+  } catch {
+    finish(null);
+  }
+  return null;
 }
 
 /** which node serves a model id (node.* receipts), else null (edge-served). */
@@ -237,8 +268,8 @@ export function nodeForModel(modelId: string, nodes: NodeStat[]): NodeStat | nul
   return nodes.find(n => n.models.some(m => m === modelId || m.split('/').pop() === last || m.includes(last) || last.includes(m.split('/').pop() ?? '§'))) ?? null;
 }
 
-/** the harness cmd a swarm pane attaches with (jcode attaches via `jcode connect`). */
-export const harnessCmd = (id: string): string => (id === 'jcode' ? 'jcode connect' : id);
+/** the harness argv a swarm pane attaches with (jcode attaches via `jcode connect`). */
+export const harnessCmd = (id: string): string[] => (id === 'jcode' ? ['jcode', 'connect'] : [id]);
 
 export interface SwarmLaunch { ok: boolean; note?: string; specPath?: string; runIdHint?: string }
 
@@ -258,16 +289,25 @@ export function launchSwarm(preset: SwarmPreset, over: { topology: string; size:
   writeFileSync(specPath, JSON.stringify(spec, null, 1));
   const log = join(root(), '.timmy', 'runs', `swarm-launch-${Date.now().toString(36)}.log`);
   mkdirSync(join(root(), '.timmy', 'runs'), { recursive: true });
-  const child = spawn('node', [join(root(), 'lanes', 'swarm', 'swarm.mjs'), 'run', specPath, task, '--room', room], {
-    detached: true, stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  const script = join(root(), 'lanes', 'swarm', 'swarm.mjs');
+  if (!existsSync(script)) return { ok: false, note: 'swarm CLI missing', specPath };
+  const vet = spawnSync(process.execPath, [script, 'run', specPath, task, '--room', room, '--dry', '--edge', '--no-seal', '--no-record'], { encoding: 'utf8', timeout: 10000, cwd: root() });
+  if (vet.status !== 0) return { ok: false, note: (vet.stderr || vet.stdout || 'swarm spec rejected').trim().split('\n').slice(-1)[0], specPath };
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawn(process.execPath, [script, 'run', specPath, task, '--room', room], {
+      detached: true, stdio: ['ignore', 'pipe', 'pipe'], cwd: root(),
+    });
+  } catch (e) {
+    return { ok: false, note: e instanceof Error ? e.message : 'swarm launch failed', specPath };
+  }
   const out = createWriteStream(log);
   child.stdout?.pipe(out); child.stderr?.pipe(out);
   child.unref();
   // materialize a pane per harness member, sized by activity like the rest
   for (const m of members.filter(x => x.kind === 'harness' && x.harness)) {
     if (tmux(['has-session', '-t', WAR_SESSION]).status !== 0) break;
-    tmux(['split-window', '-t', `${WAR_SESSION}:0`, '-d', '-l', '4', `${harnessCmd(String(m.harness))}`]);
+    tmux(['split-window', '-t', `${WAR_SESSION}:0`, '-d', '-l', '4', ...harnessCmd(String(m.harness))]);
     const ps = tmux(['list-panes', '-t', `${WAR_SESSION}:0`, '-F', '#{pane_id}']);
     const last = ps.out.trim().split('\n').pop();
     if (last) tmux(['select-pane', '-t', last, '-T', `sw:${m.id}:${m.harness}`]);

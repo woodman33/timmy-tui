@@ -19,11 +19,11 @@ const tmux = (args: string[]): { status: number; out: string } => {
   const r = spawnSync('tmux', args, { encoding: 'utf8', timeout: 5000 });
   return { status: r.status ?? 1, out: r.stdout ?? '' };
 };
-const CMD: Record<string, string> = {
+const CMD: Record<string, string[]> = {
   // warroom-v2-c4m8: a jcode pane ATTACHES to the running daemon, never spawns a second
-  jcode: 'jcode connect', opencode: 'opencode', pi: 'pi', hermes: 'hermes', minds: 'minds', openhands: 'openhands',
+  jcode: ['jcode', 'connect'], opencode: ['opencode'], pi: ['pi'], hermes: ['hermes'], minds: ['minds'], openhands: ['openhands'],
 };
-const cmdFor = (id: string): string => id.startsWith('sh:') ? id.slice(3) : (CMD[id] ?? id);
+const cmdFor = (id: string): string[] => id.startsWith('sh:') ? ['sh', '-lc', id.slice(3)] : (CMD[id] ?? [id]);
 
 export function warRunning(): boolean { return tmux(['has-session', '-t', WAR_SESSION]).status === 0; }
 
@@ -31,11 +31,11 @@ export function startWarRoom(p: WarProfile): { ok: boolean; note?: string } {
   if (warRunning()) return { ok: true, note: 'already running' };
   const first = p.harnesses[0];
   if (!first) return { ok: false, note: 'empty profile' };
-  const r = tmux(['new-session', '-d', '-s', WAR_SESSION, '-n', first.id, cmdFor(first.id)]);
+  const r = tmux(['new-session', '-d', '-s', WAR_SESSION, '-n', first.id, ...cmdFor(first.id)]);
   if (r.status !== 0) return { ok: false, note: r.out.trim() || 'tmux new-session failed' };
   tmux(['select-pane', '-t', `${WAR_SESSION}:0.0`, '-T', first.id]);
   for (const h of p.harnesses.slice(1)) {
-    tmux(['split-window', '-t', WAR_SESSION, '-v', cmdFor(h.id)]);
+    tmux(['split-window', '-t', WAR_SESSION, '-v', ...cmdFor(h.id)]);
     tmux(['select-pane', '-t', `${WAR_SESSION}:0.${p.harnesses.indexOf(h)}`, '-T', h.id]);
   }
   applyWeights(p);
