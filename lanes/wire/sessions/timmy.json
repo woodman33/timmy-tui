@@ -2354,7 +2354,7 @@
       "timestamp": "2026-09-07T05:29:58.466834-07:00",
       "direction": "stderr",
       "kind": "stderr",
-      "text": "Warning: Detected unsettled top-level await at /Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/src/cli.ts:289"
+      "text": "Warning: Detected unsettled top-level await at <repo>/src/cli.ts:289"
     },
     {
       "seq": 13,

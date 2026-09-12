@@ -104,7 +104,7 @@
     "kind": "harness",
     "content": "DONE\nCreated `CREW.md` containing the line `crew-3 was here`.",
     "receipt": "sha256_c1a201d5f085358a7c27c12a4d791bffabd084b05420659e7fdc23988cbd03e4",
-    "transcript": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-swarm-b3k7/lanes/swarm/.cache/harness/swarm_mtsj2nck_s4go/jcode/transcript.json",
+    "transcript": "<repo>/lanes/swarm/.cache/harness/swarm_mtsj2nck_s4go/jcode/transcript.json",
     "phase": "work"
    },
    {
@@ -127,7 +127,7 @@
     "kind": "harness",
     "content": "DONE. Created CREW.md with the line 'crew-3 was here'.",
     "receipt": "sha256_8f954526a325127c4c6d4610590b849fa9a065862a0a52bec3ca6cdd6c23f159",
-    "transcript": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-swarm-b3k7/lanes/swarm/.cache/harness/swarm_mtsj2nck_s4go/hermes/transcript.json",
+    "transcript": "<repo>/lanes/swarm/.cache/harness/swarm_mtsj2nck_s4go/hermes/transcript.json",
     "phase": "work"
    },
    {
@@ -150,7 +150,7 @@
     "kind": "harness",
     "content": "DONE: Created CREW.md containing 'crew-3 was here' and verified its content.",
     "receipt": "sha256_55b7d0924e43ec38d72efa108c9729a23c0bbc4a4fd14541d9995052d35d87c6",
-    "transcript": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-swarm-b3k7/lanes/swarm/.cache/harness/swarm_mtsj2nck_s4go/opencode/transcript.json",
+    "transcript": "<repo>/lanes/swarm/.cache/harness/swarm_mtsj2nck_s4go/opencode/transcript.json",
     "phase": "work"
    },
    {

@@ -10,7 +10,7 @@ import { theme } from '../theme.js';
 import { SLASH_COMMANDS, handleSlashCommand, getAutocompleteEnabled } from '../../utils/slash-commands.js';
 import { truncateVisible, scrollVisibleLeft, truncateMiddleOrEnd, splitModelNameAndBlurb, getModelColors, wrapVisible } from '../utils/text.js';
 import { Spinner } from './Motion.js';
-import { useEdgeHealth, EDGE_BASE } from '../hooks/useEdgeHealth.js';
+import { useEdgeHealth } from '../hooks/useEdgeHealth.js';
 import { PrimaryButton, SecondaryButton } from './DesignSystem.js';
 import { fetchModels } from '../../agent/openrouter-client.js';
 import { LogRain } from '../panels/LogRain.js';
@@ -363,7 +363,7 @@ export function ChatPanel({ agent, setInspector, zone = 0, setZone, ambientRain 
             const newRunId = `run_proof_${Date.now()}`;
             agent.emit('run.created' as any, {
               runId: newRunId,
-              receiptUrl: `${EDGE_BASE}/runs/${newRunId}/receipt`,
+              receiptUrl: `https://timmy-ai-proxy.wmeldman33.workers.dev/runs/${newRunId}/receipt`,
               source: 'timmy-tui-chat-shortcut',
               timestamp: Date.now()
             });

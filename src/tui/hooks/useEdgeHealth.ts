@@ -1,11 +1,8 @@
 import { useEffect, useState } from 'react';
 import { performance } from 'node:perf_hooks';
 
-// privacy-d5n9: the worker address is site-specific — env-driven, placeholder default
-const EDGE_HOST = process.env.TIMMY_EDGE_HOST ?? '<hostname>';
-export const EDGE_BASE = `https://${EDGE_HOST}`;
-export const EDGE_HEALTH_ENDPOINT = `${EDGE_BASE}/health`;
-export const EDGE_RUNS_ENDPOINT = `${EDGE_BASE}/runs`;
+export const EDGE_HEALTH_ENDPOINT = 'https://timmy-ai-proxy.wmeldman33.workers.dev/health';
+export const EDGE_RUNS_ENDPOINT = 'https://timmy-ai-proxy.wmeldman33.workers.dev/runs';
 
 export interface EdgeHealthStatus {
   state: 'checking' | 'online' | 'offline';

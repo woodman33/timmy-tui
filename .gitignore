@@ -58,11 +58,11 @@ tools/*
 
 # orders.log is the executed-orders ledger (ORD-IDs); tracked on purpose despite *.log
 !/orders.log
-.claude/worktrees/
 
 # privacy-d5n9: the real node registry is site-specific → private overlay; the public tree keeps fleet/nodes.example.json
 fleet/nodes.json
 !fleet/nodes.example.json
+.claude/worktrees/
 
 # v6 anchor pass (2026-08-30)
 renders/

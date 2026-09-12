@@ -451,6 +451,22 @@ if (command === 'seal') {
     console.error('usage: timmy seal <subject> [--meta k=v]…');
     process.exit(2);
   }
+  // privacy-d5n9 gate: a receipt is public evidence, so the seal tool refuses a
+  // subject or meta value that carries a secret, personal data, or a
+  // site-specific address (lanes/privacy/patterns.json). --allow-privacy is the
+  // operator's override and is itself recorded on the receipt.
+  {
+    const { loadPatterns, scanText } = await import('../lanes/privacy/scan.mjs');
+    const P = loadPatterns();
+    const text = [`subject=${subj}`, ...Object.entries(meta).map(([k, v]) => `${k}=${v}`)].join('\n');
+    const hits = scanText(text, 'seal', P, 'seal').filter((h) => ['critical', 'high', 'medium'].includes(h.severity));
+    if (hits.length && !args.includes('--allow-privacy')) {
+      console.error(`refused: ${hits.length} privacy finding(s) in the seal (${[...new Set(hits.map((h) => h.pattern))].join(', ')}); use node ids, relative paths and no addresses, or pass --allow-privacy`);
+      process.exit(3);
+    }
+    if (hits.length) meta.privacy_override = `allowed ${hits.length}: ${[...new Set(hits.map((h) => h.pattern))].join(',')}`;
+  }
+
   const { appendReceipt, receiptsDir, rootStoreDir } = await import('./utils/receipts.js');
   // STORE PIN preflight (order template line): print resolved store; STOP if not root.
   const rd = receiptsDir();
@@ -541,21 +557,6 @@ if (command === 'seal') {
       process.exit(2);
     }
   }
-  // privacy-d5n9 gate: a receipt is public evidence, so the seal tool refuses a
-  // subject or meta value that carries a secret, personal data, or a
-  // site-specific address (lanes/privacy/patterns.json). --allow-privacy is the
-  // operator's override and is itself recorded on the receipt.
-  {
-    const { loadPatterns, scanText } = await import('../lanes/privacy/scan.mjs');
-    const P = loadPatterns();
-    const text = [`subject=${subj}`, ...Object.entries(meta).map(([k, v]) => `${k}=${v}`)].join('\n');
-    const hits = scanText(text, 'seal', P, 'seal').filter((h) => ['critical', 'high', 'medium'].includes(h.severity));
-    if (hits.length && !args.includes('--allow-privacy')) {
-      console.error(`refused: ${hits.length} privacy finding(s) in the seal (${[...new Set(hits.map((h) => h.pattern))].join(', ')}); use node ids, relative paths and no addresses, or pass --allow-privacy`);
-      process.exit(3);
-    }
-    if (hits.length) meta.privacy_override = `allowed ${hits.length}: ${[...new Set(hits.map((h) => h.pattern))].join(',')}`;
-  }
   const r = appendReceipt('runs', {
     kind: 'seal', subject: subj, policy: 'auto', sources: [meta],
   } as never);
@@ -592,13 +593,13 @@ if (command === 'commander' || command === 'cf' || command === 'project' || comm
   // mindship-v5c2 lanes: `timmy commander …` drives the durable Commander on
   // timmy-ai-proxy; `timmy cf …` is the Cloudflare war-room feed + verbs;
   // `timmy project new|menu|list` is the project folder standard; `timmy sim
-  // run|replay` is THE SHIP story simulator; `timmy swarm …` (swarm-b3k7) runs
-  // swarm specs on the commander or locally. shelf-w6d3 lanes: `timmy engine …`
+  // run|replay` is THE SHIP story simulator. shelf-w6d3 lanes: `timmy engine …`
   // is the engine shelf (inventory, env-locks, drop-folder runs), `timmy
   // sandbox …` the OpenHands SDK container lane, `timmy wire …` the MCP wire
-  // tools. All live under lanes/ and run under tsx so they can import repo
+  // tools; `timmy swarm …` (swarm-b3k7) runs swarm specs on the commander or
+  // locally. All live under lanes/ and run under tsx so they can import repo
   // TypeScript where they need it.
-  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', swarm: '../lanes/swarm/swarm.mjs', engine: '../lanes/engines/lane.mjs', sandbox: '../lanes/sandbox/sandbox.mjs', wire: '../lanes/wire/wire.mjs' };
+  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', engine: '../lanes/engines/lane.mjs', sandbox: '../lanes/sandbox/sandbox.mjs', wire: '../lanes/wire/wire.mjs', swarm: '../lanes/swarm/swarm.mjs' };
   const lane = fileURLToPath(new URL(lanes[command], import.meta.url));
   const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
   process.exit(r.status ?? 1);

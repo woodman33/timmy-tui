@@ -1,7 +1,6 @@
 // v1.0.1 ergonomic overhaul — app shell. Four top-level views ([1-4],
 // Tab walks pane focus), no left nav, no ambient rain in chat. The shell
 // owns navigation + budget; ViewStage owns content; Layout owns chrome.
-import { EDGE_BASE } from './hooks/useEdgeHealth.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { render, useApp, Box, Text } from 'ink';
 import { FocusProvider, useFocus, useKeyDispatcher } from './hooks/useKeyDispatcher.js';
@@ -75,7 +74,7 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
     config,
     activeRunId,
     activeReceiptUrl,
-    operator: process.env.TIMMY_OPERATOR ?? '<user>',
+    operator: 'William Meldman',
     enabled: booted
   });
 
@@ -87,7 +86,7 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
       agentLogger.info(`run.created: ${JSON.stringify(data)}`);
       if (data && data.runId) {
         setActiveRunId(data.runId);
-        setActiveReceiptUrl(`${EDGE_BASE}/runs/${data.runId}/receipt`);
+        setActiveReceiptUrl(`https://timmy-ai-proxy.wmeldman33.workers.dev/runs/${data.runId}/receipt`);
       }
     };
     const handleTelemetryRun = (data: any) => {
@@ -109,7 +108,7 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
     const startupRunId = `run_${Math.random().toString(36).substring(2, 9)}`;
     agent.emit('run.created' as any, {
       runId: startupRunId,
-      receiptUrl: `${EDGE_BASE}/runs/${startupRunId}/receipt`,
+      receiptUrl: `https://timmy-ai-proxy.wmeldman33.workers.dev/runs/${startupRunId}/receipt`,
       source: 'timmy-tui-startup',
       timestamp: Date.now()
     });

@@ -14,7 +14,7 @@ import chalk from 'chalk';
 // ═══════════════════════════════════════════════════════════════════════════
 
 const clearinghouse = {
-  // §2.1 ground & surfaces (cool navy palette)
+  // §2.1 ground & surfaces (cool navy family)
   ground: '#070C14',        // terminal field / deepest background
   surface: '#0B1322',       // card interior fill (when bg is drawn)
   surfaceRaised: '#111C30', // overlays: palette, modals, pills

@@ -1,6 +1,6 @@
 {
  "v": 1,
- "image": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/renders/observer/trailer-v17/frame-004.png",
+ "image": "<repo>/renders/observer/trailer-v17/frame-004.png",
  "image_sha256": "d914b1871e38bc191a7f67fefa586a22c5fb6ac68b0b1f7fd2b230ed21ce81b7",
  "host": "http://localhost:9001",
  "local": true,
@@ -10,7 +10,7 @@
   "ms": 31146,
   "lines": [
    "a",
-   "- williammeldman - 0 Qwen - williammeldman",
+   "- <user> - 0 Qwen - <user>",
    "- caffeinate node jopt/homebrew/binlqwen - 114x30",
    "N=$(node -p \"try(require(\"./.t timmy/receipts/EPOCH.json\" ) . current+1)catch(e)(6)\"); echo",
    "\"rotating epoch to SN\"; timmy epoch \"SN\" \"WALNUT shoot autopilot\": timmy seal film.plan",
@@ -27,7 +27,7 @@
    "status=async; sleep 20; b 'SEAL 5/6 - box.verify': timmy seal box.verify -meta",
    "scope=session --meta method=human; sleep 20; b 'SEAL 6/6 - pack.open'; timmy seal",
    "pack.open --meta scope=session -meta method=human; printf 'In##### SEQUENCE COMPLETE",
-   "#####In' [in /Users/williammeldman/Desktop/Code-Projects/timmy-tuil [timeout: 300000ms]",
+   "#####In' [in <repo>l [timeout: 300000ms]",
    "(ROLL: owner.word + WALNUT epoch + film.plan, then the six autopilot seals at 20s spacing)",
    "epoch rotated to 903",
    "sealed sha256 b5c8b21be.. - film.plan",
