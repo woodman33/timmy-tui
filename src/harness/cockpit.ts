@@ -7,7 +7,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, 
 import { join, relative, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { appendReceipt } from '../utils/receipts.js';
-import { loadPatterns, scanText, type PrivacyFinding } from '../../lanes/privacy/scan.mjs';
+import { loadPatterns, scanText } from '../../lanes/privacy/scan.mjs';
 
 export const ROUNDS = ['R0', 'R1', 'R2', 'R3', 'R4'] as const;
 export type Round = (typeof ROUNDS)[number];
@@ -154,7 +154,7 @@ export function leakCheck(dir = root()): string[] {
 }
 
 /** pane-log privacy gate: medium+ findings refuse the seal that would cite them */
-export function scanLog(text: string): PrivacyFinding[] {
+export function scanLog(text: string): ReturnType<typeof scanText> {
   return scanText(text, 'cockpit-pane.log', loadPatterns(), 'cockpit').filter(f => f.severity !== 'review');
 }
 export const promptSha = (text: string): string => 'sha256_' + createHash('sha256').update(text).digest('hex');

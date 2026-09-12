@@ -20,6 +20,7 @@ import { typedLines, runIdOf } from '../chain-views.js';
 import * as warroom from '../../harness/warroom.js';
 import * as w2 from '../../harness/warroom2.js';
 import * as ck from '../../harness/cockpit.js';
+import { fitStackAdaptive, capRows, moreLine, foldedLine, wrapText, type StackSpec } from '../utils/rows.js';
 import { CommanderClient, edgeToken, type CommanderEvent } from '../../harness/commander.js';
 import { Card } from '../ui/Card.js';
 import { useAgent } from '../hooks/useAgent.js';
@@ -482,6 +483,11 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   // 80x24 also starves VERTICALLY (wrapped chrome eats rows): compact mode
   // drops the card purpose lines so the ladder never clips.
   const compact = (process.stdout.rows ?? 32) <= 26;
+  // ui-cockpit-k7m3 C5 POLISH — bounded rows everywhere: the body's row budget
+  // (terminal rows minus header 2 · flash 1 · footer 1) is split across each
+  // column's cards by the solver (src/tui/utils/rows.ts); every list renders at
+  // most its cap and SAYS what it hides. P = purpose row · G = gap row.
+  const bodyRows = Math.max(10, (process.stdout.rows ?? 32) - 4);
   // BOOT: lane probes are cold spawnSync execs — never in the first render path
   const [lanes, setLanes] = useState<{ id: string; label: string; available: boolean; install?: string; model?: string }[]>([]);
   useEffect(() => { setLanes(listLanes()); }, []);
@@ -639,6 +645,64 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
     return recs.filter(r => String(r.ts).slice(0, 10) === day).reduce((n, r) => n + (r.cost_usd ?? 0), 0);
   }, [recs]);
 
+  // C5 POLISH — row plans per column (pure; recomputed each render)
+  const plans = (() => {
+    const runSel = runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))];
+    const liveRunning = runSel ? (runSel.state === 'running' || runSel.state === 'queued') : false;
+    const handSel = board ? board.hands[Math.min(s.handsRow, Math.max(0, board.hands.length - 1))] : undefined;
+    const promptOpen = Boolean(s.handsOn && board && s.handsPrompt && handSel);
+    const promptText = promptOpen && board && handSel ? board.prompts?.[handSel.name]?.[ck.ROUNDS[s.handsCol]] ?? '' : '';
+    const innerW = (narrow ? width : 74) - 4;
+    const promptRows = promptOpen ? (promptText ? wrapText(promptText, innerW).length : 1) : 0;
+    const handRows = board ? board.hands.reduce((n, h) => n + 2, 0) : 0;
+    // chrome yields before content: specs are built per compact flag and the
+    // adaptive fit keeps whichever configuration hides the fewest rows
+    const build = (cmp: boolean) => {
+    const chrome = 4 + (cmp ? 0 : 1);
+    // the tab's own card never folds (priority 6 beats ESCROW's 5)
+    const runsS = { id: 'RUNS', fixed: chrome + 1, items: Math.max(1, runRows.rows.length), min: 2, priority: 6 };
+    const dropsS = { id: 'DROPS', fixed: chrome, items: Math.max(1, Math.min(6, dropFeed.length)), min: 1, priority: 1 };
+    const liveS = { id: 'LIVE', fixed: chrome + (runSel && !liveRunning ? 1 : 0), items: !runSel ? 1 : liveRunning ? 2 : Math.min(8, runSel.group.length), min: 1, priority: 2 };
+    const escrowS = pendingEscrows[0] ? [{ id: 'ESCROW', fixed: chrome, items: 3, min: 3, priority: 5 }] : [];
+    // MODELS rows = models + the role headers of models in view (the pane keeps
+    // only headed roles), so the cap applies to rows; the tab's own card never folds
+    const modelsS = { id: 'MODELS', fixed: chrome + 1 + (selModel?.notes ? 1 : 0), items: Math.max(1, modelsView.length), min: 4, priority: 6 };
+    const boardsS = { id: 'BOARDS', fixed: chrome + 4, items: 0, min: 0, priority: 2 };
+    // FLEET is the rail's roster: it keeps ten rows (both ● and ○ lanes stay in
+    // view) before SKILLS and OLLAMA shrink around it
+    const fleetS = { id: 'FLEET', fixed: chrome, items: Math.max(1, lanes.length), min: Math.min(10, Math.max(1, lanes.length)), priority: 3 };
+    const skillsS = { id: 'SKILLS', fixed: chrome, items: Math.max(1, war2.projects.reduce((n, pj) => n + 1 + Math.max(1, Math.min(4, pj.skills.length)), 0)), min: 2, priority: 2 };
+    // the commander pane is fixed, never covered — and never folded
+    const cmdS = { id: 'COMMANDER', fixed: chrome + 4, items: Math.min(8, cmdEvents.length), min: 0, priority: 6 };
+    const swarmS = swarmOn ? [{ id: 'SWARM', fixed: chrome + 1 + (war2.presets[swPick.preset] ? 3 : 0) + (war2.runs[0] ? 2 : 1) + 2, items: 0, min: 0, priority: 1 }] : [];
+    const handsS = s.handsOn && board ? [{ id: 'HANDS', fixed: chrome + 1 + (promptOpen ? 2 : 0), items: handRows + promptRows, min: 3, priority: 4 }] : [];
+    const harnessS = { id: 'HARNESS PANES', fixed: chrome + 3, items: Math.max(1, profile.harnesses.length), min: 3, priority: 3 };
+    const engineS = { id: 'ENGINE ROOM', fixed: chrome, items: Math.max(1, war2.nodes.length), min: 1, priority: 1 };
+    const bulkS = { id: 'BULKHEADS', fixed: chrome, items: Math.max(1, Math.min(5, (war2.runs[0]?.members ?? []).filter(m => m.sandbox && m.sandbox !== 'none').length + Math.min(4, war2.sbx.length))), min: 1, priority: 2 };
+    return { runsS, dropsS, liveS, escrowS, modelsS, boardsS, fleetS, skillsS, cmdS, swarmS, handsS, harnessS, engineS, bulkS };
+    };
+    const fit = (pick: (sp: ReturnType<typeof build>) => StackSpec[]) => fitStackAdaptive(cmp => pick(build(cmp)), bodyRows);
+    const chrome = 4 + (compact ? 0 : 1);
+    return {
+      run: narrow
+        ? { left: fit(sp => [sp.runsS, sp.dropsS, sp.liveS, ...sp.escrowS]), rail: fit(() => []) }
+        : { left: fit(sp => [sp.runsS, sp.dropsS]), rail: fit(sp => [sp.liveS, ...sp.escrowS]) },
+      library: narrow
+        ? { left: fit(sp => [sp.modelsS, sp.boardsS]), rail: fit(() => []) }
+        : { left: fit(sp => [sp.modelsS, sp.boardsS]), rail: fit(sp => [sp.fleetS, sp.skillsS]) },
+      command: {
+        left: fit(sp => [sp.cmdS, ...sp.swarmS, ...sp.handsS]),
+        rail: fit(sp => [sp.harnessS, sp.engineS, sp.bulkS]),
+      },
+      innerW,
+      chainWindow: Math.max(4, bodyRows - 5),
+      chatTurns: Math.max(1, Math.floor((bodyRows - chrome - 1) / 3)),
+      rainRows: Math.max(1, bodyRows - chrome),
+      // HOME keeps its purpose lines in every mode (first-run HOME is untouched):
+      // LATEST RECEIPT 7 rows + gap 1 + ACTIVITY chrome 5
+      activityRows: Math.max(1, Math.min(10, bodyRows - 13)),
+    };
+  })();
   PAL = s.mode === 'CHAT' ? DIM : theme;
   return (
     // the root declares its width so frames lay out at the reference grid
@@ -699,53 +763,60 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
           {s.tab === 'RUN' && (
             <RunsPane
               rows={runRows.rows} idle={runRows.idle} selected={Math.min(s.selected, Math.max(0, runRows.rows.length - 1))}
-              feed={dropFeed} watched={Object.keys(SHIPPED_RULES)} compact={compact}
+              feed={dropFeed} watched={Object.keys(SHIPPED_RULES)} compact={plans.run.left.compact}
               liveCollapsed={!runRows.rows.some(r => r.state === 'running')}
+              maxRuns={plans.run.left.caps.RUNS} maxDrops={plans.run.left.caps.DROPS}
+              dropsFolded={plans.run.left.folded.includes('DROPS')} gap={plans.run.left.gap}
             />
           )}
           {narrow && s.tab === 'RUN' && (
             <>
-              <Box height={1} />
-              <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} compact={compact} />
-              {pendingEscrows[0] && <><Box height={1} /><EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} /></>}
+              <Box height={plans.run.left.gap} />
+              <Stack gap={plans.run.left.gap}>
+                {!plans.run.left.folded.includes('LIVE') && (
+                  <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} compact={plans.run.left.compact} maxTail={plans.run.left.caps.LIVE} />
+                )}
+                {pendingEscrows[0] && <EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} compact={plans.run.left.compact} />}
+              </Stack>
             </>
           )}
-          {s.tab === 'CHAIN' && <ChainPane recs={recs} filtered={filtered} selected={Math.min(s.selected, Math.max(0, filtered.length - 1))} chain={chain} verified={verified} filter={s.filter} link={chainLink} />}
-          {s.tab === 'CHAT' && <ChatPane recs={recs} />}
+          {s.tab === 'RUN' && <FoldedNote folded={plans.run.left.folded} />}
+          {s.tab === 'CHAIN' && <ChainPane recs={recs} filtered={filtered} selected={Math.min(s.selected, Math.max(0, filtered.length - 1))} chain={chain} verified={verified} filter={s.filter} link={chainLink} window={plans.chainWindow} />}
+          {s.tab === 'CHAT' && <ChatPane recs={recs} maxTurns={plans.chatTurns} compact={compact} />}
           {s.tab === 'COMMAND' && (
             <>
-              <CommandPane profile={profile} online={commanderOnline} events={cmdEvents} spend={spend} handoff={handoff} />
-              {swarmOn && (
-                <>
-                  <Box height={1} />
-                  <SwarmPane presets={war2.presets} runs={war2.runs} pick={swPick} focus={focusHarness} />
-                </>
-              )}
-              {s.handsOn && board && (
-                <>
-                  <Box height={1} />
-                  <HandsPane board={board} row={Math.min(s.handsRow, Math.max(0, board.hands.length - 1))} col={s.handsCol} showPrompt={s.handsPrompt} />
-                </>
-              )}
+              <Stack gap={plans.command.left.gap}>
+                <CommandPane profile={profile} online={commanderOnline} events={cmdEvents} spend={spend} handoff={handoff} maxEvents={plans.command.left.caps.COMMANDER} compact={plans.command.left.compact} />
+                {swarmOn && !plans.command.left.folded.includes('SWARM') && (
+                  <SwarmPane presets={war2.presets} runs={war2.runs} pick={swPick} focus={focusHarness} compact={plans.command.left.compact} />
+                )}
+                {s.handsOn && board && !plans.command.left.folded.includes('HANDS') && (
+                  <HandsPane board={board} row={Math.min(s.handsRow, Math.max(0, board.hands.length - 1))} col={s.handsCol} showPrompt={s.handsPrompt} compact={plans.command.left.compact} maxRows={plans.command.left.caps.HANDS} innerWidth={plans.innerW} />
+                )}
+              </Stack>
+              <FoldedNote folded={plans.command.left.folded} />
             </>
           )}
           {s.tab === 'LIBRARY' && (
             <>
-              <ModelsPane view={modelsView} selected={Math.min(s.selected, Math.max(0, selectableModels.length - 1))} sel={selModel} filter={s.filter} compact={compact} fits={modelFits} />
-              {/* FIX 2: BOARDS + PROJECTS live under MODELS on the left */}
-              <Box height={1} />
-              <BoardsPane boards={boards} projects={projects} />
+              <Stack gap={plans.library.left.gap}>
+                <ModelsPane view={modelsView} selected={Math.min(s.selected, Math.max(0, selectableModels.length - 1))} sel={selModel} filter={s.filter} compact={plans.library.left.compact} fits={modelFits} maxRows={plans.library.left.caps.MODELS} />
+                {/* FIX 2: BOARDS + PROJECTS live under MODELS on the left */}
+                {!plans.library.left.folded.includes('BOARDS') && <BoardsPane boards={boards} projects={projects} compact={plans.library.left.compact} />}
+              </Stack>
+              <FoldedNote folded={plans.library.left.folded} />
             </>
           )}
         </Box>)}
         {assembled && !narrow && s.tab === 'CHAT' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            <LogRain events={activity} />
+            <LogRain events={activity} maxRows={plans.rainRows} compact={compact} />
           </Box>
         )}
         {assembled && !narrow && s.tab === 'COMMAND' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            <HarnessPanes profile={profile} panes={warPanes} lanes={lanes} recs={recs}
+            <Stack gap={plans.command.rail.gap}>
+            {!plans.command.rail.folded.includes('HARNESS PANES') && <HarnessPanes profile={profile} panes={warPanes} lanes={lanes} recs={recs} compact={plans.command.rail.compact} maxRows={plans.command.rail.caps['HARNESS PANES']}
               menu={{
                 harness: focusHarness,
                 sandbox: war2.abilities.find(x => x.harness === focusHarness)?.isolation ? 'isolated' : 'none',
@@ -756,11 +827,11 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
                 project: war2.projects[0]?.name ?? 'none',
                 drop: war2.projects[0]?.drop.length ?? 0,
                 model: String(profile.harnesses.find(x => x.id === focusHarness)?.model ?? profile.commander.model).split('/').pop() ?? '',
-              }} />
-            <Box height={1} />
-            <EnginePane nodes={war2.nodes} />
-            <Box height={1} />
-            <BulkheadsPane sbx={war2.sbx} ports={war2.ports} runs={war2.runs} />
+              }} />}
+            {!plans.command.rail.folded.includes('ENGINE ROOM') && <EnginePane nodes={war2.nodes} compact={plans.command.rail.compact} maxRows={plans.command.rail.caps['ENGINE ROOM']} />}
+            {!plans.command.rail.folded.includes('BULKHEADS') && <BulkheadsPane sbx={war2.sbx} ports={war2.ports} runs={war2.runs} compact={plans.command.rail.compact} maxRows={plans.command.rail.caps.BULKHEADS} />}
+            </Stack>
+            <FoldedNote folded={plans.command.rail.folded} />
           </Box>
         )}
         {assembled && !narrow && s.tab === 'HOME' && (
@@ -780,7 +851,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
               {activity.length === 0 ? (
                 <Text color={theme.textMuted}>quiet so far</Text>
               ) : (
-                activity.slice(0, 10).map((row, i) => (
+                activity.slice(0, plans.activityRows).map((row, i) => (
                   <Text key={i} color={row.refused ? theme.danger : row.sealed ? theme.textSecondary : theme.textMuted} wrap="truncate">{row.line}</Text>
                 ))
               )}
@@ -795,15 +866,22 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
         {assembled && !narrow && s.tab === 'LIBRARY' && (
           /* FIX 2: FLEET owns the full-height right rail */
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            <FleetPane lanes={lanes} policy={policy} />
-            <Box height={1} />
-            <SkillsTree projects={war2.projects} />
+            <Stack gap={plans.library.rail.gap}>
+              {!plans.library.rail.folded.includes('FLEET') && <FleetPane lanes={lanes} policy={policy} compact={plans.library.rail.compact} maxRows={plans.library.rail.caps.FLEET} />}
+              {!plans.library.rail.folded.includes('SKILLS') && <SkillsTree projects={war2.projects} compact={plans.library.rail.compact} maxRows={plans.library.rail.caps.SKILLS} />}
+            </Stack>
+            <FoldedNote folded={plans.library.rail.folded} />
           </Box>
         )}
         {assembled && !narrow && s.tab === 'RUN' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} compact={compact} />
-            {pendingEscrows[0] ? <><Box height={1} /><EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} /></> : null}
+            <Stack gap={plans.run.rail.gap}>
+              {!plans.run.rail.folded.includes('LIVE') && (
+                <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} compact={plans.run.rail.compact} maxTail={plans.run.rail.caps.LIVE} />
+              )}
+              {pendingEscrows[0] && <EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} compact={plans.run.rail.compact} />}
+            </Stack>
+            <FoldedNote folded={plans.run.rail.folded} />
           </Box>
         )}
         {s.overlay === 'qr' && (
@@ -824,7 +902,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
         {s.overlay === 'status' && (
           <Box position="absolute" top={1} left={6} width={width - 12} backgroundColor={PAL.surfaceRaised} paddingX={1} flexDirection="column">
             <Text bold color={PAL.textPrimary}>ORDERS STATUS — [Esc] close</Text>
-            {statusLines.slice(0, 24).map((l, i) => (
+            {statusLines.slice(0, Math.max(3, bodyRows - 1)).map((l, i) => (
               <Text key={i} color={l.startsWith('==') ? PAL.seal : l.includes('blocked') ? PAL.warn : PAL.textSecondary} wrap="truncate">{l}</Text>
             ))}
           </Box>
@@ -886,7 +964,11 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
       {/* action feedback is global, not a HOME-only line: picker writes from
           LIBRARY/RUN must be visible where they happen */}
       {flash ? <Text color={theme.seal} wrap="truncate">{flash}</Text> : null}
-      {s.overlay === 'whichkey' && <WhichKeyOverlay mode={s.mode} tab={s.tab} />}
+      {/* C5: the key sheet floats over the body (it used to flow below it and
+          push the footer past the last row at 80x24) */}
+      {s.overlay === 'whichkey' && (
+        <Box position="absolute" top={2} left={0}><WhichKeyOverlay mode={s.mode} tab={s.tab} width={width} /></Box>
+      )}
       {assembled && <ShellFooter mode={s.mode} tab={s.tab} chainOk={chain.ok} chainCount={chain.count} busLive={busLive} width={width} model={policy.default ?? undefined} />}
     </Box>
   );
@@ -950,10 +1032,13 @@ function ChainPane(props: {
   recs: Receipt[]; filtered: Receipt[]; selected: number; chain: { ok: boolean; count: number };
   verified: null | { ok: boolean; count: number; epochs: number; head: string; at: string; via: string };
   filter: string; link: string | null;
+  /** C5: rows the plan allows the list (≤ 20); the window always holds the selection */
+  window?: number;
 }) {
   const { filtered, selected } = props;
-  const start = Math.max(0, selected - 16);
-  const windowRows = filtered.slice(start, start + 20);
+  const win = Math.max(4, Math.min(20, props.window ?? 20));
+  const start = Math.min(Math.max(0, selected - (win - 4)), Math.max(0, filtered.length - win));
+  const windowRows = filtered.slice(start, start + win);
   const refusals = props.recs.filter(r => r.status === 'denied' || r.status === 'failed').length;
   return (
     <Box flexDirection="column">
@@ -981,6 +1066,9 @@ function ChainPane(props: {
           </Text>
         );
       })}
+      {filtered.length > windowRows.length && (
+        <Text color={PAL.textMuted} wrap="truncate">{moreLine(filtered.length - windowRows.length, 'receipts', '↑↓ scroll')}</Text>
+      )}
       <Box height={1} />
       {props.verified ? (
         <>
@@ -1037,14 +1125,21 @@ interface RunRow { id: string; lane: string; state: 'running' | 'queued' | 'seal
 function RunsPane(props: {
   rows: RunRow[]; idle: number; selected: number; feed: { lane: string; file: string }[];
   watched: string[]; compact: boolean; liveCollapsed: boolean;
+  /** C5: row caps from the plan; DROPS folds into the idle line when the plan says so */
+  maxRuns?: number; maxDrops?: number; dropsFolded?: boolean; gap?: number;
 }) {
+  // a window of maxRuns rows that always holds the selection
+  const cap = Math.max(1, props.maxRuns ?? props.rows.length);
+  const start = Math.min(Math.max(0, props.selected - (cap - 1)), Math.max(0, props.rows.length - cap));
+  const shownRuns = props.rows.slice(start, start + cap);
+  const dropsShown = capRows(props.feed, Math.min(6, props.maxDrops ?? 6));
   return (
     <Box flexDirection="column">
-      <Card title="RUNS" purpose={props.compact ? undefined : 'running orange · queued dim · sealed phosphor · REFUSED red'}>
+      <Card title="RUNS" purpose={props.compact ? undefined : 'running orange · queued dim · sealed phosphor · REFUSED red'} overflow={moreLine(props.rows.length - shownRuns.length, 'runs', '↑↓ scroll')}>
         {props.rows.length === 0
           ? <Text color={PAL.textMuted}>no runs yet</Text>
-          : props.rows.map((r, i) => {
-            const sel = i === props.selected;
+          : shownRuns.map((r, i) => {
+            const sel = start + i === props.selected;
             const col = r.state === 'running' ? PAL.warn : r.state === 'sealed' ? PAL.seal : r.state === 'REFUSED' ? PAL.danger : PAL.textMuted;
             const bar = r.state === 'running' ? ` ${'▮'.repeat(Math.min(4, r.ticks))}${'▯'.repeat(Math.max(0, 4 - Math.min(4, r.ticks)))}` : '';
             return (
@@ -1056,16 +1151,20 @@ function RunsPane(props: {
               </Text>
             );
           })}
-        <Text color={PAL.textMuted}>{`${props.idle} idle · [n] new run`}</Text>
+        <Text color={PAL.textMuted} wrap="truncate">{`${props.idle} idle${props.dropsFolded ? ` · drops ${props.feed.length ? `${props.feed.length} waiting` : 'quiet'}` : ''} · [n] new run`}</Text>
       </Card>
-      <Box height={1} />
-      <Card title="DROPS" purpose={props.compact ? undefined : `watched: ${props.watched.join(' · ')}`} flexGrow={props.liveCollapsed ? 1 : undefined}>
-        {props.feed.length === 0
-          ? <Text color={PAL.textMuted}>drops quiet — nothing waiting in intake</Text>
-          : props.feed.slice(0, 6).map((f, i) => (
-            <Text key={i} color={PAL.textMuted} wrap="truncate">{`↓ drop/${f.lane}/${f.file} · intake pending`}</Text>
-          ))}
-      </Card>
+      {!props.dropsFolded && (
+        <>
+          <Box height={props.gap ?? 1} />
+          <Card title="DROPS" purpose={props.compact ? undefined : `watched: ${props.watched.join(' · ')}`} flexGrow={props.liveCollapsed ? 1 : undefined} overflow={moreLine(dropsShown.more, 'drops')}>
+            {props.feed.length === 0
+              ? <Text color={PAL.textMuted}>drops quiet — nothing waiting in intake</Text>
+              : dropsShown.shown.map((f, i) => (
+                <Text key={i} color={PAL.textMuted} wrap="truncate">{`↓ drop/${f.lane}/${f.file} · intake pending`}</Text>
+              ))}
+          </Card>
+        </>
+      )}
     </Box>
   );
 }
@@ -1073,7 +1172,7 @@ function RunsPane(props: {
 // FIX 3 — LIVE: a running run shows the ticking bar; a sealed/refused run
 // shows its sealed log tail (last 8 receipts) + env-lock; with nothing
 // selected it collapses to one line so DROPS can grow.
-function LivePane(props: { row: RunRow | undefined; recs: Receipt[]; compact: boolean }) {
+function LivePane(props: { row: RunRow | undefined; recs: Receipt[]; compact: boolean; maxTail?: number }) {
   const row = props.row;
   if (!row) {
     return (
@@ -1093,13 +1192,13 @@ function LivePane(props: { row: RunRow | undefined; recs: Receipt[]; compact: bo
       </Card>
     );
   }
-  const tail = row.group.slice(-8);
+  const tail = row.group.slice(-Math.max(1, Math.min(8, props.maxTail ?? 8)));
   const lockRec = [...row.group].reverse().find(r => r.env_lock);
   const tools = lockRec?.env_lock
     ? Object.entries(lockRec.env_lock.tools).slice(0, 2).map(([n, t]) => `${n} ${String(t.sha256).slice(0, 8)}`)
     : [];
   return (
-    <Card title={`LIVE · ${row.lane}`} purpose={props.compact ? undefined : 'sealed log tail + env-lock'} flexGrow={1}>
+    <Card title={`LIVE · ${row.lane}`} purpose={props.compact ? undefined : 'sealed log tail + env-lock'} flexGrow={1} overflow={moreLine(row.group.length - tail.length, 'earlier receipts')}>
       {tail.map((r, i) => (
         <Text key={i} color={r.status === 'ok' ? PAL.textSecondary : PAL.danger} wrap="truncate">
           {`${stamp(r.ts)} ${r.status === 'ok' ? 'ok ' : r.status === 'denied' ? 'DEN' : 'FAIL'} ${String(r.subject).slice(0, 30)}`}
@@ -1110,9 +1209,9 @@ function LivePane(props: { row: RunRow | undefined; recs: Receipt[]; compact: bo
   );
 }
 
-function EscrowPane({ escrow, requester }: { escrow: Escrow; requester: string }) {
+function EscrowPane({ escrow, requester, compact }: { escrow: Escrow; requester: string; compact?: boolean }) {
   return (
-    <Card title="ESCROW · NEEDS YOU" purpose="appears only when something needs you">
+    <Card title="ESCROW · NEEDS YOU" purpose={compact ? undefined : 'appears only when something needs you'}>
         <Text color={PAL.warn} wrap="truncate">
           {`▶ ${String(escrow.plan_hash).slice(7, 15)} · est $${(escrow.ceiling_usd - escrow.drawn_usd).toFixed(2)}`}
         </Text>
@@ -1127,18 +1226,32 @@ function EscrowPane({ escrow, requester }: { escrow: Escrow; requester: string }
 function ModelsPane(props: {
   view: { role?: string; m?: ModelEntry }[]; selected: number; sel: ModelEntry | null;
   filter: string; compact: boolean; fits?: Map<string, { node: string; fit: string }>;
+  maxRows?: number;
 }) {
-  // windowed list: the catalog is hundreds of models; BOARDS must stay visible
-  const WIN = 16;
+  // windowed list: the catalog is hundreds of models; BOARDS must stay visible —
+  // C5: the window is the plan's cap (≤ 16) and the overflow line counts the rest
+  // C5: the cap counts ROWS — models plus the role headers of models in view
+  // (a role whose models are all out of the window is not drawn) — and the
+  // window shrinks until models + headers fit; the overflow line counts the rest
+  const maxRows = Math.max(4, props.maxRows ?? 22);
   const selIdx = props.selected;
   const modelIdx = props.view.map((r, i) => (r.m ? i : -1)).filter(i => i >= 0);
   const pos = modelIdx.indexOf(selIdx);
-  const from = Math.max(0, (pos < 0 ? 0 : pos) - (WIN - 4));
-  const winSet = new Set(modelIdx.slice(from, from + WIN));
-  const shown = props.view.map((row, g) => ({ row, g })).filter(x => !x.row.m || winSet.has(x.g));
+  let WIN = Math.max(1, Math.min(16, maxRows));
+  let shown: { row: { role?: string; m?: ModelEntry }; g: number }[] = [];
+  for (let guard = 0; guard < 24; guard++) {
+    const from = Math.max(0, (pos < 0 ? 0 : pos) - (WIN - 4));
+    const winSet = new Set(modelIdx.slice(from, from + WIN));
+    const headed = new Set<number>();
+    for (const g of winSet) for (let r = g - 1; r >= 0; r--) { if (props.view[r].role) { headed.add(r); break; } }
+    shown = props.view.map((row, g) => ({ row, g })).filter(x => (x.row.m ? winSet.has(x.g) : headed.has(x.g)));
+    if (shown.length <= maxRows || WIN <= 1) break;
+    WIN = Math.max(1, WIN - (shown.length - maxRows));
+  }
+  const hiddenModels = modelIdx.length - shown.filter(x => x.row.m).length;
   return (
     <Box flexDirection="column">
-      <Card title="MODELS" purpose={props.compact ? undefined : `from models.registry · ${props.filter ? `/ ${props.filter}` : '[/] fuzzy filter'} · ${props.view.length} models`} flexGrow={1}>
+      <Card title="MODELS" purpose={props.compact ? undefined : `from models.registry · ${props.filter ? `/ ${props.filter}` : '[/] fuzzy filter'} · ${props.view.length} models`} flexGrow={1} overflow={moreLine(hiddenModels, 'models', '↑↓ scroll')}>
         {shown.length === 0 ? <Text color={PAL.textMuted}>no models match</Text> : shown.map(({ row, g }, i) => {
           if (row.role) return <Text key={`r${i}`} color={PAL.textMuted}>{`role: ${row.role} ▾`}</Text>;
           const m = row.m as ModelEntry;
@@ -1181,14 +1294,16 @@ function ModelsPane(props: {
   );
 }
 
-function FleetPane({ lanes, policy }: {
+function FleetPane({ lanes, policy, compact, maxRows }: {
   lanes: { id: string; label: string; available: boolean; install?: string; model?: string }[];
   policy: { default: string | null; scopes: Record<string, string> };
+  compact?: boolean; maxRows?: number;
 }) {
   const idw = Math.max(...lanes.map(l => l.id.length), 8);
+  const fleet = capRows(lanes, maxRows ?? lanes.length);
   return (
-    <Card title="FLEET" purpose="absence is dim, not red" flexGrow={1}>
-      {lanes.map(l => {
+    <Card title="FLEET" purpose={compact ? undefined : 'absence is dim, not red'} flexGrow={1} overflow={moreLine(fleet.more, 'connectors')}>
+      {fleet.shown.map(l => {
         // FIX 3: policy-followers read "→ <model> (policy)"; a harness scope
         // wins with "(harness)"; "policy unset" is unreachable after first run
         const scope = policy.scopes[`harness:${l.id}`];
@@ -1217,25 +1332,26 @@ function FleetPane({ lanes, policy }: {
   );
 }
 
-function BoardsPane(props: { boards: { templates: string[]; blueprints: string[]; missions: string[] }; projects: string[] }) {
+function BoardsPane(props: { boards: { templates: string[]; blueprints: string[]; missions: string[] }; projects: string[]; compact?: boolean }) {
   const b = props.boards;
   return (
-    <Card title="BOARDS" purpose="mission · blueprint · template">
-      <Text color={PAL.textSecondary} wrap="truncate">{`mission    ${b.missions.length ? b.missions.join(' · ') : '—'}`}</Text>
-      <Text color={PAL.textSecondary} wrap="truncate">{`blueprint  ${b.blueprints.length ? b.blueprints.join(' · ') : '—'}`}</Text>
-      <Text color={PAL.textSecondary} wrap="truncate">{`template   ${b.templates.length ? b.templates.join(' · ') : '—'}`}</Text>
-      <Text color={PAL.textMuted} wrap="truncate">{`PROJECTS  ${props.projects.join(' · ') || '—'}`}</Text>
+    <Card title="BOARDS" purpose={props.compact ? undefined : 'mission · blueprint · template'}>
+      {([['mission   ', b.missions], ['blueprint ', b.blueprints], ['template  ', b.templates]] as [string, string[]][]).map(([label, names]) => (
+        <Text key={label} color={PAL.textSecondary} wrap="truncate">{`${label}${names.length ? `${names.slice(0, 2).join(' · ')}${names.length > 2 ? ` +${names.length - 2}` : ''}` : '—'}`.slice(0, 72)}</Text>
+      ))}
+      <Text color={PAL.textMuted} wrap="truncate">{`PROJECTS  ${props.projects.slice(0, 4).join(' · ') || '—'}`.slice(0, 72)}</Text>
     </Card>
   );
 }
 
 // warroom-t3b1 — CHAT tab: transcript rises from the bottom (you · thinking
 // dim · answer · turn receipt hash); LOG RAIN falls in the right rail.
-function ChatPane({ recs }: { recs: Receipt[] }) {
-  const turns = recs.filter(r => r.kind === 'chat').slice(-10);
+function ChatPane({ recs, maxTurns, compact }: { recs: Receipt[]; maxTurns?: number; compact?: boolean }) {
+  const all = recs.filter(r => r.kind === 'chat');
+  const turns = all.slice(-Math.max(1, Math.min(10, maxTurns ?? 10)));
   return (
     <Box flexDirection="column" justifyContent="flex-end" flexGrow={1}>
-      <Card title="CHAT · sovereign" purpose="transcript rises from the bottom" flexGrow={1}>
+      <Card title="CHAT · sovereign" purpose={compact ? undefined : 'transcript rises from the bottom'} flexGrow={1} overflow={moreLine(all.length - turns.length, 'earlier turns')}>
         {turns.length === 0 ? <Text color={PAL.textMuted}>no turns yet — type to talk to the commander-backed chat</Text> : turns.map(r => {
           const src = Array.isArray(r.sources) ? r.sources as { role?: string; text?: string }[] : [];
           const you = src.find(x => x.role === 'user')?.text ?? '';
@@ -1252,10 +1368,10 @@ function ChatPane({ recs }: { recs: Receipt[] }) {
   );
 }
 
-function LogRain({ events }: { events: { line: string; refused: boolean; sealed: boolean }[] }) {
+function LogRain({ events, maxRows, compact }: { events: { line: string; refused: boolean; sealed: boolean }[]; maxRows?: number; compact?: boolean }) {
   return (
-    <Card title="LOG RAIN" purpose="bus events enter at the top, falling, dimming" flexGrow={1}>
-      {events.length === 0 ? <Text color={PAL.textMuted}>quiet</Text> : events.slice(0, 14).map((e, i) => (
+    <Card title="LOG RAIN" purpose={compact ? undefined : 'bus events enter at the top, falling, dimming'} flexGrow={1}>
+      {events.length === 0 ? <Text color={PAL.textMuted}>quiet</Text> : events.slice(0, Math.max(1, Math.min(14, maxRows ?? 14))).map((e, i) => (
         <Text key={i} color={e.refused ? PAL.danger : i < 3 ? PAL.textSecondary : PAL.textMuted} dimColor={i > 8} wrap="truncate">
           {e.line.slice(0, 40)}
         </Text>
@@ -1268,16 +1384,17 @@ function LogRain({ events }: { events: { line: string; refused: boolean; sealed:
 function CommandPane(props: {
   profile: warroom.WarProfile; online: boolean; events: CommanderEvent[];
   spend: number; handoff: { harness: string; model: string } | null;
+  maxEvents?: number; compact?: boolean;
 }) {
   return (
     <Box flexDirection="column" flexGrow={1}>
-      <Card title={`COMMANDER · ${props.profile.commander.model}`} purpose={props.online ? 'ws● connected — events below' : 'ws○ offline — set TIMMY_COMMANDER_WS'}>
+      <Card title={`COMMANDER · ${props.profile.commander.model}`} purpose={props.compact ? undefined : props.online ? 'ws● connected — events below' : 'ws○ offline — set TIMMY_COMMANDER_WS'}>
         {/* FIX 1 (warroom fixes): cmdr + spend moved out of the header here */}
         <Text color={PAL.textMuted} wrap="truncate">{`cmdr ${props.profile.commander.model} ${props.online ? 'ws●' : 'ws○'}`}</Text>
         <Text color={PAL.seal} wrap="truncate">{`spend $${props.spend.toFixed(4)}${props.handoff ? ` · handoff→${props.handoff.harness}` : ''}`}</Text>
         <Text color={PAL.textMuted} wrap="truncate">[m] model [M] harness-model [K] handoff [X] kill</Text>
         <Text color={PAL.textMuted} wrap="truncate">[t] toggle [b] body [f] fusion [g] gen [1-6] focus</Text>
-        {props.events.slice(0, 8).map((e, i) => (
+        {props.events.slice(0, Math.max(0, Math.min(8, props.maxEvents ?? 8))).map((e, i) => (
           <Text key={i} color={PAL.textSecondary} wrap="truncate">{`${e.kind ?? 'event'} ${(e.text ?? '').slice(0, 50)}`}</Text>
         ))}
       </Card>
@@ -1290,18 +1407,20 @@ function CommandPane(props: {
 function HarnessPanes(props: {
   profile: warroom.WarProfile; panes: warroom.WarPane[]; lanes: { id: string; available: boolean }[]; recs: Receipt[];
   menu?: { harness: string; sandbox: string; policy: string; mcp: string; skills: number; plans: number; project: string; drop: number; model: string };
+  compact?: boolean; maxRows?: number;
 }) {
+  const hs = capRows(props.profile.harnesses, props.maxRows ?? props.profile.harnesses.length);
   return (
-    <Card title="HARNESS PANES" purpose="tmux PTYs · height = activity weight" flexGrow={1}>
+    <Card title="HARNESS PANES" purpose={props.compact ? undefined : 'tmux PTYs · height = activity weight'} flexGrow={1} overflow={moreLine(hs.more, 'harnesses')}>
       {props.menu && (
         <>
           {/* warroom-v2-c4m8: the pane header carries the bulkhead line and
               the project-folder menu for the focused harness */}
-          <Text color={PAL.textMuted}>{`sbx ${props.menu.sandbox.slice(0, 8).padEnd(8)} · ${props.menu.policy.slice(0, 6).padEnd(6)} · mcp ${props.menu.mcp.slice(0, 5)}`}</Text>
-          <Text color={PAL.textMuted}>{`sk ${String(props.menu.skills).padStart(2)} · pl ${String(props.menu.plans).padStart(2)} · ${props.menu.project.slice(0, 8).padEnd(8)} · dp ${String(props.menu.drop).padStart(2)} · ${props.menu.model.slice(0, 12)}`}</Text>
+          <Text color={PAL.textMuted} wrap="truncate">{`sbx ${props.menu.sandbox.slice(0, 8).padEnd(8)} · ${props.menu.policy.slice(0, 6).padEnd(6)} · mcp ${props.menu.mcp.slice(0, 5)}`}</Text>
+          <Text color={PAL.textMuted} wrap="truncate">{`sk ${String(props.menu.skills).padStart(2)} · pl ${String(props.menu.plans).padStart(2)} · ${props.menu.project.slice(0, 8).padEnd(8)} · dp ${String(props.menu.drop).padStart(2)} · ${props.menu.model.slice(0, 12)}`}</Text>
         </>
       )}
-      {props.profile.harnesses.map((h, i) => {
+      {hs.shown.map((h, i) => {
         const pane = props.panes.find(pn => pn.name === h.id);
         const lane = props.lanes.find(l => l.id === h.id);
         const refused = props.recs.some(r => (r.status === 'denied' || r.status === 'failed') && String(r.subject).includes(h.id));
@@ -1310,12 +1429,12 @@ function HarnessPanes(props: {
         const state = refused ? 'REFUSED' : !pane ? 'off' : h.weight >= 3 ? 'resp' : h.weight === 2 ? 'think' : 'idle';
         const col = refused ? PAL.danger : !lane || !lane.available ? PAL.textMuted : state === 'resp' ? PAL.seal : state === 'think' ? PAL.warn : PAL.textSecondary;
         return (
-          <Text key={h.id} color={col}>
+          <Text key={h.id} color={col} wrap="truncate">
             {`${i + 1} ${h.id.slice(0, 10).padEnd(10)} ${String((h.model ?? 'cmdr').split('/').pop()).slice(0, 12).padEnd(12)} ${state.padEnd(8)} h=${String(pane?.height ?? 0).padStart(2)}`}
           </Text>
         );
       })}
-      <Text color={PAL.textMuted}>{props.panes.length ? 'war room live · tmux -t timmy-war' : 'not started · timmy profile --restore'}</Text>
+      <Text color={PAL.textMuted} wrap="truncate">{props.panes.length ? 'war room live · tmux -t timmy-war' : 'not started · timmy profile --restore'}</Text>
     </Card>
   );
 }
@@ -1327,7 +1446,7 @@ function HarnessPanes(props: {
 function SwarmPane(props: {
   presets: w2.SwarmPreset[]; runs: w2.SwarmRun[];
   pick: { preset: number; topology: number; size: number; budget: number; judge: number; policy: number };
-  focus: string;
+  focus: string; compact?: boolean;
 }) {
   const p = props.presets[props.pick.preset] ?? null;
   const run = props.runs[0] ?? null;
@@ -1336,8 +1455,8 @@ function SwarmPane(props: {
     .concat((run?.members ?? []).filter(m => m.kind === 'harness' && m.harness === props.focus).map(m => ({ from: run?.preset ?? '?', id: m.id, role: m.role ?? '' })));
   const under = underAll.filter((u, i) => underAll.findIndex(x => x.id === u.id) === i);
   return (
-    <Card title="SWARM" purpose={props.presets.length ? `${props.presets.length} presets · cue-vetted` : 'lanes/swarm/presets empty'} flexGrow={1}>
-      <Text color={PAL.textPrimary}>{`preset ${(p ? p.name : 'none').padEnd(14)} [ ] cycle`}</Text>
+    <Card title="SWARM" purpose={props.compact ? undefined : props.presets.length ? `${props.presets.length} presets · cue-vetted` : 'lanes/swarm/presets empty'} flexGrow={1}>
+      <Text color={PAL.textPrimary} wrap="truncate">{`preset ${(p ? p.name : 'none').padEnd(14)} [ ] cycle`}</Text>
       {p && (
         <>
           <Text color={PAL.textSecondary}>{`topology ${TOPOLOGIES[props.pick.topology].padEnd(11)} members ${String(Math.min(props.pick.size + 1, p.members.length)).padStart(2)}/${String(p.members.length).padStart(2)}`}</Text>
@@ -1346,13 +1465,16 @@ function SwarmPane(props: {
         </>
       )}
       {run ? (
-        <Text color={run.ok ? PAL.seal : PAL.danger}>
-          {`${run.closed ? '⊘' : ' '} ${run.preset.slice(0, 12).padEnd(12)} n=${String(run.size).padStart(2)} $${run.usd.toFixed(4)} tk${String(run.tokensThinking).padStart(4)} ${run.judge.slice(0, 10).padEnd(10)} ${run.policy}${run.airgap ? ` ag${run.airgap.egress}` : ''}`}
-        </Text>
+        <>
+          <Text color={run.ok ? PAL.seal : PAL.danger} wrap="truncate">
+            {`${run.closed ? '⊘' : ' '} ${run.preset.slice(0, 12).padEnd(12)} n=${String(run.size).padStart(2)} $${run.usd.toFixed(4)} tk${String(run.tokensThinking).padStart(4)} ${run.judge.slice(0, 10).padEnd(10)} ${run.policy}${run.airgap ? ` ag${run.airgap.egress}` : ''}`}
+          </Text>
+          <Text color={PAL.textMuted} wrap="truncate">{`  run ${run.id.slice(0, 16)}`}</Text>
+        </>
       ) : (
         <Text color={PAL.textMuted}>no swarm runs yet — [l] launches the pick</Text>
       )}
-      <Text color={PAL.textMuted}>{`under ${props.focus.slice(0, 8)}: ${under.length ? under.slice(0, 3).map(u => u.id).join(',') : 'no harness agents'}`}</Text>
+      <Text color={PAL.textMuted} wrap="truncate">{`under ${props.focus.slice(0, 8)}: ${under.length ? under.slice(0, 3).map(u => u.id).join(',') : 'no harness agents'}`}</Text>
       <Text color={PAL.textMuted}>[w] close [T S U J P] pick [l] launch [X] kill</Text>
     </Card>
   );
@@ -1360,23 +1482,25 @@ function SwarmPane(props: {
 
 // warroom-v2-c4m8 — ENGINE ROOM: fleet/nodes.json for identity, node.*
 // receipts for reachable · memory · loaded models · tok-per-s.
-function EnginePane(props: { nodes: w2.NodeStat[] }) {
+function EnginePane(props: { nodes: w2.NodeStat[]; compact?: boolean; maxRows?: number }) {
+  // C5: one flat list of rows so the plan's cap applies across nodes
+  const lines: { text: string; color: string }[] = props.nodes.length === 0
+    ? [{ text: 'fleet/nodes.json missing', color: PAL.textMuted }]
+    : props.nodes.map(n => ({
+      color: n.reachable ? PAL.seal : PAL.textMuted,
+      text: `${n.id.slice(0, 7).padEnd(7)} ${n.reachable ? 'up  ' : 'down'} ${(n.memGb ? `${n.memGb}G` : 'mem?').padEnd(5)} ${String(n.models.length).padStart(2)}mdl ${(n.tokPerS ? `${Math.round(n.tokPerS)}t/s` : 't/s?').padEnd(6)}`,
+    }));
+  const rows = capRows(lines, props.maxRows ?? lines.length);
   return (
-    <Card title="ENGINE ROOM" purpose="fleet/nodes.json + node receipts">
-      {props.nodes.length === 0 ? (
-        <Text color={PAL.textMuted}>fleet/nodes.json missing</Text>
-      ) : props.nodes.map(n => (
-        <Text key={n.id} color={n.reachable ? PAL.seal : PAL.textMuted}>
-          {`${n.id.slice(0, 7).padEnd(7)} ${n.reachable ? 'up  ' : 'down'} ${(n.memGb ? `${n.memGb}G` : 'mem?').padEnd(5)} ${String(n.models.length).padStart(2)}mdl ${(n.tokPerS ? `${Math.round(n.tokPerS)}t/s` : 't/s?').padEnd(6)}`}
-        </Text>
-      ))}
+    <Card title="ENGINE ROOM" purpose={props.compact ? undefined : 'fleet/nodes.json + node receipts'} overflow={moreLine(rows.more, 'rows')}>
+      {rows.shown.map((l, i) => <Text key={i} color={l.color} wrap="truncate">{l.text}</Text>)}
     </Card>
   );
 }
 
 // warroom-v2-c4m8 — BULKHEADS: sbx sandboxes (lanes/sandbox runs + sandboxed
 // swarm members), live docker ports, and the network policy that bounds them.
-function BulkheadsPane(props: { sbx: w2.SbxRun[]; ports: Record<string, string>; runs: w2.SwarmRun[] }) {
+function BulkheadsPane(props: { sbx: w2.SbxRun[]; ports: Record<string, string>; runs: w2.SwarmRun[]; compact?: boolean; maxRows?: number }) {
   const memberRows = (props.runs[0]?.members ?? [])
     .filter(m => m.sandbox && m.sandbox !== 'none')
     .map(m => ({ id: m.id, sandbox: String(m.sandbox), ports: '—', policy: props.runs[0]?.policy ?? '—' }));
@@ -1385,13 +1509,14 @@ function BulkheadsPane(props: { sbx: w2.SbxRun[]; ports: Record<string, string>;
     ports: Object.entries(props.ports).find(([name]) => name.includes(r.id.slice(3, 8)))?.[1].split('->')[0].trim() ?? 'none',
     policy: '—',
   }));
-  const rows = [...memberRows, ...sbxRows].slice(0, 5);
+  const allRows = [...memberRows, ...sbxRows];
+  const rows = allRows.slice(0, Math.max(1, Math.min(5, props.maxRows ?? 5)));
   return (
-    <Card title="BULKHEADS" purpose="sbx sandboxes · ports · policy" flexGrow={1}>
+    <Card title="BULKHEADS" purpose={props.compact ? undefined : 'sbx sandboxes · ports · policy'} flexGrow={1} overflow={moreLine(allRows.length - rows.length, 'sandboxes')}>
       {rows.length === 0 ? (
         <Text color={PAL.textMuted}>{Object.keys(props.ports).length ? 'docker up · no sandboxes' : 'no sandboxes · docker quiet'}</Text>
       ) : rows.map((r, i) => (
-        <Text key={`${r.id}${i}`} color={PAL.textSecondary}>
+        <Text key={`${r.id}${i}`} color={PAL.textSecondary} wrap="truncate">
           {`${r.id.slice(0, 10).padEnd(10)} ${r.sandbox.slice(0, 9).padEnd(9)} ${r.ports.slice(0, 12).padEnd(12)} ${r.policy.slice(0, 6)}`}
         </Text>
       ))}
@@ -1401,20 +1526,20 @@ function BulkheadsPane(props: { sbx: w2.SbxRun[]; ports: Record<string, string>;
 
 // warroom-v2-c4m8 — LIBRARY › SKILLS: the project folders' skill trees, read
 // through fleet/harness-menu.mjs; [f] opens the yazi pane on the folder.
-function SkillsTree(props: { projects: w2.ProjectRow[] }) {
+function SkillsTree(props: { projects: w2.ProjectRow[]; compact?: boolean; maxRows?: number }) {
+  // C5: the tree flattens to rows so the plan's cap applies across projects
+  const lines: { text: string; color: string }[] = [];
+  for (const pj of props.projects) {
+    lines.push({ color: PAL.textSecondary, text: `${pj.name.slice(0, 14)}/ ${pj.budget !== null ? `${pj.budget}` : ''}` });
+    for (const sk of pj.skills.slice(0, 4)) lines.push({ color: PAL.textMuted, text: `  └ ${sk.slice(0, 36)}` });
+    if (pj.skills.length === 0) lines.push({ color: PAL.textMuted, text: '  └ (no skills)' });
+  }
+  const rows = capRows(lines, props.maxRows ?? lines.length);
   return (
-    <Card title="SKILLS" purpose="project folders · [f] yazi" flexGrow={1}>
+    <Card title="SKILLS" purpose={props.compact ? undefined : 'project folders · [f] yazi'} flexGrow={1} overflow={moreLine(rows.more, 'rows')}>
       {props.projects.length === 0 ? (
         <Text color={PAL.textMuted}>no project folders</Text>
-      ) : props.projects.map(pj => (
-        <React.Fragment key={pj.name}>
-          <Text color={PAL.textSecondary}>{`${pj.name.slice(0, 14)}/ ${pj.budget !== null ? `$${pj.budget}` : ''}`}</Text>
-          {pj.skills.slice(0, 4).map(sk => (
-            <Text key={sk} color={PAL.textMuted}>{`  └ ${sk.slice(0, 36)}`}</Text>
-          ))}
-          {pj.skills.length === 0 ? <Text color={PAL.textMuted}>  └ (no skills)</Text> : null}
-        </React.Fragment>
-      ))}
+      ) : rows.shown.map((l, i) => <Text key={i} color={l.color} wrap="truncate">{l.text}</Text>)}
     </Card>
   );
 }
@@ -1424,7 +1549,7 @@ function SkillsTree(props: { projects: w2.ProjectRow[] }) {
 // board.json, mode 700, gitignored) so this pane renders ONLY when the owner
 // imported one — a fresh install never shows it. [Enter] opens the cursor
 // cell's full prompt; the viewer is height-bounded and says so when it clips.
-function HandsPane(props: { board: ck.Board; row: number; col: number; showPrompt: boolean }) {
+function HandsPane(props: { board: ck.Board; row: number; col: number; showPrompt: boolean; compact?: boolean; maxRows?: number; innerWidth?: number }) {
   const { board, row, col } = props;
   const hand = board.hands[row];
   const stateColor = (st: string): string =>
@@ -1434,12 +1559,37 @@ function HandsPane(props: { board: ck.Board; row: number; col: number; showPromp
           : st === 'running' ? PAL.accent
             : PAL.textMuted;
   const promptText = hand ? board.prompts?.[hand.name]?.[ck.ROUNDS[col]] ?? '' : '';
-  const promptLines = promptText.split('\n');
-  const shown = promptLines.slice(0, 10);
+  const innerW = Math.max(20, props.innerWidth ?? 70);
+  const promptAll = props.showPrompt && hand ? (promptText ? wrapText(promptText, innerW) : ['no prompt recorded for this cell']) : [];
+  // C5 POLISH — the plan's cap is split hands-first around the cursor row
+  // (2 rows per hand); the prompt viewer takes the rest, pre-wrapped at the
+  // card's inner width so its rows are exact; ONE overflow line names
+  // whatever is hidden (hands and/or prompt lines).
+  const perHand = board.hands.map(() => 2);
+  const cap = props.maxRows ?? Number.MAX_SAFE_INTEGER;
+  const handsBudget = Math.max(perHand[row] ?? 2, cap - Math.min(promptAll.length, 3));
+  let from = row;
+  let to = Math.min(board.hands.length, row + 1);
+  let used = perHand[row] ?? 0;
+  for (;;) {
+    let grew = false;
+    if (to < board.hands.length && used + perHand[to] <= handsBudget) { used += perHand[to]; to += 1; grew = true; }
+    if (from > 0 && used + perHand[from - 1] <= handsBudget) { used += perHand[from - 1]; from -= 1; grew = true; }
+    if (!grew) break;
+  }
+  const hiddenHands = board.hands.length - (to - from);
+  const promptBudget = Math.max(0, cap - used);
+  const promptCut = promptAll.length > promptBudget;
+  const shown = promptCut ? promptAll.slice(0, Math.max(0, promptBudget - 1)) : promptAll;
+  const notes = [
+    hiddenHands ? `${hiddenHands} more hands · ↑↓ scroll` : '',
+    promptCut ? `${promptAll.length - shown.length} more lines · full text in board.json` : '',
+  ].filter(Boolean);
   return (
-    <Card title="HANDS" purpose={`${board.hands.length} hands · R0–R4 · [Enter] prompt`} flexGrow={1}>
-      <Text color={PAL.textMuted}>{'HAND        TOOL      RD  STATE            SEAL     ' + ck.ROUNDS.map(r => r.padStart(3)).join('')}</Text>
-      {board.hands.map((h, i) => {
+    <Card title="HANDS" purpose={props.compact ? undefined : `${board.hands.length} hands · R0–R4 · [Enter] prompt`} flexGrow={1} overflow={notes.length ? `▾ ${notes.join(' · ')}` : undefined}>
+      <Text color={PAL.textMuted} wrap="truncate">{'HAND        TOOL      RD  STATE            SEAL     ' + ck.ROUNDS.map(r => r.padStart(3)).join('')}</Text>
+      {board.hands.slice(from, to).map((h, k) => {
+        const i = from + k;
         const sel = i === row;
         return (
           <React.Fragment key={h.name}>
@@ -1459,26 +1609,29 @@ function HandsPane(props: { board: ck.Board; row: number; col: number; showPromp
                 );
               })}
             </Box>
-            <Text color={PAL.textMuted}>{`  ${h.worktree} · ${h.order}`.slice(0, 68)}</Text>
+            <Text color={PAL.textMuted} wrap="truncate">{`  ${h.worktree} · ${h.order}`.slice(0, 68)}</Text>
           </React.Fragment>
         );
       })}
       {props.showPrompt && hand && (
         <>
           <Box height={1} />
-          <Text bold color={PAL.accent}>{`prompt ${hand.name} ${ck.ROUNDS[col]}`}</Text>
-          {promptText ? (
-            <>
-              {shown.map((l, i) => (<Text key={i} color={PAL.textPrimary} wrap="wrap">{l || ' '}</Text>))}
-              {promptLines.length > shown.length && (
-                <Text color={PAL.textMuted}>{`… ${promptLines.length - shown.length} more lines · full text in board.json`}</Text>
-              )}
-            </>
-          ) : (
-            <Text color={PAL.textMuted}>no prompt recorded for this cell</Text>
-          )}
+          <Text bold color={PAL.accent} wrap="truncate">{`prompt ${hand.name} ${ck.ROUNDS[col]}`}</Text>
+          {shown.map((l, i) => (<Text key={i} color={promptText ? PAL.textPrimary : PAL.textMuted} wrap="truncate">{l || ' '}</Text>))}
         </>
       )}
     </Card>
   );
+}
+
+// ui-cockpit-k7m3 C5 — the note a stack shows for the cards its plan folded away
+function FoldedNote({ folded }: { folded: readonly string[] }) {
+  const line = foldedLine(folded);
+  return line ? <Text color={PAL.textMuted} wrap="truncate">{line}</Text> : null;
+}
+
+// ui-cockpit-k7m3 C5 — a column of cards with one gap row between the ones that render
+function Stack({ gap, children }: { gap: number; children: React.ReactNode }) {
+  const kids = React.Children.toArray(children);
+  return <>{kids.flatMap((k, i) => (i ? [<Box key={`gap-${i}`} height={gap} />, k] : [k]))}</>;
 }

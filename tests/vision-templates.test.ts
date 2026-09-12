@@ -1,10 +1,26 @@
-import { describe, expect, it } from 'vitest';
-// Browser-safe template logic deliberately has no tldraw or DOM dependency.
-// @ts-expect-error Plain JavaScript is shared directly with the browser.
-import { VISION_TEMPLATES, buildTemplateGraph, buildRunRequest, validateRunConfiguration, planSyncChanges } from '../studio/tldraw-mission-map/vision-templates.js';
+import { describe, expect, it, beforeAll } from 'vitest';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-describe('vision templates and run configuration', () => {
+// Browser-safe template logic deliberately has no tldraw or DOM dependency. It
+// is plain JavaScript shared with the browser and lives in the studio tree,
+// which this checkout does not carry (studio/** is Codex's, uncommitted).
+// ui-cockpit-k7m3 C5: the suite gates on the module's PRESENCE, not on a name
+// in a known-WIP list — absent, the file reports as skipped with the reason;
+// present, every assertion below runs unchanged.
+const MOD_URL = new URL('../studio/tldraw-mission-map/vision-templates.js', import.meta.url);
+const PRESENT = existsSync(fileURLToPath(MOD_URL));
+const REASON = PRESENT ? '' : ' — skipped: studio/tldraw-mission-map/vision-templates.js is not in this checkout';
+
+describe.skipIf(!PRESENT)(`vision templates and run configuration${REASON}`, () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let m: any;
+  beforeAll(async () => {
+    m = await import(/* @vite-ignore */ MOD_URL.href);
+  });
+
   it('creates independent connected blueprints without executable model defaults', () => {
+    const { VISION_TEMPLATES, buildTemplateGraph } = m;
     expect(VISION_TEMPLATES).toHaveLength(6);
     const ids = new Set<string>();
     for (const template of VISION_TEMPLATES) {
@@ -27,6 +43,7 @@ describe('vision templates and run configuration', () => {
   });
 
   it('requires an explicit target and keeps model and workflow requests distinct', () => {
+    const { validateRunConfiguration, buildRunRequest } = m;
     expect(validateRunConfiguration({ mode: 'model' })).toContain('model ID');
     expect(validateRunConfiguration({ mode: 'model', modelId: 'my-model/3', parametersText: 'invalid hidden workflow configuration' })).toBeNull();
     expect(validateRunConfiguration({ mode: 'workflow', workspace: 'team' })).toContain('Workflow ID');
@@ -45,6 +62,7 @@ describe('vision templates and run configuration', () => {
   });
 
   it('does not let plan sync overwrite edited notes or claim unrelated shapes', () => {
+    const { planSyncChanges } = m;
     const shapes = [
       { id: 'shape:owned', props: { text: 'operator edits' }, meta: { dispatchId: 'p1', lastSyncedText: 'old synced text' } },
       { id: 'shape:synced', props: { text: 'old synced text' }, meta: { dispatchId: 'p2', lastSyncedText: 'old synced text' } },
