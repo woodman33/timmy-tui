@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { performance } from 'node:perf_hooks';
+import { edgeUrlOrNull, inertEdgeUrl } from '../../utils/edge-host.js';
 
-export const EDGE_HEALTH_ENDPOINT = 'https://timmy-ai-proxy.wmeldman33.workers.dev/health';
-export const EDGE_RUNS_ENDPOINT = 'https://timmy-ai-proxy.wmeldman33.workers.dev/runs';
+export const EDGE_HEALTH_ENDPOINT = edgeUrlOrNull('/health') ?? inertEdgeUrl('/health');
+export const EDGE_RUNS_ENDPOINT = edgeUrlOrNull('/runs') ?? inertEdgeUrl('/runs');
 
 export interface EdgeHealthStatus {
   state: 'checking' | 'online' | 'offline';
