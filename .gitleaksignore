@@ -1,0 +1,3 @@
+# merge train (2026-09-12): vendored OpenRouter OpenAPI example key in #37 shelf-w6d3 — not a secret
+lanes/wire/snips/openrouter.snip.yaml:generic-api-key:2731
+lanes/wire/snips/openrouter.snip.yaml:generic-api-key:7725

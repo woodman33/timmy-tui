@@ -1,0 +1,996 @@
+[
+ {
+  "name": "rive_scaffold_overlay",
+  "description": "Scaffold awwwards overlay — Transparent artboard + bound ViewModel + a glass side-rail with header & stat rows. The premium starting point.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string",
+     "description": "Artboard name",
+     "default": "ProMaxOverlay"
+    },
+    "width": {
+     "type": "number",
+     "description": "",
+     "default": 1920
+    },
+    "height": {
+     "type": "number",
+     "description": "",
+     "default": 1080
+    },
+    "palette": {
+     "type": "string",
+     "description": "Palette id (oracle-vault, midnight-aurora, noir-ember, porcelain-ink, synth-violet, sage-luxe)",
+     "default": "oracle-vault"
+    },
+    "side": {
+     "type": "string",
+     "description": "right | left — which edge the rail docks to",
+     "default": "right"
+    },
+    "railWidth": {
+     "type": "number",
+     "description": "",
+     "default": 600
+    },
+    "title": {
+     "type": "string",
+     "description": "Header eyebrow text",
+     "default": "NOW PLAYING"
+    },
+    "rows": {
+     "type": "number",
+     "description": "Number of stat rows",
+     "default": 4
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_glass_panel",
+  "description": "Glass panel — Frosted glass layout panel (low-alpha fill + radius). Use for cards, chips, HUD blocks.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "parent": {
+     "type": "string",
+     "description": "Parent layout id (blank = attach to active artboard)",
+     "default": ""
+    },
+    "name": {
+     "type": "string",
+     "description": "",
+     "default": "Glass"
+    },
+    "x": {
+     "type": "number",
+     "description": "",
+     "default": 80
+    },
+    "y": {
+     "type": "number",
+     "description": "",
+     "default": 80
+    },
+    "w": {
+     "type": "number",
+     "description": "",
+     "default": 420
+    },
+    "h": {
+     "type": "number",
+     "description": "",
+     "default": 240
+    },
+    "palette": {
+     "type": "string",
+     "description": "",
+     "default": "oracle-vault"
+    },
+    "radius": {
+     "type": "number",
+     "description": "",
+     "default": 20
+    },
+    "alpha": {
+     "type": "number",
+     "description": "",
+     "default": 0.82
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_staggered_cascade",
+  "description": "Staggered cascade — Children of a parent rise + fade in, offset by a step. Returns a one-shot timeline id.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "parent": {
+     "type": "string",
+     "description": "Parent layout id whose children cascade"
+    },
+    "name": {
+     "type": "string",
+     "description": "",
+     "default": "T_Cascade"
+    },
+    "step": {
+     "type": "number",
+     "description": "Seconds between each child",
+     "default": 0.06
+    },
+    "distance": {
+     "type": "number",
+     "description": "Y travel (px)",
+     "default": 24
+    },
+    "ramp": {
+     "type": "number",
+     "description": "Per-child ramp seconds",
+     "default": 0.45
+    },
+    "ease": {
+     "type": "string",
+     "description": "",
+     "default": "expo-out"
+    }
+   },
+   "required": [
+    "parent"
+   ],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_signature_reveal",
+  "description": "Signature reveal — Hero entrance: target slides from an edge + fades, children cascade. The moment that wins the look.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "target": {
+     "type": "string",
+     "description": "Container layout id to reveal"
+    },
+    "name": {
+     "type": "string",
+     "description": "",
+     "default": "T_Reveal"
+    },
+    "from": {
+     "type": "string",
+     "description": "right | left | top | bottom",
+     "default": "right"
+    },
+    "distance": {
+     "type": "number",
+     "description": "",
+     "default": 48
+    },
+    "duration": {
+     "type": "number",
+     "description": "",
+     "default": 0.7
+    },
+    "step": {
+     "type": "number",
+     "description": "Child stagger seconds",
+     "default": 0.07
+    },
+    "ease": {
+     "type": "string",
+     "description": "",
+     "default": "expo-out"
+    }
+   },
+   "required": [
+    "target"
+   ],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_breathe_loop",
+  "description": "Breathe loop — Subtle infinite scale+opacity breathe so an element feels alive. Ambient layer material.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "target": {
+     "type": "string",
+     "description": ""
+    },
+    "name": {
+     "type": "string",
+     "description": "",
+     "default": "T_Breathe"
+    },
+    "scale": {
+     "type": "number",
+     "description": "Peak scale delta (0.06 = ±6%)",
+     "default": 0.06
+    },
+    "duration": {
+     "type": "number",
+     "description": "",
+     "default": 4
+    },
+    "fade": {
+     "type": "number",
+     "description": "Opacity swing (0..1)",
+     "default": 0.25
+    }
+   },
+   "required": [
+    "target"
+   ],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_gold_foil_sweep",
+  "description": "Gold-foil sweep — A bright specular bar rakes across a target (one-shot). Reads as foil/holo catch-light.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "target": {
+     "type": "string",
+     "description": "Object to sweep over (its id is reused for sizing reference)"
+    },
+    "x": {
+     "type": "number",
+     "description": "",
+     "default": 0
+    },
+    "y": {
+     "type": "number",
+     "description": "",
+     "default": 0
+    },
+    "w": {
+     "type": "number",
+     "description": "",
+     "default": 60
+    },
+    "h": {
+     "type": "number",
+     "description": "",
+     "default": 360
+    },
+    "travel": {
+     "type": "number",
+     "description": "Horizontal travel distance (px)",
+     "default": 400
+    },
+    "duration": {
+     "type": "number",
+     "description": "",
+     "default": 0.8
+    },
+    "palette": {
+     "type": "string",
+     "description": "",
+     "default": "oracle-vault"
+    },
+    "name": {
+     "type": "string",
+     "description": "",
+     "default": "T_FoilSweep"
+    }
+   },
+   "required": [
+    "target"
+   ],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_vignette",
+  "description": "Cinematic vignette — Low-alpha feathered dark frame for depth + focus. Stays transparent-safe for OBS.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "artboard": {
+     "type": "string",
+     "description": "Artboard id"
+    },
+    "w": {
+     "type": "number",
+     "description": "",
+     "default": 1920
+    },
+    "h": {
+     "type": "number",
+     "description": "",
+     "default": 1080
+    },
+    "palette": {
+     "type": "string",
+     "description": "",
+     "default": "oracle-vault"
+    },
+    "strength": {
+     "type": "number",
+     "description": "Max alpha (keep low, 0.06–0.16)",
+     "default": 0.12
+    }
+   },
+   "required": [
+    "artboard"
+   ],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_marquee",
+  "description": "Marquee loop — Continuous horizontal translate loop for a strip (ticker, sponsor bar). Linear, seamless.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "target": {
+     "type": "string",
+     "description": ""
+    },
+    "name": {
+     "type": "string",
+     "description": "",
+     "default": "T_Marquee"
+    },
+    "distance": {
+     "type": "number",
+     "description": "",
+     "default": 600
+    },
+    "duration": {
+     "type": "number",
+     "description": "",
+     "default": 12
+    }
+   },
+   "required": [
+    "target"
+   ],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_wire_reveal_sm",
+  "description": "Wire reveal state machine — Build the proven Flow (Idle→Reveal→Display→Exit, trigger-driven + exit-time) + always-on Ambient layer over your timelines.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string",
+     "description": "",
+     "default": "ProMaxSM"
+    },
+    "idle": {
+     "type": "string",
+     "description": "Idle timeline id (loop)",
+     "default": ""
+    },
+    "reveal": {
+     "type": "string",
+     "description": "Reveal timeline id (one-shot)"
+    },
+    "display": {
+     "type": "string",
+     "description": "Display timeline id (loop)",
+     "default": ""
+    },
+    "exit": {
+     "type": "string",
+     "description": "Exit timeline id (one-shot)",
+     "default": ""
+    },
+    "ambient": {
+     "type": "string",
+     "description": "Ambient timeline id (loop)",
+     "default": ""
+    },
+    "revealTriggerVmProp": {
+     "type": "string",
+     "description": "VM trigger property id for Idle→Reveal",
+     "default": ""
+    },
+    "hideTriggerVmProp": {
+     "type": "string",
+     "description": "VM trigger property id for →Exit",
+     "default": ""
+    }
+   },
+   "required": [
+    "reveal"
+   ],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_holo_shimmer",
+  "description": "Holographic shimmer (Luau) — Iridescent 4-stop gradient that sweeps a target forever on an additive blend. Returns the Luau Node + attach steps.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "speed": {
+     "type": "number",
+     "description": "Sweep speed",
+     "default": 0.35
+    },
+    "palette": {
+     "type": "string",
+     "description": "",
+     "default": "oracle-vault"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_count_up",
+  "description": "Number count-up (Luau) — A Node that eases a price/number 0→value each frame and writes a currency-formatted string to a bound text prop. Returns the Luau source + steps.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "symbol": {
+     "type": "string",
+     "description": "Currency symbol prefix",
+     "default": "$"
+    },
+    "decimals": {
+     "type": "number",
+     "description": "",
+     "default": 2
+    },
+    "duration": {
+     "type": "number",
+     "description": "",
+     "default": 0.9
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_sheen",
+  "description": "Sheen light-pass — A quick diagonal white light-pass across a surface — tactile, reflective. One-shot band + timeline.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "target": {
+     "type": "string",
+     "description": ""
+    },
+    "x": {
+     "type": "number",
+     "description": "",
+     "default": 0
+    },
+    "y": {
+     "type": "number",
+     "description": "",
+     "default": 0
+    },
+    "w": {
+     "type": "number",
+     "description": "",
+     "default": 46
+    },
+    "h": {
+     "type": "number",
+     "description": "",
+     "default": 300
+    },
+    "travel": {
+     "type": "number",
+     "description": "",
+     "default": 360
+    },
+    "duration": {
+     "type": "number",
+     "description": "",
+     "default": 0.5
+    },
+    "palette": {
+     "type": "string",
+     "description": "",
+     "default": "oracle-vault"
+    },
+    "name": {
+     "type": "string",
+     "description": "",
+     "default": "T_Sheen"
+    }
+   },
+   "required": [
+    "target"
+   ],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_depth_shadow",
+  "description": "Depth shadow — A soft, background-tinted feathered shadow offset behind a card for real elevation. Never pure black.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "x": {
+     "type": "number",
+     "description": "",
+     "default": 80
+    },
+    "y": {
+     "type": "number",
+     "description": "",
+     "default": 80
+    },
+    "w": {
+     "type": "number",
+     "description": "",
+     "default": 420
+    },
+    "h": {
+     "type": "number",
+     "description": "",
+     "default": 240
+    },
+    "offset": {
+     "type": "number",
+     "description": "",
+     "default": 18
+    },
+    "palette": {
+     "type": "string",
+     "description": "",
+     "default": "oracle-vault"
+    },
+    "alpha": {
+     "type": "number",
+     "description": "",
+     "default": 0.5
+    },
+    "name": {
+     "type": "string",
+     "description": "",
+     "default": "Shadow"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_kinetic_type",
+  "description": "Kinetic type — Headline group rises + overshoots into place (elastic). Animates the container, never font-size.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "target": {
+     "type": "string",
+     "description": ""
+    },
+    "distance": {
+     "type": "number",
+     "description": "",
+     "default": 40
+    },
+    "duration": {
+     "type": "number",
+     "description": "",
+     "default": 0.6
+    },
+    "name": {
+     "type": "string",
+     "description": "",
+     "default": "T_Kinetic"
+    }
+   },
+   "required": [
+    "target"
+   ],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_rect",
+  "description": "Rectangle primitive — Place a rectangle with fill/stroke/feather — the building block under glass cards, bars, gilds, masks.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "parent": {
+     "type": "string",
+     "description": "Parent id (blank = active artboard)",
+     "default": ""
+    },
+    "x": {
+     "type": "number",
+     "description": "",
+     "default": 200
+    },
+    "y": {
+     "type": "number",
+     "description": "",
+     "default": 200
+    },
+    "w": {
+     "type": "number",
+     "description": "",
+     "default": 200
+    },
+    "h": {
+     "type": "number",
+     "description": "",
+     "default": 120
+    },
+    "palette": {
+     "type": "string",
+     "description": "",
+     "default": "oracle-vault"
+    },
+    "fill": {
+     "type": "string",
+     "description": "Palette token (bg,panel,accent,text,…) | #AARRGGBB | none",
+     "default": "panel"
+    },
+    "alpha": {
+     "type": "number",
+     "description": "",
+     "default": 1
+    },
+    "stroke": {
+     "type": "string",
+     "description": "Palette token | #AARRGGBB | none",
+     "default": "none"
+    },
+    "strokeWidth": {
+     "type": "number",
+     "description": "",
+     "default": 2
+    },
+    "feather": {
+     "type": "number",
+     "description": "",
+     "default": 0
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_divider",
+  "description": "Hairline divider — A 1–2px hairline for section separators or a gold edge-gild. Horizontal or vertical.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "parent": {
+     "type": "string",
+     "description": "Parent id (blank = active artboard)",
+     "default": ""
+    },
+    "x": {
+     "type": "number",
+     "description": "",
+     "default": 960
+    },
+    "y": {
+     "type": "number",
+     "description": "",
+     "default": 100
+    },
+    "length": {
+     "type": "number",
+     "description": "",
+     "default": 520
+    },
+    "thickness": {
+     "type": "number",
+     "description": "",
+     "default": 1
+    },
+    "vertical": {
+     "type": "boolean",
+     "description": "",
+     "default": false
+    },
+    "palette": {
+     "type": "string",
+     "description": "",
+     "default": "oracle-vault"
+    },
+    "color": {
+     "type": "string",
+     "description": "Palette token (line, accent, …) | #AARRGGBB",
+     "default": "line"
+    },
+    "alpha": {
+     "type": "number",
+     "description": "",
+     "default": 0.9
+    },
+    "feather": {
+     "type": "number",
+     "description": "",
+     "default": 0
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_focus_ring",
+  "description": "Focus ring — A 2px accent outline at an offset around a box + a fade-in timeline to drive from a focused boolean. Never remove focus.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "parent": {
+     "type": "string",
+     "description": "Parent id (blank = active artboard)",
+     "default": ""
+    },
+    "x": {
+     "type": "number",
+     "description": "",
+     "default": 200
+    },
+    "y": {
+     "type": "number",
+     "description": "",
+     "default": 200
+    },
+    "w": {
+     "type": "number",
+     "description": "",
+     "default": 240
+    },
+    "h": {
+     "type": "number",
+     "description": "",
+     "default": 120
+    },
+    "offset": {
+     "type": "number",
+     "description": "",
+     "default": 4
+    },
+    "width": {
+     "type": "number",
+     "description": "",
+     "default": 2
+    },
+    "palette": {
+     "type": "string",
+     "description": "",
+     "default": "oracle-vault"
+    },
+    "color": {
+     "type": "string",
+     "description": "",
+     "default": "accent"
+    },
+    "name": {
+     "type": "string",
+     "description": "",
+     "default": "T_FocusIn"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_particle_assemble",
+  "description": "Particle assemble — N shard rects converge from scattered offsets into a tight cluster with an elastic settle. The high-drama hero coalesce.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "parent": {
+     "type": "string",
+     "description": "Parent id (blank = active artboard)",
+     "default": ""
+    },
+    "cx": {
+     "type": "number",
+     "description": "",
+     "default": 960
+    },
+    "cy": {
+     "type": "number",
+     "description": "",
+     "default": 400
+    },
+    "count": {
+     "type": "number",
+     "description": "",
+     "default": 12
+    },
+    "spread": {
+     "type": "number",
+     "description": "Scatter radius (px)",
+     "default": 260
+    },
+    "size": {
+     "type": "number",
+     "description": "",
+     "default": 26
+    },
+    "duration": {
+     "type": "number",
+     "description": "",
+     "default": 0.85
+    },
+    "step": {
+     "type": "number",
+     "description": "Per-shard stagger (s)",
+     "default": 0.035
+    },
+    "palette": {
+     "type": "string",
+     "description": "",
+     "default": "oracle-vault"
+    },
+    "color": {
+     "type": "string",
+     "description": "",
+     "default": "accent"
+    },
+    "name": {
+     "type": "string",
+     "description": "",
+     "default": "T_Assemble"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_state_driven_theme",
+  "description": "State-driven theme — Creates a Theme ViewModel of color tokens + one instance per palette. Bind fills/runs to these → re-theme everything from one source (the #1 PRO-MAX move).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "themes": {
+     "type": "string",
+     "description": "Comma-separated palette ids → one instance each",
+     "default": "oracle-vault,midnight-aurora,noir-ember"
+    },
+    "vmName": {
+     "type": "string",
+     "description": "",
+     "default": "Theme"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_scramble_text",
+  "description": "Scramble text (Luau) — A Node that resolves a target string left-to-right out of random glyphs over a duration. Returns the Luau source + steps.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "duration": {
+     "type": "number",
+     "description": "",
+     "default": 0.9
+    },
+    "charset": {
+     "type": "string",
+     "description": "alnum | hex | upper",
+     "default": "alnum"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_magnetic_hover",
+  "description": "Magnetic hover (Luau) — A Node that reads pointer events and writes a lerped offset to two VM numbers (springs back on exit). Bind your element x/y to them. Returns the Luau source.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "strength": {
+     "type": "number",
+     "description": "Lean amount (0..1)",
+     "default": 0.3
+    },
+    "propX": {
+     "type": "string",
+     "description": "",
+     "default": "magX"
+    },
+    "propY": {
+     "type": "string",
+     "description": "",
+     "default": "magY"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_parallax_depth",
+  "description": "Parallax depth — Creates scroll/scrollSmooth number VM props + a Luau lerp Node + an amplitude Converter so layers travel at different speeds against one scroll source.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "vmName": {
+     "type": "string",
+     "description": "",
+     "default": "Scroll"
+    },
+    "lerp": {
+     "type": "number",
+     "description": "Smoothing (lower = silkier)",
+     "default": 0.1
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  }
+ },
+ {
+  "name": "rive_doctor",
+  "description": "Check the Rive desktop bridge connection and list the open artboards.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "rive_raw_call",
+  "description": "Escape hatch: call a raw Rive bridge tool (e.g. animation_editor) with arbitrary arguments.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "tool": {
+     "type": "string",
+     "description": "Bridge tool name, e.g. open_file_editor"
+    },
+    "arguments": {
+     "type": "object",
+     "description": "Arguments object for that tool"
+    }
+   },
+   "required": [
+    "tool"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "rive_presets",
+  "description": "Return the PRO-MAX design tokens: named awwwards easings (cubic-bezier) and curated palettes.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "rive_docs",
+  "description": "Read the bundled references — design DNA, anti-generic laws, recipe catalog, the raw Rive bridge API, AND the official Rive Luau scripting docs (protocols/scaffolds, drawing API Path/Paint/Gradient/Renderer/Vec2D, data-binding, script inputs, pointer events). Call with no topic to LIST every doc; pass a slug (e.g. \"scripting/protocols\", \"scripting/drawing-api\", \"design-dna\", \"bridge-cheatsheet\") to read one. Use this BEFORE writing any Luau (holo-shimmer, count-up, custom effects).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "topic": {
+     "type": "string",
+     "description": "Doc slug, e.g. scripting/protocols. Omit to list all."
+    }
+   },
+   "additionalProperties": false
+  }
+ }
+]

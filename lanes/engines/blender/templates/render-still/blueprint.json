@@ -1,0 +1,48 @@
+{
+ "kind": "blueprint",
+ "name": "Blender · render-still",
+ "source": "lanes/engines/blender/templates/render-still/plan.cue",
+ "date": "2026-09-07",
+ "engine": "blender",
+ "workflow": "render-still",
+ "note": "One mesh dropped into a project's drop/ folder becomes one still in out/. The lane runs Blender headless with the template's script; the engine.run receipt cites the input, every output and the Blender env-lock.",
+ "sheets": [
+  {
+   "id": "inputs",
+   "title": "Inputs · drop/",
+   "rows": [
+    { "label": "mesh", "value": "*.obj · *.glb · *.gltf · *.blend", "note": "one file; .blend is opened, others imported into a fresh scene" },
+    { "label": "textures", "value": "*.png · *.jpg · *.exr", "note": "staged beside the mesh (rules: stage)" },
+    { "label": "refused", "value": "> 256 MB", "note": "rules: refuse → engine.refuse receipt" }
+   ]
+  },
+  {
+   "id": "steps",
+   "title": "Steps",
+   "rows": [
+    { "label": "1 import", "value": "obj_import / gltf import / open_mainfile", "note": "script.py, factory startup, empty scene" },
+    { "label": "2 frame", "value": "camera on the bounding sphere · sun key light", "note": "only added when the scene has none" },
+    { "label": "3 render", "value": "EEVEE 1024×768 PNG", "note": "blender -b --python script.py -- {drop} {out} {stem}" },
+    { "label": "4 save", "value": "{stem}.blend + {stem}.render.json", "note": "scene copy and the report" }
+   ]
+  },
+  {
+   "id": "outputs",
+   "title": "Outputs · out/",
+   "rows": [
+    { "label": "still", "value": "{stem}.render.png", "note": "image" },
+    { "label": "scene", "value": "{stem}.blend", "note": "archive" },
+    { "label": "report", "value": "{stem}.render.json", "note": "objects, vertices, camera, resolution, engine" }
+   ]
+  },
+  {
+   "id": "receipt",
+   "title": "Receipt · engine.run",
+   "rows": [
+    { "label": "cites", "value": "input sha256 · outputs sha256 · env-lock sha256 · template shas", "note": "sealed in the root store by the lane" },
+    { "label": "extra", "value": "objects · resolution · render_engine", "note": "from the report" },
+    { "label": "acceptance", "value": "png exists · report names objects/camera/resolution · receipt cites input+outputs+env-lock", "note": "three lines" }
+   ]
+  }
+ ]
+}
