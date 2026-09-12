@@ -257,4 +257,3 @@ Do not describe these paths as implemented by Study 03. The present demonstratio
 
 - [Spatial workbench design](../DESIGN.md): native-study scope, construction source, geometry limitations, and integration direction.
 - [Canonical spatial presentation handoff](../../../docs/SPATIAL-QWEN-HANDOFF.md): independent evidence facts, stale/error behavior, retained observations, fixtures, and keyboard conventions.
-

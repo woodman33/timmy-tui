@@ -1,7 +1,7 @@
 {
   "schema": "timmy.public-seal-reference/1",
-  "id": "rc_mtyh9rvk_lrla",
-  "hash": "sha256_4d132cb3b82da90b00673b8aca6cf5d6ace55b851cd98a7e7d0ff094eebfe463",
+  "id": "rc_mtyha6pa_zdp4",
+  "hash": "sha256_04137684abb4223a36fdc7bc794d7bff001e56ee5c9fa4b1ec2086ae7aba4677",
   "subject": "spatial-t5k1.phase2",
   "signatureVerified": true,
   "chainVerified": true,
@@ -40,7 +40,7 @@
     },
     {
       "path": "docs/reference/study03/COMMUNICATION.md",
-      "sha256": "3652f77142880016ced643ae9533fc326f47e6c57e453b2d540b7129b2ff82c1"
+      "sha256": "249596f51b6a74518899087461d68d254fee3f3df232d2d876184ac55cea46a8"
     },
     {
       "path": "docs/reference/study03/IMPLEMENTATION.md",
@@ -48,7 +48,7 @@
     },
     {
       "path": "docs/reference/study03/TECHNOLOGY.md",
-      "sha256": "fb32143655933faeb0c0454b3d236ddd2815275bc0986364fdeaafa10fc6d8f6"
+      "sha256": "e82d2f7861254c837d5747a45d975e6f596167aa993543c58fb156dd56f3a19f"
     },
     {
       "path": "docs/orders/spatial-t5k1/phase2/README.md",

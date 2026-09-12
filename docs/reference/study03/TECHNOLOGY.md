@@ -91,4 +91,3 @@ For every adapter, agree on these boundaries before adding autonomy:
 - **Presentation:** distinguish measured results, model judgments, predictions, and human review. Mark stale evidence when its source changes.
 
 The practical milestone is one card that can show its source, reproduce its inspection from retained inputs, explain a failure, and remain honest when a native surface or runtime is unavailable.
-
