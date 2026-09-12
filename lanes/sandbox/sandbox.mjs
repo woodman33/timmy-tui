@@ -17,12 +17,13 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { basename, join, relative, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const HERE = join(ROOT, 'lanes', 'sandbox');
 const RUNS = join(HERE, 'runs');
-const PY = process.env.OPENHANDS_PY ?? '<home>/.local/share/uv/tools/openhands/bin/python';
+const PY = process.env.OPENHANDS_PY ?? join(process.env.HOME ?? homedir(), '.local', 'share', 'uv', 'tools', 'openhands', 'bin', 'python');
 const SCRATCH = process.env.SANDBOX_SCRATCH ?? join(process.env.HOME ?? '/tmp', '.timmy-sandbox');
 const args = process.argv.slice(2);
 const flag = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d; };
@@ -92,7 +93,11 @@ export function doctor(image) {
 
 // ------------------------------------------------------------------ snapshot
 
-const SKIP = new Set(['node_modules', '.git', '.claude', 'dist', 'renders', '.timmy-sandbox']);
+const SKIP = new Set(['node_modules', '.git', '.claude', '.timmy', 'dist', 'renders', '.timmy-sandbox', '.envrc', '.npmrc', '.pypirc', '.netrc']);
+const skipSnapshotPath = (p) => {
+  const name = basename(p);
+  return SKIP.has(name) || name === '.env' || name.startsWith('.env.') || p.includes('/node_modules/');
+};
 
 function snapshot(repo, label) {
   const src = resolve(repo);
@@ -101,7 +106,7 @@ function snapshot(repo, label) {
   const dir = join(SCRATCH, id);
   const ws = join(dir, 'workspace');
   mkdirSync(ws, { recursive: true });
-  cpSync(src, ws, { recursive: true, filter: (p) => !SKIP.has(basename(p)) && !p.includes('/node_modules/') });
+  cpSync(src, ws, { recursive: true, filter: (p) => !skipSnapshotPath(p) });
   const files = [];
   const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else if (e.isFile()) files.push(p); } };
   walk(ws);

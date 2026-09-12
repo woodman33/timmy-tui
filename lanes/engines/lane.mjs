@@ -185,8 +185,9 @@ export async function runWorkflow(engineId, workflow, { project, input, noSeal =
     if (!bin) { stepResults.push({ id: step.id, ok: false, error: `binary ${step.command.bin} not found` }); ok = false; break; }
     const argv = step.command.args.map(subst);
     const cwd = step.command.cwd ? subst(step.command.cwd) : outDir;
+    const env = Object.fromEntries(Object.entries(step.command.env ?? {}).map(([k, v]) => [k, subst(v)]));
     const t0 = Date.now();
-    const r = spawnSync(bin, argv, { cwd, encoding: 'utf8', timeout: step.command.timeout_ms ?? 600000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...(step.command.env ?? {}) } });
+    const r = spawnSync(bin, argv, { cwd, encoding: 'utf8', timeout: step.command.timeout_ms ?? 600000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...env } });
     writeFileSync(join(outDir, `${step.id}.log`), `$ ${bin} ${argv.join(' ')}\n--- stdout\n${r.stdout ?? ''}\n--- stderr\n${r.stderr ?? ''}\n--- exit ${r.status} signal ${r.signal ?? ''}\n`);
     const produced = (step.produces ?? []).map((g) => { const re = globToRegex(subst(g)); const hits = readdirSync(outDir).filter((n) => re.test(n)); return { glob: subst(g), found: hits }; });
     const missing = produced.filter((p) => !p.found.length).map((p) => p.glob);
