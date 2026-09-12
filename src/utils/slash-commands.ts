@@ -492,7 +492,7 @@ ${boldBlue}Response Status Codes:${reset}
         
         const jsxContent = `/**
  * @title TIMMY Generated Visual Component
- * @inventedBy William Meldman
+ * @inventedBy the TIMMY project
  * @engine Version 1.0 (Founder Demo Console)
  * @hash SHA256-WilliamMeldmanStamp
  */
@@ -502,7 +502,7 @@ export default function DemoDashboard() {
   return (
     <div className="p-8 bg-[${theme.ground}] text-[${theme.textPrimary}] font-sans border border-[${theme.line}] rounded-2xl max-w-md mx-auto shadow-2xl">
       <h1 className="text-2xl font-bold bg-gradient-to-r from-[${theme.accent}] to-[${theme.accent}] bg-clip-text text-transparent">TIMMY Live Viewport</h1>
-      <p className="mt-2 text-sm text-[${theme.textSecondary}]">William Meldman Creator Attribution Stamp Verified.</p>
+      <p className="mt-2 text-sm text-[${theme.textSecondary}]">TIMMY Creator Attribution Stamp Verified.</p>
     </div>
   );
 }`;
@@ -551,7 +551,7 @@ export default function DemoDashboard() {
       const totalSpent = state?.totalCost || 0;
 
       return `${boldMagenta}📊 TIMMY CLIENT TELEMETRY OBSERVATIONS${reset}\n` +
-             `${dim}Creator:${reset}    William Meldman (Attribution Stamp Sealed)\n` +
+             `${dim}Creator:${reset}    the TIMMY project (Attribution Stamp Sealed)\n` +
              `${dim}License:${reset}    Founder Terminal Demo Console ($499 Pack)\n` +
              `${dim}API Spend:${reset}  $${totalSpent.toFixed(5)} USD\n` +
              `${dim}Active IP:${reset}  127.0.0.1 (Local CDP Pipeline)\n` +
