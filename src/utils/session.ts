@@ -37,11 +37,16 @@ export function detectSession(): Session {
     }
     return null;
   };
-  if (self.CLAUDECODE || /CLAUDECODE=/.test(blob) || chain.some(c => /claude/i.test(c.comm))) {
+  // ui-cockpit-k7m3 C5: the CLI's OWN env is decisive — a qwen session launched
+  // from inside a Claude Code terminal is qwen's hands, not claude's (the
+  // ancestor chain only breaks ties when the own env names no CLI)
+  const ownClaude = Boolean(self.CLAUDECODE);
+  const ownQwen = Boolean(self.QWEN_CODE || self.QWEN_MODEL);
+  if (ownClaude || (!ownQwen && (/CLAUDECODE=/.test(blob) || chain.some(c => /claude/i.test(c.comm))))) {
     const hands = self.ANTHROPIC_MODEL ?? handsFrom(blob, ['ANTHROPIC_MODEL']) ?? 'claude-session-model';
     return { actor: 'claude-code', hands, short: 'claude' };
   }
-  if (self.QWEN_CODE || self.QWEN_MODEL || /QWEN_CODE=|QWEN_MODEL=/.test(blob) || chain.some(c => /qwen/i.test(c.comm))) {
+  if (ownQwen || /QWEN_CODE=|QWEN_MODEL=/.test(blob) || chain.some(c => /qwen/i.test(c.comm))) {
     const hands = self.OPENROUTER_MODEL ?? self.QWEN_MODEL ?? handsFrom(blob, ['OPENROUTER_MODEL', 'QWEN_MODEL']) ?? 'qwen-session-model';
     return { actor: 'qwen-cli', hands, short: 'qwen' };
   }
