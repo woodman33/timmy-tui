@@ -182,7 +182,7 @@ export const PROVIDER_REGISTRY: readonly ProviderRegistryEntry[] = [
     role: 'External media artifact generator for images, video, and model-hosted creative jobs.',
     services: ['artifact-generation', 'image-generation', 'video'],
     envVars: [
-      { name: 'FAL_KEY', aliases: ['FALAI_API_KEY'], requiredWhenEnabled: true, secret: true, description: 'fal API key; FALAI_API_KEY is a fallback alias.' },
+      { name: 'FAL_KEY', aliases: ['FALAI_API_KEY'], secret: true, description: 'fal API key; FALAI_API_KEY is a fallback alias.' },
     ],
   },
   {

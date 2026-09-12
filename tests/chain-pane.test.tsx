@@ -102,7 +102,7 @@ describe('CHAIN tab (spec §05)', { timeout: 60000 }, () => {
     f = await until(v80, x => x.includes('YOUR JOURNEY'));
     footer = f.split('\n').filter(l => l.includes('NORMAL')).pop() ?? '';
     expect(footer.length).toBeLessThanOrEqual(80);
-    expect(footer).toContain('[1-4] tab');      // leftmost tokens kept whole
+    expect(footer).toContain('[1-6] tab');      // leftmost tokens kept whole
     expect(footer).not.toContain('[?] keys');   // dropped from the right
     expect(f.split('\n').filter(l => l.includes('NORMAL')).length).toBe(1); // one line, never wrapped
     v80.unmount();

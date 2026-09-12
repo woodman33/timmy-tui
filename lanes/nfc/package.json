@@ -1,0 +1,9 @@
+{
+  "name": "timmy-lane-nfc",
+  "private": true,
+  "description": "Programs NTAG 424 DNA / TagTamper stickers for Vault Custody over an ACR122U. nfc-pcsc is native and lives here, not in the repo root.",
+  "type": "module",
+  "dependencies": {
+    "nfc-pcsc": "^0.8.1"
+  }
+}

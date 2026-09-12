@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { spawn, spawnSync } from 'child_process';
 import { readdirSync, existsSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
+import { homedir } from 'os';
 import qr from 'qrcode-terminal';
-import { shellOnKey, initialShell, type ShellState } from '../shell-mode.js';
+import { shellOnKey, initialShell, TABS, type ShellState } from '../shell-mode.js';
 import { ShellFooter, WhichKeyOverlay } from './ShellChrome.js';
 import { theme } from '../theme.js';
 import { readChain, verifyChain, appendReceipt, hashOf, type Receipt } from '../../utils/receipts.js';
@@ -15,6 +16,9 @@ import { readPolicy, setModel, ADAPTERS } from '../../harness/policy.js';
 import { dropRoot, SHIPPED_RULES } from '../../drop/index.js';
 import { listEscrows, lockEscrow, cancelEscrow, type Escrow } from '../../utils/escrow-engine.js';
 import { journeyRows, journeyDoneCount } from '../journey.js';
+import * as warroom from '../../harness/warroom.js';
+import * as w2 from '../../harness/warroom2.js';
+import { CommanderClient, edgeToken, type CommanderEvent } from '../../harness/commander.js';
 import { Card } from '../ui/Card.js';
 import { useAgent } from '../hooks/useAgent.js';
 import type { Agent } from '../../agent/core.js';
@@ -51,6 +55,11 @@ const DIM: typeof theme = {
   textPrimary: theme.textMuted, textSecondary: theme.textMuted,
 };
 let PAL: typeof theme = theme;
+// warroom-v2-c4m8 picker domains — the swarm schema's enums, in schema order
+const TOPOLOGIES = ['fanout', 'fusion', 'relay', 'coordinator', 'tournament', 'council', 'crew', 'closed'];
+const BUDGETS = [0, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 1];
+const JUDGES = ['local', 'edge', 'frontier'];
+const POLICIES = ['open', 'tailnet', 'closed'];
 
 // SPEC §01/§02 — the sovereign chat drawer. Without a live agent (direct
 // ShellV2 renders in tests) a noop agent keeps the hook contract intact.
@@ -60,19 +69,50 @@ const NOOP_AGENT = {
   conversation: { getHistory: () => [] }, totalCost: 0,
 } as unknown as Agent;
 
-export function ShellV2({ width = 120, agent }: { width?: number; agent?: Agent }) {
-  const chat = useAgent(agent ?? NOOP_AGENT);
+export function ShellV2({ width = 120, agent, config }: { width?: number; agent?: Agent; config?: unknown }) {
+  const [lazyAgent, setLazyAgent] = useState<Agent | undefined>(undefined);
+  const effectiveAgent = agent ?? lazyAgent;
+  const chat = useAgent(effectiveAgent ?? NOOP_AGENT);
   const [s, setS] = useState<ShellState>(initialShell);
   const sRef = React.useRef<ShellState>(s);
-  const [chain, setChain] = useState<{ ok: boolean; count: number }>({ ok: false, count: 0 });
-  const [recs, setRecs] = useState<Receipt[]>([]);
-  const [head, setHead] = useState('');
+  // BOOT (opentui-u4e9): the chain head is read SYNCHRONOUSLY so the very
+  // first frame is the header WITH the chain head; panes assemble one tick later.
+  const [boot] = useState(() => {
+    try {
+      const all = readChain('runs');
+      const v = verifyChain('runs');
+      return { ok: v.ok, count: v.count, head: String(all[all.length - 1]?.hash ?? ''), recs: all };
+    } catch { return { ok: false, count: 0, head: '', recs: [] as Receipt[] }; }
+  });
+  const [chain, setChain] = useState<{ ok: boolean; count: number }>({ ok: boot.ok, count: boot.count });
+  const [recs, setRecs] = useState<Receipt[]>(boot.recs);
+  const [head, setHead] = useState(boot.head);
+  const [assembled, setAssembled] = useState(false);
+  useEffect(() => {
+    const t = setImmediate(() => setAssembled(true));
+    return () => clearImmediate(t);
+  }, []);
   const [busLive, setBusLive] = useState(false);
   const [activity, setActivity] = useState<BusRow[]>([]);
   const [docker, setDocker] = useState<boolean | null>(null);
   const [flash, setFlash] = useState('');
   const [qrText, setQrText] = useState('');
   const [statusLines, setStatusLines] = useState<string[]>([]);
+  // warroom-t3b1: commander (durable Cloudflare agent) + war room state
+  const [profile, setProfile] = useState<warroom.WarProfile>(() => warroom.defaultProfile());
+  const [cmdEvents, setCmdEvents] = useState<CommanderEvent[]>([]);
+  const [commanderOnline, setCommanderOnline] = useState(false);
+  const ccRef = useRef<CommanderClient | null>(null);
+  // chat turns handed to the durable commander, keyed by ws command id
+  const pendingChat = useRef<Map<string, string>>(new Map());
+  // warroom-v2-c4m8: SWARM sub-tab pickers + ENGINE ROOM / BULKHEADS / SKILLS
+  const [swarmOn, setSwarmOn] = useState(false);
+  const [swPick, setSwPick] = useState({ preset: 0, topology: 0, size: 0, budget: 0, judge: 0, policy: 0 });
+  const [focusHarness, setFocusHarness] = useState('jcode');
+  const [war2, setWar2] = useState<{ presets: w2.SwarmPreset[]; runs: w2.SwarmRun[]; nodes: w2.NodeStat[]; sbx: w2.SbxRun[]; ports: Record<string, string>; abilities: w2.AbilityRow[]; projects: w2.ProjectRow[] }>({ presets: [], runs: [], nodes: [], sbx: [], ports: {}, abilities: [], projects: [] });
+  const [warPanes, setWarPanes] = useState<warroom.WarPane[]>([]);
+  const [spend, setSpend] = useState(0);
+  const [handoff, setHandoff] = useState<{ harness: string; model: string } | null>(null);
   const [escrows, setEscrows] = useState<Escrow[]>([]);
   // SPEC §04 W4: the LIVE pane ticks from bus events, never from a poll.
   const [laneLive, setLaneLive] = useState<Record<string, { ticks: number; last: string; lifecycle: string; at: string }>>({});
@@ -127,7 +167,55 @@ export function ShellV2({ width = 120, agent }: { width?: number; agent?: Agent 
       }
       if (e.kind === 'receipt.sealed' || e.hash) refresh();
     }, { tail: 12 });
-    return () => h.stop();
+    const cc = new CommanderClient(profile.commander.ws, e => {
+      // a think reply IS the chat turn: seal chat.turn citing the commander
+      const rep = e as CommanderEvent & { type?: string; cmd?: string; id?: string; ok?: boolean; answer?: string; usd?: number; error?: string };
+      if (rep.type === 'commander.reply' && rep.cmd === 'think') {
+        const asked = pendingChat.current.get(String(rep.id)) ?? '';
+        pendingChat.current.delete(String(rep.id));
+        if (rep.ok) {
+          appendReceipt('runs', {
+            kind: 'chat', subject: `chat.turn · commander`, policy: 'human-gated', status: 'ok',
+            cost_usd: Number(rep.usd ?? 0), model_resolved: String(profile.commander.model),
+            sources: [{ role: 'user', text: asked }, { role: 'answer', text: String(rep.answer ?? '').slice(0, 400) }],
+          });
+          refresh();
+        } else {
+          setFlash(`commander think refused: ${rep.error ?? 'unknown'}`);
+        }
+        return;
+      }
+      setCmdEvents(prev => [e, ...prev].slice(0, 40));
+      if (e.model) setProfile(pr => ({ ...pr, commander: { ...pr.commander, model: e.model as string } }));
+      if (e.spend !== undefined) setSpend(Number(e.spend));
+      const h = (e as { harness?: string }).harness;
+      if (h) setProfile(pr => warroom.setActivity(pr, h, e.kind === 'thinking' ? 'thinking' : e.kind === 'responding' ? 'responding' : 'idle'));
+    });
+    cc.connect();
+    ccRef.current = cc;
+    let tick = 0;
+    const poll = setInterval(() => {
+      tick += 1;
+      setCommanderOnline(cc.online);
+      setWarPanes(warroom.panes());
+      try {
+        const chainNow = readChain('runs');
+        const day = new Date().toISOString().slice(0, 10);
+        setSpend(chainNow.filter(r => String(r.ts).slice(0, 10) === day).reduce((n, r) => n + (r.cost_usd ?? 0), 0));
+        // warroom-v2 readers over Claude Code's artifacts: runs + node stats
+        // refresh every tick; the static shelves load once; docker every 5th
+        setWar2(prev => ({
+          presets: prev.presets.length ? prev.presets : w2.swarmPresets(),
+          runs: w2.swarmRuns(chainNow.filter(r => String(r.subject).includes('swarm.airgap'))),
+          nodes: w2.nodeStats(chainNow),
+          sbx: prev.sbx.length ? prev.sbx : w2.sbxRuns(),
+          ports: tick % 5 === 1 ? w2.dockerPorts() : prev.ports,
+          abilities: prev.abilities.length ? prev.abilities : w2.abilities(),
+          projects: prev.projects.length ? prev.projects : w2.projects(),
+        }));
+      } catch { /* chain unreadable */ }
+    }, 2000);
+    return () => { h.stop(); clearInterval(poll); cc.close(); ccRef.current = null; };
   }, []);
 
   // docker is a capability, not a danger: off renders dim ○, never red
@@ -192,6 +280,56 @@ export function ShellV2({ width = 120, agent }: { width?: number; agent?: Agent 
         setFlash(r.ok ? `escrow refused · ${reason}` : `refuse failed: ${r.note ?? '?'}`);
       }
       if (a === 'refuse-needs-reason') setFlash('refusal needs a reason — [r] again');
+      // FIX 3 (warroom fixes): on the CHAT tab Enter means send — enter CHAT
+      // mode (the keymap owns the hint; the footer never says otherwise)
+      if (a === 'open' && sRef.current.tab === 'CHAT') {
+        const nxt = { ...sRef.current, mode: 'CHAT' as const };
+        sRef.current = nxt;
+        setS(nxt);
+      }
+      // warroom-v2-c4m8: SWARM sub-tab — pickers cycle the schema enums,
+      // launch composes a spec and hands it to lanes/swarm/swarm.mjs, [X]
+      // kills the whole swarm through the governor's kill file
+      if (a === 'swarm-toggle') setSwarmOn(v => !v);
+      if (a === 'sw-preset-next' || a === 'sw-preset-prev') {
+        setSwPick(p => {
+          const n = war2.presets.length || 1;
+          const preset = (((p.preset + (a === 'sw-preset-next' ? 1 : -1)) % n) + n) % n;
+          const pr = war2.presets[preset];
+          if (!pr) return p;
+          const idx = (v: string | number, arr: (string | number)[]): number => Math.max(0, arr.indexOf(v as never));
+          return { preset, topology: idx(pr.topology, TOPOLOGIES), size: Math.max(0, pr.size - 1), budget: idx(pr.budget.usd, BUDGETS), judge: idx(pr.judge.tier, JUDGES), policy: idx(pr.policy, POLICIES) };
+        });
+      }
+      if (a === 'sw-topology') setSwPick(p => ({ ...p, topology: (p.topology + 1) % TOPOLOGIES.length }));
+      if (a === 'sw-size') setSwPick(p => ({ ...p, size: (p.size + 1) % Math.max(1, war2.presets[p.preset]?.members.length ?? 1) }));
+      if (a === 'sw-budget') setSwPick(p => ({ ...p, budget: (p.budget + 1) % BUDGETS.length }));
+      if (a === 'sw-judge') setSwPick(p => ({ ...p, judge: (p.judge + 1) % JUDGES.length }));
+      if (a === 'sw-policy') setSwPick(p => ({ ...p, policy: (p.policy + 1) % POLICIES.length }));
+      if (a === 'sw-focus') setFocusHarness(f => { const ids = profile.harnesses.map(x => x.id); return ids[(ids.indexOf(f) + 1) % ids.length] ?? f; });
+      if (a === 'sw-launch') {
+        const pr = war2.presets[swPick.preset];
+        if (!pr) setFlash('no swarm presets — lanes/swarm/presets is empty');
+        else {
+          const res = w2.launchSwarm(pr, {
+            topology: TOPOLOGIES[swPick.topology], size: swPick.size + 1,
+            budgetUsd: BUDGETS[swPick.budget], judgeTier: JUDGES[swPick.judge], policy: POLICIES[swPick.policy],
+          }, sRef.current.input.trim() || `war room probe · ${pr.name}`, 'war-room');
+          setFlash(res.ok ? `swarm ${pr.name} launched · governor armed · panes materialized` : `swarm launch failed: ${res.note ?? 'unknown'}`);
+          const nxt = { ...sRef.current, input: '' };
+          sRef.current = nxt;
+          setS(nxt);
+        }
+      }
+      if (a === 'cmd-kill') {
+        if (swarmOn) {
+          const r = w2.killSwarm('war-room');
+          setFlash(r.ok ? `swarm killed via governor · ${r.panes} pane(s) closed` : 'governor kill failed — see .timmy/runs');
+        } else {
+          warroom.killWar();
+          setFlash('kill switch — war room session down');
+        }
+      }
       // SPEC §04: Enter on a sealed run jumps to its receipts in CHAIN
       if (a === 'open' && sRef.current.tab === 'RUN') {
         const row = runRows.rows[Math.min(sRef.current.selected, Math.max(0, runRows.rows.length - 1))];
@@ -237,12 +375,39 @@ export function ShellV2({ width = 120, agent }: { width?: number; agent?: Agent 
       // SPEC §08: each chat exchange seals as chat.turn citing model + cost.
       // The agent's own legacy writes reach the bus through the eventbus shim.
       if (a === 'chat-send' && chatText.trim()) {
+        // warroom fixes: with the durable commander connected AND an operator
+        // token present, the turn runs THERE (think over the ws); the reply
+        // seals chat.turn. Without a token the sovereign local path runs.
+        const text0 = chatText.trim();
+        const token = edgeToken();
+        if (ccRef.current?.online && token) {
+          const id = `chat-${Date.now().toString(36)}`;
+          pendingChat.current.set(id, text0);
+          setFlash(`chat → commander ${profile.commander.model}`);
+          ccRef.current.send({ cmd: 'think', id, token, body: { task: text0, mode: 'generate' } });
+          const nxt = { ...sRef.current, input: '' };
+          sRef.current = nxt;
+          setS(nxt);
+          return;
+        }
+        if (ccRef.current?.online && !token) setFlash('commander online · no TIMMY_EDGE_TOKEN — local sovereign');
+        // BOOT: the agent graph lazy-loads on first chat send
+        if (!effectiveAgent && config) {
+          const text = chatText.trim();
+          void import('../../agent/core.js').then(m => {
+            const ag = m.createAgent(config as never);
+            setLazyAgent(ag);
+            void ag.send(text);
+          });
+          setFlash('sovereign chat warming…');
+          return;
+        }
         const model = chat.model || policy.default || '—';
-        const costBefore = Number((agent as unknown as { totalCost?: number })?.totalCost ?? 0);
+        const costBefore = Number((effectiveAgent as unknown as { totalCost?: number })?.totalCost ?? 0);
         setFlash(`sovereign chat → ${model}`);
         void (async () => {
           await chat.send(chatText.trim());
-          const costAfter = Number((agent as unknown as { totalCost?: number })?.totalCost ?? 0);
+          const costAfter = Number((effectiveAgent as unknown as { totalCost?: number })?.totalCost ?? 0);
           appendReceipt('runs', {
             kind: 'chat', subject: `chat.turn · ${model}`, policy: 'human-gated', status: 'ok',
             cost_usd: Math.max(0, Math.round((costAfter - costBefore) * 1e6) / 1e6), model_resolved: model,
@@ -281,7 +446,9 @@ export function ShellV2({ width = 120, agent }: { width?: number; agent?: Agent 
   // 80x24 also starves VERTICALLY (wrapped chrome eats rows): compact mode
   // drops the card purpose lines so the ladder never clips.
   const compact = (process.stdout.rows ?? 32) <= 26;
-  const lanes = useMemo(() => listLanes(), []);
+  // BOOT: lane probes are cold spawnSync execs — never in the first render path
+  const [lanes, setLanes] = useState<{ id: string; label: string; available: boolean; install?: string; model?: string }[]>([]);
+  useEffect(() => { setLanes(listLanes()); }, []);
   const [modelsTick, setModelsTick] = useState(0);
   const models = useMemo(() => listModelsSync(), [modelsTick]);
   // policy lives beside the store so per-test TIMMY_STORE isolates it too
@@ -393,6 +560,18 @@ export function ShellV2({ width = 120, agent }: { width?: number; agent?: Agent 
     return flat;
   }, [models, s.filter]);
   const selectableModels = modelsView.filter(x => x.m).map(x => x.m as ModelEntry);
+  // warroom-v2-c4m8: MODELS rows carry FIT + node — the node from node.*
+  // receipts, the fit from lanes/swarm/fit.mjs (imported, cached)
+  const modelFits = useMemo(() => {
+    const m = new Map<string, { node: string; fit: string }>();
+    for (const e of selectableModels) {
+      const n = w2.nodeForModel(e.id, war2.nodes);
+      if (!n) { m.set(e.id, { node: 'edge', fit: '—' }); continue; }
+      const f = w2.modelFit(n.id, e.id);
+      m.set(e.id, { node: n.id, fit: f === null ? '?' : f ? 'FIT' : 'NOFIT' });
+    }
+    return m;
+  }, [selectableModels, war2.nodes]);
   const selModel = selectableModels[Math.min(s.selected, Math.max(0, selectableModels.length - 1))] ?? null;
   const boards = useMemo(() => {
     const ls = (p: string) => { try { return readdirSync(p).filter(f => !f.startsWith('.')); } catch { return [] as string[]; } };
@@ -431,19 +610,40 @@ export function ShellV2({ width = 120, agent }: { width?: number; agent?: Agent 
     // the header + first card title on TTYs — PTY evidence, step 6)
     <Box flexDirection="column" width={width} key={`root:${s.tab}`}>
       <Box>
-        <Text bold color={theme.textPrimary}>TIMMY</Text>
-        <Text color={theme.textMuted}>  </Text>
-        {(['HOME', 'RUN', 'CHAIN', 'LIBRARY'] as const).map((t, i) => (
-          <Text key={t} color={s.tab === t ? theme.seal : theme.textMuted}>{s.tab === t ? ` ${i + 1} ${t} ` : ` ${i + 1} ${t}`}</Text>
-        ))}
-        <Text color={theme.seal}>   chain {chain.ok ? '✓' : '—'} {chain.count}{head ? ` · ${head.slice(7, 15)}` : ''}</Text>
-        <Text color={theme.textMuted}>  bus {busLive ? '●' : '○'}  drops {drops}</Text>
-        {/* FIX C (director): 7/7 + no pending escrow + chain ✓ + bus ● ⇒ the
-            orange slot stays empty and says so, in dim mono (takes the model
-            segment's place; STATUS still names the policy model). */}
-        {allClear
-          ? <Text color={theme.textMuted}>  nothing needs you</Text>
-          : <Text color={theme.textMuted}>  model {model}</Text>}
+        {(() => {
+          // FIX 1 (warroom fixes): header width budget — the brand never
+          // wraps, tabs collapse to digits + active label when width demands,
+          // segments drop right-to-left. cmdr+spend live on COMMAND line 2.
+          const headModel = String(model).split('/').pop() ?? '';
+          const chainSeg = `  chain ${chain.ok ? '✓' : '—'} ${chain.count}${head ? ` · ${head.slice(7, 15)}` : ''}`;
+          const busSeg = `  bus ${busLive ? '●' : '○'}`;
+          const dropsSeg = `  drops ${drops}`;
+          // FIX C (director): 7/7 + no pending escrow + chain ✓ + bus ● ⇒ the
+          // orange slot stays empty and says so, in dim mono.
+          const modelSeg = allClear ? '  nothing needs you' : `  model ${headModel}`;
+          const tabFull = TABS.map((t, i) => (s.tab === t ? ` ${i + 1} ${t} ` : ` ${i + 1} ${t}`));
+          const tabColl = TABS.map((t, i) => (s.tab === t ? ` ${i + 1} ${t} ` : ` ${i + 1}`));
+          const fixed = 7;
+          let tabs = tabFull;
+          let segs = [chainSeg, busSeg, dropsSeg, modelSeg];
+          const tot = (): number => fixed + tabs.join('').length + segs.join('').length;
+          if (tot() > width) tabs = tabColl;
+          if (tot() > width) segs = [chainSeg, busSeg, modelSeg];
+          if (tot() > width) segs = [chainSeg, busSeg];
+          if (tot() > width) segs = [chainSeg];
+          return (
+            <>
+              <Text bold color={theme.textPrimary}>TIMMY</Text>
+              <Text color={theme.textMuted}>  </Text>
+              {tabs.map((t, i) => (
+                <Text key={TABS[i]} color={s.tab === TABS[i] ? theme.seal : theme.textMuted}>{t}</Text>
+              ))}
+              {segs.map((sg, i) => (
+                <Text key={i} color={i === 0 ? theme.seal : theme.textMuted}>{sg}</Text>
+              ))}
+            </>
+          );
+        })()}
       </Box>
       <Text color={theme.line}>{'─'.repeat(width)}</Text>
       {/* SPEC §08: in CHAT the screen underneath stays visible, dimmed (PAL) */}
@@ -451,7 +651,7 @@ export function ShellV2({ width = 120, agent }: { width?: number; agent?: Agent 
         {/* keyed by tab: panes are stateless, and a fresh mount makes ink
             repaint the whole column — its line-diff drops the first line of a
             swapped column otherwise (PTY evidence, step 6 captures) */}
-        <Box flexDirection="column" width={narrow ? width : 74} key={`L:${s.tab}`}>
+        {assembled && (<Box flexDirection="column" width={narrow ? width : 74} key={`L:${s.tab}`}>
           {s.tab === 'HOME' && (
             <HomePane
               recs={recs} chain={chain} busLive={busLive} docker={docker}
@@ -474,16 +674,53 @@ export function ShellV2({ width = 120, agent }: { width?: number; agent?: Agent 
             </>
           )}
           {s.tab === 'CHAIN' && <ChainPane recs={recs} filtered={filtered} selected={Math.min(s.selected, Math.max(0, filtered.length - 1))} chain={chain} verified={verified} filter={s.filter} />}
+          {s.tab === 'CHAT' && <ChatPane recs={recs} />}
+          {s.tab === 'COMMAND' && (
+            <>
+              <CommandPane profile={profile} online={commanderOnline} events={cmdEvents} spend={spend} handoff={handoff} />
+              {swarmOn && (
+                <>
+                  <Box height={1} />
+                  <SwarmPane presets={war2.presets} runs={war2.runs} pick={swPick} focus={focusHarness} />
+                </>
+              )}
+            </>
+          )}
           {s.tab === 'LIBRARY' && (
             <>
-              <ModelsPane view={modelsView} selected={Math.min(s.selected, Math.max(0, selectableModels.length - 1))} sel={selModel} filter={s.filter} compact={compact} />
+              <ModelsPane view={modelsView} selected={Math.min(s.selected, Math.max(0, selectableModels.length - 1))} sel={selModel} filter={s.filter} compact={compact} fits={modelFits} />
               {/* FIX 2: BOARDS + PROJECTS live under MODELS on the left */}
               <Box height={1} />
               <BoardsPane boards={boards} projects={projects} />
             </>
           )}
-        </Box>
-        {!narrow && s.tab === 'HOME' && (
+        </Box>)}
+        {assembled && !narrow && s.tab === 'CHAT' && (
+          <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
+            <LogRain events={activity} />
+          </Box>
+        )}
+        {assembled && !narrow && s.tab === 'COMMAND' && (
+          <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
+            <HarnessPanes profile={profile} panes={warPanes} lanes={lanes} recs={recs}
+              menu={{
+                harness: focusHarness,
+                sandbox: war2.abilities.find(x => x.harness === focusHarness)?.isolation ? 'isolated' : 'none',
+                policy: 'open',
+                mcp: war2.abilities.find(x => x.harness === focusHarness)?.mcpMode ?? 'none',
+                skills: war2.abilities.find(x => x.harness === focusHarness)?.skills.length ?? 0,
+                plans: war2.projects[0]?.plans.length ?? 0,
+                project: war2.projects[0]?.name ?? 'none',
+                drop: war2.projects[0]?.drop.length ?? 0,
+                model: String(profile.harnesses.find(x => x.id === focusHarness)?.model ?? profile.commander.model).split('/').pop() ?? '',
+              }} />
+            <Box height={1} />
+            <EnginePane nodes={war2.nodes} />
+            <Box height={1} />
+            <BulkheadsPane sbx={war2.sbx} ports={war2.ports} runs={war2.runs} />
+          </Box>
+        )}
+        {assembled && !narrow && s.tab === 'HOME' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
             <Card title="LATEST PROOF" purpose="the only thing that glows green">
               {last ? (
@@ -507,18 +744,20 @@ export function ShellV2({ width = 120, agent }: { width?: number; agent?: Agent 
             </Card>
           </Box>
         )}
-        {!narrow && s.tab === 'CHAIN' && (
+        {assembled && !narrow && s.tab === 'CHAIN' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
             <DetailPane rec={selectedRec} />
           </Box>
         )}
-        {!narrow && s.tab === 'LIBRARY' && (
+        {assembled && !narrow && s.tab === 'LIBRARY' && (
           /* FIX 2: FLEET owns the full-height right rail */
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
             <FleetPane lanes={lanes} policy={policy} />
+            <Box height={1} />
+            <SkillsTree projects={war2.projects} />
           </Box>
         )}
-        {!narrow && s.tab === 'RUN' && (
+        {assembled && !narrow && s.tab === 'RUN' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
             <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} compact={compact} />
             {pendingEscrows[0] ? <><Box height={1} /><EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} /></> : null}
@@ -605,7 +844,7 @@ export function ShellV2({ width = 120, agent }: { width?: number; agent?: Agent 
           LIBRARY/RUN must be visible where they happen */}
       {flash ? <Text color={theme.seal} wrap="truncate">{flash}</Text> : null}
       {s.overlay === 'whichkey' && <WhichKeyOverlay mode={s.mode} tab={s.tab} />}
-      <ShellFooter mode={s.mode} tab={s.tab} chainOk={chain.ok} chainCount={chain.count} busLive={busLive} width={width} model={policy.default ?? undefined} />
+      {assembled && <ShellFooter mode={s.mode} tab={s.tab} chainOk={chain.ok} chainCount={chain.count} busLive={busLive} width={width} model={policy.default ?? undefined} />}
     </Box>
   );
 }
@@ -841,7 +1080,7 @@ function EscrowPane({ escrow, requester }: { escrow: Escrow; requester: string }
 // the harness→model route from harness.policy), BOARDS + PROJECTS.
 function ModelsPane(props: {
   view: { role?: string; m?: ModelEntry }[]; selected: number; sel: ModelEntry | null;
-  filter: string; compact: boolean;
+  filter: string; compact: boolean; fits?: Map<string, { node: string; fit: string }>;
 }) {
   // windowed list: the catalog is hundreds of models; BOARDS must stay visible
   const WIN = 16;
@@ -875,14 +1114,17 @@ function ModelsPane(props: {
           const caps = `${cp.includes('tools') ? 'T' : '·'}${cp.includes('vision') || cp.includes('image') ? 'V' : '·'}${cp.includes('reasoning') ? 'R' : '·'}`.padEnd(9);
           const sp = m.spend_usd ?? 0;
           const spend = (sp < 10 ? `$${sp.toFixed(2)}` : sp < 100 ? `$${sp.toFixed(1)}` : `$${Math.round(sp)}`).padEnd(6).slice(0, 6);
+          // warroom-v2-c4m8: FIT + node ride the muted tail; the model column
+          // gives up 10 cols so no cell ever needs an ellipsis
+          const fit = props.fits?.get(m.id);
           return (
             // pin rides the marker column (✦) so no cell ever overflows the
             // 71-col budget — FIX 1 forbids ellipsis in any cell
             <Text key={m.id} wrap="truncate">
               <Text color={sel ? PAL.textPrimary : PAL.textSecondary}>
-                {`${sel ? '▶' : m.pinned ? '✦' : ' '} ${m.id.slice(0, 30).padEnd(30)} ${ctx} ${price}`}
+                {`${sel ? '▶' : m.pinned ? '✦' : ' '} ${m.id.slice(0, 20).padEnd(20)} ${ctx} ${price}`}
               </Text>
-              <Text color={PAL.textMuted}>{` ${caps} ${spend}`}</Text>
+              <Text color={PAL.textMuted}>{` ${caps} ${spend} ${(fit?.node ?? 'edge').slice(0, 6).padEnd(6)} ${(fit?.fit ?? '—').padEnd(5)}`}</Text>
             </Text>
           );
         })}
@@ -937,6 +1179,196 @@ function BoardsPane(props: { boards: { templates: string[]; blueprints: string[]
       <Text color={PAL.textSecondary} wrap="truncate">{`blueprint  ${b.blueprints.length ? b.blueprints.join(' · ') : '—'}`}</Text>
       <Text color={PAL.textSecondary} wrap="truncate">{`template   ${b.templates.length ? b.templates.join(' · ') : '—'}`}</Text>
       <Text color={PAL.textMuted} wrap="truncate">{`PROJECTS  ${props.projects.join(' · ') || '—'}`}</Text>
+    </Card>
+  );
+}
+
+// warroom-t3b1 — CHAT tab: transcript rises from the bottom (you · thinking
+// dim · answer · turn receipt hash); LOG RAIN falls in the right rail.
+function ChatPane({ recs }: { recs: Receipt[] }) {
+  const turns = recs.filter(r => r.kind === 'chat').slice(-10);
+  return (
+    <Box flexDirection="column" justifyContent="flex-end" flexGrow={1}>
+      <Card title="CHAT · sovereign" purpose="transcript rises from the bottom" flexGrow={1}>
+        {turns.length === 0 ? <Text color={PAL.textMuted}>no turns yet — type to talk to the commander-backed chat</Text> : turns.map(r => {
+          const src = Array.isArray(r.sources) ? r.sources as { role?: string; text?: string }[] : [];
+          const you = src.find(x => x.role === 'user')?.text ?? '';
+          return (
+            <Box key={r.id} flexDirection="column">
+              <Text color={PAL.textPrimary} wrap="truncate">{`you: ${you.slice(0, 100)}`}</Text>
+              <Text color={PAL.textSecondary} wrap="truncate">{`${String(r.subject).replace('chat.turn · ', 'answer · ').slice(0, 100)}`}</Text>
+              <Text color={PAL.textMuted} wrap="truncate">{`#${r.hash.slice(7, 15)} · $${(r.cost_usd ?? 0).toFixed(4)}`}</Text>
+            </Box>
+          );
+        })}
+      </Card>
+    </Box>
+  );
+}
+
+function LogRain({ events }: { events: { line: string; refused: boolean; sealed: boolean }[] }) {
+  return (
+    <Card title="LOG RAIN" purpose="bus events enter at the top, falling, dimming" flexGrow={1}>
+      {events.length === 0 ? <Text color={PAL.textMuted}>quiet</Text> : events.slice(0, 14).map((e, i) => (
+        <Text key={i} color={e.refused ? PAL.danger : i < 3 ? PAL.textSecondary : PAL.textMuted} dimColor={i > 8} wrap="truncate">
+          {e.line.slice(0, 40)}
+        </Text>
+      ))}
+    </Card>
+  );
+}
+
+// COMMAND tab left: the commander pane — fixed, never covered.
+function CommandPane(props: {
+  profile: warroom.WarProfile; online: boolean; events: CommanderEvent[];
+  spend: number; handoff: { harness: string; model: string } | null;
+}) {
+  return (
+    <Box flexDirection="column" flexGrow={1}>
+      <Card title={`COMMANDER · ${props.profile.commander.model}`} purpose={props.online ? 'ws● connected — events below' : 'ws○ offline — set TIMMY_COMMANDER_WS'}>
+        {/* FIX 1 (warroom fixes): cmdr + spend moved out of the header here */}
+        <Text color={PAL.textMuted} wrap="truncate">{`cmdr ${props.profile.commander.model} ${props.online ? 'ws●' : 'ws○'}`}</Text>
+        <Text color={PAL.seal} wrap="truncate">{`spend $${props.spend.toFixed(4)}${props.handoff ? ` · handoff→${props.handoff.harness}` : ''}`}</Text>
+        <Text color={PAL.textMuted} wrap="truncate">[m] model [M] harness-model [K] handoff [X] kill</Text>
+        <Text color={PAL.textMuted} wrap="truncate">[t] toggle [b] body [f] fusion [g] gen [1-6] focus</Text>
+        {props.events.slice(0, 8).map((e, i) => (
+          <Text key={i} color={PAL.textSecondary} wrap="truncate">{`${e.kind ?? 'event'} ${(e.text ?? '').slice(0, 50)}`}</Text>
+        ))}
+      </Card>
+    </Box>
+  );
+}
+
+// COMMAND tab right: harness panes = tmux PTYs; header name·model·state,
+// color from connector, height by activity weight.
+function HarnessPanes(props: {
+  profile: warroom.WarProfile; panes: warroom.WarPane[]; lanes: { id: string; available: boolean }[]; recs: Receipt[];
+  menu?: { harness: string; sandbox: string; policy: string; mcp: string; skills: number; plans: number; project: string; drop: number; model: string };
+}) {
+  return (
+    <Card title="HARNESS PANES" purpose="tmux PTYs · height = activity weight" flexGrow={1}>
+      {props.menu && (
+        <>
+          {/* warroom-v2-c4m8: the pane header carries the bulkhead line and
+              the project-folder menu for the focused harness */}
+          <Text color={PAL.textMuted}>{`sbx ${props.menu.sandbox.slice(0, 8).padEnd(8)} · ${props.menu.policy.slice(0, 6).padEnd(6)} · mcp ${props.menu.mcp.slice(0, 5)}`}</Text>
+          <Text color={PAL.textMuted}>{`sk ${String(props.menu.skills).padStart(2)} · pl ${String(props.menu.plans).padStart(2)} · ${props.menu.project.slice(0, 8).padEnd(8)} · dp ${String(props.menu.drop).padStart(2)} · ${props.menu.model.slice(0, 12)}`}</Text>
+        </>
+      )}
+      {props.profile.harnesses.map((h, i) => {
+        const pane = props.panes.find(pn => pn.name === h.id);
+        const lane = props.lanes.find(l => l.id === h.id);
+        const refused = props.recs.some(r => (r.status === 'denied' || r.status === 'failed') && String(r.subject).includes(h.id));
+        // FIX 2 (warroom fixes): one fixed vocabulary at fixed width —
+        // off · idle · think · resp · REFUSED; cells slice, never ellipsize
+        const state = refused ? 'REFUSED' : !pane ? 'off' : h.weight >= 3 ? 'resp' : h.weight === 2 ? 'think' : 'idle';
+        const col = refused ? PAL.danger : !lane || !lane.available ? PAL.textMuted : state === 'resp' ? PAL.seal : state === 'think' ? PAL.warn : PAL.textSecondary;
+        return (
+          <Text key={h.id} color={col}>
+            {`${i + 1} ${h.id.slice(0, 10).padEnd(10)} ${String((h.model ?? 'cmdr').split('/').pop()).slice(0, 12).padEnd(12)} ${state.padEnd(8)} h=${String(pane?.height ?? 0).padStart(2)}`}
+          </Text>
+        );
+      })}
+      <Text color={PAL.textMuted}>{props.panes.length ? 'war room live · tmux -t timmy-war' : 'not started · timmy profile --restore'}</Text>
+    </Card>
+  );
+}
+
+// warroom-v2-c4m8 — SWARM sub-tab ([w]): the cue-vetted presets, the schema
+// pickers, the live run header (members · spent · tokens_thinking · judge ·
+// policy, air-gap glyph on closed runs), and the harness agents under the
+// focused harness. Launch/kill drive lanes/swarm/swarm.mjs — never a copy.
+function SwarmPane(props: {
+  presets: w2.SwarmPreset[]; runs: w2.SwarmRun[];
+  pick: { preset: number; topology: number; size: number; budget: number; judge: number; policy: number };
+  focus: string;
+}) {
+  const p = props.presets[props.pick.preset] ?? null;
+  const run = props.runs[0] ?? null;
+  const underAll = props.presets
+    .flatMap(x => x.members.filter(m => m.kind === 'harness' && m.harness === props.focus).map(m => ({ from: x.name, id: m.id, role: m.role ?? '' })))
+    .concat((run?.members ?? []).filter(m => m.kind === 'harness' && m.harness === props.focus).map(m => ({ from: run?.preset ?? '?', id: m.id, role: m.role ?? '' })));
+  const under = underAll.filter((u, i) => underAll.findIndex(x => x.id === u.id) === i);
+  return (
+    <Card title="SWARM" purpose={props.presets.length ? `${props.presets.length} presets · cue-vetted` : 'lanes/swarm/presets empty'} flexGrow={1}>
+      <Text color={PAL.textPrimary}>{`preset ${(p ? p.name : 'none').padEnd(14)} [ ] cycle`}</Text>
+      {p && (
+        <>
+          <Text color={PAL.textSecondary}>{`topology ${TOPOLOGIES[props.pick.topology].padEnd(11)} members ${String(Math.min(props.pick.size + 1, p.members.length)).padStart(2)}/${String(p.members.length).padStart(2)}`}</Text>
+          <Text color={PAL.textSecondary}>{`size     ${String(props.pick.size + 1).padEnd(11)} budget  $${BUDGETS[props.pick.budget].toFixed(2)}`}</Text>
+          <Text color={PAL.textSecondary}>{`judge    ${JUDGES[props.pick.judge].padEnd(11)} policy  ${POLICIES[props.pick.policy]}`}</Text>
+        </>
+      )}
+      {run ? (
+        <Text color={run.ok ? PAL.seal : PAL.danger}>
+          {`${run.closed ? '⊘' : ' '} ${run.preset.slice(0, 12).padEnd(12)} n=${String(run.size).padStart(2)} $${run.usd.toFixed(4)} tk${String(run.tokensThinking).padStart(4)} ${run.judge.slice(0, 10).padEnd(10)} ${run.policy}${run.airgap ? ` ag${run.airgap.egress}` : ''}`}
+        </Text>
+      ) : (
+        <Text color={PAL.textMuted}>no swarm runs yet — [l] launches the pick</Text>
+      )}
+      <Text color={PAL.textMuted}>{`under ${props.focus.slice(0, 8)}: ${under.length ? under.slice(0, 3).map(u => u.id).join(',') : 'no harness agents'}`}</Text>
+      <Text color={PAL.textMuted}>[w] close [T S U J P] pick [l] launch [X] kill</Text>
+    </Card>
+  );
+}
+
+// warroom-v2-c4m8 — ENGINE ROOM: fleet/nodes.json for identity, node.*
+// receipts for reachable · memory · loaded models · tok-per-s.
+function EnginePane(props: { nodes: w2.NodeStat[] }) {
+  return (
+    <Card title="ENGINE ROOM" purpose="fleet/nodes.json + node receipts">
+      {props.nodes.length === 0 ? (
+        <Text color={PAL.textMuted}>fleet/nodes.json missing</Text>
+      ) : props.nodes.map(n => (
+        <Text key={n.id} color={n.reachable ? PAL.seal : PAL.textMuted}>
+          {`${n.id.slice(0, 7).padEnd(7)} ${n.reachable ? 'up  ' : 'down'} ${(n.memGb ? `${n.memGb}G` : 'mem?').padEnd(5)} ${String(n.models.length).padStart(2)}mdl ${(n.tokPerS ? `${Math.round(n.tokPerS)}t/s` : 't/s?').padEnd(6)}`}
+        </Text>
+      ))}
+    </Card>
+  );
+}
+
+// warroom-v2-c4m8 — BULKHEADS: sbx sandboxes (lanes/sandbox runs + sandboxed
+// swarm members), live docker ports, and the network policy that bounds them.
+function BulkheadsPane(props: { sbx: w2.SbxRun[]; ports: Record<string, string>; runs: w2.SwarmRun[] }) {
+  const memberRows = (props.runs[0]?.members ?? [])
+    .filter(m => m.sandbox && m.sandbox !== 'none')
+    .map(m => ({ id: m.id, sandbox: String(m.sandbox), ports: '—', policy: props.runs[0]?.policy ?? '—' }));
+  const sbxRows = props.sbx.slice(0, 4).map(r => ({
+    id: r.id.slice(3, 11), sandbox: r.sandbox,
+    ports: Object.entries(props.ports).find(([name]) => name.includes(r.id.slice(3, 8)))?.[1].split('->')[0].trim() ?? 'none',
+    policy: '—',
+  }));
+  const rows = [...memberRows, ...sbxRows].slice(0, 5);
+  return (
+    <Card title="BULKHEADS" purpose="sbx sandboxes · ports · policy" flexGrow={1}>
+      {rows.length === 0 ? (
+        <Text color={PAL.textMuted}>{Object.keys(props.ports).length ? 'docker up · no sandboxes' : 'no sandboxes · docker quiet'}</Text>
+      ) : rows.map((r, i) => (
+        <Text key={`${r.id}${i}`} color={PAL.textSecondary}>
+          {`${r.id.slice(0, 10).padEnd(10)} ${r.sandbox.slice(0, 9).padEnd(9)} ${r.ports.slice(0, 12).padEnd(12)} ${r.policy.slice(0, 6)}`}
+        </Text>
+      ))}
+    </Card>
+  );
+}
+
+// warroom-v2-c4m8 — LIBRARY › SKILLS: the project folders' skill trees, read
+// through fleet/harness-menu.mjs; [f] opens the yazi pane on the folder.
+function SkillsTree(props: { projects: w2.ProjectRow[] }) {
+  return (
+    <Card title="SKILLS" purpose="project folders · [f] yazi" flexGrow={1}>
+      {props.projects.length === 0 ? (
+        <Text color={PAL.textMuted}>no project folders</Text>
+      ) : props.projects.map(pj => (
+        <React.Fragment key={pj.name}>
+          <Text color={PAL.textSecondary}>{`${pj.name.slice(0, 14)}/ ${pj.budget !== null ? `$${pj.budget}` : ''}`}</Text>
+          {pj.skills.slice(0, 4).map(sk => (
+            <Text key={sk} color={PAL.textMuted}>{`  └ ${sk.slice(0, 36)}`}</Text>
+          ))}
+          {pj.skills.length === 0 ? <Text color={PAL.textMuted}>  └ (no skills)</Text> : null}
+        </React.Fragment>
+      ))}
     </Card>
   );
 }

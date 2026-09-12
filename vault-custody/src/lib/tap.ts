@@ -2,10 +2,10 @@
 // decide where the phone goes next. Pure function over (query, deps) so it is
 // testable without Astro or Workers.
 import { appendCustodyReceipt } from './chain.js';
-import { keysFor, defaultKeys, tagFor, unitFor, type TagRecord } from './registry.js';
+import { keysForAsync, candidateMetaKeys, defaultKeys, tagFor, unitFor, type TagRecord } from './registry.js';
 import { type CustodyStore } from './store.js';
-import { type SunOk } from './sun.js';
-import { verifyTap } from './url.js';
+import { decryptPiccData, hex, type SunOk } from './sun.js';
+import { parseTapParams, verifyTap } from './url.js';
 
 export interface TapDeps {
   store: CustodyStore;
@@ -35,24 +35,60 @@ export type TapOutcome =
       redirect: string;
     };
 
-export async function handleTap(search: URLSearchParams, deps: TapDeps): Promise<TapOutcome> {
-  // 1. Which tag is this? For the encrypted mirror we cannot know the UID until
-  //    the PICC data is decrypted, so every registered keyset shares one meta
-  //    read key per batch in this pilot; we try the default keys first, then
-  //    the tag's own keyset once the UID is known.
-  let r = await verifyTap(search, defaultKeys(deps.keyOverrides));
-  let tag: TagRecord | undefined;
-  if (r.ok) {
-    tag = tagFor(r.uid);
-    if (tag && tag.keyset !== 'demo') {
-      r = await verifyTap(search, keysFor(tag, deps.keyOverrides));
+/**
+ * Best-effort UID for a tap, used only to choose which keys to verify against.
+ * Returns undefined when nothing decrypts to anything usable. Never throws, and
+ * never implies the tap is genuine — that is the CMAC's job.
+ */
+async function identifyTag(search: URLSearchParams, overrides?: string): Promise<string | undefined> {
+  let params;
+  try {
+    params = parseTapParams(search);
+  } catch {
+    return undefined;
+  }
+  if (params.mode === 'plain') return params.u.toLowerCase();
+  let firstDecoded: string | undefined;
+  for (const c of await candidateMetaKeys(overrides)) {
+    try {
+      const picc = await decryptPiccData(c.metaReadKey, hex.from(params.e));
+      if (!picc.uid) continue;
+      const uid = hex.to(picc.uid);
+      firstDecoded ??= uid;
+      if (tagFor(uid)) return uid;
+    } catch {
+      /* wrong key for this batch: keep looking */
     }
   }
+  // Nothing matched the registry. Report whatever the first key decoded so an
+  // unregistered tag can be refused by UID instead of anonymously.
+  return firstDecoded;
+}
+
+export async function handleTap(search: URLSearchParams, deps: TapDeps): Promise<TapOutcome> {
+  // 1. Which tag is this? Identification and verification are separate steps,
+  //    because the file-read key that authenticates the CMAC is per tag: we
+  //    cannot pick it until we know the UID.
+  //
+  //    Plain mirror: the UID is in the URL. Encrypted mirror: the UID is inside
+  //    the ciphertext, so try each batch's meta-read key until one decrypts to
+  //    a UID the registry knows. Meta keys are per batch for exactly this
+  //    reason — a meta key diversified per tag would be underivable here.
+  //
+  //    Nothing is trusted yet. Identification only chooses which keys to check
+  //    against; the CMAC in step 1b is what decides.
+  const uidOf = await identifyTag(search, deps.keyOverrides);
+  const tag: TagRecord | undefined = uidOf ? tagFor(uidOf) : undefined;
+
+  // 1b. Verify for real, with that tag's own keys. Unknown tag → default keys,
+  //     so a bad CMAC is still reported as a bad CMAC rather than as unknown.
+  const keys = tag ? await keysForAsync(tag, uidOf as string, deps.keyOverrides) : defaultKeys(deps.keyOverrides);
+  const r = await verifyTap(search, keys);
   if (!r.ok) {
     return { ok: false, reason: r.reason, detail: r.detail, redirect: refusal(r.reason, r.detail) };
   }
   if (!tag) {
-    return { ok: false, reason: 'unregistered', uid: r.uid, counter: r.readCounter, redirect: refusal('unregistered', `uid ${r.uid} is not in any batch`) };
+    return { ok: false, reason: 'unregistered', uid: r.ok ? r.uid : uidOf, counter: r.ok ? r.readCounter : undefined, redirect: refusal('unregistered', `uid ${r.uid} is not in any batch`) };
   }
 
   // 2. Replay: the counter must move forward. The tag increments it on every

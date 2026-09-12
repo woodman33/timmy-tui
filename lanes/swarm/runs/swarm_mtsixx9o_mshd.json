@@ -1,0 +1,255 @@
+{
+ "where": "local",
+ "room": "war-room",
+ "spec": {
+  "v": 1,
+  "id": "local-5-mac",
+  "preset": "local-5-mac",
+  "topology": "fanout",
+  "members": [
+   {
+    "id": "slot-1",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "provider": "ollama:mac"
+   },
+   {
+    "id": "slot-2",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "provider": "ollama:mac"
+   },
+   {
+    "id": "slot-3",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "provider": "ollama:mac"
+   },
+   {
+    "id": "slot-4",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "provider": "ollama:mac"
+   },
+   {
+    "id": "slot-5",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "provider": "ollama:mac"
+   }
+  ],
+  "size": 5,
+  "budget": {
+   "usd": 0,
+   "max_calls": 12,
+   "max_ms": 600000
+  },
+  "judge": {
+   "tier": "local",
+   "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL"
+  },
+  "network": {
+   "policy": "tailnet",
+   "egress_allow": []
+  },
+  "rounds": 2
+ },
+ "task": "In one sentence: what is a hash chain?",
+ "endpoints": {
+  "ollama:mac": "http://127.0.0.1:11435"
+ },
+ "result": {
+  "swarm_id": "local-5-mac",
+  "run_id": "swarm_mtsixx9o_mshd",
+  "topology": "fanout",
+  "size": 5,
+  "ok": true,
+  "answer": "[1] slot-1\nA hash chain is a sequence of data blocks where each block contains the cryptographic hash of the previous block, creating a linked structure that ensures data integrity and detects tampering.\n\n[2] slot-2\nA hash chain is a sequence of data blocks where each block contains the cryptographic hash of the previous block, creating a tamper-evident link that ensures data integrity.\n\n[3] slot-3\nA hash chain is a sequence of data blocks where each block contains the cryptographic hash of the previous block, creating a tamper-evident link that ensures the integrity of the entire chain.\n\n[4] slot-4\nA hash chain is a sequence of data blocks where each block contains the cryptographic hash of the previous block, creating a tamper-evident link that ensures the integrity of the entire chain.\n\n[5] slot-5\nA hash chain is a sequence of data blocks where each block contains the cryptographic hash of the previous block, creating a tamper-evident link that ensures the integrity of the entire chain.",
+  "calls": [
+   {
+    "role": "actor",
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "ok": true,
+    "ms": 71196,
+    "usd": 0,
+    "tokens_in": 50,
+    "tokens_out": 35,
+    "counted": true,
+    "content_sha256": "789aa6dfc140c6b3ed4003079624454810a7eae2b909c384d44fa9de5e5817f3",
+    "error": null,
+    "provider_used": "ollama:mac",
+    "model_used": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "slot-2",
+    "kind": "model",
+    "content": "A hash chain is a sequence of data blocks where each block contains the cryptographic hash of the previous block, creating a tamper-evident link that ensures data integrity.",
+    "receipt": "sha256_da5cfc3b137dbf0fb7a67d79890fd56bcda1d6beaa1009ea00966b18b5f9bb91",
+    "eval_tok_per_s": 4.5,
+    "load_ms": 58145,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "ok": true,
+    "ms": 88723,
+    "usd": 0,
+    "tokens_in": 50,
+    "tokens_out": 39,
+    "counted": true,
+    "content_sha256": "6d7d47025aa5c786559a6a483d6d05d905d67458eb9d90bc1a1b33eee4e9714a",
+    "error": null,
+    "provider_used": "ollama:mac",
+    "model_used": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "slot-3",
+    "kind": "model",
+    "content": "A hash chain is a sequence of data blocks where each block contains the cryptographic hash of the previous block, creating a tamper-evident link that ensures the integrity of the entire chain.",
+    "receipt": "sha256_5c4d02fb580ad21f6d2b3d4d2da90ff6f0baae8a0f1359cc24ecf3187a71e165",
+    "eval_tok_per_s": 4.9,
+    "load_ms": 58146,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "ok": true,
+    "ms": 101810,
+    "usd": 0,
+    "tokens_in": 50,
+    "tokens_out": 39,
+    "counted": true,
+    "content_sha256": "6d7d47025aa5c786559a6a483d6d05d905d67458eb9d90bc1a1b33eee4e9714a",
+    "error": null,
+    "provider_used": "ollama:mac",
+    "model_used": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "slot-4",
+    "kind": "model",
+    "content": "A hash chain is a sequence of data blocks where each block contains the cryptographic hash of the previous block, creating a tamper-evident link that ensures the integrity of the entire chain.",
+    "receipt": "sha256_db3d1288da2b72a9214f93133ffa38d22a344a14d36a8ae4957c2d7b4f0cc25a",
+    "eval_tok_per_s": 5.3,
+    "load_ms": 58146,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "ok": true,
+    "ms": 105253,
+    "usd": 0,
+    "tokens_in": 50,
+    "tokens_out": 39,
+    "counted": true,
+    "content_sha256": "6d7d47025aa5c786559a6a483d6d05d905d67458eb9d90bc1a1b33eee4e9714a",
+    "error": null,
+    "provider_used": "ollama:mac",
+    "model_used": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "slot-5",
+    "kind": "model",
+    "content": "A hash chain is a sequence of data blocks where each block contains the cryptographic hash of the previous block, creating a tamper-evident link that ensures the integrity of the entire chain.",
+    "receipt": "sha256_c4937b5a29d9ec3a49c14b3ba86fa00a8b2f0bb15708e009692aa23189ee8dc6",
+    "eval_tok_per_s": 5.4,
+    "load_ms": 58145,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "ok": true,
+    "ms": 106992,
+    "usd": 0,
+    "tokens_in": 50,
+    "tokens_out": 35,
+    "counted": true,
+    "content_sha256": "650deb688c1044c67e01ce3a6849312c26ac7eac58c6ade9fc12f9f8dd5f29f4",
+    "error": null,
+    "provider_used": "ollama:mac",
+    "model_used": "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "slot-1",
+    "kind": "model",
+    "content": "A hash chain is a sequence of data blocks where each block contains the cryptographic hash of the previous block, creating a linked structure that ensures data integrity and detects tampering.",
+    "receipt": "sha256_a41d9a7854f11f238ebf507bfd9a49edb25b3f469e170944c040eebb38b389e4",
+    "eval_tok_per_s": 5.2,
+    "load_ms": 58144,
+    "phase": "answer"
+   }
+  ],
+  "rounds": [],
+  "winner": null,
+  "losers": [],
+  "votes": null,
+  "roles": null,
+  "assignments": null,
+  "budget": {
+   "usd": 0,
+   "spent": 0,
+   "max_calls": 12,
+   "calls": 5,
+   "max_ms": 600000,
+   "ms": 108436,
+   "exhausted": null,
+   "kills": []
+  },
+  "usd": 0,
+  "ms": 108436,
+  "recorded": "78427d23836b15be4f3d89f9a2457225866ced2fdd64bd5fc55572abbdfd127b"
+ },
+ "sealed": [
+  {
+   "member": "slot-2",
+   "phase": "answer",
+   "receipt": "sha256_da5cfc3b137dbf0fb7a67d79890fd56bcda1d6beaa1009ea00966b18b5f9bb91"
+  },
+  {
+   "member": "slot-3",
+   "phase": "answer",
+   "receipt": "sha256_5c4d02fb580ad21f6d2b3d4d2da90ff6f0baae8a0f1359cc24ecf3187a71e165"
+  },
+  {
+   "member": "slot-4",
+   "phase": "answer",
+   "receipt": "sha256_db3d1288da2b72a9214f93133ffa38d22a344a14d36a8ae4957c2d7b4f0cc25a"
+  },
+  {
+   "member": "slot-5",
+   "phase": "answer",
+   "receipt": "sha256_c4937b5a29d9ec3a49c14b3ba86fa00a8b2f0bb15708e009692aa23189ee8dc6"
+  },
+  {
+   "member": "slot-1",
+   "phase": "answer",
+   "receipt": "sha256_a41d9a7854f11f238ebf507bfd9a49edb25b3f469e170944c040eebb38b389e4"
+  }
+ ],
+ "receipt": "sha256_0b9b44b4ac90671aa637f2e04d633630efc160b78cec14df1996b9d8ca5e7460",
+ "airgap_receipt": null,
+ "snoop": null
+}

@@ -1,0 +1,176 @@
+{
+ "note": "The pitch materials are large binaries and live outside the repo. This manifest is what the milestone receipt cites: where each file was, and what it hashed to, when the milestone was sealed.",
+ "package": "<home>/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06",
+ "preview": "https://preview.vault-custody.pages.dev",
+ "sealed_for": "milestone.fanatics-pitch",
+ "materials": [
+  {
+   "role": "deck · one-page brief",
+   "path": "<home>/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/deck/Three-Step-Proposal.pdf",
+   "sha256": "ec6f7ebaaa8913e2c62091ea5262fb944bdb7dfdfa5686833cb78d9c25da93e6",
+   "bytes": 65804,
+   "mtime": "2026-09-06T22:59:40.076Z"
+  },
+  {
+   "role": "deck · brief + final deck",
+   "path": "<home>/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/deck/Fanatics-Combined-Pitch.pdf",
+   "sha256": "1dcac238b0638459cd2c9d1cd8cea0a4414c5a44cad34444d34b70a530026e24",
+   "bytes": 12098152,
+   "mtime": "2026-09-06T22:59:40.274Z"
+  },
+  {
+   "role": "deck · final v2",
+   "path": "<home>/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/deck/Fanatics-Vault-Custody-Timmy.pdf",
+   "sha256": "6ee11469cf19f53e1068bedd12dfdb312935517368ad8ad5ac6b4a294bc45318",
+   "bytes": 12103807,
+   "mtime": "2026-09-06T15:37:27.977Z"
+  },
+  {
+   "role": "deck · editable",
+   "path": "<home>/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/deck/Fanatics-Vault-Custody-Timmy.pptx",
+   "sha256": "c4cb301fd9080cd1b047f235daff4a90a0474d32365433f27527960f3fdd9016",
+   "bytes": 10541510,
+   "mtime": "2026-09-06T15:36:57.571Z"
+  },
+  {
+   "role": "deck · earlier final",
+   "path": "<home>/Desktop/VAULT_CUSTODY_x_TIMMY_deck_FINAL.pdf",
+   "sha256": "7ca9bafb382d1495f40f4bad97dc49bfad1b3f916c3113a7bf9805b5e7efdb5c",
+   "bytes": 5840957,
+   "mtime": "2026-09-06T13:42:41.808Z"
+  },
+  {
+   "role": "walkthrough · 30s deck cut (ships in the package)",
+   "path": "<home>/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/media/Vault-Custody-walkthrough-30s.mp4",
+   "sha256": "7a339f0ac35345dab060c191eccfdf4a181adad7e20d938d9ecd3fae83aa36e3",
+   "bytes": 1607921,
+   "mtime": "2026-09-06T10:27:55.158Z"
+  },
+  {
+   "role": "walkthrough · v4 review cut",
+   "path": "<repo>/.claude/worktrees/vault-custody/renders/walkthrough/walkthrough.mp4",
+   "sha256": "fb77251cd230af5b2ad2e8417746cb657b0ddcf3c3bc2a8293d9f2684cd18614",
+   "bytes": 5542538,
+   "mtime": "2026-09-07T06:59:14.512Z"
+  },
+  {
+   "role": "trailer · Timmy v17",
+   "path": "<home>/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/media/Timmy-working-trailer-v17.mp4",
+   "sha256": "50275ff885b6c1b80b66cd20ba18f1444cfb91950eca32b0c61a9f9d685c8e86",
+   "bytes": 31857799,
+   "mtime": "2026-09-05T22:46:28.688Z"
+  }
+ ],
+ "routes": {
+  "checked_at": "2026-09-07T07:57:09.343Z",
+  "ok": 13,
+  "of": 13,
+  "rows": [
+   {
+    "name": "gateway",
+    "path": "/",
+    "status": 200,
+    "ok": true,
+    "note": "content ok"
+   },
+   {
+    "name": "tap vector",
+    "path": "/t?e=EF963FF7828658A599F3041510671E88&c=94EED9EE65337086",
+    "status": 302,
+    "ok": true,
+    "note": "→ /r/VC0007?tap=d02dae00&n=61"
+   },
+   {
+    "name": "receipt",
+    "path": "/r/VC0007",
+    "status": 200,
+    "ok": true,
+    "note": "content ok"
+   },
+   {
+    "name": "card",
+    "path": "/c/VC0007-17-03",
+    "status": 200,
+    "ok": true,
+    "note": "content ok"
+   },
+   {
+    "name": "relic",
+    "path": "/relic/VC2210-08-01",
+    "status": 200,
+    "ok": true,
+    "note": "content ok"
+   },
+   {
+    "name": "series",
+    "path": "/s/001",
+    "status": 200,
+    "ok": true,
+    "note": "content ok"
+   },
+   {
+    "name": "manufacturer",
+    "path": "/m",
+    "status": 200,
+    "ok": true,
+    "note": "content ok"
+   },
+   {
+    "name": "log",
+    "path": "/log",
+    "status": 200,
+    "ok": true,
+    "note": "content ok"
+   },
+   {
+    "name": "verify",
+    "path": "/verify",
+    "status": 200,
+    "ok": true,
+    "note": "content ok"
+   },
+   {
+    "name": "provenance",
+    "path": "/p/VC0007",
+    "status": 200,
+    "ok": true,
+    "note": "content ok"
+   },
+   {
+    "name": "companion",
+    "path": "/companion/?serial=VC0007",
+    "status": 200,
+    "ok": true,
+    "note": "content ok"
+   },
+   {
+    "name": "api head",
+    "path": "/api/head",
+    "status": 200,
+    "ok": true,
+    "note": "shape ok head 2026-09-06 11a3badebe07"
+   },
+   {
+    "name": "api chain",
+    "path": "/api/chain/VC0007",
+    "status": 200,
+    "ok": true,
+    "note": "shape ok"
+   }
+  ]
+ },
+ "build": {
+  "site_commit": "ab6840b6bf3a76f98bf54c5c3e05c8fcc087b2b1",
+  "companion_wasm_sha256": "60c8ed8cdbb9d667bbb56125edabf7f6deeff4cc953408205a5d39d61a5f9cc1",
+  "companion_build_receipt": "rc_mtq5vvyb_j1mn",
+  "rive_export_v3_receipt": "rc_mtq5vcjy_ersu",
+  "badge_riv_sha256": "3cb737935466ff6f21e86424580a86bbb64d05d292b339e87507dee053e4bb78",
+  "badge_source": "https://public.rive.app/hosted/667822/422163/olGbwhpq5UCHVrFbBDcFtA.riv",
+  "state_table_sha256": "5e0e25683b4cc0d1b39cea916d60f8639fa44439c2e6770e49fad5f750503103",
+  "state_table_receipts": 966,
+  "edge_head_date": "2026-09-06",
+  "edge_head": "11a3badebe07db8efaa234d765254d3baa211de69b91e4cf7fefdb6e69ba6bfd",
+  "capsules": "p1.capsule=done 4/4 p2.capsule=done 2/2 p3.capsule=done 4/4 p4.capsule=done 2/2 p5.capsule=done 3/3 p6.capsule=next 0/1",
+  "frames": "f1=done f2=done f3=done f4=done f5=done f6=next"
+ }
+}

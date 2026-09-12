@@ -1,0 +1,234 @@
+{
+ "v": 1,
+ "generated_at": "2026-09-08T10:31:26.153Z",
+ "worker": {
+  "name": "timmy-ai-proxy-preview",
+  "url": "https://timmy-ai-proxy-preview.wmeldman33.workers.dev",
+  "health": {
+   "ok": true,
+   "worker": "timmy-ai-proxy",
+   "auth": true,
+   "code_mode": true,
+   "daily_head": true,
+   "slate_room": true,
+   "commander": true,
+   "timmy": true,
+   "swarm": true,
+   "tools": [
+    "tools_list",
+    "custody_verify_tap",
+    "custody_chain",
+    "openrouter_models",
+    "openrouter_chat",
+    "receipt_seal",
+    "receipt_verify"
+   ]
+  },
+  "version": {
+   "id": "11517709-c081-49fa-a472-baddbc1f7088",
+   "created_on": "2026-09-08T10:09:19.217854Z",
+   "source": "wrangler",
+   "message": null
+  },
+  "versions_note": null
+ },
+ "tail": {
+  "ok": true,
+  "window_s": 2,
+  "events": 0,
+  "last": [],
+  "ms": 2006,
+  "note": null
+ },
+ "do": {
+  "rooms": [
+   {
+    "room": "slate:ledger",
+    "events": 323,
+    "viewers": 0,
+    "ok": true
+   }
+  ],
+  "commander": {
+   "room": "war-room",
+   "mode": "generate",
+   "held_by": null,
+   "openrouter_paused": false,
+   "killed": false,
+   "turns": 8,
+   "head": "364479369ec0269622923cb795a2905f002a53f6fce1cd258a05657bd5e2be5c",
+   "spend": {
+    "usd": 0.115358,
+    "cap_usd": 2,
+    "calls": 37,
+    "tokens_in": 6302,
+    "tokens_out": 19328,
+    "uncounted": 0,
+    "last_at": "2026-09-08T10:18:48.339Z",
+    "tokens_cached": 1408,
+    "tokens_reasoning": 16278
+   },
+   "viewers": 0,
+   "schedules": 0
+  }
+ },
+ "queues": [
+  {
+   "id": "dc59f8680d7d4a349cd5379c91446a35",
+   "name": "genesis-embedding-queue",
+   "created_on": "2026-01-19T19:30:57.346278Z",
+   "modified_on": "2026-01-19T19:30:57.346278Z",
+   "producers": "1",
+   "consumers": "1",
+   "depth": null,
+   "depth_note": "wrangler does not report backlog depth; needs the Queues API"
+  },
+  {
+   "id": "023186c50cce42d682759a79cc0eb7ab",
+   "name": "site-forge-builds-production",
+   "created_on": "2026-03-06T16:54:17.654316Z",
+   "modified_on": "2026-03-06T16:54:17.654316Z",
+   "producers": "1",
+   "consumers": "1",
+   "depth": null,
+   "depth_note": "wrangler does not report backlog depth; needs the Queues API"
+  },
+  {
+   "id": "f9c97a75beec44879ab9510d6c96b88d",
+   "name": "site-forge-builds-staging",
+   "created_on": "2026-03-06T16:54:17.996809Z",
+   "modified_on": "2026-03-06T16:54:17.996809Z",
+   "producers": "1",
+   "consumers": "1",
+   "depth": null,
+   "depth_note": "wrangler does not report backlog depth; needs the Queues API"
+  },
+  {
+   "id": "4984510744f143559b73021c6d6ac469",
+   "name": "synthetic-trace-generation",
+   "created_on": "2026-04-08T05:13:21.013153Z",
+   "modified_on": "2026-04-08T05:13:21.013153Z",
+   "producers": "1",
+   "consumers": "1",
+   "depth": null,
+   "depth_note": "wrangler does not report backlog depth; needs the Queues API"
+  },
+  {
+   "id": "2e2f64606c534a7b9abd6774d072772b",
+   "name": "synthetic-trace-qc",
+   "created_on": "2026-04-08T05:13:23.869122Z",
+   "modified_on": "2026-04-08T05:13:23.869122Z",
+   "producers": "1",
+   "consumers": "1",
+   "depth": null,
+   "depth_note": "wrangler does not report backlog depth; needs the Queues API"
+  }
+ ],
+ "cron": [
+  {
+   "expr": "5 9 * * *",
+   "where": "timmy-ai-proxy-preview",
+   "next_utc": "2026-09-09T09:05:00.000Z",
+   "last_head": {
+    "date": "2026-09-08",
+    "receipts": 41,
+    "subjects": 4,
+    "combined": "ba5dcafadc6b"
+   }
+  },
+  {
+   "expr": "30 9 * * * (local, launchd dev.timmy.anchor)",
+   "where": "laptop",
+   "next_utc": "2026-09-08T16:30:00.000Z",
+   "last_head": null
+  }
+ ],
+ "spend": {
+  "commander": {
+   "usd": 0.115358,
+   "cap_usd": 2,
+   "calls": 37,
+   "tokens_in": 6302,
+   "tokens_out": 19328,
+   "uncounted": 0,
+   "last_at": "2026-09-08T10:18:48.339Z",
+   "tokens_cached": 1408,
+   "tokens_reasoning": 16278
+  },
+  "openrouter": {
+   "credits": {
+    "total_credits": 4590,
+    "total_usage": 4530.919094421
+   },
+   "key": {
+    "usage": 3963.423423424,
+    "limit": null,
+    "limit_remaining": null,
+    "is_free_tier": false
+   },
+   "activity": null
+  }
+ },
+ "sources": [
+  {
+   "id": "worker.health",
+   "ok": true,
+   "ms": 162,
+   "note": null
+  },
+  {
+   "id": "worker.versions",
+   "ok": true,
+   "ms": 3203,
+   "note": "npm warn allow-scripts .npmrc allow-scripts setting is being ignored because --allow-scripts was passed on the command line"
+  },
+  {
+   "id": "do.slate_room",
+   "ok": true,
+   "ms": 445,
+   "note": null
+  },
+  {
+   "id": "do.commander",
+   "ok": true,
+   "ms": 832,
+   "note": null
+  },
+  {
+   "id": "queues.list",
+   "ok": true,
+   "ms": 3462,
+   "note": "npm warn allow-scripts .npmrc allow-scripts setting is being ignored because --allow-scripts was passed on the command line"
+  },
+  {
+   "id": "head.latest",
+   "ok": true,
+   "ms": 296,
+   "note": null
+  },
+  {
+   "id": "spend.openrouter.credits",
+   "ok": true,
+   "ms": 182,
+   "note": null
+  },
+  {
+   "id": "spend.openrouter.key",
+   "ok": true,
+   "ms": 109,
+   "note": null
+  },
+  {
+   "id": "spend.openrouter.activity",
+   "ok": false,
+   "ms": null,
+   "note": "OPENROUTER_PROVISIONING_KEY not in env (management endpoint)"
+  },
+  {
+   "id": "worker.tail",
+   "ok": true,
+   "ms": 2006,
+   "note": null
+  }
+ ]
+}

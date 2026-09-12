@@ -1,0 +1,95 @@
+{
+ "kind": "story",
+ "v": 1,
+ "name": "THE SHIP · v0 · The Handoff",
+ "date": "2026-09-07",
+ "note": "Seed scenario for the story simulator (lanes/sim). One scenario, four characters, two layers. The simulator model narrates the world and resolves actions; it is never an actor. Each turn seals a sim.turn receipt (asked / known / did / stakes / model). The nested layer's turns cite the parent turn they branch from.",
+ "premise": "The cargo runner Kestrel carries three sealed custody boxes to port with a storm closing in. Every tap on a box seal is a receipt; every handover is a tap. Someone aboard wants one box to leave the ship unrecorded.",
+ "layers": [
+  { "id": "L1", "title": "The bridge", "parent": null, "note": "the crew of the Kestrel, present tense, the last watch before port" },
+  { "id": "L2", "title": "The rehearsal", "parent": "L1", "note": "a tabletop rehearsal of the docking that the captain orders during L1; it runs as a nested simulation whose turns cite the L1 turn that started it" }
+ ],
+ "locations": [
+  { "id": "bridge", "layer": "L1", "name": "The bridge", "desc": "glass, rain, the chart table, the tap reader bolted by the door" },
+  { "id": "hold", "layer": "L1", "name": "The hold", "desc": "three custody boxes on a pallet, seals across the lids, one work light" },
+  { "id": "engine", "layer": "L1", "name": "The engine room", "desc": "loud, hot, the only place nobody checks a seal" },
+  { "id": "table", "layer": "L2", "name": "The chart table", "desc": "a paper harbour, three matchboxes for the cargo, the crew standing round it" }
+ ],
+ "characters": [
+  {
+   "id": "captain",
+   "name": "Mara Vance",
+   "layer": "L1",
+   "location": "bridge",
+   "role_card": {
+    "role": "Captain",
+    "goal": "Make port with all three boxes sealed and the log clean; keep command without raising her voice.",
+    "secret": "She promised box 3 to a buyer who is not on the manifest and has not decided whether to keep the promise.",
+    "voice": "clipped, exact, never repeats an order",
+    "limits": ["never leaves the bridge in weather", "will not open a box herself"],
+    "knows": ["the manifest lists three boxes, VC0100 VC0101 VC0102", "the storm front reaches the harbour mouth at dusk", "the quartermaster taps every seal at the change of watch"]
+   }
+  },
+  {
+   "id": "quartermaster",
+   "name": "Teo Okonkwo",
+   "layer": "L1",
+   "location": "hold",
+   "role_card": {
+    "role": "Quartermaster",
+    "goal": "Every box accounted for at port with an unbroken tap history; nobody accused without a receipt.",
+    "secret": "At the last watch the tap on VC0101 read OPENED. He has told no one yet.",
+    "voice": "precise, counts things out loud, quotes receipts",
+    "limits": ["will not accuse anyone without a receipt to show", "will not lie in the log"],
+    "knows": ["VC0101 tapped OPENED at the last watch, loop broken", "the engine room has no tap reader", "the stowaway is real: a fourth ration went missing twice"]
+   }
+  },
+  {
+   "id": "pilot",
+   "name": "Ilse Brandt",
+   "layer": "L1",
+   "location": "bridge",
+   "role_card": {
+    "role": "Pilot",
+    "goal": "Bring the Kestrel in before the storm, on her own line, with the captain's trust intact.",
+    "secret": "She was paid before sailing to be slow, so the ship docks after dark when seals cannot be checked until morning.",
+    "voice": "dry, short, jokes when cornered",
+    "limits": ["never fakes an instrument reading", "will not endanger the ship for the payment"],
+    "knows": ["the fast line through the shoal saves forty minutes and needs daylight", "the harbour master checks seals only in daylight", "the captain has not slept"]
+   }
+  },
+  {
+   "id": "stowaway",
+   "name": "Wren",
+   "layer": "L1",
+   "location": "hold",
+   "role_card": {
+    "role": "Stowaway",
+    "goal": "Walk off at the dock with box VC0101 and never be logged.",
+    "secret": "VC0101 is their own: it was taken from them upriver and sealed by someone else. The lifted seal was them checking it was still theirs.",
+    "voice": "quiet, answers questions with questions, never says more than needed",
+    "limits": ["never lies about their name", "will not hurt anyone"],
+    "knows": ["the engine room is unwatched from the middle watch to dawn", "the quartermaster counts rations", "a broken seal shows on the next tap forever"]
+   }
+  }
+ ],
+ "stakes": [
+  { "id": "s1", "desc": "all three boxes reach port with an intact tap history", "holder": "quartermaster", "at_risk": "high" },
+  { "id": "s2", "desc": "the captain keeps command without a raised voice", "holder": "captain", "at_risk": "medium" },
+  { "id": "s3", "desc": "the Kestrel docks in daylight, ahead of the storm", "holder": "pilot", "at_risk": "high" },
+  { "id": "s4", "desc": "the stowaway leaves the ship unlogged", "holder": "stowaway", "at_risk": "high" }
+ ],
+ "branches": [
+  { "id": "b1", "when": "the OPENED tap on VC0101 is reported to the captain before docking", "leads_to": "an inquiry on the bridge with the receipts on the table", "else": "VC0101 walks off at the dock unrecorded" },
+  { "id": "b2", "when": "the pilot takes the fast line in daylight", "leads_to": "a daylight dock; the harbour master taps every seal", "else": "a night dock; seals go unverified until morning" },
+  { "id": "b3", "when": "the stowaway is found before the dock", "leads_to": "a name in the log and a choice for the captain", "else": "the fourth ration stays a mystery" }
+ ],
+ "seed": {
+  "opening": "Last watch before port. Rain on the bridge glass. Below, three boxes on a pallet, and a fourth ration gone from the locker again.",
+  "turn_order": ["captain", "quartermaster", "pilot", "stowaway"],
+  "max_turns": 4,
+  "nested": { "layer": "L2", "at_turn": 2, "location": "table", "turn_order": ["captain", "pilot"], "turns": 2, "opening": "The captain sweeps the charts aside and sets three matchboxes on the paper harbour. 'Rehearse it. Dock, tap, handover. Show me where it breaks.'" }
+ },
+ "simulator": { "model": "x-ai/grok-4.6", "note": "narrator and referee; resolves each action into public and private consequences and re-rates the stakes; never speaks as a character" },
+ "actors": { "model": "google/gemini-3.7-flash", "note": "every character answers in first person from its role card and what it knows; the simulator model must differ" }
+}

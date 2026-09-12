@@ -1,0 +1,27 @@
+{
+ "kind": "blueprint",
+ "name": "USD · usd-validate",
+ "source": "lanes/engines/usd/templates/usd-validate/plan.cue",
+ "date": "2026-09-07",
+ "engine": "usd",
+ "workflow": "usd-validate",
+ "note": "A USD layer dropped into drop/ is loaded by Apple's usdcat and described in a report. No render, no conversion: the question is only whether the layer composes and what it holds.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "layer", "value": "*.usda · *.usdc · *.usd · *.usdz", "note": "rules: run" },
+   { "label": "textures", "value": "*.png · *.jpg · *.exr", "note": "rules: stage" },
+   { "label": "refused", "value": "> 512 MB", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 load", "value": "usdcat --loadOnly", "note": "exit + OK line decide ok" },
+   { "label": "2 describe", "value": "layer metadata, composed prims, default prim, up axis, meters per unit", "note": "run.mjs" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "report", "value": "{stem}.validate.json", "note": "ok, usdcat version, prims, prim_types, errors" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "layer sha256 · report sha256 · usdcat/usdzip env-lock", "note": "" },
+   { "label": "extra", "value": "prims · default_prim · up_axis", "note": "from the report" }
+  ] }
+ ]
+}

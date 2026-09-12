@@ -1,0 +1,10 @@
+{
+  "name": "timmy-lane-swarm",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Closed-topology swarm air-gap enforcement: policy + sbx-lockdown hands + mcpsnoop wire audit",
+  "dependencies": {
+    "sbx": "^2.1.0"
+  }
+}

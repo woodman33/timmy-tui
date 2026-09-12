@@ -1,0 +1,29 @@
+{
+ "kind": "blueprint",
+ "name": "Houdini · usd-export",
+ "source": "lanes/engines/houdini/templates/usd-export/plan.cue",
+ "date": "2026-09-07",
+ "engine": "houdini",
+ "workflow": "usd-export",
+ "note": "A mesh dropped into drop/ becomes one binary USD stage in out/, written by hython through pxr and re-opened to check itself. The LOP ROP is skipped because Apprentice renames its output to .usdnc.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "mesh", "value": "*.obj · *.ply · *.geo · *.bgeo(.sc)", "note": "rules: run" },
+   { "label": "usd", "value": "*.usd · *.usda · *.usdc · *.usdz", "note": "already USD: rules: stage" },
+   { "label": "refused", "value": "> 256 MB", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 load", "value": "File SOP → convert → normal", "note": "hython script.py" },
+   { "label": "2 write", "value": "UsdGeom.Mesh via pxr → {stem}.usdc", "note": "points, faceVertexCounts/Indices, normals" },
+   { "label": "3 check", "value": "re-open the stage, compare face counts", "note": "mismatch fails the step" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "usd", "value": "{stem}.usdc", "note": "usd" },
+   { "label": "report", "value": "{stem}.usd.json", "note": "points, faces, prim, houdini version, licence" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "input sha256 · usdc sha256 · env-lock", "note": "" },
+   { "label": "extra", "value": "points · faces · prim", "note": "from the report" }
+  ] }
+ ]
+}

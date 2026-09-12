@@ -1,0 +1,253 @@
+{
+  "harness": "pi",
+  "kind": "local coding agent (@mariozechner/pi-coding-agent, Node)",
+  "measured_at": "2026-09-07T10:48:22.775Z",
+  "host": {
+    "hostname": "<hostname>.local",
+    "platform": "darwin 25.6.0 arm64",
+    "node": "v26.6.0"
+  },
+  "binary": {
+    "path": "/opt/homebrew/bin/pi",
+    "exists": true,
+    "symlink": "/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js",
+    "kind": "script (#!/usr/bin/env node)",
+    "size": 870,
+    "sha256": "e959f463b06ddd15ed882783ac02f39ecaeef950ef967da86380f39dda6595fa",
+    "sha256_note": "binary is a wrapper/entry script, so this sha256 covers only the script text, not the interpreter or the package it launches"
+  },
+  "version": "0.73.1",
+  "version_raw": "0.73.1",
+  "model": "glm-5.3-flash:cloud",
+  "model_route": "Ollama (http://localhost:11434/v1, openai-completions) exactly as the user runs it (memory: pi-ollama-launchers); cloud model routed through the local daemon. First attempt used qwen3-coder-next:cloud, which Ollama Cloud reports as retired since 2026-07-15 (HTTP 410), so glm-5.3-flash:cloud (verified alive with a direct curl) is used with thinking off.",
+  "isolation": "PI_CODING_AGENT_DIR={HOME} (fresh agent dir with models.json/settings.json written by the runner). The user's real ~/.pi/agent currently fails to start: settings.json packages include npm:@astrofoundry/pi-astro whose global npm install is broken, and pi aborts before parsing args (even with -ne).",
+  "env_keys": [
+    "PI_CODING_AGENT_DIR",
+    "PI_SKIP_VERSION_CHECK"
+  ],
+  "key_source": "process.env",
+  "abilities": {
+    "one_shot": {
+      "value": true,
+      "method": "spawn argv, 120s hard timeout (SIGTERM then SIGKILL on the process group); true iff the process exits by itself and stdout+stderr (with every echo of the prompt text removed) contains PONG",
+      "evidence": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "note": "exit 0 after 9109ms; match: \"tial\\\":{\\\"role\\\":\\\"assistant\\\",\\\"content\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"PONG\\\"}],\\\"api\\\":\\\"openai-completions\\\",\\\"provider\\\":\\\"ollama\\\",\\\"model\\\":\\\"\""
+    },
+    "file_edits": {
+      "value": true,
+      "method": "after the run, read <cwd>/PROBE.txt from the fresh temp dir; true iff it exists and equals \"probe-ok\" (one trailing newline tolerated)",
+      "evidence": [
+        5
+      ],
+      "note": "PROBE.txt content=\"probe-ok\"; tool lines: [\"{\\\"type\\\":\\\"message_update\\\",\\\"assistantMessageEvent\\\":{\\\"type\\\":\\\"toolcall_start\\\",\\\"contentIndex\\\":1,\\\"partial\\\":{\\\"role\\\":\\\"assistant\\\",\\\"content\\\":[{\\\"type\\\":\\\"thinking\\\",\\\"thinking\\\":\\\"The user wants me to create a file na\",\"{\\\"type\\\":\\\"message_update\\\",\\\"assistantMessageEvent\\\":{\\\"type\\\":\\\"toolcall_delta\\\",\\\"contentIndex\\\":1,\\\"delta\\\":\\\"{\\\\\\\"path\\\\\\\":\\\\\\\"PROBE.txt\\\\\\\",\\\\\\\"content\\\\\\\":\\\\\\\"probe-ok\\\\\\\"}\\\",\\\"partial\\\":{\\\"role\\\":\\\"assistant\\\",\\\"content\\\":[{\\\"type\\\":\",\"{\\\"type\\\":\\\"message_update\\\",\\\"assistantMessageEvent\\\":{\\\"type\\\":\\\"thinking_end\\\",\\\"contentIndex\\\":0,\\\"content\\\":\\\"The user wants me to create a file named PROBE.txt in the current directory containing exactly \\\\\\\"pro\"]"
+    },
+    "tool_use": {
+      "value": true,
+      "method": "true iff stdout+stderr (prompt echoes removed) contains TOOL-OK-4471 (as specified). Caveat: the token is in the prompt, so a model that merely repeats it would pass; corroborated with (a) tool-call event lines matched by tool_call_regex and (b) the file_edits result, which is on-disk proof of tool execution",
+      "evidence": [
+        6,
+        5
+      ],
+      "note": "token present; tool-call lines in transcript: 3 [\"{\\\"type\\\":\\\"message_update\\\",\\\"assistantMessageEvent\\\":{\\\"type\\\":\\\"toolcall_start\\\",\\\"contentIndex\\\":0,\\\"partial\\\":{\\\"role\\\":\\\"assistant\\\",\\\"content\\\":[{\\\"type\\\":\\\"toolCall\\\",\\\"id\\\":\\\"call_mr4nlt3u\\\",\\\"name\\\":\\\"bash\\\",\\\"arguments\\\":{\\\"\",\"{\\\"type\\\":\\\"message_update\\\",\\\"assistantMessageEvent\\\":{\\\"type\\\":\\\"toolcall_delta\\\",\\\"contentIndex\\\":0,\\\"delta\\\":\\\"{\\\\\\\"command\\\\\\\":\\\\\\\"echo TOOL-OK-4471\\\\\\\"}\\\",\\\"partial\\\":{\\\"role\\\":\\\"assistant\\\",\\\"content\\\":[{\\\"type\\\":\\\"toolCall\\\",\\\"id\",\"{\\\"type\\\":\\\"message_update\\\",\\\"assistantMessageEvent\\\":{\\\"type\\\":\\\"toolcall_end\\\",\\\"contentIndex\\\":0,\\\"toolCall\\\":{\\\"type\\\":\\\"toolCall\\\",\\\"id\\\":\\\"call_mr4nlt3u\\\",\\\"name\\\":\\\"bash\\\",\\\"arguments\\\":{\\\"command\\\":\\\"echo TOOL-OK-4471\\\"}},\\\"\"]; file_edits corroboration: true"
+    },
+    "browser": {
+      "value": true,
+      "method": "true iff stdout+stderr contains \"Example Domain\"; the mechanism (real browser vs plain HTTP fetch) is inferred from tool names in the transcript, which is only visible when the harness streams tool events",
+      "evidence": [
+        7
+      ],
+      "note": "title reported; mechanism: plain fetch/curl-like names seen; tool lines: [\"{\\\"type\\\":\\\"message_update\\\",\\\"assistantMessageEvent\\\":{\\\"type\\\":\\\"toolcall_start\\\",\\\"contentIndex\\\":1,\\\"partial\\\":{\\\"role\\\":\\\"assistant\\\",\\\"content\\\":[{\\\"type\\\":\\\"thinking\\\",\\\"thinking\\\":\\\"The user wants me to fetch https://ex\",\"{\\\"type\\\":\\\"message_update\\\",\\\"assistantMessageEvent\\\":{\\\"type\\\":\\\"toolcall_delta\\\",\\\"contentIndex\\\":1,\\\"delta\\\":\\\"{\\\\\\\"command\\\\\\\":\\\\\\\"curl -s https://example.com\\\\\\\"}\\\",\\\"partial\\\":{\\\"role\\\":\\\"assistant\\\",\\\"content\\\":[{\\\"type\\\":\\\"thi\",\"{\\\"type\\\":\\\"message_update\\\",\\\"assistantMessageEvent\\\":{\\\"type\\\":\\\"thinking_end\\\",\\\"contentIndex\\\":0,\\\"content\\\":\\\"The user wants me to fetch https://example.com and report the exact page title. I can use bash with \"]"
+    },
+    "sandbox": {
+      "value": false,
+      "method": "compare reported hostname/pwd with this machine (hostname=<hostname>.local, cwd=<temp dir>); a different hostname or a container-style path means sandboxed",
+      "evidence": [
+        8
+      ],
+      "note": "reported this machine's hostname (<hostname>.local) and the real temp cwd, so tools run directly on the host. tail: \"\\\":0,\\\"totalTokens\\\":997,\\\"cost\\\":{\\\"input\\\":0,\\\"output\\\":0,\\\"cacheRead\\\":0,\\\"cacheWrite\\\":0,\\\"total\\\":0}},\\\"stopReason\\\":\\\"stop\\\",\\\"timestamp\\\":1788778198364,\\\"responseId\\\":\\\"chatcmpl-208\\\",\\\"responseModel\\\":\\\"glm-5.3-flash\\\"}]}\""
+    },
+    "mcp_client": {
+      "value": false,
+      "method": "isolated config registers Timmy's stdio MCP server; true iff the reply contains a value only the real timmy_env_lock result has (OS build id or a tool sha256 prefix obtained by calling the server directly first), or the tool name plus os/arch fields plus a visible tool-call event",
+      "evidence": [
+        9
+      ],
+      "note": "not called: real marker absent; tool name mentioned=false; os/arch fields=false; tool lines: []. pi has no built-in MCP client; MCP arrives via the pi-mcp-adapter extension. The user's copy at /opt/homebrew/lib/node_modules/pi-mcp-adapter is loaded explicitly with -e (no install), and the server is declared in a project-local .mcp.json inside the temp cwd. Caveat found while running: that adapter is built against @earendil-works/pi-coding-agent 0.84.1 (a second pi install at ~/.local/bin/pi -> ~/.hermes/node/bin/pi), not the pinned /opt/homebrew/bin/pi (@mariozechner 0.73.1), and fails to load with 'Cannot find module @earendil-works/pi-ai/compat'. tail: \"ib/node_modules/pi-mcp-adapter/index.ts\\\": Failed to load extension: Cannot find module '@earendil-works/pi-ai/compat'\\nRequire stack:\\n- /opt/homebrew/lib/node_modules/pi-mcp-adapter/sampling-handler.ts\""
+    }
+  },
+  "probes": {
+    "one_shot": {
+      "id": 4,
+      "argv": [
+        "/opt/homebrew/bin/pi",
+        "-p",
+        "--mode",
+        "json",
+        "--no-session",
+        "--provider",
+        "ollama",
+        "--model",
+        "glm-5.3-flash:cloud",
+        "--thinking",
+        "off",
+        "Reply with exactly the word PONG and nothing else"
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/one_shot",
+      "exit": 0,
+      "ms": 9109,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "file_edits": {
+      "id": 5,
+      "argv": [
+        "/opt/homebrew/bin/pi",
+        "-p",
+        "--mode",
+        "json",
+        "--no-session",
+        "--provider",
+        "ollama",
+        "--model",
+        "glm-5.3-flash:cloud",
+        "--thinking",
+        "off",
+        "Create a file named PROBE.txt in the current directory containing exactly the text probe-ok, then stop."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/file_edits",
+      "exit": 0,
+      "ms": 9023,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "tool_use": {
+      "id": 6,
+      "argv": [
+        "/opt/homebrew/bin/pi",
+        "-p",
+        "--mode",
+        "json",
+        "--no-session",
+        "--provider",
+        "ollama",
+        "--model",
+        "glm-5.3-flash:cloud",
+        "--thinking",
+        "off",
+        "Run the shell command `echo TOOL-OK-4471` and report its output verbatim."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/tool_use",
+      "exit": 0,
+      "ms": 10410,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "browser": {
+      "id": 7,
+      "argv": [
+        "/opt/homebrew/bin/pi",
+        "-p",
+        "--mode",
+        "json",
+        "--no-session",
+        "--provider",
+        "ollama",
+        "--model",
+        "glm-5.3-flash:cloud",
+        "--thinking",
+        "off",
+        "Fetch https://example.com and report the exact page title."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/browser",
+      "exit": 0,
+      "ms": 21171,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "sandbox": {
+      "id": 8,
+      "argv": [
+        "/opt/homebrew/bin/pi",
+        "-p",
+        "--mode",
+        "json",
+        "--no-session",
+        "--provider",
+        "ollama",
+        "--model",
+        "glm-5.3-flash:cloud",
+        "--thinking",
+        "off",
+        "Run the shell commands `hostname` and `pwd` and report both verbatim."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/sandbox",
+      "exit": 0,
+      "ms": 19041,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "mcp_client": {
+      "id": 9,
+      "argv": [
+        "/opt/homebrew/bin/pi",
+        "-p",
+        "--mode",
+        "json",
+        "--no-session",
+        "--provider",
+        "ollama",
+        "--model",
+        "glm-5.3-flash:cloud",
+        "--thinking",
+        "off",
+        "-e",
+        "/opt/homebrew/lib/node_modules/pi-mcp-adapter",
+        "Call the MCP tool timmy_env_lock and paste its raw JSON result."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/mcp_client",
+      "exit": 1,
+      "ms": 15916,
+      "timed_out": false,
+      "pre_ids": []
+    }
+  },
+  "discovery": {
+    "help": 1,
+    "version": 2,
+    "list_models": 3
+  },
+  "mcp_ground_truth": {
+    "ok": true,
+    "markers": [
+      "25G83",
+      "cebe04356214a938aec846e4",
+      "81e6262cec5b1f06517c1853"
+    ]
+  },
+  "notes": [
+    "removed isolated-home credential file after run: /private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/home/auth.json"
+  ],
+  "setup_files": [
+    {
+      "path": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/home/models.json",
+      "bytes": 716
+    },
+    {
+      "path": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/home/settings.json",
+      "bytes": 117
+    }
+  ],
+  "mcp_setup_files": [
+    {
+      "path": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/mcp_client/.mcp.json",
+      "bytes": 350
+    }
+  ],
+  "transcript": "transcripts/pi.jsonl",
+  "transcript_lines": 9
+}

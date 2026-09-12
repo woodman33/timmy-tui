@@ -1,0 +1,659 @@
+{
+  "metadata": {
+    "generated_at": "2026-09-07T12:34:27.535519+00:00",
+    "mcp_probe_version": "0.3.0",
+    "total_duration_ms": 898,
+    "transport_type": "stdio"
+  },
+  "protocol_info": {
+    "available_protocols": [
+      {
+        "endpoints": [
+          "/mcp"
+        ],
+        "session_management": "Mcp-Session-Id header",
+        "spec_date": "2025-03-26",
+        "supported_methods": [
+          "initialize",
+          "initialized",
+          "tools/list",
+          "tools/call",
+          "resources/list",
+          "resources/read",
+          "prompts/list",
+          "prompts/get",
+          "logging/setLevel",
+          "notifications/*"
+        ],
+        "version": "Modern Streamable HTTP"
+      },
+      {
+        "endpoints": [
+          "/sse",
+          "/events"
+        ],
+        "session_management": "sessionId query parameter",
+        "spec_date": "2024-11-05",
+        "supported_methods": [
+          "initialize",
+          "initialized",
+          "tools/list",
+          "tools/call",
+          "resources/list",
+          "resources/read",
+          "prompts/list",
+          "prompts/get",
+          "logging/setLevel"
+        ],
+        "version": "Legacy HTTP+SSE"
+      },
+      {
+        "endpoints": [
+          "stdio"
+        ],
+        "session_management": "N/A (stdio)",
+        "spec_date": "2025-03-26",
+        "supported_methods": [
+          "initialize",
+          "initialized",
+          "tools/list",
+          "tools/call",
+          "resources/list",
+          "resources/read",
+          "prompts/list",
+          "prompts/get",
+          "logging/setLevel",
+          "notifications/*"
+        ],
+        "version": "Standard Transport"
+      }
+    ],
+    "detected_protocol": {
+      "endpoints": [
+        "stdio"
+      ],
+      "session_management": "N/A (stdio)",
+      "spec_date": "2025-03-26",
+      "supported_methods": [
+        "initialize",
+        "initialized",
+        "tools/list",
+        "tools/call",
+        "resources/list",
+        "resources/read",
+        "prompts/list",
+        "prompts/get",
+        "logging/setLevel",
+        "notifications/*"
+      ],
+      "version": "Standard Transport"
+    }
+  },
+  "results": [
+    {
+      "details": null,
+      "duration_ms": 0,
+      "message": "Successfully created MCP client",
+      "name": "Connection",
+      "status": "PASS"
+    },
+    {
+      "details": {
+        "name": "openhuman-core",
+        "protocol_version": "2025-03-26",
+        "version": "0.63.7"
+      },
+      "duration_ms": 91,
+      "message": "Connected to openhuman-core v0.63.7",
+      "name": "Initialization",
+      "status": "PASS"
+    },
+    {
+      "details": null,
+      "duration_ms": 1,
+      "message": "Server capabilities discovered successfully",
+      "name": "Capability Discovery",
+      "status": "PASS"
+    },
+    {
+      "details": [
+        {
+          "description": "List the live core agent tool catalog that OpenHuman exposes to its orchestrator session.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "core.list_tools"
+        },
+        {
+          "description": "Emit the markdown tool-use instructions block that OpenHuman injects into prompt-guided agents.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "core.tool_instructions"
+        },
+        {
+          "description": "List registered sub-agent definitions that the core can dispatch for specialized work.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "agent.list_subagents"
+        },
+        {
+          "description": "Run a registered OpenHuman sub-agent directly from the core and return its final response.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "agent_id": {
+                "description": "Registered sub-agent id (for example `researcher`, `planner`, `code_executor`).",
+                "type": "string"
+              },
+              "prompt": {
+                "description": "Task prompt for the sub-agent. Include the context it needs because this is a fresh session.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "agent_id",
+              "prompt"
+            ],
+            "type": "object"
+          },
+          "name": "agent.run_subagent"
+        },
+        {
+          "description": "Keyword-search OpenHuman's local memory tree and return matching chunks ordered by recency.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "k": {
+                "description": "Maximum chunks to return. Defaults to 10; capped at 50.",
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "query": {
+                "description": "Substring to match against stored memory chunks.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object"
+          },
+          "name": "memory.search"
+        },
+        {
+          "description": "Semantically recall local memory-tree chunks relevant to a natural-language query.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "k": {
+                "description": "Maximum chunks to return. Defaults to 10; capped at 50.",
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "query": {
+                "description": "Natural-language query to embed and rerank against memory summaries.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object"
+          },
+          "name": "memory.recall"
+        },
+        {
+          "description": "Read one memory-tree chunk by id. Use this to inspect the source text behind search or recall results.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "chunk_id": {
+                "description": "Chunk id returned by memory.search or memory.recall.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "chunk_id"
+            ],
+            "type": "object"
+          },
+          "name": "tree.read_chunk"
+        },
+        {
+          "description": "Paginated listing of memory-tree chunks in reverse-chronological order, with optional filters by source kind, source id, entity id, time window, and substring keyword. Use this when the user wants to enumerate (\"what's recent in my Gmail\", \"show me everything from last week about Alice\") rather than search by query. Returns chunks plus a total match count for pagination.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "entity_ids": {
+                "description": "Restrict to chunks referencing any of these canonical entity ids (e.g. `person:Alice`, `email:alice@example.com`). Use `tree.top_entities` to discover these.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "k": {
+                "description": "Maximum chunks per page. Defaults to 10; capped at 50.",
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "offset": {
+                "description": "Pagination offset (number of rows to skip). Defaults to 0.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "query": {
+                "description": "Substring keyword filter over the chunk preview text.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "since_ms": {
+                "description": "Inclusive lower bound on chunk timestamp, in milliseconds since Unix epoch.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "source_ids": {
+                "description": "Restrict to specific logical source ids (e.g. a Slack channel id). Use `tree.list_sources` to discover these.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "source_kinds": {
+                "description": "Restrict to one or more source kinds (e.g. `email`, `chat`, `document`). Omit to include all kinds.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "until_ms": {
+                "description": "Inclusive upper bound on chunk timestamp, in milliseconds since Unix epoch.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "name": "tree.browse"
+        },
+        {
+          "description": "List the most-referenced canonical entities (people, organizations, topics, emails) across the local memory tree. Call this for entity discovery before drilling in with `tree.browse` (passing `entity_ids`) or `memory.search`. Returns entities ordered by reference count.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "k": {
+                "description": "Maximum entities to return. Defaults to 10; capped at 50.",
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "kind": {
+                "description": "Restrict to a single entity kind (`person`, `email`, `topic`, `org`, …). Omit to span all kinds.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "name": "tree.top_entities"
+        },
+        {
+          "description": "List every distinct ingest source (Gmail account, Slack channel, Notion workspace, email thread, …) that has data in the memory tree, with chunk counts and last-activity timestamps. Use this when the user asks \"what data sources do I have\" or to discover source ids to pass into `tree.browse`.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "user_email_hint": {
+                "description": "When provided, the user's own email is stripped from email-thread display names so the other party shows up instead. Optional.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "name": "tree.list_sources"
+        },
+        {
+          "description": "Create a new memory document from content. The document is stored in the specified namespace (default `mcp`) and can be retrieved via `memory.search` or `memory.recall`.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "description": "The text content to store as a memory document.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "namespace": {
+                "description": "Namespace to store the document in. Defaults to `mcp` when omitted.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "tags": {
+                "description": "Optional tags for categorisation and filtering.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "title": {
+                "description": "Human-readable title for the memory document.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "content"
+            ],
+            "type": "object"
+          },
+          "name": "memory.store"
+        },
+        {
+          "description": "Append a note to an existing memory chunk by storing a linked annotation document. The note references the original chunk_id for provenance and can be retrieved alongside it.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "chunk_id": {
+                "description": "ID of the memory chunk to annotate. Use an ID from memory.search or memory.recall results.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "note_text": {
+                "description": "The note text to attach to the chunk.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "chunk_id",
+              "note_text"
+            ],
+            "type": "object"
+          },
+          "name": "memory.note"
+        },
+        {
+          "description": "Apply one or more category tags to an existing memory chunk. Stored as an upsertable tag-record document linked to the target chunk_id, so re-tagging the same chunk replaces the prior tag set rather than accumulating duplicate annotations. Differs from `memory.note` in that the payload is a categorical label list — queryable via the document `tags` field — rather than free-form text.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "chunk_id": {
+                "description": "ID of the memory chunk to tag. Use an ID from `memory.search`, `memory.recall`, or `tree.browse` results.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "tags": {
+                "description": "One or more category labels to attach (e.g. `[\"todo\", \"q3-planning\"]`). Re-tagging the same chunk replaces the prior tag set; supply the complete desired set on each call.",
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "required": [
+              "chunk_id",
+              "tags"
+            ],
+            "type": "object"
+          },
+          "name": "tree.tag"
+        }
+      ],
+      "duration_ms": 3,
+      "message": "Successfully listed 13 tools",
+      "name": "Tools Listing",
+      "status": "PASS"
+    },
+    {
+      "details": [
+        {
+          "description": "Core agent identity definition (IDENTITY.md).",
+          "name": "Agent Identity",
+          "uri": "openhuman://prompts/identity"
+        },
+        {
+          "description": "Core agent personality and values (SOUL.md).",
+          "name": "Agent Soul",
+          "uri": "openhuman://prompts/soul"
+        },
+        {
+          "description": "Core user-profile context injected into every session (USER.md).",
+          "name": "User Context",
+          "uri": "openhuman://prompts/user"
+        },
+        {
+          "description": "Chat-tier orchestrator that routes tasks to specialist subagents.",
+          "name": "orchestrator",
+          "uri": "openhuman://prompts/agents/orchestrator"
+        },
+        {
+          "description": "Reasoning-tier planner that grounds multi-step plans in integration data.",
+          "name": "planner",
+          "uri": "openhuman://prompts/agents/planner"
+        },
+        {
+          "description": "Sandboxed worker that writes and executes code.",
+          "name": "code_executor",
+          "uri": "openhuman://prompts/agents/code_executor"
+        },
+        {
+          "description": "Worker that executes Composio integration actions.",
+          "name": "integrations_agent",
+          "uri": "openhuman://prompts/agents/integrations_agent"
+        },
+        {
+          "description": "Specialist worker for wallet and on-chain operations.",
+          "name": "crypto_agent",
+          "uri": "openhuman://prompts/agents/crypto_agent"
+        },
+        {
+          "description": "Specialist worker for prediction-market venues (Polymarket, Kalshi).",
+          "name": "markets_agent",
+          "uri": "openhuman://prompts/agents/markets_agent"
+        },
+        {
+          "description": "Specialist worker for tiny.place identity, marketplace, messaging, and jobs.",
+          "name": "tinyplace_agent",
+          "uri": "openhuman://prompts/agents/tinyplace_agent"
+        },
+        {
+          "description": "Generalist worker with access to the full tool surface.",
+          "name": "tools_agent",
+          "uri": "openhuman://prompts/agents/tools_agent"
+        },
+        {
+          "description": "Sandboxed worker that creates new tools from descriptions.",
+          "name": "tool_maker",
+          "uri": "openhuman://prompts/agents/tool_maker"
+        },
+        {
+          "description": "Sandboxed worker that authors and publishes skill packages.",
+          "name": "skill_creator",
+          "uri": "openhuman://prompts/agents/skill_creator"
+        },
+        {
+          "description": "Worker that searches the web and synthesises research findings.",
+          "name": "researcher",
+          "uri": "openhuman://prompts/agents/researcher"
+        },
+        {
+          "description": "Read-only pre-flight worker that gathers context (memory, transcripts, goals, skills, integrations, web) and returns a bounded context bundle.",
+          "name": "context_scout",
+          "uri": "openhuman://prompts/agents/context_scout"
+        },
+        {
+          "description": "Read-only worker that critiques plans and outputs.",
+          "name": "critic",
+          "uri": "openhuman://prompts/agents/critic"
+        },
+        {
+          "description": "Multimodal worker that analyses attached images for the vision tier.",
+          "name": "vision_agent",
+          "uri": "openhuman://prompts/agents/vision_agent"
+        },
+        {
+          "description": "Worker that generates or edits images via GMI and saves them to the workspace.",
+          "name": "image_agent",
+          "uri": "openhuman://prompts/agents/image_agent"
+        },
+        {
+          "description": "Worker that generates short videos via GMI and saves them to the workspace.",
+          "name": "video_agent",
+          "uri": "openhuman://prompts/agents/video_agent"
+        },
+        {
+          "description": "Background worker that distils conversations into persistent memory.",
+          "name": "archivist",
+          "uri": "openhuman://prompts/agents/archivist"
+        },
+        {
+          "description": "Background curator that keeps the user's long-term goals list fresh.",
+          "name": "goals_agent",
+          "uri": "openhuman://prompts/agents/goals_agent"
+        },
+        {
+          "description": "Read-only worker that classifies incoming automation triggers.",
+          "name": "trigger_triage",
+          "uri": "openhuman://prompts/agents/trigger_triage"
+        },
+        {
+          "description": "Worker that executes actions in response to classified triggers.",
+          "name": "trigger_reactor",
+          "uri": "openhuman://prompts/agents/trigger_reactor"
+        },
+        {
+          "description": "Read-only worker that assembles a personalised morning briefing.",
+          "name": "morning_briefing",
+          "uri": "openhuman://prompts/agents/morning_briefing"
+        },
+        {
+          "description": "Worker that condenses long documents or conversations.",
+          "name": "summarizer",
+          "uri": "openhuman://prompts/agents/summarizer"
+        },
+        {
+          "description": "Read-only worker that answers questions from documentation.",
+          "name": "help",
+          "uri": "openhuman://prompts/agents/help"
+        },
+        {
+          "description": "Specialist worker for reminders, recurring jobs, and cron inspection.",
+          "name": "scheduler_agent",
+          "uri": "openhuman://prompts/agents/scheduler_agent"
+        },
+        {
+          "description": "Specialist worker for evidence-grounded presentation generation.",
+          "name": "presentation_agent",
+          "uri": "openhuman://prompts/agents/presentation_agent"
+        },
+        {
+          "description": "Worker that guides the user through MCP client configuration.",
+          "name": "mcp_setup",
+          "uri": "openhuman://prompts/agents/mcp_setup"
+        },
+        {
+          "description": "Worker that discovers and calls tools on already-connected MCP servers.",
+          "name": "mcp_agent",
+          "uri": "openhuman://prompts/agents/mcp_agent"
+        },
+        {
+          "description": "Specialist worker for task planning, status, and task-board changes.",
+          "name": "task_manager_agent",
+          "uri": "openhuman://prompts/agents/task_manager_agent"
+        },
+        {
+          "description": "Specialist worker for inspecting and updating OpenHuman settings.",
+          "name": "settings_agent",
+          "uri": "openhuman://prompts/agents/settings_agent"
+        },
+        {
+          "description": "Specialist worker for profile and long-term memory updates.",
+          "name": "profile_memory_agent",
+          "uri": "openhuman://prompts/agents/profile_memory_agent"
+        },
+        {
+          "description": "Specialist worker for connected account and integration administration.",
+          "name": "account_admin_agent",
+          "uri": "openhuman://prompts/agents/account_admin_agent"
+        },
+        {
+          "description": "Flow Scout — read-only workflow discovery agent that suggests automations from memory, threads, and integrations.",
+          "name": "flow_discovery",
+          "uri": "openhuman://prompts/agents/flow_discovery"
+        },
+        {
+          "description": "Workflow authoring specialist that builds tinyflows automation graphs and returns proposals for review.",
+          "name": "workflow_builder",
+          "uri": "openhuman://prompts/agents/workflow_builder"
+        },
+        {
+          "description": "Flow Memory Agent — read-only context and memory retrieval specialist a flow's `agent` node routes to for run-time context, style, history, or people lookups.",
+          "name": "flow_memory_agent",
+          "uri": "openhuman://prompts/agents/flow_memory_agent"
+        },
+        {
+          "description": "Dedicated memory retrieval subagent using smart-walk strategies.",
+          "name": "agent_memory",
+          "uri": "openhuman://prompts/agents/agent_memory"
+        },
+        {
+          "description": "Background awareness agent: diffs the user's world, prepares context, and decides what to do.",
+          "name": "subconscious",
+          "uri": "openhuman://prompts/agents/subconscious"
+        },
+        {
+          "description": "Worker that guides skill installation and backend configuration.",
+          "name": "skill_setup",
+          "uri": "openhuman://prompts/agents/skill_setup"
+        },
+        {
+          "description": "Sandboxed worker that runs installed skill packages.",
+          "name": "skill_executor",
+          "uri": "openhuman://prompts/agents/skill_executor"
+        }
+      ],
+      "duration_ms": 0,
+      "message": "Successfully listed 41 resources",
+      "name": "Resources Listing",
+      "status": "PASS"
+    },
+    {
+      "details": null,
+      "duration_ms": 0,
+      "message": "No prompts available",
+      "name": "Prompts Listing",
+      "status": "WARN"
+    },
+    {
+      "details": null,
+      "duration_ms": 0,
+      "message": "Correctly handles invalid methods",
+      "name": "Error Handling",
+      "status": "PASS"
+    }
+  ],
+  "summary": {
+    "failed": 0,
+    "passed": 6,
+    "skipped": 0,
+    "total_tests": 7,
+    "warnings": 1
+  }
+}

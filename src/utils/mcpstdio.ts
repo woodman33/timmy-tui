@@ -14,7 +14,7 @@ export const OPEN_DESIGN_MCP: McpServerCfg = {
     ? process.env.OD_MCP_ARGS.split('|')
     : ['/Applications/Open Design.app/Contents/Resources/app/prebundled/daemon/daemon-cli.mjs', 'mcp'],
   env: {
-    OD_DATA_DIR: process.env.OD_DATA_DIR ?? '/Users/williammeldman/Library/Application Support/Open Design/namespaces/release-stable/data',
+    OD_DATA_DIR: process.env.OD_DATA_DIR ?? '<home>/Library/Application Support/Open Design/namespaces/release-stable/data',
     OD_SIDECAR_IPC_PATH: process.env.OD_SIDECAR_IPC_PATH ?? '/tmp/open-design/ipc/release-stable/daemon.sock',
     ELECTRON_RUN_AS_NODE: '1'
   }

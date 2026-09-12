@@ -351,6 +351,76 @@ if (command === 'chat') {
   process.exit(r.status ?? 0);
 }
 
+if (command === 'drop') {
+  // warroom-v2-c4m8: `timmy drop --list [project]` — what sits in each project
+  // folder's drop/ shelf, read through Claude Code's harness-menu reader
+  const want = args.find(a => !a.startsWith('--')) ?? null;
+  const hm = await import('../fleet/harness-menu.mjs');
+  const { readdirSync, statSync } = await import('node:fs');
+  const names = (want ? [want] : readdirSync(hm.PROJECTS_ROOT, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)).sort();
+  const rows: { project: string; file: string; bytes: number }[] = [];
+  for (const n of names) {
+    const p = hm.readProject(n, hm.PROJECTS_ROOT);
+    for (const d of p.drop ?? []) {
+      const rel = String(d.path ?? d.name ?? '');
+      try { rows.push({ project: n, file: rel, bytes: statSync(`${p.dir}/drop/${rel}`).size }); }
+      catch { rows.push({ project: n, file: rel, bytes: 0 }); }
+    }
+  }
+  if (args.includes('--json')) console.log(JSON.stringify({ v: 1, count: rows.length, rows }, null, 1));
+  else if (rows.length === 0) console.log('drop shelves empty — timmy drop <project> <file> to feed a run');
+  else for (const r of rows) console.log(`${r.project.padEnd(14)} ${String(r.bytes).padStart(9)}  ${r.file}`);
+  process.exit(0);
+}
+
+if (command === 'profile') {
+  // warroom-t3b1: save/restore the war room from ~/timmy/projects/<name>/profile.cue
+  const name = String(args[1] ?? 'default');
+  const wr = await import('./harness/warroom.js');
+  if (args.includes('--restore')) {
+    const p = wr.loadProfile(name);
+    if (!p) { console.error(`no profile at ${wr.profilePath(name)}`); process.exit(2); }
+    const r = wr.startWarRoom(p);
+    console.log(r.ok ? `war room restored from ${wr.profilePath(name)} (session ${wr.WAR_SESSION})` : `restore failed: ${r.note}`);
+    process.exit(r.ok ? 0 : 1);
+  }
+  const p = wr.defaultProfile();
+  p.name = name;
+  const f = wr.saveProfile(p);
+  console.log(`profile saved → ${f}`);
+  process.exit(0);
+}
+if (command === 'starship') {
+  const { readChain } = await import('./utils/receipts.js');
+  const all = readChain('runs');
+  const head = String(all[all.length - 1]?.hash ?? '—').slice(7, 15);
+  const day = new Date().toISOString().slice(0, 10);
+  const spend = all.filter(r => String(r.ts).slice(0, 10) === day).reduce((n, r) => n + (r.cost_usd ?? 0), 0);
+  const profile = process.env.TIMMY_PROFILE ?? 'default';
+  console.log(`chain ${head} · $${spend.toFixed(2)} · ${profile}`);
+  process.exit(0);
+}
+if (command === 'zsh') {
+  if (args[1] !== 'install') { console.error('usage: timmy zsh install'); process.exit(2); }
+  const { homedir } = await import('os');
+  const { join } = await import('path');
+  const { existsSync, readFileSync, appendFileSync, mkdirSync } = await import('fs');
+  const zsh = join(homedir(), '.zshrc');
+  const block = [
+    '', '# timmy warroom (timmy zsh install)',
+    'tp() { export TIMMY_PROFILE="${1:-default}"; timmy profile "$TIMMY_PROFILE" --restore && tmux attach -t timmy-war; }',
+  ].join('\n');
+  const cur = existsSync(zsh) ? readFileSync(zsh, 'utf8') : '';
+  if (!cur.includes('tp() {')) appendFileSync(zsh, block + '\n');
+  const star = join(homedir(), '.config', 'starship.toml');
+  mkdirSync(join(homedir(), '.config'), { recursive: true });
+  const scur = existsSync(star) ? readFileSync(star, 'utf8') : '';
+  if (!scur.includes('[custom.timmy]')) {
+    appendFileSync(star, '\n[custom.timmy]\ncommand = "timmy starship"\ndescription = "chain head · spend · profile"\nwhen = true\nformat = "[$output]($style) "\nstyle = "bold green"\n');
+  }
+  console.log(`zsh installed: ${zsh} + ${star}`);
+  process.exit(0);
+}
 if (command === 'seal') {
   // Generic sealing verb (SHOWRUNNER Phase A-FIX): thin CLI wrapper over
   // the same appendReceipt path the chat uses. Subjects are data — no
@@ -381,6 +451,22 @@ if (command === 'seal') {
     console.error('usage: timmy seal <subject> [--meta k=v]…');
     process.exit(2);
   }
+  // privacy-d5n9 gate: a receipt is public evidence, so the seal tool refuses a
+  // subject or meta value that carries a secret, personal data, or a
+  // site-specific address (lanes/privacy/patterns.json). --allow-privacy is the
+  // operator's override and is itself recorded on the receipt.
+  {
+    const { loadPatterns, scanText } = await import('../lanes/privacy/scan.mjs');
+    const P = loadPatterns();
+    const text = [`subject=${subj}`, ...Object.entries(meta).map(([k, v]) => `${k}=${v}`)].join('\n');
+    const hits = scanText(text, 'seal', P, 'seal').filter((h) => ['critical', 'high', 'medium'].includes(h.severity));
+    if (hits.length && !args.includes('--allow-privacy')) {
+      console.error(`refused: ${hits.length} privacy finding(s) in the seal (${[...new Set(hits.map((h) => h.pattern))].join(', ')}); use node ids, relative paths and no addresses, or pass --allow-privacy`);
+      process.exit(3);
+    }
+    if (hits.length) meta.privacy_override = `allowed ${hits.length}: ${[...new Set(hits.map((h) => h.pattern))].join(',')}`;
+  }
+
   const { appendReceipt, receiptsDir, rootStoreDir } = await import('./utils/receipts.js');
   // STORE PIN preflight (order template line): print resolved store; STOP if not root.
   const rd = receiptsDir();
@@ -476,6 +562,40 @@ if (command === 'seal') {
   } as never);
   console.log(`sealed ${r.hash.slice(0, 16)}… · ${subj}`);
   process.exit(0);
+}
+
+if (command === 'nfc' || command === 'custody') {
+  // Vault Custody lanes: `timmy nfc program|template|selftest` programs NTAG 424
+  // DNA stickers over an ACR122U; `timmy custody commit` seals a box's contents
+  // before the sticker goes on. Both live under lanes/ and run under tsx so they
+  // can import the edge verifier's TypeScript (vault-custody/src/lib) directly —
+  // the programmer and the verifier must share one key derivation.
+  const lane = fileURLToPath(new URL(command === 'nfc' ? '../lanes/nfc/program.mjs' : '../lanes/custody/commit.mjs', import.meta.url));
+  const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
+if (command === 'privacy') {
+  // privacy-d5n9: `timmy privacy scan|audit|fixture|hook` — the public-repo privacy gate.
+  const lane = fileURLToPath(new URL('../lanes/privacy/scan.mjs', import.meta.url));
+  const r = spawnSync('node', [lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
+if (command === 'commander' || command === 'cf' || command === 'project' || command === 'sim' || command === 'swarm' || command === 'engine' || command === 'sandbox' || command === 'wire') {
+  // mindship-v5c2 lanes: `timmy commander …` drives the durable Commander on
+  // timmy-ai-proxy; `timmy cf …` is the Cloudflare war-room feed + verbs;
+  // `timmy project new|menu|list` is the project folder standard; `timmy sim
+  // run|replay` is THE SHIP story simulator. shelf-w6d3 lanes: `timmy engine …`
+  // is the engine shelf (inventory, env-locks, drop-folder runs), `timmy
+  // sandbox …` the OpenHands SDK container lane, `timmy wire …` the MCP wire
+  // tools; `timmy swarm …` (swarm-b3k7) runs swarm specs on the commander or
+  // locally. All live under lanes/ and run under tsx so they can import repo
+  // TypeScript where they need it.
+  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', engine: '../lanes/engines/lane.mjs', sandbox: '../lanes/sandbox/sandbox.mjs', wire: '../lanes/wire/wire.mjs', swarm: '../lanes/swarm/swarm.mjs' };
+  const lane = fileURLToPath(new URL(lanes[command], import.meta.url));
+  const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
 }
 
 if (command === 'verify') {

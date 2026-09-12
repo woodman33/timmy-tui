@@ -1,0 +1,501 @@
+{
+  "generated_at": "2026-09-07T12:39:11.173397Z",
+  "session": {
+    "id": "rive_animator-37112-d72d6d1e6d57",
+    "label": "rive_animator",
+    "first": "2026-09-07T05:39:09.167407-07:00",
+    "last": "2026-09-07T05:39:09.67936-07:00",
+    "requests": 3,
+    "responses": 3,
+    "notifications": 1,
+    "errors": 0,
+    "pending": 0,
+    "late_results": 0,
+    "missing_frames": 0
+  },
+  "summary": {
+    "definitions": {
+      "tools": 3,
+      "bytes": 1125,
+      "complete": true,
+      "per_tool": [
+        {
+          "name": "rive_call_editor_tool",
+          "bytes": 538,
+          "description_bytes": 73,
+          "schema_bytes": 331,
+          "findings": [
+            "nonDefaultDialect"
+          ]
+        },
+        {
+          "name": "rive_list_editor_tools",
+          "bytes": 295,
+          "description_bytes": 74,
+          "schema_bytes": 85,
+          "findings": [
+            "nonDefaultDialect"
+          ]
+        },
+        {
+          "name": "rive_editor_status",
+          "bytes": 292,
+          "description_bytes": 75,
+          "schema_bytes": 85,
+          "findings": [
+            "nonDefaultDialect"
+          ]
+        }
+      ]
+    },
+    "tools": [],
+    "slowest_calls": []
+  },
+  "capabilities": {
+    "protocol_version": "2025-11-25",
+    "client_info": {
+      "name": "mcpc",
+      "version": "0.6.0"
+    },
+    "server_info": {
+      "name": "rive-animator",
+      "version": "0.1.0"
+    },
+    "client": {
+      "tasks": {
+        "list": {},
+        "cancel": {}
+      }
+    },
+    "server": {
+      "tools": {
+        "listChanged": true
+      }
+    }
+  },
+  "calls": [
+    {
+      "index": 0,
+      "id": "0",
+      "method": "initialize",
+      "direction": "c2s",
+      "state": "completed",
+      "status": "ok",
+      "is_tool": false,
+      "is_error": false,
+      "tool_error": false,
+      "started_at": "2026-09-07T05:39:09.169204-07:00",
+      "ended_at": "2026-09-07T05:39:09.49361-07:00",
+      "duration_ms": 324.406,
+      "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "tasks": {
+            "list": {},
+            "cancel": {}
+          }
+        },
+        "clientInfo": {
+          "name": "mcpc",
+          "version": "0.6.0"
+        }
+      },
+      "result": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "tools": {
+            "listChanged": true
+          }
+        },
+        "serverInfo": {
+          "name": "rive-animator",
+          "version": "0.1.0"
+        }
+      }
+    },
+    {
+      "index": 1,
+      "id": "1",
+      "method": "tools/list",
+      "direction": "c2s",
+      "state": "completed",
+      "status": "ok",
+      "is_tool": false,
+      "is_error": false,
+      "tool_error": false,
+      "started_at": "2026-09-07T05:39:09.503742-07:00",
+      "ended_at": "2026-09-07T05:39:09.507128-07:00",
+      "duration_ms": 3.386,
+      "params": {},
+      "result": {
+        "tools": [
+          {
+            "name": "rive_editor_status",
+            "title": "Rive Editor MCP Status",
+            "description": "Check whether Rive Early Access's local editor MCP endpoint is reachable.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "type": "object",
+              "properties": {}
+            },
+            "execution": {
+              "taskSupport": "forbidden"
+            }
+          },
+          {
+            "name": "rive_list_editor_tools",
+            "title": "List Rive Editor Tools",
+            "description": "List tools exposed by the running Rive Early Access editor MCP endpoint.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "type": "object",
+              "properties": {}
+            },
+            "execution": {
+              "taskSupport": "forbidden"
+            }
+          },
+          {
+            "name": "rive_call_editor_tool",
+            "title": "Call Rive Editor Tool",
+            "description": "Call any tool exposed by Rive Early Access's local editor MCP endpoint.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Rive editor tool name."
+                },
+                "arguments": {
+                  "default": {},
+                  "description": "JSON arguments to pass to the Rive editor tool.",
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "name"
+              ]
+            },
+            "execution": {
+              "taskSupport": "forbidden"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "id": "2",
+      "method": "tools/list",
+      "direction": "c2s",
+      "state": "completed",
+      "status": "ok",
+      "is_tool": false,
+      "is_error": false,
+      "tool_error": false,
+      "started_at": "2026-09-07T05:39:09.676802-07:00",
+      "ended_at": "2026-09-07T05:39:09.67936-07:00",
+      "duration_ms": 2.558,
+      "params": {},
+      "result": {
+        "tools": [
+          {
+            "name": "rive_editor_status",
+            "title": "Rive Editor MCP Status",
+            "description": "Check whether Rive Early Access's local editor MCP endpoint is reachable.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "type": "object",
+              "properties": {}
+            },
+            "execution": {
+              "taskSupport": "forbidden"
+            }
+          },
+          {
+            "name": "rive_list_editor_tools",
+            "title": "List Rive Editor Tools",
+            "description": "List tools exposed by the running Rive Early Access editor MCP endpoint.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "type": "object",
+              "properties": {}
+            },
+            "execution": {
+              "taskSupport": "forbidden"
+            }
+          },
+          {
+            "name": "rive_call_editor_tool",
+            "title": "Call Rive Editor Tool",
+            "description": "Call any tool exposed by Rive Early Access's local editor MCP endpoint.",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Rive editor tool name."
+                },
+                "arguments": {
+                  "default": {},
+                  "description": "JSON arguments to pass to the Rive editor tool.",
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "name"
+              ]
+            },
+            "execution": {
+              "taskSupport": "forbidden"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "seq": 2,
+      "timestamp": "2026-09-07T05:39:09.169204-07:00",
+      "direction": "c2s",
+      "kind": "request",
+      "method": "initialize",
+      "id": "0",
+      "call_index": 0,
+      "raw": {
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2025-11-25",
+          "capabilities": {
+            "tasks": {
+              "list": {},
+              "cancel": {}
+            }
+          },
+          "clientInfo": {
+            "name": "mcpc",
+            "version": "0.6.0"
+          }
+        },
+        "jsonrpc": "2.0",
+        "id": 0
+      }
+    },
+    {
+      "seq": 3,
+      "timestamp": "2026-09-07T05:39:09.49361-07:00",
+      "direction": "s2c",
+      "kind": "response",
+      "id": "0",
+      "call_index": 0,
+      "raw": {
+        "result": {
+          "protocolVersion": "2025-11-25",
+          "capabilities": {
+            "tools": {
+              "listChanged": true
+            }
+          },
+          "serverInfo": {
+            "name": "rive-animator",
+            "version": "0.1.0"
+          }
+        },
+        "jsonrpc": "2.0",
+        "id": 0
+      }
+    },
+    {
+      "seq": 4,
+      "timestamp": "2026-09-07T05:39:09.497153-07:00",
+      "direction": "c2s",
+      "kind": "notification",
+      "method": "notifications/initialized",
+      "raw": {
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized"
+      }
+    },
+    {
+      "seq": 5,
+      "timestamp": "2026-09-07T05:39:09.503742-07:00",
+      "direction": "c2s",
+      "kind": "request",
+      "method": "tools/list",
+      "id": "1",
+      "call_index": 1,
+      "raw": {
+        "method": "tools/list",
+        "params": {},
+        "jsonrpc": "2.0",
+        "id": 1
+      }
+    },
+    {
+      "seq": 6,
+      "timestamp": "2026-09-07T05:39:09.507128-07:00",
+      "direction": "s2c",
+      "kind": "response",
+      "id": "1",
+      "call_index": 1,
+      "raw": {
+        "result": {
+          "tools": [
+            {
+              "name": "rive_editor_status",
+              "title": "Rive Editor MCP Status",
+              "description": "Check whether Rive Early Access's local editor MCP endpoint is reachable.",
+              "inputSchema": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "type": "object",
+                "properties": {}
+              },
+              "execution": {
+                "taskSupport": "forbidden"
+              }
+            },
+            {
+              "name": "rive_list_editor_tools",
+              "title": "List Rive Editor Tools",
+              "description": "List tools exposed by the running Rive Early Access editor MCP endpoint.",
+              "inputSchema": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "type": "object",
+                "properties": {}
+              },
+              "execution": {
+                "taskSupport": "forbidden"
+              }
+            },
+            {
+              "name": "rive_call_editor_tool",
+              "title": "Call Rive Editor Tool",
+              "description": "Call any tool exposed by Rive Early Access's local editor MCP endpoint.",
+              "inputSchema": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Rive editor tool name."
+                  },
+                  "arguments": {
+                    "default": {},
+                    "description": "JSON arguments to pass to the Rive editor tool.",
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              },
+              "execution": {
+                "taskSupport": "forbidden"
+              }
+            }
+          ]
+        },
+        "jsonrpc": "2.0",
+        "id": 1
+      }
+    },
+    {
+      "seq": 7,
+      "timestamp": "2026-09-07T05:39:09.676802-07:00",
+      "direction": "c2s",
+      "kind": "request",
+      "method": "tools/list",
+      "id": "2",
+      "call_index": 2,
+      "raw": {
+        "method": "tools/list",
+        "params": {},
+        "jsonrpc": "2.0",
+        "id": 2
+      }
+    },
+    {
+      "seq": 8,
+      "timestamp": "2026-09-07T05:39:09.67936-07:00",
+      "direction": "s2c",
+      "kind": "response",
+      "id": "2",
+      "call_index": 2,
+      "raw": {
+        "result": {
+          "tools": [
+            {
+              "name": "rive_editor_status",
+              "title": "Rive Editor MCP Status",
+              "description": "Check whether Rive Early Access's local editor MCP endpoint is reachable.",
+              "inputSchema": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "type": "object",
+                "properties": {}
+              },
+              "execution": {
+                "taskSupport": "forbidden"
+              }
+            },
+            {
+              "name": "rive_list_editor_tools",
+              "title": "List Rive Editor Tools",
+              "description": "List tools exposed by the running Rive Early Access editor MCP endpoint.",
+              "inputSchema": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "type": "object",
+                "properties": {}
+              },
+              "execution": {
+                "taskSupport": "forbidden"
+              }
+            },
+            {
+              "name": "rive_call_editor_tool",
+              "title": "Call Rive Editor Tool",
+              "description": "Call any tool exposed by Rive Early Access's local editor MCP endpoint.",
+              "inputSchema": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Rive editor tool name."
+                  },
+                  "arguments": {
+                    "default": {},
+                    "description": "JSON arguments to pass to the Rive editor tool.",
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              },
+              "execution": {
+                "taskSupport": "forbidden"
+              }
+            }
+          ]
+        },
+        "jsonrpc": "2.0",
+        "id": 2
+      }
+    }
+  ]
+}

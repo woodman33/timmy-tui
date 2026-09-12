@@ -1,0 +1,11 @@
+# §12 negative control for the privacy gate — this file MUST trip the scan (fake values, none real)
+OPENROUTER_API_KEY=sk-or-v1-0123456789abcdef0123456789abcdef0123456789abcdef
+TIMMY_EDGE_TOKEN=deadbeefdeadbeefdeadbeefdeadbeef
+tskey-auth-kFAKEFAKEFAKE-0123456789abcdefFAKE
+someone.private@gmail.com
+(555) 201-4242
+/Users/someuser/Desktop/private-notes.md
+user login: williammeldman
+tailnet 100.101.232.55 fd7a:115c:a1e0::4f38:e837 host spark-3090 spark-2509.tail3d1e15.ts.net
+lan 192.168.1.110 mac 4c:bb:47:80:30:90
+Discovery Land pitch draft (not on the public site)

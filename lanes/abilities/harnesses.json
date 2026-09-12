@@ -1,0 +1,252 @@
+{
+  "$comment": "Per-harness probe plan consumed by probe.mjs. Placeholders: {BIN} {HOME} {SCRATCH} {CWD} {PROMPT} {MODEL} {TSX} {CLI} {WORKTREE}. Env values written as \"$OPENROUTER_API_KEY\" are resolved from the runner's process.env at spawn time and are never written to any output file.",
+  "scratch_root": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities",
+  "timeout_ms": 120000,
+  "mcp_server": {
+    "$comment": "Timmy's own MCP server. The literal task spec says `npx tsx <cli.ts> mcp serve`; tsx is not on PATH globally and npx from a foreign cwd would block on an interactive install prompt, so the worktree's node_modules/.bin/tsx is used directly (same program).",
+    "tsx": "{WORKTREE}/node_modules/.bin/tsx",
+    "cli": "{WORKTREE}/src/cli.ts",
+    "tool": "timmy_env_lock"
+  },
+  "harnesses": {
+    "jcode": {
+      "bin": "<home>/.local/bin/jcode",
+      "kind": "local coding agent (Rust binary, background daemon + client)",
+      "model": "google/gemini-3.7-flash",
+      "model_route": "OpenRouter via built-in `openrouter` provider; key read from OPENROUTER_API_KEY env",
+      "isolation": "JCODE_HOME={HOME} + --socket {HOME}/jcode.sock so a private daemon is used; user's ~/.jcode untouched",
+      "env": {
+        "JCODE_HOME": "{HOME}",
+        "JCODE_NO_TELEMETRY": "1",
+        "OPENROUTER_API_KEY": "$OPENROUTER_API_KEY"
+      },
+      "discovery": [
+        { "name": "help", "argv": ["{BIN}", "--help"] },
+        { "name": "run_help", "argv": ["{BIN}", "run", "--help"] },
+        { "name": "version", "argv": ["{BIN}", "version"] }
+      ],
+      "version": { "argv": ["{BIN}", "version"], "regex": "semver\\s+(\\S+)" },
+      "mcp": {
+        "surface_from": ["help", "run_help"],
+        "setup_files": [
+          {
+            "path": "{HOME}/mcp.json",
+            "json": { "servers": { "timmy": { "type": "stdio", "command": "{TSX}", "args": ["{CLI}", "mcp", "serve"], "env": {} } } }
+          }
+        ],
+        "note": "jcode reads <JCODE_HOME>/mcp.json ({\"servers\":{...}} shape, same as the user's real ~/.jcode/mcp.json). Written into the isolated JCODE_HOME before the daemon starts; --mcp-tools eager forces exposure."
+      },
+      "base_argv": ["{BIN}", "run", "--no-update", "--ndjson", "-p", "openrouter", "-m", "{MODEL}", "--socket", "{HOME}/jcode.sock", "-C", "{CWD}"],
+      "probes": {
+        "one_shot": { "argv": ["...base", "{PROMPT}"] },
+        "file_edits": { "argv": ["...base", "{PROMPT}"] },
+        "tool_use": { "argv": ["...base", "{PROMPT}"] },
+        "browser": { "argv": ["...base", "{PROMPT}"] },
+        "sandbox": { "argv": ["...base", "{PROMPT}"] },
+        "mcp_client": { "model": "anthropic/claude-haiku-4.5", "argv": ["{BIN}", "run", "--no-update", "--ndjson", "-p", "openrouter", "-m", "{MODEL}", "--socket", "{HOME}/jcode.sock", "-C", "{CWD}", "--mcp-tools", "eager", "{PROMPT}"] }
+      },
+      "mcp_model_note": "mcp_client runs on anthropic/claude-haiku-4.5 instead of gemini-3.7-flash: with Gemini the harness DID load and forward Timmy's MCP tools, but Google rejected the whole request because Timmy's timmy_promo_apply tool declares `beats: {type:'array'}` without `items` (function_declarations[35].parameters.properties[beats].items: missing field). That is a Timmy schema bug, not a harness limitation; Anthropic accepts the schema.",
+      "tool_call_regex": "\"type\":\"tool[_a-z]*\"",
+      "cleanup": [
+        { "name": "server_stop", "argv": ["{BIN}", "server", "stop", "--socket", "{HOME}/jcode.sock"] }
+      ]
+    },
+    "opencode": {
+      "bin": "/opt/homebrew/bin/opencode",
+      "kind": "local coding agent (Bun-compiled binary)",
+      "model": "google/gemini-3.7-flash",
+      "model_route": "OpenRouter via `-m openrouter/<model>`; key read from OPENROUTER_API_KEY env",
+      "isolation": "OPENCODE_CONFIG_DIR={HOME} replaces ~/.config/opencode; project-level opencode.json in the probe cwd for MCP. Claude-Code compat + external skills disabled so the user's ~/.claude skill library (which pushed a bare PONG to ~159k input tokens in a smoke test) is not injected.",
+      "env": {
+        "OPENCODE_CONFIG_DIR": "{HOME}",
+        "OPENCODE_DISABLE_AUTOUPDATE": "1",
+        "OPENCODE_DISABLE_CLAUDE_CODE": "1",
+        "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1",
+        "OPENROUTER_API_KEY": "$OPENROUTER_API_KEY"
+      },
+      "discovery": [
+        { "name": "help", "argv": ["{BIN}", "--help"] },
+        { "name": "run_help", "argv": ["{BIN}", "run", "--help"] },
+        { "name": "mcp_help", "argv": ["{BIN}", "mcp", "--help"] },
+        { "name": "version", "argv": ["{BIN}", "--version"] }
+      ],
+      "version": { "argv": ["{BIN}", "--version"], "regex": "(\\d+\\.\\d+\\.\\d+)" },
+      "mcp": {
+        "surface_from": ["help", "mcp_help"],
+        "setup_files": [
+          {
+            "path": "{CWD}/opencode.json",
+            "json": { "$schema": "https://opencode.ai/config.json", "mcp": { "timmy": { "type": "local", "command": ["{TSX}", "{CLI}", "mcp", "serve"], "enabled": true } } }
+          }
+        ],
+        "pre": [ { "name": "mcp_list", "argv": ["{BIN}", "mcp", "list", "--dir", "{CWD}"] } ],
+        "note": "Project-scoped opencode.json in the probe's temp cwd (never the user's ~/.config/opencode)."
+      },
+      "base_argv": ["{BIN}", "run", "--dir", "{CWD}", "-m", "openrouter/{MODEL}", "--format", "json", "--auto"],
+      "probes": {
+        "one_shot": { "argv": ["...base", "{PROMPT}"] },
+        "file_edits": { "argv": ["...base", "{PROMPT}"] },
+        "tool_use": { "argv": ["...base", "{PROMPT}"] },
+        "browser": { "argv": ["...base", "{PROMPT}"] },
+        "sandbox": { "argv": ["...base", "{PROMPT}"] },
+        "mcp_client": { "model": "anthropic/claude-haiku-4.5", "argv": ["...base", "{PROMPT}"] }
+      },
+      "mcp_model_note": "mcp_client runs on anthropic/claude-haiku-4.5 (see jcode.mcp_model_note: Gemini rejects Timmy's timmy_promo_apply schema).",
+      "tool_call_regex": "\"type\":\"tool\"|\"tool\":\"[a-z_]+\""
+    },
+    "pi": {
+      "bin": "/opt/homebrew/bin/pi",
+      "kind": "local coding agent (@mariozechner/pi-coding-agent, Node)",
+      "model": "glm-5.3-flash:cloud",
+      "model_route": "Ollama (http://localhost:11434/v1, openai-completions) exactly as the user runs it (memory: pi-ollama-launchers); cloud model routed through the local daemon. First attempt used qwen3-coder-next:cloud, which Ollama Cloud reports as retired since 2026-07-15 (HTTP 410), so glm-5.3-flash:cloud (verified alive with a direct curl) is used with thinking off.",
+      "isolation": "PI_CODING_AGENT_DIR={HOME} (fresh agent dir with models.json/settings.json written by the runner). The user's real ~/.pi/agent currently fails to start: settings.json packages include npm:@astrofoundry/pi-astro whose global npm install is broken, and pi aborts before parsing args (even with -ne).",
+      "env": {
+        "PI_CODING_AGENT_DIR": "{HOME}",
+        "PI_SKIP_VERSION_CHECK": "1"
+      },
+      "setup_files": [
+        {
+          "path": "{HOME}/models.json",
+          "json": { "providers": { "ollama": { "api": "openai-completions", "apiKey": "ollama", "baseUrl": "http://localhost:11434/v1", "models": [ { "id": "qwen3-coder-next:cloud", "input": ["text"] }, { "id": "glm-5.3-flash:cloud", "input": ["text"], "reasoning": true }, { "id": "glm-5.2:cloud", "contextWindow": 1000000, "input": ["text"], "reasoning": true }, { "id": "gemma4:12b-it-qat", "input": ["text"] } ] } } }
+        },
+        { "path": "{HOME}/settings.json", "json": { "defaultProvider": "ollama", "defaultModel": "glm-5.3-flash:cloud", "quietStartup": true, "packages": [] } }
+      ],
+      "discovery": [
+        { "name": "help", "argv": ["{BIN}", "--help"] },
+        { "name": "version", "argv": ["{BIN}", "--version"] },
+        { "name": "list_models", "argv": ["{BIN}", "--list-models", "ollama"] }
+      ],
+      "version": { "argv": ["{BIN}", "--version"], "regex": "(\\d+\\.\\d+\\.\\d+)" },
+      "mcp": {
+        "surface_from": ["help"],
+        "extension_dir": "/opt/homebrew/lib/node_modules/pi-mcp-adapter",
+        "setup_files": [
+          { "path": "{CWD}/.mcp.json", "json": { "mcpServers": { "timmy": { "command": "{TSX}", "args": ["{CLI}", "mcp", "serve"] } } } }
+        ],
+        "note": "pi has no built-in MCP client; MCP arrives via the pi-mcp-adapter extension. The user's copy at /opt/homebrew/lib/node_modules/pi-mcp-adapter is loaded explicitly with -e (no install), and the server is declared in a project-local .mcp.json inside the temp cwd. Caveat found while running: that adapter is built against @earendil-works/pi-coding-agent 0.84.1 (a second pi install at ~/.local/bin/pi -> ~/.hermes/node/bin/pi), not the pinned /opt/homebrew/bin/pi (@mariozechner 0.73.1), and fails to load with 'Cannot find module @earendil-works/pi-ai/compat'."
+      },
+      "base_argv": ["{BIN}", "-p", "--mode", "json", "--no-session", "--provider", "ollama", "--model", "{MODEL}", "--thinking", "off"],
+      "probes": {
+        "one_shot": { "argv": ["...base", "{PROMPT}"] },
+        "file_edits": { "argv": ["...base", "{PROMPT}"] },
+        "tool_use": { "argv": ["...base", "{PROMPT}"] },
+        "browser": { "argv": ["...base", "{PROMPT}"] },
+        "sandbox": { "argv": ["...base", "{PROMPT}"] },
+        "mcp_client": { "argv": ["{BIN}", "-p", "--mode", "json", "--no-session", "--provider", "ollama", "--model", "{MODEL}", "--thinking", "off", "-e", "/opt/homebrew/lib/node_modules/pi-mcp-adapter", "{PROMPT}"] }
+      },
+      "tool_call_regex": "\"type\":\"tool_execution_start\"|\"type\":\"toolCall\"|\"toolCall\""
+    },
+    "hermes": {
+      "bin": "<home>/.local/bin/hermes",
+      "kind": "local agent (Python, Nous Hermes Agent); bin is a bash wrapper around ~/.hermes/hermes-agent/venv/bin/hermes",
+      "model": "google/gemini-3.7-flash",
+      "model_route": "OpenRouter via --provider openrouter -m <model>; key read from OPENROUTER_API_KEY env",
+      "isolation": "HERMES_HOME={HOME} (fresh home, own config.yaml/auth.json/state.db); user's ~/.hermes untouched",
+      "env": {
+        "HERMES_HOME": "{HOME}",
+        "OPENROUTER_API_KEY": "$OPENROUTER_API_KEY"
+      },
+      "discovery": [
+        { "name": "help", "argv": ["{BIN}", "--help"] },
+        { "name": "mcp_help", "argv": ["{BIN}", "mcp", "--help"] },
+        { "name": "version", "argv": ["{BIN}", "version"] }
+      ],
+      "version": { "argv": ["{BIN}", "version"], "regex": "Hermes Agent v(\\S+ \\(\\S+\\))" },
+      "mcp": {
+        "surface_from": ["help", "mcp_help"],
+        "setup_files": [
+          { "path": "{HOME}/config.yaml", "text": "mcp_servers:\n  timmy:\n    command: {TSX}\n    args:\n      - {CLI}\n      - mcp\n      - serve\n    enabled: true\n" }
+        ],
+        "pre": [
+          { "name": "mcp_list", "argv": ["{BIN}", "mcp", "list"] },
+          { "name": "mcp_test", "argv": ["{BIN}", "mcp", "test", "timmy"] }
+        ],
+        "note": "The mcp_servers block is written straight into <HERMES_HOME>/config.yaml of the isolated home (the same {command,args,enabled} shape `hermes mcp add` saves). First pass tried `hermes mcp add`: it connected and listed all 23 Timmy tools but then hit input() -> EOFError on the no-TTY confirmation and printed 'Cancelled.' without saving, so `mcp add` is interactive-only."
+      },
+      "base_argv": ["{BIN}", "-z", "{PROMPT}", "--provider", "openrouter", "-m", "{MODEL}"],
+      "probes": {
+        "one_shot": { "argv": ["...base"] },
+        "file_edits": { "argv": ["...base"] },
+        "tool_use": { "argv": ["...base"] },
+        "browser": { "argv": ["...base"] },
+        "sandbox": { "argv": ["...base"] },
+        "mcp_client": { "model": "anthropic/claude-haiku-4.5", "argv": ["...base"] }
+      },
+      "mcp_model_note": "mcp_client runs on anthropic/claude-haiku-4.5 (see jcode.mcp_model_note: Gemini rejects Timmy's timmy_promo_apply schema).",
+      "tool_call_regex": "(?!)",
+      "tool_call_note": "-z one-shot prints only the final answer, so tool calls are not visible in the transcript; file_edits (file on disk) is the hard evidence."
+    },
+    "openhands": {
+      "bin": "<home>/.local/bin/openhands",
+      "kind": "local coding agent CLI (Python, OpenHands SDK); bin is a uv-tool python entry script",
+      "model": "google/gemini-3.7-flash",
+      "model_route": "OpenRouter via LiteLLM: LLM_MODEL=openrouter/<model>, LLM_BASE_URL=https://openrouter.ai/api/v1, LLM_API_KEY from env, enabled with --override-with-envs",
+      "isolation": "HOME={SCRATCH}/fakehome plus OPENHANDS_PERSISTENCE_DIR={HOME}. A fake HOME is required, not just nice: with the real HOME the SDK crawls ~/.agents/skills (1,632 skill symlinks, 34,572 files, 280 MB on this machine; no env override exists) and had not finished loading skills after 120 s in three attempts, and it also writes ~/.openhands/cache/skills. The public-skills git clone is copied from the user's existing cache into the fake HOME so no network clone is needed. User's ~/.openhands config untouched.",
+      "env": {
+        "HOME": "{SCRATCH}/fakehome",
+        "OPENHANDS_PERSISTENCE_DIR": "{HOME}",
+        "OPENHANDS_SUPPRESS_BANNER": "1",
+        "PYTHONUNBUFFERED": "1",
+        "LLM_MODEL": "openrouter/{MODEL}",
+        "LLM_BASE_URL": "https://openrouter.ai/api/v1",
+        "LLM_API_KEY": "$OPENROUTER_API_KEY"
+      },
+      "setup_files": [
+        { "copy": "{HOMEDIR}/.openhands/cache/skills/public-skills", "to": "{SCRATCH}/fakehome/.openhands/cache/skills/public-skills" }
+      ],
+      "discovery": [
+        { "name": "help", "argv": ["{BIN}", "--help"] },
+        { "name": "mcp_help", "argv": ["{BIN}", "mcp", "--help"] },
+        { "name": "version", "argv": ["{BIN}", "--version"] }
+      ],
+      "version": { "argv": ["{BIN}", "--version"], "regex": "OpenHands CLI (\\S+)" },
+      "docker_ps": true,
+      "mcp": {
+        "surface_from": ["help", "mcp_help"],
+        "pre": [
+          { "name": "mcp_add", "argv": ["{BIN}", "mcp", "add", "timmy", "--transport", "stdio", "{TSX}", "--", "{CLI}", "mcp", "serve"] },
+          { "name": "mcp_list", "argv": ["{BIN}", "mcp", "list"] }
+        ],
+        "note": "`openhands mcp add` writes <OPENHANDS_PERSISTENCE_DIR>/mcp.json in the isolated dir. Measured outcome: openhands spawns Timmy's server and discovers its tools, then aborts the conversation with ConversationErrorEvent TypeError \"Field 'kind' of class 'MCPTimmyGenRunAction' overrides symbol of same name in a parent class\" — Timmy's timmy_gen_run tool has an input parameter literally named `kind`, which collides with the OpenHands SDK's pydantic `kind` discriminator on generated MCP action classes. So the client exists and connects, but no tool call can be made against Timmy's server as-is (rename the parameter, or the SDK must namespace it)."
+      },
+      "base_argv": ["{BIN}", "--headless", "--json", "--override-with-envs", "--always-approve", "--exit-without-confirmation", "-t", "{PROMPT}"],
+      "probes": {
+        "one_shot": { "argv": ["...base"] },
+        "file_edits": { "argv": ["...base"] },
+        "tool_use": { "argv": ["...base"] },
+        "browser": { "argv": ["...base"] },
+        "sandbox": { "argv": ["...base"] },
+        "mcp_client": { "model": "anthropic/claude-haiku-4.5", "argv": ["...base"] }
+      },
+      "mcp_model_note": "mcp_client runs on openrouter/anthropic/claude-haiku-4.5 via LLM_MODEL (see jcode.mcp_model_note: Gemini rejects Timmy's timmy_promo_apply schema).",
+      "tool_call_regex": "ActionEvent|\"tool_name\"|\"kind\": ?\"[A-Za-z]*Action\""
+    },
+    "minds": {
+      "bin": "/opt/homebrew/bin/minds",
+      "kind": "NOT a local coding agent: '@animocabrands/minds-cli' is a JSON client for hosted 'Minds' conversations (send/history/events); tools, files and browsing (if any) run on the remote Mind, not on this machine",
+      "model": null,
+      "model_route": "none locally; requires MINDS_BUILDER_API_KEY (not set anywhere in this environment) and a hosted Mind alias",
+      "isolation": "no config written; only read-only diagnostics run",
+      "env": {},
+      "discovery": [
+        { "name": "help", "argv": ["{BIN}", "--help"] },
+        { "name": "version", "argv": ["{BIN}", "--version"] },
+        { "name": "send_help", "argv": ["{BIN}", "send", "--help"] },
+        { "name": "chat_help", "argv": ["{BIN}", "chat", "--help"] },
+        { "name": "doctor", "argv": ["{BIN}", "doctor"] }
+      ],
+      "version": { "argv": ["{BIN}", "--version"], "regex": "(\\d+\\.\\d+\\.\\d+)" },
+      "mcp": { "surface_from": ["help", "send_help", "chat_help"] },
+      "probes": {
+        "one_shot": { "argv": ["{BIN}", "send", "main", "{PROMPT}", "--wait", "--timeout", "30000"], "expect": "not_configured" },
+        "file_edits": null,
+        "tool_use": null,
+        "browser": null,
+        "sandbox": null,
+        "mcp_client": null
+      },
+      "null_reason": "minds is a thin client for a hosted agent; with no MINDS_BUILDER_API_KEY nothing can be sent, and even when configured the tool/file/browser work would execute remotely, so local file_edits/tool_use/browser/sandbox are not measurable here",
+      "tool_call_regex": "(?!)"
+    }
+  }
+}

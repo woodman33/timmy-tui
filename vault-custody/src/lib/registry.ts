@@ -8,6 +8,7 @@ import seriesJson from '../data/series.json';
 import logJson from '../data/log.json';
 import manufacturerJson from '../data/manufacturer.json';
 import { hex, type SunKeys } from './sun.js';
+import { deriveBatchMetaKey, deriveTagFileKey, type BatchMaster } from './divkey.js';
 
 export type TimelineKind = 'sealed' | 'opened' | 'pack';
 export interface TimelineEntry { kind: TimelineKind; title: string; meta: string }
@@ -59,19 +60,79 @@ export function tagFor(uidHex: string): TagRecord | undefined {
   return tags[uidHex.toLowerCase()];
 }
 
-/** Resolve the keyset for a tag. `overrides` is the CUSTODY_KEYS env JSON, when present. */
-export function keysFor(tag: TagRecord | undefined, overrides?: string): SunKeys {
-  const set = tag?.keyset ?? 'demo';
-  let table: Record<string, { metaReadKey: string; fileReadKey: string }> = tagsJson.keys;
+/**
+ * A keyset is either a literal pair (the pilot fixtures, the published AN12196
+ * demo keys) or a diversified batch: two masters plus a label, from which
+ * `divkey.ts` derives one meta-read key per batch and one file-read key per
+ * tag. Programmed tags use the diversified form; the same module derived the
+ * keys that were written to the chip.
+ */
+export type KeysetEntry =
+  | { kind?: 'static'; metaReadKey: string; fileReadKey: string }
+  | ({ kind: 'diversified' } & BatchMaster);
+
+export function isDiversified(k: KeysetEntry): k is { kind: 'diversified' } & BatchMaster {
+  return (k as { kind?: string }).kind === 'diversified';
+}
+
+/** The keyset table: fixtures, extended and overridden by the CUSTODY_KEYS env JSON. */
+export function keyTable(overrides?: string): Record<string, KeysetEntry> {
+  const table = { ...(tagsJson.keys as unknown as Record<string, KeysetEntry>) };
   if (overrides) {
     try {
-      table = { ...table, ...(JSON.parse(overrides) as typeof table) };
+      Object.assign(table, JSON.parse(overrides) as Record<string, KeysetEntry>);
     } catch {
       /* bad override JSON: fall through to fixtures */
     }
   }
-  const k = table[set] ?? table.demo;
+  return table;
+}
+
+/** Resolve the keyset for a tag. `overrides` is the CUSTODY_KEYS env JSON, when present. */
+export function keysFor(tag: TagRecord | undefined, overrides?: string): SunKeys {
+  const table = keyTable(overrides);
+  const k = table[tag?.keyset ?? 'demo'] ?? table.demo;
+  if (isDiversified(k)) {
+    throw new Error(`keyset ${tag?.keyset} is diversified; use keysForAsync (the file-read key depends on the UID)`);
+  }
   return { metaReadKey: hex.from(k.metaReadKey), fileReadKey: hex.from(k.fileReadKey) };
+}
+
+/**
+ * Resolve a tag's keys, deriving them when the keyset is diversified. The UID
+ * is required: the file-read key is per tag.
+ */
+export async function keysForAsync(tag: TagRecord | undefined, uidHex: string, overrides?: string): Promise<SunKeys> {
+  const table = keyTable(overrides);
+  const k = table[tag?.keyset ?? 'demo'] ?? table.demo;
+  if (!isDiversified(k)) {
+    return { metaReadKey: hex.from(k.metaReadKey), fileReadKey: hex.from(k.fileReadKey) };
+  }
+  return {
+    metaReadKey: await deriveBatchMetaKey(k),
+    fileReadKey: await deriveTagFileKey(k, uidHex),
+  };
+}
+
+/**
+ * Every meta-read key a reader could need before it knows which tag it holds.
+ * With encrypted PICC mirroring the UID is inside the ciphertext, so the
+ * verifier tries each batch's meta key until one decrypts to a registered UID.
+ * Static keysets contribute their literal key; diversified ones contribute the
+ * batch key derived from their master.
+ */
+export async function candidateMetaKeys(overrides?: string): Promise<{ keyset: string; metaReadKey: Uint8Array }[]> {
+  const table = keyTable(overrides);
+  const out: { keyset: string; metaReadKey: Uint8Array }[] = [];
+  for (const [name, k] of Object.entries(table)) {
+    try {
+      out.push({ keyset: name, metaReadKey: isDiversified(k) ? await deriveBatchMetaKey(k) : hex.from(k.metaReadKey) });
+    } catch {
+      /* a malformed keyset must not take the whole reader down */
+    }
+  }
+  // 'demo' first: the published vectors are the common case on the preview.
+  return out.sort((a, b) => (a.keyset === 'demo' ? -1 : b.keyset === 'demo' ? 1 : a.keyset.localeCompare(b.keyset)));
 }
 
 /** Default keys used to verify a tag whose UID is not yet in the registry (unknown tag → still verify against demo keys, then refuse as unregistered). */

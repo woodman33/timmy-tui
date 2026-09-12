@@ -1,0 +1,349 @@
+{
+ "where": "edge",
+ "room": "war-room",
+ "worker": "https://timmy-ai-proxy-preview.wmeldman33.workers.dev",
+ "spec": {
+  "v": 1,
+  "id": "tournament-4",
+  "preset": "tournament-4",
+  "topology": "tournament",
+  "members": [
+   {
+    "id": "cand-1",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "google/gemini-3.7-flash",
+    "provider": "openrouter"
+   },
+   {
+    "id": "cand-2",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "x-ai/grok-4.6",
+    "provider": "openrouter"
+   },
+   {
+    "id": "cand-3",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "google/gemini-3.7-flash",
+    "provider": "openrouter"
+   },
+   {
+    "id": "cand-4",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "x-ai/grok-4.6",
+    "provider": "openrouter"
+   }
+  ],
+  "size": 4,
+  "budget": {
+   "usd": 0.3,
+   "max_calls": 8,
+   "max_ms": 600000
+  },
+  "judge": {
+   "tier": "edge",
+   "model": "x-ai/grok-4.6"
+  },
+  "network": {
+   "policy": "open",
+   "egress_allow": []
+  },
+  "rounds": 2
+ },
+ "task": "Give the single best one-line motto for a swarm of small models judged by one big one.",
+ "result": {
+  "ok": true,
+  "run_id": "swarm_mtsilp8a_naw4",
+  "swarm_id": "tournament-4",
+  "topology": "tournament",
+  "size": 4,
+  "answer": "The swarm proposes; the master disposes.",
+  "winner": "cand-1",
+  "losers": [
+   "cand-2",
+   "cand-3",
+   "cand-4"
+  ],
+  "votes": null,
+  "roles": null,
+  "assignments": null,
+  "calls": [
+   {
+    "member": "cand-1",
+    "phase": "candidate",
+    "model": "google/gemini-3.7-flash",
+    "ok": true,
+    "killed": false,
+    "ms": 4276,
+    "usd": 0.001495,
+    "receipt": "4c8efc5c88ed0ce194ca9097ec8534ea9c7da92611e5959fe1513c43433cf3ae",
+    "receipt_external": null,
+    "error": null,
+    "preview": "The swarm proposes; the master disposes."
+   },
+   {
+    "member": "cand-3",
+    "phase": "candidate",
+    "model": "google/gemini-3.7-flash",
+    "ok": true,
+    "killed": false,
+    "ms": 4736,
+    "usd": 0.001491,
+    "receipt": "32dcf32dda38d8498993ae11e9cc62f8046469687724fb90fe3aa3862ec1b15e",
+    "receipt_external": null,
+    "error": null,
+    "preview": "A thousand sparks, focused by one lens."
+   },
+   {
+    "member": "cand-4",
+    "phase": "candidate",
+    "model": "x-ai/grok-4.6",
+    "ok": true,
+    "killed": false,
+    "ms": 30739,
+    "usd": 0.009438,
+    "receipt": "5d8c3331ab2de101084b851d0a64940b07a668422c35295b2f43b0e7cc9aa3ad",
+    "receipt_external": null,
+    "error": null,
+    "preview": "The many propose, the one disposes."
+   },
+   {
+    "member": "cand-2",
+    "phase": "candidate",
+    "model": "x-ai/grok-4.6",
+    "ok": true,
+    "killed": false,
+    "ms": 31673,
+    "usd": 0.01011,
+    "receipt": "60574ce2cb52808ddf95a16bd20aa6a9b0bea655e94e22152efc9fb8ee33fed0",
+    "receipt_external": null,
+    "error": null,
+    "preview": "Many propose, one disposes."
+   },
+   {
+    "member": "judge",
+    "phase": "pick",
+    "model": "x-ai/grok-4.6",
+    "ok": true,
+    "killed": false,
+    "ms": 12492,
+    "usd": 0.004342,
+    "receipt": "3dd38b2f9272847ea3329e6c288ff2f0d2eadd9ceb344e9e9e194b7e5c8b47c3",
+    "receipt_external": null,
+    "error": null,
+    "preview": "{\"winner\": 1, \"reason\": \"Best captures the swarm-plus-judge setup via a sharp proverb twist using swarm/master.\"}"
+   }
+  ],
+  "budget": {
+   "usd": 0.3,
+   "spent": 0.026876,
+   "max_calls": 8,
+   "calls": 5,
+   "max_ms": 600000,
+   "ms": 44714,
+   "exhausted": null,
+   "kills": []
+  },
+  "usd": 0.026876,
+  "ms": 44714,
+  "receipt": {
+   "v": 1,
+   "id": "ec_mtsimnqc_r6e7",
+   "ts": "2026-09-08T10:17:21.060Z",
+   "kind": "swarm.run",
+   "subject": "commander:war-room",
+   "data": {
+    "run_id": "swarm_mtsilp8a_naw4",
+    "swarm_id": "tournament-4",
+    "preset": "tournament-4",
+    "by": "commander",
+    "topology": "tournament",
+    "size": 4,
+    "ok": true,
+    "task_sha256": "8e81f8064a70328e2219887290268b8470d53f10472d0e470b03f5dd22bb62c5",
+    "answer_sha256": "d921f0370f0608f64825dfa9530a5bd10d205a73d7cab61a95b104236a9adc46",
+    "spec_sha256": "01f5a4dcf2ac46b4184de1b1ec95c1fefcb7e704e4157efcada1b9af921b3ca4",
+    "members": [
+     {
+      "id": "cand-1",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "google/gemini-3.7-flash",
+      "provider": "openrouter"
+     },
+     {
+      "id": "cand-2",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "x-ai/grok-4.6",
+      "provider": "openrouter"
+     },
+     {
+      "id": "cand-3",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "google/gemini-3.7-flash",
+      "provider": "openrouter"
+     },
+     {
+      "id": "cand-4",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "x-ai/grok-4.6",
+      "provider": "openrouter"
+     }
+    ],
+    "calls": [
+     {
+      "member": "cand-1",
+      "phase": "candidate",
+      "round": null,
+      "model": "google/gemini-3.7-flash",
+      "ok": true,
+      "killed": false,
+      "ms": 4276,
+      "usd": 0.001495,
+      "tokens_in": 43,
+      "tokens_out": 390,
+      "counted": true,
+      "provider_used": "Google",
+      "generation_id": "gen-1788862596-HYgZhuqhJkdbnf7zNl0O",
+      "content_sha256": "d921f0370f0608f64825dfa9530a5bd10d205a73d7cab61a95b104236a9adc46",
+      "receipt": "4c8efc5c88ed0ce194ca9097ec8534ea9c7da92611e5959fe1513c43433cf3ae",
+      "error": null
+     },
+     {
+      "member": "cand-3",
+      "phase": "candidate",
+      "round": null,
+      "model": "google/gemini-3.7-flash",
+      "ok": true,
+      "killed": false,
+      "ms": 4736,
+      "usd": 0.001491,
+      "tokens_in": 43,
+      "tokens_out": 389,
+      "counted": true,
+      "provider_used": "Google",
+      "generation_id": "gen-1788862596-DdjHwKpbSzF2FBfElf1h",
+      "content_sha256": "a17da69cb858f1af93897835493ad63fd5dc81d02566c587b6633e81ed7875cd",
+      "receipt": "32dcf32dda38d8498993ae11e9cc62f8046469687724fb90fe3aa3862ec1b15e",
+      "error": null
+     },
+     {
+      "member": "cand-4",
+      "phase": "candidate",
+      "round": null,
+      "model": "x-ai/grok-4.6",
+      "ok": true,
+      "killed": false,
+      "ms": 30739,
+      "usd": 0.009438,
+      "tokens_in": 252,
+      "tokens_out": 1521,
+      "counted": true,
+      "provider_used": "xAI",
+      "generation_id": "gen-1788862596-zz3vejTl1ZM4baOw7wes",
+      "content_sha256": "de6929cf0e69e89138027c9540e7c1a4e069e78f5fdd3fe9f5d51fa60857404e",
+      "receipt": "5d8c3331ab2de101084b851d0a64940b07a668422c35295b2f43b0e7cc9aa3ad",
+      "error": null
+     },
+     {
+      "member": "cand-2",
+      "phase": "candidate",
+      "round": null,
+      "model": "x-ai/grok-4.6",
+      "ok": true,
+      "killed": false,
+      "ms": 31673,
+      "usd": 0.01011,
+      "tokens_in": 252,
+      "tokens_out": 1633,
+      "counted": true,
+      "provider_used": "xAI",
+      "generation_id": "gen-1788862596-eYsKxizdIPaBkdGyzSRY",
+      "content_sha256": "8285dd18458ff44a8339d57e5d7a2658ba4790b16851bdba62131bb82cd69a38",
+      "receipt": "60574ce2cb52808ddf95a16bd20aa6a9b0bea655e94e22152efc9fb8ee33fed0",
+      "error": null
+     },
+     {
+      "member": "judge",
+      "phase": "pick",
+      "round": null,
+      "model": "x-ai/grok-4.6",
+      "ok": true,
+      "killed": false,
+      "ms": 12492,
+      "usd": 0.004342,
+      "tokens_in": 371,
+      "tokens_out": 632,
+      "counted": true,
+      "provider_used": "xAI",
+      "generation_id": "gen-1788862628-sZSH6GB8SX89eSiIKt9H",
+      "content_sha256": "4a67cccfed0523d8d790618af17d19eea128be354ab1ed9ef84f3ef7cc7f8f70",
+      "receipt": "3dd38b2f9272847ea3329e6c288ff2f0d2eadd9ceb344e9e9e194b7e5c8b47c3",
+      "error": null
+     }
+    ],
+    "winner": "cand-1",
+    "losers": [
+     "cand-2",
+     "cand-3",
+     "cand-4"
+    ],
+    "votes": null,
+    "rounds": 0,
+    "judge": {
+     "tier": "edge",
+     "model": "x-ai/grok-4.6"
+    },
+    "network": {
+     "policy": "open",
+     "egress_allow": []
+    },
+    "budget": {
+     "usd": 0.3,
+     "spent": 0.026876,
+     "max_calls": 8,
+     "calls": 5,
+     "max_ms": 600000,
+     "ms": 44714,
+     "exhausted": null,
+     "kills": []
+    },
+    "usd": 0.026876,
+    "ms": 44714,
+    "source": "http"
+   },
+   "prev_hash": "3dd38b2f9272847ea3329e6c288ff2f0d2eadd9ceb344e9e9e194b7e5c8b47c3",
+   "hash": "1ded47ffb0674a0c876fbf890fcfa85d8efed6791f41b5644b630690c806a209"
+  },
+  "spend": {
+   "usd": 0.075779,
+   "cap_usd": 2,
+   "calls": 22,
+   "tokens_in": 3604,
+   "tokens_out": 13079,
+   "uncounted": 0,
+   "last_at": "2026-09-08T10:17:21.060Z",
+   "tokens_cached": 768,
+   "tokens_reasoning": 10655
+  }
+ },
+ "receipt": "sha256_e3a9c9b3db1e7bb4f062ea1437f17880070c26a20e26caaab1bec736fb328e29"
+}

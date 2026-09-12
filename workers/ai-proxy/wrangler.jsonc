@@ -26,17 +26,46 @@
   // Object (POST /runs/:id/event, GET /runs/:id/events) plus GET /runs/:id/ws.
   // Reads are public like /head; writes need the caller token. It relays
   // envelopes and never spawns work.
+  //
+  // 2026-09-07 COMMANDER (mindship-v5c2 step 2): Commander is a Cloudflare
+  // Agents SDK durable agent (SQLite Durable Object) at /commander/:room/*:
+  // persistent memory + turns + its own receipt chain (mirrored to CUSTODY_KV
+  // as chain:commander:<room> so the daily head lists it), scheduled steps,
+  // a WebSocket feed for the TUI and the companion, OpenRouter as the mind
+  // (modes generate / bodybuilder / fusion), Code Mode as the hands, a handoff
+  // protocol (any MCP-capable harness holds the role; OpenRouter paused while
+  // held), a live spend ledger with a cap, and a kill switch. Migration v2
+  // adds the class; v1 is never edited.
   "name": "timmy-ai-proxy",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [{ "binding": "LOADER" }],
   "kv_namespaces": [{ "binding": "CUSTODY_KV", "id": "8d783470266e44d9ab49143de5b88436" }],
-  "durable_objects": { "bindings": [{ "name": "SLATE_ROOM", "class_name": "SlateRoom" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SlateRoom"] }],
+  // 2026-09-08 SWARM RUNTIME (swarm-b3k7): POST /commander/:room/swarm runs a
+  // swarm spec (lanes/swarm/schemas/swarm.cue) on the room — fanout / fusion /
+  // relay / coordinator / tournament / council / crew / closed — with a cost
+  // governor per swarm; every member call is its own swarm.member receipt and
+  // swarm.run cites them all. Timmy is a Level-2 durable agent (McpAgent): one
+  // Durable Object per project room exposing MCP over Durable Object RPC, which
+  // the root commander uses as tools (members of kind timmy). Migration v3 adds
+  // the class; v1/v2 are never edited.
+  "durable_objects": {
+    "bindings": [
+      { "name": "SLATE_ROOM", "class_name": "SlateRoom" },
+      { "name": "COMMANDER", "class_name": "Commander" },
+      { "name": "TIMMY", "class_name": "Timmy" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["SlateRoom"] },
+    { "tag": "v2", "new_sqlite_classes": ["Commander"] },
+    { "tag": "v3", "new_sqlite_classes": ["Timmy"] }
+  ],
   "triggers": { "crons": ["5 9 * * *"] },
   "vars": {
-    "CUSTODY_BASE_URL": "https://preview.vault-custody.pages.dev"
+    "CUSTODY_BASE_URL": "https://preview.vault-custody.pages.dev",
+    "COMMANDER_SPEND_CAP_USD": "2"
     // "ALLOWED_MODELS": "google/gemini-3.7-flash,x-ai/grok-4.6",
     // "RATE_LIMIT_PER_MIN": "20"
   }

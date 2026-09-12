@@ -1,0 +1,242 @@
+{
+  "harness": "openhands",
+  "kind": "local coding agent CLI (Python, OpenHands SDK); bin is a uv-tool python entry script",
+  "measured_at": "2026-09-07T10:51:31.698Z",
+  "host": {
+    "hostname": "<hostname>.local",
+    "platform": "darwin 25.6.0 arm64",
+    "node": "v26.6.0"
+  },
+  "binary": {
+    "path": "<home>/.local/bin/openhands",
+    "exists": true,
+    "symlink": "<home>/.local/share/uv/tools/openhands/bin/openhands",
+    "kind": "script (#!<home>/.local/share/uv/tools/openhands/bin/python)",
+    "size": 354,
+    "sha256": "4befd0f19c859aeba4130d0092f2d5f47218038c8aff3235a4e2309b8c2beb6b",
+    "sha256_note": "binary is a wrapper/entry script, so this sha256 covers only the script text, not the interpreter or the package it launches"
+  },
+  "version": "1.16.0",
+  "version_raw": "<home>/.local/share/uv/tools/openhands/lib/python3.12/site-packages/openhands/sdk/llm/auth/openai.py:25: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead. | It will be compatible before version 2.0.0. |   from authlib.jose import JsonWebKey, jwt",
+  "model": "google/gemini-3.7-flash",
+  "model_route": "OpenRouter via LiteLLM: LLM_MODEL=openrouter/<model>, LLM_BASE_URL=https://openrouter.ai/api/v1, LLM_API_KEY from env, enabled with --override-with-envs",
+  "isolation": "HOME={SCRATCH}/fakehome plus OPENHANDS_PERSISTENCE_DIR={HOME}. A fake HOME is required, not just nice: with the real HOME the SDK crawls ~/.agents/skills (1,632 skill symlinks, 34,572 files, 280 MB on this machine; no env override exists) and had not finished loading skills after 120 s in three attempts, and it also writes ~/.openhands/cache/skills. The public-skills git clone is copied from the user's existing cache into the fake HOME so no network clone is needed. User's ~/.openhands config untouched.",
+  "env_keys": [
+    "HOME",
+    "OPENHANDS_PERSISTENCE_DIR",
+    "OPENHANDS_SUPPRESS_BANNER",
+    "PYTHONUNBUFFERED",
+    "LLM_MODEL",
+    "LLM_BASE_URL",
+    "LLM_API_KEY"
+  ],
+  "key_source": "process.env",
+  "abilities": {
+    "one_shot": {
+      "value": true,
+      "method": "spawn argv, 120s hard timeout (SIGTERM then SIGKILL on the process group); true iff the process exits by itself and stdout+stderr (with every echo of the prompt text removed) contains PONG",
+      "evidence": [
+        1,
+        2,
+        3,
+        5
+      ],
+      "note": "exit 0 after 41511ms; match: \" the most direct and compliant method for responding with \\\\\\\"PONG.\\\\\\\" My immediate thought was to use the `finish` tool, but I\""
+    },
+    "file_edits": {
+      "value": true,
+      "method": "after the run, read <cwd>/PROBE.txt from the fresh temp dir; true iff it exists and equals \"probe-ok\" (one trailing newline tolerated)",
+      "evidence": [
+        6
+      ],
+      "note": "PROBE.txt content=\"probe-ok\"; tool lines: [\"{\\\"id\\\": \\\"0f4e59c7-06ce-4dd2-8344-0609118b5dc3\\\", \\\"timestamp\\\": \\\"2026-09-07T03:54:02.590053\\\", \\\"source\\\": \\\"agent\\\", \\\"thought\\\": [], \\\"reasoning_content\\\": \\\"**Creating Probe File**\\\\n\\\\nI am currently focused on g\",\"{\\\"id\\\": \\\"a31671d3-36e3-47d9-8298-16928b33ae44\\\", \\\"timestamp\\\": \\\"2026-09-07T03:54:02.651026\\\", \\\"source\\\": \\\"environment\\\", \\\"tool_name\\\": \\\"file_editor\\\", \\\"tool_call_id\\\": \\\"call_1556593\\\", \\\"observation\\\": {\\\"content\\\"\",\"{\\\"id\\\": \\\"2684b711-7f3c-4d44-afe7-0093a74461d8\\\", \\\"timestamp\\\": \\\"2026-09-07T03:54:05.844210\\\", \\\"source\\\": \\\"agent\\\", \\\"thought\\\": [], \\\"reasoning_content\\\": null, \\\"thinking_blocks\\\": [], \\\"responses_reasoning_item\\\"\"]"
+    },
+    "tool_use": {
+      "value": true,
+      "method": "true iff stdout+stderr (prompt echoes removed) contains TOOL-OK-4471 (as specified). Caveat: the token is in the prompt, so a model that merely repeats it would pass; corroborated with (a) tool-call event lines matched by tool_call_regex and (b) the file_edits result, which is on-disk proof of tool execution",
+      "evidence": [
+        7,
+        6
+      ],
+      "note": "token present; tool-call lines in transcript: 3 [\"{\\\"id\\\": \\\"04a23e90-b45b-471b-b539-b703e7efa453\\\", \\\"timestamp\\\": \\\"2026-09-07T03:54:27.367370\\\", \\\"source\\\": \\\"agent\\\", \\\"thought\\\": [], \\\"reasoning_content\\\": \\\"**Executing Command**\\\\n\\\\nI'm planning to use the `term\",\"{\\\"id\\\": \\\"f63c538a-c82d-45a4-b332-b171ca02083c\\\", \\\"timestamp\\\": \\\"2026-09-07T03:54:28.120503\\\", \\\"source\\\": \\\"environment\\\", \\\"tool_name\\\": \\\"terminal\\\", \\\"tool_call_id\\\": \\\"call_1265171\\\", \\\"observation\\\": {\\\"content\\\": [\",\"{\\\"id\\\": \\\"74bb093c-beb7-4c05-948f-5e20cd9a9be2\\\", \\\"timestamp\\\": \\\"2026-09-07T03:54:30.801242\\\", \\\"source\\\": \\\"agent\\\", \\\"thought\\\": [], \\\"reasoning_content\\\": null, \\\"thinking_blocks\\\": [], \\\"responses_reasoning_item\\\"\"]; file_edits corroboration: true"
+    },
+    "browser": {
+      "value": true,
+      "method": "true iff stdout+stderr contains \"Example Domain\"; the mechanism (real browser vs plain HTTP fetch) is inferred from tool names in the transcript, which is only visible when the harness streams tool events",
+      "evidence": [
+        8
+      ],
+      "note": "title reported; mechanism: plain fetch/curl-like names seen; tool lines: [\"{\\\"id\\\": \\\"402b34ec-e2d1-4210-8baa-8a739482d844\\\", \\\"timestamp\\\": \\\"2026-09-07T03:54:52.391817\\\", \\\"source\\\": \\\"agent\\\", \\\"thought\\\": [], \\\"reasoning_content\\\": \\\"**Fetching Web Page Title**\\\\n\\\\nI'm thinking about how \",\"{\\\"id\\\": \\\"4af5458b-4ae4-4572-81ed-9909f1219da4\\\", \\\"timestamp\\\": \\\"2026-09-07T03:54:53.806209\\\", \\\"source\\\": \\\"environment\\\", \\\"tool_name\\\": \\\"terminal\\\", \\\"tool_call_id\\\": \\\"call_2487872\\\", \\\"observation\\\": {\\\"content\\\": [\",\"{\\\"id\\\": \\\"473001e5-157a-4752-a036-a892421d72b6\\\", \\\"timestamp\\\": \\\"2026-09-07T03:54:56.879883\\\", \\\"source\\\": \\\"agent\\\", \\\"thought\\\": [], \\\"reasoning_content\\\": null, \\\"thinking_blocks\\\": [], \\\"responses_reasoning_item\\\"\"]"
+    },
+    "sandbox": {
+      "value": false,
+      "method": "compare reported hostname/pwd with this machine (hostname=<hostname>.local, cwd=<temp dir>); a different hostname or a container-style path means sandboxed",
+      "evidence": [
+        9,
+        4,
+        10
+      ],
+      "note": "reported this machine's hostname (<hostname>.local) and the real temp cwd, so tools run directly on the host. tail: \"/llm/auth/openai.py:25: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\\nIt will be compatible before version 2.0.0.\\n  from authlib.jose import JsonWebKey, jwt\" docker ps before/after: unavailable (failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory) / unavailable"
+    },
+    "mcp_client": {
+      "value": false,
+      "method": "isolated config registers Timmy's stdio MCP server; true iff the reply contains a value only the real timmy_env_lock result has (OS build id or a tool sha256 prefix obtained by calling the server directly first), or the tool name plus os/arch fields plus a visible tool-call event",
+      "evidence": [
+        1,
+        2,
+        11,
+        12,
+        13
+      ],
+      "note": "not called: real marker absent; tool name mentioned=true; os/arch fields=false; tool lines: []. `openhands mcp add` writes <OPENHANDS_PERSISTENCE_DIR>/mcp.json in the isolated dir. tail: \" await at <repo>/.claude/worktrees/order-mindship-v5c2/src/cli.ts:286\\n  await new Promise(() => {}); // stdio server owns the event loop — never exit\\n  ^\""
+    }
+  },
+  "probes": {
+    "one_shot": {
+      "id": 5,
+      "argv": [
+        "<home>/.local/bin/openhands",
+        "--headless",
+        "--json",
+        "--override-with-envs",
+        "--always-approve",
+        "--exit-without-confirmation",
+        "-t",
+        "Reply with exactly the word PONG and nothing else"
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/one_shot",
+      "exit": 0,
+      "ms": 41511,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "file_edits": {
+      "id": 6,
+      "argv": [
+        "<home>/.local/bin/openhands",
+        "--headless",
+        "--json",
+        "--override-with-envs",
+        "--always-approve",
+        "--exit-without-confirmation",
+        "-t",
+        "Create a file named PROBE.txt in the current directory containing exactly the text probe-ok, then stop."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/file_edits",
+      "exit": 0,
+      "ms": 36628,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "tool_use": {
+      "id": 7,
+      "argv": [
+        "<home>/.local/bin/openhands",
+        "--headless",
+        "--json",
+        "--override-with-envs",
+        "--always-approve",
+        "--exit-without-confirmation",
+        "-t",
+        "Run the shell command `echo TOOL-OK-4471` and report its output verbatim."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/tool_use",
+      "exit": 0,
+      "ms": 24875,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "browser": {
+      "id": 8,
+      "argv": [
+        "<home>/.local/bin/openhands",
+        "--headless",
+        "--json",
+        "--override-with-envs",
+        "--always-approve",
+        "--exit-without-confirmation",
+        "-t",
+        "Fetch https://example.com and report the exact page title."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/browser",
+      "exit": 0,
+      "ms": 26424,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "sandbox": {
+      "id": 9,
+      "argv": [
+        "<home>/.local/bin/openhands",
+        "--headless",
+        "--json",
+        "--override-with-envs",
+        "--always-approve",
+        "--exit-without-confirmation",
+        "-t",
+        "Run the shell commands `hostname` and `pwd` and report both verbatim."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/sandbox",
+      "exit": 0,
+      "ms": 24682,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "mcp_client": {
+      "id": 13,
+      "argv": [
+        "<home>/.local/bin/openhands",
+        "--headless",
+        "--json",
+        "--override-with-envs",
+        "--always-approve",
+        "--exit-without-confirmation",
+        "-t",
+        "Call the MCP tool timmy_env_lock and paste its raw JSON result."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/mcp_client",
+      "exit": 0,
+      "ms": 16401,
+      "timed_out": false,
+      "pre_ids": [
+        11,
+        12
+      ],
+      "model": "anthropic/claude-haiku-4.5"
+    }
+  },
+  "discovery": {
+    "help": 1,
+    "mcp_help": 2,
+    "version": 3
+  },
+  "mcp_ground_truth": {
+    "ok": true,
+    "markers": [
+      "25G83",
+      "cebe04356214a938aec846e4",
+      "81e6262cec5b1f06517c1853"
+    ]
+  },
+  "notes": [],
+  "setup_files": [
+    {
+      "copied": "<home>/.openhands/cache/skills/public-skills",
+      "to": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/fakehome/.openhands/cache/skills/public-skills"
+    }
+  ],
+  "docker_before": {
+    "id": 4,
+    "exit": 1,
+    "names": [],
+    "error": "failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory"
+  },
+  "docker_after": {
+    "id": 10,
+    "exit": 1,
+    "names": [],
+    "error": "failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory"
+  },
+  "transcript": "transcripts/openhands.jsonl",
+  "transcript_lines": 13
+}

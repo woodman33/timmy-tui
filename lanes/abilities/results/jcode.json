@@ -1,0 +1,251 @@
+{
+  "harness": "jcode",
+  "kind": "local coding agent (Rust binary, background daemon + client)",
+  "measured_at": "2026-09-07T10:48:20.494Z",
+  "host": {
+    "hostname": "<hostname>.local",
+    "platform": "darwin 25.6.0 arm64",
+    "node": "v26.6.0"
+  },
+  "binary": {
+    "path": "<home>/.local/bin/jcode",
+    "exists": true,
+    "symlink": "<home>/.jcode/builds/versions/0.84.0/jcode",
+    "kind": "mach-o executable",
+    "size": 151095952,
+    "sha256": "bd3c1e34ac8816fc96beaa4b367fcb4c7f8ddb4f7dba35547680ffbe4bb5e9f0",
+    "sha256_note": "sha256 of the executable file itself"
+  },
+  "version": "0.84.0",
+  "version_raw": "build_time\t2026-09-07 04:24:58 +0000 | git_date\t2026-09-06 20:24:43 -0700 | release_build\ttrue",
+  "model": "google/gemini-3.7-flash",
+  "model_route": "OpenRouter via built-in `openrouter` provider; key read from OPENROUTER_API_KEY env",
+  "isolation": "JCODE_HOME={HOME} + --socket {HOME}/jcode.sock so a private daemon is used; user's ~/.jcode untouched",
+  "env_keys": [
+    "JCODE_HOME",
+    "JCODE_NO_TELEMETRY",
+    "OPENROUTER_API_KEY"
+  ],
+  "key_source": "process.env",
+  "abilities": {
+    "one_shot": {
+      "value": true,
+      "method": "spawn argv, 120s hard timeout (SIGTERM then SIGKILL on the process group); true iff the process exits by itself and stdout+stderr (with every echo of the prompt text removed) contains PONG",
+      "evidence": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "note": "exit 0 after 5448ms; match: \"er\\\":\\\"Google AI Studio\\\",\\\"type\\\":\\\"upstream_provider\\\"} {\\\"text\\\":\\\"PONG\\\",\\\"type\\\":\\\"text_delta\\\"} {\\\"stop_reason\\\":\\\"stop\\\",\\\"type\\\":\\\"message\""
+    },
+    "file_edits": {
+      "value": true,
+      "method": "after the run, read <cwd>/PROBE.txt from the fresh temp dir; true iff it exists and equals \"probe-ok\" (one trailing newline tolerated)",
+      "evidence": [
+        5
+      ],
+      "note": "PROBE.txt content=\"probe-ok\"; tool lines: [\"{\\\"id\\\":\\\"call_3688986\\\",\\\"name\\\":\\\"write\\\",\\\"type\\\":\\\"tool_start\\\"}\",\"{\\\"delta\\\":\\\"{\\\\\\\"content\\\\\\\":\\\\\\\"probe-ok\\\\\\\",\\\\\\\"file_path\\\\\\\":\\\\\\\"PROBE.txt\\\\\\\",\\\\\\\"intent\\\\\\\":\\\\\\\"Create PROBE.txt with text probe-ok\\\\\\\"}\\\",\\\"type\\\":\\\"tool_input\\\"}\",\"{\\\"id\\\":\\\"call_3688986\\\",\\\"name\\\":\\\"write\\\",\\\"type\\\":\\\"tool_exec\\\"}\"]"
+    },
+    "tool_use": {
+      "value": true,
+      "method": "true iff stdout+stderr (prompt echoes removed) contains TOOL-OK-4471 (as specified). Caveat: the token is in the prompt, so a model that merely repeats it would pass; corroborated with (a) tool-call event lines matched by tool_call_regex and (b) the file_edits result, which is on-disk proof of tool execution",
+      "evidence": [
+        6,
+        5
+      ],
+      "note": "token present; tool-call lines in transcript: 3 [\"{\\\"id\\\":\\\"call_3398868\\\",\\\"name\\\":\\\"bash\\\",\\\"type\\\":\\\"tool_start\\\"}\",\"{\\\"delta\\\":\\\"{\\\\\\\"command\\\\\\\":\\\\\\\"echo TOOL-OK-4471\\\\\\\",\\\\\\\"intent\\\\\\\":\\\\\\\"Run echo command\\\\\\\"}\\\",\\\"type\\\":\\\"tool_input\\\"}\",\"{\\\"id\\\":\\\"call_3398868\\\",\\\"name\\\":\\\"bash\\\",\\\"type\\\":\\\"tool_exec\\\"}\"]; file_edits corroboration: true"
+    },
+    "browser": {
+      "value": true,
+      "method": "true iff stdout+stderr contains \"Example Domain\"; the mechanism (real browser vs plain HTTP fetch) is inferred from tool names in the transcript, which is only visible when the harness streams tool events",
+      "evidence": [
+        7
+      ],
+      "note": "title reported; mechanism: plain fetch/curl-like names seen; tool lines: [\"{\\\"id\\\":\\\"call_1614714\\\",\\\"name\\\":\\\"webfetch\\\",\\\"type\\\":\\\"tool_start\\\"}\",\"{\\\"delta\\\":\\\"{\\\\\\\"intent\\\\\\\":\\\\\\\"Fetch https://example.com to check page title\\\\\\\",\\\\\\\"format\\\\\\\":\\\\\\\"html\\\\\\\",\\\\\\\"url\\\\\\\":\\\\\\\"https://example.com\\\\\\\"}\\\",\\\"type\\\":\\\"tool_input\\\"}\",\"{\\\"id\\\":\\\"call_1614714\\\",\\\"name\\\":\\\"webfetch\\\",\\\"type\\\":\\\"tool_exec\\\"}\"]"
+    },
+    "sandbox": {
+      "value": false,
+      "method": "compare reported hostname/pwd with this machine (hostname=<hostname>.local, cwd=<temp dir>); a different hostname or a container-style path means sandboxed",
+      "evidence": [
+        8
+      ],
+      "note": "reported this machine's hostname (<hostname>.local) and the real temp cwd, so tools run directly on the host. tail: \"es/jcode/probes/sandbox\\\\n```\\\",\\\"type\\\":\\\"done\\\",\\\"upstream_provider\\\":\\\"Google AI Studio\\\",\\\"usage\\\":{\\\"cache_creation_input_tokens\\\":null,\\\"cache_read_input_tokens\\\":13799,\\\"input_tokens\\\":13988,\\\"output_tokens\\\":93}}\""
+    },
+    "mcp_client": {
+      "value": true,
+      "method": "isolated config registers Timmy's stdio MCP server; true iff the reply contains a value only the real timmy_env_lock result has (OS build id or a tool sha256 prefix obtained by calling the server directly first), or the tool name plus os/arch fields plus a visible tool-call event",
+      "evidence": [
+        1,
+        2,
+        9
+      ],
+      "note": "called: real marker matched (25G83); tool name mentioned=true; os/arch fields=true; tool lines: [\"{\\\"id\\\":\\\"toolu_01PLDwuvjotKBD3dzXVKaoKG\\\",\\\"name\\\":\\\"mcp__timmy__timmy_env_lock\\\",\\\"type\\\":\\\"tool_start\\\"}\",\"{\\\"delta\\\":\\\"{\\\\\\\"intent\\\\\\\": \\\\\\\"Get environment lock with OS build, arch, and tool BUILD HASHES\\\\\\\"}\\\",\\\"type\\\":\\\"tool_input\\\"}\",\"{\\\"id\\\":\\\"toolu_01PLDwuvjotKBD3dzXVKaoKG\\\",\\\"name\\\":\\\"mcp__timmy__timmy_env_lock\\\",\\\"type\\\":\\\"tool_exec\\\"}\"]. jcode reads <JCODE_HOME>/mcp.json ({\"servers\":{...}} shape, same as the user's real ~/.jcode/mcp.json). Written into the isolated JCODE_HOME before the daemon starts; --mcp-tools eager forces exposure. tail: \" }\\\\n  },\\\\n  \\\\\\\"models\\\\\\\": {}\\\\n}\\\\n```\\\",\\\"type\\\":\\\"done\\\",\\\"upstream_provider\\\":\\\"Anthropic\\\",\\\"usage\\\":{\\\"cache_creation_input_tokens\\\":null,\\\"cache_read_input_tokens\\\":20142,\\\"input_tokens\\\":20507,\\\"output_tokens\\\":303}}\""
+    }
+  },
+  "probes": {
+    "one_shot": {
+      "id": 4,
+      "argv": [
+        "<home>/.local/bin/jcode",
+        "run",
+        "--no-update",
+        "--ndjson",
+        "-p",
+        "openrouter",
+        "-m",
+        "google/gemini-3.7-flash",
+        "--socket",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
+        "-C",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/one_shot",
+        "Reply with exactly the word PONG and nothing else"
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/one_shot",
+      "exit": 0,
+      "ms": 5448,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "file_edits": {
+      "id": 5,
+      "argv": [
+        "<home>/.local/bin/jcode",
+        "run",
+        "--no-update",
+        "--ndjson",
+        "-p",
+        "openrouter",
+        "-m",
+        "google/gemini-3.7-flash",
+        "--socket",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
+        "-C",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/file_edits",
+        "Create a file named PROBE.txt in the current directory containing exactly the text probe-ok, then stop."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/file_edits",
+      "exit": 0,
+      "ms": 4813,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "tool_use": {
+      "id": 6,
+      "argv": [
+        "<home>/.local/bin/jcode",
+        "run",
+        "--no-update",
+        "--ndjson",
+        "-p",
+        "openrouter",
+        "-m",
+        "google/gemini-3.7-flash",
+        "--socket",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
+        "-C",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/tool_use",
+        "Run the shell command `echo TOOL-OK-4471` and report its output verbatim."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/tool_use",
+      "exit": 0,
+      "ms": 5654,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "browser": {
+      "id": 7,
+      "argv": [
+        "<home>/.local/bin/jcode",
+        "run",
+        "--no-update",
+        "--ndjson",
+        "-p",
+        "openrouter",
+        "-m",
+        "google/gemini-3.7-flash",
+        "--socket",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
+        "-C",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/browser",
+        "Fetch https://example.com and report the exact page title."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/browser",
+      "exit": 0,
+      "ms": 5532,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "sandbox": {
+      "id": 8,
+      "argv": [
+        "<home>/.local/bin/jcode",
+        "run",
+        "--no-update",
+        "--ndjson",
+        "-p",
+        "openrouter",
+        "-m",
+        "google/gemini-3.7-flash",
+        "--socket",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
+        "-C",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/sandbox",
+        "Run the shell commands `hostname` and `pwd` and report both verbatim."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/sandbox",
+      "exit": 0,
+      "ms": 5842,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "mcp_client": {
+      "id": 9,
+      "argv": [
+        "<home>/.local/bin/jcode",
+        "run",
+        "--no-update",
+        "--ndjson",
+        "-p",
+        "openrouter",
+        "-m",
+        "anthropic/claude-haiku-4.5",
+        "--socket",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
+        "-C",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/mcp_client",
+        "--mcp-tools",
+        "eager",
+        "Call the MCP tool timmy_env_lock and paste its raw JSON result."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/mcp_client",
+      "exit": 0,
+      "ms": 9048,
+      "timed_out": false,
+      "pre_ids": [],
+      "model": "anthropic/claude-haiku-4.5"
+    }
+  },
+  "discovery": {
+    "help": 1,
+    "run_help": 2,
+    "version": 3
+  },
+  "mcp_ground_truth": {
+    "ok": true,
+    "markers": [
+      "25G83",
+      "cebe04356214a938aec846e4",
+      "81e6262cec5b1f06517c1853"
+    ]
+  },
+  "notes": [],
+  "mcp_setup_files": [
+    {
+      "path": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/mcp.json",
+      "bytes": 387
+    }
+  ],
+  "transcript": "transcripts/jcode.jsonl",
+  "transcript_lines": 10
+}

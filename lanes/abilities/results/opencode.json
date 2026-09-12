@@ -1,0 +1,238 @@
+{
+  "harness": "opencode",
+  "kind": "local coding agent (Bun-compiled binary)",
+  "measured_at": "2026-09-07T10:48:20.819Z",
+  "host": {
+    "hostname": "<hostname>.local",
+    "platform": "darwin 25.6.0 arm64",
+    "node": "v26.6.0"
+  },
+  "binary": {
+    "path": "/opt/homebrew/bin/opencode",
+    "exists": true,
+    "symlink": "/opt/homebrew/Cellar/opencode/1.18.27/bin/opencode",
+    "kind": "mach-o executable",
+    "size": 144074210,
+    "sha256": "f35111b79296714194653fc8e74f28f6732589bacf0fbf59504c592ef6a727b6",
+    "sha256_note": "sha256 of the executable file itself"
+  },
+  "version": "1.18.27",
+  "version_raw": "1.18.27",
+  "model": "google/gemini-3.7-flash",
+  "model_route": "OpenRouter via `-m openrouter/<model>`; key read from OPENROUTER_API_KEY env",
+  "isolation": "OPENCODE_CONFIG_DIR={HOME} replaces ~/.config/opencode; project-level opencode.json in the probe cwd for MCP. Claude-Code compat + external skills disabled so the user's ~/.claude skill library (which pushed a bare PONG to ~159k input tokens in a smoke test) is not injected.",
+  "env_keys": [
+    "OPENCODE_CONFIG_DIR",
+    "OPENCODE_DISABLE_AUTOUPDATE",
+    "OPENCODE_DISABLE_CLAUDE_CODE",
+    "OPENCODE_DISABLE_EXTERNAL_SKILLS",
+    "OPENROUTER_API_KEY"
+  ],
+  "key_source": "process.env",
+  "abilities": {
+    "one_shot": {
+      "value": true,
+      "method": "spawn argv, 120s hard timeout (SIGTERM then SIGKILL on the process group); true iff the process exits by itself and stdout+stderr (with every echo of the prompt text removed) contains PONG",
+      "evidence": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "note": "exit 0 after 31691ms; match: \"nID\\\":\\\"ses_f8483f7e0ffeELJb6L9rNA1YDn\\\",\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"PONG\\\",\\\"time\\\":{\\\"start\\\":1788778144367,\\\"end\\\":1788778144379}}} {\\\"typ\""
+    },
+    "file_edits": {
+      "value": true,
+      "method": "after the run, read <cwd>/PROBE.txt from the fresh temp dir; true iff it exists and equals \"probe-ok\" (one trailing newline tolerated)",
+      "evidence": [
+        6
+      ],
+      "note": "PROBE.txt content=\"probe-ok\"; tool lines: [\"{\\\"type\\\":\\\"tool_use\\\",\\\"timestamp\\\":1788778189260,\\\"sessionID\\\":\\\"ses_f848377b0ffetomCF74KM5pabn\\\",\\\"part\\\":{\\\"type\\\":\\\"tool\\\",\\\"tool\\\":\\\"glob\\\",\\\"callID\\\":\\\"call_2020764\\\",\\\"state\\\":{\\\"status\\\":\\\"completed\\\",\\\"input\\\":{\\\"pattern\\\":\\\"\",\"{\\\"type\\\":\\\"tool_use\\\",\\\"timestamp\\\":1788778195024,\\\"sessionID\\\":\\\"ses_f848377b0ffetomCF74KM5pabn\\\",\\\"part\\\":{\\\"type\\\":\\\"tool\\\",\\\"tool\\\":\\\"write\\\",\\\"callID\\\":\\\"call_1549408\\\",\\\"state\\\":{\\\"status\\\":\\\"completed\\\",\\\"input\\\":{\\\"filePath\\\"\",\"{\\\"type\\\":\\\"tool_use\\\",\\\"timestamp\\\":1788778198784,\\\"sessionID\\\":\\\"ses_f848377b0ffetomCF74KM5pabn\\\",\\\"part\\\":{\\\"type\\\":\\\"tool\\\",\\\"tool\\\":\\\"read\\\",\\\"callID\\\":\\\"call_1701640\\\",\\\"state\\\":{\\\"status\\\":\\\"completed\\\",\\\"input\\\":{\\\"filePath\\\":\"]"
+    },
+    "tool_use": {
+      "value": true,
+      "method": "true iff stdout+stderr (prompt echoes removed) contains TOOL-OK-4471 (as specified). Caveat: the token is in the prompt, so a model that merely repeats it would pass; corroborated with (a) tool-call event lines matched by tool_call_regex and (b) the file_edits result, which is on-disk proof of tool execution",
+      "evidence": [
+        7,
+        6
+      ],
+      "note": "token present; tool-call lines in transcript: 1 [\"{\\\"type\\\":\\\"tool_use\\\",\\\"timestamp\\\":1788778228159,\\\"sessionID\\\":\\\"ses_f8482984bffehzr0NYZPEfa0t5\\\",\\\"part\\\":{\\\"type\\\":\\\"tool\\\",\\\"tool\\\":\\\"bash\\\",\\\"callID\\\":\\\"call_1864962\\\",\\\"state\\\":{\\\"status\\\":\\\"completed\\\",\\\"input\\\":{\\\"command\\\":\\\"\"]; file_edits corroboration: true"
+    },
+    "browser": {
+      "value": true,
+      "method": "true iff stdout+stderr contains \"Example Domain\"; the mechanism (real browser vs plain HTTP fetch) is inferred from tool names in the transcript, which is only visible when the harness streams tool events",
+      "evidence": [
+        8
+      ],
+      "note": "title reported; mechanism: plain fetch/curl-like names seen; tool lines: [\"{\\\"type\\\":\\\"tool_use\\\",\\\"timestamp\\\":1788778250939,\\\"sessionID\\\":\\\"ses_f84824096ffeR1KRnIcoaJkETw\\\",\\\"part\\\":{\\\"type\\\":\\\"tool\\\",\\\"tool\\\":\\\"webfetch\\\",\\\"callID\\\":\\\"call_1849167\\\",\\\"state\\\":{\\\"status\\\":\\\"completed\\\",\\\"input\\\":{\\\"url\\\":\\\"\"]"
+    },
+    "sandbox": {
+      "value": false,
+      "method": "compare reported hostname/pwd with this machine (hostname=<hostname>.local, cwd=<temp dir>); a different hostname or a container-style path means sandboxed",
+      "evidence": [
+        9
+      ],
+      "note": "reported this machine's hostname (<hostname>.local) and the real temp cwd, so tools run directly on the host. tail: \"1jD1jv5ZMNuCyfY\\\",\\\"sessionID\\\":\\\"ses_f8481dd80ffeWq02fuY4EoYH73\\\",\\\"type\\\":\\\"step-finish\\\",\\\"tokens\\\":{\\\"total\\\":12780,\\\"input\\\":4750,\\\"output\\\":97,\\\"reasoning\\\":98,\\\"cache\\\":{\\\"write\\\":0,\\\"read\\\":7835}},\\\"cost\\\":0.004881375}}\""
+    },
+    "mcp_client": {
+      "value": true,
+      "method": "isolated config registers Timmy's stdio MCP server; true iff the reply contains a value only the real timmy_env_lock result has (OS build id or a tool sha256 prefix obtained by calling the server directly first), or the tool name plus os/arch fields plus a visible tool-call event",
+      "evidence": [
+        1,
+        3,
+        10,
+        11
+      ],
+      "note": "called: real marker matched (25G83); tool name mentioned=true; os/arch fields=true; tool lines: [\"{\\\"type\\\":\\\"tool_use\\\",\\\"timestamp\\\":1788778314827,\\\"sessionID\\\":\\\"ses_f84815dc2ffeXqMo5CjtFphKCP\\\",\\\"part\\\":{\\\"type\\\":\\\"tool\\\",\\\"tool\\\":\\\"timmy_timmy_env_lock\\\",\\\"callID\\\":\\\"toolu_01Tj1KcdqEqQ5keGr4WrtNEv\\\",\\\"state\\\":{\\\"status\"]. Project-scoped opencode.json in the probe's temp cwd (never the user's ~/.config/opencode). tail: \"001V9Bvi6uAOJv2cT\\\",\\\"sessionID\\\":\\\"ses_f84815dc2ffeXqMo5CjtFphKCP\\\",\\\"type\\\":\\\"step-finish\\\",\\\"tokens\\\":{\\\"total\\\":16593,\\\"input\\\":5,\\\"output\\\":321,\\\"reasoning\\\":0,\\\"cache\\\":{\\\"write\\\":276,\\\"read\\\":15991}},\\\"cost\\\":0.0035541}}\""
+    }
+  },
+  "probes": {
+    "one_shot": {
+      "id": 5,
+      "argv": [
+        "/opt/homebrew/bin/opencode",
+        "run",
+        "--dir",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/one_shot",
+        "-m",
+        "openrouter/google/gemini-3.7-flash",
+        "--format",
+        "json",
+        "--auto",
+        "Reply with exactly the word PONG and nothing else"
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/one_shot",
+      "exit": 0,
+      "ms": 31691,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "file_edits": {
+      "id": 6,
+      "argv": [
+        "/opt/homebrew/bin/opencode",
+        "run",
+        "--dir",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/file_edits",
+        "-m",
+        "openrouter/google/gemini-3.7-flash",
+        "--format",
+        "json",
+        "--auto",
+        "Create a file named PROBE.txt in the current directory containing exactly the text probe-ok, then stop."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/file_edits",
+      "exit": 0,
+      "ms": 57067,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "tool_use": {
+      "id": 7,
+      "argv": [
+        "/opt/homebrew/bin/opencode",
+        "run",
+        "--dir",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/tool_use",
+        "-m",
+        "openrouter/google/gemini-3.7-flash",
+        "--format",
+        "json",
+        "--auto",
+        "Run the shell command `echo TOOL-OK-4471` and report its output verbatim."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/tool_use",
+      "exit": 0,
+      "ms": 28443,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "browser": {
+      "id": 8,
+      "argv": [
+        "/opt/homebrew/bin/opencode",
+        "run",
+        "--dir",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/browser",
+        "-m",
+        "openrouter/google/gemini-3.7-flash",
+        "--format",
+        "json",
+        "--auto",
+        "Fetch https://example.com and report the exact page title."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/browser",
+      "exit": 0,
+      "ms": 23937,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "sandbox": {
+      "id": 9,
+      "argv": [
+        "/opt/homebrew/bin/opencode",
+        "run",
+        "--dir",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/sandbox",
+        "-m",
+        "openrouter/google/gemini-3.7-flash",
+        "--format",
+        "json",
+        "--auto",
+        "Run the shell commands `hostname` and `pwd` and report both verbatim."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/sandbox",
+      "exit": 0,
+      "ms": 28789,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "mcp_client": {
+      "id": 11,
+      "argv": [
+        "/opt/homebrew/bin/opencode",
+        "run",
+        "--dir",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/mcp_client",
+        "-m",
+        "openrouter/anthropic/claude-haiku-4.5",
+        "--format",
+        "json",
+        "--auto",
+        "Call the MCP tool timmy_env_lock and paste its raw JSON result."
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/mcp_client",
+      "exit": 0,
+      "ms": 35585,
+      "timed_out": false,
+      "pre_ids": [
+        10
+      ],
+      "model": "anthropic/claude-haiku-4.5"
+    }
+  },
+  "discovery": {
+    "help": 1,
+    "run_help": 2,
+    "mcp_help": 3,
+    "version": 4
+  },
+  "mcp_ground_truth": {
+    "ok": true,
+    "markers": [
+      "25G83",
+      "cebe04356214a938aec846e4",
+      "81e6262cec5b1f06517c1853"
+    ]
+  },
+  "notes": [],
+  "mcp_setup_files": [
+    {
+      "path": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/mcp_client/opencode.json",
+      "bytes": 431
+    }
+  ],
+  "transcript": "transcripts/opencode.jsonl",
+  "transcript_lines": 11
+}

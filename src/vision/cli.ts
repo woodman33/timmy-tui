@@ -13,8 +13,9 @@ export async function runVisionCli(args: string[], options: { quiet?: boolean } 
   const flag = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
   const print = (v: unknown) => console.log(JSON.stringify(v, null, 2));
   if ((args.includes('--help') || args.includes('-h')) && !['doctor', 'stream'].includes(sub)) {
-    console.log('timmy vision [open|serve|status|catalog|doctor|events|learning|stream --help|run --image PATH --model ID]'); return;
+    console.log('timmy vision [open|serve|status|catalog|doctor|events|learning|proof-ladder --help|stream --help|run --image PATH --model ID]'); return;
   }
+  if (sub === 'proof-ladder') { const { runProofLadderCli } = await import('./proof-ladder-cli.js'); await runProofLadderCli(args.slice(1)); return; }
   if (sub === 'status') { print(await getVisionStatus()); return; }
   if (sub === 'catalog') { print(await getVisionCatalog()); return; }
   if (sub === 'events') { const result = listVisionEvents({ limit: 100 }); print({ ...result, events: result.events.map(publicVisionEvent) }); return; }
@@ -33,7 +34,7 @@ export async function runVisionCli(args: string[], options: { quiet?: boolean } 
     print('event' in result && result.event ? { ...result, event: publicVisionEvent(result.event) } : result); return;
   }
   if (sub !== 'serve' && sub !== 'open') {
-    console.log('timmy vision [open|serve|status|catalog|doctor|events|learning|stream --help|run --image PATH --model ID]'); return;
+    console.log('timmy vision [open|serve|status|catalog|doctor|events|learning|proof-ladder --help|stream --help|run --image PATH --model ID]'); return;
   }
   const port = Number(flag('--port') || '4336');
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Choose a port from 1024 to 65535.');

@@ -1,0 +1,31 @@
+{
+ "kind": "blueprint",
+ "name": "Cocos Creator · web-build",
+ "source": "lanes/engines/cocos/templates/web-build/plan.cue",
+ "date": "2026-09-07",
+ "engine": "cocos",
+ "workflow": "web-build",
+ "proven": false,
+ "note": "AUTHORED, UNPROVEN: no Cocos Creator on this Mac. --project + --build \"platform=…;buildPath=…\" is the documented command-line publish; proven once a runner with the editor executes it through a drop folder.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "project", "value": "*.cocos.zip (package.json, assets/)", "note": "rules: run" },
+   { "label": "scene", "value": "*.scene", "note": "rules: stage" },
+   { "label": "refused", "value": "> 1 GB", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 unpack", "value": "unzip -q -o <zip> -d out/project", "note": "" },
+   { "label": "2 build", "value": "CocosCreator --project out/project --build \"platform=web-mobile;debug=false;md5Cache=true;buildPath=out/build\"", "note": "exit 0 = ok; 32-36 = build errors" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "bundle", "value": "build/web-mobile/", "note": "bundle" },
+   { "label": "log", "value": "build.log", "note": "the lane's step log" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "project sha256 · build files sha256 · Cocos env-lock", "note": "" }
+  ] },
+  { "id": "sources", "title": "Sources", "rows": [
+   { "label": "publish CLI", "value": "https://docs.cocos.com/creator/3.8/manual/en/editor/publish/publish-in-command-line.html", "note": "--project, --build \"platform=;debug=;buildPath=\", exit codes" }
+  ] }
+ ]
+}

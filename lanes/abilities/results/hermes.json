@@ -1,0 +1,219 @@
+{
+  "harness": "hermes",
+  "kind": "local agent (Python, Nous Hermes Agent); bin is a bash wrapper around ~/.hermes/hermes-agent/venv/bin/hermes",
+  "measured_at": "2026-09-07T10:55:00.818Z",
+  "host": {
+    "hostname": "<hostname>.local",
+    "platform": "darwin 25.6.0 arm64",
+    "node": "v26.6.0"
+  },
+  "binary": {
+    "path": "<home>/.local/bin/hermes",
+    "exists": true,
+    "symlink": null,
+    "kind": "script (#!/usr/bin/env bash)",
+    "size": 125,
+    "sha256": "ecde096902081b27b0b8bb066ce96ca962e92e0d2f7ab8301769e26ab9001f61",
+    "sha256_note": "binary is a wrapper/entry script, so this sha256 covers only the script text, not the interpreter or the package it launches"
+  },
+  "version": "0.18.0 (2026.7.1)",
+  "version_raw": "Python: 3.11.15 | OpenAI SDK: 2.24.0 | Update available: 12642 commits behind — run 'hermes update'",
+  "model": "google/gemini-3.7-flash",
+  "model_route": "OpenRouter via --provider openrouter -m <model>; key read from OPENROUTER_API_KEY env",
+  "isolation": "HERMES_HOME={HOME} (fresh home, own config.yaml/auth.json/state.db); user's ~/.hermes untouched",
+  "env_keys": [
+    "HERMES_HOME",
+    "OPENROUTER_API_KEY"
+  ],
+  "key_source": "process.env",
+  "abilities": {
+    "one_shot": {
+      "value": true,
+      "method": "spawn argv, 120s hard timeout (SIGTERM then SIGKILL on the process group); true iff the process exits by itself and stdout+stderr (with every echo of the prompt text removed) contains PONG",
+      "evidence": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "note": "exit 0 after 7595ms; match: \"PONG \""
+    },
+    "file_edits": {
+      "value": true,
+      "method": "after the run, read <cwd>/PROBE.txt from the fresh temp dir; true iff it exists and equals \"probe-ok\" (one trailing newline tolerated)",
+      "evidence": [
+        5
+      ],
+      "note": "PROBE.txt content=\"probe-ok\"; tool lines: []"
+    },
+    "tool_use": {
+      "value": true,
+      "method": "true iff stdout+stderr (prompt echoes removed) contains TOOL-OK-4471 (as specified). Caveat: the token is in the prompt, so a model that merely repeats it would pass; corroborated with (a) tool-call event lines matched by tool_call_regex and (b) the file_edits result, which is on-disk proof of tool execution",
+      "evidence": [
+        6,
+        5
+      ],
+      "note": "token present; tool-call lines in transcript: 0 []; file_edits corroboration: true. -z one-shot prints only the final answer, so tool calls are not visible in the transcript; file_edits (file on disk) is the hard evidence."
+    },
+    "browser": {
+      "value": true,
+      "method": "true iff stdout+stderr contains \"Example Domain\"; the mechanism (real browser vs plain HTTP fetch) is inferred from tool names in the transcript, which is only visible when the harness streams tool events",
+      "evidence": [
+        7
+      ],
+      "note": "title reported; mechanism: not visible in output; tool lines: []"
+    },
+    "sandbox": {
+      "value": false,
+      "method": "compare reported hostname/pwd with this machine (hostname=<hostname>.local, cwd=<temp dir>); a different hostname or a container-style path means sandboxed",
+      "evidence": [
+        8
+      ],
+      "note": "reported this machine's hostname (<hostname>.local) and the real temp cwd, so tools run directly on the host. tail: \"hostname:\\n<hostname>.local\\n\\npwd:\\n/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/sandbox\""
+    },
+    "mcp_client": {
+      "value": true,
+      "method": "isolated config registers Timmy's stdio MCP server; true iff the reply contains a value only the real timmy_env_lock result has (OS build id or a tool sha256 prefix obtained by calling the server directly first), or the tool name plus os/arch fields plus a visible tool-call event",
+      "evidence": [
+        1,
+        2,
+        9,
+        10,
+        11
+      ],
+      "note": "called: real marker matched (25G83); tool name mentioned=false; os/arch fields=true; tool lines: []. The mcp_servers block is written straight into <HERMES_HOME>/config.yaml of the isolated home (the same {command,args,enabled} shape `hermes mcp add` saves). First pass tried `hermes mcp add`: it connected and listed all 23 Timmy tools but then hit input() -> EOFError on the no-TTY confirmation and printed 'Cancelled.' without saving, so `mcp add` is interactive-only. tail: \"r/ffmpeg/9.0.1/bin/ffprobe\\\",\\n      \\\"sha256\\\": \\\"81e6262cec5b1f06517c1853041394016ec0503f580aed702e62ac488c4520de\\\",\\n      \\\"size\\\": 253488,\\n      \\\"mtime\\\": 1786783182342.6052\\n    }\\n  },\\n  \\\"models\\\": {}\\n}\\n```\""
+    }
+  },
+  "probes": {
+    "one_shot": {
+      "id": 4,
+      "argv": [
+        "<home>/.local/bin/hermes",
+        "-z",
+        "Reply with exactly the word PONG and nothing else",
+        "--provider",
+        "openrouter",
+        "-m",
+        "google/gemini-3.7-flash"
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/one_shot",
+      "exit": 0,
+      "ms": 7595,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "file_edits": {
+      "id": 5,
+      "argv": [
+        "<home>/.local/bin/hermes",
+        "-z",
+        "Create a file named PROBE.txt in the current directory containing exactly the text probe-ok, then stop.",
+        "--provider",
+        "openrouter",
+        "-m",
+        "google/gemini-3.7-flash"
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/file_edits",
+      "exit": 0,
+      "ms": 12781,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "tool_use": {
+      "id": 6,
+      "argv": [
+        "<home>/.local/bin/hermes",
+        "-z",
+        "Run the shell command `echo TOOL-OK-4471` and report its output verbatim.",
+        "--provider",
+        "openrouter",
+        "-m",
+        "google/gemini-3.7-flash"
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/tool_use",
+      "exit": 0,
+      "ms": 10944,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "browser": {
+      "id": 7,
+      "argv": [
+        "<home>/.local/bin/hermes",
+        "-z",
+        "Fetch https://example.com and report the exact page title.",
+        "--provider",
+        "openrouter",
+        "-m",
+        "google/gemini-3.7-flash"
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/browser",
+      "exit": 0,
+      "ms": 11620,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "sandbox": {
+      "id": 8,
+      "argv": [
+        "<home>/.local/bin/hermes",
+        "-z",
+        "Run the shell commands `hostname` and `pwd` and report both verbatim.",
+        "--provider",
+        "openrouter",
+        "-m",
+        "google/gemini-3.7-flash"
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/sandbox",
+      "exit": 0,
+      "ms": 14378,
+      "timed_out": false,
+      "pre_ids": []
+    },
+    "mcp_client": {
+      "id": 11,
+      "argv": [
+        "<home>/.local/bin/hermes",
+        "-z",
+        "Call the MCP tool timmy_env_lock and paste its raw JSON result.",
+        "--provider",
+        "openrouter",
+        "-m",
+        "anthropic/claude-haiku-4.5"
+      ],
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/mcp_client",
+      "exit": 0,
+      "ms": 13634,
+      "timed_out": false,
+      "pre_ids": [
+        9,
+        10
+      ],
+      "model": "anthropic/claude-haiku-4.5"
+    }
+  },
+  "discovery": {
+    "help": 1,
+    "mcp_help": 2,
+    "version": 3
+  },
+  "mcp_ground_truth": {
+    "ok": true,
+    "markers": [
+      "25G83",
+      "cebe04356214a938aec846e4",
+      "81e6262cec5b1f06517c1853"
+    ]
+  },
+  "notes": [
+    "removed isolated-home credential file after run: /private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/home/auth.json"
+  ],
+  "mcp_setup_files": [
+    {
+      "path": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/home/config.yaml",
+      "bytes": 314
+    }
+  ],
+  "transcript": "transcripts/hermes.jsonl",
+  "transcript_lines": 11
+}

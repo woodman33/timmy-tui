@@ -63,7 +63,8 @@ export const JOURNEY: JourneyStep[] = [
   },
   {
     id: 'seal', verb: 'seal', hint: 'anything · [s]',
-    proof: r => r.kind === 'seal',
+    // owner seals only: system seeds (policy) seal with policy 'auto'
+    proof: r => r.kind === 'seal' && r.policy === 'human-gated',
     fact: r => r.subject
   }
 ];

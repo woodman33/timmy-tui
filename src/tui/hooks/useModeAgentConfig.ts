@@ -12,9 +12,11 @@ interface UseModeAgentConfigProps {
 export function useModeAgentConfig({
   agent,
   mode,
-  config
-}: UseModeAgentConfigProps) {
+  config,
+  enabled = true
+}: UseModeAgentConfigProps & { enabled?: boolean }) {
   useEffect(() => {
+    if (!enabled) return;
     try {
       const modeConfig = (BUILT_IN_MODES as any)[mode];
       if (modeConfig) {

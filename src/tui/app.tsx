@@ -57,7 +57,14 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
 
   const agent = React.useMemo(() => createAgent(config), [config]);
   const agentState = useAgent(agent);
-  const capsState = useTerminalCapabilities();
+  // BOOT (opentui-u4e9): the first frame is the header with the chain head —
+  // capability/graphics/telemetry/companion/mode-config probes start AFTER it.
+  const [booted, setBooted] = useState(false);
+  useEffect(() => {
+    const t = setImmediate(() => setBooted(true));
+    return () => clearImmediate(t);
+  }, []);
+  const capsState = useTerminalCapabilities(booted);
 
   const { telemetryStatus, queuedTelemetryCount } = useTelemetryBridge({
     agent,
@@ -67,11 +74,12 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
     config,
     activeRunId,
     activeReceiptUrl,
-    operator: 'William Meldman'
+    operator: 'William Meldman',
+    enabled: booted
   });
 
-  useCompanionSync({ agent, messages: agentState.messages, activeRunId, activeReceiptUrl });
-  useModeAgentConfig({ agent, mode: 'brief', config });
+  useCompanionSync({ agent, messages: agentState.messages, activeRunId, activeReceiptUrl, enabled: booted });
+  useModeAgentConfig({ agent, mode: 'brief', config, enabled: booted });
 
   useEffect(() => {
     const handleRunCreated = (data: any) => {
@@ -114,7 +122,7 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
         ? 'error'
         : 'idle';
 
-  const { pipeline } = useGraphicsPipeline(capsState.capabilities, animState, graphicsType);
+  const { pipeline } = useGraphicsPipeline(capsState.capabilities, animState, graphicsType, booted);
 
   const safeExit = () => {
     try { condenseSession(); } catch { /* best-effort */ }
