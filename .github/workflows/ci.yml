@@ -26,6 +26,7 @@ env:
   #   tests/demo-cast.test.ts              (#41 chain-views-e6p2) demo.mp4 needs `agg` (asciinema→gif), which the ubuntu runner does not
   #                                        install; the cast determinism assertions pass — install agg in this workflow to clear it
   #   tests/warroom2.test.ts               (#39 warroom-v2-c4m8) render gates; named by Will 2026-09-12 — clears when #47 (ui-next-2) lands
+  #   tests/openhands.test.ts              named by Will 2026-09-12: fails on the ubuntu runner (openhands adapter); delete when its cause is fixed
   KNOWN_WIP_TESTS: >-
     tests/keyboard-contract.pty.test.ts
     tests/companion-mission.test.ts
@@ -36,6 +37,7 @@ env:
     tests/receipt-hotfix.test.tsx
     tests/demo-cast.test.ts
     tests/warroom2.test.ts
+    tests/openhands.test.ts
 
 jobs:
   gate:

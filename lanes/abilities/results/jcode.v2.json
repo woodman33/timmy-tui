@@ -1,0 +1,83 @@
+{
+ "harness": "jcode",
+ "version": "0.84.0 (57d587899)",
+ "kind": "local coding agent (Rust binary, daemon+client)",
+ "measured_at": "2026-09-09T02:02:37.177682-07:00",
+ "abilities_version": "v2",
+ "order": "captain-y9g4",
+ "isolation": "JCODE_HOME=lanes/jcode/.home + --socket <home>/jcode.sock; operator ~/.jcode untouched. jcode caches the MCP tools/list per home - clear the home after a Timmy MCP schema change.",
+ "model_route": "OpenRouter via built-in openrouter provider (or a named profile: timmy-openrouter, spark2-nim); key from OPENROUTER_API_KEY",
+ "tool_schema": {
+  "google/gemini-3.8-flash": "strict",
+  "x-ai/grok-4.6": "lenient",
+  "anthropic/claude-opus-4.8": "lenient",
+  "openai/gpt-5.6-luna-pro": "lenient",
+  "qwen/qwen3.8-flash": "lenient",
+  "moonshotai/kimi-k3": "lenient"
+ },
+ "tool_schema_note": "per-model strictness (schema.models): a strict provider (Gemini) rejects a tool schema with an array lacking items; lenient providers accept. jcode driving Timmy MCP works on BOTH after timmy_promo_apply.beats gained items (schema.compliance); one_shot measured on gemini-3.8-flash (strict) and grok-4.6 (lenient).",
+ "abilities": {
+  "one_shot": {
+   "value": true,
+   "method": "jcode run --ndjson; PONG returned",
+   "evidence": [
+    "grok-4.6 (lenient) ok",
+    "gemini-3.8-flash (strict) ok after the schema fix + cache clear"
+   ]
+  },
+  "mcp_client": {
+   "value": true,
+   "method": "jcode called the Timmy MCP tool timmy_env_lock over the stdio bridge (<home>/mcp.json)",
+   "evidence": [
+    "tool_call mcp__timmy__timmy_env_lock returned the real env-lock JSON"
+   ]
+  },
+  "browser": {
+   "value": true,
+   "method": "jcode fetched https://example.com and reported the title",
+   "evidence": [
+    "tool webfetch; answer \"Example Domain\""
+   ]
+  },
+  "memory": {
+   "value": true,
+   "method": "jcode memory list on the isolated home",
+   "evidence": [
+    "exit 0; No memories found (read surface works; empty in the fresh home)"
+   ]
+  },
+  "file_edits": {
+   "value": true,
+   "method": "carried from v1 (mindship abilities probe)"
+  },
+  "tool_use": {
+   "value": true,
+   "method": "carried from v1"
+  },
+  "swarm": {
+   "value": false,
+   "method": "jcode --help: no native swarm verb; ambient + self-dev are the multi-session surfaces",
+   "note": "no swarm-spawn primitive in v0.84.0; multi-agent fan-out is Timmy-side (the swarm runtime), not jcode-native"
+  },
+  "resume": {
+   "value": "partial",
+   "method": "jcode serve (daemon) + jcode connect; --continue resumes",
+   "note": "resume goes through the daemon/connect, not a one-shot flag; not fully exercised this pass"
+  },
+  "sandbox": {
+   "value": false,
+   "method": "carried from v1",
+   "note": "Docker path is the captain Docker lanes"
+  }
+ },
+ "schema_receipts": {
+  "compliance": "sha256_3bc961a0 (Timmy MCP 23 tools, 0 strict issues)",
+  "models": "sha256_36f24b89"
+ },
+ "transcripts": [
+  "lanes/jcode/transcripts/run-mttv8cqv.jsonl",
+  "lanes/jcode/transcripts/run-mttv97xw.jsonl",
+  "lanes/jcode/transcripts/run-mttvc8ko.jsonl",
+  "lanes/jcode/transcripts/run-mttvcvre.jsonl"
+ ]
+}
