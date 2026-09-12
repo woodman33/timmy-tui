@@ -169,6 +169,22 @@ describe('cost governor', () => {
     expect(r.answer).toBe('B');
   });
 
+  it('checks the budget between fanout member calls', async () => {
+    const f = fake({ a: 'A', b: 'B', c: 'C' }, 0.6);
+    const r = await runSwarm(spec({ members: [m('a'), m('b'), m('c')], budget: { usd: 1 } }), 'task', f);
+    expect(f.seen.map((s) => s.member)).toEqual(['a', 'b']);
+    expect(r.calls.map((c) => [c.member, c.ok, !!c.killed])).toEqual([['a', true, false], ['b', true, false], ['c', false, true]]);
+    expect(r.budget.exhausted).toMatch(/budget: 1.2000 USD of 1 USD/);
+  });
+
+  it('respects max_calls within fanout batches', async () => {
+    const f = fake({ a: 'A', b: 'B', c: 'C' });
+    const r = await runSwarm(spec({ members: [m('a'), m('b'), m('c')], budget: { usd: 1, max_calls: 1 } }), 'task', f);
+    expect(f.seen.map((s) => s.member)).toEqual(['a']);
+    expect(r.calls.map((c) => [c.member, c.ok, !!c.killed])).toEqual([['a', true, false], ['b', false, true], ['c', false, true]]);
+    expect(r.budget.exhausted).toMatch(/budget: 1 of 1 calls used/);
+  });
+
   it('max_calls and the room gate kill the rest', async () => {
     const f = fake({ a: 'A', b: 'B', judge: 'J' });
     const r = await runSwarm(spec({ topology: 'fusion', budget: { usd: 1, max_calls: 2 } }), 'task', f);

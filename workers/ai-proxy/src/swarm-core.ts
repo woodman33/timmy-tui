@@ -355,7 +355,12 @@ export async function runSwarm(spec: SwarmSpec, task: string, deps: SwarmDeps): 
   };
   const ask = (m: SwarmMember, user: string, system = ANSWER_SYSTEM): ChatMessage[] => [{ role: 'system', content: system }, { role: 'user', content: user }];
   const good = (cs: MemberCall[]): MemberCall[] => cs.filter((c) => c.ok && c.content.trim());
-  const fanout = (phase = 'answer', prompt = t): Promise<MemberCall[]> => Promise.all(spec.members.map((m) => call(m, ask(m, prompt), phase)));
+  const callEachMember = async (fn: (m: SwarmMember) => Promise<MemberCall>): Promise<MemberCall[]> => {
+    const out: MemberCall[] = [];
+    for (const m of spec.members) out.push(await fn(m));
+    return out;
+  };
+  const fanout = (phase = 'answer', prompt = t): Promise<MemberCall[]> => callEachMember((m) => call(m, ask(m, prompt), phase));
 
   let answer = '';
   let winner: string | null = null;
@@ -398,7 +403,7 @@ export async function runSwarm(spec: SwarmSpec, task: string, deps: SwarmDeps): 
       const list = Array.isArray(parsed?.assignments) ? (parsed!.assignments as { member?: string; subtask?: string }[]) : [];
       assignments = {};
       for (const m of spec.members) assignments[m.id] = String(list.find((a) => a.member === m.id)?.subtask ?? t); // no plan → everyone takes the whole task
-      const outs = await Promise.all(spec.members.map((m) => call(m, ask(m, `TASK:\n${t}\n\nYOUR PART:\n${assignments![m.id]}`), 'work')));
+      const outs = await callEachMember((m) => call(m, ask(m, `TASK:\n${t}\n\nYOUR PART:\n${assignments![m.id]}`), 'work'));
       const g = good(outs);
       if (g.length) {
         const parts = g.map((c) => `--- ${c.member} (${assignments![c.member]}) ---\n${c.content.trim()}`).join('\n\n');
@@ -424,14 +429,14 @@ export async function runSwarm(spec: SwarmSpec, task: string, deps: SwarmDeps): 
     }
     case 'council': {
       const ids = spec.members.map((m) => m.id);
-      let positions = await Promise.all(spec.members.map((m) => call(m, ask(m, `TASK:\n${t}`, COUNCIL_OPEN_SYSTEM), 'position', false, 1)));
+      let positions = await callEachMember((m) => call(m, ask(m, `TASK:\n${t}`, COUNCIL_OPEN_SYSTEM), 'position', false, 1));
       rounds.push({ round: 1, phase: 'position', calls: positions.map((c) => ({ member: c.member, ok: c.ok, content_sha256: c.content_sha256 })) });
       const tally: Record<string, number> = Object.fromEntries(ids.map((id) => [id, 0]));
       let latest: Record<string, string> = Object.fromEntries(positions.map((c) => [c.member, c.content]));
       for (let r = 2; r <= spec.rounds; r++) {
         for (const id of ids) tally[id] = 0;
         const board = ids.map((id) => `--- seat ${id} ---\n${(latest[id] ?? '').trim() || '(no position)'}`).join('\n\n');
-        positions = await Promise.all(spec.members.map((m) => call(m, ask(m, `TASK:\n${t}\n\nSEATS: ${ids.join(', ')}\nYOU ARE: ${m.id}\n\n${board}`, COUNCIL_VOTE_SYSTEM), 'vote', true, r)));
+        positions = await callEachMember((m) => call(m, ask(m, `TASK:\n${t}\n\nSEATS: ${ids.join(', ')}\nYOU ARE: ${m.id}\n\n${board}`, COUNCIL_VOTE_SYSTEM), 'vote', true, r));
         const rec: RoundRecord = { round: r, phase: 'vote', calls: [] };
         const next: Record<string, string> = { ...latest };
         for (const c of positions) {
@@ -468,7 +473,7 @@ export async function runSwarm(spec: SwarmSpec, task: string, deps: SwarmDeps): 
       const list = Array.isArray(parsed?.assignments) ? (parsed!.assignments as { member?: string; instruction?: string }[]) : [];
       assignments = {};
       for (const m of spec.members) assignments[m.id] = String(list.find((a) => a.member === m.id)?.instruction ?? t);
-      const outs = await Promise.all(spec.members.map((m) => call(m, ask(m, `TASK:\n${t}\n\nYOUR ROLE: ${roles![m.id]}\nYOUR INSTRUCTION:\n${assignments![m.id]}`), 'work')));
+      const outs = await callEachMember((m) => call(m, ask(m, `TASK:\n${t}\n\nYOUR ROLE: ${roles![m.id]}\nYOUR INSTRUCTION:\n${assignments![m.id]}`), 'work'));
       const done = outs.map((c) => `--- ${c.member} (${roles![c.member]}) ${c.ok ? 'did' : 'failed: ' + (c.error ?? '')} ---\n${c.content.trim()}`).join('\n\n');
       const fin = await judge([{ role: 'system', content: CREW_COMPOSE_SYSTEM }, { role: 'user', content: `TASK:\n${t}\n\nROLES: ${JSON.stringify(roles)}\n\n${done}` }], 'compose');
       answer = fin.ok ? fin.content : done;
