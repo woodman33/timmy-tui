@@ -1,0 +1,15 @@
+{
+  "response": {
+    "model": "gemma4:12b-it-qat",
+    "done": true,
+    "done_reason": "stop",
+    "content": "{\n  \"answers\": [\n    {\n      \"key\": \"material\",\n      \"value\": null,\n      \"entityId\": \"volume\",\n      \"factIds\": [\n        \"volume.material\"\n      ]\n    },\n    {\n      \"key\": \"densityKgM3\",\n      \"value\": null,\n      \"entityId\": \"volume\",\n      \"factIds\": [\n        \"volume.density\"\n      ]\n    },\n    {\n      \"key\": \"massKg\",\n      \"value\": null,\n      \"entityId\": \"volume\",\n      \"factIds\": [\n        \"volume.density\"\n      ]\n    }\n  ],\n  \"unknowns\": [\n    \"material\",\n    \"density\",\n    \"mass\"\n  ]\n}",
+    "prompt_eval_count": 5733,
+    "eval_count": 184,
+    "total_duration": 15919116375,
+    "load_duration": 8436167,
+    "eval_duration": 12878927000
+  },
+  "malformedTransportBody": null,
+  "error": null
+}

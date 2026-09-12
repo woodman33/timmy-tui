@@ -1,0 +1,201 @@
+{
+  "fetchEvents": [
+    {
+      "phase": "live-metadata",
+      "method": "GET",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/tags",
+      "disposition": "allowed"
+    },
+    {
+      "phase": "live-metadata",
+      "method": "POST",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show",
+      "disposition": "allowed"
+    },
+    {
+      "phase": "live-metadata",
+      "method": "POST",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show",
+      "disposition": "allowed"
+    },
+    {
+      "phase": "live-metadata",
+      "method": "POST",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show",
+      "disposition": "allowed"
+    },
+    {
+      "phase": "live-metadata",
+      "method": "POST",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show",
+      "disposition": "allowed"
+    },
+    {
+      "phase": "live-metadata",
+      "method": "POST",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show",
+      "disposition": "allowed"
+    },
+    {
+      "phase": "live-metadata",
+      "method": "POST",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show",
+      "disposition": "allowed"
+    },
+    {
+      "phase": "live-metadata",
+      "method": "POST",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show",
+      "disposition": "allowed"
+    },
+    {
+      "phase": "live-metadata",
+      "method": "POST",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show",
+      "disposition": "allowed"
+    },
+    {
+      "phase": "live-metadata",
+      "method": "POST",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show",
+      "disposition": "allowed"
+    },
+    {
+      "phase": "live-metadata",
+      "method": "POST",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show",
+      "disposition": "allowed"
+    },
+    {
+      "phase": "controlled-fallback",
+      "method": "GET",
+      "origin": "http://127.0.0.1:58383",
+      "path": "/api/tags",
+      "disposition": "allowed"
+    },
+    {
+      "phase": "controlled-fallback",
+      "method": "POST",
+      "origin": "http://127.0.0.1:58383",
+      "path": "/api/show",
+      "disposition": "allowed"
+    },
+    {
+      "phase": "controlled-fallback",
+      "method": "POST",
+      "origin": "http://127.0.0.1:58383",
+      "path": "/api/show",
+      "disposition": "allowed"
+    },
+    {
+      "phase": "controlled-fallback",
+      "method": "POST",
+      "origin": "http://127.0.0.1:58383",
+      "path": "/api/show",
+      "disposition": "allowed"
+    },
+    {
+      "phase": "controlled-fallback",
+      "method": "POST",
+      "origin": "http://127.0.0.1:58383",
+      "path": "/v1/chat/completions",
+      "disposition": "allowed"
+    }
+  ],
+  "undiciRequestCreate": [
+    {
+      "phase": "live-metadata",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/tags"
+    },
+    {
+      "phase": "live-metadata",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show"
+    },
+    {
+      "phase": "live-metadata",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show"
+    },
+    {
+      "phase": "live-metadata",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show"
+    },
+    {
+      "phase": "live-metadata",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show"
+    },
+    {
+      "phase": "live-metadata",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show"
+    },
+    {
+      "phase": "live-metadata",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show"
+    },
+    {
+      "phase": "live-metadata",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show"
+    },
+    {
+      "phase": "live-metadata",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show"
+    },
+    {
+      "phase": "live-metadata",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show"
+    },
+    {
+      "phase": "live-metadata",
+      "origin": "http://127.0.0.1:11434",
+      "path": "/api/show"
+    },
+    {
+      "phase": "controlled-fallback",
+      "origin": "http://127.0.0.1:58383",
+      "path": "/api/tags"
+    },
+    {
+      "phase": "controlled-fallback",
+      "origin": "http://127.0.0.1:58383",
+      "path": "/api/show"
+    },
+    {
+      "phase": "controlled-fallback",
+      "origin": "http://127.0.0.1:58383",
+      "path": "/api/show"
+    },
+    {
+      "phase": "controlled-fallback",
+      "origin": "http://127.0.0.1:58383",
+      "path": "/api/show"
+    },
+    {
+      "phase": "controlled-fallback",
+      "origin": "http://127.0.0.1:58383",
+      "path": "/v1/chat/completions"
+    }
+  ],
+  "scope": "This parent Node process only. Focused test child uses mocked transport. Other processes and daemon egress are not observed.",
+  "mcpTransport": "not-exercised",
+  "daemonOsEgress": "unmeasured"
+}

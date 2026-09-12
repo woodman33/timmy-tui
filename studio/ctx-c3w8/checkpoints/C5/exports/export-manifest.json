@@ -1,0 +1,131 @@
+{
+  "schema": "timmy.spatial-context-export/1",
+  "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "contextSha256": "9ff2827ca721aafb33f8c0371dc17253a97728737665248cc40fe243ecf1d959",
+  "ablationSha256": "389daef66d2290542d313254ccf6f06844ddafb4fe91196400f29888fd17b792",
+  "geometry": {
+    "units": "mm",
+    "vertices": 440,
+    "triangles": 880,
+    "gridLocations": 1000,
+    "fillCounts": {
+      "unknown": 0,
+      "sampled": 1000,
+      "declared": 0,
+      "empty": 488,
+      "partial": 96,
+      "full": 416
+    },
+    "maxDisplayCoordinateErrorMm": 0.0
+  },
+  "sourceArtifacts": {
+    "cells": {
+      "path": "cells.json",
+      "sha256": "21e73f50620d5c5bcac8a5fd435914eedad148da55d5b4876e6139986f934226",
+      "bytes": 13053
+    },
+    "native": {
+      "path": "fixture.vdb",
+      "sha256": "5f3db71cb0e670e6140ea54e0191247b40341698b0476b15dc9fe4de30f28c62",
+      "bytes": 38212
+    },
+    "mesh": {
+      "path": "surface.json",
+      "sha256": "d4d527d500e0e0dcb5e29f47046a372e1514768aa775e5ce9f1a4bb98e85e475",
+      "bytes": 19350
+    },
+    "obj": {
+      "path": "surface.obj",
+      "sha256": "9d75f4ac2e1770d8c8251ae38a5f7a441d8d963db51f933bf0b67482ccb490c1",
+      "bytes": 18739
+    },
+    "roundtrip": {
+      "path": "roundtrip.json",
+      "sha256": "c42a0087a1f2a811bb83b05f2e48f87ec155953a0c82e9bd3f45373fff1ad434",
+      "bytes": 1218
+    }
+  },
+  "files": {
+    "context.rrd": {
+      "bytes": 78010,
+      "sha256": "8304232f8a69dba530c246f2b47f5de99f9c23312dd8ff0509b1a75c29d3d36f"
+    },
+    "context.viser": {
+      "bytes": 16735,
+      "sha256": "f72ae5a4f0edef591eb090da2039b2c4eee445b4a1a081ebd3061170cefca043"
+    },
+    "input-ablation.json": {
+      "bytes": 50716,
+      "sha256": "389daef66d2290542d313254ccf6f06844ddafb4fe91196400f29888fd17b792"
+    },
+    "input-context.json": {
+      "bytes": 9458,
+      "sha256": "9ff2827ca721aafb33f8c0371dc17253a97728737665248cc40fe243ecf1d959"
+    },
+    "input-manifest.json": {
+      "bytes": 2661,
+      "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65"
+    }
+  },
+  "rerun": {
+    "verification": "rerun rrd verify",
+    "exitCode": 0,
+    "rows": 24
+  },
+  "viser": {
+    "verification": "decoded scene messages and exact geometry buffers",
+    "viserVersion": "1.1.0",
+    "messageCount": 92,
+    "binaryBufferCount": 6,
+    "entityPaths": [
+      "",
+      "/WorldAxes",
+      "/evidence",
+      "/evidence/context",
+      "/evidence/row-000",
+      "/evidence/row-001",
+      "/evidence/row-002",
+      "/evidence/row-003",
+      "/evidence/row-004",
+      "/evidence/row-005",
+      "/evidence/row-006",
+      "/evidence/row-007",
+      "/evidence/row-008",
+      "/evidence/row-009",
+      "/evidence/row-010",
+      "/evidence/row-011",
+      "/evidence/row-012",
+      "/evidence/row-013",
+      "/evidence/row-014",
+      "/evidence/row-015",
+      "/evidence/row-016",
+      "/evidence/row-017",
+      "/evidence/row-018",
+      "/evidence/row-019",
+      "/evidence/row-020",
+      "/evidence/row-021",
+      "/evidence/row-022",
+      "/evidence/row-023",
+      "/evidence/source",
+      "/fixture",
+      "/fixture/cell-center",
+      "/fixture/cells",
+      "/fixture/surface"
+    ],
+    "annotationRows": 24,
+    "annotationsInitiallyHidden": true,
+    "temporaryServerStopped": true
+  },
+  "versions": {
+    "rerun": "0.37.2",
+    "viser": "1.1.0"
+  },
+  "scope": {
+    "geometrySource": "retained analytic fixture",
+    "semanticCorrectnessChecked": false,
+    "nativeEditsExecuted": false,
+    "physicalValidation": false,
+    "renderingProved": false,
+    "claim": "actual serialized geometry and retained context/ablation data; source hashes and format readback checked"
+  }
+}

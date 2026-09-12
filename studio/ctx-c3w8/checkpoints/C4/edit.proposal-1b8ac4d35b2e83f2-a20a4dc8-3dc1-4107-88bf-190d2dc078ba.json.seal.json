@@ -1,0 +1,37 @@
+{
+  "v": 1,
+  "id": "rc_mtyn102s_d2xo",
+  "stream": "runs",
+  "ts": "2026-09-12T17:07:05.764Z",
+  "env_lock": {
+    "os": {
+      "platform": "darwin",
+      "build": "25G83",
+      "version": "26.6.2"
+    },
+    "arch": "arm64",
+    "tools": {},
+    "models": {}
+  },
+  "kind": "edit.proposal",
+  "subject": "edit.proposal",
+  "policy": "Retain immutable spatial evidence; no authority or physical correctness promotion",
+  "status": "denied",
+  "output_sha256": "1b8ac4d35b2e83f2118645a04981e53e263b3bbd674378d1bef03f7b8d24426a",
+  "manifest_sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "artifacts": [
+    "studio/ctx-c3w8/checkpoints/C4/edit.proposal-1b8ac4d35b2e83f2-a20a4dc8-3dc1-4107-88bf-190d2dc078ba.json"
+  ],
+  "sources": [
+    {
+      "source_sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "artifact_sha256": "1b8ac4d35b2e83f2118645a04981e53e263b3bbd674378d1bef03f7b8d24426a",
+      "authority": "retained-local-file"
+    }
+  ],
+  "epoch": 903,
+  "prev_hash": "sha256_e5b5d01eac653b54f05c6bd6defab7a9b189ac347d485ea0c90d50e5f8571802",
+  "signer": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAhm/lxmgv+Sm+xKu19Rtsnp74QrpJGrxnoyXm2QAft8s=\n-----END PUBLIC KEY-----\n",
+  "signature": "KxQHnkw4DD3d41d/swGr0QlvRw9WNPEvQx2ZhLZVl8D54gwWcFqmUQatpQJCBSIqfqNvnHm7asNJ7za2o/0bDg==",
+  "hash": "sha256_c9b6088954726aa4a06447227e60598b0b9e81d6146948ebb19e506940fe7f57"
+}

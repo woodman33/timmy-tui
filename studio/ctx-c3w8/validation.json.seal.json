@@ -1,0 +1,29 @@
+{
+  "v": 1,
+  "id": "rc_mtynsfbh_nh2c",
+  "stream": "runs",
+  "ts": "2026-09-12T17:28:25.229Z",
+  "env_lock": {
+    "os": {
+      "platform": "darwin",
+      "build": "25G83",
+      "version": "26.6.2"
+    },
+    "arch": "arm64",
+    "tools": {},
+    "models": {}
+  },
+  "kind": "ctx.order.validation",
+  "subject": "ORDER ctx-c3w8",
+  "policy": "User authorized local evidence and proposal-only work; HOLD released",
+  "status": "ok",
+  "output_sha256": "4b113c8507f8347b4d7d3af0937cbfc54efba7bb4b9c4274f647e00bd0c10745",
+  "artifacts": [
+    "studio/ctx-c3w8/validation.json"
+  ],
+  "epoch": 903,
+  "prev_hash": "sha256_ca994da457e004ada3a3cdf4c3f4ff3300cf02894e1b50d23071000c6bbd844c",
+  "signer": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAhm/lxmgv+Sm+xKu19Rtsnp74QrpJGrxnoyXm2QAft8s=\n-----END PUBLIC KEY-----\n",
+  "signature": "n5naDxUqolr2t3OptIHGyNvnmI6j8aq2xPFuCgSPiMBV/0arV6d7dZuKzFwtKIe6j0EfVNfQqSI6571ZGnNRAA==",
+  "hash": "sha256_189ac2cbd0ef0ddbf9af219d2ee35b87ab83434aa614da772acbc1e754667cba"
+}

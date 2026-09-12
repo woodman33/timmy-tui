@@ -1,0 +1,27 @@
+{
+  "schema": "timmy.context-ablation.row/1",
+  "rowId": "qwen3.8_27b-mlx-center-pack",
+  "model": "qwen3.8:27b-mlx",
+  "requested": "qwen3.8:27b-mlx",
+  "modelDigest": "5642e97495e1a088883805981563dcdc4a040c2f53388b7a41d1f24d3622cf7e",
+  "questionId": "center",
+  "condition": "pack",
+  "elapsedMs": 239984,
+  "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+  "intentReceipt": "sha256_bcc96c927485c6ddd5e5d25a9879ab97f1dac4afc493eeeaf18943dd3690f794",
+  "requestSha256": "dc2bad1c9f6095cd0bd2e83f05d2c554e2106b5ef1d930e5ba2e724ac0ebaf77",
+  "responseSha256": "e6677f024fd60c4f7d48b9a19cca9d8566a25b98880563ccc9c7f5d238ec6c64",
+  "raw": null,
+  "score": {
+    "valid": false,
+    "correct": false,
+    "referencesValid": false,
+    "groundedCorrect": 0,
+    "unknownsPreserved": 0,
+    "score": 0,
+    "answerCoverage": 0,
+    "error": "The operation was aborted due to timeout"
+  },
+  "error": "The operation was aborted due to timeout"
+}

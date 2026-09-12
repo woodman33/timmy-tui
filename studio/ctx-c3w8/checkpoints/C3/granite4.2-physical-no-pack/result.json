@@ -1,0 +1,53 @@
+{
+  "schema": "timmy.context-ablation.row/1",
+  "rowId": "granite4.2-physical-no-pack",
+  "model": "granite4.2:latest",
+  "requested": "granite4.2",
+  "modelDigest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+  "questionId": "physical",
+  "condition": "no-pack",
+  "elapsedMs": 9180,
+  "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "contextPackSha256": null,
+  "intentReceipt": "sha256_b58299b9124199de3be73dd3856f7868db396b8bce0bdcd1c7513c8488f33fb3",
+  "requestSha256": "96512b073383b8be6aaf7a4c9cc105a5415dd1718e61426ace9c3a2ddcd3cafd",
+  "responseSha256": "1cb2aaa2513df8565e26b5b5f6f8b4ee56523c2827cabf868598740d26ddf651",
+  "raw": {
+    "answers": [
+      {
+        "entityId": "material",
+        "factIds": [],
+        "key": "material",
+        "value": null
+      },
+      {
+        "entityId": "densityKgM3",
+        "factIds": [],
+        "key": "densityKgM3",
+        "value": null
+      },
+      {
+        "entityId": "massKg",
+        "factIds": [],
+        "key": "massKg",
+        "value": null
+      }
+    ],
+    "unknowns": [
+      "material",
+      "density",
+      "mass"
+    ]
+  },
+  "score": {
+    "valid": true,
+    "correct": true,
+    "referencesValid": false,
+    "groundedCorrect": 0,
+    "unknownsPreserved": 1,
+    "score": 1,
+    "answerCoverage": 0,
+    "error": null
+  },
+  "error": null
+}

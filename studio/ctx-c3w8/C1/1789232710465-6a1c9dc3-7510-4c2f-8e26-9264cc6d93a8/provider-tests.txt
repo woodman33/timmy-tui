@@ -1,0 +1,10 @@
+
+ RUN  v3.2.6 <worktree>
+
+ ✓ tests/providers.test.ts (17 tests) 57ms
+
+ Test Files  1 passed (1)
+      Tests  17 passed (17)
+   Start at  10:05:12
+   Duration  704ms (transform 107ms, setup 29ms, collect 59ms, tests 57ms, environment 0ms, prepare 158ms)
+

@@ -1,0 +1,15 @@
+{
+  "response": {
+    "model": "granite4.2:latest",
+    "done": true,
+    "done_reason": "stop",
+    "content": "{\n  \"answers\": [\n    {\n      \"entityId\": \"material\",\n      \"factIds\": [],\n      \"key\": \"material\",\n      \"value\": null\n    },\n    {\n      \"entityId\": \"densityKgM3\",\n      \"factIds\": [],\n      \"key\": \"densityKgM3\",\n      \"value\": null\n    },\n    {\n      \"entityId\": \"massKg\",\n      \"factIds\": [],\n      \"key\": \"massKg\",\n      \"value\": null\n    }\n  ],\n  \"unknowns\": [\"material\", \"density\", \"mass\"]\n}",
+    "prompt_eval_count": 202,
+    "eval_count": 149,
+    "total_duration": 9145922333,
+    "load_duration": 12458792,
+    "eval_duration": 8684001000
+  },
+  "malformedTransportBody": null,
+  "error": null
+}

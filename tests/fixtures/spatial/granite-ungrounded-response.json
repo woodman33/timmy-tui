@@ -1,0 +1,14 @@
+{
+  "model": "granite4.2:latest",
+  "message": {
+    "role": "assistant",
+    "content": "{\n  \"annotations\": [\n    {\n      \"comment\": \"The volume contains 1000 voxels forming a 10x10x10 grid in mm units. The center voxel (cell-center) has fill fraction 0.046875 and no declared material or density.\",\n      \"entityId\": \"volume\",\n      \"factIds\": [\"volume.location-count\", \"volume.total-cells\", \"volume.fill-coverage\", \"volume.material-coverage\", \"volume.density-coverage\", \"volume.filled-volume\", \"cell-center.location\", \"cell-center.fill\"],\n      \"proposedAction\": \"inspect\"\n    },\n    {\n      \"comment\": \"Fill fraction alone cannot identify physical material or intrinsic mass density; material and density remain unknown per facts.\",\n      \"entityId\": \"volume\",\n      \"factIds\": [\"cell-center.fill\", \"volume.material\", \"volume.density\", \"volume.material-coverage\", \"volume.density-coverage\"],\n      \"proposedAction\": \"none\"\n    }\n  ],\n  \"densityKnown\": false,\n  \"materialKnown\": false,\n  \"sourceSha256\": \"d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65\",\n  \"summary\": \"1000-cell volume (10x10x10 mm grid) with center voxel fill fraction 0.046875; no material or density declaration; fill fraction does not imply material or density.\"\n}"
+  },
+  "done": true,
+  "done_reason": "stop",
+  "prompt_eval_count": 2583,
+  "eval_count": 351,
+  "total_duration": 33815225917,
+  "load_duration": 4126618167,
+  "eval_duration": 23646306000
+}

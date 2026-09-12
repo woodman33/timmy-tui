@@ -1,0 +1,13 @@
+{
+  "checkpoint": "C4",
+  "order": "ctx-c3w8",
+  "createdAt": "2026-09-12T17:07:04.944Z",
+  "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "budgetSeconds": 900,
+  "expected": {
+    "fresh": "proposed",
+    "stale": "refused:stale_source_revision",
+    "proposalDocumentWrites": 0,
+    "harnessRevisionAdvances": 1
+  }
+}

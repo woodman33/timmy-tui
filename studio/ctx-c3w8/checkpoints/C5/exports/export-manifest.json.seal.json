@@ -1,0 +1,30 @@
+{
+  "v": 1,
+  "id": "rc_mtynoclb_s8a2",
+  "stream": "runs",
+  "ts": "2026-09-12T17:25:15.071Z",
+  "env_lock": {
+    "os": {
+      "platform": "darwin",
+      "build": "25G83",
+      "version": "26.6.2"
+    },
+    "arch": "arm64",
+    "tools": {},
+    "models": {}
+  },
+  "kind": "context.scene.export",
+  "subject": "ORDER ctx-c3w8",
+  "policy": "User authorized local evidence and proposal-only work; HOLD released",
+  "status": "ok",
+  "output_sha256": "05f1e3ebf0646ab21853c2d4c42a22126715cc61e9a7d11eabd2b96eea1b0c47",
+  "artifacts": [
+    "studio/ctx-c3w8/checkpoints/C5/exports/export-manifest.json"
+  ],
+  "plan_hash": "sha256_4270e5c934a9311c7ade367bf81ac4480354e82417accd335d3797b28ecd6061",
+  "epoch": 903,
+  "prev_hash": "sha256_4270e5c934a9311c7ade367bf81ac4480354e82417accd335d3797b28ecd6061",
+  "signer": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAhm/lxmgv+Sm+xKu19Rtsnp74QrpJGrxnoyXm2QAft8s=\n-----END PUBLIC KEY-----\n",
+  "signature": "jQ06IIiytHeQHHOHIDP+/ND14B2CcjkWt92Kv+0t7s4VZ+uc3cW+pBPwLu7S+0WwsU/wcQcmOOw8WgXzHRWOCw==",
+  "hash": "sha256_38c609fbe06fd8178248220a1faee278a6372d418e149a05bd3bbffa113e8541"
+}

@@ -1,0 +1,14 @@
+{
+  "schema": "timmy.ctx-c3w8.c1.finding/1",
+  "finding": "daemon-os-egress-not-measured",
+  "status": "unmeasured",
+  "reason": "The Node client guards destinations and rejects remote model metadata, but this checkpoint does not isolate or trace the Ollama daemon process network namespace.",
+  "measured": "Client fetch admission plus Undici request creation; negative control; actual fallback method against a controlled loopback endpoint.",
+  "notEstablished": [
+    "Ollama daemon has no OS egress",
+    "MCP processes have no OS egress",
+    "Whole-machine airgap",
+    "A real local model answered in C1"
+  ],
+  "nextMeasurement": "Run an explicitly authorized local inference under daemon-level egress containment or process-attributed network tracing; retain that separate evidence."
+}

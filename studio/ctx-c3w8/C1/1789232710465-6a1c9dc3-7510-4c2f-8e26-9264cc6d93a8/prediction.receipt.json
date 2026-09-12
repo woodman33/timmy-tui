@@ -1,0 +1,46 @@
+{
+  "v": 1,
+  "id": "rc_mtymyj96_j8qm",
+  "stream": "runs",
+  "ts": "2026-09-12T17:05:10.650Z",
+  "env_lock": {
+    "os": {
+      "platform": "darwin",
+      "build": "25G83",
+      "version": "26.6.2"
+    },
+    "arch": "arm64",
+    "tools": {},
+    "models": {}
+  },
+  "kind": "ctx.c1.predict",
+  "subject": "ctx-c3w8/C1",
+  "policy": "Prediction sealed before checkpoint execution; user waived HOLD",
+  "prompt_hash": "eec2fe4d2d7fb1a838d0bd67ff4d3fbebfcaeacad2657113244019435141cfb6",
+  "artifacts": [
+    "studio/ctx-c3w8/C1/1789232710465-6a1c9dc3-7510-4c2f-8e26-9264cc6d93a8/prediction.json"
+  ],
+  "sources": [
+    {
+      "path": "src/agent/providers.ts",
+      "sha256": "3fbf75ad6d2c6355d83aed2b61996afa711afaba767610b033dc612cf03fafbe"
+    },
+    {
+      "path": "src/agent/core.ts",
+      "sha256": "0df7587bdf0e3801b57803eae9a93f6da35ffe2b7e3cd5038b26891c0d0295fd"
+    },
+    {
+      "path": "tests/providers.test.ts",
+      "sha256": "e23330e16db562982d458f97fea983c2eb3c278d8e6f055ac6ed4199c5fa7ec4"
+    },
+    {
+      "path": "tools/ctx-c3w8/c1-checkpoint.ts",
+      "sha256": "1398e5b0c126b7947e106ea5818385c54733691bf75f9b3fa5c20e9867a42840"
+    }
+  ],
+  "epoch": 903,
+  "prev_hash": "sha256_4dcd6cfd2cb76c029c372844ef89f659561a1b871594f80b2945499c2eb075c6",
+  "signer": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAhm/lxmgv+Sm+xKu19Rtsnp74QrpJGrxnoyXm2QAft8s=\n-----END PUBLIC KEY-----\n",
+  "signature": "zRS8gu4X4jRFHKdVggxncoYVzHoMubkUTvOHEvm/dWWG043uzE8NL5c6p90a4RlZgPkvUZkx1zffu/6CCry/Dw==",
+  "hash": "sha256_85e69e1b40b25fc6a2572d40d3106e0313cef52db59b9e4a014aa1e4da853f3b"
+}

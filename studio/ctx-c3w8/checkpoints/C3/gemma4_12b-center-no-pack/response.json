@@ -1,0 +1,15 @@
+{
+  "response": {
+    "model": "gemma4:12b-it-qat",
+    "done": true,
+    "done_reason": "stop",
+    "content": "{\"answers\": [{\"key\": \"centerXmm\", \"value\": null, \"entityId\": null, \"factIds\": []}, {\"key\": \"centerYmm\", \"value\": null, \"entityId\": null, \"factIds\": []}, {\"key\": \"centerZmm\", \"value\": null, \"entityId\": null, \"factIds\": []}, {\"key\": \"fillFraction\", \"value\": null, \"entityId\": null, \"factIds\": []}], \"unknowns\": [\"material\", \"density\", \"mass\"]}",
+    "prompt_eval_count": 197,
+    "eval_count": 114,
+    "total_duration": 10068918833,
+    "load_duration": 8981792,
+    "eval_duration": 9522632000
+  },
+  "malformedTransportBody": null,
+  "error": null
+}
