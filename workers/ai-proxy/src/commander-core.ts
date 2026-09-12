@@ -249,9 +249,10 @@ export function usageCost(u: OpenRouterUsage | undefined): UsageCost {
   };
 }
 
-export function applySpend<S extends { spend: Spend; updated_at: string }>(state: S, calls: ModelCall[], now: string): S {
+export function applySpend<S extends { spend: Spend; updated_at: string }>(state: S, calls: (ModelCall & { killed?: boolean })[], now: string): S {
   const s = { ...state.spend };
   for (const c of calls) {
+    if (c.killed) continue;
     s.calls += 1;
     s.usd += c.usd;
     s.tokens_in += c.tokens_in;
@@ -403,6 +404,7 @@ export async function chatOnce(role: ModelCall['role'], model: string, messages:
   const acc = { usd: 0, tokens_in: 0, tokens_out: 0, tokens_cached: 0, tokens_reasoning: 0, counted: true, any: false };
   const toolCalls: NonNullable<ModelCall['tool_calls']> = [];
   let convo = messages;
+  let meta: Pick<ModelCall, 'provider_used' | 'model_used' | 'generation_id'> = { provider_used: null, model_used: null, generation_id: null };
   try {
     for (let round = 0; round < 2; round++) {
       const r = await f('https://openrouter.ai/api/v1/chat/completions', {
@@ -415,7 +417,7 @@ export async function chatOnce(role: ModelCall['role'], model: string, messages:
       const cost = usageCost(j.usage);
       acc.usd += cost.usd; acc.tokens_in += cost.tokens_in; acc.tokens_out += cost.tokens_out; acc.tokens_cached += cost.tokens_cached; acc.tokens_reasoning += cost.tokens_reasoning;
       acc.counted = acc.counted && cost.counted; acc.any = true;
-      const meta = { provider_used: j.provider ?? null, model_used: j.model ?? null, generation_id: j.id ?? null };
+      meta = { provider_used: j.provider ?? null, model_used: j.model ?? null, generation_id: j.id ?? null };
       if (!r.ok) return { call: { ...base, ...meta, ms: now() - started, usd: acc.usd, tokens_in: acc.tokens_in, tokens_out: acc.tokens_out, tokens_cached: acc.tokens_cached, tokens_reasoning: acc.tokens_reasoning, counted: acc.counted, error: `upstream ${r.status}: ${JSON.stringify(j.error ?? j).slice(0, 300)}` }, content: '' };
       const msg = j.choices?.[0]?.message;
       const wanted = Array.isArray(msg?.tool_calls) ? msg!.tool_calls! : [];
@@ -446,7 +448,7 @@ export async function chatOnce(role: ModelCall['role'], model: string, messages:
     return { call: { ...base, ms: now() - started, usd: acc.usd, tokens_in: acc.tokens_in, tokens_out: acc.tokens_out, counted: acc.counted, error: 'tool round did not converge', tool_calls: toolCalls }, content: '' };
   } catch (e) {
     const aborted = opts.signal?.aborted || (e instanceof Error && e.name === 'AbortError');
-    return { call: { ...base, ms: now() - started, error: aborted ? 'aborted: kill switch' : e instanceof Error ? e.message : String(e) }, content: '' };
+    return { call: { ...base, ...meta, ms: now() - started, usd: Math.round(acc.usd * 1e6) / 1e6, tokens_in: acc.tokens_in, tokens_out: acc.tokens_out, tokens_cached: acc.tokens_cached, tokens_reasoning: acc.tokens_reasoning, counted: acc.any ? acc.counted : false, error: aborted ? 'aborted: kill switch' : e instanceof Error ? e.message : String(e), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) }, content: '' };
   }
 }
 
@@ -512,7 +514,7 @@ export function chatOptionsFor(req: TurnRequest, room: string | null, spend: Pic
     ...(req.reasoning ? { reasoning: req.reasoning } : {}),
     ...(req.json_schema ? { response_format: { type: 'json_schema', json_schema: { name: 'answer', strict: true, schema: req.json_schema } } } : {}),
     ...(req.tools ? { tools: nativeTools(), ...(onToolCall ? { onToolCall } : {}) } : {}),
-    ...(room ? { session_id: `commander:${room}` } : {}),
+    ...(room ? { session_id: room.startsWith('commander:') || room.startsWith('timmy:') ? room : `commander:${room}` } : {}),
     ...(typeof req.temperature === 'number' ? { temperature: req.temperature } : {}),
     ...(spend?.max_price ? { max_price: spend.max_price } : {}),
     ...(req.zdr ? { zdr: true } : {}),

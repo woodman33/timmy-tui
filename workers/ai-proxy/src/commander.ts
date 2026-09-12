@@ -27,7 +27,8 @@
 // Every mutation seals one receipt on the room's edge chain (subject
 // commander:<room>) stored in SQL and mirrored to CUSTODY_KV as
 // chain:commander:<room>, so the daily head lists it like every other chain.
-import { Agent, type Connection, type ConnectionContext, type WSMessage } from 'agents';
+import { Agent, getAgentByName, type Connection, type ConnectionContext, type WSMessage } from 'agents';
+import { RPC_DO_PREFIX } from 'agents/mcp';
 import { DynamicWorkerExecutor } from '@cloudflare/codemode';
 import { HttpError, type Executor } from './code.js';
 import { type EdgeReceipt, sha256Hex, verifyEdgeChain } from './chain.js';
@@ -252,14 +253,25 @@ export class Commander extends Agent<CommanderEnv, CommanderState> {
     const room = String(m.room);
     const serverId = `timmy_${room}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60);
     const conn = await this.addMcpServer(room, this.env.TIMMY, { id: serverId, props: { room } });
+    const timmy = await getAgentByName(this.env.TIMMY, `${RPC_DO_PREFIX}${room}`, { props: { room } });
+    const abortTimmy = () => { void timmy.rpcAbort(`commander:${this.name} kill switch`).catch(() => undefined); };
+    if (o.signal?.aborted) {
+      await timmy.rpcAbort(`commander:${this.name} kill switch`);
+      throw new Error('aborted: kill switch');
+    }
     const system = messages.find((x) => x.role === 'system')?.content;
     const task = messages.filter((x) => x.role === 'user').map((x) => x.content).join('\n\n');
-    const res = (await this.mcp.callTool({ serverId: conn.id, name: 'think', arguments: { task, ...(system ? { system } : {}), max_tokens: o.maxTokens, by: `swarm:${this.name}` } })) as { content?: { type: string; text?: string }[]; isError?: boolean };
-    const textPart = (res.content ?? []).find((c) => c.type === 'text')?.text ?? '';
-    let out: Partial<ThinkOut> & { error?: string } = {};
-    try { out = JSON.parse(textPart) as Partial<ThinkOut> & { error?: string }; } catch { out = { answer: textPart }; }
-    if (res.isError || out.ok === false) return { content: '', out, error: out.error ?? 'timmy refused' };
-    return { content: String(out.answer ?? ''), out, error: null };
+    o.signal?.addEventListener('abort', abortTimmy, { once: true });
+    try {
+      const res = (await this.mcp.callTool({ serverId: conn.id, name: 'think', arguments: { task, ...(system ? { system } : {}), max_tokens: o.maxTokens, by: `swarm:${this.name}` } })) as { content?: { type: string; text?: string }[]; isError?: boolean };
+      const textPart = (res.content ?? []).find((c) => c.type === 'text')?.text ?? '';
+      let out: Partial<ThinkOut> & { error?: string } = {};
+      try { out = JSON.parse(textPart) as Partial<ThinkOut> & { error?: string }; } catch { out = { answer: textPart }; }
+      if (res.isError || out.ok === false) return { content: '', out, error: out.error ?? 'timmy refused' };
+      return { content: String(out.answer ?? ''), out, error: null };
+    } finally {
+      o.signal?.removeEventListener('abort', abortTimmy);
+    }
   }
 
   /** Every member the edge can run: OpenRouter models and Timmys. Local members (Ollama slots, harnesses) are refused here and run through `timmy swarm run`. */

@@ -83,6 +83,7 @@ export class Timmy extends McpAgent<TimmyEnv, TimmyState, TimmyProps> {
   initialState: TimmyState = initialTimmyState('', '1970-01-01T00:00:00.000Z', 2);
   private tables = false;
   private sealChain: Promise<unknown> = Promise.resolve();
+  private inflight = new Set<AbortController>();
 
   private ensureTables(): void {
     if (this.tables) return;
@@ -129,7 +130,19 @@ export class Timmy extends McpAgent<TimmyEnv, TimmyState, TimmyProps> {
     return new DynamicWorkerExecutor({ loader: this.env.LOADER as never, timeout: 60_000 }) as unknown as Executor;
   }
 
+  private abortable<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const ac = new AbortController();
+    this.inflight.add(ac);
+    return fn(ac.signal).finally(() => this.inflight.delete(ac));
+  }
+
   // ------------------------------------------------------------ the Timmy's own verbs (RPC-callable from the worker)
+
+  async rpcAbort(reason?: string): Promise<{ ok: true; aborted_inflight: number; reason: string | null }> {
+    const aborted = this.inflight.size;
+    for (const ac of this.inflight) ac.abort();
+    return { ok: true, aborted_inflight: aborted, reason: reason ? String(reason).slice(0, 400) : null };
+  }
 
   /** One turn of this Timmy's mind under its project budget; seals timmy.turn on its chain. */
   async rpcThink(body: TurnRequest & { by?: string }): Promise<ThinkOut> {
@@ -141,7 +154,7 @@ export class Timmy extends McpAgent<TimmyEnv, TimmyState, TimmyProps> {
     // the project profile's models are the default mind/actors unless the caller names models
     const models = body.models?.length ? body.models : mode === 'generate' ? (profile?.mind ? [profile.mind] : undefined) : (profile?.actors?.length ? profile.actors : undefined);
     const req: TurnRequest = { ...body, ...(models ? { models } : {}), source: body.source ?? 'mcp' };
-    const r = await executeTurn(req, mode, { env: this.env, executor: this.executor(), room: `timmy:${this.room}`, spend: this.state.spend });
+    const r = await this.abortable((signal) => executeTurn(req, mode, { env: this.env, executor: this.executor(), room: `timmy:${this.room}`, spend: this.state.spend, signal }));
     const now = new Date().toISOString();
     const spent = applySpend(this.state, r.calls, now);
     const by = String(body.by ?? 'openrouter').slice(0, 80);

@@ -147,6 +147,8 @@ describe('kill switch, modes, cap', () => {
     const gate = canThink(s2);
     expect(gate.ok).toBe(false);
     if (!gate.ok) { expect(gate.status).toBe(402); expect(gate.reason).toContain('spend cap reached'); }
+    const killed = { role: 'actor' as const, model: 'k', ok: false, ms: 0, usd: 0, tokens_in: 0, tokens_out: 0, counted: false, content_sha256: null, error: 'killed', ...extra, killed: true };
+    expect(applySpend(s2, [killed], NOW).spend.calls).toBe(s2.spend.calls);
   });
 });
 
@@ -244,6 +246,9 @@ describe('modes', () => {
     const data = await turnReceiptData({ task: 'q', provider: { order: ['Google'] }, zdr: true }, r, 'openrouter');
     expect(data.passthrough).toMatchObject({ provider: true, zdr: true, fallbacks: 0 });
     expect((data.models as { generation_id: string }[])[0].generation_id).toBe('gen-google/gemini-3.7-flash');
+    const timmySeen: Record<string, unknown>[] = [];
+    await executeTurn({ task: 'q' }, 'generate', { env, fetch: fakeOpenRouter({ 'google/gemini-3.7-flash': 'ok' }, timmySeen), room: 'timmy:project:ship' });
+    expect(timmySeen[0].session_id).toBe('timmy:project:ship');
   });
 
   it('native tool calling: the mind calls an edge tool, the result goes back, one more round answers', async () => {
@@ -260,6 +265,20 @@ describe('modes', () => {
     const r2 = await executeTurn({ task: 'chat', tools: true }, 'generate', { env, fetch: fakeOpenRouter({ 'google/gemini-3.7-flash': { tool: 'openrouter_chat', args: { model: 'x-ai/grok-4.6', messages: [{ role: 'user', content: 'hi' }] }, then: 'refused' } }, seen2) });
     expect(r2.calls[0].tool_calls?.[0]).toMatchObject({ name: 'openrouter_chat', ok: false, error: expect.stringContaining('approval') });
     expect(seen2[1].messages.find((m) => m.role === 'tool')?.content).toContain('approval');
+  });
+
+  it('preserves accrued usage when an abort lands after the native tool round', async () => {
+    const ac = new AbortController();
+    let n = 0;
+    const abortingAfterTool = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      n += 1;
+      if (n === 1) return Response.json({ id: 'gen-tool-1', model: 'google/gemini-3.7-flash', provider: 'Fake', choices: [{ message: { content: '', tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'tools_list', arguments: '{}' } }] } }], usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.0007 } });
+      ac.abort();
+      throw Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
+    }) as typeof fetch;
+    const r = await executeTurn({ task: 'use a tool', tools: true }, 'generate', { env, fetch: abortingAfterTool, signal: ac.signal });
+    expect(r.ok).toBe(false);
+    expect(r.calls[0]).toMatchObject({ error: expect.stringContaining('kill switch'), usd: 0.0007, tokens_in: 10, tokens_out: 5, counted: true, tool_calls: [{ name: 'tools_list', ok: true, ms: expect.any(Number) }] });
   });
 
   it('native routers: fusion → openrouter/fusion in one call; bodybuilder → the router\'s requests run on the allowlist', async () => {

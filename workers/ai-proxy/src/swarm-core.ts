@@ -238,7 +238,7 @@ export class Governor {
 }
 
 const killedCall = (m: SwarmMember, phase: string, reason: string, round?: number): MemberCall => ({
-  role: 'actor', model: m.model ?? m.harness ?? m.room ?? m.id, ok: false, ms: 0, usd: 0, tokens_in: 0, tokens_out: 0, counted: true,
+  role: 'actor', model: m.model ?? m.harness ?? m.room ?? m.id, ok: false, ms: 0, usd: 0, tokens_in: 0, tokens_out: 0, counted: false,
   content_sha256: null, error: reason, provider_used: null, model_used: null, generation_id: null, tokens_cached: 0, tokens_reasoning: 0,
   member: m.id, kind: m.kind, content: '', receipt: null, phase, ...(round != null ? { round } : {}), killed: true
 });
