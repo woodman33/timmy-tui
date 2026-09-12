@@ -13,7 +13,8 @@ import { join, resolve } from 'path';
 import { spawn } from 'child_process';
 import { pathToFileURL } from 'url';
 import { readEvents, eventsPath, TimmyEvent } from './eventbus.js';
-import { readChain, verifyChain, verifySignature, hashOf } from './receipts.js';
+import { readChain, verifyChain, verifySignature, hashOf, appendReceipt } from './receipts.js';
+import { listEscrows } from './escrow-engine.js';
 import { theme } from '../tui/theme.js';
 
 export const LOGS_PORT = (): number => Number(process.env.TIMMY_LOGS_PORT ?? 4310);
@@ -554,6 +555,7 @@ function sessionSize(): number {
 
 export function startLogServer(opts: { port?: number; open?: boolean } = {}): Promise<number> {
   const port = opts.port ?? LOGS_PORT();
+  let pairSealed = false; // one companion.pair receipt per server process
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://localhost:${port}`);
     if (url.pathname === '/health') {
@@ -591,6 +593,14 @@ export function startLogServer(opts: { port?: number; open?: boolean } = {}): Pr
       return;
     }
     if (url.pathname === '/events') {
+      // SPEC §00 journey step 6: the first live companion client to attach is
+      // the pair event — sealed once per server process, read by the HOME ladder.
+      if (!pairSealed) {
+        pairSealed = true;
+        try {
+          appendReceipt('runs', { kind: 'run', subject: `companion.pair · log companion SSE client · port ${port}`, policy: 'auto', status: 'ok' });
+        } catch { /* best-effort */ }
+      }
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
@@ -734,18 +744,14 @@ export function startLogServer(opts: { port?: number; open?: boolean } = {}): Pr
     }
     // v0.9.0 escrow ledger: live balance locks / refunds / slashes
     if (url.pathname === '/mission/escrows' && req.method === 'GET') {
-      const escDir = join(process.cwd(), '.timmy', 'escrow');
-      let rows: unknown[] = [];
-      try {
-        rows = readdirSync(escDir).filter(f => f.endsWith('.json'))
-          .map(f => JSON.parse(readFileSync(join(escDir, f), 'utf8')))
-          .sort((a, b) => String(a.escrow_id).localeCompare(String(b.escrow_id)))
-          .map(e => ({
-            escrow_id: e.escrow_id, state: e.state, ceiling_usd: e.ceiling_usd, drawn_usd: e.drawn_usd,
-            refund_usd: e.refund_usd ?? null, qa_threshold: e.qa_threshold, qa_value: e.qa_value ?? null,
-            merkle_root: e.merkle_root ? String(e.merkle_root).slice(0, 16) + '…' : null
-          }));
-      } catch { /* no escrows yet */ }
+      // store-resolved (same path the engine writes), not a hardcoded cwd scan
+      const rows: unknown[] = listEscrows()
+        .sort((a, b) => String(a.escrow_id).localeCompare(String(b.escrow_id)))
+        .map(e => ({
+          escrow_id: e.escrow_id, state: e.state, ceiling_usd: e.ceiling_usd, drawn_usd: e.drawn_usd,
+          refund_usd: e.refund_usd ?? null, qa_threshold: e.qa_threshold, qa_value: e.qa_value ?? null,
+          merkle_root: e.merkle_root ? String(e.merkle_root).slice(0, 16) + '…' : null
+        }));
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ ok: true, escrows: rows }));
       return;

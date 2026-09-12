@@ -3,14 +3,14 @@
   "kind": "local coding agent (Rust binary, background daemon + client)",
   "measured_at": "2026-09-07T10:48:20.494Z",
   "host": {
-    "hostname": "Williams-MacBook-Pro-2.local",
+    "hostname": "<hostname>.local",
     "platform": "darwin 25.6.0 arm64",
     "node": "v26.6.0"
   },
   "binary": {
-    "path": "/Users/williammeldman/.local/bin/jcode",
+    "path": "<home>/.local/bin/jcode",
     "exists": true,
-    "symlink": "/Users/williammeldman/.jcode/builds/versions/0.84.0/jcode",
+    "symlink": "<home>/.jcode/builds/versions/0.84.0/jcode",
     "kind": "mach-o executable",
     "size": 151095952,
     "sha256": "bd3c1e34ac8816fc96beaa4b367fcb4c7f8ddb4f7dba35547680ffbe4bb5e9f0",
@@ -66,11 +66,11 @@
     },
     "sandbox": {
       "value": false,
-      "method": "compare reported hostname/pwd with this machine (hostname=Williams-MacBook-Pro-2.local, cwd=<temp dir>); a different hostname or a container-style path means sandboxed",
+      "method": "compare reported hostname/pwd with this machine (hostname=<hostname>.local, cwd=<temp dir>); a different hostname or a container-style path means sandboxed",
       "evidence": [
         8
       ],
-      "note": "reported this machine's hostname (Williams-MacBook-Pro-2.local) and the real temp cwd, so tools run directly on the host. tail: \"es/jcode/probes/sandbox\\\\n```\\\",\\\"type\\\":\\\"done\\\",\\\"upstream_provider\\\":\\\"Google AI Studio\\\",\\\"usage\\\":{\\\"cache_creation_input_tokens\\\":null,\\\"cache_read_input_tokens\\\":13799,\\\"input_tokens\\\":13988,\\\"output_tokens\\\":93}}\""
+      "note": "reported this machine's hostname (<hostname>.local) and the real temp cwd, so tools run directly on the host. tail: \"es/jcode/probes/sandbox\\\\n```\\\",\\\"type\\\":\\\"done\\\",\\\"upstream_provider\\\":\\\"Google AI Studio\\\",\\\"usage\\\":{\\\"cache_creation_input_tokens\\\":null,\\\"cache_read_input_tokens\\\":13799,\\\"input_tokens\\\":13988,\\\"output_tokens\\\":93}}\""
     },
     "mcp_client": {
       "value": true,
@@ -87,7 +87,7 @@
     "one_shot": {
       "id": 4,
       "argv": [
-        "/Users/williammeldman/.local/bin/jcode",
+        "<home>/.local/bin/jcode",
         "run",
         "--no-update",
         "--ndjson",
@@ -96,12 +96,12 @@
         "-m",
         "google/gemini-3.7-flash",
         "--socket",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
         "-C",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/one_shot",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/one_shot",
         "Reply with exactly the word PONG and nothing else"
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/one_shot",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/one_shot",
       "exit": 0,
       "ms": 5448,
       "timed_out": false,
@@ -110,7 +110,7 @@
     "file_edits": {
       "id": 5,
       "argv": [
-        "/Users/williammeldman/.local/bin/jcode",
+        "<home>/.local/bin/jcode",
         "run",
         "--no-update",
         "--ndjson",
@@ -119,12 +119,12 @@
         "-m",
         "google/gemini-3.7-flash",
         "--socket",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
         "-C",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/file_edits",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/file_edits",
         "Create a file named PROBE.txt in the current directory containing exactly the text probe-ok, then stop."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/file_edits",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/file_edits",
       "exit": 0,
       "ms": 4813,
       "timed_out": false,
@@ -133,7 +133,7 @@
     "tool_use": {
       "id": 6,
       "argv": [
-        "/Users/williammeldman/.local/bin/jcode",
+        "<home>/.local/bin/jcode",
         "run",
         "--no-update",
         "--ndjson",
@@ -142,12 +142,12 @@
         "-m",
         "google/gemini-3.7-flash",
         "--socket",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
         "-C",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/tool_use",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/tool_use",
         "Run the shell command `echo TOOL-OK-4471` and report its output verbatim."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/tool_use",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/tool_use",
       "exit": 0,
       "ms": 5654,
       "timed_out": false,
@@ -156,7 +156,7 @@
     "browser": {
       "id": 7,
       "argv": [
-        "/Users/williammeldman/.local/bin/jcode",
+        "<home>/.local/bin/jcode",
         "run",
         "--no-update",
         "--ndjson",
@@ -165,12 +165,12 @@
         "-m",
         "google/gemini-3.7-flash",
         "--socket",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
         "-C",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/browser",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/browser",
         "Fetch https://example.com and report the exact page title."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/browser",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/browser",
       "exit": 0,
       "ms": 5532,
       "timed_out": false,
@@ -179,7 +179,7 @@
     "sandbox": {
       "id": 8,
       "argv": [
-        "/Users/williammeldman/.local/bin/jcode",
+        "<home>/.local/bin/jcode",
         "run",
         "--no-update",
         "--ndjson",
@@ -188,12 +188,12 @@
         "-m",
         "google/gemini-3.7-flash",
         "--socket",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
         "-C",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/sandbox",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/sandbox",
         "Run the shell commands `hostname` and `pwd` and report both verbatim."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/sandbox",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/sandbox",
       "exit": 0,
       "ms": 5842,
       "timed_out": false,
@@ -202,7 +202,7 @@
     "mcp_client": {
       "id": 9,
       "argv": [
-        "/Users/williammeldman/.local/bin/jcode",
+        "<home>/.local/bin/jcode",
         "run",
         "--no-update",
         "--ndjson",
@@ -211,14 +211,14 @@
         "-m",
         "anthropic/claude-haiku-4.5",
         "--socket",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/jcode.sock",
         "-C",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/mcp_client",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/mcp_client",
         "--mcp-tools",
         "eager",
         "Call the MCP tool timmy_env_lock and paste its raw JSON result."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/mcp_client",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/probes/mcp_client",
       "exit": 0,
       "ms": 9048,
       "timed_out": false,
@@ -242,7 +242,7 @@
   "notes": [],
   "mcp_setup_files": [
     {
-      "path": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/mcp.json",
+      "path": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/jcode/home/mcp.json",
       "bytes": 387
     }
   ],

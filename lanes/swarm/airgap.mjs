@@ -33,11 +33,11 @@ const CACHE_DIR = join(HERE, '.cache', 'snoop');                  // gitignored
 // 1. policy
 // ---------------------------------------------------------------------------
 
-export const TAILNET_CIDR = '100.64.0.0/10';
+export const TAILNET_CIDR = '<tailnet-ip>/10';
 export const DENIAL = 'egress denied by policy';
 export const EGRESS_TOOL_RE = /fetch|http|browser|web|url|openrouter|curl/i;
 const CLOSED_HOSTS = Object.freeze(['127.0.0.1', 'localhost', TAILNET_CIDR]);
-const PRIVATE_CIDRS = Object.freeze(['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', TAILNET_CIDR]);
+const PRIVATE_CIDRS = Object.freeze(['127.0.0.0/8', '<lan-ip>/8', '<lan-ip>/12', '<lan-ip>/16', TAILNET_CIDR]);
 
 /**
  * Build the closed network policy from a swarm spec (lanes/swarm schema:

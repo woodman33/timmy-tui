@@ -14,7 +14,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/opt/homebrew/bin/node</string>
-    <string>/Users/williammeldman/Desktop/Code-Projects/timmy-tui/lanes/anchor/anchor-edge-head.mjs</string>
+    <string><repo>/lanes/anchor/anchor-edge-head.mjs</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -23,7 +23,7 @@
     <key>CUSTODY_HEAD_URL</key>
     <string>https://preview.vault-custody.pages.dev/api/head</string>
     <key>TIMMY_REPO</key>
-    <string>/Users/williammeldman/Desktop/Code-Projects/timmy-tui</string>
+    <string><repo></string>
   </dict>
   <key>StartCalendarInterval</key>
   <dict>
@@ -35,8 +35,8 @@
   <key>RunAtLoad</key>
   <false/>
   <key>StandardOutPath</key>
-  <string>/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.timmy/anchor.stdout.log</string>
+  <string><repo>/.timmy/anchor.stdout.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.timmy/anchor.stderr.log</string>
+  <string><repo>/.timmy/anchor.stderr.log</string>
 </dict>
 </plist>

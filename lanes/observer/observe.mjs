@@ -42,7 +42,7 @@ const sha = (b) => createHash('sha256').update(b).digest('hex');
 const DETECT = opt('--detect', 'yolo_world');
 const BOX_PROMPTS = opt('--boxes', 'banner,sign,text,rectangle,badge').split(',').map((s) => s.trim()).filter(Boolean);
 const BOX_THRESHOLD = Number(opt('--box-threshold', 0.02));
-const REPO = process.env.TIMMY_REPO ?? '/Users/williammeldman/Desktop/Code-Projects/timmy-tui';
+const REPO = process.env.TIMMY_REPO ?? '<repo>';
 const BOARD = join(ROOT, 'companion', 'boards', 'observer.board.json');
 // the receipt just sealed (last record with an id and a hash in the pinned root store)
 function lastReceipt() {

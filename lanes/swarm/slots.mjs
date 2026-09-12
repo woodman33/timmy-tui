@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const HERE = join(ROOT, 'lanes', 'swarm');
 const CACHE = join(HERE, '.cache');
-const SIBLING_NODES = '/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-shelf-w6d3/fleet/nodes.json';
+const SIBLING_NODES = '<repo>/fleet/nodes.json';
 const PROTECTED_PORT = 11434;
 const DEFAULT_MODEL = { mac: 'qwen3.8:27b-mlx', spark2: 'hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q8_K_XL' };
 

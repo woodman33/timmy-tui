@@ -134,7 +134,7 @@ async function endpoints(spec) {
     else if (p.startsWith('ollama:')) {
       const id = p.slice('ollama:'.length);
       const n = nodes().find((x) => x.id === id);
-      map[p] = `http://${n?.tailnet_ip ?? (id === 'spark2' ? '100.72.237.72' : id === 'spark1' ? '100.103.3.124' : '100.73.242.82')}:11434`;
+      map[p] = `http://${n?.tailnet_ip ?? (id === 'spark2' ? '<tailnet-ip>' : id === 'spark1' ? '<tailnet-ip>' : '<tailnet-ip>')}:11434`;
     }
   }
   return map;

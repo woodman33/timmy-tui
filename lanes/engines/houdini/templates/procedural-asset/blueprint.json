@@ -1,0 +1,32 @@
+{
+ "kind": "blueprint",
+ "name": "Houdini · procedural-asset",
+ "source": "lanes/engines/houdini/templates/procedural-asset/plan.cue",
+ "date": "2026-09-07",
+ "engine": "houdini",
+ "workflow": "procedural-asset",
+ "note": "A mesh or a params file dropped into drop/ becomes a studded procedural asset in out/: hython builds the SOP network headless and saves geometry, scene and report. Apprentice licence here, so the scene is .hipnc.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "base", "value": "*.obj · *.json", "note": "rules: run" },
+   { "label": "textures", "value": "*.png · *.jpg · *.exr", "note": "rules: stage" },
+   { "label": "refused", "value": "> 256 MB obj", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 base", "value": "File SOP (obj) or primitive from the spec", "note": "hython script.py" },
+   { "label": "2 extrude", "value": "facet + polyextrude", "note": "" },
+   { "label": "3 scatter", "value": "studs on the surface, seeded", "note": "" },
+   { "label": "4 boolean", "value": "union base + studs", "note": "" },
+   { "label": "5 save", "value": "{stem}.bgeo.sc · {stem}.hipnc · {stem}.asset.json", "note": "licence decides the scene extension" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "geometry", "value": "{stem}.bgeo.sc", "note": "mesh" },
+   { "label": "scene", "value": "{stem}.hip*", "note": "archive" },
+   { "label": "report", "value": "{stem}.asset.json", "note": "points, prims, licence, params" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "input sha256 · outputs sha256 · hython/husk env-lock", "note": "" },
+   { "label": "extra", "value": "points · prims · license", "note": "from the report" }
+  ] }
+ ]
+}

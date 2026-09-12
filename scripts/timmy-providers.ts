@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { auditProviders, type ProviderAuditEntry } from '../src/agent/provider-registry.js';
+import { runFal3dCli } from '../src/utils/fal3d-cli.js';
 
 function parseArgs(argv: string[]) {
   const command = argv.find((arg) => !arg.startsWith('-')) || 'audit';
@@ -56,9 +57,12 @@ function printAudit(entries: ProviderAuditEntry[], json = false) {
 
 const { command, json } = parseArgs(process.argv.slice(2));
 
-if (command !== 'audit') {
-  console.error('Usage: timmy providers audit [--json]');
-  process.exit(2);
+if (command === 'fal3d') {
+  try { await runFal3dCli(process.argv.slice(3), mergedEnv()); }
+  catch (error) { console.error(error instanceof Error ? error.message : 'fal3d operation failed'); process.exitCode = 1; }
+} else if (command === 'audit') {
+  printAudit(auditProviders(mergedEnv()), json);
+} else {
+  console.error('Usage: timmy providers audit [--json] | fal3d check|plan|submit|status|collect');
+  process.exitCode = 2;
 }
-
-printAudit(auditProviders(mergedEnv()), json);

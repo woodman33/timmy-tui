@@ -15,7 +15,7 @@ routes `:cloud` tags itself; TIMMY never needs a separate cloud client.
 ## One-command judge loop (the hardened path)
 
 ```bash
-cd /Users/williammeldman/Desktop/Code-Projects/timmy-tui
+cd <repo>
 TX=node_modules/.bin/tsx
 
 # Phase 1 — plan + hash (runs nothing, spends nothing)

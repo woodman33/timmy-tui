@@ -88,13 +88,13 @@
     "minimum_subscription_tier": "team",
     "required_scope": "context.read.private_docs",
     "source_type": "generated note",
-    "source_url": "https://internal.wmeldman.co/docs/",
+    "source_url": "https://internal.example.com/docs/",
     "license": "Proprietary",
     "last_verified": "2026-05-26",
     "deprecated_api_flags": [],
     "unstable_api_flags": [],
     "citation_map": {
-      "internal_doctrine": "https://internal.wmeldman.co/docs/doctrine"
+      "internal_doctrine": "https://internal.example.com/docs/doctrine"
     },
     "content_hash": "4298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855e3b0c4",
     "source_hash": "247ae41e4649b934ca495991b7852b855e3b0c4429fc1c149afbf4c8996fb92",
