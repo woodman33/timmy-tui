@@ -1,0 +1,260 @@
+{
+ "where": "edge",
+ "room": "war-room",
+ "worker": "https://timmy-ai-proxy-preview.wmeldman33.workers.dev",
+ "spec": {
+  "v": 1,
+  "id": "relay-3",
+  "preset": "relay-3",
+  "topology": "relay",
+  "members": [
+   {
+    "id": "draft",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "google/gemini-3.7-flash",
+    "provider": "openrouter"
+   },
+   {
+    "id": "critic",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "x-ai/grok-4.6",
+    "provider": "openrouter"
+   },
+   {
+    "id": "final",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "google/gemini-3.7-flash",
+    "provider": "openrouter"
+   }
+  ],
+  "size": 3,
+  "budget": {
+   "usd": 0.2,
+   "max_calls": 6,
+   "max_ms": 600000
+  },
+  "judge": {
+   "tier": "edge"
+  },
+  "network": {
+   "policy": "open",
+   "egress_allow": []
+  },
+  "rounds": 2
+ },
+ "task": "Write a two-sentence definition of 'air gap' for a hardware wallet; each link tightens it.",
+ "result": {
+  "ok": true,
+  "run_id": "swarm_mtsil6tg_dck6",
+  "swarm_id": "relay-3",
+  "topology": "relay",
+  "size": 3,
+  "answer": "An air gap is the complete physical isolation of a hardware wallet from all wired,",
+  "winner": "final",
+  "losers": [],
+  "votes": null,
+  "roles": null,
+  "assignments": null,
+  "calls": [
+   {
+    "member": "draft",
+    "phase": "relay",
+    "model": "google/gemini-3.7-flash",
+    "ok": true,
+    "killed": false,
+    "ms": 3910,
+    "usd": 0.001521,
+    "receipt": "92f0023ff954a096d5ee43bdcb0e0656cedfd5310a89478e81598f3041004414",
+    "receipt_external": null,
+    "error": null,
+    "preview": "An air gap is a physical security measure that completely isolates a hardware wallet"
+   },
+   {
+    "member": "critic",
+    "phase": "relay",
+    "model": "x-ai/grok-4.6",
+    "ok": true,
+    "killed": false,
+    "ms": 11467,
+    "usd": 0.003912,
+    "receipt": "f364240bd2972e84b35e8f280dc90a5864709b574819820f61489eb3742515a7",
+    "receipt_external": null,
+    "error": null,
+    "preview": "An air gap is a physical isolation of a hardware wallet from all networks and internet-connected devices so private keys never leave it. Unsigned transactions move only via QR codes or microSD cards and signing stays entirely offline."
+   },
+   {
+    "member": "final",
+    "phase": "relay",
+    "model": "google/gemini-3.7-flash",
+    "ok": true,
+    "killed": false,
+    "ms": 3750,
+    "usd": 0.001575,
+    "receipt": "09650896d80628a045a0bde0bf03b9461ba4eaefd0744e181330a62a246c9035",
+    "receipt_external": null,
+    "error": null,
+    "preview": "An air gap is the complete physical isolation of a hardware wallet from all wired,"
+   }
+  ],
+  "budget": {
+   "usd": 0.2,
+   "spent": 0.007008,
+   "max_calls": 6,
+   "calls": 3,
+   "max_ms": 600000,
+   "ms": 20122,
+   "exhausted": null,
+   "kills": []
+  },
+  "usd": 0.007008,
+  "ms": 20122,
+  "receipt": {
+   "v": 1,
+   "id": "ec_mtsilmce_av90",
+   "ts": "2026-09-08T10:16:32.606Z",
+   "kind": "swarm.run",
+   "subject": "commander:war-room",
+   "data": {
+    "run_id": "swarm_mtsil6tg_dck6",
+    "swarm_id": "relay-3",
+    "preset": "relay-3",
+    "by": "commander",
+    "topology": "relay",
+    "size": 3,
+    "ok": true,
+    "task_sha256": "045bb783d6351f3b07df73f9d47abdcebec417c928aee4f6c7c1a8d1512fc945",
+    "answer_sha256": "f21be7af7612b375324764b1751a729ecbae595bf0280163ae0dfaed88d4556a",
+    "spec_sha256": "41ac3427e92ed1039bc656f33c646167b05b5e48f060b1de138a767dfc6dbfe8",
+    "members": [
+     {
+      "id": "draft",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "google/gemini-3.7-flash",
+      "provider": "openrouter"
+     },
+     {
+      "id": "critic",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "x-ai/grok-4.6",
+      "provider": "openrouter"
+     },
+     {
+      "id": "final",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "google/gemini-3.7-flash",
+      "provider": "openrouter"
+     }
+    ],
+    "calls": [
+     {
+      "member": "draft",
+      "phase": "relay",
+      "round": null,
+      "model": "google/gemini-3.7-flash",
+      "ok": true,
+      "killed": false,
+      "ms": 3910,
+      "usd": 0.001521,
+      "tokens_in": 48,
+      "tokens_out": 396,
+      "counted": true,
+      "provider_used": "Google",
+      "generation_id": "gen-1788862572-6mDTsfseb1bw6qPhN8ry",
+      "content_sha256": "adab6327fddb80bda985886267e2137a536c8c261dc5f9ee949593ce6ff0c3be",
+      "receipt": "92f0023ff954a096d5ee43bdcb0e0656cedfd5310a89478e81598f3041004414",
+      "error": null
+     },
+     {
+      "member": "critic",
+      "phase": "relay",
+      "round": null,
+      "model": "x-ai/grok-4.6",
+      "ok": true,
+      "killed": false,
+      "ms": 11467,
+      "usd": 0.003912,
+      "tokens_in": 297,
+      "tokens_out": 585,
+      "counted": true,
+      "provider_used": "xAI",
+      "generation_id": "gen-1788862576-J5Mmt6HyiS1DBvTnaHIj",
+      "content_sha256": "9e1ea936ce7640868f56b63ddfff7939ba0a362d193705908a846cac63c04508",
+      "receipt": "f364240bd2972e84b35e8f280dc90a5864709b574819820f61489eb3742515a7",
+      "error": null
+     },
+     {
+      "member": "final",
+      "phase": "relay",
+      "round": null,
+      "model": "google/gemini-3.7-flash",
+      "ok": true,
+      "killed": false,
+      "ms": 3750,
+      "usd": 0.001575,
+      "tokens_in": 120,
+      "tokens_out": 396,
+      "counted": true,
+      "provider_used": "Google",
+      "generation_id": "gen-1788862588-ZrgcUgYWhi5Vb0cRhPGV",
+      "content_sha256": "f21be7af7612b375324764b1751a729ecbae595bf0280163ae0dfaed88d4556a",
+      "receipt": "09650896d80628a045a0bde0bf03b9461ba4eaefd0744e181330a62a246c9035",
+      "error": null
+     }
+    ],
+    "winner": "final",
+    "losers": [],
+    "votes": null,
+    "rounds": 0,
+    "judge": {
+     "tier": "edge"
+    },
+    "network": {
+     "policy": "open",
+     "egress_allow": []
+    },
+    "budget": {
+     "usd": 0.2,
+     "spent": 0.007008,
+     "max_calls": 6,
+     "calls": 3,
+     "max_ms": 600000,
+     "ms": 20122,
+     "exhausted": null,
+     "kills": []
+    },
+    "usd": 0.007008,
+    "ms": 20122,
+    "source": "http"
+   },
+   "prev_hash": "09650896d80628a045a0bde0bf03b9461ba4eaefd0744e181330a62a246c9035",
+   "hash": "255040b50f361ab71e104b22ed92b2ecac27aefe3425d365eb7ce1e9a806dac9"
+  },
+  "spend": {
+   "usd": 0.048903,
+   "cap_usd": 2,
+   "calls": 17,
+   "tokens_in": 2643,
+   "tokens_out": 8514,
+   "uncounted": 0,
+   "last_at": "2026-09-08T10:16:32.606Z",
+   "tokens_cached": 384,
+   "tokens_reasoning": 6154
+  }
+ },
+ "receipt": "sha256_b97595add41fd53ee917f6358c9c7530b5b8f74466083de3c7058db296a0c3b6"
+}
