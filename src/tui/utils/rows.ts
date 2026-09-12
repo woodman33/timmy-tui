@@ -122,9 +122,11 @@ export function wrapText(text: string, width: number): string[] {
   for (const raw of text.split('\n')) {
     const words = raw.split(/(\s+)/).filter(x => x.length);
     let line = '';
+    let sawText = false;
     const flush = () => { out.push(line); line = ''; };
     for (const word of words) {
-      if (/^\s+$/.test(word)) { if (line.length && line.length + word.length <= w) line += word; continue; }
+      if (/^\s+$/.test(word)) { if ((!sawText || line.length) && line.length + word.length <= w) line += word; continue; }
+      sawText = true;
       let tok = word;
       while (tok.length > w) {
         if (line.length) flush();

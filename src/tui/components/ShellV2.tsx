@@ -247,8 +247,9 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   useInput((input, key) => {
     // ui-cockpit-k7m3: arrows reach the reducer as names so the HANDS grid
     // cursor can use them; everything else keeps its raw input char
+    const handsArrow = sRef.current.mode === 'NORMAL' && sRef.current.tab === 'COMMAND' && sRef.current.handsOn;
     const k = key.return ? 'Enter' : key.escape ? 'Esc' : key.tab ? 'Tab'
-      : key.upArrow ? 'up' : key.downArrow ? 'down' : key.leftArrow ? 'left' : key.rightArrow ? 'right'
+      : handsArrow && key.upArrow ? 'up' : handsArrow && key.downArrow ? 'down' : handsArrow && key.leftArrow ? 'left' : handsArrow && key.rightArrow ? 'right'
         : input;
     // CHAT Enter ships the buffer: capture before the reducer clears it
     const chatText = sRef.current.mode === 'CHAT' ? sRef.current.input : '';
@@ -776,7 +777,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
                 {!plans.run.left.folded.includes('LIVE') && (
                   <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} compact={plans.run.left.compact} maxTail={plans.run.left.caps.LIVE} />
                 )}
-                {pendingEscrows[0] && <EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} compact={plans.run.left.compact} />}
+                {pendingEscrows[0] && !plans.run.left.folded.includes('ESCROW') && <EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} compact={plans.run.left.compact} />}
               </Stack>
             </>
           )}
@@ -879,7 +880,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
               {!plans.run.rail.folded.includes('LIVE') && (
                 <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} compact={plans.run.rail.compact} maxTail={plans.run.rail.caps.LIVE} />
               )}
-              {pendingEscrows[0] && <EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} compact={plans.run.rail.compact} />}
+              {pendingEscrows[0] && !plans.run.rail.folded.includes('ESCROW') && <EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} compact={plans.run.rail.compact} />}
             </Stack>
             <FoldedNote folded={plans.run.rail.folded} />
           </Box>
@@ -1530,7 +1531,7 @@ function SkillsTree(props: { projects: w2.ProjectRow[]; compact?: boolean; maxRo
   // C5: the tree flattens to rows so the plan's cap applies across projects
   const lines: { text: string; color: string }[] = [];
   for (const pj of props.projects) {
-    lines.push({ color: PAL.textSecondary, text: `${pj.name.slice(0, 14)}/ ${pj.budget !== null ? `${pj.budget}` : ''}` });
+    lines.push({ color: PAL.textSecondary, text: `${pj.name.slice(0, 14)}/ ${pj.budget !== null ? `$${pj.budget}` : ''}` });
     for (const sk of pj.skills.slice(0, 4)) lines.push({ color: PAL.textMuted, text: `  └ ${sk.slice(0, 36)}` });
     if (pj.skills.length === 0) lines.push({ color: PAL.textMuted, text: '  └ (no skills)' });
   }

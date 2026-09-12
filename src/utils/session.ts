@@ -42,13 +42,14 @@ export function detectSession(): Session {
   // ancestor chain only breaks ties when the own env names no CLI)
   const ownClaude = Boolean(self.CLAUDECODE);
   const ownQwen = Boolean(self.QWEN_CODE || self.QWEN_MODEL);
-  if (ownClaude || (!ownQwen && (/CLAUDECODE=/.test(blob) || chain.some(c => /claude/i.test(c.comm))))) {
-    const hands = self.ANTHROPIC_MODEL ?? handsFrom(blob, ['ANTHROPIC_MODEL']) ?? 'claude-session-model';
-    return { actor: 'claude-code', hands, short: 'claude' };
-  }
-  if (ownQwen || /QWEN_CODE=|QWEN_MODEL=/.test(blob) || chain.some(c => /qwen/i.test(c.comm))) {
+  const ancestorBlob = chain.map(c => `${c.comm} ${c.env}`).join(' ');
+  if (ownQwen || (!ownClaude && (/QWEN_CODE=|QWEN_MODEL=/.test(ancestorBlob) || chain.some(c => /qwen/i.test(c.comm))))) {
     const hands = self.OPENROUTER_MODEL ?? self.QWEN_MODEL ?? handsFrom(blob, ['OPENROUTER_MODEL', 'QWEN_MODEL']) ?? 'qwen-session-model';
     return { actor: 'qwen-cli', hands, short: 'qwen' };
+  }
+  if (ownClaude || (!ownQwen && (/CLAUDECODE=/.test(ancestorBlob) || chain.some(c => /claude/i.test(c.comm))))) {
+    const hands = self.ANTHROPIC_MODEL ?? handsFrom(blob, ['ANTHROPIC_MODEL']) ?? 'claude-session-model';
+    return { actor: 'claude-code', hands, short: 'claude' };
   }
   return { actor: 'will-terminal', hands: 'human-hands', short: 'will' };
 }
