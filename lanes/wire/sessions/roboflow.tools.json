@@ -1,0 +1,86 @@
+[
+ {
+  "name": "roboflow_upload",
+  "description": "Upload an image to a roboflow project version.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "project": {
+     "type": "string"
+    },
+    "path": {
+     "type": "string"
+    },
+    "version": {
+     "type": "number"
+    },
+    "workspace": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "project",
+    "path"
+   ]
+  }
+ },
+ {
+  "name": "roboflow_detect",
+  "description": "Run detection on an image with a project model.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "project": {
+     "type": "string"
+    },
+    "path": {
+     "type": "string"
+    },
+    "version": {
+     "type": "number"
+    },
+    "confidence": {
+     "type": "number"
+    },
+    "workspace": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "project",
+    "path"
+   ]
+  }
+ },
+ {
+  "name": "roboflow_sample",
+  "description": "Observer: sample N frames from a video (ffmpeg) and upload as evidence.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "project": {
+     "type": "string"
+    },
+    "video": {
+     "type": "string"
+    },
+    "frames": {
+     "type": "number"
+    },
+    "every": {
+     "type": "number"
+    },
+    "version": {
+     "type": "number"
+    },
+    "workspace": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "project",
+    "video"
+   ]
+  }
+ }
+]

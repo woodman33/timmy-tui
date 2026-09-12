@@ -1,0 +1,96 @@
+{
+  "schema": "studio-cast-sanitization/1",
+  "baseline": "363437cfea210913ae496a8d52c86e5285e37e3d",
+  "pattern_sha256": "ba347abf442587128e7c4eb1226d6d15250d058d6a6ef1840fafe7d121ade769",
+  "scope": "Eight public asciicast copies only; raw preservation work remains unchanged.",
+  "files": [
+    {
+      "path": "studio/timmy-promo/making-of.cast",
+      "source_sha256": "be85d389c188e7d657ba29f85fbe030133116e8fdccc0bd294ef36f05c031496",
+      "sanitized_sha256": "2840c50ffd0872e1335cef42d16e93c365d371dfc42bbaae0650716d7e5442a4",
+      "events": 228,
+      "replacements": {
+        "pii.home_path": 12
+      },
+      "strict_blocking_findings": 0,
+      "timestamps_and_channels_preserved": true
+    },
+    {
+      "path": "studio/timmy-promo-v2/making-of-v2.cast",
+      "source_sha256": "459fb987ca9d9a34b38055789f579e2e5bf3325bed9ef86c144fab31107e32bb",
+      "sanitized_sha256": "552c52573d1078a308ea905e11be81ab8ede3291cd595dc09fd53a78c0f382dd",
+      "events": 247,
+      "replacements": {
+        "pii.home_path": 4
+      },
+      "strict_blocking_findings": 0,
+      "timestamps_and_channels_preserved": true
+    },
+    {
+      "path": "studio/timmy-promo-v3/making-of-v3.cast",
+      "source_sha256": "af5767f149b1bffa69c494cec7f2e50adf93f5e6ff12ebbf0158b7f6ae9a4239",
+      "sanitized_sha256": "c58790a4f829c18907787a9c8d547781c34251ff431fd6754dc794f053a0bf64",
+      "events": 199,
+      "replacements": {
+        "pii.home_path": 6
+      },
+      "strict_blocking_findings": 0,
+      "timestamps_and_channels_preserved": true
+    },
+    {
+      "path": "studio/timmy-promo-v4/making-of-v4.cast",
+      "source_sha256": "5a641a3b6f6de967cc6067360105563118cf1d38849b240cea55ce7941d3fcde",
+      "sanitized_sha256": "c82fe250252753c3caf5fd62f6616372db09fadc7f321ea85ab551b241e34636",
+      "events": 202,
+      "replacements": {
+        "pii.home_path": 9
+      },
+      "strict_blocking_findings": 0,
+      "timestamps_and_channels_preserved": true
+    },
+    {
+      "path": "studio/timmy-promo-v5/making-of-v5.cast",
+      "source_sha256": "e425282cd2a9b4c5d969930da2bd4e251b4ac4468a7370ad1696b8fcc7205955",
+      "sanitized_sha256": "8faeb3259edbae35969cddcfea4654861d599ef24704839fee58585a783b7f48",
+      "events": 235,
+      "replacements": {
+        "pii.home_path": 7
+      },
+      "strict_blocking_findings": 0,
+      "timestamps_and_channels_preserved": true
+    },
+    {
+      "path": "studio/timmy-promo-v6/making-of-v6.cast",
+      "source_sha256": "37e9953fc0647a85bad30e26e00ea6833c72669ffb268fce0c06406dfcbed42a",
+      "sanitized_sha256": "0a8d2a0f64b943dc642661fb82b7cef47739afaa2e5aa100cb24551f803ba711",
+      "events": 1060,
+      "replacements": {
+        "pii.home_path": 25
+      },
+      "strict_blocking_findings": 0,
+      "timestamps_and_channels_preserved": true
+    },
+    {
+      "path": "studio/timmy-promo-v7/making-of-v7.cast",
+      "source_sha256": "f76bf75e34de8c653f09cc72564d8c9b0dfbddba9b462778c70caab50b9bec1f",
+      "sanitized_sha256": "88248cc4772e025d01d6ecc12c5953735f8001f08f50d037bbfdb0b4ca7ebdbc",
+      "events": 1052,
+      "replacements": {
+        "pii.home_path": 3
+      },
+      "strict_blocking_findings": 0,
+      "timestamps_and_channels_preserved": true
+    },
+    {
+      "path": "studio/timmy-promo-v8/making-of-v8.cast",
+      "source_sha256": "dfb1b55cc226a6b97dd28b9eae19b647684ebce7e0b7bf8fb68ed07036a1efbc",
+      "sanitized_sha256": "407170fc259f2efcf57075781fc91501b42a4cf9499fb6b67ee260936e622e03",
+      "events": 1443,
+      "replacements": {
+        "pii.home_path": 3
+      },
+      "strict_blocking_findings": 0,
+      "timestamps_and_channels_preserved": true
+    }
+  ]
+}

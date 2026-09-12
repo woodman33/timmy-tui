@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timmy TUI · Design Spec v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{--navy:#0A1628;--panel:#0D1B31;--ph:#33FF66;--phd:rgba(51,255,102,.55);--phf:rgba(51,255,102,.22);--or:#FF8C1A;--red:#FF3B3B;--dim:rgba(190,205,225,.55);--fg:#dfe8f5;--mono:'JetBrains Mono',monospace;--human:'Space Grotesk',sans-serif}
+  *{box-sizing:border-box}body{margin:0;background:#060d1a;color:var(--fg);font-family:var(--human);display:flex;min-height:100vh}
+  .rail{width:290px;flex-shrink:0;border-right:1px solid var(--phf);padding:20px}
+  .rail .k{font-family:var(--mono);color:var(--ph);font-size:12px;letter-spacing:2px}
+  .rail h1{font-size:21px;margin:6px 0 18px}.rail h1 b{color:var(--or)}
+  .rail button{display:block;width:100%;text-align:left;padding:9px 12px;margin-bottom:6px;background:transparent;border:1px solid rgba(190,205,225,.15);color:#b8c6da;font-family:var(--mono);font-size:12px;cursor:pointer}
+  .rail button.on{background:rgba(51,255,102,.12);border-color:rgba(51,255,102,.5);color:var(--ph)}
+  .rail .foot{margin-top:24px;font-family:var(--mono);font-size:11px;line-height:18px;color:rgba(190,205,225,.45)}
+  main{flex:1;padding:24px;min-width:0}
+  section{display:none}section.on{display:block}
+  h2{font-size:28px;margin:0 0 6px}h2 small{color:var(--dim);font-weight:500;font-size:16px}
+  .lede{color:#c9d6e8;line-height:22px;max-width:900px;margin-bottom:18px}
+  pre.term{background:var(--navy);border:1px solid var(--phf);padding:14px 16px;font-family:var(--mono);font-size:12.5px;line-height:18px;color:var(--fg);overflow:auto;margin:0 0 16px;white-space:pre}
+  .p{color:var(--ph)}.pd{color:var(--phd)}.o{color:var(--or)}.r{color:var(--red)}.d{color:var(--dim)}.w{color:#fff;font-weight:700}
+  .inv{background:var(--ph);color:var(--navy);font-weight:700}.invo{background:var(--or);color:var(--navy);font-weight:700}.invr{background:var(--red);color:#fff;font-weight:700}
+  .grid{display:grid;grid-template-columns:1fr 1.3fr;gap:20px}
+  .box{border:1px solid var(--phf);padding:14px 18px}.box.red{border-color:rgba(255,59,59,.4)}
+  .box .t{font-family:var(--mono);font-size:11px;letter-spacing:2px;margin-bottom:8px;color:var(--ph)}.box.red .t{color:var(--red)}
+  .box li,.box p{font-size:13px;line-height:21px;color:#c9d6e8}.box ul{padding-left:18px;margin:0}
+  table{border-collapse:collapse;font-family:var(--mono);font-size:12px;width:100%}td,th{border-bottom:1px solid var(--phf);padding:6px 8px;text-align:left;vertical-align:top}th{color:var(--ph);font-weight:400}
+  .tag{display:inline-block;padding:1px 8px;border:1px solid var(--phf);font-family:var(--mono);font-size:11px;color:var(--ph);margin-right:6px}
+</style>
+</head>
+<body>
+<div class="rail">
+  <div class="k">TIMMY TUI</div>
+  <h1>Design Spec <b>v2</b></h1>
+  <button class="on" data-s="s0">00 · THE JOURNEY</button>
+  <button data-s="s1">01 · IA: 9 tabs → 4</button>
+  <button data-s="s2">02 · MODES &amp; KEYS</button>
+  <button data-s="s3">03 · HOME</button>
+  <button data-s="s4">04 · RUN</button>
+  <button data-s="s5">05 · CHAIN</button>
+  <button data-s="s6">06 · LIBRARY + PICKER</button>
+  <button data-s="s7">07 · WHICH-KEY</button>
+  <button data-s="s8">08 · COLOR CONTRACT</button>
+  <button data-s="s9">09 · FOR QWEN</button>
+  <div class="foot">tokens locked · navy #0A1628 · phosphor = chain · orange = human · red = refusal only · Space Grotesk / JetBrains Mono · 120×32 reference · from ui.audit 3f6b191b6</div>
+</div>
+<main>
+
+<section id="s0" class="on">
+  <h2>The journey <small>the whole interface is one path</small></h2>
+  <p class="lede">The audit's journey test stuck at doctor, verify, and receipt detail — three of the seven steps. A first-time user can't tell what Timmy is <em>for</em> because no screen shows the loop. So the interface is organized around one loop, and Home shows where you are in it.</p>
+<pre class="term"><span class="d">  STEP   VERB                   PROOF IT HAPPENED            WHERE</span>
+  <span class="p">1</span>      timmy doctor           doctor.pass receipt          HOME  (status strip)
+  <span class="p">2</span>      timmy connect &lt;tool&gt;   env.lock receipt             LIBRARY › fleet
+  <span class="p">3</span>      timmy run &lt;lane&gt;       lane.start → live pane       RUN
+  <span class="p">4</span>      (receipt lands)        rc_… sealed, prev → this     RUN → CHAIN
+  <span class="p">5</span>      timmy verify           chain ok · N  (glows)        CHAIN
+  <span class="p">6</span>      companion QR           companion.pair receipt       HOME  (QR chip)
+  <span class="p">7</span>      timmy seal &lt;anything&gt;  your first receipt           anywhere
+
+  <span class="o">▶</span> Home lights the NEXT unsealed step in orange. Everything else in the app is a variation of these seven.
+  <span class="d">  journey.first is sealed when all seven have a receipt — onboarding, metric, and demo in one receipt.</span></pre>
+  <div class="grid">
+    <div class="box red"><div class="t">AUDIT FINDINGS THIS ANSWERS</div><ul><li>Journey stuck at doctor (no in-TUI path) → step 1 is a Home action</li><li>Stuck at verify (C1, fixed) and receipt detail (C2, fixed) → steps 4–5 have one screen</li><li>"~12–14 keystrokes" → target ≤ 8 with which-key</li></ul></div>
+    <div class="box"><div class="t">RULES</div><ul><li>Every step has a verb, a receipt kind, and a home screen. No step without a receipt.</li><li>The next step is the only orange thing on Home.</li><li>Steps never hide: a completed step shows its receipt hash, not a checkmark.</li></ul></div>
+  </div>
+</section>
+
+<section id="s1">
+  <h2>Information architecture <small>nine tabs become four</small></h2>
+  <p class="lede">COMMAND · MISSION · TELEMETRY · ESCROW · LANES · LIBRARY · PROJECTS · SYSTEM · REVIEW is a list of code modules, not a list of things a person does. Four tabs, named for verbs the journey uses.</p>
+  <table>
+    <tr><th>new tab</th><th>absorbs</th><th>what it answers</th><th>key</th></tr>
+    <tr><td class="p">HOME</td><td>COMMAND, MISSION (current), SYSTEM (status)</td><td>Where am I in the loop? What's connected? What just happened?</td><td>1</td></tr>
+    <tr><td class="p">RUN</td><td>LANES, TELEMETRY, ESCROW, hot-drop intake</td><td>What is Timmy doing right now? What needs my approval?</td><td>2</td></tr>
+    <tr><td class="p">CHAIN</td><td>receipts, verify, REVIEW, refusals</td><td>What happened, provably? Can I trust it?</td><td>3</td></tr>
+    <tr><td class="p">LIBRARY</td><td>fleet/connectors, boards (mission/blueprint/template), PROJECTS, models registry</td><td>What can Timmy use? What have I built?</td><td>4</td></tr>
+  </table>
+  <div class="grid" style="margin-top:16px">
+    <div class="box"><div class="t">DOCTOR</div><p><code>timmy doctor</code> is not a tab. It is the status strip on Home (one line, always visible) and a full report on demand via <code>:doctor</code>. SYSTEM as a destination goes away.</p></div>
+    <div class="box"><div class="t">SOVEREIGN CHAT</div><p>Chat is a <em>mode</em>, not a tab. <code>c</code> from anywhere opens the chat drawer over the current screen; Esc closes it. The screen underneath stays visible, dimmed (fixes W1's bleed-through pattern globally).</p></div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2>Modes &amp; keybinding scopes <small>the footer is the source of truth</small></h2>
+  <p class="lede">The digit-key bug and W5/W6 are one bug: keys had no scope. Neovim solved this forty years ago — a key means one thing per mode, and the mode is always on screen. The footer already prints MODE; now the mode <em>owns</em> the keymap.</p>
+<pre class="term"><span class="d">MODE      what keys mean                                                   enter          leave</span>
+<span class="inv"> NORMAL </span>  1–4 switch tab · j/k move · Enter open · Esc back · ? which-key   Esc (default)   —
+<span class="invo"> INSERT </span>  everything is text; only Esc and Tab are global               i  or  :        Esc
+<span class="invo"> CHAT   </span>  everything is text to the sovereign agent; Enter sends        c               Esc
+
+<span class="d">SINGLE-MEANING KEYS (fixes W6 overload)</span>
+  Enter  = open the selected thing        Esc  = back / leave mode        Tab  = next pane in this tab
+  /      = filter the current list        :    = command line (INSERT)    ?    = which-key overlay
+  s      = seal (with confirm)            v    = verify chain             r    = refuse (RUN, needs reason)
+
+<span class="d">FOOTER (always)</span>
+ <span class="inv"> NORMAL </span> <span class="d">HOME › status</span>   <span class="d">[1-4] tab  [j/k] move  [Enter] open  [?] keys  [c] chat  [:] cmd</span>              <span class="pd">chain ✓ 724</span>  <span class="d">bus ●</span>
+
+<span class="d">FOOTER IN INSERT / CHAT</span>
+ <span class="invo"> CHAT   </span> <span class="d">sovereign · gemini-3.7-flash</span>   <span class="d">[Enter] send  [Esc] leave  digits are text</span>                          <span class="pd">chain ✓ 724</span>  <span class="d">bus ●</span></pre>
+  <div class="box red"><div class="t">TEST (keyboard contract)</div><ul><li>In INSERT/CHAT, send "23456" → input value is "23456", tab unchanged.</li><li>In NORMAL, send "3" → CHAIN tab.</li><li>Enter never triggers two actions; Esc never triggers zero.</li><li>Footer hint text is generated from the active keymap, never hand-typed (same lesson as the chip).</li></ul></div>
+</section>
+
+<section id="s3">
+  <h2>HOME <small>where am I in the loop</small></h2>
+<pre class="term"><span class="w">TIMMY</span> <span class="d">v1.1.0</span>  <span class="inv"> 1 HOME </span> <span class="d">2 RUN  3 CHAIN  4 LIBRARY</span>                                     <span class="pd">chain ✓ 724 · 5d0b7c92</span>  <span class="d">bus ●  drops 3  model gemini-3.7-flash</span>
+<span class="d">─────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span class="d">┌ YOUR JOURNEY ──────────────────────────────────────────────┐ ┌ LATEST PROOF ─────────────────────────┐</span>
+<span class="d">│</span> <span class="p">✓ doctor</span>      <span class="d">rc_mtd9a…  ok · 12 checks</span>                   <span class="d">│ │</span> <span class="p">✓ sha256_5d0b7c92</span>                        <span class="d">│</span>
+<span class="d">│</span> <span class="p">✓ connect</span>     <span class="d">rc_mtdb4…  defold · env-lock</span>                <span class="d">│ │</span> <span class="d">custody.attach · 20:12:44 · 4s ago</span>       <span class="d">│</span>
+<span class="d">│</span> <span class="p">✓ run</span>         <span class="d">rc_mtdc1…  defold build · 38s</span>               <span class="d">│ │</span> <span class="d">the only thing that glows green</span>          <span class="d">│</span>
+<span class="d">│</span> <span class="p">✓ receipt</span>     <span class="d">rc_mtdc1…  prev 88e2f5a0 → this a72e1f4d</span>    <span class="d">│ └───────────────────────────────────────┘</span>
+<span class="d">│</span> <span class="o">▶ verify</span>      <span class="o">press v — 724 receipts, never verified by you</span> <span class="d">│ ┌ ACTIVITY ─────────────────────────────┐</span>
+<span class="d">│</span> <span class="d">  companion</span>   <span class="d">pair a phone · [q] shows QR</span>                  <span class="d">│ │</span> <span class="d">custody.attach   sealed   a72e1f4d</span>       <span class="d">│</span>
+<span class="d">│</span> <span class="d">  seal</span>        <span class="d">anything · [s]</span>                               <span class="d">│ │</span> <span class="d">defold.build     sealed   c41a9b30</span>       <span class="d">│</span>
+<span class="d">└────────────────────────────────────────────────────────────┘ │</span> <span class="d">drop.intake      3.riv    fab8a52f</span>       <span class="d">│</span>
+                                                                <span class="d">│</span> <span class="r">custody.open     REFUSED  tamper=BROKEN</span> <span class="d">│</span>
+<span class="d">┌ STATUS ────────────────────────────────────────────────────┐ │</span> <span class="d">env.lock         sealed   2ad8f61c</span>       <span class="d">│</span>
+<span class="d">│</span> <span class="p">●</span> <span class="d">fleet 7 connected</span>  <span class="p">●</span> <span class="d">bus live</span>  <span class="p">●</span> <span class="d">comfy ready</span>  <span class="d">○ docker off</span>  <span class="d">│ └───────────────────────────────────────┘</span>
+<span class="d">│</span> <span class="d">cost today $0.27 · model policy: openrouter · harness: opencode → same</span>  <span class="d">│</span>
+<span class="d">└────────────────────────────────────────────────────────────┘</span>
+
+ <span class="inv"> NORMAL </span> <span class="d">HOME</span>   <span class="d">[v] verify  [q] QR  [s] seal  [c] chat  [:] cmd  [?] keys</span>                                    <span class="pd">chain ✓ 724</span>  <span class="d">bus ●</span></pre>
+  <div class="grid">
+    <div class="box red"><div class="t">FIXES</div><ul><li>W3: <code>DOCKER: DOWN</code> in red → <code>○ docker off</code> in dim. Off is not danger.</li><li>W2 dead space: three panels fill the 120×32 grid; nothing floats.</li><li>Journey stuck at doctor → doctor is row 1 with its receipt.</li><li>O2: companion QR is a Home action <code>[q]</code>, not buried.</li></ul></div>
+    <div class="box"><div class="t">SPEC</div><ul><li>Layout: 62-col left column (JOURNEY + STATUS), 44-col right rail (LATEST PROOF + ACTIVITY), 2-col gutter.</li><li>Exactly one orange element on screen: the next unsealed step.</li><li>Phosphor only on things that are sealed/verified. Red only on refusals (ACTIVITY row 4).</li><li>Header right cluster reads from the bus: chain head, bus liveness, drops watched, active model.</li><li>Completed steps show receipt hash + one fact, never a bare checkmark.</li></ul></div>
+  </div>
+</section>
+
+<section id="s4">
+  <h2>RUN <small>what is Timmy doing right now</small></h2>
+<pre class="term"><span class="w">TIMMY</span> <span class="d">v1.1.0</span>  <span class="d">1 HOME</span>  <span class="inv"> 2 RUN </span> <span class="d">3 CHAIN  4 LIBRARY</span>                                      <span class="pd">chain ✓ 724 · 5d0b7c92</span>  <span class="d">bus ●  drops 3  model gemini-3.7-flash</span>
+<span class="d">─────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span class="d">┌ LANES ─────────────────────────────────┐ ┌ LIVE · defold build ───────────────────────────────────────────────┐</span>
+<span class="d">│</span> <span class="o">▶</span> <span class="w">defold build</span>    <span class="o">running</span>  <span class="d">00:31</span>  <span class="o">▮▮▮▮▮▮▯▯</span> <span class="d">│ │</span> <span class="d">bob resolve ........................ ok</span>                              <span class="d">│</span>
+<span class="d">│</span>   <span class="d">houdini turntable</span> <span class="d">queued</span>   <span class="d">--:--</span>          <span class="d">│ │</span> <span class="d">bob build wasm-web ................. 71%</span>                             <span class="d">│</span>
+<span class="d">│</span>   <span class="p">observer detect</span>   <span class="p">sealed</span>   <span class="d">00:04</span>  <span class="p">c41a9b30</span> <span class="d">│ │</span> <span class="d">  rive extension ................... linked</span>                          <span class="d">│</span>
+<span class="d">│</span>   <span class="r">custody open</span>      <span class="r">REFUSED</span>  <span class="d">00:00</span>  <span class="r">tamper</span>   <span class="d">│ │</span> <span class="d">  bundle → public/companion .......</span> <span class="o">…</span>                                <span class="d">│</span>
+<span class="d">│</span>                                            <span class="d">│ │</span>                                                                    <span class="d">│</span>
+<span class="d">├ DROPS (watched: defold · houdini · observer) ─┤ │</span> <span class="d">env-lock  bob 574678c7 · engine 1.13.1 · badges.riv 3f6b19</span>          <span class="d">│</span>
+<span class="d">│</span> <span class="p">↓</span> <span class="d">drop/defold/badges.riv</span>   <span class="d">intake fab8a52f</span>   <span class="d">│ └────────────────────────────────────────────────────────────────────┘</span>
+<span class="d">│</span> <span class="p">↓</span> <span class="d">drop/observer/run.mp4</span>    <span class="d">intake 9c2e01a4</span>   <span class="d">│ ┌ ESCROW · needs you ────────────────────────────────────────────────┐</span>
+<span class="d">└────────────────────────────────────────────┘ │</span> <span class="o">▶ openrouter_chat · claude-opus-4.7 · est $0.41</span>  <span class="d">[a] approve  [r] refuse</span> <span class="d">│</span>
+                                               <span class="d">│</span>   <span class="d">requested by: code-mode run ec_mtpewry9</span>                             <span class="d">│</span>
+                                               <span class="d">└────────────────────────────────────────────────────────────────────┘</span>
+
+ <span class="inv"> NORMAL </span> <span class="d">RUN › lanes</span>   <span class="d">[Enter] open  [Tab] pane  [a] approve  [r] refuse  [/] filter  [?] keys</span>                  <span class="pd">chain ✓ 724</span>  <span class="d">bus ●</span></pre>
+  <div class="grid">
+    <div class="box red"><div class="t">FIXES</div><ul><li>W4 latency: the running lane has a progress bar and a spinner that ticks from the bus, never from a 3s poll. Anything &gt;400ms shows motion.</li><li>Escrow was a tab nobody visited; now it's the pane that says "needs you" and appears only when something does.</li><li>Hot-drop intake is visible where it happens.</li></ul></div>
+    <div class="box"><div class="t">SPEC</div><ul><li>Lane states: <span class="d">queued</span> dim · <span class="o">running</span> orange (the human is waiting) · <span class="p">sealed</span> phosphor · <span class="r">REFUSED</span> red.</li><li>Live pane subscribes to bus events for the selected lane; Enter on a sealed lane jumps to its receipt in CHAIN.</li><li>env-lock line on every live pane: the binaries this run is bound to.</li><li>Escrow: one item at a time, cost estimate always shown, requester receipt id always shown.</li></ul></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2>CHAIN <small>what happened, provably</small></h2>
+<pre class="term"><span class="w">TIMMY</span> <span class="d">v1.1.0</span>  <span class="d">1 HOME  2 RUN</span>  <span class="inv"> 3 CHAIN </span> <span class="d">4 LIBRARY</span>                                    <span class="pd">chain ✓ 724 · 5d0b7c92</span>  <span class="d">bus ●  drops 3  model gemini-3.7-flash</span>
+<span class="d">─────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span class="d">┌ RECEIPTS  /</span><span class="o">custody</span><span class="d">▏ 11 of 724 ────────────────────────┐ ┌ rc_mtd5d0b7c92 · custody.attach ──────────────────────────┐</span>
+<span class="d">│</span> <span class="p">OK</span>  <span class="d">903.0519</span> <span class="w">custody.attach</span>  <span class="d">card=VC0007-17-03</span>         <span class="d">│ │</span> <span class="d">prev</span>  <span class="p">88e2f5a0</span>  <span class="d">→  this</span>  <span class="p">5d0b7c92</span>                        <span class="d">│</span>
+<span class="d">│</span> <span class="p">OK</span>  <span class="d">903.0503</span> <span class="d">custody.pack</span>    <span class="d">pack=1 cards=12</span>           <span class="d">│ │</span> <span class="d">kind   custody.attach       policy  local-first</span>            <span class="d">│</span>
+<span class="d">│</span> <span class="r">FAIL</span> <span class="d">903.0502</span> <span class="d">custody.open</span>    <span class="r">tamper=BROKEN</span>             <span class="d">│ │</span> <span class="d">ts     2026-09-14T20:12:44-07:00   via  grader-intake</span>    <span class="d">│</span>
+<span class="d">│</span> <span class="p">OK</span>  <span class="d">903.0414</span> <span class="d">custody.claim</span>   <span class="d">city=Las Vegas tap=2</span>      <span class="d">│ │</span>                                                            <span class="d">│</span>
+<span class="d">│</span> <span class="p">OK</span>  <span class="d">903.0413</span> <span class="d">custody.sell</span>    <span class="d">pos_receipt=48812</span>         <span class="d">│ │</span> <span class="d">evidence</span>                                                    <span class="d">│</span>
+<span class="d">│</span> <span class="p">OK</span>  <span class="d">903.0412</span> <span class="d">custody.seal</span>    <span class="d">tag=04A2…F1 sig=valid</span>     <span class="d">│ │</span> <span class="d">  scan 1200dpi · fp 0.996 · dims Δ 0.04mm</span>                  <span class="d">│</span>
+<span class="d">│</span> <span class="d">—</span>   <span class="d">903.0411</span> <span class="d">custody.photo</span>   <span class="d">unverified · n=3</span>          <span class="d">│ │</span> <span class="d">  env-lock 2ad8f61c</span>                                         <span class="d">│</span>
+<span class="d">│</span> <span class="p">OK</span>  <span class="d">903.0410</span> <span class="d">custody.commit</span>  <span class="d">contents_hash=9f3a7c1e</span>    <span class="d">│ │</span>                                                            <span class="d">│</span>
+<span class="d">│</span>                                                       <span class="d">│ │</span> <span class="d">[v] verify from here   [o] open in companion   [y] copy hash</span> <span class="d">│</span>
+<span class="d">├ VERIFY ───────────────────────────────────────────────┤ └────────────────────────────────────────────────────────────┘</span>
+<span class="d">│</span> <span class="p">✓ chain ok · 724 receipts · 6 epochs · head 5d0b7c92</span>   <span class="d">│</span>  <span class="d">refusals 2 · anchored today 09:30 · OpenTimestamps ✓</span>
+<span class="d">└───────────────────────────────────────────────────────┘</span>
+
+ <span class="inv"> NORMAL </span> <span class="d">CHAIN › receipts</span>   <span class="d">[Enter] open  [/] filter  [v] verify  [Tab] pane  [?] keys</span>                            <span class="pd">chain ✓ 724</span>  <span class="d">bus ●</span></pre>
+  <div class="grid">
+    <div class="box red"><div class="t">FIXES</div><ul><li>C1 (fixed): status column derives from chain verify. <span class="p">OK</span> sealed · <span class="d">—</span> unverified · <span class="r">FAIL</span> refused. Nothing else.</li><li>C2 (fixed): Enter opens the detail pane; it is always visible, so "how do I inspect?" never arises.</li><li>O4: <code>[o]</code> cross-links a receipt to the companion / custody page.</li></ul></div>
+    <div class="box"><div class="t">SPEC</div><ul><li>Filter is Telescope-style: <code>/</code> then type; matches kind, subject, hash prefix, and any field value.</li><li>Detail pane fixed fields in this order: prev → this, kind, policy, ts, via, evidence, actions.</li><li>VERIFY strip is the only place "chain ok" is asserted, and it glows only after a real verify.</li><li>Review notes (director/approver) render as receipts of kind review.note — no separate tab.</li></ul></div>
+  </div>
+</section>
+
+<section id="s6">
+  <h2>LIBRARY + model picker <small>what Timmy can use</small></h2>
+<pre class="term"><span class="w">TIMMY</span> <span class="d">v1.1.0</span>  <span class="d">1 HOME  2 RUN  3 CHAIN</span>  <span class="inv"> 4 LIBRARY </span>                                      <span class="pd">chain ✓ 724 · 5d0b7c92</span>  <span class="d">bus ●  drops 3  model gemini-3.7-flash</span>
+<span class="d">─────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span class="d">┌ FLEET ────────────────────────────────┐ ┌ MODELS  /</span><span class="o">cod</span><span class="d">▏  role: all ▾ ──────────────────────────────────────────┐</span>
+<span class="d">│</span> <span class="p">●</span> <span class="w">rive</span>       <span class="d">bridge · 0.8.5673</span>        <span class="d">│ │</span> <span class="d">  model                    role      ctx    $in/$out   caps     spent</span>   <span class="d">│</span>
+<span class="d">│</span> <span class="p">●</span> <span class="w">defold</span>     <span class="d">cli · 1.13.1 · env-lock</span>  <span class="d">│ │</span> <span class="o">▶</span> <span class="w">anthropic/claude-opus-4.7</span> <span class="d">reason</span>   <span class="d">1M</span>   <span class="d">15 / 75</span>   <span class="d">tools vis</span> <span class="d">$0.19</span>  <span class="d">│</span>
+<span class="d">│</span> <span class="p">●</span> <span class="w">houdini</span>    <span class="d">sceneforge · worker</span>      <span class="d">│ │</span>   <span class="w">google/gemini-3.7-flash</span>   <span class="d">coding</span>   <span class="d">1M</span>   <span class="d">0.3 / 2.5</span> <span class="d">tools vis</span> <span class="d">$0.08</span>  <span class="d">│</span>
+<span class="d">│</span> <span class="p">●</span> <span class="w">blender</span>    <span class="d">headless · 5.1.1</span>         <span class="d">│ │</span>   <span class="w">x-ai/grok-4.6</span>             <span class="d">coding</span>   <span class="d">256k</span> <span class="d">3 / 15</span>    <span class="d">tools</span>     <span class="d">$0.00</span>  <span class="d">│</span>
+<span class="d">│</span> <span class="d">○</span> <span class="d">roboflow</span>   <span class="d">no key · not_configured</span>  <span class="d">│ │</span>   <span class="w">local/sparks-nemotron</span>     <span class="d">judge</span>    <span class="d">128k</span> <span class="d">0 / 0</span>     <span class="d">tools</span>     <span class="d">free</span>   <span class="d">│</span>
+<span class="d">│</span> <span class="p">●</span> <span class="w">opencode</span>   <span class="d">harness → policy model</span>   <span class="d">│ │</span>                                                                        <span class="d">│</span>
+<span class="d">│</span> <span class="p">●</span> <span class="w">jcode</span>      <span class="d">harness → openrouter</span>     <span class="d">│ │</span> <span class="d">notes: "best for long refactors; slow; use as judge tier 1"</span>             <span class="d">│</span>
+<span class="d">│</span> <span class="d">○</span> <span class="d">minds</span>      <span class="d">no one-shot · not dispatch</span> <span class="d">│ │</span> <span class="d">[Enter] set as policy   [h] set for harness ▸   [p] pin   [n] edit note</span> <span class="d">│</span>
+<span class="d">├ BOARDS ───────────────────────────────┤ └────────────────────────────────────────────────────────────────────────┘</span>
+<span class="d">│</span> <span class="d">mission</span>   <span class="w">ledger</span>          <span class="d">6 frames</span>     <span class="d">│</span>  <span class="d">PROJECTS  timmy-tui · vault-custody · walnut-ch1 (parked v17) · cpo</span>
+<span class="d">│</span> <span class="d">blueprint</span> <span class="w">custody-lane</span>    <span class="d">11 nodes</span>     <span class="d">│</span>
+<span class="d">│</span> <span class="d">template</span>  <span class="w">turntable</span>       <span class="d">jbone</span>        <span class="d">│</span>
+<span class="d">└───────────────────────────────────────┘</span>
+
+ <span class="inv"> NORMAL </span> <span class="d">LIBRARY › models</span>   <span class="d">[Enter] set  [h] harness  [p] pin  [/] filter  [Tab] pane  [?] keys</span>                    <span class="pd">chain ✓ 724</span>  <span class="d">bus ●</span></pre>
+  <div class="grid">
+    <div class="box red"><div class="t">PICKER PROBLEMS SOLVED</div><ul><li>Model ids meant nothing → role, context, price, caps, and <em>real spend from receipts</em> on one row.</li><li>Nobody knew which model the tmux harnesses ran → fleet rows show <code>harness → policy model</code> or <code>→ openrouter</code>, from harness.policy.</li><li>Sparks are a free judge tier, visibly.</li></ul></div>
+    <div class="box"><div class="t">SPEC</div><ul><li>Rows come from <code>timmy models --json</code> (models.registry): id, role, ctx, price, supported_parameters → caps, spend, notes, pinned.</li><li>Group by role with <code>role ▾</code>; fuzzy filter on <code>/</code>; pinned float to top.</li><li><code>[h]</code> opens a sub-picker: which harness gets this model (opencode, jcode, pi, hermes). Writes harness.policy.</li><li>Fleet: <span class="p">●</span> connected, <span class="d">○</span> not configured (dim — not red; absence is not failure).</li></ul></div>
+  </div>
+</section>
+
+<section id="s7">
+  <h2>Which-key overlay <small>press ? — discoverability without docs</small></h2>
+<pre class="term"><span class="d">TIMMY  v1.1.0   1 HOME  2 RUN  3 CHAIN  4 LIBRARY                                       chain ✓ 724 · 5d0b7c92   bus ●</span>
+<span class="d">─────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span class="d">┌ YOUR JOURNEY ──────────────────────────────────────────────┐ ┌ LATEST PROOF ─────────────────────────┐</span>
+<span class="d">│  ✓ doctor      rc_mtd9a…  ok · 12 checks                   │ │  ✓ sha256_5d0b7c92                     │</span>
+<span class="d">│  ✓ connect     rc_mtdb4…  defold · env-lock                │ │  custody.attach · 20:12:44 · 4s ago    │</span>
+<span class="d">│          ┌ KEYS · NORMAL · HOME ──────────────────────────────────────────────────────────┐          │</span>
+<span class="d">│          │</span>  <span class="w">NAVIGATE</span>            <span class="w">ACT</span>                     <span class="w">MODES</span>                <span class="w">SEAL</span>            <span class="d">│          │</span>
+<span class="d">│          │</span>  <span class="p">1-4</span> <span class="d">tab</span>             <span class="p">v</span>  <span class="d">verify chain</span>        <span class="p">i</span> <span class="d">insert (cmd line)</span>  <span class="p">s</span> <span class="d">seal…</span>       <span class="d">│          │</span>
+<span class="d">│          │</span>  <span class="p">j/k</span> <span class="d">move</span>            <span class="p">q</span>  <span class="d">companion QR</span>        <span class="p">c</span> <span class="d">chat (sovereign)</span>   <span class="p">S</span> <span class="d">seal review note</span> <span class="d">│          │</span>
+<span class="d">│          │</span>  <span class="p">Tab</span> <span class="d">next pane</span>       <span class="p">d</span>  <span class="d">run doctor</span>          <span class="p">:</span> <span class="d">command</span>                                <span class="d">│          │</span>
+<span class="d">│          │</span>  <span class="p">Enter</span> <span class="d">open</span>          <span class="p">/</span>  <span class="d">filter</span>              <span class="p">Esc</span> <span class="d">back / leave mode</span>                    <span class="d">│          │</span>
+<span class="d">│          │</span>                                                                                         <span class="d">│          │</span>
+<span class="d">│          │</span>  <span class="d">press a key, or Esc to close · keys shown are exactly the active keymap</span>                  <span class="d">│          │</span>
+<span class="d">│          └────────────────────────────────────────────────────────────────────────────────┘          │</span>
+<span class="d">│    seal        anything · [s]                                │ │  env.lock         sealed   2ad8f61c    │</span>
+<span class="d">└────────────────────────────────────────────────────────────┘ └────────────────────────────────────────┘</span></pre>
+  <div class="grid">
+    <div class="box red"><div class="t">FIXES</div><ul><li>W1: background dims to 40% (the <code class="d">dim</code> class on every underlying span); overlay is opaque navy — nothing bleeds through.</li><li>O1: inline key hints on every pane + this overlay = no docs needed for the seven steps.</li></ul></div>
+    <div class="box"><div class="t">SPEC</div><ul><li>Overlay content is rendered <em>from the keymap object</em> of the current mode+tab. If a key isn't in the overlay it doesn't exist.</li><li>Four groups, fixed order: NAVIGATE · ACT · MODES · SEAL.</li><li>Pressing a key inside the overlay executes it and closes the overlay (like which-key).</li></ul></div>
+  </div>
+</section>
+
+<section id="s8">
+  <h2>Color contract <small>a gate, not a style guide</small></h2>
+  <p class="lede">The audit's worst finding wasn't a bug in a screen — it was the danger color spent on things that weren't dangerous (valid receipts, docker being off). When red is cheap, nobody believes it. The contract is enforced by a test with the audit's own view4 capture as the negative control.</p>
+  <table>
+    <tr><th>color</th><th>means</th><th>may appear on</th><th>never on</th></tr>
+    <tr><td class="p">phosphor #33FF66</td><td>the chain agrees</td><td>sealed/verified receipts, connected fleet, live bus, "chain ok", completed journey steps</td><td>anything unverified, any human input, any state the chain hasn't confirmed</td></tr>
+    <tr><td class="o">orange #FF8C1A</td><td>a human is here / needed</td><td>the ONE next step, running lanes (you're waiting), escrow items, INSERT/CHAT mode badge, filter text</td><td>more than one element per screen (except RUN, where running lanes may be several)</td></tr>
+    <tr><td class="r">red #FF3B3B</td><td>refused</td><td>refused receipts, failed verification, tamper=BROKEN, refused escrow</td><td>docker off · missing keys · unconfigured connectors · empty states · warnings</td></tr>
+    <tr><td class="d">dim</td><td>absent, off, unverified, secondary</td><td>everything that is not one of the above</td><td>—</td></tr>
+    <tr><td class="w">white bold</td><td>the thing you are looking at</td><td>selected row title, header wordmark</td><td>status of any kind</td></tr>
+  </table>
+  <div class="box red" style="margin-top:16px"><div class="t">ROSTER GATE: tui.color-contract (kind=count)</div><ul><li>Render every tab against fixture states: verified chain, refused receipt, running lane, docker off, missing key, unverified receipt, INSERT mode.</li><li>Assert: red cells appear only in refused/failed fixtures; orange count ≤ 1 outside RUN; phosphor only on chain-confirmed cells.</li><li>Negative control: <code>/tmp/audit/view4.txt</code> (pre-hotfix) must FAIL. Seal gate.control before admitting.</li></ul></div>
+</section>
+
+<section id="s9">
+  <h2>For Qwen <small>implementation order and constraints</small></h2>
+  <div class="grid">
+    <div class="box"><div class="t">ORDER OF WORK</div><ul>
+      <li><b>1. Keymap + modes.</b> One keymap object per (mode, tab). Footer and which-key render from it. Keyboard-contract test.</li>
+      <li><b>2. IA collapse.</b> Four tabs; old views become panes inside them. Remove SYSTEM as a destination; <code>:doctor</code> + Home status strip.</li>
+      <li><b>3. Color contract gate</b> with the view4 negative control. Admit to roster.</li>
+      <li><b>4. HOME</b> (journey, status, rails). journey.first seal when 7/7.</li>
+      <li><b>5. CHAIN</b> (list + fixed detail pane + verify strip).</li>
+      <li><b>6. RUN</b> (lanes from bus, live pane, drops, escrow-when-needed).</li>
+      <li><b>7. LIBRARY</b> (fleet, models picker from models.registry, boards, projects).</li>
+      <li><b>8. Chat drawer</b> over any screen; LanesPanel legacy write → bus.</li>
+    </ul></div>
+    <div class="box red"><div class="t">CONSTRAINTS</div><ul>
+      <li>Tokens from <code>design/tokens.json</code> product mode; seal <code>design.lock</code> first. No other colors, no other fonts.</li>
+      <li>Reference grid 120×32; must degrade to 80×24 by dropping the right rail, never by truncating rows mid-glyph.</li>
+      <li>Every status glyph comes from the bus or the chain — never from a poll, never hand-typed.</li>
+      <li>Any receipt row renders only fields the receipt schema has (CUE schema for receipts, typechecked in the renderer).</li>
+      <li>Reconcile each screen against your own captures in <code>docs/ux-audit-bundle.md</code>; where this spec and the captures disagree on a fact (a real field name, a real keybinding), the capture wins and you report it.</li>
+      <li>Seal <code>ui.redesign</code> per step, citing <code>ui.audit 3f6b191b6</code>. Before/after captures on each.</li>
+    </ul></div>
+  </div>
+</section>
+</main>
+<script>
+document.querySelectorAll('.rail button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.rail button').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('main section').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');document.getElementById(b.dataset.s).classList.add('on');
+}));
+</script>
+</body>
+</html>

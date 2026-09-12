@@ -1,0 +1,14 @@
+# ORDER privacy-d5n9 — gitleaks configuration for the privacy gate
+# (.github/workflows/privacy.yml). Extends the default ruleset unchanged.
+#
+# The single exemption is the §12 negative-control fixture: it is fake secrets on
+# purpose, so a tree/history scan must skip it, while `timmy privacy fixture`
+# asserts separately that the Timmy pattern set still trips on it.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "the must-fail fixture is a deliberate negative control (asserted by `timmy privacy fixture`)"
+paths = [
+  '''^lanes/privacy/fixtures/must-fail\.txt$''',
+]

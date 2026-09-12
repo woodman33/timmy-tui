@@ -3,12 +3,12 @@
   "kind": "local agent (Python, Nous Hermes Agent); bin is a bash wrapper around ~/.hermes/hermes-agent/venv/bin/hermes",
   "measured_at": "2026-09-07T10:55:00.818Z",
   "host": {
-    "hostname": "Williams-MacBook-Pro-2.local",
+    "hostname": "<hostname>.local",
     "platform": "darwin 25.6.0 arm64",
     "node": "v26.6.0"
   },
   "binary": {
-    "path": "/Users/williammeldman/.local/bin/hermes",
+    "path": "<home>/.local/bin/hermes",
     "exists": true,
     "symlink": null,
     "kind": "script (#!/usr/bin/env bash)",
@@ -65,11 +65,11 @@
     },
     "sandbox": {
       "value": false,
-      "method": "compare reported hostname/pwd with this machine (hostname=Williams-MacBook-Pro-2.local, cwd=<temp dir>); a different hostname or a container-style path means sandboxed",
+      "method": "compare reported hostname/pwd with this machine (hostname=<hostname>.local, cwd=<temp dir>); a different hostname or a container-style path means sandboxed",
       "evidence": [
         8
       ],
-      "note": "reported this machine's hostname (Williams-MacBook-Pro-2.local) and the real temp cwd, so tools run directly on the host. tail: \"hostname:\\nWilliams-MacBook-Pro-2.local\\n\\npwd:\\n/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/sandbox\""
+      "note": "reported this machine's hostname (<hostname>.local) and the real temp cwd, so tools run directly on the host. tail: \"hostname:\\n<hostname>.local\\n\\npwd:\\n/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/sandbox\""
     },
     "mcp_client": {
       "value": true,
@@ -88,7 +88,7 @@
     "one_shot": {
       "id": 4,
       "argv": [
-        "/Users/williammeldman/.local/bin/hermes",
+        "<home>/.local/bin/hermes",
         "-z",
         "Reply with exactly the word PONG and nothing else",
         "--provider",
@@ -96,7 +96,7 @@
         "-m",
         "google/gemini-3.7-flash"
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/one_shot",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/one_shot",
       "exit": 0,
       "ms": 7595,
       "timed_out": false,
@@ -105,7 +105,7 @@
     "file_edits": {
       "id": 5,
       "argv": [
-        "/Users/williammeldman/.local/bin/hermes",
+        "<home>/.local/bin/hermes",
         "-z",
         "Create a file named PROBE.txt in the current directory containing exactly the text probe-ok, then stop.",
         "--provider",
@@ -113,7 +113,7 @@
         "-m",
         "google/gemini-3.7-flash"
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/file_edits",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/file_edits",
       "exit": 0,
       "ms": 12781,
       "timed_out": false,
@@ -122,7 +122,7 @@
     "tool_use": {
       "id": 6,
       "argv": [
-        "/Users/williammeldman/.local/bin/hermes",
+        "<home>/.local/bin/hermes",
         "-z",
         "Run the shell command `echo TOOL-OK-4471` and report its output verbatim.",
         "--provider",
@@ -130,7 +130,7 @@
         "-m",
         "google/gemini-3.7-flash"
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/tool_use",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/tool_use",
       "exit": 0,
       "ms": 10944,
       "timed_out": false,
@@ -139,7 +139,7 @@
     "browser": {
       "id": 7,
       "argv": [
-        "/Users/williammeldman/.local/bin/hermes",
+        "<home>/.local/bin/hermes",
         "-z",
         "Fetch https://example.com and report the exact page title.",
         "--provider",
@@ -147,7 +147,7 @@
         "-m",
         "google/gemini-3.7-flash"
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/browser",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/browser",
       "exit": 0,
       "ms": 11620,
       "timed_out": false,
@@ -156,7 +156,7 @@
     "sandbox": {
       "id": 8,
       "argv": [
-        "/Users/williammeldman/.local/bin/hermes",
+        "<home>/.local/bin/hermes",
         "-z",
         "Run the shell commands `hostname` and `pwd` and report both verbatim.",
         "--provider",
@@ -164,7 +164,7 @@
         "-m",
         "google/gemini-3.7-flash"
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/sandbox",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/sandbox",
       "exit": 0,
       "ms": 14378,
       "timed_out": false,
@@ -173,7 +173,7 @@
     "mcp_client": {
       "id": 11,
       "argv": [
-        "/Users/williammeldman/.local/bin/hermes",
+        "<home>/.local/bin/hermes",
         "-z",
         "Call the MCP tool timmy_env_lock and paste its raw JSON result.",
         "--provider",
@@ -181,7 +181,7 @@
         "-m",
         "anthropic/claude-haiku-4.5"
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/mcp_client",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/probes/mcp_client",
       "exit": 0,
       "ms": 13634,
       "timed_out": false,
@@ -206,11 +206,11 @@
     ]
   },
   "notes": [
-    "removed isolated-home credential file after run: /private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/home/auth.json"
+    "removed isolated-home credential file after run: /private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/home/auth.json"
   ],
   "mcp_setup_files": [
     {
-      "path": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/home/config.yaml",
+      "path": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/hermes/home/config.yaml",
       "bytes": 314
     }
   ],
