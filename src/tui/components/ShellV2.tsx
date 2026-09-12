@@ -792,9 +792,9 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
         {assembled && !narrow && s.tab === 'LIBRARY' && (
           /* FIX 2: FLEET owns the full-height right rail */
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            <FleetPane lanes={lanes} policy={policy} />
-            <Box height={1} />
             <DemosPane rows={un.demosRows(recs)} sel={demoSel} armed={s.demoArmed} />
+            <Box height={1} />
+            <FleetPane lanes={lanes} policy={policy} />
             <Box height={1} />
             <OllamaPane strict={un.modelStrictness()} nodes={war2.nodes} />
             <Box height={1} />
@@ -1467,7 +1467,7 @@ function DemosPane(props: { rows: un.DemoRow[]; sel: number; armed: boolean }) {
     <Card title="DEMOS" purpose={props.armed ? 'armed — [ ] selects · [Enter] opens' : 'portfolio families · [D] arms'}>
       {props.rows.length === 0 ? (
         <Text color={PAL.textMuted}>no demo families recorded</Text>
-      ) : props.rows.slice(0, 6).map((r, i) => (
+      ) : props.rows.slice(0, 4).map((r, i) => (
         <React.Fragment key={r.id}>
           <Text color={i === props.sel ? PAL.seal : PAL.textSecondary}>
             {`${i === props.sel ? '▶' : ' '} ${r.family.slice(0, 12).padEnd(12)} ${r.demo.slice(0, 6)}`}
