@@ -129,6 +129,39 @@ if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) 
 
 const command = cleanArgs[0];
 
+if (command === 'cockpit') {
+  // ui-cockpit-k7m3 — the HANDS cockpit. The board, prompts, pane logs and
+  // transcripts live ONLY in .timmy/private/cockpit/ (gitignored, mode 700);
+  // the verb is the only writer. Panes (up/attach) land in C2.
+  const ck = await import('./harness/cockpit.js');
+  if (cleanArgs[1] === 'board' && cleanArgs[2] === 'import') {
+    const file = cleanArgs[3];
+    if (!file) {
+      console.error('usage: timmy cockpit board import <ROUNDS.md>');
+      process.exit(2);
+    }
+    const r = ck.importRounds(file);
+    if (isJson) console.log(JSON.stringify({ ok: r.ok, note: r.note ?? null, path: r.path ?? null, hands: r.hands ?? 0, prompts: r.prompts ?? 0 }));
+    else console.log(r.ok ? `board imported · ${r.hands} hands · ${r.prompts} prompts → ${r.path}` : `import failed: ${r.note}`);
+    process.exit(r.ok ? 0 : 1);
+  }
+  if (cleanArgs[1] === 'board' && cleanArgs[2] === 'show') {
+    const b = ck.loadBoard();
+    if (isJson) console.log(JSON.stringify(b));
+    else console.log(b ? JSON.stringify(b, null, 2) : 'no board — timmy cockpit board import <ROUNDS.md>');
+    process.exit(b ? 0 : 1);
+  }
+  if (cleanArgs[1] === 'leak-check') {
+    // release check (§12): a board.json or cockpit log planted anywhere in
+    // the tracked tree fails; .timmy/ is the only legal home.
+    const leaks = ck.leakCheck();
+    console.log(leaks.length ? `LEAK: ${leaks.join(', ')}` : 'clean: no cockpit artifacts in the tracked tree');
+    process.exit(leaks.length ? 1 : 0);
+  }
+  console.error('usage: timmy cockpit board import <ROUNDS.md> | board show | leak-check');
+  process.exit(2);
+}
+
 if (command === 'vision') {
   const { runVisionCli } = await import('./vision/cli.js');
   await runVisionCli(cleanArgs.slice(1));
