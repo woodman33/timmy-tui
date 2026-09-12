@@ -1,0 +1,42 @@
+name: privacy gate
+
+# ORDER privacy-d5n9: the public-repo privacy gate. Every push and pull request is
+# scanned twice — gitleaks (secrets) and the Timmy pattern set (emails, tailnet
+# and LAN addresses, MACs, hostnames, login names, home paths, phone numbers,
+# policy text, card serials, brand material). Any match at medium or above fails
+# the job. The §12 negative control runs first: if the must-fail fixture does not
+# trip the gate, the gate itself is broken and the job fails.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  privacy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for the secret scan)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Negative control (§12) — the fixture MUST trip the gate
+        run: node lanes/privacy/scan.mjs fixture
+
+      - name: Timmy pattern scan — working tree
+        run: node lanes/privacy/scan.mjs scan --tree . --fail-on medium --quiet
+
+      - name: Timmy pattern scan — commits in this push / PR
+        if: github.event_name == 'pull_request'
+        run: node lanes/privacy/scan.mjs scan --history --ref "origin/${{ github.base_ref }}..HEAD" --fail-on medium --quiet
+
+      - name: gitleaks — secrets in the tree and the pushed history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_SUMMARY: 'true'

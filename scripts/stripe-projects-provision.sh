@@ -9,7 +9,7 @@ echo "💳 TIMMY Stripe Projects Provisioning Helper"
 echo "=========================================================="
 
 # Route execution strictly within the founder-terminal directory
-cd /Users/williammeldman/Desktop/timmy-tui/founder-terminal
+cd <home>/Desktop/timmy-tui/founder-terminal
 
 echo "[1/8] Ensuring Stripe CLI is installed..."
 brew install stripe/stripe-cli/stripe || true
