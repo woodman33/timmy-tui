@@ -39,6 +39,7 @@ for (const f of files) {
   const meta = {
     harness,
     version: r.version ?? 'unknown',
+    abilities_version: r.abilities_version ?? null,
     path: bin.path ?? 'unknown',
     binary_kind: bin.kind ?? null,
     binary_symlink: bin.symlink ?? null,

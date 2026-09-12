@@ -22,7 +22,9 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..', '..');
 const args = process.argv.slice(2);
 const flag = (k, d) => { const i = args.indexOf(k); return i >= 0 && args[i + 1] !== undefined && !args[i + 1].startsWith('--') ? args[i + 1] : d; };
-const cmd = args.find((a) => !a.startsWith('--')) ?? 'fleet';
+const valueFlags = new Set(['--harness', '--meta', '--results']);
+const positional = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && valueFlags.has(args[i - 1])));
+const cmd = positional[0] ?? 'fleet';
 const has = (k) => args.includes(k);
 const out = (o) => console.log(JSON.stringify(o, null, has('--compact') ? 0 : 1));
 
@@ -38,7 +40,7 @@ export function abilitiesHistory() {
   const rows = readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
   return rows.filter((r) => r.subject === 'harness.abilities').map((r) => {
     const s = r.sources?.[0] ?? {};
-    return { ts: r.ts, harness: s.harness ?? '?', version: s.version ?? s.jcode_version ?? 'v1', abilities_version: s.version && String(s.version).startsWith('v') ? s.version : 'v1', hash: r.hash, prev: s.prev_abilities ?? null, results: s.results ?? null, tool_schema: s.tool_schema ?? null };
+    return { ts: r.ts, harness: s.harness ?? '?', version: s.version ?? s.jcode_version ?? 'v1', abilities_version: s.abilities_version ?? (s.version && String(s.version).startsWith('v') ? s.version : 'v1'), hash: r.hash, prev: s.prev_abilities ?? null, results: s.results ?? null, tool_schema: s.tool_schema ?? null };
   });
 }
 
@@ -60,7 +62,7 @@ function fleetTable() {
 }
 
 if (cmd === 'history' || cmd === 'latest' || cmd === 'fleet') {
-  const harness = args.find((a, i) => !a.startsWith('--') && i > 0);
+  const harness = flag('--harness') ?? positional[1];
   let h = abilitiesHistory();
   if (harness) h = h.filter((r) => r.harness === harness);
   if (cmd === 'latest') {
@@ -73,14 +75,21 @@ if (cmd === 'history' || cmd === 'latest' || cmd === 'fleet') {
   }
 } else if (cmd === 'seal') {
   // seal harness.abilities citing the predecessor for the same harness
-  const harness = flag('--harness') ?? args[1];
+  const harness = flag('--harness') ?? positional[1];
   if (!harness) { console.error('usage: timmy abilities seal <harness> --results <file> [--meta k=v]…'); process.exit(2); }
   const prev = predecessor(harness);
   const seal = ['tsx', 'src/cli.ts', 'seal', 'harness.abilities', '--meta', `harness=${harness}`];
   if (prev) seal.push('--meta', `prev_abilities=${prev}`);
   // pass through --meta pairs from argv
   for (let i = 0; i < args.length; i++) if (args[i] === '--meta' && args[i + 1]) seal.push('--meta', args[++i]);
-  if (flag('--results')) seal.push('--meta', `results=${flag('--results')}`);
+  const results = flag('--results');
+  if (results) {
+    try {
+      const result = JSON.parse(readFileSync(resolve(ROOT, results), 'utf8'));
+      if (result.abilities_version) seal.push('--meta', `abilities_version=${result.abilities_version}`);
+    } catch { /* results metadata is best-effort; sealing still records the path */ }
+    seal.push('--meta', `results=${results}`);
+  }
   const r = spawnSync('npx', seal, { cwd: ROOT, stdio: 'inherit' });
   process.exit(r.status ?? 1);
 } else { console.error('usage: timmy abilities <history|latest|fleet|seal> [harness] …'); process.exit(2); }
