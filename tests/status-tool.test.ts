@@ -3,10 +3,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { parseOrders, statusReport, renderBoard } from '../src/utils/status.js';
 import { detectSession } from '../src/utils/session.js';
-import { appendReceipt } from '../src/utils/receipts.js';
+import { appendReceipt, readChain } from '../src/utils/receipts.js';
 
 let dir = '';
 let log = '';
@@ -62,5 +62,88 @@ describe('status tool', () => {
     const line = readFileSync(log2, 'utf8').trim();
     expect(line).toContain('actor=qwen-cli');
     expect(line).toContain('hands=test-model');
+  });
+
+  it('parses pipes inside titles and evidence without shifting columns', () => {
+    const rec = appendReceipt('runs', { kind: 'seal', subject: 'fixture.pipes · x', policy: 'auto', status: 'ok' });
+    writeFileSync(log, `ORD-P | 2026-09-07T00:00:00Z | claude | seal|reveal | receipt ${rec.hash} tt|plain | actor=claude-code hands=model-a\n`);
+    const rows = parseOrders(log);
+    expect(rows[0].title).toBe('seal|reveal');
+    expect(rows[0].evidence).toContain('tt|plain');
+    expect(rows[0].hands).toBe('model-a');
+    expect(rows[0].state).toBe('done');
+  });
+
+  it('order log escapes spaced pipe characters in fields', () => {
+    const log2 = join(dir, 'orders-pipe.log');
+    execFileSync('npx', ['tsx', 'src/cli.ts', 'order', 'log', 'ORD-PIPE', '--title', 'seal | reveal', '--evidence', 'tt | plain'], {
+      cwd: process.cwd(),
+      env: { ...process.env, TIMMY_ORDERS_LOG: log2, QWEN_CODE: '1', QWEN_MODEL: 'test-model' },
+    });
+    const rows = parseOrders(log2);
+    expect(rows[0].title).toBe('seal | reveal');
+    expect(rows[0].evidence).toBe('tt | plain');
+    expect(rows[0].hands).toBe('test-model');
+  });
+
+  it('order execute records its receipt as status evidence', () => {
+    const log2 = join(dir, 'orders-execute.log');
+    const store = join(dir, 'store-execute');
+    execFileSync('npx', ['tsx', 'src/cli.ts', 'order', 'execute', 'ORD-EX', '--title', 'execute fixture'], {
+      cwd: process.cwd(),
+      env: { ...process.env, TIMMY_ORDERS_LOG: log2, TIMMY_STORE: store, QWEN_CODE: '1', QWEN_MODEL: 'test-model' },
+    });
+    const oldStore = process.env.TIMMY_STORE;
+    process.env.TIMMY_STORE = store;
+    try {
+      const rows = parseOrders(log2);
+      expect(rows[0].evidence).toContain('sha256_');
+      expect(rows[0].lastReceipt).toMatch(/^sha256_/);
+      expect(rows[0].state).toBe('done');
+    } finally {
+      if (oldStore === undefined) delete process.env.TIMMY_STORE;
+      else process.env.TIMMY_STORE = oldStore;
+    }
+  });
+
+  it('status --json prints only JSON on stdout', () => {
+    const log2 = join(dir, 'orders-json.log');
+    writeFileSync(log2, '');
+    const out = execFileSync('npx', ['tsx', 'src/cli.ts', 'status', '--json'], {
+      cwd: process.cwd(),
+      env: { ...process.env, TIMMY_ORDERS_LOG: log2, TIMMY_STORE: join(dir, 'store-json') },
+      encoding: 'utf8',
+    });
+    expect(() => JSON.parse(out)).not.toThrow();
+  });
+
+  it('seal --cite accepts hash prefixes and rejects empty or id fragments', () => {
+    const store = join(dir, 'store-cites');
+    execFileSync('npx', ['tsx', 'src/cli.ts', 'seal', 'fixture.cite.seed'], {
+      cwd: process.cwd(),
+      env: { ...process.env, TIMMY_STORE: store },
+    });
+    const oldStore = process.env.TIMMY_STORE;
+    process.env.TIMMY_STORE = store;
+    const rec = readChain('runs')[0];
+    if (oldStore === undefined) delete process.env.TIMMY_STORE;
+    else process.env.TIMMY_STORE = oldStore;
+
+    execFileSync('npx', ['tsx', 'src/cli.ts', 'seal', 'fixture.cite.bare', '--cite', rec.hash.slice(7, 15)], {
+      cwd: process.cwd(),
+      env: { ...process.env, TIMMY_STORE: store },
+    });
+    execFileSync('npx', ['tsx', 'src/cli.ts', 'seal', 'fixture.cite.prefixed', '--cite', rec.hash.slice(0, 16)], {
+      cwd: process.cwd(),
+      env: { ...process.env, TIMMY_STORE: store },
+    });
+    expect(() => execFileSync('npx', ['tsx', 'src/cli.ts', 'seal', 'fixture.cite.empty', '--cite', ''], {
+      cwd: process.cwd(),
+      env: { ...process.env, TIMMY_STORE: store },
+    })).toThrow();
+    expect(() => execFileSync('npx', ['tsx', 'src/cli.ts', 'seal', 'fixture.cite.fragment', '--cite', 'rc'], {
+      cwd: process.cwd(),
+      env: { ...process.env, TIMMY_STORE: store },
+    })).toThrow();
   });
 });

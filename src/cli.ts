@@ -101,6 +101,19 @@ function printTable(rows: { label: string; value: string }[]) {
   console.log(bottomBorder);
 }
 
+const escapeOrderField = (value: string): string => value.replace(/\|/g, '\\|');
+const HASH_PREFIX = 'sha256_';
+
+function citeMatchesReceipt(receipt: { hash: string; id: string }, cite: string): boolean {
+  const c = cite.trim();
+  if (!c) return false;
+  if (receipt.hash === c || receipt.id === c) return true;
+  const lower = c.toLowerCase();
+  if (/^sha256_[0-9a-f]+$/.test(lower)) return receipt.hash.startsWith(lower);
+  if (/^[0-9a-f]{6,64}$/.test(lower)) return receipt.hash.slice(HASH_PREFIX.length).startsWith(lower);
+  return false;
+}
+
 const args = process.argv.slice(2);
 
 // Filter out --json, --out <dir>
@@ -176,8 +189,8 @@ if (command === 'order') {
     const ei = args.indexOf('--evidence');
     const title = ti > 0 ? String(args[ti + 1] ?? '') : '';
     const evidence = ei > 0 ? String(args[ei + 1] ?? '') : '';
-    const line = `${id} | ${new Date().toISOString()} | ${sess.short} | ${title} | ${evidence} | actor=${sess.actor} hands=${sess.hands}`;
-    appendFileSync(ordersLogPath(), line + '\n');
+    const orderLine = (rowEvidence: string): string =>
+      `${id} | ${new Date().toISOString()} | ${sess.short} | ${escapeOrderField(title)} | ${escapeOrderField(rowEvidence)} | actor=${sess.actor} hands=${sess.hands}`;
     if (sub === 'execute') {
       const { appendReceipt } = await import('./utils/receipts.js');
       const rec = appendReceipt('runs', {
@@ -186,8 +199,11 @@ if (command === 'order') {
         policy: 'human-gated', status: 'ok',
         sources: [{ actor: sess.actor, hands: sess.hands }],
       });
+      const receiptEvidence = [evidence, `receipt ${rec.hash}`].filter(Boolean).join(' ');
+      appendFileSync(ordersLogPath(), orderLine(receiptEvidence) + '\n');
       console.log(`order.execute ${id} → ${rec.hash.slice(0, 16)} · actor=${sess.actor} hands=${sess.hands}`);
     } else {
+      appendFileSync(ordersLogPath(), orderLine(evidence) + '\n');
       console.log(`logged ${id} · actor=${sess.actor} hands=${sess.hands}`);
     }
     process.exit(0);
@@ -220,7 +236,8 @@ if (command === 'status') {
     kind: 'seal', subject: `status.print · ${Object.values(rep.actors).reduce((n, r) => n + r.length, 0)} orders`,
     policy: 'auto', status: 'ok', sources: [{ actor: sess.actor, hands: sess.hands }],
   });
-  console.log(`sealed ${rec.hash.slice(0, 16)} · status.print`);
+  if (args.includes('--json')) console.error(`sealed ${rec.hash.slice(0, 16)} · status.print`);
+  else console.log(`sealed ${rec.hash.slice(0, 16)} · status.print`);
   process.exit(0);
 }
 if (command === 'script') {
@@ -494,10 +511,11 @@ if (command === 'seal') {
     if (cites.length) {
       const { readChain } = await import('./utils/receipts.js');
       const chain = readChain('runs');
-      for (const c of cites) {
-        const hit = chain.some(r => r.hash === c || r.hash.endsWith(c) || r.id === c || String(r.id).includes(c));
+      for (const cite of cites) {
+        const c = cite.trim();
+        const hit = Boolean(c) && chain.some(r => citeMatchesReceipt(r, c));
         if (!hit) {
-          console.error(`REFUSED (§14): cited receipt is not on the chain: ${c}`);
+          console.error(`REFUSED (§14): cited receipt is not on the chain: ${cite || '(empty)'}`);
           process.exit(2);
         }
       }

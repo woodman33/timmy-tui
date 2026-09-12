@@ -33,6 +33,7 @@ export interface OrderRow {
 }
 
 const citedShas = (s: string): string[] => [...s.matchAll(/sha256_([0-9a-f]{6,})/g)].map(m => `sha256_${m[1]}`);
+const orderCols = (line: string): string[] => line.split(/ \|(?: |$)/).map(c => c.trim().replace(/\\\|/g, '|'));
 
 export function parseOrders(logPath: string, chainDir?: string): OrderRow[] {
   if (!existsSync(logPath)) return [];
@@ -41,7 +42,7 @@ export function parseOrders(logPath: string, chainDir?: string): OrderRow[] {
   return readFileSync(logPath, 'utf8').split('\n')
     .filter(l => l.trim() && !l.trim().startsWith('#'))
     .map(line => {
-      const cols = line.split('|').map(c => c.trim());
+      const cols = orderCols(line);
       const [id = '', ts = '', actor = '', title = '', evidence = '', handsCol = ''] = cols;
       const hands = /hands=/.test(handsCol) ? handsCol.replace(/^.*hands=/, '') : undefined;
       const cited = citedShas(evidence);

@@ -33,6 +33,14 @@ describe('keyboard contract (tui-redesign-p6a3 spec §02)', () => {
     expect(step.handled).toBe(true);
     expect(step.actions.length).toBeGreaterThan(0);
   });
+  it('status overlay consumes HOME keys until it closes', () => {
+    for (const key of ['s', 'q', 'v', 'j', 'Tab', '2']) {
+      const open = shellOnKey(initialShell(), 'S').state;
+      const step = shellOnKey(open, key);
+      expect(step.state.overlay).toBeNull();
+      expect(step.actions).toEqual(['close-overlay']);
+    }
+  });
   it('footer + which-key render from the keymap object', () => {
     expect(footerHintsShell('NORMAL', 'HOME')).toContain('[v] verify chain');
     expect(footerHintsShell('NORMAL', 'HOME')).toContain('[?] which-key');
