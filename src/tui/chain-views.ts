@@ -115,6 +115,11 @@ export function typedLines(r: Receipt): string[] {
         measured ? `  measured · ${h12(s(m, 'asset_sha256', 'sha256'))}` : '  NEVER MEASURED — no parity/proof sealed',
       ];
     }
+    case 'studio.preserve':
+      return [
+        `  studio ${s(m, 'studio').slice(0, 12)} · proj ${s(m, 'project', 'proj').slice(0, 12)}`,
+        `  preserved ${s(m, 'preserved', 'assets').slice(0, 4)} · ${h12(s(m, 'preserve_sha256', 'sha256'))}`,
+      ];
     default:
       if (subj.startsWith('signal.')) {
         return [

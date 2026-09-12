@@ -8,12 +8,13 @@ export interface ShellState {
   tab: ShellTab;
   input: string;
   overlay: 'whichkey' | 'qr' | 'sealconfirm' | 'refuse' | 'newrun' | 'harnesspick' | 'note' | 'status' | 'cmdharness' | 'cmdmodel' | null;
+  demoArmed: boolean;
   filter: string;
   selected: number;
   /** sub-picker cursor (new-run fleet list, harness sub-picker) */
   pick: number;
 }
-export const initialShell = (): ShellState => ({ mode: 'NORMAL', tab: 'HOME', input: '', overlay: null, filter: '', selected: 0, pick: 0 });
+export const initialShell = (): ShellState => ({ mode: 'NORMAL', tab: 'HOME', input: '', overlay: null, filter: '', selected: 0, pick: 0, demoArmed: false });
 
 export const TABS: ShellTab[] = ['HOME', 'RUN', 'CHAIN', 'LIBRARY', 'CHAT', 'COMMAND'];
 
@@ -124,6 +125,17 @@ export function shellOnKey(s: ShellState, key: string): ShellStep {
     if (key === 'l') return { state: st, handled: true, actions: ['sw-launch'] };
   }
   // LIBRARY [f]: yazi/broot tmux pane over skills/projects folders
+  // ui-next-2: LIBRARY DEMOS — [D] arms the demo picker; armed, [ ] selects
+  // and Enter opens the family's canvas/native surface
+  if (st.tab === 'LIBRARY') {
+    if (key === 'D') { st.demoArmed = !st.demoArmed; return { state: st, handled: true, actions: ['demo-arm'] }; }
+    if (st.demoArmed) {
+      if (key === ']') return { state: st, handled: true, actions: ['demo-next'] };
+      if (key === '[') return { state: st, handled: true, actions: ['demo-prev'] };
+      if (key === 'Enter' || key === 'return') return { state: st, handled: true, actions: ['demo-open'] };
+      if (key === 'escape' || key === 'Esc') { st.demoArmed = false; return { state: st, handled: true, actions: ['demo-arm'] }; }
+    }
+  }
   if (key === 'f' && st.tab === 'LIBRARY') return { state: st, handled: true, actions: ['open-files'] };
   // CHAT tab: printable drops straight into CHAT mode
   if (st.tab === 'CHAT' && key.length === 1 && !/[\x00-\x1f\x7f]/.test(key)) { st.mode = 'CHAT'; st.input = key; return { state: st, handled: true, actions: ['chat-mode'] }; }

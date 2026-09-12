@@ -5,6 +5,7 @@
 // never a throw. These lanes are other orders' artifacts; the TUI surfaces
 // them, it does not reimplement them.
 import { existsSync, readFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -103,4 +104,39 @@ export function signalState(): SignalState | null {
     rows: rows.length,
     dir,
   };
+}
+
+export interface DemoRow {
+  id: string; family: string; demo: 'canvas' | 'native'; open: string | null;
+  prediction: { text: string; seal: string | null };
+  evidence: { path: string | null; seal: string | null };
+  scope: string; origin: string;
+}
+/** ui-next-2: the curated portfolio-family demo index (lanes/demos/families.json).
+ *  Missing registry ⇒ empty list; null seals render as inert dashes. */
+export function demosRows(): DemoRow[] {
+  const j = readJson(join(root(), 'lanes', 'demos', 'families.json'));
+  const fams = (j?.families ?? []) as DemoRow[];
+  return fams.map(f => ({
+    id: String(f.id ?? f.family ?? '?'),
+    family: String(f.family ?? f.id ?? '?'),
+    demo: f.demo === 'native' ? 'native' : 'canvas',
+    open: f.open ? String(f.open) : null,
+    prediction: { text: String(f.prediction?.text ?? '—'), seal: f.prediction?.seal ? String(f.prediction.seal).replace(/^sha256_/, '').slice(0, 8) : null },
+    evidence: { path: f.evidence?.path ? String(f.evidence.path) : null, seal: f.evidence?.seal ? String(f.evidence.seal).replace(/^sha256_/, '').slice(0, 8) : null },
+    scope: String(f.scope ?? '—'),
+    origin: String(f.origin ?? '—'),
+  }));
+}
+
+/** [Enter] on an armed demo row: canvas opens in the browser worker surface,
+ *  native opens the specialist result. TIMMY_DEMO (tests/demo capture) no-ops. */
+export function openDemo(row: DemoRow): { ok: boolean; note: string } {
+  if (!row.open) return { ok: false, note: `${row.family}: no recorded surface yet` };
+  const p = join(root(), row.open);
+  if (!existsSync(p)) return { ok: false, note: `${row.family}: ${row.demo} surface missing (${row.open})` };
+  if (process.env.TIMMY_DEMO === '1') return { ok: true, note: `${row.family}: demo no-op open` };
+  const c = spawn('open', [p], { stdio: 'ignore', detached: true });
+  c.unref();
+  return { ok: true, note: `${row.family}: opened ${row.demo} surface` };
 }
