@@ -24,6 +24,7 @@ export function appendEvent(kind: string, payload: Record<string, unknown>, dir?
   try { appendReceipt('runs', { kind: 'run', subject: `bus.legacy-write ${kind}`, policy: 'auto', status: 'ok', spans: [], artifacts: [] }, dir); } catch { /* best effort */ }
   if (kind === 'receipt.sealed') notify('seal', 'TIMMY receipt sealed', `${payload.stream ?? ''} · ${String(payload.hash ?? '').slice(0, 16)}`);
   if (kind === 'approval.required') notify('approval', 'TIMMY approval waiting', String(payload.command ?? '').slice(0, 80));
+  if (kind === 'approval.granted') notify('approval', 'TIMMY approval granted', String(payload.command ?? '').slice(0, 80));
   return ev;
 }
 

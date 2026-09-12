@@ -7,7 +7,7 @@ import type { AgentEvents } from './events.js';
 import type { Message, AgentConfig } from '../types/index.js';
 import { ConversationManager } from './conversation.js';
 import { defaultTools } from './tools.js';
-import { publish as appendEvent } from '../bus/index.js';
+import { appendEvent } from '../utils/eventbus.js';
 import { execSync, execFileSync } from 'child_process';
 import { classifyCommand } from '../utils/safety.js';
 import fs from 'fs';

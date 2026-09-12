@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, watch, statSync, openSync, readSync, closeSync } from 'fs';
 import { join, dirname, basename } from 'path';
+import { withLockDir } from '../utils/file-lock.js';
 
 // CONTROL PLANE (ORDER control-plane-k3e7) — runs.jsonl formalized as THE
 // event stream. publish(event) appends an NDJSON envelope; subscribe(filter)
@@ -23,6 +24,11 @@ export function busPath(dir: string = process.cwd()): string {
 }
 
 export function publish(kind: string, payload: Record<string, unknown>, dir?: string): BusEvent {
+  const p = busPath(dir);
+  return withLockDir(join(dirname(p), '.lock'), () => publishUnderChainLock(kind, payload, dir));
+}
+
+export function publishUnderChainLock(kind: string, payload: Record<string, unknown>, dir?: string): BusEvent {
   const ev: BusEvent = { v: 1, ts: new Date().toISOString(), kind, payload };
   const p = busPath(dir);
   mkdirSync(dirname(p), { recursive: true });

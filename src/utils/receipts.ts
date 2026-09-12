@@ -1,11 +1,13 @@
-import { existsSync, readFileSync, appendFileSync, mkdirSync, rmdirSync, statSync, writeFileSync, renameSync, unlinkSync, rmSync } from 'fs';
+import { existsSync, readFileSync, appendFileSync, mkdirSync, writeFileSync, renameSync } from 'fs';
 import { join, dirname } from 'path';
-import { spawnSync } from 'child_process';
 import crypto from 'crypto';
-import { publish as busPublish } from '../bus/index.js';
+import { publishUnderChainLock as busPublish } from '../bus/index.js';
 import { signBody, verifyBody } from './signing.js';
 import { captureEnvLock, type EnvLock } from './envlock.js';
 import type { Edl } from './edl.js';
+import { withLockDir } from './file-lock.js';
+
+export { withLockDir };
 
 // TIMMY receipt chain v1 — the spine. Every effect appends a hash-chained,
 // tamper-evident receipt: plan → policy → effect → artifacts → cost → prev_hash.
@@ -145,44 +147,6 @@ export function currentEpoch(dir?: string): number {
   }
 }
 const genesisOf = (epoch: number): string => (epoch <= 1 ? 'genesis' : `genesis-e${epoch}`);
-
-// ---- single-writer lock ----------------------------------------------------
-// v0.5 concurrency fix: the read-tail → sign → append transaction is serialized
-// across processes with an atomic mkdir lock. No queue, no daemon, no DB.
-// v0.5.0 review fix (local-model review): a stale lock is only stolen when its
-// holder PID is DEAD — a stalled-but-alive writer keeps the critical section,
-// and waiters time out instead of corrupting the chain.
-const LOCK_STALE_MS = 10000;
-const pidAlive = (pid: number): boolean => {
-  try { process.kill(pid, 0); return true; } catch { return false; }
-};
-export function withLockDir<T>(lock: string, fn: () => T): T {
-  mkdirSync(dirname(lock), { recursive: true });
-  const t0 = Date.now();
-  for (;;) {
-    try {
-      mkdirSync(lock);
-      break;
-    } catch {
-      let steal = false;
-      try {
-        const stale = Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS;
-        const pid = Number(readFileSync(join(lock, 'pid'), 'utf8'));
-        steal = stale && !pidAlive(pid);
-      } catch { steal = false; }
-      if (steal) { try { rmSync(lock, { recursive: true, force: true }); } catch { /* raced */ } }
-      if (Date.now() - t0 > 30000) throw new Error(`lock timeout (held by live writer): ${lock}`);
-      spawnSync('sleep', ['0.05']);
-    }
-  }
-  try { writeFileSync(join(lock, 'pid'), String(process.pid)); } catch { /* best-effort */ }
-  try {
-    return fn();
-  } finally {
-    try { unlinkSync(join(lock, 'pid')); } catch { /* best-effort */ }
-    try { rmdirSync(lock); } catch { /* already released */ }
-  }
-}
 
 function withChainLock<T>(dir: string | undefined, fn: () => T): T {
   return withLockDir(join(receiptsDir(dir), '.lock'), fn);

@@ -212,7 +212,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   }, []);
 
   useInput((input, key) => {
-    const k = key.return ? 'Enter' : key.escape ? 'Esc' : key.tab ? 'Tab' : input;
+    const k = key.return ? 'Enter' : key.escape ? 'Esc' : key.tab ? 'Tab' : key.backspace ? 'backspace' : key.delete ? 'delete' : input;
     // CHAT Enter ships the buffer: capture before the reducer clears it
     const chatText = sRef.current.mode === 'CHAT' ? sRef.current.input : '';
     // a ref advanced synchronously: pasted/programmatic chunks can arrive in
