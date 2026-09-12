@@ -120,6 +120,9 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   const signalSt = un.signalState();
   // ui-next-2: LIBRARY DEMOS picker selection
   const [demoSel, setDemoSel] = useState(0);
+  const demoRows = useMemo(() => un.demosRows(recs), [recs]);
+  const visibleDemoCount = Math.min(demoRows.length, 4);
+  const demoClampedSel = Math.min(demoSel, Math.max(0, visibleDemoCount - 1));
   const [warPanes, setWarPanes] = useState<warroom.WarPane[]>([]);
   const [spend, setSpend] = useState(0);
   const [handoff, setHandoff] = useState<{ harness: string; model: string } | null>(null);
@@ -343,12 +346,14 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
       // ui-next-2: LIBRARY DEMOS picker
       if (a === 'demo-arm') setFlash(sRef.current.demoArmed ? 'demos armed — [ ] selects · [Enter] opens · [D] disarms' : 'demos disarmed');
       if (a === 'demo-next' || a === 'demo-prev') {
-        const nRows = un.demosRows().length || 1;
-        setDemoSel(d => (((d + (a === 'demo-next' ? 1 : -1)) % nRows) + nRows) % nRows);
+        const nRows = visibleDemoCount || 1;
+        setDemoSel(d => {
+          const cur = Math.min(d, nRows - 1);
+          return (((cur + (a === 'demo-next' ? 1 : -1)) % nRows) + nRows) % nRows;
+        });
       }
       if (a === 'demo-open') {
-        const rows = un.demosRows();
-        const row = rows[Math.min(demoSel, Math.max(0, rows.length - 1))];
+        const row = demoRows[demoClampedSel];
         setFlash(row ? un.openDemo(row).note : 'no demo families recorded');
       }
       // chain-views-e6p2: [o] on CHAIN cross-links a swarm.run ↔ its members
@@ -736,7 +741,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
               {narrow && (
                 <>
                   <Box height={1} />
-                  <DemosPane rows={un.demosRows(recs)} sel={demoSel} armed={s.demoArmed} />
+                  <DemosPane rows={demoRows} sel={demoClampedSel} armed={s.demoArmed} />
                 </>
               )}
             </>
@@ -807,7 +812,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
             <Box height={1} />
             {/* ink clips an overfull rail from the top: the Reuse moment lives
                 in the LAST card so it stays above the visible bottom */}
-            <DemosPane rows={un.demosRows(recs)} sel={demoSel} armed={s.demoArmed} />
+            <DemosPane rows={demoRows} sel={demoClampedSel} armed={s.demoArmed} />
           </Box>
         )}
         {assembled && !narrow && s.tab === 'RUN' && (
