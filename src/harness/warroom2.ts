@@ -43,6 +43,19 @@ export interface ProjectRow { name: string; skills: string[]; plans: string[]; d
 const root = (): string => process.env.TIMMY_REPO_ROOT ?? process.cwd();
 const num = (s: string, re: RegExp): number | null => { const m = s.match(re); return m ? Number(m[1]) : null; };
 const str = (s: string, re: RegExp): string | null => { const m = s.match(re); return m ? m[1] : null; };
+const receiptMeta = (r: { sources?: unknown[] }): Record<string, unknown> => {
+  const first = Array.isArray(r.sources) ? r.sources[0] : null;
+  return first && typeof first === 'object' && !Array.isArray(first) ? first as Record<string, unknown> : {};
+};
+const receiptValue = (r: object & { sources?: unknown[] }, key: string): unknown => (r as Record<string, unknown>)[key] ?? receiptMeta(r)[key];
+const receiptString = (r: object & { sources?: unknown[] }, key: string): string | undefined => {
+  const v = receiptValue(r, key);
+  return v === undefined || v === null ? undefined : String(v);
+};
+const receiptNumber = (r: object & { sources?: unknown[] }, key: string): number | null => {
+  const v = receiptValue(r, key);
+  return v === undefined || v === null ? null : Number(v) || null;
+};
 
 /** lanes/swarm/presets/*.cue — the twelve cue-vetted presets, parsed as committed. */
 export function swarmPresets(): SwarmPreset[] {
@@ -79,7 +92,7 @@ export function swarmPresets(): SwarmPreset[] {
 }
 
 /** lanes/swarm/runs/swarm_*.json — what the runtime recorded, newest first. */
-export function swarmRuns(airgapRecs: { subject: string; run_id?: string; egress?: string; policy_sha256?: string }[]): SwarmRun[] {
+export function swarmRuns(airgapRecs: { subject: string; run_id?: string; egress?: string; policy_sha256?: string; sources?: unknown[] }[]): SwarmRun[] {
   const dir = join(root(), 'lanes', 'swarm', 'runs');
   if (!existsSync(dir)) return [];
   return readdirSync(dir).filter(f => f.endsWith('.json'))
@@ -91,7 +104,7 @@ export function swarmRuns(airgapRecs: { subject: string; run_id?: string; egress
         const spec = j.spec ?? {};
         const res = j.result ?? {};
         const calls: { tokens_reasoning?: number }[] = res.calls ?? [];
-        const ag = airgapRecs.find(r => String(r.subject).includes('swarm.airgap') && r.run_id === res.run_id) ?? null;
+        const ag = airgapRecs.find(r => String(r.subject).includes('swarm.airgap') && receiptString(r, 'run_id') === res.run_id) ?? null;
         return {
           id: String(res.run_id ?? f.replace(/\.json$/, '')),
           preset: String(spec.preset ?? spec.id ?? '?'),
@@ -106,7 +119,7 @@ export function swarmRuns(airgapRecs: { subject: string; run_id?: string; egress
           ok: Boolean(res.ok),
           ts: m,
           members: (spec.members ?? []) as SwarmMember[],
-          airgap: ag ? { egress: String(ag.egress ?? '?'), policySha: String(ag.policy_sha256 ?? '').slice(0, 8) } : null,
+          airgap: ag ? { egress: receiptString(ag, 'egress') ?? '?', policySha: String(receiptString(ag, 'policy_sha256') ?? '').slice(0, 8) } : null,
           room: String(j.room ?? 'war-room'),
         };
       } catch { return null; }
@@ -115,22 +128,22 @@ export function swarmRuns(airgapRecs: { subject: string; run_id?: string; egress
 }
 
 /** fleet/nodes.json + node.* receipts: reachable · memory · loaded models · tok-per-s. */
-export function nodeStats(recs: { subject: string; node?: string; model?: string; mem_total_gb?: number; eval_tok_per_s?: string | number; status?: string }[]): NodeStat[] {
+export function nodeStats(recs: { subject: string; node?: string; model?: string; mem_total_gb?: number; eval_tok_per_s?: string | number; status?: string; sources?: unknown[] }[]): NodeStat[] {
   const p = join(root(), 'fleet', 'nodes.json');
   if (!existsSync(p)) return [];
   const nodes: { id: string; status: string; kind: string; ssh: string }[] = (JSON.parse(readFileSync(p, 'utf8')).nodes ?? []);
   return nodes.map(n => {
-    const joins = recs.filter(r => String(r.subject).startsWith('node.join') && r.node === n.id);
-    const turns = recs.filter(r => String(r.subject).startsWith('chat.turn') && r.node === n.id && r.eval_tok_per_s !== undefined);
-    const regs = recs.filter(r => String(r.subject).startsWith('provider.register') && r.node === n.id);
-    const mem = joins.length ? Number(joins[joins.length - 1].mem_total_gb ?? 0) || null : null;
-    const models = [...new Set([...regs.map(r => String(r.model ?? '')), ...turns.map(r => String(r.model ?? ''))].filter(Boolean))];
+    const joins = recs.filter(r => String(r.subject).startsWith('node.join') && receiptString(r, 'node') === n.id);
+    const turns = recs.filter(r => String(r.subject).startsWith('chat.turn') && receiptString(r, 'node') === n.id && receiptValue(r, 'eval_tok_per_s') !== undefined);
+    const regs = recs.filter(r => String(r.subject).startsWith('provider.register') && receiptString(r, 'node') === n.id);
+    const mem = joins.length ? receiptNumber(joins[joins.length - 1], 'mem_total_gb') : null;
+    const models = [...new Set([...regs.map(r => receiptString(r, 'model') ?? ''), ...turns.map(r => receiptString(r, 'model') ?? '')].filter(Boolean))];
     const lastTurn = turns[turns.length - 1];
     return {
       id: n.id, status: n.status, kind: n.kind,
       reachable: joins.length > 0 && n.status !== 'waiting-on-will',
       memGb: mem, models,
-      tokPerS: lastTurn ? Number(lastTurn.eval_tok_per_s) || null : null,
+      tokPerS: lastTurn ? receiptNumber(lastTurn, 'eval_tok_per_s') : null,
       ssh: n.ssh,
     };
   });
@@ -258,11 +271,18 @@ export function launchSwarm(preset: SwarmPreset, over: { topology: string; size:
   writeFileSync(specPath, JSON.stringify(spec, null, 1));
   const log = join(root(), '.timmy', 'runs', `swarm-launch-${Date.now().toString(36)}.log`);
   mkdirSync(join(root(), '.timmy', 'runs'), { recursive: true });
-  const child = spawn('node', [join(root(), 'lanes', 'swarm', 'swarm.mjs'), 'run', specPath, task, '--room', room], {
-    detached: true, stdio: ['ignore', 'pipe', 'pipe'],
-  });
   const out = createWriteStream(log);
+  let child;
+  try {
+    child = spawn('npx', ['tsx', join(root(), 'lanes', 'swarm', 'swarm.mjs'), 'run', specPath, task, '--room', room], {
+      cwd: root(), detached: true, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (err) {
+    return { ok: false, note: err instanceof Error ? err.message : String(err), specPath };
+  }
   child.stdout?.pipe(out); child.stderr?.pipe(out);
+  child.on('error', err => out.write(`spawn error: ${err.message}\n`));
+  if (!child.pid) return { ok: false, note: 'failed to spawn swarm runner', specPath };
   child.unref();
   // materialize a pane per harness member, sized by activity like the rest
   for (const m of members.filter(x => x.kind === 'harness' && x.harness)) {

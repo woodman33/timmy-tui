@@ -683,7 +683,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
             <HarnessPanes profile={profile} panes={warPanes} lanes={lanes} recs={recs}
               menu={{
                 harness: focusHarness,
-                sandbox: war2.abilities.find(x => x.harness === focusHarness)?.isolation ? 'isolated' : 'none',
+                sandbox: !['', 'none', 'false'].includes((war2.abilities.find(x => x.harness === focusHarness)?.isolation ?? 'none').trim().toLowerCase()) ? 'isolated' : 'none',
                 policy: 'open',
                 mcp: war2.abilities.find(x => x.harness === focusHarness)?.mcpMode ?? 'none',
                 skills: war2.abilities.find(x => x.harness === focusHarness)?.skills.length ?? 0,

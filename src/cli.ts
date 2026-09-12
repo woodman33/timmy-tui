@@ -262,17 +262,17 @@ if (command === 'chat') {
 if (command === 'drop') {
   // warroom-v2-c4m8: `timmy drop --list [project]` — what sits in each project
   // folder's drop/ shelf, read through Claude Code's harness-menu reader
-  const want = args.find(a => !a.startsWith('--')) ?? null;
+  const want = args.slice(1).find(a => !a.startsWith('--')) ?? null;
   const hm = await import('../fleet/harness-menu.mjs');
-  const { readdirSync, statSync } = await import('node:fs');
+  const { readdirSync } = await import('node:fs');
   const names = (want ? [want] : readdirSync(hm.PROJECTS_ROOT, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)).sort();
   const rows: { project: string; file: string; bytes: number }[] = [];
   for (const n of names) {
     const p = hm.readProject(n, hm.PROJECTS_ROOT);
     for (const d of p.drop ?? []) {
-      const rel = String(d.path ?? d.name ?? '');
-      try { rows.push({ project: n, file: rel, bytes: statSync(`${p.dir}/drop/${rel}`).size }); }
-      catch { rows.push({ project: n, file: rel, bytes: 0 }); }
+      const drop = d as { path?: string; name?: string; bytes?: number };
+      const rel = String(drop.path ?? drop.name ?? '');
+      rows.push({ project: n, file: rel, bytes: Number(drop.bytes ?? 0) });
     }
   }
   if (args.includes('--json')) console.log(JSON.stringify({ v: 1, count: rows.length, rows }, null, 1));
