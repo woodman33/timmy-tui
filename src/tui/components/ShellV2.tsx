@@ -1545,7 +1545,7 @@ function HandsPane(props: { board: ck.Board; row: number; col: number; showPromp
   const promptLines = promptText.split('\n');
   const shown = promptLines.slice(0, 10);
   return (
-    <Card title="HANDS" purpose={`${board.hands.length} hands · R0–R4 · [Enter] prompt`} flexGrow={1}>
+    <Card title="HANDS" purpose={`${board.hands.length} hands · R0–R4 · [Enter] prompt · board ${String(board.source ?? '').split('/').pop() || '—'}`} flexGrow={1}>
       <Text color={PAL.textMuted}>{'HAND        TOOL      RD  STATE            SEAL     ' + ck.ROUNDS.map(r => r.padStart(3)).join('')}</Text>
       {board.hands.map((h, i) => {
         const sel = i === row;

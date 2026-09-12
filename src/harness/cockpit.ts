@@ -179,3 +179,29 @@ export function sealCockpit(
   const rec = appendReceipt('runs', { kind: 'seal', subject, policy: 'human-gated', sources: [meta] } as never);
   return { ok: true, hash: String(rec.hash ?? '') };
 }
+
+// ── C6 DEMO — the film shot ───────────────────────────────────────────────
+// "The cockpit with eight hands on screen is a film shot." A shot is a set of
+// text frames of the HANDS board (src/demo/cockpit-shot.ts takes them at 120
+// and 80 columns, the way src/demo/cast.ts takes the war-room demo). The
+// board is the operator's hands, so EVERY frame passes the privacy gate
+// before a single byte is written or a seal can cite it (§12): one frame
+// carrying a personal string refuses the whole shot.
+export interface ShotFrame { name: string; width: number; text: string }
+
+export function capturesDir(base = process.cwd()): string {
+  return join(base, '.timmy', 'captures');
+}
+
+/** the shot's gate: medium+ findings in any frame refuse the shot; the
+ * patterns file hash rides in the result so the manifest can cite it */
+export function gateFrames(frames: ShotFrame[]): { ok: boolean; note?: string; frames: number; patterns_sha256: string } {
+  const P = loadPatterns();
+  for (const f of frames) {
+    const hits = scanText(f.text, `cockpit-shot:${f.name}`, P, 'cockpit').filter(h => h.severity !== 'review');
+    if (hits.length) {
+      return { ok: false, note: `privacy: frame ${f.name} carries ${hits[0].pattern} (line ${hits[0].line}) — shot refused, nothing written`, frames: frames.length, patterns_sha256: String(P.sha256) };
+    }
+  }
+  return { ok: true, frames: frames.length, patterns_sha256: String(P.sha256) };
+}

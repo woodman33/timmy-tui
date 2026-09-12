@@ -158,7 +158,15 @@ if (command === 'cockpit') {
     console.log(leaks.length ? `LEAK: ${leaks.join(', ')}` : 'clean: no cockpit artifacts in the tracked tree');
     process.exit(leaks.length ? 1 : 0);
   }
-  console.error('usage: timmy cockpit board import <ROUNDS.md> | board show | leak-check');
+  if (cleanArgs[1] === 'shot') {
+    // C6 DEMO — the film shot: HANDS frames at 120/80 → privacy gate on every
+    // frame → text captures + asciinema cast (+gif/mp4) + manifest → one
+    // cockpit.shot seal. Runs under tsx (ink render), like `timmy demo`.
+    const extra = [...(outDir ? ['--out', outDir] : []), ...(isJson ? ['--json'] : [])];
+    const r = spawnSync('npx', ['tsx', 'src/demo/cockpit-shot.ts', ...cleanArgs.slice(2), ...extra], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+    process.exit(r.status ?? 1);
+  }
+  console.error('usage: timmy cockpit board import <ROUNDS.md> | board show | leak-check | shot [--rounds <ROUNDS.md>] [--out <dir>] [--marker <tag>] [--no-film] [--no-seal]');
   process.exit(2);
 }
 

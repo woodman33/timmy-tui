@@ -6,7 +6,7 @@ declare module '*privacy/scan.mjs' {
     severity: 'critical' | 'high' | 'medium' | 'review';
     match: string; where: string; tree?: string; commit?: string;
   }
-  export interface PrivacyPatterns { v: number; patterns: { id: string; severity: string; re: string; note?: string }[]; allow: string[]; ignore_paths: string[] }
+  export interface PrivacyPatterns { v: number; patterns: { id: string; severity: string; re: string; note?: string }[]; allow: string[]; ignore_paths: string[]; /** sha256 of the patterns file (loadPatterns records it so a seal can cite the gate it ran) */ sha256?: string }
   export function loadPatterns(): PrivacyPatterns;
   export function scanText(text: string, file: string, P: PrivacyPatterns, where: string, opts?: Record<string, unknown>): PrivacyFinding[];
   export function scanTree(dir: string, P: PrivacyPatterns, where?: string): PrivacyFinding[];
