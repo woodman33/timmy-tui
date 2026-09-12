@@ -1,0 +1,574 @@
+{
+  "schema": "timmy.spatial-t5k1.acceptance/1",
+  "state": "passed",
+  "runs": [
+    {
+      "state": "succeeded",
+      "run": "b6808d5a-a697-4cf7-8b58-9ed072b84e1d",
+      "parameters": {
+        "width": 140,
+        "wall": 3,
+        "supportOffset": 10,
+        "bore": 3
+      },
+      "predictionReceipt": "rc_mtye4nn4_jsuh",
+      "receipt": "rc_mtye55zp_g78z",
+      "receiptHash": "sha256_37b5acd75f5720b9106abc7dc87eff0af902bc0124de647db90db7107a24dbd5",
+      "checksPassed": 30,
+      "features": [
+        {
+          "id": "tray.outer",
+          "operation": "box",
+          "dependsOn": [],
+          "bounds": {
+            "bounds": [
+              140,
+              80,
+              30
+            ],
+            "extentMin": [
+              -70,
+              -40,
+              0
+            ],
+            "extentMax": [
+              70,
+              40,
+              30
+            ],
+            "volume": 336000,
+            "valid": true,
+            "solids": 1,
+            "boundsMethod": "OpenCascade AddOptimal; useTriangulation=false; useShapeTolerance=false"
+          },
+          "cylinderAxesXY": []
+        },
+        {
+          "id": "tray.cavity",
+          "operation": "subtract",
+          "dependsOn": [
+            "tray.outer"
+          ],
+          "bounds": {
+            "bounds": [
+              140,
+              80,
+              30
+            ],
+            "extentMin": [
+              -70,
+              -40,
+              0
+            ],
+            "extentMax": [
+              70,
+              40,
+              30
+            ],
+            "volume": 68268,
+            "valid": true,
+            "solids": 1,
+            "boundsMethod": "OpenCascade AddOptimal; useTriangulation=false; useShapeTolerance=false"
+          },
+          "cylinderAxesXY": []
+        },
+        {
+          "id": "tray.bosses",
+          "operation": "union",
+          "dependsOn": [
+            "tray.cavity"
+          ],
+          "bounds": {
+            "bounds": [
+              140,
+              80,
+              30
+            ],
+            "extentMin": [
+              -70,
+              -40,
+              0
+            ],
+            "extentMax": [
+              70,
+              40,
+              30
+            ],
+            "volume": 71887.11473693544,
+            "valid": true,
+            "solids": 1,
+            "boundsMethod": "OpenCascade AddOptimal; useTriangulation=false; useShapeTolerance=false"
+          },
+          "cylinderAxesXY": [
+            [
+              -60,
+              -30
+            ],
+            [
+              -60,
+              30
+            ],
+            [
+              60,
+              -30
+            ],
+            [
+              60,
+              30
+            ]
+          ]
+        },
+        {
+          "id": "tray.bores",
+          "operation": "subtract",
+          "dependsOn": [
+            "tray.bosses"
+          ],
+          "bounds": {
+            "bounds": [
+              140,
+              80,
+              30
+            ],
+            "extentMin": [
+              -70,
+              -40,
+              0
+            ],
+            "extentMax": [
+              70,
+              40,
+              30
+            ],
+            "volume": 71576.09706423007,
+            "valid": true,
+            "solids": 1,
+            "boundsMethod": "OpenCascade AddOptimal; useTriangulation=false; useShapeTolerance=false"
+          },
+          "cylinderAxesXY": [
+            [
+              -60,
+              -30
+            ],
+            [
+              -60,
+              30
+            ],
+            [
+              60,
+              -30
+            ],
+            [
+              60,
+              30
+            ]
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "file": "w140/outer.stl",
+          "sha256": "3fe84fe41c1faaec2c7554f0631f2b3a5cf6cd18d6322630a1e8beff77806f87"
+        },
+        {
+          "file": "w140/cavity.stl",
+          "sha256": "58614727b2393aa2bf6d5bcb70d3c627aa3045d3c15c3818a9ef1f65e3d7d0a0"
+        },
+        {
+          "file": "w140/bosses.stl",
+          "sha256": "3ccbcf8f57de5a9195f4f38379b2eb6848ace1f83246366a1fc0942ac9692304"
+        },
+        {
+          "file": "w140/bores.stl",
+          "sha256": "74bcb2bf6de23ad3b5d874253c6c32e13a81e962965125cfe5dc1a53ba4d7b7d"
+        },
+        {
+          "file": "w140/console-tray.step",
+          "sha256": "77e1d09a24962ea606c822b07e27efdf0d9c9b2e65bcc6a3e28c6ccf698bb9ea"
+        }
+      ]
+    },
+    {
+      "state": "succeeded",
+      "run": "d0fb386d-85ed-46f8-9104-1200fe334a46",
+      "parameters": {
+        "width": 180,
+        "wall": 3,
+        "supportOffset": 10,
+        "bore": 3
+      },
+      "predictionReceipt": "rc_mtye567l_bx71",
+      "receipt": "rc_mtye5mml_il4i",
+      "receiptHash": "sha256_4af4926619242184d83d859161ca4bef93d89b22113de640d75a26a6d0a6b56a",
+      "checksPassed": 30,
+      "features": [
+        {
+          "id": "tray.outer",
+          "operation": "box",
+          "dependsOn": [],
+          "bounds": {
+            "bounds": [
+              180,
+              80,
+              30
+            ],
+            "extentMin": [
+              -90,
+              -40,
+              0
+            ],
+            "extentMax": [
+              90,
+              40,
+              30
+            ],
+            "volume": 432000,
+            "valid": true,
+            "solids": 1,
+            "boundsMethod": "OpenCascade AddOptimal; useTriangulation=false; useShapeTolerance=false"
+          },
+          "cylinderAxesXY": []
+        },
+        {
+          "id": "tray.cavity",
+          "operation": "subtract",
+          "dependsOn": [
+            "tray.outer"
+          ],
+          "bounds": {
+            "bounds": [
+              180,
+              80,
+              30
+            ],
+            "extentMin": [
+              -90,
+              -40,
+              0
+            ],
+            "extentMax": [
+              90,
+              40,
+              30
+            ],
+            "volume": 84348,
+            "valid": true,
+            "solids": 1,
+            "boundsMethod": "OpenCascade AddOptimal; useTriangulation=false; useShapeTolerance=false"
+          },
+          "cylinderAxesXY": []
+        },
+        {
+          "id": "tray.bosses",
+          "operation": "union",
+          "dependsOn": [
+            "tray.cavity"
+          ],
+          "bounds": {
+            "bounds": [
+              180,
+              80,
+              30
+            ],
+            "extentMin": [
+              -90,
+              -40,
+              0
+            ],
+            "extentMax": [
+              90,
+              40,
+              30
+            ],
+            "volume": 87967.11473693546,
+            "valid": true,
+            "solids": 1,
+            "boundsMethod": "OpenCascade AddOptimal; useTriangulation=false; useShapeTolerance=false"
+          },
+          "cylinderAxesXY": [
+            [
+              -80,
+              -30
+            ],
+            [
+              -80,
+              30
+            ],
+            [
+              80,
+              -30
+            ],
+            [
+              80,
+              30
+            ]
+          ]
+        },
+        {
+          "id": "tray.bores",
+          "operation": "subtract",
+          "dependsOn": [
+            "tray.bosses"
+          ],
+          "bounds": {
+            "bounds": [
+              180,
+              80,
+              30
+            ],
+            "extentMin": [
+              -90,
+              -40,
+              0
+            ],
+            "extentMax": [
+              90,
+              40,
+              30
+            ],
+            "volume": 87656.09706423007,
+            "valid": true,
+            "solids": 1,
+            "boundsMethod": "OpenCascade AddOptimal; useTriangulation=false; useShapeTolerance=false"
+          },
+          "cylinderAxesXY": [
+            [
+              -80,
+              -30
+            ],
+            [
+              -80,
+              30
+            ],
+            [
+              80,
+              -30
+            ],
+            [
+              80,
+              30
+            ]
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "file": "w180/outer.stl",
+          "sha256": "67bc71f6b0a2f346cc700187a2a0a58f6ebb8d2856f6d468acc06a976c58a305"
+        },
+        {
+          "file": "w180/cavity.stl",
+          "sha256": "87e4479208909717bfdbcf291476e1a7d8835c01bffbca3245aad8f278edb1c9"
+        },
+        {
+          "file": "w180/bosses.stl",
+          "sha256": "f4268117c1f9f01ddcd536dcf7cbc1d3f2127bd2055d98937a2bfc99b6b5726e"
+        },
+        {
+          "file": "w180/bores.stl",
+          "sha256": "02cd4eb2fa40a383820f5cdd792d7e52b1b8f41205536b3559d6364d45e1421b"
+        },
+        {
+          "file": "w180/console-tray.step",
+          "sha256": "2d98bfeb04a7af3778521394ae4f366413f7326dfa99c857887a7907b98fa1cf"
+        }
+      ]
+    },
+    {
+      "state": "succeeded",
+      "run": "a20640b3-306c-4e96-8d07-4f83185d7d75",
+      "parameters": {
+        "width": 180,
+        "wall": 4,
+        "supportOffset": 12,
+        "bore": 4
+      },
+      "predictionReceipt": "rc_mtye5myf_a8mq",
+      "receipt": "rc_mtye67em_46wi",
+      "receiptHash": "sha256_e75f0b760cf357e2fa77daaf144562890fc983dceb28f8c63ff8cc62019838db",
+      "checksPassed": 30,
+      "features": [
+        {
+          "id": "tray.outer",
+          "operation": "box",
+          "dependsOn": [],
+          "bounds": {
+            "bounds": [
+              180,
+              80,
+              30
+            ],
+            "extentMin": [
+              -90,
+              -40,
+              0
+            ],
+            "extentMax": [
+              90,
+              40,
+              30
+            ],
+            "volume": 432000,
+            "valid": true,
+            "solids": 1,
+            "boundsMethod": "OpenCascade AddOptimal; useTriangulation=false; useShapeTolerance=false"
+          },
+          "cylinderAxesXY": []
+        },
+        {
+          "id": "tray.cavity",
+          "operation": "subtract",
+          "dependsOn": [
+            "tray.outer"
+          ],
+          "bounds": {
+            "bounds": [
+              180,
+              80,
+              30
+            ],
+            "extentMin": [
+              -90,
+              -40,
+              0
+            ],
+            "extentMax": [
+              90,
+              40,
+              30
+            ],
+            "volume": 110016,
+            "valid": true,
+            "solids": 1,
+            "boundsMethod": "OpenCascade AddOptimal; useTriangulation=false; useShapeTolerance=false"
+          },
+          "cylinderAxesXY": []
+        },
+        {
+          "id": "tray.bosses",
+          "operation": "union",
+          "dependsOn": [
+            "tray.cavity"
+          ],
+          "bounds": {
+            "bounds": [
+              180,
+              80,
+              30
+            ],
+            "extentMin": [
+              -90,
+              -40,
+              0
+            ],
+            "extentMax": [
+              90,
+              40,
+              30
+            ],
+            "volume": 113635.11473693544,
+            "valid": true,
+            "solids": 1,
+            "boundsMethod": "OpenCascade AddOptimal; useTriangulation=false; useShapeTolerance=false"
+          },
+          "cylinderAxesXY": [
+            [
+              -78,
+              -28
+            ],
+            [
+              -78,
+              28
+            ],
+            [
+              78,
+              -28
+            ],
+            [
+              78,
+              28
+            ]
+          ]
+        },
+        {
+          "id": "tray.bores",
+          "operation": "subtract",
+          "dependsOn": [
+            "tray.bosses"
+          ],
+          "bounds": {
+            "bounds": [
+              180,
+              80,
+              30
+            ],
+            "extentMin": [
+              -90,
+              -40,
+              0
+            ],
+            "extentMax": [
+              90,
+              40,
+              30
+            ],
+            "volume": 113031.92894744621,
+            "valid": true,
+            "solids": 1,
+            "boundsMethod": "OpenCascade AddOptimal; useTriangulation=false; useShapeTolerance=false"
+          },
+          "cylinderAxesXY": [
+            [
+              -78,
+              -28
+            ],
+            [
+              -78,
+              28
+            ],
+            [
+              78,
+              -28
+            ],
+            [
+              78,
+              28
+            ]
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "file": "w180/outer.stl",
+          "sha256": "67bc71f6b0a2f346cc700187a2a0a58f6ebb8d2856f6d468acc06a976c58a305"
+        },
+        {
+          "file": "w180/cavity.stl",
+          "sha256": "15bfc3b8c55496aab5d2f7644ed631e76b9f75fafca4a371a100e8dffae763d8"
+        },
+        {
+          "file": "w180/bosses.stl",
+          "sha256": "4404eb198ac3f0693b0fc34d83302c57e1e32814798119e6315be9642a6ffb8f"
+        },
+        {
+          "file": "w180/bores.stl",
+          "sha256": "87be8fd38cc2d300d14df9c0a7fafa0852d4dfae01d39f9d7bc75b962caec059"
+        },
+        {
+          "file": "w180/console-tray.step",
+          "sha256": "27c36672411ffe599bb760d89f7d0ffdd78ccdd66addda67c8554279d110b5ac"
+        }
+      ]
+    }
+  ],
+  "negativeControl": {
+    "state": "refused",
+    "receipt": "rc_mtye67la_nygy",
+    "reason": "Error: Conflicting tray dimensions: positive wall; supports inside cavity, separated; bore smaller than support",
+    "nativeStarted": false
+  },
+  "comparison": "Measured support and bore axes move ±20 mm in X; Y unchanged; four stable feature IDs and X bounds verified",
+  "tamperRejected": true,
+  "missingCheckRejected": true,
+  "scope": "Native geometry qualification only. No manufacture, structural performance or byte-identical STEP replay claim."
+}

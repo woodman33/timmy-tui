@@ -1,0 +1,17 @@
+{
+  "schema": "timmy.recipe/1",
+  "id": "enclosure.tray/1",
+  "engine": "CadQuery + OpenCascade; independent Open3D mesh checks",
+  "units": "mm",
+  "parameters": {"width": 140, "wall": 3, "supportOffset": 10, "bore": 3},
+  "fixed": {"depth":80,"height":30,"supportRadius":6,"supportHeight":8},
+  "features": [
+    {"id":"tray.outer","operation":"box","dependsOn":[]},
+    {"id":"tray.cavity","operation":"subtract","dependsOn":["tray.outer"]},
+    {"id":"tray.bosses","operation":"union","dependsOn":["tray.cavity"]},
+    {"id":"tray.bores","operation":"subtract","dependsOn":["tray.bosses"]}
+  ],
+  "gate": {"checks":30,"allRequired":true,"missingChecker":"fail"},
+  "exports":["STEP","STL for each feature"],
+  "scope":"Bounded standalone recipe; no structural or manufacturing qualification"
+}

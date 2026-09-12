@@ -248,6 +248,12 @@ if (command === 'nfc' || command === 'custody') {
   process.exit(r.status ?? 1);
 }
 
+if (command === 'recipe') {
+  const lane = fileURLToPath(new URL('../lanes/recipes/cli.ts', import.meta.url));
+  const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
 if (command === 'privacy') {
   // privacy-d5n9: `timmy privacy scan|audit|fixture|hook` — the public-repo privacy gate.
   const lane = fileURLToPath(new URL('../lanes/privacy/scan.mjs', import.meta.url));
