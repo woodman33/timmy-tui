@@ -381,7 +381,7 @@ export class MyDurableObject extends DurableObject {
               event.type, 
               event.sessionId || "none", 
               event.sessionName || "none", 
-              "William Meldman"
+              this.env.TIMMY_OPERATOR_LABEL ?? 'operator'
             ],
             'doubles': [
               event.payload?.cost || 0,
@@ -610,7 +610,9 @@ export class MyDurableObject extends DurableObject {
           timestamp: generatedAt,
           payload: {
             runId,
-            receiptUrl: `https://timmy-ai-proxy.wmeldman33.workers.dev/runs/${runId}/receipt`,
+            // hosts-j4t1: worker-side the edge host is a binding; absent it the
+            // URL carries the inert placeholder (no personal host in public)
+            receiptUrl: `https://${this.env.TIMMY_EDGE_HOST ?? '<hostname>'}/runs/${runId}/receipt`,
             generatedAt
           }
         };
@@ -643,7 +645,7 @@ export class MyDurableObject extends DurableObject {
             headers: {
               "Authorization": `Bearer ${this.env.OPENROUTER_API_KEY}`,
               "Content-Type": "application/json",
-              "HTTP-Referer": "https://timmy-ai-proxy.wmeldman33.workers.dev"
+              "HTTP-Referer": `https://${this.env.TIMMY_EDGE_HOST ?? '<hostname>'}`
             },
             body: JSON.stringify({
               model: "google/gemini-2.5-flash",
@@ -1212,7 +1214,7 @@ export class MyDurableObject extends DurableObject {
                 <hr style="border: 0; border-top: 1px solid var(--border); margin: 1.5rem 0;">
                 <div style="text-align: left; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
                   <strong>Operator Status:</strong> Authorized<br>
-                  <strong>Delegated By:</strong> user:wmeldman33<br>
+                  <strong>Delegated By:</strong> ${this.env.TIMMY_OPERATOR_LABEL ?? 'operator'}<br>
                   <strong>Environment:</strong> local-dev-worker<br>
                 </div>
               </div>

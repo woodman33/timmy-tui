@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { Agent } from '../../agent/core.js';
 import type { AgentConfig } from '../../types/index.js';
 import { redactTelemetryPayload, safeStringify } from '../../utils/redact.js';
+import { edgeUrlOrNull, isPlaceholder, EDGE_INERT_LINE, operatorLabel } from '../../utils/edge-host.js';
 import type {
   TelemetryStatus,
   TelemetryPriority,
@@ -61,7 +62,7 @@ export function useTelemetryBridge({
   config,
   activeRunId,
   activeReceiptUrl,
-  operator = 'William Meldman'
+  operator = operatorLabel()
 }: UseTelemetryBridgeProps) {
   const [telemetryStatus, setTelemetryStatus] = useState<TelemetryStatus>('online');
   const [queue, setQueue] = useState<TelemetryQueueItem[]>([]);
@@ -82,12 +83,13 @@ export function useTelemetryBridge({
   useEffect(() => { receiptUrlRef.current = activeReceiptUrl; }, [activeReceiptUrl]);
   useEffect(() => { queueRef.current = queue; }, [queue]);
 
-  // Resolve telemetry endpoint URL by priority
+  // Resolve telemetry endpoint URL by priority (hosts-j4t1: the edge host is
+  // a config read; an inert placeholder in a stored manifest re-resolves here)
   const resolveEndpoint = (): string => {
-    if (config.telemetryUrl) return config.telemetryUrl;
+    if (config.telemetryUrl && !isPlaceholder(config.telemetryUrl)) return config.telemetryUrl;
     if (process.env.TIMMY_TELEMETRY_URL === 'off') return '';
-    if (process.env.TIMMY_TELEMETRY_URL) return process.env.TIMMY_TELEMETRY_URL;
-    return 'https://timmy-ai-proxy.wmeldman33.workers.dev';
+    if (process.env.TIMMY_TELEMETRY_URL && !isPlaceholder(process.env.TIMMY_TELEMETRY_URL)) return process.env.TIMMY_TELEMETRY_URL;
+    return edgeUrlOrNull() ?? '';
   };
 
   const writeToOfflineSpool = (item: TelemetryQueueItem) => {
@@ -109,6 +111,10 @@ export function useTelemetryBridge({
   const lastDrainAtRef = useRef(0);
 
   const drainOfflineSpool = async (endpoint: string) => {
+    if (!endpoint || isPlaceholder(endpoint)) {
+      console.error(EDGE_INERT_LINE);
+      return;
+    }
     try {
       if (!endpoint) return; // telemetry disabled
       if (Date.now() - lastDrainAtRef.current < 10000) return; // throttle: max 1 drain/10s
@@ -224,7 +230,8 @@ export function useTelemetryBridge({
     setTelemetryStatus('syncing');
     const endpoint = resolveEndpoint();
     if (!endpoint) {
-      // telemetry disabled (TIMMY_TELEMETRY_URL=off) — keep items queued, stay local
+      // unresolved edge host is inert: one legible line, telemetry stays local
+      if (process.env.TIMMY_TELEMETRY_URL !== 'off') console.error(EDGE_INERT_LINE);
       setTelemetryStatus('offline');
       return;
     }

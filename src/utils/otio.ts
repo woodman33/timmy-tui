@@ -34,7 +34,7 @@ export function sanitizeMediaUrl(url: string): string {
   const frag = m?.[2] ?? '';
   const p = m?.[1] ?? url;
   const base = p.split('/').filter(Boolean).pop() ?? p;
-  return (p.startsWith('/') || p.startsWith('~')) ? `media/${base}${frag}` : `${p}${frag}`;
+  return (p.startsWith('/') || p.startsWith('~') || p.startsWith('<home>/')) ? `media/${base}${frag}` : `${p}${frag}`;
 }
 
 export function edlToOtio(edl: Edl, extra: OtioExtras = {}, opts: OtioOptions = {}): Record<string, unknown> {
