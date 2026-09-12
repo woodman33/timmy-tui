@@ -251,17 +251,20 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   }, []);
 
   useInput((input, key) => {
-    // ui-cockpit-k7m3: arrows reach the reducer as names so the HANDS grid
-    // cursor can use them; everything else keeps its raw input char
+    const current = sRef.current;
+    const arrow = key.upArrow ? 'up' : key.downArrow ? 'down' : key.leftArrow ? 'left' : key.rightArrow ? 'right' : '';
+    const handsGridActive = current.mode === 'NORMAL' && current.tab === 'COMMAND' && current.handsOn && current.overlay === null;
+    // ui-cockpit-k7m3: arrows reach the reducer as names only while the HANDS
+    // grid is active; text modes keep Ink's raw input so arrows stay non-printing.
     const k = key.return ? 'Enter' : key.escape ? 'Esc' : key.tab ? 'Tab'
-      : key.upArrow ? 'up' : key.downArrow ? 'down' : key.leftArrow ? 'left' : key.rightArrow ? 'right'
+      : arrow && handsGridActive ? arrow
         : input;
     // CHAT Enter ships the buffer: capture before the reducer clears it
-    const chatText = sRef.current.mode === 'CHAT' ? sRef.current.input : '';
+    const chatText = current.mode === 'CHAT' ? current.input : '';
     // a ref advanced synchronously: pasted/programmatic chunks can arrive in
     // one tick, and the reducer must see the state after the previous chunk,
     // not the last rendered one (otherwise paste drops keys).
-    const step = shellOnKey(sRef.current, k);
+    const step = shellOnKey(current, k);
     sRef.current = step.state;
     setS(step.state);
     for (const a of step.actions) {
