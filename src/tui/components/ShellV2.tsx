@@ -792,13 +792,15 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
         {assembled && !narrow && s.tab === 'LIBRARY' && (
           /* FIX 2: FLEET owns the full-height right rail */
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            <DemosPane rows={un.demosRows(recs)} sel={demoSel} armed={s.demoArmed} />
-            <Box height={1} />
             <FleetPane lanes={lanes} policy={policy} />
             <Box height={1} />
             <OllamaPane strict={un.modelStrictness()} nodes={war2.nodes} />
             <Box height={1} />
             <SkillsTree projects={war2.projects} />
+            <Box height={1} />
+            {/* ink clips an overfull rail from the top: the Reuse moment lives
+                in the LAST card so it stays above the visible bottom */}
+            <DemosPane rows={un.demosRows(recs)} sel={demoSel} armed={s.demoArmed} />
           </Box>
         )}
         {assembled && !narrow && s.tab === 'RUN' && (
