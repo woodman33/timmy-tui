@@ -32,7 +32,7 @@ already land per use (see `.timmy/runs/mcp-apify-*.log`).
 ## 3. MCP Market account — honest answer
 
 mcpmarket.com is a directory/storefront; no public API to enumerate "my servers"
-(probe blocked 429; no documented registry endpoint). The `link.mcpmarket.com/wmeldman33/...`
+(probe blocked 429; no documented registry endpoint). The `link.mcpmarket.com/<handle>/...`
 URLs are storefront/affiliate links. Same outcome, our way: each wanted server gets a
 fleet entry + mcporter config line (allyson + apify done; add more on demand). TIMMY's
 fleet registry IS the account view.

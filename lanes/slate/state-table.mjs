@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderMarkdown, stateTable } from '../../companion/slate3d/src/state.js';
+import { edgeUrlOrInert } from '../privacy/overlay.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const REPO = process.env.TIMMY_REPO ?? '<repo>';
@@ -17,7 +18,7 @@ const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d; };
 const BOARD = opt('--board', 'ledger');
 const board = JSON.parse(readFileSync(join(ROOT, 'companion', 'boards', `${BOARD}.mission.json`), 'utf8'));
-const WORKER = (opt('--worker', board.worker ?? 'https://timmy-ai-proxy-preview.wmeldman33.workers.dev')).replace(/\/$/, '');
+const WORKER = (opt('--worker', board.worker ?? process.env.TIMMY_AI_PROXY ?? edgeUrlOrInert())).replace(/\/$/, '');
 
 // receipt records only (event envelopes have no hash)
 const receipts = [];

@@ -568,5 +568,5 @@
   "observer"
  ],
  "room": "slate:ledger",
- "worker": "https://timmy-ai-proxy-preview.wmeldman33.workers.dev"
+ "worker": "https://<hostname>"
 }

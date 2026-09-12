@@ -75,7 +75,7 @@
                       {
                         "type": "browser",
                         "name": "Edge Health",
-                        "url": "https://timmy-ai-proxy.wmeldman33.workers.dev/health"
+                        "url": "https://<hostname>/health"
                       }
                     ]
                   }

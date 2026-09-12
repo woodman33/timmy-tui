@@ -1,7 +1,7 @@
 # 🏆 AgentOps Room Zero — Shipped Room Workspace Pack
 
 This package represents a complete, productized, ready-to-run Operator Room
-invented by William Meldman. It orchestrates OpenHands agent executions,
+built by the TIMMY project. It orchestrates OpenHands agent executions,
 Starship prompt statuslines, abtop observability panels, and custom safety hooks.
 
 ## 📦 Package Contents

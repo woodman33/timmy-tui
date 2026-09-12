@@ -292,7 +292,7 @@ def run_governed_demo() -> int:
 - Risk Class: workspace_mutation
 - Approval Result: Approved (True)
 - Receipt Path: {export_folder_path}
-- Attributions: invented by William Meldman • Creator Attribution Shield Active
+- Attributions: built by the TIMMY project • Creator Attribution Shield Active
 """
         
         # Write to file

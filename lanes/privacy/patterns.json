@@ -1,6 +1,6 @@
 {
  "v": 1,
- "$comment": "The Timmy privacy pattern set (ORDER privacy-d5n9). Every pattern is a JS regex (flags per entry). severity: critical = a secret; high = personal data; medium = site-specific network/host identity; review = material that must stay out of the public tree unless it is already on the public pitch site. `allow` lists regexes for lines that are NOT findings (placeholders, examples, the seal of this very audit).",
+ "$comment": "The Timmy privacy pattern set (ORDER privacy-d5n9; identity terms hashed in ORDER blank-slate-v1k9). Every pattern is a JS regex (flags per entry). severity: critical = a secret; high = personal data; medium = site-specific network/host identity; review = material that must stay out of the public tree unless it is already on the public pitch site. `allow` lists regexes for lines that are NOT findings (placeholders, examples, the seal of this very audit). `hashed_terms` are identity literals (email, handle, login, family names, hostnames) stored ONLY as sha256 of the lowercased term, so this public file never carries them: `timmy privacy hash-term <term> --add --id identity.<x> --severity high` adds one.",
  "patterns": [
   {
    "id": "secret.openrouter_key",
@@ -102,17 +102,10 @@
    "note": "absolute home path (macOS/Linux); ~/ is generic, not flagged"
   },
   {
-   "id": "pii.login_name",
-   "severity": "high",
-   "re": "\\b(williammeldman|wmeldman)\\b",
-   "flags": "i",
-   "note": "login name (williammeldman/wmeldman); wmeldman33 is the kept worker-subdomain handle"
-  },
-  {
    "id": "pii.person_name",
    "severity": "review",
    "re": "\\b(Will|William)\\s+Meldman\\b",
-   "note": "founder name \u2014 authorship (LICENSE, package.json, attribution); review, not blocking"
+   "note": "founder name — authorship (LICENSE, package.json, attribution); review, not blocking"
   },
   {
    "id": "net.tailnet_ip",
@@ -130,8 +123,8 @@
   {
    "id": "net.tailnet_name",
    "severity": "medium",
-   "re": "\\btail[0-9a-f]{6}\\.ts\\.net\\b|\\btail3d1e15\\b",
-   "note": "tailnet MagicDNS suffix"
+   "re": "\\btail[0-9a-f]{6}\\.ts\\.net\\b",
+   "note": "tailnet MagicDNS suffix (the site's own name is a hashed term)"
   },
   {
    "id": "net.lan_ip",
@@ -162,8 +155,8 @@
   {
    "id": "net.hostname_mac",
    "severity": "medium",
-   "re": "[Ww]illiam['\u2019]?s[- ]?[Mm]ac[Bb]ook[- ]?[Pp]ro(-2|\\s\\(2\\))?|williams-macbook-pro(-2|-exit-node)?",
-   "note": "the Mac's hostname"
+   "re": "\\b[a-z]+s-macbook-(pro|air)(-[a-z0-9-]+)?\\b|[A-Z][a-z]+['’]s[- ]?MacBook[- ]?(Pro|Air)",
+   "note": "a personal Mac hostname (login-derived shape)"
   },
   {
    "id": "net.other_hosts",
@@ -174,8 +167,8 @@
   {
    "id": "net.worker_subdomain",
    "severity": "review",
-   "re": "wmeldman33\\.workers\\.dev",
-   "note": "Cloudflare account subdomain in worker URLs \u2014 KEPT by operator decision (privacy-d5n9): a live URL; downgraded to review"
+   "re": "\\b[a-z0-9-]+\\.workers\\.dev\\b",
+   "note": "a Cloudflare account subdomain in a worker URL — the edge host is READ from the private overlay / TIMMY_EDGE_HOST, never literalized (blank-slate-v1k9); placeholders <hostname> are allowed"
   },
   {
    "id": "net.tailscale_policy",
@@ -193,7 +186,7 @@
    "id": "custody.ntag_uid",
    "severity": "review",
    "re": "\\b04[0-9A-F]{12}\\b",
-   "note": "NTAG 7-byte UID; the ones in vault-custody/test are synthetic SUN vectors \u2014 review, not blocking"
+   "note": "NTAG 7-byte UID; the ones in vault-custody/test are synthetic SUN vectors — review, not blocking"
   },
   {
    "id": "brand.discovery_land",
@@ -224,7 +217,7 @@
  "allow": [
   "example\\.com",
   "\\{\\{[A-Z_]+\\}\\}",
-  "<(tailnet|lan)-ip>|<hostname>|<user>|<node-id>|<mac>",
+  "<(tailnet|lan)-ip>|<hostname>|<user>|<node-id>|<mac>|<handle>|<operator>",
   "REDACTED|\\[redacted\\]|xxxx|placeholder",
   "privacy\\.(audit|scan)",
   "lanes/privacy/(patterns\\.json|overlay\\.mjs)",
@@ -247,6 +240,69 @@
   "lanes/privacy/patterns\\.json",
   "worker-configuration\\.d\\.ts$",
   "\\.timmy/store-pin$",
-  "lanes/privacy/sanitize\\.mjs$"
+  "lanes/privacy/sanitize\\.mjs$",
+  "docs/JOURNAL\\.md$"
+ ],
+ "hashed_terms": [
+  {
+   "id": "identity.email",
+   "severity": "high",
+   "sha256": "08f88690ca65e5a096417ec1537897f143ab6e56cc21ef2cdb7f4ab4aa70a1d2",
+   "note": "operator email"
+  },
+  {
+   "id": "identity.handle",
+   "severity": "high",
+   "sha256": "e75df37c5fbe84afc282498a8b3aa63278488215481db06fbb05e5fc724162a1",
+   "note": "operator handle (also the former worker subdomain)"
+  },
+  {
+   "id": "identity.login",
+   "severity": "high",
+   "sha256": "a5a464008f9a1fef1c54b71e3fb09f6949872e790acaa584468ac9f72d67fbb7",
+   "note": "operator login name"
+  },
+  {
+   "id": "identity.login_short",
+   "severity": "high",
+   "sha256": "0b418eaa1ee2749bd2c6d65bf577f396a7e923b7b80d611e916e38c2e8e011fb",
+   "note": "operator short login"
+  },
+  {
+   "id": "identity.mac_host",
+   "severity": "medium",
+   "sha256": "8175aa02c343aedc08c20bd9d0db5a1fddd3d6ab7e247e65929097f79a92a09f",
+   "note": "the Mac's hostname"
+  },
+  {
+   "id": "identity.mac_host_2",
+   "severity": "medium",
+   "sha256": "e767df696fec49f8e083d50945a1ee16bacff08fae22a5db299e149e7bcacdcd",
+   "note": "the Mac's hostname (2)"
+  },
+  {
+   "id": "identity.mac_exit",
+   "severity": "medium",
+   "sha256": "0a9e202395e3716bb43d9f155fd41aa9afb481bf46b552de5d74f3146b4c029a",
+   "note": "the Mac's exit-node name"
+  },
+  {
+   "id": "identity.tailnet",
+   "severity": "medium",
+   "sha256": "aeab981ade42ac484f07dab1a2e5c1f128266f0309a2dbdfe2af8b53c3594086",
+   "note": "the tailnet's own name"
+  },
+  {
+   "id": "identity.fixture",
+   "severity": "high",
+   "sha256": "6c5601faff49ce89b0b908e15f87381105753f8d1b9358c0ee4e510cd21dd26e",
+   "note": "SYNTHETIC — the section-12 negative control for the hashed-term path (lanes/privacy/fixtures/must-fail.txt); not a real term"
+  },
+  {
+   "id": "identity.family",
+   "severity": "high",
+   "sha256": null,
+   "note": "family names: the operator adds each with `timmy privacy hash-term <name> --add --id identity.family --severity high` (one entry per name; this null entry is inert)"
+  }
  ]
 }

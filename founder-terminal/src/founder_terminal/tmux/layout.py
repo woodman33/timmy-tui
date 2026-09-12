@@ -20,7 +20,7 @@ class TmuxLayoutGenerator:
             "# ==============================================================================\n"
             "# AGENTOPS ROOM LAYOUT SCRIPT — reproducible tmux workspace\n"
             f"# Generated: {datetime.datetime.now().isoformat()}\n"
-            "# © 2026 William Meldman. All Rights Reserved.\n"
+            "# © 2026 The TIMMY authors.\n"
             "# ==============================================================================\n\n"
             "echo \"Spawning AgentOps Workspace Rooms...\"\n\n"
             "# 1. Initialize core monitor session\n"

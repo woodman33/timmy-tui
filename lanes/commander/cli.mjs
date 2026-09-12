@@ -23,6 +23,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { edgeUrlOrInert } from '../privacy/overlay.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const args = process.argv.slice(2);
@@ -30,7 +31,7 @@ const flag = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] 
 const has = (k) => args.includes(k);
 const positional = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && args[i - 1].startsWith('--') && !['--no-hands', '--force', '--json-out'].includes(args[i - 1])));
 
-const WORKER = (flag('--worker', process.env.TIMMY_AI_PROXY ?? 'https://timmy-ai-proxy-preview.wmeldman33.workers.dev')).replace(/\/$/, '');
+const WORKER = (flag('--worker', process.env.TIMMY_AI_PROXY ?? edgeUrlOrInert())).replace(/\/$/, '');
 const ROOM = flag('--room', process.env.TIMMY_COMMANDER_ROOM ?? 'war-room');
 
 function token() {

@@ -2,7 +2,7 @@
 # ==============================================================================
 # AGENTOPS ROOM LAYOUT SCRIPT — reproducible tmux workspace
 # Generated: 2026-05-31T03:48:59.435503
-# © 2026 William Meldman. All Rights Reserved.
+# © 2026 The TIMMY authors.
 # ==============================================================================
 
 echo "Spawning AgentOps Workspace Rooms..."

@@ -52,3 +52,27 @@ export const publicNodeRef = (node) => (typeof node === 'string' ? node : node?.
 
 /** A placeholder check: true when a template value is still a <placeholder>. */
 export const isPlaceholder = (v) => typeof v === 'string' && /^<[a-z-]+>$/.test(v);
+
+// ---- blank-slate-v1k9: the edge host is READ, never literalized (same contract as src/utils/edge-host.ts
+// in ORDER hosts-j4t1): private overlay config.json `edge_host` → TIMMY_EDGE_HOST → inert placeholder.
+export const EDGE_HOST_PLACEHOLDER = '<hostname>';
+export function edgeHost() {
+  try {
+    const { data } = readPrivateJson('config.json');
+    const v = data?.edge_host;
+    if (typeof v === 'string' && v.trim() && !isPlaceholder(v)) return v.trim();
+  } catch { /* overlay unreadable → fall through */ }
+  const e = process.env.TIMMY_EDGE_HOST;
+  return e && e.trim() && !isPlaceholder(e) ? e.trim() : null;
+}
+/** `https://<host><path>`, or the inert `https://<hostname><path>` when nothing resolves (callers must treat it as not live). */
+export const edgeUrlOrInert = (path = '') => `https://${edgeHost() ?? EDGE_HOST_PLACEHOLDER}${path}`;
+/** The operator's label for headers/payloads: overlay `operator_label` → TIMMY_OPERATOR_LABEL → 'operator'. */
+export function operatorLabel() {
+  try {
+    const { data } = readPrivateJson('config.json');
+    const v = data?.operator_label;
+    if (typeof v === 'string' && v.trim() && !isPlaceholder(v)) return v.trim();
+  } catch { /* fall through */ }
+  return process.env.TIMMY_OPERATOR_LABEL?.trim() || 'operator';
+}

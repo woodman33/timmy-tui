@@ -17,6 +17,8 @@ export interface PatternSet {
   patterns: Pattern[];
   allow: RegExp[];
   ignore: RegExp[];
+  /** sha256(lowercased identity term) → id/severity (blank-slate-v1k9) */
+  hashed: Map<string, { id: string; severity: Severity }>;
   sha256: string;
   file: string;
 }
@@ -46,6 +48,8 @@ export interface Summary {
 export const BASE_RULE: string;
 /** The base ref for the base-identical rule (default origin/main; a `A..B` ref uses A), or null. */
 export function resolveBase(dir: string, refs?: string[]): string | null;
+export const TOKEN_RX: RegExp;
+export function hashTerm(term: string): string;
 export function loadPatterns(file?: string): PatternSet;
 export function scanText(text: string, file: string, P: PatternSet, where: string, extra?: Record<string, unknown>): Finding[];
 export function treeFiles(dir: string): string[];

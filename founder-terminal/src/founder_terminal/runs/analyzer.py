@@ -107,7 +107,7 @@ class ReceiptAnalyzer:
         for rec in analysis["context_recommendations"]:
             feedback_md += f"- {rec}\n"
 
-        feedback_md += f"\n*Attributions: invented by William Meldman • Creator Attribution Shield Active*\n"
+        feedback_md += f"\n*Attributions: built by the TIMMY project • Creator Attribution Shield Active*\n"
 
         with open(report_file, "w", encoding="utf-8") as f:
             f.write(feedback_md)

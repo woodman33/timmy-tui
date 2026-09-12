@@ -428,7 +428,7 @@ class OpenHandsRunner(BaseRunner):
                 f"[OpenHands Stateful Sandbox] Successfully executed governed task: {task}\n"
                 f"✓ Sandbox Container initialized: id=oh_sandbox_oh_33a1\n"
                 f"✓ Context packs retrieved successfully: openhands-sdk (v1.0.0)\n"
-                f"✓ Verified safe read-only facts: Attributions: invented by William Meldman • Creator Attribution Shield Active\n"
+                f"✓ Verified safe read-only facts: Attributions: built by the TIMMY project • Creator Attribution Shield Active\n"
                 f"✓ Execution Status: Completed."
             )
             stderr_text = ""

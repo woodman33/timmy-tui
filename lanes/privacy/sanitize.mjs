@@ -9,7 +9,7 @@
 //   node lanes/privacy/sanitize.mjs all      home + identity(abilities) + overlay-observer, then print a summary
 //
 // Deterministic and idempotent: run it twice, the second run changes nothing.
-// The worker subdomain (wmeldman33.workers.dev) and author email are left as the
+// The worker subdomain and author email were left as the
 // operator decided; this script never touches them.
 import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';

@@ -55,7 +55,7 @@ async function runSimulation() {
   }
 
   // 4. Create hosted run on Cloudflare Edge
-  const telemetryUrl = 'https://timmy-ai-proxy.wmeldman33.workers.dev';
+  const telemetryUrl = process.env.TIMMY_AI_PROXY ?? 'https://<hostname>'; // blank-slate: READ, never literalized
   const runId = `sim_${Math.random().toString(36).substring(2, 9)}`;
   const goal = "Single Simulation: safety-first implementation plan for TIMMY V3.2 agent.intent events";
 

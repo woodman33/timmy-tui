@@ -6,6 +6,9 @@
 //   timmy privacy audit                          tree (every open order worktree) + full history, report + privacy.audit seal
 //   timmy privacy fixture                        the §12 negative control: scans lanes/privacy/fixtures/must-fail.txt and MUST find it
 //   timmy privacy hook install|check             the pre-commit hook (scans the staged diff; a match blocks the commit)
+//   timmy privacy hash-term <term> [--add --id identity.x --severity high [--note …]]
+//                                                sha256 of the lowercased term; --add stores the hash in patterns.json
+//                                                (hashed_terms) and the literal ONLY in .timmy/private/identity-terms.json
 //
 // Findings: { file, line, pattern, severity, match (masked), where: tree|staged|history, commit? }.
 // Exit code 1 when any finding at or above --fail-on (default: medium) exists — that is the gate.
@@ -52,14 +55,23 @@ function baseBlob(dir, base, path) {
 
 export function loadPatterns(file = flag('--patterns', join(HERE, 'patterns.json'))) {
   const p = JSON.parse(readFileSync(file, 'utf8'));
+  // hashed identity terms (blank-slate-v1k9): sha256(lowercased term) → { id, severity }
+  const hashed = new Map();
+  for (const t of p.hashed_terms ?? []) if (typeof t.sha256 === 'string' && /^[0-9a-f]{64}$/.test(t.sha256)) hashed.set(t.sha256, { id: t.id, severity: t.severity });
   return {
     patterns: p.patterns.map((x) => ({ ...x, rx: new RegExp(x.re, (x.flags ?? '') + 'g') })),
     allow: p.allow.map((a) => new RegExp(a)),
     ignore: p.ignore_paths.map((a) => new RegExp(a)),
+    hashed,
     sha256: sha(readFileSync(file, 'utf8')),
     file
   };
 }
+
+/** Tokens a hashed identity term can hide in: a whole email, else words of 4–64 chars (letters/digits/_+-;
+ *  a dot splits, so a handle inside a hostname like `svc.<handle>.workers.dev` is still seen). */
+export const TOKEN_RX = /[A-Za-z0-9][A-Za-z0-9._+-]{2,63}@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|[A-Za-z0-9][A-Za-z0-9_+-]{3,63}/g;
+export const hashTerm = (term) => sha(String(term).trim().toLowerCase());
 
 /** A finding's match is masked in reports: first 3 + last 2 chars, so the report never repeats the secret. */
 const mask = (m) => (m.length <= 6 ? m[0] + '…' : m.slice(0, 3) + '…' + m.slice(-2));
@@ -71,6 +83,15 @@ export function scanText(text, file, P, where, extra = {}) {
     const line = lines[i];
     if (!line.trim()) continue;
     if (P.allow.some((a) => a.test(line))) continue;
+    if (P.hashed?.size) {
+      TOKEN_RX.lastIndex = 0;
+      let t;
+      while ((t = TOKEN_RX.exec(line))) {
+        const h = P.hashed.get(sha(t[0].toLowerCase()));
+        if (h) out.push({ file, line: i + 1, pattern: h.id, severity: h.severity, match: mask(t[0]), col: t.index + 1, where, ...extra });
+        if (out.length > 5000) return out;
+      }
+    }
     for (const p of P.patterns) {
       p.rx.lastIndex = 0;
       let m;
@@ -213,14 +234,33 @@ if (import.meta.url === new URL(`file://${process.argv[1]}`).href || process.arg
       const fx = join(HERE, 'fixtures', 'must-fail.txt');
       const f = scanText(readFileSync(fx, 'utf8'), relative(ROOT, fx), P, 'fixture');
       const g = gate(f);
-      const trips = g.length >= 8 && ['critical', 'high', 'medium'].every((s) => g.some((x) => x.severity === s));
+      const trips = g.length >= 8 && ['critical', 'high', 'medium'].every((s) => g.some((x) => x.severity === s)) && g.some((x) => x.pattern === 'identity.fixture');
       // …and the tree/staged/history scans must skip the fixture itself (patterns.json ignore_paths),
       // or the negative control would fail every real scan. Both facts are asserted together.
       const excluded = P.ignore.some((rx) => rx.test(relative(ROOT, fx)));
       const ok = trips && excluded;
-      const note = !trips ? 'THE GATE IS BROKEN: the must-fail fixture did not trip it' : !excluded ? 'THE GATE IS BROKEN: the fixture is not in ignore_paths, so every tree scan would fail on it' : 'the negative control trips the gate and is excluded from tree scans';
+      const note = !trips ? 'THE GATE IS BROKEN: the must-fail fixture did not trip it (or the hashed-term path is dead)' : !excluded ? 'THE GATE IS BROKEN: the fixture is not in ignore_paths, so every tree scan would fail on it' : 'the negative control trips the gate and is excluded from tree scans';
       console.log(JSON.stringify({ ok, fixture: relative(ROOT, fx), findings: f.length, gated: g.length, severities: summarize(g).by_severity, excluded_from_tree_scans: excluded, note }));
       process.exit(ok ? 0 : 1);
+    }
+    if (cmd === 'hash-term') {
+      const term = args.find((a, i) => i > 0 && args[i - 1] === 'hash-term');
+      if (!term) throw new Error('usage: timmy privacy hash-term <term> [--add --id identity.x --severity high [--note …]]');
+      const h = hashTerm(term);
+      if (has('--add')) {
+        const id = flag('--id', 'identity.term'), severity = flag('--severity', 'high'), note = flag('--note', 'operator-added identity term');
+        const pj = JSON.parse(readFileSync(P.file, 'utf8'));
+        pj.hashed_terms = (pj.hashed_terms ?? []).filter((t) => t.sha256 !== h);
+        pj.hashed_terms.push({ id, severity, sha256: h, note });
+        writeFileSync(P.file, JSON.stringify(pj, null, 1) + '\n');
+        const priv = join(ROOT, '.timmy', 'private', 'identity-terms.json');
+        mkdirSync(join(ROOT, '.timmy', 'private'), { recursive: true });
+        const cur = existsSync(priv) ? JSON.parse(readFileSync(priv, 'utf8')) : { terms: [] };
+        cur.terms = [...cur.terms.filter((t) => t.sha256 !== h), { id, term, sha256: h }];
+        writeFileSync(priv, JSON.stringify(cur, null, 1) + '\n', { mode: 0o600 });
+        console.log(JSON.stringify({ ok: true, id, severity, sha256: h, added_to: relative(ROOT, P.file), literal_kept_in: relative(ROOT, priv) }));
+      } else console.log(JSON.stringify({ sha256: h }));
+      process.exit(0);
     }
     if (cmd === 'hook') {
       const hook = join(ROOT, '.git', 'hooks', 'pre-commit');

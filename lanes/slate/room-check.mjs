@@ -9,11 +9,12 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { buildSlate, ROOT } from './build.mjs';
+import { edgeUrlOrInert } from '../privacy/overlay.mjs';
 
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d; };
 const ROOM = opt('--room', 'slate:ledger');
-const WORKER = opt('--worker', 'https://timmy-ai-proxy-preview.wmeldman33.workers.dev').replace(/\/$/, '');
+const WORKER = opt('--worker', process.env.TIMMY_AI_PROXY ?? edgeUrlOrInert()).replace(/\/$/, '');
 const REPO = process.env.TIMMY_REPO ?? '<repo>';
 const PORT = Number(process.env.SLATE_PORT ?? 3112);
 const OUT = join(ROOT, 'vault-custody', 'renders', 'slate3d');
