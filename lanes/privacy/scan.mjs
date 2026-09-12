@@ -136,7 +136,9 @@ export function scanStaged(dir, P, base = resolveBase(dir)) {
  * attributed to the first commit that introduced it (oldest first), with the paths it lived at.
  */
 export function scanHistory(dir, P, refs = ['--all'], base = resolveBase(dir, refs)) {
-  const log = git(dir, ['log', ...refs, '--reverse', '--format=%H %ct %s', '--name-status', '--diff-filter=AM', '--no-renames'], true).out;
+  const logResult = git(dir, ['log', ...refs, '--reverse', '--format=%H %ct %s', '--name-status', '--diff-filter=AM', '--no-renames'], true);
+  if (!logResult.ok) throw new Error(`git log failed for history refs ${refs.join(' ')}: ${logResult.err.trim() || 'unknown error'}`);
+  const log = logResult.out;
   const seen = new Map(); // blob sha → finding count (skip repeats)
   const findings = [];
   let commit = null, when = null, subject = null, blobs = 0, commits = 0, baseIdentical = 0;
