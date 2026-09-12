@@ -1353,9 +1353,12 @@ function SwarmPane(props: {
         </>
       )}
       {run ? (
-        <Text color={run.ok ? PAL.seal : PAL.danger}>
-          {`${run.closed ? '⊘' : ' '} ${run.preset.slice(0, 12).padEnd(12)} n=${String(run.size).padStart(2)} $${run.usd.toFixed(4)} tk${String(run.tokensThinking).padStart(4)} ${run.judge.slice(0, 10).padEnd(10)} ${run.policy}${run.airgap ? ` ag${run.airgap.egress}` : ''}`}
-        </Text>
+        <>
+          <Text color={run.ok ? PAL.seal : PAL.danger}>
+            {`${run.closed ? '⊘' : ' '} ${run.preset.slice(0, 12).padEnd(12)} n=${String(run.size).padStart(2)} $${run.usd.toFixed(4)} tk${String(run.tokensThinking).padStart(4)} ${run.judge.slice(0, 10).padEnd(10)} ${run.policy}${run.airgap ? ` ag${run.airgap.egress}` : ''}`}
+          </Text>
+          <Text color={PAL.textMuted}>{`  run ${run.id.slice(0, 16)}`}</Text>
+        </>
       ) : (
         <Text color={PAL.textMuted}>no swarm runs yet — [l] launches the pick</Text>
       )}
