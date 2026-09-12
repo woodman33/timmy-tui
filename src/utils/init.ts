@@ -13,7 +13,6 @@ import { join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync } from 'node:crypto';
-import { ensureStorePin } from './receipts.js';
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 export const timmyHome = (): string => process.env.TIMMY_HOME || join(homedir(), 'timmy');
@@ -92,9 +91,10 @@ export function applyInit(a: Required<Pick<InitOptions, 'operator' | 'project'>>
   const id = seedIdentity(a.seed);
   const home = timmyHome(); const priv = privateDir();
   const written: string[] = [];
-  // the receipts store pin: generated here on the first run, never committed
+  // the receipts store pin: generated here on the first run, never committed. receipts.ts's
+  // ensureStorePin() returns early whenever a package.json is in reach, so the pin is written here.
   const pin = join(repoRoot, '.timmy', 'store-pin');
-  if (!existsSync(pin)) { guardPath(pin, [pin]); ensureStorePin(repoRoot); if (existsSync(pin)) written.push(pin); }
+  if (!existsSync(pin)) { guardPath(pin, [pin]); mkdirSync(join(repoRoot, '.timmy'), { recursive: true }); writeFileSync(pin, join(repoRoot, '.timmy', 'receipts')); written.push(pin); }
   written.push(writeJson(join(home, 'identity.json'), { version: 1, operator: a.operator, operator_id: id.operatorId, public_key_hex: id.publicKeyHex, seed_source: id.source, created: new Date().toISOString() }));
   const seedPath = guardPath(join(home, 'identity.seed')); writeFileSync(seedPath, id.privatePem, { mode: 0o600 }); written.push(seedPath);
   const providers: Record<string, string> = { ollama_host: a.ollama || 'http://127.0.0.1:11434' };
