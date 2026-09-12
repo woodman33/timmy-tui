@@ -1460,14 +1460,23 @@ function BulkheadsPane(props: { sbx: w2.SbxRun[]; ports: Record<string, string>;
 // ui-next-2 — DEMOS: one row per portfolio family; PREDICTION beside EVIDENCE
 // with seal ids; [Enter] (armed) opens the canvas/native surface
 function DemosPane(props: { rows: un.DemoRow[]; sel: number; armed: boolean }) {
+  const maxRows = 6;
+  const selected = Math.min(props.sel, Math.max(0, props.rows.length - 1));
+  const start = props.rows.length <= maxRows ? 0 : Math.min(Math.max(0, selected - maxRows + 1), props.rows.length - maxRows);
+  const visibleRows = props.rows.slice(start, start + maxRows);
+  const hiddenBefore = start;
+  const hiddenAfter = Math.max(0, props.rows.length - start - visibleRows.length);
+  const overflow = props.rows.length > maxRows
+    ? `${hiddenBefore ? `+${hiddenBefore} above` : ''}${hiddenBefore && hiddenAfter ? ' · ' : ''}${hiddenAfter ? `+${hiddenAfter} below` : ''}`
+    : undefined;
   return (
-    <Card title="DEMOS" purpose={props.armed ? 'armed — [ ] selects · [Enter] opens' : 'portfolio families · [D] arms'}>
+    <Card title="DEMOS" purpose={props.armed ? 'armed — [ ] selects · [Enter] opens' : 'portfolio families · [D] arms'} overflow={overflow}>
       {props.rows.length === 0 ? (
         <Text color={PAL.textMuted}>no demo families recorded</Text>
-      ) : props.rows.slice(0, 6).map((r, i) => (
+      ) : visibleRows.map((r, i) => (
         <React.Fragment key={r.id}>
-          <Text color={i === props.sel ? PAL.seal : PAL.textSecondary}>
-            {`${i === props.sel ? '▶' : ' '} ${r.family.slice(0, 12).padEnd(12)} ${r.demo.slice(0, 6)}`}
+          <Text color={start + i === selected ? PAL.seal : PAL.textSecondary}>
+            {`${start + i === selected ? '▶' : ' '} ${r.family.slice(0, 12).padEnd(12)} ${r.demo.slice(0, 6)}`}
           </Text>
           <Text color={PAL.textMuted}>{`  PRED ${(r.prediction.seal ?? '—').padEnd(8)} EV ${(r.evidence.seal ?? '—').padEnd(8)}`.slice(0, 40)}</Text>
         </React.Fragment>

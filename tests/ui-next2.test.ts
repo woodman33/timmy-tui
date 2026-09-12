@@ -31,6 +31,10 @@ beforeAll(() => {
   w('lanes/demos/families.json', JSON.stringify({ v: 1, families: [
     { id: 'card-film', family: 'card-film', demo: 'canvas', open: 'renders/card-film/index.html', prediction: { text: 'cheap/local wins', seal: 'sha256_aaaaaaaa11111111' }, evidence: { path: 'cut/x.mp4', seal: 'sha256_bbbbbbbb22222222' }, scope: 'historical', origin: 'intake' },
     { id: 'house', family: 'house', demo: 'native', open: null, prediction: { text: 'span matches', seal: null }, evidence: { path: null, seal: null }, scope: 'cutaway', origin: 'survey' },
+    { id: 'cad-fabrication', family: 'cad-fabrication', demo: 'native', open: null, prediction: { text: 'tolerance matches', seal: null }, evidence: { path: null, seal: null }, scope: 'cutaway', origin: 'cad lane' },
+    { id: 'courier', family: 'courier', demo: 'canvas', open: null, prediction: { text: 'route survives', seal: null }, evidence: { path: null, seal: null }, scope: 'cutaway', origin: 'courier log' },
+    { id: 'material-effects', family: 'material-effects', demo: 'native', open: null, prediction: { text: 'sim stays bounded', seal: null }, evidence: { path: null, seal: null }, scope: 'cutaway', origin: 'engines shelf' },
+    { id: 'vector-motion', family: 'vector-motion', demo: 'canvas', open: null, prediction: { text: 'seed replays', seal: null }, evidence: { path: null, seal: null }, scope: 'cutaway', origin: 'rive lane' },
     { id: 'unreal-observatory', family: 'unreal-observatory', demo: 'native', open: null, prediction: { text: 'rc render matches', seal: null }, evidence: { path: null, seal: null }, fill: 'unreal.render', scope: 'cutaway', origin: 'unreal lane' },
     { id: 'grand-canyon', family: 'grand-canyon', demo: 'native', open: null, prediction: { text: 'stage import survives', seal: null }, evidence: { path: null, seal: null }, fill: 'unreal.stage-import', scope: 'cutaway', origin: 'unreal lane' },
     { id: 'signal', family: 'signal', demo: 'canvas', open: null, prediction: { text: 'day replays', seal: null }, evidence: { path: null, seal: null }, fill: 'signal.', scope: 'historical', origin: 'signal lane' },
@@ -61,7 +65,7 @@ async function until(view: ReturnType<typeof render>, pred: (f: string) => boole
 describe('demos readers + typed studio.preserve', () => {
   it('families carry prediction/evidence seals; missing seals are inert dashes', () => {
     const rows = demosRows();
-    expect(rows.length).toBe(5);
+    expect(rows.length).toBe(9);
     expect(rows[0].prediction.seal).toBe('aaaaaaaa');
     expect(rows[0].evidence.seal).toBe('bbbbbbbb');
     expect(rows[1].prediction.seal).toBeNull();
@@ -103,14 +107,18 @@ describe('LIBRARY DEMOS surface + HOME empty state', { timeout: 60000 }, () => {
     expect(lib).toContain('card-film');
     expect(lib).toContain('PRED aaaaaaaa EV bbbbbbbb');
     expect(lib).toContain('house');
+    expect(lib).toContain('+3 below');
     view.stdin.write('D');
     const armed = await until(view, x => x.includes('armed — [ ] selects'));
     expect(armed).toContain('▶ card-film');
+    for (let i = 0; i < 6; i += 1) view.stdin.write(']');
+    const scrolled = await until(view, x => x.includes('▶ unreal-obser'));
+    expect(scrolled).toContain('+1 above · +2 below');
     view.stdin.write(']');
     await sleep(300);
     view.stdin.write('\r');
     const opened = await until(view, x => x.includes('no recorded surface yet') || x.includes('demo no-op open'));
-    expect(opened.match(/house: no recorded surface yet|card-film: demo no-op open/)).not.toBeNull();
+    expect(opened.match(/grand-canyon: no recorded surface yet|unreal-observatory: no recorded surface yet/)).not.toBeNull();
     view.unmount();
   });
 });
