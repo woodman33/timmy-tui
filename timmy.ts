@@ -127,7 +127,7 @@ if (command === 'start') {
 }
 
 // Modern CLI surface (mcp serve/logs/approve/events/…) lives in src/cli.ts.
-if (['mcp', 'logs', 'approve', 'events', 'epoch', 'q', 'map', 'chat', 'seal', 'verify'].includes(command)) {
+if (['mcp', 'logs', 'approve', 'events', 'epoch', 'q', 'map', 'chat', 'seal', 'verify', 'cockpit', 'privacy'].includes(command)) {
   // linked bin runs from dist/; dev runs from source — resolve accordingly
   const cliPath = fileURLToPath(new URL(import.meta.url.includes('/dist/') ? './src/cli.js' : './src/cli.ts', import.meta.url));
   const r = spawnSync(process.execPath, ['--import', 'tsx', cliPath, ...args], { stdio: 'inherit' });

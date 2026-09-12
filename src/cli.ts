@@ -47,6 +47,7 @@ Commands:
   version         Print package name and version
   setup           Initialize directory and template folder structure
   doctor          Check optional local capabilities without running workloads
+  cockpit up      One tmux pane per local hand (cd worktree, launch its CLI, pipe-pane log); attach|status|down|hands
   docs verify     Verify GitBook docs structure, CLI, and safe env setup
   docs preview    Render and serve local docs preview
   docs publish    Verify GitBook auth and prepare Git Sync publication
@@ -245,6 +246,13 @@ if (command === 'nfc' || command === 'custody') {
   // the programmer and the verifier must share one key derivation.
   const lane = fileURLToPath(new URL(command === 'nfc' ? '../lanes/nfc/program.mjs' : '../lanes/custody/commit.mjs', import.meta.url));
   const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
+if (command === 'cockpit') {
+  // factory-f1d0 C2 PANES: `timmy cockpit up|attach|status|down|hands` — one tmux pane per local hand, logs piped privately
+  const lane = fileURLToPath(new URL('../lanes/cockpit/cockpit.mjs', import.meta.url));
+  const r = spawnSync('node', [lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
   process.exit(r.status ?? 1);
 }
 
