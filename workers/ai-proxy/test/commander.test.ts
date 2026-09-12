@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyCap, applyHandoff, applyKill, applyMode, applyRelease, applyRevive, applySpend, canThink, capFromEnv,
   executeTurn, extractHandsScript, fingerprintToken, fusionPrompt, holderTurnData, initialCommanderState,
-  isReadAction, parseCommanderPath, planTurn, sealCommander, turnReceiptData, usageCost, validCommanderRoom, verifyHold
+  isReadAction, parseBodybuilder, parseCommanderPath, planTurn, sealCommander, turnReceiptData, usageCost, validCommanderRoom, verifyHold
 } from '../src/commander-core.js';
 import { verifyEdgeChain, type EdgeReceipt } from '../src/chain.js';
 import type { Executor } from '../src/code.js';
@@ -12,14 +12,20 @@ const NOW = '2026-09-07T10:00:00.000Z';
 const env: Env = { OPENROUTER_API_KEY: 'k', TIMMY_EDGE_TOKEN: 't', ALLOWED_MODELS: 'google/gemini-3.7-flash,x-ai/grok-4.6', CUSTODY_BASE_URL: 'https://custody.test' };
 
 /** A fake OpenRouter: answers per model, reports cost like usage:{include:true} does. */
-function fakeOpenRouter(answers: Record<string, string | { status: number; error: string }>, seen: unknown[] = []): typeof fetch {
+function fakeOpenRouter(answers: Record<string, string | { status: number; error: string } | { tool: string; args: Record<string, unknown>; then: string }>, seen: unknown[] = [], headers: Record<string, string>[] = []): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? '{}')) as { model: string; messages: { role: string; content: string }[]; usage?: { include: boolean } };
     seen.push(body);
+    headers.push((init?.headers ?? {}) as Record<string, string>);
     const a = answers[body.model];
-    if (a && typeof a === 'object') return Response.json({ error: { message: a.error } }, { status: a.status });
+    if (a && typeof a === 'object' && 'status' in a) return Response.json({ error: { message: a.error } }, { status: a.status });
+    if (a && typeof a === 'object' && 'tool' in a) {
+      // first round: ask for a tool; second round (a tool message is present): answer
+      if (!body.messages.some((m) => m.role === 'tool')) return Response.json({ id: 'gen-tool-1', model: body.model, provider: 'Fake', choices: [{ message: { content: '', tool_calls: [{ id: 'call_1', type: 'function', function: { name: a.tool, arguments: JSON.stringify(a.args) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.0007 } });
+      return Response.json({ id: 'gen-tool-2', model: body.model, provider: 'Fake', choices: [{ message: { content: a.then } }], usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.0007 } });
+    }
     const content = typeof a === 'string' ? a : `answer from ${body.model}`;
-    return Response.json({ choices: [{ message: { content } }], usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.0007 } });
+    return Response.json({ id: `gen-${body.model}`, model: body.model, provider: 'Fake', choices: [{ message: { content } }], usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.0007, prompt_tokens_details: { cached_tokens: 2 } } });
   }) as typeof fetch;
 }
 
@@ -113,22 +119,31 @@ describe('kill switch, modes, cap', () => {
     expect(() => applyMode(s0, 'yolo', NOW)).toThrow(/mode must be one of/);
     expect(applyCap(s0, 5, NOW).state.spend.cap_usd).toBe(5);
     expect(() => applyCap(s0, -1, NOW)).toThrow(/cap_usd/);
+    // provider-sort-and-price-caps: the room carries a per-request price ceiling too
+    const priced = applyCap(s0, undefined, NOW, { prompt: 1.5, completion: 6 });
+    expect(priced.state.spend.max_price).toEqual({ prompt: 1.5, completion: 6 });
+    expect(priced.data.max_price).toEqual({ prompt: 1.5, completion: 6 });
+    expect(applyCap(priced.state, undefined, NOW, null).state.spend.max_price).toBeNull();
+    expect(() => applyCap(s0, undefined, NOW, { prompt: -1 })).toThrow(/max_price.prompt/);
+    expect(() => applyCap(s0, undefined, NOW)).toThrow(/cap_usd or max_price/);
     expect(capFromEnv({})).toBe(2);
     expect(capFromEnv({ COMMANDER_SPEND_CAP_USD: '0.5' })).toBe(0.5);
     expect(capFromEnv({ COMMANDER_SPEND_CAP_USD: 'x' })).toBe(2);
   });
 
   it('the spend ledger counts reported cost, flags unreported cost, and the cap gates the mind', () => {
-    expect(usageCost({ prompt_tokens: 3, completion_tokens: 4, cost: 0.01 })).toEqual({ usd: 0.01, tokens_in: 3, tokens_out: 4, counted: true });
-    expect(usageCost({ prompt_tokens: 3 })).toEqual({ usd: 0, tokens_in: 3, tokens_out: 0, counted: false });
+    expect(usageCost({ prompt_tokens: 3, completion_tokens: 4, cost: 0.01 })).toEqual({ usd: 0.01, tokens_in: 3, tokens_out: 4, counted: true, tokens_cached: 0, tokens_reasoning: 0 });
+    expect(usageCost({ prompt_tokens: 3 })).toEqual({ usd: 0, tokens_in: 3, tokens_out: 0, counted: false, tokens_cached: 0, tokens_reasoning: 0 });
+    expect(usageCost({ prompt_tokens: 30, completion_tokens: 9, cost: 0.02, prompt_tokens_details: { cached_tokens: 20 }, completion_tokens_details: { reasoning_tokens: 4 } })).toMatchObject({ tokens_cached: 20, tokens_reasoning: 4 });
+    const extra = { provider_used: null, model_used: null, generation_id: null, tokens_cached: 0, tokens_reasoning: 0 };
     const s0 = initialCommanderState('r', NOW, 0.001);
     const s1 = applySpend(s0, [
-      { role: 'mind', model: 'm', ok: true, ms: 1, usd: 0.0007, tokens_in: 10, tokens_out: 5, counted: true, content_sha256: null, error: null },
-      { role: 'actor', model: 'n', ok: true, ms: 1, usd: 0, tokens_in: 1, tokens_out: 1, counted: false, content_sha256: null, error: null }
+      { role: 'mind', model: 'm', ok: true, ms: 1, usd: 0.0007, tokens_in: 10, tokens_out: 5, counted: true, content_sha256: null, error: null, ...extra, tokens_cached: 4, tokens_reasoning: 2 },
+      { role: 'actor', model: 'n', ok: true, ms: 1, usd: 0, tokens_in: 1, tokens_out: 1, counted: false, content_sha256: null, error: null, ...extra }
     ], NOW);
-    expect(s1.spend).toMatchObject({ usd: 0.0007, calls: 2, tokens_in: 11, tokens_out: 6, uncounted: 1, last_at: NOW });
+    expect(s1.spend).toMatchObject({ usd: 0.0007, calls: 2, tokens_in: 11, tokens_out: 6, tokens_cached: 4, tokens_reasoning: 2, uncounted: 1, last_at: NOW });
     expect(canThink(s1)).toEqual({ ok: true });
-    const s2 = applySpend(s1, [{ role: 'mind', model: 'm', ok: true, ms: 1, usd: 0.0007, tokens_in: 1, tokens_out: 1, counted: true, content_sha256: null, error: null }], NOW);
+    const s2 = applySpend(s1, [{ role: 'mind', model: 'm', ok: true, ms: 1, usd: 0.0007, tokens_in: 1, tokens_out: 1, counted: true, content_sha256: null, error: null, ...extra }], NOW);
     const gate = canThink(s2);
     expect(gate.ok).toBe(false);
     if (!gate.ok) { expect(gate.status).toBe(402); expect(gate.reason).toContain('spend cap reached'); }
@@ -138,8 +153,13 @@ describe('kill switch, modes, cap', () => {
 describe('modes', () => {
   it('plans generate / bodybuilder / fusion against the allowlist', () => {
     const allow = ['a/one', 'b/two', 'c/three'];
-    expect(planTurn('generate', allow, {})).toEqual({ mode: 'generate', calls: [{ role: 'mind', model: 'a/one' }], judge: null });
+    expect(planTurn('generate', allow, {})).toEqual({ mode: 'generate', calls: [{ role: 'mind', model: 'a/one' }], judge: null, fallbacks: [] });
     expect(planTurn('generate', allow, { models: ['b/two'] }).calls[0].model).toBe('b/two');
+    // model-fallbacks: in generate mode the extra models become OpenRouter fallbacks
+    expect(planTurn('generate', allow, { models: ['b/two', 'c/three'] })).toMatchObject({ calls: [{ role: 'mind', model: 'b/two' }], fallbacks: ['c/three'] });
+    // model-variant-suffixes: an allowlisted base id may carry :nitro / :floor / :free …
+    expect(planTurn('generate', allow, { models: ['a/one:nitro'] }).calls[0].model).toBe('a/one:nitro');
+    expect(() => planTurn('generate', allow, { models: ['a/one:bogus'] })).toThrow(/not on allowlist/);
     expect(planTurn('bodybuilder', allow, {}).calls.map((c) => c.model)).toEqual(allow);
     expect(planTurn('bodybuilder', allow, { models: ['c/three', 'a/one'] }).calls.map((c) => c.role)).toEqual(['actor', 'actor']);
     const f = planTurn('fusion', allow, { models: ['a/one', 'b/two'], judge: 'c/three' });
@@ -200,6 +220,67 @@ describe('modes', () => {
     const r3 = await executeTurn({ task: 't' }, 'fusion', { env, fetch: fakeOpenRouter({ 'google/gemini-3.7-flash': { status: 500, error: 'a' }, 'x-ai/grok-4.6': { status: 500, error: 'b' } }) });
     expect(r3.ok).toBe(false);
     expect(r3.calls.map((c) => c.role)).toEqual(['actor', 'actor']);
+  });
+
+  it('wire-now passthroughs: attribution headers, router metadata, provider/reasoning/schema/fallbacks/session/price cap in the body, cached tokens in the record', async () => {
+    const seen: Record<string, unknown>[] = [];
+    const headers: Record<string, string>[] = [];
+    const r = await executeTurn({ task: 'q', models: ['google/gemini-3.7-flash', 'x-ai/grok-4.6:nitro'], provider: { order: ['Google'], allow_fallbacks: false }, reasoning: { effort: 'low' }, json_schema: { type: 'object', properties: { a: { type: 'string' } } }, plugins: [{ id: 'web' }], zdr: true, data_collection: 'deny', temperature: 0.1 }, 'generate', {
+      env, fetch: fakeOpenRouter({ 'google/gemini-3.7-flash': 'ok' }, seen, headers), room: 'war', spend: { max_price: { prompt: 2 } }
+    });
+    expect(r.ok).toBe(true);
+    const h = headers[0];
+    expect(h['HTTP-Referer']).toContain('https://');
+    expect(h['X-Title']).toBe('TIMMY commander');
+    expect(h['X-OpenRouter-Categories']).toContain('cli-agents');
+    expect(h['X-OpenRouter-Metadata']).toBe('enabled');
+    expect(seen[0]).toMatchObject({
+      model: 'google/gemini-3.7-flash', models: ['google/gemini-3.7-flash', 'x-ai/grok-4.6:nitro'],
+      provider: { order: ['Google'], allow_fallbacks: false, max_price: { prompt: 2 }, zdr: true, data_collection: 'deny' },
+      reasoning: { effort: 'low' }, response_format: { type: 'json_schema', json_schema: { name: 'answer', strict: true } }, plugins: [{ id: 'web' }],
+      session_id: 'commander:war', temperature: 0.1, usage: { include: true }
+    });
+    expect(r.calls[0]).toMatchObject({ provider_used: 'Fake', model_used: 'google/gemini-3.7-flash', generation_id: 'gen-google/gemini-3.7-flash', tokens_cached: 2 });
+    const data = await turnReceiptData({ task: 'q', provider: { order: ['Google'] }, zdr: true }, r, 'openrouter');
+    expect(data.passthrough).toMatchObject({ provider: true, zdr: true, fallbacks: 0 });
+    expect((data.models as { generation_id: string }[])[0].generation_id).toBe('gen-google/gemini-3.7-flash');
+  });
+
+  it('native tool calling: the mind calls an edge tool, the result goes back, one more round answers', async () => {
+    const seen: { messages: { role: string; content: string }[]; tools?: unknown[] }[] = [];
+    const r = await executeTurn({ task: 'how many tools?', tools: true }, 'generate', { env, fetch: fakeOpenRouter({ 'google/gemini-3.7-flash': { tool: 'tools_list', args: {}, then: 'seven tools' } }, seen) });
+    expect(r.ok).toBe(true);
+    expect(r.answer).toBe('seven tools');
+    expect(seen[0].tools?.length).toBeGreaterThan(3);
+    expect(seen[1].messages.some((m) => m.role === 'tool')).toBe(true);
+    expect(r.calls[0].tool_calls).toEqual([{ name: 'tools_list', ok: true, ms: expect.any(Number) }]);
+    expect(r.calls[0].usd).toBe(0.0014);
+    // a paid tool without the approval token is refused inside the round, and the refusal goes back to the model
+    const seen2: { messages: { role: string; content: string }[] }[] = [];
+    const r2 = await executeTurn({ task: 'chat', tools: true }, 'generate', { env, fetch: fakeOpenRouter({ 'google/gemini-3.7-flash': { tool: 'openrouter_chat', args: { model: 'x-ai/grok-4.6', messages: [{ role: 'user', content: 'hi' }] }, then: 'refused' } }, seen2) });
+    expect(r2.calls[0].tool_calls?.[0]).toMatchObject({ name: 'openrouter_chat', ok: false, error: expect.stringContaining('approval') });
+    expect(seen2[1].messages.find((m) => m.role === 'tool')?.content).toContain('approval');
+  });
+
+  it('native routers: fusion → openrouter/fusion in one call; bodybuilder → the router\'s requests run on the allowlist', async () => {
+    const seen: { model: string }[] = [];
+    const f = await executeTurn({ task: 'q', native: true }, 'fusion', { env, fetch: fakeOpenRouter({ 'openrouter/fusion': 'fused natively' }, seen) });
+    expect(f.native).toBe(true);
+    expect(f.answer).toBe('fused natively');
+    expect(f.calls.map((c) => c.model)).toEqual(['openrouter/fusion']);
+    const seen2: { model: string }[] = [];
+    const b = await executeTurn({ task: 'q', native: true }, 'bodybuilder', { env, fetch: fakeOpenRouter({ 'openrouter/bodybuilder': '{"requests":[{"model":"x-ai/grok-4.6","messages":[{"role":"user","content":"q1"}]},{"model":"nope/model","messages":[]}]}', 'x-ai/grok-4.6': 'grok says' }, seen2) });
+    expect(b.calls.map((c) => c.model)).toEqual(['openrouter/bodybuilder', 'x-ai/grok-4.6']);
+    expect(b.answer).toContain('grok says');
+    expect(b.answer).toContain('not on the allowlist, not run: nope/model');
+    expect(parseBodybuilder('```json\n[{"model":"a/b"}]\n```')).toEqual([{ model: 'a/b', messages: [] }]);
+    expect(parseBodybuilder('nothing')).toEqual([]);
+    // the abort signal turns into a recorded failure, not a throw
+    const ac = new AbortController();
+    ac.abort();
+    const aborted = await executeTurn({ task: 'q' }, 'generate', { env, fetch: (async () => { throw Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }); }) as unknown as typeof fetch, signal: ac.signal });
+    expect(aborted.ok).toBe(false);
+    expect(aborted.calls[0].error).toContain('kill switch');
   });
 
   it('a missing upstream key is a recorded failure, not a throw', async () => {

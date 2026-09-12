@@ -265,5 +265,29 @@
       ]
     },
     "note": "Blender 5.1.1 · installed · bridge cli"
+  },
+  {
+    "id": "openrouter-mcp",
+    "rank": 14,
+    "forms": [
+      "mcp"
+    ],
+    "detect": {
+      "url": "https://mcp.openrouter.ai/mcp"
+    },
+    "lane": "none yet — detect only (swarm-b3k7 step 6, mcp-server). OpenRouter's own MCP server; the commander handoff and the Timmy Durable Objects already speak MCP, so a harness that holds the commander can mount it beside timmy.",
+    "note": "OpenRouter MCP server · mcp.openrouter.ai · reachable = network only, not a key"
+  },
+  {
+    "id": "openrouter-openapi",
+    "rank": 15,
+    "forms": [
+      "api"
+    ],
+    "detect": {
+      "url": "https://openrouter.ai/openapi.json"
+    },
+    "lane": "the OpenAPI lane (src/mcp/server.ts timmy_oapi_run, spec_url) pointed at OpenRouter's published spec: every endpoint becomes a receipted oapi.call (swarm-b3k7 step 6, openapi-and-versioning)",
+    "note": "OpenRouter OpenAPI spec · versioned at openrouter.ai/openapi.json"
   }
 ]
