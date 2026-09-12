@@ -114,29 +114,33 @@ export function schemaGate(modelStrictness, harnessIssueCount) {
   return { ok: true };
 }
 
-try {
-  if (cmd === 'check') {
-    const tools = await timmyTools();
-    const issues = tools.map((t) => ({ tool: t.name, issues: strictIssues(t.name, t.inputSchema) })).filter((x) => x.issues.length);
-    const ok = issues.length === 0;
-    const receipt = seal('schema.compliance', { subject: 'timmy-mcp-server', tools: tools.length, ok, strict_issues: issues.length, issues: issues.map((i) => `${i.tool}:${i.issues.join('|')}`).join(' ; ') || 'none', validator: 'strict (Gemini-class): array items required, no oneOf/allOf/not/patternProperties/$ref, no keyword-name property collisions', schema_sha256: sha(JSON.stringify(tools.map((t) => [t.name, t.inputSchema]))), order: 'captain-y9g4' });
-    out({ ok, tools: tools.length, strict_issues: issues, receipt });
-    process.exit(ok ? 0 : 1);
-  } else if (cmd === 'models') {
-    const rows = await classifyModels();
-    mkdirSync(join(ROOT, 'lanes', 'schema'), { recursive: true });
-    writeFileSync(join(ROOT, 'lanes', 'schema', 'model-strictness.json'), JSON.stringify({ v: 1, measured_at: new Date().toISOString(), rows }, null, 1) + '\n');
-    const receipt = seal('schema.models', { measured: rows.length, strict: rows.filter((r) => r.tool_schema === 'strict').map((r) => r.model).join(','), lenient: rows.filter((r) => r.tool_schema === 'lenient').map((r) => r.model).join(','), unknown: rows.filter((r) => r.tool_schema === 'unknown').map((r) => r.model).join(','), method: 'OpenRouter probe: an array-without-items tool schema; strict = provider validator rejected it (400), lenient = accepted; clean-schema control must 200', file: 'lanes/schema/model-strictness.json', order: 'captain-y9g4' });
-    out({ ok: true, rows, receipt });
-  } else if (cmd === 'gate') {
-    const model = flag('--model');
-    if (!model) { console.error('usage: timmy schema gate --model <id> [--harness jcode]'); process.exit(2); }
-    const map = existsSync(join(ROOT, 'lanes', 'schema', 'model-strictness.json')) ? JSON.parse(readFileSync(join(ROOT, 'lanes', 'schema', 'model-strictness.json'), 'utf8')).rows : [];
-    const strictness = map.find((r) => r.model === model)?.tool_schema ?? 'unknown';
-    const tools = await timmyTools();
-    const issueCount = tools.reduce((n, t) => n + strictIssues(t.name, t.inputSchema).length, 0);
-    const g = schemaGate(strictness, issueCount);
-    out({ model, tool_schema: strictness, timmy_schema_issues: issueCount, ...g });
-    process.exit(g.ok ? 0 : 3);
-  } else { console.error('usage: timmy schema <check|models|gate> …'); process.exit(2); }
-} catch (e) { console.error(`[schema] ${e instanceof Error ? e.message : String(e)}`); process.exit(1); }
+async function main() {
+  try {
+    if (cmd === 'check') {
+      const tools = await timmyTools();
+      const issues = tools.map((t) => ({ tool: t.name, issues: strictIssues(t.name, t.inputSchema) })).filter((x) => x.issues.length);
+      const ok = issues.length === 0;
+      const receipt = seal('schema.compliance', { subject: 'timmy-mcp-server', tools: tools.length, ok, strict_issues: issues.length, issues: issues.map((i) => `${i.tool}:${i.issues.join('|')}`).join(' ; ') || 'none', validator: 'strict (Gemini-class): array items required, no oneOf/allOf/not/patternProperties/$ref, no keyword-name property collisions', schema_sha256: sha(JSON.stringify(tools.map((t) => [t.name, t.inputSchema]))), order: 'captain-y9g4' });
+      out({ ok, tools: tools.length, strict_issues: issues, receipt });
+      process.exit(ok ? 0 : 1);
+    } else if (cmd === 'models') {
+      const rows = await classifyModels();
+      mkdirSync(join(ROOT, 'lanes', 'schema'), { recursive: true });
+      writeFileSync(join(ROOT, 'lanes', 'schema', 'model-strictness.json'), JSON.stringify({ v: 1, measured_at: new Date().toISOString(), rows }, null, 1) + '\n');
+      const receipt = seal('schema.models', { measured: rows.length, strict: rows.filter((r) => r.tool_schema === 'strict').map((r) => r.model).join(','), lenient: rows.filter((r) => r.tool_schema === 'lenient').map((r) => r.model).join(','), unknown: rows.filter((r) => r.tool_schema === 'unknown').map((r) => r.model).join(','), method: 'OpenRouter probe: an array-without-items tool schema; strict = provider validator rejected it (400), lenient = accepted; clean-schema control must 200', file: 'lanes/schema/model-strictness.json', order: 'captain-y9g4' });
+      out({ ok: true, rows, receipt });
+    } else if (cmd === 'gate') {
+      const model = flag('--model');
+      if (!model) { console.error('usage: timmy schema gate --model <id> [--harness jcode]'); process.exit(2); }
+      const map = existsSync(join(ROOT, 'lanes', 'schema', 'model-strictness.json')) ? JSON.parse(readFileSync(join(ROOT, 'lanes', 'schema', 'model-strictness.json'), 'utf8')).rows : [];
+      const strictness = map.find((r) => r.model === model)?.tool_schema ?? 'unknown';
+      const tools = await timmyTools();
+      const issueCount = tools.reduce((n, t) => n + strictIssues(t.name, t.inputSchema).length, 0);
+      const g = schemaGate(strictness, issueCount);
+      out({ model, tool_schema: strictness, timmy_schema_issues: issueCount, ...g });
+      process.exit(g.ok ? 0 : 3);
+    } else { console.error('usage: timmy schema <check|models|gate> …'); process.exit(2); }
+  } catch (e) { console.error(`[schema] ${e instanceof Error ? e.message : String(e)}`); process.exit(1); }
+}
+
+if (!!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

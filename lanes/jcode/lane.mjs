@@ -17,7 +17,7 @@
 //
 // Secrets: OPENROUTER_API_KEY (and NVIDIA_NIM_API_KEY, if the Sparks NIM is up)
 // from the environment; only ever placed in the child's env, never printed.
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
@@ -46,8 +46,8 @@ const PIN = {
 const JCODE = (PIN[VARIANT] ?? PIN.release).bin;
 const PINNED_JCODE = (PIN[VARIANT] ?? PIN.release).semver;
 const PINNED_COMMIT = (PIN[VARIANT] ?? PIN.release).commit;
-function jcodeVersion() {
-  const r = spawnSync(JCODE, ['version', '--json'], { encoding: 'utf8' });
+function jcodeVersion(bin = JCODE) {
+  const r = spawnSync(bin, ['version', '--json'], { encoding: 'utf8' });
   try { const j = JSON.parse(r.stdout); return { semver: j.semver ?? 'unknown', commit: (j.version ?? '').match(/\(([0-9a-f]+)\)/)?.[1] ?? 'unknown' }; } catch { return { semver: 'unknown', commit: 'unknown' }; }
 }
 const TSX = join(ROOT, 'node_modules', '.bin', 'tsx');
@@ -100,6 +100,32 @@ function setup() {
     profiles.push({ name: 'spark2-nim', base_url: null, ok: false, note: 'spark2 address not in the node overlay yet (engine-room WAITING-ON-WILL); profile deferred' });
   }
   return { home: HOME, mcp: join(HOME, 'mcp.json'), profiles };
+}
+
+function rebuild() {
+  const src = join(ROOT, 'lanes', 'jcode', '.dev');
+  const binDir = join(ROOT, 'lanes', 'jcode', '.dev-bin');
+  const dst = join(binDir, 'jcode');
+  const ref = flag('--from', PIN.dev.commit);
+  if (!existsSync(src)) {
+    const clone = spawnSync('git', ['clone', 'https://github.com/1jehuang/jcode.git', src], { cwd: ROOT, encoding: 'utf8' });
+    if (clone.status !== 0) throw new Error(`git clone jcode failed: ${(clone.stderr || clone.stdout || '').trim()}`);
+  }
+  const fetch = spawnSync('git', ['fetch', '--all', '--tags', '--prune'], { cwd: src, encoding: 'utf8' });
+  if (fetch.status !== 0) throw new Error(`git fetch jcode failed: ${(fetch.stderr || fetch.stdout || '').trim()}`);
+  const checkout = spawnSync('git', ['checkout', '--detach', ref], { cwd: src, encoding: 'utf8' });
+  if (checkout.status !== 0) throw new Error(`git checkout ${ref} failed: ${(checkout.stderr || checkout.stdout || '').trim()}`);
+  const started = Date.now();
+  const build = spawnSync('cargo', ['build', '--release', '--bin', 'jcode'], { cwd: src, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (build.status !== 0) throw new Error(`cargo build jcode failed: ${(build.stderr || build.stdout || '').trim().split('\n').slice(-5).join(' ')}`);
+  mkdirSync(binDir, { recursive: true });
+  copyFileSync(join(src, 'target', 'release', 'jcode'), dst);
+  chmodSync(dst, 0o755);
+  const commit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: src, encoding: 'utf8' }).stdout.trim();
+  const jv = jcodeVersion(dst);
+  const binarySha256 = sha(readFileSync(dst));
+  const receipt = seal('jcode.rebuild', { variant: 'dev', from: ref, jcode_semver: jv.semver, jcode_commit: commit || jv.commit, pinned_commit: PIN.dev.commit.slice(0, 9), binary: dst.replace(ROOT + '/', ''), binary_sha256: binarySha256, build: 'cargo build --release --bin jcode', ms: Date.now() - started, order: 'captain-y9g4' });
+  return { ok: true, variant: 'dev', from: ref, commit: commit || jv.commit, semver: jv.semver, binary: dst.replace(ROOT + '/', ''), binary_sha256: binarySha256, receipt };
 }
 
 async function runOnce(task) {
@@ -155,6 +181,7 @@ try {
   else if (cmd === 'memory') { const sub = positional[1] ?? 'stats'; const r = spawnSync(JCODE, ['memory', sub, ...(positional[2] ? [positional[2]] : [])], { cwd: HOME, env: childEnv(), encoding: 'utf8' }); process.stdout.write(r.stdout ?? ''); process.exit(r.status ?? 1); }
   else if (cmd === 'serve') { mkdirSync(HOME, { recursive: true }); const sock = flag('--socket', join(HOME, 'jcode.sock')); const child = spawn(JCODE, ['serve', '--socket', sock], { cwd: HOME, env: childEnv(), stdio: 'ignore', detached: true }); child.unref(); out({ ok: true, serving: true, socket: sock, pid: child.pid, note: 'jcode daemon started as the commander handoff target; stop with `timmy jcode stop`' }); }
   else if (cmd === 'stop') { const r = spawnSync(JCODE, ['server', 'stop'], { cwd: HOME, env: childEnv(), encoding: 'utf8' }); out({ ok: r.status === 0, note: (r.stdout || r.stderr || '').trim() }); }
+  else if (cmd === 'rebuild') { out(rebuild()); }
   else if (cmd === 'clean') { rmSync(HOME, { recursive: true, force: true }); out({ ok: true, cleaned: HOME }); }
   else { console.error('usage: timmy jcode <setup|run|memory|serve|stop|rebuild|clean> …'); process.exit(2); }
 } catch (e) { console.error(`[jcode] ${e instanceof Error ? e.message : String(e)}`); process.exit(1); }
