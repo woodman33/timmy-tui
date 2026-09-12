@@ -72,7 +72,7 @@ export function modelStrictness(): StrictRow[] {
 }
 
 export interface SignalState {
-  live: boolean; round: number; status: string; receipt: string;
+  live: boolean; label: string; round: number; status: string; receipt: string;
   attention: number; reserved: number; rows: number; dir: string;
 }
 /** the Signal game: live when a checkpoint exists and is not complete; ledger
@@ -94,10 +94,19 @@ export function signalState(): SignalState | null {
     }
   }
   const reserved = rows.reduce((n, r) => n + Number(r.usd ?? r.reserve_usd ?? r.amount ?? 0), 0);
+  // FILM-PLAN-v2: the label DERIVES from state — a held or not-started day is
+  // never 'live'; live requires a started day with progress or reservations
+  const statusNow = String(cp.status ?? '');
+  const roundNow = Number(cp.checkpoint ?? 0);
+  const label = statusNow.includes('not_started') ? 'hold'
+    : statusNow === 'complete' ? 'complete'
+    : (roundNow > 0 || reserved > 0) ? 'live'
+    : 'idle';
   return {
-    live,
-    round: Number(cp.checkpoint ?? 0),
-    status: String(cp.status ?? '—').slice(0, 26),
+    live: label === 'live',
+    label,
+    round: roundNow,
+    status: statusNow.slice(0, 26),
     receipt: String(cp.receipt ?? '').replace(/^sha256_/, '').slice(0, 12),
     attention: Number(st.attention ?? 0),
     reserved,
@@ -110,7 +119,7 @@ export interface DemoRow {
   id: string; family: string; demo: 'canvas' | 'native'; open: string | null;
   prediction: { text: string; seal: string | null };
   evidence: { path: string | null; seal: string | null };
-  scope: string; origin: string; fill: string | null;
+  scope: string; origin: string; fill: string | null; evSubject: string | null;
 }
 /** ui-next-2: the curated portfolio-family demo index (lanes/demos/families.json).
  *  Missing registry ⇒ empty list; null seals render as inert dashes. */
@@ -140,6 +149,7 @@ export function demosRows(recs: { subject: string; hash?: string; sources?: unkn
       scope: String(f.scope ?? '—'),
       origin: String(f.origin ?? '—'),
       fill,
+      evSubject: src ? String(src.subject).slice(-12).trim() : null,
     };
   });
 }

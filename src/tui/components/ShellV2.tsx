@@ -803,7 +803,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
         )}
         {assembled && !narrow && s.tab === 'RUN' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            {signalSt?.live ? <><SignalPane st={signalSt} /><Box height={1} /></> : null}
+            {signalSt ? <><SignalPane st={signalSt} /><Box height={1} /></> : null}
             <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} compact={compact} />
             {pendingEscrows[0] ? <><Box height={1} /><EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} /></> : null}
           </Box>
@@ -1422,7 +1422,7 @@ function OllamaPane(props: { strict: un.StrictRow[]; nodes: w2.NodeStat[] }) {
 // ui-next — SIGNAL panel: round, ledger, Attention while the game is live
 function SignalPane(props: { st: un.SignalState }) {
   return (
-    <Card title="SIGNAL" purpose="the-signal game · live">
+    <Card title="SIGNAL" purpose={`the-signal game · ${props.st.label}`}>
       <Text color={PAL.seal}>{`round ${String(props.st.round).padStart(2)} · ${props.st.status}`}</Text>
       <Text color={PAL.textSecondary}>{`Attention ${String(props.st.attention).padStart(2)}/20 · ledger ${props.st.rows} rows`}</Text>
       <Text color={PAL.textMuted}>{`reserved $${props.st.reserved.toFixed(2)} · cp ${props.st.receipt}`}</Text>
@@ -1469,7 +1469,7 @@ function DemosPane(props: { rows: un.DemoRow[]; sel: number; armed: boolean }) {
           <Text color={i === props.sel ? PAL.seal : PAL.textSecondary}>
             {`${i === props.sel ? '▶' : ' '} ${r.family.slice(0, 12).padEnd(12)} ${r.demo.slice(0, 6)}`}
           </Text>
-          <Text color={PAL.textMuted}>{`  PRED ${(r.prediction.seal ?? '—').padEnd(8)} EV ${(r.evidence.seal ?? '—').padEnd(8)}`.slice(0, 40)}</Text>
+          <Text color={PAL.textMuted}>{`  PRED ${(r.prediction.seal ?? '—').padEnd(6)} EV ${(r.evidence.seal ?? '—').padEnd(6)}${r.evSubject ? ` · ${r.evSubject}` : ''}`.slice(0, 40)}</Text>
         </React.Fragment>
       ))}
     </Card>
