@@ -2,6 +2,7 @@ import { spawnSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { readPrivateJson } from '../../lanes/privacy/overlay.mjs';
 
 // warroom-t3b1: tmux is the compositor for harness panes. The war room is a
 // tmux session whose panes run the harness CLIs; activity weight drives pane
@@ -107,8 +108,18 @@ export function loadProfile(name: string): WarProfile | null {
   if (!existsSync(f)) return null;
   return fromCue(readFileSync(f, 'utf8'));
 }
+
+const overlayCommanderWs = (): string | null => {
+  try {
+    const { data } = readPrivateJson('config.json');
+    const v = (data as Record<string, unknown> | null)?.commander_ws;
+    return typeof v === 'string' && v.trim() ? v.trim() : null;
+  } catch { /* overlay unreadable → fall through */ }
+  return null;
+};
+
 export const defaultProfile = (): WarProfile => ({
   name: 'default',
   harnesses: ['jcode', 'opencode', 'pi', 'hermes', 'minds', 'openhands'].map(id => ({ id, model: null, weight: 1 })),
-  commander: { model: process.env.TIMMY_COMMANDER_MODEL ?? 'openrouter/auto', ws: process.env.TIMMY_COMMANDER_WS ?? null },
+  commander: { model: process.env.TIMMY_COMMANDER_MODEL ?? 'openrouter/auto', ws: overlayCommanderWs() ?? process.env.TIMMY_COMMANDER_WS ?? null },
 });

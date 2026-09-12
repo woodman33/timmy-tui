@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { execSync } from 'child_process';
+import { readPrivateJson } from '../../lanes/privacy/overlay.mjs';
 import * as opencode from './adapters/opencode.js';
 import * as hermes from './adapters/hermes.js';
 import * as jcode from './adapters/jcode.js';
@@ -24,10 +25,19 @@ export const adapterFor = (harness: string): Adapter | undefined => ADAPTERS.fin
 export interface ModelPolicy { default: string | null; scopes: Record<string, string> }
 export const policyPath = (dir: string = process.cwd()): string => join(dir, '.timmy', 'model-policy.json');
 
+const overlayDefaultPolicy = (): string | null => {
+  try {
+    const { data } = readPrivateJson('config.json');
+    const v = (data as Record<string, unknown> | null)?.policy;
+    return typeof v === 'string' && v.trim() ? v.trim() : null;
+  } catch { /* overlay unreadable → fall through */ }
+  return null;
+};
+
 export function readPolicy(dir?: string): ModelPolicy {
   const p = policyPath(dir);
   try { if (existsSync(p)) return JSON.parse(readFileSync(p, 'utf8')) as ModelPolicy; } catch { /* none */ }
-  return { default: null, scopes: {} };
+  return { default: overlayDefaultPolicy(), scopes: {} };
 }
 export function writePolicy(pol: ModelPolicy, dir?: string): void {
   const p = policyPath(dir);

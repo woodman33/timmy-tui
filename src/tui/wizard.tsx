@@ -4,15 +4,19 @@
 // TIMMY_DEMO / TIMMY_WIZARD_DRY the write is a dry run (tests, captures).
 import React, { useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { readPrivateJson, writePrivateJson } from '../../lanes/privacy/overlay.mjs';
+import { readPolicy } from '../harness/policy.js';
 import { theme } from './theme.js';
 
 const PAL = theme;
-const overlayPath = (): string => join(process.cwd(), '.timmy', 'private', 'config.json');
 const readOverlay = (): Record<string, unknown> => {
-  try { return JSON.parse(readFileSync(overlayPath(), 'utf8')) as Record<string, unknown>; } catch { return {}; }
+  try {
+    const { data } = readPrivateJson('config.json');
+    return (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  } catch { return {}; }
 };
+const policyDir = (): string | undefined => (process.env.TIMMY_STORE ? dirname(process.env.TIMMY_STORE) : undefined);
 
 export interface WizardStep { id: string; label: string; value: () => string; key: string | null }
 
@@ -26,10 +30,10 @@ export function WizardScreen() {
   const ov = readOverlay();
   const steps: WizardStep[] = [
     { id: 'store', label: 'store', value: () => join(process.cwd(), '.timmy', 'receipts'), key: null },
-    { id: 'operator', label: 'operator', value: () => vals.operator ?? String(ov.operator_label ?? process.env.TIMMY_OPERATOR ?? 'operator'), key: 'operator_label' },
+    { id: 'operator', label: 'operator', value: () => vals.operator ?? String(ov.operator_label ?? process.env.TIMMY_OPERATOR_LABEL ?? 'operator'), key: 'operator_label' },
     { id: 'edge', label: 'edge host', value: () => vals.edge ?? String(ov.edge_host ?? process.env.TIMMY_EDGE_HOST ?? ''), key: 'edge_host' },
     { id: 'commander', label: 'commander ws', value: () => vals.commander ?? String(ov.commander_ws ?? process.env.TIMMY_COMMANDER_WS ?? ''), key: 'commander_ws' },
-    { id: 'policy', label: 'model policy', value: () => vals.policy ?? 'openrouter/auto', key: 'policy' },
+    { id: 'policy', label: 'model policy', value: () => vals.policy ?? String(readPolicy(policyDir()).default ?? 'openrouter/auto'), key: 'policy' },
   ];
   useInput((key, k) => {
     if (edit) {
@@ -55,9 +59,8 @@ export function WizardScreen() {
       for (const st of steps) if (st.key) next[st.key] = st.value();
       if (dry) { setNote('dry run — overlay not written (TIMMY_DEMO/TIMMY_WIZARD_DRY)'); return; }
       try {
-        mkdirSync(join(process.cwd(), '.timmy', 'private'), { recursive: true });
-        writeFileSync(overlayPath(), JSON.stringify(next, null, 1));
-        setNote(`overlay written · ${overlayPath()}`);
+        const path = writePrivateJson('config.json', next);
+        setNote(`overlay written · ${path}`);
       } catch (e) {
         setNote(`overlay write failed: ${e instanceof Error ? e.message : String(e)}`);
       }
