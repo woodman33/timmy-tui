@@ -732,6 +732,13 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
               {/* FIX 2: BOARDS + PROJECTS live under MODELS on the left */}
               <Box height={1} />
               <BoardsPane boards={boards} projects={projects} />
+              {/* narrow has no rail: the Reuse moment rides the left column */}
+              {narrow && (
+                <>
+                  <Box height={1} />
+                  <DemosPane rows={un.demosRows(recs)} sel={demoSel} armed={s.demoArmed} />
+                </>
+              )}
             </>
           )}
         </Box>)}
