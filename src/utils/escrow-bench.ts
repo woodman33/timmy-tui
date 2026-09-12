@@ -49,7 +49,7 @@ export function runEscrowBench(): EscrowBenchResult {
   const id2 = a2.escrow!.escrow_id;
   lockEscrow(id2, dir);
   drawEscrow(id2, 0.5, dir);
-  const c2 = cancelEscrow(id2, dir);
+  const c2 = cancelEscrow(id2, undefined, dir);
   const chain = verifyChain('runs', dir);
   const cancelOk = c2.escrow?.refund_usd === 1.5 && verifyEscrow(id2, dir).ok && chain.ok;
 

@@ -15,7 +15,7 @@ export interface SceneForgeCall {
   args?: Record<string, unknown>;
 }
 
-const DEFAULT_URL = 'https://houdini-mcp-agent.wmeldman33.workers.dev/mcp';
+const DEFAULT_URL = process.env.SCENEFORGE_MCP_URL ?? 'https://houdini-mcp-agent.<hostname>/mcp';
 
 function configContents(): string {
   return `${JSON.stringify(

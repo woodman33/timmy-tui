@@ -14,7 +14,7 @@ import { buildSlate, ROOT } from './build.mjs';
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d; };
 const CAPSULE = opt('--capsule', 'p6.capsule');
-const REPO = process.env.TIMMY_REPO ?? '/Users/williammeldman/Desktop/Code-Projects/timmy-tui';
+const REPO = process.env.TIMMY_REPO ?? '<repo>';
 const PORT = Number(process.env.SLATE_PORT ?? 3114);
 const GATEWAY = `http://127.0.0.1:${process.env.TIMMY_LOGS_PORT ?? 4310}`;
 

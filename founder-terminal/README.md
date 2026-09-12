@@ -24,7 +24,7 @@ This control plane decouples presentation, event orchestration, shell tools, and
 ## 🚀 Installation & Env Configurations
 
 ### 1. Bootstrap Virtual Environment
-The terminal cockpit utilizes `uv` to build high-performance localized environments under the [founder-terminal/](file:///Users/williammeldman/Desktop/timmy-tui/founder-terminal) subdirectory:
+The terminal cockpit utilizes `uv` to build high-performance localized environments under the [founder-terminal/](file://<home>/Desktop/timmy-tui/founder-terminal) subdirectory:
 
 ```bash
 cd founder-terminal
@@ -66,7 +66,7 @@ Every executed session is packaged as a transportable `.agentrun` bundle folder:
 
 ## 🛡️ DOCTRINE: Self-Referencing Architecture-Governance
 
-TIMMY implements a lightweight, local-first **Architecture-Governance Layer** governed by [DOCTRINE.md](file:///Users/williammeldman/Desktop/timmy-tui/founder-terminal/docs/architecture/DOCTRINE.md). 
+TIMMY implements a lightweight, local-first **Architecture-Governance Layer** governed by [DOCTRINE.md](file://<home>/Desktop/timmy-tui/founder-terminal/docs/architecture/DOCTRINE.md). 
 
 Before letting an autonomous agent execute tasks or write code, TIMMY loads and validates our core structural contract, prepending safety contexts to LLM prompts. This ensures our AI coding agents remain strictly bound by our architectural rules.
 

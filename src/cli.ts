@@ -13,8 +13,11 @@ import { runClipJob, replayFromEdl } from './utils/cliprunner.js';
 import { listGenerations } from './utils/generations.js';
 import { runOpenDesignGen } from './utils/designrunner.js';
 import { edlToOtio } from './utils/otio.js';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, appendFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { setModel, readPolicy } from './harness/policy.js';
+import { listModelsSync, listModels, refreshModels } from './models/registry.js';
+import { runJbone } from './jbone/resolver.js';
 
 function getPackageMetadata() {
   const possiblePaths = [
@@ -56,8 +59,13 @@ Commands:
   sceneforge      Use the authenticated Cloudflare control plane via MCPorter
   events          Stream the TUI's event envelope as NDJSON (--follow, --human, --otlp)
   logs            Live web companion: event bus + receipt chain + verify (auto-pops browser; --port N)
+  vision          Roboflow visual templates, inspections, evidence and review (--port N)
   approve <hash>  Mint a single-use, 5-min approval token bound to a gated tool's plan hash
   clip list|run|replay  List · run headless + seal · replay from cut-list alone
+  model set|get         Set/get model policy (default or --scope harness:<name>)
+  models [--json]       Model registry: arch, params, throughput, notes, spend
+  do "<phrase>"         jbone resolver: fuzzy CUE template -> confirm -> lane (--yes)
+  connect <tool>        Bind a tool binary into the chain (env.lock receipt)
   design list|run       Open Design (MCP) gens: queue in GENS, execute + seal here
   doctor deps|network|hardware  Read-only posture checks (never auto-fixes)
   mcp status|inspect|probe  MCP wire visibility: mcpsnoop + mcp-probe (opt-in)
@@ -114,12 +122,19 @@ for (let i = 0; i < args.length; i++) {
   cleanArgs.push(args[i]);
 }
 
-if (cleanArgs.length === 0 || args.includes('--help') || args.includes('-h') || cleanArgs[0] === 'help') {
+if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && cleanArgs[0] !== 'vision') || cleanArgs[0] === 'help') {
   printHelp();
   process.exit(0);
 }
 
 const command = cleanArgs[0];
+
+if (command === 'vision') {
+  const { runVisionCli } = await import('./vision/cli.js');
+  await runVisionCli(cleanArgs.slice(1));
+  if (cleanArgs[1] === 'serve' && !args.includes('--help') && !args.includes('-h')) await new Promise(() => {});
+  process.exit(process.exitCode ?? 0);
+}
 
 if (command === 'version' || args.includes('--version') || args.includes('-v')) {
   const metadata = getPackageMetadata();
@@ -129,6 +144,152 @@ if (command === 'version' || args.includes('--version') || args.includes('-v')) 
 
 if (command === 'start') {
   console.log('timmy start — PLANNED alias for npm start');
+  process.exit(0);
+}
+
+// ── CONTROL PLANE (control-plane-k3e7): model policy / registry / jbone ──
+if (command === 'model') {
+  const sub = cleanArgs[1];
+  if (sub === 'set') {
+    const id = cleanArgs[2];
+    const scopeIdx = args.indexOf('--scope');
+    const scope = scopeIdx >= 0 ? args[scopeIdx + 1] : null;
+    if (!id) { console.error('usage: timmy model set <id> [--scope harness:<name>]'); process.exit(2); }
+    const pol = setModel(id, scope);
+    console.log(`model policy: default=${pol.default ?? '-'} scopes=${JSON.stringify(pol.scopes)}`);
+    process.exit(0);
+  }
+  const pol = readPolicy();
+  console.log(JSON.stringify(pol, null, 2));
+  process.exit(0);
+}
+
+if (command === 'order') {
+  // status-r1e4: orders.log entries and order.execute receipts carry the
+  // executing model, read from the CLI's own session (never hand-typed).
+  const sub = String(args[1] ?? '');
+  const sess = (await import('./utils/session.js')).detectSession();
+  const { ordersLogPath } = await import('./utils/status.js');
+  if (sub === 'log' || sub === 'execute') {
+    const id = String(args[2] ?? `ORD-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(Math.random() * 900) + 100}`);
+    const ti = args.indexOf('--title');
+    const ei = args.indexOf('--evidence');
+    const title = ti > 0 ? String(args[ti + 1] ?? '') : '';
+    const evidence = ei > 0 ? String(args[ei + 1] ?? '') : '';
+    const line = `${id} | ${new Date().toISOString()} | ${sess.short} | ${title} | ${evidence} | actor=${sess.actor} hands=${sess.hands}`;
+    appendFileSync(ordersLogPath(), line + '\n');
+    if (sub === 'execute') {
+      const { appendReceipt } = await import('./utils/receipts.js');
+      const rec = appendReceipt('runs', {
+        kind: 'seal',
+        subject: `order.execute · ${id} · ${title.slice(0, 60)}`,
+        policy: 'human-gated', status: 'ok',
+        sources: [{ actor: sess.actor, hands: sess.hands }],
+      });
+      console.log(`order.execute ${id} → ${rec.hash.slice(0, 16)} · actor=${sess.actor} hands=${sess.hands}`);
+    } else {
+      console.log(`logged ${id} · actor=${sess.actor} hands=${sess.hands}`);
+    }
+    process.exit(0);
+  }
+  console.error('usage: timmy order log|execute <ORD-id> --title <t> [--evidence <e>]');
+  process.exit(2);
+}
+if (command === 'status') {
+  const sess = (await import('./utils/session.js')).detectSession();
+  const st = await import('./utils/status.js');
+  const rep = st.statusReport(st.ordersLogPath());
+  if (args.includes('--json')) {
+    console.log(JSON.stringify({ printedBy: sess, ...rep }, null, 2));
+  } else if (args.includes('--board')) {
+    console.log(st.renderBoard(rep));
+  } else {
+    for (const [actor, rows] of Object.entries(rep.actors)) {
+      console.log(`== ${actor} ==`);
+      for (const r of rows) {
+        console.log(`${r.id} → ${r.title.slice(0, 48).padEnd(48)} ${r.state.padEnd(16)} last=${r.lastReceipt.slice(0, 24).padEnd(24)} next=${r.next}`);
+      }
+    }
+    if (rep.blockedOnWill.length) {
+      console.log('== blocked on will ==');
+      for (const r of rep.blockedOnWill) console.log(`${r.id} — ${r.next}`);
+    }
+  }
+  const { appendReceipt } = await import('./utils/receipts.js');
+  const rec = appendReceipt('runs', {
+    kind: 'seal', subject: `status.print · ${Object.values(rep.actors).reduce((n, r) => n + r.length, 0)} orders`,
+    policy: 'auto', status: 'ok', sources: [{ actor: sess.actor, hands: sess.hands }],
+  });
+  console.log(`sealed ${rec.hash.slice(0, 16)} · status.print`);
+  process.exit(0);
+}
+if (command === 'script') {
+  // toolchain-e2a4 close: script ledger v0 (seal/cut/ledger + sidecar)
+  const sub = String(args[1] ?? '');
+  const file = String(args[2] ?? '');
+  const sl = await import('./utils/scriptledger.js');
+  if (sub === 'seal') {
+    const r = sl.sealScript(file);
+    if (!r.ok) { console.error(`REFUSED: ${r.note}`); process.exit(2); }
+    console.log(`sealed ${file} → ${String(r.receipt).slice(0, 16)} · sidecar ${sl.sidecarPath(file)}`);
+    process.exit(0);
+  }
+  if (sub === 'cut') {
+    const r = sl.cutScript(file, String(args[3] ?? ''));
+    if (!r.ok) { console.error(`REFUSED: ${r.note}`); process.exit(2); }
+    console.log(`cut ${file} → ${args[3]} · ${r.scenes} scenes`);
+    process.exit(0);
+  }
+  if (sub === 'ledger') {
+    const t = sl.ledgerTroff(file);
+    if (!t.ok || !t.troff) { console.error(`REFUSED: ${t.note}`); process.exit(2); }
+    const pi = args.indexOf('--pdf');
+    const hi = args.indexOf('--html');
+    if (pi > 0) {
+      const pr = sl.ledgerPdf(t.troff, String(args[pi + 1] ?? ''));
+      if (!pr.ok) { console.error(pr.note); process.exit(2); }
+    }
+    if (hi > 0) sl.ledgerHtml(file, t.troff, String(args[hi + 1] ?? ''));
+    console.log(`ledger ${file} · ${t.entries} entries`);
+    process.exit(0);
+  }
+  console.error('usage: timmy script seal|cut|ledger <file> [out] [--pdf p] [--html h]');
+  process.exit(2);
+}
+if (command === 'models') {
+  // FIX 1 (close): --refresh repopulates the catalog cache (fetched-at stamped)
+  if (args.includes('--refresh')) {
+    const r = await refreshModels();
+    console.log(r.ok ? `refreshed ${r.count} models at ${r.fetchedAt}` : `refresh failed; cache from ${r.fetchedAt || 'never'}`);
+    if (!r.ok) process.exit(1);
+  }
+  const entries = await listModels();
+  const capsOf = (e: typeof entries[number]): string => {
+    const c = e.supported_parameters ?? [];
+    return `${c.includes('tools') ? 'T' : '·'}${c.includes('vision') || c.includes('image') ? 'V' : '·'}${c.includes('reasoning') ? 'R' : '·'}`;
+  };
+  if (isJson) { console.log(JSON.stringify(entries, null, 2)); }
+  else {
+    for (const e of entries) {
+      const ctx = e.ctx ? (e.ctx >= 1e6 ? `${Math.round(e.ctx / 1e6)}M` : `${Math.round(e.ctx / 1000)}k`) : '—';
+      const pi = e.price_in !== undefined && e.price_in >= 0 ? e.price_in * 1e6 : null;
+      const po = e.price_out !== undefined && e.price_out >= 0 ? e.price_out * 1e6 : null;
+      const fmn = (x: number): string => (x % 1 === 0 ? String(x) : x.toFixed(1));
+      const price = pi !== null ? `$${fmn(pi)}/$${fmn(po ?? 0)}` : '—/—';
+      console.log(`${e.pinned ? '*' : ' '} ${e.id.padEnd(34)} ${(e.role ?? '').padEnd(10)} ${ctx.padEnd(6)} ${price.padEnd(12)} ${capsOf(e)} spend=$${(e.spend_usd ?? 0).toFixed(4)}`);
+    }
+  }
+  process.exit(0);
+}
+
+if (command === 'do') {
+  const phrase = cleanArgs.slice(1).join(' ');
+  const yes = args.includes('--yes');
+  const r = runJbone(phrase, { yes });
+  if (r.status === 'no-match') { console.error('jbone: no template matched'); process.exit(2); }
+  console.log(r.confirm);
+  if (r.status === 'pending-confirm') { console.log('re-run with --yes to dispatch to lane ' + (r.template ?? '')); process.exit(0); }
+  console.log(`jbone: ${r.status} lane=${r.lane} plan=${r.plan ?? '-'}`);
   process.exit(0);
 }
 
@@ -190,6 +351,76 @@ if (command === 'chat') {
   process.exit(r.status ?? 0);
 }
 
+if (command === 'drop') {
+  // warroom-v2-c4m8: `timmy drop --list [project]` — what sits in each project
+  // folder's drop/ shelf, read through Claude Code's harness-menu reader
+  const want = args.find(a => !a.startsWith('--')) ?? null;
+  const hm = await import('../fleet/harness-menu.mjs');
+  const { readdirSync, statSync } = await import('node:fs');
+  const names = (want ? [want] : readdirSync(hm.PROJECTS_ROOT, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)).sort();
+  const rows: { project: string; file: string; bytes: number }[] = [];
+  for (const n of names) {
+    const p = hm.readProject(n, hm.PROJECTS_ROOT);
+    for (const d of p.drop ?? []) {
+      const rel = String(d.path ?? d.name ?? '');
+      try { rows.push({ project: n, file: rel, bytes: statSync(`${p.dir}/drop/${rel}`).size }); }
+      catch { rows.push({ project: n, file: rel, bytes: 0 }); }
+    }
+  }
+  if (args.includes('--json')) console.log(JSON.stringify({ v: 1, count: rows.length, rows }, null, 1));
+  else if (rows.length === 0) console.log('drop shelves empty — timmy drop <project> <file> to feed a run');
+  else for (const r of rows) console.log(`${r.project.padEnd(14)} ${String(r.bytes).padStart(9)}  ${r.file}`);
+  process.exit(0);
+}
+
+if (command === 'profile') {
+  // warroom-t3b1: save/restore the war room from ~/timmy/projects/<name>/profile.cue
+  const name = String(args[1] ?? 'default');
+  const wr = await import('./harness/warroom.js');
+  if (args.includes('--restore')) {
+    const p = wr.loadProfile(name);
+    if (!p) { console.error(`no profile at ${wr.profilePath(name)}`); process.exit(2); }
+    const r = wr.startWarRoom(p);
+    console.log(r.ok ? `war room restored from ${wr.profilePath(name)} (session ${wr.WAR_SESSION})` : `restore failed: ${r.note}`);
+    process.exit(r.ok ? 0 : 1);
+  }
+  const p = wr.defaultProfile();
+  p.name = name;
+  const f = wr.saveProfile(p);
+  console.log(`profile saved → ${f}`);
+  process.exit(0);
+}
+if (command === 'starship') {
+  const { readChain } = await import('./utils/receipts.js');
+  const all = readChain('runs');
+  const head = String(all[all.length - 1]?.hash ?? '—').slice(7, 15);
+  const day = new Date().toISOString().slice(0, 10);
+  const spend = all.filter(r => String(r.ts).slice(0, 10) === day).reduce((n, r) => n + (r.cost_usd ?? 0), 0);
+  const profile = process.env.TIMMY_PROFILE ?? 'default';
+  console.log(`chain ${head} · $${spend.toFixed(2)} · ${profile}`);
+  process.exit(0);
+}
+if (command === 'zsh') {
+  if (args[1] !== 'install') { console.error('usage: timmy zsh install'); process.exit(2); }
+  const { homedir } = await import('os');
+  const { join } = await import('path');
+  const { existsSync, readFileSync, appendFileSync, mkdirSync } = await import('fs');
+  const zsh = join(homedir(), '.zshrc');
+  const block = [
+    '', '# timmy warroom (timmy zsh install)',
+    'tp() { export TIMMY_PROFILE="${1:-default}"; timmy profile "$TIMMY_PROFILE" --restore && tmux attach -t timmy-war; }',
+  ].join('\n');
+  const cur = existsSync(zsh) ? readFileSync(zsh, 'utf8') : '';
+  if (!cur.includes('tp() {')) appendFileSync(zsh, block + '\n');
+  const star = join(homedir(), '.config', 'starship.toml');
+  mkdirSync(join(homedir(), '.config'), { recursive: true });
+  const scur = existsSync(star) ? readFileSync(star, 'utf8') : '';
+  if (!scur.includes('[custom.timmy]')) {
+    appendFileSync(star, '\n[custom.timmy]\ncommand = "timmy starship"\ndescription = "chain head · spend · profile"\nwhen = true\nformat = "[$output]($style) "\nstyle = "bold green"\n');
+  }
+  console.log(`zsh installed: ${zsh} + ${star}`);
+  process.exit(0);
+}
 if (command === 'seal') {
   // Generic sealing verb (SHOWRUNNER Phase A-FIX): thin CLI wrapper over
   // the same appendReceipt path the chat uses. Subjects are data — no
@@ -197,9 +428,15 @@ if (command === 'seal') {
   // appends through the canonical writer, never edits chain logic.
   const meta: Record<string, string> = {};
   const subject: string[] = [];
+  const artifacts: string[] = [];
+  const cites: string[] = [];
   for (let i = 1; i < args.length; i++) {
     const a = String(args[i]);
-    if (a === '--meta') {
+    if (a === '--artifact') {
+      artifacts.push(String(args[++i] ?? ''));
+    } else if (a === '--cite') {
+      cites.push(String(args[++i] ?? ''));
+    } else if (a === '--meta') {
       const kv = String(args[++i] ?? '');
       const eq = kv.indexOf('=');
       if (eq > 0) meta[kv.slice(0, eq)] = kv.slice(eq + 1);
@@ -214,7 +451,112 @@ if (command === 'seal') {
     console.error('usage: timmy seal <subject> [--meta k=v]…');
     process.exit(2);
   }
-  const { appendReceipt } = await import('./utils/receipts.js');
+  // privacy-d5n9 gate: a receipt is public evidence, so the seal tool refuses a
+  // subject or meta value that carries a secret, personal data, or a
+  // site-specific address (lanes/privacy/patterns.json). --allow-privacy is the
+  // operator's override and is itself recorded on the receipt.
+  {
+    const { loadPatterns, scanText } = await import('../lanes/privacy/scan.mjs');
+    const P = loadPatterns();
+    const text = [`subject=${subj}`, ...Object.entries(meta).map(([k, v]) => `${k}=${v}`)].join('\n');
+    const hits = scanText(text, 'seal', P, 'seal').filter((h) => ['critical', 'high', 'medium'].includes(h.severity));
+    if (hits.length && !args.includes('--allow-privacy')) {
+      console.error(`refused: ${hits.length} privacy finding(s) in the seal (${[...new Set(hits.map((h) => h.pattern))].join(', ')}); use node ids, relative paths and no addresses, or pass --allow-privacy`);
+      process.exit(3);
+    }
+    if (hits.length) meta.privacy_override = `allowed ${hits.length}: ${[...new Set(hits.map((h) => h.pattern))].join(',')}`;
+  }
+
+  const { appendReceipt, receiptsDir, rootStoreDir } = await import('./utils/receipts.js');
+  // STORE PIN preflight (order template line): print resolved store; STOP if not root.
+  const rd = receiptsDir();
+  const root = rootStoreDir();
+  console.log(`store: ${rd}`);
+  if (root && rd !== root) {
+    console.error('STOP: resolved store is not the pinned root store');
+    process.exit(2);
+  }
+  // DOCTRINE §14 — a seal must cite artifacts that exist at seal time.
+  // --artifact <path> must exist (its sha256 is recorded in the seal);
+  // --cite <hash|id> must resolve to a receipt already on the chain.
+  // Otherwise the tool refuses: no seal is written.
+  if (artifacts.length || cites.length) {
+    const crypto = await import('crypto');
+    const fsx = await import('fs');
+    const shas: string[] = [];
+    for (const ap of artifacts) {
+      if (!ap || !fsx.existsSync(ap)) {
+        console.error(`REFUSED (§14): cited artifact does not exist at seal time: ${ap || '(empty)'}`);
+        process.exit(2);
+      }
+      shas.push(`${ap}@sha256_${crypto.createHash('sha256').update(fsx.readFileSync(ap)).digest('hex')}`);
+    }
+    if (cites.length) {
+      const { readChain } = await import('./utils/receipts.js');
+      const chain = readChain('runs');
+      for (const c of cites) {
+        const hit = chain.some(r => r.hash === c || r.hash.endsWith(c) || r.id === c || String(r.id).includes(c));
+        if (!hit) {
+          console.error(`REFUSED (§14): cited receipt is not on the chain: ${c}`);
+          process.exit(2);
+        }
+      }
+    }
+    if (shas.length) meta.artifact_shas = shas.join(',');
+  }
+  // DOCTRINE §11 — the roster. A gate that can be forgotten is not a gate:
+  // render.cut seals only against a scorecard carrying a row for every
+  // roster gate (pass or fail, never absent); the roster itself changes
+  // only through roster.amend with a reason.
+  if (subj === 'roster.amend') {
+    if (!String(meta.reason ?? '').trim()) {
+      console.error('STOP: roster.amend requires --meta reason=…');
+      process.exit(2);
+    }
+  } else if (subj === 'roster' || subj === 'gates.roster') {
+    console.error('STOP: roster changes seal via `timmy seal roster.amend --meta reason=…` (DOCTRINE §11)');
+    process.exit(2);
+  } else if (subj === 'render.cut') {
+    const { readFileSync: readF, existsSync: hasF } = await import('node:fs');
+    const { join: pj, dirname: pd } = await import('node:path');
+    const { loadRoster, missingGates, scorecardRows } = await import('./utils/roster.js');
+    // rootStoreDir() yields the receipts store, not the project root — walk
+    // up from cwd and the store to find gates/roster.json.
+    let base: string | undefined;
+    for (const start of [process.cwd(), root]) {
+      if (!start) continue;
+      let d = start;
+      for (let i = 0; i < 5; i++) {
+        if (hasF(pj(d, 'gates', 'roster.json'))) { base = d; break; }
+        const up = pd(d);
+        if (up === d) break;
+        d = up;
+      }
+      if (base) break;
+    }
+    const roster = base ? loadRoster(base) : null;
+    if (!roster) {
+      console.error('STOP: gates/roster.json not found — render.cut refuses (DOCTRINE §11)');
+      process.exit(2);
+    }
+    const ids = roster.gates.map((g) => g.id).join(', ');
+    if (!meta.scorecard) {
+      console.error(`STOP: render.cut requires --meta scorecard=<path> with rows for: ${ids}`);
+      process.exit(2);
+    }
+    let sc: unknown;
+    try {
+      sc = JSON.parse(readF(meta.scorecard, 'utf8'));
+    } catch {
+      console.error(`STOP: scorecard unreadable: ${meta.scorecard}`);
+      process.exit(2);
+    }
+    const missing = missingGates(roster, scorecardRows(sc));
+    if (missing.length) {
+      console.error(`STOP: scorecard missing roster rows: ${missing.join(', ')} — pass or fail, never absent`);
+      process.exit(2);
+    }
+  }
   const r = appendReceipt('runs', {
     kind: 'seal', subject: subj, policy: 'auto', sources: [meta],
   } as never);
@@ -233,15 +575,39 @@ if (command === 'nfc' || command === 'custody') {
   process.exit(r.status ?? 1);
 }
 
-if (command === 'commander' || command === 'cf' || command === 'project' || command === 'sim' || command === 'reconcile') {
+if (command === 'demo') {
+  // chain-views-e6p2: scripted, replayable war-room session on placeholder
+  // data — cast + gif + mp4 + demo.cast seal. Runs under tsx (ink render).
+  const r = spawnSync('npx', ['tsx', 'src/demo/cast.ts', ...args], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
+if (command === 'privacy') {
+  // privacy-d5n9: `timmy privacy scan|audit|fixture|hook` — the public-repo privacy gate.
+  const lane = fileURLToPath(new URL('../lanes/privacy/scan.mjs', import.meta.url));
+  const r = spawnSync('node', [lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
+if (command === 'commander' || command === 'cf' || command === 'project' || command === 'sim' || command === 'swarm' || command === 'engine' || command === 'sandbox' || command === 'wire' || command === 'jcode' || command === 'schema' || command === 'docker' || command === 'abilities' || command === 'reconcile') {
   // mindship-v5c2 lanes: `timmy commander …` drives the durable Commander on
   // timmy-ai-proxy; `timmy cf …` is the Cloudflare war-room feed + verbs;
   // `timmy project new|menu|list` is the project folder standard; `timmy sim
-  // run|replay` is THE SHIP story simulator. All live under lanes/ and run
-  // under tsx so they can import repo TypeScript where they need it.
-  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', reconcile: '../lanes/openrouter/reconcile.mjs' };
-  const lane = fileURLToPath(new URL(lanes[command], import.meta.url));
-  const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  // run|replay` is THE SHIP story simulator. shelf-w6d3 lanes: `timmy engine …`
+  // is the engine shelf (inventory, env-locks, drop-folder runs), `timmy
+  // sandbox …` the OpenHands SDK container lane, `timmy wire …` the MCP wire
+  // tools; `timmy swarm …` (swarm-b3k7) runs swarm specs on the commander or
+  // locally. captain-y9g4: `timmy jcode …` is JCODE AS CAPTAIN (isolated home,
+  // provider profiles, the Timmy MCP bridge, serve as the commander handoff
+  // target); `timmy schema …` is tool-schema compliance (Timmy's MCP server
+  // against the strictest validator + the per-model strict|lenient map + the
+  // harness×model gate); `timmy reconcile …` (ledger-r4k2) amends the in-call
+  // ledger against OpenRouter's generations API. All run under tsx (or node) so
+  // they can import repo TypeScript where they need it.
+  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', engine: '../lanes/engines/lane.mjs', sandbox: '../lanes/sandbox/sandbox.mjs', wire: '../lanes/wire/wire.mjs', swarm: '../lanes/swarm/swarm.mjs', jcode: '../lanes/jcode/lane.mjs', schema: '../lanes/schema/lane.mjs', docker: '../lanes/docker/lane.mjs', abilities: '../lanes/abilities/registry.mjs', reconcile: '../lanes/openrouter/reconcile.mjs' };
+  const runner = ['jcode', 'schema', 'docker', 'abilities'].includes(command) ? 'node' : 'npx';
+  const runArgs = runner === 'node' ? [fileURLToPath(new URL(lanes[command], import.meta.url)), ...args.slice(1)] : ['tsx', fileURLToPath(new URL(lanes[command], import.meta.url)), ...args.slice(1)];
+  const r = spawnSync(runner, runArgs, { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
   process.exit(r.status ?? 1);
 }
 
@@ -298,18 +664,9 @@ if (command === 'approve') {
 }
 
 if (command === 'map') {
-  // Mission Map: serve the tldraw instance + open it (carbonyl if present)
-  const { spawnSync, spawn } = await import('child_process');
-  const probe = spawnSync('curl', ['-s', '--max-time', '1', 'http://localhost:4321/'], { encoding: 'utf8' });
-  if (probe.status !== 0) {
-    const srv = spawn('python3', ['-m', 'http.server', '4321', '-d', 'studio/tldraw-mission-map'], { detached: true, stdio: 'ignore' });
-    srv.unref();
-  }
-  const hasCarbonyl = spawnSync('command -v carbonyl', { encoding: 'utf8', shell: true }).status === 0;
-  const opener = spawn(hasCarbonyl ? 'carbonyl' : 'open', ['http://localhost:4321'], { detached: true, stdio: 'ignore' });
-  opener.unref();
-  console.log(`mission map: http://localhost:4321 (${hasCarbonyl ? 'carbonyl' : 'browser'})`);
-  process.exit(0);
+  const { runVisionCli } = await import('./vision/cli.js');
+  await runVisionCli(['open', ...cleanArgs.slice(1)]);
+  process.exit(process.exitCode ?? 0);
 }
 
 if (command === 'q') {
@@ -361,6 +718,24 @@ if (command === 'design') {
   }
   console.error('Usage: timmy design list | timmy design run <genId>');
   process.exit(2);
+}
+
+if (command === 'connect') {
+  // SPEC §00 journey step 2: bind a tool binary into the chain as an env.lock
+  // receipt. Real check (PATH resolve), local, no spend; HOME ladder reads it.
+  const tool = args[1];
+  if (!tool) { console.error('Usage: timmy connect <tool>'); process.exit(2); }
+  const w = spawnSync('bash', ['-lc', `command -v ${JSON.stringify(tool)}`], { encoding: 'utf8', timeout: 5000 });
+  const bin = (w.stdout ?? '').trim().split('\n')[0] || '';
+  const { appendReceipt } = await import('./utils/receipts.js');
+  const rec = appendReceipt('runs', {
+    kind: 'env.lock',
+    subject: `connect.${tool} · ${bin || 'not found on PATH'}`,
+    policy: 'human-gated',
+    status: bin ? 'ok' : 'failed'
+  });
+  console.log(`${bin ? '✓' : '✕'} connect.${tool} · ${bin || 'not found'} · ${rec.hash.slice(0, 16)}`);
+  process.exit(bin ? 0 : 1);
 }
 
 if (command === 'export') {

@@ -3,21 +3,21 @@
   "kind": "local coding agent CLI (Python, OpenHands SDK); bin is a uv-tool python entry script",
   "measured_at": "2026-09-07T10:51:31.698Z",
   "host": {
-    "hostname": "Williams-MacBook-Pro-2.local",
+    "hostname": "<hostname>.local",
     "platform": "darwin 25.6.0 arm64",
     "node": "v26.6.0"
   },
   "binary": {
-    "path": "/Users/williammeldman/.local/bin/openhands",
+    "path": "<home>/.local/bin/openhands",
     "exists": true,
-    "symlink": "/Users/williammeldman/.local/share/uv/tools/openhands/bin/openhands",
-    "kind": "script (#!/Users/williammeldman/.local/share/uv/tools/openhands/bin/python)",
+    "symlink": "<home>/.local/share/uv/tools/openhands/bin/openhands",
+    "kind": "script (#!<home>/.local/share/uv/tools/openhands/bin/python)",
     "size": 354,
     "sha256": "4befd0f19c859aeba4130d0092f2d5f47218038c8aff3235a4e2309b8c2beb6b",
     "sha256_note": "binary is a wrapper/entry script, so this sha256 covers only the script text, not the interpreter or the package it launches"
   },
   "version": "1.16.0",
-  "version_raw": "/Users/williammeldman/.local/share/uv/tools/openhands/lib/python3.12/site-packages/openhands/sdk/llm/auth/openai.py:25: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead. | It will be compatible before version 2.0.0. |   from authlib.jose import JsonWebKey, jwt",
+  "version_raw": "<home>/.local/share/uv/tools/openhands/lib/python3.12/site-packages/openhands/sdk/llm/auth/openai.py:25: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead. | It will be compatible before version 2.0.0. |   from authlib.jose import JsonWebKey, jwt",
   "model": "google/gemini-3.7-flash",
   "model_route": "OpenRouter via LiteLLM: LLM_MODEL=openrouter/<model>, LLM_BASE_URL=https://openrouter.ai/api/v1, LLM_API_KEY from env, enabled with --override-with-envs",
   "isolation": "HOME={SCRATCH}/fakehome plus OPENHANDS_PERSISTENCE_DIR={HOME}. A fake HOME is required, not just nice: with the real HOME the SDK crawls ~/.agents/skills (1,632 skill symlinks, 34,572 files, 280 MB on this machine; no env override exists) and had not finished loading skills after 120 s in three attempts, and it also writes ~/.openhands/cache/skills. The public-skills git clone is copied from the user's existing cache into the fake HOME so no network clone is needed. User's ~/.openhands config untouched.",
@@ -70,13 +70,13 @@
     },
     "sandbox": {
       "value": false,
-      "method": "compare reported hostname/pwd with this machine (hostname=Williams-MacBook-Pro-2.local, cwd=<temp dir>); a different hostname or a container-style path means sandboxed",
+      "method": "compare reported hostname/pwd with this machine (hostname=<hostname>.local, cwd=<temp dir>); a different hostname or a container-style path means sandboxed",
       "evidence": [
         9,
         4,
         10
       ],
-      "note": "reported this machine's hostname (Williams-MacBook-Pro-2.local) and the real temp cwd, so tools run directly on the host. tail: \"/llm/auth/openai.py:25: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\\nIt will be compatible before version 2.0.0.\\n  from authlib.jose import JsonWebKey, jwt\" docker ps before/after: unavailable (failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory) / unavailable"
+      "note": "reported this machine's hostname (<hostname>.local) and the real temp cwd, so tools run directly on the host. tail: \"/llm/auth/openai.py:25: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\\nIt will be compatible before version 2.0.0.\\n  from authlib.jose import JsonWebKey, jwt\" docker ps before/after: unavailable (failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory) / unavailable"
     },
     "mcp_client": {
       "value": false,
@@ -88,14 +88,14 @@
         12,
         13
       ],
-      "note": "not called: real marker absent; tool name mentioned=true; os/arch fields=false; tool lines: []. `openhands mcp add` writes <OPENHANDS_PERSISTENCE_DIR>/mcp.json in the isolated dir. tail: \" await at /Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/order-mindship-v5c2/src/cli.ts:286\\n  await new Promise(() => {}); // stdio server owns the event loop — never exit\\n  ^\""
+      "note": "not called: real marker absent; tool name mentioned=true; os/arch fields=false; tool lines: []. `openhands mcp add` writes <OPENHANDS_PERSISTENCE_DIR>/mcp.json in the isolated dir. tail: \" await at <repo>/.claude/worktrees/order-mindship-v5c2/src/cli.ts:286\\n  await new Promise(() => {}); // stdio server owns the event loop — never exit\\n  ^\""
     }
   },
   "probes": {
     "one_shot": {
       "id": 5,
       "argv": [
-        "/Users/williammeldman/.local/bin/openhands",
+        "<home>/.local/bin/openhands",
         "--headless",
         "--json",
         "--override-with-envs",
@@ -104,7 +104,7 @@
         "-t",
         "Reply with exactly the word PONG and nothing else"
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/one_shot",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/one_shot",
       "exit": 0,
       "ms": 41511,
       "timed_out": false,
@@ -113,7 +113,7 @@
     "file_edits": {
       "id": 6,
       "argv": [
-        "/Users/williammeldman/.local/bin/openhands",
+        "<home>/.local/bin/openhands",
         "--headless",
         "--json",
         "--override-with-envs",
@@ -122,7 +122,7 @@
         "-t",
         "Create a file named PROBE.txt in the current directory containing exactly the text probe-ok, then stop."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/file_edits",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/file_edits",
       "exit": 0,
       "ms": 36628,
       "timed_out": false,
@@ -131,7 +131,7 @@
     "tool_use": {
       "id": 7,
       "argv": [
-        "/Users/williammeldman/.local/bin/openhands",
+        "<home>/.local/bin/openhands",
         "--headless",
         "--json",
         "--override-with-envs",
@@ -140,7 +140,7 @@
         "-t",
         "Run the shell command `echo TOOL-OK-4471` and report its output verbatim."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/tool_use",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/tool_use",
       "exit": 0,
       "ms": 24875,
       "timed_out": false,
@@ -149,7 +149,7 @@
     "browser": {
       "id": 8,
       "argv": [
-        "/Users/williammeldman/.local/bin/openhands",
+        "<home>/.local/bin/openhands",
         "--headless",
         "--json",
         "--override-with-envs",
@@ -158,7 +158,7 @@
         "-t",
         "Fetch https://example.com and report the exact page title."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/browser",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/browser",
       "exit": 0,
       "ms": 26424,
       "timed_out": false,
@@ -167,7 +167,7 @@
     "sandbox": {
       "id": 9,
       "argv": [
-        "/Users/williammeldman/.local/bin/openhands",
+        "<home>/.local/bin/openhands",
         "--headless",
         "--json",
         "--override-with-envs",
@@ -176,7 +176,7 @@
         "-t",
         "Run the shell commands `hostname` and `pwd` and report both verbatim."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/sandbox",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/sandbox",
       "exit": 0,
       "ms": 24682,
       "timed_out": false,
@@ -185,7 +185,7 @@
     "mcp_client": {
       "id": 13,
       "argv": [
-        "/Users/williammeldman/.local/bin/openhands",
+        "<home>/.local/bin/openhands",
         "--headless",
         "--json",
         "--override-with-envs",
@@ -194,7 +194,7 @@
         "-t",
         "Call the MCP tool timmy_env_lock and paste its raw JSON result."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/mcp_client",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/probes/mcp_client",
       "exit": 0,
       "ms": 16401,
       "timed_out": false,
@@ -221,8 +221,8 @@
   "notes": [],
   "setup_files": [
     {
-      "copied": "/Users/williammeldman/.openhands/cache/skills/public-skills",
-      "to": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/fakehome/.openhands/cache/skills/public-skills"
+      "copied": "<home>/.openhands/cache/skills/public-skills",
+      "to": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/openhands/fakehome/.openhands/cache/skills/public-skills"
     }
   ],
   "docker_before": {

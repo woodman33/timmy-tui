@@ -1,0 +1,49 @@
+{
+ "kind": "blueprint",
+ "name": "Defold · sprite-atlas",
+ "source": "lanes/engines/defold/templates/sprite-atlas/plan.cue",
+ "date": "2026-09-07",
+ "engine": "defold",
+ "workflow": "sprite-atlas",
+ "note": "One zipped Defold project dropped into a project's drop/ folder has its atlases compiled and the texture outputs copied into out/. The lane runs bob.jar (engine sha 574678c7, Defold 1.13.1) under Defold's own JDK 25, focused on the atlases with --build-input; the engine.run receipt cites the input, the source PNG sha256, every compiled texture and the Defold env-lock.",
+ "sheets": [
+  {
+   "id": "inputs",
+   "title": "Inputs · drop/",
+   "rows": [
+    { "label": "project", "value": "*.defold.zip", "note": "game.project at the zip root; at least one .atlas or .tilesource inside" },
+    { "label": "staged", "value": "*.atlas · *.tilesource · *.png · *.jpg", "note": "an atlas or image alone cannot compile; zip it with its project (rules: stage)" },
+    { "label": "refused", "value": "> 512 MB", "note": "rules: refuse → engine.refuse receipt" }
+   ]
+  },
+  {
+   "id": "steps",
+   "title": "Steps",
+   "rows": [
+    { "label": "1 unpack", "value": "unzip → out/project + {stem}.project.json", "note": "run.mjs unpack · lists every .atlas/.tilesource" },
+    { "label": "2 hash sources", "value": "image: \"/main/tile.png\" → sha256 · bytes · width × height", "note": "parsed from the atlas text, PNG size from IHDR" },
+    { "label": "3 build", "value": "bob --platform <host> --build-input /builtins/graphics/default.texture_profiles --build-input <atlas>… build", "note": "run.mjs atlas · focused build; a full build if that fails (report: focused=false)" },
+    { "label": "4 copy", "value": "build/default/<path>.texturec + <path>.texturesetc → out/{stem}.<path>.texturec …", "note": "each copied file hashed into {stem}.atlas.json" }
+   ]
+  },
+  {
+   "id": "outputs",
+   "title": "Outputs · out/",
+   "rows": [
+    { "label": "texture", "value": "{stem}.<path>.texturec", "note": "image · the packed atlas texture bob compiled" },
+    { "label": "textureset", "value": "{stem}.<path>.texturesetc", "note": "archive · frame/animation table (Defold 1.13 names it <atlas>.a.texturesetc)" },
+    { "label": "report", "value": "{stem}.atlas.json", "note": "atlases, source images (sha256, size), compiled files (bytes, sha256), focused, engine sha, bob version" },
+    { "label": "step report", "value": "{stem}.project.json", "note": "unpack details" }
+   ]
+  },
+  {
+   "id": "receipt",
+   "title": "Receipt · engine.run",
+   "rows": [
+    { "label": "cites", "value": "input sha256 · texture output sha256s · env-lock sha256 · template shas", "note": "sealed in the root store by the lane" },
+    { "label": "extra", "value": "atlas_count · atlas_paths · source_images · png_sha256 · compiled_count · compiled_bytes · focused · engine_sha · bob_version", "note": "from {stem}.atlas.json" },
+    { "label": "acceptance", "value": "texturec + texturesetc per atlas · report names images and outputs · receipt cites input, outputs, png sha, env-lock", "note": "three lines" }
+   ]
+  }
+ ]
+}

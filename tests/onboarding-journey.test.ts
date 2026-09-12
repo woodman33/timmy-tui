@@ -12,7 +12,9 @@ process.env.TIMMY_TELEMETRY_URL = 'off';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-// cold profile: empty chat history + scratch .timmy so View [1] is truly cold
+// cold profile: empty chat history + scratch cwd so View [1] is truly cold.
+// Safe under parallelism now that store resolution honors per-test TIMMY_STORE
+// (isolation-setup) and no longer depends on process.cwd (tui-redesign corr 1).
 let scratch = '';
 let home = '';
 beforeAll(() => {
@@ -25,7 +27,11 @@ afterAll(() => {
   rmSync(scratch, { recursive: true, force: true });
 });
 
-describe('onboarding journey', () => {
+describe('onboarding journey', { timeout: 60000 }, () => {
+  // CUTOVER: legacy nine-view shell lives behind TIMMY_SHELL=v1 for one
+  // release; pinned inside the lifecycle so it cannot leak across test files
+  beforeAll(() => { process.env.TIMMY_SHELL = 'v1'; });
+  afterAll(() => { delete process.env.TIMMY_SHELL; });
   it('first-run gate triggers splash; teach gates reject wrong keys; ends in View [1]', async () => {
     const view = render(React.createElement(App, { config: {} as never })); // onboarded unset
     await sleep(400);
@@ -84,5 +90,5 @@ describe('onboarding journey', () => {
     expect(f).toContain('▸ 2 spawn a lane');
 
     view.unmount();
-  }, 30000);
+  }, 120000); // App mount blocks on the startup health probe in cold networks
 });

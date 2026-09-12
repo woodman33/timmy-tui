@@ -3,7 +3,7 @@
   "kind": "local coding agent (@mariozechner/pi-coding-agent, Node)",
   "measured_at": "2026-09-07T10:48:22.775Z",
   "host": {
-    "hostname": "Williams-MacBook-Pro-2.local",
+    "hostname": "<hostname>.local",
     "platform": "darwin 25.6.0 arm64",
     "node": "v26.6.0"
   },
@@ -65,11 +65,11 @@
     },
     "sandbox": {
       "value": false,
-      "method": "compare reported hostname/pwd with this machine (hostname=Williams-MacBook-Pro-2.local, cwd=<temp dir>); a different hostname or a container-style path means sandboxed",
+      "method": "compare reported hostname/pwd with this machine (hostname=<hostname>.local, cwd=<temp dir>); a different hostname or a container-style path means sandboxed",
       "evidence": [
         8
       ],
-      "note": "reported this machine's hostname (Williams-MacBook-Pro-2.local) and the real temp cwd, so tools run directly on the host. tail: \"\\\":0,\\\"totalTokens\\\":997,\\\"cost\\\":{\\\"input\\\":0,\\\"output\\\":0,\\\"cacheRead\\\":0,\\\"cacheWrite\\\":0,\\\"total\\\":0}},\\\"stopReason\\\":\\\"stop\\\",\\\"timestamp\\\":1788778198364,\\\"responseId\\\":\\\"chatcmpl-208\\\",\\\"responseModel\\\":\\\"glm-5.3-flash\\\"}]}\""
+      "note": "reported this machine's hostname (<hostname>.local) and the real temp cwd, so tools run directly on the host. tail: \"\\\":0,\\\"totalTokens\\\":997,\\\"cost\\\":{\\\"input\\\":0,\\\"output\\\":0,\\\"cacheRead\\\":0,\\\"cacheWrite\\\":0,\\\"total\\\":0}},\\\"stopReason\\\":\\\"stop\\\",\\\"timestamp\\\":1788778198364,\\\"responseId\\\":\\\"chatcmpl-208\\\",\\\"responseModel\\\":\\\"glm-5.3-flash\\\"}]}\""
     },
     "mcp_client": {
       "value": false,
@@ -97,7 +97,7 @@
         "off",
         "Reply with exactly the word PONG and nothing else"
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/one_shot",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/one_shot",
       "exit": 0,
       "ms": 9109,
       "timed_out": false,
@@ -119,7 +119,7 @@
         "off",
         "Create a file named PROBE.txt in the current directory containing exactly the text probe-ok, then stop."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/file_edits",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/file_edits",
       "exit": 0,
       "ms": 9023,
       "timed_out": false,
@@ -141,7 +141,7 @@
         "off",
         "Run the shell command `echo TOOL-OK-4471` and report its output verbatim."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/tool_use",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/tool_use",
       "exit": 0,
       "ms": 10410,
       "timed_out": false,
@@ -163,7 +163,7 @@
         "off",
         "Fetch https://example.com and report the exact page title."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/browser",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/browser",
       "exit": 0,
       "ms": 21171,
       "timed_out": false,
@@ -185,7 +185,7 @@
         "off",
         "Run the shell commands `hostname` and `pwd` and report both verbatim."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/sandbox",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/sandbox",
       "exit": 0,
       "ms": 19041,
       "timed_out": false,
@@ -209,7 +209,7 @@
         "/opt/homebrew/lib/node_modules/pi-mcp-adapter",
         "Call the MCP tool timmy_env_lock and paste its raw JSON result."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/mcp_client",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/mcp_client",
       "exit": 1,
       "ms": 15916,
       "timed_out": false,
@@ -230,21 +230,21 @@
     ]
   },
   "notes": [
-    "removed isolated-home credential file after run: /private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/home/auth.json"
+    "removed isolated-home credential file after run: /private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/home/auth.json"
   ],
   "setup_files": [
     {
-      "path": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/home/models.json",
+      "path": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/home/models.json",
       "bytes": 716
     },
     {
-      "path": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/home/settings.json",
+      "path": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/home/settings.json",
       "bytes": 117
     }
   ],
   "mcp_setup_files": [
     {
-      "path": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/mcp_client/.mcp.json",
+      "path": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/pi/probes/mcp_client/.mcp.json",
       "bytes": 350
     }
   ],
