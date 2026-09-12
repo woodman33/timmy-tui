@@ -214,6 +214,21 @@ if (command === 'seal') {
     console.error('usage: timmy seal <subject> [--meta k=v]…');
     process.exit(2);
   }
+  // privacy-d5n9 gate: a receipt is public evidence, so the seal tool refuses a
+  // subject or meta value that carries a secret, personal data, or a
+  // site-specific address (lanes/privacy/patterns.json). --allow-privacy is the
+  // operator's override and is itself recorded on the receipt.
+  {
+    const { loadPatterns, scanText } = await import('../lanes/privacy/scan.mjs');
+    const P = loadPatterns();
+    const text = [`subject=${subj}`, ...Object.entries(meta).map(([k, v]) => `${k}=${v}`)].join('\n');
+    const hits = scanText(text, 'seal', P, 'seal').filter((h) => ['critical', 'high', 'medium'].includes(h.severity));
+    if (hits.length && !args.includes('--allow-privacy')) {
+      console.error(`refused: ${hits.length} privacy finding(s) in the seal (${[...new Set(hits.map((h) => h.pattern))].join(', ')}); use node ids, relative paths and no addresses, or pass --allow-privacy`);
+      process.exit(3);
+    }
+    if (hits.length) meta.privacy_override = `allowed ${hits.length}: ${[...new Set(hits.map((h) => h.pattern))].join(',')}`;
+  }
   const { appendReceipt } = await import('./utils/receipts.js');
   const r = appendReceipt('runs', {
     kind: 'seal', subject: subj, policy: 'auto', sources: [meta],
@@ -230,6 +245,13 @@ if (command === 'nfc' || command === 'custody') {
   // the programmer and the verifier must share one key derivation.
   const lane = fileURLToPath(new URL(command === 'nfc' ? '../lanes/nfc/program.mjs' : '../lanes/custody/commit.mjs', import.meta.url));
   const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
+if (command === 'privacy') {
+  // privacy-d5n9: `timmy privacy scan|audit|fixture|hook` — the public-repo privacy gate.
+  const lane = fileURLToPath(new URL('../lanes/privacy/scan.mjs', import.meta.url));
+  const r = spawnSync('node', [lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
   process.exit(r.status ?? 1);
 }
 

@@ -3,7 +3,7 @@
   "kind": "NOT a local coding agent: '@animocabrands/minds-cli' is a JSON client for hosted 'Minds' conversations (send/history/events); tools, files and browsing (if any) run on the remote Mind, not on this machine",
   "measured_at": "2026-09-07T10:48:22.813Z",
   "host": {
-    "hostname": "Williams-MacBook-Pro-2.local",
+    "hostname": "<hostname>.local",
     "platform": "darwin 25.6.0 arm64",
     "node": "v26.6.0"
   },
@@ -84,7 +84,7 @@
         "--timeout",
         "30000"
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/minds/probes/one_shot",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/minds/probes/one_shot",
       "exit": 4,
       "ms": 195,
       "timed_out": false,

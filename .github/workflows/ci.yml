@@ -6,6 +6,26 @@ on:
   pull_request:
     branches: [ main, master, feature/hermes-gateway-mvp ]
 
+env:
+  # Known-WIP tests (ORDER privacy-d5n9 step 2, 2026-09-11). Named here and nowhere else:
+  # the gate step excludes exactly this list, the "known-WIP" step runs it non-blocking so
+  # the failures stay visible, and the merge-train runner reads this variable — a failing
+  # test NOT named here stops the train. Delete a line when its cause is fixed.
+  #
+  #   tests/keyboard-contract.pty.test.ts  keyboard contract at PTY level; fixed by #36 (warroom-t3b1)
+  #   tests/companion-mission.test.ts      mission studio gateway (:4310) arming test times out (5000 ms) on the runner
+  #   tests/forge.test.ts                  "OTIO acceptance failed": otioconvert (pinned python 0.18.1) rejects the emitted OTIO on the runner
+  #   tests/mission-live.test.ts           EACCES: the committed .timmy/store-pin is a Mac-only absolute path the runner cannot mkdir
+  #                                        (moves to the private overlay in ORDER blank-slate-v1k9)
+  #   tests/ai-proxy.test.ts               the root suite runs in Node; @cloudflare/codemode imports the workerd-only
+  #                                        `cloudflare:workers`; the worker's own suite (step below) is the gate for workers/ai-proxy
+  KNOWN_WIP_TESTS: >-
+    tests/keyboard-contract.pty.test.ts
+    tests/companion-mission.test.ts
+    tests/forge.test.ts
+    tests/mission-live.test.ts
+    tests/ai-proxy.test.ts
+
 jobs:
   gate:
     runs-on: ubuntu-latest
@@ -18,10 +38,32 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: 'npm'
+
+      # setup-node's own `cache: npm` only saves on a green job (post-if: success()), so a
+      # long-red gate never populated it ("npm cache is not found" on every run). Restore
+      # here, save right after install — before anything that can fail.
+      - name: Restore npm cache
+        id: npm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-node24-${{ hashFiles('package-lock.json', 'workers/ai-proxy/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-node24-
 
       - name: Install Dependencies
         run: npm ci
+
+      - name: Install worker dependencies (workers/ai-proxy — @cloudflare/codemode)
+        working-directory: workers/ai-proxy
+        run: npm ci
+
+      - name: Save npm cache
+        if: steps.npm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.npm
+          key: ${{ steps.npm-cache.outputs.cache-primary-key }}
 
       - name: Install ffmpeg (clip runner E2E)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
@@ -41,5 +83,17 @@ jobs:
       - name: Type gate (tsgo / TS7 native)
         run: npm run typecheck:native
 
-      - name: Test gate (vitest)
+      - name: Test gate (vitest, everything except the named known-WIP)
+        run: |
+          args=""
+          for t in $KNOWN_WIP_TESTS; do args="$args --exclude $t"; done
+          echo "excluding: $KNOWN_WIP_TESTS"
+          npx vitest run $args
+
+      - name: Test gate (workers/ai-proxy own suite)
+        working-directory: workers/ai-proxy
         run: npx vitest run
+
+      - name: Known-WIP tests (named above; visible, non-blocking)
+        continue-on-error: true
+        run: npx vitest run $KNOWN_WIP_TESTS

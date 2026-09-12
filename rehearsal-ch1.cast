@@ -6,7 +6,7 @@
 [0.000, "o", "\r\n"]
 [0.000, "o", "tmux Version: tmux 3.6b\r\n"]
 [0.000, "o", "tmux Sessions: 350\r\n"]
-[0.000, "o", "tmux-palette Installed: YES\r\ntmux-palette TIMMY Palette: YES\r\ntmux-palette Bindings: Ctrl+Space main, Alt+t TIMMY\r\n\r\nzellij Installed: YES\r\nzellij Version: zellij 0.44.3\r\nzellij CLI: /Users/williammeldman/.cargo/bin/zellij\r\nzellij Required for launch: NO\r\nzellij Role: optional WASM-plugin multiplexer for KDL-layout agent workspaces\r\n\r\nPreflight (v1.0.0-rc1):\r\n  ✓ docker daemon (required) — v29.4.0\r\n  ✓ comfy-cli (required)\r\n  ✓ comfy venv (filelock+sqlalchemy) (required)\r\n"]
+[0.000, "o", "tmux-palette Installed: YES\r\ntmux-palette TIMMY Palette: YES\r\ntmux-palette Bindings: Ctrl+Space main, Alt+t TIMMY\r\n\r\nzellij Installed: YES\r\nzellij Version: zellij 0.44.3\r\nzellij CLI: <home>/.cargo/bin/zellij\r\nzellij Required for launch: NO\r\nzellij Role: optional WASM-plugin multiplexer for KDL-layout agent workspaces\r\n\r\nPreflight (v1.0.0-rc1):\r\n  ✓ docker daemon (required) — v29.4.0\r\n  ✓ comfy-cli (required)\r\n  ✓ comfy venv (filelock+sqlalchemy) (required)\r\n"]
 [0.000, "o", "  ✓ cue CLI (required)\r\n  ✗ openscad — CSG renders fail closed; stage provenance still ships\r\n"]
 [0.000, "o", "  ✓ tmux — tmux 3.6b\r\n"]
 [0.000, "o", "  ✓ port 8188 (ComfyUI) — listener up\r\n  ✓ port 4310 (companion) — companion live\r\nPreflight READY — lanes may arm\r\n\r\nReady for demo: YES\r\nNext step: npm start\r\n"]

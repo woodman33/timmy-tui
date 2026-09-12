@@ -3,7 +3,7 @@
   "kind": "local coding agent (Bun-compiled binary)",
   "measured_at": "2026-09-07T10:48:20.819Z",
   "host": {
-    "hostname": "Williams-MacBook-Pro-2.local",
+    "hostname": "<hostname>.local",
     "platform": "darwin 25.6.0 arm64",
     "node": "v26.6.0"
   },
@@ -69,11 +69,11 @@
     },
     "sandbox": {
       "value": false,
-      "method": "compare reported hostname/pwd with this machine (hostname=Williams-MacBook-Pro-2.local, cwd=<temp dir>); a different hostname or a container-style path means sandboxed",
+      "method": "compare reported hostname/pwd with this machine (hostname=<hostname>.local, cwd=<temp dir>); a different hostname or a container-style path means sandboxed",
       "evidence": [
         9
       ],
-      "note": "reported this machine's hostname (Williams-MacBook-Pro-2.local) and the real temp cwd, so tools run directly on the host. tail: \"1jD1jv5ZMNuCyfY\\\",\\\"sessionID\\\":\\\"ses_f8481dd80ffeWq02fuY4EoYH73\\\",\\\"type\\\":\\\"step-finish\\\",\\\"tokens\\\":{\\\"total\\\":12780,\\\"input\\\":4750,\\\"output\\\":97,\\\"reasoning\\\":98,\\\"cache\\\":{\\\"write\\\":0,\\\"read\\\":7835}},\\\"cost\\\":0.004881375}}\""
+      "note": "reported this machine's hostname (<hostname>.local) and the real temp cwd, so tools run directly on the host. tail: \"1jD1jv5ZMNuCyfY\\\",\\\"sessionID\\\":\\\"ses_f8481dd80ffeWq02fuY4EoYH73\\\",\\\"type\\\":\\\"step-finish\\\",\\\"tokens\\\":{\\\"total\\\":12780,\\\"input\\\":4750,\\\"output\\\":97,\\\"reasoning\\\":98,\\\"cache\\\":{\\\"write\\\":0,\\\"read\\\":7835}},\\\"cost\\\":0.004881375}}\""
     },
     "mcp_client": {
       "value": true,
@@ -94,7 +94,7 @@
         "/opt/homebrew/bin/opencode",
         "run",
         "--dir",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/one_shot",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/one_shot",
         "-m",
         "openrouter/google/gemini-3.7-flash",
         "--format",
@@ -102,7 +102,7 @@
         "--auto",
         "Reply with exactly the word PONG and nothing else"
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/one_shot",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/one_shot",
       "exit": 0,
       "ms": 31691,
       "timed_out": false,
@@ -114,7 +114,7 @@
         "/opt/homebrew/bin/opencode",
         "run",
         "--dir",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/file_edits",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/file_edits",
         "-m",
         "openrouter/google/gemini-3.7-flash",
         "--format",
@@ -122,7 +122,7 @@
         "--auto",
         "Create a file named PROBE.txt in the current directory containing exactly the text probe-ok, then stop."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/file_edits",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/file_edits",
       "exit": 0,
       "ms": 57067,
       "timed_out": false,
@@ -134,7 +134,7 @@
         "/opt/homebrew/bin/opencode",
         "run",
         "--dir",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/tool_use",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/tool_use",
         "-m",
         "openrouter/google/gemini-3.7-flash",
         "--format",
@@ -142,7 +142,7 @@
         "--auto",
         "Run the shell command `echo TOOL-OK-4471` and report its output verbatim."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/tool_use",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/tool_use",
       "exit": 0,
       "ms": 28443,
       "timed_out": false,
@@ -154,7 +154,7 @@
         "/opt/homebrew/bin/opencode",
         "run",
         "--dir",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/browser",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/browser",
         "-m",
         "openrouter/google/gemini-3.7-flash",
         "--format",
@@ -162,7 +162,7 @@
         "--auto",
         "Fetch https://example.com and report the exact page title."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/browser",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/browser",
       "exit": 0,
       "ms": 23937,
       "timed_out": false,
@@ -174,7 +174,7 @@
         "/opt/homebrew/bin/opencode",
         "run",
         "--dir",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/sandbox",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/sandbox",
         "-m",
         "openrouter/google/gemini-3.7-flash",
         "--format",
@@ -182,7 +182,7 @@
         "--auto",
         "Run the shell commands `hostname` and `pwd` and report both verbatim."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/sandbox",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/sandbox",
       "exit": 0,
       "ms": 28789,
       "timed_out": false,
@@ -194,7 +194,7 @@
         "/opt/homebrew/bin/opencode",
         "run",
         "--dir",
-        "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/mcp_client",
+        "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/mcp_client",
         "-m",
         "openrouter/anthropic/claude-haiku-4.5",
         "--format",
@@ -202,7 +202,7 @@
         "--auto",
         "Call the MCP tool timmy_env_lock and paste its raw JSON result."
       ],
-      "cwd": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/mcp_client",
+      "cwd": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/mcp_client",
       "exit": 0,
       "ms": 35585,
       "timed_out": false,
@@ -229,7 +229,7 @@
   "notes": [],
   "mcp_setup_files": [
     {
-      "path": "/private/tmp/claude-501/-Users-williammeldman/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/mcp_client/opencode.json",
+      "path": "/private/tmp/claude-501/-Users-<user>/c7fd89f2-986d-4551-b6d0-4f5a66a90bb8/scratchpad/abilities/opencode/probes/mcp_client/opencode.json",
       "bytes": 431
     }
   ],
