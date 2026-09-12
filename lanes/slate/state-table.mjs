@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { renderMarkdown, stateTable } from '../../companion/slate3d/src/state.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const REPO = process.env.TIMMY_REPO ?? '/Users/williammeldman/Desktop/Code-Projects/timmy-tui';
+const REPO = process.env.TIMMY_REPO ?? '<repo>';
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d; };
 const BOARD = opt('--board', 'ledger');

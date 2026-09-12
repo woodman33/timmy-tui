@@ -14,7 +14,7 @@ const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] :
 const BOARD = opt('--board', 'ledger');
 const DESIGN = opt('--design', '');
 const WAIT = Number(opt('--wait', 6000));
-const REPO = process.env.TIMMY_REPO ?? '/Users/williammeldman/Desktop/Code-Projects/timmy-tui';
+const REPO = process.env.TIMMY_REPO ?? '<repo>';
 const PORT = Number(process.env.SLATE_PORT ?? 3111);
 const OUT = join(ROOT, 'vault-custody', 'renders', 'slate3d');
 const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');

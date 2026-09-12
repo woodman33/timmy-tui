@@ -116,6 +116,30 @@ elastic without a second governance model.
 routes local vs cloud by policy, and both routes seal receipts that verify
 in the same chain under the same approval token format. Until then: target.
 
+## V-06 · Public-Repo Privacy Gate (ORDER privacy-d5n9)
+
+**Target.** Nothing personal or site-specific reaches the public tree or its
+history: no emails, phone numbers, home paths or login names; no tailnet,
+LAN or MAC addresses, hostnames or policy text; no card serials or customer
+names; no secrets; no brand material beyond the public pitch site. The
+public tree keeps templates with placeholders; the real registry lives in
+the gitignored `.timmy/private/` overlay (`lanes/privacy/overlay.mjs`).
+
+**Why.** The repo is public. A receipt that names a Spark by its tailnet
+address, or an orders line that names a login, is a leak with a hash on it.
+
+**Verifies when.** Three gates agree, every time: the pre-commit hook
+(`timmy privacy hook install`) refuses a staged match, CI
+(`.github/workflows/privacy.yml`) fails a pushed match, and the seal tool
+(`timmy seal`) refuses a receipt that carries one. Each audit seals
+`privacy.audit` (pattern-set sha, counts per severity for every worktree and
+the full history, gitleaks report sha).
+
+**§12 negative control.** `lanes/privacy/fixtures/must-fail.txt` is a fixture
+that MUST trip the gate — `timmy privacy fixture` runs first in CI and fails
+the job when the fixture passes clean. A gate that cannot fail its own
+fixture is not a gate; the graduation receipt cites the fixture run.
+
 ---
 
 Maintenance: edits here are documentation-only. Moving a target into runtime

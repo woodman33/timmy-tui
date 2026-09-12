@@ -274,7 +274,7 @@ paths:
               EndpointsConfig:
                 isolated_nw:
                   IPAMConfig:
-                    IPv4Address: 172.20.30.33
+                    IPv4Address: <lan-ip>
                     IPv6Address: 2001:db8:abcd::3033
                     LinkLocalIPs:
                     - 169.254.34.68
@@ -1424,7 +1424,7 @@ definitions:
           type: string
           format: CIDR
           example:
-          - 10.10.0.0/16
+          - <lan-ip>/16
           - 20.20.0.0/16
       SubnetSize:
         description: 'SubnetSize specifies the subnet size of the networks created from the
@@ -2365,7 +2365,7 @@ definitions:
     properties:
       IPv4Address:
         type: string
-        example: 172.20.30.33
+        example: <lan-ip>
         x-go-type:
           type: Addr
           import:
@@ -2407,7 +2407,7 @@ definitions:
 
           '
         type: string
-        example: 02:42:ac:11:00:04
+        example: <mac>
         x-go-type:
           type: HardwareAddr
       Aliases:
@@ -2463,13 +2463,13 @@ definitions:
 
           '
         type: string
-        example: 172.17.0.1
+        example: <lan-ip>
       IPAddress:
         description: 'IPv4 address.
 
           '
         type: string
-        example: 172.17.0.4
+        example: <lan-ip>
         x-go-type:
           type: Addr
           import:
@@ -4356,12 +4356,12 @@ definitions:
       EndpointsConfig:
         isolated_nw:
           IPAMConfig:
-            IPv4Address: 172.20.30.33
+            IPv4Address: <lan-ip>
             IPv6Address: 2001:db8:abcd::3033
             LinkLocalIPs:
             - 169.254.34.68
             - fe80::3468
-          MacAddress: 02:42:ac:12:05:02
+          MacAddress: <mac>
           Links:
           - container_1
           - container_2
@@ -5359,7 +5359,7 @@ definitions:
           '
         type: string
         default: ''
-        example: 10.0.0.46
+        example: <lan-ip>
       LocalNodeState:
         $ref: '#/definitions/LocalNodeState'
       ControlAvailable:
@@ -5380,11 +5380,11 @@ definitions:
           $ref: '#/definitions/PeerNode'
         example:
         - NodeID: 71izy0goik036k48jg985xnds
-          Addr: 10.0.0.158:2377
+          Addr: <lan-ip>:2377
         - NodeID: 79y6h1o4gv8n120drcprv5nmc
-          Addr: 10.0.0.159:2377
+          Addr: <lan-ip>:2377
         - NodeID: k67qz4598weg5unwwffg6z1m1
-          Addr: 10.0.0.46:2377
+          Addr: <lan-ip>:2377
       Nodes:
         description: Total number of nodes in the swarm.
         type: integer
@@ -6155,7 +6155,7 @@ definitions:
           specified in the daemon.json file or dockerd option.
 
 
-          Example: a Base "10.10.0.0/16" with Size 24 will define the set of 256
+          Example: a Base "<lan-ip>/16" with Size 24 will define the set of 256
 
           10.10.[0-255].0/24 address pools.
 
@@ -6167,7 +6167,7 @@ definitions:
             Base:
               description: The network address in CIDR format
               type: string
-              example: 10.10.0.0/16
+              example: <lan-ip>/16
             Size:
               description: The network pool size
               type: integer

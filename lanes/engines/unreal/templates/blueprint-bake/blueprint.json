@@ -1,0 +1,30 @@
+{
+ "kind": "blueprint",
+ "name": "Unreal · blueprint-bake",
+ "source": "lanes/engines/unreal/templates/blueprint-bake/plan.cue",
+ "date": "2026-09-07",
+ "engine": "unreal",
+ "workflow": "blueprint-bake",
+ "proven": false,
+ "note": "AUTHORED, UNPROVEN: no Unreal Editor on this Mac. CompileAllBlueprints is Epic's commandlet for exactly this; it becomes proven the first time a runner with the editor executes it through a drop folder.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "project", "value": "*.uproject (+ folder)", "note": "rules: run" },
+   { "label": "assets", "value": "*.uasset · *.umap", "note": "rules: stage" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 compile", "value": "UnrealEditor-Cmd <uproject> -run=CompileAllBlueprints -unattended -nopause -nosplash -NullRHI -log=<out>/<stem>.compile.log", "note": "" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "log", "value": "{stem}.compile.log", "note": "blueprints compiled, errors" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "project sha256 · log sha256 · env-lock", "note": "" },
+   { "label": "extra", "value": "blueprints · errors", "note": "parsed from the log" }
+  ] },
+  { "id": "sources", "title": "Sources", "rows": [
+   { "label": "commandlet", "value": "https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Editor/UnrealEd/Commandlets/UCompileAllBlueprintsCommandlet", "note": "CompileAllBlueprints" },
+   { "label": "flags", "value": "https://dev.epicgames.com/documentation/en-us/unreal-engine/command-line-arguments-in-unreal-engine", "note": "-unattended -nopause -nosplash -NullRHI -log=" }
+  ] }
+ ]
+}

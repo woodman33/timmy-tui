@@ -1,0 +1,238 @@
+{
+ "where": "local",
+ "room": "war-room",
+ "spec": {
+  "v": 1,
+  "id": "crew-3",
+  "preset": "crew-3",
+  "topology": "crew",
+  "members": [
+   {
+    "id": "jcode",
+    "kind": "harness",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "harness": "jcode",
+    "model": "google/gemini-3.7-flash"
+   },
+   {
+    "id": "opencode",
+    "kind": "harness",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "harness": "opencode",
+    "model": "google/gemini-3.7-flash"
+   },
+   {
+    "id": "hermes",
+    "kind": "harness",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "harness": "hermes",
+    "model": "google/gemini-3.7-flash"
+   }
+  ],
+  "size": 3,
+  "budget": {
+   "usd": 0.5,
+   "max_calls": 12,
+   "max_ms": 900000
+  },
+  "judge": {
+   "tier": "edge",
+   "model": "google/gemini-3.7-flash"
+  },
+  "network": {
+   "policy": "open",
+   "egress_allow": []
+  },
+  "rounds": 2
+ },
+ "task": "Create a file named CREW.md in the current directory containing one line: 'crew-3 was here', then reply with the word DONE and what you did.",
+ "endpoints": {},
+ "result": {
+  "swarm_id": "crew-3",
+  "run_id": "swarm_mtsj2nck_s4go",
+  "topology": "crew",
+  "size": 3,
+  "ok": true,
+  "answer": "# Crew Report\n\n### What Was Done\nThe file `",
+  "calls": [
+   {
+    "role": "actor",
+    "model": "google/gemini-3.7-flash",
+    "ok": true,
+    "ms": 2944,
+    "usd": 0.00126,
+    "tokens_in": 205,
+    "tokens_out": 295,
+    "counted": true,
+    "content_sha256": "46b4f47601e3ef2ae655ed2df7416fdaefbf3ec14236cf61c8fae6a7d23b9951",
+    "error": null,
+    "provider_used": "Google",
+    "model_used": "google/gemini-3.7-flash",
+    "generation_id": "gen-1788863387-hIkZVbhaGeZ6DfTNw2x4",
+    "tokens_cached": 0,
+    "tokens_reasoning": 181,
+    "member": "judge",
+    "kind": "model",
+    "content": "{\"assignments\": [{\"member\": \"jcode\", \"instruction\": \"Create a file named CREW.md in the current directory containing the exact line 'crew-3 was here'.\"}, {\"member\": \"opencode\", \"instruction\": \"Verify that CREW.md exists in the current directory and contains the exact content 'crew-3 was here'.\"}, {\"member\": \"hermes\", \"instruction\": \"Formulate the final response stating 'DONE' followed by a description of creating CREW.md with the line 'crew-3 was here'.\"}]}",
+    "receipt": "sha256_351c9c2a11d7ecfa6494f9581b53d6c319661640fc6ec8c0d7649be54fd657e4",
+    "crew_role": "judge",
+    "phase": "plan"
+   },
+   {
+    "role": "actor",
+    "model": "jcode:google/gemini-3.7-flash",
+    "ok": true,
+    "ms": 5077,
+    "usd": 0,
+    "tokens_in": 0,
+    "tokens_out": 0,
+    "counted": true,
+    "content_sha256": "64701a468d4d4e32382f099e678b530743e7086bccd9dae3865c9ff6e59130cc",
+    "error": null,
+    "provider_used": "harness:jcode",
+    "model_used": "google/gemini-3.7-flash",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "jcode",
+    "kind": "harness",
+    "content": "DONE\nCreated `CREW.md` containing the line `crew-3 was here`.",
+    "receipt": "sha256_c1a201d5f085358a7c27c12a4d791bffabd084b05420659e7fdc23988cbd03e4",
+    "transcript": "<repo>/lanes/swarm/.cache/harness/swarm_mtsj2nck_s4go/jcode/transcript.json",
+    "phase": "work"
+   },
+   {
+    "role": "actor",
+    "model": "hermes:google/gemini-3.7-flash",
+    "ok": true,
+    "ms": 16731,
+    "usd": 0,
+    "tokens_in": 0,
+    "tokens_out": 0,
+    "counted": true,
+    "content_sha256": "6c002a36737d4d148587afa6869fae6a06064739068faf66ba0bf3507b9a62ea",
+    "error": null,
+    "provider_used": "harness:hermes",
+    "model_used": "google/gemini-3.7-flash",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "hermes",
+    "kind": "harness",
+    "content": "DONE. Created CREW.md with the line 'crew-3 was here'.",
+    "receipt": "sha256_8f954526a325127c4c6d4610590b849fa9a065862a0a52bec3ca6cdd6c23f159",
+    "transcript": "<repo>/lanes/swarm/.cache/harness/swarm_mtsj2nck_s4go/hermes/transcript.json",
+    "phase": "work"
+   },
+   {
+    "role": "actor",
+    "model": "opencode:google/gemini-3.7-flash",
+    "ok": true,
+    "ms": 27447,
+    "usd": 0,
+    "tokens_in": 0,
+    "tokens_out": 0,
+    "counted": true,
+    "content_sha256": "85986652e6fa21d8dfc94731c2169e1889ff7e83cb1f3075873b5a14f83cf668",
+    "error": null,
+    "provider_used": "harness:opencode",
+    "model_used": "google/gemini-3.7-flash",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "opencode",
+    "kind": "harness",
+    "content": "DONE: Created CREW.md containing 'crew-3 was here' and verified its content.",
+    "receipt": "sha256_55b7d0924e43ec38d72efa108c9729a23c0bbc4a4fd14541d9995052d35d87c6",
+    "transcript": "<repo>/lanes/swarm/.cache/harness/swarm_mtsj2nck_s4go/opencode/transcript.json",
+    "phase": "work"
+   },
+   {
+    "role": "actor",
+    "model": "google/gemini-3.7-flash",
+    "ok": true,
+    "ms": 3639,
+    "usd": 0.0016245,
+    "tokens_in": 186,
+    "tokens_out": 396,
+    "counted": true,
+    "content_sha256": "622af57d811ebcc38915335030779f1e6553f8a2310836a47fd27e806bf0229f",
+    "error": null,
+    "provider_used": "Google",
+    "model_used": "google/gemini-3.7-flash",
+    "generation_id": "gen-1788863420-O3Vpk5tvHltZkdJaateR",
+    "tokens_cached": 0,
+    "tokens_reasoning": 385,
+    "member": "judge",
+    "kind": "model",
+    "content": "# Crew Report\n\n### What Was Done\nThe file `",
+    "receipt": "sha256_89a222cc4bd20b10b9889bfc0c44ecdd2abb40c559b151c8a76937670996be6a",
+    "crew_role": "judge",
+    "phase": "compose"
+   }
+  ],
+  "rounds": [],
+  "winner": null,
+  "losers": [],
+  "votes": null,
+  "roles": {
+   "jcode": "builder",
+   "opencode": "builder",
+   "hermes": "builder"
+  },
+  "assignments": {
+   "jcode": "Create a file named CREW.md in the current directory containing the exact line 'crew-3 was here'.",
+   "opencode": "Verify that CREW.md exists in the current directory and contains the exact content 'crew-3 was here'.",
+   "hermes": "Formulate the final response stating 'DONE' followed by a description of creating CREW.md with the line 'crew-3 was here'."
+  },
+  "budget": {
+   "usd": 0.5,
+   "spent": 0.002885,
+   "max_calls": 12,
+   "calls": 5,
+   "max_ms": 900000,
+   "ms": 38774,
+   "exhausted": null,
+   "kills": []
+  },
+  "usd": 0.002885,
+  "ms": 38774,
+  "recorded": "364479369ec0269622923cb795a2905f002a53f6fce1cd258a05657bd5e2be5c"
+ },
+ "sealed": [
+  {
+   "member": "judge",
+   "phase": "plan",
+   "receipt": "sha256_351c9c2a11d7ecfa6494f9581b53d6c319661640fc6ec8c0d7649be54fd657e4"
+  },
+  {
+   "member": "jcode",
+   "phase": "work",
+   "receipt": "sha256_c1a201d5f085358a7c27c12a4d791bffabd084b05420659e7fdc23988cbd03e4"
+  },
+  {
+   "member": "hermes",
+   "phase": "work",
+   "receipt": "sha256_8f954526a325127c4c6d4610590b849fa9a065862a0a52bec3ca6cdd6c23f159"
+  },
+  {
+   "member": "opencode",
+   "phase": "work",
+   "receipt": "sha256_55b7d0924e43ec38d72efa108c9729a23c0bbc4a4fd14541d9995052d35d87c6"
+  },
+  {
+   "member": "judge",
+   "phase": "compose",
+   "receipt": "sha256_89a222cc4bd20b10b9889bfc0c44ecdd2abb40c559b151c8a76937670996be6a"
+  }
+ ],
+ "receipt": "sha256_286b7ccb9884270f40ce19efcf1f891470c64306a2553728691dd22915eb4cf2",
+ "airgap_receipt": null,
+ "snoop": null
+}

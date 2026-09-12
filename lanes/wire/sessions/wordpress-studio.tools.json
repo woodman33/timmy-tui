@@ -1,0 +1,507 @@
+[
+ {
+  "name": "site_create",
+  "description": "Creates a new WordPress site with the latest WordPress version. Automatically sets up the site directory, installs WordPress, registers the site, and starts the server. Returns the site URL and credentials.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string",
+     "description": "The name for the new site (e.g., \"My Coffee Shop\")"
+    }
+   },
+   "required": [
+    "name"
+   ]
+  }
+ },
+ {
+  "name": "site_list",
+  "description": "Lists all WordPress sites managed by Studio with their name, path, URL, and running status.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {}
+  }
+ },
+ {
+  "name": "site_info",
+  "description": "Gets detailed information about a specific WordPress site by name or path, including its running status, URL, PHP version, and admin credentials.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The site name or file system path to the site"
+    }
+   },
+   "required": [
+    "nameOrPath"
+   ]
+  }
+ },
+ {
+  "name": "site_start",
+  "description": "Starts a WordPress site by name or path. The site must already exist in Studio.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The site name or file system path to the site"
+    }
+   },
+   "required": [
+    "nameOrPath"
+   ]
+  }
+ },
+ {
+  "name": "site_stop",
+  "description": "Stops a running WordPress site by name or path.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The site name or file system path to the site"
+    }
+   },
+   "required": [
+    "nameOrPath"
+   ]
+  }
+ },
+ {
+  "name": "site_delete",
+  "description": "Deletes a WordPress site by name or path. Removes the site from Studio and optionally moves site files to trash.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The site name or file system path to the site"
+    },
+    "deleteFiles": {
+     "type": "boolean",
+     "description": "Move site files to trash. Defaults to true. Set to false to keep files."
+    }
+   },
+   "required": [
+    "nameOrPath"
+   ]
+  }
+ },
+ {
+  "name": "preview_create",
+  "description": "Creates a WordPress.com preview site from a local Studio site. Requires WordPress.com authentication. This can take a few minutes, so tell the user to wait after starting it.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The local site name or file system path to preview"
+    }
+   },
+   "required": [
+    "nameOrPath"
+   ]
+  }
+ },
+ {
+  "name": "preview_list",
+  "description": "Lists WordPress.com preview sites associated with a local Studio site. Requires WordPress.com authentication.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The local site name or file system path"
+    }
+   },
+   "required": [
+    "nameOrPath"
+   ]
+  }
+ },
+ {
+  "name": "preview_update",
+  "description": "Updates an existing WordPress.com preview site from a local Studio site. Requires WordPress.com authentication. This can take a few minutes, so tell the user to wait after starting it.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The local site name or file system path"
+    },
+    "host": {
+     "type": "string",
+     "description": "The preview hostname or URL to update, for example \"site.wordpress.com\""
+    },
+    "overwrite": {
+     "type": "boolean",
+     "description": "Allow updating the preview from a different local directory. Defaults to false."
+    }
+   },
+   "required": [
+    "nameOrPath",
+    "host"
+   ]
+  }
+ },
+ {
+  "name": "preview_delete",
+  "description": "Deletes a WordPress.com preview site by hostname or URL. Requires WordPress.com authentication.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "host": {
+     "type": "string",
+     "description": "The preview hostname or URL to delete, for example \"site.wordpress.com\""
+    }
+   },
+   "required": [
+    "host"
+   ]
+  }
+ },
+ {
+  "name": "wp_cli",
+  "description": "Runs a WP-CLI command on a specific WordPress site. Examples: \"plugin install woocommerce --activate\", \"option get blogname\", \"user list\".",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The site name or file system path to the site"
+    },
+    "command": {
+     "type": "string",
+     "description": "The WP-CLI command to run (without the \"wp\" prefix). Example: \"plugin list --status=active\""
+    }
+   },
+   "required": [
+    "nameOrPath",
+    "command"
+   ]
+  }
+ },
+ {
+  "name": "scaffold_theme",
+  "description": "Scaffolds a minimal block theme into the given site at wp-content/themes/<slug>/ and activates it by default. Drops in style.css (theme header only), theme.json (appearanceTools only), functions.php (frontend + editor style enqueue), default templates (index, single, page, archive, 404), header/footer parts, and empty assets/fonts and patterns directories. Use when the user wants to start a new custom theme — the agent fills in design-specific content afterwards. Block themes only; does not support classic (PHP template) themes. Fails if the target theme directory already exists. When the site is not running or activation fails, the scaffold still succeeds and the result reports the manual activation command.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The site name or filesystem path of the site to scaffold the theme into."
+    },
+    "name": {
+     "type": "string",
+     "description": "Display name of the theme (e.g. \"Acme Studio\"). Used in style.css Theme Name header."
+    },
+    "slug": {
+     "type": "string",
+     "description": "Optional theme slug (lowercase letters, digits, dashes). Used as the directory name and text domain. Derived from the name when omitted."
+    },
+    "activate": {
+     "type": "boolean",
+     "description": "Whether to activate the theme after scaffolding via WP-CLI (`theme activate <slug>`). Defaults to true. Set to false to leave the theme inactive."
+    }
+   },
+   "required": [
+    "nameOrPath",
+    "name"
+   ]
+  }
+ },
+ {
+  "name": "validate_blocks",
+  "description": "Validates WordPress block content in two stages and returns a combined report. First runs a static core/html block policy check; if it finds invalid core/html blocks, it returns only those (rewrite them as editable core or plugin blocks and call again) without touching the editor. Once the policy check passes, it validates the content in the site's real block editor: with filePath it applies safe live-editor serialization fixes directly to the file and returns a CSS-review diff; with inline content it returns the exact fixed block content plus the diff. The site must be running.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The site name or file system path — the site must be running"
+    },
+    "filePath": {
+     "type": "string",
+     "description": "Path to a file containing WordPress block content to validate and fix"
+    },
+    "content": {
+     "type": "string",
+     "description": "Raw WordPress block content (HTML with block comments) to validate and fix"
+    }
+   },
+   "required": [
+    "nameOrPath"
+   ]
+  }
+ },
+ {
+  "name": "take_screenshot",
+  "description": "Takes a full-page screenshot of a URL. Returns the screenshot as an image that you can analyze visually. Also saves the screenshot as a temporary local image and returns a ready-to-use media widget payload. Supports desktop and mobile viewports; pass `viewport: \"all\"` when you need both for design verification. Long pages are clipped at 8000 vertical pixels (a vision-model limit); the response reports the document height and whether more remains, and you can call again with `offset` to fetch the next slice. Use this to verify the site looks correct after building it. Use `share_screenshot` instead only in remote sessions where you need to deliver the rendered page outside the Studio UI.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "url": {
+     "type": "string",
+     "description": "The URL to screenshot"
+    },
+    "viewport": {
+     "enum": [
+      "desktop",
+      "mobile",
+      "all"
+     ],
+     "description": "Viewport size: \"desktop\" (1040x1248), \"mobile\" (390x844), or \"all\" to capture both in one tool call. Defaults to desktop."
+    },
+    "offset": {
+     "type": "number",
+     "minimum": 0,
+     "description": "Y-offset in CSS pixels for the capture region. Defaults to 0 (top of page). When a previous call reports the page was clipped, pass `offset` equal to where that capture ended to fetch the next slice."
+    }
+   },
+   "required": [
+    "url"
+   ]
+  }
+ },
+ {
+  "name": "inspect_design",
+  "description": "Inspects the RENDERED DOM of a live page to diagnose visual issues at their root cause. Given CSS selectors, returns each matched element's tag and class list, bounding box (so you can see actual rendered width/height vs intent), curated computed styles (box model, background, typography, flex/grid, borders), the WordPress block-gap custom property, and the ancestor chain of layout classes (is-layout-constrained, alignfull, wp-block-group) that controls width and spacing. Pass `includeHover: true` to also capture computed styles while hovering the first match — use this for button/link hover states. Pair this with take_screenshot: the screenshot shows the symptom, inspect_design shows the cause. Use it before editing CSS so you target the element that actually carries the style (e.g. .wp-block-button__link, not the .wp-block-button wrapper) instead of guessing.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "url": {
+     "type": "string",
+     "description": "The URL of the running site page to inspect"
+    },
+    "selectors": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "description": "CSS selectors to inspect, e.g. [\".hero\", \".wp-block-button\", \".wp-block-button__link\", \".wp-block-column\"]. Each is queried against the rendered page."
+    },
+    "viewport": {
+     "enum": [
+      "desktop",
+      "mobile"
+     ],
+     "description": "Viewport to render at: \"desktop\" (1040px wide) or \"mobile\" (390px wide). Defaults to desktop. Use \"mobile\" to diagnose responsive issues."
+    },
+    "includeHover": {
+     "type": "boolean",
+     "description": "When true, also captures the computed styles of the first match of each selector while it is hovered. Use for button/link hover diagnosis."
+    }
+   },
+   "required": [
+    "url",
+    "selectors"
+   ]
+  }
+ },
+ {
+  "name": "install_taxonomy_scripts",
+  "description": "Copies the Taxonomist PHP scripts into a site so they can be run via wp_cli eval-file. Call this once before running any Taxonomist eval-file commands.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The site name or file system path to the site"
+    }
+   },
+   "required": [
+    "nameOrPath"
+   ]
+  }
+ },
+ {
+  "name": "need_for_speed",
+  "description": "Measures frontend performance metrics for a WordPress site page. Returns Core Web Vitals (TTFB, FCP, LCP, CLS), page weight, DOM size, request count, and a breakdown of JS, CSS, image, and font assets. The site must be running. CALL ONLY ON EXPLICIT USER REQUEST — when the user asks for a performance audit, mentions speed / Core Web Vitals / Lighthouse, or invokes /need-for-speed. Do NOT call this as part of a normal \"build a site\" or \"design a page\" workflow.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The site name or file system path — the site must be running"
+    },
+    "path": {
+     "type": "string",
+     "description": "URL path to audit (e.g., \"/\", \"/about\", \"/wp-admin/\"). Defaults to \"/\"."
+    }
+   },
+   "required": [
+    "nameOrPath"
+   ]
+  }
+ },
+ {
+  "name": "rank_me_up",
+  "description": "Runs an on-page SEO audit on a WordPress site page. Returns title and meta description, canonical/robots/viewport tags, Open Graph and Twitter cards, heading structure, image alt-text coverage, internal/external link counts, JSON-LD structured data, and robots.txt/sitemap.xml availability. The site must be running. CALL ONLY ON EXPLICIT USER REQUEST — when the user asks for an SEO audit, mentions meta tags / OpenGraph / sitemap / search visibility, or invokes /rank-me-up. Do NOT call this as part of a normal \"build a site\" or \"design a page\" workflow.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The site name or file system path — the site must be running"
+    },
+    "path": {
+     "type": "string",
+     "description": "URL path to audit (e.g., \"/\", \"/about\"). Defaults to \"/\"."
+    }
+   },
+   "required": [
+    "nameOrPath"
+   ]
+  }
+ },
+ {
+  "name": "site_connected_remote_sites",
+  "description": "Lists the WordPress.com sites that are already connected/attached to a local Studio site. Use this before calling site_push to determine how to ask the user which remote site to push to. Returns an empty array when the user has no connections for that local site.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The local site name or file system path"
+    }
+   },
+   "required": [
+    "nameOrPath"
+   ]
+  }
+ },
+ {
+  "name": "site_push",
+  "description": "Pushes a local WordPress site to a WordPress.com site. Requires WordPress.com authentication (studio auth login). Exports the local site, uploads it, and imports it on the remote site. This can take several minutes depending on site size.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The local site name or file system path"
+    },
+    "remoteSite": {
+     "type": "string",
+     "description": "The remote WordPress.com site URL or numeric site ID to push to"
+    },
+    "options": {
+     "type": "string",
+     "description": "Comma-separated sync options: all, sqls, uploads, plugins, themes, contents. Defaults to \"all\"."
+    }
+   },
+   "required": [
+    "nameOrPath",
+    "remoteSite"
+   ]
+  }
+ },
+ {
+  "name": "site_pull",
+  "description": "Pulls a WordPress.com site to a local WordPress site. Requires WordPress.com authentication (studio auth login). Creates a remote backup, downloads it, and imports it locally. This can take several minutes depending on site size.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The local site name or file system path"
+    },
+    "remoteSite": {
+     "type": "string",
+     "description": "The remote WordPress.com site URL or numeric site ID to pull from"
+    },
+    "options": {
+     "type": "string",
+     "description": "Comma-separated sync options: all, sqls, uploads, plugins, themes, contents. Defaults to \"all\"."
+    }
+   },
+   "required": [
+    "nameOrPath",
+    "remoteSite"
+   ]
+  }
+ },
+ {
+  "name": "site_import",
+  "description": "Imports a backup file into a local WordPress site. Supports .zip, .tar.gz, .sql, and .wpress formats. The site server will be stopped during import and restarted afterward if it was running.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The local site name or file system path"
+    },
+    "importFile": {
+     "type": "string",
+     "description": "Absolute path to the backup file to import"
+    }
+   },
+   "required": [
+    "nameOrPath",
+    "importFile"
+   ]
+  }
+ },
+ {
+  "name": "site_export",
+  "description": "Exports a local WordPress site to a backup file. Supports full-site export (.zip or .tar.gz) or database-only export (.sql). If no export file path is provided, creates a timestamped file in the current directory.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "nameOrPath": {
+     "type": "string",
+     "description": "The local site name or file system path"
+    },
+    "exportFile": {
+     "type": "string",
+     "description": "Path for the export file. Use .zip or .tar.gz for full export, .sql for database only. If omitted, a timestamped file is created in the current directory."
+    },
+    "mode": {
+     "enum": [
+      "full",
+      "db"
+     ],
+     "description": "Export mode: \"full\" for entire site, \"db\" for database only. Defaults to \"full\"."
+    }
+   },
+   "required": [
+    "nameOrPath"
+   ]
+  }
+ },
+ {
+  "name": "open_annotation_browser",
+  "description": "Opens a headed browser on a site with the Studio annotation inspector. The user clicks \"Annotate\", picks an element, types feedback, then clicks \"Done\". After calling this tool, call `wait_for_annotations` to block until the user submits.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "url": {
+     "type": "string",
+     "description": "The site URL to open (e.g., \"http://localhost:8881\")"
+    }
+   },
+   "required": [
+    "url"
+   ]
+  }
+ },
+ {
+  "name": "wait_for_annotations",
+  "description": "Blocks until the user clicks \"Done\" in the annotation inspector toolbar. Returns the annotations the user wrote, captured straight from the page. Call this AFTER `open_annotation_browser`.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "timeoutMinutes": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 120,
+     "description": "How long to wait for the user to click \"Done\", in minutes. Defaults to 30."
+    }
+   }
+  }
+ }
+]

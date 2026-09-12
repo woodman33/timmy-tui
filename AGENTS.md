@@ -9,9 +9,9 @@
 
 ## Learned Workspace Facts
 
-- `/Users/williammeldman/Desktop/timmy-tui` is the primary repo for **TIMMY TUI** (terminal-first Agent Trust OS), not a greenfield scaffold.
-- Git remote: `https://github.com/woodman33/timmy-ai-proxy.git`; common active branch: `antigravity/polish-tui-v2`.
-- Antigravity is the IDE; all project source lives in this repo—no separate Antigravity-only codebase.
+- One root only: `~/Desktop/Code-Projects/timmy-tui` is both the local folder and the git working copy of `https://github.com/woodman33/timmy-tui.git`. There is no second "advanced" location.
+- Newest committed state: **v1.0.8**, `main` @ `c165c5b`. Receipt chain lives here (`.timmy/receipts/runs.jsonl`, 615 entries).
+- Open this folder in Cursor; Qwen and Claude Code both `cd` into it.
 - Core stack: Ink TUI + `@openrouter/agent`, with Rive graphics, companion web UI, and headless-browser capture as major product axes.
 - Monorepo includes `founder-terminal/`, Cloudflare wrangler companion worker, product doctrine docs, and `.runs/run_proof_*.agentrun/` proof manifests.
 - Published CLIs: `timmy` and `timmy-tui` (see root `package.json`).

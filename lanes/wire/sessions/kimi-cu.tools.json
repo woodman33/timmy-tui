@@ -1,0 +1,334 @@
+[
+ {
+  "name": "list_apps",
+  "description": "List running apps (name, bundle_id, pid).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {}
+  }
+ },
+ {
+  "name": "get_app_state",
+  "description": "Screenshot and/or convergent Accessibility tree for an app, scoped to its primary window. Requires app or pid. mode=full returns both, mode=image returns only screenshot, mode=ax returns only AX text. Other windows are listed under `windows:` in full/ax output — pass window_id to inspect one. Caches the snapshot for index-based actions when AX is included.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "window_id": {
+     "description": "inspect a specific window from the `windows:` directory instead of the primary one",
+     "type": "integer"
+    },
+    "ax_filter": {
+     "description": "case-insensitive substring filter applied to rendered AX lines",
+     "type": "string"
+    },
+    "pid": {
+     "type": "integer"
+    },
+    "mode": {
+     "enum": [
+      "full",
+      "image",
+      "ax"
+     ],
+     "description": "full (default), image-only, or AX-only",
+     "type": "string"
+    },
+    "app": {
+     "type": "string",
+     "description": "bundle id"
+    }
+   }
+  }
+ },
+ {
+  "name": "click",
+  "description": "Click by snapshot index (from get_app_state) or by screenshot-pixel coordinates. Requires app or pid. Cursor-safe; never moves the real pointer. mouse_button/button can be left (default), right, or middle.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "index": {
+     "description": "node index from get_app_state",
+     "type": "integer"
+    },
+    "y": {
+     "description": "screenshot pixel y",
+     "type": "number"
+    },
+    "count": {
+     "type": "integer",
+     "description": "1..3"
+    },
+    "x": {
+     "type": "number",
+     "description": "screenshot pixel x (origin = top-left of the get_app_state screenshot); tool rescales to the real window"
+    },
+    "mouse_button": {
+     "type": "string",
+     "enum": [
+      "left",
+      "right",
+      "middle"
+     ],
+     "description": "mouse button (alias for `button`)"
+    },
+    "pid": {
+     "type": "integer"
+    },
+    "button": {
+     "type": "string",
+     "enum": [
+      "left",
+      "right",
+      "middle"
+     ],
+     "description": "mouse button alias"
+    },
+    "app": {
+     "type": "string"
+    },
+    "hold_ms": {
+     "type": "integer",
+     "description": "mouse-down→up press duration in ms (0-500, default 40). The default spans two 60fps frames so frame-sampled canvas/game UIs (Unity WebGL) register the click reliably; short-tap gesture UIs (e.g. JianYing media-card add-to-track corner) misread 40ms as press-and-hold — use 2-5 there"
+    }
+   }
+  }
+ },
+ {
+  "name": "type_text",
+  "description": "Type Unicode text into an app. Requires app or pid. Pass index (snapshot index) or x,y (screenshot pixels) to target an input. Omit index/x,y to inject into the target app's current focus. Cursor-safe; background. Use clear+submit to replace-and-send in one call. Some Electron inputs expose no AX text readback; in that case a completed delivery returns ok:true, verified:false, verification_required:\"screenshot\". Call get_app_state and inspect the screenshot before claiming success.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "x": {
+     "type": "number",
+     "description": "screenshot pixel x to click-focus before typing (with y)"
+    },
+    "clear": {
+     "type": "boolean",
+     "description": "select-all + delete first, replacing the field's contents instead of appending at the cursor"
+    },
+    "y": {
+     "type": "number",
+     "description": "screenshot pixel y to click-focus before typing (with x)"
+    },
+    "index": {
+     "description": "snapshot index (from get_app_state) to click-focus before typing",
+     "type": "integer"
+    },
+    "text": {
+     "type": "string"
+    },
+    "app": {
+     "type": "string"
+    },
+    "pid": {
+     "type": "integer"
+    },
+    "submit": {
+     "type": "boolean",
+     "description": "press Return after typing (submits single-line fields like search/address bars; inserts a newline in multi-line editors). For targeted inputs (index or x,y), typed text is readback-verified before Return is sent; post-submit side effects are not verified because successful submit often clears or changes the field."
+    },
+    "activate": {
+     "type": "boolean",
+     "description": "FALLBACK ONLY — avoid unless needed. When the target window is fully covered by other windows, macOS defers the keys and nothing lands. Setting this briefly raises the window (a visible flash) to flush the input. Default false = pure background, never raises. Try a normal type_text (and set_value) first; only set activate:true if the result had occluded:true and the text did not land."
+    }
+   },
+   "required": [
+    "text"
+   ]
+  }
+ },
+ {
+  "name": "press_key",
+  "description": "Press a key or chord (xdotool-style DSL, e.g. \"return\", \"cmd+a\", \"cmd+shift+t\"). Requires app or pid. Focus must be on the target. Cursor-safe; background.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string"
+    },
+    "keys": {
+     "type": "string"
+    },
+    "pid": {
+     "type": "integer"
+    },
+    "activate": {
+     "type": "boolean",
+     "description": "FALLBACK ONLY — avoid unless needed. press_key posts keys in the background by default, which lands even when the target window is fully covered by other windows (verified for native apps on macOS 26). Setting this briefly raises a fully covered window (a visible flash) to flush input for apps that drop occluded keys. Default false = pure background, never raises. Try a normal press_key first; only set activate:true if the key did not land."
+    }
+   },
+   "required": [
+    "keys"
+   ]
+  }
+ },
+ {
+  "name": "scroll",
+  "description": "Scroll by snapshot index or screenshot-pixel point. Requires app or pid. Prefer page: 1 to scroll up one page, page: -1 down, page: 3 three pages. Legacy dy/dx are still accepted for line-style wheel compatibility. Cursor-safe. Returns ok:false when no movement is detected or the target is already at the end.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string"
+    },
+    "dy": {
+     "description": "legacy: positive scrolls up",
+     "type": "integer"
+    },
+    "index": {
+     "description": "node index from get_app_state; use this for scroll areas/lists when available",
+     "type": "integer"
+    },
+    "y": {
+     "type": "number",
+     "description": "screenshot pixel y"
+    },
+    "x": {
+     "type": "number",
+     "description": "screenshot pixel x"
+    },
+    "dx": {
+     "type": "integer",
+     "description": "legacy: positive scrolls right"
+    },
+    "page": {
+     "type": "integer",
+     "description": "preferred: positive scrolls up, negative scrolls down, absolute value is the page count"
+    },
+    "pid": {
+     "type": "integer"
+    }
+   }
+  }
+ },
+ {
+  "name": "set_value",
+  "description": "Set the value on the element at snapshot index (from get_app_state). Requires app or pid. Native controls use AXValue. Electron/Web text controls use a no-raise background replacement path so existing content is cleared instead of appended; it never moves the real cursor or foregrounds the target app, and it keeps working when the target window is fully covered by other windows (AX-focus + editing-command fallback). Numeric controls (slider/stepper) accept a numeric string, e.g. \"42\".",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "pid": {
+     "type": "integer"
+    },
+    "index": {
+     "type": "integer"
+    },
+    "app": {
+     "type": "string"
+    },
+    "value": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "index",
+    "value"
+   ]
+  }
+ },
+ {
+  "name": "perform_secondary_action",
+  "description": "Perform an element's secondary AX action (default AXShowMenu) at snapshot index. Requires app or pid.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string"
+    },
+    "index": {
+     "type": "integer"
+    },
+    "action": {
+     "type": "string"
+    },
+    "pid": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "index"
+   ]
+  }
+ },
+ {
+  "name": "select_text",
+  "description": "Select text in the text element at snapshot index. Requires app or pid. Use start+length for exact offsets, or text (with optional prefix/suffix to disambiguate) to select by visible content. selection can be text (default), cursor_before, or cursor_after. Content selections echo selected_text.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "selection": {
+     "enum": [
+      "text",
+      "cursor_before",
+      "cursor_after"
+     ],
+     "type": "string"
+    },
+    "start": {
+     "type": "integer"
+    },
+    "index": {
+     "type": "integer"
+    },
+    "length": {
+     "type": "integer"
+    },
+    "suffix": {
+     "type": "string"
+    },
+    "prefix": {
+     "type": "string"
+    },
+    "app": {
+     "type": "string"
+    },
+    "pid": {
+     "type": "integer"
+    },
+    "text": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "index"
+   ]
+  }
+ },
+ {
+  "name": "drag",
+  "description": "Drag from (from_x,from_y) to (to_x,to_y) in screenshot pixels (from get_app_state). Requires app or pid. Cursor-safe; unreliable on Chromium.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "to_y": {
+     "type": "number"
+    },
+    "pid": {
+     "type": "integer"
+    },
+    "from_y": {
+     "type": "number"
+    },
+    "steps": {
+     "type": "integer"
+    },
+    "app": {
+     "type": "string"
+    },
+    "to_x": {
+     "type": "number"
+    },
+    "from_x": {
+     "type": "number"
+    }
+   },
+   "required": [
+    "from_x",
+    "from_y",
+    "to_x",
+    "to_y"
+   ]
+  }
+ }
+]

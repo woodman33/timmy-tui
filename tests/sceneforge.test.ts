@@ -26,7 +26,7 @@ describe('SceneForge MCPorter bridge', () => {
 
     expect(configPath).toContain(path.join('.timmy', 'sceneforge', 'mcporter.json'));
     expect(config).toContain('${SCENEFORGE_AGENT_KEY}');
-    expect(config).toContain('houdini-mcp-agent.wmeldman33.workers.dev/mcp');
+    expect(config).toContain('houdini-mcp-agent.<hostname>/mcp');
     expect(config).not.toContain('test-operator-key');
 
     fs.rmSync(tempRoot, { recursive: true, force: true });
