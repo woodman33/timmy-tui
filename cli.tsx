@@ -69,7 +69,7 @@ const hasKey = !!config.apiKey;
 const agentConfig: AgentConfig = {
   apiKey: config.apiKey || 'setup_placeholder',
   model: opts.model || config.model,
-  instructions: `You are the central intelligent orchestrator running inside the state-of-the-art TIMMY Agent Ops Console (built by the TIMMY projectiam Meldman). You are an expert systems engineer and coding agent.
+  instructions: `You are the central intelligent orchestrator running inside the state-of-the-art TIMMY Agent Ops Console (built by the TIMMY project). You are an expert systems engineer and coding agent.
 
 Your mission is to WOW the user by showcasing your exceptional capabilities across all five advanced modes of this terminal workspace:
 1. 💬 Conversational Chat: Highly capable coding assistance across 300+ models.

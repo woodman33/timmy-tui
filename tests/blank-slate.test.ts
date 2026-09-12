@@ -31,7 +31,7 @@ describe('blank-slate-v1k9', () => {
   it('init --yes writes only under TIMMY_HOME and TIMMY_PRIVATE_DIR, with a 0600 seed', async () => {
     const { applyInit, isBlankSlate } = await import('../src/utils/init.js');
     const repo = join(scratch, 'repo'); mkdirSync(repo, { recursive: true }); writeFileSync(join(repo, 'package.json'), '{"name":"t"}');
-    const r = applyInit({ yes: true, json: false, operator: 'test operator', project: 'p1', seed: 'generate' }, repo);
+    const r = applyInit({ yes: true, json: false, operator: 'test operator', project: 'p1', seed: 'generate', openrouter: 'old-openrouter' }, repo);
     expect(r.ok).toBe(true);
     // the receipts store pin is generated on the first run (gitignored .timmy/), never committed
     expect(r.store_pin).toBe(join(repo, '.timmy', 'store-pin'));
@@ -44,6 +44,15 @@ describe('blank-slate-v1k9', () => {
     const cfg = JSON.parse(readFileSync(join(process.env.TIMMY_PRIVATE_DIR!, 'config.json'), 'utf8'));
     expect(cfg.operator_label).toBe('test operator');
     expect(cfg.first_project).toBe('p1');
+    const identityBefore = readFileSync(join(process.env.TIMMY_HOME!, 'identity.json'), 'utf8');
+    const seedBefore = readFileSync(join(process.env.TIMMY_HOME!, 'identity.seed'), 'utf8');
+    applyInit({ yes: true, json: false, operator: 'new operator', project: 'p2', seed: 'generate' }, repo);
+    expect(readFileSync(join(process.env.TIMMY_HOME!, 'identity.json'), 'utf8')).toBe(identityBefore);
+    expect(readFileSync(join(process.env.TIMMY_HOME!, 'identity.seed'), 'utf8')).toBe(seedBefore);
+    const providers = JSON.parse(readFileSync(join(process.env.TIMMY_HOME!, 'providers.json'), 'utf8'));
+    expect(providers.openrouter_api_key).toBe('old-openrouter');
+    const projects = JSON.parse(readFileSync(join(process.env.TIMMY_PRIVATE_DIR!, 'projects.json'), 'utf8'));
+    expect(projects.projects.map((p: { name: string }) => p.name)).toEqual(['p1', 'p2']);
   });
 
   it('a 64-hex seed imports deterministically; generate differs every time', async () => {

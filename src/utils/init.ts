@@ -77,37 +77,83 @@ function guardPath(p: string, extraAllowed: string[] = []): string {
   if (!ok) throw new Error(`refusing to write outside TIMMY_HOME / TIMMY_PRIVATE_DIR: ${abs}`);
   return abs;
 }
+function readJsonObject(p: string): Record<string, unknown> | null {
+  const abs = guardPath(p);
+  if (!existsSync(abs)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(abs, 'utf8')) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch { return null; }
+}
 function writeJson(p: string, data: unknown, mode = 0o644): string { const abs = guardPath(p); mkdirSync(join(abs, '..'), { recursive: true }); writeFileSync(abs, JSON.stringify(data, null, 1) + '\n', { mode }); return abs; }
 function mergeJson(p: string, patch: Record<string, unknown>, mode = 0o600): string {
   const abs = guardPath(p);
-  let cur: Record<string, unknown> = {};
-  if (existsSync(abs)) { try { cur = JSON.parse(readFileSync(abs, 'utf8')); } catch { cur = {}; } }
+  const cur = readJsonObject(abs) ?? {};
   return writeJson(abs, { ...cur, ...patch }, mode);
+}
+
+interface StoredIdentity { operator: string; operatorId: string; publicKeyHex: string; source: string }
+function readExistingIdentity(p: string): StoredIdentity | null {
+  const abs = guardPath(p);
+  if (!existsSync(abs)) return null;
+  const cur = readJsonObject(abs);
+  if (!cur) throw new Error('existing identity.json is invalid; refusing to overwrite it');
+  const operatorId = cur?.operator_id;
+  const publicKeyHex = cur?.public_key_hex;
+  if (typeof operatorId !== 'string' || typeof publicKeyHex !== 'string') throw new Error('existing identity.json is invalid; refusing to overwrite it');
+  return {
+    operator: typeof cur.operator === 'string' && cur.operator ? cur.operator : 'operator',
+    operatorId,
+    publicKeyHex,
+    source: typeof cur.seed_source === 'string' ? cur.seed_source : 'existing',
+  };
+}
+
+interface ProjectRecord { name: string; path: string; created: string }
+function isProjectRecord(project: unknown): project is ProjectRecord {
+  if (!project || typeof project !== 'object' || Array.isArray(project)) return false;
+  const p = project as Record<string, unknown>;
+  return typeof p.name === 'string' && typeof p.path === 'string' && typeof p.created === 'string';
+}
+function mergeProjectsJson(p: string, entry: ProjectRecord): string {
+  const cur = readJsonObject(p) ?? {};
+  const existing = Array.isArray(cur.projects) ? cur.projects.filter(isProjectRecord) : [];
+  const projects = existing.some((project) => project.name === entry.name) ? existing : [...existing, entry];
+  return writeJson(p, { ...cur, projects }, 0o600);
 }
 
 export interface InitResult { ok: boolean; written: string[]; operator: string; operator_id: string; project: string; identity_source: string; home: string; private_dir: string; store_pin?: string }
 
 export function applyInit(a: Required<Pick<InitOptions, 'operator' | 'project'>> & InitOptions, repoRoot: string = REPO_ROOT): InitResult {
-  const id = seedIdentity(a.seed);
   const home = timmyHome(); const priv = privateDir();
+  const existingIdentity = readExistingIdentity(join(home, 'identity.json'));
+  const generatedIdentity = existingIdentity ? undefined : seedIdentity(a.seed);
+  const id = existingIdentity ?? generatedIdentity!;
+  const operator = existingIdentity?.operator ?? a.operator;
   const written: string[] = [];
   // the receipts store pin: generated here on the first run, never committed. receipts.ts's
   // ensureStorePin() returns early whenever a package.json is in reach, so the pin is written here.
   const pin = join(repoRoot, '.timmy', 'store-pin');
   if (!existsSync(pin)) { guardPath(pin, [pin]); mkdirSync(join(repoRoot, '.timmy'), { recursive: true }); writeFileSync(pin, join(repoRoot, '.timmy', 'receipts')); written.push(pin); }
-  written.push(writeJson(join(home, 'identity.json'), { version: 1, operator: a.operator, operator_id: id.operatorId, public_key_hex: id.publicKeyHex, seed_source: id.source, created: new Date().toISOString() }));
-  const seedPath = guardPath(join(home, 'identity.seed')); writeFileSync(seedPath, id.privatePem, { mode: 0o600 }); written.push(seedPath);
-  const providers: Record<string, string> = { ollama_host: a.ollama || 'http://127.0.0.1:11434' };
+  if (!existingIdentity) {
+    written.push(writeJson(join(home, 'identity.json'), { version: 1, operator, operator_id: id.operatorId, public_key_hex: id.publicKeyHex, seed_source: id.source, created: new Date().toISOString() }));
+    const seedPath = guardPath(join(home, 'identity.seed')); writeFileSync(seedPath, generatedIdentity!.privatePem, { mode: 0o600 }); written.push(seedPath);
+  }
+  const providersPath = join(home, 'providers.json');
+  const providers: Record<string, string> = {};
+  if (!existingIdentity || a.ollama || !existsSync(guardPath(providersPath))) providers.ollama_host = a.ollama || 'http://127.0.0.1:11434';
   if (a.openrouter) providers.openrouter_api_key = a.openrouter;
   if (a.anthropic) providers.anthropic_api_key = a.anthropic;
-  written.push(writeJson(join(home, 'providers.json'), providers, 0o600));
+  if (existingIdentity) {
+    if (Object.keys(providers).length > 0) written.push(mergeJson(providersPath, providers, 0o600));
+  } else written.push(writeJson(providersPath, providers, 0o600));
   const projDir = guardPath(join(home, 'projects', a.project)); mkdirSync(projDir, { recursive: true });
   const readme = join(projDir, 'README.md');
-  if (!existsSync(readme)) writeFileSync(readme, `# ${a.project}\n\nFirst TIMMY project of ${a.operator} (${id.operatorId}). Created by \`timmy init\`.\n`);
+  if (!existsSync(readme)) writeFileSync(readme, `# ${a.project}\n\nFirst TIMMY project of ${operator} (${id.operatorId}). Created by \`timmy init\`.\n`);
   written.push(readme);
-  written.push(mergeJson(join(priv, 'config.json'), { operator_label: a.operator, operator_id: id.operatorId, first_project: a.project, ...(a.edgeHost ? { edge_host: a.edgeHost } : {}) }));
-  written.push(writeJson(join(priv, 'projects.json'), { projects: [{ name: a.project, path: projDir, created: new Date().toISOString() }] }, 0o600));
-  return { ok: true, written, operator: a.operator, operator_id: id.operatorId, project: a.project, identity_source: id.source, home, private_dir: priv, store_pin: existsSync(pin) ? pin : undefined };
+  written.push(mergeJson(join(priv, 'config.json'), { operator_label: operator, operator_id: id.operatorId, first_project: a.project, ...(a.edgeHost ? { edge_host: a.edgeHost } : {}) }));
+  written.push(mergeProjectsJson(join(priv, 'projects.json'), { name: a.project, path: projDir, created: new Date().toISOString() }));
+  return { ok: true, written, operator, operator_id: id.operatorId, project: a.project, identity_source: id.source, home, private_dir: priv, store_pin: existsSync(pin) ? pin : undefined };
 }
 
 /** The wizard. Returns the process exit code. */
