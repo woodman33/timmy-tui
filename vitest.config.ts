@@ -3,7 +3,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
-    // workerd-runtime test: runs in workers/ai-proxy's own vitest, not the node pool
+    // tests/ai-proxy.test.ts imports cloudflare: worker bindings — it runs in
+    // workers/ai-proxy's own vitest (workerd pool), not the root node pool
     exclude: ['tests/ai-proxy.test.ts', '**/node_modules/**'],
     environment: 'node',
     // dispatch/forge/cone tests spawn tmux+binaries; under parallel load they

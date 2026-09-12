@@ -152,6 +152,12 @@ export function shellOnKey(s: ShellState, key: string): ShellStep {
   // selected receipt; ShellV2 resolves it from the filtered list.
   if (key === 'o' && st.tab === 'CHAIN') return { state: st, handled: true, actions: ['open-crosslink'] };
   if (key === 'y' && st.tab === 'CHAIN') return { state: st, handled: true, actions: ['copy-hash'] };
+  // status-r1e4: [S] opens the orders status board over HOME
+  if (key === 'S' && st.tab === 'HOME') { st.overlay = 'status'; return { state: st, handled: true, actions: ['status-open'] }; }
+  if (st.mode === 'NORMAL' && st.overlay === 'status') {
+    st.overlay = null;
+    return { state: st, handled: true, actions: ['close-overlay'] };
+  }
   // RUN escrow verbs (spec §04): approve locks; refuse demands a reason.
   if (key === 'a' && st.tab === 'RUN') return { state: st, handled: true, actions: ['escrow-approve'] };
   if (key === 'r' && st.tab === 'RUN') { st.overlay = 'refuse'; st.input = ''; return { state: st, handled: true, actions: ['open-refuse'] }; }
