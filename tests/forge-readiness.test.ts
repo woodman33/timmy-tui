@@ -162,7 +162,7 @@ describe('command expansion is explicit and does not evaluate shell expressions'
   it.each([
     ['${PYTHON_BIN}', '/python-from-env'],
     ['${env:PYTHON_BIN}', '/python-from-env'],
-    ['~/tools/python', '/example/home/tools/python'],
+    ['~/tools/python', '/example<home>/python'],
   ])('expands %s into the executable probe only', async (command, expanded) => {
     const opts = options({ env: { ...enabledEnv(), PYTHON_BIN: '/python-from-env' }, readConfig: async () => config({ command }) });
     const report = await inspectForgeReadiness(opts);
@@ -240,7 +240,7 @@ describe('canvas checks are restricted to credential-free loopback origins', () 
     'https://localhost:5173',
     'http://example.com:5173',
     'http://localhost.example.com:5173',
-    'http://192.168.1.2:5173',
+    'http://<lan-ip>:5173',
     'http://localhost:5173/path',
     'http://localhost:5173/?token=fixture-url-secret',
     'http://fixture-url-secret@localhost:5173',

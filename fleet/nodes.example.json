@@ -1,0 +1,37 @@
+{
+ "v": 1,
+ "note": "TEMPLATE (ORDER privacy-d5n9). The real registry lives OUTSIDE the public tree at .timmy/private/fleet/nodes.json (gitignored); lanes read the private overlay first and fall back to this template. Placeholders only: <tailnet-ip>, <lan-ip>, <mac>, <user>. Node ids (spark1/spark2/spark3) are the only names receipts may carry.",
+ "nodes": [
+  {
+   "id": "spark2",
+   "tailnet_name": "<hostname>",
+   "tailnet_ip": "<tailnet-ip>",
+   "lan_ip": "<lan-ip>",
+   "mac": "<mac>",
+   "ssh_user": "<user>",
+   "kind": "dgx-spark",
+   "status": "waiting-on-will",
+   "role": ["ollama", "judge-tier", "harness-provider"]
+  },
+  {
+   "id": "spark1",
+   "tailnet_name": "<hostname>",
+   "tailnet_ip": "<tailnet-ip>",
+   "lan_ip": "<lan-ip>",
+   "mac": "<mac>",
+   "ssh_user": "<user>",
+   "kind": "dgx-spark",
+   "status": "waiting-on-will"
+  },
+  {
+   "id": "spark3",
+   "tailnet_name": "<hostname>",
+   "tailnet_ip": "<tailnet-ip>",
+   "lan_ip": null,
+   "mac": null,
+   "ssh_user": "<user>",
+   "kind": "dgx-spark",
+   "status": "waiting-on-will"
+  }
+ ]
+}

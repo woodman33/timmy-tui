@@ -1,61 +1,61 @@
 {
  "note": "The pitch materials are large binaries and live outside the repo. This manifest is what the milestone receipt cites: where each file was, and what it hashed to, when the milestone was sealed.",
- "package": "/Users/williammeldman/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06",
+ "package": "<home>/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06",
  "preview": "https://preview.vault-custody.pages.dev",
  "sealed_for": "milestone.fanatics-pitch",
  "materials": [
   {
    "role": "deck · one-page brief",
-   "path": "/Users/williammeldman/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/deck/Three-Step-Proposal.pdf",
+   "path": "<home>/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/deck/Three-Step-Proposal.pdf",
    "sha256": "ec6f7ebaaa8913e2c62091ea5262fb944bdb7dfdfa5686833cb78d9c25da93e6",
    "bytes": 65804,
    "mtime": "2026-09-06T22:59:40.076Z"
   },
   {
    "role": "deck · brief + final deck",
-   "path": "/Users/williammeldman/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/deck/Fanatics-Combined-Pitch.pdf",
+   "path": "<home>/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/deck/Fanatics-Combined-Pitch.pdf",
    "sha256": "1dcac238b0638459cd2c9d1cd8cea0a4414c5a44cad34444d34b70a530026e24",
    "bytes": 12098152,
    "mtime": "2026-09-06T22:59:40.274Z"
   },
   {
    "role": "deck · final v2",
-   "path": "/Users/williammeldman/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/deck/Fanatics-Vault-Custody-Timmy.pdf",
+   "path": "<home>/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/deck/Fanatics-Vault-Custody-Timmy.pdf",
    "sha256": "6ee11469cf19f53e1068bedd12dfdb312935517368ad8ad5ac6b4a294bc45318",
    "bytes": 12103807,
    "mtime": "2026-09-06T15:37:27.977Z"
   },
   {
    "role": "deck · editable",
-   "path": "/Users/williammeldman/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/deck/Fanatics-Vault-Custody-Timmy.pptx",
+   "path": "<home>/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/deck/Fanatics-Vault-Custody-Timmy.pptx",
    "sha256": "c4cb301fd9080cd1b047f235daff4a90a0474d32365433f27527960f3fdd9016",
    "bytes": 10541510,
    "mtime": "2026-09-06T15:36:57.571Z"
   },
   {
    "role": "deck · earlier final",
-   "path": "/Users/williammeldman/Desktop/VAULT_CUSTODY_x_TIMMY_deck_FINAL.pdf",
+   "path": "<home>/Desktop/VAULT_CUSTODY_x_TIMMY_deck_FINAL.pdf",
    "sha256": "7ca9bafb382d1495f40f4bad97dc49bfad1b3f916c3113a7bf9805b5e7efdb5c",
    "bytes": 5840957,
    "mtime": "2026-09-06T13:42:41.808Z"
   },
   {
    "role": "walkthrough · 30s deck cut (ships in the package)",
-   "path": "/Users/williammeldman/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/media/Vault-Custody-walkthrough-30s.mp4",
+   "path": "<home>/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/media/Vault-Custody-walkthrough-30s.mp4",
    "sha256": "7a339f0ac35345dab060c191eccfdf4a181adad7e20d938d9ecd3fae83aa36e3",
    "bytes": 1607921,
    "mtime": "2026-09-06T10:27:55.158Z"
   },
   {
    "role": "walkthrough · v4 review cut",
-   "path": "/Users/williammeldman/Desktop/Code-Projects/timmy-tui/.claude/worktrees/vault-custody/renders/walkthrough/walkthrough.mp4",
+   "path": "<repo>/.claude/worktrees/vault-custody/renders/walkthrough/walkthrough.mp4",
    "sha256": "fb77251cd230af5b2ad2e8417746cb657b0ddcf3c3bc2a8293d9f2684cd18614",
    "bytes": 5542538,
    "mtime": "2026-09-07T06:59:14.512Z"
   },
   {
    "role": "trailer · Timmy v17",
-   "path": "/Users/williammeldman/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/media/Timmy-working-trailer-v17.mp4",
+   "path": "<home>/Desktop/FANATICS_PITCH_PACKAGE_2026-09-06/media/Timmy-working-trailer-v17.mp4",
    "sha256": "50275ff885b6c1b80b66cd20ba18f1444cfb91950eca32b0c61a9f9d685c8e86",
    "bytes": 31857799,
    "mtime": "2026-09-05T22:46:28.688Z"

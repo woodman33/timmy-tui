@@ -10,7 +10,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const REPO = process.env.TIMMY_REPO ?? '/Users/williammeldman/Desktop/Code-Projects/timmy-tui';
+const REPO = process.env.TIMMY_REPO ?? '<repo>';
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d; };
 const ROOM = opt('--room', 'slate:ledger');
