@@ -16,6 +16,13 @@ import { VERSION } from './src/version.js';
 
 import { existsSync, readFileSync } from 'fs';
 
+// blank-slate-v1k9: no identity yet → say so and stop, before any panel renders. Skipped when
+// headless, under CI, or with TIMMY_SKIP_INIT=1 (tests that drive the TUI directly).
+if (!isHeadless && !process.env.CI && !process.env.TIMMY_SKIP_INIT) {
+  const { isBlankSlate, printBlankSlateBanner } = await import('./src/utils/init.js');
+  if (isBlankSlate()) { printBlankSlateBanner(); console.log('  Run `timmy init` (or `npx tsx src/cli.ts init`) first.\n'); process.exit(0); }
+}
+
 // Load .env variables into process.env before anything else to connect Daytona, Composio, etc.
 if (existsSync('.env')) {
   try {

@@ -46,6 +46,8 @@ Commands:
   proof <task>    Record a proof receipt for a simulated task
   version         Print package name and version
   setup           Initialize directory and template folder structure
+  init            First run: operator, seed identity, providers, first project (writes only ~/timmy/ and .timmy/private/)
+  release check   Release gate: fresh clone in a clean container, zero personal matches, wizard shown, §12 control
   doctor          Check optional local capabilities without running workloads
   docs verify     Verify GitBook docs structure, CLI, and safe env setup
   docs preview    Render and serve local docs preview
@@ -114,6 +116,11 @@ for (let i = 0; i < args.length; i++) {
   cleanArgs.push(args[i]);
 }
 
+if (cleanArgs.length === 0 && !args.includes('--help') && !args.includes('-h')) {
+  // blank-slate-v1k9: the first run is blank — with no identity yet, the wizard comes before the help
+  const { isBlankSlate, runInit } = await import('./utils/init.js');
+  if (isBlankSlate()) process.exit(await runInit(args));
+}
 if (cleanArgs.length === 0 || args.includes('--help') || args.includes('-h') || cleanArgs[0] === 'help') {
   printHelp();
   process.exit(0);
@@ -245,6 +252,19 @@ if (command === 'nfc' || command === 'custody') {
   // the programmer and the verifier must share one key derivation.
   const lane = fileURLToPath(new URL(command === 'nfc' ? '../lanes/nfc/program.mjs' : '../lanes/custody/commit.mjs', import.meta.url));
   const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
+if (command === 'init') {
+  // blank-slate-v1k9: operator, seed identity, providers, first project → ~/timmy/ and .timmy/private/ only
+  const { runInit } = await import('./utils/init.js');
+  process.exit(await runInit(args.slice(1)));
+}
+
+if (command === 'release') {
+  // blank-slate-v1k9: `timmy release check` — fresh clone in a clean container, zero personal matches, wizard shown
+  const lane = fileURLToPath(new URL('../lanes/release/check.mjs', import.meta.url));
+  const r = spawnSync('node', [lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
   process.exit(r.status ?? 1);
 }
 
