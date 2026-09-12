@@ -44,6 +44,37 @@ describe('factory-f1d0 · cockpit', () => {
     expect(tmux[tmux.length - 1]).toEqual(['select-layout', '-t', 'timmy:hands', 'tiled']);
   });
 
+  it('discover resolves ledger paths from the main worktree and keeps one row per hand', async () => {
+    const { discover } = await import('../lanes/cockpit/cockpit.mjs');
+    const proposal = discover({
+      root: '/repo/main/.claude/worktrees/order-current',
+      worktreesText: [
+        'worktree /repo/main\nHEAD a\nbranch refs/heads/main',
+        'worktree /repo/main/.claude/worktrees/order-old\nHEAD b\nbranch refs/heads/order/old',
+        'worktree /repo/main/.claude/worktrees/order-new\nHEAD c\nbranch refs/heads/order/new',
+        'worktree /repo/main/.claude/worktrees/order-codex\nHEAD d\nbranch refs/heads/order/codex',
+        'worktree /repo/main/.claude/worktrees/order-lost\nHEAD e\nbranch refs/heads/order/lost',
+      ].join('\n\n'),
+      ledgerText: [
+        'ORD | HANDS: claude-code in worktree .claude/worktrees/order-old, branch order/old',
+        'ORD | HANDS: claude-code in worktree .claude/worktrees/order-new, branch order/new',
+        'ORD | HANDS: codex in worktree .claude/worktrees/order-codex, branch order/codex',
+      ].join('\n'),
+    });
+    const local = proposal.hands.filter((h: { kind?: string }) => h.kind !== 'external');
+    expect(local.map((h: { name: string }) => h.name)).toEqual(['claude', 'codex', 'unassigned:lost']);
+    expect(local.find((h: { name: string }) => h.name === 'claude')?.worktree).toBe('/repo/main/.claude/worktrees/order-new');
+  });
+
+  it('dry previews do not require or kill an existing session, and duplicate hand names are detectable', async () => {
+    const { sessionStartDecision, duplicateHandNames } = await import('../lanes/cockpit/cockpit.mjs');
+    expect(sessionStartDecision({ up: true, restart: true, dry: true })).toBe('preview');
+    expect(sessionStartDecision({ up: true, restart: false, dry: true })).toBe('preview');
+    expect(sessionStartDecision({ up: true, restart: true, dry: false })).toBe('restart');
+    expect(sessionStartDecision({ up: true, restart: false, dry: false })).toBe('already-up');
+    expect(duplicateHandNames([{ name: 'claude' }, { name: 'claude' }, { name: 'codex' }])).toEqual(['claude']);
+  });
+
   it.skipIf(!hasTmux)('a throwaway session with a fake CLI: two panes, both logs receive the first bytes', async () => {
     const { plan, run } = await import('../lanes/cockpit/cockpit.mjs');
     const base = mkdtempSync(join(tmpdir(), 'cockpit-'));

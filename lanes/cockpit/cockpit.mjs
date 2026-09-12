@@ -77,6 +77,22 @@ export function plan(hands, { session = 'timmy', window = 'hands', date = today(
 
 export function hasSession(session) { return sh('tmux', ['has-session', '-t', session]).status === 0; }
 
+export function sessionStartDecision({ up, restart, dry }) {
+  if (!up) return 'start';
+  if (dry) return 'preview';
+  return restart ? 'restart' : 'already-up';
+}
+
+export function duplicateHandNames(hands) {
+  const seen = new Set(); const dupes = new Set();
+  for (const h of hands) {
+    if (!h.name) continue;
+    if (seen.has(h.name)) dupes.add(h.name);
+    else seen.add(h.name);
+  }
+  return [...dupes];
+}
+
 /** Execute the plan; returns the session record that `status`/`down` read. */
 export function run(steps, { session = 'timmy', dry = false } = {}) {
   const panes = {}; let pane = null;
@@ -93,16 +109,27 @@ export function run(steps, { session = 'timmy', dry = false } = {}) {
 }
 
 /** Propose a registry from the worktrees and the ledger's "HANDS: <hand> … in worktree <path>" lines. */
-export function discover() {
-  const wts = sh('git', ['worktree', 'list', '--porcelain'], { cwd: ROOT }).stdout.split('\n\n').map((b) => { const m = {}; for (const l of b.split('\n')) { const [k, ...v] = l.split(' '); if (k) m[k] = v.join(' '); } return m; }).filter((m) => m.worktree);
-  const ledger = existsSync(join(ROOT, 'orders.log')) ? readFileSync(join(ROOT, 'orders.log'), 'utf8') : '';
+export function discover({ root = ROOT, worktreesText = null, ledgerText = null } = {}) {
+  const wts = (worktreesText ?? sh('git', ['worktree', 'list', '--porcelain'], { cwd: root }).stdout).split('\n\n').map((b) => { const m = {}; for (const l of b.split('\n')) { const [k, ...v] = l.split(' '); if (k) m[k] = v.join(' '); } return m; }).filter((m) => m.worktree);
+  const mainRoot = wts[0]?.worktree ?? root;
+  const ledger = ledgerText ?? (existsSync(join(root, 'orders.log')) ? readFileSync(join(root, 'orders.log'), 'utf8') : '');
   const byWorktree = {};
-  for (const m of ledger.matchAll(/HANDS:\s*([a-z][a-z-]*)[^|]*?in worktree\s+([^\s,;|]+)/g)) byWorktree[resolve(ROOT, m[2])] = m[1].replace(/-code$/, '');
-  const hands = wts.filter((m) => /refs\/heads\/order\//.test(m.branch ?? '')).map((m) => {
-    const name = byWorktree[m.worktree] ?? 'unassigned';
+  let ledgerOrder = 0;
+  for (const m of ledger.matchAll(/HANDS:\s*([a-z][a-z-]*)[^|]*?in worktree\s+([^\s,;|]+)/g)) {
+    const worktree = isAbsolute(m[2]) ? m[2] : resolve(mainRoot, m[2]);
+    byWorktree[resolve(worktree)] = { name: m[1].replace(/-code$/, ''), order: ledgerOrder++ };
+  }
+  const byName = new Map();
+  for (const m of wts.filter((wt) => /refs\/heads\/order\//.test(wt.branch ?? ''))) {
+    const found = byWorktree[resolve(m.worktree)];
+    const name = found?.name ?? 'unassigned';
     const cli = name === 'claude' ? 'claude' : name === 'codex' ? 'codex' : name === 'qwen' ? 'qwen-code' : '<cli>';
-    return { name: name === 'unassigned' ? `unassigned:${(m.branch ?? '').replace('refs/heads/order/', '')}` : name, kind: name === 'unassigned' ? 'unassigned' : 'local', cli, args: [], worktree: m.worktree, branch: (m.branch ?? '').replace('refs/heads/', '') };
-  });
+    const row = { name: name === 'unassigned' ? `unassigned:${(m.branch ?? '').replace('refs/heads/order/', '')}` : name, kind: name === 'unassigned' ? 'unassigned' : 'local', cli, args: [], worktree: m.worktree, branch: (m.branch ?? '').replace('refs/heads/', '') };
+    const key = row.name;
+    const previous = byName.get(key);
+    if (!previous || (found?.order ?? -1) >= (previous.order ?? -1)) byName.set(key, { ...row, order: found?.order ?? -1 });
+  }
+  const hands = [...byName.values()].map(({ order, ...h }) => h);
   return { schema: 'timmy.cockpit-hands/1', session: 'timmy', hands: [...hands, { name: 'cursor-bugbot', kind: 'external' }, { name: 'sourcery', kind: 'external' }], note: 'proposed by `timmy cockpit hands --discover`: assign each unassigned worktree to a hand, then keep one line per hand' };
 }
 
@@ -121,9 +148,13 @@ if (process.argv[1]?.endsWith('cockpit.mjs')) {
       if (reg.source === 'template' && !has('--dry')) throw new Error(`no registry at ${REGISTRY} — run: timmy cockpit hands --discover --write, then edit it`);
       const hands = resolveHands(reg);
       const bad = hands.filter((h) => h.problems.length);
+      const dupes = duplicateHandNames(hands);
+      if (dupes.length && !has('--dry')) throw new Error(`refusing to start: duplicate local hand names: ${dupes.join(', ')}`);
       if (bad.length && !has('--dry')) throw new Error('refusing to start: ' + bad.map((h) => `${h.name}: ${h.problems.join('; ')}`).join(' | '));
       if (!hands.length) throw new Error('no local hands in the registry');
-      if (hasSession(session)) { if (has('--restart')) sh('tmux', ['kill-session', '-t', session]); else throw new Error(`session "${session}" is already up — timmy cockpit attach, or --restart`); }
+      const sessionDecision = sessionStartDecision({ up: hasSession(session), restart: has('--restart'), dry: has('--dry') });
+      if (sessionDecision === 'restart') sh('tmux', ['kill-session', '-t', session]);
+      else if (sessionDecision === 'already-up') throw new Error(`session "${session}" is already up — timmy cockpit attach, or --restart`);
       const steps = plan(hands, { session });
       const rec = run(steps, { session, dry: has('--dry') });
       if (!has('--dry')) { mkdirSync(PRIVATE, { recursive: true, mode: 0o700 }); writeFileSync(join(PRIVATE, 'session.json'), JSON.stringify(rec, null, 1) + '\n', { mode: 0o600 }); }
