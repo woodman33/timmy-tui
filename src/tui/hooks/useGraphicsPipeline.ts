@@ -37,7 +37,9 @@ export function useGraphicsPipeline(
         p = new SixelPipeline();
         break;
       case 'companion':
-        p = new CompanionPipeline(3001);
+        // preview-h9s3: parallel vitest workers each mount the shell; a fixed
+        // port made the second bind EADDRINUSE. Ephemeral under test.
+        p = new CompanionPipeline(process.env.VITEST ? 0 : 3001);
         break;
       default:
         p = new AnsiPipeline();
