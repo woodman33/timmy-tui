@@ -1,0 +1,49 @@
+{
+ "kind": "blueprint",
+ "name": "Defold · html5-bundle",
+ "source": "lanes/engines/defold/templates/html5-bundle/plan.cue",
+ "date": "2026-09-07",
+ "engine": "defold",
+ "workflow": "html5-bundle",
+ "note": "One zipped Defold project dropped into a project's drop/ folder becomes one HTML5 bundle in out/. The lane runs bob.jar (pinned to engine sha 574678c7, Defold 1.13.1) under Defold's own JDK 25 in three steps; the engine.run receipt cites the input, the bundle zip, the platform actually used and the Defold env-lock.",
+ "sheets": [
+  {
+   "id": "inputs",
+   "title": "Inputs · drop/",
+   "rows": [
+    { "label": "project", "value": "*.defold.zip", "note": "game.project at the zip root (or inside one top-level folder); no native extensions needed" },
+    { "label": "staged", "value": "game.project · *.zip", "note": "a bare game.project or a zip not named *.defold.zip is staged, never built (rules: stage)" },
+    { "label": "refused", "value": "> 512 MB", "note": "rules: refuse → engine.refuse receipt" }
+   ]
+  },
+  {
+   "id": "steps",
+   "title": "Steps",
+   "rows": [
+    { "label": "1 unpack", "value": "unzip → out/project + {stem}.project.json", "note": "run.mjs unpack · title, source files, declared dependencies, native extensions" },
+    { "label": "2 resolve", "value": "java -jar bob.jar --root out/project resolve", "note": "run.mjs resolve · library deps into .internal/lib → {stem}.resolve.json" },
+    { "label": "3 bundle", "value": "bob --platform wasm-web --architectures wasm-web --archive --variant release build bundle", "note": "run.mjs bundle · prebuilt engine from bob.jar, no build server; falls back to the host platform and says so" },
+    { "label": "4 pack", "value": "{stem}.bundle/ → {stem}.html5.zip + {stem}.bundle.json", "note": "bob's <title>/ folder renamed, zipped, every file hashed" }
+   ]
+  },
+  {
+   "id": "outputs",
+   "title": "Outputs · out/",
+   "rows": [
+    { "label": "bundle", "value": "{stem}.bundle/", "note": "index.html · dmloader.js · <title>_wasm.js · <title>.wasm · archive/ (directory; not hashed by the lane)" },
+    { "label": "bundle-zip", "value": "{stem}.html5.zip", "note": "bundle · {stem}.macos.zip when the report says fallback" },
+    { "label": "report", "value": "{stem}.bundle.json", "note": "platform, fallback, files+bytes+sha256, engine sha, bob version, java used, build server" },
+    { "label": "step reports", "value": "{stem}.project.json · {stem}.resolve.json", "note": "unpack and resolve details" }
+   ]
+  },
+  {
+   "id": "receipt",
+   "title": "Receipt · engine.run",
+   "rows": [
+    { "label": "cites", "value": "input sha256 · zip sha256 · env-lock sha256 · template shas", "note": "sealed in the root store by the lane" },
+    { "label": "extra", "value": "platform · fallback · bundle_files · bundle_bytes · engine_sha · bob_version · build_server", "note": "from {stem}.bundle.json" },
+    { "label": "acceptance", "value": "bundle folder complete · zip + report hashed · receipt cites input, outputs, platform, env-lock", "note": "three lines" }
+   ]
+  }
+ ]
+}

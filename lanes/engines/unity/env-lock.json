@@ -1,0 +1,15 @@
+{
+ "v": 1,
+ "engine": "unity",
+ "captured_at": "2026-09-07T13:29:15.802Z",
+ "os": {
+  "platform": "darwin",
+  "build": "25G83",
+  "version": "26.6.2"
+ },
+ "arch": "arm64",
+ "tools": {
+  "unity-editor": null
+ },
+ "installed": false
+}

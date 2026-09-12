@@ -1,0 +1,237 @@
+{
+  "metadata": {
+    "generated_at": "2026-09-07T12:39:07.838273+00:00",
+    "mcp_probe_version": "0.3.0",
+    "total_duration_ms": 1122,
+    "transport_type": "stdio"
+  },
+  "protocol_info": {
+    "available_protocols": [
+      {
+        "endpoints": [
+          "/mcp"
+        ],
+        "session_management": "Mcp-Session-Id header",
+        "spec_date": "2025-03-26",
+        "supported_methods": [
+          "initialize",
+          "initialized",
+          "tools/list",
+          "tools/call",
+          "resources/list",
+          "resources/read",
+          "prompts/list",
+          "prompts/get",
+          "logging/setLevel",
+          "notifications/*"
+        ],
+        "version": "Modern Streamable HTTP"
+      },
+      {
+        "endpoints": [
+          "/sse",
+          "/events"
+        ],
+        "session_management": "sessionId query parameter",
+        "spec_date": "2024-11-05",
+        "supported_methods": [
+          "initialize",
+          "initialized",
+          "tools/list",
+          "tools/call",
+          "resources/list",
+          "resources/read",
+          "prompts/list",
+          "prompts/get",
+          "logging/setLevel"
+        ],
+        "version": "Legacy HTTP+SSE"
+      },
+      {
+        "endpoints": [
+          "stdio"
+        ],
+        "session_management": "N/A (stdio)",
+        "spec_date": "2025-03-26",
+        "supported_methods": [
+          "initialize",
+          "initialized",
+          "tools/list",
+          "tools/call",
+          "resources/list",
+          "resources/read",
+          "prompts/list",
+          "prompts/get",
+          "logging/setLevel",
+          "notifications/*"
+        ],
+        "version": "Standard Transport"
+      }
+    ],
+    "detected_protocol": {
+      "endpoints": [
+        "stdio"
+      ],
+      "session_management": "N/A (stdio)",
+      "spec_date": "2025-03-26",
+      "supported_methods": [
+        "initialize",
+        "initialized",
+        "tools/list",
+        "tools/call",
+        "resources/list",
+        "resources/read",
+        "prompts/list",
+        "prompts/get",
+        "logging/setLevel",
+        "notifications/*"
+      ],
+      "version": "Standard Transport"
+    }
+  },
+  "results": [
+    {
+      "details": null,
+      "duration_ms": 0,
+      "message": "Successfully created MCP client",
+      "name": "Connection",
+      "status": "PASS"
+    },
+    {
+      "details": {
+        "name": "rmcp",
+        "protocol_version": "2025-03-26",
+        "version": "1.5.0"
+      },
+      "duration_ms": 317,
+      "message": "Connected to rmcp v1.5.0",
+      "name": "Initialization",
+      "status": "PASS"
+    },
+    {
+      "details": null,
+      "duration_ms": 1,
+      "message": "Server capabilities discovered successfully",
+      "name": "Capability Discovery",
+      "status": "PASS"
+    },
+    {
+      "details": [
+        {
+          "description": "Execute JavaScript in a persistent `node_repl` with top-level await. Top-level bindings persist until `js_reset` and can be redeclared. Use `const` for stable values and `let` for changing values. Use dynamic imports such as `await import(\"playwright\")`; top-level static imports and `node:process` are unavailable. Use `nodeRepl.write(value)` for output and `await nodeRepl.emitImage(image)` for images. Execution context is available through `nodeRepl.cwd`, `nodeRepl.homeDir`, `nodeRepl.tmpDir`, and `nodeRepl.requestMeta`. The default timeout is 30000 ms (30 seconds); increase `timeout_ms` for longer operations. Use `js_add_node_module_dir` when an additional package directory is required.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "description": "JavaScript code to execute with top-level await.",
+                "type": "string"
+              },
+              "timeout_ms": {
+                "description": "Optional execution timeout in milliseconds. Defaults to 30000 (30 seconds) when omitted.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "title": {
+                "description": "Short user-facing description of what the code does.",
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          "name": "js"
+        },
+        {
+          "description": "Add an absolute `node_modules` directory for package imports. The directory remains available after `js_reset`.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "description": "Absolute path to a node_modules directory to add to Node package resolution.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "js_add_node_module_dir"
+        },
+        {
+          "description": "Reset the JavaScript kernel and clear all bindings.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "js_reset"
+        },
+        {
+          "description": "Notify trusted libraries that a Codex turn ended. Repeated notifications for the same session and turn are ignored.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "hook_event_name": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "session_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "turn_id": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "hook_event_name",
+              "session_id",
+              "turn_id"
+            ],
+            "type": "object"
+          },
+          "name": "turn_ended"
+        }
+      ],
+      "duration_ms": 0,
+      "message": "Successfully listed 4 tools",
+      "name": "Tools Listing",
+      "status": "PASS"
+    },
+    {
+      "details": null,
+      "duration_ms": 0,
+      "message": "No resources available",
+      "name": "Resources Listing",
+      "status": "WARN"
+    },
+    {
+      "details": null,
+      "duration_ms": 0,
+      "message": "No prompts available",
+      "name": "Prompts Listing",
+      "status": "WARN"
+    },
+    {
+      "details": null,
+      "duration_ms": 0,
+      "message": "Correctly handles invalid methods",
+      "name": "Error Handling",
+      "status": "PASS"
+    }
+  ],
+  "summary": {
+    "failed": 0,
+    "passed": 5,
+    "skipped": 0,
+    "total_tests": 7,
+    "warnings": 2
+  }
+}

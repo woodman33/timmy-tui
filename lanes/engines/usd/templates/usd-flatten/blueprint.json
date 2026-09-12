@@ -1,0 +1,28 @@
+{
+ "kind": "blueprint",
+ "name": "USD · usd-flatten",
+ "source": "lanes/engines/usd/templates/usd-flatten/plan.cue",
+ "date": "2026-09-07",
+ "engine": "usd",
+ "workflow": "usd-flatten",
+ "note": "A layer with sublayers, references and variants becomes one self-contained binary crate in out/. Apple's usdcat does the composing; the report says how many prims went in and came out.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "layer", "value": "*.usda · *.usdc · *.usd", "note": "rules: run" },
+   { "label": "package", "value": "*.usdz", "note": "rules: stage (validate instead)" },
+   { "label": "refused", "value": "> 512 MB", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 flatten", "value": "usdcat --flatten <layer> -o {stem}.flat.usdc", "note": "references and variants baked in" },
+   { "label": "2 re-load", "value": "usdcat --loadOnly on the crate, count prims", "note": "run.mjs" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "flat", "value": "{stem}.flat.usdc", "note": "usd" },
+   { "label": "report", "value": "{stem}.flat.json", "note": "prims before/after, bytes, errors" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "layer sha256 · crate sha256 · env-lock", "note": "" },
+   { "label": "extra", "value": "prims · flat_bytes", "note": "from the report" }
+  ] }
+ ]
+}
