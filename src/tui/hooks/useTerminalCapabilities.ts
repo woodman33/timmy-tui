@@ -7,7 +7,7 @@ export interface TerminalCapState {
   detected: boolean;
 }
 
-export function useTerminalCapabilities(): TerminalCapState {
+export function useTerminalCapabilities(enabled = true): TerminalCapState {
   const [state, setState] = useState<TerminalCapState>({
     capabilities: {
       kittyGraphics: false,
@@ -22,6 +22,7 @@ export function useTerminalCapabilities(): TerminalCapState {
   });
 
   useEffect(() => {
+    if (!enabled) return; // BOOT: probe after first frame
     detectCapabilities().then(caps => {
       setState({ capabilities: caps, detected: true });
     });

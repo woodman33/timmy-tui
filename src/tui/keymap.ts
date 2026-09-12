@@ -86,3 +86,68 @@ export function submenuLines(mode: Mode): [string, string] {
   const half = Math.ceil(verbs.length / 2);
   return [verbs.slice(0, half).join(' · ') || '—', verbs.slice(half).join(' · ') || ''];
 }
+
+// ─── REDESIGN v2 (ORDER tui-redesign-p6a3, spec §02/§07) ───────────────────
+// The v2 shell keymap: one entry per (mode, tab). Footer hints and the
+// which-key overlay render FROM this object; a key absent here does not exist.
+export type ShellMode = 'NORMAL' | 'INSERT' | 'CHAT';
+export type ShellTab = 'HOME' | 'RUN' | 'CHAIN' | 'LIBRARY' | 'CHAT' | 'COMMAND';
+export type KeyGroup = 'NAVIGATE' | 'ACT' | 'MODES' | 'SEAL';
+export interface ShellKey { key: string; label: string; group: KeyGroup }
+
+const nav = (key: string, label: string): ShellKey => ({ key, label, group: 'NAVIGATE' });
+const act = (key: string, label: string): ShellKey => ({ key, label, group: 'ACT' });
+const mod = (key: string, label: string): ShellKey => ({ key, label, group: 'MODES' });
+const seal = (key: string, label: string): ShellKey => ({ key, label, group: 'SEAL' });
+
+const NAV: ShellKey[] = [nav('1-4', 'tab'), nav('j/k', 'move'), nav('Enter', 'open'), nav('Tab', 'next pane'), nav('/', 'filter')];
+const MODES: ShellKey[] = [mod('i', 'insert (cmd line)'), mod(':', 'command'), mod('c', 'chat (sovereign)'), mod('Esc', 'back / leave mode'), mod('?', 'which-key')];
+const SEAL: ShellKey[] = [seal('s', 'seal…'), seal('S', 'seal review note')];
+
+export const KEYMAP_SHELL: Record<`${ShellMode}:${ShellTab}`, ShellKey[]> = {
+  'NORMAL:HOME': [...NAV, act('v', 'verify chain'), act('q', 'companion QR'), act('d', 'run doctor'), ...MODES, ...SEAL],
+  'NORMAL:RUN': [...NAV, act('a', 'approve'), act('r', 'refuse (needs reason)'), act('n', 'new run'), ...MODES, ...SEAL],
+  'NORMAL:CHAIN': [...NAV, act('v', 'verify from here'), act('o', 'open in companion'), act('y', 'copy hash'), ...MODES, ...SEAL],
+  'NORMAL:LIBRARY': [...NAV, act('h', 'set for harness'), act('p', 'pin'), act('n', 'edit note'), ...MODES, ...SEAL],
+  'INSERT:HOME': [mod('Esc', 'leave insert'), nav('Tab', 'next pane')],
+  'INSERT:RUN': [mod('Esc', 'leave insert'), nav('Tab', 'next pane')],
+  'INSERT:CHAIN': [mod('Esc', 'leave insert'), nav('Tab', 'next pane')],
+  'INSERT:LIBRARY': [mod('Esc', 'leave insert'), nav('Tab', 'next pane')],
+  'CHAT:HOME': [mod('Enter', 'send'), mod('Esc', 'leave chat'), nav('Tab', 'next pane')],
+  'NORMAL:CHAT': [mod('Enter', 'send'), mod('Esc', 'back'), nav('Tab', 'next pane'), act('s', 'seal')],
+  'NORMAL:COMMAND': [nav('1-6', 'focus harness'), act('m', 'model'), act('M', 'harness model'), act('K', 'handoff'), act('X', 'kill'), act('t', 'toggle'), act('b', 'body'), act('f', 'fusion'), act('g', 'generate')],
+  'INSERT:CHAT': [mod('Esc', 'leave insert'), nav('Tab', 'next pane')],
+  'INSERT:COMMAND': [mod('Esc', 'leave insert'), nav('Tab', 'next pane')],
+  'CHAT:CHAT': [mod('Enter', 'send'), mod('Esc', 'leave chat')],
+  'CHAT:COMMAND': [mod('Enter', 'send'), mod('Esc', 'leave chat')],
+  'CHAT:RUN': [mod('Enter', 'send'), mod('Esc', 'leave chat'), nav('Tab', 'next pane')],
+  'CHAT:CHAIN': [mod('Enter', 'send'), mod('Esc', 'leave chat'), nav('Tab', 'next pane')],
+  'CHAT:LIBRARY': [mod('Enter', 'send'), mod('Esc', 'leave chat'), nav('Tab', 'next pane')],
+};
+
+export const shellKeys = (mode: ShellMode, tab: ShellTab): ShellKey[] => KEYMAP_SHELL[`${mode}:${tab}`];
+export const footerHintsShell = (mode: ShellMode, tab: ShellTab): string =>
+  shellKeys(mode, tab).map(k => `[${k.key}] ${k.label}`).join('  ');
+// SPEC §02 — the footer is ONE line; the full keymap lives in which-key (?).
+// This is the curated short set per tab, not a second source of truth: every
+// key named here exists in KEYMAP_SHELL for the same (mode, tab).
+const FOOTER_ACTS: Record<ShellTab, string> = {
+  HOME: '[v] verify  [q] QR  [s] seal',
+  RUN: '[a] approve  [r] refuse  [s] seal',
+  CHAIN: '[v] verify  [o] open  [y] copy  [s] seal',
+  LIBRARY: '[h] harness  [p] pin  [n] note  [f] files  [s] seal',
+  CHAT: '[Esc] leave  [s] seal',
+  COMMAND: '[m] model  [M] harness-model  [K] handoff  [X] kill  [t] toggle  [b] body  [f] fusion  [g] gen',
+};
+export const footerHintsShellShort = (mode: ShellMode, tab: ShellTab): string =>
+  mode === 'NORMAL'
+    ? tab === 'CHAT'
+      // FIX 3: on CHAT, Enter means send — one hint, from the keymap
+      ? `[1-6] tab  [Enter] send  ${FOOTER_ACTS[tab]}  [?] keys`
+      : `[1-6] tab  [Enter] open  ${FOOTER_ACTS[tab]}  [c] chat  [?] keys`
+    : footerHintsShell(mode, tab);
+export const whichKeyGroupsShell = (mode: ShellMode, tab: ShellTab): { group: KeyGroup; entries: ShellKey[] }[] => {
+  const order: KeyGroup[] = ['NAVIGATE', 'ACT', 'MODES', 'SEAL'];
+  const ks = shellKeys(mode, tab);
+  return order.map(g => ({ group: g, entries: ks.filter(k => k.group === g) })).filter(g => g.entries.length > 0);
+};

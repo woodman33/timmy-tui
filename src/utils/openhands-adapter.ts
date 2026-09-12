@@ -9,7 +9,7 @@ import { tmpdir, homedir } from 'os';
 import { spawnSync, spawn } from 'child_process';
 import crypto from 'crypto';
 import { appendReceipt } from './receipts.js';
-import { appendEvent } from './eventbus.js';
+import { publish as appendEvent } from '../bus/index.js';
 import { planHashOf, consumeApproval } from './approvals.js';
 
 const sha = (s: string): string => crypto.createHash('sha256').update(s).digest('hex');

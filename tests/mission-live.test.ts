@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'fs';
-import { join } from 'path';
 import { startLogServer } from '../src/utils/logserver.js';
 import { issueApproval } from '../src/utils/approvals.js';
 import { appendReceipt } from '../src/utils/receipts.js';
 import { buildAgentPass } from '../src/utils/agent-pass.js';
 import { armEscrow, lockEscrow } from '../src/utils/escrow-engine.js';
+import { busPath } from '../src/bus/index.js';
 
 // Mission Studio live launch (v0.7.6): the arming gateway triggers the
 // containerized lane for openhands+docker plans and telemetry lands on the
@@ -55,8 +55,8 @@ describe('mission studio live launch (:4310/mission)', () => {
     expect(l.ok).toBe(true);
     expect(l.container).toBe(true);
     // telemetry for THIS plan landed on the bus (studio SSE filters by plan_id)
-    const evs = readFileSync(join(process.cwd(), '.timmy', 'runs', 'timmy-events.jsonl'), 'utf8')
-      .trim().split('\n').map(x => JSON.parse(x))
+    const evs = readFileSync(busPath(), 'utf8')
+      .trim().split('\n').map(x => JSON.parse(x)).filter((e: { hash?: string }) => !e.hash)
       .filter((e: { payload?: { plan_id?: string } }) => e.payload?.plan_id === s.id);
     expect(evs.some((e: { kind: string }) => e.kind === 'dispatch.container_started')).toBe(true);
     expect(evs.some((e: { kind: string }) => e.kind === 'dispatch.container_done')).toBe(true);
@@ -100,8 +100,8 @@ describe('mission studio live launch (:4310/mission)', () => {
     expect(row.ceiling_usd).toBe(1);
     const html = await (await fetch(`http://127.0.0.1:${port}/mission`)).text();
     expect(html).toContain('6 · ESCROW LEDGER');
-    const evs = readFileSync(join(process.cwd(), '.timmy', 'runs', 'timmy-events.jsonl'), 'utf8')
-      .trim().split('\n').map(x => JSON.parse(x));
+    const evs = readFileSync(busPath(), 'utf8')
+      .trim().split('\n').map(x => JSON.parse(x)).filter((e: { hash?: string }) => !e.hash);
     expect(evs.some((e: { kind: string; payload?: { escrow_id?: string } }) => e.kind === 'escrow.locked' && e.payload?.escrow_id === a.escrow!.escrow_id)).toBe(true);
   });
 });
