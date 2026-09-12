@@ -15,7 +15,9 @@ export interface SceneForgeCall {
   args?: Record<string, unknown>;
 }
 
-const DEFAULT_URL = 'https://houdini-mcp-agent.wmeldman33.workers.dev/mcp';
+// privacy-d5n9 follow-up (pii-g8r2): the site-specific default lives in the
+// operator's env; the public tree carries only the placeholder form.
+const DEFAULT_URL = process.env.SCENEFORGE_MCP_URL ?? 'https://houdini-mcp-agent.<hostname>/mcp';
 
 function configContents(): string {
   return `${JSON.stringify(
