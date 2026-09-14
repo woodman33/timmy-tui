@@ -1,0 +1,7 @@
+{
+  "documentPath": "studio/spatial-volume-20260912/grid10/manifest.json",
+  "objectId": "volume",
+  "changes": [
+    {"path": "/construction/boxSideMm", "before": 80, "after": 82}
+  ]
+}

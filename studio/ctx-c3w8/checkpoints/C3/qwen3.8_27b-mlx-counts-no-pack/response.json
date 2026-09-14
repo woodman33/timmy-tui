@@ -1,0 +1,15 @@
+{
+  "response": {
+    "model": "qwen3.8:27b-mlx",
+    "done": true,
+    "done_reason": "stop",
+    "content": "{\n  \"answers\": [\n    {\n      \"key\": \"knownLocations\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"totalCells\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"empty\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"partial\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"full\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    }\n  ],\n  \"unknowns\": [\n    \"material\",\n    \"density\",\n    \"mass\"\n  ]\n}",
+    "prompt_eval_count": 190,
+    "eval_count": 219,
+    "total_duration": 49576886625,
+    "load_duration": 14937752125,
+    "eval_duration": 30674682875
+  },
+  "malformedTransportBody": null,
+  "error": null
+}

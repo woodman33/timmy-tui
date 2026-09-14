@@ -1,0 +1,15 @@
+{
+  "response": {
+    "model": "qwen3.8:27b-mlx",
+    "done": true,
+    "done_reason": "stop",
+    "content": "{\n  \"answers\": [\n    {\n      \"key\": \"centerXmm\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"centerYmm\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"centerZmm\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"fillFraction\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    }\n  ],\n  \"unknowns\": [\n    \"material\",\n    \"density\",\n    \"mass\"\n  ]\n}",
+    "prompt_eval_count": 191,
+    "eval_count": 188,
+    "total_duration": 48888018916,
+    "load_duration": 24178208,
+    "eval_duration": 48026687250
+  },
+  "malformedTransportBody": null,
+  "error": null
+}

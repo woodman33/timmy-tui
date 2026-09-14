@@ -1,0 +1,37 @@
+{
+  "v": 1,
+  "id": "rc_mtyn08zr_31bh",
+  "stream": "runs",
+  "ts": "2026-09-12T17:06:30.663Z",
+  "env_lock": {
+    "os": {
+      "platform": "darwin",
+      "build": "25G83",
+      "version": "26.6.2"
+    },
+    "arch": "arm64",
+    "tools": {},
+    "models": {}
+  },
+  "kind": "annotation.receipt",
+  "subject": "annotation.receipt",
+  "policy": "Retain immutable spatial evidence; no authority or physical correctness promotion",
+  "status": "ok",
+  "output_sha256": "c48900709a178f2cb3dde4967a3688d9673eb58ffc0f0897cb0bd5fce90fb10a",
+  "manifest_sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "artifacts": [
+    "studio/ctx-c3w8/checkpoints/C2/annotation.receipt-c48900709a178f2c-41b01ea1-d3c6-4f16-bc3c-e43fcf1eea55.json"
+  ],
+  "sources": [
+    {
+      "source_sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "artifact_sha256": "c48900709a178f2cb3dde4967a3688d9673eb58ffc0f0897cb0bd5fce90fb10a",
+      "authority": "retained-local-file"
+    }
+  ],
+  "epoch": 903,
+  "prev_hash": "sha256_c098b3d5a68638b475c8492ada4db4fec57ce709b461c12c138c459c84572cf3",
+  "signer": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAhm/lxmgv+Sm+xKu19Rtsnp74QrpJGrxnoyXm2QAft8s=\n-----END PUBLIC KEY-----\n",
+  "signature": "IP1yPXfr0Cx6WzFVr/OnjXdcI2MPDn807NeAOpljOajpSbQFAOHAWzzvRQG1qvG5/a6tM2z99KkZ36zPDlOSDw==",
+  "hash": "sha256_982e14881ac656fd8b5b00a66ecd59e0fe2c89621a219d38357d20ff521266b7"
+}

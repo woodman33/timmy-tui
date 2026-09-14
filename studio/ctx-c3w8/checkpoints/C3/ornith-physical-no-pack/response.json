@@ -1,0 +1,15 @@
+{
+  "response": {
+    "model": "ornith:latest",
+    "done": true,
+    "done_reason": "stop",
+    "content": "{\n  \"answers\": [\n    {\n      \"key\": \"material\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"densityKgM3\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"massKg\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    }\n  ],\n  \"unknowns\": [\n    \"material\",\n    \"density\",\n    \"mass\"\n  ]\n}",
+    "prompt_eval_count": 198,
+    "eval_count": 151,
+    "total_duration": 9669831083,
+    "load_duration": 23745208,
+    "eval_duration": 9058561000
+  },
+  "malformedTransportBody": null,
+  "error": null
+}

@@ -53,6 +53,18 @@ marketing-plan/
 launch/
 README copy.md
 tools/*
+!tools/ctx-c3w8/
+tools/ctx-c3w8/**
+!tools/ctx-c3w8/*.ts
+!tools/ctx-c3w8/*.md
+!tools/spatial-volume/
+tools/spatial-volume/**
+!tools/spatial-volume/*.py
+!tools/spatial-volume/*.md
+!tools/spatial-volume/*.lock.txt
+
+# Public, synthetic ORDER evidence; private receipt stores remain ignored.
+!studio/ctx-c3w8/**/*.receipt.json
 !tools/connectors.json
 !tools/script-ledger.mjs
 

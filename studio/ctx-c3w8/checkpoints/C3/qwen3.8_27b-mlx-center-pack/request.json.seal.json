@@ -1,0 +1,30 @@
+{
+  "v": 1,
+  "id": "rc_mtyndx8i_tynf",
+  "stream": "runs",
+  "ts": "2026-09-12T17:17:08.610Z",
+  "env_lock": {
+    "os": {
+      "platform": "darwin",
+      "build": "25G83",
+      "version": "26.6.2"
+    },
+    "arch": "arm64",
+    "tools": {},
+    "models": {}
+  },
+  "kind": "context.ablation.intent",
+  "subject": "ORDER ctx-c3w8",
+  "policy": "User authorized local evidence and proposal-only work; HOLD released",
+  "status": "ok",
+  "output_sha256": "dc2bad1c9f6095cd0bd2e83f05d2c554e2106b5ef1d930e5ba2e724ac0ebaf77",
+  "artifacts": [
+    "studio/ctx-c3w8/checkpoints/C3/qwen3.8_27b-mlx-center-pack/request.json"
+  ],
+  "plan_hash": "sha256_4e0e995b53bcb7d80a4a3e00ae1ba42831081fece0d3a408adc24c3492a8568a",
+  "epoch": 903,
+  "prev_hash": "sha256_ff1a32587d48eea5ae6f86f030280604608205186182337baa27ad79f0a15eb1",
+  "signer": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAhm/lxmgv+Sm+xKu19Rtsnp74QrpJGrxnoyXm2QAft8s=\n-----END PUBLIC KEY-----\n",
+  "signature": "Di9EJVpId9k4IPIm+h+4FkKpA+H65LoWFZY//oCdWfLkS9TSShTPRsvGMyRWkmaZ2le3vtTF8qe/vOH1bet1DA==",
+  "hash": "sha256_bcc96c927485c6ddd5e5d25a9879ab97f1dac4afc493eeeaf18943dd3690f794"
+}

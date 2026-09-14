@@ -1,0 +1,51 @@
+{
+  "checkpoint": "C5",
+  "ok": true,
+  "elapsedMs": 5269,
+  "budgetSeconds": 900,
+  "withinBudget": true,
+  "exportManifest": {
+    "path": "studio/ctx-c3w8/checkpoints/C5/exports/export-manifest.json",
+    "sha256": "05f1e3ebf0646ab21853c2d4c42a22126715cc61e9a7d11eabd2b96eea1b0c47",
+    "receipt": "sha256_38c609fbe06fd8178248220a1faee278a6372d418e149a05bd3bbffa113e8541"
+  },
+  "nativeFiles": [
+    {
+      "path": "studio/ctx-c3w8/checkpoints/C5/exports/context.rrd",
+      "bytes": 78010,
+      "sha256": "8304232f8a69dba530c246f2b47f5de99f9c23312dd8ff0509b1a75c29d3d36f"
+    },
+    {
+      "path": "studio/ctx-c3w8/checkpoints/C5/exports/context.viser",
+      "bytes": 16735,
+      "sha256": "f72ae5a4f0edef591eb090da2039b2c4eee445b4a1a081ebd3061170cefca043"
+    }
+  ],
+  "checks": {
+    "rrdVerified": true,
+    "viserGeometryReadback": "decoded scene messages and exact geometry buffers",
+    "rows": 24,
+    "units": "mm",
+    "vertices": 440,
+    "triangles": 880,
+    "gridLocations": 1000,
+    "fillCounts": {
+      "unknown": 0,
+      "sampled": 1000,
+      "declared": 0,
+      "empty": 488,
+      "partial": 96,
+      "full": 416
+    },
+    "maxDisplayCoordinateErrorMm": 0
+  },
+  "scope": {
+    "geometrySource": "retained analytic fixture",
+    "semanticCorrectnessChecked": false,
+    "nativeEditsExecuted": false,
+    "physicalValidation": false,
+    "renderingProved": false,
+    "claim": "actual serialized geometry and retained context/ablation data; source hashes and format readback checked"
+  },
+  "omma": "No MCP contract confirmed; exports-only integration remains with CC2."
+}

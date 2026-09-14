@@ -1,0 +1,15 @@
+{
+  "response": {
+    "model": "ornith:latest",
+    "done": true,
+    "done_reason": "stop",
+    "content": "{\n  \"answers\": [\n    {\n      \"key\": \"centerXmm\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"centerYmm\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"centerZmm\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    },\n    {\n      \"key\": \"fillFraction\",\n      \"value\": null,\n      \"entityId\": null,\n      \"factIds\": []\n    }\n  ],\n  \"unknowns\": [\n    \"mass\",\n    \"density\",\n    \"material\"\n  ]\n}",
+    "prompt_eval_count": 191,
+    "eval_count": 190,
+    "total_duration": 12722467666,
+    "load_duration": 10635833,
+    "eval_duration": 12052197000
+  },
+  "malformedTransportBody": null,
+  "error": null
+}

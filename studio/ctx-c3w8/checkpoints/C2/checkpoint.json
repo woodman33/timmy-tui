@@ -1,0 +1,70 @@
+{
+  "checkpoint": "C2",
+  "pack": {
+    "path": "studio/ctx-c3w8/checkpoints/C2/context.pack-2e195fb2422a3c59-fb5483f0-8be4-49ca-9892-d219c008b8e4.json",
+    "sha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+    "bytes": 15106
+  },
+  "descriptor": {
+    "path": "studio/ctx-c3w8/checkpoints/C2/context.pack-2e195fb2422a3c59-fb5483f0-8be4-49ca-9892-d219c008b8e4.json.descriptor.json",
+    "sha256": "70341a84c7d11b98e96155d3b1e059f43df5443e8a092af3a345e7ce3eddd0e6",
+    "bytes": 1763
+  },
+  "packReceipt": "sha256_c098b3d5a68638b475c8492ada4db4fec57ce709b461c12c138c459c84572cf3",
+  "validAnnotationReceipt": "sha256_982e14881ac656fd8b5b00a66ecd59e0fe2c89621a219d38357d20ff521266b7",
+  "negativeControlReceipt": "sha256_47a679059ff2cffee5d3a4918fb814d502cd8316f60627a06754fed9cdb5a03f",
+  "graniteFixture": {
+    "path": "tests/fixtures/spatial/granite-ungrounded-response.json",
+    "sha256": "41a9883b4f65c7c50e997dd5ce579b4938cb1a33aa28e646363c98ba4cbfffcb",
+    "origin": "Retained prior Granite response; fresh admission test, no new model inference."
+  },
+  "geometry": [
+    {
+      "id": "volume",
+      "kind": "volume",
+      "provenance": "generated",
+      "artifactSha256": "5f3db71cb0e670e6140ea54e0191247b40341698b0476b15dc9fe4de30f28c62",
+      "units": "mm"
+    },
+    {
+      "id": "volume",
+      "kind": "mesh",
+      "provenance": "reconstructed",
+      "artifactSha256": "d4d527d500e0e0dcb5e29f47046a372e1514768aa775e5ce9f1a4bb98e85e475",
+      "units": "mm"
+    }
+  ],
+  "measurementCount": 14,
+  "unknownCount": 5,
+  "camera": {
+    "frameId": "fixture",
+    "units": "mm",
+    "provenance": "generated",
+    "projection": "perspective",
+    "position": [
+      140,
+      -150,
+      115
+    ],
+    "target": [
+      0,
+      0,
+      0
+    ],
+    "up": [
+      0,
+      0,
+      1
+    ],
+    "verticalFovDegrees": 50
+  },
+  "checks": {
+    "packSealed": true,
+    "objectRevisionCameraAnchored": true,
+    "ungroundedCitationRejected": true
+  },
+  "elapsedMs": 729,
+  "budgetSeconds": 900,
+  "withinBudget": true,
+  "omma": "No MCP contract confirmed. Exports-only path remains with CC2."
+}

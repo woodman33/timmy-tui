@@ -1,0 +1,149 @@
+{
+  "schema": "timmy.ctx-c3w8.c3.checkpoint/1",
+  "checkpoint": "C3",
+  "rows": 24,
+  "predictionReceipt": "sha256_4e0e995b53bcb7d80a4a3e00ae1ba42831081fece0d3a408adc24c3492a8568a",
+  "resultReceipt": "sha256_4c6ed11c44dbcf9af215ca8feeb6c0413ed671d8fdc1d042760bf0df34dae3a5",
+  "startedAt": "2026-09-12T17:07:04.246Z",
+  "finishedAt": "2026-09-12T17:23:05.532Z",
+  "elapsedMs": 961286,
+  "budgetSeconds": 900,
+  "withinBudget": false,
+  "findings": {
+    "checkpointBudgetOverrunMs": 61286,
+    "configuredAbortDidNotEnforceWallClockBound": [
+      {
+        "rowId": "qwen3.8_27b-mlx-center-pack",
+        "configuredInferenceTimeoutMs": 150000,
+        "observedElapsedMs": 239984,
+        "error": "The operation was aborted due to timeout",
+        "cause": "not-established"
+      }
+    ]
+  },
+  "modelBlocks": [
+    {
+      "model": "granite4.2:latest",
+      "elapsedMs": 121656,
+      "rows": 6,
+      "budgetSeconds": 900,
+      "withinBudget": true
+    },
+    {
+      "model": "ornith:latest",
+      "elapsedMs": 114416,
+      "rows": 6,
+      "budgetSeconds": 900,
+      "withinBudget": true
+    },
+    {
+      "model": "gemma4:12b-it-qat",
+      "elapsedMs": 136436,
+      "rows": 6,
+      "budgetSeconds": 900,
+      "withinBudget": true
+    },
+    {
+      "model": "qwen3.8:27b-mlx",
+      "elapsedMs": 587726,
+      "rows": 6,
+      "budgetSeconds": 900,
+      "withinBudget": true
+    }
+  ],
+  "calibration": [
+    {
+      "model": "granite4.2:latest",
+      "modelDigest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+      "noPack": {
+        "count": 3,
+        "failed": 0,
+        "meanScore": 1,
+        "groundedCorrectRate": 0,
+        "unknownsPreservedRate": 1,
+        "meanAnswerCoverage": 0
+      },
+      "withPack": {
+        "count": 3,
+        "failed": 2,
+        "meanScore": 0.3333333333333333,
+        "groundedCorrectRate": 0.3333333333333333,
+        "unknownsPreservedRate": 0,
+        "meanAnswerCoverage": 0.3333333333333333
+      },
+      "contextLift": -0.6666666666666667,
+      "prediction": 0.5,
+      "predictionError": -1.1666666666666667
+    },
+    {
+      "model": "ornith:latest",
+      "modelDigest": "a75697c145891910e312c95e4a9fc1ccb8653e5ef543b23b0403a4665b82fd91",
+      "noPack": {
+        "count": 3,
+        "failed": 0,
+        "meanScore": 1.3333333333333333,
+        "groundedCorrectRate": 0.3333333333333333,
+        "unknownsPreservedRate": 1,
+        "meanAnswerCoverage": 0
+      },
+      "withPack": {
+        "count": 3,
+        "failed": 0,
+        "meanScore": 1.6666666666666667,
+        "groundedCorrectRate": 1,
+        "unknownsPreservedRate": 0.6666666666666666,
+        "meanAnswerCoverage": 0.6666666666666666
+      },
+      "contextLift": 0.3333333333333335,
+      "prediction": 0.5,
+      "predictionError": -0.16666666666666652
+    },
+    {
+      "model": "gemma4:12b-it-qat",
+      "modelDigest": "38044be4f923e5a55264ed7df4eaac2676651a905f735197c504045140c02bd3",
+      "noPack": {
+        "count": 3,
+        "failed": 0,
+        "meanScore": 1.3333333333333333,
+        "groundedCorrectRate": 0.3333333333333333,
+        "unknownsPreservedRate": 1,
+        "meanAnswerCoverage": 0
+      },
+      "withPack": {
+        "count": 3,
+        "failed": 0,
+        "meanScore": 1.3333333333333333,
+        "groundedCorrectRate": 1,
+        "unknownsPreservedRate": 0.3333333333333333,
+        "meanAnswerCoverage": 0.6666666666666666
+      },
+      "contextLift": 0,
+      "prediction": 0.5,
+      "predictionError": -0.5
+    },
+    {
+      "model": "qwen3.8:27b-mlx",
+      "modelDigest": "5642e97495e1a088883805981563dcdc4a040c2f53388b7a41d1f24d3622cf7e",
+      "noPack": {
+        "count": 3,
+        "failed": 0,
+        "meanScore": 1.3333333333333333,
+        "groundedCorrectRate": 0.3333333333333333,
+        "unknownsPreservedRate": 1,
+        "meanAnswerCoverage": 0
+      },
+      "withPack": {
+        "count": 3,
+        "failed": 1,
+        "meanScore": 1.3333333333333333,
+        "groundedCorrectRate": 0.6666666666666666,
+        "unknownsPreservedRate": 0.6666666666666666,
+        "meanAnswerCoverage": 0.3333333333333333
+      },
+      "contextLift": 0,
+      "prediction": 0.5,
+      "predictionError": -0.5
+    }
+  ],
+  "scope": "Timing and protocol findings retained. Completed all predeclared attempts without retries. Passing individual model-block budgets does not erase the aggregate checkpoint overrun. HOLD was released by the user."
+}

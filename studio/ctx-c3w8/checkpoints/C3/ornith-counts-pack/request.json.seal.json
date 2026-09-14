@@ -1,0 +1,30 @@
+{
+  "v": 1,
+  "id": "rc_mtyn43g1_fy4j",
+  "stream": "runs",
+  "ts": "2026-09-12T17:09:30.097Z",
+  "env_lock": {
+    "os": {
+      "platform": "darwin",
+      "build": "25G83",
+      "version": "26.6.2"
+    },
+    "arch": "arm64",
+    "tools": {},
+    "models": {}
+  },
+  "kind": "context.ablation.intent",
+  "subject": "ORDER ctx-c3w8",
+  "policy": "User authorized local evidence and proposal-only work; HOLD released",
+  "status": "ok",
+  "output_sha256": "af89908887449312d240c4260f78461b2f6b6f5d31639891737003a04f722fe0",
+  "artifacts": [
+    "studio/ctx-c3w8/checkpoints/C3/ornith-counts-pack/request.json"
+  ],
+  "plan_hash": "sha256_4e0e995b53bcb7d80a4a3e00ae1ba42831081fece0d3a408adc24c3492a8568a",
+  "epoch": 903,
+  "prev_hash": "sha256_24bf9643edd4b3fe45dea17c88d4a9896c067209d9e9ae016f54a2abf1d00d0b",
+  "signer": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAhm/lxmgv+Sm+xKu19Rtsnp74QrpJGrxnoyXm2QAft8s=\n-----END PUBLIC KEY-----\n",
+  "signature": "D5yl2adO5Nn2JxckyLMQcCynWsIiFgXo3MqwAq9GW8dyHRsxI9FNWNC7Rhc7rBh3Y+GVMN6wMqE2dJJ+EZXvCQ==",
+  "hash": "sha256_042d1b5c6eb2c140a8878b90fab4f29e82bd6d4228c6ed7bc2ce3a6976a44709"
+}

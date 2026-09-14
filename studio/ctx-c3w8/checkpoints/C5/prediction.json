@@ -1,0 +1,22 @@
+{
+  "order": "ctx-c3w8",
+  "checkpoint": "C5",
+  "createdAt": "2026-09-12T17:25:09.805Z",
+  "ablationSha256": "389daef66d2290542d313254ccf6f06844ddafb4fe91196400f29888fd17b792",
+  "ablationReceipt": "sha256_4c6ed11c44dbcf9af215ca8feeb6c0413ed671d8fdc1d042760bf0df34dae3a5",
+  "contextSha256": "9ff2827ca721aafb33f8c0371dc17253a97728737665248cc40fe243ecf1d959",
+  "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "expected": {
+    "rrdRows": 24,
+    "viserRows": 24,
+    "gridLocations": 1000,
+    "meshVertices": 440,
+    "meshTriangles": 880,
+    "nativeWrites": 0
+  },
+  "runtime": {
+    "pythonExecutableSha256": "e2605291e058fdbe3102e8185d0ac5fe0e063398de617010a6af3a42a78f05e3",
+    "exporterSha256": "8d97907206e5dac2e72094afdc09dc81d69fd1e038d1aa0285e87c7c263603f1"
+  },
+  "budgetSeconds": 900
+}

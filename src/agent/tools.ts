@@ -1,4 +1,5 @@
 import { tool } from '@openrouter/sdk/lib/tool.js';
+import { spatialModelCatalogTool, spatialModelContextTool, spatialModelReviewTool } from './spatial-model-tools.js';
 import { z } from 'zod/v4';
 import { edgeUrl, operatorLabel } from '../utils/edge-host.js';
 
@@ -598,6 +599,9 @@ export const listCardTool = tool({
 } as any);
 
 export const defaultTools = [
+  spatialModelCatalogTool,
+  spatialModelContextTool,
+  spatialModelReviewTool,
   currentTimeTool,
   calculatorTool,
   systemInfoTool,
@@ -614,4 +618,3 @@ export const defaultTools = [
   cloudflareSendDurablePulseTool,
   listCardTool
 ];
-

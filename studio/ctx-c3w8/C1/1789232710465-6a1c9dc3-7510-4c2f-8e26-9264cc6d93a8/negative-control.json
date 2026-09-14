@@ -1,0 +1,9 @@
+{
+  "schema": "timmy.ctx-c3w8.c1.negative-control/1",
+  "refused": true,
+  "refusal": "Error: Local Ollama fallback refuses cloud-backed or invalid model tags",
+  "fetchCalls": 0,
+  "inferenceCalls": 0,
+  "realModelInferenceCalls": 0,
+  "interpretation": "Cloud tag refused before any transport request; no cloud service was contacted."
+}

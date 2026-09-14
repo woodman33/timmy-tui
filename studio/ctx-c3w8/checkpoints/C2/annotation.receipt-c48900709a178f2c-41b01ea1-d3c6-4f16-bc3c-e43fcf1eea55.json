@@ -1,0 +1,49 @@
+{
+  "schema": "timmy.annotation.receipt/1",
+  "status": "grounded",
+  "packSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+  "sourceRevision": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "inputSha256": "e3e4849e1b69a60c8e3a1d882f26d3851716635457bed82dc95ba2f1007fac53",
+  "annotations": [
+    {
+      "objectId": "cell-center",
+      "sourceRevision": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "camera": {
+        "frameId": "fixture",
+        "units": "mm",
+        "provenance": "generated",
+        "projection": "perspective",
+        "position": [
+          140,
+          -150,
+          115
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "verticalFovDegrees": 50
+      },
+      "factIds": [
+        "cell-center.location",
+        "cell-center.fill"
+      ],
+      "comment": "The selected voxel center is [5,5,5] mm and its sampled fill fraction is 0.046875.",
+      "proposedAction": "inspect",
+      "provenance": "generated"
+    }
+  ],
+  "reason": null,
+  "scope": {
+    "modelInterpretationOnly": true,
+    "semanticCorrectnessChecked": false,
+    "nativeEditsExecuted": false,
+    "physicalValidation": false
+  }
+}

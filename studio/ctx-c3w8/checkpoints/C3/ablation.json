@@ -1,0 +1,1592 @@
+{
+  "schema": "timmy.context-ablation/1",
+  "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "contextSha256": "9ff2827ca721aafb33f8c0371dc17253a97728737665248cc40fe243ecf1d959",
+  "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+  "predictionReceipt": "sha256_4e0e995b53bcb7d80a4a3e00ae1ba42831081fece0d3a408adc24c3492a8568a",
+  "rows": [
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "granite4.2-counts-no-pack",
+      "model": "granite4.2:latest",
+      "requested": "granite4.2",
+      "modelDigest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+      "questionId": "counts",
+      "condition": "no-pack",
+      "elapsedMs": 18045,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": null,
+      "intentReceipt": "sha256_fbf721790cea1981a1ffbc26afe4a64d4dbf364eba16946a4b507fd7ca94c217",
+      "requestSha256": "3175b4627b9131248e23f7b11fa148e2dff40414bcd5a61cd77e817653eaef02",
+      "responseSha256": "b46caf192da83450f00be0f09972b75dacd88588d41b9fe118f647cb47c562d4",
+      "raw": {
+        "answers": [
+          {
+            "entityId": "knownLocations",
+            "factIds": [],
+            "key": "knownLocations",
+            "value": null
+          },
+          {
+            "entityId": "totalCells",
+            "factIds": [],
+            "key": "totalCells",
+            "value": null
+          },
+          {
+            "entityId": "empty",
+            "factIds": [],
+            "key": "empty",
+            "value": null
+          },
+          {
+            "entityId": "partial",
+            "factIds": [],
+            "key": "partial",
+            "value": null
+          },
+          {
+            "entityId": "full",
+            "factIds": [],
+            "key": "full",
+            "value": null
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": false,
+        "referencesValid": false,
+        "groundedCorrect": 0,
+        "unknownsPreserved": 1,
+        "score": 1,
+        "answerCoverage": 0,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_a76e2282692e699c89d1165af2a9cde75b9c6a01ee226bf5cb7a2c4a8802f89e"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "granite4.2-counts-pack",
+      "model": "granite4.2:latest",
+      "requested": "granite4.2",
+      "modelDigest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+      "questionId": "counts",
+      "condition": "pack",
+      "elapsedMs": 36112,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+      "intentReceipt": "sha256_cedc90edae21cfb0cec8104f77409184a4a26009c63498d1ae934fc5da0fc150",
+      "requestSha256": "ca8e76b475d9dadbdcbf2ed285cabe52da3adfda05b235b75c6b42e8b76d1bb9",
+      "responseSha256": "4cf5d4360408db666a72ba74a9368d24bfa34915bea8948fd56db204e4420358",
+      "raw": {
+        "answers": [
+          {
+            "entityId": "volume",
+            "factIds": [
+              "volume.location-count",
+              "volume.total-cells",
+              "volume.fill-coverage"
+            ],
+            "key": "knownLocations",
+            "value": 1000
+          },
+          {
+            "entityId": "volume",
+            "factIds": [
+              "volume.total-cells",
+              "volume.fill-coverage"
+            ],
+            "key": "totalCells",
+            "value": 1000
+          },
+          {
+            "entityId": "volume",
+            "factIds": [
+              "volume.fill-coverage"
+            ],
+            "key": "empty",
+            "value": 488
+          },
+          {
+            "entityId": "volume",
+            "factIds": [
+              "volume.fill-coverage"
+            ],
+            "key": "partial",
+            "value": 96
+          },
+          {
+            "entityId": "volume",
+            "factIds": [
+              "volume.fill-coverage"
+            ],
+            "key": "full",
+            "value": 416
+          }
+        ],
+        "unknowns": []
+      },
+      "score": {
+        "valid": true,
+        "correct": true,
+        "referencesValid": true,
+        "groundedCorrect": 1,
+        "unknownsPreserved": 0,
+        "score": 1,
+        "answerCoverage": 1,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_e0faaabe2a3db5b90f9601674c65b55b2e262ca8e6a039402e5f508fcb4448c2"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "granite4.2-center-no-pack",
+      "model": "granite4.2:latest",
+      "requested": "granite4.2",
+      "modelDigest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+      "questionId": "center",
+      "condition": "no-pack",
+      "elapsedMs": 12860,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": null,
+      "intentReceipt": "sha256_d6225e320d5cf8007ce224f393aa95fe7b066926e389ce4358e57c91033282a1",
+      "requestSha256": "dedfef1483cf92724ae38000436cda6c43538afb953843ec0d9d374988adbdcb",
+      "responseSha256": "614b3497cf076faeb591e2a374540c3f89723d062f7545ba8b6b68437f110641",
+      "raw": {
+        "answers": [
+          {
+            "entityId": "centerXmm",
+            "factIds": [],
+            "key": "centerXmm",
+            "value": null
+          },
+          {
+            "entityId": "centerYmm",
+            "factIds": [],
+            "key": "centerYmm",
+            "value": null
+          },
+          {
+            "entityId": "centerZmm",
+            "factIds": [],
+            "key": "centerZmm",
+            "value": null
+          },
+          {
+            "entityId": "fillFraction",
+            "factIds": [],
+            "key": "fillFraction",
+            "value": null
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": false,
+        "referencesValid": false,
+        "groundedCorrect": 0,
+        "unknownsPreserved": 1,
+        "score": 1,
+        "answerCoverage": 0,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_aacf172cef9ac9e21c500f09bdb4c684fe1730a1355efe373bf13faa980be0f4"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "granite4.2-center-pack",
+      "model": "granite4.2:latest",
+      "requested": "granite4.2",
+      "modelDigest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+      "questionId": "center",
+      "condition": "pack",
+      "elapsedMs": 31099,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+      "intentReceipt": "sha256_3f035fbfb33d52478399d868920005fc0f61aaaf4af64b65c96b7318e86ed6a3",
+      "requestSha256": "f5b267646ff29da5dea18dd0aa89806a03964cba39983195f135f9c03321cddd",
+      "responseSha256": "87a9cbfc78ae8b58e7b39eefd24589bd30e290602d8b2305d95509f59f94c475",
+      "raw": {
+        "answers": [
+          {
+            "entityId": "cell-center",
+            "factIds": [
+              "cell-center.location"
+            ],
+            "key": "center",
+            "value": "[5, 5, 5], mm (computed from origin and basis; units mm per frame definition). The location fact gives center coordinates relative to origin [-50,-50,-50] and basis [1,0,0;0,1,0;0,0,1]. The coordinates are in mm as per frame units. The exact numeric values are [5,5,5] mm offset from origin? Actually location fact value is [5,5,5] (likely absolute indices? but frame origin -50 and cellSize 10 gives absolute position? However location fact is computed as origin plus column basis times cellSize? The fact says method: origin-plus-column-basis-times-cell-center. So center coordinates in frame units (mm). So we report centerXmm=5 mm? Wait origin is -50,-50,-50 and cellSize 10, so cell indices 0..9? Actually dimensions [10,10,10] means 10 cells per dimension? But total cells 1000 suggests 10x10x10 grid? However cellSize [10,10,10] mm each? The frame origin -50,-50,-50 and cellSize 10 means the grid spans from -50 to +? Let's compute: if cellSize 10 mm and origin -50,-50,-50, then the first cell center would be at origin + (cellSize/2) = (-25,-25,-25) if origin at corner? But they used basis [1,0,0;0,1,0;0,0,1] and ijk [5,5,5] for center index. Likely the center voxel at index (5,5,5) corresponds to absolute coordinates (origin + (5-0.5)*cellSize?) However the fact "
+          }
+        ],
+        "unknowns": []
+      },
+      "score": {
+        "valid": false,
+        "correct": false,
+        "referencesValid": false,
+        "groundedCorrect": 0,
+        "unknownsPreserved": 0,
+        "score": 0,
+        "answerCoverage": 0,
+        "error": "Output schema rejected."
+      },
+      "error": null,
+      "receiptHash": "sha256_8c30b36ae2d23f3423c80368a9c1513c7ab9ae7ded2ee756434b0b5439a84463"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "granite4.2-physical-no-pack",
+      "model": "granite4.2:latest",
+      "requested": "granite4.2",
+      "modelDigest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+      "questionId": "physical",
+      "condition": "no-pack",
+      "elapsedMs": 9180,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": null,
+      "intentReceipt": "sha256_b58299b9124199de3be73dd3856f7868db396b8bce0bdcd1c7513c8488f33fb3",
+      "requestSha256": "96512b073383b8be6aaf7a4c9cc105a5415dd1718e61426ace9c3a2ddcd3cafd",
+      "responseSha256": "1cb2aaa2513df8565e26b5b5f6f8b4ee56523c2827cabf868598740d26ddf651",
+      "raw": {
+        "answers": [
+          {
+            "entityId": "material",
+            "factIds": [],
+            "key": "material",
+            "value": null
+          },
+          {
+            "entityId": "densityKgM3",
+            "factIds": [],
+            "key": "densityKgM3",
+            "value": null
+          },
+          {
+            "entityId": "massKg",
+            "factIds": [],
+            "key": "massKg",
+            "value": null
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": true,
+        "referencesValid": false,
+        "groundedCorrect": 0,
+        "unknownsPreserved": 1,
+        "score": 1,
+        "answerCoverage": 0,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_3a90f2a46470a15a509145012addb9b7762f51f33587ef005c3cd072938b9173"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "granite4.2-physical-pack",
+      "model": "granite4.2:latest",
+      "requested": "granite4.2",
+      "modelDigest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+      "questionId": "physical",
+      "condition": "pack",
+      "elapsedMs": 11747,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+      "intentReceipt": "sha256_db55fab49c82a070d49070c72c3794b263702f4f922fefa6ff87729cb4cf72d7",
+      "requestSha256": "7909927e7b049a006bf037d5fbf540eac2ac5a6893bec23a51ac4c6845040a07",
+      "responseSha256": "764fbe53cb443e3693c593ec7f73f055fea78dc0b69e117240e8ac27a4dd4db8",
+      "raw": {
+        "answers": [
+          {
+            "entityId": "volume",
+            "factIds": [
+              "volume.material"
+            ],
+            "key": "material",
+            "value": null
+          },
+          {
+            "entityId": "volume",
+            "factIds": [
+              "volume.density"
+            ],
+            "key": "intrinsicDensityKgM3",
+            "value": null
+          },
+          {
+            "entityId": "volume",
+            "factIds": [
+              "volume.density"
+            ],
+            "key": "massKg",
+            "value": null
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": false,
+        "correct": false,
+        "referencesValid": false,
+        "groundedCorrect": 0,
+        "unknownsPreserved": 0,
+        "score": 0,
+        "answerCoverage": 0,
+        "error": "Missing, duplicate or unexpected answer keys."
+      },
+      "error": null,
+      "receiptHash": "sha256_b0b4ff267e6cdbc715c3c96d1094294cd3490e016b7170f2cc11b83b28043321"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "ornith-counts-no-pack",
+      "model": "ornith:latest",
+      "requested": "ornith",
+      "modelDigest": "a75697c145891910e312c95e4a9fc1ccb8653e5ef543b23b0403a4665b82fd91",
+      "questionId": "counts",
+      "condition": "no-pack",
+      "elapsedMs": 23293,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": null,
+      "intentReceipt": "sha256_58b288ed646787e8a6b21d2a70af92adaf3455cc3ff8065adb4e792b946966e0",
+      "requestSha256": "72a604bfcd1d3784beeddae7a81843457013e408e2ac280984b22c8b15eb51dd",
+      "responseSha256": "2d4de965a59347d6439f59058965df335726eaaf3656a660590633d3de61ecad",
+      "raw": {
+        "answers": [
+          {
+            "key": "knownLocations",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "totalCells",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "empty",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "partial",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "full",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          }
+        ],
+        "unknowns": [
+          "mass",
+          "density",
+          "material"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": false,
+        "referencesValid": true,
+        "groundedCorrect": 0,
+        "unknownsPreserved": 1,
+        "score": 1,
+        "answerCoverage": 0,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_24bf9643edd4b3fe45dea17c88d4a9896c067209d9e9ae016f54a2abf1d00d0b"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "ornith-counts-pack",
+      "model": "ornith:latest",
+      "requested": "ornith",
+      "modelDigest": "a75697c145891910e312c95e4a9fc1ccb8653e5ef543b23b0403a4665b82fd91",
+      "questionId": "counts",
+      "condition": "pack",
+      "elapsedMs": 31887,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+      "intentReceipt": "sha256_042d1b5c6eb2c140a8878b90fab4f29e82bd6d4228c6ed7bc2ce3a6976a44709",
+      "requestSha256": "af89908887449312d240c4260f78461b2f6b6f5d31639891737003a04f722fe0",
+      "responseSha256": "144c488952de4bb26bd5059a518cbbfcd466dd1e89f10af72d497f29cd202772",
+      "raw": {
+        "answers": [
+          {
+            "key": "knownLocations",
+            "value": 1000,
+            "entityId": "volume",
+            "factIds": [
+              "volume.location-count"
+            ]
+          },
+          {
+            "key": "totalCells",
+            "value": 1000,
+            "entityId": "volume",
+            "factIds": [
+              "volume.total-cells"
+            ]
+          },
+          {
+            "key": "empty",
+            "value": 488,
+            "entityId": "volume",
+            "factIds": [
+              "volume.fill-coverage"
+            ]
+          },
+          {
+            "key": "partial",
+            "value": 96,
+            "entityId": "volume",
+            "factIds": [
+              "volume.fill-coverage"
+            ]
+          },
+          {
+            "key": "full",
+            "value": 416,
+            "entityId": "volume",
+            "factIds": [
+              "volume.fill-coverage"
+            ]
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": true,
+        "referencesValid": true,
+        "groundedCorrect": 1,
+        "unknownsPreserved": 1,
+        "score": 2,
+        "answerCoverage": 1,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_aed1b7eadccc1bd2f5c3e01daf11932f615f4ee0439159d4ac624750bbd59baf"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "ornith-center-no-pack",
+      "model": "ornith:latest",
+      "requested": "ornith",
+      "modelDigest": "a75697c145891910e312c95e4a9fc1ccb8653e5ef543b23b0403a4665b82fd91",
+      "questionId": "center",
+      "condition": "no-pack",
+      "elapsedMs": 12754,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": null,
+      "intentReceipt": "sha256_f61d5ed15a8f3a7ad3873324028d9aea6d65c7045a84984f079fb1971748958f",
+      "requestSha256": "54182ed1c7676ce24c079120e7b29fcb0e1c4e7ef6cd82f8496f6793f0a0e2a3",
+      "responseSha256": "f26c65a01a2a5fbf53952c8c3caac56ce3a87b5b64b3cea5f2cd5b010fc89873",
+      "raw": {
+        "answers": [
+          {
+            "key": "centerXmm",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "centerYmm",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "centerZmm",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "fillFraction",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          }
+        ],
+        "unknowns": [
+          "mass",
+          "density",
+          "material"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": false,
+        "referencesValid": true,
+        "groundedCorrect": 0,
+        "unknownsPreserved": 1,
+        "score": 1,
+        "answerCoverage": 0,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_f2f697b513974b7b16df30dfe8ebc8109ba90b1dcbe72925dea1688e3b7e0470"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "ornith-center-pack",
+      "model": "ornith:latest",
+      "requested": "ornith",
+      "modelDigest": "a75697c145891910e312c95e4a9fc1ccb8653e5ef543b23b0403a4665b82fd91",
+      "questionId": "center",
+      "condition": "pack",
+      "elapsedMs": 20530,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+      "intentReceipt": "sha256_f4223da2f5606ec68b90107722f5a4a6272cc07bb6156e9c772716e5970339d0",
+      "requestSha256": "a1fe1101701745fa355fbcf95e133001e89458dd1087cf3688b222375a14c083",
+      "responseSha256": "5584fb7f2f0733ac54298e84fc4e5e67c86ae01e152c7b0b7c936c480ce36053",
+      "raw": {
+        "answers": [
+          {
+            "key": "centerXmm",
+            "value": 5,
+            "entityId": "cell-center",
+            "factIds": [
+              "cell-center.location"
+            ]
+          },
+          {
+            "key": "centerYmm",
+            "value": 5,
+            "entityId": "cell-center",
+            "factIds": [
+              "cell-center.location"
+            ]
+          },
+          {
+            "key": "centerZmm",
+            "value": 5,
+            "entityId": "cell-center",
+            "factIds": [
+              "cell-center.location"
+            ]
+          },
+          {
+            "key": "fillFraction",
+            "value": 0.046875,
+            "entityId": "cell-center",
+            "factIds": [
+              "cell-center.fill"
+            ]
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": true,
+        "referencesValid": true,
+        "groundedCorrect": 1,
+        "unknownsPreserved": 0,
+        "score": 1,
+        "answerCoverage": 1,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_8611e918602950b79266f1852df1c585955cdba27f7fef469b54d87a2476300f"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "ornith-physical-no-pack",
+      "model": "ornith:latest",
+      "requested": "ornith",
+      "modelDigest": "a75697c145891910e312c95e4a9fc1ccb8653e5ef543b23b0403a4665b82fd91",
+      "questionId": "physical",
+      "condition": "no-pack",
+      "elapsedMs": 9708,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": null,
+      "intentReceipt": "sha256_b1e60ccf91369c442205fa291d2bf51953766bd4caafc204bcdc72b22ebca4e0",
+      "requestSha256": "2e1d88d366e8bd552de9bfa9041a8af76f2a3493857100082f3773c6ffbf8603",
+      "responseSha256": "55f9303621ff9773a1f5e95ac5912b19a6bc148c5ad8f11c61a27c31e330326e",
+      "raw": {
+        "answers": [
+          {
+            "key": "material",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "densityKgM3",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "massKg",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": true,
+        "referencesValid": true,
+        "groundedCorrect": 1,
+        "unknownsPreserved": 1,
+        "score": 2,
+        "answerCoverage": 0,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_8d712ea0af9aa0bf9ddc731b2a6d114bcaa6e4350aca30c9f81f0af85677a04c"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "ornith-physical-pack",
+      "model": "ornith:latest",
+      "requested": "ornith",
+      "modelDigest": "a75697c145891910e312c95e4a9fc1ccb8653e5ef543b23b0403a4665b82fd91",
+      "questionId": "physical",
+      "condition": "pack",
+      "elapsedMs": 13084,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+      "intentReceipt": "sha256_9119710a94696e56059fbb949d91e7b91fb149b1dfe57181c278c95018f4165f",
+      "requestSha256": "556565c1b63b4064bf4a46447cbb5424082ac33c79ddb12de489d9604054bb10",
+      "responseSha256": "c4b521a541d1269ed61f6aea61e0aaf688d6c92be7c4958d61dffa4bbd3bb1e9",
+      "raw": {
+        "answers": [
+          {
+            "key": "material",
+            "value": null,
+            "entityId": "volume",
+            "factIds": [
+              "volume.material"
+            ]
+          },
+          {
+            "key": "densityKgM3",
+            "value": null,
+            "entityId": "volume",
+            "factIds": [
+              "volume.density"
+            ]
+          },
+          {
+            "key": "massKg",
+            "value": null,
+            "entityId": "volume",
+            "factIds": [
+              "volume.density"
+            ]
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": true,
+        "referencesValid": true,
+        "groundedCorrect": 1,
+        "unknownsPreserved": 1,
+        "score": 2,
+        "answerCoverage": 0,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_8c42f3bcaccdae81de18af75b3d429c005348d5e21290e37fc2bcfc4272efa10"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "gemma4_12b-counts-no-pack",
+      "model": "gemma4:12b-it-qat",
+      "requested": "gemma4:12b",
+      "modelDigest": "38044be4f923e5a55264ed7df4eaac2676651a905f735197c504045140c02bd3",
+      "questionId": "counts",
+      "condition": "no-pack",
+      "elapsedMs": 29664,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": null,
+      "intentReceipt": "sha256_9a7c8b6266be82d7abce3a815148420d906feabd423cb97bb233db6fb34aeb2a",
+      "requestSha256": "b3a604d75499797bdfdbcac600ff68e2234848952b0512aed19aec8bcc3c5b12",
+      "responseSha256": "a57e583eb0756d3d49744cba2349a9bd7a3a58d29b7edf67cfe449fd926fd27c",
+      "raw": {
+        "answers": [
+          {
+            "key": "knownLocations",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "totalCells",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "empty",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "partial",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "full",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": false,
+        "referencesValid": true,
+        "groundedCorrect": 0,
+        "unknownsPreserved": 1,
+        "score": 1,
+        "answerCoverage": 0,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_8686d2b92e5103675938674c6e17097787e4cf907be73746b7ebaf6c87446ef8"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "gemma4_12b-counts-pack",
+      "model": "gemma4:12b-it-qat",
+      "requested": "gemma4:12b",
+      "modelDigest": "38044be4f923e5a55264ed7df4eaac2676651a905f735197c504045140c02bd3",
+      "questionId": "counts",
+      "condition": "pack",
+      "elapsedMs": 37941,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+      "intentReceipt": "sha256_4913be8b2038ee2acecc880b60314147434712d4ffeab17167be4bdcf1e9fccf",
+      "requestSha256": "2b88bf1454f792f279e53d998dd1b26921cd597cd78b747e52c8598233815b8b",
+      "responseSha256": "c0edcf7a88636ffaecb3910e4acc488a9a319c91f3a2bc571261f627567d0841",
+      "raw": {
+        "answers": [
+          {
+            "key": "knownLocations",
+            "value": 1000,
+            "entityId": "volume",
+            "factIds": [
+              "volume.location-count"
+            ]
+          },
+          {
+            "key": "totalCells",
+            "value": 1000,
+            "entityId": "volume",
+            "factIds": [
+              "volume.total-cells"
+            ]
+          },
+          {
+            "key": "empty",
+            "value": 488,
+            "entityId": "volume",
+            "factIds": [
+              "volume.fill-coverage"
+            ]
+          },
+          {
+            "key": "partial",
+            "value": 96,
+            "entityId": "volume",
+            "factIds": [
+              "volume.fill-coverage"
+            ]
+          },
+          {
+            "key": "full",
+            "value": 416,
+            "entityId": "volume",
+            "factIds": [
+              "volume.fill-coverage"
+            ]
+          }
+        ],
+        "unknowns": []
+      },
+      "score": {
+        "valid": true,
+        "correct": true,
+        "referencesValid": true,
+        "groundedCorrect": 1,
+        "unknownsPreserved": 0,
+        "score": 1,
+        "answerCoverage": 1,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_77eabb48ca77d1e574df5dc3e6252ed5d60b380f801c74b50ca3bc08b591fb37"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "gemma4_12b-center-no-pack",
+      "model": "gemma4:12b-it-qat",
+      "requested": "gemma4:12b",
+      "modelDigest": "38044be4f923e5a55264ed7df4eaac2676651a905f735197c504045140c02bd3",
+      "questionId": "center",
+      "condition": "no-pack",
+      "elapsedMs": 10103,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": null,
+      "intentReceipt": "sha256_96d7d334e381be86f33fbf97eea285213472ceb6ac82e61ae2b8631fe51c7b7b",
+      "requestSha256": "8dcc8ba0c6f6efb910eaa34acacd89aa3d2aaa62aaa21b6b572150c15087a12e",
+      "responseSha256": "3248c35f6e4400232e8e893d914ffeed3bd4c4114681ad649934fedf38e82751",
+      "raw": {
+        "answers": [
+          {
+            "key": "centerXmm",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "centerYmm",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "centerZmm",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "fillFraction",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": false,
+        "referencesValid": true,
+        "groundedCorrect": 0,
+        "unknownsPreserved": 1,
+        "score": 1,
+        "answerCoverage": 0,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_7835c97a34bd14e4c2b08eda11d1002e16d56751994a414e4cc93ab4ce08b07d"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "gemma4_12b-center-pack",
+      "model": "gemma4:12b-it-qat",
+      "requested": "gemma4:12b",
+      "modelDigest": "38044be4f923e5a55264ed7df4eaac2676651a905f735197c504045140c02bd3",
+      "questionId": "center",
+      "condition": "pack",
+      "elapsedMs": 24351,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+      "intentReceipt": "sha256_375b7e557ca8609aeefb0e0dcaea7156682ffa913293da6fa5b0b8e41a8bdd4b",
+      "requestSha256": "84f7e84e83d5c67e0df0488c419163b6c72f729dd080d191bdded83df7a39032",
+      "responseSha256": "ff6ffe6803a3ce3c3896f45470b0352380f2a6db0dda2713aa0682ace7f29256",
+      "raw": {
+        "answers": [
+          {
+            "key": "centerXmm",
+            "value": 5,
+            "entityId": "cell-center",
+            "factIds": [
+              "cell-center.location"
+            ]
+          },
+          {
+            "key": "centerYmm",
+            "value": 5,
+            "entityId": "cell-center",
+            "factIds": [
+              "cell-center.location"
+            ]
+          },
+          {
+            "key": "centerZmm",
+            "value": 5,
+            "entityId": "cell-center",
+            "factIds": [
+              "cell-center.location"
+            ]
+          },
+          {
+            "key": "fillFraction",
+            "value": 0.046875,
+            "entityId": "cell-center",
+            "factIds": [
+              "cell-center.fill"
+            ]
+          }
+        ],
+        "unknowns": []
+      },
+      "score": {
+        "valid": true,
+        "correct": true,
+        "referencesValid": true,
+        "groundedCorrect": 1,
+        "unknownsPreserved": 0,
+        "score": 1,
+        "answerCoverage": 1,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_01faee5af58a923bce452c9f5382323d5d6fc0c1f510bf65244b1b829948a454"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "gemma4_12b-physical-no-pack",
+      "model": "gemma4:12b-it-qat",
+      "requested": "gemma4:12b",
+      "modelDigest": "38044be4f923e5a55264ed7df4eaac2676651a905f735197c504045140c02bd3",
+      "questionId": "physical",
+      "condition": "no-pack",
+      "elapsedMs": 11350,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": null,
+      "intentReceipt": "sha256_4fac12b2668e6bba5add92c6177c84af071f20c2f06ad8e8db34ecc97b593191",
+      "requestSha256": "b6574a08d5cf2b6bdf53e3ac32dc207a78e74a744396e1ed571a56b236ae3725",
+      "responseSha256": "72abc2dbdabda0f2214e885be7a3464c08d7cbf7c9c45e86e1717bd44218ab76",
+      "raw": {
+        "answers": [
+          {
+            "key": "material",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "densityKgM3",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "massKg",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": true,
+        "referencesValid": true,
+        "groundedCorrect": 1,
+        "unknownsPreserved": 1,
+        "score": 2,
+        "answerCoverage": 0,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_6a5eb8967cd111bf017479648d459d3d188193fad99f7f0073cf9bcf79fb11a2"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "gemma4_12b-physical-pack",
+      "model": "gemma4:12b-it-qat",
+      "requested": "gemma4:12b",
+      "modelDigest": "38044be4f923e5a55264ed7df4eaac2676651a905f735197c504045140c02bd3",
+      "questionId": "physical",
+      "condition": "pack",
+      "elapsedMs": 15949,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+      "intentReceipt": "sha256_30ce305ae1cf582471e08862df58825077fad2d1be5d90eb3b71a1a46f1f8e70",
+      "requestSha256": "cd2ac20d9414ebc7488c7363e8efc998c837a163c7f8d5525f98eed5925e2718",
+      "responseSha256": "7c6b4e23781781fa15b1d056e396efb8efd6fdabfef4a4aee575da8c86c2d983",
+      "raw": {
+        "answers": [
+          {
+            "key": "material",
+            "value": null,
+            "entityId": "volume",
+            "factIds": [
+              "volume.material"
+            ]
+          },
+          {
+            "key": "densityKgM3",
+            "value": null,
+            "entityId": "volume",
+            "factIds": [
+              "volume.density"
+            ]
+          },
+          {
+            "key": "massKg",
+            "value": null,
+            "entityId": "volume",
+            "factIds": [
+              "volume.density"
+            ]
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": true,
+        "referencesValid": true,
+        "groundedCorrect": 1,
+        "unknownsPreserved": 1,
+        "score": 2,
+        "answerCoverage": 0,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_808255d88ccf51e1fc274c7838338684138501b73b18d7d58504194f3bee9449"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "qwen3.8_27b-mlx-counts-no-pack",
+      "model": "qwen3.8:27b-mlx",
+      "requested": "qwen3.8:27b-mlx",
+      "modelDigest": "5642e97495e1a088883805981563dcdc4a040c2f53388b7a41d1f24d3622cf7e",
+      "questionId": "counts",
+      "condition": "no-pack",
+      "elapsedMs": 49626,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": null,
+      "intentReceipt": "sha256_e6533979f01377d7602b0722a404f0f167580840aa28af054b56efba76bb5ee1",
+      "requestSha256": "d59b89e738a27bd8635f9bfe45c480fb583eaa5d272a805fa0895a19d4f33a33",
+      "responseSha256": "aee17d1eded9438de45fbe7fb763c5789ca7bc1cd37360381f6848557770277a",
+      "raw": {
+        "answers": [
+          {
+            "key": "knownLocations",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "totalCells",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "empty",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "partial",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "full",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": false,
+        "referencesValid": true,
+        "groundedCorrect": 0,
+        "unknownsPreserved": 1,
+        "score": 1,
+        "answerCoverage": 0,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_aa9cd71f58b8e189a63d9f96fe969b81197e6dda631256eb58648ce686c284ba"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "qwen3.8_27b-mlx-counts-pack",
+      "model": "qwen3.8:27b-mlx",
+      "requested": "qwen3.8:27b-mlx",
+      "modelDigest": "5642e97495e1a088883805981563dcdc4a040c2f53388b7a41d1f24d3622cf7e",
+      "questionId": "counts",
+      "condition": "pack",
+      "elapsedMs": 129249,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+      "intentReceipt": "sha256_9cfbd5e55a3fa92b9c7dbc036dabae0d71dbb13bce1db338be6129708af3b128",
+      "requestSha256": "376a1260fb721ba6dbfabb3b1848730f49b708dce2d30ab7bb07975b5306b139",
+      "responseSha256": "9fc004aa4929e452f9f9e24c7b67f073726bf2dfd16585e333bce6e3718e0d21",
+      "raw": {
+        "answers": [
+          {
+            "key": "knownLocations",
+            "value": 1000,
+            "entityId": "volume",
+            "factIds": [
+              "volume.location-count"
+            ]
+          },
+          {
+            "key": "totalCells",
+            "value": 1000,
+            "entityId": "volume",
+            "factIds": [
+              "volume.total-cells"
+            ]
+          },
+          {
+            "key": "empty",
+            "value": 488,
+            "entityId": "volume",
+            "factIds": [
+              "volume.fill-coverage"
+            ]
+          },
+          {
+            "key": "partial",
+            "value": 96,
+            "entityId": "volume",
+            "factIds": [
+              "volume.fill-coverage"
+            ]
+          },
+          {
+            "key": "full",
+            "value": 416,
+            "entityId": "volume",
+            "factIds": [
+              "volume.fill-coverage"
+            ]
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": true,
+        "referencesValid": true,
+        "groundedCorrect": 1,
+        "unknownsPreserved": 1,
+        "score": 2,
+        "answerCoverage": 1,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_4899e48a1a0d26e7273b0ba6abd452241458b1bc78471b7bde7e9b506903cfbc"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "qwen3.8_27b-mlx-center-no-pack",
+      "model": "qwen3.8:27b-mlx",
+      "requested": "qwen3.8:27b-mlx",
+      "modelDigest": "5642e97495e1a088883805981563dcdc4a040c2f53388b7a41d1f24d3622cf7e",
+      "questionId": "center",
+      "condition": "no-pack",
+      "elapsedMs": 48939,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": null,
+      "intentReceipt": "sha256_21a4964d6db3450d438d6b5cab3fd02e7893737b8428b4dd7de96b28ecd78242",
+      "requestSha256": "2dbabf32b1eb4957c9b57d722e567f532f3cde5886dc0ba942d042f6fbc705fb",
+      "responseSha256": "0402a299dd96efa85518282773c76a1750a7be882d490941739214bb5821a3f6",
+      "raw": {
+        "answers": [
+          {
+            "key": "centerXmm",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "centerYmm",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "centerZmm",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "fillFraction",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": false,
+        "referencesValid": true,
+        "groundedCorrect": 0,
+        "unknownsPreserved": 1,
+        "score": 1,
+        "answerCoverage": 0,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_ff1a32587d48eea5ae6f86f030280604608205186182337baa27ad79f0a15eb1"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "qwen3.8_27b-mlx-center-pack",
+      "model": "qwen3.8:27b-mlx",
+      "requested": "qwen3.8:27b-mlx",
+      "modelDigest": "5642e97495e1a088883805981563dcdc4a040c2f53388b7a41d1f24d3622cf7e",
+      "questionId": "center",
+      "condition": "pack",
+      "elapsedMs": 239984,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+      "intentReceipt": "sha256_bcc96c927485c6ddd5e5d25a9879ab97f1dac4afc493eeeaf18943dd3690f794",
+      "requestSha256": "dc2bad1c9f6095cd0bd2e83f05d2c554e2106b5ef1d930e5ba2e724ac0ebaf77",
+      "responseSha256": "e6677f024fd60c4f7d48b9a19cca9d8566a25b98880563ccc9c7f5d238ec6c64",
+      "raw": null,
+      "score": {
+        "valid": false,
+        "correct": false,
+        "referencesValid": false,
+        "groundedCorrect": 0,
+        "unknownsPreserved": 0,
+        "score": 0,
+        "answerCoverage": 0,
+        "error": "The operation was aborted due to timeout"
+      },
+      "error": "The operation was aborted due to timeout",
+      "receiptHash": "sha256_36aef9146f481bbac43b5d1400dc64da0c7e6c00738dd88e271f12c20a204094"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "qwen3.8_27b-mlx-physical-no-pack",
+      "model": "qwen3.8:27b-mlx",
+      "requested": "qwen3.8:27b-mlx",
+      "modelDigest": "5642e97495e1a088883805981563dcdc4a040c2f53388b7a41d1f24d3622cf7e",
+      "questionId": "physical",
+      "condition": "no-pack",
+      "elapsedMs": 91314,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": null,
+      "intentReceipt": "sha256_abc6abc9daa44bb200f444e35f3f273ebffc250b18d0ebd6a01660f1b0f7924c",
+      "requestSha256": "3bde981612c1604bc9ed728849b57d2511b1b75462b108c79edefd5f1866593d",
+      "responseSha256": "fac573cd805453c7b8aeaca083bb6942203748ac2e9999c2f0796695b5ba4276",
+      "raw": {
+        "answers": [
+          {
+            "key": "material",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "densityKgM3",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          },
+          {
+            "key": "massKg",
+            "value": null,
+            "entityId": null,
+            "factIds": []
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": true,
+        "referencesValid": true,
+        "groundedCorrect": 1,
+        "unknownsPreserved": 1,
+        "score": 2,
+        "answerCoverage": 0,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_6c2c19d72459f49e74edbfb19afa0d65a6c1245888c13d0181d3eb837c1df656"
+    },
+    {
+      "schema": "timmy.context-ablation.row/1",
+      "rowId": "qwen3.8_27b-mlx-physical-pack",
+      "model": "qwen3.8:27b-mlx",
+      "requested": "qwen3.8:27b-mlx",
+      "modelDigest": "5642e97495e1a088883805981563dcdc4a040c2f53388b7a41d1f24d3622cf7e",
+      "questionId": "physical",
+      "condition": "pack",
+      "elapsedMs": 20887,
+      "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+      "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+      "intentReceipt": "sha256_2936fe922c933fa6a4cb766d3695300869cb3249e66fc621383d4ef6fd4e7f1b",
+      "requestSha256": "34018d20f6dea8c2c1967de9281a14a4838480f73762b5e472cbc7c4410169ea",
+      "responseSha256": "d587b9fda0126421d51fac09e259650a60e60a9cf6c206df3e4d685c3eac494d",
+      "raw": {
+        "answers": [
+          {
+            "key": "material",
+            "value": null,
+            "entityId": "volume",
+            "factIds": [
+              "volume.material"
+            ]
+          },
+          {
+            "key": "densityKgM3",
+            "value": null,
+            "entityId": "volume",
+            "factIds": [
+              "volume.density"
+            ]
+          },
+          {
+            "key": "massKg",
+            "value": null,
+            "entityId": "volume",
+            "factIds": [
+              "volume.density"
+            ]
+          }
+        ],
+        "unknowns": [
+          "material",
+          "density",
+          "mass"
+        ]
+      },
+      "score": {
+        "valid": true,
+        "correct": true,
+        "referencesValid": true,
+        "groundedCorrect": 1,
+        "unknownsPreserved": 1,
+        "score": 2,
+        "answerCoverage": 0,
+        "error": null
+      },
+      "error": null,
+      "receiptHash": "sha256_8c3e7445f452f0535762240437b87599377b861a65b059e6e73e8c2cb6ef2d73"
+    }
+  ],
+  "blocks": [
+    {
+      "model": "granite4.2:latest",
+      "elapsedMs": 121656,
+      "rows": 6,
+      "budgetSeconds": 900,
+      "withinBudget": true
+    },
+    {
+      "model": "ornith:latest",
+      "elapsedMs": 114416,
+      "rows": 6,
+      "budgetSeconds": 900,
+      "withinBudget": true
+    },
+    {
+      "model": "gemma4:12b-it-qat",
+      "elapsedMs": 136436,
+      "rows": 6,
+      "budgetSeconds": 900,
+      "withinBudget": true
+    },
+    {
+      "model": "qwen3.8:27b-mlx",
+      "elapsedMs": 587726,
+      "rows": 6,
+      "budgetSeconds": 900,
+      "withinBudget": true
+    }
+  ],
+  "calibration": [
+    {
+      "model": "granite4.2:latest",
+      "modelDigest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+      "noPack": {
+        "count": 3,
+        "failed": 0,
+        "meanScore": 1,
+        "groundedCorrectRate": 0,
+        "unknownsPreservedRate": 1,
+        "meanAnswerCoverage": 0
+      },
+      "withPack": {
+        "count": 3,
+        "failed": 2,
+        "meanScore": 0.3333333333333333,
+        "groundedCorrectRate": 0.3333333333333333,
+        "unknownsPreservedRate": 0,
+        "meanAnswerCoverage": 0.3333333333333333
+      },
+      "contextLift": -0.6666666666666667,
+      "prediction": 0.5,
+      "predictionError": -1.1666666666666667
+    },
+    {
+      "model": "ornith:latest",
+      "modelDigest": "a75697c145891910e312c95e4a9fc1ccb8653e5ef543b23b0403a4665b82fd91",
+      "noPack": {
+        "count": 3,
+        "failed": 0,
+        "meanScore": 1.3333333333333333,
+        "groundedCorrectRate": 0.3333333333333333,
+        "unknownsPreservedRate": 1,
+        "meanAnswerCoverage": 0
+      },
+      "withPack": {
+        "count": 3,
+        "failed": 0,
+        "meanScore": 1.6666666666666667,
+        "groundedCorrectRate": 1,
+        "unknownsPreservedRate": 0.6666666666666666,
+        "meanAnswerCoverage": 0.6666666666666666
+      },
+      "contextLift": 0.3333333333333335,
+      "prediction": 0.5,
+      "predictionError": -0.16666666666666652
+    },
+    {
+      "model": "gemma4:12b-it-qat",
+      "modelDigest": "38044be4f923e5a55264ed7df4eaac2676651a905f735197c504045140c02bd3",
+      "noPack": {
+        "count": 3,
+        "failed": 0,
+        "meanScore": 1.3333333333333333,
+        "groundedCorrectRate": 0.3333333333333333,
+        "unknownsPreservedRate": 1,
+        "meanAnswerCoverage": 0
+      },
+      "withPack": {
+        "count": 3,
+        "failed": 0,
+        "meanScore": 1.3333333333333333,
+        "groundedCorrectRate": 1,
+        "unknownsPreservedRate": 0.3333333333333333,
+        "meanAnswerCoverage": 0.6666666666666666
+      },
+      "contextLift": 0,
+      "prediction": 0.5,
+      "predictionError": -0.5
+    },
+    {
+      "model": "qwen3.8:27b-mlx",
+      "modelDigest": "5642e97495e1a088883805981563dcdc4a040c2f53388b7a41d1f24d3622cf7e",
+      "noPack": {
+        "count": 3,
+        "failed": 0,
+        "meanScore": 1.3333333333333333,
+        "groundedCorrectRate": 0.3333333333333333,
+        "unknownsPreservedRate": 1,
+        "meanAnswerCoverage": 0
+      },
+      "withPack": {
+        "count": 3,
+        "failed": 1,
+        "meanScore": 1.3333333333333333,
+        "groundedCorrectRate": 0.6666666666666666,
+        "unknownsPreservedRate": 0.6666666666666666,
+        "meanAnswerCoverage": 0.3333333333333333
+      },
+      "contextLift": 0,
+      "prediction": 0.5,
+      "predictionError": -0.5
+    }
+  ],
+  "scope": "One deterministic generated fixture, one trial per cell, fixed model order; no significance or universal vision claim. Correctness, answer coverage and unknown preservation reported separately. Pack adds task information by design."
+}

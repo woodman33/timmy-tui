@@ -1,0 +1,65 @@
+{
+  "schema": "timmy.context-ablation.row/1",
+  "rowId": "gemma4_12b-counts-no-pack",
+  "model": "gemma4:12b-it-qat",
+  "requested": "gemma4:12b",
+  "modelDigest": "38044be4f923e5a55264ed7df4eaac2676651a905f735197c504045140c02bd3",
+  "questionId": "counts",
+  "condition": "no-pack",
+  "elapsedMs": 29664,
+  "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "contextPackSha256": null,
+  "intentReceipt": "sha256_9a7c8b6266be82d7abce3a815148420d906feabd423cb97bb233db6fb34aeb2a",
+  "requestSha256": "b3a604d75499797bdfdbcac600ff68e2234848952b0512aed19aec8bcc3c5b12",
+  "responseSha256": "a57e583eb0756d3d49744cba2349a9bd7a3a58d29b7edf67cfe449fd926fd27c",
+  "raw": {
+    "answers": [
+      {
+        "key": "knownLocations",
+        "value": null,
+        "entityId": null,
+        "factIds": []
+      },
+      {
+        "key": "totalCells",
+        "value": null,
+        "entityId": null,
+        "factIds": []
+      },
+      {
+        "key": "empty",
+        "value": null,
+        "entityId": null,
+        "factIds": []
+      },
+      {
+        "key": "partial",
+        "value": null,
+        "entityId": null,
+        "factIds": []
+      },
+      {
+        "key": "full",
+        "value": null,
+        "entityId": null,
+        "factIds": []
+      }
+    ],
+    "unknowns": [
+      "material",
+      "density",
+      "mass"
+    ]
+  },
+  "score": {
+    "valid": true,
+    "correct": false,
+    "referencesValid": true,
+    "groundedCorrect": 0,
+    "unknownsPreserved": 1,
+    "score": 1,
+    "answerCoverage": 0,
+    "error": null
+  },
+  "error": null
+}
