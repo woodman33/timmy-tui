@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, append
 import { join, dirname } from 'path';
 import crypto from 'crypto';
 import { appendReceipt } from './receipts.js';
-import { appendEvent } from './eventbus.js';
+import { publish as appendEvent } from '../bus/index.js';
 
 // TIMMY Generation Ledger — every prompt → generation → capture → critique
 // cycle lands here as a reviewable, sha256-stamped record. Async by design:

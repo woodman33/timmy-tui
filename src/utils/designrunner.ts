@@ -2,7 +2,7 @@ import { existsSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { OPEN_DESIGN_MCP, openDesignInstalled, mcpSession, pickArgs } from './mcpstdio.js';
 import { listGenerations, updateGeneration } from './generations.js';
-import { appendEvent } from './eventbus.js';
+import { publish as appendEvent } from '../bus/index.js';
 import { appendReceipt } from './receipts.js';
 
 // Lesson from gen_msukpsfq_f4ru: create_artifact ran but its tool content had

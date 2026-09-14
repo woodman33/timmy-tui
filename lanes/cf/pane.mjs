@@ -179,12 +179,18 @@ export async function buildFeed({ tailSeconds = 6 } = {}) {
   const orKey = process.env.OPENROUTER_API_KEY ?? '';
   const credits = orKey ? src('spend.openrouter.credits', await getJson('https://openrouter.ai/api/v1/credits', { Authorization: `Bearer ${orKey}` })) : src('spend.openrouter.credits', { ok: false, error: 'OPENROUTER_API_KEY not in env' });
   const keyInfo = orKey ? src('spend.openrouter.key', await getJson('https://openrouter.ai/api/v1/auth/key', { Authorization: `Bearer ${orKey}` })) : { ok: false };
+  // analytics (swarm-b3k7 step 6): spend by model per day from GET /api/v1/activity. The endpoint is a
+  // management call and needs the provisioning key; without one the source shows as dead, not as zero.
+  const provKey = process.env.OPENROUTER_PROVISIONING_KEY ?? '';
+  const activity = provKey ? src('spend.openrouter.activity', await getJson('https://openrouter.ai/api/v1/activity', { Authorization: `Bearer ${provKey}` })) : src('spend.openrouter.activity', { ok: false, error: 'OPENROUTER_PROVISIONING_KEY not in env (management endpoint)' });
+  const byModelDay = activity.ok ? (activity.body.data ?? []).slice(0, 200).map((r) => ({ date: r.date ?? null, model: r.model ?? null, usage: r.usage ?? null, requests: r.requests ?? null, prompt_tokens: r.prompt_tokens ?? null, completion_tokens: r.completion_tokens ?? null })) : null;
   const spend = {
     commander: commander.ok ? commander.body.state?.spend ?? null : null,
     openrouter: {
       credits: credits.ok ? credits.body.data ?? credits.body : null,
       // the key label is key-identifying, so it stays out of the feed; usage and limits are what the pane needs
-      key: keyInfo.ok ? { usage: keyInfo.body.data?.usage ?? null, limit: keyInfo.body.data?.limit ?? null, limit_remaining: keyInfo.body.data?.limit_remaining ?? null, is_free_tier: keyInfo.body.data?.is_free_tier ?? null } : null
+      key: keyInfo.ok ? { usage: keyInfo.body.data?.usage ?? null, limit: keyInfo.body.data?.limit ?? null, limit_remaining: keyInfo.body.data?.limit_remaining ?? null, is_free_tier: keyInfo.body.data?.is_free_tier ?? null } : null,
+      activity: byModelDay
     }
   };
 

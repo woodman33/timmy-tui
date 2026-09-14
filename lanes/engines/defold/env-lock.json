@@ -1,0 +1,21 @@
+{
+ "v": 1,
+ "engine": "defold",
+ "captured_at": "2026-09-07T13:29:16.006Z",
+ "os": {
+  "platform": "darwin",
+  "build": "25G83",
+  "version": "26.6.2"
+ },
+ "arch": "arm64",
+ "tools": {
+  "java": {
+   "path": "/Applications/Defold.app/Contents/Resources/packages/jdk-25+36/bin/java",
+   "sha256": "187996479560599e0721a69cfd3ee3c140db16907a9a265ebcba90b5dcfffd9c",
+   "size": 69600,
+   "mtime": 1777886311000,
+   "version": null
+  }
+ },
+ "installed": true
+}

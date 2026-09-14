@@ -1,6 +1,6 @@
 {
  "v": 1,
- "generated_at": "2026-09-07T10:38:04.728Z",
+ "generated_at": "2026-09-08T10:31:26.153Z",
  "worker": {
   "name": "timmy-ai-proxy-preview",
   "url": "https://timmy-ai-proxy-preview.wmeldman33.workers.dev",
@@ -12,6 +12,8 @@
    "daily_head": true,
    "slate_room": true,
    "commander": true,
+   "timmy": true,
+   "swarm": true,
    "tools": [
     "tools_list",
     "custody_verify_tap",
@@ -23,8 +25,8 @@
    ]
   },
   "version": {
-   "id": "2bef38b4-32b8-429b-9073-77c94477b177",
-   "created_on": "2026-09-06T07:06:12.492345Z",
+   "id": "11517709-c081-49fa-a472-baddbc1f7088",
+   "created_on": "2026-09-08T10:09:19.217854Z",
    "source": "wrangler",
    "message": null
   },
@@ -32,10 +34,10 @@
  },
  "tail": {
   "ok": true,
-  "window_s": 8,
+  "window_s": 2,
   "events": 0,
   "last": [],
-  "ms": 8057,
+  "ms": 2006,
   "note": null
  },
  "do": {
@@ -53,16 +55,18 @@
    "held_by": null,
    "openrouter_paused": false,
    "killed": false,
-   "turns": 4,
-   "head": "e219ccd6f962b32a10e4d590c78dc14d17a60dc5a7a728a6c20844f5ad76d906",
+   "turns": 8,
+   "head": "364479369ec0269622923cb795a2905f002a53f6fce1cd258a05657bd5e2be5c",
    "spend": {
-    "usd": 0.011034,
+    "usd": 0.115358,
     "cap_usd": 2,
-    "calls": 5,
-    "tokens_in": 922,
-    "tokens_out": 1861,
+    "calls": 37,
+    "tokens_in": 6302,
+    "tokens_out": 19328,
     "uncounted": 0,
-    "last_at": "2026-09-07T10:35:22.501Z"
+    "last_at": "2026-09-08T10:18:48.339Z",
+    "tokens_cached": 1408,
+    "tokens_reasoning": 16278
    },
    "viewers": 0,
    "schedules": 0
@@ -124,97 +128,106 @@
   {
    "expr": "5 9 * * *",
    "where": "timmy-ai-proxy-preview",
-   "next_utc": "2026-09-08T09:05:00.000Z",
+   "next_utc": "2026-09-09T09:05:00.000Z",
    "last_head": {
-    "date": "2026-09-07",
-    "receipts": 23,
-    "subjects": 2,
-    "combined": "73ea142510da"
+    "date": "2026-09-08",
+    "receipts": 41,
+    "subjects": 4,
+    "combined": "ba5dcafadc6b"
    }
   },
   {
    "expr": "30 9 * * * (local, launchd dev.timmy.anchor)",
    "where": "laptop",
-   "next_utc": "2026-09-07T16:30:00.000Z",
+   "next_utc": "2026-09-08T16:30:00.000Z",
    "last_head": null
   }
  ],
  "spend": {
   "commander": {
-   "usd": 0.011034,
+   "usd": 0.115358,
    "cap_usd": 2,
-   "calls": 5,
-   "tokens_in": 922,
-   "tokens_out": 1861,
+   "calls": 37,
+   "tokens_in": 6302,
+   "tokens_out": 19328,
    "uncounted": 0,
-   "last_at": "2026-09-07T10:35:22.501Z"
+   "last_at": "2026-09-08T10:18:48.339Z",
+   "tokens_cached": 1408,
+   "tokens_reasoning": 16278
   },
   "openrouter": {
    "credits": {
-    "total_credits": 2990,
-    "total_usage": 2959.097436358
+    "total_credits": 4590,
+    "total_usage": 4530.919094421
    },
    "key": {
-    "usage": 2420.752342361,
+    "usage": 3963.423423424,
     "limit": null,
     "limit_remaining": null,
     "is_free_tier": false
-   }
+   },
+   "activity": null
   }
  },
  "sources": [
   {
    "id": "worker.health",
    "ok": true,
-   "ms": 261,
+   "ms": 162,
    "note": null
   },
   {
    "id": "worker.versions",
    "ok": true,
-   "ms": 3734,
+   "ms": 3203,
    "note": "npm warn allow-scripts .npmrc allow-scripts setting is being ignored because --allow-scripts was passed on the command line"
   },
   {
    "id": "do.slate_room",
    "ok": true,
-   "ms": 378,
+   "ms": 445,
    "note": null
   },
   {
    "id": "do.commander",
    "ok": true,
-   "ms": 251,
+   "ms": 832,
    "note": null
   },
   {
    "id": "queues.list",
    "ok": true,
-   "ms": 4319,
+   "ms": 3462,
    "note": "npm warn allow-scripts .npmrc allow-scripts setting is being ignored because --allow-scripts was passed on the command line"
   },
   {
    "id": "head.latest",
    "ok": true,
-   "ms": 172,
+   "ms": 296,
    "note": null
   },
   {
    "id": "spend.openrouter.credits",
    "ok": true,
-   "ms": 365,
+   "ms": 182,
    "note": null
   },
   {
    "id": "spend.openrouter.key",
    "ok": true,
-   "ms": 72,
+   "ms": 109,
    "note": null
+  },
+  {
+   "id": "spend.openrouter.activity",
+   "ok": false,
+   "ms": null,
+   "note": "OPENROUTER_PROVISIONING_KEY not in env (management endpoint)"
   },
   {
    "id": "worker.tail",
    "ok": true,
-   "ms": 8057,
+   "ms": 2006,
    "note": null
   }
  ]

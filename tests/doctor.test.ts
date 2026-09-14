@@ -6,6 +6,7 @@ import { join } from 'path';
 import { runDoctor, probePort, checkDocker } from '../src/utils/doctor.js';
 import { createPlan, armPlan, type DispatchPlan } from '../src/utils/dispatch.js';
 import { issueApproval } from '../src/utils/approvals.js';
+import { dockerPresent, comfyPresent } from './service-gate.js';
 
 const dockerPlan = (): DispatchPlan => ({
   schema_version: 'dispatch/0.1', objective: 'doctor gate probe', deliverables: ['x'],
@@ -23,7 +24,7 @@ let dir = '';
 beforeAll(() => { dir = mkdtempSync(join(tmpdir(), 'timmy-doctor-')); });
 afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
 
-describe('timmy doctor preflight tier (v1.0.0-rc1)', () => {
+describe.skipIf(!(dockerPresent() && comfyPresent()))('timmy doctor preflight tier (v1.0.0-rc1)', () => {
   it('probePort detects listeners and free ports', async () => {
     const srv = createServer();
     await new Promise<void>(res => srv.listen(0, '127.0.0.1', () => res()));

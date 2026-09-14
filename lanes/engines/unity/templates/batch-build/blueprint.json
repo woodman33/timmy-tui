@@ -1,0 +1,32 @@
+{
+ "kind": "blueprint",
+ "name": "Unity · batch-build",
+ "source": "lanes/engines/unity/templates/batch-build/plan.cue",
+ "date": "2026-09-07",
+ "engine": "unity",
+ "workflow": "batch-build",
+ "proven": false,
+ "note": "AUTHORED, UNPROVEN: no Unity Editor on this Mac. The command is Unity's documented batch-mode build (-batchmode -nographics -quit -executeMethod); the template ships the Editor script the method lives in. Proven once a runner with an activated editor executes it through a drop folder.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "project", "value": "*.unity.zip (Assets/, ProjectSettings/)", "note": "rules: run" },
+   { "label": "package", "value": "*.unitypackage", "note": "rules: stage → asset-import" },
+   { "label": "refused", "value": "> 2 GB", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 unpack", "value": "unzip + copy Assets/Editor/ShelfBuild.cs", "note": "unpack.mjs" },
+   { "label": "2 build", "value": "Unity -batchmode -nographics -quit -projectPath out/project -executeMethod Shelf.Build.WebGL -buildTarget WebGL -logFile out/<stem>.unity.log -shelfOut out/<stem>.webgl", "note": "BuildPipeline.BuildPlayer" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "bundle", "value": "{stem}.webgl/", "note": "bundle" },
+   { "label": "log", "value": "{stem}.unity.log", "note": "editor log" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "project sha256 · bundle files sha256 · Unity env-lock", "note": "" }
+  ] },
+  { "id": "sources", "title": "Sources", "rows": [
+   { "label": "CLI", "value": "https://docs.unity3d.com/Manual/EditorCommandLineArguments.html", "note": "-batchmode -nographics -quit -projectPath -executeMethod -buildTarget -logFile" },
+   { "label": "BuildPlayer", "value": "https://docs.unity3d.com/ScriptReference/BuildPipeline.BuildPlayer.html", "note": "the method the script calls" }
+  ] }
+ ]
+}

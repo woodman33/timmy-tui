@@ -1,0 +1,255 @@
+{
+ "where": "local",
+ "room": "war-room",
+ "spec": {
+  "v": 1,
+  "id": "kimi-5",
+  "preset": "kimi-5",
+  "topology": "fusion",
+  "members": [
+   {
+    "id": "kimi-1",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "kimi-k3:cloud",
+    "provider": "ollama-cloud"
+   },
+   {
+    "id": "kimi-2",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "kimi-k3:cloud",
+    "provider": "ollama-cloud"
+   },
+   {
+    "id": "kimi-3",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "kimi-k3:cloud",
+    "provider": "ollama-cloud"
+   },
+   {
+    "id": "kimi-4",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "kimi-k3:cloud",
+    "provider": "ollama-cloud"
+   },
+   {
+    "id": "kimi-5",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "kimi-k3:cloud",
+    "provider": "ollama-cloud"
+   }
+  ],
+  "size": 5,
+  "budget": {
+   "usd": 0.5,
+   "max_calls": 8,
+   "max_ms": 600000
+  },
+  "judge": {
+   "tier": "local",
+   "model": "kimi-k3:cloud"
+  },
+  "network": {
+   "policy": "open",
+   "egress_allow": []
+  },
+  "rounds": 2
+ },
+ "task": "In two sentences: what makes a receipt chain trustworthy, and what breaks it?",
+ "endpoints": {
+  "ollama-cloud": "http://127.0.0.1:11434"
+ },
+ "result": {
+  "swarm_id": "kimi-5",
+  "run_id": "swarm_mtsipl2g_26kb",
+  "topology": "fusion",
+  "size": 5,
+  "ok": false,
+  "answer": "",
+  "calls": [
+   {
+    "role": "actor",
+    "model": "kimi-k3:cloud",
+    "ok": true,
+    "ms": 6731,
+    "usd": 0,
+    "tokens_in": 193,
+    "tokens_out": 300,
+    "counted": true,
+    "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "error": null,
+    "provider_used": "ollama-cloud",
+    "model_used": "kimi-k3",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "kimi-3",
+    "kind": "model",
+    "content": "",
+    "receipt": "sha256_cc242a92c2899279cd62765f9fefa23a9005aae63665329d7fc65d0ba4c68b02",
+    "eval_tok_per_s": null,
+    "load_ms": null,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "kimi-k3:cloud",
+    "ok": true,
+    "ms": 8661,
+    "usd": 0,
+    "tokens_in": 193,
+    "tokens_out": 300,
+    "counted": true,
+    "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "error": null,
+    "provider_used": "ollama-cloud",
+    "model_used": "kimi-k3",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "kimi-1",
+    "kind": "model",
+    "content": "",
+    "receipt": "sha256_e3ab600463d8753e35222e4c6b4991c01859246e3d49094f2bc2382efff040e1",
+    "eval_tok_per_s": null,
+    "load_ms": null,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "kimi-k3:cloud",
+    "ok": true,
+    "ms": 9837,
+    "usd": 0,
+    "tokens_in": 193,
+    "tokens_out": 300,
+    "counted": true,
+    "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "error": null,
+    "provider_used": "ollama-cloud",
+    "model_used": "kimi-k3",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "kimi-4",
+    "kind": "model",
+    "content": "",
+    "receipt": "sha256_ea019ba94b2012710db3408d32673f954ea7b1e151e2652f9dac99ddd15c1c41",
+    "eval_tok_per_s": null,
+    "load_ms": null,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "kimi-k3:cloud",
+    "ok": true,
+    "ms": 11366,
+    "usd": 0,
+    "tokens_in": 193,
+    "tokens_out": 300,
+    "counted": true,
+    "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "error": null,
+    "provider_used": "ollama-cloud",
+    "model_used": "kimi-k3",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "kimi-2",
+    "kind": "model",
+    "content": "",
+    "receipt": "sha256_65edbe789699d9bd5c4ff13b97a2a12171c6295ad39d4de2318962d2a16e4844",
+    "eval_tok_per_s": null,
+    "load_ms": null,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "kimi-k3:cloud",
+    "ok": true,
+    "ms": 13196,
+    "usd": 0,
+    "tokens_in": 193,
+    "tokens_out": 300,
+    "counted": true,
+    "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "error": null,
+    "provider_used": "ollama-cloud",
+    "model_used": "kimi-k3",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "kimi-5",
+    "kind": "model",
+    "content": "",
+    "receipt": "sha256_a5fb24fd5b6c5cdb256b2df5e9cb6f97aaa4b0e777a459ae02fb9b2dcb7a26ea",
+    "eval_tok_per_s": null,
+    "load_ms": null,
+    "phase": "answer"
+   }
+  ],
+  "rounds": [],
+  "winner": null,
+  "losers": [],
+  "votes": null,
+  "roles": null,
+  "assignments": null,
+  "budget": {
+   "usd": 0.5,
+   "spent": 0,
+   "max_calls": 8,
+   "calls": 5,
+   "max_ms": 600000,
+   "ms": 15179,
+   "exhausted": null,
+   "kills": []
+  },
+  "usd": 0,
+  "ms": 15179,
+  "recorded": "07ce4abad2f3f7deafb4764ad5e5ef42843d72cd7cc3fccb50a4a3fc9835fe05"
+ },
+ "sealed": [
+  {
+   "member": "kimi-3",
+   "phase": "answer",
+   "receipt": "sha256_cc242a92c2899279cd62765f9fefa23a9005aae63665329d7fc65d0ba4c68b02"
+  },
+  {
+   "member": "kimi-1",
+   "phase": "answer",
+   "receipt": "sha256_e3ab600463d8753e35222e4c6b4991c01859246e3d49094f2bc2382efff040e1"
+  },
+  {
+   "member": "kimi-4",
+   "phase": "answer",
+   "receipt": "sha256_ea019ba94b2012710db3408d32673f954ea7b1e151e2652f9dac99ddd15c1c41"
+  },
+  {
+   "member": "kimi-2",
+   "phase": "answer",
+   "receipt": "sha256_65edbe789699d9bd5c4ff13b97a2a12171c6295ad39d4de2318962d2a16e4844"
+  },
+  {
+   "member": "kimi-5",
+   "phase": "answer",
+   "receipt": "sha256_a5fb24fd5b6c5cdb256b2df5e9cb6f97aaa4b0e777a459ae02fb9b2dcb7a26ea"
+  }
+ ],
+ "receipt": "sha256_fef6d0fc750c3b3f637f689a916f724e6913a9c8475226b0e790c2995fc84528",
+ "airgap_receipt": null,
+ "snoop": null
+}

@@ -1,0 +1,10 @@
+{
+ "platform": "web-mobile",
+ "debug": false,
+ "md5Cache": true,
+ "buildBundleOnly": true,
+ "mainBundleCompressionType": "merge_dep",
+ "packages": {
+  "web-mobile": { "orientation": "auto" }
+ }
+}

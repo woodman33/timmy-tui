@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { readChain, verifyChain } from '../../utils/receipts.js';
@@ -8,6 +8,7 @@ import { PanelFrame, PaneFocusContext } from './PanelFrame.js';
 import { BudgetList } from '../ui/BudgetList.js';
 import { EmptyState } from '../ui/EmptyState.js';
 import { truncateVisible } from '../utils/text.js';
+import { useOpenReceipt } from './ReceiptDetail.js';
 
 interface EscrowRow {
   escrow_id: string; state: string; ceiling_usd: number; drawn_usd: number;
@@ -48,6 +49,23 @@ export function EscrowReceiptsView({ paneFocus, width, height }: { paneFocus: nu
   }, []);
 
   const half = Math.max(30, Math.floor(width / 2) - 2);
+  const openReceipt = useOpenReceipt();
+  const [selIdx, setSelIdx] = useState(0);
+  // C1 (ui.audit 3f6b191b6): red is refusal/failed ONLY. Valid sealed = phosphor
+  // [OK]; unverified = dim [—]; refused/failed = red [FAIL]. Sealed receipts carry
+  // no status:'ok' field, so validity comes from the chain verify, not r.status.
+  const rowState = (r: { hash: string; status: string }): 'ok' | 'unverified' | 'fail' => {
+    if (r.status === 'failed' || r.status === 'refused' || r.status === 'denied') return 'fail';
+    if (chain.ok) return 'ok';
+    if (chain.brokenAt && chain.brokenAt.slice(7, 15) === r.hash) return 'fail';
+    return 'unverified';
+  };
+  useInput((input, key) => {
+    if (paneFocus !== 1) return;
+    if (key.upArrow) { setSelIdx(i => Math.max(0, i - 1)); return; }
+    if (key.downArrow) { setSelIdx(i => Math.min(Math.max(tail.length - 1, 0), i + 1)); return; }
+    if (key.return && tail[selIdx]) openReceipt(tail[selIdx].hash);
+  }, { isActive: paneFocus === 1 });
   return (
     <Box flexDirection="row" flexGrow={1}>
       <Box flexGrow={1} flexDirection="column" paddingRight={1}>
@@ -72,17 +90,23 @@ export function EscrowReceiptsView({ paneFocus, width, height }: { paneFocus: nu
       </Box>
       <Box flexGrow={1} flexDirection="column" paddingLeft={1}>
         <PaneFocusContext.Provider value={paneFocus === 1}>
-          <PanelFrame icon="◆" title="RECEIPT CHAIN" status={chain.ok ? `✓ ${chain.count}` : `× ${chain.brokenAt ?? 'broken'}`} statusKind={chain.ok ? 'completed' : 'failed'} hints={[]} explain="merkle + chain verify, newest first">
+          <PanelFrame icon="◆" title="RECEIPT CHAIN" status={chain.ok ? `✓ ${chain.count}` : `× ${chain.brokenAt ?? 'broken'}`} statusKind={chain.ok ? 'completed' : 'failed'} hints={[{ key: 'Enter', label: 'open' }, { key: 'Esc', label: 'back' }]} explain="merkle + chain verify, newest first">
             <Box flexDirection="column">
               {tail.length === 0 && <EmptyState line="no receipts yet" action="run anything — it seals one" />}
               <BudgetList
                 items={tail}
-                render={r => (
-                  <Text color={r.status === 'ok' ? theme.textSecondary : theme.danger} wrap="truncate">
-                    <Text bold color={r.status === 'ok' ? theme.seal : theme.danger}>{r.status === 'ok' ? '[SEALED]' : '[FAIL]'}</Text>
-                    {' '}{truncateVisible(`${r.hash} · ${r.subject}`, half - 10)}
-                  </Text>
-                )}
+                render={(r, i) => {
+                  const st = rowState(r);
+                  const glyph = st === 'ok' ? '[OK]' : st === 'fail' ? '[FAIL]' : '[—]';
+                  const gc = st === 'ok' ? theme.seal : st === 'fail' ? theme.danger : theme.textMuted;
+                  const sel = i === selIdx;
+                  return (
+                    <Text color={sel ? theme.accent : st === 'fail' ? theme.danger : theme.textSecondary} wrap="truncate">
+                      {sel ? '▸' : ' '}<Text bold color={gc}>{glyph}</Text>
+                      {' '}{truncateVisible(`${r.hash} · ${r.subject}`, half - 10)}
+                    </Text>
+                  );
+                }}
               />
               <Text color={chain.ok ? theme.accent : theme.danger} wrap="truncate">
                 {chain.ok ? '[VERIFIED] ' : '[BROKEN] '}chain {chain.ok ? `ok · ${chain.count} receipts` : `at ${chain.brokenAt}`}

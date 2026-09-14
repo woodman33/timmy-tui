@@ -1,0 +1,328 @@
+{
+ "where": "edge",
+ "room": "war-room",
+ "worker": "https://timmy-ai-proxy-preview.wmeldman33.workers.dev",
+ "spec": {
+  "v": 1,
+  "id": "coordinator-3",
+  "preset": "coordinator-3",
+  "topology": "coordinator",
+  "members": [
+   {
+    "id": "w-1",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "google/gemini-3.7-flash",
+    "provider": "openrouter"
+   },
+   {
+    "id": "w-2",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "x-ai/grok-4.6",
+    "provider": "openrouter"
+   },
+   {
+    "id": "w-3",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "google/gemini-3.7-flash",
+    "provider": "openrouter"
+   }
+  ],
+  "size": 3,
+  "budget": {
+   "usd": 0.3,
+   "max_calls": 8,
+   "max_ms": 600000
+  },
+  "judge": {
+   "tier": "edge",
+   "model": "x-ai/grok-4.6"
+  },
+  "network": {
+   "policy": "open",
+   "egress_allow": []
+  },
+  "rounds": 2
+ },
+ "task": "Explain in three short parts how a council vote, a tournament pick, and a fusion merge differ.",
+ "result": {
+  "ok": true,
+  "run_id": "swarm_mtsing1j_1u0p",
+  "swarm_id": "coordinator-3",
+  "topology": "coordinator",
+  "size": 3,
+  "answer": "A **council vote** involves a panel of independent evaluators who each cast a simultaneous ballot; the option with majority (or plurality) support wins. It uniquely differs by relying on parallel democratic tallying rather than sequential contests or any blending of content.\n\nA tournament pick chooses one winner via successive pairwise contests or elimination brackets. It uniquely differs by using competitive sequential matchups rather than a council vote’s simultaneous majority tally or a fusion merge’s blending of all inputs into one hybrid.\n\nA **fusion merge** integrates the best elements, insights, or data from multiple sources into a single hybrid result. It uniquely differs by synthesizing contributions rather than selecting one winner via vote or contest.",
+  "winner": null,
+  "losers": [],
+  "votes": null,
+  "roles": null,
+  "assignments": {
+   "w-1": "Write one short part that explains a council vote and how it uniquely differs from tournament pick and fusion merge.",
+   "w-2": "Write one short part that explains a tournament pick and how it uniquely differs from council vote and fusion merge.",
+   "w-3": "Write one short part that explains a fusion merge and how it uniquely differs from council vote and tournament pick."
+  },
+  "calls": [
+   {
+    "member": "judge",
+    "phase": "coordinate",
+    "model": "x-ai/grok-4.6",
+    "ok": true,
+    "killed": false,
+    "ms": 15240,
+    "usd": 0.00564,
+    "receipt": "5f9381560b708af023da10407978d1eb60a0c285e7b620e5512d51ff1dc4b407",
+    "receipt_external": null,
+    "error": null,
+    "preview": "{\"assignments\": [{\"member\": \"w-1\", \"subtask\": \"Write one short part that explains a council vote and how it uniquely differs from tournament pick and fusion merge.\"}, {\"member\": \"w-2\", \"subtask\": \"Write one short part that explains a tourna"
+   },
+   {
+    "member": "w-3",
+    "phase": "work",
+    "model": "google/gemini-3.7-flash",
+    "ok": true,
+    "killed": false,
+    "ms": 3428,
+    "usd": 0.001539,
+    "receipt": "4351ed4eb4c9397a048efffdc7bd1bd72b23bb33c6e97f55396e1dec095d6cf5",
+    "receipt_external": null,
+    "error": null,
+    "preview": "A **fusion merge** integrates the best elements, insights, or data from multiple"
+   },
+   {
+    "member": "w-1",
+    "phase": "work",
+    "model": "google/gemini-3.7-flash",
+    "ok": true,
+    "killed": false,
+    "ms": 4412,
+    "usd": 0.001539,
+    "receipt": "9214e0f94d8fa218a955092dc392f1498d46abcde741ce50d93ac17eef241f1e",
+    "receipt_external": null,
+    "error": null,
+    "preview": "A **council vote** involves a panel of independent evalu"
+   },
+   {
+    "member": "w-2",
+    "phase": "work",
+    "model": "x-ai/grok-4.6",
+    "ok": true,
+    "killed": false,
+    "ms": 9693,
+    "usd": 0.003274,
+    "receipt": "61fdf8e7a41a43919520f03c8f3b638c97f20d1b950b3449e551fc1742669349",
+    "receipt_external": null,
+    "error": null,
+    "preview": "A tournament pick chooses one winner via successive pairwise contests or elimination brackets. It uniquely differs by using competitive sequential matchups rather than a council vote’s simultaneous majority tally or a fusion merge’s blendin"
+   },
+   {
+    "member": "judge",
+    "phase": "compose",
+    "model": "x-ai/grok-4.6",
+    "ok": true,
+    "killed": false,
+    "ms": 11454,
+    "usd": 0.00491,
+    "receipt": "68567199678de92eb1b7173267ceb5b5b2a3429242e1906fd4621f74630e3ec6",
+    "receipt_external": null,
+    "error": null,
+    "preview": "A **council vote** involves a panel of independent evaluators who each cast a simultaneous ballot; the option with majority (or plurality) support wins. It uniquely differs by relying on parallel democratic tallying rather than sequential c"
+   }
+  ],
+  "budget": {
+   "usd": 0.3,
+   "spent": 0.016902,
+   "max_calls": 8,
+   "calls": 5,
+   "max_ms": 600000,
+   "ms": 37196,
+   "exhausted": null,
+   "kills": []
+  },
+  "usd": 0.016902,
+  "ms": 37196,
+  "receipt": {
+   "v": 1,
+   "id": "ec_mtsio8qr_olc3",
+   "ts": "2026-09-08T10:18:34.947Z",
+   "kind": "swarm.run",
+   "subject": "commander:war-room",
+   "data": {
+    "run_id": "swarm_mtsing1j_1u0p",
+    "swarm_id": "coordinator-3",
+    "preset": "coordinator-3",
+    "by": "commander",
+    "topology": "coordinator",
+    "size": 3,
+    "ok": true,
+    "task_sha256": "76ebf2d03137b3a464e763369da2b8b7c80f34b7e4e54c4377de64e4f3d54b8c",
+    "answer_sha256": "eb5fb8ede7357d544be6ad99bf17e0522ca1c456201ed95adee9ae87ce0eddc7",
+    "spec_sha256": "7593bb1efc09df1175523540922580c10a08370fede5929041e0938381defa21",
+    "members": [
+     {
+      "id": "w-1",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "google/gemini-3.7-flash",
+      "provider": "openrouter"
+     },
+     {
+      "id": "w-2",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "x-ai/grok-4.6",
+      "provider": "openrouter"
+     },
+     {
+      "id": "w-3",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "google/gemini-3.7-flash",
+      "provider": "openrouter"
+     }
+    ],
+    "calls": [
+     {
+      "member": "judge",
+      "phase": "coordinate",
+      "round": null,
+      "model": "x-ai/grok-4.6",
+      "ok": true,
+      "killed": false,
+      "ms": 15240,
+      "usd": 0.00564,
+      "tokens_in": 330,
+      "tokens_out": 862,
+      "counted": true,
+      "provider_used": "xAI",
+      "generation_id": "gen-1788862677-8itRE1mEv6wIDtThhdGt",
+      "content_sha256": "928cb14e85fb789e5e4adb1b1d7648855dff43cab2c3a14da664d626d7edae64",
+      "receipt": "5f9381560b708af023da10407978d1eb60a0c285e7b620e5512d51ff1dc4b407",
+      "error": null
+     },
+     {
+      "member": "w-3",
+      "phase": "work",
+      "round": null,
+      "model": "google/gemini-3.7-flash",
+      "ok": true,
+      "killed": false,
+      "ms": 3428,
+      "usd": 0.001539,
+      "tokens_in": 72,
+      "tokens_out": 396,
+      "counted": true,
+      "provider_used": "Google",
+      "generation_id": "gen-1788862693-89LuvPbFrFEetvsqot14",
+      "content_sha256": "0c83535751e33118b6610d46594ac2af1fd563e33f98e5be0af8e550c904090e",
+      "receipt": "4351ed4eb4c9397a048efffdc7bd1bd72b23bb33c6e97f55396e1dec095d6cf5",
+      "error": null
+     },
+     {
+      "member": "w-1",
+      "phase": "work",
+      "round": null,
+      "model": "google/gemini-3.7-flash",
+      "ok": true,
+      "killed": false,
+      "ms": 4412,
+      "usd": 0.001539,
+      "tokens_in": 72,
+      "tokens_out": 396,
+      "counted": true,
+      "provider_used": "Google",
+      "generation_id": "gen-1788862693-mBsTZlZCeSYIn3cLT2OE",
+      "content_sha256": "46e29831bb51469c5a68ef5bc92dcdb15107825b18107cb04aa1a448bbdbf086",
+      "receipt": "9214e0f94d8fa218a955092dc392f1498d46abcde741ce50d93ac17eef241f1e",
+      "error": null
+     },
+     {
+      "member": "w-2",
+      "phase": "work",
+      "round": null,
+      "model": "x-ai/grok-4.6",
+      "ok": true,
+      "killed": false,
+      "ms": 9693,
+      "usd": 0.003274,
+      "tokens_in": 278,
+      "tokens_out": 485,
+      "counted": true,
+      "provider_used": "xAI",
+      "generation_id": "gen-1788862693-1MLOEEFtZEv8QfqpQBjS",
+      "content_sha256": "69e58eabed35651e291741da771d1fa732a4088a4f049a58383da6b9ddc099c1",
+      "receipt": "61fdf8e7a41a43919520f03c8f3b638c97f20d1b950b3449e551fc1742669349",
+      "error": null
+     },
+     {
+      "member": "judge",
+      "phase": "compose",
+      "round": null,
+      "model": "x-ai/grok-4.6",
+      "ok": true,
+      "killed": false,
+      "ms": 11454,
+      "usd": 0.00491,
+      "tokens_in": 424,
+      "tokens_out": 709,
+      "counted": true,
+      "provider_used": "xAI",
+      "generation_id": "gen-1788862703-o3ryXhu5k8pR0HjBqYSB",
+      "content_sha256": "eb5fb8ede7357d544be6ad99bf17e0522ca1c456201ed95adee9ae87ce0eddc7",
+      "receipt": "68567199678de92eb1b7173267ceb5b5b2a3429242e1906fd4621f74630e3ec6",
+      "error": null
+     }
+    ],
+    "winner": null,
+    "losers": [],
+    "votes": null,
+    "rounds": 0,
+    "judge": {
+     "tier": "edge",
+     "model": "x-ai/grok-4.6"
+    },
+    "network": {
+     "policy": "open",
+     "egress_allow": []
+    },
+    "budget": {
+     "usd": 0.3,
+     "spent": 0.016902,
+     "max_calls": 8,
+     "calls": 5,
+     "max_ms": 600000,
+     "ms": 37196,
+     "exhausted": null,
+     "kills": []
+    },
+    "usd": 0.016902,
+    "ms": 37196,
+    "source": "http"
+   },
+   "prev_hash": "68567199678de92eb1b7173267ceb5b5b2a3429242e1906fd4621f74630e3ec6",
+   "hash": "c1cf57f27a488234c1a3a7e493a55310fde81edc67322e8b25abfe73dc35ce64"
+  },
+  "spend": {
+   "usd": 0.109757,
+   "cap_usd": 2,
+   "calls": 33,
+   "tokens_in": 6087,
+   "tokens_out": 19093,
+   "uncounted": 0,
+   "last_at": "2026-09-08T10:18:34.947Z",
+   "tokens_cached": 1408,
+   "tokens_reasoning": 16105
+  }
+ },
+ "receipt": "sha256_9b18a5c29ac757dcf7cec724db4ff8e2bc6c6fd12d5b332afa6ca25abbe6276e"
+}

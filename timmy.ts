@@ -45,6 +45,7 @@ Commands:
   docs publish    Verify GitBook auth and prepare Git Sync publication
   providers audit List provider readiness without printing secrets
   sceneforge      Use the authenticated Cloudflare control plane via MCPorter
+  vision          Open Roboflow visual templates, inspections and evidence review
 
 Options:
   --json          Output results in raw JSON format (for demo/proof)
@@ -98,7 +99,7 @@ for (let i = 0; i < args.length; i++) {
   cleanArgs.push(args[i]);
 }
 
-if (args.includes('--help') || args.includes('-h') || cleanArgs[0] === 'help') {
+if (((args.includes('--help') || args.includes('-h')) && cleanArgs[0] !== 'vision') || cleanArgs[0] === 'help') {
   printHelp();
   process.exit(0);
 }
@@ -127,7 +128,7 @@ if (command === 'start') {
 }
 
 // Modern CLI surface (mcp serve/logs/approve/events/…) lives in src/cli.ts.
-if (['mcp', 'logs', 'approve', 'events', 'epoch', 'q', 'map', 'chat', 'seal', 'verify'].includes(command)) {
+if (['vision', 'mcp', 'logs', 'approve', 'events', 'epoch', 'q', 'map', 'chat', 'seal', 'verify', 'model', 'models', 'do'].includes(command)) {
   // linked bin runs from dist/; dev runs from source — resolve accordingly
   const cliPath = fileURLToPath(new URL(import.meta.url.includes('/dist/') ? './src/cli.js' : './src/cli.ts', import.meta.url));
   const r = spawnSync(process.execPath, ['--import', 'tsx', cliPath, ...args], { stdio: 'inherit' });

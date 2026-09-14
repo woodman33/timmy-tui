@@ -1,0 +1,32 @@
+{
+ "kind": "blueprint",
+ "name": "Unity · test-runner",
+ "source": "lanes/engines/unity/templates/test-runner/plan.cue",
+ "date": "2026-09-07",
+ "engine": "unity",
+ "workflow": "test-runner",
+ "proven": false,
+ "note": "AUTHORED, UNPROVEN: no Unity Editor on this Mac. -runTests with -testResults is the Unity Test Framework's documented CLI; proven once a runner with an activated editor executes it through a drop folder.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "project", "value": "*.unity.zip", "note": "rules: run" },
+   { "label": "results", "value": "*.results.xml", "note": "rules: stage" },
+   { "label": "refused", "value": "> 2 GB", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 unpack", "value": "unzip the project into out/project", "note": "" },
+   { "label": "2 test", "value": "Unity -batchmode -nographics -projectPath out/project -runTests -testPlatform EditMode -testResults out/<stem>.results.xml -logFile out/<stem>.test.log", "note": "no -quit: the runner exits itself" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "results", "value": "{stem}.results.xml", "note": "NUnit XML" },
+   { "label": "log", "value": "{stem}.test.log", "note": "editor log" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "project sha256 · results sha256 · env-lock", "note": "" }
+  ] },
+  { "id": "sources", "title": "Sources", "rows": [
+   { "label": "Test Framework CLI", "value": "https://docs.unity3d.com/Packages/com.unity.test-framework@1.4/manual/reference-command-line.html", "note": "-runTests -testPlatform -testResults" },
+   { "label": "CLI", "value": "https://docs.unity3d.com/Manual/EditorCommandLineArguments.html", "note": "-batchmode -nographics -projectPath -logFile" }
+  ] }
+ ]
+}

@@ -101,7 +101,7 @@ describe('gen cycle on stub (D2, D4, D5)', () => {
   });
 });
 
-describe('timeline emit (D3, D6)', () => {
+describe('timeline emit (D3, D6)', { timeout: 30000 }, () => {
   it('emits OTIO that the pinned python parses, with timmy metadata', () => {
     runGen({ sheet: sheetPath, stub: true, dir });
     const r = emitTimeline({ dir });

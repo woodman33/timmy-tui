@@ -1,0 +1,285 @@
+{
+ "where": "local",
+ "room": "war-room",
+ "spec": {
+  "v": 1,
+  "id": "kimi-5",
+  "preset": "kimi-5",
+  "topology": "fusion",
+  "members": [
+   {
+    "id": "kimi-1",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "kimi-k3:cloud",
+    "provider": "ollama-cloud"
+   },
+   {
+    "id": "kimi-2",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "kimi-k3:cloud",
+    "provider": "ollama-cloud"
+   },
+   {
+    "id": "kimi-3",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "kimi-k3:cloud",
+    "provider": "ollama-cloud"
+   },
+   {
+    "id": "kimi-4",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "kimi-k3:cloud",
+    "provider": "ollama-cloud"
+   },
+   {
+    "id": "kimi-5",
+    "kind": "model",
+    "node": "mac",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "kimi-k3:cloud",
+    "provider": "ollama-cloud"
+   }
+  ],
+  "size": 5,
+  "budget": {
+   "usd": 0.5,
+   "max_calls": 8,
+   "max_ms": 600000
+  },
+  "judge": {
+   "tier": "local",
+   "model": "kimi-k3:cloud"
+  },
+  "network": {
+   "policy": "open",
+   "egress_allow": []
+  },
+  "rounds": 2
+ },
+ "task": "In two sentences: what makes a receipt chain trustworthy, and what breaks it?",
+ "endpoints": {
+  "ollama-cloud": "http://127.0.0.1:11434"
+ },
+ "result": {
+  "swarm_id": "kimi-5",
+  "run_id": "swarm_mtsixjqa_y2yf",
+  "topology": "fusion",
+  "size": 5,
+  "ok": true,
+  "answer": "A receipt chain is trustworthy when each entry is cryptographically linked to the previous one (via hashes or signatures), anchored to a verifiable timestamp or ledger, and logged by a tamper-evident system—creating an immutable sequence where any alteration is immediately detectable. It breaks when a link is missing or altered without detection, when the initial trust anchor (like a genesis receipt or signing key) is compromised, or when the verification process itself is bypassed or ignored.\n\nDrew on candidates 1, 2, and 5.",
+  "calls": [
+   {
+    "role": "actor",
+    "model": "kimi-k3:cloud",
+    "ok": true,
+    "ms": 1836,
+    "usd": 0,
+    "tokens_in": 126,
+    "tokens_out": 69,
+    "counted": true,
+    "content_sha256": "fa3dde0eca8b058defc1722a97f1f4fec7b4c5a2cb56a09d5de68036e61ae936",
+    "error": null,
+    "provider_used": "ollama-cloud",
+    "model_used": "kimi-k3",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "kimi-5",
+    "kind": "model",
+    "content": "A receipt chain is trustworthy when each receipt is cryptographically signed, sequentially linked to the previous one, and anchored to a verifiable timestamp or ledger, so any tampering is detectable. It breaks when links are missing, signatures fail verification, timestamps are inconsistent, or the underlying keys or ledger are compromised.",
+    "receipt": "sha256_8b050d2d4b3bf352f364f614f88e1aa7e5bfae763f5a0fe4db8a7519312b7185",
+    "eval_tok_per_s": null,
+    "load_ms": null,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "kimi-k3:cloud",
+    "ok": true,
+    "ms": 3117,
+    "usd": 0,
+    "tokens_in": 126,
+    "tokens_out": 70,
+    "counted": true,
+    "content_sha256": "e28016cb364a57b6b35aec47cbb9511d2a6b6d74655fcc36ce1be21f7d7d8977",
+    "error": null,
+    "provider_used": "ollama-cloud",
+    "model_used": "kimi-k3",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "kimi-4",
+    "kind": "model",
+    "content": "A receipt chain is trustworthy when each entry is cryptographically linked to the previous one, creating an immutable, verifiable sequence that proves nothing was altered or removed. It breaks when any link is missing, tampered with, or the underlying keys are compromised, destroying the chain's integrity and making the entire history suspect.",
+    "receipt": "sha256_a7f96d2253090ec9642a43f1175bd712f9055b0076152d5dcab21d3846e5154b",
+    "eval_tok_per_s": null,
+    "load_ms": null,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "kimi-k3:cloud",
+    "ok": true,
+    "ms": 4677,
+    "usd": 0,
+    "tokens_in": 126,
+    "tokens_out": 76,
+    "counted": true,
+    "content_sha256": "9e45b50d8ed7a161744d1d03dc9508c9a1b2c41496d15ac5d95304d28f071411",
+    "error": null,
+    "provider_used": "ollama-cloud",
+    "model_used": "kimi-k3",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "kimi-2",
+    "kind": "model",
+    "content": "A receipt chain is trustworthy when each receipt is cryptographically linked to the previous one (e.g., via hashes or signatures), creating an immutable, verifiable sequence that proves the order and integrity of events. It breaks if any link is missing, altered, or if the initial trust anchor (like a genesis receipt or signing key) is compromised.",
+    "receipt": "sha256_9e83180e91f82dea9baf7e3919248b9569bc66a9fa4f7ddc58ca45bdbd85dd3d",
+    "eval_tok_per_s": null,
+    "load_ms": null,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "kimi-k3:cloud",
+    "ok": true,
+    "ms": 6179,
+    "usd": 0,
+    "tokens_in": 126,
+    "tokens_out": 73,
+    "counted": true,
+    "content_sha256": "5ea6253a179b1e2e74fd8b4c90756c7ba9e20efebb2aa48444e15fcfe1028ea2",
+    "error": null,
+    "provider_used": "ollama-cloud",
+    "model_used": "kimi-k3",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "kimi-3",
+    "kind": "model",
+    "content": "A receipt chain is trustworthy when each entry is cryptographically linked to the previous one, creating an immutable, verifiable history where any tampering is immediately evident. It breaks when the chain’s integrity is compromised—whether through altered records, missing links, or a failure in the verification process that allows fraudulent entries to go undetected.",
+    "receipt": "sha256_6ec17855984dd91bc5d579d45342cd9ab30935492c09551ed210c42f1a7f3b45",
+    "eval_tok_per_s": null,
+    "load_ms": null,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "kimi-k3:cloud",
+    "ok": true,
+    "ms": 7823,
+    "usd": 0,
+    "tokens_in": 126,
+    "tokens_out": 82,
+    "counted": true,
+    "content_sha256": "44b89b874c45286333ba9503658ff43e0022c07d64ba3aa3effb65163daf9fd7",
+    "error": null,
+    "provider_used": "ollama-cloud",
+    "model_used": "kimi-k3",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "kimi-1",
+    "kind": "model",
+    "content": "A receipt chain is trustworthy when each entry is cryptographically linked to the previous one, timestamps are verifiable, and the system logging them is tamper-evident—so any alteration is immediately detectable. It breaks when a link in the chain can be modified without detection, when the initial entry point is compromised, or when the verification process itself is bypassed or ignored.",
+    "receipt": "sha256_3c9aa6070f888cfa0991260ff452c01c778a8f6c9bdd248d264161c15093d350",
+    "eval_tok_per_s": null,
+    "load_ms": null,
+    "phase": "answer"
+   },
+   {
+    "role": "actor",
+    "model": "kimi-k3:cloud",
+    "ok": true,
+    "ms": 2308,
+    "usd": 0,
+    "tokens_in": 544,
+    "tokens_out": 115,
+    "counted": true,
+    "content_sha256": "e4d9193834838107beb429fea56b440258c26fc9603f8c003a3b42c15fa0881d",
+    "error": null,
+    "provider_used": "ollama-cloud",
+    "model_used": "kimi-k3",
+    "generation_id": null,
+    "tokens_cached": 0,
+    "tokens_reasoning": 0,
+    "member": "judge",
+    "kind": "model",
+    "content": "A receipt chain is trustworthy when each entry is cryptographically linked to the previous one (via hashes or signatures), anchored to a verifiable timestamp or ledger, and logged by a tamper-evident system—creating an immutable sequence where any alteration is immediately detectable. It breaks when a link is missing or altered without detection, when the initial trust anchor (like a genesis receipt or signing key) is compromised, or when the verification process itself is bypassed or ignored.\n\nDrew on candidates 1, 2, and 5.",
+    "receipt": "sha256_61d98b3b9844844c6b882765ac154871b26173c5a2bc7a4072a62bbd4b61eb7e",
+    "eval_tok_per_s": null,
+    "load_ms": null,
+    "crew_role": "judge",
+    "phase": "judge"
+   }
+  ],
+  "rounds": [],
+  "winner": null,
+  "losers": [],
+  "votes": null,
+  "roles": null,
+  "assignments": null,
+  "budget": {
+   "usd": 0.5,
+   "spent": 0,
+   "max_calls": 8,
+   "calls": 6,
+   "max_ms": 600000,
+   "ms": 12703,
+   "exhausted": null,
+   "kills": []
+  },
+  "usd": 0,
+  "ms": 12703,
+  "recorded": "9a9b6ed7e8a0ce95e08ddf8e2cd1909ec0d874cb2c69675368984188c636252e"
+ },
+ "sealed": [
+  {
+   "member": "kimi-5",
+   "phase": "answer",
+   "receipt": "sha256_8b050d2d4b3bf352f364f614f88e1aa7e5bfae763f5a0fe4db8a7519312b7185"
+  },
+  {
+   "member": "kimi-4",
+   "phase": "answer",
+   "receipt": "sha256_a7f96d2253090ec9642a43f1175bd712f9055b0076152d5dcab21d3846e5154b"
+  },
+  {
+   "member": "kimi-2",
+   "phase": "answer",
+   "receipt": "sha256_9e83180e91f82dea9baf7e3919248b9569bc66a9fa4f7ddc58ca45bdbd85dd3d"
+  },
+  {
+   "member": "kimi-3",
+   "phase": "answer",
+   "receipt": "sha256_6ec17855984dd91bc5d579d45342cd9ab30935492c09551ed210c42f1a7f3b45"
+  },
+  {
+   "member": "kimi-1",
+   "phase": "answer",
+   "receipt": "sha256_3c9aa6070f888cfa0991260ff452c01c778a8f6c9bdd248d264161c15093d350"
+  },
+  {
+   "member": "judge",
+   "phase": "judge",
+   "receipt": "sha256_61d98b3b9844844c6b882765ac154871b26173c5a2bc7a4072a62bbd4b61eb7e"
+  }
+ ],
+ "receipt": "sha256_4da413de706ce55827b1270054878e7a7bf9e87643c982c9725a56eff4072ebf",
+ "airgap_receipt": null,
+ "snoop": null
+}

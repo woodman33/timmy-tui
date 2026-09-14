@@ -1,0 +1,375 @@
+{
+ "where": "edge",
+ "room": "war-room",
+ "worker": "https://timmy-ai-proxy-preview.wmeldman33.workers.dev",
+ "spec": {
+  "v": 1,
+  "id": "council-3",
+  "preset": "council-3",
+  "topology": "council",
+  "members": [
+   {
+    "id": "seat-1",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "google/gemini-3.7-flash",
+    "provider": "openrouter"
+   },
+   {
+    "id": "seat-2",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "x-ai/grok-4.6",
+    "provider": "openrouter"
+   },
+   {
+    "id": "seat-3",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 2,
+    "model": "google/gemini-3.7-flash",
+    "provider": "openrouter"
+   }
+  ],
+  "size": 3,
+  "budget": {
+   "usd": 0.4,
+   "max_calls": 12,
+   "max_ms": 600000
+  },
+  "judge": {
+   "tier": "edge",
+   "model": "x-ai/grok-4.6"
+  },
+  "network": {
+   "policy": "open",
+   "egress_allow": []
+  },
+  "rounds": 2
+ },
+ "task": "Should a swarm's cost governor kill a member mid-call or let it finish? Take a position in under 80 words.",
+ "result": {
+  "ok": true,
+  "run_id": "swarm_mtsimqej_l3jt",
+  "swarm_id": "council-3",
+  "topology": "council",
+  "size": 3,
+  "answer": "Let it finish. Aborting mid-call risks inconsistent state, lost partial value, and extra error handling. Block new calls once budget hits instead; this keeps cost control without harming swarm reliability.",
+  "winner": "seat-2",
+  "losers": [
+   "seat-1",
+   "seat-3"
+  ],
+  "votes": {
+   "seat-1": 1,
+   "seat-2": 2,
+   "seat-3": 0
+  },
+  "roles": null,
+  "assignments": null,
+  "calls": [
+   {
+    "member": "seat-1",
+    "phase": "position",
+    "round": 1,
+    "model": "google/gemini-3.7-flash",
+    "ok": true,
+    "killed": false,
+    "ms": 3871,
+    "usd": 0.001529,
+    "receipt": "b9e5446d5e5809be28ec6533c020dd5af3bbc22f0d24fed00a1686b28020591c",
+    "receipt_external": null,
+    "error": null,
+    "preview": "The governor should generally let the member finish. Terminating mid-call"
+   },
+   {
+    "member": "seat-3",
+    "phase": "position",
+    "round": 1,
+    "model": "google/gemini-3.7-flash",
+    "ok": true,
+    "killed": false,
+    "ms": 4491,
+    "usd": 0.001529,
+    "receipt": "e7030667d83f5ca370a57330438c8c484573f9d370ff102f05d5b859bee940d7",
+    "receipt_external": null,
+    "error": null,
+    "preview": "We must decide based on net outcome. Killing a member mid-"
+   },
+   {
+    "member": "seat-2",
+    "phase": "position",
+    "round": 1,
+    "model": "x-ai/grok-4.6",
+    "ok": true,
+    "killed": false,
+    "ms": 17348,
+    "usd": 0.006304,
+    "receipt": "53b159ce4d07b7a41bd19f6497cb46f8f4d3f7eedcb824ba8b9abfae16d06c3b",
+    "receipt_external": null,
+    "error": null,
+    "preview": "Let it finish. Aborting mid-call risks inconsistent state, lost partial value, and extra error handling. Block new calls once budget hits instead; this keeps cost control without harming swarm reliability."
+   },
+   {
+    "member": "seat-3",
+    "phase": "vote",
+    "round": 2,
+    "model": "google/gemini-3.7-flash",
+    "ok": true,
+    "killed": false,
+    "ms": 3459,
+    "usd": 0.001417,
+    "receipt": "3df1e93dd0211396b88f6cf1e48dc2edb738a07f2bc4d4ef8cc2d7d6ce1bb0b5",
+    "receipt_external": null,
+    "error": null,
+    "preview": "{\"position\": \"Let it finish the active call, then block further actions. Mid-call termination wastes partial progress, corrupts shared state, and triggers expensive recovery logic, negating the marginal cost savings.\", \"vote\": \"seat-2\", \"wh"
+   },
+   {
+    "member": "seat-1",
+    "phase": "vote",
+    "round": 2,
+    "model": "google/gemini-3.7-flash",
+    "ok": true,
+    "killed": false,
+    "ms": 4078,
+    "usd": 0.001661,
+    "receipt": "6de71ebd0e4f4a978f9178b061f75c99c8bac6604c8f4296a5108764b8f19641",
+    "receipt_external": null,
+    "error": null,
+    "preview": "{\"position\": \"Let it finish. Aborting in-flight calls destroys the value of resources already consumed and generates systemic recovery costs that exceed the marginal expense of completion. The"
+   },
+   {
+    "member": "seat-2",
+    "phase": "vote",
+    "round": 2,
+    "model": "x-ai/grok-4.6",
+    "ok": true,
+    "killed": false,
+    "ms": 10587,
+    "usd": 0.004636,
+    "receipt": "f38bf867028b306090ee9bbe2894c28ef7f4ac4b3d7b4600a6ed5226a65750df",
+    "receipt_external": null,
+    "error": null,
+    "preview": "{\"position\": \"Let it finish. Aborting mid-call risks inconsistent state, lost partial value, and extra error handling. Block new calls once budget hits instead; this keeps cost control without harming swarm reliability.\", \"vote\": \"seat-1\", "
+   }
+  ],
+  "budget": {
+   "usd": 0.4,
+   "spent": 0.017076,
+   "max_calls": 12,
+   "calls": 6,
+   "max_ms": 600000,
+   "ms": 28510,
+   "exhausted": null,
+   "kills": []
+  },
+  "usd": 0.017076,
+  "ms": 28510,
+  "receipt": {
+   "v": 1,
+   "id": "ec_mtsinceh_sc52",
+   "ts": "2026-09-08T10:17:53.033Z",
+   "kind": "swarm.run",
+   "subject": "commander:war-room",
+   "data": {
+    "run_id": "swarm_mtsimqej_l3jt",
+    "swarm_id": "council-3",
+    "preset": "council-3",
+    "by": "commander",
+    "topology": "council",
+    "size": 3,
+    "ok": true,
+    "task_sha256": "e503f1c1ffdc393d77fc549e01ae5e03aa460ffc48e75c64be70c509b9ab0376",
+    "answer_sha256": "f314590888df7cddee0c9e7d242841bb35e705092aea45a447413de104c1eca2",
+    "spec_sha256": "ef6c70c02f736a5fd4e3b1c46644533c5437ff8b4b899eaede09f875dc27b681",
+    "members": [
+     {
+      "id": "seat-1",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "google/gemini-3.7-flash",
+      "provider": "openrouter"
+     },
+     {
+      "id": "seat-2",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "x-ai/grok-4.6",
+      "provider": "openrouter"
+     },
+     {
+      "id": "seat-3",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "google/gemini-3.7-flash",
+      "provider": "openrouter"
+     }
+    ],
+    "calls": [
+     {
+      "member": "seat-1",
+      "phase": "position",
+      "round": 1,
+      "model": "google/gemini-3.7-flash",
+      "ok": true,
+      "killed": false,
+      "ms": 3871,
+      "usd": 0.001529,
+      "tokens_in": 59,
+      "tokens_out": 396,
+      "counted": true,
+      "provider_used": "Google",
+      "generation_id": "gen-1788862644-L1BxjYLfitHCrlQ35y9g",
+      "content_sha256": "1980075a29a31c6c4245cce7a474104100dcf17ab9ff638bc835f46489487343",
+      "receipt": "b9e5446d5e5809be28ec6533c020dd5af3bbc22f0d24fed00a1686b28020591c",
+      "error": null
+     },
+     {
+      "member": "seat-3",
+      "phase": "position",
+      "round": 1,
+      "model": "google/gemini-3.7-flash",
+      "ok": true,
+      "killed": false,
+      "ms": 4491,
+      "usd": 0.001529,
+      "tokens_in": 59,
+      "tokens_out": 396,
+      "counted": true,
+      "provider_used": "Google",
+      "generation_id": "gen-1788862644-GSyKRD8NzS0tR1wZw8Xg",
+      "content_sha256": "810f91558559439f0ad390205f384be8d1de5936d2c9a82a5ae087e3a31cfc67",
+      "receipt": "e7030667d83f5ca370a57330438c8c484573f9d370ff102f05d5b859bee940d7",
+      "error": null
+     },
+     {
+      "member": "seat-2",
+      "phase": "position",
+      "round": 1,
+      "model": "x-ai/grok-4.6",
+      "ok": true,
+      "killed": false,
+      "ms": 17348,
+      "usd": 0.006304,
+      "tokens_in": 263,
+      "tokens_out": 995,
+      "counted": true,
+      "provider_used": "xAI",
+      "generation_id": "gen-1788862644-udkc7gSLbEMM5inZxX99",
+      "content_sha256": "f314590888df7cddee0c9e7d242841bb35e705092aea45a447413de104c1eca2",
+      "receipt": "53b159ce4d07b7a41bd19f6497cb46f8f4d3f7eedcb824ba8b9abfae16d06c3b",
+      "error": null
+     },
+     {
+      "member": "seat-3",
+      "phase": "vote",
+      "round": 2,
+      "model": "google/gemini-3.7-flash",
+      "ok": true,
+      "killed": false,
+      "ms": 3459,
+      "usd": 0.001417,
+      "tokens_in": 234,
+      "tokens_out": 331,
+      "counted": true,
+      "provider_used": "Google",
+      "generation_id": "gen-1788862662-gCM6bLKaKWwOiaWj8koI",
+      "content_sha256": "3f6ffb70aca8a78ec1ca3e34af89be2f4b7716589e3e590423fa78bc2231b1e2",
+      "receipt": "3df1e93dd0211396b88f6cf1e48dc2edb738a07f2bc4d4ef8cc2d7d6ce1bb0b5",
+      "error": null
+     },
+     {
+      "member": "seat-1",
+      "phase": "vote",
+      "round": 2,
+      "model": "google/gemini-3.7-flash",
+      "ok": true,
+      "killed": false,
+      "ms": 4078,
+      "usd": 0.001661,
+      "tokens_in": 234,
+      "tokens_out": 396,
+      "counted": true,
+      "provider_used": "Google",
+      "generation_id": "gen-1788862662-KLteFMJ1oXO0SHrtHrsw",
+      "content_sha256": "4390d354ac0b8272a2407fd5931578de03fc65da6af44c2665e85ba693c9ede3",
+      "receipt": "6de71ebd0e4f4a978f9178b061f75c99c8bac6604c8f4296a5108764b8f19641",
+      "error": null
+     },
+     {
+      "member": "seat-2",
+      "phase": "vote",
+      "round": 2,
+      "model": "x-ai/grok-4.6",
+      "ok": true,
+      "killed": false,
+      "ms": 10587,
+      "usd": 0.004636,
+      "tokens_in": 458,
+      "tokens_out": 652,
+      "counted": true,
+      "provider_used": "xAI",
+      "generation_id": "gen-1788862662-ZUrDmu92Jz29Yn6FWgUr",
+      "content_sha256": "15fffddc65b92d45a4cd04a35b3abfcd4fc7d323ba7d4218de61cf37ca0a6d28",
+      "receipt": "f38bf867028b306090ee9bbe2894c28ef7f4ac4b3d7b4600a6ed5226a65750df",
+      "error": null
+     }
+    ],
+    "winner": "seat-2",
+    "losers": [
+     "seat-1",
+     "seat-3"
+    ],
+    "votes": {
+     "seat-1": 1,
+     "seat-2": 2,
+     "seat-3": 0
+    },
+    "rounds": 2,
+    "judge": {
+     "tier": "edge",
+     "model": "x-ai/grok-4.6"
+    },
+    "network": {
+     "policy": "open",
+     "egress_allow": []
+    },
+    "budget": {
+     "usd": 0.4,
+     "spent": 0.017076,
+     "max_calls": 12,
+     "calls": 6,
+     "max_ms": 600000,
+     "ms": 28510,
+     "exhausted": null,
+     "kills": []
+    },
+    "usd": 0.017076,
+    "ms": 28510,
+    "source": "http"
+   },
+   "prev_hash": "f38bf867028b306090ee9bbe2894c28ef7f4ac4b3d7b4600a6ed5226a65750df",
+   "hash": "cedfe0ba0d6e781ce5544bf329a8d70aafcda8fcb7834d1df92335f914f364bc"
+  },
+  "spend": {
+   "usd": 0.092855,
+   "cap_usd": 2,
+   "calls": 28,
+   "tokens_in": 4911,
+   "tokens_out": 16245,
+   "uncounted": 0,
+   "last_at": "2026-09-08T10:17:53.033Z",
+   "tokens_cached": 1024,
+   "tokens_reasoning": 13571
+  }
+ },
+ "receipt": "sha256_fe4ff57b7cbb46d3bf0712e30113fe91d60549db9bc3ef2d33ae5d5c4bc6a5d9"
+}

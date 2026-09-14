@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { startLogServer } from '../src/utils/logserver.js';
+import { companion4310Available } from './service-gate.js';
 
 // Companion arming gateway integration: the survey surface compiles and
 // emits hash-bound store requests; arming without an operator token is
@@ -20,7 +21,7 @@ const DOC = {
 
 afterAll(() => { /* server lives for the process; tests share one instance */ });
 
-describe('mission studio gateway (:4310)', () => {
+describe.skipIf(!companion4310Available())('mission studio gateway (:4310)', () => {
   it('serves the studio page', async () => {
     const p = await up();
     const r = await fetch(`http://127.0.0.1:${p}/mission`);

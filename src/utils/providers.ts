@@ -58,7 +58,7 @@ export const GENERATION_PROVIDERS: GenerationProvider[] = [
   P('krea', 'Krea', 'image', 'cloud-api', { modelId: 'krea-v2-large', aliases: ['krea ai', 'krea v2'] }),
   P('modelslab', 'ModelsLab', 'image', 'cloud-api', { aliases: ['models lab'], notes: '50k+ models incl. video fusion' }),
   P('replicate', 'Replicate', 'image', 'cloud-api', { authEnv: ['REPLICATE_API_TOKEN'] }),
-  P('fal', 'fal.ai', 'image', 'cloud-api', { authEnv: ['FAL_KEY'], aliases: ['fal ai', 'fal.ai'] }),
+  P('fal', 'fal.ai', 'image', 'cloud-api', { authEnv: ['FAL_KEY', 'FALAI_API_KEY'], aliases: ['fal ai', 'fal.ai'], notes: 'FAL_KEY wins over FALAI_API_KEY. Reference-conditioned 3D uses timmy providers fal3d.' }),
   P('huggingface', 'HuggingFace', 'image', 'cloud-api', { authEnv: ['HF_TOKEN'], aliases: ['hf', 'hugging face'] }),
   P('gemini-api', 'Gemini API', 'image', 'cloud-api', { authEnv: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], aliases: ['gemini api'] })
 ];

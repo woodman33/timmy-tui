@@ -1,0 +1,245 @@
+{
+ "where": "edge",
+ "room": "war-room",
+ "worker": "https://timmy-ai-proxy-preview.wmeldman33.workers.dev",
+ "spec": {
+  "v": 1,
+  "id": "fusion-2",
+  "preset": "fusion-2",
+  "topology": "fusion",
+  "members": [
+   {
+    "id": "a",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "google/gemini-3.7-flash",
+    "provider": "openrouter"
+   },
+   {
+    "id": "b",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "x-ai/grok-4.6",
+    "provider": "openrouter"
+   }
+  ],
+  "size": 2,
+  "budget": {
+   "usd": 0.15,
+   "max_calls": 4,
+   "max_ms": 600000
+  },
+  "judge": {
+   "tier": "edge",
+   "model": "x-ai/grok-4.6"
+  },
+  "network": {
+   "policy": "open",
+   "egress_allow": []
+  },
+  "rounds": 2
+ },
+ "task": "Name the three properties a tamper-evident log must have. Be brief.",
+ "result": {
+  "ok": true,
+  "run_id": "swarm_mtsijm7r_tqxo",
+  "swarm_id": "fusion-2",
+  "topology": "fusion",
+  "size": 2,
+  "answer": "append-only, immutable, verifiable\nDrew on candidate 2.",
+  "winner": null,
+  "losers": [],
+  "votes": null,
+  "roles": null,
+  "assignments": null,
+  "calls": [
+   {
+    "member": "a",
+    "phase": "answer",
+    "model": "google/gemini-3.7-flash",
+    "ok": true,
+    "killed": false,
+    "ms": 3813,
+    "usd": 0.001514,
+    "receipt": "c0a5c479a41cc239d4afe66d3772c8847cd137a7b208ed884546685b6e2eba12",
+    "receipt_external": null,
+    "error": null,
+    "preview": "1. **Immutability (Append-only):** Past entries cannot be modified or deleted without detection.\n2. **Authenticity:** Entries are verified to originate from legitimate sources and cannot be forged.\n3. **Verifiability (Auditability"
+   },
+   {
+    "member": "b",
+    "phase": "answer",
+    "model": "x-ai/grok-4.6",
+    "ok": true,
+    "killed": false,
+    "ms": 52272,
+    "usd": 0.016924,
+    "receipt": "93278ed6124040af001bb47e3523428ffadaecfd54b9ad59e843f52f00c5a720",
+    "receipt_external": null,
+    "error": null,
+    "preview": "append-only, immutable, verifiable"
+   },
+   {
+    "member": "judge",
+    "phase": "judge",
+    "model": "x-ai/grok-4.6",
+    "ok": true,
+    "killed": false,
+    "ms": 16477,
+    "usd": 0.0062,
+    "receipt": "1629996625a1fbe5c5544423a972ae080a151a209b1f12996af36486b3543d42",
+    "receipt_external": null,
+    "error": null,
+    "preview": "append-only, immutable, verifiable\nDrew on candidate 2."
+   }
+  ],
+  "budget": {
+   "usd": 0.15,
+   "spent": 0.024638,
+   "max_calls": 4,
+   "calls": 3,
+   "max_ms": 600000,
+   "ms": 69306,
+   "exhausted": null,
+   "kills": []
+  },
+  "usd": 0.024638,
+  "ms": 69306,
+  "receipt": {
+   "v": 1,
+   "id": "ec_mtsil3ox_0zxr",
+   "ts": "2026-09-08T10:16:08.433Z",
+   "kind": "swarm.run",
+   "subject": "commander:war-room",
+   "data": {
+    "run_id": "swarm_mtsijm7r_tqxo",
+    "swarm_id": "fusion-2",
+    "preset": "fusion-2",
+    "by": "commander",
+    "topology": "fusion",
+    "size": 2,
+    "ok": true,
+    "task_sha256": "4902aaf4ca763745c37d77ba7079091519fe995fc39091a2383e77e61e93cb98",
+    "answer_sha256": "cc422c58609ef73e6d57d4f4f4555cbe346157e2b375789221e249340b83af76",
+    "spec_sha256": "bb080a7f809614295e32b29df8edd9584583fee7eeceed5c5fe371905b698e30",
+    "members": [
+     {
+      "id": "a",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "google/gemini-3.7-flash",
+      "provider": "openrouter"
+     },
+     {
+      "id": "b",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "x-ai/grok-4.6",
+      "provider": "openrouter"
+     }
+    ],
+    "calls": [
+     {
+      "member": "a",
+      "phase": "answer",
+      "round": null,
+      "model": "google/gemini-3.7-flash",
+      "ok": true,
+      "killed": false,
+      "ms": 3813,
+      "usd": 0.001514,
+      "tokens_in": 38,
+      "tokens_out": 396,
+      "counted": true,
+      "provider_used": "Google",
+      "generation_id": "gen-1788862499-072FoRpPuMdnSZaQFxhm",
+      "content_sha256": "0963c1d1c12a8402358079d978035a68e38bac790817539ebb67ca27719acdc0",
+      "receipt": "c0a5c479a41cc239d4afe66d3772c8847cd137a7b208ed884546685b6e2eba12",
+      "error": null
+     },
+     {
+      "member": "b",
+      "phase": "answer",
+      "round": null,
+      "model": "x-ai/grok-4.6",
+      "ok": true,
+      "killed": false,
+      "ms": 52272,
+      "usd": 0.016924,
+      "tokens_in": 248,
+      "tokens_out": 2770,
+      "counted": true,
+      "provider_used": "xAI",
+      "generation_id": "gen-1788862499-Pk0ru3dPTzz37GKeLW1w",
+      "content_sha256": "f49a709199f3270d9b70f9d6746c002b4b10855a1428baad9828834413da62f0",
+      "receipt": "93278ed6124040af001bb47e3523428ffadaecfd54b9ad59e843f52f00c5a720",
+      "error": null
+     },
+     {
+      "member": "judge",
+      "phase": "judge",
+      "round": null,
+      "model": "x-ai/grok-4.6",
+      "ok": true,
+      "killed": false,
+      "ms": 16477,
+      "usd": 0.0062,
+      "tokens_in": 352,
+      "tokens_out": 916,
+      "counted": true,
+      "provider_used": "xAI",
+      "generation_id": "gen-1788862551-NLYYByM5xt29FeXzMUKw",
+      "content_sha256": "cc422c58609ef73e6d57d4f4f4555cbe346157e2b375789221e249340b83af76",
+      "receipt": "1629996625a1fbe5c5544423a972ae080a151a209b1f12996af36486b3543d42",
+      "error": null
+     }
+    ],
+    "winner": null,
+    "losers": [],
+    "votes": null,
+    "rounds": 0,
+    "judge": {
+     "tier": "edge",
+     "model": "x-ai/grok-4.6"
+    },
+    "network": {
+     "policy": "open",
+     "egress_allow": []
+    },
+    "budget": {
+     "usd": 0.15,
+     "spent": 0.024638,
+     "max_calls": 4,
+     "calls": 3,
+     "max_ms": 600000,
+     "ms": 69306,
+     "exhausted": null,
+     "kills": []
+    },
+    "usd": 0.024638,
+    "ms": 69306,
+    "source": "http"
+   },
+   "prev_hash": "1629996625a1fbe5c5544423a972ae080a151a209b1f12996af36486b3543d42",
+   "hash": "5f308f38d6e1989895f7a8063357ed66464f53612f3bdb03a5072bf01e58737d"
+  },
+  "spend": {
+   "usd": 0.041895,
+   "cap_usd": 2,
+   "calls": 14,
+   "tokens_in": 2178,
+   "tokens_out": 7137,
+   "uncounted": 0,
+   "last_at": "2026-09-08T10:16:08.433Z",
+   "tokens_cached": 256,
+   "tokens_reasoning": 4850
+  }
+ },
+ "receipt": "sha256_1e59f6cccf4a419d557aeb8ac8129a9355575c267570e3e1ac04489bd55321f6"
+}

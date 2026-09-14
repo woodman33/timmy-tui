@@ -1,0 +1,32 @@
+{
+ "kind": "blueprint",
+ "name": "Cocos Creator · scene-lint",
+ "source": "lanes/engines/cocos/templates/scene-lint/plan.cue",
+ "date": "2026-09-07",
+ "engine": "cocos",
+ "workflow": "scene-lint",
+ "proven": false,
+ "note": "AUTHORED, UNPROVEN: no Cocos Creator on this Mac. --import is the documented import-only launch; the lint script itself runs on plain Node and was written against the .scene JSON format (\"__uuid__\" references). Proven once a runner with the editor executes it through a drop folder.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "project", "value": "*.cocos.zip", "note": "rules: run" },
+   { "label": "scene", "value": "*.scene", "note": "rules: stage" },
+   { "label": "refused", "value": "> 1 GB", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 unpack", "value": "unzip -q -o <zip> -d out/project", "note": "" },
+   { "label": "2 import", "value": "CocosCreator --project out/project --import", "note": "writes library/ and temp/" },
+   { "label": "3 lint", "value": "node lint.mjs: every .scene's __uuid__ references vs library/", "note": "missing > 0 fails" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "report", "value": "{stem}.lint.json", "note": "scenes, references, missing uuids" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "project sha256 · report sha256 · env-lock", "note": "" },
+   { "label": "extra", "value": "scenes · missing", "note": "from the report" }
+  ] },
+  { "id": "sources", "title": "Sources", "rows": [
+   { "label": "publish CLI", "value": "https://docs.cocos.com/creator/3.8/manual/en/editor/publish/publish-in-command-line.html", "note": "--project, --import" }
+  ] }
+ ]
+}

@@ -1,0 +1,30 @@
+{
+ "kind": "blueprint",
+ "name": "Unity · asset-import",
+ "source": "lanes/engines/unity/templates/asset-import/plan.cue",
+ "date": "2026-09-07",
+ "engine": "unity",
+ "workflow": "asset-import",
+ "proven": false,
+ "note": "AUTHORED, UNPROVEN: no Unity Editor on this Mac. -importPackage is Unity's documented batch-mode import; proven once a runner with an activated editor executes it through a drop folder.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "package", "value": "*.unitypackage", "note": "rules: run (needs a *.unity.zip sidecar)" },
+   { "label": "project", "value": "*.unity.zip", "note": "rules: stage alone" },
+   { "label": "refused", "value": "> 1 GB", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 unpack", "value": "unzip the project into out/project", "note": "" },
+   { "label": "2 import", "value": "Unity -batchmode -nographics -quit -projectPath out/project -importPackage <package> -logFile out/<stem>.import.log", "note": "" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "log", "value": "{stem}.import.log", "note": "editor log" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "package sha256 · log sha256 · env-lock", "note": "" }
+  ] },
+  { "id": "sources", "title": "Sources", "rows": [
+   { "label": "CLI", "value": "https://docs.unity3d.com/Manual/EditorCommandLineArguments.html", "note": "-importPackage <pathname>" }
+  ] }
+ ]
+}

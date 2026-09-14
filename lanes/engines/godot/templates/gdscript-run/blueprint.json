@@ -1,0 +1,28 @@
+{
+ "kind": "blueprint",
+ "name": "Godot · gdscript-run",
+ "source": "lanes/engines/godot/templates/gdscript-run/plan.cue",
+ "date": "2026-09-07",
+ "engine": "godot",
+ "workflow": "gdscript-run",
+ "proven": false,
+ "note": "AUTHORED, UNPROVEN: no Godot on this Mac. --script is Godot's documented way to run a standalone SceneTree script headless; proven once a runner with Godot executes it through a drop folder.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "script", "value": "*.gd (extends SceneTree)", "note": "rules: run" },
+   { "label": "scene", "value": "*.tscn", "note": "rules: stage" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 run", "value": "godot --headless --script <file>", "note": "_init() runs, prints, quit()" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "log", "value": "run.log", "note": "stdout + stderr + exit" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "script sha256 · log sha256 · env-lock", "note": "" }
+  ] },
+  { "id": "sources", "title": "Sources", "rows": [
+   { "label": "CLI", "value": "https://docs.godotengine.org/en/stable/tutorials/editor/command_line_tutorial.html", "note": "--headless --script <script>" }
+  ] }
+ ]
+}

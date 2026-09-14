@@ -1,0 +1,602 @@
+{
+  "generated_at": "2026-09-07T12:45:56.989151Z",
+  "session": {
+    "id": "roboflow-61942-e5b92601802b",
+    "label": "roboflow",
+    "first": "2026-09-07T05:45:54.121221-07:00",
+    "last": "2026-09-07T05:45:55.232339-07:00",
+    "requests": 3,
+    "responses": 3,
+    "notifications": 1,
+    "errors": 0,
+    "pending": 0,
+    "late_results": 0,
+    "missing_frames": 0
+  },
+  "summary": {
+    "definitions": {
+      "tools": 3,
+      "bytes": 943,
+      "complete": true,
+      "per_tool": [
+        {
+          "name": "roboflow_sample",
+          "bytes": 357,
+          "description_bytes": 73,
+          "schema_bytes": 228
+        },
+        {
+          "name": "roboflow_detect",
+          "bytes": 309,
+          "description_bytes": 49,
+          "schema_bytes": 204
+        },
+        {
+          "name": "roboflow_upload",
+          "bytes": 277,
+          "description_bytes": 48,
+          "schema_bytes": 173
+        }
+      ]
+    },
+    "tools": [],
+    "slowest_calls": []
+  },
+  "capabilities": {
+    "protocol_version": "2024-11-05",
+    "client_info": {
+      "name": "mcpc",
+      "version": "0.6.0"
+    },
+    "server_info": {
+      "name": "timmy-roboflow",
+      "version": "0.5.0"
+    },
+    "client": {
+      "tasks": {
+        "list": {},
+        "cancel": {}
+      }
+    },
+    "server": {
+      "tools": {}
+    }
+  },
+  "calls": [
+    {
+      "index": 0,
+      "id": "0",
+      "method": "initialize",
+      "direction": "c2s",
+      "state": "completed",
+      "status": "ok",
+      "is_tool": false,
+      "is_error": false,
+      "tool_error": false,
+      "started_at": "2026-09-07T05:45:54.122565-07:00",
+      "ended_at": "2026-09-07T05:45:54.749158-07:00",
+      "duration_ms": 626.593,
+      "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "tasks": {
+            "list": {},
+            "cancel": {}
+          }
+        },
+        "clientInfo": {
+          "name": "mcpc",
+          "version": "0.6.0"
+        }
+      },
+      "result": {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {
+          "tools": {}
+        },
+        "serverInfo": {
+          "name": "timmy-roboflow",
+          "version": "0.5.0"
+        }
+      }
+    },
+    {
+      "index": 1,
+      "id": "1",
+      "method": "tools/list",
+      "direction": "c2s",
+      "state": "completed",
+      "status": "ok",
+      "is_tool": false,
+      "is_error": false,
+      "tool_error": false,
+      "started_at": "2026-09-07T05:45:54.799895-07:00",
+      "ended_at": "2026-09-07T05:45:54.800095-07:00",
+      "duration_ms": 0.2,
+      "params": {},
+      "result": {
+        "tools": [
+          {
+            "name": "roboflow_upload",
+            "description": "Upload an image to a roboflow project version.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "project": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "number"
+                },
+                "workspace": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project",
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "roboflow_detect",
+            "description": "Run detection on an image with a project model.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "project": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "number"
+                },
+                "confidence": {
+                  "type": "number"
+                },
+                "workspace": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project",
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "roboflow_sample",
+            "description": "Observer: sample N frames from a video (ffmpeg) and upload as evidence.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "project": {
+                  "type": "string"
+                },
+                "video": {
+                  "type": "string"
+                },
+                "frames": {
+                  "type": "number"
+                },
+                "every": {
+                  "type": "number"
+                },
+                "version": {
+                  "type": "number"
+                },
+                "workspace": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project",
+                "video"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "id": "2",
+      "method": "tools/list",
+      "direction": "c2s",
+      "state": "completed",
+      "status": "ok",
+      "is_tool": false,
+      "is_error": false,
+      "tool_error": false,
+      "started_at": "2026-09-07T05:45:55.2321-07:00",
+      "ended_at": "2026-09-07T05:45:55.232339-07:00",
+      "duration_ms": 0.239,
+      "params": {},
+      "result": {
+        "tools": [
+          {
+            "name": "roboflow_upload",
+            "description": "Upload an image to a roboflow project version.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "project": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "number"
+                },
+                "workspace": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project",
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "roboflow_detect",
+            "description": "Run detection on an image with a project model.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "project": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "number"
+                },
+                "confidence": {
+                  "type": "number"
+                },
+                "workspace": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project",
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "roboflow_sample",
+            "description": "Observer: sample N frames from a video (ffmpeg) and upload as evidence.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "project": {
+                  "type": "string"
+                },
+                "video": {
+                  "type": "string"
+                },
+                "frames": {
+                  "type": "number"
+                },
+                "every": {
+                  "type": "number"
+                },
+                "version": {
+                  "type": "number"
+                },
+                "workspace": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project",
+                "video"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "seq": 2,
+      "timestamp": "2026-09-07T05:45:54.122565-07:00",
+      "direction": "c2s",
+      "kind": "request",
+      "method": "initialize",
+      "id": "0",
+      "call_index": 0,
+      "raw": {
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2025-11-25",
+          "capabilities": {
+            "tasks": {
+              "list": {},
+              "cancel": {}
+            }
+          },
+          "clientInfo": {
+            "name": "mcpc",
+            "version": "0.6.0"
+          }
+        },
+        "jsonrpc": "2.0",
+        "id": 0
+      }
+    },
+    {
+      "seq": 3,
+      "timestamp": "2026-09-07T05:45:54.749158-07:00",
+      "direction": "s2c",
+      "kind": "response",
+      "id": "0",
+      "call_index": 0,
+      "raw": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "result": {
+          "protocolVersion": "2024-11-05",
+          "capabilities": {
+            "tools": {}
+          },
+          "serverInfo": {
+            "name": "timmy-roboflow",
+            "version": "0.5.0"
+          }
+        }
+      }
+    },
+    {
+      "seq": 4,
+      "timestamp": "2026-09-07T05:45:54.762965-07:00",
+      "direction": "c2s",
+      "kind": "notification",
+      "method": "notifications/initialized",
+      "raw": {
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized"
+      }
+    },
+    {
+      "seq": 5,
+      "timestamp": "2026-09-07T05:45:54.799895-07:00",
+      "direction": "c2s",
+      "kind": "request",
+      "method": "tools/list",
+      "id": "1",
+      "call_index": 1,
+      "raw": {
+        "method": "tools/list",
+        "params": {},
+        "jsonrpc": "2.0",
+        "id": 1
+      }
+    },
+    {
+      "seq": 6,
+      "timestamp": "2026-09-07T05:45:54.800095-07:00",
+      "direction": "s2c",
+      "kind": "response",
+      "id": "1",
+      "call_index": 1,
+      "raw": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "tools": [
+            {
+              "name": "roboflow_upload",
+              "description": "Upload an image to a roboflow project version.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "number"
+                  },
+                  "workspace": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "project",
+                  "path"
+                ]
+              }
+            },
+            {
+              "name": "roboflow_detect",
+              "description": "Run detection on an image with a project model.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "number"
+                  },
+                  "confidence": {
+                    "type": "number"
+                  },
+                  "workspace": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "project",
+                  "path"
+                ]
+              }
+            },
+            {
+              "name": "roboflow_sample",
+              "description": "Observer: sample N frames from a video (ffmpeg) and upload as evidence.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string"
+                  },
+                  "video": {
+                    "type": "string"
+                  },
+                  "frames": {
+                    "type": "number"
+                  },
+                  "every": {
+                    "type": "number"
+                  },
+                  "version": {
+                    "type": "number"
+                  },
+                  "workspace": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "project",
+                  "video"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "seq": 7,
+      "timestamp": "2026-09-07T05:45:55.2321-07:00",
+      "direction": "c2s",
+      "kind": "request",
+      "method": "tools/list",
+      "id": "2",
+      "call_index": 2,
+      "raw": {
+        "method": "tools/list",
+        "params": {},
+        "jsonrpc": "2.0",
+        "id": 2
+      }
+    },
+    {
+      "seq": 8,
+      "timestamp": "2026-09-07T05:45:55.232339-07:00",
+      "direction": "s2c",
+      "kind": "response",
+      "id": "2",
+      "call_index": 2,
+      "raw": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "tools": [
+            {
+              "name": "roboflow_upload",
+              "description": "Upload an image to a roboflow project version.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "number"
+                  },
+                  "workspace": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "project",
+                  "path"
+                ]
+              }
+            },
+            {
+              "name": "roboflow_detect",
+              "description": "Run detection on an image with a project model.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "number"
+                  },
+                  "confidence": {
+                    "type": "number"
+                  },
+                  "workspace": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "project",
+                  "path"
+                ]
+              }
+            },
+            {
+              "name": "roboflow_sample",
+              "description": "Observer: sample N frames from a video (ffmpeg) and upload as evidence.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string"
+                  },
+                  "video": {
+                    "type": "string"
+                  },
+                  "frames": {
+                    "type": "number"
+                  },
+                  "every": {
+                    "type": "number"
+                  },
+                  "version": {
+                    "type": "number"
+                  },
+                  "workspace": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "project",
+                  "video"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

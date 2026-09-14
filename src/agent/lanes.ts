@@ -53,6 +53,7 @@ export const LANE_RUNNERS: Record<string, LaneRunner> = {
     install: 'github.com/NousResearch/hermes-agent',
     model: 'nousresearch/hermes-3-llama-3.1-405b',
     blurb: 'governed agent runner · #1 OpenRouter app',
+    task: 'hermes -z "{task}"',
   },
   pi: {
     cmd: 'pi',

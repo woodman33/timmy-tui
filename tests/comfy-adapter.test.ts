@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { prepareGoldenWorkflow, runComfyGolden, comfyPreflight, GOLDEN_SEED } from '../src/utils/comfy-adapter.js';
+import { comfyPresent } from './service-gate.js';
 
 const GOLDEN = JSON.parse(readFileSync(join(process.cwd(), 'scripts', 'comfy-golden-5s.json'), 'utf8'));
 
-describe('comfy golden-run adapter (V-04 spike)', () => {
+describe.skipIf(!comfyPresent())('comfy golden-run adapter (V-04 spike)', () => {
   it('pins every seed and injects the discovered checkpoint at the DISCOVER sentinel', () => {
     const prepared = prepareGoldenWorkflow(GOLDEN, { seed: 42, checkpoint: 'real_ckpt.safetensors' }) as any;
     expect(prepared['3'].inputs.seed).toBe(42);

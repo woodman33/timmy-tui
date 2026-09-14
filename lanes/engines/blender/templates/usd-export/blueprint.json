@@ -1,0 +1,28 @@
+{
+ "kind": "blueprint",
+ "name": "Blender · usd-export",
+ "source": "lanes/engines/blender/templates/usd-export/plan.cue",
+ "date": "2026-09-07",
+ "engine": "blender",
+ "workflow": "usd-export",
+ "note": "A mesh or scene dropped into drop/ becomes one binary USD stage in out/, the interchange the shelf's other engines read. Headless Blender, one script, one receipt.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "source", "value": "*.obj · *.blend · *.gltf · *.glb", "note": "rules: run" },
+   { "label": "usd", "value": "*.usd · *.usda · *.usdc · *.usdz", "note": "already USD: rules: stage for the usd engine" },
+   { "label": "refused", "value": "> 256 MB", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 import", "value": "obj_import / gltf import / open_mainfile", "note": "factory startup, empty scene" },
+   { "label": "2 export", "value": "wm.usd_export materials + uvs + normals", "note": "checks the PXR-USDC magic" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "usd", "value": "{stem}.usdc", "note": "usd" },
+   { "label": "report", "value": "{stem}.usd.json", "note": "objects, prims, bytes, magic_ok" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "input sha256 · usdc sha256 · env-lock · template shas", "note": "" },
+   { "label": "extra", "value": "objects · prims · usd_bytes", "note": "from the report" }
+  ] }
+ ]
+}

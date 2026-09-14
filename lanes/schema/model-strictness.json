@@ -1,0 +1,54 @@
+{
+ "v": 1,
+ "measured_at": "2026-09-09T09:00:39.505Z",
+ "rows": [
+  {
+   "model": "google/gemini-3.8-flash",
+   "vendor": "google",
+   "tool_schema": "strict",
+   "strict_fail_status": 400,
+   "clean_ok": true,
+   "evidence": "Provider returned error"
+  },
+  {
+   "model": "x-ai/grok-4.6",
+   "vendor": "xai",
+   "tool_schema": "lenient",
+   "strict_fail_status": 200,
+   "clean_ok": true,
+   "evidence": ""
+  },
+  {
+   "model": "anthropic/claude-opus-4.8",
+   "vendor": "anthropic",
+   "tool_schema": "lenient",
+   "strict_fail_status": 200,
+   "clean_ok": true,
+   "evidence": ""
+  },
+  {
+   "model": "openai/gpt-5.6-luna-pro",
+   "vendor": "openai",
+   "tool_schema": "lenient",
+   "strict_fail_status": 200,
+   "clean_ok": true,
+   "evidence": ""
+  },
+  {
+   "model": "qwen/qwen3.8-flash",
+   "vendor": "qwen",
+   "tool_schema": "lenient",
+   "strict_fail_status": 200,
+   "clean_ok": true,
+   "evidence": ""
+  },
+  {
+   "model": "moonshotai/kimi-k3",
+   "vendor": "kimi",
+   "tool_schema": "lenient",
+   "strict_fail_status": 200,
+   "clean_ok": true,
+   "evidence": ""
+  }
+ ]
+}
