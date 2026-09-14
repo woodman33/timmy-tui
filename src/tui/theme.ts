@@ -21,11 +21,11 @@ import visualLaw from '../../lanes/visual/tokens.json' with { type: 'json' };
 //   generated  GENERATED violet — model-made, measured:false
 //
 // The token names ~1,100 call sites already use are kept and bound to law
-// VALUES below. Two bindings are transitional and carry no claim about
-// meaning: `warn` keeps the amber value so today's running / queued / needs-you
-// sites look the same until C1b re-points every one of them (none is a
-// prediction), and `accent` (was cyan) is white because the law admits no
-// interaction hue. `ident` had zero consumers and is gone.
+// VALUES below. `accent` (was cyan: interaction) and `warn` (was amber:
+// attention) are both white now: the law admits neither an interaction hue nor
+// an attention hue, and amber means PREDICT only (C1b-1 re-pointed every warn
+// site; the dim class — queued, not installed, paused — went to grey-3).
+// `ident` had zero consumers and is gone.
 // ═══════════════════════════════════════════════════════════════════════════
 
 export type LawColor = keyof typeof visualLaw.color;
@@ -46,11 +46,12 @@ export const BINDINGS = {
   textPrimary: 'white',
   textSecondary: 'grey-3',
   textMuted: 'grey-3',
-  // semantic accents — value bindings; the meaning of every paint site is
-  // C1b's evidence-state work
+  // semantic accents. `warn` is ATTENTION (running, next, needs you, blocked,
+  // warning): the law has no attention hue, so it is white structure — bold or
+  // a glyph carries the emphasis; PREDICT amber is reserved for forecasts.
   accent: 'white',
   seal: 'seal',
-  warn: 'predict',
+  warn: 'white',
   danger: 'refuse',
   // the law's own names, for new code
   void: 'black',

@@ -20,7 +20,7 @@ import { theme } from '../tui/theme.js';
 export const LOGS_PORT = (): number => Number(process.env.TIMMY_LOGS_PORT ?? 4310);
 
 const kindColor = (kind: string): string => {
-  if (kind.includes('sealed') || kind.includes('completed')) return theme.seal;
+  if (kind.includes('sealed')) return theme.seal;
   if (kind.includes('failed') || kind.includes('broken')) return theme.danger;
   if (kind.includes('approval') || kind.includes('gated')) return theme.warn;
   if (kind.includes('fusion') || kind.includes('run')) return theme.accent;
@@ -70,7 +70,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8">
 <script>
 const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const eventsEl = document.getElementById('events');
-const colors = KIND => KIND.includes('sealed')||KIND.includes('completed') ? theme.seal
+const colors = KIND => KIND.includes('sealed') ? theme.seal
   : KIND.includes('failed')||KIND.includes('broken') ? theme.danger
   : KIND.includes('approval')||KIND.includes('gated') ? theme.warn
   : KIND.includes('fusion')||KIND.includes('run') ? theme.accent : theme.textSecondary;
@@ -449,7 +449,7 @@ const BROWSER_HTML = `<!doctype html><html><head><meta charset="utf-8">
   .rc { border: 1px solid ${theme.line}; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; background: ${theme.ground}; }
   .rc .row1 { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
   .rc .sub { color: ${theme.textPrimary}; font-weight: 600; }
-  .rc .st-ok { color: ${theme.seal}; } .rc .st-failed { color: ${theme.danger}; } .rc .st-denied { color: ${theme.warn}; }
+  .rc .st-ok { color: ${theme.seal}; } .rc .st-failed { color: ${theme.danger}; } .rc .st-denied { color: ${theme.refuse}; }
   .rc .hash { color: ${theme.seal}; } .rc .prev { color: ${theme.textMuted}; }
   .rc .meta { color: ${theme.textSecondary}; font-size: 11px; }
   .rc .vf { color: ${theme.accent}; font-size: 11px; }

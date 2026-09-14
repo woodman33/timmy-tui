@@ -116,7 +116,7 @@ export function BrowsePanel({ agent, zone = 0, setZone, setModalInput, inputLock
     >
       {carbHint && (
         <Box flexDirection="column" marginBottom={1}>
-          <Text bold color={theme.warn}>carbonyl (chromium-in-terminal) not found on PATH</Text>
+          <Text color={theme.textMuted}>carbonyl (chromium-in-terminal) not found on PATH</Text>
           <Text color={theme.textSecondary}>install it and [n] works. Meanwhile: SLATE [v] and any addBrowserPane call</Text>
           <Text color={theme.textSecondary}>open browser panes through the agent, and LANES covers CLI agents.</Text>
         </Box>

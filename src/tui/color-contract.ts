@@ -2,9 +2,9 @@
 // statusColor's doctrine (phosphor = the chain agrees · orange = a human is
 // here/needed · red = refused ONLY · dim = absent/off/unverified · white = the
 // thing you're looking at) predates the law (lanes/visual/tokens.json, ORDER
-// ui-v3-t9r2). Under the law amber means PREDICT and nothing else; 'warn' here
-// is a transitional token that C1b re-points by evidence state. The law gate
-// itself is the block at the end of this file.
+// ui-v3-t9r2). Under the law amber means PREDICT and nothing else, so the 'warn'
+// token here is ATTENTION painted white (bold / a glyph carries it); 'seal' is
+// chain-confirmed only. The law gate itself is the block at the end of this file.
 export type Token = 'seal' | 'warn' | 'danger' | 'dim' | 'white';
 
 export function statusColor(status: string): Token {

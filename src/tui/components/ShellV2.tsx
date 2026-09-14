@@ -754,10 +754,10 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
               <Text bold color={theme.textPrimary}>TIMMY</Text>
               <Text color={theme.textMuted}>  </Text>
               {tabs.map((t, i) => (
-                <Text key={TABS[i]} color={s.tab === TABS[i] ? theme.seal : theme.textMuted}>{t}</Text>
+                <Text key={TABS[i]} bold={s.tab === TABS[i]} color={s.tab === TABS[i] ? theme.textPrimary : theme.textMuted}>{t}</Text>
               ))}
               {segs.map((sg, i) => (
-                <Text key={i} color={i === 0 ? theme.seal : theme.textMuted}>{sg}</Text>
+                <Text key={i} color={i === 0 && chain.ok ? theme.seal : theme.textMuted}>{sg}</Text>
               ))}
             </>
           );
@@ -907,13 +907,13 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
           <Box position="absolute" top={2} left={20} backgroundColor={theme.surfaceRaised} paddingX={1} flexDirection="column">
             <Text bold color={theme.textPrimary}>COMPANION PAIR</Text>
             <Text color={theme.textMuted}>{`http://localhost:${COMPANION_PORT()}`}</Text>
-            {qrText.split('\n').map((l, i) => <Text key={i} color={theme.seal}>{l}</Text>)}
+            {qrText.split('\n').map((l, i) => <Text key={i} color={theme.textPrimary}>{l}</Text>)}
             <Text color={theme.textMuted}>[Esc] close</Text>
           </Box>
         )}
         {s.overlay === 'sealconfirm' && (
           <Box position="absolute" top={2} left={20} backgroundColor={theme.surfaceRaised} paddingX={1} flexDirection="column">
-            <Text bold color={theme.warn}>SEAL — confirm</Text>
+            <Text bold color={theme.textPrimary}>SEAL — confirm</Text>
             <Text color={theme.textPrimary}>seal an owner note onto the chain?</Text>
             <Text color={theme.textMuted}>[Enter/s] seal  [Esc] cancel</Text>
           </Box>
@@ -922,7 +922,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
           <Box position="absolute" top={1} left={6} width={width - 12} backgroundColor={PAL.surfaceRaised} paddingX={1} flexDirection="column">
             <Text bold color={PAL.textPrimary}>ORDERS STATUS — [Esc] close</Text>
             {statusLines.slice(0, Math.max(3, bodyRows - 1)).map((l, i) => (
-              <Text key={i} color={l.startsWith('==') ? PAL.seal : l.includes('blocked') ? PAL.warn : PAL.textSecondary} wrap="truncate">{l}</Text>
+              <Text key={i} bold={l.startsWith('==')} color={l.startsWith('==') ? PAL.textPrimary : l.includes('blocked') ? PAL.warn : PAL.textSecondary} wrap="truncate">{l}</Text>
             ))}
           </Box>
         )}
@@ -982,7 +982,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
       </Box>
       {/* action feedback is global, not a HOME-only line: picker writes from
           LIBRARY/RUN must be visible where they happen */}
-      {flash ? <Text color={theme.seal} wrap="truncate">{flash}</Text> : null}
+      {flash ? <Text color={theme.textPrimary} wrap="truncate">{flash}</Text> : null}
       {/* C5: the key sheet floats over the body (it used to flow below it and
           push the footer past the last row at 80x24) */}
       {s.overlay === 'whichkey' && (
@@ -1008,9 +1008,9 @@ function HomePane(props: {
   const escrowOrange = props.pendingEscrows.length > 0;
   return (
     <Box flexDirection="column">
-      <Card title="YOUR JOURNEY" purpose={props.compact ? undefined : 'seven steps · the next unsealed step is the only orange'}>
+      <Card title="YOUR JOURNEY" purpose={props.compact ? undefined : 'seven steps · the next unsealed step is the only bold'}>
         {escrowOrange && (
-          <Text color={PAL.warn} wrap="truncate">
+          <Text bold color={PAL.warn} wrap="truncate">
             {`▶ escrow ${String(props.pendingEscrows[0].escrow_id).slice(0, 12)} · ceiling $${props.pendingEscrows[0].ceiling_usd} awaits lock`}
           </Text>
         )}
@@ -1022,7 +1022,7 @@ function HomePane(props: {
               <Text color={PAL.textMuted}> {r.fact}</Text>
             </Text>
           ) : r.state === 'next' && !escrowOrange ? (
-            <Text key={r.step.id} color={PAL.warn} wrap="truncate">{`▶ ${r.step.verb.padEnd(10)} ${r.fact}`}</Text>
+            <Text key={r.step.id} bold color={PAL.warn} wrap="truncate">{`▶ ${r.step.verb.padEnd(10)} ${r.fact}`}</Text>
           ) : (
             <Text key={r.step.id} color={PAL.textMuted} wrap="truncate">{`  ${r.step.verb.padEnd(10)} ${r.fact}`}</Text>
           )
@@ -1063,7 +1063,7 @@ function ChainPane(props: {
   const refusals = props.recs.filter(r => r.status === 'denied' || r.status === 'failed').length;
   return (
     <Box flexDirection="column">
-      <Text color={PAL.seal}>
+      <Text color={PAL.textPrimary}>
         {`RECEIPTS  ${props.link ? `⊗ ${props.link.slice(0, 18)} · [o] unlink · ${filtered.length}` : props.filter ? `/ ${props.filter} · ${filtered.length}/${props.recs.length}` : `${props.recs.length} · [/] filter`}`}
       </Text>
       {windowRows.map((r, i) => {
@@ -1156,7 +1156,7 @@ function RunsPane(props: {
   const dropsShown = capRows(props.feed, Math.min(6, props.maxDrops ?? 6));
   return (
     <Box flexDirection="column">
-      <Card title="RUNS" purpose={props.compact ? undefined : 'running orange · queued dim · sealed phosphor · REFUSED red'} overflow={moreLine(props.rows.length - shownRuns.length, 'runs', '↑↓ scroll')}>
+      <Card title="RUNS" purpose={props.compact ? undefined : 'running white · queued dim · sealed green · REFUSED red'} overflow={moreLine(props.rows.length - shownRuns.length, 'runs', '↑↓ scroll')}>
         {props.rows.length === 0
           ? <Text color={PAL.textMuted}>no runs yet</Text>
           : shownRuns.map((r, i) => {
@@ -1233,7 +1233,7 @@ function LivePane(props: { row: RunRow | undefined; recs: Receipt[]; compact: bo
 function EscrowPane({ escrow, requester, compact }: { escrow: Escrow; requester: string; compact?: boolean }) {
   return (
     <Card title="ESCROW · NEEDS YOU" purpose={compact ? undefined : 'appears only when something needs you'}>
-        <Text color={PAL.warn} wrap="truncate">
+        <Text bold color={PAL.warn} wrap="truncate">
           {`▶ ${String(escrow.plan_hash).slice(7, 15)} · est $${(escrow.ceiling_usd - escrow.drawn_usd).toFixed(2)}`}
         </Text>
         <Text color={PAL.textMuted} wrap="truncate">{`requested by: ${requester}`}</Text>
@@ -1344,7 +1344,7 @@ function FleetPane({ lanes, policy, compact, maxRows }: {
             : policy.default ? `(policy) ${last}`
               : 'policy unset';
         return (
-          <Text key={l.id} color={l.available ? PAL.seal : PAL.textMuted} wrap="truncate">
+          <Text key={l.id} color={l.available ? PAL.textPrimary : PAL.textMuted} wrap="truncate">
             {`${l.available ? '●' : '○'} ${l.id.padEnd(idw)} ${route}`}
           </Text>
         );
@@ -1414,7 +1414,7 @@ function CommandPane(props: {
       <Card title={`COMMANDER · ${props.profile.commander.model}`} purpose={props.compact ? undefined : props.online ? 'ws● connected — events below' : 'ws○ offline — set TIMMY_COMMANDER_WS'}>
         {/* FIX 1 (warroom fixes): cmdr + spend moved out of the header here */}
         <Text color={PAL.textMuted} wrap="truncate">{`cmdr ${props.profile.commander.model} ${props.online ? 'ws●' : 'ws○'}`}</Text>
-        <Text color={PAL.seal} wrap="truncate">{`spend $${props.spend.toFixed(4)}${props.handoff ? ` · handoff→${props.handoff.harness}` : ''}`}</Text>
+        <Text color={PAL.textPrimary} wrap="truncate">{`spend $${props.spend.toFixed(4)}${props.handoff ? ` · handoff→${props.handoff.harness}` : ''}`}</Text>
         <Text color={PAL.textMuted} wrap="truncate">[m] model [M] harness-model [K] handoff [X] kill</Text>
         <Text color={PAL.textMuted} wrap="truncate">[t] toggle [b] body [f] fusion [g] gen [1-6] focus</Text>
         {props.events.slice(0, Math.max(0, Math.min(8, props.maxEvents ?? 8))).map((e, i) => (
@@ -1450,7 +1450,7 @@ function HarnessPanes(props: {
         // FIX 2 (warroom fixes): one fixed vocabulary at fixed width —
         // off · idle · think · resp · REFUSED; cells slice, never ellipsize
         const state = refused ? 'REFUSED' : !pane ? 'off' : h.weight >= 3 ? 'resp' : h.weight === 2 ? 'think' : 'idle';
-        const col = refused ? PAL.danger : !lane || !lane.available ? PAL.textMuted : state === 'resp' ? PAL.seal : state === 'think' ? PAL.warn : PAL.textSecondary;
+        const col = refused ? PAL.danger : !lane || !lane.available ? PAL.textMuted : state === 'resp' ? PAL.textPrimary : state === 'think' ? PAL.warn : PAL.textSecondary;
         return (
           <Text key={h.id} color={col} wrap="truncate">
             {`${i + 1} ${h.id.slice(0, 10).padEnd(10)} ${String((h.model ?? 'cmdr').split('/').pop()).slice(0, 12).padEnd(12)} ${state.padEnd(8)} h=${String(pane?.height ?? 0).padStart(2)}`}
@@ -1510,7 +1510,7 @@ function EnginePane(props: { nodes: w2.NodeStat[]; unreal: un.UnrealRow; houdini
   const lines: { text: string; color: string }[] = props.nodes.length === 0
     ? [{ text: 'fleet/nodes.json missing', color: PAL.textMuted }]
     : props.nodes.map(n => ({
-      color: n.reachable ? PAL.seal : PAL.textMuted,
+      color: n.reachable ? PAL.textPrimary : PAL.textMuted,
       text: `${n.id.slice(0, 7).padEnd(7)} ${n.reachable ? 'up  ' : 'down'} ${(n.memGb ? `${n.memGb}G` : 'mem?').padEnd(5)} ${String(n.models.length).padStart(2)}mdl ${(n.tokPerS ? `${Math.round(n.tokPerS)}t/s` : 't/s?').padEnd(6)}`,
     }));
   if (props.unreal.present) lines.push(
@@ -1623,7 +1623,7 @@ function HandsPane(props: { board: ck.Board; row: number; col: number; showPromp
   const stateColor = (st: string): string =>
     st === 'STOP' ? PAL.danger
       : st === 'needs-approval' ? PAL.warn
-        : st === 'HOLD' ? PAL.seal
+        : st === 'HOLD' ? PAL.textPrimary
           : st === 'running' ? PAL.accent
             : PAL.textMuted;
   const promptText = hand ? board.prompts?.[hand.name]?.[ck.ROUNDS[col]] ?? '' : '';
@@ -1665,7 +1665,7 @@ function HandsPane(props: { board: ck.Board; row: number; col: number; showPromp
               <Text bold={sel} color={sel ? PAL.textPrimary : PAL.textSecondary}>
                 {h.name.slice(0, 10).padEnd(12) + h.tool.slice(0, 8).padEnd(10) + h.round.padEnd(4)}
               </Text>
-              <Text bold={sel} color={stateColor(h.state)}>{h.state.padEnd(17)}</Text>
+              <Text bold={sel || h.state === 'needs-approval'} color={stateColor(h.state)}>{h.state.padEnd(17)}</Text>
               <Text color={PAL.textMuted}>{(h.lastSeal && h.lastSeal !== '—' ? h.lastSeal.slice(7, 15) : '—').padEnd(9)}</Text>
               {ck.ROUNDS.map((r, c) => {
                 const has = Boolean(board.prompts?.[h.name]?.[r]);

@@ -11,7 +11,10 @@ import { theme } from '../theme.js';
 export function ShellFooter({ mode, tab, chainOk, chainCount, busLive, width = 120, model }: {
   mode: ShellMode; tab: ShellTab; chainOk: boolean; chainCount: number; busLive: boolean; width?: number; model?: string;
 }) {
-  const badge = mode === 'NORMAL' ? theme.seal : theme.warn; // INSERT/CHAT badge = human present = orange
+  // the mode badge is structure, not evidence: NORMAL sits on the line grey, a
+  // human-present mode (INSERT/CHAT) is inverse white — the thing you are in
+  const badgeBg = mode === 'NORMAL' ? theme.line : theme.structure;
+  const badgeFg = mode === 'NORMAL' ? theme.textPrimary : theme.ground;
   const badgeSeg = ` ${mode} `;
   // SPEC §02: the CHAT footer names the sovereign model from policy
   const tabSeg = mode === 'CHAT' ? ` sovereign · ${model ?? '—'}   ` : ` ${tab}   `;
@@ -29,9 +32,9 @@ export function ShellFooter({ mode, tab, chainOk, chainCount, busLive, width = 1
   }
   return (
     <Box>
-      <Text backgroundColor={badge} color={theme.ground}>{badgeSeg}</Text>
+      <Text backgroundColor={badgeBg} color={badgeFg} bold={mode !== 'NORMAL'}>{badgeSeg}</Text>
       <Text color={theme.textMuted}>{tabSeg}{kept.join('  ')}</Text>
-      <Text color={theme.seal}>{chainSeg}</Text>
+      <Text color={chainOk ? theme.seal : theme.textMuted}>{chainSeg}</Text>
       <Text color={theme.textMuted}>{busSeg}</Text>
     </Box>
   );
@@ -50,7 +53,7 @@ export function WhichKeyOverlay({ mode, tab, width = 100 }: { mode: ShellMode; t
           <Box key={g.group} flexDirection="column" marginRight={3}>
             <Text bold color={theme.textPrimary}>{g.group}</Text>
             {g.entries.map(e => (
-              <Text key={e.key}><Text color={theme.seal}>{e.key}</Text><Text color={theme.textMuted}> {e.label}</Text></Text>
+              <Text key={e.key}><Text bold color={theme.textPrimary}>{e.key}</Text><Text color={theme.textMuted}> {e.label}</Text></Text>
             ))}
           </Box>
         ))}

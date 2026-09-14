@@ -11,11 +11,13 @@
 //       known-defective artifact and must FAIL there, or the gate is not a gate.
 // Admitted on purpose: Ink's dimColor / inverse / bold — SGR modifiers, not hues
 // (dim yields the terminal's derived grey; inverse swaps two law colours).
-// SCOPE, stated so the claim is no broader than the walk: this gate covers
-// src/tui only. Terminal surfaces outside it still choose colours today —
-// src/tui-opentui/spike.ts, scripts/timmy-ui-smoke.tsx, cli.tsx, headless.ts,
-// src/utils/{markdown,humanlog,logserver,dash}.ts, src/utils/chatpage.html,
-// src/forge/ForgePanel.tsx — and are C1b's item, not this gate's claim.
+// SCOPE, stated so the claim is no broader than the walk: src/tui (attic
+// excluded) plus the named surfaces outside it that C1b-1 re-pointed —
+// src/tui-opentui, src/forge, cli.tsx, headless.ts, scripts/timmy-ui-smoke.tsx,
+// src/utils/{markdown,humanlog,logserver,dash,logger}.ts — and chatpage.html's
+// hex set, which must be a subset of the law. Declared debt, still outside the
+// gate (counts at C1b-1): src/utils/slash-commands.ts (20 raw SGR escapes),
+// src/utils/test-sandboxes.ts (18 chalk colour members).
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, relative } from 'path';
@@ -24,6 +26,9 @@ import { lawViolations, sourceColorViolations } from '../src/tui/color-contract.
 
 const TUI = join(process.cwd(), 'src', 'tui');
 const LAW_PATH = join(process.cwd(), 'lanes', 'visual', 'tokens.json');
+const OUTSIDE_ROOTS = ['src/tui-opentui', 'src/forge'];
+const OUTSIDE_FILES = ['cli.tsx', 'headless.ts', 'scripts/timmy-ui-smoke.tsx', 'src/utils/markdown.ts', 'src/utils/humanlog.ts', 'src/utils/logserver.ts', 'src/utils/dash.ts', 'src/utils/logger.ts'];
+const CHATPAGE = join(process.cwd(), 'src', 'utils', 'chatpage.html');
 const CONTROL = join(process.cwd(), 'tests', 'fixtures', 'law-control.defective.tsx');
 
 const walk = (dir: string, out: string[] = []): string[] => {
@@ -89,6 +94,20 @@ describe('no colour is chosen outside theme.ts', () => {
   it('every file under src/tui (theme.ts included) passes the source checker', () => {
     const bad = walk(TUI).flatMap(f => sourceColorViolations(readFileSync(f, 'utf8'), rel(f)));
     expect(bad).toEqual([]);
+  });
+
+  it('the named surfaces outside src/tui pass the source checker too (C1b-1)', () => {
+    const files = [...OUTSIDE_ROOTS.flatMap(r => walk(join(process.cwd(), r))), ...OUTSIDE_FILES.map(f => join(process.cwd(), f))];
+    expect(files.length).toBeGreaterThan(8);
+    const bad = files.flatMap(f => sourceColorViolations(readFileSync(f, 'utf8'), relative(process.cwd(), f)));
+    expect(bad).toEqual([]);
+  });
+
+  it('chatpage.html paints only law colours', () => {
+    const law = new Set(Object.values(visualLaw.color).map(c => c.value.toUpperCase()));
+    const hexes = [...new Set((readFileSync(CHATPAGE, 'utf8').match(/#[0-9a-fA-F]{6}\b/g) ?? []).map(h => h.toUpperCase()))];
+    expect(hexes.length).toBeGreaterThan(0);
+    expect(hexes.filter(h => !law.has(h))).toEqual([]);
   });
 
   it('panels never touch chalk at all (DESIGN.md §9.3, kept verbatim)', () => {
