@@ -24,12 +24,16 @@ export interface CardProps {
   minHeight?: number;
 }
 
+// C1b-2: the card's diamonds are chrome (Active Pane Invariant), never evidence;
+// the evidence glyphs (○ ● ✓ ◉ ◌ ×) are reserved — tests/evidence.test.ts proves the sets disjoint
+export const CARD_GLYPHS = { focused: '◆', idle: '◇' } as const;
+
 export function Card({
   title, focused = false, purpose, pill, overflow, children,
   flexGrow, flexBasis, width, height, minHeight,
 }: CardProps) {
   const border = focused ? theme.lineFocus : theme.line;
-  const glyph = focused ? '◆' : '◇';
+  const glyph = focused ? CARD_GLYPHS.focused : CARD_GLYPHS.idle;
   const titleColor = focused ? theme.accent : theme.textSecondary;
   return (
     <Box

@@ -24,7 +24,8 @@ import visualLaw from '../../lanes/visual/tokens.json' with { type: 'json' };
 // VALUES below. `accent` (was cyan: interaction) and `warn` (was amber:
 // attention) are both white now: the law admits neither an interaction hue nor
 // an attention hue, and amber means PREDICT only (C1b-1 re-pointed every warn
-// site; the dim class — queued, not installed, paused — went to grey-3).
+// site; not installed and paused went to grey-3; queued is a DECLARED mark,
+// white and plain, since C1b-2).
 // `ident` had zero consumers and is gone.
 // ═══════════════════════════════════════════════════════════════════════════
 

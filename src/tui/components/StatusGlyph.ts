@@ -1,8 +1,9 @@
 // Single source of truth for status → (glyph, color, label). Every panel and
 // the rain use this map so "running" looks identical everywhere in TIMMY.
-// Colours come from the law through src/tui/theme.ts — no hex here. Under the
-// law: seal green only for sealed, REFUSE red only for failed, white for
-// running / waiting / warning (attention), grey-3 for queued / idle / missing.
+// Colours come from the law through src/tui/theme.ts — no hex here. Evidence
+// states (C1b-2): sealed = checked ✓ seal · completed / running = constructed ●
+// white · queued = declared ◇ white · failed = REFUSE × · idle / missing /
+// created carry no evidence and stay grey-3 ◇; waiting / warn are attention ⚠.
 import { theme } from '../theme.js';
 
 export type TimmyStatus =
@@ -20,18 +21,18 @@ export type TimmyStatus =
   | 'queued';
 
 export const STATUS_GLYPH: Record<TimmyStatus, { glyph: string; color: string; label: string }> = {
-  running:   { glyph: '●', color: theme.warn, label: 'running' },
+  running:   { glyph: '●', color: theme.textPrimary, label: 'running' }, // constructed
   waiting:   { glyph: '⚠', color: theme.warn, label: 'waiting on you' },
-  created:   { glyph: '◇', color: theme.textMuted, label: 'created' },
-  completed: { glyph: '✓', color: theme.textPrimary, label: 'completed' }, // done is not sealed
-  failed:    { glyph: '×', color: theme.danger, label: 'failed' },
+  created:   { glyph: '·', color: theme.textMuted, label: 'created' }, // no evidence yet
+  completed: { glyph: '●', color: theme.textPrimary, label: 'completed' }, // constructed: done is not sealed
+  failed:    { glyph: '×', color: theme.refuse, label: 'failed' },
   cancelled: { glyph: '', color: theme.textMuted, label: 'cancelled' },
-  sealed:    { glyph: '●', color: theme.seal, label: 'sealed' },
-  ready:     { glyph: '●', color: theme.accent, label: 'ready · installed' },
-  missing:   { glyph: '◇', color: theme.textMuted, label: 'not installed' },
-  idle:      { glyph: '◇', color: theme.textMuted, label: 'idle' },
+  sealed:    { glyph: '✓', color: theme.seal, label: 'sealed' }, // checked
+  ready:     { glyph: '■', color: theme.accent, label: 'ready · installed' }, // live mark, not evidence
+  missing:   { glyph: '·', color: theme.textMuted, label: 'not installed' },
+  idle:      { glyph: '·', color: theme.textMuted, label: 'idle' },
   warn:      { glyph: '⚠', color: theme.warn, label: 'warning' },
-  queued:    { glyph: '●', color: theme.textMuted, label: 'queued' }
+  queued:    { glyph: '○', color: theme.textPrimary, label: 'queued' } // declared
 };
 
 export function statusGlyph(status: TimmyStatus): { glyph: string; color: string; label: string } {

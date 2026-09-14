@@ -104,7 +104,7 @@ describe('cutover companions on the shell directly', { timeout: 60000 }, () => {
     for (const id of ['webcontainers', 'anythingllm', 'houdini-mcp', 'hyperframes']) {
       expect(f, `fleet id cut: ${id}`).toContain(id);
     }
-    expect(f.split('\n').filter(l => l.includes('●') || l.includes('○')).every(l => !l.includes('…'))).toBe(true);
+    expect(f.split('\n').filter(l => l.includes('■') || l.includes('□')).every(l => !l.includes('…'))).toBe(true);
     // FIX 1+3 (close): catalog-listed models carry ctx + $in/$out + caps, not dashes
     const qwen = f.split('\n').find(l => l.includes('qwen/qwen3-coder'));
     expect(qwen).toBeTruthy();

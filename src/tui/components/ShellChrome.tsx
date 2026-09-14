@@ -2,14 +2,19 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { footerHintsShellShort, whichKeyGroupsShell, type ShellMode, type ShellTab } from '../keymap.js';
 import { theme } from '../theme.js';
+import { evidenceLook, type EvidenceState } from '../evidence.js';
+import { evidenceGlyph } from '../ui/Evidence.js';
+
+// C1b-2: connectivity marks — the circle set (○ ● ◉ ◌ ✓) is reserved for evidence
+export const LIVE = { on: '■', off: '□' } as const;
 
 // TUI REDESIGN (spec §02/§07) — the footer and which-key overlay render FROM
 // the keymap object; nothing here is a hand-typed hint string.
 // FIX 4 (director): hints fit BY CONSTRUCTION — measure the fixed segments,
 // then keep whole tokens from the left until the budget is spent (dropping
 // from the right). A token is never split; the line never wraps.
-export function ShellFooter({ mode, tab, chainOk, chainCount, busLive, width = 120, model }: {
-  mode: ShellMode; tab: ShellTab; chainOk: boolean; chainCount: number; busLive: boolean; width?: number; model?: string;
+export function ShellFooter({ mode, tab, chainOk, chainEvidence, chainCount, busLive, width = 120, model }: {
+  mode: ShellMode; tab: ShellTab; chainOk: boolean; chainEvidence?: EvidenceState | 'refused'; chainCount: number; busLive: boolean; width?: number; model?: string;
 }) {
   // the mode badge is structure, not evidence: NORMAL sits on the line grey, a
   // human-present mode (INSERT/CHAT) is inverse white — the thing you are in
@@ -18,8 +23,11 @@ export function ShellFooter({ mode, tab, chainOk, chainCount, busLive, width = 1
   const badgeSeg = ` ${mode} `;
   // SPEC §02: the CHAT footer names the sovereign model from policy
   const tabSeg = mode === 'CHAT' ? ` sovereign · ${model ?? '—'}   ` : ` ${tab}   `;
-  const chainSeg = `  chain ${chainOk ? '✓' : '—'} ${chainCount}`;
-  const busSeg = `  bus ${busLive ? '●' : '○'}`;
+  // C1b-2: the chain segment carries the chain's ONE evidence state (● built ·
+  // ✓ checked by a receipted verify · ◌ stale once receipts follow it · × broken)
+  const ev: EvidenceState | 'refused' = chainEvidence ?? (chainOk ? 'constructed' : 'refused');
+  const chainSeg = `  chain ${evidenceGlyph(ev)} ${chainCount}`;
+  const busSeg = `  bus ${busLive ? LIVE.on : LIVE.off}`;
   const budget = width - (badgeSeg.length + tabSeg.length + chainSeg.length + busSeg.length);
   const tokens = footerHintsShellShort(mode, tab).split('  ');
   const kept: string[] = [];
@@ -34,7 +42,7 @@ export function ShellFooter({ mode, tab, chainOk, chainCount, busLive, width = 1
     <Box>
       <Text backgroundColor={badgeBg} color={badgeFg} bold={mode !== 'NORMAL'}>{badgeSeg}</Text>
       <Text color={theme.textMuted}>{tabSeg}{kept.join('  ')}</Text>
-      <Text color={chainOk ? theme.seal : theme.textMuted}>{chainSeg}</Text>
+      <Text color={ev === 'refused' ? theme.refuse : evidenceLook(ev).color} bold={ev === 'checked'} dimColor={ev === 'stale'}>{chainSeg}</Text>
       <Text color={theme.textMuted}>{busSeg}</Text>
     </Box>
   );

@@ -39,9 +39,11 @@ describe('sparkline', () => {
 });
 
 describe('status glyphs', () => {
-  it('is a single source of truth', () => {
-    expect(statusGlyph('running').glyph).toBe('●');
-    expect(statusGlyph('sealed').glyph).toBe('●');
+  it('is a single source of truth, and its glyphs are the evidence marks (C1b-2)', () => {
+    expect(statusGlyph('running').glyph).toBe('●'); // constructed
+    expect(statusGlyph('sealed').glyph).toBe('✓');  // checked
+    expect(statusGlyph('queued').glyph).toBe('○');  // declared
+    expect(statusGlyph('failed').glyph).toBe('×');  // refuse
     expect(statusGlyph('missing').label).toBe('not installed');
   });
 });

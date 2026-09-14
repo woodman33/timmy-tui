@@ -30,6 +30,7 @@ const pillKindFor = (kind?: TimmyStatus, live?: boolean): PillKind => {
   if (kind === 'failed') return 'danger';
   if (kind === 'completed') return 'accent'; // done is not sealed
   if (kind === 'running') return 'accent';
+  if (kind === 'queued') return 'warn'; // declared: white, plain (C1b-2)
   if (kind === 'idle') return 'muted';
   return live ? 'accent' : 'muted';
 };

@@ -81,8 +81,8 @@ export function Layout({
             </Text>
           ))}
         </Box>
-        <Text color={env.docker ? theme.accent : theme.danger} wrap="truncate">● DOCKER: {env.docker ? 'ACTIVE' : 'DOWN'} </Text>
-        {W >= 90 && <Text color={env.comfy ? theme.accent : theme.danger} wrap="truncate">● COMFY: {env.comfy ? 'READY' : 'OFF'} </Text>}
+        <Text color={env.docker ? theme.accent : theme.danger} wrap="truncate">■ DOCKER: {env.docker ? 'ACTIVE' : 'DOWN'} </Text>
+        {W >= 90 && <Text color={env.comfy ? theme.accent : theme.danger} wrap="truncate">■ COMFY: {env.comfy ? 'READY' : 'OFF'} </Text>}
         {W >= 90 && <Text color={theme.accent} wrap="truncate">COST: ${totalCost.toFixed(2)}</Text>}
       </Box>
       )}

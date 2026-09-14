@@ -6,8 +6,10 @@ import { join, dirname } from 'path';
 import { homedir } from 'os';
 import qr from 'qrcode-terminal';
 import { shellOnKey, initialShell, TABS, type ShellState } from '../shell-mode.js';
-import { ShellFooter, WhichKeyOverlay } from './ShellChrome.js';
+import { ShellFooter, WhichKeyOverlay, LIVE } from './ShellChrome.js';
 import { theme } from '../theme.js';
+import { receiptEvidence, runEvidence, evidenceLook, type EvidenceState } from '../evidence.js';
+import { evidenceGlyph } from '../ui/Evidence.js';
 import { readChain, verifyChain, appendReceipt, hashOf, type Receipt } from '../../utils/receipts.js';
 import { subscribe } from '../../bus/index.js';
 import { listLanes } from '../../utils/dispatch.js';
@@ -65,6 +67,11 @@ const DIM: typeof theme = {
   refuse: theme.textMuted, predict: theme.textMuted, generated: theme.textMuted, sealDim: theme.textMuted,
 };
 let PAL: typeof theme = theme;
+
+// C1b-2: the state chooses the colour — this is the ONLY projection of an
+// evidence state onto a palette (PAL in the panes, theme in the header)
+const evColor = (ev: EvidenceState | 'refused', pal: typeof theme = PAL): string =>
+  ev === 'refused' ? pal.refuse : ev === 'checked' ? pal.seal : ev === 'inferred' ? pal.generated : ev === 'stale' ? pal.predict : pal.structure;
 // warroom-v2-c4m8 picker domains — the swarm schema's enums, in schema order
 const TOPOLOGIES = ['fanout', 'fusion', 'relay', 'coordinator', 'tournament', 'council', 'crew', 'closed'];
 const BUDGETS = [0, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 1];
@@ -147,10 +154,14 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
         setRecs(all);
         setHead(String(all[all.length - 1]?.hash ?? ''));
         setEscrows(listEscrows());
-        // a verify receipt whose head matches the current head is a real verify
+        // C1b-2: the one verify fact — the last verify receipt names the head it
+        // covered; receipts up to that head are checked, later ones constructed,
+        // and the strip goes stale once anything follows the verify
         const lv = [...all].reverse().find(r => r.kind === 'verify');
-        if (lv && String(lv.subject).includes(String(all[all.length - 1]?.hash ?? '').slice(7, 15))) {
-          setVerified({ ok: lv.status !== 'failed', count: v.count, epochs: v.segments.length, head: String(all[all.length - 1]?.hash ?? '').slice(7, 15), at: String(lv.ts), via: String(lv.id) });
+        const named = lv ? /head ([0-9a-f]{8})/.exec(String(lv.subject))?.[1] : undefined;
+        const coveredIdx = named ? all.findIndex(r => String(r.hash).slice(7, 15) === named) : -1;
+        if (lv && named && coveredIdx >= 0) {
+          setVerified({ ok: lv.status !== 'failed', count: coveredIdx + 1, epochs: v.segments.length, head: named, at: String(lv.ts), via: String(lv.id) });
         }
       } catch { /* none yet */ }
     };
@@ -235,7 +246,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
     return () => { h.stop(); clearInterval(poll); cc.close(); ccRef.current = null; };
   }, []);
 
-  // docker is a capability, not a danger: off renders dim ○, never red
+  // docker is a capability, not a danger: off renders dim □, never red
   useEffect(() => {
     const r = spawnSync('docker', ['info', '--format', 'ok'], { timeout: 2500, stdio: 'ignore' });
     setDocker(r.status === 0);
@@ -515,6 +526,13 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   const last = recs[recs.length - 1] ?? null;
   const pendingEscrows = escrows.filter(e => e.state === 'armed');
   const allClear = journeyDoneCount(recs) === 7 && pendingEscrows.length === 0 && chain.ok && busLive;
+  // C1b-2: per-receipt coverage from the one verify fact — a receipt is checked
+  // iff a receipted verify names a head at or after it; the chain's own state is
+  // × broken · ● built · ✓ checked · ◌ stale (receipts appended since the verify)
+  const coveredIdx = verified ? recs.findIndex(r => String(r.hash).slice(7, 15) === verified.head) : -1;
+  const covered = (r: Receipt | null | undefined): boolean => Boolean(r) && verified?.ok === true && coveredIdx >= 0 && recs.indexOf(r as Receipt) <= coveredIdx;
+  const sinceVerify = coveredIdx < 0 ? 0 : Math.max(0, recs.length - 1 - coveredIdx - (recs[coveredIdx + 1]?.kind === 'verify' ? 1 : 0));
+  const chainEv: EvidenceState | 'refused' = !chain.ok ? 'refused' : !verified || coveredIdx < 0 ? 'constructed' : !verified.ok ? 'refused' : sinceVerify > 0 ? 'stale' : 'checked';
   // SPEC §04 + director FIX 1: LANES shows RUNS, not connectors. A run is a
   // dispatch sequence per lane (bus) or a receipt group (chain). Active runs
   // first, then the last 12 sealed/refused; idle connectors collapse to one
@@ -733,8 +751,8 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
           // wraps, tabs collapse to digits + active label when width demands,
           // segments drop right-to-left. cmdr+spend live on COMMAND line 2.
           const headModel = String(model).split('/').pop() ?? '';
-          const chainSeg = `  chain ${chain.ok ? '✓' : '—'} ${chain.count}${head ? ` · ${head.slice(7, 15)}` : ''}`;
-          const busSeg = `  bus ${busLive ? '●' : '○'}`;
+          const chainSeg = `  chain ${evidenceGlyph(chainEv)} ${chain.count}${head ? ` · ${head.slice(7, 15)}` : ''}`;
+          const busSeg = `  bus ${busLive ? LIVE.on : LIVE.off}`;
           const dropsSeg = `  drops ${drops}`;
           // FIX C (director): 7/7 + no pending escrow + chain ✓ + bus ● ⇒ the
           // orange slot stays empty and says so, in dim mono.
@@ -757,7 +775,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
                 <Text key={TABS[i]} bold={s.tab === TABS[i]} color={s.tab === TABS[i] ? theme.textPrimary : theme.textMuted}>{t}</Text>
               ))}
               {segs.map((sg, i) => (
-                <Text key={i} color={i === 0 && chain.ok ? theme.seal : theme.textMuted}>{sg}</Text>
+                <Text key={i} color={i === 0 ? evColor(chainEv, theme) : theme.textMuted} bold={i === 0 && chainEv === 'checked'} dimColor={i === 0 && chainEv === 'stale'}>{sg}</Text>
               ))}
             </>
           );
@@ -791,15 +809,15 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
               <Box height={plans.run.left.gap} />
               <Stack gap={plans.run.left.gap}>
                 {!plans.run.left.folded.includes('LIVE') && (
-                  <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} compact={plans.run.left.compact} maxTail={plans.run.left.caps.LIVE} />
+                  <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} covered={covered} compact={plans.run.left.compact} maxTail={plans.run.left.caps.LIVE} />
                 )}
                 {pendingEscrows[0] && <EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} compact={plans.run.left.compact} />}
               </Stack>
             </>
           )}
           {s.tab === 'RUN' && <FoldedNote folded={plans.run.left.folded} />}
-          {s.tab === 'CHAIN' && <ChainPane recs={recs} filtered={filtered} selected={Math.min(s.selected, Math.max(0, filtered.length - 1))} chain={chain} verified={verified} filter={s.filter} link={chainLink} window={plans.chainWindow} />}
-          {s.tab === 'CHAT' && <ChatPane recs={recs} maxTurns={plans.chatTurns} compact={compact} />}
+          {s.tab === 'CHAIN' && <ChainPane covered={covered} chainEv={chainEv} sinceVerify={sinceVerify} recs={recs} filtered={filtered} selected={Math.min(s.selected, Math.max(0, filtered.length - 1))} chain={chain} verified={verified} filter={s.filter} link={chainLink} window={plans.chainWindow} />}
+          {s.tab === 'CHAT' && <ChatPane recs={recs} covered={covered} maxTurns={plans.chatTurns} compact={compact} />}
           {s.tab === 'COMMAND' && (
             <>
               <Stack gap={plans.command.left.gap}>
@@ -808,7 +826,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
                   <SwarmPane presets={war2.presets} runs={war2.runs} pick={swPick} focus={focusHarness} compact={plans.command.left.compact} />
                 )}
                 {s.handsOn && board && !plans.command.left.folded.includes('HANDS') && (
-                  <HandsPane board={board} row={Math.min(s.handsRow, Math.max(0, board.hands.length - 1))} col={s.handsCol} showPrompt={s.handsPrompt} compact={plans.command.left.compact} maxRows={plans.command.left.caps.HANDS} innerWidth={plans.innerW} />
+                  <HandsPane board={board} recs={recs} covered={covered} row={Math.min(s.handsRow, Math.max(0, board.hands.length - 1))} col={s.handsCol} showPrompt={s.handsPrompt} compact={plans.command.left.compact} maxRows={plans.command.left.caps.HANDS} innerWidth={plans.innerW} />
                 )}
               </Stack>
               <FoldedNote folded={plans.command.left.folded} />
@@ -856,7 +874,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
             <Card title="LATEST RECEIPT" purpose="historical record · inspect its checks">
               {last ? (
                 <>
-                  <Text color={theme.textSecondary}>{last.hash.slice(0, 15)}</Text>
+                  <Text bold={covered(last)} color={covered(last) ? theme.seal : theme.structure}>{covered(last) ? '✓' : '●'} {last.hash.slice(0, 15)}</Text>
                   <Text color={theme.textMuted} wrap="truncate">{last.subject} · {stamp(last.ts)} · {ago(last.ts)}</Text>
                 </>
               ) : (
@@ -869,7 +887,10 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
                 <Text color={theme.textMuted}>quiet so far</Text>
               ) : (
                 activity.slice(0, plans.activityRows).map((row, i) => (
-                  <Text key={i} color={row.refused ? theme.danger : row.sealed ? theme.textSecondary : theme.textMuted} wrap="truncate">{row.line}</Text>
+                  <Text key={i} wrap="truncate">
+                    <Text color={row.refused ? theme.refuse : row.sealed ? theme.structure : theme.textMuted}>{row.refused ? '× ' : row.sealed ? '● ' : '· '}</Text>
+                    <Text color={row.refused ? theme.danger : theme.textMuted}>{row.line}</Text>
+                  </Text>
                 ))
               )}
             </Card>
@@ -877,7 +898,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
         )}
         {assembled && !narrow && s.tab === 'CHAIN' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            <DetailPane rec={selectedRec} />
+            <DetailPane rec={selectedRec} covered={covered} />
           </Box>
         )}
         {assembled && !narrow && s.tab === 'LIBRARY' && (
@@ -896,7 +917,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
             <Stack gap={plans.run.rail.gap}>
               {signalSt?.live && !plans.run.rail.folded.includes('SIGNAL') && <SignalPane st={signalSt} compact={plans.run.rail.compact} maxRows={plans.run.rail.caps.SIGNAL} />}
               {!plans.run.rail.folded.includes('LIVE') && (
-                <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} compact={plans.run.rail.compact} maxTail={plans.run.rail.caps.LIVE} />
+                <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} covered={covered} compact={plans.run.rail.compact} maxTail={plans.run.rail.caps.LIVE} />
               )}
               {pendingEscrows[0] && <EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} compact={plans.run.rail.compact} />}
             </Stack>
@@ -988,7 +1009,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
       {s.overlay === 'whichkey' && (
         <Box position="absolute" top={2} left={0}><WhichKeyOverlay mode={s.mode} tab={s.tab} width={width} /></Box>
       )}
-      {assembled && <ShellFooter mode={s.mode} tab={s.tab} chainOk={chain.ok} chainCount={chain.count} busLive={busLive} width={width} model={policy.default ?? undefined} />}
+      {assembled && <ShellFooter mode={s.mode} tab={s.tab} chainOk={chain.ok} chainEvidence={chainEv} chainCount={chain.count} busLive={busLive} width={width} model={policy.default ?? undefined} />}
     </Box>
   );
 }
@@ -1014,17 +1035,21 @@ function HomePane(props: {
             {`▶ escrow ${String(props.pendingEscrows[0].escrow_id).slice(0, 12)} · ceiling $${props.pendingEscrows[0].ceiling_usd} awaits lock`}
           </Text>
         )}
+        {/* C1b-2: a done step is a CLAIM checked by its receipt (✓); a later step is declared (○, white mark) */}
         {rows.map(r => (
           r.state === 'done' ? (
             <Text key={r.step.id} wrap="truncate">
-              <Text color={PAL.seal}>{`✓ ${r.step.verb.padEnd(10)}`}</Text>
+              <Text bold color={PAL.seal}>{`✓ ${r.step.verb.padEnd(10)}`}</Text>
               <Text color={PAL.textSecondary}>{r.hash.padEnd(12)}</Text>
               <Text color={PAL.textMuted}> {r.fact}</Text>
             </Text>
           ) : r.state === 'next' && !escrowOrange ? (
             <Text key={r.step.id} bold color={PAL.warn} wrap="truncate">{`▶ ${r.step.verb.padEnd(10)} ${r.fact}`}</Text>
           ) : (
-            <Text key={r.step.id} color={PAL.textMuted} wrap="truncate">{`  ${r.step.verb.padEnd(10)} ${r.fact}`}</Text>
+            <Text key={r.step.id} wrap="truncate">
+              <Text color={PAL.structure}>○ </Text>
+              <Text color={PAL.textMuted}>{`${r.step.verb.padEnd(10)} ${r.fact}`}</Text>
+            </Text>
           )
         ))}
         {done === rows.length && <Text color={PAL.seal}>journey complete · {done}/{rows.length} sealed</Text>}
@@ -1032,9 +1057,9 @@ function HomePane(props: {
       <Box height={1} />
       <Card title="STATUS" purpose={props.compact ? undefined : 'one line · off is dim, never red'} flexGrow={1}>
         <Text wrap="truncate">
-          <Text color={PAL.textSecondary}>{`${props.fleet > 0 ? '●' : '○'} fleet · ${props.fleet} available`}</Text>
+          <Text color={PAL.textSecondary}>{`${props.fleet > 0 ? LIVE.on : LIVE.off} fleet · ${props.fleet} available`}</Text>
           <Text color={PAL.textMuted}>{`  bus ${props.busLive ? 'activity seen' : 'quiet'}`}</Text>
-          <Text color={PAL.textMuted}>{`  ${props.docker ? '●' : '○'} docker ${props.docker ? 'on' : 'off'}`}</Text>
+          <Text color={PAL.textMuted}>{`  ${props.docker ? LIVE.on : LIVE.off} docker ${props.docker ? 'on' : 'off'}`}</Text>
         </Text>
         <Text color={PAL.textMuted} wrap="truncate">
           {`recorded cost $${props.costToday.toFixed(2)} · model policy: ${props.model} · harness: ${props.harness}`}
@@ -1050,6 +1075,7 @@ function HomePane(props: {
 // the VERIFY strip: the only place "chain ok" is asserted, glowing only after
 // a real verify. The fixed detail pane is the right rail (DetailPane).
 function ChainPane(props: {
+  covered: (r: Receipt) => boolean; chainEv: EvidenceState | 'refused'; sinceVerify: number;
   recs: Receipt[]; filtered: Receipt[]; selected: number; chain: { ok: boolean; count: number };
   verified: null | { ok: boolean; count: number; epochs: number; head: string; at: string; via: string };
   filter: string; link: string | null;
@@ -1069,19 +1095,24 @@ function ChainPane(props: {
       {windowRows.map((r, i) => {
         const idx = start + i;
         const sel = idx === selected;
-        const st = r.status === 'ok' ? 'OK' : r.status === 'failed' || r.status === 'denied' ? 'FAIL' : '—';
-        const col = r.status === 'ok' ? PAL.seal : r.status === 'failed' || r.status === 'denied' ? PAL.danger : PAL.textMuted;
+        // C1b-2: the row carries ONE evidence state — checked (✓ seal) when a receipted verify
+        // covers this receipt, constructed (●) when ok but not yet covered, declared (○) otherwise;
+        // a refusal is the REFUSE accent (×), not an evidence state
+        const ev = receiptEvidence(r, { verified: props.covered(r) });
+        const st = `${evidenceGlyph(ev)}${r.status === 'ok' ? 'OK' : ev === 'refused' ? 'FAIL' : '—'}`;
+        const col = evColor(ev);
+        const look = ev === 'refused' ? null : evidenceLook(ev);
         // FIX 1 (director): column budget at 120x32 — status 4 · hash 8 ·
         // subject 43 (fills) · env-lock 14 = 72 of the 74-col column, leaving
         // gutter 2 before the DETAIL border (selection is white, no glyph).
         // FIX 3: hash prefix is exactly 8 chars everywhere.
-        const statusCell = st.padEnd(4);
+        const statusCell = st.padEnd(5);
         const hashCell = String(r.hash).slice(7, 15);
-        const subjectCell = String(r.subject).slice(0, 43).padEnd(43);
+        const subjectCell = String(r.subject).slice(0, 42).padEnd(42);
         const lockCell = (r.env_lock ? hashOf(r.env_lock as unknown as Record<string, unknown>).slice(7, 15) : '').padEnd(14);
         return (
           <Text key={r.id} wrap="truncate">
-            <Text color={sel ? PAL.textPrimary : col}>{statusCell}</Text>
+            <Text bold={look?.bold} dimColor={look?.dim} color={col}>{statusCell}</Text>
             <Text color={sel ? PAL.textPrimary : PAL.textSecondary}>{` ${hashCell} ${subjectCell}`}</Text>
             <Text color={PAL.textMuted}>{lockCell}</Text>
           </Text>
@@ -1093,8 +1124,8 @@ function ChainPane(props: {
       <Box height={1} />
       {props.verified ? (
         <>
-          <Text color={props.verified.ok ? PAL.seal : PAL.danger} wrap="truncate">
-            {`${props.verified.ok ? '✓' : '✕'} chain ${props.verified.ok ? 'ok' : 'BROKEN'} · ${props.verified.count} receipts · ${props.verified.epochs} epochs · head ${props.verified.head}`}
+          <Text bold={props.chainEv === 'checked'} dimColor={props.chainEv === 'stale'} color={evColor(props.chainEv)} wrap="truncate">
+            {`${evidenceGlyph(props.chainEv)} chain ${props.chainEv === 'refused' ? 'BROKEN' : 'ok'} · ${props.verified.count} receipts · ${props.verified.epochs} epochs · head ${props.verified.head}${props.chainEv === 'stale' ? ` · ${props.sinceVerify} appended since` : ''}`}
           </Text>
           <Text color={PAL.textMuted} wrap="truncate">
             {`refusals ${refusals} · verified ${stamp(props.verified.at)} via ${props.verified.via.slice(0, 12)}`}
@@ -1109,7 +1140,7 @@ function ChainPane(props: {
 
 // SPEC §05 C2 — the detail pane is always visible; fixed fields in schema
 // order: prev_hash → hash, kind, policy, ts, via, sources/env_lock, actions.
-function DetailPane({ rec }: { rec: Receipt | null }) {
+function DetailPane({ rec, covered }: { rec: Receipt | null; covered: (r: Receipt) => boolean }) {
   if (!rec) {
     return (
       <Card title="DETAIL" purpose="fixed fields · schema names" flexGrow={1}>
@@ -1118,9 +1149,12 @@ function DetailPane({ rec }: { rec: Receipt | null }) {
     );
   }
   const srcs = Array.isArray(rec.sources) ? rec.sources.length : 0;
+  // C1b-2: the hash line carries the receipt's own evidence state, the same one its row shows
+  const ev = receiptEvidence(rec, { verified: covered(rec) });
+  const look = ev === 'refused' ? null : evidenceLook(ev);
   return (
     <Card title="DETAIL" purpose="fixed fields · schema names" flexGrow={1}>
-      <Text color={PAL.seal} wrap="truncate">{`prev_hash ${prevLabel8(String(rec.prev_hash))} → hash ${rec.hash.slice(7, 15)}`}</Text>
+      <Text bold={look?.bold} dimColor={look?.dim} color={evColor(ev)} wrap="truncate">{`${evidenceGlyph(ev)} prev_hash ${prevLabel8(String(rec.prev_hash))} → hash ${rec.hash.slice(7, 15)}`}</Text>
       <Text color={PAL.textSecondary} wrap="truncate">kind     {rec.kind}</Text>
       <Text color={PAL.textSecondary} wrap="truncate">policy   {rec.policy}</Text>
       <Text color={PAL.textSecondary} wrap="truncate">ts       {stamp(rec.ts)}</Text>
@@ -1156,17 +1190,19 @@ function RunsPane(props: {
   const dropsShown = capRows(props.feed, Math.min(6, props.maxDrops ?? 6));
   return (
     <Box flexDirection="column">
-      <Card title="RUNS" purpose={props.compact ? undefined : 'running white · queued dim · sealed green · REFUSED red'} overflow={moreLine(props.rows.length - shownRuns.length, 'runs', '↑↓ scroll')}>
+      <Card title="RUNS" purpose={props.compact ? undefined : 'sealed ✓ · running ● · queued ○ · REFUSED ×'} overflow={moreLine(props.rows.length - shownRuns.length, 'runs', '↑↓ scroll')}>
         {props.rows.length === 0
           ? <Text color={PAL.textMuted}>no runs yet</Text>
           : shownRuns.map((r, i) => {
             const sel = start + i === props.selected;
-            const col = r.state === 'running' ? PAL.warn : r.state === 'sealed' ? PAL.seal : r.state === 'REFUSED' ? PAL.danger : PAL.textMuted;
+            const ev = runEvidence(r.state);
+            const col = evColor(ev);
+            const look = ev === 'refused' ? null : evidenceLook(ev);
             const bar = r.state === 'running' ? ` ${'▮'.repeat(Math.min(4, r.ticks))}${'▯'.repeat(Math.max(0, 4 - Math.min(4, r.ticks)))}` : '';
             return (
               <Text key={r.id} wrap="truncate">
-                <Text color={sel ? PAL.textPrimary : col}>{`${sel ? '▶' : ' '} ${r.lane.slice(0, 14).padEnd(14)}`}</Text>
-                <Text color={col}>{r.state.padEnd(8)}</Text>
+                <Text color={sel ? PAL.textPrimary : col}>{`${sel ? '▶' : ' '} ${r.lane.slice(0, 13).padEnd(14)}`}</Text>
+                <Text bold={look?.bold} dimColor={look?.dim} color={col}>{`${evidenceGlyph(ev)} ${r.state}`.padEnd(10)}</Text>
                 <Text color={PAL.textMuted}>{r.dur.padEnd(7)}</Text>
                 <Text color={col}>{r.state === 'running' ? bar : r.hash}</Text>
               </Text>
@@ -1193,7 +1229,7 @@ function RunsPane(props: {
 // FIX 3 — LIVE: a running run shows the ticking bar; a sealed/refused run
 // shows its sealed log tail (last 8 receipts) + env-lock; with nothing
 // selected it collapses to one line so DROPS can grow.
-function LivePane(props: { row: RunRow | undefined; recs: Receipt[]; compact: boolean; maxTail?: number }) {
+function LivePane(props: { row: RunRow | undefined; recs: Receipt[]; covered: (r: Receipt) => boolean; compact: boolean; maxTail?: number }) {
   const row = props.row;
   if (!row) {
     return (
@@ -1220,11 +1256,18 @@ function LivePane(props: { row: RunRow | undefined; recs: Receipt[]; compact: bo
     : [];
   return (
     <Card title={`LIVE · ${row.lane}`} purpose={props.compact ? undefined : 'sealed log tail + env-lock'} flexGrow={1} overflow={moreLine(row.group.length - tail.length, 'earlier receipts')}>
-      {tail.map((r, i) => (
-        <Text key={i} color={r.status === 'ok' ? PAL.textSecondary : PAL.danger} wrap="truncate">
-          {`${stamp(r.ts)} ${r.status === 'ok' ? 'ok ' : r.status === 'denied' ? 'DEN' : 'FAIL'} ${String(r.subject).slice(0, 30)}`}
-        </Text>
-      ))}
+      {tail.map((r, i) => {
+        const ev = receiptEvidence(r, { verified: props.covered(r) });
+        const look = ev === 'refused' ? null : evidenceLook(ev);
+        return (
+          <Text key={i} wrap="truncate">
+            <Text bold={look?.bold} dimColor={look?.dim} color={evColor(ev)}>{evidenceGlyph(ev)}</Text>
+            <Text color={ev === 'refused' ? PAL.danger : PAL.textSecondary}>
+              {` ${stamp(r.ts)} ${ev === 'refused' ? `${r.status === 'denied' ? 'DEN' : 'FAIL'} ${String(r.subject).slice(0, 22)}` : String(r.subject).slice(0, 27)}`}
+            </Text>
+          </Text>
+        );
+      })}
       <Text color={PAL.textSecondary} wrap="truncate">{lockRec ? `env-lock ${tools.join(' · ')}` : 'env-lock —'}</Text>
     </Card>
   );
@@ -1234,7 +1277,7 @@ function EscrowPane({ escrow, requester, compact }: { escrow: Escrow; requester:
   return (
     <Card title="ESCROW · NEEDS YOU" purpose={compact ? undefined : 'appears only when something needs you'}>
         <Text bold color={PAL.warn} wrap="truncate">
-          {`▶ ${String(escrow.plan_hash).slice(7, 15)} · est $${(escrow.ceiling_usd - escrow.drawn_usd).toFixed(2)}`}
+          {`▶ ○ ${String(escrow.plan_hash).slice(7, 15)} · est $${(escrow.ceiling_usd - escrow.drawn_usd).toFixed(2)}`}
         </Text>
         <Text color={PAL.textMuted} wrap="truncate">{`requested by: ${requester}`}</Text>
         <Text color={PAL.textMuted}>[a] approve  [r] refuse (reason)</Text>
@@ -1304,7 +1347,9 @@ function ModelsPane(props: {
               <Text color={sel ? PAL.textPrimary : PAL.textSecondary}>
                 {`${sel ? '▶' : m.pinned ? '✦' : ' '} ${m.id.slice(0, 20).padEnd(20)} ${ctx} ${price}`}
               </Text>
-              <Text color={PAL.textMuted}>{` ${caps} ${spend} ${(fit?.node ?? 'edge').slice(0, 6).padEnd(6)} ${(fit?.fit ?? '—').padEnd(5)}`}</Text>
+              <Text color={PAL.textMuted}>{` ${caps} ${spend} ${(fit?.node ?? 'edge').slice(0, 6).padEnd(6)}`}</Text>
+              {/* C1b-2: FIT is a forecast from pinned constants (lanes/swarm/fit.mjs) — inferred ◉, never a measurement */}
+              <Text color={fit ? PAL.generated : PAL.textMuted}>{`${fit ? '◉' : ' '}${(fit?.fit ?? '—').padEnd(5)}`}</Text>
             </Text>
           );
         })}
@@ -1345,7 +1390,7 @@ function FleetPane({ lanes, policy, compact, maxRows }: {
               : 'policy unset';
         return (
           <Text key={l.id} color={l.available ? PAL.textPrimary : PAL.textMuted} wrap="truncate">
-            {`${l.available ? '●' : '○'} ${l.id.padEnd(idw)} ${route}`}
+            {`${l.available ? LIVE.on : LIVE.off} ${l.id.padEnd(idw)} ${route}`}
           </Text>
         );
       })}
@@ -1369,7 +1414,7 @@ function BoardsPane(props: { boards: { templates: string[]; blueprints: string[]
 
 // warroom-t3b1 — CHAT tab: transcript rises from the bottom (you · thinking
 // dim · answer · turn receipt hash); LOG RAIN falls in the right rail.
-function ChatPane({ recs, maxTurns, compact }: { recs: Receipt[]; maxTurns?: number; compact?: boolean }) {
+function ChatPane({ recs, maxTurns, compact, covered }: { recs: Receipt[]; maxTurns?: number; compact?: boolean; covered: (r: Receipt) => boolean }) {
   const all = recs.filter(r => r.kind === 'chat');
   const turns = all.slice(-Math.max(1, Math.min(10, maxTurns ?? 10)));
   return (
@@ -1382,7 +1427,10 @@ function ChatPane({ recs, maxTurns, compact }: { recs: Receipt[]; maxTurns?: num
             <Box key={r.id} flexDirection="column">
               <Text color={PAL.textPrimary} wrap="truncate">{`you: ${you.slice(0, 100)}`}</Text>
               <Text color={PAL.textSecondary} wrap="truncate">{`${String(r.subject).replace('chat.turn · ', 'answer · ').slice(0, 100)}`}</Text>
-              <Text color={PAL.textMuted} wrap="truncate">{`#${r.hash.slice(7, 15)} · $${(r.cost_usd ?? 0).toFixed(4)}`}</Text>
+              <Text wrap="truncate">
+                <Text bold={covered(r)} color={covered(r) ? PAL.seal : PAL.structure}>{covered(r) ? '✓' : '●'}</Text>
+                <Text color={PAL.textMuted}>{`${r.hash.slice(7, 15)} · $${(r.cost_usd ?? 0).toFixed(4)}`}</Text>
+              </Text>
             </Box>
           );
         })}
@@ -1395,8 +1443,9 @@ function LogRain({ events, maxRows, compact }: { events: { line: string; refused
   return (
     <Card title="LOG RAIN" purpose={compact ? undefined : 'bus events enter at the top, falling, dimming'} flexGrow={1}>
       {events.length === 0 ? <Text color={PAL.textMuted}>quiet</Text> : events.slice(0, Math.max(1, Math.min(14, maxRows ?? 14))).map((e, i) => (
-        <Text key={i} color={e.refused ? PAL.danger : i < 3 ? PAL.textSecondary : PAL.textMuted} dimColor={i > 8} wrap="truncate">
-          {e.line.slice(0, 40)}
+        <Text key={i} wrap="truncate">
+          <Text color={e.refused ? PAL.refuse : e.sealed ? PAL.structure : PAL.textMuted} dimColor={i > 8}>{e.refused ? '× ' : e.sealed ? '● ' : '· '}</Text>
+          <Text color={e.refused ? PAL.danger : i < 3 ? PAL.textSecondary : PAL.textMuted} dimColor={i > 8}>{e.line.slice(0, 38)}</Text>
         </Text>
       ))}
     </Card>
@@ -1411,9 +1460,9 @@ function CommandPane(props: {
 }) {
   return (
     <Box flexDirection="column" flexGrow={1}>
-      <Card title={`COMMANDER · ${props.profile.commander.model}`} purpose={props.compact ? undefined : props.online ? 'ws● connected — events below' : 'ws○ offline — set TIMMY_COMMANDER_WS'}>
+      <Card title={`COMMANDER · ${props.profile.commander.model}`} purpose={props.compact ? undefined : props.online ? `ws${LIVE.on} connected — events below` : `ws${LIVE.off} offline — set TIMMY_COMMANDER_WS`}>
         {/* FIX 1 (warroom fixes): cmdr + spend moved out of the header here */}
-        <Text color={PAL.textMuted} wrap="truncate">{`cmdr ${props.profile.commander.model} ${props.online ? 'ws●' : 'ws○'}`}</Text>
+        <Text color={PAL.textMuted} wrap="truncate">{`cmdr ${props.profile.commander.model} ws${props.online ? LIVE.on : LIVE.off}`}</Text>
         <Text color={PAL.textPrimary} wrap="truncate">{`spend $${props.spend.toFixed(4)}${props.handoff ? ` · handoff→${props.handoff.harness}` : ''}`}</Text>
         <Text color={PAL.textMuted} wrap="truncate">[m] model [M] harness-model [K] handoff [X] kill</Text>
         <Text color={PAL.textMuted} wrap="truncate">[t] toggle [b] body [f] fusion [g] gen [1-6] focus</Text>
@@ -1489,8 +1538,8 @@ function SwarmPane(props: {
       )}
       {run ? (
         <>
-          <Text color={run.ok ? PAL.seal : PAL.danger} wrap="truncate">
-            {`${run.closed ? '⊘' : ' '} ${run.preset.slice(0, 12).padEnd(12)} n=${String(run.size).padStart(2)} $${run.usd.toFixed(4)} tk${String(run.tokensThinking).padStart(4)} ${run.judge.slice(0, 10).padEnd(10)} ${run.policy}${run.airgap ? ` ag${run.airgap.egress}` : ''}`}
+          <Text color={run.ok ? PAL.structure : PAL.danger} wrap="truncate">
+            {`${run.ok ? '●' : '×'}${run.closed ? '⊘' : ' '} ${run.preset.slice(0, 12).padEnd(12)} n=${String(run.size).padStart(2)} $${run.usd.toFixed(4)} tk${String(run.tokensThinking).padStart(4)} ${run.judge.slice(0, 10).padEnd(10)} ${run.policy}${run.airgap ? ` ag${run.airgap.egress}` : ''}`}
           </Text>
           <Text color={PAL.textMuted} wrap="truncate">{`  run ${run.id.slice(0, 16)}`}</Text>
         </>
@@ -1507,9 +1556,11 @@ function SwarmPane(props: {
 // receipts for reachable · memory · loaded models · tok-per-s.
 function EnginePane(props: { nodes: w2.NodeStat[]; unreal: un.UnrealRow; houdini: un.HoudiniRow; compact?: boolean; maxRows?: number }) {
   // C5: one flat list of rows so the plan's cap applies across nodes
-  const lines: { text: string; color: string }[] = props.nodes.length === 0
+  const lines: { text: string; color: string; ev?: EvidenceState }[] = props.nodes.length === 0
     ? [{ text: 'fleet/nodes.json missing', color: PAL.textMuted }]
     : props.nodes.map(n => ({
+      // C1b-2: reachable = measured by a node.* receipt (checked ✓); otherwise nodes.json only declares it (○)
+      ev: (n.reachable ? 'checked' : 'declared') as EvidenceState,
       color: n.reachable ? PAL.textPrimary : PAL.textMuted,
       text: `${n.id.slice(0, 7).padEnd(7)} ${n.reachable ? 'up  ' : 'down'} ${(n.memGb ? `${n.memGb}G` : 'mem?').padEnd(5)} ${String(n.models.length).padStart(2)}mdl ${(n.tokPerS ? `${Math.round(n.tokPerS)}t/s` : 't/s?').padEnd(6)}`,
     }));
@@ -1524,7 +1575,12 @@ function EnginePane(props: { nodes: w2.NodeStat[]; unreal: un.UnrealRow; houdini
   const rows = capRows(lines, props.maxRows ?? lines.length);
   return (
     <Card title="ENGINE ROOM" purpose={props.compact ? undefined : 'fleet/nodes.json + node receipts'} overflow={moreLine(rows.more, 'rows')}>
-      {rows.shown.map((l, i) => <Text key={i} color={l.color} wrap="truncate">{l.text}</Text>)}
+      {rows.shown.map((l, i) => (
+        <Text key={i} wrap="truncate">
+          {l.ev ? <Text bold={evidenceLook(l.ev).bold} color={evColor(l.ev)}>{`${evidenceGlyph(l.ev)} `}</Text> : null}
+          <Text color={l.color}>{l.text}</Text>
+        </Text>
+      ))}
     </Card>
   );
 }
@@ -1617,7 +1673,7 @@ function SkillsTree(props: { projects: w2.ProjectRow[]; compact?: boolean; maxRo
 // board.json, mode 700, gitignored) so this pane renders ONLY when the owner
 // imported one — a fresh install never shows it. [Enter] opens the cursor
 // cell's full prompt; the viewer is height-bounded and says so when it clips.
-function HandsPane(props: { board: ck.Board; row: number; col: number; showPrompt: boolean; compact?: boolean; maxRows?: number; innerWidth?: number }) {
+function HandsPane(props: { board: ck.Board; recs: Receipt[]; covered: (r: Receipt) => boolean; row: number; col: number; showPrompt: boolean; compact?: boolean; maxRows?: number; innerWidth?: number }) {
   const { board, row, col } = props;
   const hand = board.hands[row];
   const stateColor = (st: string): string =>
@@ -1666,7 +1722,17 @@ function HandsPane(props: { board: ck.Board; row: number; col: number; showPromp
                 {h.name.slice(0, 10).padEnd(12) + h.tool.slice(0, 8).padEnd(10) + h.round.padEnd(4)}
               </Text>
               <Text bold={sel || h.state === 'needs-approval'} color={stateColor(h.state)}>{h.state.padEnd(17)}</Text>
-              <Text color={PAL.textMuted}>{(h.lastSeal && h.lastSeal !== '—' ? h.lastSeal.slice(7, 15) : '—').padEnd(9)}</Text>
+              {(() => {
+                // C1b-2: a board's last_seal is a declared string until a receipt carries it;
+                // that receipt is constructed until a verify covers it, checked after
+                const h8 = h.lastSeal && h.lastSeal !== '—' ? h.lastSeal.slice(7, 15) : '';
+                const rec = h8 ? props.recs.find(r => String(r.hash).slice(7, 15) === h8) : undefined;
+                const ev: EvidenceState | 'refused' | null = !h8 ? null : rec ? receiptEvidence(rec, { verified: props.covered(rec) }) : 'declared';
+                const look = ev && ev !== 'refused' ? evidenceLook(ev) : null;
+                return ev
+                  ? <Text bold={look?.bold} dimColor={look?.dim} color={evColor(ev)}>{`${evidenceGlyph(ev)}${h8}`.padEnd(9)}</Text>
+                  : <Text color={PAL.textMuted}>{'· —'.padEnd(9)}</Text>;
+              })()}
               {ck.ROUNDS.map((r, c) => {
                 const has = Boolean(board.prompts?.[h.name]?.[r]);
                 const cur = sel && c === col;
