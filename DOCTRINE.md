@@ -84,6 +84,13 @@ Companion to DESIGN.md (Clearinghouse constitution) and decisions.md
 - Gates are not tuned to targets — a threshold chosen to produce a
   desired flag is a fitted instrument.
 
+## 13. KEEP ASSERTION
+- A removal or migration is sealed only with a gate that asserts what
+  REMAINS: the receipt names the artifacts that must still exist and
+  verifies each.
+- Absence of the removed thing is not evidence; presence of the kept things
+  is.
+
 ## 14. CITE-EXISTS
 - A seal that cites an artifact must cite a hash that EXISTS at seal time.
   `timmy seal --artifact <path>` refuses (exit 2, no seal) when the path is
@@ -98,3 +105,20 @@ Companion to DESIGN.md (Clearinghouse constitution) and decisions.md
 - Toolchain artifacts live IN the repo (tools/, man/, script ledgers). A
   ledger or roster sealed from outside the repo is an orphan waiting to
   happen.
+
+## 15. GEOMETRY IS A LEDGER
+- Every geometric artifact carries a provenance tag
+  (measured | reconstructed:scale? | generated) and an evidence state
+  (declared | constructed | checked | inferred | stale).
+- Tags are inherited by derivation and never upgraded by a model's opinion;
+  only a measurement can move reconstructed to metric or inferred to
+  checked.
+- A dimension without a tag is refused at seal.
+
+## 16. DELIVERY SIZE
+- Work lands in checkpoints of ≤15 minutes of wall clock, each ending in a
+  report and HOLD.
+- A checkpoint that exceeds the budget is split before continuing, and the
+  overrun is recorded in the checkpoint file.
+- A run longer than 15 minutes is allowed only under an explicit standing
+  order ("I'm leaving — work as long as you can") with a sealed cap.
