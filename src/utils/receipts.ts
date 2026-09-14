@@ -2,7 +2,7 @@ import { existsSync, readFileSync, appendFileSync, mkdirSync, rmdirSync, statSyn
 import { join, dirname } from 'path';
 import { spawnSync } from 'child_process';
 import crypto from 'crypto';
-import { appendEvent } from './eventbus.js';
+import { publish as busPublish } from '../bus/index.js';
 import { signBody, verifyBody } from './signing.js';
 import { captureEnvLock, type EnvLock } from './envlock.js';
 import type { Edl } from './edl.js';
@@ -76,10 +76,12 @@ export const hashOf = (o: Record<string, unknown>): string =>
   'sha256_' + crypto.createHash('sha256').update(canon(o)).digest('hex');
 
 // STORE PIN (v10 fork fix): seals resolve to ONE canonical store regardless
-// of cwd. Resolution order: nearest ancestor .timmy/store-pin -> nearest
-// ancestor package.json's .timmy/receipts -> legacy cwd. The pin is committed,
-// so every checkout (including worktrees) resolves to the same store.
+// of cwd. Resolution order: TIMMY_STORE env -> nearest ancestor .timmy/store-pin
+// -> nearest ancestor package.json's .timmy/receipts -> legacy cwd.
 export function rootStoreDir(dir: string = process.cwd()): string | undefined {
+  // TEST ISOLATION (tui-redesign-p6a3 corr 1): under NODE_ENV=test a per-file
+  // TIMMY_STORE is the canonical store so the store-pin preflight accepts it.
+  if (process.env.NODE_ENV === 'test' && process.env.TIMMY_STORE && dir === process.cwd()) return process.env.TIMMY_STORE;
   // Pass 1: a store-pin anywhere above cwd wins (sub-project package.json
   // files must NOT shadow the canonical store — that's how the v10 fork happened).
   let d = dir;
@@ -100,19 +102,9 @@ export function rootStoreDir(dir: string = process.cwd()): string | undefined {
   }
 }
 
-// Preflight: pin the store at a repo root that has no pin yet (fresh clone or
-// a checkout that lost it). Idempotent; never overwrites an existing pin.
-export function ensureStorePin(dir: string = process.cwd()): string | undefined {
-  const found = rootStoreDir(dir);
-  if (found) return found;
-  if (!existsSync(join(dir, 'package.json'))) return undefined;
-  const pin = join(dir, '.timmy', 'store-pin');
-  mkdirSync(dirname(pin), { recursive: true });
-  writeFileSync(pin, join(dir, '.timmy', 'receipts'));
-  return join(dir, '.timmy', 'receipts');
-}
-
 export function receiptsDir(dir: string = process.cwd()): string {
+  // per-file test store applies only when the caller didn't pass an explicit dir
+  if (process.env.TIMMY_STORE && dir === process.cwd()) return process.env.TIMMY_STORE;
   return rootStoreDir(dir) ?? join(dir, '.timmy', 'receipts');
 }
 
@@ -227,7 +219,8 @@ export function appendReceipt(stream: string, input: ReceiptInput, dir?: string)
     const p = receiptsPath(stream, dir);
     mkdirSync(dirname(p), { recursive: true });
     appendFileSync(p, JSON.stringify(rec) + '\n', 'utf8');
-    appendEvent('receipt.sealed', { stream, id: rec.id, hash: rec.hash, kind: rec.kind, subject: rec.subject, epoch }, dir);
+    // CONTROL PLANE: every seal also publishes onto the runs.jsonl event bus
+    busPublish('receipt.sealed', { stream, id: rec.id, hash: rec.hash, kind: rec.kind, subject: rec.subject, epoch }, dir);
     return rec;
   });
 }

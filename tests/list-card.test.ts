@@ -189,7 +189,7 @@ describe('listCardTool tests', () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
 
-    const baseUrl = 'https://break-mode-engine.wmeldman33.workers.dev';
+    const baseUrl = 'https://break-mode-engine.<hostname>';
     process.env.BREAK_MODE_API_BASE_URL = baseUrl;
 
     // 1. Scan Sol Ring to live state

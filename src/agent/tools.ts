@@ -1,5 +1,6 @@
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { z } from 'zod/v4';
+import { edgeUrl, operatorLabel } from '../utils/edge-host.js';
 
 export const currentTimeTool = tool({
   name: 'get_current_time',
@@ -472,13 +473,13 @@ export const cloudflareSendDurablePulseTool = tool({
     message: z.string(),
   }),
   execute: async ({ metricName, metricValue }: { metricName: string; metricValue: number }) => {
-    const workerUrl = 'https://timmy-ai-proxy.wmeldman33.workers.dev';
+    const workerUrl = edgeUrl(); // throws the inert line when unresolved
     try {
       const response = await fetch(`${workerUrl}/pulse`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Operator': 'William Meldman'
+          'X-Operator': operatorLabel()
         },
         body: JSON.stringify({
           metric: metricName,

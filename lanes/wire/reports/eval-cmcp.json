@@ -1,0 +1,31 @@
+{
+ "which_go": {
+  "exit": 1,
+  "stdout": ""
+ },
+ "go_version": {
+  "exit": -2,
+  "error": "ENOENT",
+  "stderr": ""
+ },
+ "go_build": {
+  "exit": -2,
+  "error": "ENOENT",
+  "stderr": ""
+ },
+ "brew_go": {
+  "exit": 1,
+  "stdout": "",
+  "stderr": ""
+ },
+ "facts": {
+  "source_dir": "/var/folders/8w/dzxqndbd70xfm8lq7qbbsj7h0000gn/T/timmy-wire/cmcp-main",
+  "source_present": false,
+  "go_files": 0,
+  "go_lines": 0,
+  "commands": [],
+  "claude_mcp_calls": [],
+  "deps": [],
+  "readme_claims": []
+ }
+}

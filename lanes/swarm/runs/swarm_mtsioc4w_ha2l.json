@@ -1,0 +1,287 @@
+{
+ "where": "edge",
+ "room": "war-room",
+ "worker": "https://timmy-ai-proxy-preview.wmeldman33.workers.dev",
+ "spec": {
+  "v": 1,
+  "id": "timmy-x3",
+  "preset": "timmy-x3",
+  "topology": "fusion",
+  "members": [
+   {
+    "id": "ship",
+    "kind": "timmy",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "room": "project:ship"
+   },
+   {
+    "id": "shelf",
+    "kind": "timmy",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "room": "project:shelf"
+   },
+   {
+    "id": "swarm",
+    "kind": "timmy",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "room": "project:swarm"
+   }
+  ],
+  "size": 3,
+  "budget": {
+   "usd": 0.25,
+   "max_calls": 8,
+   "max_ms": 600000
+  },
+  "judge": {
+   "tier": "edge",
+   "model": "google/gemini-3.7-flash"
+  },
+  "network": {
+   "policy": "open",
+   "egress_allow": []
+  },
+  "rounds": 2
+ },
+ "task": "From your project's point of view, what is the one receipt you would want sealed first, and why? Two sentences.",
+ "result": {
+  "ok": true,
+  "run_id": "swarm_mtsioc4w_ha2l",
+  "swarm_id": "timmy-x3",
+  "topology": "fusion",
+  "size": 3,
+  "answer": "The genesis state receipt establishing the swarm's initial configuration, agent identities, and cryptographic root-of-trust must be sealed first. Without an immutable foundation anchored at state zero, no downstream execution traces, capability delegations, or consensus proofs can be deterministically verified.\n\nDrawn primarily on candidate 3.",
+  "winner": null,
+  "losers": [],
+  "votes": null,
+  "roles": null,
+  "assignments": null,
+  "calls": [
+   {
+    "member": "ship",
+    "phase": "answer",
+    "model": "timmy:project:ship",
+    "ok": true,
+    "killed": false,
+    "ms": 4573,
+    "usd": 0.001522,
+    "receipt": "8043cfcbd95b835f8de355bd2b0553c28fee3ce81aebd6500e227b23e9b19b0a",
+    "receipt_external": "a3da68fc12422757e330385d00832aa9d7dc2d3ab0825606deaae2023dde54bf",
+    "error": null,
+    "preview": "The genesis execution receipt defining the initial state distribution and agent"
+   },
+   {
+    "member": "shelf",
+    "phase": "answer",
+    "model": "timmy:project:shelf",
+    "ok": true,
+    "killed": false,
+    "ms": 4993,
+    "usd": 0.001522,
+    "receipt": "327535ef4db1111e53e2b5954c6153db68221350c21505d2b1637e217f6faf4f",
+    "receipt_external": "bd6156286b6fa6886fcc7b6e01f1e8c70be8e981d3eb89de7ece6763bfade044",
+    "error": null,
+    "preview": "We would seal the Genesis Authorization Receipt first, which records the initial system state, task delegation boundaries, and swarm consensus parameters. Sealing this foundation immediately establishes an immutable cryptographic root of tr"
+   },
+   {
+    "member": "swarm",
+    "phase": "answer",
+    "model": "timmy:project:swarm",
+    "ok": true,
+    "killed": false,
+    "ms": 5194,
+    "usd": 0.001514,
+    "receipt": "14503d7b7b7e8bd59f71c487390aea77cb123b44fbaebe2831f3adcc136d2dd0",
+    "receipt_external": "706ebb8e4512a94d5ce27763d01d63e996e0563530d44ac469040c92fa8495a7",
+    "error": null,
+    "preview": "The genesis state receipt establishing the swarm's initial configuration, agent identities, and cryptographic root-of-trust must be sealed first. Without an immutable foundation anchored at state zero, no downstream execution traces, capabi"
+   },
+   {
+    "member": "judge",
+    "phase": "judge",
+    "model": "google/gemini-3.7-flash",
+    "ok": true,
+    "killed": false,
+    "ms": 3169,
+    "usd": 0.001043,
+    "receipt": "a3e487a9682be9c2aec2bf38dc001d60e50235b5ca3d041f4994fe6cc854f1c5",
+    "receipt_external": null,
+    "error": null,
+    "preview": "The genesis state receipt establishing the swarm's initial configuration, agent identities, and cryptographic root-of-trust must be sealed first. Without an immutable foundation anchored at state zero, no downstream execution traces, capabi"
+   }
+  ],
+  "budget": {
+   "usd": 0.25,
+   "spent": 0.005601,
+   "max_calls": 8,
+   "calls": 4,
+   "max_ms": 600000,
+   "ms": 8995,
+   "exhausted": null,
+   "kills": []
+  },
+  "usd": 0.005601,
+  "ms": 8995,
+  "receipt": {
+   "v": 1,
+   "id": "ec_mtsioj2r_jqq6",
+   "ts": "2026-09-08T10:18:48.339Z",
+   "kind": "swarm.run",
+   "subject": "commander:war-room",
+   "data": {
+    "run_id": "swarm_mtsioc4w_ha2l",
+    "swarm_id": "timmy-x3",
+    "preset": "timmy-x3",
+    "by": "commander",
+    "topology": "fusion",
+    "size": 3,
+    "ok": true,
+    "task_sha256": "9da5c9cd4db3fea89d1e2854348765f8473baa2b35937c03680650a20052ff5c",
+    "answer_sha256": "c6576df8efbb7c34c80a7a621db31a33063bcf05e122b7db2b7308d9e7a2f0a2",
+    "spec_sha256": "7c5a5175479e41290d7a2f11f4e44e6282e4a541f04492ce55ec54574c5ad721",
+    "members": [
+     {
+      "id": "ship",
+      "kind": "timmy",
+      "node": "edge",
+      "sandbox": "none",
+      "room": "project:ship"
+     },
+     {
+      "id": "shelf",
+      "kind": "timmy",
+      "node": "edge",
+      "sandbox": "none",
+      "room": "project:shelf"
+     },
+     {
+      "id": "swarm",
+      "kind": "timmy",
+      "node": "edge",
+      "sandbox": "none",
+      "room": "project:swarm"
+     }
+    ],
+    "calls": [
+     {
+      "member": "ship",
+      "phase": "answer",
+      "round": null,
+      "model": "timmy:project:ship",
+      "ok": true,
+      "killed": false,
+      "ms": 4573,
+      "usd": 0.001522,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "counted": true,
+      "provider_used": "timmy",
+      "generation_id": null,
+      "content_sha256": "9e923701d98c93c04db34e1217e47cf6dd4d4493477043a07cd0ee979876cd60",
+      "receipt": "8043cfcbd95b835f8de355bd2b0553c28fee3ce81aebd6500e227b23e9b19b0a",
+      "error": null
+     },
+     {
+      "member": "shelf",
+      "phase": "answer",
+      "round": null,
+      "model": "timmy:project:shelf",
+      "ok": true,
+      "killed": false,
+      "ms": 4993,
+      "usd": 0.001522,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "counted": true,
+      "provider_used": "timmy",
+      "generation_id": null,
+      "content_sha256": "f106b92e45753d4789a8085ea7069f8ece8d560e7a26f250c4811d2c292cd8ec",
+      "receipt": "327535ef4db1111e53e2b5954c6153db68221350c21505d2b1637e217f6faf4f",
+      "error": null
+     },
+     {
+      "member": "swarm",
+      "phase": "answer",
+      "round": null,
+      "model": "timmy:project:swarm",
+      "ok": true,
+      "killed": false,
+      "ms": 5194,
+      "usd": 0.001514,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "counted": true,
+      "provider_used": "timmy",
+      "generation_id": null,
+      "content_sha256": "cbcf59acfcdcfa09fb62b62645de6a4e7cf768fd8227734c469c08962385bc34",
+      "receipt": "14503d7b7b7e8bd59f71c487390aea77cb123b44fbaebe2831f3adcc136d2dd0",
+      "error": null
+     },
+     {
+      "member": "judge",
+      "phase": "judge",
+      "round": null,
+      "model": "google/gemini-3.7-flash",
+      "ok": true,
+      "killed": false,
+      "ms": 3169,
+      "usd": 0.001043,
+      "tokens_in": 215,
+      "tokens_out": 235,
+      "counted": true,
+      "provider_used": "Google",
+      "generation_id": "gen-1788862724-8GMeoqQp8ElugxXrCjzI",
+      "content_sha256": "c6576df8efbb7c34c80a7a621db31a33063bcf05e122b7db2b7308d9e7a2f0a2",
+      "receipt": "a3e487a9682be9c2aec2bf38dc001d60e50235b5ca3d041f4994fe6cc854f1c5",
+      "error": null
+     }
+    ],
+    "winner": null,
+    "losers": [],
+    "votes": null,
+    "rounds": 0,
+    "judge": {
+     "tier": "edge",
+     "model": "google/gemini-3.7-flash"
+    },
+    "network": {
+     "policy": "open",
+     "egress_allow": []
+    },
+    "budget": {
+     "usd": 0.25,
+     "spent": 0.005601,
+     "max_calls": 8,
+     "calls": 4,
+     "max_ms": 600000,
+     "ms": 8995,
+     "exhausted": null,
+     "kills": []
+    },
+    "usd": 0.005601,
+    "ms": 8995,
+    "source": "http"
+   },
+   "prev_hash": "a3e487a9682be9c2aec2bf38dc001d60e50235b5ca3d041f4994fe6cc854f1c5",
+   "hash": "7764c9bf152f1b67925e5d651365d705609ea5545b0b27e30dd1226506bd2acb"
+  },
+  "spend": {
+   "usd": 0.115358,
+   "cap_usd": 2,
+   "calls": 37,
+   "tokens_in": 6302,
+   "tokens_out": 19328,
+   "uncounted": 0,
+   "last_at": "2026-09-08T10:18:48.339Z",
+   "tokens_cached": 1408,
+   "tokens_reasoning": 16278
+  }
+ },
+ "receipt": "sha256_50482a4cf612498cd2e91ac8583fb079bddec06202e9e8819c5ebc845981ff68"
+}

@@ -1,0 +1,45 @@
+[
+ {
+  "name": "timmy_verify",
+  "description": "Walk TIMMY receipt chains (gens/harness/runs/exports); detect tampering",
+  "inputSchema": {
+   "type": "object",
+   "properties": {}
+  }
+ },
+ {
+  "name": "timmy_gens",
+  "description": "List the generation ledger: prompts, providers, models, costs, statuses",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "limit": {
+     "type": "number"
+    }
+   }
+  }
+ },
+ {
+  "name": "timmy_slate",
+  "description": "Read a TIMMY Slate project (beats, cast call-sheet, branches, refs)",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "project": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "project"
+   ]
+  }
+ },
+ {
+  "name": "timmy_fleet",
+  "description": "List the Porter fleet (houdini #1, roboflow #2, comfyui #3…) with detection status",
+  "inputSchema": {
+   "type": "object",
+   "properties": {}
+  }
+ }
+]

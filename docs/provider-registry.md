@@ -22,6 +22,12 @@ The registry does not import provider SDKs, call provider APIs, or require provi
 
 `timmy providers audit` reports readiness by variable name only. It never prints secret values.
 
+For fal, `FALAI_API_KEY` is an accepted fallback alias for `FAL_KEY`. Registry
+readiness establishes configuration presence only. The additive
+[`timmy providers fal3d`](fal3d-provider.md) route offers a read-only live
+credential check, offline reference-bound plans, operator-gated queue
+submission and resumable GLB collection.
+
 ## OpenRouter
 
 OpenRouter remains the active default provider. TIMMY reads:

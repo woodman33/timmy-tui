@@ -1,6 +1,7 @@
 import { getWorkspaceEvidenceStatus } from '../src/utils/workspace-evidence.js';
 import { depsDoctor, networkDoctor, hardwareDoctor, printRows } from '../src/utils/doctors.js';
 import { runDoctor } from '../src/utils/doctor.js';
+import { appendReceipt } from '../src/utils/receipts.js';
 import { VERSION } from '../src/version.js';
 
 function parseArgs(argv: string[]) {
@@ -12,6 +13,23 @@ function parseArgs(argv: string[]) {
 async function printDoctor(json = false): Promise<void> {
   const workspace = getWorkspaceEvidenceStatus();
   const pre = await runDoctor();
+  // SPEC §00 journey step 1: doctor is a receipt, not just output — the HOME
+  // ladder reads doctor.pass off the chain. FIX B (director): copy is
+  // "N ok · M skipped"; a pass never says blocked, and a genuine required-check
+  // failure seals doctor.fail (status failed) so the ladder row is never ✓.
+  try {
+    const okN = pre.checks.filter(c => c.state === 'ok').length;
+    const skippedN = pre.checks.filter(c => !c.required && c.state !== 'ok').length;
+    const failed = pre.checks.filter(c => c.required && c.state !== 'ok');
+    appendReceipt('runs', {
+      kind: 'run',
+      subject: pre.ok
+        ? `doctor.pass · ${okN} ok · ${skippedN} skipped`
+        : `doctor.fail · ${okN} ok · ${skippedN} skipped · ${failed.length} failed (${failed.map(f => f.name).join(', ')})`,
+      policy: 'auto',
+      status: pre.ok ? 'ok' : 'failed'
+    });
+  } catch { /* chain unwritable: doctor still reports */ }
   const rmux = workspace.rmux;
   const tmuxSessions = workspace.tmux.sessions;
   const palette = workspace.palette;

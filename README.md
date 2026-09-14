@@ -97,6 +97,7 @@ call receipted.
 
 - [ROADMAP.md](ROADMAP.md) — public now/next
 - [docs/README.md](docs/README.md) — full doc index
+- [docs/fal3d-provider.md](docs/fal3d-provider.md) — reference-driven P1/H3.1/TRELLIS.2 assets, offline plans and operator-gated fal jobs
 - [docs/RECEIPT-SPEC-v2.md](docs/RECEIPT-SPEC-v2.md) — receipt schema
 - [docs/UI-REFERENCE-NOTES.md](docs/UI-REFERENCE-NOTES.md) — the UI north-star
 - [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
@@ -110,3 +111,10 @@ call receipted.
 - **No secrets in receipts**: prompts are stored plaintext — never put
   credentials in task strings; keys live in env/keychain and are redacted on
   the way out.
+
+
+### Roboflow Vision Studio
+
+Open `timmy vision` (or `/vision` inside the TUI) for six editable tldraw templates, image inspection with a configured Roboflow model or saved Workflow, archived evidence, and operator review. `timmy vision status` checks setup; `timmy vision doctor` checks this computer without running inference. API keys stay in the server environment or private `.timmy/vision.env` file.
+
+See [Timmy Vision setup and deployment](docs/ROBOFLOW-VISION.md) for Spark/NAS placement, local versus hosted inference, Vision Events, WebRTC, MCP tools, and the limits of the current integration. Visual canvas recipes describe a process; the selected model or saved Workflow executes the inspection.

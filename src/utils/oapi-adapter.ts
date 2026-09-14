@@ -13,7 +13,7 @@ import { mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { appendReceipt } from './receipts.js';
-import { appendEvent } from './eventbus.js';
+import { publish as appendEvent } from '../bus/index.js';
 
 export interface OapiReq {
   spec_url: string;

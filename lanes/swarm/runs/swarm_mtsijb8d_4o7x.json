@@ -1,0 +1,212 @@
+{
+ "where": "edge",
+ "room": "war-room",
+ "worker": "https://timmy-ai-proxy-preview.wmeldman33.workers.dev",
+ "spec": {
+  "v": 1,
+  "id": "fanout-2",
+  "preset": "fanout-2",
+  "topology": "fanout",
+  "members": [
+   {
+    "id": "a",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "google/gemini-3.7-flash",
+    "provider": "openrouter"
+   },
+   {
+    "id": "b",
+    "kind": "model",
+    "node": "edge",
+    "sandbox": "none",
+    "weight": 1,
+    "model": "x-ai/grok-4.6",
+    "provider": "openrouter"
+   }
+  ],
+  "size": 2,
+  "budget": {
+   "usd": 0.1,
+   "max_calls": 4,
+   "max_ms": 600000
+  },
+  "judge": {
+   "tier": "edge"
+  },
+  "network": {
+   "policy": "open",
+   "egress_allow": []
+  },
+  "rounds": 2
+ },
+ "task": "In one sentence each: what is a receipt chain, and why hash the previous receipt?",
+ "result": {
+  "ok": true,
+  "run_id": "swarm_mtsijb8d_4o7x",
+  "swarm_id": "fanout-2",
+  "topology": "fanout",
+  "size": 2,
+  "answer": "[1] a\nA receipt chain is a tamper-evident, append-only log of transaction records where each\n\n[2] b\nA receipt chain is an ordered sequence of receipts in which each receipt cryptographically commits to (hashes) the immediately preceding receipt. Hashing the previous receipt makes the chain tamper-evident, so any alteration or reordering of earlier receipts is immediately detectable.",
+  "winner": null,
+  "losers": [],
+  "votes": null,
+  "roles": null,
+  "assignments": null,
+  "calls": [
+   {
+    "member": "a",
+    "phase": "answer",
+    "model": "google/gemini-3.7-flash",
+    "ok": true,
+    "killed": false,
+    "ms": 3808,
+    "usd": 0.001516,
+    "receipt": "2c1ca6566148fbd877acef9699904a371bf4e92f14ba7c60d7d408a21c806f26",
+    "receipt_external": null,
+    "error": null,
+    "preview": "A receipt chain is a tamper-evident, append-only log of transaction records where each"
+   },
+   {
+    "member": "b",
+    "phase": "answer",
+    "model": "x-ai/grok-4.6",
+    "ok": true,
+    "killed": false,
+    "ms": 9691,
+    "usd": 0.003404,
+    "receipt": "13d4a93cf61f7267aeaaf194a3207c04fcff65737df40bdbc5b8baa82c5da0b9",
+    "receipt_external": null,
+    "error": null,
+    "preview": "A receipt chain is an ordered sequence of receipts in which each receipt cryptographically commits to (hashes) the immediately preceding receipt. Hashing the previous receipt makes the chain tamper-evident, so any alteration or reordering o"
+   }
+  ],
+  "budget": {
+   "usd": 0.1,
+   "spent": 0.00492,
+   "max_calls": 4,
+   "calls": 2,
+   "max_ms": 600000,
+   "ms": 9974,
+   "exhausted": null,
+   "kills": []
+  },
+  "usd": 0.00492,
+  "ms": 9974,
+  "receipt": {
+   "v": 1,
+   "id": "ec_mtsijixf_ku9e",
+   "ts": "2026-09-08T10:14:54.867Z",
+   "kind": "swarm.run",
+   "subject": "commander:war-room",
+   "data": {
+    "run_id": "swarm_mtsijb8d_4o7x",
+    "swarm_id": "fanout-2",
+    "preset": "fanout-2",
+    "by": "commander",
+    "topology": "fanout",
+    "size": 2,
+    "ok": true,
+    "task_sha256": "9851e3da4510f6f33030aae4d9ade8288833b3dda4bb1ceaec9cc94290059c51",
+    "answer_sha256": "8433ae30121c26186747a6dcbaa5b17c2897b1c05c1480f5e0a10f3d2d2e76b4",
+    "spec_sha256": "a8cd468815d3ab05fdbbe325e8965d805ec663c54577609c9b31cbfcbe35734d",
+    "members": [
+     {
+      "id": "a",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "google/gemini-3.7-flash",
+      "provider": "openrouter"
+     },
+     {
+      "id": "b",
+      "kind": "model",
+      "node": "edge",
+      "sandbox": "none",
+      "model": "x-ai/grok-4.6",
+      "provider": "openrouter"
+     }
+    ],
+    "calls": [
+     {
+      "member": "a",
+      "phase": "answer",
+      "round": null,
+      "model": "google/gemini-3.7-flash",
+      "ok": true,
+      "killed": false,
+      "ms": 3808,
+      "usd": 0.001516,
+      "tokens_in": 41,
+      "tokens_out": 396,
+      "counted": true,
+      "provider_used": "Google",
+      "generation_id": "gen-1788862484-0RDziVAGCMkBuwpow175",
+      "content_sha256": "56c62126672cb4f5945495839b22bc4c97ff958616def3b97c88643f4ba5fe72",
+      "receipt": "2c1ca6566148fbd877acef9699904a371bf4e92f14ba7c60d7d408a21c806f26",
+      "error": null
+     },
+     {
+      "member": "b",
+      "phase": "answer",
+      "round": null,
+      "model": "x-ai/grok-4.6",
+      "ok": true,
+      "killed": false,
+      "ms": 9691,
+      "usd": 0.003404,
+      "tokens_in": 250,
+      "tokens_out": 516,
+      "counted": true,
+      "provider_used": "xAI",
+      "generation_id": "gen-1788862485-WUmC0FvGb82D1ETVULAv",
+      "content_sha256": "97b3405257fead8b5f5ac26593d327054beef7c1c30c477faa1d8cfd696dc375",
+      "receipt": "13d4a93cf61f7267aeaaf194a3207c04fcff65737df40bdbc5b8baa82c5da0b9",
+      "error": null
+     }
+    ],
+    "winner": null,
+    "losers": [],
+    "votes": null,
+    "rounds": 0,
+    "judge": {
+     "tier": "edge"
+    },
+    "network": {
+     "policy": "open",
+     "egress_allow": []
+    },
+    "budget": {
+     "usd": 0.1,
+     "spent": 0.00492,
+     "max_calls": 4,
+     "calls": 2,
+     "max_ms": 600000,
+     "ms": 9974,
+     "exhausted": null,
+     "kills": []
+    },
+    "usd": 0.00492,
+    "ms": 9974,
+    "source": "http"
+   },
+   "prev_hash": "13d4a93cf61f7267aeaaf194a3207c04fcff65737df40bdbc5b8baa82c5da0b9",
+   "hash": "59835b5af10ae7573922e1add100acea65a3c52edd82cf92741d000c3e70d0b4"
+  },
+  "spend": {
+   "usd": 0.017257,
+   "cap_usd": 2,
+   "calls": 11,
+   "tokens_in": 1540,
+   "tokens_out": 3055,
+   "uncounted": 0,
+   "last_at": "2026-09-08T10:14:54.867Z",
+   "tokens_cached": 128,
+   "tokens_reasoning": 843
+  }
+ },
+ "receipt": "sha256_0c6c97178604fbe01b5825afabcb727a91816771b196f29c99f38c37d0a78c6a"
+}

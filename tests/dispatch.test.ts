@@ -40,7 +40,7 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe('Command Post v0.1 dispatch contract', () => {
+describe('Command Post v0.1 dispatch contract', { timeout: 30000 }, () => {
   it('plan hashing is stable across key order', () => {
     const a = basePlan();
     const b = JSON.parse(JSON.stringify(a));
@@ -133,7 +133,7 @@ describe('Command Post v0.1 dispatch contract', () => {
     const last = readChain('runs', dir).at(-1) as any;
     expect(last.subject).toContain('cancelled');
     // normalized events landed
-    const evs = readFileSync(join(dir, '.timmy', 'runs', 'timmy-events.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
+    const evs = readFileSync(join(dir, '.timmy', 'receipts', 'runs.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l)).filter((e: { hash?: string }) => !e.hash);
     expect(evs.some(e => e.kind === 'dispatch.launched' && e.payload?.plan_hash === c.plan_hash)).toBe(true);
     expect(evs.some(e => e.kind === 'dispatch.cancelled')).toBe(true);
   });

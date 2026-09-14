@@ -1,0 +1,68 @@
+{
+ "harness": "jcode-dev",
+ "lineage": "jcode-dev",
+ "abilities_version": "v1",
+ "order": "captain-y9g4",
+ "version": "0.84.0-dev (e65e47c)",
+ "base_semver": "0.84.0",
+ "commit": "e65e47c31af2ab79346458ff1511bea533930b59",
+ "measured_at": "2026-09-09T03:09:14.990247-07:00",
+ "build": "cargo build --release --bin jcode (24m33s); installed to lanes/jcode/.dev-bin/jcode (own prefix, release binary untouched)",
+ "rebuild_receipt": "sha256_8e26add7",
+ "compared_to": {
+  "harness": "jcode",
+  "abilities": "sha256_a283888 (v2)",
+  "release": "0.84.0 (57d587899)"
+ },
+ "tool_schema": {
+  "google/gemini-3.8-flash": "strict",
+  "x-ai/grok-4.6": "lenient",
+  "anthropic/claude-opus-4.8": "lenient",
+  "openai/gpt-5.6-luna-pro": "lenient",
+  "qwen/qwen3.8-flash": "lenient",
+  "moonshotai/kimi-k3": "lenient"
+ },
+ "abilities": {
+  "one_shot": {
+   "value": true,
+   "method": "jcode-dev run --ndjson; PONG",
+   "evidence": [
+    "grok-4.6 ok"
+   ]
+  },
+  "mcp_client": {
+   "value": true,
+   "method": "jcode-dev called Timmy MCP timmy_env_lock over the stdio bridge",
+   "evidence": [
+    "tool_call mcp__timmy__timmy_env_lock"
+   ]
+  },
+  "resume": {
+   "value": true,
+   "method": "run creates session_fox_..., then run --resume <id> recalls the prior context",
+   "evidence": [
+    "codeword BLUEBIRD-7 recalled after --resume; run2 exit 0"
+   ]
+  },
+  "serve_connect": {
+   "value": "present",
+   "method": "serve/connect/server commands exist; started jcode-dev serve",
+   "note": "a fresh isolated daemon is BLOCKED by the shared runtime-dir lock (/var/folders/.../T) while another jcode server runs; --socket/JCODE_HOME do not isolate the server lock, so a second daemon was not started (the running one was not killed)"
+  },
+  "sdk": {
+   "value": true,
+   "method": "jcode acp (Agent Client Protocol adapter) is the programmatic drive surface, present in dev and release",
+   "note": "no separate npm SDK; ACP + the run --ndjson stream + the daemon socket are the drive surfaces"
+  },
+  "swarm": {
+   "value": "runtime-present",
+   "method": "source + CLI: config swarm_spawn_mode, headless/swarm sessions managed by the server, run replay --swarm (synced multi-pane); README: agents spawn teammates via a swarm tool",
+   "note": "NO CLI swarm verb in release or dev; swarm is server-managed multi-session + an agent tool; the agent swarm-tool spawn was not exercised one-shot this pass"
+  },
+  "browser": {
+   "value": true,
+   "method": "carried from the release measurement (webfetch example.com)"
+  }
+ },
+ "finding": "master (e65e47c) is a few commits past the release tag (57d587899) but the SAME 0.84.0 base. The features the 0.9.x README line suggested were dev-only \u2014 resume, serve/connect, replay, permissions, acp/SDK, the swarm runtime \u2014 are ALL present in the installed 0.84.0 RELEASE too. The dev build unlocks no additional capability; the delta vs release is immaterial. 0.9.x is an older dev versioning scheme, not a feature-ahead branch of the current 0.84.0 line."
+}

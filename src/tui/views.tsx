@@ -2,8 +2,8 @@
 // monolith is gone: [1] Command & Chat, [2] Mission DAG & Capsules,
 // [3] Telemetry & LogRain, [4] Escrow & Receipts. Legacy panels are reused
 // as content; the shell owns navigation, budget and chrome.
-import React from 'react';
-import { Box, Text } from 'ink';
+import React, { useState } from 'react';
+import { Box, Text, useInput } from 'ink';
 import { readdirSync } from 'fs';
 import { join } from 'path';
 import type { Agent } from '../agent/core.js';
@@ -15,7 +15,9 @@ import { readChain } from '../utils/receipts.js';
 import { readEvents } from '../utils/eventbus.js';
 import { CommandView } from './components/CommandView.js';
 import { Conversation } from './components/Conversation.js';
+import { useOpenReceipt } from './components/ReceiptDetail.js';
 import { LogRelay } from './components/LogRelay.js';
+import { ShellV2 } from './components/ShellV2.js';
 import { theme } from './theme.js';
 import { SlatePanel } from './panels/SlatePanel.js';
 import { LanesPanel } from './panels/LanesPanel.js';
@@ -50,7 +52,7 @@ const noopZone = (_z: number): void => undefined;
 // DESIGN.md §5.2 — HOME. Left: state line + three next-action cards +
 // sovereign chat. Right: LATEST PROOF (the only bold green) + ACTIVITY in
 // human sentences, 5 rows max.
-function HomeView({ agent, focused }: { agent: Agent; focused: boolean }) {
+function HomeView({ agent, focused, paneFocus }: { agent: Agent; focused: boolean; paneFocus: number }) {
   const [snap, setSnap] = React.useState<{
     plans: number; escrows: number; receipts: number;
     lastSeal: { hash: string; ts: string } | null; activity: string[];
@@ -85,6 +87,16 @@ function HomeView({ agent, focused }: { agent: Agent; focused: boolean }) {
     const t = setInterval(load, 2500);
     return () => clearInterval(t);
   }, []);
+
+  // C2 (ui.audit 3f6b191b6): ACTIVITY rail rows open receipt detail on Enter
+  const openReceipt = useOpenReceipt();
+  const [actIdx, setActIdx] = useState(0);
+  useInput((input, key) => {
+    if (paneFocus !== 1) return;
+    if (key.upArrow) { setActIdx(i => Math.max(0, i - 1)); return; }
+    if (key.downArrow) { setActIdx(i => Math.min(Math.max(snap.activity.length - 1, 0), i + 1)); return; }
+    if (key.return) { const m = snap.activity[actIdx]?.match(/([0-9a-f]{8})/); if (m) openReceipt(m[1]); }
+  }, { isActive: paneFocus === 1 });
 
   return (
     <Box flexDirection="row" flexGrow={1}>
@@ -126,12 +138,12 @@ function HomeView({ agent, focused }: { agent: Agent; focused: boolean }) {
           )}
         </Card>
         <Box height={1} />
-        <Card title="ACTIVITY" purpose="last five, in human sentences" overflow={snap.activity.length >= 5 ? '· tailing live' : undefined}>
+        <Card title="ACTIVITY" purpose="last five, in human sentences · [Enter] open · [Esc] back" overflow={snap.activity.length >= 5 ? '· tailing live' : undefined}>
           {snap.activity.length === 0 ? (
             <EmptyState line="quiet so far" action="[5] spawn a lane" />
           ) : (
             snap.activity.map((line, i) => (
-              <Text key={i} color={theme.textSecondary} wrap="truncate">{line}</Text>
+              <Text key={i} color={i === actIdx ? theme.accent : theme.textSecondary} wrap="truncate">{i === actIdx ? '▸' : ' '}{line}</Text>
             ))
           )}
         </Card>
@@ -150,10 +162,16 @@ export function ViewStage({ view, paneFocus, agent, setInspector }: ViewStagePro
   const { w: width, h: height } = React.useContext(ViewportContext);
   const pane = (i: number): boolean => paneFocus === i;
 
+  // TUI REDESIGN (tui-redesign-p6a3, CUTOVER): v2 shell is the DEFAULT; the
+  // legacy nine-view shell stays behind TIMMY_SHELL=v1 for one release.
+  if (process.env.TIMMY_SHELL !== 'v1') {
+    return <ShellV2 width={width} agent={agent} />;
+  }
+
   if (view === 0) {
     // DESIGN.md §5.2 — HOME: guided next-actions + sovereign chat left;
     // summarized proof + activity right (raw relay lives in View 3)
-    return <HomeView agent={agent} focused={pane(0)} />;
+    return <HomeView agent={agent} focused={pane(0)} paneFocus={paneFocus} />;
   }
 
   if (view === 1) {

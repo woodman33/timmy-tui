@@ -1,0 +1,28 @@
+{
+ "v": 1,
+ "engine": "houdini",
+ "captured_at": "2026-09-07T13:29:15.042Z",
+ "os": {
+  "platform": "darwin",
+  "build": "25G83",
+  "version": "26.6.2"
+ },
+ "arch": "arm64",
+ "tools": {
+  "hython": {
+   "path": "/Applications/Houdini/Current/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hython",
+   "sha256": "7b8796daa0b8b4739f5f59379c548cf13db6da1092a0f97b5fcc59a485ce9c77",
+   "size": 216704,
+   "mtime": 1788240807386.6865,
+   "version": "3.13.10"
+  },
+  "husk": {
+   "path": "/Applications/Houdini/Current/Frameworks/Houdini.framework/Versions/Current/Resources/bin/husk",
+   "sha256": "cd4f986b2a9910ba9864bf2170b5b5e3dad7b6c41c2092532dc098f03d4e1802",
+   "size": 2863840,
+   "mtime": 1788240807051.194,
+   "version": "22.0.429"
+  }
+ },
+ "installed": true
+}

@@ -1,0 +1,30 @@
+{
+ "kind": "blueprint",
+ "name": "Godot · import-only",
+ "source": "lanes/engines/godot/templates/import-only/plan.cue",
+ "date": "2026-09-07",
+ "engine": "godot",
+ "workflow": "import-only",
+ "proven": false,
+ "note": "AUTHORED, UNPROVEN: no Godot on this Mac. --import (Godot 4.4+) imports every asset headless, the step CI runs before an export; proven once a runner with Godot executes it through a drop folder.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "project", "value": "*.godot.zip", "note": "rules: run" },
+   { "label": "assets", "value": "*.png · *.wav · *.ogg · *.glb", "note": "rules: stage" },
+   { "label": "refused", "value": "> 1 GB", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 unpack", "value": "unzip -q -o <zip> -d out/project", "note": "" },
+   { "label": "2 import", "value": "godot --headless --path out/project --import", "note": "populates .godot/imported" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "log", "value": "import.log", "note": "the lane's step log" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "project sha256 · log sha256 · env-lock", "note": "" }
+  ] },
+  { "id": "sources", "title": "Sources", "rows": [
+   { "label": "CLI", "value": "https://docs.godotengine.org/en/stable/tutorials/editor/command_line_tutorial.html", "note": "--headless --path --import" }
+  ] }
+ ]
+}

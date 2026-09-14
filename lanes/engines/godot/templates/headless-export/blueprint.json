@@ -1,0 +1,32 @@
+{
+ "kind": "blueprint",
+ "name": "Godot · headless-export",
+ "source": "lanes/engines/godot/templates/headless-export/plan.cue",
+ "date": "2026-09-07",
+ "engine": "godot",
+ "workflow": "headless-export",
+ "proven": false,
+ "note": "AUTHORED, UNPROVEN: no Godot on this Mac (brew install godot puts it at /opt/homebrew/bin/godot). The command is the Godot 4 documented headless export; proven once a runner with Godot and its export templates executes it through a drop folder.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "project", "value": "*.godot.zip", "note": "rules: run" },
+   { "label": "loose", "value": "*.tscn · *.gd", "note": "rules: stage" },
+   { "label": "refused", "value": "> 1 GB", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 unpack", "value": "unzip -q -o <zip> -d out/project", "note": "" },
+   { "label": "2 export", "value": "godot --headless --path out/project --export-release Web out/<stem>.web/index.html", "note": "preset name from export_presets.cfg" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "bundle", "value": "{stem}.web/ (index.html, .wasm, .pck, .js)", "note": "bundle" },
+   { "label": "log", "value": "export.log", "note": "the lane's step log" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "project sha256 · bundle files sha256 · godot env-lock", "note": "" }
+  ] },
+  { "id": "sources", "title": "Sources", "rows": [
+   { "label": "CLI", "value": "https://docs.godotengine.org/en/stable/tutorials/editor/command_line_tutorial.html", "note": "--headless, --path, --export-release <preset> <path>" },
+   { "label": "export", "value": "https://docs.godotengine.org/en/stable/tutorials/export/exporting_projects.html", "note": "export templates must be installed" }
+  ] }
+ ]
+}

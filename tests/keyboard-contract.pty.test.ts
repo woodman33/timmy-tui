@@ -3,6 +3,7 @@
 // this class of bug. BUG 1 (leak) + BUG 2 (trap) against the live shell.
 import { describe, it, expect, afterAll } from 'vitest';
 import { execSync } from 'child_process';
+import { ptyAvailable } from './service-gate.js';
 
 const S = 'kbcontract';
 const tmux = (args: string) => execSync(`tmux ${args}`, { encoding: 'utf8' });
@@ -13,7 +14,7 @@ const sleep = (ms: number) => execSync(`sleep ${ms / 1000}`);
 
 afterAll(() => { try { tmux(`kill-session -t ${S}`); } catch { /* gone */ } });
 
-describe('keyboard contract at PTY level', () => {
+describe.skipIf(!ptyAvailable())('keyboard contract at PTY level', () => {
   it('BUG1 leak + BUG2 trap against the live shell', () => {
     try { tmux(`kill-session -t ${S}`); } catch { /* fresh */ }
     tmux(`new-session -d -s ${S} -x 120 -y 40 "cd ${process.cwd()} && npx tsx timmy.ts; sleep 60"`);

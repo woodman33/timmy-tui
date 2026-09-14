@@ -5,7 +5,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { spawnSync } from 'child_process';
 import { appendReceipt } from './receipts.js';
-import { appendEvent } from './eventbus.js';
+import { publish as appendEvent } from '../bus/index.js';
 
 export interface RoboflowReq {
   action: 'upload' | 'detect' | 'sample';
@@ -22,7 +22,8 @@ export interface RoboflowReq {
 export function roboflowRun(req: RoboflowReq, dir?: string): { ok: boolean; state?: string; note?: string; [k: string]: unknown } {
   const cwd = dir ?? process.cwd();
   const key = process.env.ROBOFLOW_API_KEY ?? '';
-  const venvPy = join(cwd, '.timmy', 'venv-roboflow', 'bin', 'python');
+  const modernPython = join(cwd, '.timmy', 'venv-vision', 'bin', 'python');
+  const venvPy = existsSync(modernPython) ? modernPython : join(cwd, '.timmy', 'venv-roboflow', 'bin', 'python');
   if (!key) {
     const rec = appendReceipt('runs', { kind: 'run', subject: `roboflow ${req.action} not_configured`, policy: 'auto', status: 'failed', error_class: 'not_configured', discrepancies: ['ROBOFLOW_API_KEY missing'], spans: [], artifacts: [] }, cwd);
     return { ok: false, state: 'not_configured', note: 'ROBOFLOW_API_KEY missing (console.roboflow.com)', receipt: rec.hash };

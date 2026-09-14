@@ -6,15 +6,38 @@ if (!isHeadless) {
 import './src/utils/logger.js';
 import { program } from 'commander';
 import chalk from 'chalk';
+import React from 'react';
+import { render, Box, Text } from 'ink';
 import { loadConfig } from './src/utils/config.js';
-import { startTUI } from './src/tui/app.js';
-import { startCompanionServer } from './src/companion/server.js';
-import { showCompanionQR } from './src/companion/qr.js';
 import type { Mode } from './src/tui/attic/router.js';
 import type { AgentConfig } from './src/types/index.js';
 import { VERSION } from './src/version.js';
 
 import { existsSync, readFileSync } from 'fs';
+
+// BOOT (opentui-u4e9): paint the header frame at MODULE scope for the default
+// TUI invocation — before commander/chalk/config do their work.
+let bootRender: { unmount: () => void } | null = null;
+const bootHead8 = (): string => {
+  try {
+    const p = '.timmy/receipts/runs.jsonl';
+    if (!existsSync(p)) return '—';
+    const str = readFileSync(p, 'utf8');
+    const i = str.lastIndexOf('\n', str.length - 2);
+    const j = JSON.parse(str.slice(i + 1));
+    return String(j.hash ?? '').slice(7, 15) || '—';
+  } catch { return '—'; }
+};
+const bootIsDefaultTui = (!process.argv[2] || process.argv[2] === 'tui')
+  && !process.argv.includes('--headless') && !process.argv.includes('-h');
+if (bootIsDefaultTui) {
+  process.stdout.write('\x1Bc');
+  bootRender = render(React.createElement(Box, { flexDirection: 'column' },
+    React.createElement(Box, null,
+      React.createElement(Text, { bold: true }, 'TIMMY'),
+      React.createElement(Text, null, `   chain · ${bootHead8()}`)),
+    React.createElement(Text, { dimColor: true }, 'assembling…')));
+}
 
 // Load .env variables into process.env before anything else to connect Daytona, Composio, etc.
 if (existsSync('.env')) {
@@ -128,7 +151,22 @@ if (opts.headless) {
   };
   prompt();
 } else {
-  // Start companion server first if enabled to avoid EADDRINUSE conflicts with CompanionPipeline
+  // BOOT: header already painted at module scope.
+  if (!bootRender) {
+    process.stdout.write('\x1Bc');
+    bootRender = render(React.createElement(Box, { flexDirection: 'column' },
+      React.createElement(Box, null,
+        React.createElement(Text, { bold: true }, 'TIMMY'),
+        React.createElement(Text, null, `   chain · ${bootHead8()}`)),
+      React.createElement(Text, { dimColor: true }, 'assembling…')));
+  }
+
+  const mode = hasKey ? ((opts.mode as Mode) || 'brief') : 'brief';
+
+  // v1.0.1: the first-run gate must not re-show once completed (config passthrough)
+  Object.assign(agentConfig, { onboarded: (config as any).onboarded === true });
+
+  // Start companion server after first paint to avoid EADDRINUSE conflicts
   if (opts.companion !== false) {
     const preferredPort = parseInt(opts.companionPort, 10) || 3001;
     const candidatePorts = [preferredPort, preferredPort + 1, preferredPort + 2, preferredPort + 3];
@@ -136,13 +174,13 @@ if (opts.headless) {
 
     for (const port of candidatePorts) {
       try {
-        const server = await startCompanionServer(port);
+        const server = await (await import('./src/companion/server.js')).startCompanionServer(port);
         (global as any).companionServer = server;
         const url = `http://localhost:${server.port}`;
         if (port !== preferredPort) {
           console.error(chalk.dim(`Companion port ${preferredPort} busy; using ${server.port}.`));
         }
-        showCompanionQR(url);
+        (await import('./src/companion/qr.js')).showCompanionQR(url);
         companionStarted = true;
         break;
       } catch (err: any) {
@@ -157,13 +195,13 @@ if (opts.headless) {
     }
   }
 
-  const mode = hasKey ? ((opts.mode as Mode) || 'brief') : 'brief';
-
-  // Ensure standard terminal clear before starting TUI to avoid layout corruption
-  process.stdout.write('\x1Bc');
-
-  // v1.0.1: the first-run gate must not re-show once completed (config passthrough)
-  Object.assign(agentConfig, { onboarded: (config as any).onboarded === true });
-
-  startTUI(agentConfig, mode, opts.companion === false ? 'ansi' : 'auto');
+  bootRender.unmount();
+  bootRender = null;
+  if (process.env.TIMMY_SHELL !== 'v1') {
+    const { startShellV2 } = await import('./src/tui/shell-entry.js');
+    startShellV2(agentConfig, opts.companion === false ? 'ansi' : 'auto');
+  } else {
+    const { startTUI } = await import('./src/tui/app.js');
+    startTUI(agentConfig, mode, opts.companion === false ? 'ansi' : 'auto');
+  }
 }

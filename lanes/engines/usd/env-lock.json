@@ -1,0 +1,28 @@
+{
+ "v": 1,
+ "engine": "usd",
+ "captured_at": "2026-09-07T13:29:15.610Z",
+ "os": {
+  "platform": "darwin",
+  "build": "25G83",
+  "version": "26.6.2"
+ },
+ "arch": "arm64",
+ "tools": {
+  "usdcat": {
+   "path": "/usr/bin/usdcat",
+   "sha256": "1f41a54ef3b1ee0e06d1d2534b391202a1ba621a707b772e0bee195f47988672",
+   "size": 952000,
+   "mtime": 1786589515000,
+   "version": "0.25.2"
+  },
+  "usdzip": {
+   "path": "/usr/bin/usdzip",
+   "sha256": "c407267eee8f28e4c9342dbeb24a843b3e3f0d0eec6055a79cf9a41eb598d1ec",
+   "size": 1913504,
+   "mtime": 1786589515000,
+   "version": "0.25.2"
+  }
+ },
+ "installed": true
+}

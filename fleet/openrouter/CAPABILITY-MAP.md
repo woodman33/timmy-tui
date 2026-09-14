@@ -1,11 +1,11 @@
 # OpenRouter capability map
 
-Generated 2026-09-07T10:47:03.100Z from `capabilities.inventory.json` (sha256 862e9fd78d6e81f2, 111 fetched sources, 104 capabilities). mindship-v5c2 step 1.
+Generated 2026-09-08T10:31:23.275Z from `capabilities.inventory.json` (sha256 862e9fd78d6e81f2, 111 fetched sources, 104 capabilities). mindship-v5c2 step 1.
 
 | status | count | meaning |
 |---|---|---|
-| implemented | 15 | exists in the repo today; the row names the file |
-| wire-now | 29 | a small change on a surface that already exists; the row names it |
+| implemented | 43 | exists in the repo today; the row names the file |
+| wire-now | 1 | a small change on a surface that already exists; the row names it |
 | later | 60 | waits; the row says why |
 
 Unverified inventory entries: 9. Rows defaulted (no explicit rule): 0. Not found in the docs: `fan-out`.
@@ -21,9 +21,9 @@ Command-center verbs are `timmy …` commands (src/cli.ts and the lanes it dispa
 | [models-list](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties) | **implemented** | timmy models · timmy cf …/models | models.list | src/cli.ts models; workers/ai-proxy /models (slim id/ctx/price) | wire-now: seal the catalog sha so a model pin cites the catalog it came from |
 | [model-endpoints](https://openrouter.ai/docs/api/api-reference/endpoints/list-all-endpoints-for-a-model) | **later** | timmy models endpoints <id> | openrouter.endpoints |  | per-provider pricing/latency for a model; useful once routing is wired |
 | [models-user-filtered](https://openrouter.ai/docs/api/api-reference/models/list-models-filtered-by-user-provider-preferences-privacy-settings-and-guardrails) *(unverified)* | **later** | timmy models --mine | models.list |  | unverified in the docs |
-| [providers-list](https://openrouter.ai/docs/api/api-reference/providers/list-providers) | **wire-now** | timmy providers audit | openrouter.providers | src/agent/provider-registry.ts + GET /api/v1/providers | audit is local registry only today; add the live provider list |
+| [providers-list](https://openrouter.ai/docs/api/api-reference/providers/list-providers) | **implemented** | timmy commander providers · GET /providers | openrouter.providers | workers/ai-proxy/src/commander-core.ts providersList (live list + sha); lanes/commander/cli.mjs providers | src/agent/provider-registry.ts audit left to its owner; the live list is on the worker |
 | [latest-model-resolution](https://openrouter.ai/docs/guides/routing/routers/latest-resolution) | **later** | timmy model ~author/family-latest | model.pin |  | allowlists pin exact ids on purpose; a floating alias needs the pinned id recorded in the receipt first |
-| [model-variant-suffixes](https://openrouter.ai/docs/guides/routing/model-variants/free) | **wire-now** | timmy commander think --models a:nitro | commander.turn | workers/ai-proxy/src/tools.ts allowlist() | allow suffix variants of an allowlisted base id |
+| [model-variant-suffixes](https://openrouter.ai/docs/guides/routing/model-variants/free) | **implemented** | timmy commander think --models a:nitro | commander.turn | workers/ai-proxy/src/tools.ts splitVariant/isAllowed | nitro · floor · free · online · thinking · exacto · beta · extended on an allowlisted base id |
 
 ### chat
 
@@ -37,12 +37,12 @@ Command-center verbs are `timmy …` commands (src/cli.ts and the lanes it dispa
 
 | capability | status | verb | receipt | where / how | note |
 |---|---|---|---|---|---|
-| [app-attribution-headers](https://openrouter.ai/docs/app-attribution) | **wire-now** | (every call) | — | commander-core.ts chatOnce, code.ts generateScript: X-Title only | add HTTP-Referer + X-OpenRouter-Categories so OpenRouter rankings credit TIMMY |
+| [app-attribution-headers](https://openrouter.ai/docs/app-attribution) | **implemented** | (every call) | — | workers/ai-proxy/src/tools.ts openrouterHeaders: HTTP-Referer + X-Title + X-OpenRouter-Categories on chatOnce, generateScript, openrouter_chat, /chat, /models; lanes/sim + lanes/swarm carry the same |  |
 | [presets](https://openrouter.ai/docs/guides/features/presets) | **later** | timmy model @preset/<slug> | model.pin |  | project profiles already carry models; presets duplicate that server-side |
 | [batch-api](https://openrouter.ai/docs/batch-quickstart) | **later** | timmy sim run --batch | sim.run |  | the story sim could batch actor turns at half price; after v0 |
 | [broadcast-observability](https://openrouter.ai/docs/guides/features/broadcast) | **later** | (every call) | — |  | trace/session ids to OpenRouter observability; receipts are our trace |
-| [openapi-and-versioning](https://openrouter.ai/docs/api_reference/versioning) | **wire-now** | timmy oapi (spec_url openrouter.ai/openapi.json) | oapi.call | src/mcp/server.ts timmy_oapi_run | point the OpenAPI lane at the OpenRouter spec: every endpoint becomes a receipted tool |
-| [mcp-server](https://openrouter.ai/docs/guides/overview/mcp-server) | **wire-now** | fleet connector openrouter-mcp | fleet.detect | fleet/fleet.json (detect url https://mcp.openrouter.ai/mcp) | detect-only entry like tripo; the commander handoff already speaks MCP |
+| [openapi-and-versioning](https://openrouter.ai/docs/api_reference/versioning) | **implemented** | timmy oapi (spec_url openrouter.ai/openapi.json) | oapi.call | fleet/fleet.json openrouter-openapi (detect url = the spec) for src/mcp/server.ts timmy_oapi_run | the spec is on the fleet; the lane takes any spec_url |
+| [mcp-server](https://openrouter.ai/docs/guides/overview/mcp-server) | **implemented** | fleet connector openrouter-mcp | fleet.detect | fleet/fleet.json openrouter-mcp (detect url https://mcp.openrouter.ai/mcp) | detect-only entry like tripo |
 | [ori-eval-llm-judge](https://openrouter.ai/docs/guides/ori/eval) | **later** | timmy judge | judge.run |  | Timmy has its own judge loop (timmy_judge_loop) with receipts |
 | [fusion-analyst-model-judge-alias](https://openrouter.ai/docs/changelog) | **later** | — | — |  | a deprecated field alias, not a capability |
 | [workspaces-files-containers](https://openrouter.ai/docs/guides/features/workspaces) *(unverified)* | **later** | — | — |  | unverified |
@@ -62,57 +62,57 @@ Command-center verbs are `timmy …` commands (src/cli.ts and the lanes it dispa
 | capability | status | verb | receipt | where / how | note |
 |---|---|---|---|---|---|
 | [sse-streaming](https://openrouter.ai/docs/api_reference/streaming) | **implemented** | timmy logs (companion) · timmy chat | chat.turn | src/companion/server.ts + client (stream: true); the TUI chat surface is Qwen-owned and not verified here | commander turns are non-streamed on purpose (one receipt per turn) |
-| [stream-cancellation](https://openrouter.ai/docs/api_reference/streaming) | **wire-now** | timmy commander kill | commander.kill | commander.ts cmdKill | abort in-flight OpenRouter fetches on kill (AbortController); today kill stops the next turn, not the current one |
+| [stream-cancellation](https://openrouter.ai/docs/api_reference/streaming) | **implemented** | timmy commander kill | commander.kill | workers/ai-proxy/src/commander.ts cmdKill: AbortController per in-flight call, aborted_inflight in the receipt | kill stops the current turn and swarm, not only the next |
 | [mid-stream-errors](https://openrouter.ai/docs/api_reference/errors-and-debugging) | **later** | — | — |  | with streaming in the commander |
 
 ### tool-calling
 
 | capability | status | verb | receipt | where / how | note |
 |---|---|---|---|---|---|
-| [tool-calling](https://openrouter.ai/docs/guides/features/tool-calling) | **wire-now** | timmy commander think --tools | commander.turn | commander-core.ts chatOnce (tools passthrough) | Timmy tools run as Code Mode (hands) today; native tools[] lets the mind call edge tools directly |
+| [tool-calling](https://openrouter.ai/docs/guides/features/tool-calling) | **implemented** | timmy commander think --tools | commander.turn | commander-core.ts chatOnce tools[] + edgeToolRunner (one execution round over the edge tools; paid tools still need the approval token) | tool_calls recorded on the call |
 | [parallel-tool-calls](https://openrouter.ai/docs/api_reference/parameters) | **later** | — | commander.turn |  | after tool-calling |
 | [server-tools](https://openrouter.ai/docs/guides/features/server-tools) | **later** | timmy commander think --server-tools | commander.turn |  | server-side tools run at OpenRouter; receipts would cite their calls |
 | [server-tool-web-search](https://openrouter.ai/docs/guides/features/server-tools/web-search) | **later** | timmy commander think --web | commander.turn |  | after server-tools |
 | [server-tool-web-fetch](https://openrouter.ai/docs/guides/features/server-tools/web-fetch) | **later** | — | commander.turn |  | after server-tools |
 | [server-tool-advisor](https://openrouter.ai/docs/guides/features/server-tools/advisor) | **later** | — | commander.turn |  | after server-tools |
 | [server-tool-subagent](https://openrouter.ai/docs/guides/features/server-tools/subagent) | **later** | — | commander.turn |  | Timmy dispatches harnesses itself (Command Post) |
-| [server-tool-fusion](https://openrouter.ai/docs/guides/features/server-tools/fusion) | **wire-now** | timmy commander think --mode fusion --native | commander.turn | commander-core.ts executeTurn fusion branch | let fusion mode delegate to openrouter:fusion; receipt records native=true and the analysis models |
+| [server-tool-fusion](https://openrouter.ai/docs/guides/features/server-tools/fusion) | **implemented** | timmy commander think --mode fusion --native | commander.turn | commander-core.ts executeTurn native fusion → openrouter/fusion; receipt native=true |  |
 | [server-tools-shell-bash-apply-patch-tool-search](https://openrouter.ai/docs/guides/features/server-tools) *(unverified)* | **later** | — | — |  | unverified; Code Mode is the hands |
 
 ### structured-outputs
 
 | capability | status | verb | receipt | where / how | note |
 |---|---|---|---|---|---|
-| [structured-outputs](https://openrouter.ai/docs/guides/features/structured-outputs) | **wire-now** | timmy sim run · timmy commander think --json-schema | sim.turn · commander.turn | lanes/sim/sim.mjs referee call; commander-core.ts chatOnce | the referee already demands JSON; response_format.json_schema makes it a contract |
+| [structured-outputs](https://openrouter.ai/docs/guides/features/structured-outputs) | **implemented** | timmy commander think --json-schema · timmy sim run | commander.turn · sim.turn · swarm.member | commander-core.ts chatOptionsFor response_format json_schema; swarm-core council/tournament json; lanes/sim/sim.mjs REFEREE_CONTRACT |  |
 
 ### plugins
 
 | capability | status | verb | receipt | where / how | note |
 |---|---|---|---|---|---|
-| [response-healing-plugin](https://openrouter.ai/docs/guides/features/plugins/response-healing) | **wire-now** | timmy sim run | sim.turn | lanes/sim/sim.mjs referee call | heal malformed referee JSON server-side instead of firstJson() |
-| [plugins-array](https://openrouter.ai/docs/guides/features/plugins) | **wire-now** | (every call) | — | commander-core.ts chatOnce | plugins passthrough field |
+| [response-healing-plugin](https://openrouter.ai/docs/guides/features/plugins/response-healing) | **implemented** | timmy sim run | sim.turn | lanes/sim/sim.mjs REFEREE_CONTRACT plugins:[{id:'response-healing'}] | firstJson stays as the last resort |
+| [plugins-array](https://openrouter.ai/docs/guides/features/plugins) | **implemented** | timmy commander think --plugins | commander.turn | commander-core.ts chatBody plugins passthrough |  |
 | [web-search-plugin-online](https://openrouter.ai/docs/guides/features/plugins/web-search) | **later** | — | — |  | deprecated in favour of the web_search server tool |
 
 ### routing
 
 | capability | status | verb | receipt | where / how | note |
 |---|---|---|---|---|---|
-| [provider-order-and-fallbacks](https://openrouter.ai/docs/guides/routing/provider-selection) | **wire-now** | timmy commander think --provider | commander.turn | commander-core.ts chatOnce | provider passthrough; record the provider that answered |
-| [provider-filters](https://openrouter.ai/docs/guides/routing/provider-selection) | **wire-now** | timmy commander think --provider | commander.turn | commander-core.ts chatOnce | with provider passthrough |
-| [provider-sort-and-price-caps](https://openrouter.ai/docs/guides/routing/provider-selection) | **wire-now** | timmy commander cap | commander.cap · commander.turn | commander-core.ts: spend cap → provider.max_price | the room cap becomes a per-request price ceiling too |
-| [nitro-floor-shorthands](https://openrouter.ai/docs/guides/features/service-tiers) | **wire-now** | timmy commander think --models a:floor | commander.turn | tools.ts allowlist() | with model-variant-suffixes |
+| [provider-order-and-fallbacks](https://openrouter.ai/docs/guides/routing/provider-selection) | **implemented** | timmy commander think --provider | commander.turn | commander-core.ts chatBody provider passthrough; provider_used on every call record |  |
+| [provider-filters](https://openrouter.ai/docs/guides/routing/provider-selection) | **implemented** | timmy commander think --provider | commander.turn | commander-core.ts chatBody provider passthrough (only/ignore/quantizations/require_parameters) |  |
+| [provider-sort-and-price-caps](https://openrouter.ai/docs/guides/routing/provider-selection) | **implemented** | timmy commander cap --max-price | commander.cap · commander.turn | commander-core.ts applyCap max_price → provider.max_price on every call of the room | USD per million tokens |
+| [nitro-floor-shorthands](https://openrouter.ai/docs/guides/features/service-tiers) | **implemented** | timmy commander think --models a:floor | commander.turn | tools.ts splitVariant | with model-variant-suffixes |
 | [service-tier](https://openrouter.ai/docs/guides/features/service-tiers) | **later** | — | commander.turn |  | no priority need yet |
 | [exacto-variant](https://openrouter.ai/docs/guides/routing/model-variants/exacto) | **later** | — | — |  | after tool-calling |
 | [auto-exacto](https://openrouter.ai/docs/guides/routing/auto-exacto) | **later** | — | — |  | after tool-calling |
-| [router-metadata](https://openrouter.ai/docs/guides/features/router-metadata) | **wire-now** | (every call) | commander.turn | commander-core.ts chatOnce | X-OpenRouter-Metadata: enabled → record provider/model actually used in receipt.models[] |
+| [router-metadata](https://openrouter.ai/docs/guides/features/router-metadata) | **implemented** | (every call) | commander.turn | tools.ts openrouterHeaders X-OpenRouter-Metadata: enabled; provider_used/model_used/generation_id in receipt.models[] |  |
 
 ### privacy
 
 | capability | status | verb | receipt | where / how | note |
 |---|---|---|---|---|---|
 | [in-region-routing](https://openrouter.ai/docs/guides/features/in-region-routing) | **later** | — | — |  | no residency requirement yet |
-| [zero-data-retention](https://openrouter.ai/docs/guides/features/zdr) | **wire-now** | timmy project new --zdr | project.new · commander.turn | lanes/project/templates/profile.cue + commander-core.ts provider.zdr | a project profile flag that every call under it carries |
-| [provider-logging-data-collection](https://openrouter.ai/docs/guides/privacy/provider-logging) | **wire-now** | timmy project new --no-data-collection | project.new · commander.turn | profile.cue + provider.data_collection | with zdr |
+| [zero-data-retention](https://openrouter.ai/docs/guides/features/zdr) | **implemented** | timmy project new --zdr · timmy commander think --zdr | project.new · commander.turn | lanes/project/templates/profile.cue routing.zdr; commander-core.ts chatBody provider.zdr |  |
+| [provider-logging-data-collection](https://openrouter.ai/docs/guides/privacy/provider-logging) | **implemented** | timmy project new --no-data-collection · think --no-data-collection | project.new · commander.turn | profile.cue routing.data_collection; chatBody provider.data_collection |  |
 | [input-output-logging](https://openrouter.ai/docs/guides/features/input-output-logging) | **later** | — | — |  | dashboard toggle, not an API |
 | [guardrails](https://openrouter.ai/docs/guides/features/guardrails) | **later** | timmy approve | approval |  | Timmy gates paid calls with its own single-use tokens |
 
@@ -120,7 +120,7 @@ Command-center verbs are `timmy …` commands (src/cli.ts and the lanes it dispa
 
 | capability | status | verb | receipt | where / how | note |
 |---|---|---|---|---|---|
-| [model-fallbacks](https://openrouter.ai/docs/guides/routing/model-fallbacks) | **wire-now** | timmy commander think --models a,b | commander.turn | commander-core.ts planTurn generate branch | in generate mode, extra models become body.models fallbacks instead of being ignored |
+| [model-fallbacks](https://openrouter.ai/docs/guides/routing/model-fallbacks) | **implemented** | timmy commander think --models a,b | commander.turn | commander-core.ts planTurn generate: extra models → body.models fallbacks |  |
 
 ### auto-router
 
@@ -128,17 +128,17 @@ Command-center verbs are `timmy …` commands (src/cli.ts and the lanes it dispa
 |---|---|---|---|---|---|
 | [auto-router](https://openrouter.ai/docs/guides/routing/routers/auto-router) | **implemented** | lane default openrouter/auto | agentrun | src/agent/lanes.ts (openhands LLM_MODEL default) | the commander allowlist pins ids; auto stays a lane default |
 | [pareto-code-router](https://openrouter.ai/docs/guides/routing/routers/pareto-router) | **later** | timmy commander think --models openrouter/pareto-code | commander.turn |  | after allowlist suffix/alias support |
-| [free-models-router](https://openrouter.ai/docs/guides/routing/routers/free-router) | **wire-now** | timmy sim run --actor-model openrouter/free | sim.turn | lanes/sim/sim.mjs (any model id) | a $0 actor tier for rehearsal runs; already accepted by the lane, not yet a documented default |
-| [body-builder](https://openrouter.ai/docs/guides/routing/routers/body-builder) | **wire-now** | timmy commander think --mode bodybuilder --native | commander.turn | src/utils/providers.ts lists openrouter/bodybuilder; commander-core.ts bodybuilder branch | Timmy fans out itself today; native mode would take the router's {requests:[…]} and run them |
-| [fusion-router](https://openrouter.ai/docs/guides/routing/routers/fusion-router) | **wire-now** | timmy commander think --mode fusion --native | commander.turn | commander-core.ts fusion branch; src/mcp/server.ts timmy_fusion_plan (own judge chain) | model openrouter/fusion as the native alternative to our actors+judge |
+| [free-models-router](https://openrouter.ai/docs/guides/routing/routers/free-router) | **implemented** | timmy sim run --free | sim.turn | lanes/sim/sim.mjs --free → actor openrouter/free | a $0 actor tier for rehearsal runs |
+| [body-builder](https://openrouter.ai/docs/guides/routing/routers/body-builder) | **implemented** | timmy commander think --mode bodybuilder --native | commander.turn | commander-core.ts native bodybuilder: openrouter/bodybuilder writes the requests, the commander runs the allowlisted ones (parseBodybuilder) |  |
+| [fusion-router](https://openrouter.ai/docs/guides/routing/routers/fusion-router) | **implemented** | timmy commander think --mode fusion --native | commander.turn | commander-core.ts native fusion → openrouter/fusion |  |
 
 ### caching
 
 | capability | status | verb | receipt | where / how | note |
 |---|---|---|---|---|---|
 | [prompt-caching-cache-control](https://openrouter.ai/docs/guides/best-practices/prompt-caching) | **later** | — | commander.turn |  | commander prompts are short; wire with memory-in-prompt |
-| [prompt-caching-automatic](https://openrouter.ai/docs/guides/best-practices/prompt-caching) | **wire-now** | timmy commander spend | commander.turn | commander-core.ts usageCost | record usage.prompt_tokens_details.cached_tokens in the ledger |
-| [session-sticky-routing](https://openrouter.ai/docs/guides/best-practices/prompt-caching) | **wire-now** | (every commander call) | commander.turn | commander-core.ts chatOnce | session_id = room so a room keeps its provider |
+| [prompt-caching-automatic](https://openrouter.ai/docs/guides/best-practices/prompt-caching) | **implemented** | timmy commander spend | commander.turn | commander-core.ts usageCost tokens_cached → spend.tokens_cached |  |
+| [session-sticky-routing](https://openrouter.ai/docs/guides/best-practices/prompt-caching) | **implemented** | (every commander call) | commander.turn | commander-core.ts chatOptionsFor session_id = commander:<room> (timmy:<room> on a Timmy) |  |
 | [response-caching](https://openrouter.ai/docs/guides/features/response-caching) *(unverified)* | **later** | — | — |  | unverified |
 
 ### multimodal
@@ -164,7 +164,7 @@ Command-center verbs are `timmy …` commands (src/cli.ts and the lanes it dispa
 
 | capability | status | verb | receipt | where / how | note |
 |---|---|---|---|---|---|
-| [reasoning-parameter](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens) | **wire-now** | timmy commander think --reasoning | commander.turn | commander-core.ts chatOnce | passthrough + record reasoning tokens in the ledger |
+| [reasoning-parameter](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens) | **implemented** | timmy commander think --reasoning | commander.turn | commander-core.ts chatBody reasoning passthrough; tokens_reasoning in the ledger |  |
 | [reasoning-details-preservation](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens) | **later** | — | — |  | multi-turn reasoning continuity; the commander keeps turns, not threads |
 
 ### usage-accounting
@@ -172,7 +172,7 @@ Command-center verbs are `timmy …` commands (src/cli.ts and the lanes it dispa
 | capability | status | verb | receipt | where / how | note |
 |---|---|---|---|---|---|
 | [usage-object](https://openrouter.ai/docs/cookbook/administration/usage-accounting) | **implemented** | timmy commander spend | commander.turn | commander-core.ts usageCost/applySpend (cost, tokens, uncounted) | usage.include is deprecated per the docs (usage always returned): drop the flag |
-| [generation-stats](https://openrouter.ai/docs/api/api-reference/generations/get-request-&-usage-metadata-for-a-generation) | **wire-now** | timmy commander turns --exact | commander.turn | commander.ts (GET /generation?id after each call) | exact native cost per generation; needs the generation id stored on the call record |
+| [generation-stats](https://openrouter.ai/docs/api/api-reference/generations/get-request-&-usage-metadata-for-a-generation) | **implemented** | timmy commander stats --turn\|--id | commander.turn | commander.ts read stats → commander-core.ts generationStats (GET /generation?id); generation_id stored on every call | exact native cost per generation |
 | [zero-completion-insurance](https://openrouter.ai/docs/guides/features/zero-completion-insurance) | **implemented** | (billing) | — | automatic | nothing to wire |
 | [generation-feedback-and-stored-content](https://openrouter.ai/docs/api/api-reference/generations/submit-feedback-for-a-generation) *(unverified)* | **later** | — | — |  | unverified |
 
@@ -190,7 +190,7 @@ Command-center verbs are `timmy …` commands (src/cli.ts and the lanes it dispa
 | [bearer-api-key-auth](https://openrouter.ai/docs/api_reference/authentication) | **implemented** | (every call) | — | worker secret OPENROUTER_API_KEY; lanes read process.env |  |
 | [oauth-pkce](https://openrouter.ai/docs/guides/overview/auth/oauth) | **later** | timmy connect openrouter | connect |  | single-operator setup; env key suffices |
 | [workload-identity-federation](https://openrouter.ai/docs/guides/overview/auth/workload-identity-federation) *(unverified)* | **later** | — | — |  | unverified |
-| [management-api-keys](https://openrouter.ai/docs/guides/overview/auth/management-api-keys) | **wire-now** | timmy project new --budget | project.new | lanes/project/project.mjs (mint a key with limit = budget) | a per-project OpenRouter key whose limit IS the profile budget: the cap enforced by OpenRouter, not only by us |
+| [management-api-keys](https://openrouter.ai/docs/guides/overview/auth/management-api-keys) | **implemented** | timmy project new --budget | project.new | lanes/project/project.mjs mintProjectKey: POST /api/v1/keys limit = budget when OPENROUTER_PROVISIONING_KEY is set; recorded as not provisioned otherwise | the cap enforced by OpenRouter when a provisioning key exists |
 | [byok](https://openrouter.ai/docs/guides/overview/auth/byok) | **later** | — | — |  |  |
 
 ### rate-limits
@@ -205,7 +205,7 @@ Command-center verbs are `timmy …` commands (src/cli.ts and the lanes it dispa
 | capability | status | verb | receipt | where / how | note |
 |---|---|---|---|---|---|
 | [credits](https://openrouter.ai/docs/api/api-reference/credits/get-remaining-credits) | **implemented** | timmy cf pane | cf.pane | lanes/cf/pane.mjs spend.openrouter.credits |  |
-| [analytics](https://openrouter.ai/docs/api/api-reference/analytics/query-analytics-data) | **wire-now** | timmy cf pane | cf.pane | lanes/cf/pane.mjs (POST /analytics/query: spend by model per day) |  |
+| [analytics](https://openrouter.ai/docs/api/api-reference/analytics/query-analytics-data) | **implemented** | timmy cf pane | cf.pane | lanes/cf/pane.mjs openrouter activity source: GET /api/v1/activity (needs OPENROUTER_PROVISIONING_KEY; a dead source shows as dead) |  |
 
 ### errors
 
@@ -219,7 +219,7 @@ Command-center verbs are `timmy …` commands (src/cli.ts and the lanes it dispa
 |---|---|---|---|---|---|
 | [ts-sdk-package](https://openrouter.ai/docs/client-sdks/typescript/overview) | **implemented** | timmy chat / gen | — | package.json @openrouter/sdk; src/agent/core.ts, src/agent/tools.ts, src/modes/chat/tools.ts |  |
 | [ts-sdk-chat-send](https://github.com/OpenRouterTeam/typescript-sdk) | **implemented** | timmy chat | chat.turn | src/agent/core.ts (the agent client) |  |
-| [ts-sdk-constructor-attribution](https://openrouter.ai/docs/client-sdks/typescript/sdks/credits/README) | **wire-now** | (sdk) | — | src/agent/core.ts client construction | httpReferer/appTitle/appCategories on the client |
+| [ts-sdk-constructor-attribution](https://openrouter.ai/docs/client-sdks/typescript/sdks/credits/README) | **wire-now** | (sdk) | — | src/agent/core.ts client construction | httpReferer/appTitle/appCategories on the client — src/agent is not on the swarm-b3k7 paths; the worker and every lane already carry attribution (see app-attribution-headers) |
 | [sdk-devtools](https://openrouter.ai/docs/agent-sdk/dev-tools/devtools) *(unverified)* | **later** | — | — |  | unverified |
 
 ### sdk-agent
