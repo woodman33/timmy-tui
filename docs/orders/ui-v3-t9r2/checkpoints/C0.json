@@ -1,0 +1,127 @@
+{
+  "order": "ui-v3-t9r2",
+  "checkpoint": "C0",
+  "title": "AUDIT \u2014 every screen, every key, every data source; eight demo routes",
+  "branch": "order/ui-v3-t9r2",
+  "base": "origin/main 01cd3a7 (Merge #65)",
+  "amendment": "2026-09-14: branch from origin/main now; #47 and the cockpit view are source material; tokens.json created from the spec on this branch; finish C0, deliver the audit table, HOLD",
+  "clock": {
+    "budget_minutes": 15,
+    "started": "2026-09-14T05:24:14Z",
+    "reading_done": "2026-09-14T05:58:00Z",
+    "report_written": "2026-09-14T06:01:41Z",
+    "sealed": "2026-09-14T06:09:59Z",
+    "overrun": "yes \u2014 the audit ran ~40 minutes of wall clock against a 15-minute budget (13 parallel readers + 13 skeptics + critic, two capture technique attempts). Recorded per \u00a716; C1 is split before continuing."
+  },
+  "split_before_continuing": {
+    "C1a": "lanes/visual/tokens.json as law: theme derived from it, the one-meaning colour gate rewritten (test reads tokens.json)",
+    "C1b": "evidence-state model (declared|constructed|checked|inferred|stale) on every evidence carrier",
+    "C1c": "uppercase category labels + the 8-column grid in the layout math"
+  },
+  "method": {
+    "trees": {
+      "BASE": "origin/main 01cd3a7 + PR #64 e564e56 merged cleanly at 231b0f4 (scratch worktree)",
+      "UINEXT2": "origin/order/ui-next-2 a92c949 (PR #47 on PR #46)",
+      "C6": "origin/order/ui-cockpit-k7m3-c6 386f99d (PR #59)"
+    },
+    "workflow": "wf_3d50513f-b70: 13 readers (screens, keys, data, status-chain, demos-film, hands, engine-library, first-run, visual, routes-a, routes-b, gates, landing) \u2192 13 skeptics on their broken claims \u2192 1 completeness critic",
+    "verification": "46 broken rows confirmed by an independent skeptic; 24 claims refuted and corrected (kept in the appendix)",
+    "gates": {
+      "BASE": "tsc exit 0; tsgo exit 0; vitest 93 files / 505 tests passed, 5 files / 15 tests skipped",
+      "UINEXT2": "tsc exit 0; UI subset 31/32 (tests/ui-next.test.ts:88 stale fixture)"
+    },
+    "captures": {
+      "marker": "c0-01cd3a7",
+      "manifest_sha256_12": "81b2610d26b0",
+      "shots": 40,
+      "grids": [
+        "120x40",
+        "80x24"
+      ],
+      "sets": [
+        "fresh",
+        "operator"
+      ],
+      "privacy_findings": 0,
+      "exceed_grid": 13,
+      "technique": "ink render at exact grids (C5/C6 precedent); the PTY boot did not assemble on this machine \u2014 recorded as a finding"
+    }
+  },
+  "inventory_totals": {
+    "rows": 537,
+    "exists": 289,
+    "partial": 156,
+    "broken": 46,
+    "missing": 46
+  },
+  "routes": {
+    "reachable_from_keyboard": [
+      "eight hands (only with a private board.json)"
+    ],
+    "partial": [
+      "predict-build-judge",
+      "refuse",
+      "blank slate"
+    ],
+    "missing": [
+      "ask the scene",
+      "render a world",
+      "materialize (undefined)",
+      "factory day (undefined)"
+    ]
+  },
+  "arsenal_debt": "n/a \u2014 no roster job kind for the TUI; timmy arsenal verb absent on every ref (missing under C2)",
+  "side_effects": [
+    "four model.policy \u00b7 default seals appended to the pinned shared chain by this audit: rc_mu0t9csf_nisw, rc_mu0t9z8u_iyex (PTY boot probes, 05:37Z), rc_mu0trzmr_exe8, rc_mu0twcg7_hnea (operator capture renders, 05:51Z/05:54Z) \u2014 main tracks .timmy/store-pin with a home path and ShellV2 seals on first mount",
+    "one concurrent html.render seal rc_mu0thvp0_6ky8 (not this audit's write) landed in the window",
+    "gitignored .timmy state (model-policy.json, keys, cache, captures) created in this worktree",
+    "three scratch worktrees under the session scratchpad; the landing-test worktree removed"
+  ],
+  "files": [
+    "docs/orders/ui-v3-t9r2.md",
+    "docs/orders/ui-v3-t9r2/C0-audit.md",
+    "docs/orders/ui-v3-t9r2/C0-audit-inventory.md",
+    "docs/orders/ui-v3-t9r2/checkpoints/C0.json",
+    "lanes/visual/tokens.json"
+  ],
+  "seal": {
+    "subject": "ui.v3.c0.audit",
+    "id": "rc_mu0ufo2d_isil",
+    "hash": "sha256_71c40e684c643f78644aad0e93b591710496e0a866d51ab2443bb2fb0060f04a",
+    "cites": [
+      "docs/orders/ui-v3-t9r2/C0-audit.md",
+      "docs/orders/ui-v3-t9r2/C0-audit-inventory.md",
+      "docs/orders/ui-v3-t9r2.md",
+      "lanes/visual/tokens.json"
+    ],
+    "store": "pinned root store (shared chain)"
+  },
+  "status": "HOLD",
+  "critic": {
+    "gaps": 11,
+    "corrections": 11,
+    "folded_into": "C0-audit.md \u00a710",
+    "appendix_rows_redacted": 1
+  },
+  "doctrine_note": "DOCTRINE \u00a713/\u00a715/\u00a716 are absent from origin/main (present on order/vision-v7r3; doctrine.update seals rc_mu0jrdfz_5ngp, rc_mu0jre2f_zrce, rc_mu0jreog_ixfw); landing them on this branch is part of the precondition",
+  "gate_roster": {
+    "pass": [
+      "tsc",
+      "tsgo",
+      "vitest",
+      "bounded-rows",
+      "design-contract",
+      "privacy-tree",
+      "privacy-captures (out of band)",
+      "captures-120-80"
+    ],
+    "fail": [
+      "keyboard-contract",
+      "tokens-as-law",
+      "release-check"
+    ],
+    "absent": [
+      "worker-typecheck"
+    ]
+  }
+}
