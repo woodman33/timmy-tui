@@ -56,7 +56,7 @@ export function Card({
       {purpose ? <Text color={theme.textSecondary}>{purpose}</Text> : null}
       <Box height={1} />
       <Box flexDirection="column" flexGrow={1}>{children}</Box>
-      {overflow ? <Text color={theme.textMuted}>{overflow}</Text> : null}
+      {overflow ? <Text dimColor color={theme.textMuted}>{overflow}</Text> : null}
     </Box>
   );
 }

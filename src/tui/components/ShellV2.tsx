@@ -889,7 +889,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
                 activity.slice(0, plans.activityRows).map((row, i) => (
                   <Text key={i} wrap="truncate">
                     <Text color={row.refused ? theme.refuse : row.sealed ? theme.structure : theme.textMuted}>{row.refused ? '× ' : row.sealed ? '● ' : '· '}</Text>
-                    <Text color={row.refused ? theme.danger : theme.textMuted}>{row.line}</Text>
+                    <Text dimColor={!row.refused && !row.sealed} color={row.refused ? theme.danger : theme.textMuted}>{row.line}</Text>
                   </Text>
                 ))
               )}
@@ -1041,7 +1041,7 @@ function HomePane(props: {
             <Text key={r.step.id} wrap="truncate">
               <Text bold color={PAL.seal}>{`✓ ${r.step.verb.padEnd(10)}`}</Text>
               <Text color={PAL.textSecondary}>{r.hash.padEnd(12)}</Text>
-              <Text color={PAL.textMuted}> {r.fact}</Text>
+              <Text dimColor color={PAL.textMuted}> {r.fact}</Text>
             </Text>
           ) : r.state === 'next' && !escrowOrange ? (
             <Text key={r.step.id} bold color={PAL.warn} wrap="truncate">{`▶ ${r.step.verb.padEnd(10)} ${r.fact}`}</Text>
@@ -1114,12 +1114,12 @@ function ChainPane(props: {
           <Text key={r.id} wrap="truncate">
             <Text bold={look?.bold} dimColor={look?.dim} color={col}>{statusCell}</Text>
             <Text color={sel ? PAL.textPrimary : PAL.textSecondary}>{` ${hashCell} ${subjectCell}`}</Text>
-            <Text color={PAL.textMuted}>{lockCell}</Text>
+            <Text dimColor={!sel && ev !== 'refused'} color={PAL.textMuted}>{lockCell}</Text>
           </Text>
         );
       })}
       {filtered.length > windowRows.length && (
-        <Text color={PAL.textMuted} wrap="truncate">{moreLine(filtered.length - windowRows.length, 'receipts', '↑↓ scroll')}</Text>
+        <Text dimColor color={PAL.textMuted} wrap="truncate">{moreLine(filtered.length - windowRows.length, 'receipts', '↑↓ scroll')}</Text>
       )}
       <Box height={1} />
       {props.verified ? (
@@ -1445,7 +1445,7 @@ function LogRain({ events, maxRows, compact }: { events: { line: string; refused
       {events.length === 0 ? <Text color={PAL.textMuted}>quiet</Text> : events.slice(0, Math.max(1, Math.min(14, maxRows ?? 14))).map((e, i) => (
         <Text key={i} wrap="truncate">
           <Text color={e.refused ? PAL.refuse : e.sealed ? PAL.structure : PAL.textMuted} dimColor={i > 8}>{e.refused ? '× ' : e.sealed ? '● ' : '· '}</Text>
-          <Text color={e.refused ? PAL.danger : i < 3 ? PAL.textSecondary : PAL.textMuted} dimColor={i > 8}>{e.line.slice(0, 38)}</Text>
+          <Text color={e.refused ? PAL.danger : i < 3 ? PAL.textSecondary : PAL.textMuted} dimColor={!e.refused && i >= 3}>{e.line.slice(0, 38)}</Text>
         </Text>
       ))}
     </Card>

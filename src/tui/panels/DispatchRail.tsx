@@ -131,7 +131,8 @@ export function DispatchRail({ width }: { width: number }) {
       <Text color={theme.textSecondary} wrap="truncate">plan     <Text color={theme.textPrimary}>{planId ?? '—'}</Text> · {stored?.lifecycle ?? 'draft'}</Text>
       <Text color={theme.textSecondary} wrap="truncate">hash     <Text color={theme.textPrimary}>{planHash ? (expandHash ? planHash : planHash.slice(0, 8) + '…') : '— shown before launch'}</Text>{planHash ? <Text color={theme.textMuted}> [y]copy [x]{expandHash ? 'fold' : 'expand'}</Text> : null}</Text>
       <Text color={theme.textSecondary} wrap="truncate">armed    <Text color={armed ? theme.accent : theme.textMuted}>{armed ? 'yes' : 'no'}</Text></Text>
-      <Text color={theme.textMuted} wrap="truncate">{msg}</Text>
+      {/* C1c: the idle hint recedes; a refusal or denial never does (REFUSE is never decorative) */}
+      <Text dimColor={!/rejected|denied|refused/.test(msg)} color={/rejected|denied|refused/.test(msg) ? theme.refuse : theme.textMuted} wrap="truncate">{msg}</Text>
     </Card>
   );
 }

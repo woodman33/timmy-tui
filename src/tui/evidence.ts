@@ -18,8 +18,11 @@ import { theme, visualLaw } from './theme.js';
 // colour is read from the law through the theme. The circle set is
 // RESERVED for evidence: the card diamonds ◇/◆ are chrome (Active Pane
 // Invariant), connectivity is ■/□ (ShellChrome LIVE), attention is ▶, and
-// a non-carrier row marks itself · . Dim ⇔ the law's opacity < 1 (stale);
-// for an outline state the stroke is the colour.
+// a non-carrier row marks itself · . Among the evidence LOOKS, dim ⇔ the
+// law's opacity < 1 (stale): a MARK cell is dim only when stale. Dim on a
+// trailing span that carries no evidence — the fact after a hash, an env-lock
+// citation, an overflow line, an aged log row — is hierarchy (C1c), never a
+// state. For an outline state the stroke is the colour.
 //
 // Two levels. A RECEIPT is constructed once sealed and checked only when a
 // receipted chain verify covers it (its index ≤ the head the verify names);
