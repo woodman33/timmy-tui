@@ -20,4 +20,7 @@ const fast = existsSync('dist/fast-entry.js') && process.argv.length === 2;
 const args = fast ? ['dist/fast-entry.js'] : existsSync('dist/cli.js') ? ['dist/cli.js', ...process.argv.slice(2)] : ['tsx', 'cli.tsx', ...process.argv.slice(2)];
 const cmd = fast || existsSync('dist/cli.js') ? process.execPath : 'npx';
 const r = spawnSync(cmd, args, { stdio: 'inherit' });
-process.exit(r.status ?? 0);
+if (r.error) {
+  console.error(r.error.message);
+}
+process.exit(r.status ?? 1);

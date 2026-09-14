@@ -1,6 +1,7 @@
 // BOOT (opentui-u4e9): the bundled fast path. node dist/fast.js paints nothing
 // itself (boot.cjs already painted the header) — it loads config, renders the
 // shell (HOME assembles), and attaches the companion asynchronously after.
+import '../utils/blank-slate-guard.js';
 import { loadConfig } from '../utils/config.js';
 import { startShellV2 } from './shell-entry.js';
 
