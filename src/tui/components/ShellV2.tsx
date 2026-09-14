@@ -59,6 +59,10 @@ const DIM: typeof theme = {
   ...theme,
   seal: theme.textMuted, warn: theme.textMuted, danger: theme.textMuted,
   textPrimary: theme.textMuted, textSecondary: theme.textMuted,
+  // C1a: interaction is white now, so the CHAT underlay must dim it too —
+  // every non-ground token recedes to grey-3, focus borders to the line grey
+  accent: theme.textMuted, lineFocus: theme.line, structure: theme.textMuted,
+  refuse: theme.textMuted, predict: theme.textMuted, generated: theme.textMuted, sealDim: theme.textMuted,
 };
 let PAL: typeof theme = theme;
 // warroom-v2-c4m8 picker domains — the swarm schema's enums, in schema order
@@ -1270,7 +1274,7 @@ function ModelsPane(props: {
     <Box flexDirection="column">
       <Card title="MODELS" purpose={props.compact ? undefined : `from models.registry · ${props.filter ? `/ ${props.filter}` : '[/] fuzzy filter'} · ${props.view.length} models`} flexGrow={1} overflow={moreLine(hiddenModels, 'models', '↑↓ scroll')}>
         {shown.length === 0 ? <Text color={PAL.textMuted}>no models match</Text> : shown.map(({ row, g }, i) => {
-          if (row.role) return <Text key={`r${i}`} color={PAL.textMuted}>{`role: ${row.role} ▾`}</Text>;
+          if (row.role) return <Text key={`r${i}`} bold color={PAL.textMuted}>{`role: ${row.role} ▾`}</Text>;
           const m = row.m as ModelEntry;
           const sel = g === props.selected;
           // FIX 1 (director): row budget inside the 71-col panel —
@@ -1356,7 +1360,9 @@ function BoardsPane(props: { boards: { templates: string[]; blueprints: string[]
       {([['mission   ', b.missions], ['blueprint ', b.blueprints], ['template  ', b.templates]] as [string, string[]][]).map(([label, names]) => (
         <Text key={label} color={PAL.textSecondary} wrap="truncate">{`${label}${names.length ? `${names.slice(0, 2).join(' · ')}${names.length > 2 ? ` +${names.length - 2}` : ''}` : '—'}`.slice(0, 72)}</Text>
       ))}
-      <Text color={PAL.textMuted} wrap="truncate">{`PROJECTS  ${props.projects.slice(0, 4).join(' · ') || '—'}`.slice(0, 72)}</Text>
+      {/* C1a (ui-v3-t9r2): the same bound as the board rows — two names + a count — so the
+          no-ellipsis gate holds wherever the checkout lives (this row lists sibling folders) */}
+      <Text color={PAL.textMuted} wrap="truncate">{`PROJECTS  ${props.projects.length ? `${props.projects.slice(0, 2).join(' · ')}${props.projects.length > 2 ? ` +${props.projects.length - 2}` : ''}` : '—'}`.slice(0, 70)}</Text>
     </Card>
   );
 }
@@ -1649,7 +1655,7 @@ function HandsPane(props: { board: ck.Board; row: number; col: number; showPromp
   ].filter(Boolean);
   return (
     <Card title="HANDS" purpose={props.compact ? undefined : `${board.hands.length} hands · R0–R4 · [Enter] prompt`} flexGrow={1} overflow={notes.length ? `▾ ${notes.join(' · ')}` : undefined}>
-      <Text color={PAL.textMuted} wrap="truncate">{'HAND        TOOL      RD  STATE            SEAL     ' + ck.ROUNDS.map(r => r.padStart(3)).join('')}</Text>
+      <Text bold color={PAL.textMuted} wrap="truncate">{'HAND        TOOL      RD  STATE            SEAL     ' + ck.ROUNDS.map(r => r.padStart(3)).join('')}</Text>
       {board.hands.slice(from, to).map((h, k) => {
         const i = from + k;
         const sel = i === row;
@@ -1665,7 +1671,7 @@ function HandsPane(props: { board: ck.Board; row: number; col: number; showPromp
                 const has = Boolean(board.prompts?.[h.name]?.[r]);
                 const cur = sel && c === col;
                 return (
-                  <Text key={r} bold={cur} color={cur ? PAL.textPrimary : has ? PAL.accent : PAL.textMuted}>
+                  <Text key={r} bold={cur} inverse={cur} color={cur ? PAL.textPrimary : has ? PAL.accent : PAL.textMuted}>
                     {(has ? '●' : '·').padStart(3)}
                   </Text>
                 );
