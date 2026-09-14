@@ -50,6 +50,7 @@ Commands:
   version         Print package name and version
   setup           Initialize directory and template folder structure
   doctor          Check optional local capabilities without running workloads
+  cockpit up      One tmux pane per local hand (cd worktree, launch its CLI, pipe-pane log); attach|status|down|hands
   docs verify     Verify GitBook docs structure, CLI, and safe env setup
   docs preview    Render and serve local docs preview
   docs publish    Verify GitBook auth and prepare Git Sync publication
@@ -575,6 +576,32 @@ if (command === 'nfc' || command === 'custody') {
   process.exit(r.status ?? 1);
 }
 
+if (command === 'cockpit') {
+  // factory-f1d0 C2 PANES: `timmy cockpit up|attach|status|down|hands` — one tmux pane per local hand, logs piped privately
+  const lane = fileURLToPath(new URL('../lanes/cockpit/cockpit.mjs', import.meta.url));
+  const r = spawnSync('node', [lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
+if (command === 'inspect') {
+  const lane = fileURLToPath(new URL('../lanes/recipes/spatial03/inspect.ts', import.meta.url));
+  const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
+if (command === 'recipe') {
+  const lane = fileURLToPath(new URL('../lanes/recipes/cli.ts', import.meta.url));
+  const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
+if (command === 'demo') {
+  // chain-views-e6p2: scripted, replayable war-room session on placeholder
+  // data — cast + gif + mp4 + demo.cast seal. Runs under tsx (ink render).
+  const r = spawnSync('npx', ['tsx', 'src/demo/cast.ts', ...args], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  process.exit(r.status ?? 1);
+}
+
 if (command === 'privacy') {
   // privacy-d5n9: `timmy privacy scan|audit|fixture|hook` — the public-repo privacy gate.
   const lane = fileURLToPath(new URL('../lanes/privacy/scan.mjs', import.meta.url));
@@ -582,7 +609,7 @@ if (command === 'privacy') {
   process.exit(r.status ?? 1);
 }
 
-if (command === 'commander' || command === 'cf' || command === 'project' || command === 'sim' || command === 'swarm' || command === 'engine' || command === 'sandbox' || command === 'wire') {
+if (command === 'commander' || command === 'cf' || command === 'project' || command === 'sim' || command === 'swarm' || command === 'engine' || command === 'sandbox' || command === 'wire' || command === 'jcode' || command === 'schema' || command === 'docker' || command === 'abilities' || command === 'reconcile') {
   // mindship-v5c2 lanes: `timmy commander …` drives the durable Commander on
   // timmy-ai-proxy; `timmy cf …` is the Cloudflare war-room feed + verbs;
   // `timmy project new|menu|list` is the project folder standard; `timmy sim
@@ -590,11 +617,17 @@ if (command === 'commander' || command === 'cf' || command === 'project' || comm
   // is the engine shelf (inventory, env-locks, drop-folder runs), `timmy
   // sandbox …` the OpenHands SDK container lane, `timmy wire …` the MCP wire
   // tools; `timmy swarm …` (swarm-b3k7) runs swarm specs on the commander or
-  // locally. All live under lanes/ and run under tsx so they can import repo
-  // TypeScript where they need it.
-  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', engine: '../lanes/engines/lane.mjs', sandbox: '../lanes/sandbox/sandbox.mjs', wire: '../lanes/wire/wire.mjs', swarm: '../lanes/swarm/swarm.mjs' };
-  const lane = fileURLToPath(new URL(lanes[command], import.meta.url));
-  const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  // locally. captain-y9g4: `timmy jcode …` is JCODE AS CAPTAIN (isolated home,
+  // provider profiles, the Timmy MCP bridge, serve as the commander handoff
+  // target); `timmy schema …` is tool-schema compliance (Timmy's MCP server
+  // against the strictest validator + the per-model strict|lenient map + the
+  // harness×model gate); `timmy reconcile …` (ledger-r4k2) amends the in-call
+  // ledger against OpenRouter's generations API. All run under tsx (or node) so
+  // they can import repo TypeScript where they need it.
+  const lanes: Record<string, string> = { commander: '../lanes/commander/cli.mjs', cf: '../lanes/cf/pane.mjs', project: '../lanes/project/project.mjs', sim: '../lanes/sim/sim.mjs', engine: '../lanes/engines/lane.mjs', sandbox: '../lanes/sandbox/sandbox.mjs', wire: '../lanes/wire/wire.mjs', swarm: '../lanes/swarm/swarm.mjs', jcode: '../lanes/jcode/lane.mjs', schema: '../lanes/schema/lane.mjs', docker: '../lanes/docker/lane.mjs', abilities: '../lanes/abilities/registry.mjs', reconcile: '../lanes/openrouter/reconcile.mjs' };
+  const runner = ['jcode', 'schema', 'docker', 'abilities'].includes(command) ? 'node' : 'npx';
+  const runArgs = runner === 'node' ? [fileURLToPath(new URL(lanes[command], import.meta.url)), ...args.slice(1)] : ['tsx', fileURLToPath(new URL(lanes[command], import.meta.url)), ...args.slice(1)];
+  const r = spawnSync(runner, runArgs, { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
   process.exit(r.status ?? 1);
 }
 

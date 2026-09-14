@@ -256,6 +256,8 @@ export function launchSwarm(preset: SwarmPreset, over: { topology: string; size:
   mkdirSync(dir, { recursive: true });
   const specPath = join(dir, `launch-${Date.now().toString(36)}.json`);
   writeFileSync(specPath, JSON.stringify(spec, null, 1));
+  // timmy demo: the scripted session must never spawn a real swarm
+  if (process.env.TIMMY_DEMO === '1') return { ok: true, note: 'demo: spec written, no spawn', specPath };
   const log = join(root(), '.timmy', 'runs', `swarm-launch-${Date.now().toString(36)}.log`);
   mkdirSync(join(root(), '.timmy', 'runs'), { recursive: true });
   const child = spawn('node', [join(root(), 'lanes', 'swarm', 'swarm.mjs'), 'run', specPath, task, '--room', room], {
@@ -277,6 +279,7 @@ export function launchSwarm(preset: SwarmPreset, over: { topology: string; size:
 
 /** [X] — the whole swarm dies through the governor's kill file, then its panes. */
 export function killSwarm(room: string): { ok: boolean; panes: number } {
+  if (process.env.TIMMY_DEMO === '1') return { ok: true, panes: 0 };
   const r = spawnSync('node', [join(root(), 'lanes', 'swarm', 'swarm.mjs'), 'kill', '--room', room], { encoding: 'utf8', timeout: 20000 });
   let killed = 0;
   if (tmux(['has-session', '-t', WAR_SESSION]).status === 0) {

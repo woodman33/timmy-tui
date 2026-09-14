@@ -1,5 +1,6 @@
 import { saveConfig, getConfig } from './config.js';
 import { terminalLink } from './hyperlink.js';
+import { edgeUrl, edgeUrlOrNull, inertEdgeUrl } from './edge-host.js';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'fs';
 import { basename, extname, dirname } from 'path';
 import { execSync, spawn } from 'child_process';
@@ -1695,7 +1696,7 @@ async function runAgentProofTask(prompt: string, agent: any) {
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${apiKey}`,
-          "HTTP-Referer": "https://timmy-ai-proxy.wmeldman33.workers.dev"
+          "HTTP-Referer": edgeUrl()
         },
         body: JSON.stringify({
           model,
@@ -1773,7 +1774,7 @@ async function runAgentProofTask(prompt: string, agent: any) {
         phase: 'proof',
         riskLevel: 'low',
         receiptUrl: `file://${manifestPath}`,
-        telemetryUrl: 'https://timmy-ai-proxy.wmeldman33.workers.dev',
+        telemetryUrl: edgeUrlOrNull() ?? inertEdgeUrl(),
         createdAt: timestamp,
         updatedAt: timestamp,
         counters: {

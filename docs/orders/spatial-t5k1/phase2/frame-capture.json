@@ -1,0 +1,28 @@
+{
+  "revision": "d9f5ee7bcfea4686e6fc2e8b033db85d130ceb6aed2d51bc2ab2b69dab67ce20",
+  "sourceReceipt": "rc_mtyh6i7y_7t4i",
+  "frameChip": "WORLD · m · +Z · RH · origin: center of exterior base · placement Z 90°",
+  "scope": "Retained native geometry plus analytical envelope; no new native execution",
+  "unmeasured": [
+    "complete tool path",
+    "physical validation"
+  ],
+  "question": "frame",
+  "state": "available",
+  "frame": {
+    "id": "world",
+    "unit": "m",
+    "origin": "center of exterior base",
+    "handedness": "right",
+    "up": "+Z",
+    "rotationZ": 90,
+    "dimension": 3
+  },
+  "point": [
+    -0.03,
+    -0.06,
+    0.011
+  ],
+  "displayTransformOnly": true,
+  "observedAt": "2026-09-12T14:23:24.289041+00:00"
+}

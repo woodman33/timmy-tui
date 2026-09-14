@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'fs';
+import { createHash } from 'crypto';
 import { join } from 'path';
 import { spawnSync } from 'child_process';
 import { readChain } from './receipts.js';
@@ -82,8 +83,34 @@ export function renderBoard(rep: { actors: Record<string, OrderRow[]>; blockedOn
   if (rep.blockedOnWill.length) {
     out.push('BLOCKED ON WILL:');
     for (const r of rep.blockedOnWill) out.push(`  ${r.id} — ${r.next}`);
+    out.push('');
   }
+  out.push(...privacyBoard());
   return out.join('\n');
+}
+
+// chain-views-e6p2: `timmy status --board` shows the privacy gate state —
+// read from the chain (privacy.gate / privacy.audit receipts) plus the live
+// pattern-set hash. Hashes only; no paths, hosts or names.
+export function privacyBoard(): string[] {
+  const out: string[] = ['PRIVACY GATE — privacy-d5n9', ''];
+  try {
+    const all = readChain('runs');
+    const gate = [...all].reverse().find(r => String(r.subject) === 'privacy.gate');
+    const audit = [...all].reverse().find(r => String(r.subject) === 'privacy.audit');
+    const gm = (Array.isArray(gate?.sources) ? gate?.sources[0] : {}) as Record<string, unknown>;
+    const am = (Array.isArray(audit?.sources) ? audit?.sources[0] : {}) as Record<string, unknown>;
+    const p = join(process.cwd(), 'lanes', 'privacy', 'patterns.json');
+    const sha = existsSync(p) ? createHash('sha256').update(readFileSync(p)).digest('hex').slice(0, 12) : 'missing';
+    out.push(`  state    ${gate ? 'ARMED' : 'MISSING'} · patterns ${sha}`);
+    out.push(`  layers   ${String(gm.layers ?? '—').slice(0, 34)}`);
+    out.push(`  hook     ${String(gm.hook ?? '—').slice(0, 18)} · ci ${String(gm.ci ?? '—').slice(0, 18)}`);
+    out.push(`  audit    ${audit ? String(audit.hash).slice(7, 15) : '—'} · scanners ${String(am.scanners ?? '—').slice(0, 24)}`);
+    out.push(`  trees    ${String(am.trees ?? '—')} · history ${String(am.history_commits ?? '—')}c/${String(am.history_blobs ?? '—')}b`);
+  } catch {
+    out.push('  state    UNREADABLE');
+  }
+  return out;
 }
 
 export const ordersLogPath = (): string =>

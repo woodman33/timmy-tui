@@ -339,6 +339,8 @@ export interface ModelCall {
   tokens_reasoning: number;
   /** Native tool calls executed inside this call (tools: true). */
   tool_calls?: { name: string; ok: boolean; ms: number; error?: string }[];
+  /** Provider OpenRouter actually served the call from — the served-tier record (ledger-r4k2). */
+  served_provider?: string | null;
 }
 
 export interface MindDeps { env: Env; fetch?: typeof fetch; now?: () => number }
@@ -398,7 +400,7 @@ export async function chatOnce(role: ModelCall['role'], model: string, messages:
   const f = deps.fetch ?? fetch;
   const now = deps.now ?? Date.now;
   const started = now();
-  const base: ModelCall = { role, model, ok: false, ms: 0, usd: 0, tokens_in: 0, tokens_out: 0, counted: false, content_sha256: null, error: null, provider_used: null, model_used: null, generation_id: null, tokens_cached: 0, tokens_reasoning: 0 };
+  const base: ModelCall = { role, model, ok: false, ms: 0, usd: 0, tokens_in: 0, tokens_out: 0, counted: false, content_sha256: null, error: null, provider_used: null, model_used: null, generation_id: null, tokens_cached: 0, tokens_reasoning: 0, served_provider: null };
   if (!deps.env.OPENROUTER_API_KEY) return { call: { ...base, ms: now() - started, error: 'OPENROUTER_API_KEY not set on worker' }, content: '' };
   const acc = { usd: 0, tokens_in: 0, tokens_out: 0, tokens_cached: 0, tokens_reasoning: 0, counted: true, any: false };
   const toolCalls: NonNullable<ModelCall['tool_calls']> = [];
@@ -415,7 +417,7 @@ export async function chatOnce(role: ModelCall['role'], model: string, messages:
       const cost = usageCost(j.usage);
       acc.usd += cost.usd; acc.tokens_in += cost.tokens_in; acc.tokens_out += cost.tokens_out; acc.tokens_cached += cost.tokens_cached; acc.tokens_reasoning += cost.tokens_reasoning;
       acc.counted = acc.counted && cost.counted; acc.any = true;
-      const meta = { provider_used: j.provider ?? null, model_used: j.model ?? null, generation_id: j.id ?? null };
+      const meta = { provider_used: j.provider ?? null, model_used: j.model ?? null, generation_id: j.id ?? null, served_provider: typeof j.provider === 'string' ? j.provider : null };
       if (!r.ok) return { call: { ...base, ...meta, ms: now() - started, usd: acc.usd, tokens_in: acc.tokens_in, tokens_out: acc.tokens_out, tokens_cached: acc.tokens_cached, tokens_reasoning: acc.tokens_reasoning, counted: acc.counted, error: `upstream ${r.status}: ${JSON.stringify(j.error ?? j).slice(0, 300)}` }, content: '' };
       const msg = j.choices?.[0]?.message;
       const wanted = Array.isArray(msg?.tool_calls) ? msg!.tool_calls! : [];
@@ -678,7 +680,7 @@ export async function turnReceiptData(req: TurnRequest, r: TurnResult, by: strin
     ok: r.ok,
     task_sha256: await sha256Hex(String(req.task ?? '')),
     answer_sha256: await sha256Hex(r.answer),
-    models: r.calls.map((c) => ({ role: c.role, model: c.model, ok: c.ok, ms: c.ms, usd: c.usd, tokens_in: c.tokens_in, tokens_out: c.tokens_out, tokens_cached: c.tokens_cached, tokens_reasoning: c.tokens_reasoning, counted: c.counted, provider_used: c.provider_used, model_used: c.model_used, generation_id: c.generation_id, tool_calls: c.tool_calls?.length ?? 0, error: c.error })),
+    models: r.calls.map((c) => ({ role: c.role, model: c.model, ok: c.ok, ms: c.ms, usd: c.usd, tokens_in: c.tokens_in, tokens_out: c.tokens_out, tokens_cached: c.tokens_cached, tokens_reasoning: c.tokens_reasoning, counted: c.counted, provider_used: c.provider_used, model_used: c.model_used, generation_id: c.generation_id, served_provider: c.served_provider ?? null, tool_calls: c.tool_calls?.length ?? 0, error: c.error })),
     passthrough: { provider: !!req.provider, reasoning: !!req.reasoning, json_schema: !!req.json_schema, tools: !!req.tools, plugins: req.plugins?.length ?? 0, zdr: !!req.zdr, data_collection: req.data_collection ?? null, fallbacks: r.mode === 'generate' ? Math.max(0, (req.models?.length ?? 1) - 1) : 0 },
     hands: r.hands,
     hands_note: r.hands_note,

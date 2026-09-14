@@ -16,6 +16,7 @@ import { readPolicy, setModel, ADAPTERS } from '../../harness/policy.js';
 import { dropRoot, SHIPPED_RULES } from '../../drop/index.js';
 import { listEscrows, lockEscrow, cancelEscrow, type Escrow } from '../../utils/escrow-engine.js';
 import { journeyRows, journeyDoneCount } from '../journey.js';
+import { typedLines, runIdOf } from '../chain-views.js';
 import * as warroom from '../../harness/warroom.js';
 import * as w2 from '../../harness/warroom2.js';
 import { CommanderClient, edgeToken, type CommanderEvent } from '../../harness/commander.js';
@@ -110,6 +111,8 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   const [swPick, setSwPick] = useState({ preset: 0, topology: 0, size: 0, budget: 0, judge: 0, policy: 0 });
   const [focusHarness, setFocusHarness] = useState('jcode');
   const [war2, setWar2] = useState<{ presets: w2.SwarmPreset[]; runs: w2.SwarmRun[]; nodes: w2.NodeStat[]; sbx: w2.SbxRun[]; ports: Record<string, string>; abilities: w2.AbilityRow[]; projects: w2.ProjectRow[] }>({ presets: [], runs: [], nodes: [], sbx: [], ports: {}, abilities: [], projects: [] });
+  // chain-views-e6p2: [o] cross-links a swarm.run with its members + airgap
+  const [chainLink, setChainLink] = useState<string | null>(null);
   const [warPanes, setWarPanes] = useState<warroom.WarPane[]>([]);
   const [spend, setSpend] = useState(0);
   const [handoff, setHandoff] = useState<{ harness: string; model: string } | null>(null);
@@ -256,7 +259,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
         setVerified({ ok: v.ok, count: v.count, epochs: v.segments.length, head: h8, at: rec.ts, via: String(rec.id) });
         setFlash(v.ok ? `chain ok · ${v.count} receipts · head ${h8}` : `chain BROKEN at ${String(v.brokenAt ?? '?')}`);
       }
-      if (a === 'open-crosslink' && selectedRec) {
+      if (a === 'open-crosslink' && selectedRec && !runIdOf(selectedRec)) {
         const url = `http://localhost:${COMPANION_PORT()}/?receipt=${selectedRec.hash}`;
         const c = spawn('open', [url], { stdio: 'ignore', detached: true });
         c.unref();
@@ -328,6 +331,24 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
         } else {
           warroom.killWar();
           setFlash('kill switch — war room session down');
+        }
+      }
+      // chain-views-e6p2: [o] on CHAIN cross-links a swarm.run ↔ its members
+      if (a === 'open-crosslink' && sRef.current.tab === 'CHAIN') {
+        const rec = filtered[Math.min(sRef.current.selected, Math.max(0, filtered.length - 1))] ?? null;
+        if (chainLink) {
+          const nxt = { ...sRef.current, selected: 0 };
+          sRef.current = nxt;
+          setS(nxt);
+          setChainLink(null);
+        } else {
+          const rid = rec ? runIdOf(rec) : null;
+          if (rid) {
+            const nxt = { ...sRef.current, selected: 0 };
+            sRef.current = nxt;
+            setS(nxt);
+            setChainLink(rid);
+          }
         }
       }
       // SPEC §04: Enter on a sealed run jumps to its receipts in CHAIN
@@ -526,7 +547,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
       ?? recs.find(r => String(r.subject).includes(pendingEscrows[0].escrow_id))?.id ?? '—')
     : '—';
   // the receipt the CHAIN detail pane + [o]/[y] act on
-  const filtered = useMemo(() => {
+  const filteredBase = useMemo(() => {
     const q = s.filter.trim().toLowerCase();
     if (!q) return recs;
     return recs.filter(r => {
@@ -537,6 +558,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
       return JSON.stringify(r).toLowerCase().includes(q); // any field value
     });
   }, [recs, s.filter]);
+  const filtered = useMemo(() => (chainLink ? filteredBase.filter(r => runIdOf(r) === chainLink) : filteredBase), [filteredBase, chainLink]);
   const selectedRec = filtered[Math.min(s.selected, Math.max(0, filtered.length - 1))] ?? null;
   // SPEC §06 — MODELS picker: role-grouped, / fuzzy over id/role/notes,
   // pinned float to top (registry order), selection drives Enter/h/p/n.
@@ -673,7 +695,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
               {pendingEscrows[0] && <><Box height={1} /><EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} /></>}
             </>
           )}
-          {s.tab === 'CHAIN' && <ChainPane recs={recs} filtered={filtered} selected={Math.min(s.selected, Math.max(0, filtered.length - 1))} chain={chain} verified={verified} filter={s.filter} />}
+          {s.tab === 'CHAIN' && <ChainPane recs={recs} filtered={filtered} selected={Math.min(s.selected, Math.max(0, filtered.length - 1))} chain={chain} verified={verified} filter={s.filter} link={chainLink} />}
           {s.tab === 'CHAT' && <ChatPane recs={recs} />}
           {s.tab === 'COMMAND' && (
             <>
@@ -906,7 +928,7 @@ function HomePane(props: {
 function ChainPane(props: {
   recs: Receipt[]; filtered: Receipt[]; selected: number; chain: { ok: boolean; count: number };
   verified: null | { ok: boolean; count: number; epochs: number; head: string; at: string; via: string };
-  filter: string;
+  filter: string; link: string | null;
 }) {
   const { filtered, selected } = props;
   const start = Math.max(0, selected - 16);
@@ -915,7 +937,7 @@ function ChainPane(props: {
   return (
     <Box flexDirection="column">
       <Text color={PAL.seal}>
-        {`RECEIPTS  ${props.filter ? `/ ${props.filter} · ${filtered.length}/${props.recs.length}` : `${props.recs.length} · [/] filter`}`}
+        {`RECEIPTS  ${props.link ? `⊗ ${props.link.slice(0, 18)} · [o] unlink · ${filtered.length}` : props.filter ? `/ ${props.filter} · ${filtered.length}/${props.recs.length}` : `${props.recs.length} · [/] filter`}`}
       </Text>
       {windowRows.map((r, i) => {
         const idx = start + i;
@@ -979,6 +1001,9 @@ function DetailPane({ rec }: { rec: Receipt | null }) {
       <Text color={PAL.textMuted} wrap="truncate">actions [v] verify [o] open [y] copy</Text>
       <Box height={1} />
       <Text color={PAL.textMuted} wrap="truncate">{rec.subject}</Text>
+      {typedLines(rec).map((l, i) => (
+        <Text key={i} color={l.startsWith('⊘') ? PAL.warn : PAL.textSecondary} wrap="truncate">{l}</Text>
+      ))}
       {rec.status && rec.status !== 'ok' ? <Text color={PAL.danger} wrap="truncate">status   {rec.status}</Text> : null}
     </Card>
   );

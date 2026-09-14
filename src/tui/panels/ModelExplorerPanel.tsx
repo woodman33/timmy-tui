@@ -3,6 +3,7 @@ import { Box, Text, useInput, useWindowSize } from 'ink';
 import { useFocus, panelMayAct } from '../hooks/useKeyDispatcher.js';
 import { theme } from '../theme.js';
 import { Card, SectionRule, Metric, HashChip, Pill } from '../ui/index.js';
+import { edgeUrlOrNull, inertEdgeUrl } from '../../utils/edge-host.js';
 import { exec } from 'child_process';
 import { getResponsiveLayout } from '../utils/responsive.js';
 
@@ -136,7 +137,7 @@ export function ModelExplorerPanel({ agent, setInspector, focusArea = 'stage' }:
         // Notify companion sync systems
         agent.emit('run.created', {
           runId: newRunId,
-          receiptUrl: `https://timmy-ai-proxy.wmeldman33.workers.dev/runs/${newRunId}/receipt`,
+          receiptUrl: edgeUrlOrNull(`/runs/${newRunId}/receipt`) ?? inertEdgeUrl(`/runs/${newRunId}/receipt`),
           source: 'timmy-tui-manual-proof',
           timestamp: Date.now()
         });
