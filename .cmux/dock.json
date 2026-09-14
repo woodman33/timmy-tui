@@ -17,7 +17,7 @@
     {
       "id": "timmy-edge-health",
       "title": "Edge Health",
-      "command": "curl -sS https://timmy-ai-proxy.wmeldman33.workers.dev/health; printf \"\\n\"; exec \"$SHELL\" -l",
+      "command": "curl -sS https://<hostname>/health; printf \"\\n\"; exec \"$SHELL\" -l",
       "cwd": ".",
       "height": 220
     }

@@ -19,6 +19,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { edgeUrlOrInert } from '../privacy/overlay.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const WORKER_DIR = join(ROOT, 'workers', 'ai-proxy');
@@ -28,7 +29,7 @@ const has = (k) => args.includes(k);
 const verb = args.find((a) => !a.startsWith('--')) ?? 'pane';
 const PROD = has('--prod');
 const NAME = PROD ? 'timmy-ai-proxy' : 'timmy-ai-proxy-preview';
-const WORKER = (flag('--worker', PROD ? 'https://timmy-ai-proxy.wmeldman33.workers.dev' : 'https://timmy-ai-proxy-preview.wmeldman33.workers.dev')).replace(/\/$/, '');
+const WORKER = (flag('--worker', process.env.TIMMY_AI_PROXY ?? edgeUrlOrInert())).replace(/\/$/, '');
 const ROOM = flag('--room', 'war-room');
 const SLATE_ROOM = flag('--slate-room', 'slate:ledger');
 const KV_ID = '8d783470266e44d9ab49143de5b88436';

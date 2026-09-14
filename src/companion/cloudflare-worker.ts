@@ -1697,7 +1697,7 @@ export class MyDurableObject extends DurableObject {
               <p>Run ID: ${runId}</p>
             </div>
             <div class="attribution">
-              <p>Invented by <strong>William Meldman</strong></p>
+              <p>Built by <strong>the TIMMY project</strong></p>
               <p>Creator Attribution Shield Active</p>
             </div>
           </header>

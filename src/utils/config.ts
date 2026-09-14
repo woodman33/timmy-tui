@@ -1,6 +1,7 @@
 import Conf from 'conf';
 import { existsSync, readFileSync } from 'fs';
-import { resolve } from 'path';
+import { homedir } from 'os';
+import { join, resolve } from 'path';
 
 // Zero-dependency .env loader: the repo ships a .env but nothing ever loaded
 // it, so OPENROUTER_API_KEY (and friends) never reached process.env and the
@@ -87,6 +88,14 @@ export function loadConfig(): TuiConfig {
 
   if (process.env.OPENROUTER_API_KEY) {
     config.apiKey = process.env.OPENROUTER_API_KEY;
+  }
+  if (!config.apiKey) {
+    // blank-slate-v1k9: `timmy init` keeps provider keys in ~/timmy/providers.json (0600), never in the tree
+    try {
+      const home = process.env.TIMMY_HOME || join(homedir(), 'timmy');
+      const pj = JSON.parse(readFileSync(join(home, 'providers.json'), 'utf-8'));
+      if (typeof pj.openrouter_api_key === 'string' && pj.openrouter_api_key) config.apiKey = pj.openrouter_api_key;
+    } catch { /* no wizard file */ }
   }
   if (process.env.OPENROUTER_MODEL) {
     config.model = process.env.OPENROUTER_MODEL;

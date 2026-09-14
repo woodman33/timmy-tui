@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 async function generateIntentPack() {
-  const telemetryUrl = 'https://timmy-ai-proxy.wmeldman33.workers.dev';
+  const telemetryUrl = process.env.TIMMY_AI_PROXY ?? 'https://<hostname>'; // blank-slate: READ, never literalized
   const runId = `intent_pack_${Math.random().toString(36).substring(2, 9)}`;
   const goal = 'Generate TIMMY V3.2 Agent Intent Event Design Pack';
 
@@ -37,7 +37,7 @@ async function generateIntentPack() {
 
   const filesMap: Record<string, string> = {
     'README.md': `# TIMMY V3.2 Agent Intent Design Pack
-Designed by William Meldman • Creator Attribution Shield Active
+Designed by the TIMMY project • Creator Attribution Shield Active
 
 This folder contains the complete V3.2 Agent Intent design pack to establish structured, multi-agent intentional coordination protocols in stateful Durable Object run receipts.
 

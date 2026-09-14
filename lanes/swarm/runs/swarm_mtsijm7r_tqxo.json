@@ -1,7 +1,7 @@
 {
  "where": "edge",
  "room": "war-room",
- "worker": "https://timmy-ai-proxy-preview.wmeldman33.workers.dev",
+ "worker": "https://<hostname>",
  "spec": {
   "v": 1,
   "id": "fusion-2",
