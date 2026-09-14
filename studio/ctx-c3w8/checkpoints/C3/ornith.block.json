@@ -1,0 +1,7 @@
+{
+  "model": "ornith:latest",
+  "elapsedMs": 114416,
+  "rows": 6,
+  "budgetSeconds": 900,
+  "withinBudget": true
+}

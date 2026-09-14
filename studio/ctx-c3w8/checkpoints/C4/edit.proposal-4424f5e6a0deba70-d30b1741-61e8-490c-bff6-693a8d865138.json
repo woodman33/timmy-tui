@@ -1,0 +1,38 @@
+{
+  "schema": "timmy.edit.proposal/1",
+  "status": "proposed",
+  "reason": null,
+  "packSha256": "6cb66afc5e0981d5ce78fb2b50637c12e4bf4eb9fb1d370b46ffe459948b053c",
+  "objectId": "volume",
+  "sourceRevision": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "document": {
+    "path": "studio/ctx-c3w8/checkpoints/C4/authority/manifest.json",
+    "sha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+    "authority": "retained-local-file"
+  },
+  "freshness": {
+    "basis": "direct-authoritative-local-byte-read",
+    "readPerformed": true,
+    "observedRevision": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+    "observedAtUtc": "2026-09-12T17:07:05.384Z",
+    "leaseHeld": false
+  },
+  "dryRun": {
+    "diff": [
+      {
+        "path": "/construction/boxSideMm",
+        "before": 80,
+        "after": 82
+      }
+    ],
+    "proposedDocumentSha256": "2fa5445988397cfb846344446af5d100bc304837febb5e594cac573422e48cd1",
+    "requiresGeometryRebuild": true,
+    "documentWritten": false
+  },
+  "scope": {
+    "proposalOnly": true,
+    "nativeDocumentFreshness": false,
+    "appliesAutomatically": false,
+    "laterApplyMustRecheckRevision": true
+  }
+}

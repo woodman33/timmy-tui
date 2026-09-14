@@ -62,8 +62,9 @@ export function useTelemetryBridge({
   config,
   activeRunId,
   activeReceiptUrl,
-  operator = operatorLabel()
-}: UseTelemetryBridgeProps) {
+  operator = operatorLabel(),
+  enabled = true
+}: UseTelemetryBridgeProps & { enabled?: boolean }) {
   const [telemetryStatus, setTelemetryStatus] = useState<TelemetryStatus>('online');
   const [queue, setQueue] = useState<TelemetryQueueItem[]>([]);
   const [lastTelemetryError, setLastTelemetryError] = useState<string | undefined>(undefined);
@@ -330,6 +331,7 @@ export function useTelemetryBridge({
 
   // Queue retry loop every 2 seconds
   useEffect(() => {
+    if (!enabled) return; // BOOT: no network probes before first frame
     const retryTimer = setInterval(() => {
       if (queueRef.current.length > 0) {
         flushTelemetry();
@@ -340,10 +342,11 @@ export function useTelemetryBridge({
     }, 2000);
 
     return () => clearInterval(retryTimer);
-  }, []);
+  }, [enabled]);
 
   // Event listener registration and normalization mapping
   useEffect(() => {
+    if (!enabled) return; // BOOT: listeners attach after first frame
     // Normalization mapping maps legacy emitter events to canonical types
     const handleEvent = (legacyEvent: string, payload: any) => {
       let canonicalEvent: TelemetryEventName = legacyEvent as any;

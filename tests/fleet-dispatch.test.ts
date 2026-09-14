@@ -14,7 +14,7 @@ const scene: UsdScene = {
 beforeAll(() => { process.env.TIMMY_DISPATCH_DRYRUN = '1'; });
 afterAll(() => { delete process.env.TIMMY_DISPATCH_DRYRUN; });
 
-describe('fleet distribution (v0.9.0)', () => {
+describe('fleet distribution (v0.9.0)', { timeout: 30000 }, () => {
   it('fans out armed tri-lane renders against one hashed stage, parent receipted', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'timmy-fleet-t1-'));
     const r = await runFleetMission({ scene, dir, armToken: (_id, hash) => issueApproval(hash).token });

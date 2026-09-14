@@ -1,0 +1,57 @@
+[
+ {
+  "name": "rive_editor_status",
+  "title": "Rive Editor MCP Status",
+  "description": "Check whether Rive Early Access's local editor MCP endpoint is reachable.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "execution": {
+   "taskSupport": "forbidden"
+  }
+ },
+ {
+  "name": "rive_list_editor_tools",
+  "title": "List Rive Editor Tools",
+  "description": "List tools exposed by the running Rive Early Access editor MCP endpoint.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "execution": {
+   "taskSupport": "forbidden"
+  }
+ },
+ {
+  "name": "rive_call_editor_tool",
+  "title": "Call Rive Editor Tool",
+  "description": "Call any tool exposed by Rive Early Access's local editor MCP endpoint.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string",
+     "minLength": 1,
+     "description": "Rive editor tool name."
+    },
+    "arguments": {
+     "default": {},
+     "description": "JSON arguments to pass to the Rive editor tool.",
+     "type": "object",
+     "properties": {},
+     "additionalProperties": {}
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "execution": {
+   "taskSupport": "forbidden"
+  }
+ }
+]

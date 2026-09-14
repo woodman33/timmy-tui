@@ -1,0 +1,15 @@
+{
+  "response": {
+    "model": "qwen3.8:27b-mlx",
+    "done": true,
+    "done_reason": "stop",
+    "content": "{\n  \"answers\": [\n    {\n      \"key\": \"knownLocations\",\n      \"value\": 1000,\n      \"entityId\": \"volume\",\n      \"factIds\": [\n        \"volume.location-count\"\n      ]\n    },\n    {\n      \"key\": \"totalCells\",\n      \"value\": 1000,\n      \"entityId\": \"volume\",\n      \"factIds\": [\n        \"volume.total-cells\"\n      ]\n    },\n    {\n      \"key\": \"empty\",\n      \"value\": 488,\n      \"entityId\": \"volume\",\n      \"factIds\": [\n        \"volume.fill-coverage\"\n      ]\n    },\n    {\n      \"key\": \"partial\",\n      \"value\": 96,\n      \"entityId\": \"volume\",\n      \"factIds\": [\n        \"volume.fill-coverage\"\n      ]\n    },\n    {\n      \"key\": \"full\",\n      \"value\": 416,\n      \"entityId\": \"volume\",\n      \"factIds\": [\n        \"volume.fill-coverage\"\n      ]\n    }\n  ],\n  \"unknowns\": [\n    \"material\",\n    \"density\",\n    \"mass\"\n  ]\n}",
+    "prompt_eval_count": 5590,
+    "eval_count": 294,
+    "total_duration": 129188622750,
+    "load_duration": 14047167,
+    "eval_duration": 73432948542
+  },
+  "malformedTransportBody": null,
+  "error": null
+}

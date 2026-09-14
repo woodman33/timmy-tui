@@ -1,0 +1,29 @@
+{
+ "kind": "blueprint",
+ "name": "USD · usdz-package",
+ "source": "lanes/engines/usd/templates/usdz-package/plan.cue",
+ "date": "2026-09-07",
+ "engine": "usd",
+ "workflow": "usdz-package",
+ "note": "A layer dropped into drop/ becomes one .usdz in out/ with its entries listed and re-loaded. usdzip's --checkCompliance is skipped on purpose: it crashes (SIGBUS) in Apple USD Tools 0.25.2, and the report says so.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "layer", "value": "*.usda · *.usdc · *.usd", "note": "rules: run" },
+   { "label": "assets", "value": "*.png · *.jpg · *.exr", "note": "rules: stage" },
+   { "label": "usdz", "value": "*.usdz", "note": "already packaged: rules: stage" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 pack", "value": "usdzip --asset <layer> {stem}.usdz", "note": "" },
+   { "label": "2 list", "value": "usdzip -l, 64-byte alignment check", "note": "" },
+   { "label": "3 re-load", "value": "usdcat --loadOnly on the package", "note": "run.mjs" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "usdz", "value": "{stem}.usdz", "note": "archive" },
+   { "label": "report", "value": "{stem}.usdz.json", "note": "entries, root layer, load_ok, compliance note" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "layer sha256 · package sha256 · env-lock", "note": "" },
+   { "label": "extra", "value": "entry_count · root_layer · compliance", "note": "from the report" }
+  ] }
+ ]
+}

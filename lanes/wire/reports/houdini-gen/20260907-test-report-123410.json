@@ -1,0 +1,1682 @@
+{
+  "metadata": {
+    "generated_at": "2026-09-07T12:34:10.079030+00:00",
+    "mcp_probe_version": "0.3.0",
+    "total_duration_ms": 2556,
+    "transport_type": "stdio"
+  },
+  "protocol_info": {
+    "available_protocols": [
+      {
+        "endpoints": [
+          "/mcp"
+        ],
+        "session_management": "Mcp-Session-Id header",
+        "spec_date": "2025-03-26",
+        "supported_methods": [
+          "initialize",
+          "initialized",
+          "tools/list",
+          "tools/call",
+          "resources/list",
+          "resources/read",
+          "prompts/list",
+          "prompts/get",
+          "logging/setLevel",
+          "notifications/*"
+        ],
+        "version": "Modern Streamable HTTP"
+      },
+      {
+        "endpoints": [
+          "/sse",
+          "/events"
+        ],
+        "session_management": "sessionId query parameter",
+        "spec_date": "2024-11-05",
+        "supported_methods": [
+          "initialize",
+          "initialized",
+          "tools/list",
+          "tools/call",
+          "resources/list",
+          "resources/read",
+          "prompts/list",
+          "prompts/get",
+          "logging/setLevel"
+        ],
+        "version": "Legacy HTTP+SSE"
+      },
+      {
+        "endpoints": [
+          "stdio"
+        ],
+        "session_management": "N/A (stdio)",
+        "spec_date": "2025-03-26",
+        "supported_methods": [
+          "initialize",
+          "initialized",
+          "tools/list",
+          "tools/call",
+          "resources/list",
+          "resources/read",
+          "prompts/list",
+          "prompts/get",
+          "logging/setLevel",
+          "notifications/*"
+        ],
+        "version": "Standard Transport"
+      }
+    ],
+    "detected_protocol": {
+      "endpoints": [
+        "stdio"
+      ],
+      "session_management": "N/A (stdio)",
+      "spec_date": "2025-03-26",
+      "supported_methods": [
+        "initialize",
+        "initialized",
+        "tools/list",
+        "tools/call",
+        "resources/list",
+        "resources/read",
+        "prompts/list",
+        "prompts/get",
+        "logging/setLevel",
+        "notifications/*"
+      ],
+      "version": "Standard Transport"
+    }
+  },
+  "results": [
+    {
+      "details": null,
+      "duration_ms": 0,
+      "message": "Successfully created MCP client",
+      "name": "Connection",
+      "status": "PASS"
+    },
+    {
+      "details": {
+        "name": "houdini-gen-mcp",
+        "protocol_version": "2025-03-26",
+        "version": "3.4.3"
+      },
+      "duration_ms": 1719,
+      "message": "Connected to houdini-gen-mcp v3.4.3",
+      "name": "Initialization",
+      "status": "PASS"
+    },
+    {
+      "details": null,
+      "duration_ms": 1,
+      "message": "Server capabilities discovered successfully",
+      "name": "Capability Discovery",
+      "status": "PASS"
+    },
+    {
+      "details": [
+        {
+          "description": "Get current Houdini scene metadata: hip file path, fps, frame range, node counts.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "houdini_get_scene_info"
+        },
+        {
+          "description": "Clear the current Houdini scene. Set force=True to skip unsaved-changes prompt.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "force": {
+                "default": false,
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "name": "houdini_new_scene"
+        },
+        {
+          "description": "Save the current .hip file. If path omitted, save in place.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "type": "object"
+          },
+          "name": "houdini_save_scene"
+        },
+        {
+          "description": "Load a .hip/.hipnc/.hiplc file.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "houdini_load_scene"
+        },
+        {
+          "description": "Import a 3D file into Houdini (.glb/.usd/.abc/.fbx/.obj/.bgeo/.ply).",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "file_path": {
+                "type": "string"
+              },
+              "node_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "parent_path": {
+                "default": "/obj",
+                "type": "string"
+              }
+            },
+            "required": [
+              "file_path"
+            ],
+            "type": "object"
+          },
+          "name": "houdini_import_file"
+        },
+        {
+          "description": "Export a node's geometry to a file. Frame range is 'start-end' or 'start-end-step'.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "file_path": {
+                "type": "string"
+              },
+              "frame_range": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "node_path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "node_path",
+              "file_path"
+            ],
+            "type": "object"
+          },
+          "name": "houdini_export_file"
+        },
+        {
+          "description": "Create a Houdini node by type (e.g. 'geo', 'box', 'subnet', 'cam').",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "node_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "node_type": {
+                "type": "string"
+              },
+              "parent_path": {
+                "default": "/obj",
+                "type": "string"
+              }
+            },
+            "required": [
+              "node_type"
+            ],
+            "type": "object"
+          },
+          "name": "houdini_create_node"
+        },
+        {
+          "description": "Delete a Houdini node by path.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "node_path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "node_path"
+            ],
+            "type": "object"
+          },
+          "name": "houdini_delete_node"
+        },
+        {
+          "description": "Get detailed node info: type, params, inputs/outputs, geo stats.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "node_path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "node_path"
+            ],
+            "type": "object"
+          },
+          "name": "houdini_get_node_info"
+        },
+        {
+          "description": "Get a parameter value from a node.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "node_path": {
+                "type": "string"
+              },
+              "parm_name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "node_path",
+              "parm_name"
+            ],
+            "type": "object"
+          },
+          "name": "houdini_get_parameter"
+        },
+        {
+          "description": "Set a parameter value. Pass a list for vector parms (size, color, position).",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "node_path": {
+                "type": "string"
+              },
+              "parm_name": {
+                "type": "string"
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "integer"
+                        }
+                      ]
+                    },
+                    "type": "array"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "node_path",
+              "parm_name",
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "houdini_set_parameter"
+        },
+        {
+          "description": "Create a material under /mat. Defaults to principledshader.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "material_type": {
+                "default": "principledshader",
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "name": "houdini_create_material"
+        },
+        {
+          "description": "Assign a material to a SOP via shop_materialpath.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "material_path": {
+                "type": "string"
+              },
+              "node_path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "node_path",
+              "material_path"
+            ],
+            "type": "object"
+          },
+          "name": "houdini_assign_material"
+        },
+        {
+          "description": "Set a texture map parameter on a material (PNG/EXR/JPG path on disk).",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "material_path": {
+                "type": "string"
+              },
+              "parm_name": {
+                "type": "string"
+              },
+              "texture_path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "material_path",
+              "parm_name",
+              "texture_path"
+            ],
+            "type": "object"
+          },
+          "name": "houdini_set_texture"
+        },
+        {
+          "description": "Capture the Houdini viewport as a PNG (Vulkan preview).\n\nSOLVES the 'can't see what I'm making' problem — returns a path you can open.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "camera_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "height": {
+                "default": 720,
+                "type": "integer"
+              },
+              "width": {
+                "default": 1280,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "name": "houdini_viewport_screenshot"
+        },
+        {
+          "description": "Production render using Karma XPU (GPU-accelerated).",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "camera_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "frame_range": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "height": {
+                "default": 1080,
+                "type": "integer"
+              },
+              "node_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "samples": {
+                "default": 256,
+                "type": "integer"
+              },
+              "width": {
+                "default": 1920,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "name": "houdini_karma_xpu_render"
+        },
+        {
+          "description": "Execute arbitrary Python in Houdini with `hou` injected (ESCAPE HATCH).\n\nRuns on Houdini's main thread (safe). Catches stdout.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "timeout": {
+                "default": 120.0,
+                "type": "number"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          "name": "houdini_execute_python"
+        },
+        {
+          "description": "Create a camera node. position/look_at are [x,y,z].",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "look_at": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "number"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "name": {
+                "default": "cam",
+                "type": "string"
+              },
+              "parent": {
+                "default": "/obj",
+                "type": "string"
+              },
+              "position": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "number"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "type": "object"
+          },
+          "name": "houdini_create_camera"
+        },
+        {
+          "description": "Set the scene's current render camera.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "camera_path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "camera_path"
+            ],
+            "type": "object"
+          },
+          "name": "houdini_set_current_camera"
+        },
+        {
+          "description": "Create a light (hlight/envlight).",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "color": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "number"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "intensity": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "light_type": {
+                "default": "hlight",
+                "type": "string"
+              },
+              "name": {
+                "default": "light",
+                "type": "string"
+              },
+              "parent": {
+                "default": "/obj",
+                "type": "string"
+              },
+              "position": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "number"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "type": "object"
+          },
+          "name": "houdini_create_light"
+        },
+        {
+          "description": "Frame the viewport on a node (or all geometry if omitted).",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "node_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "type": "object"
+          },
+          "name": "houdini_frame_selection"
+        },
+        {
+          "description": "Ping the Houdini bridge. Returns ok=true if Houdini is running and bridge is started.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "houdini_health"
+        },
+        {
+          "description": "Tripo v3: text → 3D model. Returns {job_id, status, raw}.\n\nmodel options:\n  v3.1-20260211 — latest, best quality (default)\n  v3.0-20250812 — stable, advanced features\n  v2.5-20250123 — balanced\ngeometry_quality: 'standard' or 'high'",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "geometry_quality": {
+                "default": "standard",
+                "type": "string"
+              },
+              "model": {
+                "default": "v3.1-20260211",
+                "type": "string"
+              },
+              "negative_prompt": {
+                "default": "",
+                "type": "string"
+              },
+              "output_format": {
+                "default": "glb",
+                "type": "string"
+              },
+              "prompt": {
+                "type": "string"
+              },
+              "seed": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "prompt"
+            ],
+            "type": "object"
+          },
+          "name": "tripo_text_to_model"
+        },
+        {
+          "description": "Tripo v3: image (public URL) → 3D model.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "geometry_quality": {
+                "default": "standard",
+                "type": "string"
+              },
+              "image_url": {
+                "type": "string"
+              },
+              "model": {
+                "default": "v3.1-20260211",
+                "type": "string"
+              },
+              "output_format": {
+                "default": "glb",
+                "type": "string"
+              }
+            },
+            "required": [
+              "image_url"
+            ],
+            "type": "object"
+          },
+          "name": "tripo_image_to_model"
+        },
+        {
+          "description": "Tripo v3: re-texture an existing model. Pass a prior task_id or public model URL.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "model": {
+                "default": "v3.1-20260211",
+                "type": "string"
+              },
+              "original_task_id_or_model_url": {
+                "type": "string"
+              },
+              "prompt": {
+                "default": "",
+                "type": "string"
+              }
+            },
+            "required": [
+              "original_task_id_or_model_url"
+            ],
+            "type": "object"
+          },
+          "name": "tripo_texture"
+        },
+        {
+          "description": "Poll a Tripo job's status. Returns {status, outputs?, raw}.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "job_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job_id"
+            ],
+            "type": "object"
+          },
+          "name": "tripo_poll"
+        },
+        {
+          "description": "Wait for Tripo job, download GLB, and import into Houdini. End-to-end.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "job_id": {
+                "type": "string"
+              },
+              "node_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "parent_path": {
+                "default": "/obj",
+                "type": "string"
+              }
+            },
+            "required": [
+              "job_id"
+            ],
+            "type": "object"
+          },
+          "name": "tripo_download_and_import"
+        },
+        {
+          "description": "Wavespeed: 3D generation. Pass prompt (text-to-3d) or image URL (image-to-3d).\n\nFor model-specific extra params, use houdini_execute_python with httpx to call the\nAPI directly — or request v3 add explicit params.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "image": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "model": {
+                "default": "wavespeed-ai/hunyuan-3d-v3.1-text-to-3d-rapid",
+                "type": "string"
+              },
+              "prompt": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "seed": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "type": "object"
+          },
+          "name": "wavespeed_generate_3d"
+        },
+        {
+          "description": "Wavespeed: image generation.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "height": {
+                "default": 1024,
+                "type": "integer"
+              },
+              "model": {
+                "default": "wavespeed-ai/flux-dev",
+                "type": "string"
+              },
+              "negative_prompt": {
+                "default": "",
+                "type": "string"
+              },
+              "prompt": {
+                "type": "string"
+              },
+              "seed": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "width": {
+                "default": 1024,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "prompt"
+            ],
+            "type": "object"
+          },
+          "name": "wavespeed_generate_image"
+        },
+        {
+          "description": "Wavespeed: video generation (text-to-video or image-to-video).",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "duration": {
+                "default": 5,
+                "type": "integer"
+              },
+              "image": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "model": {
+                "default": "wavespeed-ai/wan-2.1-i2v-720p",
+                "type": "string"
+              },
+              "prompt": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "resolution": {
+                "default": "720p",
+                "type": "string"
+              },
+              "seed": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "type": "object"
+          },
+          "name": "wavespeed_generate_video"
+        },
+        {
+          "description": "Poll a Wavespeed job. Returns {status, outputs?, raw}.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "job_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job_id"
+            ],
+            "type": "object"
+          },
+          "name": "wavespeed_fetch"
+        },
+        {
+          "description": "Wait for Wavespeed 3D job, download, and import into Houdini.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "artifact_index": {
+                "default": 0,
+                "type": "integer"
+              },
+              "job_id": {
+                "type": "string"
+              },
+              "node_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "parent_path": {
+                "default": "/obj",
+                "type": "string"
+              }
+            },
+            "required": [
+              "job_id"
+            ],
+            "type": "object"
+          },
+          "name": "wavespeed_download_and_import"
+        },
+        {
+          "description": "Krea: text → image. Models: krea2, krea2-turbo, flux, imagen, nano-banana, nano-banana-2.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "aspect_ratio": {
+                "default": "1:1",
+                "type": "string"
+              },
+              "model": {
+                "default": "krea2",
+                "type": "string"
+              },
+              "prompt": {
+                "type": "string"
+              },
+              "seed": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "prompt"
+            ],
+            "type": "object"
+          },
+          "name": "krea_generate_image"
+        },
+        {
+          "description": "Krea: text/image → video. Models: veo3, kling, sora2, krea-wan-14b.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "duration": {
+                "default": 5,
+                "type": "integer"
+              },
+              "image": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "model": {
+                "default": "veo3",
+                "type": "string"
+              },
+              "prompt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "prompt"
+            ],
+            "type": "object"
+          },
+          "name": "krea_generate_video"
+        },
+        {
+          "description": "List the user's published Krea Node Apps (multi-step workflows built in the Krea UI).",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "krea_list_node_apps"
+        },
+        {
+          "description": "Execute a published Krea Node App (multi-step workflow).\n\nBuild workflows visually in Krea's Nodes UI at krea.ai, publish them, then call here\nby version_id. Pass `inputs` as a JSON string matching the workflow's input schema\n(use krea_list_node_apps to see the schema).",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "inputs": {
+                "default": "{}",
+                "type": "string"
+              },
+              "version_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "version_id"
+            ],
+            "type": "object"
+          },
+          "name": "krea_execute_node_app"
+        },
+        {
+          "description": "Poll a Krea job. Returns {status, outputs?, raw}.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "job_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job_id"
+            ],
+            "type": "object"
+          },
+          "name": "krea_poll"
+        },
+        {
+          "description": "Wait for a Krea 3D-output job, download, and import into Houdini.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "artifact_index": {
+                "default": 0,
+                "type": "integer"
+              },
+              "job_id": {
+                "type": "string"
+              },
+              "node_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "parent_path": {
+                "default": "/obj",
+                "type": "string"
+              }
+            },
+            "required": [
+              "job_id"
+            ],
+            "type": "object"
+          },
+          "name": "krea_download_and_import"
+        },
+        {
+          "description": "Meshy v6: text → 3D model. Mode 'Meshy-6' is the latest.\n\nart_style: realistic | stylized | 3d-art. topology: quad | triangle.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "art_style": {
+                "default": "realistic",
+                "type": "string"
+              },
+              "enable_pbr": {
+                "default": true,
+                "type": "boolean"
+              },
+              "mode": {
+                "default": "Meshy-6",
+                "type": "string"
+              },
+              "negative_prompt": {
+                "default": "",
+                "type": "string"
+              },
+              "prompt": {
+                "type": "string"
+              },
+              "seed": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "target_poly_count": {
+                "default": 30000,
+                "type": "integer"
+              },
+              "texture_richness": {
+                "default": "balanced",
+                "type": "string"
+              },
+              "topology": {
+                "default": "quad",
+                "type": "string"
+              }
+            },
+            "required": [
+              "prompt"
+            ],
+            "type": "object"
+          },
+          "name": "meshy_text_to_3d"
+        },
+        {
+          "description": "Meshy v6: image (public URL) → 3D model.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "art_style": {
+                "default": "realistic",
+                "type": "string"
+              },
+              "enable_pbr": {
+                "default": true,
+                "type": "boolean"
+              },
+              "image_url": {
+                "type": "string"
+              },
+              "mode": {
+                "default": "Meshy-6",
+                "type": "string"
+              },
+              "target_poly_count": {
+                "default": 30000,
+                "type": "integer"
+              },
+              "topology": {
+                "default": "quad",
+                "type": "string"
+              }
+            },
+            "required": [
+              "image_url"
+            ],
+            "type": "object"
+          },
+          "name": "meshy_image_to_3d"
+        },
+        {
+          "description": "Meshy v6: apply a new texture/material to an existing 3D model URL (GLB/OBJ/FBX/USD).",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "enable_pbr": {
+                "default": true,
+                "type": "boolean"
+              },
+              "model_url": {
+                "type": "string"
+              },
+              "prompt": {
+                "type": "string"
+              },
+              "texture_richness": {
+                "default": "balanced",
+                "type": "string"
+              }
+            },
+            "required": [
+              "model_url",
+              "prompt"
+            ],
+            "type": "object"
+          },
+          "name": "meshy_text_to_texture"
+        },
+        {
+          "description": "Meshy v6: remesh an existing 3D model (reduce/normalize polygon count).",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "model_url": {
+                "type": "string"
+              },
+              "target_poly_count": {
+                "default": 30000,
+                "type": "integer"
+              },
+              "topology": {
+                "default": "quad",
+                "type": "string"
+              }
+            },
+            "required": [
+              "model_url"
+            ],
+            "type": "object"
+          },
+          "name": "meshy_remesh"
+        },
+        {
+          "description": "Poll a Meshy task. Returns {status, outputs?, raw}.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "job_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job_id"
+            ],
+            "type": "object"
+          },
+          "name": "meshy_poll"
+        },
+        {
+          "description": "Wait for Meshy task, download GLB, and import into Houdini.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "artifact_index": {
+                "default": 0,
+                "type": "integer"
+              },
+              "job_id": {
+                "type": "string"
+              },
+              "node_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "parent_path": {
+                "default": "/obj",
+                "type": "string"
+              }
+            },
+            "required": [
+              "job_id"
+            ],
+            "type": "object"
+          },
+          "name": "meshy_download_and_import"
+        },
+        {
+          "description": "OpenRouter chat (OpenAI-compatible). Pass `messages` as a JSON string.\n\nFormat: '[{\"role\":\"system\",\"content\":\"...\"},{\"role\":\"user\",\"content\":\"...\"}]'\n\nPopular models:\n  - anthropic/claude-opus-4.8        ($5/$25 per M tokens — most capable Opus)\n  - ~anthropic/claude-fable-latest   ($10/$50 per M — Mythos-class autonomous)\n  - anthropic/claude-fable-5         (alias for Fable)\n  - anthropic/claude-sonnet-5        (balanced)\n  - openai/gpt-5                     (OpenAI flagship)\n  - google/gemini-3-pro              (Gemini flagship)\n  - openrouter/fusion                (multi-model synthesis)\n  - meta-llama/llama-4-405b          (OSS)",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "max_tokens": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "messages": {
+                "type": "string"
+              },
+              "model": {
+                "default": "anthropic/claude-opus-4.8",
+                "type": "string"
+              },
+              "temperature": {
+                "default": 0.7,
+                "type": "number"
+              }
+            },
+            "required": [
+              "messages"
+            ],
+            "type": "object"
+          },
+          "name": "openrouter_chat"
+        },
+        {
+          "description": "List OpenRouter's full model catalogue (300+ models). Useful for picking the right model id.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "openrouter_list_models"
+        },
+        {
+          "description": "Check OpenRouter remaining credits / balance.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "openrouter_credits"
+        },
+        {
+          "description": "Gemini: text (or text+image) → image.\n\nBest for 3D texture work. Model options:\n  - gemini-3-pro-image-250615  → Nano Banana 2 (latest, best quality)\n  - gemini-2.5-pro-image       → Nano Banana Pro\n  - gemini-2.5-flash-image     → Nano Banana (faster/cheaper)\n\nPass input_image_path or input_image_url for image EDITING (Nano Banana 2 excels at this).\n\nReturns {images: [paths], model, raw}.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "input_image_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "input_image_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "model": {
+                "default": "gemini-3-pro-image-250615",
+                "type": "string"
+              },
+              "prompt": {
+                "type": "string"
+              },
+              "seed": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "prompt"
+            ],
+            "type": "object"
+          },
+          "name": "gemini_generate_image"
+        },
+        {
+          "description": "Gemini: edit an existing image with a text prompt (Nano Banana 2 excels at this).",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "input_image_path": {
+                "type": "string"
+              },
+              "model": {
+                "default": "gemini-3-pro-image-250615",
+                "type": "string"
+              },
+              "prompt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "prompt",
+              "input_image_path"
+            ],
+            "type": "object"
+          },
+          "name": "gemini_edit_image"
+        },
+        {
+          "description": "Gemini Veo 3.1: text/image → video (async).\n\nReturns {operation, status, raw}. Poll with gemini_poll_video, then download with\ngemini_download_video.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "aspect_ratio": {
+                "default": "16:9",
+                "type": "string"
+              },
+              "duration_seconds": {
+                "default": 8,
+                "type": "integer"
+              },
+              "image_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "model": {
+                "default": "veo-3.1-generate-preview",
+                "type": "string"
+              },
+              "negative_prompt": {
+                "default": "",
+                "type": "string"
+              },
+              "prompt": {
+                "type": "string"
+              },
+              "seed": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "prompt"
+            ],
+            "type": "object"
+          },
+          "name": "gemini_generate_video"
+        },
+        {
+          "description": "Poll a Veo 3.1 operation. Returns {status, video_urls?, raw}.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "type": "object"
+          },
+          "name": "gemini_poll_video"
+        },
+        {
+          "description": "Block until Veo operation completes, then download the video. Returns {path}.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "max_wait": {
+                "default": 600,
+                "type": "number"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "type": "object"
+          },
+          "name": "gemini_download_video"
+        },
+        {
+          "description": "Check balances for Tripo/Wavespeed (and other v3 providers when implemented).\n\nShows current balance, monthly spend, and remaining cap.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "providers": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "type": "object"
+          },
+          "name": "balance_check"
+        },
+        {
+          "description": "Authorize an auto-topup for a Tier 1 provider. Enforces $200 total / $50 per-provider caps.\n\nReturns a dashboard link to complete payment (real billing calls deferred to v3 —\nmost provider billing APIs require dashboard-side payment method setup).",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "amount_usd": {
+                "type": "number"
+              },
+              "force": {
+                "default": false,
+                "type": "boolean"
+              },
+              "provider": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "provider",
+              "amount_usd"
+            ],
+            "type": "object"
+          },
+          "name": "topup"
+        }
+      ],
+      "duration_ms": 17,
+      "message": "Successfully listed 54 tools",
+      "name": "Tools Listing",
+      "status": "PASS"
+    },
+    {
+      "details": null,
+      "duration_ms": 9,
+      "message": "No resources available",
+      "name": "Resources Listing",
+      "status": "WARN"
+    },
+    {
+      "details": null,
+      "duration_ms": 4,
+      "message": "No prompts available",
+      "name": "Prompts Listing",
+      "status": "WARN"
+    },
+    {
+      "details": {
+        "code": -32602,
+        "data": "",
+        "message": "Invalid request parameters"
+      },
+      "duration_ms": 3,
+      "message": "Unexpected error code: -32602",
+      "name": "Error Handling",
+      "status": "WARN"
+    }
+  ],
+  "summary": {
+    "failed": 0,
+    "passed": 4,
+    "skipped": 0,
+    "total_tests": 7,
+    "warnings": 3
+  }
+}

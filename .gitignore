@@ -52,7 +52,21 @@ outputs/
 marketing-plan/
 launch/
 README copy.md
-tools/
+tools/*
+!tools/ctx-c3w8/
+tools/ctx-c3w8/**
+!tools/ctx-c3w8/*.ts
+!tools/ctx-c3w8/*.md
+!tools/spatial-volume/
+tools/spatial-volume/**
+!tools/spatial-volume/*.py
+!tools/spatial-volume/*.md
+!tools/spatial-volume/*.lock.txt
+
+# Public, synthetic ORDER evidence; private receipt stores remain ignored.
+!studio/ctx-c3w8/**/*.receipt.json
+!tools/connectors.json
+!tools/script-ledger.mjs
 
 # blank-slate-v1k9: the executed-orders ledger lives in the private overlay (.timmy/private/orders.log);
 # docs/JOURNAL.md is its sanitized, generated public form (node lanes/privacy/journal.mjs)
@@ -60,3 +74,10 @@ tools/
 # privacy-d5n9: the real node registry is site-specific → private overlay; the public tree keeps fleet/nodes.example.json
 fleet/nodes.json
 !fleet/nodes.example.json
+.claude/worktrees/
+
+# v6 anchor pass (2026-08-30)
+renders/
+video/
+cut/clips*/
+vo/

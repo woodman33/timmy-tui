@@ -1,0 +1,57 @@
+{
+  "result": {
+    "fullText": "C1 controlled local reply.",
+    "actualModel": "ollama/granite-c1:latest"
+  },
+  "modelHealthStatus": "FALLBACK READY",
+  "activeProvider": "ollama",
+  "serverEvents": [
+    {
+      "method": "GET",
+      "path": "/api/tags"
+    },
+    {
+      "method": "POST",
+      "path": "/api/show",
+      "model": "disguised-remote:latest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/show",
+      "model": "granite-c1:latest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/show",
+      "model": "granite-c1:latest"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "model": "granite-c1:latest"
+    }
+  ],
+  "events": [
+    {
+      "event": "stream:start"
+    },
+    {
+      "event": "stream:delta"
+    },
+    {
+      "event": "model:health"
+    }
+  ],
+  "logs": [
+    {
+      "event": "model.fallback.used",
+      "data": {
+        "provider": "ollama",
+        "model": "granite-c1:latest",
+        "reason": "controlled upstream failure; no upstream request was made"
+      }
+    }
+  ],
+  "realModelInferenceCalls": 0,
+  "classification": "Actual Agent.tryOllamaLastResort path; response provided by a controlled loopback fixture."
+}

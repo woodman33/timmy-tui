@@ -1,0 +1,53 @@
+{
+  "v": 1,
+  "id": "rc_mtymyls9_4t5f",
+  "stream": "runs",
+  "ts": "2026-09-12T17:05:13.929Z",
+  "env_lock": {
+    "os": {
+      "platform": "darwin",
+      "build": "25G83",
+      "version": "26.6.2"
+    },
+    "arch": "arm64",
+    "tools": {},
+    "models": {}
+  },
+  "kind": "ctx.c1.checkpoint",
+  "subject": "ctx-c3w8/C1",
+  "policy": "Compare predeclared local fallback controls with retained observations",
+  "status": "ok",
+  "plan_hash": "sha256_85e69e1b40b25fc6a2572d40d3106e0313cef52db59b9e4a014aa1e4da853f3b",
+  "output_sha256": "7cd73c448d4e370bb9025cbf9af554ec13e5ceb604c54075bdc110b3e4908d14",
+  "artifacts": [
+    "studio/ctx-c3w8/C1/1789232710465-6a1c9dc3-7510-4c2f-8e26-9264cc6d93a8/result.json"
+  ],
+  "sources": [
+    {
+      "path": "src/agent/providers.ts",
+      "sha256": "3fbf75ad6d2c6355d83aed2b61996afa711afaba767610b033dc612cf03fafbe"
+    },
+    {
+      "path": "src/agent/core.ts",
+      "sha256": "0df7587bdf0e3801b57803eae9a93f6da35ffe2b7e3cd5038b26891c0d0295fd"
+    },
+    {
+      "path": "tests/providers.test.ts",
+      "sha256": "e23330e16db562982d458f97fea983c2eb3c278d8e6f055ac6ed4199c5fa7ec4"
+    },
+    {
+      "path": "tools/ctx-c3w8/c1-checkpoint.ts",
+      "sha256": "1398e5b0c126b7947e106ea5818385c54733691bf75f9b3fa5c20e9867a42840"
+    }
+  ],
+  "child_receipts": [
+    "sha256_05de12cdf815f9b6a74a13e711787f6266aafbbea5cd2c4a199aea598ea9a337",
+    "sha256_ac79fe17f26d67526749449fec0d4c5d2692d6790c2289894c14a51e54727f6c"
+  ],
+  "ms": 3378,
+  "epoch": 903,
+  "prev_hash": "sha256_ac79fe17f26d67526749449fec0d4c5d2692d6790c2289894c14a51e54727f6c",
+  "signer": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAhm/lxmgv+Sm+xKu19Rtsnp74QrpJGrxnoyXm2QAft8s=\n-----END PUBLIC KEY-----\n",
+  "signature": "O6iGMK2JXJybgHE3dzCmwLAmJgxTpeY078pQy/b4ZMTZVFgHu9lLJU90jZabYSGVBYNtEz5tXFrMU+M1NplXAA==",
+  "hash": "sha256_936290a43b5038b79fdec3f1375474664202a36c029ddfd0caaaa4806b022860"
+}

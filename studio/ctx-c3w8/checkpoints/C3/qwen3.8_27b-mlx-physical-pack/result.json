@@ -1,0 +1,59 @@
+{
+  "schema": "timmy.context-ablation.row/1",
+  "rowId": "qwen3.8_27b-mlx-physical-pack",
+  "model": "qwen3.8:27b-mlx",
+  "requested": "qwen3.8:27b-mlx",
+  "modelDigest": "5642e97495e1a088883805981563dcdc4a040c2f53388b7a41d1f24d3622cf7e",
+  "questionId": "physical",
+  "condition": "pack",
+  "elapsedMs": 20887,
+  "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+  "intentReceipt": "sha256_2936fe922c933fa6a4cb766d3695300869cb3249e66fc621383d4ef6fd4e7f1b",
+  "requestSha256": "34018d20f6dea8c2c1967de9281a14a4838480f73762b5e472cbc7c4410169ea",
+  "responseSha256": "d587b9fda0126421d51fac09e259650a60e60a9cf6c206df3e4d685c3eac494d",
+  "raw": {
+    "answers": [
+      {
+        "key": "material",
+        "value": null,
+        "entityId": "volume",
+        "factIds": [
+          "volume.material"
+        ]
+      },
+      {
+        "key": "densityKgM3",
+        "value": null,
+        "entityId": "volume",
+        "factIds": [
+          "volume.density"
+        ]
+      },
+      {
+        "key": "massKg",
+        "value": null,
+        "entityId": "volume",
+        "factIds": [
+          "volume.density"
+        ]
+      }
+    ],
+    "unknowns": [
+      "material",
+      "density",
+      "mass"
+    ]
+  },
+  "score": {
+    "valid": true,
+    "correct": true,
+    "referencesValid": true,
+    "groundedCorrect": 1,
+    "unknownsPreserved": 1,
+    "score": 2,
+    "answerCoverage": 0,
+    "error": null
+  },
+  "error": null
+}

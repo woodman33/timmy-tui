@@ -1,0 +1,12 @@
+{
+ "$comment": "ORDER factory-f1d0 C2 PANES — the hands registry template. The real one is operator-private: .timmy/private/cockpit/hands.json (worktree paths are site-specific). `timmy cockpit hands --discover --write` seeds it from `git worktree list` + the ledger. kind: local = gets a tmux pane (cd worktree, launch cli); external = no pane (bots and hosted agents).",
+ "schema": "timmy.cockpit-hands/1",
+ "session": "timmy",
+ "hands": [
+  { "name": "claude", "kind": "local", "cli": "claude", "args": [], "worktree": "<repo>/.claude/worktrees/<order>" },
+  { "name": "codex", "kind": "local", "cli": "codex", "args": [], "worktree": "<repo>/../<order-checkout>" },
+  { "name": "qwen", "kind": "local", "cli": "qwen-code", "args": [], "worktree": "<repo>/.claude/worktrees/<order>" },
+  { "name": "cursor-bugbot", "kind": "external", "note": "PR bot; no pane" },
+  { "name": "sourcery", "kind": "external", "note": "PR review bot; no pane" }
+ ]
+}

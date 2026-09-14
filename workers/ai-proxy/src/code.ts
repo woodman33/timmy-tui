@@ -4,7 +4,7 @@
 // Either way the run seals ONE receipt: script hash, output hash, the exact
 // tool calls, model, timing, error. The executor is injected so the route is
 // testable without a Worker Loader; production passes DynamicWorkerExecutor.
-import { type Connector, type Env, type ToolCall, allowlist, connectorFor, edgeTools, toolTypes } from './tools.js';
+import { type Connector, type Env, type ToolCall, allowlist, connectorFor, edgeTools, isAllowed, openrouterHeaders, toolTypes } from './tools.js';
 import { type EdgeReceipt, appendEdgeReceipt, sha256Hex } from './chain.js';
 
 export interface ExecuteResult {
@@ -56,7 +56,7 @@ export async function generateScript(task: string, model: string, env: Env, f: t
   if (!env.OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY not set on worker');
   const r = await f('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, 'X-Title': 'TIMMY code mode' },
+    headers: openrouterHeaders(env, 'TIMMY code mode'),
     body: JSON.stringify({
       model,
       messages: [
@@ -107,7 +107,7 @@ export async function runCode(req: CodeRequest, env: Env, deps: CodeDeps): Promi
     if (!req.task) throw new HttpError(400, 'need script or task');
     if (!req.approval) throw new HttpError(403, 'task mode generates the script with a paid model: operator approval token required');
     model = req.model ?? allowlist(env)[0];
-    if (!allowlist(env).includes(model)) throw new HttpError(403, `model not on allowlist: ${model}`);
+    if (!isAllowed(allowlist(env), model)) throw new HttpError(403, `model not on allowlist: ${model}`);
     script = await generateScript(req.task, model, env, deps.fetch);
     generated = true;
   }

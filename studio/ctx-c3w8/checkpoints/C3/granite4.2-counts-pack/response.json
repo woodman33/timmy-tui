@@ -1,0 +1,15 @@
+{
+  "response": {
+    "model": "granite4.2:latest",
+    "done": true,
+    "done_reason": "stop",
+    "content": "{\n  \"answers\": [\n    {\n      \"entityId\": \"volume\",\n      \"factIds\": [\"volume.location-count\", \"volume.total-cells\", \"volume.fill-coverage\"],\n      \"key\": \"knownLocations\",\n      \"value\": 1000\n    },\n    {\n      \"entityId\": \"volume\",\n      \"factIds\": [\"volume.total-cells\", \"volume.fill-coverage\"],\n      \"key\": \"totalCells\",\n      \"value\": 1000\n    },\n    {\n      \"entityId\": \"volume\",\n      \"factIds\": [\"volume.fill-coverage\"],\n      \"key\": \"empty\",\n      \"value\": 488\n    },\n    {\n      \"entityId\": \"volume\",\n      \"factIds\": [\"volume.fill-coverage\"],\n      \"key\": \"partial\",\n      \"value\": 96\n    },\n    {\n      \"entityId\": \"volume\",\n      \"factIds\": [\"volume.fill-coverage\"],\n      \"key\": \"full\",\n      \"value\": 416\n    }\n  ],\n  \"unknowns\": []\n}",
+    "prompt_eval_count": 5379,
+    "eval_count": 267,
+    "total_duration": 36084030417,
+    "load_duration": 9892583,
+    "eval_duration": 21076127000
+  },
+  "malformedTransportBody": null,
+  "error": null
+}

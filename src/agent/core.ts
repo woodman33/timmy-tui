@@ -7,7 +7,7 @@ import type { AgentEvents } from './events.js';
 import type { Message, AgentConfig } from '../types/index.js';
 import { ConversationManager } from './conversation.js';
 import { defaultTools } from './tools.js';
-import { appendEvent } from '../utils/eventbus.js';
+import { publish as appendEvent } from '../bus/index.js';
 import { execSync, execFileSync } from 'child_process';
 import { classifyCommand } from '../utils/safety.js';
 import fs from 'fs';
@@ -649,7 +649,7 @@ export class Agent extends EventEmitter<AgentEvents> {
     try {
       const probe = await probeOllama();
       if (!probe.ok) return null;
-      const model = pickOllamaModel(probe.models, ['kimi-k2.7-code', 'glm-5.2', 'minimax-m3', 'qwen', 'ornith']);
+      const model = pickOllamaModel(probe.models, ['granite', 'ornith', 'gemma', 'qwen']);
       if (!model) return null;
       this.logModelEvent('model.fallback.used', { provider: 'ollama', model, reason: String(reason).slice(0, 200) });
       this.emit('stream:start');

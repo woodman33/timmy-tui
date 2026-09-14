@@ -1,0 +1,7 @@
+{
+  "model": "granite4.2:latest",
+  "elapsedMs": 121656,
+  "rows": 6,
+  "budgetSeconds": 900,
+  "withinBudget": true
+}

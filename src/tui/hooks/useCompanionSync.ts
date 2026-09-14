@@ -13,10 +13,12 @@ export function useCompanionSync({
   agent,
   messages,
   activeRunId,
-  activeReceiptUrl
-}: UseCompanionSyncProps) {
+  activeReceiptUrl,
+  enabled = true
+}: UseCompanionSyncProps & { enabled?: boolean }) {
   // Sync agent instance
   useEffect(() => {
+    if (!enabled) return;
     const globalServer = (global as any).companionServer;
     if (globalServer) {
       try {

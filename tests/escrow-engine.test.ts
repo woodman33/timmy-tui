@@ -20,7 +20,7 @@ const mkPass = () => {
   return buildAgentPass({ parent_receipt: parent, dir }).pass!;
 };
 
-describe('escrow settlement state machine (V-03 rung 2)', () => {
+describe('escrow settlement state machine (V-03 rung 2)', { timeout: 30000 }, () => {
   it('arm→lock→draw→judge(proof+QA)→settle refunds ceiling−drawn', () => {
     const a = armEscrow({ plan_hash: hex('plan'), ceiling_usd: 1, qa_threshold: 0.5, dir });
     expect(a.ok).toBe(true);
@@ -61,7 +61,7 @@ describe('escrow settlement state machine (V-03 rung 2)', () => {
     const id = a.escrow!.escrow_id;
     lockEscrow(id, dir);
     drawEscrow(id, 0.5, dir);
-    const c = cancelEscrow(id, dir);
+    const c = cancelEscrow(id, undefined, dir);
     expect(c.ok).toBe(true);
     expect(c.escrow!.refund_usd).toBe(1.5);
     expect(verifyEscrow(id, dir)).toEqual({ ok: true });

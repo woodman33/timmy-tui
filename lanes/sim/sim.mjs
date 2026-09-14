@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // THE SHIP v0 — story simulator (mindship-v5c2 step 6).
 //
-//   timmy sim run    --board companion/boards/ship.story.json [--turns N] [--sim-model m] [--actor-model m]
+//   timmy sim run    --board companion/boards/ship.story.json [--turns N] [--sim-model m] [--actor-model m | --free]
 //                    [--layers all|L1] [--project ship] [--dry] [--no-seal]
 //   timmy sim replay <run-id | path/to/run.jsonl> [--store <root receipts dir>]
 //   timmy sim export [--out lanes/sim/datasets/behavior-v0.jsonl] [--no-seal]
@@ -58,14 +58,16 @@ function lastReceipt(store) {
 
 // ------------------------------------------------------------------ models
 
-async function openrouter(model, messages, maxTokens = 600) {
+// swarm-b3k7 step 6: app attribution on every call; `extra` carries the referee's
+// structured-output contract (response_format) and the response-healing plugin.
+async function openrouter(model, messages, maxTokens = 600, extra = {}) {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error('OPENROUTER_API_KEY not in env (use --dry for a scripted run)');
   const started = Date.now();
   const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', Authorization: `Bearer ${key}`, 'X-Title': 'TIMMY ship sim' },
-    body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.8, usage: { include: true } })
+    headers: { 'content-type': 'application/json', Authorization: `Bearer ${key}`, 'HTTP-Referer': 'https://custody.timmy.dev', 'X-Title': 'TIMMY ship sim', 'X-OpenRouter-Categories': 'cli-agents,programming', 'X-OpenRouter-Metadata': 'enabled' },
+    body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.8, usage: { include: true }, ...extra })
   });
   const j = await r.json();
   if (!r.ok) throw new Error(`${model}: upstream ${r.status} ${JSON.stringify(j.error ?? j).slice(0, 200)}`);
@@ -133,6 +135,9 @@ function askedFor(ch, known) {
   ].join('\n\n');
 }
 
+/** structured-outputs + response-healing-plugin: the referee's JSON is a contract, healed server-side when malformed (firstJson stays as the last resort). */
+const REFEREE_CONTRACT = { response_format: { type: 'json_object' }, plugins: [{ id: 'response-healing' }] };
+
 function refereePrompt(board, world, ch, did) {
   return [
     `You are the simulator of "${board.name}". Premise: ${board.premise}`,
@@ -171,7 +176,7 @@ async function runLayer(ctx, board, layerId, order, turns, opening, parent) {
     const actor = DRY ? dryActor(ch, world) : await openrouter(models.actor, [{ role: 'system', content: 'You play one character in a story simulation. Stay in character.' }, { role: 'user', content: asked }], 300);
     const did = actor.content.trim();
     const stakesBefore = stakesMap(world);
-    const ref = DRY ? dryReferee(ch, world, did) : await openrouter(models.sim, [{ role: 'system', content: 'You are a strict story referee. JSON only.' }, { role: 'user', content: refereePrompt(board, world, ch, did) }], 700);
+    const ref = DRY ? dryReferee(ch, world, did) : await openrouter(models.sim, [{ role: 'system', content: 'You are a strict story referee. JSON only.' }, { role: 'user', content: refereePrompt(board, world, ch, did) }], 700, REFEREE_CONTRACT);
     const outcome = firstJson(ref.content) ?? { narration: ref.content.slice(0, 300), unparsed: true };
     applyOutcome(world, outcome);
     const stakesAfter = stakesMap(world);
@@ -209,7 +214,8 @@ async function run() {
   const boardText = readFileSync(boardPath, 'utf8');
   const board = JSON.parse(boardText);
   if (board.kind !== 'story') { console.error(`board kind must be story, got ${board.kind}`); process.exit(2); }
-  const models = { sim: flag('--sim-model', board.simulator?.model ?? 'x-ai/grok-4.6'), actor: flag('--actor-model', board.actors?.model ?? 'google/gemini-3.7-flash') };
+  // free-models-router: --free puts the actors on openrouter/free (the $0 tier) for rehearsal runs; the simulator stays paid
+  const models = { sim: flag('--sim-model', board.simulator?.model ?? 'x-ai/grok-4.6'), actor: has('--free') ? 'openrouter/free' : flag('--actor-model', board.actors?.model ?? 'google/gemini-3.7-flash') };
   if (models.sim === models.actor) { console.error(`refusing: simulator model (${models.sim}) must differ from the actor model`); process.exit(3); }
   const turns = Number(flag('--turns', board.seed.max_turns ?? 4));
   const runId = `sim_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;

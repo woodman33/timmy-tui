@@ -1,0 +1,74 @@
+{
+  "schema": "studio-full-tree-privacy-verification/1",
+  "date_utc": "2026-09-12",
+  "branch": "codex/studio-preservation-main",
+  "audited_source_commit": "bd854e83dcf96d6b947ece5dfc22cd5cbd6d593a",
+  "requested_report_sha256": "bc72a327f55277a474c3839c14ffb86d684bcb8791ac4268355be34ea162c977",
+  "reported_findings_scope_correction": {
+    "entire_merged_tree_medium_plus": 447,
+    "inside_studio_medium_plus": 0,
+    "outside_studio_medium_plus": 447,
+    "outside_files": 38,
+    "train_step_zero_was_not_pushed": true
+  },
+  "scanner": {
+    "source_commit": "b2ff8f5635adc7d7b93e595d65851aef61030c44",
+    "source_sha256": "cc735f81bd7e037057fdb492836dd9066ed4d23f9b92de6e8c814d285e107e23",
+    "patterns_sha256": "ba347abf442587128e7c4eb1226d6d15250d058d6a6ef1840fafe7d121ade769",
+    "fixture_sha256": "4b0411ec1a178da65bec9af922ac483c80f450b50c350c7284ea89b47eb4ebe7",
+    "runner_v2_sha256": "d2bf19af16191f673bfeff638cf7dc53497ad9ad690c0cfa1ce83b2cf67314ed",
+    "threshold": "medium",
+    "runner_scope": "Scan the whole merged Git tree; Step 0 counts medium/high/critical findings under studio/. Other findings remain in the whole-tree report.",
+    "tree_base_identical_skips": false,
+    "patterns_or_allowlist_modified": false
+  },
+  "before": {
+    "studio_medium_plus": 0,
+    "whole_tree_medium_plus": 447,
+    "studio_review_only": 33,
+    "review_note": "All 33 review-tier matches concern CSS typeface declarations or a terminal typeface diagnostic."
+  },
+  "coverage": {
+    "original_studio_files": 97,
+    "original_text_files_scanned": 61,
+    "original_binary_files_skipped": 7,
+    "original_files_skipped_by_configured_path_rules": 29,
+    "oversize_files_skipped": 0,
+    "git_root_and_inventory_verified": true,
+    "scope_limit": "Existing runner rules cover Git-visible text; this is not an OCR or visual privacy certification of binary media.",
+    "additional_no_line_allowlist_diagnostic_medium_plus": 0
+  },
+  "preservation": {
+    "original_inventory_sha256": "89cf28b4fc1fa2258a21d954d454cd4b33fa45e3c58cc543aef4f1006d95bac6",
+    "existing_files_byte_identical": 97,
+    "existing_files_changed": 0,
+    "timings_hash_values_and_file_structures": "Unchanged byte for byte in every existing studio file.",
+    "new_private_archive_moves": 0,
+    "reason": "No medium-or-higher studio content requires sanitization under the requested scanner rules."
+  },
+  "negative_control": {
+    "actual_tree_scan_exit_code": 1,
+    "gated_findings": 17,
+    "critical": 5,
+    "high": 4,
+    "medium": 8,
+    "fixture_harness_exit_code": 0,
+    "result": "Deliberately unsafe private fixture is rejected; fixture harness succeeds by observing that rejection."
+  },
+  "after": {
+    "studio_medium_plus": 0,
+    "whole_tree_medium_plus": 447,
+    "outside_studio_medium_plus": 447,
+    "status": "Passed the runner v2 studio gate; the full-tree scan still rejects inherited findings outside studio."
+  },
+  "evidence_hashes": {
+    "whole_tree_before_report": "c29e0c73c0e15116d5e4d08c7c4fb6a9543c4d53e6d040b19be98a93d18aac10",
+    "studio_before_report": "8c9df9f310b5efa3a3c70400f30f3c072b037b9bee7764f73230061e73a9e00b",
+    "negative_tree_report": "883395be8a29c6a4e3ea6e95ca3ffbe8b0367ee0b5d1e717bf4f3e75266191e5",
+    "inventory_and_scope_report": "d58658124fdc6f8ef643d7936d3ebfe8ce5eb1109f1b763d32c6f0ed04e4fb57",
+    "no_line_allowlist_report": "8aa973100a15bf817985395637131e838cf84e427be4792583def923f020f5fa",
+    "whole_tree_after_report": "e810ed623e51fbf2033d0b2033b77cc845c3657075b1ee4fecac87c056de5805",
+    "studio_after_report": "2523cc6fb2eacf51402b7784807f0b4658d5d19d038d8e7ef86f4ccea30caf0e"
+  },
+  "next_action": "Use the corrected runner v2 Step 0 scope; outside-studio inherited findings belong to the ordered privacy PR. No whole-tree zero claim is made. Vegas remains on hold."
+}

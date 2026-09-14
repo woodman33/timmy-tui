@@ -1,0 +1,59 @@
+{
+  "schema": "timmy.context-ablation.row/1",
+  "rowId": "granite4.2-center-no-pack",
+  "model": "granite4.2:latest",
+  "requested": "granite4.2",
+  "modelDigest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+  "questionId": "center",
+  "condition": "no-pack",
+  "elapsedMs": 12860,
+  "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "contextPackSha256": null,
+  "intentReceipt": "sha256_d6225e320d5cf8007ce224f393aa95fe7b066926e389ce4358e57c91033282a1",
+  "requestSha256": "dedfef1483cf92724ae38000436cda6c43538afb953843ec0d9d374988adbdcb",
+  "responseSha256": "614b3497cf076faeb591e2a374540c3f89723d062f7545ba8b6b68437f110641",
+  "raw": {
+    "answers": [
+      {
+        "entityId": "centerXmm",
+        "factIds": [],
+        "key": "centerXmm",
+        "value": null
+      },
+      {
+        "entityId": "centerYmm",
+        "factIds": [],
+        "key": "centerYmm",
+        "value": null
+      },
+      {
+        "entityId": "centerZmm",
+        "factIds": [],
+        "key": "centerZmm",
+        "value": null
+      },
+      {
+        "entityId": "fillFraction",
+        "factIds": [],
+        "key": "fillFraction",
+        "value": null
+      }
+    ],
+    "unknowns": [
+      "material",
+      "density",
+      "mass"
+    ]
+  },
+  "score": {
+    "valid": true,
+    "correct": false,
+    "referencesValid": false,
+    "groundedCorrect": 0,
+    "unknownsPreserved": 1,
+    "score": 1,
+    "answerCoverage": 0,
+    "error": null
+  },
+  "error": null
+}

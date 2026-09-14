@@ -1,0 +1,15 @@
+{
+  "response": {
+    "model": "qwen3.8:27b-mlx",
+    "done": true,
+    "done_reason": "stop",
+    "content": "{\n  \"answers\": [\n    {\n      \"key\": \"material\",\n      \"value\": null,\n      \"entityId\": \"volume\",\n      \"factIds\": [\n        \"volume.material\"\n      ]\n    },\n    {\n      \"key\": \"densityKgM3\",\n      \"value\": null,\n      \"entityId\": \"volume\",\n      \"factIds\": [\n        \"volume.density\"\n      ]\n    },\n    {\n      \"key\": \"massKg\",\n      \"value\": null,\n      \"entityId\": \"volume\",\n      \"factIds\": [\n        \"volume.density\"\n      ]\n    }\n  ],\n  \"unknowns\": [\n    \"material\",\n    \"density\",\n    \"mass\"\n  ]\n}",
+    "prompt_eval_count": 5598,
+    "eval_count": 181,
+    "total_duration": 20845612584,
+    "load_duration": 23419292,
+    "eval_duration": 20377262958
+  },
+  "malformedTransportBody": null,
+  "error": null
+}

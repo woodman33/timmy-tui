@@ -1,0 +1,15 @@
+{
+ "v": 1,
+ "engine": "godot",
+ "captured_at": "2026-09-07T13:29:16.460Z",
+ "os": {
+  "platform": "darwin",
+  "build": "25G83",
+  "version": "26.6.2"
+ },
+ "arch": "arm64",
+ "tools": {
+  "godot": null
+ },
+ "installed": false
+}

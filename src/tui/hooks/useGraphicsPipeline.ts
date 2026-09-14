@@ -13,14 +13,15 @@ import { logger } from '../../utils/logger.js';
 export function useGraphicsPipeline(
   capabilities: GraphicsCapabilities | null,
   agentState: 'idle' | 'thinking' | 'streaming' | 'tool_call' | 'error' | 'success',
-  graphicsType = 'auto'
+  graphicsType = 'auto',
+  enabled = true
 ) {
   const [pipeline, setPipeline] = useState<GraphicsPipeline | null>(null);
   const [pipelineType, setPipelineType] = useState<string>('ansi');
   const extractorRef = useRef<RiveFrameExtractor | null>(null);
 
   useEffect(() => {
-    if (!capabilities) return;
+    if (!enabled || !capabilities) return;
 
     const type = graphicsType !== 'auto' ? graphicsType : selectPipeline(capabilities);
     let p: GraphicsPipeline;

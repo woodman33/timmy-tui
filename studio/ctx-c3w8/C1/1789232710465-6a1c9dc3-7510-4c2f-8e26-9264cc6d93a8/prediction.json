@@ -1,0 +1,55 @@
+{
+  "schema": "timmy.ctx-c3w8.c1.prediction/1",
+  "order": "ctx-c3w8",
+  "checkpoint": "C1",
+  "runId": "1789232710465-6a1c9dc3-7510-4c2f-8e26-9264cc6d93a8",
+  "scope": "One real core fallback method with controlled loopback responses; separate live local model metadata discovery.",
+  "expected": {
+    "providerTestsPass": 17,
+    "cloudNegativeControl": {
+      "refused": true,
+      "fetchCalls": 0,
+      "inferenceCalls": 0
+    },
+    "liveMetadata": {
+      "minimumLocalCandidates": 1,
+      "cloudCandidates": 0,
+      "inferenceCalls": 0
+    },
+    "controlledFallback": {
+      "returnedModel": "ollama/granite-c1:latest",
+      "returnedText": "C1 controlled local reply.",
+      "apiTags": 1,
+      "apiShow": 3,
+      "apiChat": 1,
+      "nonLoopbackRequests": 0,
+      "realModelInferenceCalls": 0
+    },
+    "daemonOsEgress": "unmeasured",
+    "mcpTransport": "not-exercised"
+  },
+  "measurementRules": [
+    "Instrument this Node process fetch and Undici request creation only.",
+    "The controlled responder is not an Ollama daemon and does not run a model.",
+    "Live Ollama discovery is restricted to api/tags and api/show.",
+    "Zero observed Node nonloopback requests does not attest Ollama daemon OS egress or other processes."
+  ],
+  "sources": [
+    {
+      "path": "src/agent/providers.ts",
+      "sha256": "3fbf75ad6d2c6355d83aed2b61996afa711afaba767610b033dc612cf03fafbe"
+    },
+    {
+      "path": "src/agent/core.ts",
+      "sha256": "0df7587bdf0e3801b57803eae9a93f6da35ffe2b7e3cd5038b26891c0d0295fd"
+    },
+    {
+      "path": "tests/providers.test.ts",
+      "sha256": "e23330e16db562982d458f97fea983c2eb3c278d8e6f055ac6ed4199c5fa7ec4"
+    },
+    {
+      "path": "tools/ctx-c3w8/c1-checkpoint.ts",
+      "sha256": "1398e5b0c126b7947e106ea5818385c54733691bf75f9b3fa5c20e9867a42840"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "schema": "timmy.context-ablation.row/1",
+  "rowId": "qwen3.8_27b-mlx-counts-no-pack",
+  "model": "qwen3.8:27b-mlx",
+  "requested": "qwen3.8:27b-mlx",
+  "modelDigest": "5642e97495e1a088883805981563dcdc4a040c2f53388b7a41d1f24d3622cf7e",
+  "questionId": "counts",
+  "condition": "no-pack",
+  "elapsedMs": 49626,
+  "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "contextPackSha256": null,
+  "intentReceipt": "sha256_e6533979f01377d7602b0722a404f0f167580840aa28af054b56efba76bb5ee1",
+  "requestSha256": "d59b89e738a27bd8635f9bfe45c480fb583eaa5d272a805fa0895a19d4f33a33",
+  "responseSha256": "aee17d1eded9438de45fbe7fb763c5789ca7bc1cd37360381f6848557770277a",
+  "raw": {
+    "answers": [
+      {
+        "key": "knownLocations",
+        "value": null,
+        "entityId": null,
+        "factIds": []
+      },
+      {
+        "key": "totalCells",
+        "value": null,
+        "entityId": null,
+        "factIds": []
+      },
+      {
+        "key": "empty",
+        "value": null,
+        "entityId": null,
+        "factIds": []
+      },
+      {
+        "key": "partial",
+        "value": null,
+        "entityId": null,
+        "factIds": []
+      },
+      {
+        "key": "full",
+        "value": null,
+        "entityId": null,
+        "factIds": []
+      }
+    ],
+    "unknowns": [
+      "material",
+      "density",
+      "mass"
+    ]
+  },
+  "score": {
+    "valid": true,
+    "correct": false,
+    "referencesValid": true,
+    "groundedCorrect": 0,
+    "unknownsPreserved": 1,
+    "score": 1,
+    "answerCoverage": 0,
+    "error": null
+  },
+  "error": null
+}

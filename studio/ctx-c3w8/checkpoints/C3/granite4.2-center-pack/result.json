@@ -1,0 +1,39 @@
+{
+  "schema": "timmy.context-ablation.row/1",
+  "rowId": "granite4.2-center-pack",
+  "model": "granite4.2:latest",
+  "requested": "granite4.2",
+  "modelDigest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+  "questionId": "center",
+  "condition": "pack",
+  "elapsedMs": 31099,
+  "sourceSha256": "d6cf38e0b86e2029ade0f3e7fa1bcd22affb7e9c6517eb8c0862fa0292fbff65",
+  "contextPackSha256": "2e195fb2422a3c59caf716bbf6b3dedd83fcbc1e9b37c89662cbfc2555a711f2",
+  "intentReceipt": "sha256_3f035fbfb33d52478399d868920005fc0f61aaaf4af64b65c96b7318e86ed6a3",
+  "requestSha256": "f5b267646ff29da5dea18dd0aa89806a03964cba39983195f135f9c03321cddd",
+  "responseSha256": "87a9cbfc78ae8b58e7b39eefd24589bd30e290602d8b2305d95509f59f94c475",
+  "raw": {
+    "answers": [
+      {
+        "entityId": "cell-center",
+        "factIds": [
+          "cell-center.location"
+        ],
+        "key": "center",
+        "value": "[5, 5, 5], mm (computed from origin and basis; units mm per frame definition). The location fact gives center coordinates relative to origin [-50,-50,-50] and basis [1,0,0;0,1,0;0,0,1]. The coordinates are in mm as per frame units. The exact numeric values are [5,5,5] mm offset from origin? Actually location fact value is [5,5,5] (likely absolute indices? but frame origin -50 and cellSize 10 gives absolute position? However location fact is computed as origin plus column basis times cellSize? The fact says method: origin-plus-column-basis-times-cell-center. So center coordinates in frame units (mm). So we report centerXmm=5 mm? Wait origin is -50,-50,-50 and cellSize 10, so cell indices 0..9? Actually dimensions [10,10,10] means 10 cells per dimension? But total cells 1000 suggests 10x10x10 grid? However cellSize [10,10,10] mm each? The frame origin -50,-50,-50 and cellSize 10 means the grid spans from -50 to +? Let's compute: if cellSize 10 mm and origin -50,-50,-50, then the first cell center would be at origin + (cellSize/2) = (-25,-25,-25) if origin at corner? But they used basis [1,0,0;0,1,0;0,0,1] and ijk [5,5,5] for center index. Likely the center voxel at index (5,5,5) corresponds to absolute coordinates (origin + (5-0.5)*cellSize?) However the fact "
+      }
+    ],
+    "unknowns": []
+  },
+  "score": {
+    "valid": false,
+    "correct": false,
+    "referencesValid": false,
+    "groundedCorrect": 0,
+    "unknownsPreserved": 0,
+    "score": 0,
+    "answerCoverage": 0,
+    "error": "Output schema rejected."
+  },
+  "error": null
+}

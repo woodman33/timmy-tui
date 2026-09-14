@@ -1,0 +1,7 @@
+{
+  "model": "gemma4:12b-it-qat",
+  "elapsedMs": 136436,
+  "rows": 6,
+  "budgetSeconds": 900,
+  "withinBudget": true
+}

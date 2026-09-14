@@ -28,7 +28,9 @@ export interface OtioOptions {
   timebase?: number;
 }
 
-/** Absolute or ~home media urls become bundle-relative; fragments survive. */
+/** Absolute, ~home or <home>-placeholder media urls become bundle-relative;
+ *  fragments survive. The <home> token is the privacy gate's placeholder for
+ *  the operator home dir (privacy-d5n9), so it sanitizes like a real path. */
 export function sanitizeMediaUrl(url: string): string {
   const m = url.match(/^(.+?)(#t=.*)?$/);
   const frag = m?.[2] ?? '';

@@ -12,6 +12,8 @@ export interface Env {
   ALLOWED_MODELS?: string;
   RATE_LIMIT_PER_MIN?: string;
   CUSTODY_BASE_URL?: string;
+  /** App attribution (HTTP-Referer) on every OpenRouter call; defaults to the custody site. */
+  OPENROUTER_REFERER?: string;
   LOADER?: unknown;
   CUSTODY_KV?: import("./head.js").KVLike;
 }
@@ -53,6 +55,21 @@ function tool<I>(t: EdgeTool<I>): AnyTool {
 }
 
 const custodyBase = (env: Env): string => env.CUSTODY_BASE_URL ?? 'https://custody.timmy.dev';
+
+export const OPENROUTER_REFERER = 'https://custody.timmy.dev';
+export const OPENROUTER_CATEGORIES = 'cli-agents,programming';
+
+/** Every OpenRouter request from this worker carries app attribution and asks for router metadata (app-attribution-headers, router-metadata). */
+export function openrouterHeaders(env: Env, title = 'TIMMY'): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${env.OPENROUTER_API_KEY ?? ''}`,
+    'HTTP-Referer': env.OPENROUTER_REFERER ?? OPENROUTER_REFERER,
+    'X-Title': title,
+    'X-OpenRouter-Categories': OPENROUTER_CATEGORIES,
+    'X-OpenRouter-Metadata': 'enabled'
+  };
+}
 
 type OpenRouterModels = { data?: { id: string; context_length?: number; pricing?: { prompt?: string; completion?: string } }[] };
 type OpenRouterChat = { choices?: { message?: { content?: string } }[]; usage?: unknown; error?: unknown };
@@ -98,7 +115,7 @@ export function edgeTools(): AnyTool[] {
         const allow = allowlist(ctx.env);
         const f = ctx.fetch ?? fetch;
         if (!ctx.env.OPENROUTER_API_KEY) return { allow, models: [], note: 'OPENROUTER_API_KEY not set on worker' };
-        const r = await f('https://openrouter.ai/api/v1/models', { headers: { Authorization: `Bearer ${ctx.env.OPENROUTER_API_KEY}` } });
+        const r = await f('https://openrouter.ai/api/v1/models', { headers: openrouterHeaders(ctx.env, 'TIMMY code mode') });
         if (!r.ok) return { allow, error: `upstream ${r.status}` };
         const j = (await r.json()) as OpenRouterModels;
         return { allow, models: (j.data ?? []).filter((m) => allow.includes(m.id)).map((m) => ({ id: m.id, ctx: m.context_length, in: m.pricing?.prompt, out: m.pricing?.completion })) };
@@ -116,13 +133,13 @@ export function edgeTools(): AnyTool[] {
       paid: true,
       async run(a, ctx) {
         const allow = allowlist(ctx.env);
-        if (!allow.includes(a.model)) throw new Error(`model not on allowlist: ${a.model}`);
+        if (!isAllowed(allow, a.model)) throw new Error(`model not on allowlist: ${a.model}`);
         if (!ctx.env.OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY not set on worker');
         const f = ctx.fetch ?? fetch;
         const r = await f('https://openrouter.ai/api/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ctx.env.OPENROUTER_API_KEY}`, 'X-Title': 'TIMMY code mode' },
-          body: JSON.stringify({ model: a.model, messages: a.messages, max_tokens: a.max_tokens ?? 1024 })
+          headers: openrouterHeaders(ctx.env, 'TIMMY code mode'),
+          body: JSON.stringify({ model: a.model, messages: a.messages, max_tokens: a.max_tokens ?? 1024, usage: { include: true } })
         });
         const j = (await r.json()) as OpenRouterChat;
         if (!r.ok) throw new Error(`upstream ${r.status}: ${JSON.stringify(j.error ?? j)}`);
@@ -155,6 +172,26 @@ export function allowlist(env: Env): string[] {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+/** OpenRouter model-variant suffixes an allowlisted base id may carry (model-variant-suffixes + nitro/floor shorthands). */
+export const MODEL_VARIANTS = ['nitro', 'floor', 'free', 'online', 'thinking', 'exacto', 'beta', 'extended'] as const;
+
+/** Split `vendor/model:variant` into its base id and variant (a variant is only the last `:suffix` from MODEL_VARIANTS). */
+export function splitVariant(id: string): { base: string; variant: string | null } {
+  const i = id.lastIndexOf(':');
+  if (i > 0) {
+    const v = id.slice(i + 1);
+    if ((MODEL_VARIANTS as readonly string[]).includes(v)) return { base: id.slice(0, i), variant: v };
+  }
+  return { base: id, variant: null };
+}
+
+/** A model is allowed when it is on the allowlist, or is an allowlisted base id with a known variant suffix. */
+export function isAllowed(allow: string[], id: string): boolean {
+  if (allow.includes(id)) return true;
+  const { base, variant } = splitVariant(id);
+  return variant !== null && allow.includes(base);
 }
 
 /** The connector shape @cloudflare/codemode's executor takes: { name, fns }. */

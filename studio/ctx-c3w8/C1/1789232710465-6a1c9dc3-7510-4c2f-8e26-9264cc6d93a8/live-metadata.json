@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "models": [
+    "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "granite4.2:latest",
+    "qwen3.8:27b-mlx",
+    "nemotron-3.5-lightning:latest",
+    "ornith:latest",
+    "gemma4:12b-it-qat",
+    "nemotron3:33b",
+    "gemma4:latest",
+    "glm-ocr:latest",
+    "gemma4:26b"
+  ],
+  "latencyMs": 128,
+  "endpoint": "http://127.0.0.1:11434",
+  "scope": "Read-only installed-weight metadata; no inference, pull, daemon restart or OS egress claim."
+}
