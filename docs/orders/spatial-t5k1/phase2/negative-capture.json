@@ -1,0 +1,19 @@
+{
+  "revision": "d9f5ee7bcfea4686e6fc2e8b033db85d130ceb6aed2d51bc2ab2b69dab67ce20",
+  "sourceReceipt": "rc_mtyh6i7y_7t4i",
+  "frameChip": "PART · mm · +Z · RH · origin: center of exterior base · placement Z 0°",
+  "scope": "Retained native geometry plus analytical envelope; no new native execution",
+  "unmeasured": [
+    "complete tool path",
+    "physical validation"
+  ],
+  "question": "clearance",
+  "state": "failed",
+  "basis": "analytical",
+  "gapMm": 1.5,
+  "minimumMm": 2,
+  "formula": "10 mm edge offset − 3 mm wall − envelope radius",
+  "claim": "Horizontal wall gap only; not full-path clearance",
+  "displayTransformOnly": true,
+  "observedAt": "2026-09-12T14:23:24.289041+00:00"
+}

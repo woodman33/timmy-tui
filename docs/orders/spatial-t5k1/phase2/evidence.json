@@ -1,0 +1,42 @@
+{
+  "schema": "timmy.spatial03.acceptance/1",
+  "freezeReceipt": "rc_mtyh4e9v_hh9v",
+  "freezeHash": "sha256_26a17be1a7463594b04461e8b49ef169d6738e2f2cc3184cfde63b51bd8a46ad",
+  "nativePrediction": "rc_mtyh67pp_n2uh",
+  "nativeReceipt": "rc_mtyh6i7y_7t4i",
+  "nativeHash": "sha256_0fcb0e0abbfa15493c30c858b2ff4dd2a4a3a37e5eed29e3947d541dcf63a909",
+  "nativeChecks": {
+    "passed": 72,
+    "total": 72
+  },
+  "observationsSha256": "d9f5ee7bcfea4686e6fc2e8b033db85d130ceb6aed2d51bc2ab2b69dab67ce20",
+  "scenarios": [
+    {
+      "radiusMm": 4.5,
+      "gapMm": 2.5,
+      "minimumMm": 2,
+      "state": "passed",
+      "predictionReceipt": "rc_mtyh6ihc_qa75",
+      "receipt": "rc_mtyh6ipa_ezlm",
+      "hash": "sha256_4567450b459e520729774d0167ffc07e4db3b7a074719cc07f80a1b388f1d661"
+    },
+    {
+      "radiusMm": 5,
+      "gapMm": 2,
+      "minimumMm": 2,
+      "state": "passed",
+      "predictionReceipt": "rc_mtyh6ix5_di07",
+      "receipt": "rc_mtyh6j49_vfur",
+      "hash": "sha256_b5f971d5122cf1ed20eb0fd03c9142d6ff6c304c9ab6c1c3da90728c0ff78992"
+    },
+    {
+      "radiusMm": 5.5,
+      "gapMm": 1.5,
+      "minimumMm": 2,
+      "state": "failed",
+      "predictionReceipt": "rc_mtyh6jbu_bqja",
+      "receipt": "rc_mtyh6jip_jpo7",
+      "hash": "sha256_390152cc9475152c42aca2b5810b3a3bd5d69a0cd036e9f39b94759f0e6e4cdb"
+    }
+  ]
+}
