@@ -3,18 +3,19 @@
 // receipts and the legacy events file) and forwards each envelope to a room on
 // the preview worker, so two browsers anywhere share one board through the
 // Durable Object. Opt-in: nothing is forwarded unless this runs.
-//   node lanes/slate/bus-bridge.mjs --room slate:ledger --worker https://timmy-ai-proxy-preview.wmeldman33.workers.dev [--replay 200] [--once]
+//   node lanes/slate/bus-bridge.mjs --room slate:ledger --worker https://<hostname> [--replay 200] [--once]
 // Auth: TIMMY_EDGE_TOKEN from the environment or workers/ai-proxy/.dev.vars (never printed).
 import { existsSync, openSync, readFileSync, readSync, closeSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { edgeUrlOrInert } from '../privacy/overlay.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const REPO = process.env.TIMMY_REPO ?? '<repo>';
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d; };
 const ROOM = opt('--room', 'slate:ledger');
-const WORKER = opt('--worker', 'https://timmy-ai-proxy-preview.wmeldman33.workers.dev').replace(/\/$/, '');
+const WORKER = opt('--worker', process.env.TIMMY_AI_PROXY ?? edgeUrlOrInert()).replace(/\/$/, '');
 const REPLAY = Number(opt('--replay', 200));
 const ONCE = args.includes('--once');
 

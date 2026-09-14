@@ -10,7 +10,7 @@ from founder_terminal.tui.screens.openrouter_management import OpenRouterManagem
 
 class FounderTerminalApp(App):
     TITLE = "TIMMY AGENT OPS CONSOLE"
-    SUB_TITLE = "V1 Core Control Plane • © 2026 William Meldman"
+    SUB_TITLE = "V1 Core Control Plane • © 2026 The TIMMY authors"
     
     CSS = """
     Screen {

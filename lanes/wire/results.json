@@ -1628,7 +1628,7 @@
   "apify": {
    "kind": "bridge",
    "transport": "http",
-   "url": "https://link.mcpmarket.com/wmeldman33/apify/mcp",
+   "url": "https://link.mcpmarket.com/<handle>/apify/mcp",
    "source": "mcporter (~/.cursor/mcp.json); Timmy's timmy_apify_run uses mcp.apify.com with a bearer from APIFY_API_TOKEN",
    "gate": "not_configured",
    "env_names": [
@@ -1743,7 +1743,7 @@
   "elevenlabs": {
    "kind": "bridge",
    "transport": "http",
-   "url": "https://link.mcpmarket.com/wmeldman33/elevenlabs/mcp",
+   "url": "https://link.mcpmarket.com/<handle>/elevenlabs/mcp",
    "source": "mcporter (~/.cursor/mcp.json)",
    "gate": "not_configured",
    "notes": "OAuth; mcporter 401.",

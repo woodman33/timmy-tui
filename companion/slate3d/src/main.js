@@ -188,7 +188,7 @@ async function build() {
   // table can never disagree.
   const receipts = receiptsRes.receipts ?? [];
   for (const f of board.frames) { const st = frameStatus(f, receipts); f.status = st.status; f.state = st; }
-  const WORKER = (q.get('worker') ?? board.worker ?? 'https://timmy-ai-proxy-preview.wmeldman33.workers.dev').replace(/\/$/, '');
+  const WORKER = (q.get('worker') ?? board.worker ?? 'https://<hostname>').replace(/\/$/, '');
   const ROOM = q.get('room') ?? board.room ?? null;
   const head = await fetch(`${WORKER}/head`, { cache: 'no-store' }).then((r) => r.json()).catch(() => null);
   const edge = new Map((head?.heads ?? []).map((h) => [h.subject, h]));

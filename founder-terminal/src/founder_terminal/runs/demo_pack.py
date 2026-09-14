@@ -32,7 +32,7 @@ class DemoPackExporter:
         readme_content = (
             "# 🏆 AgentOps Room Zero — Shipped Room Workspace Pack\n\n"
             "This package represents a complete, productized, ready-to-run Operator Room\n"
-            "invented by William Meldman. It orchestrates OpenHands agent executions,\n"
+            "built by the TIMMY project. It orchestrates OpenHands agent executions,\n"
             "Starship prompt statuslines, abtop observability panels, and custom safety hooks.\n\n"
             "## 📦 Package Contents\n"
             "* `layouts/generated/agentops.sh` - Portable tmux multi-pane quadrant room launcher.\n"
@@ -88,7 +88,7 @@ class DemoPackExporter:
             "title": "AgentOps Security Session",
             "created_at": datetime.datetime.utcnow().isoformat() + "Z",
             "status": "COMPLETED",
-            "operator": "William Meldman",
+            "operator": "operator",
             "license": "Room Zero License active"
         }
         (self.pack_dir / "sample.agentrun").mkdir(exist_ok=True)

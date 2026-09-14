@@ -3,7 +3,7 @@
  "generated_at": "2026-09-08T10:31:26.153Z",
  "worker": {
   "name": "timmy-ai-proxy-preview",
-  "url": "https://timmy-ai-proxy-preview.wmeldman33.workers.dev",
+  "url": "https://<hostname>",
   "health": {
    "ok": true,
    "worker": "timmy-ai-proxy",

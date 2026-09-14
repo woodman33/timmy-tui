@@ -30,7 +30,7 @@ material). Match values are masked in this report; nothing here repeats a secret
 | history (242 commits, 2,604 distinct text blobs) | 467 files touched | 30 (all benign) | 5,821 | 508 | 706 |
 
 High/review counts are inflated by the **same few facts repeated**: the home
-path `/Users/<user>`, the login name, and `wmeldman33.workers.dev` recur
+path `/Users/<user>`, the login name, and `<handle>.workers.dev` recur
 thousands of times across docs, transcripts and source. The distinct picture is
 below.
 
@@ -44,7 +44,7 @@ below.
 | `lanes/abilities/results/*.json`, `lanes/abilities/transcripts/*.jsonl` | the Mac hostname, home paths, login name | harness probe output baked in verbatim |
 | `lanes/wire/results.json`, `lanes/wire/bridges.json`, `lanes/wire/transcripts/*.jsonl` | home paths, login name (344 hits in results.json alone) | MCP wire captures |
 | `companion/boards/observer.board.json` | card serials (`VC-serials…`) + "a venue name", "a location" | **real custody / customer-venue data** |
-| `lanes/swarm/runs/*.json`, `orders.log`, `lanes/cf/pane.mjs`, `lanes/commander/cli.mjs`, ~40 `src/**` and `tests/**` | `wmeldman33.workers.dev` | the Cloudflare account subdomain (a live URL, but it embeds the account handle) |
+| `lanes/swarm/runs/*.json`, `orders.log`, `lanes/cf/pane.mjs`, `lanes/commander/cli.mjs`, ~40 `src/**` and `tests/**` | `<handle>.workers.dev` | the Cloudflare account subdomain (a live URL, but it embeds the account handle) |
 | `lanes/engine-room/node.mjs`, `lanes/swarm/swarm.mjs`, `lanes/swarm/airgap.mjs` | Spark tailnet/LAN IPs as fallback literals | replace with placeholders + the overlay |
 | promo `.cast` files (`studio/timmy-promo*/making-of-*.cast`) | home paths, login name in the recorded terminal | re-record or scrub |
 
@@ -53,7 +53,7 @@ below.
 - **Home path** `/Users/<user>` and **login name** — pervasive in
   transcripts, docs, shell contrib, receipts. 332 tracked files.
 - **the founder name** — docs and marketing copy (~27 per tree).
-- **Author email** `wmeldman33@…(gmail)` — on all 278 commits. Inherent to the
+- **Author email** `<handle>@…(gmail)` — on all 278 commits. Inherent to the
   history; only a full rewrite (mailmap) changes it. See §4.
 - **NTAG UIDs** in `vault-custody/test/*` and `demo.astro` — 7-byte `04…` values;
   these read as synthetic test vectors, flagged low.
@@ -78,10 +78,10 @@ git filter-repo \
   --replace-text ../replacements.txt
 ```
 
-- `mailmap.txt`: `Timmy <timmy@localhost> <wmeldman33@…(gmail)>` rewrites the
+- `mailmap.txt`: `Timmy <timmy@localhost> <<handle>@…(gmail)>` rewrites the
   author identity on all 278 commits.
 - `replacements.txt`: `regex:/Users/<user>==>/Users/<user>`, the login
-  name, `wmeldman33.workers.dev==>timmy-edge.workers.dev`, the tailnet/LAN/MAC
+  name, `<handle>.workers.dev==>timmy-edge.workers.dev`, the tailnet/LAN/MAC
   literals → placeholders.
 
 **Impact:** it rewrites every commit hash, so all five open PRs (#33, #34, #36,

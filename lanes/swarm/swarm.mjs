@@ -31,6 +31,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PRESETS, SCHEMA, PRESETS_DIR, presetSpec, vetPreset } from './presets.mjs';
+import { edgeUrlOrInert } from '../privacy/overlay.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const ROOT = resolve(HERE, '..', '..');
@@ -42,7 +43,7 @@ const flag = (k, d) => { const i = args.indexOf(k); return i >= 0 && args[i + 1]
 const has = (k) => args.includes(k);
 const VALUE_FLAGS = new Set(['--room', '--max-tokens', '--ctx', '--port', '--worker', '--node', '--model', '--parallel', '--sizes', '--timeout', '--topology', '--reason', '--limit']);
 const positional = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && VALUE_FLAGS.has(args[i - 1])));
-const WORKER = (flag('--worker', process.env.TIMMY_AI_PROXY ?? 'https://timmy-ai-proxy-preview.wmeldman33.workers.dev')).replace(/\/$/, '');
+const WORKER = (flag('--worker', process.env.TIMMY_AI_PROXY ?? edgeUrlOrInert())).replace(/\/$/, '');
 const ROOM = flag('--room', process.env.TIMMY_COMMANDER_ROOM ?? 'war-room');
 const ORDER = 'swarm-b3k7';
 const log = (m) => process.stderr.write(`[swarm] ${m}\n`);

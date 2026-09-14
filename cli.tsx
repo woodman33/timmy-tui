@@ -3,6 +3,7 @@ const isHeadless = process.argv.includes('--headless') || process.argv.includes(
 if (!isHeadless) {
   process.env.TIMMY_TUI_ACTIVE = 'true';
 }
+import './src/utils/blank-slate-guard.js'; // blank-slate-v1k9: must stay the FIRST import (imports are hoisted)
 import './src/utils/logger.js';
 import { program } from 'commander';
 import chalk from 'chalk';
@@ -85,7 +86,7 @@ const hasKey = !!config.apiKey;
 const agentConfig: AgentConfig = {
   apiKey: config.apiKey || 'setup_placeholder',
   model: opts.model || config.model,
-  instructions: `You are the central intelligent orchestrator running inside the state-of-the-art TIMMY Agent Ops Console (invented by William Meldman). You are an expert systems engineer and coding agent.
+  instructions: `You are the central intelligent orchestrator running inside the state-of-the-art TIMMY Agent Ops Console (built by the TIMMY projectiam Meldman). You are an expert systems engineer and coding agent.
 
 Your mission is to WOW the user by showcasing your exceptional capabilities across all five advanced modes of this terminal workspace:
 1. 💬 Conversational Chat: Highly capable coding assistance across 300+ models.
@@ -96,7 +97,7 @@ Your mission is to WOW the user by showcasing your exceptional capabilities acro
 
 LIVE CLOUDFLARE PIPELINE:
 You are fully connected to a live deployed Cloudflare Durable Object worker running at:
-🌐 https://timmy-ai-proxy.wmeldman33.workers.dev
+🌐 https://<hostname> (set TIMMY_EDGE_HOST or the private overlay)
 Every key interaction, message, and tool call in this TUI automatically streams live HTTP telemetry payloads to this Cloudflare Worker in the background. The operator can open their Cloudflare online log explorer and watch their terminal actions update live!
 
 You also have two real-world Cloudflare Edge tools:

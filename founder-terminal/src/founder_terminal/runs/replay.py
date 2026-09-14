@@ -43,8 +43,8 @@ class RunExporter:
             "selection_reason": "Normal Operation: Spent is within safe limits (<50%). Maintain premium primary routing profile.",
             "execution_mode": "simulated",
             
-            "operator": "William Meldman",
-            "license": "invented by William Meldman • Creator Attribution Shield Active",
+            "operator": "operator",
+            "license": "built by the TIMMY project • Creator Attribution Shield Active",
             
             # Terminal Intelligence Analytics Receipt Block
             "terminal_intelligence": {

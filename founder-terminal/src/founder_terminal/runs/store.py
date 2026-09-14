@@ -78,7 +78,7 @@ class RunStore:
             "file": file_path,
             "action": action,
             "backup": backup_path,
-            "operator": "William Meldman"
+            "operator": "operator"
         }
         with open(mutation_log, "a") as f:
             f.write(json.dumps(entry) + "\n")
