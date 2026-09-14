@@ -4,6 +4,7 @@
 declare module '*privacy/overlay.mjs' {
   export const ROOT: string;
   export const PRIVATE_DIR: string;
+  export function privateDir(): string;
   export function privatePath(rel: string): { path: string; source: 'private' | 'template' | 'public' | 'missing' };
   export function readPrivateJson(rel: string): { data: unknown; source: string; path: string };
   export function writePrivateJson(rel: string, data: unknown): string;

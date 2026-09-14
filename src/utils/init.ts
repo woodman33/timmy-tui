@@ -85,6 +85,23 @@ function mergeJson(p: string, patch: Record<string, unknown>, mode = 0o600): str
   return writeJson(abs, { ...cur, ...patch }, mode);
 }
 
+type ProjectRegistryEntry = Record<string, unknown> & { name?: unknown; path?: unknown };
+
+function mergeProjectRegistry(p: string, project: { name: string; path: string; created: string }, mode = 0o600): string {
+  const abs = guardPath(p);
+  let projects: ProjectRegistryEntry[] = [];
+  if (existsSync(abs)) {
+    try {
+      const cur: unknown = JSON.parse(readFileSync(abs, 'utf8'));
+      if (cur && typeof cur === 'object' && Array.isArray((cur as { projects?: unknown }).projects)) {
+        projects = (cur as { projects: unknown[] }).projects.filter((entry): entry is ProjectRegistryEntry => Boolean(entry && typeof entry === 'object'));
+      }
+    } catch { projects = []; }
+  }
+  const retained = projects.filter((entry) => !(entry.name === project.name && entry.path === project.path));
+  return writeJson(abs, { projects: [...retained, project] }, mode);
+}
+
 export interface InitResult { ok: boolean; written: string[]; operator: string; operator_id: string; project: string; identity_source: string; home: string; private_dir: string; store_pin?: string }
 
 export function applyInit(a: Required<Pick<InitOptions, 'operator' | 'project'>> & InitOptions, repoRoot: string = REPO_ROOT): InitResult {
@@ -106,7 +123,7 @@ export function applyInit(a: Required<Pick<InitOptions, 'operator' | 'project'>>
   if (!existsSync(readme)) writeFileSync(readme, `# ${a.project}\n\nFirst TIMMY project of ${a.operator} (${id.operatorId}). Created by \`timmy init\`.\n`);
   written.push(readme);
   written.push(mergeJson(join(priv, 'config.json'), { operator_label: a.operator, operator_id: id.operatorId, first_project: a.project, ...(a.edgeHost ? { edge_host: a.edgeHost } : {}) }));
-  written.push(writeJson(join(priv, 'projects.json'), { projects: [{ name: a.project, path: projDir, created: new Date().toISOString() }] }, 0o600));
+  written.push(mergeProjectRegistry(join(priv, 'projects.json'), { name: a.project, path: projDir, created: new Date().toISOString() }, 0o600));
   return { ok: true, written, operator: a.operator, operator_id: id.operatorId, project: a.project, identity_source: id.source, home, private_dir: priv, store_pin: existsSync(pin) ? pin : undefined };
 }
 

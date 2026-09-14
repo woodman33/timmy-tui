@@ -46,6 +46,15 @@ describe('blank-slate-v1k9', () => {
     expect(cfg.first_project).toBe('p1');
   });
 
+  it('re-init preserves previously registered projects', async () => {
+    const { applyInit } = await import('../src/utils/init.js');
+    const repo = join(scratch, 'repo'); mkdirSync(repo, { recursive: true });
+    applyInit({ yes: true, json: false, operator: 'test operator', project: 'p1', seed: 'generate' }, repo);
+    applyInit({ yes: true, json: false, operator: 'test operator', project: 'p2', seed: 'generate' }, repo);
+    const registry = JSON.parse(readFileSync(join(process.env.TIMMY_PRIVATE_DIR!, 'projects.json'), 'utf8')) as { projects: Array<{ name: string }> };
+    expect(registry.projects.map((project) => project.name)).toEqual(expect.arrayContaining(['p1', 'p2']));
+  });
+
   it('a 64-hex seed imports deterministically; generate differs every time', async () => {
     const { seedIdentity } = await import('../src/utils/init.js');
     const hex = '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60';
