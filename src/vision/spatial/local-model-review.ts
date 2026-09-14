@@ -27,7 +27,7 @@ export function validateSpatialReview(raw: unknown, context: SpatialModelContext
   return review;
 }
 
-export function localOllamaEndpoint(input = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434') {
+export function localOllamaEndpoint(input = process.env.OLLAMA_HOST) {
   return getLocalOllamaBaseUrl(input);
 }
 async function requestJson(base: string, path: string, body?: unknown, timeout = 5000): Promise<any> {

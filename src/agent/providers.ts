@@ -26,7 +26,7 @@ function deadline(timeoutMs: number): AbortSignal {
 
 /** Resolve a local client endpoint without permitting credentials or redirects. */
 export function getLocalOllamaBaseUrl(base?: string): string {
-  const configured = base ?? process.env.OLLAMA_HOST ?? 'http://localhost:11434';
+  const configured = base ?? process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434';
   const url = new URL(configured.includes('://') ? configured : `http://${configured}`);
   if (!['http:', 'https:'].includes(url.protocol) ||
       !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) ||

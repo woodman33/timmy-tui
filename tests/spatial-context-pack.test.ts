@@ -32,6 +32,12 @@ describe('C2 sealed context pack and grounded annotation receipts', () => {
     expect(result.result.scope).toMatchObject({ nativeEditsExecuted: false, physicalValidation: false, semanticCorrectnessChecked: false });
     expect(verifySignature(result.receipt)).toBe(true);
   });
+  it('keeps admitted model comments with whitespace grounded', () => {
+    const value = pack(), seal = sealContextPack(value, options());
+    const review = { sourceSha256: value.sourceRevision, materialKnown: false, densityKnown: false, annotations: [{ entityId: 'cell-center', factIds: ['cell-center.location'], comment: 'Known location:\n\tcell-center.location', proposedAction: 'inspect' }] };
+    const result = sealSpatialAnnotation(seal, { camera, review }, options());
+    expect(result.result.status).toBe('grounded'); expect(result.result.annotations[0]?.comment).toBe(review.annotations[0].comment);
+  });
   it('rejects the exact retained historical Granite response for cross-object citations', () => {
     const value = pack(), seal = sealContextPack(value, options()), historic = JSON.parse(readFileSync('tests/fixtures/spatial/granite-ungrounded-response.json', 'utf8'));
     expect(JSON.parse(historic.message.content).sourceSha256).toBe(value.sourceRevision);

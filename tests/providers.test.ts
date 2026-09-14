@@ -34,6 +34,11 @@ describe('pickOllamaModel', () => {
 });
 
 describe('getLocalOllamaBaseUrl', () => {
+  it('defaults to the IPv4 loopback Ollama origin', () => {
+    vi.stubEnv('OLLAMA_HOST', undefined);
+    expect(getLocalOllamaBaseUrl()).toBe('http://127.0.0.1:11434');
+  });
+
   it('supports explicit local instances and dynamically reads OLLAMA_HOST', () => {
     vi.stubEnv('OLLAMA_HOST', '127.0.0.1:11435');
     expect(getLocalOllamaBaseUrl()).toBe('http://127.0.0.1:11435');
