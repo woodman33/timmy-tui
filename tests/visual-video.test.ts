@@ -44,6 +44,12 @@ describe('bounded local MP4 export', () => {
       vi.stubEnv('HYPERFRAMES_FFPROBE_PATH', process.execPath);
       return path;
     }
+    function fakeProbe(response: unknown) {
+      const probePath = join(fixture, 'fixture-probe');
+      writeFileSync(probePath, `#!${process.execPath}\nconsole.log(${JSON.stringify(JSON.stringify(response))});\n`);
+      chmodSync(probePath, 0o700); vi.stubEnv('HYPERFRAMES_FFPROBE_PATH', probePath);
+      return probePath;
+    }
     it.each([
       { duration: 31 }, { width: 3840, height: 2160 }, { width: 641 }, { width: 2048, height: 100 },
       { beats: [{ at: 0, dur: 3, label: 'BAD', text: 'outside duration' }] },
@@ -99,13 +105,39 @@ describe('bounded local MP4 export', () => {
       expect(report.failure).toBe('timeout');
       expect(report.render.signal).toBe('SIGKILL');
     });
+    it('runs PATH shell shims directly instead of passing them to node', async () => {
+      vi.stubEnv('TIMMY_HYPERFRAMES_CLI', '');
+      vi.stubEnv('HYPERFRAMES_BROWSER_PATH', process.execPath);
+      vi.stubEnv('HYPERFRAMES_FFMPEG_PATH', process.execPath);
+      fakeProbe({ streams: [{ codec_type: 'video', width: 640, height: 360,
+        duration: '2', nb_read_frames: '48', r_frame_rate: '24/1' }], format: { format_name: 'mp4' } });
+      const bin = join(fixture, 'bin'); mkdirSync(bin);
+      const cliPath = join(bin, 'hyperframes'), argvPath = join(fixture, 'cli-argv.txt');
+      writeFileSync(cliPath, `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(argvPath)}\nout=""\nwhile [ "$#" -gt 0 ]; do\n  if [ "$1" = "--output" ]; then shift; out="$1"; fi\n  shift\ndone\nprintf 'fixture bytes' > "$out"\n`);
+      chmodSync(cliPath, 0o700); vi.stubEnv('PATH', bin);
+      const result = await renderVisualVideo(storyboard);
+      const report = JSON.parse(readFileSync(join(dirname(result.artifactPath!), 'render-result.json'), 'utf8'));
+      expect(result.status).toBe('completed');
+      expect(report.runtime.cliMode).toBe('direct');
+      expect(report.command.args[2]).toBe(cliPath);
+      expect(report.command.args).not.toContain(process.execPath);
+      expect(readFileSync(argvPath, 'utf8')).toContain('render');
+    });
+    it('accepts format duration, counted frames and equivalent 24fps rates', async () => {
+      fakeCli('import fs from "node:fs"; fs.writeFileSync(process.argv[process.argv.indexOf("--output")+1],"fixture bytes");');
+      fakeProbe({ streams: [{ codec_type: 'video', width: 640, height: 360,
+        duration: 'N/A', nb_frames: 'N/A', nb_read_frames: '48', r_frame_rate: '48/2' }],
+        format: { format_name: 'mov,mp4,m4a,3gp,3g2,mj2', duration: '2.000000' } });
+      const result = await renderVisualVideo(storyboard);
+      const report = JSON.parse(readFileSync(join(dirname(result.artifactPath!), 'render-result.json'), 'utf8'));
+      expect(result.status).toBe('completed');
+      expect(report.metadata).toMatchObject({ frames: 48, seconds: 2, fps: '48/2' });
+    });
     it.each(['duration', 'nb_frames'])('rejects non-finite native %s metadata after exit zero', async field => {
       fakeCli('import fs from "node:fs"; fs.writeFileSync(process.argv[process.argv.indexOf("--output")+1],"fixture bytes");');
-      const probePath = join(fixture, 'fixture-probe');
       const response = { streams: [{ codec_type: 'video', width: 640, height: 360,
         duration: '2', nb_frames: '48', r_frame_rate: '24/1', [field]: 'not-a-number' }], format: { format_name: 'mp4' } };
-      writeFileSync(probePath, `#!${process.execPath}\nconsole.log(${JSON.stringify(JSON.stringify(response))});\n`);
-      chmodSync(probePath, 0o700); vi.stubEnv('HYPERFRAMES_FFPROBE_PATH', probePath);
+      fakeProbe(response);
       const result = await renderVisualVideo(storyboard);
       const report = JSON.parse(readFileSync(result.artifactPath!, 'utf8'));
       expect(result.status).toBe('failed');
