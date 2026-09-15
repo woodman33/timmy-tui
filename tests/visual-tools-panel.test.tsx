@@ -76,6 +76,23 @@ describe('Visual tools action panel', () => {
     await input(view, '\r');
     expect(onRun).not.toHaveBeenCalled();
   });
+  it('shows Chafa output inline with explicit display-only status and a details toggle', async () => {
+    const onRun = vi.fn(async () => {});
+    const result: VisualToolRunState = { toolId: 'chafa-preview', status: 'completed', ansiPreview: '██  ░░', summary: 'Rendered PNG', artifactPath: '/tmp/preview.json' };
+    const view = render(<VisualToolsPanel active onRun={onRun} runState={result} />);
+    await tick(); await input(view, '\x1b[A'); await input(view, '\x1b[A'); await input(view, '\r');
+    expect(view.lastFrame()).toContain('DISPLAY ONLY'); expect(view.lastFrame()).toContain('██  ░░');
+    await input(view, '\x10'); expect(view.lastFrame()).toContain('PNG path'); expect(view.lastFrame()).toContain('Rendered PNG');
+    expect(onRun).not.toHaveBeenCalled();
+  });
+  it('names cropped image rows in a short terminal', async () => {
+    const result: VisualToolRunState = { toolId: 'chafa-preview', status: 'completed', ansiPreview: Array(10).fill('██').join('\n') };
+    const view = render(<VisualToolsPanel active height={14} onRun={async () => {}} runState={result} />);
+    await tick(); await input(view, '\x1b[A'); await input(view, '\x1b[A'); await input(view, '\r');
+    expect(view.lastFrame()).toContain('CROPPED 4 ROWS');
+    expect(view.lastFrame()).toContain('ENLARGE TERMINAL');
+    expect(view.lastFrame()).toContain('Ctrl+P details');
+  });
 
   it('distinguishes completion from verification and opens only the host-provided artifact', async () => {
     const state: VisualToolRunState = { toolId: 'camera-fit', status: 'completed', summary: 'Pose reconstructed.',

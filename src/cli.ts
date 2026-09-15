@@ -139,7 +139,7 @@ const command = cleanArgs[0];
 
 if (command === 'vision') {
   const { runVisionCli } = await import('./vision/cli.js');
-  await runVisionCli(cleanArgs.slice(1));
+  await runVisionCli(cleanArgs.slice(1), { json: isJson });
   if (cleanArgs[1] === 'serve' && !args.includes('--help') && !args.includes('-h')) await new Promise(() => {});
   process.exit(process.exitCode ?? 0);
 }

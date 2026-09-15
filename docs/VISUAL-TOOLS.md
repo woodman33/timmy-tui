@@ -10,6 +10,7 @@ Open the real TUI, choose **4 LIBRARY**, then press **V**. Use arrow keys to cho
 | MCAP recording | `examples/visual-tools/simulation.json` | CRC-protected indexed MCAP + CSV; exact payload and simulation-time replay check, execution receipt. Missing penetration stays unknown. |
 | Motion MP4 | `examples/visual-tools/storyboard.json` | Installed HyperFrames renders a local MP4; video stream metadata and execution receipt retained. No per-frame content verification. macOS only, ≤30 seconds and 1920×1080, even dimensions. |
 | Telemetry | No input | Local metadata-only OTLP JSON from receipt streams. No network transmission, collector or viewer launched. |
+| Terminal image | `examples/visual-tools/preview.png` | Installed Chafa converts a retained PNG into a color terminal preview. Ctrl+P switches between preview and details. Display approximation only; report is unsealed. |
 | dmux | No run action | Installation observation only; integration not qualified. |
 
 Examples are synthetic demonstration inputs, never measured material or scene truth. The camera example uses caller-declared source revision and units. It checks plumbing and numerical fitting, not source authenticity or unseen-scene accuracy.
@@ -27,6 +28,16 @@ timmy vision integrations list
 timmy vision integrations run camera-fit --request examples/visual-tools/camera-fit.json
 ```
 
+Terminal images use the same asynchronous implementation in the TUI and headless CLI:
+
+```sh
+timmy vision preview --image examples/visual-tools/preview.png --json
+```
+
+This action uses existing `chafa` on PATH or absolute `TIMMY_CHAFA_BIN`. PNG input is limited to 8 MiB, 4096 pixels per side and eight million pixels. The child has a five-second deadline and 256 KiB combined output limit. Raw output is retained, but only bounded SGR color output enters the panel: no cursor, title or clipboard commands. The report records source/output hashes and execution metadata; it is not a geometry or model-evidence receipt. This increment qualifies a still PNG via ANSI symbols; animated playback, Kitty/Sixel/iTerm2 pixels and the older Projects-panel preview remain outside this change.
+
+See [the software intake](VISION-SOFTWARE-INTAKE-20260915.md) for the supplied multi-camera, occupancy, Fractal and agent-harness references, their actual control paths, and their remaining limits.
+
 Run `timmy vision integrations --help` for the installed dispatcher grammar. Gaussian inspection is also available through `timmy vision spatial models context examples/visual-tools/parameters.ply --kind gaussian-splats --json`. The UI and CLI share the same implementation rather than translating a natural-language status back into an operation.
 
 The camera runner creates an intent, runs the fixed adapter process asynchronously, retains output, and records its result. It has a 15-minute timeout. The UI exposes pending and terminal results. It does **not** offer cancellation or durable UI recovery yet. File export and bounded PLY inspection run locally; PLY parsing remains synchronous. There is no new scheduler or receipt ledger.
@@ -41,4 +52,4 @@ The motion HTML uses an explicit timeline. HTML preview and native MP4 render ar
 
 ## Why this small layer exists
 
-The concrete failure was usable helpers hidden behind source files and status-only integration lists. One fixed operation service connects existing helpers to a TUI panel. Cost: six dispatch paths, transient UI state, and local output files. No extra persisted job state, authority heuristic or recovery ledger is introduced. Deleting the panel/service would return users to hand-assembled commands. Authority comes from the user's explicit action plus fixed tool contracts; the result reports observed execution and computed measurements, never an agent's assertion of success.
+The concrete failure was usable helpers hidden behind source files and status-only integration lists. One fixed operation service connects existing helpers to a TUI panel. Cost: seven dispatch paths, transient UI state, and local output files. No extra persisted job state, authority heuristic or recovery ledger is introduced. Deleting the panel/service would return users to hand-assembled commands. Authority comes from the user's explicit action plus fixed tool contracts; the result reports observed execution and computed measurements, never an agent's assertion of success.

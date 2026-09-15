@@ -11,7 +11,7 @@ const MAX_VIDEO = 128 * 1024 * 1024;
 const RENDER_TIMEOUT = 300_000;
 const sha = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const sandbox = '/usr/bin/sandbox-exec';
-type Runtime = { cli: string; browser: string; ffmpeg: string; ffprobe: string };
+type Runtime = { cli: string; cliInvocation: 'node-script' | 'executable'; browser: string; ffmpeg: string; ffprobe: string };
 export interface VideoResult {
   status: 'completed' | 'refused' | 'failed';
   summary: string;
@@ -40,11 +40,15 @@ function runtime(): Runtime {
   const explicit = process.env.TIMMY_HYPERFRAMES_CLI;
   const cli = explicit ? file(explicit) : onPath('hyperframes');
   if (!cli) throw new Error('Set TIMMY_HYPERFRAMES_CLI to an existing absolute HyperFrames CLI path. No downloads are performed.');
+  const cliInvocation = /\.(?:mjs|cjs|js)$/i.test(cli) ? 'node-script' : 'executable';
+  if (cliInvocation === 'executable' && !file(cli, true)) {
+    throw new Error('HyperFrames must be a readable JavaScript entry or an executable CLI.');
+  }
   const browser = file(process.env.HYPERFRAMES_BROWSER_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', true);
   const ffmpeg = process.env.HYPERFRAMES_FFMPEG_PATH ? file(process.env.HYPERFRAMES_FFMPEG_PATH, true) : onPath('ffmpeg') ?? file('/opt/homebrew/bin/ffmpeg', true);
   const ffprobe = process.env.HYPERFRAMES_FFPROBE_PATH ? file(process.env.HYPERFRAMES_FFPROBE_PATH, true) : onPath('ffprobe') ?? file('/opt/homebrew/bin/ffprobe', true);
   if (!browser || !ffmpeg || !ffprobe) throw new Error('Existing Chrome, FFmpeg and FFprobe are required; installation is never automatic.');
-  return { cli, browser, ffmpeg, ffprobe };
+  return { cli, cliInvocation, browser, ffmpeg, ffprobe };
 }
 /** File discovery only; the actual sandbox invocation must still succeed. */
 export function videoAvailability(): { available: boolean; reason: string } {
@@ -78,6 +82,19 @@ function execute(command: string, args: string[], cwd: string, env: NodeJS.Proce
       resolveResult({ code, signal, stdout, stderr, failure });
     });
   });
+}
+
+function unavailable(value: unknown): boolean { return value === undefined || value === 'N/A'; }
+function positiveNumber(value: unknown): number {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+(?:\.\d+)?$/.test(value))) return NaN;
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : NaN;
+}
+function is24Fps(value: unknown): boolean {
+  if (typeof value !== 'string' || !/^\d+\/\d+$/.test(value)) return false;
+  const [numerator, denominator] = value.split('/').map(Number);
+  return Number.isSafeInteger(numerator) && Number.isSafeInteger(denominator)
+    && numerator > 0 && denominator > 0 && numerator / denominator === 24;
 }
 
 /** Explicit finite export of generated Timmy source, not arbitrary HTML execution or a durable job. */
@@ -115,7 +132,8 @@ export async function renderVisualVideo(storyboard: StudioComposition, dir = pro
     HYPERFRAMES_FFPROBE_PATH: rt.ffprobe, HYPERFRAMES_FONT_CACHE_DIR: join(out, 'font-cache'),
     HYPERFRAMES_NO_TELEMETRY: '1', DO_NOT_TRACK: '1',
   };
-  const args = ['-f', profilePath, process.execPath, rt.cli, 'render', out, '--output', video,
+  const invocation = rt.cliInvocation === 'node-script' ? [process.execPath, rt.cli] : [rt.cli];
+  const args = ['-f', profilePath, ...invocation, 'render', out, '--output', video,
     '--format', 'mp4', '--fps', '24', '--quality', 'high', '--workers', '1', '--experimental-fast-capture=false'];
   const envLock = { os: { platform: process.platform, build: release() }, arch: process.arch, tools: {}, models: {} };
   const intent = appendReceipt('runs', { kind: 'visual.video.intent', subject: 'motion.mp4',
@@ -130,19 +148,26 @@ export async function renderVisualVideo(storyboard: StudioComposition, dir = pro
     if (render.failure || render.code !== 0) throw new Error(render.failure ?? 'renderer_exit');
     const stat = lstatSync(video);
     if (!stat.isFile() || stat.size < 1 || stat.size > MAX_VIDEO) throw new Error('video_size');
-    probe = await execute(sandbox, ['-f', profilePath, rt.ffprobe, '-v', 'error', '-show_streams', '-show_format', '-of', 'json', video], out, env, 20_000);
+    probe = await execute(sandbox, ['-f', profilePath, rt.ffprobe, '-v', 'error', '-count_frames', '-show_streams', '-show_format', '-of', 'json', video], out, env, 20_000);
     if (probe.failure || probe.code !== 0) throw new Error(probe.failure ?? 'probe_exit');
     const parsed = JSON.parse(probe.stdout);
-    const videos = parsed.streams?.filter((s: { codec_type?: string }) => s.codec_type === 'video');
+    const videos = Array.isArray(parsed.streams) ? parsed.streams.filter((s: { codec_type?: string } | null) => s?.codec_type === 'video') : [];
     const stream = videos?.[0];
-    const seconds = Number(stream?.duration), frames = Number(stream?.nb_frames);
+    // Frame totals come from decoded frames, not optional container declarations.
+    // Container duration is safe only for this export's single video stream.
+    const durationSource = unavailable(stream?.duration) ? 'format.duration' : 'stream.duration';
+    const seconds = positiveNumber(durationSource === 'format.duration' ? parsed.format?.duration : stream?.duration);
+    const frames = positiveNumber(stream?.nb_read_frames);
+    const declaredFrames = unavailable(stream?.nb_frames) ? undefined : positiveNumber(stream.nb_frames);
     if (videos?.length !== 1 || stream.width !== width || stream.height !== height
       || !Number.isFinite(seconds) || seconds <= 0 || !Number.isSafeInteger(frames) || frames <= 0
-      || stream.r_frame_rate !== '24/1' || Math.abs(seconds - storyboard.duration) > 1 / 24
+      || (durationSource === 'format.duration' && parsed.streams.length !== 1)
+      || (declaredFrames !== undefined && (!Number.isSafeInteger(declaredFrames) || declaredFrames !== frames))
+      || !is24Fps(stream.r_frame_rate) || Math.abs(seconds - storyboard.duration) > 1 / 24
       || frames !== Math.ceil(storyboard.duration * 24)
       || !String(parsed.format?.format_name).split(',').includes('mp4')) throw new Error('video_metadata');
     metadata = { width: stream.width, height: stream.height, fps: stream.r_frame_rate,
-      frames: Number(stream.nb_frames), seconds: Number(stream.duration), bytes: stat.size };
+      frames, frames_source: 'nb_read_frames', seconds, duration_source: durationSource, bytes: stat.size };
     const hash = createHash('sha256');
     for await (const chunk of createReadStream(video)) hash.update(chunk);
     videoHash = hash.digest('hex');

@@ -11,8 +11,9 @@ import { buildGaussianPlyContext, GaussianPlyError } from '../vision/spatial/gau
 import { runIntegration } from '../vision/integrations/runner.js';
 import { integrationCatalog } from '../vision/integrations/registry.js';
 import { videoAvailability, renderVisualVideo } from './visual-video.js';
+import { chafaExecutable, renderTerminalImage } from './terminal-image.js';
 
-export type VisualOperation = 'camera-fit' | 'opensplat-inspect' | 'motion-html' | 'otlp-export' | 'mcap-roundtrip' | 'motion-mp4';
+export type VisualOperation = 'camera-fit' | 'opensplat-inspect' | 'motion-html' | 'otlp-export' | 'mcap-roundtrip' | 'motion-mp4' | 'chafa-preview';
 export interface VisualResult {
   toolId: VisualOperation;
   status: 'completed' | 'refused' | 'failed';
@@ -20,6 +21,7 @@ export interface VisualResult {
   artifactPath?: string;
   artifactHash?: string;
   receiptId?: string;
+  ansiPreview?: string;
 }
 
 export function visualToolsAvailability(dir = process.cwd()) {
@@ -31,6 +33,7 @@ export function visualToolsAvailability(dir = process.cwd()) {
     'opensplat-inspect': 'available', 'motion-html': 'available', 'otlp-export': 'available',
     'mcap-roundtrip': mcap ? 'available' : 'unavailable',
     'motion-mp4': videoAvailability().available ? 'available' : 'unavailable',
+    'chafa-preview': chafaExecutable() ? 'available' : 'unavailable',
     dmux: dmux ? 'available' : 'not-installed',
   } as const;
 }
@@ -40,13 +43,14 @@ export function visualToolsSetup(): Partial<Record<VisualOperation, string>> {
     'camera-fit': 'Set TIMMY_VISUAL_PYTHON to an existing Python with NumPy and OpenCV.',
     'mcap-roundtrip': 'Set TIMMY_TELEMETRY_PYTHON to an existing Python with mcap, zstandard and jsonschema.',
     'motion-mp4': videoAvailability().reason,
+    'chafa-preview': 'Set TIMMY_CHAFA_BIN to an existing Chafa executable, or add it to PATH.',
   };
 }
 
 /** Resolve shipped examples independently of the working directory. Never starts a tool. */
 export function visualToolExamples(): Partial<Record<VisualOperation, string>> {
   const files = { 'camera-fit': 'camera-fit.json', 'opensplat-inspect': 'parameters.ply',
-    'motion-html': 'storyboard.json', 'motion-mp4': 'storyboard.json', 'mcap-roundtrip': 'simulation.json' };
+    'motion-html': 'storyboard.json', 'motion-mp4': 'storyboard.json', 'mcap-roundtrip': 'simulation.json', 'chafa-preview': 'preview.png' };
   return Object.fromEntries(Object.entries(files).map(([id, name]) => {
     const candidates = ['../../', '../../../'].map(prefix => fileURLToPath(new URL(`${prefix}examples/visual-tools/${name}`, import.meta.url)));
     return [id, candidates.find(existsSync) ?? candidates[0]];
@@ -70,12 +74,13 @@ function composition(value: unknown): StudioComposition {
  */
 export async function runVisualTool(toolId: VisualOperation, inputPath?: string, dir = process.cwd()): Promise<VisualResult> {
   const refuse = (summary: string): VisualResult => ({ toolId, status: 'refused', summary });
-  if (!['camera-fit', 'opensplat-inspect', 'motion-html', 'otlp-export', 'mcap-roundtrip', 'motion-mp4'].includes(toolId)) return refuse('Unknown visual operation.');
+  if (!['camera-fit', 'opensplat-inspect', 'motion-html', 'otlp-export', 'mcap-roundtrip', 'motion-mp4', 'chafa-preview'].includes(toolId)) return refuse('Unknown visual operation.');
   if (toolId !== 'otlp-export' && !inputPath?.trim()) return refuse('Choose a local input file first.');
   const path = inputPath ? resolve(dir, inputPath.trim()) : '';
   let body: string, filename: string, summary: string;
   let nativeInvoked = false;
   try {
+    if (toolId === 'chafa-preview') return { toolId, ...await renderTerminalImage(path, dir) };
     if (toolId === 'motion-mp4') {
       const storyboard = composition(await readStrictJsonFile(path));
       nativeInvoked = true;

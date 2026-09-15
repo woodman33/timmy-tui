@@ -4,7 +4,7 @@ import { Card } from '../ui/Card.js';
 import { BudgetList } from '../ui/BudgetList.js';
 import { theme } from '../theme.js';
 
-export type VisualToolId = 'camera-fit' | 'opensplat-inspect' | 'motion-html' | 'otlp-export' | 'mcap-roundtrip' | 'motion-mp4' | 'dmux';
+export type VisualToolId = 'camera-fit' | 'opensplat-inspect' | 'motion-html' | 'otlp-export' | 'mcap-roundtrip' | 'motion-mp4' | 'chafa-preview' | 'dmux';
 export type VisualToolAction = Exclude<VisualToolId, 'dmux'>;
 export type VisualToolAvailability = 'available' | 'not-installed' | 'unavailable' | 'unknown';
 export interface VisualToolRunState {
@@ -13,6 +13,7 @@ export interface VisualToolRunState {
   summary?: string;
   artifactPath?: string;
   receiptId?: string;
+  ansiPreview?: string;
 }
 export interface VisualToolsPanelProps {
   active: boolean;
@@ -34,6 +35,7 @@ const entries: { id: VisualToolId; name: string; action: string; input?: string;
   { id: 'otlp-export', name: 'Telemetry', action: 'Export OTLP', description: 'Write a local metadata-only OTLP export. Nothing is transmitted.' },
   { id: 'mcap-roundtrip', name: 'MCAP recording', action: 'Record and replay', input: 'Simulation JSON path', example: 'examples/visual-tools/simulation.json', description: 'Create indexed MCAP + CSV; check exact payload and timeline replay.' },
   { id: 'motion-mp4', name: 'Motion MP4', action: 'Render MP4', input: 'Storyboard JSON path', example: 'examples/visual-tools/storyboard.json', description: 'Render local HTML through installed HyperFrames; keep source, MP4 and receipt.' },
+  { id: 'chafa-preview', name: 'Terminal image', action: 'Preview PNG', input: 'PNG path', example: 'examples/visual-tools/preview.png', description: 'Render a local PNG with Chafa. Display approximation; no geometry or model judgment.' },
   { id: 'dmux', name: 'dmux', action: 'Catalog only', description: 'Harness multiplexer inventory. This panel does not launch agents or auto-merge.' },
 ];
 
@@ -44,6 +46,7 @@ export function VisualToolsPanel({ active, height = 22, availability = {}, runSt
   const [detail, setDetail] = useState(false);
   const [paths, setPaths] = useState<Partial<Record<VisualToolId, string>>>({});
   const [notice, setNotice] = useState('');
+  const [showImage, setShowImage] = useState(true);
   const [dirty, setDirty] = useState<Partial<Record<VisualToolId, boolean>>>({});
   const [pending, setPending] = useState<VisualToolAction | null>(null);
   const locked = useRef(false);
@@ -91,6 +94,7 @@ export function VisualToolsPanel({ active, height = 22, availability = {}, runSt
       setNotice('Synthetic example loaded. Press Enter to run.'); return;
     }
     if (key.return) { void run(); return; }
+    if (key.ctrl && input === 'p' && result?.ansiPreview) { setShowImage(value => !value); return; }
     if (key.ctrl && input === 'o' && result?.artifactPath && onOpenArtifact) {
       onOpenArtifact(result.artifactPath); return;
     }
@@ -109,6 +113,9 @@ export function VisualToolsPanel({ active, height = 22, availability = {}, runSt
   }, { isActive: active });
 
   const maximum = Math.max(1, Math.min(5, height - 9));
+  const previewLines = result?.ansiPreview?.split('\n') ?? [];
+  const previewRows = Math.max(1, height - 8);
+  const croppedRows = Math.max(0, previewLines.length - previewRows);
   const pillKind = status === 'refused' || status === 'failed' ? 'danger'
     : busy ? 'warn' : 'muted';
   return <Card title="Visual tools" focused={active} height={height}
@@ -120,6 +127,10 @@ export function VisualToolsPanel({ active, height = 22, availability = {}, runSt
           {selected === index ? '› ' : '  '}{item.name} · {availability[item.id] ?? 'unknown'}{item.id === 'dmux' ? ' · catalog only' : ''}
         </Text>} />
       <Box height={1} /><Text color={theme.textMuted}>↑↓ choose · Enter details · Esc back</Text>
+    </> : result?.ansiPreview && showImage ? <>
+      <Text color={theme.textSecondary}>{croppedRows ? `CROPPED ${croppedRows} ROWS · ENLARGE TERMINAL · UNSEALED` : 'LOCAL PNG PREVIEW · DISPLAY ONLY · UNSEALED'}</Text>
+      {previewLines.slice(0, previewRows).map((line, i) => <Text key={i} wrap="truncate-end">{line}</Text>)}
+      <Text color={theme.textMuted}>Ctrl+P details · Ctrl+O report · Esc list</Text>
     </> : <>
       <Text color={theme.textSecondary} wrap="truncate-end">{entry.description}</Text>
       <Text color={theme.textMuted}>Local availability: {available}</Text>
@@ -133,7 +144,7 @@ export function VisualToolsPanel({ active, height = 22, availability = {}, runSt
       {status === 'completed' ? <Text color={theme.textMuted}>Completion is not geometry verification.</Text> : null}
       {result?.artifactPath ? <Text color={theme.textSecondary} wrap="truncate-middle">Artifact: {result.artifactPath}</Text> : null}
       {result?.receiptId ? <Text color={theme.textSecondary} wrap="truncate-end">Receipt: {result.receiptId}</Text> : null}
-      <Text color={theme.textMuted}>Esc list{result?.artifactPath && onOpenArtifact ? ' · Ctrl+O open artifact' : ''}{entry.input ? ' · Ctrl+E example · Backspace edit' : ''}</Text>
+      <Text color={theme.textMuted}>Esc list{result?.ansiPreview ? ' · Ctrl+P image' : ''}{result?.artifactPath && onOpenArtifact ? ' · Ctrl+O open artifact' : ''}{entry.input ? ' · Ctrl+E example · Backspace edit' : ''}</Text>
     </>}
   </Card>;
 }

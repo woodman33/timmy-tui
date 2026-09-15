@@ -7,8 +7,17 @@ import { loadVisionEnvironment, visionAsset } from './config.js';
 import { getVisionCatalog } from './platform.js';
 import { publicVisionEvent } from './presentation.js';
 
-export async function runVisionCli(args: string[], options: { quiet?: boolean } = {}) {
+export async function runVisionCli(args: string[], options: { quiet?: boolean; json?: boolean } = {}) {
   const sub = args.find(a => !a.startsWith('-')) ?? 'open';
+  if (sub === 'preview') {
+    if (args.length === 2 && args[1] === '--help') { console.log('timmy vision preview --image FILE.png [--json]'); return; }
+    if (![3, 4].includes(args.length) || args[1] !== '--image' || !args[2] || (args.length === 4 && args[3] !== '--json')) throw new Error('Use vision preview --image FILE.png [--json].');
+    const { renderTerminalImage } = await import('../utils/terminal-image.js');
+    const result = await renderTerminalImage(args[2]);
+    console.log(options.json || args[3] === '--json' ? JSON.stringify(result, null, 2) : [result.summary, result.ansiPreview ?? '', result.artifactPath ?? ''].filter(Boolean).join('\n'));
+    process.exitCode = result.status === 'completed' ? 0 : result.status === 'refused' ? 2 : 1;
+    return;
+  }
   if (sub === 'integrations') {
     const { runIntegrationsCli } = await import('./integrations/cli.js');
     await runIntegrationsCli(args.slice(1)); return;
@@ -21,7 +30,7 @@ export async function runVisionCli(args: string[], options: { quiet?: boolean } 
   const flag = (name: string) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
   const print = (v: unknown) => console.log(JSON.stringify(v, null, 2));
   if ((args.includes('--help') || args.includes('-h')) && !['doctor', 'stream'].includes(sub)) {
-    console.log('timmy vision [open|serve|status|catalog|integrations|doctor|events|learning|proof-ladder --help|stream --help|run --image PATH --model ID]'); return;
+    console.log('timmy vision [open|serve|status|catalog|integrations|preview --help|doctor|events|learning|proof-ladder --help|stream --help|run --image PATH --model ID]'); return;
   }
   if (sub === 'proof-ladder') { const { runProofLadderCli } = await import('./proof-ladder-cli.js'); await runProofLadderCli(args.slice(1)); return; }
   if (sub === 'status') { print(await getVisionStatus()); return; }
@@ -42,7 +51,7 @@ export async function runVisionCli(args: string[], options: { quiet?: boolean } 
     print('event' in result && result.event ? { ...result, event: publicVisionEvent(result.event) } : result); return;
   }
   if (sub !== 'serve' && sub !== 'open') {
-    console.log('timmy vision [open|serve|status|catalog|integrations|doctor|events|learning|proof-ladder --help|stream --help|run --image PATH --model ID]'); return;
+    console.log('timmy vision [open|serve|status|catalog|integrations|preview --help|doctor|events|learning|proof-ladder --help|stream --help|run --image PATH --model ID]'); return;
   }
   const port = Number(flag('--port') || '4336');
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Choose a port from 1024 to 65535.');
