@@ -123,6 +123,7 @@ export function shellOnKey(s: ShellState, key: string): ShellStep {
     if (key === 'H') return { state: st, handled: true, actions: ['sw-focus'] };
     if (key === 'l') return { state: st, handled: true, actions: ['sw-launch'] };
   }
+  if (key === 'V' && st.tab === 'LIBRARY') return { state: st, handled: true, actions: ['open-visual-tools'] };
   // LIBRARY [f]: yazi/broot tmux pane over skills/projects folders
   if (key === 'f' && st.tab === 'LIBRARY') return { state: st, handled: true, actions: ['open-files'] };
   // CHAT tab: printable drops straight into CHAT mode

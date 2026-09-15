@@ -26,6 +26,7 @@ import { captureFrames, defaultFramesDir, FRAME_EVERY, ASSUMED_FPS } from './fra
 import { locateGenAgent, buildGenAgentArgs, launchDetached } from './genbridge.js';
 import { BRAND } from './brand.js';
 import { loadTemplate, listTemplates } from './templates.js';
+import { renderStudioComposition } from './studio-composition.js';
 import { writeDashboard, ensureDashServer, dashUrl, probeUrl } from './dash.js';
 import { aggregateGenerations, parseCostFromLog } from './generations.js';
 import { loadOrgConfig, exportSession } from './sessionstore.js';
@@ -621,7 +622,6 @@ export default function DemoDashboard() {
       }
       const brief = restArgs;
       if (!brief) return 'Usage: /studio [--template <name>] <idea>  — templates live in studio/templates/ (any agent may author one)';
-      const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const slugId = brief.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'untitled';
       const dir = join(process.cwd(), 'studio', slugId);
       mkdirSync(dir, { recursive: true });
@@ -629,39 +629,7 @@ export default function DemoDashboard() {
       const template = loadTemplate(templateName, brief);
       const beats = template.beats;
       const total = template.total;
-      const clips = beats.map(b =>
-        `  <div class="clip" data-start="${b.at}" data-duration="${b.dur}">` +
-        `<span class="label">${b.label}</span><h1>${esc(b.text)}</h1></div>`
-      ).join('\n');
-      const html = `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>TIMMY Studios — ${esc(slugId)}</title>
-<style>
-body{margin:0;background:${theme.ground};color:${theme.textPrimary};font:14px/1.5 ui-monospace,Menlo,Consolas,monospace;overflow:hidden}
-#stage{position:relative;width:100vw;height:100vh}
-.clip{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;opacity:0;animation:beat var(--dur) linear var(--at) forwards}
-.label{color:${theme.accent};letter-spacing:.3em;font-size:12px}
-h1{margin:0;color:${theme.accent};font-size:28px;text-align:center;max-width:80%}
-@keyframes beat{0%{opacity:0}12%{opacity:1}88%{opacity:1}100%{opacity:0}}
-</style>
-</head>
-<body>
-<div id="stage" data-composition-id="${compId}" data-start="0" data-duration="${total}">
-${clips}
-</div>
-<script>
-window.__timelines = window.__timelines || {};
-window.__timelines["${compId}"] = { duration: ${total} };
-document.querySelectorAll(".clip").forEach(function (el) {
-  el.style.setProperty("--at", el.getAttribute("data-start") + "s");
-  el.style.setProperty("--dur", el.getAttribute("data-duration") + "s");
-});
-</script>
-</body>
-</html>
-`;
+      const html = renderStudioComposition({ id: compId, title: slugId, duration: total, beats });
       writeFileSync(join(dir, 'index.html'), html, 'utf8');
       writeFileSync(join(dir, 'STORYBOARD.md'),
         `# ${BRAND.studios} storyboard — ${slugId}\n\nBrief: ${brief}\nTemplate: ${template.name} (${template.source})\n\n` +
@@ -705,7 +673,7 @@ document.querySelectorAll(".clip").forEach(function (el) {
              `• preview:     ${url}\n` +
              `• lane:        ${lane}\n` +
              `• render:      npx hyperframes render studio/${slugId}\n` +
-             `• receipt:     sealed (studio run created)`;
+             `• receipt:     not created by this seed; run event emitted when an agent is attached`;
     }
   },
   {

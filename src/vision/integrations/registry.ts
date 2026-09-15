@@ -1,8 +1,30 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/** Interpreter choice is explicit operator configuration, never inferred from receipt storage. */
+export function visualPythonExecutable(dir = process.cwd(), env: NodeJS.ProcessEnv = process.env) {
+  if (env.TIMMY_VISUAL_PYTHON) {
+    if (!isAbsolute(env.TIMMY_VISUAL_PYTHON)) throw new Error('TIMMY_VISUAL_PYTHON must be an absolute interpreter path.');
+    return env.TIMMY_VISUAL_PYTHON;
+  }
+  return resolve(dir, '.timmy/venv-visual/bin/python');
+}
+
+/** Native source assets stay at package root for both src and dist/src layouts. */
+function cameraFitAdapterScript() {
+  const candidates = ['../../../', '../../../../'].map(prefix =>
+    fileURLToPath(new URL(`${prefix}tools/spatial-fit-20260915/adapter.py`, import.meta.url)));
+  return candidates.find(existsSync) ?? candidates[0];
+}
 
 const requestContracts: Record<string, object> = {
+  'camera-fit': {
+    example: { operation: 'probe' },
+    input: 'fit: object_id, source_revision (SHA-256), frame_id, units (m/cm/mm/scene-unit), image_size [width,height], camera_matrix (3x3 zero-skew pixels), distortion ([] or five coefficients), correspondences and validation_correspondences (id/world[3]/pixel[2]). 6–64 noncoplanar fitting points; 3–64 separate validation points. Self-contained request, no image/file/network loading.',
+    result: 'OpenCV camera-from-world pose and per-point reprojection residuals. Validation points never enter fitting. Reconstructed proposal only; declared source revision/units are not independently authenticated. No native edit, model inference or physical-geometry certification.',
+  },
   mcap: { example: { operation: 'export', input: '/absolute/simulation.json' }, input: '1–10000 finite rows: timeSeconds, positionMetres[3], contactCount; optional penetrationMetres. Maximum16MiB.', replay: 'operation=replay; known Timmy simulation schema/topic only, one channel,≤64KiB/row,≤16MiB input and expanded chunks, required data/chunk CRCs. ZSTD known-size or uncompressed. fixture uses preserved MuJoCo data; no new simulation.' },
   plotjuggler: { example: { operation: 'open', input: '/absolute/simulation.csv', layout: '/absolute/layout.xml' }, input: 'Local CSV≤16MiB; optional local XML layout. Native viewer launch is not data qualification.', export: 'Same simulation JSON contract as MCAP; produces both MCAP and CSV.' },
   viser: { example: { operation: 'scene', input_mesh: '/absolute/scene.glb', translation_x: 3, keep_alive_seconds: 60 }, input: 'Optional self-contained glTF2 GLB≤64MiB. Without input_mesh uses the preserved house fixture. translation_x0.5–5m; keep_alive_seconds0–300.' },
@@ -20,6 +42,7 @@ export function integrationDefinitions(dir = process.cwd()) {
   const telemetry = resolve(root, '.timmy/venv-platform-telemetry/bin/python');
   const analytics = resolve(root, 'studio/platform-expansion-20260910/analytics/.venv/bin/python');
   return [
+    { id: 'camera-fit', name: 'OpenCV camera alignment', executable: visualPythonExecutable(root), script: cameraFitAdapterScript(), operations: ['probe', 'fit'], executionKind: 'local-geometry-fit' },
     { id: 'mcap', name: 'MCAP recordings', executable: telemetry, script: tool('telemetry'), operations: ['probe', 'export', 'fixture', 'replay'], executionKind: 'local-interchange' },
     { id: 'plotjuggler', name: 'PlotJuggler telemetry', executable: telemetry, script: tool('telemetry'), operations: ['probe', 'export', 'open'], executionKind: 'local-native-viewer' },
     { id: 'viser', name: 'Viser interactive 3D', executable: analytics, script: tool('analytics'), operations: ['probe', 'scene'], executionKind: 'local-3d-viewer' },
