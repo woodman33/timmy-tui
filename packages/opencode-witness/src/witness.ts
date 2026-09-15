@@ -283,8 +283,6 @@ export function createWitness(deps: WitnessDeps = {}): WitnessHooks {
         );
         return;
       }
-      pending.delete(input.callID); // single-use: a replayed after-hook arrives as an orphan
-
       const text = String(output.output ?? '');
       const afterArgs = argsHash(input.args);
       const managed = resolveManagedOutput(output.metadata, text, deps);
@@ -316,6 +314,7 @@ export function createWitness(deps: WitnessDeps = {}): WitnessHooks {
         sessionID: intent.sessionID,
         callID: input.callID,
       });
+      pending.delete(input.callID); // single-use only after the result seal lands
     },
 
     'shell.env': async (input, output) => {

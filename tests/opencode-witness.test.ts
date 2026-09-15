@@ -471,6 +471,34 @@ describe('witness-o7c2 C1 · a result must present its matching intent', () => {
     expect(denialReason(sealed)).toBe('orphan_result');
   });
 
+  it('keeps an intent retryable when managed output resolution fails before the result seal', async () => {
+    let reads = 0;
+    const payload = 'managed payload';
+    const { sealed, need } = await load(IN_ORDER, 'fake', {
+      exists: () => true,
+      readFile: () => {
+        reads += 1;
+        if (reads === 1) throw new Error('EACCES');
+        return payload;
+      },
+      sizeOf: () => payload.length,
+    });
+    const b = callBefore('run_shell_command', { command: 'make' }, 'call_mof_retry');
+    await need('tool.execute.before')(b.input as never, b.output as never);
+    const a = callAfter(
+      'run_shell_command',
+      { command: 'make' },
+      'out',
+      { managedOutputFile: '/tmp/safe.output' },
+      'call_mof_retry'
+    );
+    await expect(need('tool.execute.after')(a.input as never, a.output as never)).rejects.toThrow('EACCES');
+    expect(results(sealed)).toHaveLength(0);
+    await need('tool.execute.after')(a.input as never, a.output as never);
+    expect(results(sealed)).toHaveLength(1);
+    expect(denialReason(sealed)).not.toBe('orphan_result');
+  });
+
   it('binds the intent linkage and flags argument drift instead of silently rebinding', async () => {
     const { sealed, need } = await load(IN_ORDER, 'fake');
     const b = callBefore('edit', { file_path: 'a.ts', old: 'x', new: 'y' }, 'call_d');
