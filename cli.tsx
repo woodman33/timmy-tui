@@ -7,6 +7,7 @@ import './src/utils/blank-slate-guard.js'; // blank-slate-v1k9: must stay the FI
 import './src/utils/logger.js';
 import { program } from 'commander';
 import chalk from 'chalk';
+import { colors } from './src/tui/theme.js';
 import React from 'react';
 import { render, Box, Text } from 'ink';
 import { loadConfig } from './src/utils/config.js';
@@ -122,25 +123,25 @@ if (opts.headless) {
 
   agent.on('stream:delta', (delta: string) => process.stdout.write(delta));
   agent.on('tool:call', (name: string, args: unknown) => {
-    process.stderr.write(chalk.yellow(`\n⚙ ${name}\n`));
+    process.stderr.write(colors.warn(`\n⚙ ${name}\n`));
   });
   agent.on('tool:result', (name: string) => {
-    process.stderr.write(chalk.green(`✓ ${name}\n`));
+    process.stderr.write(colors.primary(`✓ ${name}\n`));
   });
   agent.on('stream:end', () => process.stdout.write('\n'));
   agent.on('error', (err: Error) => {
-    process.stderr.write(chalk.red(`\nError: ${err.message}\n`));
+    process.stderr.write(colors.refuse(`\nError: ${err.message}\n`));
   });
 
   const readline = await import('readline');
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
 
-  console.error(chalk.bold.cyan('OpenRouter TUI') + chalk.dim(' (headless mode)'));
+  console.error(chalk.bold('OpenRouter TUI') + chalk.dim(' (headless mode)'));
   console.error(chalk.dim(`Model: ${agentConfig.model}`));
   console.error(chalk.dim('Type a message or "exit" to quit.\n'));
 
   const prompt = () => {
-    rl.question(chalk.green('> '), async (input: string) => {
+    rl.question(colors.primary('> '), async (input: string) => {
       if (!input.trim()) { prompt(); return; }
       if (input.trim().toLowerCase() === 'exit') { process.exit(0); }
       try {

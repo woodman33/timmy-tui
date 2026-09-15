@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Box } from 'ink';
 import { describe, it, expect, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import { ReceiptOpenContext } from '../src/tui/components/ReceiptDetail.js';
@@ -42,13 +43,20 @@ describe('C1 — receipt chain color semantics (ui.audit 3f6b191b6)', () => {
 
 describe('C2 — select + Enter opens receipt detail (ui.audit 3f6b191b6)', () => {
   it('Enter on a chain row opens detail showing hash and prev → this; Esc returns', async () => {
+    // ui-cockpit-k7m3 C5: the detail card is an absolute overlay; ink sizes the
+    // test frame from the flowed content, so on a clean checkout (no escrow
+    // files → a short ESCROW LEDGER) the overlay's last rows fell outside the
+    // frame and the prev → this line was never captured. The harness root now
+    // declares the 100×24 viewport the view is given, as the shell does live.
     function Harness() {
       const [h, setH] = useState<string | null>(null);
       return (
-        <ReceiptOpenContext.Provider value={(x: string) => setH(x)}>
-          <EscrowReceiptsView paneFocus={1} width={100} height={24} />
-          {h && <ReceiptDetail hash={h} />}
-        </ReceiptOpenContext.Provider>
+        <Box width={100} height={24} flexDirection="column">
+          <ReceiptOpenContext.Provider value={(x: string) => setH(x)}>
+            <EscrowReceiptsView paneFocus={1} width={100} height={24} />
+            {h && <ReceiptDetail hash={h} />}
+          </ReceiptOpenContext.Provider>
+        </Box>
       );
     }
     const { lastFrame, stdin } = render(<Harness />);

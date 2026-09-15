@@ -62,7 +62,7 @@ describe('HOME journey ladder (spec §00/§03)', { timeout: 60000 }, () => {
     view.unmount();
   });
 
-  it('FIX C: pending escrow is the one orange; journey next dims', async () => {
+  it('FIX C: pending escrow is the one bold; journey next dims', async () => {
     const armed = armEscrow({ plan_hash: 'sha256_deadbeef', ceiling_usd: 2, qa_threshold: 0.5 });
     expect(armed.ok).toBe(true);
     const view = render(React.createElement(ShellV2, { width: 120 }));

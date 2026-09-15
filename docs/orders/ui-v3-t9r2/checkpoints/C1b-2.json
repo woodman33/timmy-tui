@@ -1,0 +1,161 @@
+{
+  "order": "ui-v3-t9r2",
+  "checkpoint": "C1b-2",
+  "title": "evidence states on every carrier — the law's five states as one model, one mark, one verify fact, wired into the v2 shell",
+  "branch": "order/ui-v3-t9r2",
+  "base": "2f5399d (C1b-1)",
+  "clock": {
+    "budget_minutes": 15,
+    "started": "2026-09-14T09:29:07Z",
+    "code_and_fast_gates_green": "2026-09-14T09:36:00Z",
+    "captured": "2026-09-14T09:40:00Z",
+    "review_returned": "2026-09-14T09:45:30Z",
+    "fixes_recaptured_full_suite_green": "2026-09-14T10:00:00Z",
+    "sealed": "2026-09-14T10:02:44Z",
+    "overrun": "35 minutes against 15 — the adversarial review round (14 findings, 9 major) and the re-wiring of checked at five sites it required; recorded per §16"
+  },
+  "model": {
+    "states": [
+      "declared",
+      "constructed",
+      "checked",
+      "inferred",
+      "stale"
+    ],
+    "marks": {
+      "declared": "○ white",
+      "constructed": "● white",
+      "checked": "✓ seal bold",
+      "inferred": "◉ generated",
+      "stale": "◌ predict dim"
+    },
+    "refusal": "× refuse — the accent, not an evidence state",
+    "non_carrier": "· grey-3",
+    "two_levels": "a receipt is constructed once sealed and checked only when a receipted verify covers it (index ≤ the named head); a claim backed by a receipt (journey step done, run sealed) is checked by that receipt",
+    "precedence": "refused > stale > inferred > checked > constructed > declared",
+    "reservation": "circle set reserved for evidence; card diamonds ◇/◆ chrome; connectivity ■/□ (LIVE); attention ▶; progress ▮▯; contract test proves disjoint",
+    "mappings": {
+      "receiptEvidence": "refused on failed/denied/refused; staleInputs → stale; measured:false → inferred; ok + covered → checked; ok → constructed; else declared",
+      "runEvidence": "sealed → checked (claim); running → constructed; queued → declared; REFUSED → refused"
+    }
+  },
+  "verify_fact": "the last verify receipt names the head it covered (chain.verify · ok · head <h8>); covered(r) ⇔ index(r) ≤ index(head); chain state × broken · ● built (boot hash-walk) · ✓ checked · ◌ stale (k appended since) — header, footer, VERIFY strip and rows read the same state",
+  "carriers": [
+    "CHAIN rows (per-receipt coverage; status cell keeps its evidence colour under selection)",
+    "DETAIL prev_hash → hash line",
+    "RUN rows (✓ sealed claim · ● running · ○ queued · × REFUSED; lane 13)",
+    "journey (✓ done claims · ▶ next · ○ later white)",
+    "LATEST PROOF (● until covered, ✓ after)",
+    "HANDS last seal (○ board string · ● receipt · ✓ covered · · none)",
+    "ACTIVITY rows (× ● ·)",
+    "LOG RAIN rows (× ● ·)",
+    "LIVE tail (mark; DEN/FAIL words on refusals; 38-col budget)",
+    "SWARM run (● ok · × failed; never seal)",
+    "ENGINE ROOM (✓ measured up · ○ declared down)",
+    "escrow plan hash (○)",
+    "chat turn hash (● · ✓)",
+    "MODELS FIT (◉ inferred)",
+    "StatusGlyph (queued ○ white · ready ■ · created/missing/idle ·)",
+    "Pill warn = declared white; PanelFrame queued → warn",
+    "GensPanel done → completed",
+    "v1 layout live marks ■"
+  ],
+  "files": [
+    "src/tui/evidence.ts",
+    "src/tui/ui/Evidence.tsx",
+    "tests/evidence.test.ts",
+    "src/tui/components/ShellV2.tsx",
+    "src/tui/components/ShellChrome.tsx",
+    "src/tui/ui/Card.tsx",
+    "src/tui/ui/HashChip.tsx",
+    "src/tui/ui/Pill.tsx",
+    "src/tui/components/PanelFrame.tsx",
+    "src/tui/components/StatusGlyph.ts",
+    "src/tui/theme.ts",
+    "src/tui/panels/GensPanel.tsx",
+    "src/tui/layout.tsx",
+    "tests/chain-pane.test.tsx",
+    "tests/runs-selectors.test.ts",
+    "tests/cutover.test.tsx",
+    "docs/orders/ui-v3-t9r2/C1b-2.md",
+    "docs/orders/ui-v3-t9r2/checkpoints/C1b-2.json"
+  ],
+  "gates": {
+    "tsc": "exit 0",
+    "tsgo": "exit 0",
+    "evidence": "11/11 (2 §12 controls, glyph reservation)",
+    "fast_render_tests": "14 files / 102 tests green",
+    "vitest_full": "94 files / 531 tests passed, 5 files / 15 tests skipped",
+    "keyboard_contract": "no live gate (roster FAIL row, unchanged)",
+    "privacy_changed_files": "0 new at any severity (one pre-existing review-severity term at tests/cutover.test.tsx:18, not introduced here)"
+  },
+  "captures": {
+    "marker": "c1b2r-2f5399d",
+    "manifest_sha256_12": "f64c5c8ab866",
+    "shots": 40,
+    "ansi_copies": 40,
+    "exceed_grid": 0,
+    "privacy_findings": 0,
+    "privacy_files_scanned": 81,
+    "operator_set": "scratch copy of the chain; the pinned store untouched",
+    "fresh_home_120_colours": [
+      "white",
+      "grey-3",
+      "grey-2",
+      "seal (journey ✓ receipt claim only)"
+    ],
+    "chain_frames_seal_green": 0,
+    "superseded_marker": "c1b2-2f5399d (first cut, before the review)"
+  },
+  "review": {
+    "workflow": "wf_fc22653e-0dc",
+    "lenses": [
+      "law compliance + completeness (rendered ShellV2 before/after a real [v])",
+      "visible regressions by ANSI capture at 120x40 and 80x24"
+    ],
+    "findings": 14,
+    "major": 9,
+    "must_fix_applied": [
+      "per-receipt checked from the head the verify names (session flag retired); test: append after [v] → ●OK, covered rows ✓OK, strip ◌",
+      "one chain state for header, footer, strip",
+      "DETAIL hash line follows the receipt's state",
+      "LATEST PROOF and HANDS last seal from coverage; a board string is declared",
+      "stale reachable (strip/header/footer), inferred reachable (MODELS FIT)",
+      "declared painted white via one projection (evColor); inline colour ternaries removed",
+      "evidence glyphs reserved (○ ● ✓ ◉ ◌); connectivity ■/□; contract test",
+      "GensPanel done → completed",
+      "lane 13 in RUN rows",
+      "selection keeps the ×/✓ accent",
+      "ACTIVITY, LOG RAIN, LIVE, SWARM, ENGINE ROOM, escrow, chat marked",
+      "stale dim derived from the law's opacity in the gate"
+    ],
+    "decided_not_as_proposed": [
+      "RUN ✓ sealed and journey ✓ stay checked as claims verified against a receipt (two-level rule in evidence.ts); operator may overturn at HOLD"
+    ],
+    "recorded_not_fixed": [
+      "v1 surfaces: ✓/× generic success in SetupPanel/FilesPanel/CodeReviewPanel logs; HashChip callers pass sealed for any last receipt; LogRelay [SHA-256 SEALED] and Conversation ● sealed for any receipt event; Conversation thinking spinner ●/○; EscrowReceiptsView icon ● — C2 keep-or-retire",
+      "HashChip unverified branch has no caller",
+      "receipts carry no measured field: inferred on a receipt has no caller",
+      "pre-existing jams: CHAIN subject 42 + lock 14 no separator; RUN dur.padEnd(7)"
+    ],
+    "process_note": "a dry run of the C1c patch script applied its edits to the tree for about two minutes during the review; reversed pair by pair before any gate; the review's frames predate it"
+  },
+  "seals": {
+    "checkpoint": {
+      "subject": "ui.v3.c1b2",
+      "id": "rc_mu12qzdo_evqw",
+      "hash": "sha256_bb4cdc8bc81529e578741ae20da28b80fd3282d87127709f49448236fdea4b3a",
+      "prev_hash": "sha256_8a26cd3a7d4bfccfcd4c4a7e4f0e959fdc93b9637e5a9828fc94a5587195dd31 (ui.v3.c1b1)",
+      "cites": "rc_mu11hsuy_8mts (ui.v3.c1b1)",
+      "artifacts": [
+        "src/tui/evidence.ts",
+        "src/tui/ui/Evidence.tsx",
+        "tests/evidence.test.ts",
+        "docs/orders/ui-v3-t9r2/C1b-2.md"
+      ],
+      "ts": "2026-09-14T10:02:44.508Z",
+      "store": "the pinned root store (.timmy/receipts/runs.jsonl)"
+    }
+  },
+  "status": "HOLD"
+}

@@ -94,7 +94,7 @@ export const LogRain = memo(function LogRain({ height, focused }: LogRainProps) 
         <EmptyState line="quiet — events rain here as they happen" action="run anything" />
       ) : (
         visible.map((ev, i) => (
-          <Text key={`${offset}-${i}`} color={i > 9 ? theme.textMuted : theme.textSecondary} wrap="truncate">
+          <Text key={`${offset}-${i}`} dimColor={i > 9} color={i > 9 ? theme.textMuted : theme.textSecondary} wrap="truncate">
             {relTime(ev.ts)} {ev.text.length > 56 ? ev.text.slice(0, 53) + '…' : ev.text}
           </Text>
         ))

@@ -1,0 +1,203 @@
+{
+  "order": "ui-v3-t9r2",
+  "checkpoint": "C1c",
+  "title": "the label/row pairs restored by weight and dimness — never a fourth grey (eleven sites, as C1a named them)",
+  "branch": "order/ui-v3-t9r2",
+  "base": "d05b62a (C1b-2)",
+  "clock": {
+    "budget_minutes": 15,
+    "started": "2026-09-14T10:03:59Z",
+    "code_and_types_green": "2026-09-14T10:05:00Z",
+    "captured": "2026-09-14T10:09:00Z",
+    "review_returned": "2026-09-14T10:20:00Z",
+    "sealed": "2026-09-14T10:23:55Z",
+    "overrun": "20 minutes against 15 (C1c.md, written before the seal, says 21) — the single-lens review round and its three must-fix items; recorded per §16 (text cited via the doctrine.update seals)",
+    "fixes_recaptured_full_suite_green": "2026-09-14T10:23:02Z"
+  },
+  "pairs": [
+    {
+      "n": 1,
+      "site": "src/tui/ui/Card.tsx",
+      "pair": "purpose vs overflow",
+      "now": "overflow dim"
+    },
+    {
+      "n": 2,
+      "site": "src/tui/ui/KeyHint.tsx",
+      "pair": "[key] vs label",
+      "now": "key bold white; label grey-3"
+    },
+    {
+      "n": 3,
+      "site": "ShellV2 CHAIN row",
+      "pair": "hash+subject vs env-lock",
+      "now": "env-lock dim except on the selected row and a refused row; ChainPane inline overflow dim like Card's"
+    },
+    {
+      "n": 4,
+      "site": "ShellV2 HOME ACTIVITY",
+      "pair": "sealed vs unsealed rows",
+      "now": "unsealed text dim; mark stays"
+    },
+    {
+      "n": 5,
+      "site": "ShellV2 HOME journey done row",
+      "pair": "hash vs fact",
+      "now": "fact dim"
+    },
+    {
+      "n": 6,
+      "site": "src/tui/panels/LogRain.tsx",
+      "pair": "fresh vs aged rows",
+      "now": "rows past 9 dim"
+    },
+    {
+      "n": 7,
+      "site": "src/tui/panels/DispatchRail.tsx",
+      "pair": "label/value rows vs status message",
+      "now": "idle hint dim; rejected/denied/refused messages REFUSE red, plain"
+    },
+    {
+      "n": 8,
+      "site": "src/tui/Onboarding.tsx",
+      "pair": "wordmark ramp",
+      "now": "bold·bold·plain·plain·dim over white,white,white,grey-3,grey-3"
+    },
+    {
+      "n": 9,
+      "site": "ShellV2 MODELS role header",
+      "pair": "header vs rows",
+      "now": "bold (C1b-1); uppercase variant reverted — spec §06 pins role:"
+    },
+    {
+      "n": 10,
+      "site": "ShellV2 HANDS column header",
+      "pair": "header vs rows",
+      "now": "bold (C1b-1)"
+    },
+    {
+      "n": 11,
+      "site": "ShellV2 LOG RAIN (v2, CHAT tab)",
+      "pair": "fresh rows 0–2 vs aged rows",
+      "now": "rows from 3 dim on the text, refused rows never; mark span dims past 8 as before"
+    }
+  ],
+  "deferred": {
+    "grid_8col": "to C2 SHELL+NAV: the row plans size panes by character budget per tab (src/tui/utils/rows.ts, the C5 row solver); mapping them to the law's 8-column grid is pane geometry, decided with C2; the tokens carry the grid, nothing renders against it yet"
+  },
+  "files": [
+    "src/tui/ui/Card.tsx",
+    "src/tui/ui/KeyHint.tsx",
+    "src/tui/components/ShellV2.tsx",
+    "src/tui/panels/LogRain.tsx",
+    "src/tui/panels/DispatchRail.tsx",
+    "src/tui/Onboarding.tsx",
+    "src/tui/evidence.ts",
+    "DESIGN.md",
+    "docs/orders/ui-v3-t9r2/C1c.md",
+    "docs/orders/ui-v3-t9r2/checkpoints/C1c.json"
+  ],
+  "gates": {
+    "tsc": "exit 0",
+    "tsgo": "exit 0",
+    "fast_render_tests": "11 files / 72 tests green",
+    "vitest_full": "94 files / 531 tests passed, 5 files / 15 tests skipped",
+    "keyboard_contract": "no live gate (roster FAIL row, unchanged)",
+    "privacy_changed_files": "0 new (two pre-existing review-severity terms at DESIGN.md:43, not touched here)"
+  },
+  "captures": {
+    "marker": "c1c-d05b62a",
+    "manifest_sha256_12": "1bd3081e3035",
+    "shots": 40,
+    "ansi_copies": 40,
+    "exceed_grid": 0,
+    "privacy_findings": 0,
+    "privacy_files_scanned": 81,
+    "escapes": {
+      "bold_c1b2r": 202,
+      "bold_c1c": 202,
+      "dim_c1b2r": 0,
+      "dim_c1c": 99
+    },
+    "colour_set_vs_c1b2": "subset (eight sequences, none new)",
+    "text_vs_c1b2": "identical apart from receipt ids, hashes, stamps",
+    "operator_set": "scratch copy of the chain; the pinned store untouched",
+    "worktree_diff_sha256_12": "df383185dd96",
+    "colour_set_c1c": [
+      "white",
+      "grey-3",
+      "grey-2",
+      "seal",
+      "refuse",
+      "generated",
+      "bg grey-1",
+      "bg grey-2"
+    ]
+  },
+  "review": {
+    "lens": "escape-level regression by ANSI capture vs C1b-2 + the law, read-only (single agent)",
+    "findings": 11,
+    "major": 2,
+    "minor": 5,
+    "notes": 4,
+    "must_fix_applied": [
+      "dim ⇔ stale narrowed and stated in evidence.ts; no mark dimmed",
+      "eleventh pair (v2 LOG RAIN rows from 3) treated",
+      "report states which pairs the frames evidence (1, 3, 5, 9)"
+    ],
+    "minors_applied": [
+      "env-lock dim not on selected/refused rows",
+      "ChainPane overflow dim like Card's",
+      "DispatchRail refusal messages REFUSE red, plain",
+      "DESIGN.md §2.4 + §6 KeyHint row amended",
+      "terminal dependence of SGR 2 stated",
+      "worktree diff sha recorded beside the base commit"
+    ],
+    "recorded_not_fixed": [
+      "dim on grey-3 ≈ 2.2–3.1:1 (terminal's dial; gutters as fallback)",
+      "DOCTRINE §13/§15/§16 absent on the branch since C0 — SHIP cherry-picks 7dddc65 (operator decision 7); §16 clocks cite doctrine.update seals rc_mu0jrdfz_5ngp / rc_mu0jre2f_zrce / rc_mu0jreog_ixfw (present in the pinned chain)",
+      "scope narrowing vs C1a's wording declared (grid → C2; uppercase reverted by spec §06)"
+    ]
+  },
+  "seals": {
+    "checkpoint": {
+      "subject": "ui.v3.c1c",
+      "id": "rc_mu13i7t2_g14k",
+      "hash": "sha256_c2bb69d37cdac35080e7674f55067b6f4f86aa10aede19447362f76ce431d4f2",
+      "prev_hash": "sha256_bb4cdc8bc81529e578741ae20da28b80fd3282d87127709f49448236fdea4b3a (ui.v3.c1b2)",
+      "cites": "rc_mu12qzdo_evqw (ui.v3.c1b2)",
+      "artifacts": [
+        "docs/orders/ui-v3-t9r2/C1c.md",
+        "src/tui/ui/KeyHint.tsx",
+        "src/tui/ui/Card.tsx",
+        "src/tui/evidence.ts"
+      ],
+      "meta": {
+        "captures": "c1c-d05b62a",
+        "worktree_diff": "df383185dd96"
+      },
+      "ts": "2026-09-14T10:23:55.143Z",
+      "store": "the pinned root store (.timmy/receipts/runs.jsonl)"
+    }
+  },
+  "status": "HOLD",
+  "rule_narrowed": "among the evidence looks dim ⇔ the law's opacity < 1 (stale): a mark cell is dim only when stale; dim on a trailing non-evidence span (fact, env-lock, overflow, aged log row) is hierarchy, never a state; no mark is dimmed by C1c",
+  "frames_evidence": {
+    "evidenced": [
+      1,
+      3,
+      5,
+      9
+    ],
+    "by_code_and_tests": [
+      2,
+      4,
+      6,
+      7,
+      8,
+      10,
+      11
+    ],
+    "why": "KeyHint has no v2 consumer; no unsealed ACTIVITY row in the sets; LogRain.tsx/DispatchRail are v1 panels; Onboarding is mounted by app.tsx; the HANDS board is absent; LOG RAIN needs more events than the fresh set produces"
+  }
+}

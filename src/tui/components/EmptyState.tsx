@@ -9,7 +9,7 @@ export function EmptyState({ lines, extra }: { lines: string[]; extra?: string }
       {lines.map((l, i) => (
         <Text key={i} color={theme.textSecondary}>{l}</Text>
       ))}
-      {extra ? <Text color={theme.warn}>{extra}</Text> : null}
+      {extra ? <Text color={theme.textMuted}>{extra}</Text> : null}
     </Box>
   );
 }

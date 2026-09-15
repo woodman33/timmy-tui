@@ -115,7 +115,7 @@ export const KEYMAP_SHELL: Record<`${ShellMode}:${ShellTab}`, ShellKey[]> = {
   'INSERT:LIBRARY': [mod('Esc', 'leave insert'), nav('Tab', 'next pane')],
   'CHAT:HOME': [mod('Enter', 'send'), mod('Esc', 'leave chat'), nav('Tab', 'next pane')],
   'NORMAL:CHAT': [mod('Enter', 'send'), mod('Esc', 'back'), nav('Tab', 'next pane'), act('s', 'seal')],
-  'NORMAL:COMMAND': [nav('1-6', 'focus harness'), act('m', 'model'), act('M', 'harness model'), act('K', 'handoff'), act('X', 'kill'), act('t', 'toggle'), act('b', 'body'), act('f', 'fusion'), act('g', 'generate'), act('w', 'swarm'), act('l', 'launch'), act('H', 'harness'), nav('[ ]', 'preset'), nav('T S U J P', 'pickers')],
+  'NORMAL:COMMAND': [nav('1-6', 'focus harness'), act('m', 'model'), act('M', 'harness model'), act('K', 'handoff'), act('X', 'kill'), act('t', 'toggle'), act('b', 'body'), act('f', 'fusion'), act('g', 'generate'), act('w', 'swarm'), act('h', 'hands'), act('l', 'launch'), act('H', 'harness'), nav('[ ]', 'preset'), nav('T S U J P', 'pickers'), nav('arrows', 'hands cell'), nav('Enter', 'hands prompt')],
   'INSERT:CHAT': [mod('Esc', 'leave insert'), nav('Tab', 'next pane')],
   'INSERT:COMMAND': [mod('Esc', 'leave insert'), nav('Tab', 'next pane')],
   'CHAT:CHAT': [mod('Enter', 'send'), mod('Esc', 'leave chat')],
@@ -137,7 +137,7 @@ const FOOTER_ACTS: Record<ShellTab, string> = {
   CHAIN: '[v] verify  [o] open  [y] copy  [s] seal',
   LIBRARY: '[h] harness  [p] pin  [n] note  [f] files  [s] seal',
   CHAT: '[Esc] leave  [s] seal',
-  COMMAND: '[w] swarm [l] launch [X] kill [H] harness [m] model',
+  COMMAND: '[w] swarm [h] hands [l] launch [X] kill [H] harness [m] model',
 };
 export const footerHintsShellShort = (mode: ShellMode, tab: ShellTab): string =>
   mode === 'NORMAL'

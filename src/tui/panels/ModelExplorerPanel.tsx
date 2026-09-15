@@ -195,7 +195,7 @@ export function ModelExplorerPanel({ agent, setInspector, focusArea = 'stage' }:
       <Box flexDirection="row" flexWrap="wrap">
         {buttons.map((btn, idx) => {
           const isFocused = idx === activeBtnIdx;
-          const color = btn.key === 'run_proof' ? theme.warn : isFocused ? theme.accent : theme.textSecondary;
+          const color = isFocused ? theme.accent : theme.textSecondary;
           return (
             <Box key={btn.key} marginRight={2}>
               <Text bold={isFocused} color={color}>

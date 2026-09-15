@@ -13,6 +13,12 @@ import { readPolicy } from '../src/harness/policy.js';
 import { dirname, join } from 'path';
 
 process.env.TIMMY_TELEMETRY_URL = 'off';
+
+// ui-cockpit-k7m3 C5: rows are bounded now. This file checks content across the
+// WHOLE LIBRARY rail (every fleet id, every demo family), which only fit a frame
+// that overflowed the terminal; it pins a tall grid so the rail need not fold.
+// The reference grids (80x24 · 120x40) are covered by tests/bounded-rows.test.tsx.
+Object.defineProperty(process.stdout, 'rows', { value: 80, configurable: true });
 delete process.env.TIMMY_SHELL; // default = v2 after cutover
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function until(view: ReturnType<typeof render>, pred: (f: string) => boolean, ms = 30000): Promise<string> {
@@ -98,7 +104,7 @@ describe('cutover companions on the shell directly', { timeout: 60000 }, () => {
     for (const id of ['webcontainers', 'anythingllm', 'houdini-mcp', 'hyperframes']) {
       expect(f, `fleet id cut: ${id}`).toContain(id);
     }
-    expect(f.split('\n').filter(l => l.includes('●') || l.includes('○')).every(l => !l.includes('…'))).toBe(true);
+    expect(f.split('\n').filter(l => l.includes('■') || l.includes('□')).every(l => !l.includes('…'))).toBe(true);
     // FIX 1+3 (close): catalog-listed models carry ctx + $in/$out + caps, not dashes
     const qwen = f.split('\n').find(l => l.includes('qwen/qwen3-coder'));
     expect(qwen).toBeTruthy();

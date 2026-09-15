@@ -82,7 +82,9 @@ Deleted outright: `brand`/`brandDim` purple chrome, orange `accent`,
 | Meta | `textMuted` | timestamps, ids, chrome |
 | Proof | **bold + `seal`** | hashes, SEALED/VERIFIED — the only bold green |
 
-Rules: bold is rationed to Display + Proof. Italic only for reasoning text.
+Rules: bold is rationed to Display + Proof, plus the key of a key/label pair
+and a category header (C1c: under lanes/visual/tokens.json the two greys are
+one, so weight and dimness carry the hierarchy; §2.2's hexes are superseded). Italic only for reasoning text.
 Never uppercase body content. Hashes render truncated `abc123f8…` +
 full-on-focus.
 
@@ -196,7 +198,7 @@ Plain verbs, lowercase labels, sentence case content, zero emoji in chrome
 |---|---|
 | `<Card title glyph pill focused>` | the §3.2 anatomy; ONLY way to draw a border |
 | `<Pill kind>` | status pill, kind ∈ seal/warn/danger/accent/muted |
-| `<KeyHint keys label>` | `[g] approve` pair, secondary/muted coloring |
+| `<KeyHint keys label>` | `[g] approve` pair: the key bold white, the label grey-3 (C1c) |
 | `<SectionRule label>` | `── label ──` inner divider (replaces nested borders) |
 | `<Metric label value unit>` | label muted, value primary, tabular alignment |
 | `<HashChip hash sealed>` | truncated hash, bold seal green when sealed |

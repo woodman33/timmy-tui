@@ -6,8 +6,10 @@ import { join, dirname } from 'path';
 import { homedir } from 'os';
 import qr from 'qrcode-terminal';
 import { shellOnKey, initialShell, TABS, type ShellState } from '../shell-mode.js';
-import { ShellFooter, WhichKeyOverlay } from './ShellChrome.js';
+import { ShellFooter, WhichKeyOverlay, LIVE } from './ShellChrome.js';
 import { theme } from '../theme.js';
+import { receiptEvidence, runEvidence, evidenceLook, type EvidenceState } from '../evidence.js';
+import { evidenceGlyph } from '../ui/Evidence.js';
 import { readChain, verifyChain, appendReceipt, hashOf, type Receipt } from '../../utils/receipts.js';
 import { subscribe } from '../../bus/index.js';
 import { listLanes } from '../../utils/dispatch.js';
@@ -20,6 +22,8 @@ import { typedLines, runIdOf } from '../chain-views.js';
 import * as warroom from '../../harness/warroom.js';
 import * as w2 from '../../harness/warroom2.js';
 import * as un from '../../harness/uinext.js';
+import * as ck from '../../harness/cockpit.js';
+import { fitStackAdaptive, capRows, moreLine, foldedLine, wrapText, type StackSpec } from '../utils/rows.js';
 import { CommanderClient, edgeToken, type CommanderEvent } from '../../harness/commander.js';
 import { Card } from '../ui/Card.js';
 import { useAgent } from '../hooks/useAgent.js';
@@ -57,8 +61,17 @@ const DIM: typeof theme = {
   ...theme,
   seal: theme.textMuted, warn: theme.textMuted, danger: theme.textMuted,
   textPrimary: theme.textMuted, textSecondary: theme.textMuted,
+  // C1a: interaction is white now, so the CHAT underlay must dim it too —
+  // every non-ground token recedes to grey-3, focus borders to the line grey
+  accent: theme.textMuted, lineFocus: theme.line, structure: theme.textMuted,
+  refuse: theme.textMuted, predict: theme.textMuted, generated: theme.textMuted, sealDim: theme.textMuted,
 };
 let PAL: typeof theme = theme;
+
+// C1b-2: the state chooses the colour — this is the ONLY projection of an
+// evidence state onto a palette (PAL in the panes, theme in the header)
+const evColor = (ev: EvidenceState | 'refused', pal: typeof theme = PAL): string =>
+  ev === 'refused' ? pal.refuse : ev === 'checked' ? pal.seal : ev === 'inferred' ? pal.generated : ev === 'stale' ? pal.predict : pal.structure;
 // warroom-v2-c4m8 picker domains — the swarm schema's enums, in schema order
 const TOPOLOGIES = ['fanout', 'fusion', 'relay', 'coordinator', 'tournament', 'council', 'crew', 'closed'];
 const BUDGETS = [0, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 1];
@@ -111,6 +124,9 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   const pendingChat = useRef<Map<string, string>>(new Map());
   // warroom-v2-c4m8: SWARM sub-tab pickers + ENGINE ROOM / BULKHEADS / SKILLS
   const [swarmOn, setSwarmOn] = useState(false);
+  // ui-cockpit-k7m3: the HANDS board is private overlay data (.timmy/private/
+  // cockpit/board.json, mode 700). null on a fresh install → no HANDS sub-tab.
+  const [board, setBoard] = useState<ck.Board | null>(() => ck.loadBoard());
   const [swPick, setSwPick] = useState({ preset: 0, topology: 0, size: 0, budget: 0, judge: 0, policy: 0 });
   const [focusHarness, setFocusHarness] = useState('jcode');
   const [war2, setWar2] = useState<{ presets: w2.SwarmPreset[]; runs: w2.SwarmRun[]; nodes: w2.NodeStat[]; sbx: w2.SbxRun[]; ports: Record<string, string>; abilities: w2.AbilityRow[]; projects: w2.ProjectRow[] }>({ presets: [], runs: [], nodes: [], sbx: [], ports: {}, abilities: [], projects: [] });
@@ -138,10 +154,14 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
         setRecs(all);
         setHead(String(all[all.length - 1]?.hash ?? ''));
         setEscrows(listEscrows());
-        // a verify receipt whose head matches the current head is a real verify
+        // C1b-2: the one verify fact — the last verify receipt names the head it
+        // covered; receipts up to that head are checked, later ones constructed,
+        // and the strip goes stale once anything follows the verify
         const lv = [...all].reverse().find(r => r.kind === 'verify');
-        if (lv && String(lv.subject).includes(String(all[all.length - 1]?.hash ?? '').slice(7, 15))) {
-          setVerified({ ok: lv.status !== 'failed', count: v.count, epochs: v.segments.length, head: String(all[all.length - 1]?.hash ?? '').slice(7, 15), at: String(lv.ts), via: String(lv.id) });
+        const named = lv ? /head ([0-9a-f]{8})/.exec(String(lv.subject))?.[1] : undefined;
+        const coveredIdx = named ? all.findIndex(r => String(r.hash).slice(7, 15) === named) : -1;
+        if (lv && named && coveredIdx >= 0) {
+          setVerified({ ok: lv.status !== 'failed', count: coveredIdx + 1, epochs: v.segments.length, head: named, at: String(lv.ts), via: String(lv.id) });
         }
       } catch { /* none yet */ }
     };
@@ -226,7 +246,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
     return () => { h.stop(); clearInterval(poll); cc.close(); ccRef.current = null; };
   }, []);
 
-  // docker is a capability, not a danger: off renders dim ○, never red
+  // docker is a capability, not a danger: off renders dim □, never red
   useEffect(() => {
     const r = spawnSync('docker', ['info', '--format', 'ok'], { timeout: 2500, stdio: 'ignore' });
     setDocker(r.status === 0);
@@ -245,7 +265,15 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   }, []);
 
   useInput((input, key) => {
-    const k = key.return ? 'Enter' : key.escape ? 'Esc' : key.tab ? 'Tab' : input;
+    // Arrow events navigate HANDS; they are never printable text in a buffer.
+    const state = sRef.current;
+    const arrow = key.upArrow || key.downArrow || key.leftArrow || key.rightArrow;
+    if (arrow && (state.mode === 'INSERT' || state.mode === 'CHAT' || state.overlay === 'refuse' || state.overlay === 'note')) return;
+    // ui-cockpit-k7m3: arrows reach the reducer as names so the HANDS grid
+    // cursor can use them; everything else keeps its raw input char
+    const k = key.return ? 'Enter' : key.escape ? 'Esc' : key.tab ? 'Tab'
+      : key.upArrow ? 'up' : key.downArrow ? 'down' : key.leftArrow ? 'left' : key.rightArrow ? 'right'
+        : input;
     // CHAT Enter ships the buffer: capture before the reducer clears it
     const chatText = sRef.current.mode === 'CHAT' ? sRef.current.input : '';
     // a ref advanced synchronously: pasted/programmatic chunks can arrive in
@@ -299,6 +327,13 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
       // launch composes a spec and hands it to lanes/swarm/swarm.mjs, [X]
       // kills the whole swarm through the governor's kill file
       if (a === 'swarm-toggle') setSwarmOn(v => !v);
+      // ui-cockpit-k7m3: HANDS sub-tab — re-read the private board on toggle;
+      // without one, [h] points at the import verb instead of rendering
+      if (a === 'hands-toggle') {
+        const b = ck.loadBoard();
+        setBoard(b);
+        if (!b) setFlash('no cockpit board — timmy cockpit board import <ROUNDS.md>');
+      }
       if (a === 'sw-preset-next' || a === 'sw-preset-prev') {
         setSwPick(p => {
           const n = war2.presets.length || 1;
@@ -472,6 +507,11 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   // 80x24 also starves VERTICALLY (wrapped chrome eats rows): compact mode
   // drops the card purpose lines so the ladder never clips.
   const compact = (process.stdout.rows ?? 32) <= 26;
+  // ui-cockpit-k7m3 C5 POLISH — bounded rows everywhere: the body's row budget
+  // (terminal rows minus header 2 · flash 1 · footer 1) is split across each
+  // column's cards by the solver (src/tui/utils/rows.ts); every list renders at
+  // most its cap and SAYS what it hides. P = purpose row · G = gap row.
+  const bodyRows = Math.max(10, (process.stdout.rows ?? 32) - 4);
   // BOOT: lane probes are cold spawnSync execs — never in the first render path
   const [lanes, setLanes] = useState<{ id: string; label: string; available: boolean; install?: string; model?: string }[]>([]);
   useEffect(() => { setLanes(listLanes()); }, []);
@@ -490,6 +530,13 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   const last = recs[recs.length - 1] ?? null;
   const pendingEscrows = escrows.filter(e => e.state === 'armed');
   const allClear = journeyDoneCount(recs) === 7 && pendingEscrows.length === 0 && chain.ok && busLive;
+  // C1b-2: per-receipt coverage from the one verify fact — a receipt is checked
+  // iff a receipted verify names a head at or after it; the chain's own state is
+  // × broken · ● built · ✓ checked · ◌ stale (receipts appended since the verify)
+  const coveredIdx = verified ? recs.findIndex(r => String(r.hash).slice(7, 15) === verified.head) : -1;
+  const covered = (r: Receipt | null | undefined): boolean => Boolean(r) && verified?.ok === true && coveredIdx >= 0 && recs.indexOf(r as Receipt) <= coveredIdx;
+  const sinceVerify = coveredIdx < 0 ? 0 : Math.max(0, recs.length - 1 - coveredIdx - (recs[coveredIdx + 1]?.kind === 'verify' ? 1 : 0));
+  const chainEv: EvidenceState | 'refused' = !chain.ok ? 'refused' : !verified || coveredIdx < 0 ? 'constructed' : !verified.ok ? 'refused' : sinceVerify > 0 ? 'stale' : 'checked';
   // SPEC §04 + director FIX 1: LANES shows RUNS, not connectors. A run is a
   // dispatch sequence per lane (bus) or a receipt group (chain). Active runs
   // first, then the last 12 sealed/refused; idle connectors collapse to one
@@ -629,6 +676,72 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
     return recs.filter(r => String(r.ts).slice(0, 10) === day).reduce((n, r) => n + (r.cost_usd ?? 0), 0);
   }, [recs]);
 
+  // Use the same snapshot for both budgeting and rendering.
+  const unreal = un.unrealRow(recs);
+  const houdini = un.houdiniRow(recs);
+  const strict = un.modelStrictness();
+  const ollamaRows = modelRows(strict, war2.nodes);
+
+  // C5 POLISH — row plans per column (pure; recomputed each render)
+  const plans = (() => {
+    const runSel = runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))];
+    const liveRunning = runSel ? (runSel.state === 'running' || runSel.state === 'queued') : false;
+    const handSel = board ? board.hands[Math.min(s.handsRow, Math.max(0, board.hands.length - 1))] : undefined;
+    const promptOpen = Boolean(s.handsOn && board && s.handsPrompt && handSel);
+    const promptText = promptOpen && board && handSel ? board.prompts?.[handSel.name]?.[ck.ROUNDS[s.handsCol]] ?? '' : '';
+    const innerW = (narrow ? width : 74) - 4;
+    const promptRows = promptOpen ? (promptText ? wrapText(promptText, innerW).length : 1) : 0;
+    const handRows = board ? board.hands.reduce((n, h) => n + 2, 0) : 0;
+    // chrome yields before content: specs are built per compact flag and the
+    // adaptive fit keeps whichever configuration hides the fewest rows
+    const build = (cmp: boolean) => {
+    const chrome = 4 + (cmp ? 0 : 1);
+    // the tab's own card never folds (priority 6 beats ESCROW's 5)
+    const runsS = { id: 'RUNS', fixed: chrome + 1, items: Math.max(1, runRows.rows.length), min: 2, priority: 6 };
+    const dropsS = { id: 'DROPS', fixed: chrome, items: Math.max(1, Math.min(6, dropFeed.length)), min: 1, priority: 1 };
+    const liveS = { id: 'LIVE', fixed: chrome + (runSel && !liveRunning ? 1 : 0), items: !runSel ? 1 : liveRunning ? 2 : Math.min(8, runSel.group.length), min: 1, priority: 2 };
+    const escrowS = pendingEscrows[0] ? [{ id: 'ESCROW', fixed: chrome, items: 3, min: 3, priority: 5 }] : [];
+    // MODELS rows = models + the role headers of models in view (the pane keeps
+    // only headed roles), so the cap applies to rows; the tab's own card never folds
+    const modelsS = { id: 'MODELS', fixed: chrome + 1 + (selModel?.notes ? 1 : 0), items: Math.max(1, modelsView.length), min: 4, priority: 6 };
+    const boardsS = { id: 'BOARDS', fixed: chrome + 4, items: 0, min: 0, priority: 2 };
+    // FLEET is the rail's roster: it keeps ten rows (both ● and ○ lanes stay in
+    // view) before SKILLS and OLLAMA shrink around it
+    const fleetS = { id: 'FLEET', fixed: chrome, items: Math.max(1, lanes.length), min: Math.min(10, Math.max(1, lanes.length)), priority: 3 };
+    const ollamaS = { id: 'OLLAMA LOCAL/CLOUD', fixed: chrome, items: Math.max(1, ollamaRows.length), min: 1, priority: 2 };
+    const signalS = signalSt?.live ? [{ id: 'SIGNAL', fixed: chrome, items: 3, min: 1, priority: 3 }] : [];
+    const skillsS = { id: 'SKILLS', fixed: chrome, items: Math.max(1, war2.projects.reduce((n, pj) => n + 1 + Math.max(1, Math.min(4, pj.skills.length)), 0)), min: 2, priority: 2 };
+    // the commander pane is fixed, never covered — and never folded
+    const cmdS = { id: 'COMMANDER', fixed: chrome + 4, items: Math.min(8, cmdEvents.length), min: 0, priority: 6 };
+    const swarmS = swarmOn ? [{ id: 'SWARM', fixed: chrome + 1 + (war2.presets[swPick.preset] ? 3 : 0) + (war2.runs[0] ? 2 : 1) + 2, items: 0, min: 0, priority: 1 }] : [];
+    const handsS = s.handsOn && board ? [{ id: 'HANDS', fixed: chrome + 1 + (promptOpen ? 2 : 0), items: handRows + promptRows, min: 3, priority: 4 }] : [];
+    const harnessS = { id: 'HARNESS PANES', fixed: chrome + 3, items: Math.max(1, profile.harnesses.length), min: 3, priority: 3 };
+    const engineS = { id: 'ENGINE ROOM', fixed: chrome, items: Math.max(1, war2.nodes.length) + (unreal.present ? 2 : 0) + (houdini.present ? 2 : 0), min: 1, priority: 1 };
+    const bulkS = { id: 'BULKHEADS', fixed: chrome, items: Math.max(1, Math.min(5, (war2.runs[0]?.members ?? []).filter(m => m.sandbox && m.sandbox !== 'none').length + Math.min(4, war2.sbx.length))), min: 1, priority: 2 };
+    return { runsS, dropsS, liveS, escrowS, modelsS, boardsS, fleetS, ollamaS, signalS, skillsS, cmdS, swarmS, handsS, harnessS, engineS, bulkS };
+    };
+    const fit = (pick: (sp: ReturnType<typeof build>) => StackSpec[]) => fitStackAdaptive(cmp => pick(build(cmp)), bodyRows);
+    const chrome = 4 + (compact ? 0 : 1);
+    return {
+      run: narrow
+        ? { left: fit(sp => [sp.runsS, sp.dropsS, sp.liveS, ...sp.escrowS]), rail: fit(() => []) }
+        : { left: fit(sp => [sp.runsS, sp.dropsS]), rail: fit(sp => [...sp.signalS, sp.liveS, ...sp.escrowS]) },
+      library: narrow
+        ? { left: fit(sp => [sp.modelsS, sp.boardsS]), rail: fit(() => []) }
+        : { left: fit(sp => [sp.modelsS, sp.boardsS]), rail: fit(sp => [sp.fleetS, sp.ollamaS, sp.skillsS]) },
+      command: {
+        left: fit(sp => [sp.cmdS, ...sp.swarmS, ...sp.handsS]),
+        rail: fit(sp => [sp.harnessS, sp.engineS, sp.bulkS]),
+      },
+      innerW,
+      chainWindow: Math.max(4, bodyRows - 5),
+      chatTurns: Math.max(1, Math.floor((bodyRows - chrome - 1) / 3)),
+      rainRows: Math.max(1, bodyRows - chrome),
+      // HOME keeps its purpose lines in every mode (first-run HOME is untouched):
+      // LATEST RECEIPT 7 rows + gap 1 + ACTIVITY chrome 5
+      activityRows: Math.max(1, Math.min(10, bodyRows - 13)),
+    };
+  })();
   PAL = s.mode === 'CHAT' ? DIM : theme;
   return (
     // the root declares its width so frames lay out at the reference grid
@@ -642,8 +755,8 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
           // wraps, tabs collapse to digits + active label when width demands,
           // segments drop right-to-left. cmdr+spend live on COMMAND line 2.
           const headModel = String(model).split('/').pop() ?? '';
-          const chainSeg = `  chain ${chain.ok ? '✓' : '—'} ${chain.count}${head ? ` · ${head.slice(7, 15)}` : ''}`;
-          const busSeg = `  bus ${busLive ? '●' : '○'}`;
+          const chainSeg = `  chain ${evidenceGlyph(chainEv)} ${chain.count}${head ? ` · ${head.slice(7, 15)}` : ''}`;
+          const busSeg = `  bus ${busLive ? LIVE.on : LIVE.off}`;
           const dropsSeg = `  drops ${drops}`;
           // FIX C (director): 7/7 + no pending escrow + chain ✓ + bus ● ⇒ the
           // orange slot stays empty and says so, in dim mono.
@@ -663,10 +776,10 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
               <Text bold color={theme.textPrimary}>TIMMY</Text>
               <Text color={theme.textMuted}>  </Text>
               {tabs.map((t, i) => (
-                <Text key={TABS[i]} color={s.tab === TABS[i] ? theme.seal : theme.textMuted}>{t}</Text>
+                <Text key={TABS[i]} bold={s.tab === TABS[i]} color={s.tab === TABS[i] ? theme.textPrimary : theme.textMuted}>{t}</Text>
               ))}
               {segs.map((sg, i) => (
-                <Text key={i} color={i === 0 ? theme.seal : theme.textMuted}>{sg}</Text>
+                <Text key={i} color={i === 0 ? evColor(chainEv, theme) : theme.textMuted} bold={i === 0 && chainEv === 'checked'} dimColor={i === 0 && chainEv === 'stale'}>{sg}</Text>
               ))}
             </>
           );
@@ -689,47 +802,60 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
           {s.tab === 'RUN' && (
             <RunsPane
               rows={runRows.rows} idle={runRows.idle} selected={Math.min(s.selected, Math.max(0, runRows.rows.length - 1))}
-              feed={dropFeed} watched={Object.keys(SHIPPED_RULES)} compact={compact}
+              feed={dropFeed} watched={Object.keys(SHIPPED_RULES)} compact={plans.run.left.compact}
               liveCollapsed={!runRows.rows.some(r => r.state === 'running')}
+              maxRuns={plans.run.left.caps.RUNS} maxDrops={plans.run.left.caps.DROPS}
+              dropsFolded={plans.run.left.folded.includes('DROPS')} gap={plans.run.left.gap}
             />
           )}
           {narrow && s.tab === 'RUN' && (
             <>
-              <Box height={1} />
-              <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} compact={compact} />
-              {pendingEscrows[0] && <><Box height={1} /><EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} /></>}
+              <Box height={plans.run.left.gap} />
+              <Stack gap={plans.run.left.gap}>
+                {!plans.run.left.folded.includes('LIVE') && (
+                  <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} covered={covered} compact={plans.run.left.compact} maxTail={plans.run.left.caps.LIVE} />
+                )}
+                {pendingEscrows[0] && !plans.run.left.folded.includes('ESCROW') && <EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} compact={plans.run.left.compact} />}
+              </Stack>
             </>
           )}
-          {s.tab === 'CHAIN' && <ChainPane recs={recs} filtered={filtered} selected={Math.min(s.selected, Math.max(0, filtered.length - 1))} chain={chain} verified={verified} filter={s.filter} link={chainLink} />}
-          {s.tab === 'CHAT' && <ChatPane recs={recs} />}
+          {s.tab === 'RUN' && <FoldedNote folded={plans.run.left.folded} />}
+          {s.tab === 'CHAIN' && <ChainPane covered={covered} chainEv={chainEv} sinceVerify={sinceVerify} recs={recs} filtered={filtered} selected={Math.min(s.selected, Math.max(0, filtered.length - 1))} chain={chain} verified={verified} filter={s.filter} link={chainLink} window={plans.chainWindow} />}
+          {s.tab === 'CHAT' && <ChatPane recs={recs} covered={covered} maxTurns={plans.chatTurns} compact={compact} />}
           {s.tab === 'COMMAND' && (
             <>
-              <CommandPane profile={profile} online={commanderOnline} events={cmdEvents} spend={spend} handoff={handoff} />
-              {swarmOn && (
-                <>
-                  <Box height={1} />
-                  <SwarmPane presets={war2.presets} runs={war2.runs} pick={swPick} focus={focusHarness} />
-                </>
-              )}
+              <Stack gap={plans.command.left.gap}>
+                <CommandPane profile={profile} online={commanderOnline} events={cmdEvents} spend={spend} handoff={handoff} maxEvents={plans.command.left.caps.COMMANDER} compact={plans.command.left.compact} />
+                {swarmOn && !plans.command.left.folded.includes('SWARM') && (
+                  <SwarmPane presets={war2.presets} runs={war2.runs} pick={swPick} focus={focusHarness} compact={plans.command.left.compact} />
+                )}
+                {s.handsOn && board && !plans.command.left.folded.includes('HANDS') && (
+                  <HandsPane board={board} recs={recs} covered={covered} row={Math.min(s.handsRow, Math.max(0, board.hands.length - 1))} col={s.handsCol} showPrompt={s.handsPrompt} compact={plans.command.left.compact} maxRows={plans.command.left.caps.HANDS} innerWidth={plans.innerW} />
+                )}
+              </Stack>
+              <FoldedNote folded={plans.command.left.folded} />
             </>
           )}
           {s.tab === 'LIBRARY' && (
             <>
-              <ModelsPane view={modelsView} selected={Math.min(s.selected, Math.max(0, selectableModels.length - 1))} sel={selModel} filter={s.filter} compact={compact} fits={modelFits} />
-              {/* FIX 2: BOARDS + PROJECTS live under MODELS on the left */}
-              <Box height={1} />
-              <BoardsPane boards={boards} projects={projects} />
+              <Stack gap={plans.library.left.gap}>
+                <ModelsPane view={modelsView} selected={Math.min(s.selected, Math.max(0, selectableModels.length - 1))} sel={selModel} filter={s.filter} compact={plans.library.left.compact} fits={modelFits} maxRows={plans.library.left.caps.MODELS} />
+                {/* FIX 2: BOARDS + PROJECTS live under MODELS on the left */}
+                {!plans.library.left.folded.includes('BOARDS') && <BoardsPane boards={boards} projects={projects} compact={plans.library.left.compact} />}
+              </Stack>
+              <FoldedNote folded={plans.library.left.folded} />
             </>
           )}
         </Box>)}
         {assembled && !narrow && s.tab === 'CHAT' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            <LogRain events={activity} />
+            <LogRain events={activity} maxRows={plans.rainRows} compact={compact} />
           </Box>
         )}
         {assembled && !narrow && s.tab === 'COMMAND' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            <HarnessPanes profile={profile} panes={warPanes} lanes={lanes} recs={recs}
+            <Stack gap={plans.command.rail.gap}>
+            {!plans.command.rail.folded.includes('HARNESS PANES') && <HarnessPanes profile={profile} panes={warPanes} lanes={lanes} recs={recs} compact={plans.command.rail.compact} maxRows={plans.command.rail.caps['HARNESS PANES']}
               menu={{
                 harness: focusHarness,
                 sandbox: war2.abilities.find(x => x.harness === focusHarness)?.isolation ? 'isolated' : 'none',
@@ -740,11 +866,11 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
                 project: war2.projects[0]?.name ?? 'none',
                 drop: war2.projects[0]?.drop.length ?? 0,
                 model: String(profile.harnesses.find(x => x.id === focusHarness)?.model ?? profile.commander.model).split('/').pop() ?? '',
-              }} />
-            <Box height={1} />
-            <EnginePane nodes={war2.nodes} unreal={un.unrealRow(recs)} houdini={un.houdiniRow(recs)} />
-            <Box height={1} />
-            <BulkheadsPane sbx={war2.sbx} ports={war2.ports} runs={war2.runs} />
+              }} />}
+            {!plans.command.rail.folded.includes('ENGINE ROOM') && <EnginePane nodes={war2.nodes} unreal={unreal} houdini={houdini} compact={plans.command.rail.compact} maxRows={plans.command.rail.caps['ENGINE ROOM']} />}
+            {!plans.command.rail.folded.includes('BULKHEADS') && <BulkheadsPane sbx={war2.sbx} ports={war2.ports} runs={war2.runs} compact={plans.command.rail.compact} maxRows={plans.command.rail.caps.BULKHEADS} />}
+            </Stack>
+            <FoldedNote folded={plans.command.rail.folded} />
           </Box>
         )}
         {assembled && !narrow && s.tab === 'HOME' && (
@@ -752,7 +878,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
             <Card title="LATEST RECEIPT" purpose="historical record · inspect its checks">
               {last ? (
                 <>
-                  <Text color={theme.textSecondary}>{last.hash.slice(0, 15)}</Text>
+                  <Text bold={covered(last)} color={covered(last) ? theme.seal : theme.structure}>{covered(last) ? '✓' : '●'} {last.hash.slice(0, 15)}</Text>
                   <Text color={theme.textMuted} wrap="truncate">{last.subject} · {stamp(last.ts)} · {ago(last.ts)}</Text>
                 </>
               ) : (
@@ -764,8 +890,11 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
               {activity.length === 0 ? (
                 <Text color={theme.textMuted}>quiet so far</Text>
               ) : (
-                activity.slice(0, 10).map((row, i) => (
-                  <Text key={i} color={row.refused ? theme.danger : row.sealed ? theme.textSecondary : theme.textMuted} wrap="truncate">{row.line}</Text>
+                activity.slice(0, plans.activityRows).map((row, i) => (
+                  <Text key={i} wrap="truncate">
+                    <Text color={row.refused ? theme.refuse : row.sealed ? theme.structure : theme.textMuted}>{row.refused ? '× ' : row.sealed ? '● ' : '· '}</Text>
+                    <Text dimColor={!row.refused && !row.sealed} color={row.refused ? theme.danger : theme.textMuted}>{row.line}</Text>
+                  </Text>
                 ))
               )}
             </Card>
@@ -773,37 +902,43 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
         )}
         {assembled && !narrow && s.tab === 'CHAIN' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            <DetailPane rec={selectedRec} />
+            <DetailPane rec={selectedRec} covered={covered} />
           </Box>
         )}
         {assembled && !narrow && s.tab === 'LIBRARY' && (
           /* FIX 2: FLEET owns the full-height right rail */
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            <FleetPane lanes={lanes} policy={policy} />
-            <Box height={1} />
-            <OllamaPane strict={un.modelStrictness()} nodes={war2.nodes} />
-            <Box height={1} />
-            <SkillsTree projects={war2.projects} />
+            <Stack gap={plans.library.rail.gap}>
+              {!plans.library.rail.folded.includes('FLEET') && <FleetPane lanes={lanes} policy={policy} compact={plans.library.rail.compact} maxRows={plans.library.rail.caps.FLEET} />}
+              {!plans.library.rail.folded.includes('OLLAMA LOCAL/CLOUD') && <OllamaPane rows={ollamaRows} compact={plans.library.rail.compact} maxRows={plans.library.rail.caps['OLLAMA LOCAL/CLOUD']} />}
+              {!plans.library.rail.folded.includes('SKILLS') && <SkillsTree projects={war2.projects} compact={plans.library.rail.compact} maxRows={plans.library.rail.caps.SKILLS} />}
+            </Stack>
+            <FoldedNote folded={plans.library.rail.folded} />
           </Box>
         )}
         {assembled && !narrow && s.tab === 'RUN' && (
           <Box flexDirection="column" width={44} marginLeft={2} flexGrow={1} key={`R:${s.tab}`}>
-            {signalSt?.live ? <><SignalPane st={signalSt} /><Box height={1} /></> : null}
-            <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} compact={compact} />
-            {pendingEscrows[0] ? <><Box height={1} /><EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} /></> : null}
+            <Stack gap={plans.run.rail.gap}>
+              {signalSt?.live && !plans.run.rail.folded.includes('SIGNAL') && <SignalPane st={signalSt} compact={plans.run.rail.compact} maxRows={plans.run.rail.caps.SIGNAL} />}
+              {!plans.run.rail.folded.includes('LIVE') && (
+                <LivePane row={runRows.rows[Math.min(s.selected, Math.max(0, runRows.rows.length - 1))]} recs={recs} covered={covered} compact={plans.run.rail.compact} maxTail={plans.run.rail.caps.LIVE} />
+              )}
+              {pendingEscrows[0] && !plans.run.rail.folded.includes('ESCROW') && <EscrowPane escrow={pendingEscrows[0]} requester={escrowRequester} compact={plans.run.rail.compact} />}
+            </Stack>
+            <FoldedNote folded={plans.run.rail.folded} />
           </Box>
         )}
         {s.overlay === 'qr' && (
           <Box position="absolute" top={2} left={20} backgroundColor={theme.surfaceRaised} paddingX={1} flexDirection="column">
             <Text bold color={theme.textPrimary}>COMPANION PAIR</Text>
             <Text color={theme.textMuted}>{`http://localhost:${COMPANION_PORT()}`}</Text>
-            {qrText.split('\n').map((l, i) => <Text key={i} color={theme.seal}>{l}</Text>)}
+            {qrText.split('\n').map((l, i) => <Text key={i} color={theme.textPrimary}>{l}</Text>)}
             <Text color={theme.textMuted}>[Esc] close</Text>
           </Box>
         )}
         {s.overlay === 'sealconfirm' && (
           <Box position="absolute" top={2} left={20} backgroundColor={theme.surfaceRaised} paddingX={1} flexDirection="column">
-            <Text bold color={theme.warn}>SEAL — confirm</Text>
+            <Text bold color={theme.textPrimary}>SEAL — confirm</Text>
             <Text color={theme.textPrimary}>seal an owner note onto the chain?</Text>
             <Text color={theme.textMuted}>[Enter/s] seal  [Esc] cancel</Text>
           </Box>
@@ -811,8 +946,8 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
         {s.overlay === 'status' && (
           <Box position="absolute" top={1} left={6} width={width - 12} backgroundColor={PAL.surfaceRaised} paddingX={1} flexDirection="column">
             <Text bold color={PAL.textPrimary}>ORDERS STATUS — [Esc] close</Text>
-            {statusLines.slice(0, 24).map((l, i) => (
-              <Text key={i} color={l.startsWith('==') ? PAL.seal : l.includes('blocked') ? PAL.warn : PAL.textSecondary} wrap="truncate">{l}</Text>
+            {statusLines.slice(0, Math.max(3, bodyRows - 1)).map((l, i) => (
+              <Text key={i} bold={l.startsWith('==')} color={l.startsWith('==') ? PAL.textPrimary : l.includes('blocked') ? PAL.warn : PAL.textSecondary} wrap="truncate">{l}</Text>
             ))}
           </Box>
         )}
@@ -872,9 +1007,13 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
       </Box>
       {/* action feedback is global, not a HOME-only line: picker writes from
           LIBRARY/RUN must be visible where they happen */}
-      {flash ? <Text color={theme.seal} wrap="truncate">{flash}</Text> : null}
-      {s.overlay === 'whichkey' && <WhichKeyOverlay mode={s.mode} tab={s.tab} />}
-      {assembled && <ShellFooter mode={s.mode} tab={s.tab} chainOk={chain.ok} chainCount={chain.count} busLive={busLive} width={width} model={policy.default ?? undefined} />}
+      {flash ? <Text color={theme.textPrimary} wrap="truncate">{flash}</Text> : null}
+      {/* C5: the key sheet floats over the body (it used to flow below it and
+          push the footer past the last row at 80x24) */}
+      {s.overlay === 'whichkey' && (
+        <Box position="absolute" top={2} left={0}><WhichKeyOverlay mode={s.mode} tab={s.tab} width={width} /></Box>
+      )}
+      {assembled && <ShellFooter mode={s.mode} tab={s.tab} chainOk={chain.ok} chainEvidence={chainEv} chainCount={chain.count} busLive={busLive} width={width} model={policy.default ?? undefined} />}
     </Box>
   );
 }
@@ -894,23 +1033,27 @@ function HomePane(props: {
   const escrowOrange = props.pendingEscrows.length > 0;
   return (
     <Box flexDirection="column">
-      <Card title="YOUR JOURNEY" purpose={props.compact ? undefined : 'seven steps · the next unsealed step is the only orange'}>
+      <Card title="YOUR JOURNEY" purpose={props.compact ? undefined : 'seven steps · the next unsealed step is the only bold'}>
         {escrowOrange && (
-          <Text color={PAL.warn} wrap="truncate">
+          <Text bold color={PAL.warn} wrap="truncate">
             {`▶ escrow ${String(props.pendingEscrows[0].escrow_id).slice(0, 12)} · ceiling $${props.pendingEscrows[0].ceiling_usd} awaits lock`}
           </Text>
         )}
+        {/* C1b-2: a done step is a CLAIM checked by its receipt (✓); a later step is declared (○, white mark) */}
         {rows.map(r => (
           r.state === 'done' ? (
             <Text key={r.step.id} wrap="truncate">
-              <Text color={PAL.seal}>{`✓ ${r.step.verb.padEnd(10)}`}</Text>
+              <Text bold color={PAL.seal}>{`✓ ${r.step.verb.padEnd(10)}`}</Text>
               <Text color={PAL.textSecondary}>{r.hash.padEnd(12)}</Text>
-              <Text color={PAL.textMuted}> {r.fact}</Text>
+              <Text dimColor color={PAL.textMuted}> {r.fact}</Text>
             </Text>
           ) : r.state === 'next' && !escrowOrange ? (
-            <Text key={r.step.id} color={PAL.warn} wrap="truncate">{`▶ ${r.step.verb.padEnd(10)} ${r.fact}`}</Text>
+            <Text key={r.step.id} bold color={PAL.warn} wrap="truncate">{`▶ ${r.step.verb.padEnd(10)} ${r.fact}`}</Text>
           ) : (
-            <Text key={r.step.id} color={PAL.textMuted} wrap="truncate">{`  ${r.step.verb.padEnd(10)} ${r.fact}`}</Text>
+            <Text key={r.step.id} wrap="truncate">
+              <Text color={PAL.structure}>○ </Text>
+              <Text color={PAL.textMuted}>{`${r.step.verb.padEnd(10)} ${r.fact}`}</Text>
+            </Text>
           )
         ))}
         {done === rows.length && <Text color={PAL.seal}>journey complete · {done}/{rows.length} sealed</Text>}
@@ -918,9 +1061,9 @@ function HomePane(props: {
       <Box height={1} />
       <Card title="STATUS" purpose={props.compact ? undefined : 'one line · off is dim, never red'} flexGrow={1}>
         <Text wrap="truncate">
-          <Text color={PAL.textSecondary}>{`${props.fleet > 0 ? '●' : '○'} fleet · ${props.fleet} available`}</Text>
+          <Text color={PAL.textSecondary}>{`${props.fleet > 0 ? LIVE.on : LIVE.off} fleet · ${props.fleet} available`}</Text>
           <Text color={PAL.textMuted}>{`  bus ${props.busLive ? 'activity seen' : 'quiet'}`}</Text>
-          <Text color={PAL.textMuted}>{`  ${props.docker ? '●' : '○'} docker ${props.docker ? 'on' : 'off'}`}</Text>
+          <Text color={PAL.textMuted}>{`  ${props.docker ? LIVE.on : LIVE.off} docker ${props.docker ? 'on' : 'off'}`}</Text>
         </Text>
         <Text color={PAL.textMuted} wrap="truncate">
           {`recorded cost $${props.costToday.toFixed(2)} · model policy: ${props.model} · harness: ${props.harness}`}
@@ -936,45 +1079,57 @@ function HomePane(props: {
 // the VERIFY strip: the only place "chain ok" is asserted, glowing only after
 // a real verify. The fixed detail pane is the right rail (DetailPane).
 function ChainPane(props: {
+  covered: (r: Receipt) => boolean; chainEv: EvidenceState | 'refused'; sinceVerify: number;
   recs: Receipt[]; filtered: Receipt[]; selected: number; chain: { ok: boolean; count: number };
   verified: null | { ok: boolean; count: number; epochs: number; head: string; at: string; via: string };
   filter: string; link: string | null;
+  /** C5: rows the plan allows the list (≤ 20); the window always holds the selection */
+  window?: number;
 }) {
   const { filtered, selected } = props;
-  const start = Math.max(0, selected - 16);
-  const windowRows = filtered.slice(start, start + 20);
+  const win = Math.max(4, Math.min(20, props.window ?? 20));
+  const start = Math.min(Math.max(0, selected - (win - 4)), Math.max(0, filtered.length - win));
+  const windowRows = filtered.slice(start, start + win);
   const refusals = props.recs.filter(r => r.status === 'denied' || r.status === 'failed').length;
   return (
     <Box flexDirection="column">
-      <Text color={PAL.seal}>
+      <Text color={PAL.textPrimary}>
         {`RECEIPTS  ${props.link ? `⊗ ${props.link.slice(0, 18)} · [o] unlink · ${filtered.length}` : props.filter ? `/ ${props.filter} · ${filtered.length}/${props.recs.length}` : `${props.recs.length} · [/] filter`}`}
       </Text>
       {windowRows.map((r, i) => {
         const idx = start + i;
         const sel = idx === selected;
-        const st = r.status === 'ok' ? 'OK' : r.status === 'failed' || r.status === 'denied' ? 'FAIL' : '—';
-        const col = r.status === 'ok' ? PAL.seal : r.status === 'failed' || r.status === 'denied' ? PAL.danger : PAL.textMuted;
+        // C1b-2: the row carries ONE evidence state — checked (✓ seal) when a receipted verify
+        // covers this receipt, constructed (●) when ok but not yet covered, declared (○) otherwise;
+        // a refusal is the REFUSE accent (×), not an evidence state
+        const ev = receiptEvidence(r, { verified: props.covered(r) });
+        const st = `${evidenceGlyph(ev)}${r.status === 'ok' ? 'OK' : ev === 'refused' ? 'FAIL' : '—'}`;
+        const col = evColor(ev);
+        const look = ev === 'refused' ? null : evidenceLook(ev);
         // FIX 1 (director): column budget at 120x32 — status 4 · hash 8 ·
         // subject 43 (fills) · env-lock 14 = 72 of the 74-col column, leaving
         // gutter 2 before the DETAIL border (selection is white, no glyph).
         // FIX 3: hash prefix is exactly 8 chars everywhere.
-        const statusCell = st.padEnd(4);
+        const statusCell = st.padEnd(5);
         const hashCell = String(r.hash).slice(7, 15);
-        const subjectCell = String(r.subject).slice(0, 43).padEnd(43);
+        const subjectCell = String(r.subject).slice(0, 42).padEnd(42);
         const lockCell = (r.env_lock ? hashOf(r.env_lock as unknown as Record<string, unknown>).slice(7, 15) : '').padEnd(14);
         return (
           <Text key={r.id} wrap="truncate">
-            <Text color={sel ? PAL.textPrimary : col}>{statusCell}</Text>
+            <Text bold={look?.bold} dimColor={look?.dim} color={col}>{statusCell}</Text>
             <Text color={sel ? PAL.textPrimary : PAL.textSecondary}>{` ${hashCell} ${subjectCell}`}</Text>
-            <Text color={PAL.textMuted}>{lockCell}</Text>
+            <Text dimColor={!sel && ev !== 'refused'} color={PAL.textMuted}>{lockCell}</Text>
           </Text>
         );
       })}
+      {filtered.length > windowRows.length && (
+        <Text dimColor color={PAL.textMuted} wrap="truncate">{moreLine(filtered.length - windowRows.length, 'receipts', '↑↓ scroll')}</Text>
+      )}
       <Box height={1} />
       {props.verified ? (
         <>
-          <Text color={props.verified.ok ? PAL.seal : PAL.danger} wrap="truncate">
-            {`${props.verified.ok ? '✓' : '✕'} chain ${props.verified.ok ? 'ok' : 'BROKEN'} · ${props.verified.count} receipts · ${props.verified.epochs} epochs · head ${props.verified.head}`}
+          <Text bold={props.chainEv === 'checked'} dimColor={props.chainEv === 'stale'} color={evColor(props.chainEv)} wrap="truncate">
+            {`${evidenceGlyph(props.chainEv)} chain ${props.chainEv === 'refused' ? 'BROKEN' : 'ok'} · ${props.verified.count} receipts · ${props.verified.epochs} epochs · head ${props.verified.head}${props.chainEv === 'stale' ? ` · ${props.sinceVerify} appended since` : ''}`}
           </Text>
           <Text color={PAL.textMuted} wrap="truncate">
             {`refusals ${refusals} · verified ${stamp(props.verified.at)} via ${props.verified.via.slice(0, 12)}`}
@@ -989,7 +1144,7 @@ function ChainPane(props: {
 
 // SPEC §05 C2 — the detail pane is always visible; fixed fields in schema
 // order: prev_hash → hash, kind, policy, ts, via, sources/env_lock, actions.
-function DetailPane({ rec }: { rec: Receipt | null }) {
+function DetailPane({ rec, covered }: { rec: Receipt | null; covered: (r: Receipt) => boolean }) {
   if (!rec) {
     return (
       <Card title="DETAIL" purpose="fixed fields · schema names" flexGrow={1}>
@@ -998,9 +1153,12 @@ function DetailPane({ rec }: { rec: Receipt | null }) {
     );
   }
   const srcs = Array.isArray(rec.sources) ? rec.sources.length : 0;
+  // C1b-2: the hash line carries the receipt's own evidence state, the same one its row shows
+  const ev = receiptEvidence(rec, { verified: covered(rec) });
+  const look = ev === 'refused' ? null : evidenceLook(ev);
   return (
     <Card title="DETAIL" purpose="fixed fields · schema names" flexGrow={1}>
-      <Text color={PAL.seal} wrap="truncate">{`prev_hash ${prevLabel8(String(rec.prev_hash))} → hash ${rec.hash.slice(7, 15)}`}</Text>
+      <Text bold={look?.bold} dimColor={look?.dim} color={evColor(ev)} wrap="truncate">{`${evidenceGlyph(ev)} prev_hash ${prevLabel8(String(rec.prev_hash))} → hash ${rec.hash.slice(7, 15)}`}</Text>
       <Text color={PAL.textSecondary} wrap="truncate">kind     {rec.kind}</Text>
       <Text color={PAL.textSecondary} wrap="truncate">policy   {rec.policy}</Text>
       <Text color={PAL.textSecondary} wrap="truncate">ts       {stamp(rec.ts)}</Text>
@@ -1026,35 +1184,48 @@ interface RunRow { id: string; lane: string; state: 'running' | 'queued' | 'seal
 function RunsPane(props: {
   rows: RunRow[]; idle: number; selected: number; feed: { lane: string; file: string }[];
   watched: string[]; compact: boolean; liveCollapsed: boolean;
+  /** C5: row caps from the plan; DROPS folds into the idle line when the plan says so */
+  maxRuns?: number; maxDrops?: number; dropsFolded?: boolean; gap?: number;
 }) {
+  // a window of maxRuns rows that always holds the selection
+  const cap = Math.max(1, props.maxRuns ?? props.rows.length);
+  const start = Math.min(Math.max(0, props.selected - (cap - 1)), Math.max(0, props.rows.length - cap));
+  const shownRuns = props.rows.slice(start, start + cap);
+  const dropsShown = capRows(props.feed, Math.min(6, props.maxDrops ?? 6));
   return (
     <Box flexDirection="column">
-      <Card title="RUNS" purpose={props.compact ? undefined : 'running orange · queued dim · sealed phosphor · REFUSED red'}>
+      <Card title="RUNS" purpose={props.compact ? undefined : 'sealed ✓ · running ● · queued ○ · REFUSED ×'} overflow={moreLine(props.rows.length - shownRuns.length, 'runs', '↑↓ scroll')}>
         {props.rows.length === 0
           ? <Text color={PAL.textMuted}>no runs yet</Text>
-          : props.rows.map((r, i) => {
-            const sel = i === props.selected;
-            const col = r.state === 'running' ? PAL.warn : r.state === 'sealed' ? PAL.seal : r.state === 'REFUSED' ? PAL.danger : PAL.textMuted;
+          : shownRuns.map((r, i) => {
+            const sel = start + i === props.selected;
+            const ev = runEvidence(r.state);
+            const col = evColor(ev);
+            const look = ev === 'refused' ? null : evidenceLook(ev);
             const bar = r.state === 'running' ? ` ${'▮'.repeat(Math.min(4, r.ticks))}${'▯'.repeat(Math.max(0, 4 - Math.min(4, r.ticks)))}` : '';
             return (
               <Text key={r.id} wrap="truncate">
-                <Text color={sel ? PAL.textPrimary : col}>{`${sel ? '▶' : ' '} ${r.lane.slice(0, 14).padEnd(14)}`}</Text>
-                <Text color={col}>{r.state.padEnd(8)}</Text>
+                <Text color={sel ? PAL.textPrimary : col}>{`${sel ? '▶' : ' '} ${r.lane.slice(0, 13).padEnd(14)}`}</Text>
+                <Text bold={look?.bold} dimColor={look?.dim} color={col}>{`${evidenceGlyph(ev)} ${r.state}`.padEnd(10)}</Text>
                 <Text color={PAL.textMuted}>{r.dur.padEnd(7)}</Text>
                 <Text color={col}>{r.state === 'running' ? bar : r.hash}</Text>
               </Text>
             );
           })}
-        <Text color={PAL.textMuted}>{`${props.idle} idle · [n] new run`}</Text>
+        <Text color={PAL.textMuted} wrap="truncate">{`${props.idle} idle${props.dropsFolded ? ` · drops ${props.feed.length ? `${props.feed.length} waiting` : 'quiet'}` : ''} · [n] new run`}</Text>
       </Card>
-      <Box height={1} />
-      <Card title="DROPS" purpose={props.compact ? undefined : `watched: ${props.watched.join(' · ')}`} flexGrow={props.liveCollapsed ? 1 : undefined}>
-        {props.feed.length === 0
-          ? <Text color={PAL.textMuted}>drops quiet — nothing waiting in intake</Text>
-          : props.feed.slice(0, 6).map((f, i) => (
-            <Text key={i} color={PAL.textMuted} wrap="truncate">{`↓ drop/${f.lane}/${f.file} · intake pending`}</Text>
-          ))}
-      </Card>
+      {!props.dropsFolded && (
+        <>
+          <Box height={props.gap ?? 1} />
+          <Card title="DROPS" purpose={props.compact ? undefined : `watched: ${props.watched.join(' · ')}`} flexGrow={props.liveCollapsed ? 1 : undefined} overflow={moreLine(dropsShown.more, 'drops')}>
+            {props.feed.length === 0
+              ? <Text color={PAL.textMuted}>drops quiet — nothing waiting in intake</Text>
+              : dropsShown.shown.map((f, i) => (
+                <Text key={i} color={PAL.textMuted} wrap="truncate">{`↓ drop/${f.lane}/${f.file} · intake pending`}</Text>
+              ))}
+          </Card>
+        </>
+      )}
     </Box>
   );
 }
@@ -1062,7 +1233,7 @@ function RunsPane(props: {
 // FIX 3 — LIVE: a running run shows the ticking bar; a sealed/refused run
 // shows its sealed log tail (last 8 receipts) + env-lock; with nothing
 // selected it collapses to one line so DROPS can grow.
-function LivePane(props: { row: RunRow | undefined; recs: Receipt[]; compact: boolean }) {
+function LivePane(props: { row: RunRow | undefined; recs: Receipt[]; covered: (r: Receipt) => boolean; compact: boolean; maxTail?: number }) {
   const row = props.row;
   if (!row) {
     return (
@@ -1082,28 +1253,35 @@ function LivePane(props: { row: RunRow | undefined; recs: Receipt[]; compact: bo
       </Card>
     );
   }
-  const tail = row.group.slice(-8);
+  const tail = row.group.slice(-Math.max(1, Math.min(8, props.maxTail ?? 8)));
   const lockRec = [...row.group].reverse().find(r => r.env_lock);
   const tools = lockRec?.env_lock
     ? Object.entries(lockRec.env_lock.tools).slice(0, 2).map(([n, t]) => `${n} ${String(t.sha256).slice(0, 8)}`)
     : [];
   return (
-    <Card title={`LIVE · ${row.lane}`} purpose={props.compact ? undefined : 'sealed log tail + env-lock'} flexGrow={1}>
-      {tail.map((r, i) => (
-        <Text key={i} color={r.status === 'ok' ? PAL.textSecondary : PAL.danger} wrap="truncate">
-          {`${stamp(r.ts)} ${r.status === 'ok' ? 'ok ' : r.status === 'denied' ? 'DEN' : 'FAIL'} ${String(r.subject).slice(0, 30)}`}
-        </Text>
-      ))}
+    <Card title={`LIVE · ${row.lane}`} purpose={props.compact ? undefined : 'sealed log tail + env-lock'} flexGrow={1} overflow={moreLine(row.group.length - tail.length, 'earlier receipts')}>
+      {tail.map((r, i) => {
+        const ev = receiptEvidence(r, { verified: props.covered(r) });
+        const look = ev === 'refused' ? null : evidenceLook(ev);
+        return (
+          <Text key={i} wrap="truncate">
+            <Text bold={look?.bold} dimColor={look?.dim} color={evColor(ev)}>{evidenceGlyph(ev)}</Text>
+            <Text color={ev === 'refused' ? PAL.danger : PAL.textSecondary}>
+              {` ${stamp(r.ts)} ${ev === 'refused' ? `${r.status === 'denied' ? 'DEN' : 'FAIL'} ${String(r.subject).slice(0, 22)}` : String(r.subject).slice(0, 27)}`}
+            </Text>
+          </Text>
+        );
+      })}
       <Text color={PAL.textSecondary} wrap="truncate">{lockRec ? `env-lock ${tools.join(' · ')}` : 'env-lock —'}</Text>
     </Card>
   );
 }
 
-function EscrowPane({ escrow, requester }: { escrow: Escrow; requester: string }) {
+function EscrowPane({ escrow, requester, compact }: { escrow: Escrow; requester: string; compact?: boolean }) {
   return (
-    <Card title="ESCROW · NEEDS YOU" purpose="appears only when something needs you">
-        <Text color={PAL.warn} wrap="truncate">
-          {`▶ ${String(escrow.plan_hash).slice(7, 15)} · est $${(escrow.ceiling_usd - escrow.drawn_usd).toFixed(2)}`}
+    <Card title="ESCROW · NEEDS YOU" purpose={compact ? undefined : 'appears only when something needs you'}>
+        <Text bold color={PAL.warn} wrap="truncate">
+          {`▶ ○ ${String(escrow.plan_hash).slice(7, 15)} · est $${(escrow.ceiling_usd - escrow.drawn_usd).toFixed(2)}`}
         </Text>
         <Text color={PAL.textMuted} wrap="truncate">{`requested by: ${requester}`}</Text>
         <Text color={PAL.textMuted}>[a] approve  [r] refuse (reason)</Text>
@@ -1116,20 +1294,34 @@ function EscrowPane({ escrow, requester }: { escrow: Escrow; requester: string }
 function ModelsPane(props: {
   view: { role?: string; m?: ModelEntry }[]; selected: number; sel: ModelEntry | null;
   filter: string; compact: boolean; fits?: Map<string, { node: string; fit: string }>;
+  maxRows?: number;
 }) {
-  // windowed list: the catalog is hundreds of models; BOARDS must stay visible
-  const WIN = 16;
+  // windowed list: the catalog is hundreds of models; BOARDS must stay visible —
+  // C5: the window is the plan's cap (≤ 16) and the overflow line counts the rest
+  // C5: the cap counts ROWS — models plus the role headers of models in view
+  // (a role whose models are all out of the window is not drawn) — and the
+  // window shrinks until models + headers fit; the overflow line counts the rest
+  const maxRows = Math.max(4, props.maxRows ?? 22);
   const selIdx = props.selected;
   const modelIdx = props.view.map((r, i) => (r.m ? i : -1)).filter(i => i >= 0);
   const pos = modelIdx.indexOf(selIdx);
-  const from = Math.max(0, (pos < 0 ? 0 : pos) - (WIN - 4));
-  const winSet = new Set(modelIdx.slice(from, from + WIN));
-  const shown = props.view.map((row, g) => ({ row, g })).filter(x => !x.row.m || winSet.has(x.g));
+  let WIN = Math.max(1, Math.min(16, maxRows));
+  let shown: { row: { role?: string; m?: ModelEntry }; g: number }[] = [];
+  for (let guard = 0; guard < 24; guard++) {
+    const from = Math.max(0, (pos < 0 ? 0 : pos) - (WIN - 4));
+    const winSet = new Set(modelIdx.slice(from, from + WIN));
+    const headed = new Set<number>();
+    for (const g of winSet) for (let r = g - 1; r >= 0; r--) { if (props.view[r].role) { headed.add(r); break; } }
+    shown = props.view.map((row, g) => ({ row, g })).filter(x => (x.row.m ? winSet.has(x.g) : headed.has(x.g)));
+    if (shown.length <= maxRows || WIN <= 1) break;
+    WIN = Math.max(1, WIN - (shown.length - maxRows));
+  }
+  const hiddenModels = modelIdx.length - shown.filter(x => x.row.m).length;
   return (
     <Box flexDirection="column">
-      <Card title="MODELS" purpose={props.compact ? undefined : `from models.registry · ${props.filter ? `/ ${props.filter}` : '[/] fuzzy filter'} · ${props.view.length} models`} flexGrow={1}>
+      <Card title="MODELS" purpose={props.compact ? undefined : `from models.registry · ${props.filter ? `/ ${props.filter}` : '[/] fuzzy filter'} · ${props.view.length} models`} flexGrow={1} overflow={moreLine(hiddenModels, 'models', '↑↓ scroll')}>
         {shown.length === 0 ? <Text color={PAL.textMuted}>no models match</Text> : shown.map(({ row, g }, i) => {
-          if (row.role) return <Text key={`r${i}`} color={PAL.textMuted}>{`role: ${row.role} ▾`}</Text>;
+          if (row.role) return <Text key={`r${i}`} bold color={PAL.textMuted}>{`role: ${row.role} ▾`}</Text>;
           const m = row.m as ModelEntry;
           const sel = g === props.selected;
           // FIX 1 (director): row budget inside the 71-col panel —
@@ -1159,7 +1351,9 @@ function ModelsPane(props: {
               <Text color={sel ? PAL.textPrimary : PAL.textSecondary}>
                 {`${sel ? '▶' : m.pinned ? '✦' : ' '} ${m.id.slice(0, 20).padEnd(20)} ${ctx} ${price}`}
               </Text>
-              <Text color={PAL.textMuted}>{` ${caps} ${spend} ${(fit?.node ?? 'edge').slice(0, 6).padEnd(6)} ${(fit?.fit ?? '—').padEnd(5)}`}</Text>
+              <Text color={PAL.textMuted}>{` ${caps} ${spend} ${(fit?.node ?? 'edge').slice(0, 6).padEnd(6)}`}</Text>
+              {/* C1b-2: FIT is a forecast from pinned constants (lanes/swarm/fit.mjs) — inferred ◉, never a measurement */}
+              <Text color={fit ? PAL.generated : PAL.textMuted}>{`${fit ? '◉' : ' '}${(fit?.fit ?? '—').padEnd(5)}`}</Text>
             </Text>
           );
         })}
@@ -1170,14 +1364,16 @@ function ModelsPane(props: {
   );
 }
 
-function FleetPane({ lanes, policy }: {
+function FleetPane({ lanes, policy, compact, maxRows }: {
   lanes: { id: string; label: string; available: boolean; install?: string; model?: string }[];
   policy: { default: string | null; scopes: Record<string, string> };
+  compact?: boolean; maxRows?: number;
 }) {
   const idw = Math.max(...lanes.map(l => l.id.length), 8);
+  const fleet = capRows(lanes, maxRows ?? lanes.length);
   return (
-    <Card title="FLEET" purpose="absence is dim, not red" flexGrow={1}>
-      {lanes.map(l => {
+    <Card title="FLEET" purpose={compact ? undefined : 'absence is dim, not red'} flexGrow={1} overflow={moreLine(fleet.more, 'connectors')}>
+      {fleet.shown.map(l => {
         // FIX 3: policy-followers read "→ <model> (policy)"; a harness scope
         // wins with "(harness)"; "policy unset" is unreachable after first run
         const scope = policy.scopes[`harness:${l.id}`];
@@ -1197,8 +1393,8 @@ function FleetPane({ lanes, policy }: {
             : policy.default ? `(policy) ${last}`
               : 'policy unset';
         return (
-          <Text key={l.id} color={l.available ? PAL.seal : PAL.textMuted} wrap="truncate">
-            {`${l.available ? '●' : '○'} ${l.id.padEnd(idw)} ${route}`}
+          <Text key={l.id} color={l.available ? PAL.textPrimary : PAL.textMuted} wrap="truncate">
+            {`${l.available ? LIVE.on : LIVE.off} ${l.id.padEnd(idw)} ${route}`}
           </Text>
         );
       })}
@@ -1206,25 +1402,28 @@ function FleetPane({ lanes, policy }: {
   );
 }
 
-function BoardsPane(props: { boards: { templates: string[]; blueprints: string[]; missions: string[] }; projects: string[] }) {
+function BoardsPane(props: { boards: { templates: string[]; blueprints: string[]; missions: string[] }; projects: string[]; compact?: boolean }) {
   const b = props.boards;
   return (
-    <Card title="BOARDS" purpose="mission · blueprint · template">
-      <Text color={PAL.textSecondary} wrap="truncate">{`mission    ${b.missions.length ? b.missions.join(' · ') : '—'}`}</Text>
-      <Text color={PAL.textSecondary} wrap="truncate">{`blueprint  ${b.blueprints.length ? b.blueprints.join(' · ') : '—'}`}</Text>
-      <Text color={PAL.textSecondary} wrap="truncate">{`template   ${b.templates.length ? b.templates.join(' · ') : '—'}`}</Text>
-      <Text color={PAL.textMuted} wrap="truncate">{`PROJECTS  ${props.projects.join(' · ') || '—'}`}</Text>
+    <Card title="BOARDS" purpose={props.compact ? undefined : 'mission · blueprint · template'}>
+      {([['mission   ', b.missions], ['blueprint ', b.blueprints], ['template  ', b.templates]] as [string, string[]][]).map(([label, names]) => (
+        <Text key={label} color={PAL.textSecondary} wrap="truncate">{`${label}${names.length ? `${names.slice(0, 2).join(' · ')}${names.length > 2 ? ` +${names.length - 2}` : ''}` : '—'}`.slice(0, 72)}</Text>
+      ))}
+      {/* C1a (ui-v3-t9r2): the same bound as the board rows — two names + a count — so the
+          no-ellipsis gate holds wherever the checkout lives (this row lists sibling folders) */}
+      <Text color={PAL.textMuted} wrap="truncate">{`PROJECTS  ${props.projects.length ? `${props.projects.slice(0, 2).join(' · ')}${props.projects.length > 2 ? ` +${props.projects.length - 2}` : ''}` : '—'}`.slice(0, 70)}</Text>
     </Card>
   );
 }
 
 // warroom-t3b1 — CHAT tab: transcript rises from the bottom (you · thinking
 // dim · answer · turn receipt hash); LOG RAIN falls in the right rail.
-function ChatPane({ recs }: { recs: Receipt[] }) {
-  const turns = recs.filter(r => r.kind === 'chat').slice(-10);
+function ChatPane({ recs, maxTurns, compact, covered }: { recs: Receipt[]; maxTurns?: number; compact?: boolean; covered: (r: Receipt) => boolean }) {
+  const all = recs.filter(r => r.kind === 'chat');
+  const turns = all.slice(-Math.max(1, Math.min(10, maxTurns ?? 10)));
   return (
     <Box flexDirection="column" justifyContent="flex-end" flexGrow={1}>
-      <Card title="CHAT · sovereign" purpose="transcript rises from the bottom" flexGrow={1}>
+      <Card title="CHAT · sovereign" purpose={compact ? undefined : 'transcript rises from the bottom'} flexGrow={1} overflow={moreLine(all.length - turns.length, 'earlier turns')}>
         {turns.length === 0 ? <Text color={PAL.textMuted}>no turns yet — type to talk to the commander-backed chat</Text> : turns.map(r => {
           const src = Array.isArray(r.sources) ? r.sources as { role?: string; text?: string }[] : [];
           const you = src.find(x => x.role === 'user')?.text ?? '';
@@ -1232,7 +1431,10 @@ function ChatPane({ recs }: { recs: Receipt[] }) {
             <Box key={r.id} flexDirection="column">
               <Text color={PAL.textPrimary} wrap="truncate">{`you: ${you.slice(0, 100)}`}</Text>
               <Text color={PAL.textSecondary} wrap="truncate">{`${String(r.subject).replace('chat.turn · ', 'answer · ').slice(0, 100)}`}</Text>
-              <Text color={PAL.textMuted} wrap="truncate">{`#${r.hash.slice(7, 15)} · $${(r.cost_usd ?? 0).toFixed(4)}`}</Text>
+              <Text wrap="truncate">
+                <Text bold={covered(r)} color={covered(r) ? PAL.seal : PAL.structure}>{covered(r) ? '✓' : '●'}</Text>
+                <Text color={PAL.textMuted}>{`${r.hash.slice(7, 15)} · $${(r.cost_usd ?? 0).toFixed(4)}`}</Text>
+              </Text>
             </Box>
           );
         })}
@@ -1241,12 +1443,13 @@ function ChatPane({ recs }: { recs: Receipt[] }) {
   );
 }
 
-function LogRain({ events }: { events: { line: string; refused: boolean; sealed: boolean }[] }) {
+function LogRain({ events, maxRows, compact }: { events: { line: string; refused: boolean; sealed: boolean }[]; maxRows?: number; compact?: boolean }) {
   return (
-    <Card title="LOG RAIN" purpose="bus events enter at the top, falling, dimming" flexGrow={1}>
-      {events.length === 0 ? <Text color={PAL.textMuted}>quiet</Text> : events.slice(0, 14).map((e, i) => (
-        <Text key={i} color={e.refused ? PAL.danger : i < 3 ? PAL.textSecondary : PAL.textMuted} dimColor={i > 8} wrap="truncate">
-          {e.line.slice(0, 40)}
+    <Card title="LOG RAIN" purpose={compact ? undefined : 'bus events enter at the top, falling, dimming'} flexGrow={1}>
+      {events.length === 0 ? <Text color={PAL.textMuted}>quiet</Text> : events.slice(0, Math.max(1, Math.min(14, maxRows ?? 14))).map((e, i) => (
+        <Text key={i} wrap="truncate">
+          <Text color={e.refused ? PAL.refuse : e.sealed ? PAL.structure : PAL.textMuted} dimColor={i > 8}>{e.refused ? '× ' : e.sealed ? '● ' : '· '}</Text>
+          <Text color={e.refused ? PAL.danger : i < 3 ? PAL.textSecondary : PAL.textMuted} dimColor={!e.refused && i >= 3}>{e.line.slice(0, 38)}</Text>
         </Text>
       ))}
     </Card>
@@ -1257,16 +1460,17 @@ function LogRain({ events }: { events: { line: string; refused: boolean; sealed:
 function CommandPane(props: {
   profile: warroom.WarProfile; online: boolean; events: CommanderEvent[];
   spend: number; handoff: { harness: string; model: string } | null;
+  maxEvents?: number; compact?: boolean;
 }) {
   return (
     <Box flexDirection="column" flexGrow={1}>
-      <Card title={`COMMANDER · ${props.profile.commander.model}`} purpose={props.online ? 'ws● connected — events below' : 'ws○ offline — set TIMMY_COMMANDER_WS'}>
+      <Card title={`COMMANDER · ${props.profile.commander.model}`} purpose={props.compact ? undefined : props.online ? `ws${LIVE.on} connected — events below` : `ws${LIVE.off} offline — set TIMMY_COMMANDER_WS`}>
         {/* FIX 1 (warroom fixes): cmdr + spend moved out of the header here */}
-        <Text color={PAL.textMuted} wrap="truncate">{`cmdr ${props.profile.commander.model} ${props.online ? 'ws●' : 'ws○'}`}</Text>
-        <Text color={PAL.seal} wrap="truncate">{`spend $${props.spend.toFixed(4)}${props.handoff ? ` · handoff→${props.handoff.harness}` : ''}`}</Text>
+        <Text color={PAL.textMuted} wrap="truncate">{`cmdr ${props.profile.commander.model} ws${props.online ? LIVE.on : LIVE.off}`}</Text>
+        <Text color={PAL.textPrimary} wrap="truncate">{`spend $${props.spend.toFixed(4)}${props.handoff ? ` · handoff→${props.handoff.harness}` : ''}`}</Text>
         <Text color={PAL.textMuted} wrap="truncate">[m] model [M] harness-model [K] handoff [X] kill</Text>
         <Text color={PAL.textMuted} wrap="truncate">[t] toggle [b] body [f] fusion [g] gen [1-6] focus</Text>
-        {props.events.slice(0, 8).map((e, i) => (
+        {props.events.slice(0, Math.max(0, Math.min(8, props.maxEvents ?? 8))).map((e, i) => (
           <Text key={i} color={PAL.textSecondary} wrap="truncate">{`${e.kind ?? 'event'} ${(e.text ?? '').slice(0, 50)}`}</Text>
         ))}
       </Card>
@@ -1279,32 +1483,34 @@ function CommandPane(props: {
 function HarnessPanes(props: {
   profile: warroom.WarProfile; panes: warroom.WarPane[]; lanes: { id: string; available: boolean }[]; recs: Receipt[];
   menu?: { harness: string; sandbox: string; policy: string; mcp: string; skills: number; plans: number; project: string; drop: number; model: string };
+  compact?: boolean; maxRows?: number;
 }) {
+  const hs = capRows(props.profile.harnesses, props.maxRows ?? props.profile.harnesses.length);
   return (
-    <Card title="HARNESS PANES" purpose="tmux PTYs · height = activity weight" flexGrow={1}>
+    <Card title="HARNESS PANES" purpose={props.compact ? undefined : 'tmux PTYs · height = activity weight'} flexGrow={1} overflow={moreLine(hs.more, 'harnesses')}>
       {props.menu && (
         <>
           {/* warroom-v2-c4m8: the pane header carries the bulkhead line and
               the project-folder menu for the focused harness */}
-          <Text color={PAL.textMuted}>{`sbx ${props.menu.sandbox.slice(0, 8).padEnd(8)} · ${props.menu.policy.slice(0, 6).padEnd(6)} · mcp ${props.menu.mcp.slice(0, 5)}`}</Text>
-          <Text color={PAL.textMuted}>{`sk ${String(props.menu.skills).padStart(2)} · pl ${String(props.menu.plans).padStart(2)} · ${props.menu.project.slice(0, 8).padEnd(8)} · dp ${String(props.menu.drop).padStart(2)} · ${props.menu.model.slice(0, 12)}`}</Text>
+          <Text color={PAL.textMuted} wrap="truncate">{`sbx ${props.menu.sandbox.slice(0, 8).padEnd(8)} · ${props.menu.policy.slice(0, 6).padEnd(6)} · mcp ${props.menu.mcp.slice(0, 5)}`}</Text>
+          <Text color={PAL.textMuted} wrap="truncate">{`sk ${String(props.menu.skills).padStart(2)} · pl ${String(props.menu.plans).padStart(2)} · ${props.menu.project.slice(0, 8).padEnd(8)} · dp ${String(props.menu.drop).padStart(2)} · ${props.menu.model.slice(0, 12)}`}</Text>
         </>
       )}
-      {props.profile.harnesses.map((h, i) => {
+      {hs.shown.map((h, i) => {
         const pane = props.panes.find(pn => pn.name === h.id);
         const lane = props.lanes.find(l => l.id === h.id);
         const refused = props.recs.some(r => (r.status === 'denied' || r.status === 'failed') && String(r.subject).includes(h.id));
         // FIX 2 (warroom fixes): one fixed vocabulary at fixed width —
         // off · idle · think · resp · REFUSED; cells slice, never ellipsize
         const state = refused ? 'REFUSED' : !pane ? 'off' : h.weight >= 3 ? 'resp' : h.weight === 2 ? 'think' : 'idle';
-        const col = refused ? PAL.danger : !lane || !lane.available ? PAL.textMuted : state === 'resp' ? PAL.seal : state === 'think' ? PAL.warn : PAL.textSecondary;
+        const col = refused ? PAL.danger : !lane || !lane.available ? PAL.textMuted : state === 'resp' ? PAL.textPrimary : state === 'think' ? PAL.warn : PAL.textSecondary;
         return (
-          <Text key={h.id} color={col}>
+          <Text key={h.id} color={col} wrap="truncate">
             {`${i + 1} ${h.id.slice(0, 10).padEnd(10)} ${String((h.model ?? 'cmdr').split('/').pop()).slice(0, 12).padEnd(12)} ${state.padEnd(8)} h=${String(pane?.height ?? 0).padStart(2)}`}
           </Text>
         );
       })}
-      <Text color={PAL.textMuted}>{props.panes.length ? 'war room live · tmux -t timmy-war' : 'not started · timmy profile --restore'}</Text>
+      <Text color={PAL.textMuted} wrap="truncate">{props.panes.length ? 'war room live · tmux -t timmy-war' : 'not started · timmy profile --restore'}</Text>
     </Card>
   );
 }
@@ -1316,7 +1522,7 @@ function HarnessPanes(props: {
 function SwarmPane(props: {
   presets: w2.SwarmPreset[]; runs: w2.SwarmRun[];
   pick: { preset: number; topology: number; size: number; budget: number; judge: number; policy: number };
-  focus: string;
+  focus: string; compact?: boolean;
 }) {
   const p = props.presets[props.pick.preset] ?? null;
   const run = props.runs[0] ?? null;
@@ -1325,8 +1531,8 @@ function SwarmPane(props: {
     .concat((run?.members ?? []).filter(m => m.kind === 'harness' && m.harness === props.focus).map(m => ({ from: run?.preset ?? '?', id: m.id, role: m.role ?? '' })));
   const under = underAll.filter((u, i) => underAll.findIndex(x => x.id === u.id) === i);
   return (
-    <Card title="SWARM" purpose={props.presets.length ? `${props.presets.length} presets · cue-vetted` : 'lanes/swarm/presets empty'} flexGrow={1}>
-      <Text color={PAL.textPrimary}>{`preset ${(p ? p.name : 'none').padEnd(14)} [ ] cycle`}</Text>
+    <Card title="SWARM" purpose={props.compact ? undefined : props.presets.length ? `${props.presets.length} presets · cue-vetted` : 'lanes/swarm/presets empty'} flexGrow={1}>
+      <Text color={PAL.textPrimary} wrap="truncate">{`preset ${(p ? p.name : 'none').padEnd(14)} [ ] cycle`}</Text>
       {p && (
         <>
           <Text color={PAL.textSecondary}>{`topology ${TOPOLOGIES[props.pick.topology].padEnd(11)} members ${String(Math.min(props.pick.size + 1, p.members.length)).padStart(2)}/${String(p.members.length).padStart(2)}`}</Text>
@@ -1335,13 +1541,16 @@ function SwarmPane(props: {
         </>
       )}
       {run ? (
-        <Text color={run.ok ? PAL.seal : PAL.danger}>
-          {`${run.closed ? '⊘' : ' '} ${run.preset.slice(0, 12).padEnd(12)} n=${String(run.size).padStart(2)} $${run.usd.toFixed(4)} tk${String(run.tokensThinking).padStart(4)} ${run.judge.slice(0, 10).padEnd(10)} ${run.policy}${run.airgap ? ` ag${run.airgap.egress}` : ''}`}
-        </Text>
+        <>
+          <Text color={run.ok ? PAL.structure : PAL.danger} wrap="truncate">
+            {`${run.ok ? '●' : '×'}${run.closed ? '⊘' : ' '} ${run.preset.slice(0, 12).padEnd(12)} n=${String(run.size).padStart(2)} $${run.usd.toFixed(4)} tk${String(run.tokensThinking).padStart(4)} ${run.judge.slice(0, 10).padEnd(10)} ${run.policy}${run.airgap ? ` ag${run.airgap.egress}` : ''}`}
+          </Text>
+          <Text color={PAL.textMuted} wrap="truncate">{`  run ${run.id.slice(0, 16)}`}</Text>
+        </>
       ) : (
         <Text color={PAL.textMuted}>no swarm runs yet — [l] launches the pick</Text>
       )}
-      <Text color={PAL.textMuted}>{`under ${props.focus.slice(0, 8)}: ${under.length ? under.slice(0, 3).map(u => u.id).join(',') : 'no harness agents'}`}</Text>
+      <Text color={PAL.textMuted} wrap="truncate">{`under ${props.focus.slice(0, 8)}: ${under.length ? under.slice(0, 3).map(u => u.id).join(',') : 'no harness agents'}`}</Text>
       <Text color={PAL.textMuted}>[w] close [T S U J P] pick [l] launch [X] kill</Text>
     </Card>
   );
@@ -1349,72 +1558,77 @@ function SwarmPane(props: {
 
 // warroom-v2-c4m8 — ENGINE ROOM: fleet/nodes.json for identity, node.*
 // receipts for reachable · memory · loaded models · tok-per-s.
-function EnginePane(props: { nodes: w2.NodeStat[]; unreal: un.UnrealRow; houdini: un.HoudiniRow }) {
+function EnginePane(props: { nodes: w2.NodeStat[]; unreal: un.UnrealRow; houdini: un.HoudiniRow; compact?: boolean; maxRows?: number }) {
+  // C5: one flat list of rows so the plan's cap applies across nodes
+  const lines: { text: string; color: string; ev?: EvidenceState }[] = props.nodes.length === 0
+    ? [{ text: 'fleet/nodes.json missing', color: PAL.textMuted }]
+    : props.nodes.map(n => ({
+      // C1b-2: reachable = measured by a node.* receipt (checked ✓); otherwise nodes.json only declares it (○)
+      ev: (n.reachable ? 'checked' : 'declared') as EvidenceState,
+      color: n.reachable ? PAL.textPrimary : PAL.textMuted,
+      text: `${n.id.slice(0, 7).padEnd(7)} ${n.reachable ? 'up  ' : 'down'} ${(n.memGb ? `${n.memGb}G` : 'mem?').padEnd(5)} ${String(n.models.length).padStart(2)}mdl ${(n.tokPerS ? `${Math.round(n.tokPerS)}t/s` : 't/s?').padEnd(6)}`,
+    }));
+  if (props.unreal.present) lines.push(
+    { color: PAL.textSecondary, text: `unreal  proj ${props.unreal.root.padEnd(6)} RC ${props.unreal.rc ? 'ok  ' : 'miss'} Py ${props.unreal.py}` },
+    { color: PAL.textMuted, text: `  last render ${props.unreal.lastRender ? `${props.unreal.lastRender.hash} ${props.unreal.lastRender.stage}` : 'none yet (collector pending)'}` },
+  );
+  if (props.houdini.present) lines.push(
+    { color: PAL.textSecondary, text: `houdini ${props.houdini.version.slice(0, 10)} ${props.houdini.installed ? 'inst' : 'miss'} · ${props.houdini.bridge.slice(0, 8)}` },
+    { color: PAL.textMuted, text: `  drop ${String(props.houdini.dropRuns).padStart(2)} runs · tpl ${String(props.houdini.templates).padStart(2)} proven ${String(props.houdini.proven).padStart(2)}` },
+  );
+  const rows = capRows(lines, props.maxRows ?? lines.length);
   return (
-    <Card title="ENGINE ROOM" purpose="fleet/nodes.json + node receipts">
-      {props.nodes.length === 0 ? (
-        <Text color={PAL.textMuted}>fleet/nodes.json missing</Text>
-      ) : props.nodes.map(n => (
-        <Text key={n.id} color={n.reachable ? PAL.seal : PAL.textMuted}>
-          {`${n.id.slice(0, 7).padEnd(7)} ${n.reachable ? 'up  ' : 'down'} ${(n.memGb ? `${n.memGb}G` : 'mem?').padEnd(5)} ${String(n.models.length).padStart(2)}mdl ${(n.tokPerS ? `${Math.round(n.tokPerS)}t/s` : 't/s?').padEnd(6)}`}
+    <Card title="ENGINE ROOM" purpose={props.compact ? undefined : 'fleet/nodes.json + node receipts'} overflow={moreLine(rows.more, 'rows')}>
+      {rows.shown.map((l, i) => (
+        <Text key={i} wrap="truncate">
+          {l.ev ? <Text bold={evidenceLook(l.ev).bold} color={evColor(l.ev)}>{`${evidenceGlyph(l.ev)} `}</Text> : null}
+          <Text color={l.color}>{l.text}</Text>
         </Text>
       ))}
-      {props.unreal.present && (
-        <>
-          <Text color={PAL.textSecondary}>{`unreal  proj ${props.unreal.root.padEnd(6)} RC ${props.unreal.rc ? 'ok  ' : 'miss'} Py ${props.unreal.py}`.slice(0, 40)}</Text>
-          <Text color={PAL.textMuted}>{`  last render ${props.unreal.lastRender ? `${props.unreal.lastRender.hash} ${props.unreal.lastRender.stage}` : 'none yet (collector pending)'}`.slice(0, 40)}</Text>
-        </>
-      )}
-      {props.houdini.present && (
-        <>
-          <Text color={PAL.textSecondary}>{`houdini ${props.houdini.version.slice(0, 10)} ${props.houdini.installed ? 'inst' : 'miss'} · ${props.houdini.bridge.slice(0, 8)}`}</Text>
-          <Text color={PAL.textMuted}>{`  drop ${String(props.houdini.dropRuns).padStart(2)} runs · tpl ${String(props.houdini.templates).padStart(2)} proven ${String(props.houdini.proven).padStart(2)}`}</Text>
-        </>
-      )}
     </Card>
   );
 }
 
-// ui-next — Ollama local/cloud model rows with FIT + schema strictness
-// (captain's model-strictness table; unlisted models are 'never' measured)
-function OllamaPane(props: { strict: un.StrictRow[]; nodes: w2.NodeStat[] }) {
-  const strictOf = (id: string): string => props.strict.find(r => r.model === id)?.schema ?? 'never';
-  const local = props.nodes.flatMap(n => n.models.map(m => ({ m, n: n.id })));
-  const cloud = props.strict.filter(r => !local.some(l => l.m === r.model));
-  const rows = [
+// ui-next — keep every model in the budget; truncation has an honest overflow row.
+function modelRows(strict: un.StrictRow[], nodes: w2.NodeStat[]) {
+  const local = nodes.flatMap(n => n.models.map(m => ({ m, n: n.id })));
+  const cloud = strict.filter(r => !local.some(l => l.m === r.model));
+  return [
     ...local.map(l => {
       const f = w2.modelFit(l.n, l.m);
-      return { id: l.m, tag: 'local', fit: f === true ? 'FIT' : f === false ? 'NOFIT' : '?', schema: strictOf(l.m) };
+      return { id: l.m, tag: 'local', fit: f === true ? 'FIT' : f === false ? 'NOFIT' : '?', schema: strict.find(r => r.model === l.m)?.schema ?? 'never' };
     }),
     ...cloud.map(c => ({ id: c.model, tag: 'cloud', fit: 'edge', schema: c.schema })),
-  ].slice(0, 8);
+  ];
+}
+function OllamaPane(props: { rows: ReturnType<typeof modelRows>; compact?: boolean; maxRows?: number }) {
+  const lines = props.rows.length ? props.rows.map(r => `${r.id.split('/').pop()?.slice(0, 18).padEnd(18) ?? '—'} ${r.tag.padEnd(5)} ${r.fit.padEnd(5)} ${r.schema.slice(0, 7)}`) : ['no models measured'];
+  const rows = capRows(lines, props.maxRows ?? 8);
   return (
-    <Card title="OLLAMA LOCAL/CLOUD" purpose="FIT + schema strictness">
-      {rows.length === 0 ? (
-        <Text color={PAL.textMuted}>no models measured</Text>
-      ) : rows.map(r => (
-        <Text key={r.id + r.tag} color={PAL.textSecondary}>
-          {`${r.id.split('/').pop()?.slice(0, 18).padEnd(18) ?? '—'} ${r.tag.padEnd(5)} ${r.fit.padEnd(5)} ${r.schema.slice(0, 7)}`}
-        </Text>
-      ))}
+    <Card title="OLLAMA LOCAL/CLOUD" purpose={props.compact ? undefined : 'FIT + schema strictness'} overflow={moreLine(rows.more, 'rows')}>
+      {rows.shown.map((line, i) => <Text key={i} color={props.rows.length ? PAL.textSecondary : PAL.textMuted} wrap="truncate">{line}</Text>)}
     </Card>
   );
 }
 
-// ui-next — SIGNAL panel: round, ledger, Attention while the game is live
-function SignalPane(props: { st: un.SignalState }) {
+// ui-next — SIGNAL shares the rail budget while the game is live.
+function SignalPane(props: { st: un.SignalState; compact?: boolean; maxRows?: number }) {
+  const lines = [
+    { color: PAL.textSecondary, text: `round ${String(props.st.round).padStart(2)} · ${props.st.status}` },
+    { color: PAL.textSecondary, text: `Attention ${String(props.st.attention).padStart(2)}/20 · ledger ${props.st.rows} rows` },
+    { color: PAL.textMuted, text: `reserved $${props.st.reserved.toFixed(2)} · cp ${props.st.receipt}` },
+  ];
+  const rows = capRows(lines, props.maxRows ?? lines.length);
   return (
-    <Card title="SIGNAL" purpose="the-signal game · live">
-      <Text color={PAL.seal}>{`round ${String(props.st.round).padStart(2)} · ${props.st.status}`}</Text>
-      <Text color={PAL.textSecondary}>{`Attention ${String(props.st.attention).padStart(2)}/20 · ledger ${props.st.rows} rows`}</Text>
-      <Text color={PAL.textMuted}>{`reserved $${props.st.reserved.toFixed(2)} · cp ${props.st.receipt}`}</Text>
+    <Card title="SIGNAL" purpose={props.compact ? undefined : 'the-signal game · live'} overflow={moreLine(rows.more, 'rows')}>
+      {rows.shown.map((line, i) => <Text key={i} color={line.color} wrap="truncate">{line.text}</Text>)}
     </Card>
   );
 }
 
 // warroom-v2-c4m8 — BULKHEADS: sbx sandboxes (lanes/sandbox runs + sandboxed
 // swarm members), live docker ports, and the network policy that bounds them.
-function BulkheadsPane(props: { sbx: w2.SbxRun[]; ports: Record<string, string>; runs: w2.SwarmRun[] }) {
+function BulkheadsPane(props: { sbx: w2.SbxRun[]; ports: Record<string, string>; runs: w2.SwarmRun[]; compact?: boolean; maxRows?: number }) {
   const memberRows = (props.runs[0]?.members ?? [])
     .filter(m => m.sandbox && m.sandbox !== 'none')
     .map(m => ({ id: m.id, sandbox: String(m.sandbox), ports: '—', policy: props.runs[0]?.policy ?? '—' }));
@@ -1423,13 +1637,14 @@ function BulkheadsPane(props: { sbx: w2.SbxRun[]; ports: Record<string, string>;
     ports: Object.entries(props.ports).find(([name]) => name.includes(r.id.slice(3, 8)))?.[1].split('->')[0].trim() ?? 'none',
     policy: '—',
   }));
-  const rows = [...memberRows, ...sbxRows].slice(0, 5);
+  const allRows = [...memberRows, ...sbxRows];
+  const rows = allRows.slice(0, Math.max(1, Math.min(5, props.maxRows ?? 5)));
   return (
-    <Card title="BULKHEADS" purpose="sbx sandboxes · ports · policy" flexGrow={1}>
+    <Card title="BULKHEADS" purpose={props.compact ? undefined : 'sbx sandboxes · ports · policy'} flexGrow={1} overflow={moreLine(allRows.length - rows.length, 'sandboxes')}>
       {rows.length === 0 ? (
         <Text color={PAL.textMuted}>{Object.keys(props.ports).length ? 'docker up · no sandboxes' : 'no sandboxes · docker quiet'}</Text>
       ) : rows.map((r, i) => (
-        <Text key={`${r.id}${i}`} color={PAL.textSecondary}>
+        <Text key={`${r.id}${i}`} color={PAL.textSecondary} wrap="truncate">
           {`${r.id.slice(0, 10).padEnd(10)} ${r.sandbox.slice(0, 9).padEnd(9)} ${r.ports.slice(0, 12).padEnd(12)} ${r.policy.slice(0, 6)}`}
         </Text>
       ))}
@@ -1439,20 +1654,122 @@ function BulkheadsPane(props: { sbx: w2.SbxRun[]; ports: Record<string, string>;
 
 // warroom-v2-c4m8 — LIBRARY › SKILLS: the project folders' skill trees, read
 // through fleet/harness-menu.mjs; [f] opens the yazi pane on the folder.
-function SkillsTree(props: { projects: w2.ProjectRow[] }) {
+function SkillsTree(props: { projects: w2.ProjectRow[]; compact?: boolean; maxRows?: number }) {
+  // C5: the tree flattens to rows so the plan's cap applies across projects
+  const lines: { text: string; color: string }[] = [];
+  for (const pj of props.projects) {
+    lines.push({ color: PAL.textSecondary, text: `${pj.name.slice(0, 14)}/ ${pj.budget !== null ? `$${pj.budget}` : ''}` });
+    for (const sk of pj.skills.slice(0, 4)) lines.push({ color: PAL.textMuted, text: `  └ ${sk.slice(0, 36)}` });
+    if (pj.skills.length === 0) lines.push({ color: PAL.textMuted, text: '  └ (no skills)' });
+  }
+  const rows = capRows(lines, props.maxRows ?? lines.length);
   return (
-    <Card title="SKILLS" purpose="project folders · [f] yazi" flexGrow={1}>
+    <Card title="SKILLS" purpose={props.compact ? undefined : 'project folders · [f] yazi'} flexGrow={1} overflow={moreLine(rows.more, 'rows')}>
       {props.projects.length === 0 ? (
         <Text color={PAL.textMuted}>no project folders</Text>
-      ) : props.projects.map(pj => (
-        <React.Fragment key={pj.name}>
-          <Text color={PAL.textSecondary}>{`${pj.name.slice(0, 14)}/ ${pj.budget !== null ? `$${pj.budget}` : ''}`}</Text>
-          {pj.skills.slice(0, 4).map(sk => (
-            <Text key={sk} color={PAL.textMuted}>{`  └ ${sk.slice(0, 36)}`}</Text>
-          ))}
-          {pj.skills.length === 0 ? <Text color={PAL.textMuted}>  └ (no skills)</Text> : null}
-        </React.Fragment>
-      ))}
+      ) : rows.shown.map((l, i) => <Text key={i} color={l.color} wrap="truncate">{l.text}</Text>)}
     </Card>
   );
+}
+
+// ui-cockpit-k7m3 — HANDS sub-tab (beside SWARM): rows are hands, columns are
+// rounds R0–R4. The board is private overlay data (.timmy/private/cockpit/
+// board.json, mode 700, gitignored) so this pane renders ONLY when the owner
+// imported one — a fresh install never shows it. [Enter] opens the cursor
+// cell's full prompt; the viewer is height-bounded and says so when it clips.
+function HandsPane(props: { board: ck.Board; recs: Receipt[]; covered: (r: Receipt) => boolean; row: number; col: number; showPrompt: boolean; compact?: boolean; maxRows?: number; innerWidth?: number }) {
+  const { board, row, col } = props;
+  const hand = board.hands[row];
+  const stateColor = (st: string): string =>
+    st === 'STOP' ? PAL.danger
+      : st === 'needs-approval' ? PAL.warn
+        : st === 'HOLD' ? PAL.textPrimary
+          : st === 'running' ? PAL.accent
+            : PAL.textMuted;
+  const promptText = hand ? board.prompts?.[hand.name]?.[ck.ROUNDS[col]] ?? '' : '';
+  const innerW = Math.max(20, props.innerWidth ?? 70);
+  const promptAll = props.showPrompt && hand ? (promptText ? wrapText(promptText, innerW) : ['no prompt recorded for this cell']) : [];
+  // C5 POLISH — the plan's cap is split hands-first around the cursor row
+  // (2 rows per hand); the prompt viewer takes the rest, pre-wrapped at the
+  // card's inner width so its rows are exact; ONE overflow line names
+  // whatever is hidden (hands and/or prompt lines).
+  const perHand = board.hands.map(() => 2);
+  const cap = props.maxRows ?? Number.MAX_SAFE_INTEGER;
+  const handsBudget = Math.max(perHand[row] ?? 2, cap - Math.min(promptAll.length, 3));
+  let from = row;
+  let to = Math.min(board.hands.length, row + 1);
+  let used = perHand[row] ?? 0;
+  for (;;) {
+    let grew = false;
+    if (to < board.hands.length && used + perHand[to] <= handsBudget) { used += perHand[to]; to += 1; grew = true; }
+    if (from > 0 && used + perHand[from - 1] <= handsBudget) { used += perHand[from - 1]; from -= 1; grew = true; }
+    if (!grew) break;
+  }
+  const hiddenHands = board.hands.length - (to - from);
+  const promptBudget = Math.max(0, cap - used);
+  const promptCut = promptAll.length > promptBudget;
+  const shown = promptCut ? promptAll.slice(0, Math.max(0, promptBudget - 1)) : promptAll;
+  const notes = [
+    hiddenHands ? `${hiddenHands} more hands · ↑↓ scroll` : '',
+    promptCut ? `${promptAll.length - shown.length} more lines · full text in board.json` : '',
+  ].filter(Boolean);
+  return (
+    <Card title="HANDS" purpose={props.compact ? undefined : `${board.hands.length} hands · R0–R4 · [Enter] prompt`} flexGrow={1} overflow={notes.length ? `▾ ${notes.join(' · ')}` : undefined}>
+      <Text bold color={PAL.textMuted} wrap="truncate">{'HAND        TOOL      RD  STATE            SEAL     ' + ck.ROUNDS.map(r => r.padStart(3)).join('')}</Text>
+      {board.hands.slice(from, to).map((h, k) => {
+        const i = from + k;
+        const sel = i === row;
+        return (
+          <React.Fragment key={h.name}>
+            <Box>
+              <Text bold={sel} color={sel ? PAL.textPrimary : PAL.textSecondary}>
+                {h.name.slice(0, 10).padEnd(12) + h.tool.slice(0, 8).padEnd(10) + h.round.padEnd(4)}
+              </Text>
+              <Text bold={sel || h.state === 'needs-approval'} color={stateColor(h.state)}>{h.state.padEnd(17)}</Text>
+              {(() => {
+                // C1b-2: a board's last_seal is a declared string until a receipt carries it;
+                // that receipt is constructed until a verify covers it, checked after
+                const h8 = h.lastSeal && h.lastSeal !== '—' ? h.lastSeal.slice(7, 15) : '';
+                const rec = h8 ? props.recs.find(r => String(r.hash).slice(7, 15) === h8) : undefined;
+                const ev: EvidenceState | 'refused' | null = !h8 ? null : rec ? receiptEvidence(rec, { verified: props.covered(rec) }) : 'declared';
+                const look = ev && ev !== 'refused' ? evidenceLook(ev) : null;
+                return ev
+                  ? <Text bold={look?.bold} dimColor={look?.dim} color={evColor(ev)}>{`${evidenceGlyph(ev)}${h8}`.padEnd(9)}</Text>
+                  : <Text color={PAL.textMuted}>{'· —'.padEnd(9)}</Text>;
+              })()}
+              {ck.ROUNDS.map((r, c) => {
+                const has = Boolean(board.prompts?.[h.name]?.[r]);
+                const cur = sel && c === col;
+                return (
+                  <Text key={r} bold={cur} inverse={cur} color={cur ? PAL.textPrimary : has ? PAL.accent : PAL.textMuted}>
+                    {(has ? '●' : '·').padStart(3)}
+                  </Text>
+                );
+              })}
+            </Box>
+            <Text color={PAL.textMuted} wrap="truncate">{`  ${h.worktree} · ${h.order}`.slice(0, 68)}</Text>
+          </React.Fragment>
+        );
+      })}
+      {props.showPrompt && hand && (
+        <>
+          <Box height={1} />
+          <Text bold color={PAL.accent} wrap="truncate">{`prompt ${hand.name} ${ck.ROUNDS[col]}`}</Text>
+          {shown.map((l, i) => (<Text key={i} color={promptText ? PAL.textPrimary : PAL.textMuted} wrap="truncate">{l || ' '}</Text>))}
+        </>
+      )}
+    </Card>
+  );
+}
+
+// ui-cockpit-k7m3 C5 — the note a stack shows for the cards its plan folded away
+function FoldedNote({ folded }: { folded: readonly string[] }) {
+  const line = foldedLine(folded);
+  return line ? <Text color={PAL.textMuted} wrap="truncate">{line}</Text> : null;
+}
+
+// ui-cockpit-k7m3 C5 — a column of cards with one gap row between the ones that render
+function Stack({ gap, children }: { gap: number; children: React.ReactNode }) {
+  const kids = React.Children.toArray(children);
+  return <>{kids.flatMap((k, i) => (i ? [<Box key={`gap-${i}`} height={gap} />, k] : [k]))}</>;
 }

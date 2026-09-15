@@ -4,6 +4,7 @@ import { GlowBorder } from '../src/tui/components/GlowBorder.js';
 import { StatusPill } from '../src/tui/components/Motion.js';
 import { MODES } from '../src/tui/router.js';
 import { stripTerminalCodes, truncateVisible, visibleWidth } from '../src/tui/utils/text.js';
+import { theme } from '../src/tui/theme.js';
 
 const SIZES: Array<[number, number]> = [
   [80, 24],
@@ -53,7 +54,7 @@ for (const [columns, rows] of SIZES) {
     <Box width={panelWidth} flexDirection="row">
       {Array.from({ length: visibleColumnCount }).map((_, idx) => (
         <Box key={idx} marginRight={idx < visibleColumnCount - 1 ? columnGap : 0}>
-          <GlowBorder width={columnWidth} height={boardHeight} color="#d29922" label={`LANE ${idx + 1}`}>
+          <GlowBorder width={columnWidth} height={boardHeight} color={theme.textSecondary} label={`LANE ${idx + 1}`}>
             <Box paddingX={1}>
               <Text>{truncateVisible('Receipt card with a deliberately long evidence summary', Math.max(1, columnWidth - 4))}</Text>
             </Box>
@@ -66,7 +67,7 @@ for (const [columns, rows] of SIZES) {
 
   const chatOutput = renderToString(
     <Box flexDirection="column" width={panelWidth}>
-      <GlowBorder width={panelWidth} height={5} color="#5e6ad2" label="CHAT FIRST SURFACE">
+      <GlowBorder width={panelWidth} height={5} color={theme.structure} label="CHAT FIRST SURFACE">
         <Box paddingX={1}>
           <Text>{truncateVisible('Ask TIMMY to route work, explain a change, or prepare a governed run.', Math.max(1, panelWidth - 4))}</Text>
         </Box>
@@ -79,7 +80,7 @@ for (const [columns, rows] of SIZES) {
     <GlowBorder
       width={panelWidth}
       height={4}
-      color="#3fb950"
+      color={theme.textPrimary}
       label="RECEIPT PROOF"
     >
       <Box paddingX={1}>

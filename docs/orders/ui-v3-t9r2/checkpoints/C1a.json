@@ -1,0 +1,82 @@
+{
+  "order": "ui-v3-t9r2",
+  "checkpoint": "C1a",
+  "title": "tokens.json is law \u2014 theme derived from it; the colour gate reads it, with \u00a712 negative controls",
+  "branch": "order/ui-v3-t9r2",
+  "base": "5e3c952 (C0) + PR #64 cherry-picked: 66cacee \u2192 dd2cb62, e564e56 \u2192 c7f08a3",
+  "decisions_applied": "operator 2026-09-14: keep the 8-column grid block; this tokens.json is canonical; #64 taken as source material with ids noted",
+  "clock": {
+    "budget_minutes": 15,
+    "started": "2026-09-14T06:41:11Z",
+    "code_and_gates_green": "2026-09-14T06:47:00Z",
+    "review_returned": "2026-09-14T06:54:00Z",
+    "review_fixes_verified": "2026-09-14T07:03:21Z",
+    "sealed": "2026-09-14T07:06:00Z",
+    "overrun": "22 minutes against 15 \u2014 the adversarial review round and its eight fixes; recorded per \u00a716; C1b split into C1b-1 (meaning re-pointing) and C1b-2 (evidence-state model)"
+  },
+  "files": [
+    "src/tui/theme.ts",
+    "src/tui/color-contract.ts",
+    "tests/design-contract.test.ts",
+    "tests/fixtures/law-control.defective.tsx",
+    "src/tui/components/ProgressBar.tsx",
+    "src/tui/components/ShellV2.tsx (DIM remap, HANDS cursor inverse, two bold headers, BoardsPane PROJECTS bound)",
+    "docs/orders/ui-v3-t9r2/C1a.md",
+    "docs/orders/ui-v3-t9r2/checkpoints/C1a.json"
+  ],
+  "gates": {
+    "tsc": "exit 0",
+    "tsgo": "exit 0",
+    "design_contract": "19/19 (4 law, 3 coverage/source, 9 \u00a712 controls, 3 provisional)",
+    "vitest_full": "93 files / 518 tests passed, 5 files / 15 tests skipped",
+    "keyboard_contract": "no live gate (roster FAIL row, unchanged)",
+    "privacy_changed_files": "0 at any severity"
+  },
+  "captures": {
+    "marker": "c1a-c7f08a3",
+    "manifest_sha256_12": "cbe798f1f481",
+    "shots": 40,
+    "exceed_grid": 0,
+    "privacy_findings": 0,
+    "operator_set": "scratch copy of the chain \u2014 the pinned store did not grow from any C1a render (its three new lines in the window are other sessions: merge.auto, unreal.frame, html.render)"
+  },
+  "review": {
+    "workflow": "wf_96dedf70-9d4 (law \u00b7 gate \u00b7 regression lenses)",
+    "must_fix_applied": [
+      "lawViolations made total via an exported BINDINGS table; unknown/missing/ghost bindings fail",
+      "sourceColorViolations closed against 27 reviewer evasions (hex 3/4/8, braced/ternary/multi-line Ink props, rgb/ansi256, chalk chains in any shape, aliased chalk, other libs, colour SGR escapes, colour-name declarations)",
+      "warn\u2192PREDICT and ident\u2192GENERATED no longer claimed as semantic bindings; ident removed; statusColor doctrine header reconciled",
+      "per-rule \u00a712 controls, a walk-coverage control, the committed defective artifact, gate.control seal",
+      "panels-never-touch-chalk rule restored verbatim",
+      "scope of the gate stated explicitly (src/tui only; outside surfaces listed as C1b)",
+      "HANDS cursor cell inverse (was blind by ANSI capture)",
+      "CHAT-mode DIM remaps accent/lineFocus/new tokens",
+      "two collapsed header rows bolded; C1a.md 'nothing went blind' retracted"
+    ],
+    "deferred_with_sites": "C1a.md \u00a7Review: C1b meaning re-pointing (warn sites, decorative seal sites, DispatchRail, outside surfaces, stale comments); C1c hierarchy (ten textSecondary==textMuted pairs)"
+  },
+  "c1b_work_order": "re-point call sites whose meaning the law changes (pending/running/needs-you off PREDICT amber; active tab / badge / connected / chain segment / HOLD off SEAL green; ident sites to GENERATED only when model-made); evidence states on every carrier",
+  "status": "HOLD",
+  "seals": {
+    "gate_control": {
+      "id": "rc_mu0webmc_5i0h",
+      "hash": "sha256_8fe56aab627488bff274bfa06016b48b1039b0131ea5a9b610d314f354987aeb",
+      "artifact": "tests/fixtures/law-control.defective.tsx",
+      "expected": "fail",
+      "observed": "fail"
+    },
+    "checkpoint": {
+      "subject": "ui.v3.c1a",
+      "id": "rc_mu0wecrp_2lkk",
+      "hash": "sha256_61143c3924a6f1953f88e677a84d4aa6eb0f9b4c6b916e55cc4db87d6996e5d1",
+      "cites": [
+        "src/tui/theme.ts",
+        "src/tui/color-contract.ts",
+        "tests/design-contract.test.ts",
+        "docs/orders/ui-v3-t9r2/C1a.md",
+        "lanes/visual/tokens.json",
+        "gate.control rc_mu0webmc_5i0h"
+      ]
+    }
+  }
+}
