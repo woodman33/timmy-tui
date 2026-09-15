@@ -26,6 +26,8 @@ import { useAgent } from '../hooks/useAgent.js';
 import type { Agent } from '../../agent/core.js';
 import { IntegrationStatus } from './IntegrationStatus.js';
 import { integrationCatalog } from '../../vision/integrations/registry.js';
+import { VisualToolsPanel, type VisualToolRunState } from './VisualToolsPanel.js';
+import { runVisualTool, visualToolsAvailability, visualToolExamples, visualToolsSetup, type VisualOperation } from '../../utils/visual-tools.js';
 
 // TUI REDESIGN (spec §01/§02/§03) — IA collapse: nine tabs become four.
 // HOME · RUN · CHAIN · LIBRARY. HOME is the journey ladder: seven steps read
@@ -100,6 +102,26 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   const [activity, setActivity] = useState<BusRow[]>([]);
   const [docker, setDocker] = useState<boolean | null>(null);
   const [flash, setFlash] = useState('');
+  const [visualToolsOpen, setVisualToolsOpen] = useState(false);
+  const [visualRun, setVisualRun] = useState<VisualToolRunState>({ status: 'idle' });
+  const [visualResults, setVisualResults] = useState<Partial<Record<VisualOperation, VisualToolRunState>>>({});
+  const visualBusy = useRef(false);
+  const [visualAvailability, setVisualAvailability] = useState(() => visualToolsAvailability());
+  const runVisual = async (id: VisualOperation, path?: string) => {
+    if (visualBusy.current) return;
+    visualBusy.current = true;
+    setVisualRun({ toolId: id, status: 'running', summary: 'Local operation started.' });
+    // Yield a frame before bounded local work. Native fitting runs in the adapter process;
+    // parsing a bounded PLY is still synchronous and is not advertised as a durable job.
+    await new Promise<void>(resolve => setImmediate(resolve));
+    try { const result = await runVisualTool(id, path); setVisualRun(result); setVisualResults(previous => ({ ...previous, [id]: result })); }
+    catch {
+      const result: VisualToolRunState = { toolId: id, status: 'failed', summary: 'Local operation failed; no success claimed.' };
+      setVisualRun(result);
+      setVisualResults(previous => ({ ...previous, [id]: result }));
+    }
+    finally { visualBusy.current = false; }
+  };
   const [qrText, setQrText] = useState('');
   const [statusLines, setStatusLines] = useState<string[]>([]);
   // warroom-t3b1: commander (durable Cloudflare agent) + war room state
@@ -245,6 +267,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   }, []);
 
   useInput((input, key) => {
+    if (visualToolsOpen) return;
     const k = key.return ? 'Enter' : key.escape ? 'Esc' : key.tab ? 'Tab' : input;
     // CHAT Enter ships the buffer: capture before the reducer clears it
     const chatText = sRef.current.mode === 'CHAT' ? sRef.current.input : '';
@@ -255,6 +278,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
     sRef.current = step.state;
     setS(step.state);
     for (const a of step.actions) {
+      if (a === 'open-visual-tools') { setVisualAvailability(visualToolsAvailability()); setVisualToolsOpen(true); }
       if (a === 'verify-now') {
         const v = verifyChain('runs');
         setChain({ ok: v.ok, count: v.count });
@@ -674,7 +698,11 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
       </Box>
       <Text color={theme.line}>{'─'.repeat(width)}</Text>
       {/* SPEC §08: in CHAT the screen underneath stays visible, dimmed (PAL) */}
-      <Box flexGrow={1}>
+      {visualToolsOpen ? <VisualToolsPanel active height={Math.max(14, Math.min(24, (process.stdout.rows || 30) - 5))}
+        availability={visualAvailability} examplePaths={visualToolExamples()} setup={visualToolsSetup()} runState={visualRun} runStates={visualResults} onRun={runVisual}
+        onBack={() => setVisualToolsOpen(false)}
+        onOpenArtifact={path => { void import('open').then(m => m.default(path)).catch(() => setFlash('Could not open the retained artifact.')); }}
+      /> : <Box flexGrow={1}>
         {/* keyed by tab: panes are stateless, and a fresh mount makes ink
             repaint the whole column — its line-diff drops the first line of a
             swapped column otherwise (PTY evidence, step 6 captures) */}
@@ -715,6 +743,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
           )}
           {s.tab === 'LIBRARY' && (
             <>
+              <Text color={theme.accent}>[V] VISUAL TOOLS · camera / splats / motion / telemetry</Text>
               <ModelsPane view={modelsView} selected={Math.min(s.selected, Math.max(0, selectableModels.length - 1))} sel={selModel} filter={s.filter} compact={compact} fits={modelFits} />
               {/* FIX 2: BOARDS + PROJECTS live under MODELS on the left */}
               <Box height={1} />
@@ -869,12 +898,12 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
             <Text color={theme.textMuted}>[Enter] send · [Esc] leave · digits are text</Text>
           </Box>
         )}
-      </Box>
+      </Box>}
       {/* action feedback is global, not a HOME-only line: picker writes from
           LIBRARY/RUN must be visible where they happen */}
       {flash ? <Text color={theme.seal} wrap="truncate">{flash}</Text> : null}
       {s.overlay === 'whichkey' && <WhichKeyOverlay mode={s.mode} tab={s.tab} />}
-      {assembled && <ShellFooter mode={s.mode} tab={s.tab} chainOk={chain.ok} chainCount={chain.count} busLive={busLive} width={width} model={policy.default ?? undefined} />}
+      {assembled && !visualToolsOpen && <ShellFooter mode={s.mode} tab={s.tab} chainOk={chain.ok} chainCount={chain.count} busLive={busLive} width={width} model={policy.default ?? undefined} />}
     </Box>
   );
 }

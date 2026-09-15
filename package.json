@@ -22,7 +22,13 @@
     "studio/tldraw-mission-map",
     "templates/vision",
     "deploy/vision",
-    "docs/ROBOFLOW-VISION.md"
+    "docs/ROBOFLOW-VISION.md",
+    "tools/spatial-fit-20260915/adapter.py",
+    "tools/spatial-fit-20260915/README.md",
+    "docs/VISUAL-TOOLS.md",
+    "docs/VISION-SOFTWARE-INTAKE-20260915.md",
+    "examples/visual-tools",
+    "tools/platform-vision-20260910/telemetry/adapter.py"
   ],
   "scripts": {
     "start": "node boot.cjs",

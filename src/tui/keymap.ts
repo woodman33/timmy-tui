@@ -108,7 +108,7 @@ export const KEYMAP_SHELL: Record<`${ShellMode}:${ShellTab}`, ShellKey[]> = {
   'NORMAL:HOME': [...NAV, act('v', 'verify chain'), act('q', 'companion QR'), act('d', 'run doctor'), ...MODES, ...SEAL],
   'NORMAL:RUN': [...NAV, act('a', 'approve'), act('r', 'refuse (needs reason)'), act('n', 'new run'), ...MODES, ...SEAL],
   'NORMAL:CHAIN': [...NAV, act('v', 'verify from here'), act('o', 'open in companion'), act('y', 'copy hash'), ...MODES, ...SEAL],
-  'NORMAL:LIBRARY': [...NAV, act('h', 'set for harness'), act('p', 'pin'), act('n', 'edit note'), ...MODES, ...SEAL],
+  'NORMAL:LIBRARY': [...NAV, act('V', 'visual tools'), act('h', 'set for harness'), act('p', 'pin'), act('n', 'edit note'), ...MODES, ...SEAL],
   'INSERT:HOME': [mod('Esc', 'leave insert'), nav('Tab', 'next pane')],
   'INSERT:RUN': [mod('Esc', 'leave insert'), nav('Tab', 'next pane')],
   'INSERT:CHAIN': [mod('Esc', 'leave insert'), nav('Tab', 'next pane')],
@@ -135,7 +135,7 @@ const FOOTER_ACTS: Record<ShellTab, string> = {
   HOME: '[v] verify  [q] QR  [s] seal',
   RUN: '[a] approve  [r] refuse  [s] seal',
   CHAIN: '[v] verify  [o] open  [y] copy  [s] seal',
-  LIBRARY: '[h] harness  [p] pin  [n] note  [f] files  [s] seal',
+  LIBRARY: '[V] visual tools  [h] harness  [p] pin  [n] note  [f] files  [s] seal',
   CHAT: '[Esc] leave  [s] seal',
   COMMAND: '[w] swarm [l] launch [X] kill [H] harness [m] model',
 };
