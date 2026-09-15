@@ -1,0 +1,24 @@
+{
+  "schema": "timmy.public-receipt-reference/1",
+  "id": "rc_mu272kea_e4ge",
+  "ts": "2026-09-15T04:51:29.602Z",
+  "kind": "seal",
+  "subject": "route.graph",
+  "status": "ok",
+  "tier": "LIGHT",
+  "hash": "sha256_a43421ec2211af4b0b51a9ebcb73a34c5742bb5a06aa5845be16e550303425a3",
+  "output_sha256": "2250b0c9edf5df92cebec2ca4018225d1c2ef6d43b0289244925257156db885c",
+  "artifacts": [
+    "studio/box-loop-20260914/s3-repair/manifest.json"
+  ],
+  "child_receipts": [
+    "sha256_1521ecdf70212daaf0ae50e80cb7aefc664663c844fd489640ecb52d6a86a69f"
+  ],
+  "sources": [
+    {
+      "op_id": "route-repair-537e978f-cb41-48a7-bf8a-d43a40cf1414"
+    }
+  ],
+  "signatureOmitted": true,
+  "verification": "Original signature and artifact binding verified by coordinating agent; this projection is not a signed receipt."
+}

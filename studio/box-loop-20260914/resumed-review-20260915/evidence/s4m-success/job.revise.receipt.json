@@ -1,0 +1,27 @@
+{
+  "schema": "timmy.public-receipt-reference/1",
+  "id": "rc_mu2c7z0b_ufmh",
+  "ts": "2026-09-15T07:15:39.899Z",
+  "kind": "seal",
+  "subject": "job.revise",
+  "status": "ok",
+  "tier": "LIGHT",
+  "hash": "sha256_6cffbbe482e771d85ea4606ebc15b6dfafb45cf75dc78337778b243aaa3ff487",
+  "output_sha256": "bfa2f3f891902a18f1600a2b835619af44b441d34de17f48f7b1229e57f9b715",
+  "artifacts": [
+    "studio/box-loop-20260914/s4m-success/manifest.json"
+  ],
+  "child_receipts": [
+    "sha256_e057c9087b1ca2777460532ad5f0955b4cd4d303f3a9c761ea972db0d95d61ca"
+  ],
+  "sources": [
+    {
+      "op_id": "durable-b84c0b93-c1fb-46b4-80f0-145f5c089b37",
+      "run_id": "bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74",
+      "job_id": "bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74",
+      "document_revision": "45fd90561e7eeb5855e6e2e63e77eb401f388e93c1534ad0f0c7b180a25756ed"
+    }
+  ],
+  "signatureOmitted": true,
+  "verification": "Original signature and artifact binding verified by coordinating agent; this projection is not a signed receipt."
+}

@@ -1,0 +1,25 @@
+{
+  "schema": "timmy.public-receipt-reference/1",
+  "id": "rc_mu260gn3_rze5",
+  "ts": "2026-09-15T04:21:51.807Z",
+  "kind": "seal",
+  "subject": "evidence.bind",
+  "status": "ok",
+  "tier": "LIGHT",
+  "hash": "sha256_1ddedee7ca7b2225113c19abbd61807df107a08f99d315f1029ef2bf3ccf3991",
+  "output_sha256": "4611717d790d75a042548ebdf31607e1aae10cc058b03af26a25ec1e2a828857",
+  "artifacts": [
+    "studio/box-loop-20260914/s1-second/granite/manifest.json"
+  ],
+  "child_receipts": [
+    "sha256_012881b1d194309e9860ddbd4a7730dc8ef8ed85ddf411345abc91decbda84e0"
+  ],
+  "sources": [
+    {
+      "op_id": "citation-27c31ee0-0613-4edc-9bb2-ce306379289c",
+      "model": "granite4.2:latest"
+    }
+  ],
+  "signatureOmitted": true,
+  "verification": "Original signature and artifact binding verified by coordinating agent; this projection is not a signed receipt."
+}

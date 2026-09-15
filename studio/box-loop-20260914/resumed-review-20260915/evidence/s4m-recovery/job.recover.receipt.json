@@ -1,0 +1,28 @@
+{
+  "schema": "timmy.public-receipt-reference/1",
+  "id": "rc_mu2c98lz_igd0",
+  "ts": "2026-09-15T07:16:38.999Z",
+  "kind": "seal",
+  "subject": "job.recover",
+  "status": "ok",
+  "tier": "LIGHT",
+  "hash": "sha256_fc0eb5d82c666bcf6da9c34485f22242b3042331d73e3a28f1ec06336e235059",
+  "output_sha256": "65d0304606ced379f5b0ef11267c2e32ca47dfe18acaac9e76072589b4261abc",
+  "artifacts": [
+    "studio/box-loop-20260914/s4m-recovery/manifest.json"
+  ],
+  "child_receipts": [
+    "sha256_45e009c5587050a905be50c68eb118c2af73bc112a1583295aa5276e76201370",
+    "sha256_6cffbbe482e771d85ea4606ebc15b6dfafb45cf75dc78337778b243aaa3ff487"
+  ],
+  "sources": [
+    {
+      "op_id": "durable-491c3118-37fe-4663-bf1d-35070b8ee977",
+      "run_id": "bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f",
+      "job_id": "bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f",
+      "document_revision": "377cb02492ec21ddcb48aab990caeb942ad8e060c86aa05809b00dd9d83c114c"
+    }
+  ],
+  "signatureOmitted": true,
+  "verification": "Original signature and artifact binding verified by coordinating agent; this projection is not a signed receipt."
+}

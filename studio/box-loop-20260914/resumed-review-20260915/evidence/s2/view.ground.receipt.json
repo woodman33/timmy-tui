@@ -1,0 +1,24 @@
+{
+  "schema": "timmy.public-receipt-reference/1",
+  "id": "rc_mu2666lr_7wft",
+  "ts": "2026-09-15T04:26:18.735Z",
+  "kind": "seal",
+  "subject": "view.ground",
+  "status": "ok",
+  "tier": "LIGHT",
+  "hash": "sha256_f515a7312a183a9d32338b9769278a5c94cd387a450b94425ad1ca6793cd6b3d",
+  "output_sha256": "bd79d129846d71b06ab49e38e75b788489a414c5b641dfc632395277dc91393a",
+  "artifacts": [
+    "studio/box-loop-20260914/s2/manifest.json"
+  ],
+  "child_receipts": [
+    "sha256_4d45e04a6c51d7041e8e88a14650ba8378bb70f43028ca58cd794ad5ec8f4dde"
+  ],
+  "sources": [
+    {
+      "op_id": "view-f7c46d9f-94bf-40a9-aa55-1bca7f67fd48"
+    }
+  ],
+  "signatureOmitted": true,
+  "verification": "Original signature and artifact binding verified by coordinating agent; this projection is not a signed receipt."
+}
