@@ -42,7 +42,7 @@ export function detectSession(): Session {
   // ancestor chain only breaks ties when the own env names no CLI)
   const ownClaude = Boolean(self.CLAUDECODE);
   const ownQwen = Boolean(self.QWEN_CODE || self.QWEN_MODEL);
-  if (ownClaude || (!ownQwen && (/CLAUDECODE=/.test(blob) || chain.some(c => /claude/i.test(c.comm))))) {
+  if (!ownQwen && (ownClaude || /CLAUDECODE=/.test(blob) || chain.some(c => /claude/i.test(c.comm)))) {
     const hands = self.ANTHROPIC_MODEL ?? handsFrom(blob, ['ANTHROPIC_MODEL']) ?? 'claude-session-model';
     return { actor: 'claude-code', hands, short: 'claude' };
   }

@@ -120,8 +120,14 @@ export function wrapText(text: string, width: number): string[] {
   const w = Math.max(1, Math.floor(width));
   const out: string[] = [];
   for (const raw of text.split('\n')) {
-    const words = raw.split(/(\s+)/).filter(x => x.length);
-    let line = '';
+    // Source indentation is content, unlike whitespace at a soft wrap.
+    const indent = raw.match(/^\s*/)?.[0] ?? '';
+    const words = raw.slice(indent.length).split(/(\s+)/).filter(x => x.length);
+    let line = indent;
+    while (line.length > w) {
+      out.push(line.slice(0, w));
+      line = line.slice(w);
+    }
     const flush = () => { out.push(line); line = ''; };
     for (const word of words) {
       if (/^\s+$/.test(word)) { if (line.length && line.length + word.length <= w) line += word; continue; }
@@ -134,7 +140,7 @@ export function wrapText(text: string, width: number): string[] {
       if (line.length && line.length + tok.length > w) flush();
       line += tok;
     }
-    out.push(line.replace(/\s+$/, ''));
+    out.push(words.length ? line.replace(/\s+$/, '') : line);
   }
   return out;
 }
