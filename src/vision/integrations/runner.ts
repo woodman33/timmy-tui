@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, lstatSync, createReadStream } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, lstatSync, createReadStream, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { appendReceipt, receiptsDir, verifySignature } from '../../utils/receipts.js';
 import { redactVisionValue } from '../runtime.js';
@@ -53,8 +53,11 @@ export async function hashArtifacts(outputDir: string, paths: unknown) {
 export async function runIntegration(id: string, raw: unknown, dir = process.cwd()) {
   const { definition, request } = validateIntegrationRequest(id, raw, dir);
   const runId = `${Date.now()}-${randomUUID()}`;
-  const outputDir = resolve(receiptsDir(dir), 'integrations', runId);
-  mkdirSync(outputDir, { recursive: true });
+  const requestedOutputDir = resolve(receiptsDir(dir), 'integrations', runId);
+  mkdirSync(requestedOutputDir, { recursive: true });
+  // Adapters resolve paths too. Establish one physical run root before dispatch,
+  // including stores reached through a system alias such as macOS /var.
+  const outputDir = realpathSync(requestedOutputDir);
   const requestBody = JSON.stringify(request, null, 2) + '\n';
   writeFileSync(join(outputDir, 'request.json'), requestBody, { flag: 'wx', mode: 0o600 });
   const adapterSource = existsSync(definition.script) ? readFileSync(definition.script) : null;

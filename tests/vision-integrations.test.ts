@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -69,5 +69,20 @@ describe('Timmy visual integration admission', () => {
       expect(readFileSync(join(result.reportPath, '../stdout.txt'), 'utf8')).toContain('observed-before-limit');
       expect(result.signatureVerified).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+  it('accepts artifacts from a canonicalized run directory behind a store alias', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'timmy-store-alias-test-'));
+    try {
+      const bin = join(root, '.timmy/venv-platform-telemetry/bin');
+      mkdirSync(bin, { recursive: true });
+      mkdirSync(join(root, 'physical-store'));
+      symlinkSync(join(root, 'physical-store'), join(root, 'store-alias'));
+      vi.stubEnv('TIMMY_STORE', join(root, 'store-alias'));
+      writeFileSync(join(bin, 'python'), `#!${process.execPath}\nconst fs=require('node:fs'),path=require('node:path');let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>{const r=JSON.parse(s);fs.mkdirSync(r.output_dir,{recursive:true});const f=path.join(fs.realpathSync(r.output_dir),'sample.json');fs.writeFileSync(f,'{}');console.log(JSON.stringify({ok:true,artifacts:[f]}));});`, { mode: 0o700 });
+      const result = await runIntegration('mcap', { operation: 'probe' }, root);
+      expect(result.ok).toBe(true);
+      expect(result.signatureVerified).toBe(true);
+      expect(result.artifacts).toEqual([expect.objectContaining({ path: 'artifacts/sample.json', bytes: 2 })]);
+    } finally { vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); }
   });
 });
