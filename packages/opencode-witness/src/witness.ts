@@ -30,9 +30,9 @@ export type WitnessDeps = {
 // Fail-closed by design: a witness does not parse intent. `.env.example` is refused too — narrowing this
 // list is an operator decision, documented in the package README.
 export const GUARDED_PATHS: { id: string; re: RegExp }[] = [
-  { id: 'dotenv', re: /(^|[/\s'"])\.env(\.[A-Za-z0-9_.-]+)?($|[/\s'"])/ },
-  { id: 'private_overlay', re: /\.timmy[/\\]private([/\\]|$)/ },
-  { id: 'privacy_overlay_module', re: /lanes[/\\]privacy[/\\]overlay\./ },
+  { id: 'dotenv', re: /(^|[/\\\s'"])\.env(\.[A-Za-z0-9_.-]+)?($|[/\\\s'"])/i },
+  { id: 'private_overlay', re: /\.timmy[/\\]private([/\\]|$)/i },
+  { id: 'privacy_overlay_module', re: /lanes[/\\]privacy[/\\]overlay\./i },
 ];
 
 const sha256 = (s: string): string => 'sha256_' + createHash('sha256').update(s).digest('hex');
@@ -202,14 +202,15 @@ export function createWitness(deps: WitnessDeps = {}): WitnessHooks {
 
     'tool.execute.after': async (input, output) => {
       const o = orderOf(deps);
+      const outputText = String(output.output ?? '');
       const hit = guardedHit(input.args);
       if (hit) await refuseGuarded(hit, o, input.tool, input.callID, input.sessionID);
       await seal('witness.result', {
         tool: input.tool,
         args_sha256: argsHash(input.args),
-        output_sha256: sha256(String(output.output ?? '')),
-        output_bytes: String(output.output ?? '').length,
-        managed_output: resolveManagedOutput(output.metadata, String(output.output ?? ''), deps),
+        output_sha256: sha256(outputText),
+        output_bytes: Buffer.byteLength(outputText, 'utf8'),
+        managed_output: resolveManagedOutput(output.metadata, outputText, deps),
         order: o.id,
         head: o.head,
         sessionID: input.sessionID,
