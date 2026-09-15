@@ -1,9 +1,17 @@
 // ORDER witness-o7c2 C1 — the witness core. Pure and injectable: no OpenCode import, so it is testable
-// outside the harness. The hook shapes it satisfies are structurally typed from @opencode-ai/plugin
-// 1.18.31 (npm pack; the exact version of the installed binary), whose Hooks keys are
-// "tool.execute.before"(input{tool,sessionID,callID}, output{args}),
-// "tool.execute.after"(input{tool,sessionID,callID,args}, output{title,output,metadata}) and
-// "shell.env"(input{cwd,sessionID?,callID?}, output{env}).
+// outside the harness.
+//
+// Versions are recorded separately because they do not have to match:
+//   * OpenCode CLI 1.18.31 — `opencode --version`; /opt/homebrew/bin/opencode → Cellar/opencode/1.18.31.
+//   * @opencode-ai/plugin 1.4.7 — the SDK actually installed locally, in BOTH ~/.opencode/node_modules
+//     and ~/.config/opencode/node_modules, with @opencode-ai/sdk 1.4.7 alongside.
+// The shapes below were read from the installed 1.4.7 dist/index.d.ts: Hooks at line 170,
+// "tool.execute.before"(input{tool,sessionID,callID}, output{args}) at 231-237,
+// "shell.env"(input{cwd,sessionID?,callID?}, output{env}) at 238-244,
+// "tool.execute.after"(input{tool,sessionID,callID,args}, output{title,output,metadata}) at 245-254,
+// Plugin at 51 and PluginModule {id?, server, tui?: never} at 52-54. The registry's 1.18.31 tarball
+// happens to carry identical shapes for these three hooks, but the installed 1.4.7 d.ts is the
+// authority here: a registry version is not evidence about a local install.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 
@@ -77,7 +85,10 @@ export const guardedHit = (args: unknown): { id: string; path_sha256: string } |
 const MOF_KEY = /managed|persisted|output_?file|outfile|truncated_?to/i;
 const MOF_TEXT = /([/~][^\s'"<>|]+\.output)\b/;
 
-export type ManagedOutput = 'none' | { path: string; sha256?: string; size?: number; missing?: boolean };
+export type ManagedOutput =
+  | 'none'
+  | { path: string; sha256?: string; size?: number; missing?: boolean }
+  | { refused: 'guarded_path'; guarded_id: string; path_sha256: string };
 
 export function resolveManagedOutput(
   metadata: unknown,
@@ -105,6 +116,12 @@ export function resolveManagedOutput(
   }
   if (!cands.length) return 'none';
   const path = cands[0];
+  // The candidate is tool-controlled input — metadata keys or the output text can name any path — so it
+  // is guarded BEFORE exists/stat/read. A tool must not be able to redirect the witness into hashing
+  // .env or the private overlay, and a refused candidate is bound by hash only: the literal path never
+  // enters the chain, and nothing is read or measured.
+  const hit = guardedHit(path);
+  if (hit) return { refused: 'guarded_path', guarded_id: hit.id, path_sha256: hit.path_sha256 };
   if (!exists(path)) return { path, missing: true };
   return { path, sha256: sha256(read(path)), size: sizeOf(path) };
 }
@@ -156,8 +173,22 @@ export async function chainSeal(subject: string, input: Record<string, unknown>)
   return { id: rec.id, hash: rec.hash };
 }
 
+// An intent is single-use and stays bound to the context it was sealed in: the after-hook must present
+// the same callID, tool, session, order and head, or the result is refused. A witness that re-bound a
+// result to whatever the environment happens to say now would be forgeable, and a nonempty
+// TIMMY_ORDER/TIMMY_HEAD is context, not authorization.
+type PendingIntent = {
+  tool: string;
+  sessionID: string;
+  args_sha256: string;
+  order: string;
+  head: string;
+  receipt: SealResult;
+};
+
 export function createWitness(deps: WitnessDeps = {}): WitnessHooks {
   const seal: SealSink = deps.seal ?? chainSeal;
+  const pending = new Map<string, PendingIntent>();
 
   const refuseGuarded = async (
     hit: { id: string; path_sha256: string },
@@ -190,13 +221,22 @@ export function createWitness(deps: WitnessDeps = {}): WitnessHooks {
       const o = orderOf(deps); // outside an order: refused, and nothing is sealed (there is no order to bind)
       const hit = guardedHit(output.args);
       if (hit) await refuseGuarded(hit, o, input.tool, input.callID, input.sessionID);
-      await seal('witness.intent', {
+      const args_sha256 = argsHash(output.args);
+      const receipt = await seal('witness.intent', {
         tool: input.tool,
-        args_sha256: argsHash(output.args),
+        args_sha256,
         order: o.id,
         head: o.head,
         sessionID: input.sessionID,
         callID: input.callID,
+      });
+      pending.set(input.callID, {
+        tool: input.tool,
+        sessionID: input.sessionID,
+        args_sha256,
+        order: o.id,
+        head: o.head,
+        receipt,
       });
     },
 
@@ -204,15 +244,76 @@ export function createWitness(deps: WitnessDeps = {}): WitnessHooks {
       const o = orderOf(deps);
       const hit = guardedHit(input.args);
       if (hit) await refuseGuarded(hit, o, input.tool, input.callID, input.sessionID);
+
+      const refuseResult = async (reason: string, detail: string): Promise<void> => {
+        // Sealed before the throw; the reason text is bound by hash so no argument value ever enters
+        // the chain.
+        await seal('witness.denial', {
+          reason,
+          detail_sha256: sha256(detail),
+          status: 'denied',
+          tool: input.tool,
+          callID: input.callID,
+          sessionID: input.sessionID,
+          order: o.id,
+          head: o.head,
+        });
+        throw new WitnessRefusal(reason, detail);
+      };
+
+      const intent = pending.get(input.callID);
+      if (!intent) {
+        await refuseResult(
+          'orphan_result',
+          'no witness.intent was sealed for this callID — a result without its matching intent is refused, not sealed'
+        );
+        return;
+      }
+      if (intent.tool !== input.tool || intent.sessionID !== input.sessionID) {
+        await refuseResult(
+          'intent_mismatch',
+          'this after-hook does not describe the call the intent was sealed for (tool or session differs)'
+        );
+        return;
+      }
+      if (intent.order !== o.id || intent.head !== o.head) {
+        await refuseResult(
+          'context_changed',
+          'the order context changed between the intent and the result — the original linkage is preserved, never rebound'
+        );
+        return;
+      }
+      pending.delete(input.callID); // single-use: a replayed after-hook arrives as an orphan
+
+      const text = String(output.output ?? '');
+      const afterArgs = argsHash(input.args);
+      const managed = resolveManagedOutput(output.metadata, text, deps);
+      if (managed !== 'none' && 'refused' in managed) {
+        await seal('witness.denial', {
+          reason: 'managed_output_redirect',
+          guarded_id: managed.guarded_id,
+          path_sha256: managed.path_sha256,
+          status: 'denied',
+          tool: intent.tool,
+          callID: input.callID,
+          sessionID: intent.sessionID,
+          order: intent.order,
+          head: intent.head,
+        });
+      }
       await seal('witness.result', {
-        tool: input.tool,
-        args_sha256: argsHash(input.args),
-        output_sha256: sha256(String(output.output ?? '')),
-        output_bytes: String(output.output ?? '').length,
-        managed_output: resolveManagedOutput(output.metadata, String(output.output ?? ''), deps),
-        order: o.id,
-        head: o.head,
-        sessionID: input.sessionID,
+        tool: intent.tool,
+        // the intent's hash is the linkage; a differing after-hash is flagged, never substituted
+        args_sha256: intent.args_sha256,
+        args_drift: afterArgs === intent.args_sha256 ? false : afterArgs,
+        intent_receipt: intent.receipt.id,
+        intent_hash: intent.receipt.hash,
+        output_sha256: sha256(text),
+        output_bytes: text.length,
+        managed_output: managed,
+        order: intent.order,
+        head: intent.head,
+        sessionID: intent.sessionID,
         callID: input.callID,
       });
     },
