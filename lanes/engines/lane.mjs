@@ -16,6 +16,7 @@
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { runStepCommand } from './step.mjs';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PROJECTS_ROOT } from '../../fleet/harness-menu.mjs';
@@ -186,12 +187,12 @@ export async function runWorkflow(engineId, workflow, { project, input, noSeal =
     const argv = step.command.args.map(subst);
     const cwd = step.command.cwd ? subst(step.command.cwd) : outDir;
     const t0 = Date.now();
-    const r = spawnSync(bin, argv, { cwd, encoding: 'utf8', timeout: step.command.timeout_ms ?? 600000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...(step.command.env ?? {}) } });
+    const r = await runStepCommand(bin, argv, { cwd, timeoutMs: step.command.timeout_ms ?? 600000, env: { ...process.env, ...(step.command.env ?? {}) } });
     writeFileSync(join(outDir, `${step.id}.log`), `$ ${bin} ${argv.join(' ')}\n--- stdout\n${r.stdout ?? ''}\n--- stderr\n${r.stderr ?? ''}\n--- exit ${r.status} signal ${r.signal ?? ''}\n`);
     const produced = (step.produces ?? []).map((g) => { const re = globToRegex(subst(g)); const hits = readdirSync(outDir).filter((n) => re.test(n)); return { glob: subst(g), found: hits }; });
     const missing = produced.filter((p) => !p.found.length).map((p) => p.glob);
     const stepOk = r.status === 0 && !r.error && missing.length === 0;
-    stepResults.push({ id: step.id, ok: stepOk, exit: r.status, signal: r.signal ?? null, timed_out: r.error?.code === 'ETIMEDOUT', ms: Date.now() - t0, missing, log: `${step.id}.log` });
+    stepResults.push({ id: step.id, ok: stepOk, exit: r.status, signal: r.signal ?? null, timed_out: r.timed_out, ms: Date.now() - t0, missing, log: `${step.id}.log` });
     if (!stepOk) { ok = false; break; }
   }
   const outputs = [];
