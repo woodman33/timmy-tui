@@ -1304,7 +1304,8 @@ function ModelsPane(props: {
   const maxRows = Math.max(4, props.maxRows ?? 22);
   const selIdx = props.selected;
   const modelIdx = props.view.map((r, i) => (r.m ? i : -1)).filter(i => i >= 0);
-  const pos = modelIdx.indexOf(selIdx);
+  const selectedViewIdx = modelIdx[selIdx] ?? -1;
+  const pos = selectedViewIdx < 0 ? -1 : selIdx;
   let WIN = Math.max(1, Math.min(16, maxRows));
   let shown: { row: { role?: string; m?: ModelEntry }; g: number }[] = [];
   for (let guard = 0; guard < 24; guard++) {
@@ -1323,7 +1324,7 @@ function ModelsPane(props: {
         {shown.length === 0 ? <Text color={PAL.textMuted}>no models match</Text> : shown.map(({ row, g }, i) => {
           if (row.role) return <Text key={`r${i}`} bold color={PAL.textMuted}>{`role: ${row.role} ▾`}</Text>;
           const m = row.m as ModelEntry;
-          const sel = g === props.selected;
+          const sel = g === selectedViewIdx;
           // FIX 1 (director): row budget inside the 71-col panel —
           // model 30 · ctx 5 · $in/$out 10 · caps 9 · spend 6, single-space
           // gutters, role ONLY in the group header, no ellipsis in any cell.
