@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import React from 'react';
 import { render } from 'ink-testing-library';
-import { mkdtempSync, mkdirSync, writeFileSync, statSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, statSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ShellV2 } from '../src/tui/components/ShellV2.js';
@@ -121,13 +121,11 @@ describe('C1 BOARD — hands, rounds, privacy', { timeout: 60000 }, () => {
   });
 
   it('NEGATIVE §12: a pane log carrying a personal string refuses the seal before anything cites it', () => {
-    // Platform-portable negative control: the privacy matcher gates any
-    // /Users/<login>… path at severity high on every OS.
-    // The leak string is built at runtime from fragments so the committed
-    // test file never contains a literal path that trips the pre-commit gate.
-    const leakDir = ['Us', 'ers'].join('');
-    const leaked = `pane tail: copied the deck to /${leakDir}/ci-operator/Desktop before the call`;
-    const refused = ck.sealCockpit('hand.report claude R2', { hand: 'claude', round: 'R2' }, { logText: leaked });
+    // The §12 must-fail fixture is the control artifact: it trips the gate on every platform.
+    // A homedir()-built path is not personal on the ubuntu CI runner (pii.home_path's negative
+    // lookahead exempts /home/runner); the fixture has no such exemption and refuses the seal.
+    const personal = `pane tail: ${readFileSync(new URL('../lanes/privacy/fixtures/must-fail.txt', import.meta.url), 'utf8')}`;
+    const refused = ck.sealCockpit('hand.report claude R2', { hand: 'claude', round: 'R2' }, { logText: personal });
     expect(refused.ok).toBe(false);
     expect(refused.note).toContain('seal refused');
     const clean = ck.sealCockpit('hand.report claude R2', { hand: 'claude', round: 'R2' }, { logText: 'pane tail: HOLD sha256_00aa11bb22cc33dd' });
