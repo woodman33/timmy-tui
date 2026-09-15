@@ -85,6 +85,15 @@ describe('Visual tools action panel', () => {
     await input(view, '\x10'); expect(view.lastFrame()).toContain('PNG path'); expect(view.lastFrame()).toContain('Rendered PNG');
     expect(onRun).not.toHaveBeenCalled();
   });
+  it('shows path notices while Chafa image output is visible', async () => {
+    const onRun = vi.fn(async () => {});
+    const result: VisualToolRunState = { toolId: 'chafa-preview', status: 'completed', ansiPreview: '██  ░░', summary: 'Rendered PNG' };
+    const view = render(<VisualToolsPanel active onRun={onRun} runState={result} />);
+    await tick(); await input(view, '\x1b[A'); await input(view, '\x1b[A'); await input(view, '\r');
+    await input(view, '\r');
+    expect(view.lastFrame()).toContain('Enter one local file path first');
+    expect(onRun).not.toHaveBeenCalled();
+  });
   it('names cropped image rows in a short terminal', async () => {
     const result: VisualToolRunState = { toolId: 'chafa-preview', status: 'completed', ansiPreview: Array(10).fill('██').join('\n') };
     const view = render(<VisualToolsPanel active height={14} onRun={async () => {}} runState={result} />);

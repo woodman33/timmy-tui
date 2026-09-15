@@ -130,6 +130,7 @@ export function VisualToolsPanel({ active, height = 22, availability = {}, runSt
     </> : result?.ansiPreview && showImage ? <>
       <Text color={theme.textSecondary}>{croppedRows ? `CROPPED ${croppedRows} ROWS · ENLARGE TERMINAL · UNSEALED` : 'LOCAL PNG PREVIEW · DISPLAY ONLY · UNSEALED'}</Text>
       {previewLines.slice(0, previewRows).map((line, i) => <Text key={i} wrap="truncate-end">{line}</Text>)}
+      {notice ? <Text color={theme.warn} wrap="truncate-end">{notice}</Text> : null}
       <Text color={theme.textMuted}>Ctrl+P details · Ctrl+O report · Esc list</Text>
     </> : <>
       <Text color={theme.textSecondary} wrap="truncate-end">{entry.description}</Text>

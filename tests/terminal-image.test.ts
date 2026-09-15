@@ -47,6 +47,15 @@ describe('bounded asynchronous Chafa preview', () => {
     const r = await renderTerminalImage(png); expect(r.status).toBe('failed');
     expect(JSON.parse(readFileSync(r.artifactPath!,'utf8')).failure).toBe('output_limit');
   });
+  it('finishes when the renderer emits a spawn error', async () => {
+    const path = join(root(), 'renderer'); writeFileSync(path, '#!/definitely/absent/timmy-chafa\n'); chmodSync(path, 0o700);
+    vi.stubEnv('TIMMY_CHAFA_BIN', path);
+    const r = await Promise.race([renderTerminalImage(png), new Promise<null>(resolve => setTimeout(() => resolve(null), 1000))]);
+    expect(r).not.toBeNull();
+    if (!r) throw new Error('preview hung after spawn error');
+    expect(r.status).toBe('failed');
+    expect(JSON.parse(readFileSync(r.artifactPath!,'utf8')).failure).toBe('spawn_error');
+  });
   it.skipIf(!actualChafa)('runs the real headless CLI on a retained local PNG without changing the input', () => {
     const d = root(), before = readFileSync(png);
     const r = spawnSync(process.execPath, ['--import','tsx','src/cli.ts','vision','preview','--image',png,'--json'], {

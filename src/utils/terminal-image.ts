@@ -71,13 +71,23 @@ export async function renderTerminalImage(path: string, dir = process.cwd()): Pr
     const result = await new Promise<{code: number | null; stdout: string; stderr: string; failure: string | null}>(done => {
       const child = spawn(executable, args, { shell: false, detached: process.platform !== 'win32',
         env: { PATH: process.env.PATH, LANG: 'en_US.UTF-8', TERM: 'xterm-256color' }, stdio: ['ignore', 'pipe', 'pipe'] });
-      const stdout: Buffer[] = [], stderr: Buffer[] = []; let count = 0, failure: string | null = null;
-      const stop = (reason: string) => { if (failure) return; failure = reason; try { process.kill(-child.pid!, 'SIGKILL'); } catch { child.kill('SIGKILL'); } };
-      const timer = setTimeout(() => stop('timeout'), 5000);
+      const stdout: Buffer[] = [], stderr: Buffer[] = []; let count = 0, failure: string | null = null, settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const finish = (code: number | null) => {
+        if (settled) return;
+        settled = true; if (timer) clearTimeout(timer);
+        done({ code, failure, stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') });
+      };
+      const stop = (reason: string) => {
+        if (!failure) failure = reason;
+        try { if (child.pid) process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+        finish(null);
+      };
+      timer = setTimeout(() => stop('timeout'), 5000);
       const collect = (chunk: Buffer, target: Buffer[]) => { if (failure) return; count += chunk.length; if (count > MAX_OUTPUT) stop('output_limit'); else target.push(chunk); };
       child.stdout.on('data', c => collect(c, stdout)); child.stderr.on('data', c => collect(c, stderr));
-      child.once('error', () => { failure = 'spawn_error'; });
-      child.once('close', code => { clearTimeout(timer); done({ code, failure, stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') }); });
+      child.once('error', () => stop('spawn_error'));
+      child.once('close', code => finish(code));
     });
     await writeFile(join(out, 'raw.ansi'), result.stdout, { flag: 'wx', mode: 0o600 });
     await writeFile(join(out, 'stderr.txt'), result.stderr, { flag: 'wx', mode: 0o600 });
