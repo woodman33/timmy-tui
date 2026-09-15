@@ -1,0 +1,21 @@
+{
+  "schema": "timmy.workflow-canary.result/1",
+  "mode": "explicit-single-case",
+  "protocolHash": "14ad16cf8d869ee1fcf8e6d05e2748d385f7a9a5ef9221d931511635ee0efb6d",
+  "model": "granite4.2:latest",
+  "completedEpisodes": 1,
+  "passedEpisodes": 0,
+  "stoppedBecause": "evidence_or_reasoning_failure_requires_isolated_diagnosis",
+  "allSelectedPassed": false,
+  "files": [
+    {
+      "path": "episodes/light-missing-evidence.json",
+      "sha256": "fadfce4b9449fbbfdfc5d9c05806f0c5c1629cd74031aa21de4283faaf7a36c2"
+    }
+  ],
+  "skippedCases": [],
+  "modelsCompared": false,
+  "nativeSoftwareTested": false,
+  "trainingExecuted": false,
+  "next": "Isolate this failure with recorded observations before any additional model or harder live task."
+}

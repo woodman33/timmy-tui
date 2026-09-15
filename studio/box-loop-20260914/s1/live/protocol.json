@@ -1,0 +1,107 @@
+{
+  "schema": "timmy.workflow-canary.protocol/1",
+  "mode": "explicit-single-case",
+  "model": {
+    "schema": "timmy.lab-local-model/1",
+    "provider": "ollama",
+    "endpoint": "http://localhost:11434",
+    "exactTag": "granite4.2:latest",
+    "digest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+    "sizeBytes": 5347929757,
+    "quantization": "Q4_K_M",
+    "format": "gguf",
+    "family": "granite",
+    "parameterSize": "8.8B",
+    "capabilities": [
+      "completion",
+      "thinking",
+      "tools"
+    ],
+    "contextLength": 131072,
+    "contextWindow": 32768,
+    "toolMode": "native",
+    "runtimeVersion": "0.34.0",
+    "hardware": {
+      "platform": "darwin",
+      "architecture": "arm64",
+      "osRelease": "25.6.0",
+      "cpu": "Apple M5 Max",
+      "logicalCpus": 18,
+      "memoryBytes": 137438953472,
+      "gpu": null,
+      "vramBytes": null
+    },
+    "sampler": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 768
+    },
+    "sha256": "58849dda0fb706b9d3cd44e6f7a50216c203310ce73d2407d2db19f35b5350c0"
+  },
+  "sourceHashes": {
+    "workflow-benchmark.ts": "059ba298f0c90b48bbf60a98724a7e9d1eb40a8608b3208cbd27e8b2c9db7796",
+    "workflow-model-adapter.ts": "9b294916604a8086141f93197d68c737fc7f16102f934ecf3e2baff8237b2541",
+    "workflow-isolation.ts": "641f75a6e7937f13b82750c998852ce8cbc3a9239a9f847a0a6faad8d751ab63",
+    "lab-challenges.ts": "c4366896d33bc659b886a9560b1dfee0ca0eaf81315aa9aec0ac3ff32d8ee55c",
+    "lab-model-adapter.ts": "b96644ae8ebe15cb48c0cb7f25936cdf8b17adf84a7986b21b6a736da07b89a5",
+    "lab-independent-verifier.ts": "bf611b86f3c714530dd4cd6f924fedb9a53879b1fcf8eb4f07a41237fc936ce6"
+  },
+  "selected": [
+    "light-missing-evidence"
+  ],
+  "budgets": {
+    "novice": {
+      "maxToolRounds": 1,
+      "maxCalls": 2,
+      "episodeTimeoutMs": 60000,
+      "requestTimeoutMs": 20000,
+      "finalReserveMs": 25000,
+      "maxToolOutputBytes": 6000,
+      "toolPredict": 512,
+      "finalPredict": 768
+    },
+    "medium": {
+      "maxToolRounds": 4,
+      "maxCalls": 5,
+      "episodeTimeoutMs": 90000,
+      "requestTimeoutMs": 30000,
+      "finalReserveMs": 35000,
+      "maxToolOutputBytes": 6000,
+      "toolPredict": 512,
+      "finalPredict": 768
+    },
+    "hard": {
+      "maxToolRounds": 6,
+      "maxCalls": 8,
+      "episodeTimeoutMs": 120000,
+      "requestTimeoutMs": 30000,
+      "finalReserveMs": 35000,
+      "maxToolOutputBytes": 6000,
+      "toolPredict": 512,
+      "finalPredict": 768
+    }
+  },
+  "maximumModels": 1,
+  "maximumEpisodes": 1,
+  "concurrency": 1,
+  "stop": "First protocol, integrity, timeout, or task failure. Diagnose before expanding.",
+  "stages": [
+    "offline isolated tools and simulated connection contracts",
+    "one explicitly selected development case"
+  ],
+  "skipped": [
+    "all other models",
+    "all other cases",
+    "native software connections",
+    "training",
+    "Roboflow inference"
+  ],
+  "prompts": [
+    {
+      "id": "light-missing-evidence",
+      "sha256": "4a5cfa1d5b8c0b5cf324003f7923c4937af1ca326589dbc873fdde84cd13ed4d"
+    }
+  ],
+  "diagnosticDevelopmentRun": true,
+  "pairedImprovementClaimAgainstOldRun": false
+}

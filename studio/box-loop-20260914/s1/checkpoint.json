@@ -1,0 +1,46 @@
+{
+  "schema": "timmy.checkpoint.result/1",
+  "step": "S1",
+  "status": "failed",
+  "startedAt": "2026-09-15T01:48:16Z",
+  "completedAt": "2026-09-15T01:54:01.057729+00:00",
+  "checkpointLimitMinutes": 15,
+  "before": {
+    "passed": 0,
+    "total": 1,
+    "artifact": "studio/workflow-repair-20260913/episodes/light-missing-evidence.json",
+    "sha256": "70096e390fa7737b77fb63dedfe879591390d3a7d298752c1b86d274ef3afd74"
+  },
+  "after": {
+    "passed": 0,
+    "total": 1,
+    "artifact": "live/episodes/light-missing-evidence.json"
+  },
+  "actualObservationHandle": "ev-b58e270067-1-96f0ce58fc",
+  "actualCitation": [
+    "metric_depth"
+  ],
+  "model": "granite4.2:latest",
+  "modelDigest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+  "inferenceRequests": 2,
+  "toolCalls": 1,
+  "episodeMs": 13304.204416,
+  "strictVerifierChanged": false,
+  "retryPerformed": false,
+  "S2_S6": "not_started_S1_gate_failed",
+  "demoObject": "box-with-bore",
+  "tests": {
+    "workflowModelAdapter": {
+      "passed": 21,
+      "evidence": "adapter-tests.txt"
+    },
+    "workflowBenchmark": {
+      "passed": 15,
+      "evidence": "collaboration/plasticity_research tool result (captured by agent); no saved raw console file",
+      "controls": [
+        "acquired handle positive; metric_depth negative",
+        "renamed-case handle positive; original-case handle negative"
+      ]
+    }
+  }
+}

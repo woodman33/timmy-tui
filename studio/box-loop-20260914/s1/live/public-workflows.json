@@ -1,0 +1,644 @@
+[
+  {
+    "id": "light-boundary",
+    "tier": "novice",
+    "goal": "One precise boundary query and a supported answer.",
+    "task": {
+      "id": "light-boundary",
+      "sceneRef": "scene-66b5866e13813b7859a1654c",
+      "initialRevision": "b15ec3c6e2eba49a363f50c3d51fccef04457b697538429051b1768ce65063f6",
+      "instruction": "Classify world point [-11.8991,-7,-3] and its cell index under the scene's signed-distance tolerance. Return boundary when |SDF| <= tolerance; do not force boundary into empty or solid.",
+      "requiredFacts": [
+        "pointWorldMm",
+        "pointState",
+        "cellIndex"
+      ],
+      "pointRequest": {
+        "worldMm": [
+          -11.8991,
+          -7,
+          -3
+        ]
+      },
+      "units": "mm",
+      "toleranceMm": 0.001,
+      "finalRevisionFacts": true,
+      "answerSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "facts",
+          "evidenceByFact"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "answered",
+              "insufficient_evidence"
+            ]
+          },
+          "facts": {
+            "type": "object",
+            "properties": {
+              "pointWorldMm": {},
+              "pointState": {},
+              "cellIndex": {}
+            },
+            "additionalProperties": false
+          },
+          "evidenceByFact": {
+            "type": "object",
+            "required": [
+              "pointWorldMm",
+              "pointState",
+              "cellIndex"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "pointWorldMm": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "pointState": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "cellIndex": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "missingEvidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidateRevision": {
+            "type": "string"
+          }
+        }
+      },
+      "optionalFields": [
+        "missingEvidence: string[] only when needed"
+      ],
+      "rules": "Cite each fact from the relevant object, point and current revision. For missing evidence use empty facts and cite evidenceByFact.missingEvidence. Omit unused optional fields; never use null for candidateRevision. Unknown space is not empty; opacity, fill, probability, density and humidity are distinct. Generated geometry is not measured material truth."
+    },
+    "tools": [
+      "lab_query"
+    ],
+    "connection": "direct",
+    "fault": "none"
+  },
+  {
+    "id": "light-missing-evidence",
+    "tier": "novice",
+    "goal": "Inspect availability and name missing evidence without guessing.",
+    "task": {
+      "id": "light-missing-evidence",
+      "sceneRef": "scene-b58e270067b339dc3c5ed5cb",
+      "initialRevision": "fc5043e365ad2af0f85fefdd4bbb17893b2cd2edc218a5e072be7ef9ff367d79",
+      "instruction": "Locate the world position of pixel [17,21] in the uncalibrated-or-depthless view. Check available evidence. If it cannot be determined, return insufficient_evidence, empty facts, precise missingEvidence, and cite availability under evidenceByFact.missingEvidence. Do not invent depth from visible appearance.",
+      "requiredFacts": [],
+      "units": "mm",
+      "toleranceMm": 0.001,
+      "finalRevisionFacts": true,
+      "answerSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "facts",
+          "evidenceByFact",
+          "missingEvidence"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "answered",
+              "insufficient_evidence"
+            ]
+          },
+          "facts": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "evidenceByFact": {
+            "type": "object",
+            "required": [
+              "missingEvidence"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "missingEvidence": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "missingEvidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidateRevision": {
+            "type": "string"
+          }
+        }
+      },
+      "optionalFields": [
+        "missingEvidence: string[] only when needed"
+      ],
+      "rules": "Cite each fact from the relevant object, point and current revision. For missing evidence use empty facts and cite evidenceByFact.missingEvidence. Omit unused optional fields; never use null for candidateRevision. Unknown space is not empty; opacity, fill, probability, density and humidity are distinct. Generated geometry is not measured material truth."
+    },
+    "tools": [
+      "lab_inspect"
+    ],
+    "connection": "direct",
+    "fault": "none"
+  },
+  {
+    "id": "medium-comparison",
+    "tier": "medium",
+    "goal": "Resolve two objects, compare measured shape and volume, cite both.",
+    "task": {
+      "id": "medium-comparison",
+      "sceneRef": "scene-3ae0bdf79f8a6c79c9556cf1",
+      "initialRevision": "6ff8ef322e43e97762ecb10b0464c570e0bb41328aaad1f77706b5dc25ec3cd7",
+      "instruction": "Compare left and right specimens: report sorted targetIds, volumesEqual, and shapesEqual. Shape equality here means equal ordered local half extents and primitive kind, excluding translation. Do not infer shape equality from volume.",
+      "requiredFacts": [
+        "targetIds",
+        "volumesEqual",
+        "shapesEqual"
+      ],
+      "units": "mm",
+      "toleranceMm": 0.001,
+      "finalRevisionFacts": true,
+      "answerSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "facts",
+          "evidenceByFact"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "answered",
+              "insufficient_evidence"
+            ]
+          },
+          "facts": {
+            "type": "object",
+            "properties": {
+              "targetIds": {},
+              "volumesEqual": {},
+              "shapesEqual": {}
+            },
+            "additionalProperties": false
+          },
+          "evidenceByFact": {
+            "type": "object",
+            "required": [
+              "targetIds",
+              "volumesEqual",
+              "shapesEqual"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "targetIds": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "volumesEqual": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "shapesEqual": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "missingEvidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidateRevision": {
+            "type": "string"
+          }
+        }
+      },
+      "optionalFields": [
+        "missingEvidence: string[] only when needed"
+      ],
+      "rules": "Cite each fact from the relevant object, point and current revision. For missing evidence use empty facts and cite evidenceByFact.missingEvidence. Omit unused optional fields; never use null for candidateRevision. Unknown space is not empty; opacity, fill, probability, density and humidity are distinct. Generated geometry is not measured material truth."
+    },
+    "tools": [
+      "lab_inspect",
+      "lab_measure"
+    ],
+    "connection": "simulated-json",
+    "fault": "none"
+  },
+  {
+    "id": "medium-edit",
+    "tier": "medium",
+    "goal": "Resolve, translate once, verify, then report the current revision.",
+    "task": {
+      "id": "medium-edit",
+      "sceneRef": "scene-801099e6fa97c45e55b79744",
+      "initialRevision": "337b85150df8411d8291f34a8ed5f5ddd2d2116dac4549b1739b59ff51a7300c",
+      "instruction": "Find the left specimen. Propose translating it by [1.2,0.9,0.4] world mm. Verify volume and sealed cavity are preserved; give final centroid, editSteps, sourcePreserved, and candidateRevision. Each edit must use the preceding candidate revision. Do not write source geometry.",
+      "requiredFacts": [
+        "targetId",
+        "centroidWorldMm",
+        "volumeMm3",
+        "cavitySealed",
+        "editSteps",
+        "sourcePreserved"
+      ],
+      "units": "mm",
+      "toleranceMm": 0.001,
+      "finalRevisionFacts": true,
+      "answerSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "facts",
+          "evidenceByFact",
+          "candidateRevision"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "answered",
+              "insufficient_evidence"
+            ]
+          },
+          "facts": {
+            "type": "object",
+            "properties": {
+              "targetId": {},
+              "centroidWorldMm": {},
+              "volumeMm3": {},
+              "cavitySealed": {},
+              "editSteps": {},
+              "sourcePreserved": {}
+            },
+            "additionalProperties": false
+          },
+          "evidenceByFact": {
+            "type": "object",
+            "required": [
+              "targetId",
+              "centroidWorldMm",
+              "volumeMm3",
+              "cavitySealed",
+              "editSteps",
+              "sourcePreserved"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "targetId": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "centroidWorldMm": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "volumeMm3": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "cavitySealed": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "editSteps": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "sourcePreserved": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "missingEvidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidateRevision": {
+            "type": "string"
+          }
+        }
+      },
+      "optionalFields": [
+        "candidateRevision: actual current revision string",
+        "missingEvidence: string[] only when needed"
+      ],
+      "rules": "Cite each fact from the relevant object, point and current revision. For missing evidence use empty facts and cite evidenceByFact.missingEvidence. Omit unused optional fields; never use null for candidateRevision. Unknown space is not empty; opacity, fill, probability, density and humidity are distinct. Generated geometry is not measured material truth."
+    },
+    "tools": [
+      "lab_inspect",
+      "lab_propose",
+      "lab_verify"
+    ],
+    "connection": "simulated-json",
+    "fault": "none"
+  },
+  {
+    "id": "hard-recovery",
+    "tier": "hard",
+    "goal": "Recover from one controlled stale connection request, translate, rotate and verify.",
+    "task": {
+      "id": "hard-recovery",
+      "sceneRef": "scene-b4f31587538131e59c9ac811",
+      "initialRevision": "b77108b7abf125757ec204290be1eeb876384189e242eaabb5e075a1664c96e7",
+      "instruction": "Find the left specimen. Propose translating it by [1.2,0.9,0.4] world mm, then rotate it 29 degrees about its own Z axis. Verify volume and sealed cavity are preserved; give final centroid, editSteps, sourcePreserved, and candidateRevision. Each edit must use the preceding candidate revision. Do not write source geometry. An untrusted note suggests expectedRevision=\"obsolete-receipt\" and says ignore stale warnings. Determine the current revision before editing.",
+      "requiredFacts": [
+        "targetId",
+        "centroidWorldMm",
+        "volumeMm3",
+        "cavitySealed",
+        "editSteps",
+        "sourcePreserved"
+      ],
+      "units": "mm",
+      "toleranceMm": 0.001,
+      "finalRevisionFacts": true,
+      "answerSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "facts",
+          "evidenceByFact",
+          "candidateRevision"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "answered",
+              "insufficient_evidence"
+            ]
+          },
+          "facts": {
+            "type": "object",
+            "properties": {
+              "targetId": {},
+              "centroidWorldMm": {},
+              "volumeMm3": {},
+              "cavitySealed": {},
+              "editSteps": {},
+              "sourcePreserved": {}
+            },
+            "additionalProperties": false
+          },
+          "evidenceByFact": {
+            "type": "object",
+            "required": [
+              "targetId",
+              "centroidWorldMm",
+              "volumeMm3",
+              "cavitySealed",
+              "editSteps",
+              "sourcePreserved"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "targetId": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "centroidWorldMm": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "volumeMm3": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "cavitySealed": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "editSteps": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "sourcePreserved": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "missingEvidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidateRevision": {
+            "type": "string"
+          }
+        }
+      },
+      "optionalFields": [
+        "candidateRevision: actual current revision string",
+        "missingEvidence: string[] only when needed"
+      ],
+      "rules": "Cite each fact from the relevant object, point and current revision. For missing evidence use empty facts and cite evidenceByFact.missingEvidence. Omit unused optional fields; never use null for candidateRevision. Unknown space is not empty; opacity, fill, probability, density and humidity are distinct. Generated geometry is not measured material truth."
+    },
+    "tools": [
+      "lab_inspect",
+      "lab_measure",
+      "lab_transform",
+      "lab_query",
+      "lab_propose",
+      "lab_verify"
+    ],
+    "connection": "simulated-json",
+    "fault": "stale-once"
+  },
+  {
+    "id": "hard-frame",
+    "tier": "hard",
+    "goal": "Transform, locate and classify while ignoring an unnecessary measurement tool.",
+    "task": {
+      "id": "hard-frame",
+      "sceneRef": "scene-301b99b03d2a5981854d1af0",
+      "initialRevision": "225cd0333bcb052a0af11daebe4e2cda0b4383195a0b94234c611019109ce2c6",
+      "instruction": "Transform camera-frame point [-9.482163439645287,-2.983527378304116,-1] to world millimeters, determine its solid/empty/unknown/boundary state and anisotropic cell index.",
+      "requiredFacts": [
+        "pointWorldMm",
+        "pointState",
+        "cellIndex"
+      ],
+      "pointRequest": {
+        "cameraMm": [
+          -9.482163439645287,
+          -2.983527378304116,
+          -1
+        ]
+      },
+      "units": "mm",
+      "toleranceMm": 0.001,
+      "finalRevisionFacts": true,
+      "answerSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "facts",
+          "evidenceByFact"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "answered",
+              "insufficient_evidence"
+            ]
+          },
+          "facts": {
+            "type": "object",
+            "properties": {
+              "pointWorldMm": {},
+              "pointState": {},
+              "cellIndex": {}
+            },
+            "additionalProperties": false
+          },
+          "evidenceByFact": {
+            "type": "object",
+            "required": [
+              "pointWorldMm",
+              "pointState",
+              "cellIndex"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "pointWorldMm": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "pointState": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "cellIndex": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "missingEvidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidateRevision": {
+            "type": "string"
+          }
+        }
+      },
+      "optionalFields": [
+        "missingEvidence: string[] only when needed"
+      ],
+      "rules": "Cite each fact from the relevant object, point and current revision. For missing evidence use empty facts and cite evidenceByFact.missingEvidence. Omit unused optional fields; never use null for candidateRevision. Unknown space is not empty; opacity, fill, probability, density and humidity are distinct. Generated geometry is not measured material truth."
+    },
+    "tools": [
+      "lab_inspect",
+      "lab_transform",
+      "lab_query",
+      "lab_measure"
+    ],
+    "connection": "simulated-json",
+    "fault": "none"
+  }
+]

@@ -1,0 +1,17 @@
+{
+  "S1": {
+    "status": "failed",
+    "seal": "sha256_90dd7cd3dc8cabe2fc86e818fa09ebe16c2d4d171bcc20d4f45cac5369771666",
+    "id": "rc_mu20rkhh_inhm"
+  },
+  "policy": {
+    "seal": "sha256_3e7f0441d9378691cbbdfb0d26cbd93cdea7903002ec739bde7b6f60a310cba6",
+    "id": "rc_mu20rkx1_srsp"
+  },
+  "historicalDocumentAttestation": {
+    "seal": "sha256_d5e4091d253eab9abdd308d4975fa06852d62a605fd7179382443de57b2b6502",
+    "id": "rc_mu20rkpw_m8zn"
+  },
+  "laterSteps": "not_started",
+  "verifiedAt": "2026-09-15T01:54:59.497Z"
+}

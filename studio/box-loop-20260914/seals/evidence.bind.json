@@ -1,0 +1,57 @@
+{
+  "v": 1,
+  "id": "rc_mu20rkhh_inhm",
+  "stream": "runs",
+  "ts": "2026-09-15T01:54:58.805Z",
+  "env_lock": {
+    "os": {
+      "platform": "darwin",
+      "build": "25G83",
+      "version": "26.6.2"
+    },
+    "arch": "arm64",
+    "tools": {
+      "ffmpeg": {
+        "path": "/opt/homebrew/Cellar/ffmpeg/9.0.1/bin/ffmpeg",
+        "sha256": "cebe04356214a938aec846e4fc423de3fc18eda07f64e34e56d55f9963473a20",
+        "size": 426496,
+        "mtime": 1786783182299.5347
+      },
+      "ffprobe": {
+        "path": "/opt/homebrew/Cellar/ffmpeg/9.0.1/bin/ffprobe",
+        "sha256": "81e6262cec5b1f06517c1853041394016ec0503f580aed702e62ac488c4520de",
+        "size": 253488,
+        "mtime": 1786783182342.6052
+      }
+    },
+    "models": {}
+  },
+  "kind": "seal",
+  "subject": "evidence.bind",
+  "status": "failed",
+  "tier": "LIGHT",
+  "policy": "Explicit user checkpoint authorization; stop on first failure",
+  "artifacts": [
+    "studio/box-loop-20260914/s1/manifest.json"
+  ],
+  "manifest_sha256": "0ed611eea532dc80470ca1a3474e73355508c43862edeb9befe873bc58b6fc4c",
+  "output_sha256": "0ed611eea532dc80470ca1a3474e73355508c43862edeb9befe873bc58b6fc4c",
+  "sources": [
+    {
+      "path": "studio/box-loop-20260914/s1/manifest.json",
+      "sha256": "0ed611eea532dc80470ca1a3474e73355508c43862edeb9befe873bc58b6fc4c"
+    }
+  ],
+  "error_class": "evidence_binding",
+  "exit_code": 2,
+  "model_resolved": "granite4.2:latest",
+  "discrepancies": [
+    "S1 strict success remains 0/1; metric_depth property cited instead of observation handle.",
+    "S2–S6 not started."
+  ],
+  "epoch": 903,
+  "prev_hash": "sha256_9a707198127bbc0d50b382d504891f4ec777d74efbfc912cc9f72867a174738a",
+  "signer": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA1vYIB6WZTimHEgjkX0Ut7nxX4I7xhjMrI/1K3HUFXYY=\n-----END PUBLIC KEY-----\n",
+  "signature": "gjOeDloEZG/+gRstXH8UU2IxCR9WPabPEav76/59RXhjUfbx47AglF0D4alrgdP3/2aIz9+21F3tCZBHUz4OCw==",
+  "hash": "sha256_90dd7cd3dc8cabe2fc86e818fa09ebe16c2d4d171bcc20d4f45cac5369771666"
+}

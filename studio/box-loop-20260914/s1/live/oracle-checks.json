@@ -1,0 +1,44 @@
+[
+  {
+    "id": "light-boundary",
+    "tier": "novice",
+    "passed": true,
+    "referenceCalls": 2,
+    "note": "Reference calls are an evaluator diagnostic, not a required model trace or minimality proof."
+  },
+  {
+    "id": "light-missing-evidence",
+    "tier": "novice",
+    "passed": true,
+    "referenceCalls": 1,
+    "note": "Reference calls are an evaluator diagnostic, not a required model trace or minimality proof."
+  },
+  {
+    "id": "medium-comparison",
+    "tier": "medium",
+    "passed": true,
+    "referenceCalls": 3,
+    "note": "Reference calls are an evaluator diagnostic, not a required model trace or minimality proof."
+  },
+  {
+    "id": "medium-edit",
+    "tier": "medium",
+    "passed": true,
+    "referenceCalls": 3,
+    "note": "Reference calls are an evaluator diagnostic, not a required model trace or minimality proof."
+  },
+  {
+    "id": "hard-recovery",
+    "tier": "hard",
+    "passed": true,
+    "referenceCalls": 4,
+    "note": "Reference calls are an evaluator diagnostic, not a required model trace or minimality proof."
+  },
+  {
+    "id": "hard-frame",
+    "tier": "hard",
+    "passed": true,
+    "referenceCalls": 3,
+    "note": "Reference calls are an evaluator diagnostic, not a required model trace or minimality proof."
+  }
+]

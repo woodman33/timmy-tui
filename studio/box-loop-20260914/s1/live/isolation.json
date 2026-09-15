@@ -1,0 +1,4458 @@
+{
+  "schema": "timmy.workflow-isolation.v1",
+  "passed": true,
+  "scope": {
+    "modelCalls": 0,
+    "networkCalls": 0,
+    "nativeCalls": 0,
+    "transport": "in-memory JSON serialization only",
+    "geometry": "Generated spheres, spherical shells and Z-rotated boxes; point controls use known interior/exterior/unknown locations.",
+    "inference": "Tool and connection contracts only; no model reasoning score, native-software quality claim, or general spatial performance inference."
+  },
+  "checks": [
+    {
+      "id": "direct.inventory",
+      "componentId": "tool:lab_inspect",
+      "toolIds": [
+        "lab_inspect"
+      ],
+      "family": "inventory",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_inspect",
+          "args": {
+            "sceneRef": "scene-36a0384762bdbfd4a19ee57f"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "objects": [
+            {
+              "id": "o-c69430e2c",
+              "label": "left specimen",
+              "provenance": "generated"
+            },
+            {
+              "id": "o-7351b06e7",
+              "label": "right specimen",
+              "provenance": "generated"
+            }
+          ],
+          "cameraFrame": {
+            "originMm": [
+              -11,
+              3,
+              -2
+            ],
+            "angleDeg": 40
+          },
+          "grid": {
+            "originMm": [
+              -31,
+              -27,
+              -13
+            ],
+            "cellSizeMm": [
+              2,
+              3,
+              5
+            ]
+          },
+          "toleranceMm": 0.001,
+          "evidenceAvailability": {
+            "metricDepth": true,
+            "calibration": true
+          },
+          "missingEvidence": [],
+          "sourceRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "evidenceId": "ev-36a0384762-1-bde4a76f2f",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "evidenceType": "scene_inventory"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        }
+      },
+      "sha256": "1e41df8830101a4329d0140a94e2da3704b04d978102682b89bbf19bc3db1510"
+    },
+    {
+      "id": "direct.volume.sphere",
+      "componentId": "tool:lab_measure",
+      "toolIds": [
+        "lab_measure"
+      ],
+      "family": "measurement",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_measure",
+          "args": {
+            "objectId": "o-596b89eb6",
+            "expectedRevision": "b5d1ebf2db3f8bd6169b819755bb4b14b924f3d9b4fba3097b2b8721df761867"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "facts": {
+            "targetId": "o-596b89eb6",
+            "centroidWorldMm": [
+              -14,
+              -5,
+              -5
+            ],
+            "volumeMm3": 47.205807829221314,
+            "surfaceAreaMm2": 63.16566614079569,
+            "cavitySealed": false,
+            "connectedComponents": 1,
+            "shapeKind": "sphere",
+            "angleDeg": 29,
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "materialIdentity": null
+          },
+          "primitive": {
+            "kind": "sphere",
+            "center": [
+              -14,
+              -5,
+              -5
+            ],
+            "radius": 2.242,
+            "innerRadius": 0,
+            "halfExtents": [
+              2.242,
+              2.242,
+              2.242
+            ],
+            "angleDeg": 29
+          },
+          "evidenceId": "ev-3c726651dc-1-fe6393279c",
+          "revision": "b5d1ebf2db3f8bd6169b819755bb4b14b924f3d9b4fba3097b2b8721df761867",
+          "evidenceType": "analytic_geometry"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-596b89eb6": 47.20580782922132,
+            "o-6fbd72c86": 15.02607531733333
+          }
+        }
+      },
+      "sha256": "b24a6d5fcf45eb3181cfafe6b923efc89910cca10392a72c9eed3fbb3a442497"
+    },
+    {
+      "id": "direct.volume.shell",
+      "componentId": "tool:lab_measure",
+      "toolIds": [
+        "lab_measure"
+      ],
+      "family": "measurement",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_measure",
+          "args": {
+            "objectId": "o-596b89eb6",
+            "expectedRevision": "0e468ce7bb49a96daac053fbdcdff719c6f3847c3885ae583cbc1aac96432d89"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "facts": {
+            "targetId": "o-596b89eb6",
+            "centroidWorldMm": [
+              -14,
+              -5,
+              -5
+            ],
+            "volumeMm3": 35.95534206089866,
+            "surfaceAreaMm2": 87.44654820531757,
+            "cavitySealed": true,
+            "connectedComponents": 1,
+            "shapeKind": "shell",
+            "angleDeg": 29,
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "materialIdentity": null
+          },
+          "primitive": {
+            "kind": "shell",
+            "center": [
+              -14,
+              -5,
+              -5
+            ],
+            "radius": 2.242,
+            "innerRadius": 1.39004,
+            "halfExtents": [
+              2.242,
+              2.242,
+              2.242
+            ],
+            "angleDeg": 29
+          },
+          "evidenceId": "ev-020158df79-1-c22ecc776c",
+          "revision": "0e468ce7bb49a96daac053fbdcdff719c6f3847c3885ae583cbc1aac96432d89",
+          "evidenceType": "analytic_geometry"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-596b89eb6": 35.95534206089866,
+            "o-6fbd72c86": 15.02607531733333
+          }
+        }
+      },
+      "sha256": "5a404c380ae22dfdeb09e94c8466fa223c1b1c448ac0a5c9727c74b68e8128c6"
+    },
+    {
+      "id": "direct.volume.box",
+      "componentId": "tool:lab_measure",
+      "toolIds": [
+        "lab_measure"
+      ],
+      "family": "measurement",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_measure",
+          "args": {
+            "objectId": "o-c69430e2c",
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "facts": {
+            "targetId": "o-c69430e2c",
+            "centroidWorldMm": [
+              -16,
+              -7,
+              -4
+            ],
+            "volumeMm3": 25.9308,
+            "surfaceAreaMm2": 54.684,
+            "cavitySealed": false,
+            "connectedComponents": 1,
+            "shapeKind": "box",
+            "angleDeg": 27,
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "materialIdentity": null
+          },
+          "primitive": {
+            "kind": "box",
+            "center": [
+              -16,
+              -7,
+              -4
+            ],
+            "radius": 2.1,
+            "innerRadius": 0,
+            "halfExtents": [
+              2.1,
+              1.05,
+              1.47
+            ],
+            "angleDeg": 27
+          },
+          "evidenceId": "ev-36a0384762-1-daa8eea426",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "evidenceType": "analytic_geometry"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        }
+      },
+      "sha256": "fb276db7ad4164757ea3b25bc39b23395298afaf1972feb51ccc580f60dbd91e"
+    },
+    {
+      "id": "direct.query.solid",
+      "componentId": "tool:lab_query",
+      "toolIds": [
+        "lab_query"
+      ],
+      "family": "containment",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_query",
+          "args": {
+            "pointMm": [
+              -14,
+              -5,
+              -5
+            ],
+            "expectedRevision": "b5d1ebf2db3f8bd6169b819755bb4b14b924f3d9b4fba3097b2b8721df761867"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "facts": {
+            "pointState": "solid",
+            "pointWorldMm": [
+              -14,
+              -5,
+              -5
+            ],
+            "objectIds": [
+              "o-596b89eb6"
+            ],
+            "signedDistanceMm": -2.242,
+            "cellIndex": [
+              8,
+              7,
+              1
+            ]
+          },
+          "toleranceMm": 0.001,
+          "evidenceId": "ev-3c726651dc-1-7ea1d13d3d",
+          "revision": "b5d1ebf2db3f8bd6169b819755bb4b14b924f3d9b4fba3097b2b8721df761867",
+          "evidenceType": "analytic_geometry"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-596b89eb6": 47.20580782922132,
+            "o-6fbd72c86": 15.02607531733333
+          }
+        }
+      },
+      "sha256": "0a3e787c71d85cab1dd0e1e588c6109cb98390cdf9700262430a0e2329d02196"
+    },
+    {
+      "id": "direct.query.empty",
+      "componentId": "tool:lab_query",
+      "toolIds": [
+        "lab_query"
+      ],
+      "family": "containment",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_query",
+          "args": {
+            "pointMm": [
+              0,
+              0,
+              0
+            ],
+            "expectedRevision": "b5d1ebf2db3f8bd6169b819755bb4b14b924f3d9b4fba3097b2b8721df761867"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "facts": {
+            "pointState": "empty",
+            "pointWorldMm": [
+              0,
+              0,
+              0
+            ],
+            "objectIds": [],
+            "signedDistanceMm": 11.998789118050098,
+            "cellIndex": [
+              15,
+              9,
+              2
+            ]
+          },
+          "toleranceMm": 0.001,
+          "evidenceId": "ev-3c726651dc-1-a6618cf5a4",
+          "revision": "b5d1ebf2db3f8bd6169b819755bb4b14b924f3d9b4fba3097b2b8721df761867",
+          "evidenceType": "analytic_geometry"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-596b89eb6": 47.20580782922132,
+            "o-6fbd72c86": 15.02607531733333
+          }
+        }
+      },
+      "sha256": "61cf720e226a2d28acc5b131e5e9fdc8da3f36e45a9bd678033dea7292420116"
+    },
+    {
+      "id": "direct.query.cavity",
+      "componentId": "tool:lab_query",
+      "toolIds": [
+        "lab_query"
+      ],
+      "family": "containment",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_query",
+          "args": {
+            "pointMm": [
+              -14,
+              -5,
+              -5
+            ],
+            "expectedRevision": "0e468ce7bb49a96daac053fbdcdff719c6f3847c3885ae583cbc1aac96432d89"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "facts": {
+            "pointState": "empty",
+            "pointWorldMm": [
+              -14,
+              -5,
+              -5
+            ],
+            "objectIds": [],
+            "signedDistanceMm": 1.39004,
+            "cellIndex": [
+              8,
+              7,
+              1
+            ]
+          },
+          "toleranceMm": 0.001,
+          "evidenceId": "ev-020158df79-1-0945ea8fea",
+          "revision": "0e468ce7bb49a96daac053fbdcdff719c6f3847c3885ae583cbc1aac96432d89",
+          "evidenceType": "analytic_geometry"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-596b89eb6": 35.95534206089866,
+            "o-6fbd72c86": 15.02607531733333
+          }
+        }
+      },
+      "sha256": "1d17f780b88c7db7ece2d13af9a911c5c45b0ff52bc8993ff419d8dc317091fe"
+    },
+    {
+      "id": "direct.query.unknown",
+      "componentId": "tool:lab_query",
+      "toolIds": [
+        "lab_query"
+      ],
+      "family": "containment",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_query",
+          "args": {
+            "pointMm": [
+              35,
+              35,
+              35
+            ],
+            "expectedRevision": "b5d1ebf2db3f8bd6169b819755bb4b14b924f3d9b4fba3097b2b8721df761867"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "facts": {
+            "pointState": "unknown",
+            "pointWorldMm": [
+              35,
+              35,
+              35
+            ],
+            "objectIds": [],
+            "signedDistanceMm": null,
+            "cellIndex": [
+              33,
+              20,
+              9
+            ]
+          },
+          "toleranceMm": 0.001,
+          "evidenceId": "ev-3c726651dc-1-162ba71946",
+          "revision": "b5d1ebf2db3f8bd6169b819755bb4b14b924f3d9b4fba3097b2b8721df761867",
+          "evidenceType": "analytic_geometry"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-596b89eb6": 47.20580782922132,
+            "o-6fbd72c86": 15.02607531733333
+          }
+        }
+      },
+      "sha256": "0590fb4813e714432c6c83c380f0f8f63086dcca4394071c9fa610b64bc20a96"
+    },
+    {
+      "id": "direct.query.outside",
+      "componentId": "tool:lab_query",
+      "toolIds": [
+        "lab_query"
+      ],
+      "family": "containment",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_query",
+          "args": {
+            "pointMm": [
+              61,
+              0,
+              0
+            ],
+            "expectedRevision": "b5d1ebf2db3f8bd6169b819755bb4b14b924f3d9b4fba3097b2b8721df761867"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "facts": {
+            "pointState": "unknown",
+            "pointWorldMm": [
+              61,
+              0,
+              0
+            ],
+            "objectIds": [],
+            "signedDistanceMm": null,
+            "cellIndex": [
+              46,
+              9,
+              2
+            ]
+          },
+          "toleranceMm": 0.001,
+          "evidenceId": "ev-3c726651dc-1-826fbd63f1",
+          "revision": "b5d1ebf2db3f8bd6169b819755bb4b14b924f3d9b4fba3097b2b8721df761867",
+          "evidenceType": "analytic_geometry"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-596b89eb6": 47.20580782922132,
+            "o-6fbd72c86": 15.02607531733333
+          }
+        }
+      },
+      "sha256": "17cc76bc4da16afe97db8de4a589a71a53194abeb6b8e5c2af5b2a690403919d"
+    },
+    {
+      "id": "direct.query.boundary",
+      "componentId": "tool:lab_query",
+      "toolIds": [
+        "lab_query"
+      ],
+      "family": "containment",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_query",
+          "args": {
+            "pointMm": [
+              -11.758,
+              -5,
+              -5
+            ],
+            "expectedRevision": "b5d1ebf2db3f8bd6169b819755bb4b14b924f3d9b4fba3097b2b8721df761867"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "facts": {
+            "pointState": "boundary",
+            "pointWorldMm": [
+              -11.758,
+              -5,
+              -5
+            ],
+            "objectIds": [
+              "o-596b89eb6"
+            ],
+            "signedDistanceMm": 8.881784197001252e-16,
+            "cellIndex": [
+              9,
+              7,
+              1
+            ]
+          },
+          "toleranceMm": 0.001,
+          "evidenceId": "ev-3c726651dc-1-da08989d73",
+          "revision": "b5d1ebf2db3f8bd6169b819755bb4b14b924f3d9b4fba3097b2b8721df761867",
+          "evidenceType": "analytic_geometry"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-596b89eb6": 47.20580782922132,
+            "o-6fbd72c86": 15.02607531733333
+          }
+        }
+      },
+      "sha256": "09006c45a2f574a7e21cc306da374d3916fa11094df3baa4e9fb4bbe05f6ae76"
+    },
+    {
+      "id": "direct.query.negative-cell-index",
+      "componentId": "tool:lab_query",
+      "toolIds": [
+        "lab_query"
+      ],
+      "family": "containment",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_query",
+          "args": {
+            "pointMm": [
+              -31.5,
+              -27,
+              -13
+            ],
+            "expectedRevision": "b5d1ebf2db3f8bd6169b819755bb4b14b924f3d9b4fba3097b2b8721df761867"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "facts": {
+            "pointState": "empty",
+            "pointWorldMm": [
+              -31.5,
+              -27,
+              -13
+            ],
+            "objectIds": [],
+            "signedDistanceMm": 26.98555549135096,
+            "cellIndex": [
+              -1,
+              0,
+              0
+            ]
+          },
+          "toleranceMm": 0.001,
+          "evidenceId": "ev-3c726651dc-1-30c5b418db",
+          "revision": "b5d1ebf2db3f8bd6169b819755bb4b14b924f3d9b4fba3097b2b8721df761867",
+          "evidenceType": "analytic_geometry"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-596b89eb6": 47.20580782922132,
+            "o-6fbd72c86": 15.02607531733333
+          }
+        }
+      },
+      "sha256": "10c0dab49dbfc55a2a98b47d74a2e98571e4a9056d6d4a2a5de1c765a6206d9d"
+    },
+    {
+      "id": "direct.transform.identity",
+      "componentId": "tool:lab_transform",
+      "toolIds": [
+        "lab_transform"
+      ],
+      "family": "coordinates",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_transform",
+          "args": {
+            "point": [
+              0,
+              0,
+              0
+            ],
+            "fromFrame": "camera",
+            "toFrame": "camera",
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "facts": {
+            "pointCameraMm": [
+              0,
+              0,
+              0
+            ]
+          },
+          "fromFrame": "camera",
+          "toFrame": "camera",
+          "units": "mm",
+          "evidenceId": "ev-36a0384762-1-d340f2d05d",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "evidenceType": "coordinate_transform"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        }
+      },
+      "sha256": "c9c6b52905c189ee7a63acf72bc4ffb71ce562eb828d3ce738525e8ecb566e89"
+    },
+    {
+      "id": "direct.transform.camera-world",
+      "componentId": "tool:lab_transform",
+      "toolIds": [
+        "lab_transform"
+      ],
+      "family": "coordinates",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_transform",
+          "args": {
+            "point": [
+              0,
+              0,
+              0
+            ],
+            "fromFrame": "camera",
+            "toFrame": "world",
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "facts": {
+            "pointWorldMm": [
+              -11,
+              3,
+              -2
+            ]
+          },
+          "fromFrame": "camera",
+          "toFrame": "world",
+          "units": "mm",
+          "evidenceId": "ev-36a0384762-1-8f6a5b5369",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "evidenceType": "coordinate_transform"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        }
+      },
+      "sha256": "6126faf65b2d37949f37af584dd30eb8cf50d6ffa52e659326cb6412c03dfe2e"
+    },
+    {
+      "id": "direct.transform.world-camera",
+      "componentId": "tool:lab_transform",
+      "toolIds": [
+        "lab_transform"
+      ],
+      "family": "coordinates",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_transform",
+          "args": {
+            "point": [
+              -11,
+              3,
+              -2
+            ],
+            "fromFrame": "world",
+            "toFrame": "camera",
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "facts": {
+            "pointCameraMm": [
+              0,
+              0,
+              0
+            ]
+          },
+          "fromFrame": "world",
+          "toFrame": "camera",
+          "units": "mm",
+          "evidenceId": "ev-36a0384762-1-fb9f441d9b",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "evidenceType": "coordinate_transform"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        }
+      },
+      "sha256": "c12ba7e878e5a3e725a3aae2edbe0146286841929278383ef67590c44c9fc527"
+    },
+    {
+      "id": "direct.transform.orientation",
+      "componentId": "tool:lab_transform",
+      "toolIds": [
+        "lab_transform"
+      ],
+      "family": "coordinates",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_transform",
+          "args": {
+            "point": [
+              2,
+              -3,
+              4
+            ],
+            "fromFrame": "camera",
+            "toFrame": "world",
+            "expectedRevision": "49df921af7f621c25f6c4d5d21b83c74037ca62df7dcfd8c3ba77252887f00d6"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "facts": {
+            "pointWorldMm": [
+              -8,
+              5,
+              2
+            ]
+          },
+          "fromFrame": "camera",
+          "toFrame": "world",
+          "units": "mm",
+          "evidenceId": "ev-36a0384762-1-bfe9b815a4",
+          "revision": "49df921af7f621c25f6c4d5d21b83c74037ca62df7dcfd8c3ba77252887f00d6",
+          "evidenceType": "coordinate_transform"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        }
+      },
+      "sha256": "678822c6bafcb8488ef86f658c884a18e52765b38bd9530f6427d8dd198306d6"
+    },
+    {
+      "id": "direct.propose.translate",
+      "componentId": "tool:lab_propose",
+      "toolIds": [
+        "lab_propose"
+      ],
+      "family": "candidate-edit",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_propose",
+          "args": {
+            "objectId": "o-c69430e2c",
+            "operation": "translate",
+            "vectorMm": [
+              1,
+              -2,
+              0.5
+            ],
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResult": {
+          "status": "proposed",
+          "candidateRevision": "d03ca601ab357f58faa00651de6d1c145700b1a3c240e6378c9923eeb2adedee",
+          "sourceWritten": false,
+          "facts": {
+            "targetId": "o-c69430e2c",
+            "centroidWorldMm": [
+              -15,
+              -9,
+              -3.5
+            ],
+            "volumeMm3": 25.9308,
+            "surfaceAreaMm2": 54.684,
+            "cavitySealed": false,
+            "connectedComponents": 1,
+            "shapeKind": "box",
+            "angleDeg": 27,
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "materialIdentity": null,
+            "editSteps": 1,
+            "sourcePreserved": true
+          },
+          "evidenceId": "ev-36a0384762-1-74b59a8df1",
+          "revision": "d03ca601ab357f58faa00651de6d1c145700b1a3c240e6378c9923eeb2adedee",
+          "evidenceType": "analytic_geometry"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        }
+      },
+      "sha256": "528e7ad289a163557f527e1ce308a2f3dfcfbbaa117b21e0475f86bdfddc7c8a"
+    },
+    {
+      "id": "direct.propose.rotate",
+      "componentId": "tool:lab_propose",
+      "toolIds": [
+        "lab_propose"
+      ],
+      "family": "candidate-edit",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_propose",
+          "args": {
+            "objectId": "o-c69430e2c",
+            "operation": "rotate",
+            "angleDeg": 23,
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResult": {
+          "status": "proposed",
+          "candidateRevision": "e9800782e4b4db356ef58cee4c26a1e18db01845c142bc74883d8b8c08abe45d",
+          "sourceWritten": false,
+          "facts": {
+            "targetId": "o-c69430e2c",
+            "centroidWorldMm": [
+              -16,
+              -7,
+              -4
+            ],
+            "volumeMm3": 25.9308,
+            "surfaceAreaMm2": 54.684,
+            "cavitySealed": false,
+            "connectedComponents": 1,
+            "shapeKind": "box",
+            "angleDeg": 50,
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "materialIdentity": null,
+            "editSteps": 1,
+            "sourcePreserved": true
+          },
+          "evidenceId": "ev-36a0384762-1-0394b0986d",
+          "revision": "e9800782e4b4db356ef58cee4c26a1e18db01845c142bc74883d8b8c08abe45d",
+          "evidenceType": "analytic_geometry"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.9308,
+            "o-7351b06e7": 12.348000000000003
+          }
+        }
+      },
+      "sha256": "d6b37aa4fd9d019217ef0bb4ce7fdba7aa58c4398e0e7b9043e5ea86d17e35da"
+    },
+    {
+      "id": "direct.verify.unchanged",
+      "componentId": "tool:lab_verify",
+      "toolIds": [
+        "lab_verify"
+      ],
+      "family": "verification",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_verify",
+          "args": {
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "valid": true,
+          "reasons": [],
+          "candidateRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "facts": {
+            "editSteps": 0,
+            "sourcePreserved": true,
+            "candidateValid": true
+          },
+          "objects": [
+            {
+              "targetId": "o-c69430e2c",
+              "centroidWorldMm": [
+                -16,
+                -7,
+                -4
+              ],
+              "volumeMm3": 25.9308,
+              "surfaceAreaMm2": 54.684,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 27,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null,
+              "primitive": {
+                "kind": "box",
+                "center": [
+                  -16,
+                  -7,
+                  -4
+                ],
+                "radius": 2.1,
+                "innerRadius": 0,
+                "halfExtents": [
+                  2.1,
+                  1.05,
+                  1.47
+                ],
+                "angleDeg": 27
+              }
+            },
+            {
+              "targetId": "o-7351b06e7",
+              "centroidWorldMm": [
+                12,
+                8,
+                1
+              ],
+              "volumeMm3": 12.348,
+              "surfaceAreaMm2": 35.28,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 45,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null,
+              "primitive": {
+                "kind": "box",
+                "center": [
+                  12,
+                  8,
+                  1
+                ],
+                "radius": 1,
+                "innerRadius": 0,
+                "halfExtents": [
+                  2.1,
+                  1.05,
+                  0.7000000000000001
+                ],
+                "angleDeg": 45
+              }
+            }
+          ],
+          "evidenceId": "ev-36a0384762-1-e3a4c2d3cb",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "evidenceType": "analytic_geometry"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        }
+      },
+      "sha256": "9abdee0fc760a05a9149fac45fc7a2557e2067b5f5140d43b008520ebe982397"
+    },
+    {
+      "id": "direct.physical-separation",
+      "componentId": "tool:lab_measure",
+      "toolIds": [
+        "lab_measure"
+      ],
+      "family": "unknown-properties",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_measure",
+          "args": {
+            "objectId": "o-c69430e2c",
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResult": {
+          "status": "ok",
+          "facts": {
+            "targetId": "o-c69430e2c",
+            "centroidWorldMm": [
+              -16,
+              -7,
+              -4
+            ],
+            "volumeMm3": 25.9308,
+            "surfaceAreaMm2": 54.684,
+            "cavitySealed": false,
+            "connectedComponents": 1,
+            "shapeKind": "box",
+            "angleDeg": 27,
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "materialIdentity": null
+          },
+          "primitive": {
+            "kind": "box",
+            "center": [
+              -16,
+              -7,
+              -4
+            ],
+            "radius": 2.1,
+            "innerRadius": 0,
+            "halfExtents": [
+              2.1,
+              1.05,
+              1.47
+            ],
+            "angleDeg": 27
+          },
+          "evidenceId": "ev-36a0384762-1-daa8eea426",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "evidenceType": "analytic_geometry"
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        }
+      },
+      "sha256": "fb276db7ad4164757ea3b25bc39b23395298afaf1972feb51ccc580f60dbd91e"
+    },
+    {
+      "id": "negative.stale-measure",
+      "componentId": "tool:lab_measure",
+      "toolIds": [
+        "lab_measure"
+      ],
+      "family": "refusal-contract",
+      "expected": "refusal",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_measure",
+          "args": {
+            "objectId": "o-c69430e2c",
+            "expectedRevision": "obsolete"
+          }
+        },
+        "actualToolResult": {
+          "status": "refused",
+          "code": "stale_revision",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "sourceWritten": false
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        }
+      },
+      "sha256": "37a9ce3d16d7dca7f96095093a601e26f67e025d05a7f9988f11ae024925c62c"
+    },
+    {
+      "id": "negative.stale-edit",
+      "componentId": "tool:lab_propose",
+      "toolIds": [
+        "lab_propose"
+      ],
+      "family": "refusal-contract",
+      "expected": "refusal",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_propose",
+          "args": {
+            "objectId": "o-c69430e2c",
+            "operation": "translate",
+            "vectorMm": [
+              1,
+              0,
+              0
+            ],
+            "expectedRevision": "obsolete"
+          }
+        },
+        "actualToolResult": {
+          "status": "refused",
+          "code": "stale_revision",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "sourceWritten": false
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        }
+      },
+      "sha256": "89be7c5041b318ad9cb3f22f3443be50bb7fff1bc86129d8a58987c8be697251"
+    },
+    {
+      "id": "negative.wrong-object",
+      "componentId": "tool:lab_measure",
+      "toolIds": [
+        "lab_measure"
+      ],
+      "family": "refusal-contract",
+      "expected": "refusal",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_measure",
+          "args": {
+            "objectId": "missing-object",
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResult": {
+          "status": "refused",
+          "code": "unavailable_object",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "sourceWritten": false
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        }
+      },
+      "sha256": "43a6c4d2890b2acc4d211e62813d3d77db72bf547566e803eef67c784f33edb4"
+    },
+    {
+      "id": "negative.missing-calibration",
+      "componentId": "tool:lab_transform",
+      "toolIds": [
+        "lab_transform"
+      ],
+      "family": "refusal-contract",
+      "expected": "refusal",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_transform",
+          "args": {
+            "point": [
+              0,
+              0,
+              0
+            ],
+            "fromFrame": "camera",
+            "toFrame": "world",
+            "expectedRevision": "afd3ca223d5f43fcd56bee8b091b45d38506357cf7850c83fa03f6352d84f937"
+          }
+        },
+        "actualToolResult": {
+          "status": "refused",
+          "code": "missing_camera_calibration",
+          "revision": "afd3ca223d5f43fcd56bee8b091b45d38506357cf7850c83fa03f6352d84f937",
+          "sourceWritten": false
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-4de96adb8": 51.422908710617435,
+            "o-4f46408ee": 21.490116767999993
+          }
+        }
+      },
+      "sha256": "b895ebcb24851d1db2025e47414c78ae0613a18b8e1ce816933fc17966b5e3f9"
+    },
+    {
+      "id": "negative.malformed-vector",
+      "componentId": "tool:lab_query",
+      "toolIds": [
+        "lab_query"
+      ],
+      "family": "refusal-contract",
+      "expected": "refusal",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_query",
+          "args": {
+            "pointMm": [
+              0,
+              0
+            ],
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResult": {
+          "status": "refused",
+          "code": "invalid_tool_call",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "sourceWritten": false
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        }
+      },
+      "sha256": "46bdbf4ffeabff2d7b328f56636bbf8f7cbec52b5ab8d699a8c336c5d9170066"
+    },
+    {
+      "id": "negative.wrong-scene",
+      "componentId": "tool:lab_inspect",
+      "toolIds": [
+        "lab_inspect"
+      ],
+      "family": "refusal-contract",
+      "expected": "refusal",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "name": "lab_inspect",
+          "args": {
+            "sceneRef": "missing-scene"
+          }
+        },
+        "actualToolResult": {
+          "status": "refused",
+          "code": "unavailable_scene",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "sourceWritten": false
+        },
+        "inputUnchanged": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        }
+      },
+      "sha256": "4e4c9efca458eac8c9f10ef00db31de9880284b4a6b10b811b4fa905c8c5382f"
+    },
+    {
+      "id": "transport.parity.lab_inspect",
+      "componentId": "transport:simulated-json",
+      "toolIds": [
+        "lab_inspect"
+      ],
+      "family": "serialization-parity",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "id": "parity-lab_inspect",
+          "tool": "lab_inspect",
+          "args": {
+            "sceneRef": "scene-36a0384762bdbfd4a19ee57f"
+          }
+        },
+        "directToolResult": {
+          "status": "ok",
+          "objects": [
+            {
+              "id": "o-c69430e2c",
+              "label": "left specimen",
+              "provenance": "generated"
+            },
+            {
+              "id": "o-7351b06e7",
+              "label": "right specimen",
+              "provenance": "generated"
+            }
+          ],
+          "cameraFrame": {
+            "originMm": [
+              -11,
+              3,
+              -2
+            ],
+            "angleDeg": 40
+          },
+          "grid": {
+            "originMm": [
+              -31,
+              -27,
+              -13
+            ],
+            "cellSizeMm": [
+              2,
+              3,
+              5
+            ]
+          },
+          "toleranceMm": 0.001,
+          "evidenceAvailability": {
+            "metricDepth": true,
+            "calibration": true
+          },
+          "missingEvidence": [],
+          "sourceRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "evidenceId": "ev-36a0384762-1-bde4a76f2f",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "evidenceType": "scene_inventory"
+        },
+        "wire": {
+          "id": "parity-lab_inspect",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "ok",
+            "objects": [
+              {
+                "id": "o-c69430e2c",
+                "label": "left specimen",
+                "provenance": "generated"
+              },
+              {
+                "id": "o-7351b06e7",
+                "label": "right specimen",
+                "provenance": "generated"
+              }
+            ],
+            "cameraFrame": {
+              "originMm": [
+                -11,
+                3,
+                -2
+              ],
+              "angleDeg": 40
+            },
+            "grid": {
+              "originMm": [
+                -31,
+                -27,
+                -13
+              ],
+              "cellSizeMm": [
+                2,
+                3,
+                5
+              ]
+            },
+            "toleranceMm": 0.001,
+            "evidenceAvailability": {
+              "metricDepth": true,
+              "calibration": true
+            },
+            "missingEvidence": [],
+            "sourceRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceId": "ev-36a0384762-1-bde4a76f2f",
+            "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceType": "scene_inventory"
+          }
+        },
+        "contract": {
+          "valid": true,
+          "failures": []
+        },
+        "requestUnchanged": true
+      },
+      "sha256": "e5067dad2a60167a8f103f362cd733c76b1dcbd036cde216363219f9eb656501"
+    },
+    {
+      "id": "transport.parity.lab_measure",
+      "componentId": "transport:simulated-json",
+      "toolIds": [
+        "lab_measure"
+      ],
+      "family": "serialization-parity",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "id": "parity-lab_measure",
+          "tool": "lab_measure",
+          "args": {
+            "objectId": "o-c69430e2c",
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "directToolResult": {
+          "status": "ok",
+          "facts": {
+            "targetId": "o-c69430e2c",
+            "centroidWorldMm": [
+              -16,
+              -7,
+              -4
+            ],
+            "volumeMm3": 25.9308,
+            "surfaceAreaMm2": 54.684,
+            "cavitySealed": false,
+            "connectedComponents": 1,
+            "shapeKind": "box",
+            "angleDeg": 27,
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "materialIdentity": null
+          },
+          "primitive": {
+            "kind": "box",
+            "center": [
+              -16,
+              -7,
+              -4
+            ],
+            "radius": 2.1,
+            "innerRadius": 0,
+            "halfExtents": [
+              2.1,
+              1.05,
+              1.47
+            ],
+            "angleDeg": 27
+          },
+          "evidenceId": "ev-36a0384762-1-daa8eea426",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "evidenceType": "analytic_geometry"
+        },
+        "wire": {
+          "id": "parity-lab_measure",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "ok",
+            "facts": {
+              "targetId": "o-c69430e2c",
+              "centroidWorldMm": [
+                -16,
+                -7,
+                -4
+              ],
+              "volumeMm3": 25.9308,
+              "surfaceAreaMm2": 54.684,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 27,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null
+            },
+            "primitive": {
+              "kind": "box",
+              "center": [
+                -16,
+                -7,
+                -4
+              ],
+              "radius": 2.1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.1,
+                1.05,
+                1.47
+              ],
+              "angleDeg": 27
+            },
+            "evidenceId": "ev-36a0384762-1-daa8eea426",
+            "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceType": "analytic_geometry"
+          }
+        },
+        "contract": {
+          "valid": true,
+          "failures": []
+        },
+        "requestUnchanged": true
+      },
+      "sha256": "5d4066cd9a6ece33946b36028ed14e102763e8770bd497997f5dc22ee593a1d7"
+    },
+    {
+      "id": "transport.parity.lab_transform",
+      "componentId": "transport:simulated-json",
+      "toolIds": [
+        "lab_transform"
+      ],
+      "family": "serialization-parity",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "id": "parity-lab_transform",
+          "tool": "lab_transform",
+          "args": {
+            "point": [
+              1,
+              2,
+              3
+            ],
+            "fromFrame": "camera",
+            "toFrame": "world",
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "directToolResult": {
+          "status": "ok",
+          "facts": {
+            "pointWorldMm": [
+              -11.5195307762541,
+              5.1748764959244955,
+              1
+            ]
+          },
+          "fromFrame": "camera",
+          "toFrame": "world",
+          "units": "mm",
+          "evidenceId": "ev-36a0384762-1-2adff7432b",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "evidenceType": "coordinate_transform"
+        },
+        "wire": {
+          "id": "parity-lab_transform",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "ok",
+            "facts": {
+              "pointWorldMm": [
+                -11.5195307762541,
+                5.1748764959244955,
+                1
+              ]
+            },
+            "fromFrame": "camera",
+            "toFrame": "world",
+            "units": "mm",
+            "evidenceId": "ev-36a0384762-1-2adff7432b",
+            "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceType": "coordinate_transform"
+          }
+        },
+        "contract": {
+          "valid": true,
+          "failures": []
+        },
+        "requestUnchanged": true
+      },
+      "sha256": "b48dbc543d70c29789d33d7ec6d2df21070230aa95992432304eaa3068360c07"
+    },
+    {
+      "id": "transport.parity.lab_query",
+      "componentId": "transport:simulated-json",
+      "toolIds": [
+        "lab_query"
+      ],
+      "family": "serialization-parity",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "id": "parity-lab_query",
+          "tool": "lab_query",
+          "args": {
+            "pointMm": [
+              35,
+              35,
+              35
+            ],
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "directToolResult": {
+          "status": "ok",
+          "facts": {
+            "pointState": "unknown",
+            "pointWorldMm": [
+              35,
+              35,
+              35
+            ],
+            "objectIds": [],
+            "signedDistanceMm": null,
+            "cellIndex": [
+              33,
+              20,
+              9
+            ]
+          },
+          "toleranceMm": 0.001,
+          "evidenceId": "ev-36a0384762-1-1fcbd66531",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "evidenceType": "analytic_geometry"
+        },
+        "wire": {
+          "id": "parity-lab_query",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "ok",
+            "facts": {
+              "pointState": "unknown",
+              "pointWorldMm": [
+                35,
+                35,
+                35
+              ],
+              "objectIds": [],
+              "signedDistanceMm": null,
+              "cellIndex": [
+                33,
+                20,
+                9
+              ]
+            },
+            "toleranceMm": 0.001,
+            "evidenceId": "ev-36a0384762-1-1fcbd66531",
+            "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceType": "analytic_geometry"
+          }
+        },
+        "contract": {
+          "valid": true,
+          "failures": []
+        },
+        "requestUnchanged": true
+      },
+      "sha256": "abe42d506629e6693d6dfd0faf52a29231294da02dc4f216ca871e12ccad4664"
+    },
+    {
+      "id": "transport.parity.lab_propose",
+      "componentId": "transport:simulated-json",
+      "toolIds": [
+        "lab_propose"
+      ],
+      "family": "serialization-parity",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "id": "parity-lab_propose",
+          "tool": "lab_propose",
+          "args": {
+            "objectId": "o-c69430e2c",
+            "operation": "translate",
+            "vectorMm": [
+              1,
+              0,
+              0
+            ],
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "directToolResult": {
+          "status": "proposed",
+          "candidateRevision": "406cfaf756a56dab742a0be334500158adb16d36981170a4b609f43fdfafad96",
+          "sourceWritten": false,
+          "facts": {
+            "targetId": "o-c69430e2c",
+            "centroidWorldMm": [
+              -15,
+              -7,
+              -4
+            ],
+            "volumeMm3": 25.9308,
+            "surfaceAreaMm2": 54.684,
+            "cavitySealed": false,
+            "connectedComponents": 1,
+            "shapeKind": "box",
+            "angleDeg": 27,
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "materialIdentity": null,
+            "editSteps": 1,
+            "sourcePreserved": true
+          },
+          "evidenceId": "ev-36a0384762-1-1b1193798b",
+          "revision": "406cfaf756a56dab742a0be334500158adb16d36981170a4b609f43fdfafad96",
+          "evidenceType": "analytic_geometry"
+        },
+        "wire": {
+          "id": "parity-lab_propose",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "proposed",
+            "candidateRevision": "406cfaf756a56dab742a0be334500158adb16d36981170a4b609f43fdfafad96",
+            "sourceWritten": false,
+            "facts": {
+              "targetId": "o-c69430e2c",
+              "centroidWorldMm": [
+                -15,
+                -7,
+                -4
+              ],
+              "volumeMm3": 25.9308,
+              "surfaceAreaMm2": 54.684,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 27,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null,
+              "editSteps": 1,
+              "sourcePreserved": true
+            },
+            "evidenceId": "ev-36a0384762-1-1b1193798b",
+            "revision": "406cfaf756a56dab742a0be334500158adb16d36981170a4b609f43fdfafad96",
+            "evidenceType": "analytic_geometry"
+          }
+        },
+        "contract": {
+          "valid": true,
+          "failures": []
+        },
+        "requestUnchanged": true
+      },
+      "sha256": "6dfd3ada8ca3ce416515d446c2213b7523deaa03a2d0a61295fc86a9993ffbae"
+    },
+    {
+      "id": "transport.parity.lab_verify",
+      "componentId": "transport:simulated-json",
+      "toolIds": [
+        "lab_verify"
+      ],
+      "family": "serialization-parity",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "request": {
+          "id": "parity-lab_verify",
+          "tool": "lab_verify",
+          "args": {
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "directToolResult": {
+          "status": "ok",
+          "valid": true,
+          "reasons": [],
+          "candidateRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "facts": {
+            "editSteps": 0,
+            "sourcePreserved": true,
+            "candidateValid": true
+          },
+          "objects": [
+            {
+              "targetId": "o-c69430e2c",
+              "centroidWorldMm": [
+                -16,
+                -7,
+                -4
+              ],
+              "volumeMm3": 25.9308,
+              "surfaceAreaMm2": 54.684,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 27,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null,
+              "primitive": {
+                "kind": "box",
+                "center": [
+                  -16,
+                  -7,
+                  -4
+                ],
+                "radius": 2.1,
+                "innerRadius": 0,
+                "halfExtents": [
+                  2.1,
+                  1.05,
+                  1.47
+                ],
+                "angleDeg": 27
+              }
+            },
+            {
+              "targetId": "o-7351b06e7",
+              "centroidWorldMm": [
+                12,
+                8,
+                1
+              ],
+              "volumeMm3": 12.348,
+              "surfaceAreaMm2": 35.28,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 45,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null,
+              "primitive": {
+                "kind": "box",
+                "center": [
+                  12,
+                  8,
+                  1
+                ],
+                "radius": 1,
+                "innerRadius": 0,
+                "halfExtents": [
+                  2.1,
+                  1.05,
+                  0.7000000000000001
+                ],
+                "angleDeg": 45
+              }
+            }
+          ],
+          "evidenceId": "ev-36a0384762-1-e3a4c2d3cb",
+          "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+          "evidenceType": "analytic_geometry"
+        },
+        "wire": {
+          "id": "parity-lab_verify",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "ok",
+            "valid": true,
+            "reasons": [],
+            "candidateRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "facts": {
+              "editSteps": 0,
+              "sourcePreserved": true,
+              "candidateValid": true
+            },
+            "objects": [
+              {
+                "targetId": "o-c69430e2c",
+                "centroidWorldMm": [
+                  -16,
+                  -7,
+                  -4
+                ],
+                "volumeMm3": 25.9308,
+                "surfaceAreaMm2": 54.684,
+                "cavitySealed": false,
+                "connectedComponents": 1,
+                "shapeKind": "box",
+                "angleDeg": 27,
+                "opacity": 0.6,
+                "densityKgM3": null,
+                "materialIdentity": null,
+                "primitive": {
+                  "kind": "box",
+                  "center": [
+                    -16,
+                    -7,
+                    -4
+                  ],
+                  "radius": 2.1,
+                  "innerRadius": 0,
+                  "halfExtents": [
+                    2.1,
+                    1.05,
+                    1.47
+                  ],
+                  "angleDeg": 27
+                }
+              },
+              {
+                "targetId": "o-7351b06e7",
+                "centroidWorldMm": [
+                  12,
+                  8,
+                  1
+                ],
+                "volumeMm3": 12.348,
+                "surfaceAreaMm2": 35.28,
+                "cavitySealed": false,
+                "connectedComponents": 1,
+                "shapeKind": "box",
+                "angleDeg": 45,
+                "opacity": 0.6,
+                "densityKgM3": null,
+                "materialIdentity": null,
+                "primitive": {
+                  "kind": "box",
+                  "center": [
+                    12,
+                    8,
+                    1
+                  ],
+                  "radius": 1,
+                  "innerRadius": 0,
+                  "halfExtents": [
+                    2.1,
+                    1.05,
+                    0.7000000000000001
+                  ],
+                  "angleDeg": 45
+                }
+              }
+            ],
+            "evidenceId": "ev-36a0384762-1-e3a4c2d3cb",
+            "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceType": "analytic_geometry"
+          }
+        },
+        "contract": {
+          "valid": true,
+          "failures": []
+        },
+        "requestUnchanged": true
+      },
+      "sha256": "cf3da516c90e1adb6277ccfdbca494b61d80b77c21abfc11f9c2678acc45f64b"
+    },
+    {
+      "id": "composed.transform-query",
+      "componentId": "composition:analytic-tools",
+      "toolIds": [
+        "lab_transform",
+        "lab_query"
+      ],
+      "family": "transform-query",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "transcripts": [
+          {
+            "request": {
+              "id": "composed-0",
+              "tool": "lab_transform",
+              "args": {
+                "point": [
+                  -16,
+                  -7,
+                  -4
+                ],
+                "fromFrame": "world",
+                "toFrame": "camera",
+                "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+              }
+            },
+            "response": {
+              "id": "composed-0",
+              "transport": "simulated-json",
+              "frame": "world",
+              "units": "mm",
+              "result": {
+                "status": "ok",
+                "facts": {
+                  "pointCameraMm": [
+                    -10.258098312460282,
+                    -4.446506382757084,
+                    -2
+                  ]
+                },
+                "fromFrame": "world",
+                "toFrame": "camera",
+                "units": "mm",
+                "evidenceId": "ev-36a0384762-1-85a30a8ded",
+                "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+                "evidenceType": "coordinate_transform"
+              }
+            }
+          },
+          {
+            "request": {
+              "id": "composed-1",
+              "tool": "lab_transform",
+              "args": {
+                "point": [
+                  -10.258098312460282,
+                  -4.446506382757084,
+                  -2
+                ],
+                "fromFrame": "camera",
+                "toFrame": "world",
+                "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+              }
+            },
+            "response": {
+              "id": "composed-1",
+              "transport": "simulated-json",
+              "frame": "world",
+              "units": "mm",
+              "result": {
+                "status": "ok",
+                "facts": {
+                  "pointWorldMm": [
+                    -16,
+                    -6.999999999999998,
+                    -4
+                  ]
+                },
+                "fromFrame": "camera",
+                "toFrame": "world",
+                "units": "mm",
+                "evidenceId": "ev-36a0384762-2-86057261ed",
+                "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+                "evidenceType": "coordinate_transform"
+              }
+            }
+          },
+          {
+            "request": {
+              "id": "composed-2",
+              "tool": "lab_query",
+              "args": {
+                "pointMm": [
+                  -16,
+                  -6.999999999999998,
+                  -4
+                ],
+                "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+              }
+            },
+            "response": {
+              "id": "composed-2",
+              "transport": "simulated-json",
+              "frame": "world",
+              "units": "mm",
+              "result": {
+                "status": "ok",
+                "facts": {
+                  "pointState": "solid",
+                  "pointWorldMm": [
+                    -16,
+                    -6.999999999999998,
+                    -4
+                  ],
+                  "objectIds": [
+                    "o-c69430e2c"
+                  ],
+                  "signedDistanceMm": -1.0499999999999985,
+                  "cellIndex": [
+                    7,
+                    6,
+                    1
+                  ]
+                },
+                "toleranceMm": 0.001,
+                "evidenceId": "ev-36a0384762-3-8af5861675",
+                "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+                "evidenceType": "analytic_geometry"
+              }
+            }
+          }
+        ],
+        "contractsValid": true,
+        "semanticValid": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        },
+        "sourcePreserved": true
+      },
+      "sha256": "f771c4bb6c28291fb4f5f76b5824cf6790bf84abfa3720c9872a9ae61c908d41"
+    },
+    {
+      "id": "composed.edit-remeasure-verify",
+      "componentId": "composition:analytic-tools",
+      "toolIds": [
+        "lab_inspect",
+        "lab_propose",
+        "lab_measure",
+        "lab_verify"
+      ],
+      "family": "edit-remeasure-verify",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "transcripts": [
+          {
+            "request": {
+              "id": "composed-0",
+              "tool": "lab_inspect",
+              "args": {
+                "sceneRef": "scene-36a0384762bdbfd4a19ee57f"
+              }
+            },
+            "response": {
+              "id": "composed-0",
+              "transport": "simulated-json",
+              "frame": "world",
+              "units": "mm",
+              "result": {
+                "status": "ok",
+                "objects": [
+                  {
+                    "id": "o-c69430e2c",
+                    "label": "left specimen",
+                    "provenance": "generated"
+                  },
+                  {
+                    "id": "o-7351b06e7",
+                    "label": "right specimen",
+                    "provenance": "generated"
+                  }
+                ],
+                "cameraFrame": {
+                  "originMm": [
+                    -11,
+                    3,
+                    -2
+                  ],
+                  "angleDeg": 40
+                },
+                "grid": {
+                  "originMm": [
+                    -31,
+                    -27,
+                    -13
+                  ],
+                  "cellSizeMm": [
+                    2,
+                    3,
+                    5
+                  ]
+                },
+                "toleranceMm": 0.001,
+                "evidenceAvailability": {
+                  "metricDepth": true,
+                  "calibration": true
+                },
+                "missingEvidence": [],
+                "sourceRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+                "evidenceId": "ev-36a0384762-1-bde4a76f2f",
+                "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+                "evidenceType": "scene_inventory"
+              }
+            }
+          },
+          {
+            "request": {
+              "id": "composed-1",
+              "tool": "lab_propose",
+              "args": {
+                "objectId": "o-c69430e2c",
+                "operation": "translate",
+                "vectorMm": [
+                  1,
+                  0,
+                  0
+                ],
+                "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+              }
+            },
+            "response": {
+              "id": "composed-1",
+              "transport": "simulated-json",
+              "frame": "world",
+              "units": "mm",
+              "result": {
+                "status": "proposed",
+                "candidateRevision": "406cfaf756a56dab742a0be334500158adb16d36981170a4b609f43fdfafad96",
+                "sourceWritten": false,
+                "facts": {
+                  "targetId": "o-c69430e2c",
+                  "centroidWorldMm": [
+                    -15,
+                    -7,
+                    -4
+                  ],
+                  "volumeMm3": 25.9308,
+                  "surfaceAreaMm2": 54.684,
+                  "cavitySealed": false,
+                  "connectedComponents": 1,
+                  "shapeKind": "box",
+                  "angleDeg": 27,
+                  "opacity": 0.6,
+                  "densityKgM3": null,
+                  "materialIdentity": null,
+                  "editSteps": 1,
+                  "sourcePreserved": true
+                },
+                "evidenceId": "ev-36a0384762-2-1b1193798b",
+                "revision": "406cfaf756a56dab742a0be334500158adb16d36981170a4b609f43fdfafad96",
+                "evidenceType": "analytic_geometry"
+              }
+            }
+          },
+          {
+            "request": {
+              "id": "composed-2",
+              "tool": "lab_propose",
+              "args": {
+                "objectId": "o-c69430e2c",
+                "operation": "rotate",
+                "angleDeg": 17,
+                "expectedRevision": "406cfaf756a56dab742a0be334500158adb16d36981170a4b609f43fdfafad96"
+              }
+            },
+            "response": {
+              "id": "composed-2",
+              "transport": "simulated-json",
+              "frame": "world",
+              "units": "mm",
+              "result": {
+                "status": "proposed",
+                "candidateRevision": "b470533df13abb35d408c0d103800572d3096cfdb0e5617800ba9a924b3e05cb",
+                "sourceWritten": false,
+                "facts": {
+                  "targetId": "o-c69430e2c",
+                  "centroidWorldMm": [
+                    -15,
+                    -7,
+                    -4
+                  ],
+                  "volumeMm3": 25.9308,
+                  "surfaceAreaMm2": 54.684,
+                  "cavitySealed": false,
+                  "connectedComponents": 1,
+                  "shapeKind": "box",
+                  "angleDeg": 44,
+                  "opacity": 0.6,
+                  "densityKgM3": null,
+                  "materialIdentity": null,
+                  "editSteps": 2,
+                  "sourcePreserved": true
+                },
+                "evidenceId": "ev-36a0384762-3-423c1c6b0d",
+                "revision": "b470533df13abb35d408c0d103800572d3096cfdb0e5617800ba9a924b3e05cb",
+                "evidenceType": "analytic_geometry"
+              }
+            }
+          },
+          {
+            "request": {
+              "id": "composed-3",
+              "tool": "lab_measure",
+              "args": {
+                "objectId": "o-c69430e2c",
+                "expectedRevision": "b470533df13abb35d408c0d103800572d3096cfdb0e5617800ba9a924b3e05cb"
+              }
+            },
+            "response": {
+              "id": "composed-3",
+              "transport": "simulated-json",
+              "frame": "world",
+              "units": "mm",
+              "result": {
+                "status": "ok",
+                "facts": {
+                  "targetId": "o-c69430e2c",
+                  "centroidWorldMm": [
+                    -15,
+                    -7,
+                    -4
+                  ],
+                  "volumeMm3": 25.9308,
+                  "surfaceAreaMm2": 54.684,
+                  "cavitySealed": false,
+                  "connectedComponents": 1,
+                  "shapeKind": "box",
+                  "angleDeg": 44,
+                  "opacity": 0.6,
+                  "densityKgM3": null,
+                  "materialIdentity": null
+                },
+                "primitive": {
+                  "kind": "box",
+                  "center": [
+                    -15,
+                    -7,
+                    -4
+                  ],
+                  "radius": 2.1,
+                  "innerRadius": 0,
+                  "halfExtents": [
+                    2.1,
+                    1.05,
+                    1.47
+                  ],
+                  "angleDeg": 44
+                },
+                "evidenceId": "ev-36a0384762-4-5358e2b47f",
+                "revision": "b470533df13abb35d408c0d103800572d3096cfdb0e5617800ba9a924b3e05cb",
+                "evidenceType": "analytic_geometry"
+              }
+            }
+          },
+          {
+            "request": {
+              "id": "composed-4",
+              "tool": "lab_verify",
+              "args": {
+                "expectedRevision": "b470533df13abb35d408c0d103800572d3096cfdb0e5617800ba9a924b3e05cb"
+              }
+            },
+            "response": {
+              "id": "composed-4",
+              "transport": "simulated-json",
+              "frame": "world",
+              "units": "mm",
+              "result": {
+                "status": "ok",
+                "valid": true,
+                "reasons": [],
+                "candidateRevision": "b470533df13abb35d408c0d103800572d3096cfdb0e5617800ba9a924b3e05cb",
+                "facts": {
+                  "editSteps": 2,
+                  "sourcePreserved": true,
+                  "candidateValid": true
+                },
+                "objects": [
+                  {
+                    "targetId": "o-c69430e2c",
+                    "centroidWorldMm": [
+                      -15,
+                      -7,
+                      -4
+                    ],
+                    "volumeMm3": 25.9308,
+                    "surfaceAreaMm2": 54.684,
+                    "cavitySealed": false,
+                    "connectedComponents": 1,
+                    "shapeKind": "box",
+                    "angleDeg": 44,
+                    "opacity": 0.6,
+                    "densityKgM3": null,
+                    "materialIdentity": null,
+                    "primitive": {
+                      "kind": "box",
+                      "center": [
+                        -15,
+                        -7,
+                        -4
+                      ],
+                      "radius": 2.1,
+                      "innerRadius": 0,
+                      "halfExtents": [
+                        2.1,
+                        1.05,
+                        1.47
+                      ],
+                      "angleDeg": 44
+                    }
+                  },
+                  {
+                    "targetId": "o-7351b06e7",
+                    "centroidWorldMm": [
+                      12,
+                      8,
+                      1
+                    ],
+                    "volumeMm3": 12.348,
+                    "surfaceAreaMm2": 35.28,
+                    "cavitySealed": false,
+                    "connectedComponents": 1,
+                    "shapeKind": "box",
+                    "angleDeg": 45,
+                    "opacity": 0.6,
+                    "densityKgM3": null,
+                    "materialIdentity": null,
+                    "primitive": {
+                      "kind": "box",
+                      "center": [
+                        12,
+                        8,
+                        1
+                      ],
+                      "radius": 1,
+                      "innerRadius": 0,
+                      "halfExtents": [
+                        2.1,
+                        1.05,
+                        0.7000000000000001
+                      ],
+                      "angleDeg": 45
+                    }
+                  }
+                ],
+                "evidenceId": "ev-36a0384762-5-d22ac7897e",
+                "revision": "b470533df13abb35d408c0d103800572d3096cfdb0e5617800ba9a924b3e05cb",
+                "evidenceType": "analytic_geometry"
+              }
+            }
+          }
+        ],
+        "contractsValid": true,
+        "semanticValid": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        },
+        "sourcePreserved": true
+      },
+      "sha256": "cbe3ab08b12e014a851221ad3632e69b2b78e20c459ea8e9be70850dac7f9b50"
+    },
+    {
+      "id": "composed.stale-recover",
+      "componentId": "composition:analytic-tools",
+      "toolIds": [
+        "lab_propose",
+        "lab_inspect",
+        "lab_measure",
+        "lab_verify"
+      ],
+      "family": "stale-recover",
+      "expected": "success",
+      "passed": true,
+      "cause": "none",
+      "observation": {
+        "transcripts": [
+          {
+            "request": {
+              "id": "composed-0",
+              "tool": "lab_propose",
+              "args": {
+                "objectId": "o-c69430e2c",
+                "operation": "translate",
+                "vectorMm": [
+                  1,
+                  0,
+                  0
+                ],
+                "expectedRevision": "obsolete"
+              }
+            },
+            "response": {
+              "id": "composed-0",
+              "transport": "simulated-json",
+              "frame": "world",
+              "units": "mm",
+              "result": {
+                "status": "refused",
+                "code": "stale_revision",
+                "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+                "sourceWritten": false
+              }
+            }
+          },
+          {
+            "request": {
+              "id": "composed-1",
+              "tool": "lab_inspect",
+              "args": {
+                "sceneRef": "scene-36a0384762bdbfd4a19ee57f"
+              }
+            },
+            "response": {
+              "id": "composed-1",
+              "transport": "simulated-json",
+              "frame": "world",
+              "units": "mm",
+              "result": {
+                "status": "ok",
+                "objects": [
+                  {
+                    "id": "o-c69430e2c",
+                    "label": "left specimen",
+                    "provenance": "generated"
+                  },
+                  {
+                    "id": "o-7351b06e7",
+                    "label": "right specimen",
+                    "provenance": "generated"
+                  }
+                ],
+                "cameraFrame": {
+                  "originMm": [
+                    -11,
+                    3,
+                    -2
+                  ],
+                  "angleDeg": 40
+                },
+                "grid": {
+                  "originMm": [
+                    -31,
+                    -27,
+                    -13
+                  ],
+                  "cellSizeMm": [
+                    2,
+                    3,
+                    5
+                  ]
+                },
+                "toleranceMm": 0.001,
+                "evidenceAvailability": {
+                  "metricDepth": true,
+                  "calibration": true
+                },
+                "missingEvidence": [],
+                "sourceRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+                "evidenceId": "ev-36a0384762-1-bde4a76f2f",
+                "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+                "evidenceType": "scene_inventory"
+              }
+            }
+          },
+          {
+            "request": {
+              "id": "composed-2",
+              "tool": "lab_propose",
+              "args": {
+                "objectId": "o-c69430e2c",
+                "operation": "translate",
+                "vectorMm": [
+                  1,
+                  0,
+                  0
+                ],
+                "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+              }
+            },
+            "response": {
+              "id": "composed-2",
+              "transport": "simulated-json",
+              "frame": "world",
+              "units": "mm",
+              "result": {
+                "status": "proposed",
+                "candidateRevision": "406cfaf756a56dab742a0be334500158adb16d36981170a4b609f43fdfafad96",
+                "sourceWritten": false,
+                "facts": {
+                  "targetId": "o-c69430e2c",
+                  "centroidWorldMm": [
+                    -15,
+                    -7,
+                    -4
+                  ],
+                  "volumeMm3": 25.9308,
+                  "surfaceAreaMm2": 54.684,
+                  "cavitySealed": false,
+                  "connectedComponents": 1,
+                  "shapeKind": "box",
+                  "angleDeg": 27,
+                  "opacity": 0.6,
+                  "densityKgM3": null,
+                  "materialIdentity": null,
+                  "editSteps": 1,
+                  "sourcePreserved": true
+                },
+                "evidenceId": "ev-36a0384762-2-1b1193798b",
+                "revision": "406cfaf756a56dab742a0be334500158adb16d36981170a4b609f43fdfafad96",
+                "evidenceType": "analytic_geometry"
+              }
+            }
+          },
+          {
+            "request": {
+              "id": "composed-3",
+              "tool": "lab_measure",
+              "args": {
+                "objectId": "o-c69430e2c",
+                "expectedRevision": "406cfaf756a56dab742a0be334500158adb16d36981170a4b609f43fdfafad96"
+              }
+            },
+            "response": {
+              "id": "composed-3",
+              "transport": "simulated-json",
+              "frame": "world",
+              "units": "mm",
+              "result": {
+                "status": "ok",
+                "facts": {
+                  "targetId": "o-c69430e2c",
+                  "centroidWorldMm": [
+                    -15,
+                    -7,
+                    -4
+                  ],
+                  "volumeMm3": 25.9308,
+                  "surfaceAreaMm2": 54.684,
+                  "cavitySealed": false,
+                  "connectedComponents": 1,
+                  "shapeKind": "box",
+                  "angleDeg": 27,
+                  "opacity": 0.6,
+                  "densityKgM3": null,
+                  "materialIdentity": null
+                },
+                "primitive": {
+                  "kind": "box",
+                  "center": [
+                    -15,
+                    -7,
+                    -4
+                  ],
+                  "radius": 2.1,
+                  "innerRadius": 0,
+                  "halfExtents": [
+                    2.1,
+                    1.05,
+                    1.47
+                  ],
+                  "angleDeg": 27
+                },
+                "evidenceId": "ev-36a0384762-3-d2592a10a3",
+                "revision": "406cfaf756a56dab742a0be334500158adb16d36981170a4b609f43fdfafad96",
+                "evidenceType": "analytic_geometry"
+              }
+            }
+          },
+          {
+            "request": {
+              "id": "composed-4",
+              "tool": "lab_verify",
+              "args": {
+                "expectedRevision": "406cfaf756a56dab742a0be334500158adb16d36981170a4b609f43fdfafad96"
+              }
+            },
+            "response": {
+              "id": "composed-4",
+              "transport": "simulated-json",
+              "frame": "world",
+              "units": "mm",
+              "result": {
+                "status": "ok",
+                "valid": true,
+                "reasons": [],
+                "candidateRevision": "406cfaf756a56dab742a0be334500158adb16d36981170a4b609f43fdfafad96",
+                "facts": {
+                  "editSteps": 1,
+                  "sourcePreserved": true,
+                  "candidateValid": true
+                },
+                "objects": [
+                  {
+                    "targetId": "o-c69430e2c",
+                    "centroidWorldMm": [
+                      -15,
+                      -7,
+                      -4
+                    ],
+                    "volumeMm3": 25.9308,
+                    "surfaceAreaMm2": 54.684,
+                    "cavitySealed": false,
+                    "connectedComponents": 1,
+                    "shapeKind": "box",
+                    "angleDeg": 27,
+                    "opacity": 0.6,
+                    "densityKgM3": null,
+                    "materialIdentity": null,
+                    "primitive": {
+                      "kind": "box",
+                      "center": [
+                        -15,
+                        -7,
+                        -4
+                      ],
+                      "radius": 2.1,
+                      "innerRadius": 0,
+                      "halfExtents": [
+                        2.1,
+                        1.05,
+                        1.47
+                      ],
+                      "angleDeg": 27
+                    }
+                  },
+                  {
+                    "targetId": "o-7351b06e7",
+                    "centroidWorldMm": [
+                      12,
+                      8,
+                      1
+                    ],
+                    "volumeMm3": 12.348,
+                    "surfaceAreaMm2": 35.28,
+                    "cavitySealed": false,
+                    "connectedComponents": 1,
+                    "shapeKind": "box",
+                    "angleDeg": 45,
+                    "opacity": 0.6,
+                    "densityKgM3": null,
+                    "materialIdentity": null,
+                    "primitive": {
+                      "kind": "box",
+                      "center": [
+                        12,
+                        8,
+                        1
+                      ],
+                      "radius": 1,
+                      "innerRadius": 0,
+                      "halfExtents": [
+                        2.1,
+                        1.05,
+                        0.7000000000000001
+                      ],
+                      "angleDeg": 45
+                    }
+                  }
+                ],
+                "evidenceId": "ev-36a0384762-4-11adeefd22",
+                "revision": "406cfaf756a56dab742a0be334500158adb16d36981170a4b609f43fdfafad96",
+                "evidenceType": "analytic_geometry"
+              }
+            }
+          }
+        ],
+        "contractsValid": true,
+        "semanticValid": true,
+        "independent": {
+          "valid": true,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": true,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [],
+          "volumesMm3": {
+            "o-c69430e2c": 25.930800000000005,
+            "o-7351b06e7": 12.348000000000003
+          }
+        },
+        "sourcePreserved": true
+      },
+      "sha256": "2150999c91c331c302969623cb0ba327591d492d6c56f2d77f80631ef0bb636f"
+    },
+    {
+      "id": "fault.wrong-revision",
+      "componentId": "guard:transport-boundary",
+      "toolIds": [
+        "lab_measure"
+      ],
+      "family": "controlled-fault",
+      "expected": "fault_detected",
+      "passed": true,
+      "cause": "transport_contract",
+      "observation": {
+        "request": {
+          "id": "fault-wrong-revision",
+          "tool": "lab_measure",
+          "args": {
+            "objectId": "o-c69430e2c",
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResponse": {
+          "id": "fault-wrong-revision",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "ok",
+            "facts": {
+              "targetId": "o-c69430e2c",
+              "centroidWorldMm": [
+                -16,
+                -7,
+                -4
+              ],
+              "volumeMm3": 25.9308,
+              "surfaceAreaMm2": 54.684,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 27,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null
+            },
+            "primitive": {
+              "kind": "box",
+              "center": [
+                -16,
+                -7,
+                -4
+              ],
+              "radius": 2.1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.1,
+                1.05,
+                1.47
+              ],
+              "angleDeg": 27
+            },
+            "evidenceId": "ev-36a0384762-1-daa8eea426",
+            "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceType": "analytic_geometry"
+          }
+        },
+        "injectedResponse": {
+          "id": "fault-wrong-revision",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "ok",
+            "facts": {
+              "targetId": "o-c69430e2c",
+              "centroidWorldMm": [
+                -16,
+                -7,
+                -4
+              ],
+              "volumeMm3": 25.9308,
+              "surfaceAreaMm2": 54.684,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 27,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null
+            },
+            "primitive": {
+              "kind": "box",
+              "center": [
+                -16,
+                -7,
+                -4
+              ],
+              "radius": 2.1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.1,
+                1.05,
+                1.47
+              ],
+              "angleDeg": 27
+            },
+            "evidenceId": "ev-36a0384762-1-daa8eea426",
+            "revision": "wrong-revision",
+            "evidenceType": "analytic_geometry"
+          }
+        },
+        "injectedFault": "wrong-revision",
+        "contract": {
+          "valid": false,
+          "failures": [
+            "revision_binding"
+          ]
+        },
+        "originalToolSessionStillValid": true
+      },
+      "sha256": "63a13a1728eedf6576305cf1e29f847f90a19747e176b979c8a948c5ef59c488"
+    },
+    {
+      "id": "fault.wrong-object",
+      "componentId": "guard:transport-boundary",
+      "toolIds": [
+        "lab_measure"
+      ],
+      "family": "controlled-fault",
+      "expected": "fault_detected",
+      "passed": true,
+      "cause": "transport_contract",
+      "observation": {
+        "request": {
+          "id": "fault-wrong-object",
+          "tool": "lab_measure",
+          "args": {
+            "objectId": "o-c69430e2c",
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResponse": {
+          "id": "fault-wrong-object",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "ok",
+            "facts": {
+              "targetId": "o-c69430e2c",
+              "centroidWorldMm": [
+                -16,
+                -7,
+                -4
+              ],
+              "volumeMm3": 25.9308,
+              "surfaceAreaMm2": 54.684,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 27,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null
+            },
+            "primitive": {
+              "kind": "box",
+              "center": [
+                -16,
+                -7,
+                -4
+              ],
+              "radius": 2.1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.1,
+                1.05,
+                1.47
+              ],
+              "angleDeg": 27
+            },
+            "evidenceId": "ev-36a0384762-1-daa8eea426",
+            "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceType": "analytic_geometry"
+          }
+        },
+        "injectedResponse": {
+          "id": "fault-wrong-object",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "ok",
+            "facts": {
+              "targetId": "wrong-object",
+              "centroidWorldMm": [
+                -16,
+                -7,
+                -4
+              ],
+              "volumeMm3": 25.9308,
+              "surfaceAreaMm2": 54.684,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 27,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null
+            },
+            "primitive": {
+              "kind": "box",
+              "center": [
+                -16,
+                -7,
+                -4
+              ],
+              "radius": 2.1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.1,
+                1.05,
+                1.47
+              ],
+              "angleDeg": 27
+            },
+            "evidenceId": "ev-36a0384762-1-daa8eea426",
+            "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceType": "analytic_geometry"
+          }
+        },
+        "injectedFault": "wrong-object",
+        "contract": {
+          "valid": false,
+          "failures": [
+            "object_binding"
+          ]
+        },
+        "originalToolSessionStillValid": true
+      },
+      "sha256": "608bdb1836f33454bb933764e7d3f0b82ab132ae0864c14270d3e19c08a8bd31"
+    },
+    {
+      "id": "fault.corrupt-units",
+      "componentId": "guard:transport-boundary",
+      "toolIds": [
+        "lab_measure"
+      ],
+      "family": "controlled-fault",
+      "expected": "fault_detected",
+      "passed": true,
+      "cause": "transport_contract",
+      "observation": {
+        "request": {
+          "id": "fault-corrupt-units",
+          "tool": "lab_measure",
+          "args": {
+            "objectId": "o-c69430e2c",
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResponse": {
+          "id": "fault-corrupt-units",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "ok",
+            "facts": {
+              "targetId": "o-c69430e2c",
+              "centroidWorldMm": [
+                -16,
+                -7,
+                -4
+              ],
+              "volumeMm3": 25.9308,
+              "surfaceAreaMm2": 54.684,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 27,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null
+            },
+            "primitive": {
+              "kind": "box",
+              "center": [
+                -16,
+                -7,
+                -4
+              ],
+              "radius": 2.1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.1,
+                1.05,
+                1.47
+              ],
+              "angleDeg": 27
+            },
+            "evidenceId": "ev-36a0384762-1-daa8eea426",
+            "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceType": "analytic_geometry"
+          }
+        },
+        "injectedResponse": {
+          "id": "fault-corrupt-units",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "m",
+          "result": {
+            "status": "ok",
+            "facts": {
+              "targetId": "o-c69430e2c",
+              "centroidWorldMm": [
+                -16,
+                -7,
+                -4
+              ],
+              "volumeMm3": 25.9308,
+              "surfaceAreaMm2": 54.684,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 27,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null
+            },
+            "primitive": {
+              "kind": "box",
+              "center": [
+                -16,
+                -7,
+                -4
+              ],
+              "radius": 2.1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.1,
+                1.05,
+                1.47
+              ],
+              "angleDeg": 27
+            },
+            "evidenceId": "ev-36a0384762-1-daa8eea426",
+            "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceType": "analytic_geometry"
+          }
+        },
+        "injectedFault": "corrupt-units",
+        "contract": {
+          "valid": false,
+          "failures": [
+            "spatial_contract"
+          ]
+        },
+        "originalToolSessionStillValid": true
+      },
+      "sha256": "0d9570988588cdffeaa2985192817492ac3b24b7bc140f83daafe42e48cab0ce"
+    },
+    {
+      "id": "fault.dropped-evidence",
+      "componentId": "guard:transport-boundary",
+      "toolIds": [
+        "lab_measure"
+      ],
+      "family": "controlled-fault",
+      "expected": "fault_detected",
+      "passed": true,
+      "cause": "transport_contract",
+      "observation": {
+        "request": {
+          "id": "fault-dropped-evidence",
+          "tool": "lab_measure",
+          "args": {
+            "objectId": "o-c69430e2c",
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResponse": {
+          "id": "fault-dropped-evidence",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "ok",
+            "facts": {
+              "targetId": "o-c69430e2c",
+              "centroidWorldMm": [
+                -16,
+                -7,
+                -4
+              ],
+              "volumeMm3": 25.9308,
+              "surfaceAreaMm2": 54.684,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 27,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null
+            },
+            "primitive": {
+              "kind": "box",
+              "center": [
+                -16,
+                -7,
+                -4
+              ],
+              "radius": 2.1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.1,
+                1.05,
+                1.47
+              ],
+              "angleDeg": 27
+            },
+            "evidenceId": "ev-36a0384762-1-daa8eea426",
+            "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceType": "analytic_geometry"
+          }
+        },
+        "injectedResponse": {
+          "id": "fault-dropped-evidence",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "ok",
+            "facts": {
+              "targetId": "o-c69430e2c",
+              "centroidWorldMm": [
+                -16,
+                -7,
+                -4
+              ],
+              "volumeMm3": 25.9308,
+              "surfaceAreaMm2": 54.684,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 27,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null
+            },
+            "primitive": {
+              "kind": "box",
+              "center": [
+                -16,
+                -7,
+                -4
+              ],
+              "radius": 2.1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.1,
+                1.05,
+                1.47
+              ],
+              "angleDeg": 27
+            },
+            "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceType": "analytic_geometry"
+          }
+        },
+        "injectedFault": "dropped-evidence",
+        "contract": {
+          "valid": false,
+          "failures": [
+            "missing_evidence"
+          ]
+        },
+        "originalToolSessionStillValid": true
+      },
+      "sha256": "77b77c1f8bf3f2db642da398c8a94c90f04c0912a49d4b280c94449d651248ee"
+    },
+    {
+      "id": "fault.timeout",
+      "componentId": "guard:transport-boundary",
+      "toolIds": [
+        "lab_measure"
+      ],
+      "family": "controlled-fault",
+      "expected": "fault_detected",
+      "passed": true,
+      "cause": "transport_contract",
+      "observation": {
+        "request": {
+          "id": "fault-timeout",
+          "tool": "lab_measure",
+          "args": {
+            "objectId": "o-c69430e2c",
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResponse": {
+          "id": "fault-timeout",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "ok",
+            "facts": {
+              "targetId": "o-c69430e2c",
+              "centroidWorldMm": [
+                -16,
+                -7,
+                -4
+              ],
+              "volumeMm3": 25.9308,
+              "surfaceAreaMm2": 54.684,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 27,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null
+            },
+            "primitive": {
+              "kind": "box",
+              "center": [
+                -16,
+                -7,
+                -4
+              ],
+              "radius": 2.1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.1,
+                1.05,
+                1.47
+              ],
+              "angleDeg": 27
+            },
+            "evidenceId": "ev-36a0384762-1-daa8eea426",
+            "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceType": "analytic_geometry"
+          }
+        },
+        "injectedResponse": {
+          "id": "fault-timeout",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "error": {
+            "code": "simulated_timeout"
+          }
+        },
+        "injectedFault": "timeout",
+        "contract": {
+          "valid": false,
+          "failures": [
+            "simulated_timeout",
+            "result_shape"
+          ]
+        },
+        "originalToolSessionStillValid": true
+      },
+      "sha256": "a51e0a46c10410bd9573c6b9e10ca8ca0b10b0966ebdc090c2e10ce8d8e72793"
+    },
+    {
+      "id": "fault.malformed-shape",
+      "componentId": "guard:transport-boundary",
+      "toolIds": [
+        "lab_measure"
+      ],
+      "family": "controlled-fault",
+      "expected": "fault_detected",
+      "passed": true,
+      "cause": "transport_contract",
+      "observation": {
+        "request": {
+          "id": "fault-malformed-shape",
+          "tool": "lab_measure",
+          "args": {
+            "objectId": "o-c69430e2c",
+            "expectedRevision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5"
+          }
+        },
+        "actualToolResponse": {
+          "id": "fault-malformed-shape",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "ok",
+            "facts": {
+              "targetId": "o-c69430e2c",
+              "centroidWorldMm": [
+                -16,
+                -7,
+                -4
+              ],
+              "volumeMm3": 25.9308,
+              "surfaceAreaMm2": 54.684,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 27,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null
+            },
+            "primitive": {
+              "kind": "box",
+              "center": [
+                -16,
+                -7,
+                -4
+              ],
+              "radius": 2.1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.1,
+                1.05,
+                1.47
+              ],
+              "angleDeg": 27
+            },
+            "evidenceId": "ev-36a0384762-1-daa8eea426",
+            "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceType": "analytic_geometry"
+          }
+        },
+        "injectedResponse": {
+          "id": "fault-malformed-shape",
+          "transport": "simulated-json",
+          "frame": "world",
+          "units": "mm",
+          "result": {
+            "status": "ok",
+            "facts": {
+              "targetId": "o-c69430e2c",
+              "centroidWorldMm": [
+                -16,
+                -7,
+                -4
+              ],
+              "volumeMm3": 25.9308,
+              "surfaceAreaMm2": 54.684,
+              "cavitySealed": false,
+              "connectedComponents": 1,
+              "shapeKind": "box",
+              "angleDeg": 27,
+              "opacity": 0.6,
+              "densityKgM3": null,
+              "materialIdentity": null
+            },
+            "primitive": {
+              "kind": "box",
+              "center": [
+                -16,
+                -7,
+                -4
+              ],
+              "radius": 2.1,
+              "innerRadius": 0,
+              "halfExtents": [
+                1,
+                -2,
+                3
+              ],
+              "angleDeg": 27
+            },
+            "evidenceId": "ev-36a0384762-1-daa8eea426",
+            "revision": "cc39b66c500f074b8a947cefebccf371e80833554c5ea0d9cfe62b8af2fa7db5",
+            "evidenceType": "analytic_geometry"
+          }
+        },
+        "injectedFault": "malformed-shape",
+        "contract": {
+          "valid": false,
+          "failures": [
+            "primitive_shape"
+          ]
+        },
+        "originalToolSessionStillValid": true
+      },
+      "sha256": "ed603a1ee90738a2ec27223a63769bfda1873a19abfb59d1708e9a16be54a5cb"
+    },
+    {
+      "id": "fault.source-mutation",
+      "componentId": "guard:source-integrity",
+      "toolIds": [],
+      "family": "controlled-fault",
+      "expected": "fault_detected",
+      "passed": true,
+      "cause": "source_integrity",
+      "observation": {
+        "injectedFault": "evaluator mutates isolated source clone",
+        "independent": {
+          "valid": false,
+          "checks": {
+            "sourceBinding": true,
+            "sourceUnchanged": false,
+            "primitiveValidity": true,
+            "domainBounds": true,
+            "editRevisionChain": true,
+            "editCallBinding": true,
+            "candidateReplay": true,
+            "finalRevision": true,
+            "evidenceRevisions": true,
+            "evidenceCallBinding": true,
+            "measuredVolumes": true,
+            "measurementCoordinates": true
+          },
+          "failures": [
+            "sourceUnchanged"
+          ],
+          "volumesMm3": {
+            "o-596b89eb6": 35.95534206089866,
+            "o-6fbd72c86": 15.02607531733333
+          }
+        },
+        "originalFixtureHash": "0e468ce7bb49a96daac053fbdcdff719c6f3847c3885ae583cbc1aac96432d89",
+        "mutatedSourceHash": "27f3af9170cd8b8b7d04c6c20708cad5674a0b5fb2d74714fd70ec1b576ce1f5"
+      },
+      "sha256": "fc8ee58d6d1dd976dffc6c6ea44c1db7e0ad379374d776b89c236f700961f5d5"
+    },
+    {
+      "id": "native.Houdini/OpenVDB",
+      "componentId": "software:Houdini/OpenVDB",
+      "toolIds": [],
+      "family": "native-admission",
+      "expected": "unknown",
+      "passed": null,
+      "cause": "availability_unobserved",
+      "observation": {
+        "admission": {
+          "software": "Houdini/OpenVDB",
+          "version": null,
+          "adapterHash": null,
+          "frame": null,
+          "units": null,
+          "revision": null,
+          "contentHash": null,
+          "status": "unprobed"
+        },
+        "decision": {
+          "admitted": true,
+          "nativeEvidenceAccepted": false,
+          "reasons": []
+        },
+        "reason": "No native invocation occurs in this diagnostic run; existing installations or past receipts do not imply current admission."
+      },
+      "sha256": "fbbc5f61e5e1321a074b15fc413565b820505fd5953021a63396b30b922fca50"
+    },
+    {
+      "id": "native.Rerun",
+      "componentId": "software:Rerun",
+      "toolIds": [],
+      "family": "native-admission",
+      "expected": "unknown",
+      "passed": null,
+      "cause": "availability_unobserved",
+      "observation": {
+        "admission": {
+          "software": "Rerun",
+          "version": null,
+          "adapterHash": null,
+          "frame": null,
+          "units": null,
+          "revision": null,
+          "contentHash": null,
+          "status": "unprobed"
+        },
+        "decision": {
+          "admitted": true,
+          "nativeEvidenceAccepted": false,
+          "reasons": []
+        },
+        "reason": "No native invocation occurs in this diagnostic run; existing installations or past receipts do not imply current admission."
+      },
+      "sha256": "963f4f2e13ef2c43d9890db211cf744e77906db1153e53af214ac9b90b7134e3"
+    },
+    {
+      "id": "native.Viser",
+      "componentId": "software:Viser",
+      "toolIds": [],
+      "family": "native-admission",
+      "expected": "unknown",
+      "passed": null,
+      "cause": "availability_unobserved",
+      "observation": {
+        "admission": {
+          "software": "Viser",
+          "version": null,
+          "adapterHash": null,
+          "frame": null,
+          "units": null,
+          "revision": null,
+          "contentHash": null,
+          "status": "unprobed"
+        },
+        "decision": {
+          "admitted": true,
+          "nativeEvidenceAccepted": false,
+          "reasons": []
+        },
+        "reason": "No native invocation occurs in this diagnostic run; existing installations or past receipts do not imply current admission."
+      },
+      "sha256": "888b2862b13c39ec87a3b5833c61c5c09bf03e78ac433307e53f808c786c0d74"
+    },
+    {
+      "id": "native.Roboflow",
+      "componentId": "software:Roboflow",
+      "toolIds": [],
+      "family": "native-admission",
+      "expected": "unknown",
+      "passed": null,
+      "cause": "availability_unobserved",
+      "observation": {
+        "admission": {
+          "software": "Roboflow",
+          "version": null,
+          "adapterHash": null,
+          "frame": null,
+          "units": null,
+          "revision": null,
+          "contentHash": null,
+          "status": "unprobed"
+        },
+        "decision": {
+          "admitted": true,
+          "nativeEvidenceAccepted": false,
+          "reasons": []
+        },
+        "reason": "No native invocation occurs in this diagnostic run; existing installations or past receipts do not imply current admission."
+      },
+      "sha256": "ae696030a61de67e43c3f0226fd536eb2a2922e29db4a71237b4fa8ea57ad685"
+    },
+    {
+      "id": "native.Spline",
+      "componentId": "software:Spline",
+      "toolIds": [],
+      "family": "native-admission",
+      "expected": "unknown",
+      "passed": null,
+      "cause": "availability_unobserved",
+      "observation": {
+        "admission": {
+          "software": "Spline",
+          "version": null,
+          "adapterHash": null,
+          "frame": null,
+          "units": null,
+          "revision": null,
+          "contentHash": null,
+          "status": "unprobed"
+        },
+        "decision": {
+          "admitted": true,
+          "nativeEvidenceAccepted": false,
+          "reasons": []
+        },
+        "reason": "No native invocation occurs in this diagnostic run; existing installations or past receipts do not imply current admission."
+      },
+      "sha256": "57fd59f7dde380c05b18a080ba22594722509ed08622742106330878b7437c99"
+    },
+    {
+      "id": "native.Hana",
+      "componentId": "software:Hana",
+      "toolIds": [],
+      "family": "native-admission",
+      "expected": "unknown",
+      "passed": null,
+      "cause": "availability_unobserved",
+      "observation": {
+        "admission": {
+          "software": "Hana",
+          "version": null,
+          "adapterHash": null,
+          "frame": null,
+          "units": null,
+          "revision": null,
+          "contentHash": null,
+          "status": "unprobed"
+        },
+        "decision": {
+          "admitted": true,
+          "nativeEvidenceAccepted": false,
+          "reasons": []
+        },
+        "reason": "No native invocation occurs in this diagnostic run; existing installations or past receipts do not imply current admission."
+      },
+      "sha256": "54e6c84feefe0828274744d187e589353eb7acc821fd0e91b34125a9f2439e4a"
+    },
+    {
+      "id": "native.OMMA",
+      "componentId": "software:OMMA",
+      "toolIds": [],
+      "family": "native-admission",
+      "expected": "unknown",
+      "passed": null,
+      "cause": "availability_unobserved",
+      "observation": {
+        "admission": {
+          "software": "OMMA",
+          "version": null,
+          "adapterHash": null,
+          "frame": null,
+          "units": null,
+          "revision": null,
+          "contentHash": null,
+          "status": "unprobed"
+        },
+        "decision": {
+          "admitted": true,
+          "nativeEvidenceAccepted": false,
+          "reasons": []
+        },
+        "reason": "No native invocation occurs in this diagnostic run; existing installations or past receipts do not imply current admission."
+      },
+      "sha256": "97209f080af7c9d728ec467bf5d2398912a781ab1d9ed807f2cbe6c271b025f7"
+    },
+    {
+      "id": "native.Ollama",
+      "componentId": "software:Ollama",
+      "toolIds": [],
+      "family": "native-admission",
+      "expected": "unknown",
+      "passed": null,
+      "cause": "availability_unobserved",
+      "observation": {
+        "admission": {
+          "software": "Ollama",
+          "version": null,
+          "adapterHash": null,
+          "frame": null,
+          "units": null,
+          "revision": null,
+          "contentHash": null,
+          "status": "unprobed"
+        },
+        "decision": {
+          "admitted": true,
+          "nativeEvidenceAccepted": false,
+          "reasons": []
+        },
+        "reason": "No native invocation occurs in this diagnostic run; existing installations or past receipts do not imply current admission."
+      },
+      "sha256": "a4508a74859ab96e610e3ba14ca04fdb100c402eb2b3f3edc19407bd74960ea3"
+    }
+  ],
+  "components": [
+    {
+      "id": "tool:lab_inspect",
+      "status": "observed",
+      "passed": 2,
+      "failed": 0,
+      "unknown": 0
+    },
+    {
+      "id": "tool:lab_measure",
+      "status": "observed",
+      "passed": 6,
+      "failed": 0,
+      "unknown": 0
+    },
+    {
+      "id": "tool:lab_query",
+      "status": "observed",
+      "passed": 8,
+      "failed": 0,
+      "unknown": 0
+    },
+    {
+      "id": "tool:lab_transform",
+      "status": "observed",
+      "passed": 5,
+      "failed": 0,
+      "unknown": 0
+    },
+    {
+      "id": "tool:lab_propose",
+      "status": "observed",
+      "passed": 3,
+      "failed": 0,
+      "unknown": 0
+    },
+    {
+      "id": "tool:lab_verify",
+      "status": "observed",
+      "passed": 1,
+      "failed": 0,
+      "unknown": 0
+    },
+    {
+      "id": "transport:simulated-json",
+      "status": "observed",
+      "passed": 6,
+      "failed": 0,
+      "unknown": 0
+    },
+    {
+      "id": "composition:analytic-tools",
+      "status": "observed",
+      "passed": 3,
+      "failed": 0,
+      "unknown": 0
+    },
+    {
+      "id": "guard:transport-boundary",
+      "status": "observed",
+      "passed": 6,
+      "failed": 0,
+      "unknown": 0
+    },
+    {
+      "id": "guard:source-integrity",
+      "status": "observed",
+      "passed": 1,
+      "failed": 0,
+      "unknown": 0
+    },
+    {
+      "id": "software:Houdini/OpenVDB",
+      "status": "unknown",
+      "passed": 0,
+      "failed": 0,
+      "unknown": 1
+    },
+    {
+      "id": "software:Rerun",
+      "status": "unknown",
+      "passed": 0,
+      "failed": 0,
+      "unknown": 1
+    },
+    {
+      "id": "software:Viser",
+      "status": "unknown",
+      "passed": 0,
+      "failed": 0,
+      "unknown": 1
+    },
+    {
+      "id": "software:Roboflow",
+      "status": "unknown",
+      "passed": 0,
+      "failed": 0,
+      "unknown": 1
+    },
+    {
+      "id": "software:Spline",
+      "status": "unknown",
+      "passed": 0,
+      "failed": 0,
+      "unknown": 1
+    },
+    {
+      "id": "software:Hana",
+      "status": "unknown",
+      "passed": 0,
+      "failed": 0,
+      "unknown": 1
+    },
+    {
+      "id": "software:OMMA",
+      "status": "unknown",
+      "passed": 0,
+      "failed": 0,
+      "unknown": 1
+    },
+    {
+      "id": "software:Ollama",
+      "status": "unknown",
+      "passed": 0,
+      "failed": 0,
+      "unknown": 1
+    }
+  ],
+  "admissions": [
+    {
+      "software": "Houdini/OpenVDB",
+      "version": null,
+      "adapterHash": null,
+      "frame": null,
+      "units": null,
+      "revision": null,
+      "contentHash": null,
+      "status": "unprobed"
+    },
+    {
+      "software": "Rerun",
+      "version": null,
+      "adapterHash": null,
+      "frame": null,
+      "units": null,
+      "revision": null,
+      "contentHash": null,
+      "status": "unprobed"
+    },
+    {
+      "software": "Viser",
+      "version": null,
+      "adapterHash": null,
+      "frame": null,
+      "units": null,
+      "revision": null,
+      "contentHash": null,
+      "status": "unprobed"
+    },
+    {
+      "software": "Roboflow",
+      "version": null,
+      "adapterHash": null,
+      "frame": null,
+      "units": null,
+      "revision": null,
+      "contentHash": null,
+      "status": "unprobed"
+    },
+    {
+      "software": "Spline",
+      "version": null,
+      "adapterHash": null,
+      "frame": null,
+      "units": null,
+      "revision": null,
+      "contentHash": null,
+      "status": "unprobed"
+    },
+    {
+      "software": "Hana",
+      "version": null,
+      "adapterHash": null,
+      "frame": null,
+      "units": null,
+      "revision": null,
+      "contentHash": null,
+      "status": "unprobed"
+    },
+    {
+      "software": "OMMA",
+      "version": null,
+      "adapterHash": null,
+      "frame": null,
+      "units": null,
+      "revision": null,
+      "contentHash": null,
+      "status": "unprobed"
+    },
+    {
+      "software": "Ollama",
+      "version": null,
+      "adapterHash": null,
+      "frame": null,
+      "units": null,
+      "revision": null,
+      "contentHash": null,
+      "status": "unprobed"
+    }
+  ],
+  "observationsHash": "334be34b5b8240cee8b4179d502c588c1602d72dc4ebc5642d3068d9cf149e55"
+}

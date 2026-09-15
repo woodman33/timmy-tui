@@ -1,0 +1,91 @@
+{
+  "schema": "timmy.policy-supersession/1",
+  "recorded_at": "2026-09-15T01:53:51.815367+00:00",
+  "status": "document amendment retained; root checkpoint seal pending",
+  "authority": "Explicit current user/root S1 policy amendment; no receipt stream edited by this action.",
+  "scope_verbatim": "Timmy can compute and verify dimensions of generated CAD. Converting that CAD cannot establish the dimensions or density of a physical object.",
+  "changes": [
+    {
+      "source_path": "DOCTRINE.md",
+      "predecessor": {
+        "path": "studio/box-loop-20260914/policy/baseline/DOCTRINE.md",
+        "bytes": 4928,
+        "sha256": "b06919dea2f2204be7cd0432b93df7fd4f250e34ba74b14b185ecfb176ce5c7e"
+      },
+      "revision": {
+        "path": "studio/box-loop-20260914/policy/revisions/s1/DOCTRINE.md",
+        "bytes": 6475,
+        "sha256": "fc1287ec6d292308af80dae7930dcb7c4d503d2e01d12e83e596010acae43e5a"
+      }
+    },
+    {
+      "source_path": "docs/TRANSFORMS-20260914.md",
+      "predecessor": {
+        "path": "studio/box-loop-20260914/policy/baseline/docs/TRANSFORMS-20260914.md",
+        "bytes": 12966,
+        "sha256": "973ce4259f8e029ad2b2d828d3d64d8994e4b93bf4ce66704c5800ebcbc04c6c"
+      },
+      "revision": {
+        "path": "studio/box-loop-20260914/policy/revisions/s1/docs/TRANSFORMS-20260914.md",
+        "bytes": 17418,
+        "sha256": "62d7499815761f653232854c5cab581b85c409cc71ddc70522d92700baf953ed"
+      }
+    }
+  ],
+  "original_transform_document_sha256": "973ce4259f8e029ad2b2d828d3d64d8994e4b93bf4ce66704c5800ebcbc04c6c",
+  "predecessor_seal_references": [
+    {
+      "subject": "transforms.uv.pep723",
+      "hash": "sha256_996328112a0f384c0c3a900b268237b85009706f675d6c59830b013df494a9b5"
+    },
+    {
+      "subject": "transforms.api.restish",
+      "hash": "sha256_e93ec895da76cf1e3775d3c5d9fcad9d6faf03d0db3612306859bc9d97bd9dea"
+    },
+    {
+      "subject": "transforms.cli.jc",
+      "hash": "sha256_d7f6f935fb0ddc680edf9e7b61aca1b8d3afe5750beceda68d54b2888886d1fb"
+    },
+    {
+      "subject": "transforms.tui.web",
+      "hash": "sha256_62bcae2d4d124031e174ec9c224772e65132657dbebb50d2d2482d2113a61bca"
+    },
+    {
+      "subject": "workflows.cloudflare.first",
+      "hash": "sha256_320863ff0f3629916586a9e1f414668878162984cc09723ace65363ce1fb3d27"
+    }
+  ],
+  "original_transform_indexes": [
+    {
+      "path": "studio/transforms-20260914/manifest.json",
+      "sha256": "0d47dda3f23e673b36af7d3db3a9b409931e8373fbdf66c3e5470d00b7fe576b",
+      "modified": false
+    },
+    {
+      "path": "studio/transforms-20260914/artifact-index.json",
+      "sha256": "8f7ef3cf9cae536a39df1c810fc02ab18389308f878e74f0535d066b7fe54de4",
+      "modified": false
+    },
+    {
+      "path": "studio/transforms-20260914/receipt-index.json",
+      "sha256": "1f442e288e326c9f26fa1d7c79d6be33b213396eed3af565decc5e7909733ef7",
+      "modified": false
+    }
+  ],
+  "historical_verification": "Historical receipts cover the predecessor bytes now retained under baseline, not the revised canonical document. A verifier resolving only the canonical path will observe the expected document hash change; use this explicit predecessor mapping. Old receipts and manifests are not rewritten.",
+  "listing_coverage": {
+    "path": "studio/box-loop-20260914/policy/store-listing-coverage.json",
+    "sha256": "5513d2902c30951b9b8bb400ea2927cada435c1889dc55be6de014cbb5967288"
+  },
+  "execution_status": {
+    "S1": "failed",
+    "passed": 0,
+    "attempts": 1,
+    "reason": "same property-citation defect",
+    "S2_and_later": "not executed"
+  },
+  "validation": {
+    "baseline_prefix_preserved": true,
+    "canonical_scope_present_in_both_documents": true
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "schema": "timmy.store-listing-scope/1",
+  "recorded_at": "2026-09-15T01:53:51.815367+00:00",
+  "scope_verbatim": "Timmy can compute and verify dimensions of generated CAD. Converting that CAD cannot establish the dimensions or density of a physical object.",
+  "requirement": "Every future Timmy store listing must carry and display scope_verbatim; current measured-3D listings must also carry it.",
+  "current_measured_3d_listings_found": 0,
+  "published_listings_modified": 0,
+  "coverage_status": "No current measured-3D store listing found in inspected repository surfaces; external publishing accounts were not inspected or changed.",
+  "inspected_surfaces": [
+    {
+      "path": "src/utils/templates.ts",
+      "surface": "Four curated media-template market listings",
+      "names": [
+        "music-video-30s",
+        "ugc-ad-15s",
+        "podcast-clip-60s",
+        "trailer-60s"
+      ],
+      "classification": "not measured-3D listings",
+      "changed": false
+    },
+    {
+      "path": "src/companion/cloudflare-worker.ts",
+      "surface": "/pricing Free, Builder, Pro and Team cards",
+      "classification": "general subscription cards, not measured-3D listings",
+      "changed": false
+    },
+    {
+      "path": "docs/TIMMY-MONETIZATION.md",
+      "surface": "Implementation pilot, Timmy Team, maintained workflow packs",
+      "classification": "commercial proposal, not published store listings",
+      "changed": false
+    },
+    {
+      "path": "src/venue/DEMO-2026-08-22.md",
+      "surface": "package manifest draft",
+      "classification": "future listing schema draft",
+      "changed": false
+    },
+    {
+      "path": "src/venue/HANDOFF.md",
+      "surface": "M3 listings and discovery",
+      "classification": "future registry design",
+      "changed": false
+    }
+  ]
+}

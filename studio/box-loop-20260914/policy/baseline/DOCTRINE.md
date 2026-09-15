@@ -98,27 +98,3 @@ Companion to DESIGN.md (Clearinghouse constitution) and decisions.md
 - Toolchain artifacts live IN the repo (tools/, man/, script ledgers). A
   ledger or roster sealed from outside the repo is an orphan waiting to
   happen.
-
-## 15. MEASUREMENT SCOPE AND THE SHARED 3D PROOF
-
-Timmy can compute and verify dimensions of generated CAD. Converting that CAD cannot establish the dimensions or density of a physical object.
-
-- This is the canonical measured scope. Every future Timmy store listing
-  must carry and display it verbatim, as must any current listing offering
-  measured 3D work. Computational geometry measurements remain valid within
-  their declared units, frame, tolerance and verifier scope. Physical
-  measurements require identified physical observations and calibration.
-- The first shared 3D proof uses the existing **box with a bore**. Preserve
-  its source revision; propose one bounded bore-radius change into a separate
-  candidate; inspect the retained native result and compare the declared
-  geometry checks before claiming success. A rendered preview alone is not
-  native geometry readback, and a material label is not physical density.
-- Register only observed, qualified routes. Interface alternatives that share
-  one native backend are not independent geometry backends. Missing routes,
-  losses, unknown outcomes and unperformed checks remain explicit.
-- The initial listing coverage record is
-  `studio/box-loop-20260914/policy/store-listing-coverage.json`. No current
-  measured-3D store listing was found in the inspected repository surfaces;
-  this policy change does not claim an external listing was published or
-  changed. Existing media-template listings and general subscription cards
-  were not changed by this measured-3D update.

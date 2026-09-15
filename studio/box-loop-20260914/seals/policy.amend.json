@@ -1,0 +1,56 @@
+{
+  "v": 1,
+  "id": "rc_mu20rkx1_srsp",
+  "stream": "runs",
+  "ts": "2026-09-15T01:54:59.365Z",
+  "env_lock": {
+    "os": {
+      "platform": "darwin",
+      "build": "25G83",
+      "version": "26.6.2"
+    },
+    "arch": "arm64",
+    "tools": {
+      "ffmpeg": {
+        "path": "/opt/homebrew/Cellar/ffmpeg/9.0.1/bin/ffmpeg",
+        "sha256": "cebe04356214a938aec846e4fc423de3fc18eda07f64e34e56d55f9963473a20",
+        "size": 426496,
+        "mtime": 1786783182299.5347
+      },
+      "ffprobe": {
+        "path": "/opt/homebrew/Cellar/ffmpeg/9.0.1/bin/ffprobe",
+        "sha256": "81e6262cec5b1f06517c1853041394016ec0503f580aed702e62ac488c4520de",
+        "size": 253488,
+        "mtime": 1786783182342.6052
+      }
+    },
+    "models": {}
+  },
+  "kind": "seal",
+  "subject": "policy.amend",
+  "status": "ok",
+  "tier": "LIGHT",
+  "policy": "Explicit user checkpoint authorization; stop on first failure",
+  "artifacts": [
+    "studio/box-loop-20260914/policy/supersession.json"
+  ],
+  "manifest_sha256": "606bb7cabf7553f8a2b2c8129a0fe9d35ebebe4efc74ff9bc3d743683468634c",
+  "output_sha256": "606bb7cabf7553f8a2b2c8129a0fe9d35ebebe4efc74ff9bc3d743683468634c",
+  "sources": [
+    {
+      "path": "studio/box-loop-20260914/policy/supersession.json",
+      "sha256": "606bb7cabf7553f8a2b2c8129a0fe9d35ebebe4efc74ff9bc3d743683468634c"
+    }
+  ],
+  "child_receipts": [
+    "sha256_d5e4091d253eab9abdd308d4975fa06852d62a605fd7179382443de57b2b6502"
+  ],
+  "discrepancies": [
+    "No store listings were edited; current measured-3D listing not found in inspected local surfaces."
+  ],
+  "epoch": 903,
+  "prev_hash": "sha256_d5e4091d253eab9abdd308d4975fa06852d62a605fd7179382443de57b2b6502",
+  "signer": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA1vYIB6WZTimHEgjkX0Ut7nxX4I7xhjMrI/1K3HUFXYY=\n-----END PUBLIC KEY-----\n",
+  "signature": "ooIustJKjw3LfqnHwHl4vXHdS647G9MPQtsxLqjBaLNNLmCBXw7V5NxNPpkaxC0+C19y2kS3VJAEWZy1bjTLCg==",
+  "hash": "sha256_3e7f0441d9378691cbbdfb0d26cbd93cdea7903002ec739bde7b6f60a310cba6"
+}

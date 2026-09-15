@@ -1,0 +1,103 @@
+{
+  "schema": "timmy.checkpoint.artifacts/1",
+  "step": "S1",
+  "status": "failed",
+  "artifacts": [
+    {
+      "path": "studio/box-loop-20260914/s1/README.md",
+      "sha256": "59f5bf2bf628016be3c7a70c52e81f468a9d62178502c85712c7840ebd5153e7"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/adapter-tests.txt",
+      "sha256": "7284ef0eca15a85153c47591726957b7d616e18164ac6feab8756a7190f7f8c9"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/baseline/prior-episode.json",
+      "sha256": "70096e390fa7737b77fb63dedfe879591390d3a7d298752c1b86d274ef3afd74"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/baseline/src/vision/spatial/workflow-model-adapter.ts",
+      "sha256": "a78c4d2cb382ec33d0d92b768f8aab686a1389028dbc5c630f30e710c8577ce8"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/baseline/tests/workflow-benchmark.test.ts",
+      "sha256": "97ed1449922fb0ce5530bd0d1b1bc0d258c6ac1234a7a302336d6c35be8b331e"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/baseline/tests/workflow-model-adapter.test.ts",
+      "sha256": "37d52a0e623b51110d2327e5154a02c7c20ddebe7106da6a3eac62436301b0a5"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/checkpoint.json",
+      "sha256": "96e720885357e51f71c71d9840e28f814a477d3b340b097107a839b239566aa1"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/evidence-binding-attempt.patch",
+      "sha256": "ff2b19f5cc6e45fdc2a4d2deb18771942511ec7629e4b6e35b006ecfb2e8882e"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/live/episodes/light-missing-evidence.json",
+      "sha256": "fadfce4b9449fbbfdfc5d9c05806f0c5c1629cd74031aa21de4283faaf7a36c2"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/live/evaluator-only/cases.json",
+      "sha256": "dfb07a65db59851ad37650cf14354716ba0cc44c5f96ca7ebf0dcf51661df8e8"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/live/implementation/lab-challenges.ts",
+      "sha256": "c4366896d33bc659b886a9560b1dfee0ca0eaf81315aa9aec0ac3ff32d8ee55c"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/live/implementation/lab-independent-verifier.ts",
+      "sha256": "bf611b86f3c714530dd4cd6f924fedb9a53879b1fcf8eb4f07a41237fc936ce6"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/live/implementation/lab-model-adapter.ts",
+      "sha256": "b96644ae8ebe15cb48c0cb7f25936cdf8b17adf84a7986b21b6a736da07b89a5"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/live/implementation/workflow-benchmark.ts",
+      "sha256": "059ba298f0c90b48bbf60a98724a7e9d1eb40a8608b3208cbd27e8b2c9db7796"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/live/implementation/workflow-isolation.ts",
+      "sha256": "641f75a6e7937f13b82750c998852ce8cbc3a9239a9f847a0a6faad8d751ab63"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/live/implementation/workflow-model-adapter.ts",
+      "sha256": "9b294916604a8086141f93197d68c737fc7f16102f934ecf3e2baff8237b2541"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/live/isolation.json",
+      "sha256": "e3f23aa6094b04bc79f4d265fa236736b3c69f788952c0a566c19a35a40781c1"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/live/oracle-checks.json",
+      "sha256": "59bf49f253370bfd2965364b0744b809101be5a4e91b1a8a1e5e7ebfbbce09f7"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/live/protocol.json",
+      "sha256": "14ad16cf8d869ee1fcf8e6d05e2748d385f7a9a5ef9221d931511635ee0efb6d"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/live/public-workflows.json",
+      "sha256": "d7d9c8f81300204fe0ad7bd320ea7716fed055708655ce86a42220d7b124f226"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/live/receipt-links.json",
+      "sha256": "db286d5618d0e410c68826a303defb3f1c92a91dffabe9242fb369422863efb4"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/live/result.json",
+      "sha256": "41465516b37d5208a067ac43c700b4ff61b7261a23c06e6f9b2fcb206947dfbb"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/local-model-pin.json",
+      "sha256": "12caa60079a1660a5de6d93412388662d1c1cb5e743ac8fd5d3ff66b86c24ac3"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1/scope.json",
+      "sha256": "6ec6673ae46ca337d7252cb524bbad59a6cd2dc297abd20aced69d65690340e3"
+    }
+  ]
+}

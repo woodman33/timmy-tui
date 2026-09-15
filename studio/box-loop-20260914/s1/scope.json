@@ -1,0 +1,22 @@
+{
+  "schema": "timmy.checkpoint.scope/1",
+  "step": "S1",
+  "startedAt": "2026-09-15T01:48:16Z",
+  "checkpointLimitMinutes": 15,
+  "allowedWrites": [
+    "src/vision/spatial/workflow-model-adapter.ts",
+    "tests/workflow-model-adapter.test.ts",
+    "tests/workflow-benchmark.test.ts",
+    "studio/box-loop-20260914/**",
+    "locked receipt append only"
+  ],
+  "model": "granite4.2:latest",
+  "requiredDigest": "f586c02fdecdf151b656207c339aa003997345774a41768bac1fd6d2fb85913b",
+  "gate": "same strict workflow 0/1 -> 1/1 and property-name citation rejected after handle rename",
+  "stopOnFailure": true,
+  "instructions": [
+    "DOCTRINE.md",
+    "DESIGN.md",
+    "decisions.md"
+  ]
+}

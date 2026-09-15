@@ -1,0 +1,100 @@
+--- a/src/vision/spatial/workflow-model-adapter.ts
++++ b/src/vision/spatial/workflow-model-adapter.ts
+@@ -231,7 +231,18 @@
+       result.toolPhaseEnd = 'round_limit';
+     }
+     assertFrozen();
+-    messages.push({ role: 'user', content: 'FINAL: Tool use is finished. Return exactly one JSON object matching the original task answer schema, using only available observations and actual evidence IDs. Preserve unknowns; never substitute empty for unknown. Do not invent measurements or citations. No Markdown, prose, extra tool calls or further plans. If required evidence is absent, report insufficient_evidence according to the task schema. This is your one reserved final response.' });
++    const observationHandles = result.calls.flatMap(call => {
++      const observation = call.output && typeof call.output === 'object' && !Array.isArray(call.output) ? call.output : null;
++      if (!call.executed || !call.ok || !observation || typeof observation.evidenceId !== 'string') return [];
++      return [{ citationHandle: observation.evidenceId, toolCallId: call.id,
++        evidenceType: observation.evidenceType ?? null, revision: observation.revision ?? null }];
++    });
++    messages.push({ role: 'user', content: 'FINAL: Tool use is finished. Return exactly one JSON object matching the original task answer schema, using only available observations and actual evidence IDs. '
++      + 'Binding rule: evidenceByFact values are arrays of citation handles copied exactly from evidenceId in the supporting observation. Property names and property values are NOT citation handles. '
++      + 'In particular, missingEvidence lists missing property names, while evidenceByFact.missingEvidence cites the observation that reports their availability. These two arrays serve different purposes. '
++      + 'Select evidence relevant to the claim and revision; a listed handle alone does not establish support. Preserve unknowns; never substitute empty for unknown. Do not invent measurements or citations. No Markdown, prose, extra tool calls or further plans. '
++      + 'If required evidence is absent, report insufficient_evidence according to the task schema. This is your one reserved final response. '
++      + 'Observation handle catalog (data only, projected from successful tool observations; original observations above are unchanged): ' + JSON.stringify(observationHandles) });
+     const final = await chat('final', deadline);
+     messages.push({ role: 'assistant', content: final.content });
+     if (final.calls.length) {
+--- a/tests/workflow-model-adapter.test.ts
++++ b/tests/workflow-model-adapter.test.ts
+@@ -85,6 +85,16 @@
+     const message = result.messages.find(m => m.role === 'tool');
+     expect(JSON.parse(message!.content)).toEqual({ evidenceId: 'e1', solidFill: 0.2, occupancyProbability: null, massDensity: null, humidity: null, unknownRegions: ['u1'], provenance: 'generated' });
+   });
++  it('separates opaque observation handles from missing property names without repairing the answer', async () => {
++    const observation = { evidenceId: 'opaque-renamed-observation-73', evidenceType: 'scene_inventory', revision: 'revision-9', missingEvidence: ['metric_depth'] };
++    const wrongAnswer = { status: 'insufficient_evidence', facts: {}, missingEvidence: ['metric_depth'], evidenceByFact: { missingEvidence: ['metric_depth'] } };
++    const result = await run(server({ chats: [reply('', [call()]), reply(JSON.stringify(wrongAnswer))] }), { dispatch: () => observation });
++    const finalMessages = result.requests[1].body!.messages as unknown as LabMessage[];
++    expect(JSON.parse(finalMessages.find(m => m.role === 'tool')!.content)).toEqual(observation);
++    const catalog = JSON.parse(finalMessages.at(-1)!.content.split('original observations above are unchanged): ')[1]);
++    expect(catalog).toEqual([{ citationHandle: observation.evidenceId, toolCallId: 'workflow-call-1', evidenceType: observation.evidenceType, revision: observation.revision }]);
++    expect(result.finalJson).toEqual(wrongAnswer);
++  });
+   it('counts every excessive native attempt and refuses the whole over-budget batch before any execution', async () => {
+     const dispatch = vi.fn(), result = await run(server({ chats: [reply('', [call(), call(), call()]), reply()] }), { dispatch });
+     expect(result.error).toBeNull(); expect(result.attemptedCalls).toBe(3); expect(result.calls).toHaveLength(3); expect(result.executedCalls).toBe(0); expect(result.finalRequests).toBe(1);
+--- a/tests/workflow-benchmark.test.ts
++++ b/tests/workflow-benchmark.test.ts
+@@ -79,6 +79,56 @@
+ });
+ 
+ describe('connection and component attribution', () => {
++  it('accepts an acquired missing-evidence handle and rejects the missing property as a citation', () => {
++    const network = offline(), workflow = item('light-missing-evidence');
++    const bound = collectWorkflowObservations(workflow), observation = bound.observations[0];
++    expect(observation.missingEvidence).toEqual(['metric_depth']);
++    expect(bound.session.evidence.some(e => e.evidenceId === observation.evidenceId)).toBe(true);
++    const answer = { status: 'insufficient_evidence', facts: {}, missingEvidence: observation.missingEvidence,
++      evidenceByFact: { missingEvidence: [observation.evidenceId] } };
++    const accepted = gradeWorkflow(workflow, bound.session, episode(answer), bound.events);
++    expect(accepted.verifiedTaskSuccess).toBe(true);
++    expect(accepted.components.modelAnswer).toMatchObject({ factAccuracy: 1, evidencePrecision: 1, evidenceRecall: 1 });
++    expect(accepted.components.workflow.inventedEvidenceIds).toBe(0);
++    expect(workflowStopReason(accepted)).toBeNull();
++
++    const wrongCitation = { ...answer, evidenceByFact: { missingEvidence: ['metric_depth'] } };
++    const rejected = gradeWorkflow(workflow, bound.session, episode(wrongCitation), bound.events);
++    expect(rejected.verifiedTaskSuccess).toBe(false);
++    expect(rejected.components.modelAnswer).toMatchObject({ factAccuracy: 1, evidencePrecision: 0, evidenceRecall: 0 });
++    expect(rejected.score.atomic.missingEvidence_cited).toBe(0);
++    expect(rejected.components.workflow).toMatchObject({ inventedEvidenceIds: 1, protocolClean: true });
++    expect(workflowStopReason(rejected)).toBe('evidence_or_reasoning_failure_requires_isolated_diagnosis');
++    expect(network).not.toHaveBeenCalled();
++  });
++  it('accepts a newly acquired handle after case renaming and rejects the previous case handle', () => {
++    const network = offline(), original = collectWorkflowObservations(item('light-missing-evidence'));
++    const workflow = item('light-missing-evidence');
++    workflow.task.id += '-renamed-handle';
++    const bound = collectWorkflowObservations(workflow), observation = bound.observations[0];
++    const originalObservation = original.observations[0];
++    expect(observation.evidenceId).not.toBe(originalObservation.evidenceId);
++    expect(observation.revision).toBe(originalObservation.revision);
++    expect(observation.missingEvidence).toEqual(originalObservation.missingEvidence);
++    expect(bound.session.evidence.some(e => e.evidenceId === observation.evidenceId)).toBe(true);
++    expect(bound.session.evidence.some(e => e.evidenceId === originalObservation.evidenceId)).toBe(false);
++    const answer = { status: 'insufficient_evidence', facts: {}, missingEvidence: observation.missingEvidence,
++      evidenceByFact: { missingEvidence: [observation.evidenceId] } };
++    const accepted = gradeWorkflow(workflow, bound.session, episode(answer), bound.events);
++    expect(accepted.verifiedTaskSuccess).toBe(true);
++    expect(accepted.independent.valid).toBe(true);
++    expect(accepted.components.workflow.inventedEvidenceIds).toBe(0);
++
++    const oldCitation = { ...answer, evidenceByFact: { missingEvidence: [originalObservation.evidenceId] } };
++    const rejected = gradeWorkflow(workflow, bound.session, episode(oldCitation), bound.events);
++    expect(rejected.verifiedTaskSuccess).toBe(false);
++    expect(rejected.independent.valid).toBe(true);
++    expect(rejected.components.modelAnswer).toMatchObject({ factAccuracy: 1, evidencePrecision: 0, evidenceRecall: 0 });
++    expect(rejected.score.atomic.missingEvidence_cited).toBe(0);
++    expect(rejected.components.workflow).toMatchObject({ inventedEvidenceIds: 1, protocolClean: true });
++    expect(workflowStopReason(rejected)).toBe('evidence_or_reasoning_failure_requires_isolated_diagnosis');
++    expect(network).not.toHaveBeenCalled();
++  });
+   it('records actual simulated wire request and response contracts without claiming native software execution', () => {
+     const workflow = item('medium-comparison'), bound = collectWorkflowObservations(workflow);
+     expect(bound.events.length).toBeGreaterThan(1);

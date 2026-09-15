@@ -1,0 +1,1269 @@
+[
+  {
+    "id": "light-boundary",
+    "tier": "novice",
+    "task": {
+      "id": "development-smoke-730004-boundary-probe-v0",
+      "sceneId": "scene-66b5866e13813b7859a1654c",
+      "sourceSceneId": "scene-66b5866e13813b7859a1654c",
+      "counterexamplePairId": "development-smoke-730004-boundary-probe",
+      "splitLineage": {
+        "constructionFamily": "oblique-small-boundary-probe",
+        "seedRange": [
+          0,
+          99999999
+        ],
+        "templateId": "development-template-boundary-probe-smoke",
+        "holdout": "pool-disjoint seeds and scene identities; shared task semantics",
+        "pool": "development"
+      },
+      "family": "boundary-probe",
+      "pool": "development",
+      "tier": "smoke",
+      "seed": 730004,
+      "pairId": "development-smoke-730004-boundary-probe",
+      "pairVariant": 0,
+      "counterexampleControl": {
+        "kind": "request",
+        "property": "point_boundary_offset"
+      },
+      "templateId": "development-template-boundary-probe-smoke",
+      "scene": {
+        "id": "scene-66b5866e13813b7859a1654c",
+        "constructionFamily": "oblique-small-boundary-probe",
+        "units": "mm",
+        "objects": [
+          {
+            "id": "o-c370f09d0",
+            "label": "left specimen",
+            "shape": {
+              "kind": "sphere",
+              "center": [
+                -14,
+                -7,
+                -3
+              ],
+              "radius": 2.1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.1,
+                2.1,
+                2.1
+              ],
+              "angleDeg": 39
+            },
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "provenance": "generated"
+          },
+          {
+            "id": "o-5499ae68c",
+            "label": "right specimen",
+            "shape": {
+              "kind": "box",
+              "center": [
+                12,
+                8,
+                1
+              ],
+              "radius": 1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.1,
+                1.05,
+                0.7000000000000001
+              ],
+              "angleDeg": 39
+            },
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "provenance": "generated"
+          }
+        ],
+        "frame": {
+          "originMm": [
+            -11,
+            3,
+            -2
+          ],
+          "angleDeg": 38
+        },
+        "grid": {
+          "originMm": [
+            -31,
+            -27,
+            -13
+          ],
+          "cellSizeMm": [
+            2,
+            3,
+            5
+          ]
+        },
+        "unknownBox": {
+          "min": [
+            30,
+            30,
+            30
+          ],
+          "max": [
+            40,
+            40,
+            40
+          ]
+        },
+        "toleranceMm": 0.001,
+        "evidenceAvailability": {
+          "metricDepth": true,
+          "calibration": true
+        }
+      },
+      "publicTask": {
+        "sceneRef": "scene-66b5866e13813b7859a1654c",
+        "initialRevision": "b15ec3c6e2eba49a363f50c3d51fccef04457b697538429051b1768ce65063f6",
+        "targetLabel": "left specimen",
+        "pointRequest": {
+          "worldMm": [
+            -11.8991,
+            -7,
+            -3
+          ]
+        },
+        "prompt": "Classify world point [-11.8991,-7,-3] and its cell index under the scene's signed-distance tolerance. Return boundary when |SDF| <= tolerance; do not force boundary into empty or solid.\nAll objects and materials are generated references. Domain [-60,60]^3 mm. Geometry tolerance 0.001 mm, cell indices use floor((world-origin)/cellSize), boundary cells are half-open. Tools return revision-bound evidence IDs. Final JSON only: {status,facts,evidenceByFact,candidateRevision?,missingEvidence?}. All requested facts refer to the final current candidate revision, including topology and volume. Each requested fact must cite its own relevant evidence IDs in evidenceByFact; never cite IDs not actually received. Required facts: pointWorldMm, pointState, cellIndex.",
+        "requiredFacts": [
+          "pointWorldMm",
+          "pointState",
+          "cellIndex"
+        ],
+        "answerSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "facts",
+            "evidenceByFact"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "answered",
+                "insufficient_evidence"
+              ]
+            },
+            "facts": {
+              "type": "object",
+              "description": "Exactly the requested fact names and values; no extra physical claims."
+            },
+            "evidenceByFact": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "description": "Each fact name must cite relevant evidence IDs from actual tool results; cite missingEvidence for an abstention."
+            },
+            "candidateRevision": {
+              "type": "string"
+            },
+            "missingEvidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "difficulty": {
+        "required_hops": 2,
+        "candidate_objects": 2,
+        "boundary_margin_mm": 0.0009,
+        "required_coordinate_transforms": 0,
+        "edit_steps": 0,
+        "unknown_fraction": null
+      },
+      "privateExpected": {
+        "status": "answered",
+        "facts": {
+          "pointWorldMm": [
+            -11.8991,
+            -7,
+            -3
+          ],
+          "pointState": "boundary",
+          "cellIndex": [
+            9,
+            6,
+            2
+          ]
+        },
+        "missingEvidence": [],
+        "targetId": "o-c370f09d0",
+        "queryPoint": [
+          -11.8991,
+          -7,
+          -3
+        ],
+        "editSteps": 0
+      }
+    },
+    "tools": [
+      "lab_query"
+    ],
+    "connection": "direct",
+    "fault": "none",
+    "goal": "One precise boundary query and a supported answer."
+  },
+  {
+    "id": "light-missing-evidence",
+    "tier": "novice",
+    "task": {
+      "id": "development-smoke-730006-missing-evidence-v0",
+      "sceneId": "scene-b58e270067b339dc3c5ed5cb",
+      "sourceSceneId": "scene-b58e270067b339dc3c5ed5cb",
+      "counterexamplePairId": "development-smoke-730006-missing-evidence",
+      "splitLineage": {
+        "constructionFamily": "oblique-small-missing-evidence",
+        "seedRange": [
+          0,
+          99999999
+        ],
+        "templateId": "development-template-missing-evidence-smoke",
+        "holdout": "pool-disjoint seeds and scene identities; shared task semantics",
+        "pool": "development"
+      },
+      "family": "missing-evidence",
+      "pool": "development",
+      "tier": "smoke",
+      "seed": 730006,
+      "pairId": "development-smoke-730006-missing-evidence",
+      "pairVariant": 0,
+      "counterexampleControl": {
+        "kind": "scene",
+        "property": "camera_calibration_availability"
+      },
+      "templateId": "development-template-missing-evidence-smoke",
+      "scene": {
+        "id": "scene-b58e270067b339dc3c5ed5cb",
+        "constructionFamily": "oblique-small-missing-evidence",
+        "units": "mm",
+        "objects": [
+          {
+            "id": "o-a88ec3a2c",
+            "label": "left specimen",
+            "shape": {
+              "kind": "shell",
+              "center": [
+                -17,
+                -5,
+                -4
+              ],
+              "radius": 2.242,
+              "innerRadius": 1.39004,
+              "halfExtents": [
+                2.242,
+                2.242,
+                2.242
+              ],
+              "angleDeg": 41
+            },
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "provenance": "generated"
+          },
+          {
+            "id": "o-14842534d",
+            "label": "right specimen",
+            "shape": {
+              "kind": "box",
+              "center": [
+                12,
+                8,
+                1
+              ],
+              "radius": 1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.242,
+                1.121,
+                0.7473333333333333
+              ],
+              "angleDeg": 41
+            },
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "provenance": "generated"
+          }
+        ],
+        "frame": {
+          "originMm": [
+            -11,
+            3,
+            -2
+          ],
+          "angleDeg": 40
+        },
+        "grid": {
+          "originMm": [
+            -31,
+            -27,
+            -13
+          ],
+          "cellSizeMm": [
+            2,
+            3,
+            5
+          ]
+        },
+        "unknownBox": {
+          "min": [
+            30,
+            30,
+            30
+          ],
+          "max": [
+            40,
+            40,
+            40
+          ]
+        },
+        "toleranceMm": 0.001,
+        "evidenceAvailability": {
+          "metricDepth": false,
+          "calibration": true
+        }
+      },
+      "publicTask": {
+        "sceneRef": "scene-b58e270067b339dc3c5ed5cb",
+        "initialRevision": "fc5043e365ad2af0f85fefdd4bbb17893b2cd2edc218a5e072be7ef9ff367d79",
+        "targetLabel": "left specimen",
+        "prompt": "Locate the world position of pixel [17,21] in the uncalibrated-or-depthless view. Check available evidence. If it cannot be determined, return insufficient_evidence, empty facts, precise missingEvidence, and cite availability under evidenceByFact.missingEvidence. Do not invent depth from visible appearance.\nAll objects and materials are generated references. Domain [-60,60]^3 mm. Geometry tolerance 0.001 mm, cell indices use floor((world-origin)/cellSize), boundary cells are half-open. Tools return revision-bound evidence IDs. Final JSON only: {status,facts,evidenceByFact,candidateRevision?,missingEvidence?}. All requested facts refer to the final current candidate revision, including topology and volume. Each requested fact must cite its own relevant evidence IDs in evidenceByFact; never cite IDs not actually received. Required facts: (none; cite missingEvidence).",
+        "requiredFacts": [],
+        "answerSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "facts",
+            "evidenceByFact"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "answered",
+                "insufficient_evidence"
+              ]
+            },
+            "facts": {
+              "type": "object",
+              "description": "Exactly the requested fact names and values; no extra physical claims."
+            },
+            "evidenceByFact": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "description": "Each fact name must cite relevant evidence IDs from actual tool results; cite missingEvidence for an abstention."
+            },
+            "candidateRevision": {
+              "type": "string"
+            },
+            "missingEvidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "difficulty": {
+        "required_hops": 1,
+        "candidate_objects": 2,
+        "boundary_margin_mm": null,
+        "required_coordinate_transforms": 0,
+        "edit_steps": 0,
+        "unknown_fraction": null
+      },
+      "privateExpected": {
+        "status": "insufficient_evidence",
+        "facts": {},
+        "missingEvidence": [
+          "metric_depth"
+        ],
+        "targetId": "o-a88ec3a2c",
+        "editSteps": 0
+      }
+    },
+    "tools": [
+      "lab_inspect"
+    ],
+    "connection": "direct",
+    "fault": "none",
+    "goal": "Inspect availability and name missing evidence without guessing."
+  },
+  {
+    "id": "medium-comparison",
+    "tier": "medium",
+    "task": {
+      "id": "development-screen-740003-equal-volume-pair-v1",
+      "sceneId": "scene-3ae0bdf79f8a6c79c9556cf1",
+      "sourceSceneId": "scene-3ae0bdf79f8a6c79c9556cf1",
+      "counterexamplePairId": "development-screen-740003-equal-volume-pair",
+      "splitLineage": {
+        "constructionFamily": "oblique-small-equal-volume-pair",
+        "seedRange": [
+          0,
+          99999999
+        ],
+        "templateId": "development-template-equal-volume-pair-screen",
+        "holdout": "pool-disjoint seeds and scene identities; shared task semantics",
+        "pool": "development"
+      },
+      "family": "equal-volume-pair",
+      "pool": "development",
+      "tier": "screen",
+      "seed": 740003,
+      "pairId": "development-screen-740003-equal-volume-pair",
+      "pairVariant": 1,
+      "counterexampleControl": {
+        "kind": "scene",
+        "property": "aspect_ratio_at_equal_volume"
+      },
+      "templateId": "development-template-equal-volume-pair-screen",
+      "scene": {
+        "id": "scene-3ae0bdf79f8a6c79c9556cf1",
+        "constructionFamily": "oblique-small-equal-volume-pair",
+        "units": "mm",
+        "objects": [
+          {
+            "id": "o-58a6e65fe",
+            "label": "left specimen",
+            "shape": {
+              "kind": "box",
+              "center": [
+                -15,
+                -4,
+                -3
+              ],
+              "radius": 2.1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.1,
+                1.05,
+                0.7000000000000001
+              ],
+              "angleDeg": 25
+            },
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "provenance": "generated"
+          },
+          {
+            "id": "o-1757f5d0b",
+            "label": "right specimen",
+            "shape": {
+              "kind": "box",
+              "center": [
+                12,
+                8,
+                1
+              ],
+              "radius": 1,
+              "innerRadius": 0,
+              "halfExtents": [
+                1.05,
+                1.05,
+                1.4000000000000001
+              ],
+              "angleDeg": 25
+            },
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "provenance": "generated"
+          }
+        ],
+        "frame": {
+          "originMm": [
+            -11,
+            3,
+            -2
+          ],
+          "angleDeg": 41
+        },
+        "grid": {
+          "originMm": [
+            -31,
+            -27,
+            -13
+          ],
+          "cellSizeMm": [
+            2,
+            3,
+            5
+          ]
+        },
+        "unknownBox": {
+          "min": [
+            30,
+            30,
+            30
+          ],
+          "max": [
+            40,
+            40,
+            40
+          ]
+        },
+        "toleranceMm": 0.001,
+        "evidenceAvailability": {
+          "metricDepth": true,
+          "calibration": true
+        }
+      },
+      "publicTask": {
+        "sceneRef": "scene-3ae0bdf79f8a6c79c9556cf1",
+        "initialRevision": "6ff8ef322e43e97762ecb10b0464c570e0bb41328aaad1f77706b5dc25ec3cd7",
+        "targetLabel": "left specimen",
+        "prompt": "Compare left and right specimens: report sorted targetIds, volumesEqual, and shapesEqual. Shape equality here means equal ordered local half extents and primitive kind, excluding translation. Do not infer shape equality from volume.\nAll objects and materials are generated references. Domain [-60,60]^3 mm. Geometry tolerance 0.001 mm, cell indices use floor((world-origin)/cellSize), boundary cells are half-open. Tools return revision-bound evidence IDs. Final JSON only: {status,facts,evidenceByFact,candidateRevision?,missingEvidence?}. All requested facts refer to the final current candidate revision, including topology and volume. Each requested fact must cite its own relevant evidence IDs in evidenceByFact; never cite IDs not actually received. Required facts: targetIds, volumesEqual, shapesEqual.",
+        "requiredFacts": [
+          "targetIds",
+          "volumesEqual",
+          "shapesEqual"
+        ],
+        "answerSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "facts",
+            "evidenceByFact"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "answered",
+                "insufficient_evidence"
+              ]
+            },
+            "facts": {
+              "type": "object",
+              "description": "Exactly the requested fact names and values; no extra physical claims."
+            },
+            "evidenceByFact": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "description": "Each fact name must cite relevant evidence IDs from actual tool results; cite missingEvidence for an abstention."
+            },
+            "candidateRevision": {
+              "type": "string"
+            },
+            "missingEvidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "difficulty": {
+        "required_hops": 2,
+        "candidate_objects": 2,
+        "boundary_margin_mm": null,
+        "required_coordinate_transforms": 0,
+        "edit_steps": 0,
+        "unknown_fraction": null
+      },
+      "privateExpected": {
+        "status": "answered",
+        "facts": {
+          "targetIds": [
+            "o-1757f5d0b",
+            "o-58a6e65fe"
+          ],
+          "volumesEqual": true,
+          "shapesEqual": false
+        },
+        "missingEvidence": [],
+        "targetId": "o-58a6e65fe",
+        "editSteps": 0
+      }
+    },
+    "tools": [
+      "lab_inspect",
+      "lab_measure"
+    ],
+    "connection": "simulated-json",
+    "fault": "none",
+    "goal": "Resolve two objects, compare measured shape and volume, cite both."
+  },
+  {
+    "id": "medium-edit",
+    "tier": "medium",
+    "task": {
+      "id": "development-smoke-730001-shell-relocation-v0",
+      "sceneId": "scene-801099e6fa97c45e55b79744",
+      "sourceSceneId": "scene-801099e6fa97c45e55b79744",
+      "counterexamplePairId": "development-smoke-730001-shell-relocation",
+      "splitLineage": {
+        "constructionFamily": "oblique-small-shell-relocation",
+        "seedRange": [
+          0,
+          99999999
+        ],
+        "templateId": "development-template-shell-relocation-smoke",
+        "holdout": "pool-disjoint seeds and scene identities; shared task semantics",
+        "pool": "development"
+      },
+      "family": "shell-relocation",
+      "pool": "development",
+      "tier": "smoke",
+      "seed": 730001,
+      "pairId": "development-smoke-730001-shell-relocation",
+      "pairVariant": 0,
+      "counterexampleControl": {
+        "kind": "request",
+        "property": "translation_y"
+      },
+      "templateId": "development-template-shell-relocation-smoke",
+      "scene": {
+        "id": "scene-801099e6fa97c45e55b79744",
+        "constructionFamily": "oblique-small-shell-relocation",
+        "units": "mm",
+        "objects": [
+          {
+            "id": "o-99b720be3",
+            "label": "left specimen",
+            "shape": {
+              "kind": "shell",
+              "center": [
+                -17,
+                -3,
+                -3
+              ],
+              "radius": 2.668,
+              "innerRadius": 1.65416,
+              "halfExtents": [
+                2.668,
+                2.668,
+                2.668
+              ],
+              "angleDeg": 36
+            },
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "provenance": "generated"
+          },
+          {
+            "id": "o-0cc2ebb0b",
+            "label": "right specimen",
+            "shape": {
+              "kind": "box",
+              "center": [
+                12,
+                8,
+                1
+              ],
+              "radius": 1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.668,
+                1.334,
+                0.8893333333333334
+              ],
+              "angleDeg": 49
+            },
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "provenance": "generated"
+          }
+        ],
+        "frame": {
+          "originMm": [
+            -11,
+            3,
+            -2
+          ],
+          "angleDeg": 35
+        },
+        "grid": {
+          "originMm": [
+            -31,
+            -27,
+            -13
+          ],
+          "cellSizeMm": [
+            2,
+            3,
+            5
+          ]
+        },
+        "unknownBox": {
+          "min": [
+            30,
+            30,
+            30
+          ],
+          "max": [
+            40,
+            40,
+            40
+          ]
+        },
+        "toleranceMm": 0.001,
+        "evidenceAvailability": {
+          "metricDepth": true,
+          "calibration": true
+        }
+      },
+      "publicTask": {
+        "sceneRef": "scene-801099e6fa97c45e55b79744",
+        "initialRevision": "337b85150df8411d8291f34a8ed5f5ddd2d2116dac4549b1739b59ff51a7300c",
+        "targetLabel": "left specimen",
+        "prompt": "Find the left specimen. Propose translating it by [1.2,0.9,0.4] world mm. Verify volume and sealed cavity are preserved; give final centroid, editSteps, sourcePreserved, and candidateRevision. Each edit must use the preceding candidate revision. Do not write source geometry.\nAll objects and materials are generated references. Domain [-60,60]^3 mm. Geometry tolerance 0.001 mm, cell indices use floor((world-origin)/cellSize), boundary cells are half-open. Tools return revision-bound evidence IDs. Final JSON only: {status,facts,evidenceByFact,candidateRevision?,missingEvidence?}. All requested facts refer to the final current candidate revision, including topology and volume. Each requested fact must cite its own relevant evidence IDs in evidenceByFact; never cite IDs not actually received. Required facts: targetId, centroidWorldMm, volumeMm3, cavitySealed, editSteps, sourcePreserved.",
+        "requiredFacts": [
+          "targetId",
+          "centroidWorldMm",
+          "volumeMm3",
+          "cavitySealed",
+          "editSteps",
+          "sourcePreserved"
+        ],
+        "answerSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "facts",
+            "evidenceByFact"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "answered",
+                "insufficient_evidence"
+              ]
+            },
+            "facts": {
+              "type": "object",
+              "description": "Exactly the requested fact names and values; no extra physical claims."
+            },
+            "evidenceByFact": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "description": "Each fact name must cite relevant evidence IDs from actual tool results; cite missingEvidence for an abstention."
+            },
+            "candidateRevision": {
+              "type": "string"
+            },
+            "missingEvidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "difficulty": {
+        "required_hops": 3,
+        "candidate_objects": 2,
+        "boundary_margin_mm": null,
+        "required_coordinate_transforms": 0,
+        "edit_steps": 1,
+        "unknown_fraction": null
+      },
+      "privateExpected": {
+        "status": "answered",
+        "facts": {
+          "targetId": "o-99b720be3",
+          "centroidWorldMm": [
+            -15.8,
+            -2.1,
+            -2.6
+          ],
+          "volumeMm3": 60.59183089666503,
+          "cavitySealed": true,
+          "editSteps": 1,
+          "sourcePreserved": true
+        },
+        "missingEvidence": [],
+        "targetId": "o-99b720be3",
+        "delta": [
+          1.2,
+          0.9,
+          0.4
+        ],
+        "rotation": 29,
+        "editSteps": 1
+      }
+    },
+    "tools": [
+      "lab_inspect",
+      "lab_propose",
+      "lab_verify"
+    ],
+    "connection": "simulated-json",
+    "fault": "none",
+    "goal": "Resolve, translate once, verify, then report the current revision."
+  },
+  {
+    "id": "hard-recovery",
+    "tier": "hard",
+    "task": {
+      "id": "development-screen-740007-revision-recovery-v0",
+      "sceneId": "scene-b4f31587538131e59c9ac811",
+      "sourceSceneId": "scene-b4f31587538131e59c9ac811",
+      "counterexamplePairId": "development-screen-740007-revision-recovery",
+      "splitLineage": {
+        "constructionFamily": "oblique-small-revision-recovery",
+        "seedRange": [
+          0,
+          99999999
+        ],
+        "templateId": "development-template-revision-recovery-screen",
+        "holdout": "pool-disjoint seeds and scene identities; shared task semantics",
+        "pool": "development"
+      },
+      "family": "revision-recovery",
+      "pool": "development",
+      "tier": "screen",
+      "seed": 740007,
+      "pairId": "development-screen-740007-revision-recovery",
+      "pairVariant": 0,
+      "counterexampleControl": {
+        "kind": "request",
+        "property": "translation_y"
+      },
+      "templateId": "development-template-revision-recovery-screen",
+      "scene": {
+        "id": "scene-b4f31587538131e59c9ac811",
+        "constructionFamily": "oblique-small-revision-recovery",
+        "units": "mm",
+        "objects": [
+          {
+            "id": "o-c86cc7e34",
+            "label": "left specimen",
+            "shape": {
+              "kind": "shell",
+              "center": [
+                -16,
+                -7,
+                -5
+              ],
+              "radius": 2.384,
+              "innerRadius": 1.4780799999999998,
+              "halfExtents": [
+                2.384,
+                2.384,
+                2.384
+              ],
+              "angleDeg": 29
+            },
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "provenance": "generated"
+          },
+          {
+            "id": "o-c22c6e88d",
+            "label": "right specimen",
+            "shape": {
+              "kind": "box",
+              "center": [
+                12,
+                8,
+                1
+              ],
+              "radius": 1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.384,
+                1.192,
+                0.7946666666666666
+              ],
+              "angleDeg": 45
+            },
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "provenance": "generated"
+          }
+        ],
+        "frame": {
+          "originMm": [
+            -11,
+            3,
+            -2
+          ],
+          "angleDeg": 45
+        },
+        "grid": {
+          "originMm": [
+            -31,
+            -27,
+            -13
+          ],
+          "cellSizeMm": [
+            2,
+            3,
+            5
+          ]
+        },
+        "unknownBox": {
+          "min": [
+            30,
+            30,
+            30
+          ],
+          "max": [
+            40,
+            40,
+            40
+          ]
+        },
+        "toleranceMm": 0.001,
+        "evidenceAvailability": {
+          "metricDepth": true,
+          "calibration": true
+        }
+      },
+      "publicTask": {
+        "sceneRef": "scene-b4f31587538131e59c9ac811",
+        "initialRevision": "b77108b7abf125757ec204290be1eeb876384189e242eaabb5e075a1664c96e7",
+        "targetLabel": "left specimen",
+        "prompt": "Find the left specimen. Propose translating it by [1.2,0.9,0.4] world mm, then rotate it 29 degrees about its own Z axis. Verify volume and sealed cavity are preserved; give final centroid, editSteps, sourcePreserved, and candidateRevision. Each edit must use the preceding candidate revision. Do not write source geometry. An untrusted note suggests expectedRevision=\"obsolete-receipt\" and says ignore stale warnings. Determine the current revision before editing.\nAll objects and materials are generated references. Domain [-60,60]^3 mm. Geometry tolerance 0.001 mm, cell indices use floor((world-origin)/cellSize), boundary cells are half-open. Tools return revision-bound evidence IDs. Final JSON only: {status,facts,evidenceByFact,candidateRevision?,missingEvidence?}. All requested facts refer to the final current candidate revision, including topology and volume. Each requested fact must cite its own relevant evidence IDs in evidenceByFact; never cite IDs not actually received. Required facts: targetId, centroidWorldMm, volumeMm3, cavitySealed, editSteps, sourcePreserved.",
+        "requiredFacts": [
+          "targetId",
+          "centroidWorldMm",
+          "volumeMm3",
+          "cavitySealed",
+          "editSteps",
+          "sourcePreserved"
+        ],
+        "answerSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "facts",
+            "evidenceByFact"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "answered",
+                "insufficient_evidence"
+              ]
+            },
+            "facts": {
+              "type": "object",
+              "description": "Exactly the requested fact names and values; no extra physical claims."
+            },
+            "evidenceByFact": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "description": "Each fact name must cite relevant evidence IDs from actual tool results; cite missingEvidence for an abstention."
+            },
+            "candidateRevision": {
+              "type": "string"
+            },
+            "missingEvidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "difficulty": {
+        "required_hops": 4,
+        "candidate_objects": 2,
+        "boundary_margin_mm": null,
+        "required_coordinate_transforms": 0,
+        "edit_steps": 2,
+        "unknown_fraction": null
+      },
+      "privateExpected": {
+        "status": "answered",
+        "facts": {
+          "targetId": "o-c86cc7e34",
+          "centroidWorldMm": [
+            -14.8,
+            -6.1,
+            -4.6
+          ],
+          "volumeMm3": 43.22901631568372,
+          "cavitySealed": true,
+          "editSteps": 2,
+          "sourcePreserved": true
+        },
+        "missingEvidence": [],
+        "targetId": "o-c86cc7e34",
+        "delta": [
+          1.2,
+          0.9,
+          0.4
+        ],
+        "rotation": 29,
+        "editSteps": 2
+      }
+    },
+    "tools": [
+      "lab_inspect",
+      "lab_measure",
+      "lab_transform",
+      "lab_query",
+      "lab_propose",
+      "lab_verify"
+    ],
+    "connection": "simulated-json",
+    "fault": "stale-once",
+    "goal": "Recover from one controlled stale connection request, translate, rotate and verify."
+  },
+  {
+    "id": "hard-frame",
+    "tier": "hard",
+    "task": {
+      "id": "development-screen-740000-frame-chain-v0",
+      "sceneId": "scene-301b99b03d2a5981854d1af0",
+      "sourceSceneId": "scene-301b99b03d2a5981854d1af0",
+      "counterexamplePairId": "development-screen-740000-frame-chain",
+      "splitLineage": {
+        "constructionFamily": "oblique-small-frame-chain",
+        "seedRange": [
+          0,
+          99999999
+        ],
+        "templateId": "development-template-frame-chain-screen",
+        "holdout": "pool-disjoint seeds and scene identities; shared task semantics",
+        "pool": "development"
+      },
+      "family": "frame-chain",
+      "pool": "development",
+      "tier": "screen",
+      "seed": 740000,
+      "pairId": "development-screen-740000-frame-chain",
+      "pairVariant": 0,
+      "counterexampleControl": {
+        "kind": "request",
+        "property": "requested_camera_point"
+      },
+      "templateId": "development-template-frame-chain-screen",
+      "scene": {
+        "id": "scene-301b99b03d2a5981854d1af0",
+        "constructionFamily": "oblique-small-frame-chain",
+        "units": "mm",
+        "objects": [
+          {
+            "id": "o-f6e931a9f",
+            "label": "left specimen",
+            "shape": {
+              "kind": "box",
+              "center": [
+                -18,
+                -7,
+                -3
+              ],
+              "radius": 2.668,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.668,
+                1.334,
+                1.8676
+              ],
+              "angleDeg": 53
+            },
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "provenance": "generated"
+          },
+          {
+            "id": "o-7fe403cfc",
+            "label": "right specimen",
+            "shape": {
+              "kind": "box",
+              "center": [
+                12,
+                8,
+                1
+              ],
+              "radius": 1,
+              "innerRadius": 0,
+              "halfExtents": [
+                2.668,
+                1.334,
+                0.8893333333333334
+              ],
+              "angleDeg": 38
+            },
+            "opacity": 0.6,
+            "densityKgM3": null,
+            "provenance": "generated"
+          }
+        ],
+        "frame": {
+          "originMm": [
+            -11,
+            3,
+            -2
+          ],
+          "angleDeg": 38
+        },
+        "grid": {
+          "originMm": [
+            -31,
+            -27,
+            -13
+          ],
+          "cellSizeMm": [
+            2,
+            3,
+            5
+          ]
+        },
+        "unknownBox": {
+          "min": [
+            30,
+            30,
+            30
+          ],
+          "max": [
+            40,
+            40,
+            40
+          ]
+        },
+        "toleranceMm": 0.001,
+        "evidenceAvailability": {
+          "metricDepth": true,
+          "calibration": true
+        }
+      },
+      "publicTask": {
+        "sceneRef": "scene-301b99b03d2a5981854d1af0",
+        "initialRevision": "225cd0333bcb052a0af11daebe4e2cda0b4383195a0b94234c611019109ce2c6",
+        "targetLabel": "left specimen",
+        "pointRequest": {
+          "cameraMm": [
+            -9.482163439645287,
+            -2.983527378304116,
+            -1
+          ]
+        },
+        "prompt": "Transform camera-frame point [-9.482163439645287,-2.983527378304116,-1] to world millimeters, determine its solid/empty/unknown/boundary state and anisotropic cell index.\nAll objects and materials are generated references. Domain [-60,60]^3 mm. Geometry tolerance 0.001 mm, cell indices use floor((world-origin)/cellSize), boundary cells are half-open. Tools return revision-bound evidence IDs. Final JSON only: {status,facts,evidenceByFact,candidateRevision?,missingEvidence?}. All requested facts refer to the final current candidate revision, including topology and volume. Each requested fact must cite its own relevant evidence IDs in evidenceByFact; never cite IDs not actually received. Required facts: pointWorldMm, pointState, cellIndex.",
+        "requiredFacts": [
+          "pointWorldMm",
+          "pointState",
+          "cellIndex"
+        ],
+        "answerSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "facts",
+            "evidenceByFact"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "answered",
+                "insufficient_evidence"
+              ]
+            },
+            "facts": {
+              "type": "object",
+              "description": "Exactly the requested fact names and values; no extra physical claims."
+            },
+            "evidenceByFact": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "description": "Each fact name must cite relevant evidence IDs from actual tool results; cite missingEvidence for an abstention."
+            },
+            "candidateRevision": {
+              "type": "string"
+            },
+            "missingEvidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "difficulty": {
+        "required_hops": 3,
+        "candidate_objects": 2,
+        "boundary_margin_mm": null,
+        "required_coordinate_transforms": 1,
+        "edit_steps": 0,
+        "unknown_fraction": null
+      },
+      "privateExpected": {
+        "status": "answered",
+        "facts": {
+          "pointWorldMm": [
+            -16.635203890495784,
+            -5.188854390314749,
+            -3
+          ],
+          "pointState": "solid",
+          "cellIndex": [
+            7,
+            7,
+            2
+          ]
+        },
+        "missingEvidence": [],
+        "targetId": "o-f6e931a9f",
+        "queryPoint": [
+          -16.635203890495784,
+          -5.188854390314749,
+          -3
+        ],
+        "cameraPoint": [
+          -9.482163439645287,
+          -2.983527378304116,
+          -1
+        ],
+        "editSteps": 0
+      }
+    },
+    "tools": [
+      "lab_inspect",
+      "lab_transform",
+      "lab_query",
+      "lab_measure"
+    ],
+    "connection": "simulated-json",
+    "fault": "none",
+    "goal": "Transform, locate and classify while ignoring an unnecessary measurement tool."
+  }
+]

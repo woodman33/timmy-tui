@@ -1,0 +1,30 @@
+{
+  "schema": "timmy.public-review-derivation/1",
+  "reason": "Repository privacy hook rejected local identity/path data. Sealed originals remain unchanged in local canonical store; unsafe artifacts omitted from public commit.",
+  "derivedDocument": {
+    "path": "docs/TRANSFORMS-20260914.md",
+    "originalSha256": "62d7499815761f653232854c5cab581b85c409cc71ddc70522d92700baf953ed",
+    "publicSha256": "7255c21ee7957dc624e8d4a3e6455cdb36826daf8e043a093c4862f481232e32",
+    "change": "Local absolute paths replaced with TIMMY_ROOT/home placeholders; \u00a79 policy wording unchanged."
+  },
+  "omittedArtifacts": [
+    {
+      "path": "studio/box-loop-20260914/s1/adapter-tests.txt",
+      "sha256": "7284ef0eca15a85153c47591726957b7d616e18164ac6feab8756a7190f7f8c9"
+    },
+    {
+      "path": "studio/box-loop-20260914/policy/baseline/docs/TRANSFORMS-20260914.md",
+      "sha256": "973ce4259f8e029ad2b2d828d3d64d8994e4b93bf4ce66704c5800ebcbc04c6c"
+    },
+    {
+      "path": "studio/box-loop-20260914/policy/revisions/s1/docs/TRANSFORMS-20260914.md",
+      "sha256": "62d7499815761f653232854c5cab581b85c409cc71ddc70522d92700baf953ed"
+    },
+    {
+      "path": "studio/box-loop-20260914/seals/receipt.orphan.json",
+      "sha256": "1a5885bfba20e6ec2fe64feb7bc128645a0aa0344b0f763c743f7d1d41e446b8"
+    }
+  ],
+  "verificationLimit": "Original seals bind original files, not a redacted substitute. Public hashes alone do not disclose or reconstruct omitted artifacts. Full bundle remains local.",
+  "sealedOriginalsModified": false
+}
