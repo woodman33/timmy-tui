@@ -84,12 +84,15 @@ describe('LIBRARY tab (spec §06)', { timeout: 60000 }, () => {
     const notes2 = JSON.parse(readFileSync(notesPath(), 'utf8')) as Record<string, { notes?: string }>;
     expect(notes2[noteId]?.notes).toBe('judge tier 1');
 
-    // / fuzzy filter narrows the picker (last: leaving INSERT needs no clear)
+    // / fuzzy filter narrows the picker (last: leaving INSERT needs no clear).
+    // ui-next: the rail's OLLAMA LOCAL/CLOUD card intentionally lists cloud
+    // models, so scope the filter assertion to the picker (left column).
     view.stdin.write('/');
     view.stdin.write('nemotron');
     f = await until(view, x => x.includes('/ nemotron'));
-    expect(f).toContain('nemotron');
-    expect(f).not.toContain('grok');
+    const picker = f.split('\n').map(l => l.slice(0, 76)).join('\n');
+    expect(picker).toContain('nemotron');
+    expect(picker).not.toContain('grok');
     view.unmount();
   });
 });
