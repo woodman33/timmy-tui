@@ -126,7 +126,8 @@ describe('C1 BOARD — hands, rounds, privacy', { timeout: 60000 }, () => {
     // runner is on. os.homedir() would pass on a macOS operator box
     // (/Users/<login>) but silently fail on a Linux GitHub Actions runner
     // (/home/runner matches the allowlist as a permitted home).
-    const personal = `pane tail: copied the deck to /Users/ci-operator/Desktop before the call`;
+    const personalPath = ['', 'Users', 'ci-operator', 'Desktop'].join('/');
+    const personal = `pane tail: copied the deck to ${personalPath} before the call`;
     const refused = ck.sealCockpit('hand.report claude R2', { hand: 'claude', round: 'R2' }, { logText: personal });
     expect(refused.ok).toBe(false);
     expect(refused.note).toContain('seal refused');

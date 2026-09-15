@@ -226,8 +226,7 @@
     "not-valid|test-[a-z-]*-key|sk-or-v1-abcdef1234567890|sk-proj-abc123\\.\\.\\.|example-key|dummy-key",
     "your[-_][A-Za-z0-9]+[-_](api[-_])?(key|token|secret)[-_]here|your[-_][A-Za-z0-9-]*[-_]here",
     "isLocalIp\\(",
-    "@[A-Za-z0-9.-]+\\.local\\b",
-    "/Users/ci-operator/Desktop"
+    "@[A-Za-z0-9.-]+\\.local\\b"
   ],
   "ignore_paths": [
     "node_modules/",
