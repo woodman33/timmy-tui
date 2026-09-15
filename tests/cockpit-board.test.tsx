@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import React from 'react';
 import { render } from 'ink-testing-library';
 import { mkdtempSync, mkdirSync, writeFileSync, statSync, rmSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ShellV2 } from '../src/tui/components/ShellV2.js';
 import * as ck from '../src/harness/cockpit.js';
@@ -121,7 +121,12 @@ describe('C1 BOARD — hands, rounds, privacy', { timeout: 60000 }, () => {
   });
 
   it('NEGATIVE §12: a pane log carrying a personal string refuses the seal before anything cites it', () => {
-    const personal = `pane tail: copied the deck to ${join(homedir(), 'Desktop')} before the call`;
+    // Platform-portable negative control: the privacy matcher gates any
+    // /Users/<login>… path at severity high, regardless of which OS the
+    // runner is on. os.homedir() would pass on a macOS operator box
+    // (/Users/<login>) but silently fail on a Linux GitHub Actions runner
+    // (/home/runner matches the allowlist as a permitted home).
+    const personal = `pane tail: copied the deck to /Users/ci-operator/Desktop before the call`;
     const refused = ck.sealCockpit('hand.report claude R2', { hand: 'claude', round: 'R2' }, { logText: personal });
     expect(refused.ok).toBe(false);
     expect(refused.note).toContain('seal refused');
