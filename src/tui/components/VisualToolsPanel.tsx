@@ -114,7 +114,7 @@ export function VisualToolsPanel({ active, height = 22, availability = {}, runSt
 
   const maximum = Math.max(1, Math.min(5, height - 9));
   const previewLines = result?.ansiPreview?.split('\n') ?? [];
-  const previewRows = Math.max(1, height - 8);
+  const previewRows = Math.max(1, height - 8 - (notice ? 1 : 0));
   const croppedRows = Math.max(0, previewLines.length - previewRows);
   const pillKind = status === 'refused' || status === 'failed' ? 'danger'
     : busy ? 'warn' : 'muted';
@@ -129,6 +129,7 @@ export function VisualToolsPanel({ active, height = 22, availability = {}, runSt
       <Box height={1} /><Text color={theme.textMuted}>↑↓ choose · Enter details · Esc back</Text>
     </> : result?.ansiPreview && showImage ? <>
       <Text color={theme.textSecondary}>{croppedRows ? `CROPPED ${croppedRows} ROWS · ENLARGE TERMINAL · UNSEALED` : 'LOCAL PNG PREVIEW · DISPLAY ONLY · UNSEALED'}</Text>
+      {notice ? <Text color={theme.warn} wrap="truncate-end">{notice}</Text> : null}
       {previewLines.slice(0, previewRows).map((line, i) => <Text key={i} wrap="truncate-end">{line}</Text>)}
       <Text color={theme.textMuted}>Ctrl+P details · Ctrl+O report · Esc list</Text>
     </> : <>

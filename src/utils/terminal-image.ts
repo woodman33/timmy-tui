@@ -69,15 +69,37 @@ export async function renderTerminalImage(path: string, dir = process.cwd()): Pr
       '--size=64x10', '--view-size=64x10', '--optimize=0', '--relative=off', '--polite=on', '--threads=2', '--work=3', '--', source];
     const started = Date.now();
     const result = await new Promise<{code: number | null; stdout: string; stderr: string; failure: string | null}>(done => {
-      const child = spawn(executable, args, { shell: false, detached: process.platform !== 'win32',
-        env: { PATH: process.env.PATH, LANG: 'en_US.UTF-8', TERM: 'xterm-256color' }, stdio: ['ignore', 'pipe', 'pipe'] });
-      const stdout: Buffer[] = [], stderr: Buffer[] = []; let count = 0, failure: string | null = null;
-      const stop = (reason: string) => { if (failure) return; failure = reason; try { process.kill(-child.pid!, 'SIGKILL'); } catch { child.kill('SIGKILL'); } };
-      const timer = setTimeout(() => stop('timeout'), 5000);
-      const collect = (chunk: Buffer, target: Buffer[]) => { if (failure) return; count += chunk.length; if (count > MAX_OUTPUT) stop('output_limit'); else target.push(chunk); };
-      child.stdout.on('data', c => collect(c, stdout)); child.stderr.on('data', c => collect(c, stderr));
-      child.once('error', () => { failure = 'spawn_error'; });
-      child.once('close', code => { clearTimeout(timer); done({ code, failure, stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') }); });
+      let child: ReturnType<typeof spawn> | undefined;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const stdout: Buffer[] = [], stderr: Buffer[] = [];
+      let count = 0, settled = false;
+      const finish = (code: number | null, failure: string | null) => {
+        if (settled) return;
+        settled = true; // Guard before killing: termination may synchronously emit more events.
+        clearTimeout(timer);
+        if (failure && child) {
+          if (child.pid !== undefined && child.pid > 0) {
+            try { process.kill(-child.pid, 'SIGKILL'); }
+            catch { try { child.kill('SIGKILL'); } catch { /* already gone */ } }
+          }
+          child.stdout?.destroy(); child.stderr?.destroy();
+        }
+        done({ code, failure, stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') });
+      };
+      const collect = (chunk: Buffer, target: Buffer[]) => {
+        if (settled) return;
+        count += chunk.length;
+        if (count > MAX_OUTPUT) finish(null, 'output_limit'); else target.push(chunk);
+      };
+      try {
+        child = spawn(executable, args, { shell: false, detached: process.platform !== 'win32',
+          env: { PATH: process.env.PATH, LANG: 'en_US.UTF-8', TERM: 'xterm-256color' }, stdio: ['ignore', 'pipe', 'pipe'] });
+        timer = setTimeout(() => finish(null, 'timeout'), 5000);
+        child.stdout!.on('data', c => collect(c, stdout)); child.stderr!.on('data', c => collect(c, stderr));
+        // Keep an error listener after settlement so a late error cannot become uncaught.
+        child.on('error', () => finish(null, 'spawn_error'));
+        child.once('close', code => finish(code, null));
+      } catch { finish(null, 'spawn_error'); }
     });
     await writeFile(join(out, 'raw.ansi'), result.stdout, { flag: 'wx', mode: 0o600 });
     await writeFile(join(out, 'stderr.txt'), result.stderr, { flag: 'wx', mode: 0o600 });

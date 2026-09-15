@@ -94,6 +94,62 @@ describe('Visual tools action panel', () => {
     expect(view.lastFrame()).toContain('Ctrl+P details');
   });
 
+  it('keeps restored Chafa previews and current validation notices visible within the panel height', async () => {
+    const onRun = vi.fn(async () => {});
+    const open = vi.fn();
+    const result: VisualToolRunState = { toolId: 'chafa-preview', status: 'completed',
+      ansiPreview: Array(10).fill('██  ░░').join('\n'), artifactPath: '/tmp/preview.json' };
+    const props = { active: true, height: 14, onRun, onOpenArtifact: open,
+      runStates: { 'chafa-preview': result } };
+    const view = render(<VisualToolsPanel {...props} />);
+    await tick(); await input(view, '\x1b[A'); await input(view, '\x1b[A'); await input(view, '\r');
+    expect(view.lastFrame()).toContain('CROPPED 4 ROWS');
+    await input(view, '\r');
+    expect(onRun).not.toHaveBeenCalled();
+    expect(view.lastFrame()).toContain('Enter one local file path first.');
+    expect(view.lastFrame()).toContain('CROPPED 5 ROWS');
+    expect(view.lastFrame()).toContain('██  ░░');
+    expect(view.lastFrame()).toContain('UNSEALED');
+    expect(view.lastFrame()).toContain('Ctrl+P details');
+    expect(view.lastFrame()?.split('\n')).toHaveLength(14);
+    await input(view, '\x0f');
+    expect(open).toHaveBeenCalledExactlyOnceWith('/tmp/preview.json');
+    view.rerender(<VisualToolsPanel {...props} availability={{ 'chafa-preview': 'not-installed' }} />);
+    await tick(); await input(view, '\r');
+    expect(view.lastFrame()).toContain('Unavailable:');
+    expect(view.lastFrame()).toContain('██  ░░');
+    expect(onRun).not.toHaveBeenCalled();
+    await input(view, '\x10');
+    expect(view.lastFrame()).toContain('PNG path');
+    expect(view.lastFrame()).toContain('Unavailable:');
+    await input(view, '\x10');
+    expect(view.lastFrame()).toContain('██  ░░');
+    await input(view, '\x1b');
+    expect(view.lastFrame()).not.toContain('Unavailable:');
+    expect(view.lastFrame()).toContain('Enter details');
+  });
+
+  it('clears Chafa running state after a rejected execution and shows the failure beside the retained preview', async () => {
+    let reject!: (error: Error) => void;
+    const onRun = vi.fn(() => new Promise<void>((_resolve, fail) => { reject = fail; }));
+    const result: VisualToolRunState = { toolId: 'chafa-preview', status: 'completed', ansiPreview: '██  ░░' };
+    const view = render(<VisualToolsPanel active onRun={onRun} runStates={{ 'chafa-preview': result }} />);
+    await tick(); await input(view, '\x1b[A'); await input(view, '\x1b[A'); await input(view, '\r');
+    await input(view, '\x05');
+    expect(view.lastFrame()).not.toContain('██  ░░');
+    expect(onRun).not.toHaveBeenCalled();
+    await input(view, '\r');
+    expect(onRun).toHaveBeenCalledExactlyOnceWith('chafa-preview', 'examples/visual-tools/preview.png');
+    expect(view.lastFrame()).toContain('RUNNING');
+    expect(view.lastFrame()).not.toContain('██  ░░');
+    reject(new Error('spawn failure')); await tick();
+    expect(view.lastFrame()).not.toContain('RUNNING');
+    expect(view.lastFrame()).toContain('FAILED: execution did not complete.');
+    expect(view.lastFrame()).toContain('██  ░░');
+    expect(view.lastFrame()).toContain('DISPLAY ONLY');
+    expect(view.lastFrame()).toContain('UNSEALED');
+  });
+
   it('distinguishes completion from verification and opens only the host-provided artifact', async () => {
     const state: VisualToolRunState = { toolId: 'camera-fit', status: 'completed', summary: 'Pose reconstructed.',
       artifactPath: '/tmp/pose.json', receiptId: 'rc_test_pose' };
