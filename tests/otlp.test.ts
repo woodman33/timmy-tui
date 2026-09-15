@@ -41,6 +41,12 @@ describe('metadata-only OTLP receipt projection', () => {
     expect(span).not.toHaveProperty('status');
     expect(attrs(span)).not.toHaveProperty('timmy.receipt.status');
   });
+  it('preserves the integration runner adapter failure classification', () => {
+    readChain.mockImplementation((s: string) => s === 'runs' ? [receipt({
+      kind: 'vision.integration.result', status: 'failed', error_class: 'adapter'
+    })] : []);
+    expect(attrs(first())).toMatchObject({ 'timmy.receipt.status': 'failed', 'timmy.error_class': 'adapter' });
+  });
   it('exposes reported duration without fabricating a measured time interval or parent', () => {
     readChain.mockImplementation((s: string) => s === 'runs' ? [receipt({ ms: 250.5 })] : []);
     const span = first();

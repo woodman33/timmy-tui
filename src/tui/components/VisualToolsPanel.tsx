@@ -4,7 +4,7 @@ import { Card } from '../ui/Card.js';
 import { BudgetList } from '../ui/BudgetList.js';
 import { theme } from '../theme.js';
 
-export type VisualToolId = 'camera-fit' | 'opensplat-inspect' | 'motion-html' | 'otlp-export' | 'dmux';
+export type VisualToolId = 'camera-fit' | 'opensplat-inspect' | 'motion-html' | 'otlp-export' | 'mcap-roundtrip' | 'motion-mp4' | 'dmux';
 export type VisualToolAction = Exclude<VisualToolId, 'dmux'>;
 export type VisualToolAvailability = 'available' | 'not-installed' | 'unavailable' | 'unknown';
 export interface VisualToolRunState {
@@ -19,6 +19,9 @@ export interface VisualToolsPanelProps {
   height?: number;
   availability?: Partial<Record<VisualToolId, VisualToolAvailability>>;
   runState?: VisualToolRunState;
+  runStates?: Partial<Record<VisualToolId, VisualToolRunState>>;
+  setup?: Partial<Record<VisualToolId, string>>;
+  examplePaths?: Partial<Record<VisualToolId, string>>;
   onRun: (id: VisualToolAction, inputPath?: string) => Promise<void>;
   onBack?: () => void;
   onOpenArtifact?: (path: string) => void;
@@ -29,24 +32,30 @@ const entries: { id: VisualToolId; name: string; action: string; input?: string;
   { id: 'opensplat-inspect', name: 'Gaussian inspection', action: 'Inspect', input: 'PLY path', example: 'examples/visual-tools/parameters.ply', description: 'Inspect a Gaussian PLY file. Appearance is not solid occupancy.' },
   { id: 'motion-html', name: 'Motion HTML', action: 'Create preview', input: 'Storyboard JSON path', example: 'examples/visual-tools/storyboard.json', description: 'Create seekable HTML from a storyboard; preserve editable source.' },
   { id: 'otlp-export', name: 'Telemetry', action: 'Export OTLP', description: 'Write a local metadata-only OTLP export. Nothing is transmitted.' },
+  { id: 'mcap-roundtrip', name: 'MCAP recording', action: 'Record and replay', input: 'Simulation JSON path', example: 'examples/visual-tools/simulation.json', description: 'Create indexed MCAP + CSV; check exact payload and timeline replay.' },
+  { id: 'motion-mp4', name: 'Motion MP4', action: 'Render MP4', input: 'Storyboard JSON path', example: 'examples/visual-tools/storyboard.json', description: 'Render local HTML through installed HyperFrames; keep source, MP4 and receipt.' },
   { id: 'dmux', name: 'dmux', action: 'Catalog only', description: 'Harness multiplexer inventory. This panel does not launch agents or auto-merge.' },
 ];
 
 /** Fixed actions only. The host owns execution, authorization, receipts and artifact opening. */
 export function VisualToolsPanel({ active, height = 22, availability = {}, runState,
-  onRun, onBack, onOpenArtifact }: VisualToolsPanelProps) {
+  onRun, onBack, onOpenArtifact, examplePaths = {}, runStates = {}, setup = {} }: VisualToolsPanelProps) {
   const [selected, setSelected] = useState(0);
   const [detail, setDetail] = useState(false);
   const [paths, setPaths] = useState<Partial<Record<VisualToolId, string>>>({});
   const [notice, setNotice] = useState('');
+  const [dirty, setDirty] = useState<Partial<Record<VisualToolId, boolean>>>({});
   const [pending, setPending] = useState<VisualToolAction | null>(null);
   const locked = useRef(false);
   const entry = entries[selected];
   const path = paths[entry.id] ?? '';
   const available = availability[entry.id] ?? 'unknown';
-  const result = runState?.toolId === entry.id && pending !== entry.id ? runState : undefined;
+  const currentRun = runState?.toolId === entry.id ? runState : undefined;
+  const runningHere = pending === entry.id || currentRun?.status === 'running';
+  const previousResult = currentRun ?? runStates[entry.id];
+  const result = !runningHere && !dirty[entry.id] ? previousResult : undefined;
   const busy = pending !== null || runState?.status === 'running';
-  const status = pending === entry.id ? 'running' : result?.status ?? 'idle';
+  const status = runningHere ? 'running' : result?.status ?? 'idle';
 
   async function run() {
     if (locked.current || busy || entry.id === 'dmux') return;
@@ -56,6 +65,7 @@ export function VisualToolsPanel({ active, height = 22, availability = {}, runSt
     if (entry.input && !path.trim()) { setNotice('Enter one local file path first.'); return; }
     locked.current = true;
     setPending(entry.id);
+    setDirty(previous => ({ ...previous, [entry.id]: false }));
     setNotice('');
     try { await onRun(entry.id, entry.input ? path.trim() : undefined); }
     catch { setNotice('FAILED: execution did not complete. Inspect the host result.'); }
@@ -75,18 +85,25 @@ export function VisualToolsPanel({ active, height = 22, availability = {}, runSt
       else if (key.return) { setDetail(true); setNotice(''); }
       return;
     }
+    if (key.ctrl && input === 'e' && entry.input && !busy) {
+      setPaths(previous => ({ ...previous, [entry.id]: examplePaths[entry.id] ?? entry.example ?? '' }));
+      setDirty(previous => ({ ...previous, [entry.id]: true }));
+      setNotice('Synthetic example loaded. Press Enter to run.'); return;
+    }
     if (key.return) { void run(); return; }
     if (key.ctrl && input === 'o' && result?.artifactPath && onOpenArtifact) {
       onOpenArtifact(result.artifactPath); return;
     }
     if (busy || !entry.input || key.ctrl || key.meta || key.upArrow || key.downArrow || key.leftArrow || key.rightArrow || key.tab) return;
     if (key.backspace || key.delete) {
+      setDirty(previous => ({ ...previous, [entry.id]: true }));
       setPaths(previous => ({ ...previous, [entry.id]: Array.from(previous[entry.id] ?? '').slice(0, -1).join('') }));
       return;
     }
     const pasted = input.replace(/\x1b\[(?:200|201)~/g, '');
     if (/[\x00-\x1f\x7f]/.test(pasted)) { setNotice('Use one path; multiline or control input was refused.'); return; }
     if (path.length + pasted.length > 4096) { setNotice('Path exceeds 4096 characters.'); return; }
+    setDirty(previous => ({ ...previous, [entry.id]: true }));
     setPaths(previous => ({ ...previous, [entry.id]: ((previous[entry.id] ?? '') + pasted).slice(0, 4096) }));
     setNotice('');
   }, { isActive: active });
@@ -106,6 +123,7 @@ export function VisualToolsPanel({ active, height = 22, availability = {}, runSt
     </> : <>
       <Text color={theme.textSecondary} wrap="truncate-end">{entry.description}</Text>
       <Text color={theme.textMuted}>Local availability: {available}</Text>
+      {(available === 'unavailable' || available === 'not-installed') && setup[entry.id] ? <Text color={theme.warn}>{setup[entry.id]}</Text> : null}
       {entry.input ? <><Text color={theme.textPrimary}>{entry.input}</Text>
         <Text color={theme.textMuted} wrap="truncate-middle">Example: {entry.example}</Text>
         <Text color={theme.accent} wrap="truncate-start">{path || 'Paste or type a path'}{active && !busy ? ' ▏' : ''}</Text></> : null}
@@ -115,7 +133,7 @@ export function VisualToolsPanel({ active, height = 22, availability = {}, runSt
       {status === 'completed' ? <Text color={theme.textMuted}>Completion is not geometry verification.</Text> : null}
       {result?.artifactPath ? <Text color={theme.textSecondary} wrap="truncate-middle">Artifact: {result.artifactPath}</Text> : null}
       {result?.receiptId ? <Text color={theme.textSecondary} wrap="truncate-end">Receipt: {result.receiptId}</Text> : null}
-      <Text color={theme.textMuted}>Esc list{result?.artifactPath && onOpenArtifact ? ' · Ctrl+O open artifact' : ''}{entry.input ? ' · Backspace edit' : ''}</Text>
+      <Text color={theme.textMuted}>Esc list{result?.artifactPath && onOpenArtifact ? ' · Ctrl+O open artifact' : ''}{entry.input ? ' · Ctrl+E example · Backspace edit' : ''}</Text>
     </>}
   </Card>;
 }

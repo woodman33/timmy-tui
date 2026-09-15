@@ -61,8 +61,7 @@ describe('Timmy visual integration admission', () => {
       mkdirSync(bin, { recursive: true }); mkdirSync(adapter, { recursive: true });
       writeFileSync(join(root, 'package.json'), '{"name":"fixture","type":"commonjs"}');
       // A fixed test runtime at the registered path; no request can select it.
-      symlinkSync(process.execPath, join(bin, 'python'));
-      writeFileSync(join(adapter, 'adapter.py'), "process.stderr.write('failure-context\\n'); process.stdout.write('observed-before-limit\\n'); setTimeout(() => process.stdout.write('x'.repeat(5*1024*1024)),30);");
+      writeFileSync(join(bin, 'python'), `#!${process.execPath}\nprocess.stderr.write('failure-context\\n'); process.stdout.write('observed-before-limit\\n'); setTimeout(() => process.stdout.write('x'.repeat(5*1024*1024)),30);`, { mode: 0o700 });
       const result = await runIntegration('mcap', { operation: 'probe' }, root);
       expect(result.ok).toBe(false);
       expect(result.error).toContain('4 MiB');

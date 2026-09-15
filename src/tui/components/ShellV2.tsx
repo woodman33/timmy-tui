@@ -27,7 +27,7 @@ import type { Agent } from '../../agent/core.js';
 import { IntegrationStatus } from './IntegrationStatus.js';
 import { integrationCatalog } from '../../vision/integrations/registry.js';
 import { VisualToolsPanel, type VisualToolRunState } from './VisualToolsPanel.js';
-import { runVisualTool, visualToolsAvailability, type VisualOperation } from '../../utils/visual-tools.js';
+import { runVisualTool, visualToolsAvailability, visualToolExamples, visualToolsSetup, type VisualOperation } from '../../utils/visual-tools.js';
 
 // TUI REDESIGN (spec §01/§02/§03) — IA collapse: nine tabs become four.
 // HOME · RUN · CHAIN · LIBRARY. HOME is the journey ladder: seven steps read
@@ -104,6 +104,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
   const [flash, setFlash] = useState('');
   const [visualToolsOpen, setVisualToolsOpen] = useState(false);
   const [visualRun, setVisualRun] = useState<VisualToolRunState>({ status: 'idle' });
+  const [visualResults, setVisualResults] = useState<Partial<Record<VisualOperation, VisualToolRunState>>>({});
   const visualBusy = useRef(false);
   const [visualAvailability, setVisualAvailability] = useState(() => visualToolsAvailability());
   const runVisual = async (id: VisualOperation, path?: string) => {
@@ -113,8 +114,12 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
     // Yield a frame before bounded local work. Native fitting runs in the adapter process;
     // parsing a bounded PLY is still synchronous and is not advertised as a durable job.
     await new Promise<void>(resolve => setImmediate(resolve));
-    try { setVisualRun(await runVisualTool(id, path)); }
-    catch { setVisualRun({ toolId: id, status: 'failed', summary: 'Local operation failed; no success claimed.' }); }
+    try { const result = await runVisualTool(id, path); setVisualRun(result); setVisualResults(previous => ({ ...previous, [id]: result })); }
+    catch {
+      const result: VisualToolRunState = { toolId: id, status: 'failed', summary: 'Local operation failed; no success claimed.' };
+      setVisualRun(result);
+      setVisualResults(previous => ({ ...previous, [id]: result }));
+    }
     finally { visualBusy.current = false; }
   };
   const [qrText, setQrText] = useState('');
@@ -694,7 +699,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
       <Text color={theme.line}>{'─'.repeat(width)}</Text>
       {/* SPEC §08: in CHAT the screen underneath stays visible, dimmed (PAL) */}
       {visualToolsOpen ? <VisualToolsPanel active height={Math.max(14, Math.min(24, (process.stdout.rows || 30) - 5))}
-        availability={visualAvailability} runState={visualRun} onRun={runVisual}
+        availability={visualAvailability} examplePaths={visualToolExamples()} setup={visualToolsSetup()} runState={visualRun} runStates={visualResults} onRun={runVisual}
         onBack={() => setVisualToolsOpen(false)}
         onOpenArtifact={path => { void import('open').then(m => m.default(path)).catch(() => setFlash('Could not open the retained artifact.')); }}
       /> : <Box flexGrow={1}>

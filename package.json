@@ -26,7 +26,8 @@
     "tools/spatial-fit-20260915/adapter.py",
     "tools/spatial-fit-20260915/README.md",
     "docs/VISUAL-TOOLS.md",
-    "examples/visual-tools"
+    "examples/visual-tools",
+    "tools/platform-vision-20260910/telemetry/adapter.py"
   ],
   "scripts": {
     "start": "node boot.cjs",

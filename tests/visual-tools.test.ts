@@ -1,14 +1,22 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { mkdtempSync, writeFileSync, readFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
-import { runVisualTool } from '../src/utils/visual-tools.js';
+import { runVisualTool, visualToolExamples } from '../src/utils/visual-tools.js';
 import { shellOnKey, initialShell } from '../src/tui/shell-mode.js';
 import { footerHintsShellShort } from '../src/tui/keymap.js';
+import * as video from '../src/utils/visual-video.js';
+import * as integrations from '../src/vision/integrations/runner.js';
 
 const fixture = (name: string) => resolve('examples/visual-tools', name);
+afterEach(() => vi.restoreAllMocks());
 describe('real visual operation service', () => {
+  it('resolves bundled examples outside the caller workspace', () => {
+    const examples = visualToolExamples();
+    expect(readFileSync(examples['motion-html']!, 'utf8')).toContain('timmy-visual-tools');
+    expect(readFileSync(examples['mcap-roundtrip']!, 'utf8')).toContain('synthetic-interchange-example');
+  });
   it('renders the supplied storyboard locally with a matching hash and no invented receipt', async () => {
     const result = await runVisualTool('motion-html', fixture('storyboard.json'));
     expect(result.status).toBe('completed');
@@ -55,6 +63,17 @@ describe('real visual operation service', () => {
     expect((await runVisualTool('camera-fit', path)).status).toBe('refused');
     expect((await runVisualTool('shell' as never, path)).status).toBe('refused');
     expect((await runVisualTool('motion-html', '')).status).toBe('refused');
+  });
+  it.each([
+    ['camera-fit', 'camera-fit.json'], ['mcap-roundtrip', 'simulation.json'], ['motion-mp4', 'storyboard.json']
+  ] as const)('reports %s persistence exceptions after invocation as failed, not refused', async (operation, name) => {
+    const invoked = operation === 'motion-mp4' ? vi.spyOn(video, 'renderVisualVideo') : vi.spyOn(integrations, 'runIntegration');
+    invoked.mockRejectedValueOnce(new Error('Could not retain result after execution'));
+    const result = await runVisualTool(operation, fixture(name));
+    expect(invoked).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe('failed');
+    expect(result.summary).toContain('may have run');
+    expect(result.receiptId).toBeUndefined();
   });
   it('makes Visual Tools discoverable only in Library normal mode', () => {
     const home = initialShell();

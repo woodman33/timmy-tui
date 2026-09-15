@@ -1,18 +1,24 @@
 # Visual tools in Timmy
 
-Open the real TUI, choose **4 LIBRARY**, then press **V**. Use arrow keys to choose a tool, Enter for its details, paste an input path, then Enter to run. Esc returns to the list; Esc again returns to Library. Ctrl+O opens the retained result. Starting a second operation is disabled while one is running. Opening a panel never starts a model, installs a dependency, or launches another agent.
+Open the real TUI, choose **4 LIBRARY**, then press **V**. Use arrow keys to choose a tool, Enter for its details, press **Ctrl+E** to load the bundled synthetic example (or paste an input path), then Enter to run. Loading an example never executes it. Results remain available per tool during this panel session; editing an input hides its old completion. Esc returns to the list; Esc again returns to Library. Ctrl+O opens the retained result. Starting a second operation is disabled while one is running. Opening a panel never starts a model, installs a dependency, or launches another agent.
 
 | Action | Example input from the repository root | Result and limits |
 | --- | --- | --- |
 | Camera alignment | `examples/visual-tools/camera-fit.json` | OpenCV pose proposal, separate fitting/validation residuals, retained report and execution receipt. No native camera edit or geometry certification. |
 | Gaussian inspection | `examples/visual-tools/parameters.ply` | JSON context, full row count and center bounds, up to four raw samples. Unknown units/interiors/fill remain unknown. ASCII only, ≤8 MiB, ≤100,000 rows. No model review. |
 | Motion HTML | `examples/visual-tools/storyboard.json` | Editable, seekable HTML. No MP4 rendered, no receipt sealed. ≤32 beats and five minutes. |
+| MCAP recording | `examples/visual-tools/simulation.json` | CRC-protected indexed MCAP + CSV; exact payload and simulation-time replay check, execution receipt. Missing penetration stays unknown. |
+| Motion MP4 | `examples/visual-tools/storyboard.json` | Installed HyperFrames renders a local MP4; video stream metadata and execution receipt retained. No per-frame content verification. macOS only, ≤30 seconds and 1920×1080, even dimensions. |
 | Telemetry | No input | Local metadata-only OTLP JSON from receipt streams. No network transmission, collector or viewer launched. |
 | dmux | No run action | Installation observation only; integration not qualified. |
 
 Examples are synthetic demonstration inputs, never measured material or scene truth. The camera example uses caller-declared source revision and units. It checks plumbing and numerical fitting, not source authenticity or unseen-scene accuracy.
 
 Camera fitting needs an existing Python environment with NumPy and OpenCV. Timmy looks for `.timmy/venv-visual/bin/python` in the working directory; an absolute `TIMMY_VISUAL_PYTHON` selects an existing runtime elsewhere. Availability means files were detected, not that the runtime passed a probe. Nothing is installed automatically.
+
+MCAP uses an existing `.timmy/venv-platform-telemetry/bin/python` or absolute `TIMMY_TELEMETRY_PYTHON` containing mcap, zstandard and jsonschema. Input is explicit; the shipped adapter never loads a private fixture by default. The CLI also supports replay and explicit PlotJuggler opening; native viewer launch has not been requalified here.
+
+MP4 uses an existing HyperFrames CLI selected by absolute `TIMMY_HYPERFRAMES_CLI` or a detected command on PATH, existing Chrome, FFmpeg and FFprobe. Optional absolute `HYPERFRAMES_BROWSER_PATH`, `HYPERFRAMES_FFMPEG_PATH` and `HYPERFRAMES_FFPROBE_PATH` override those tools. It runs through macOS loopback confinement; other platforms or missing runtimes show an unavailable action with setup guidance. It never uses npx to fetch a renderer. The source is generated from a bounded storyboard, not arbitrary user HTML.
 
 The same camera operation is AI-operable through the CLI:
 
@@ -31,8 +37,8 @@ Hashes identify bytes. A successful process does not certify a camera pose, mode
 
 The adopted dmux pattern is a selectable tool/task row, a detail view, an explicit action, and a visible result. Installation, execution, verification and merge status remain separate. Current upstream is [standardagents/dmux](https://github.com/standardagents/dmux). Its [hooks](https://github.com/standardagents/dmux/blob/main/src/utils/hooks.ts) can connect owned worktrees to Timmy later; `--remote-pane-action` requires a live tmux/dmux controller and is not an independent headless runner. No public MCP/SDK was qualified. Automatic merge/force-cleanup is not enabled on Timmy's shared checkout.
 
-The motion HTML uses an explicit timeline compatible with the separately qualified HyperFrames path; the export button here makes HTML only. OpenDesign cloud generation, OpenSplat reconstruction/training, historical Chumpy/OpenDR/Chainer experiments, TermGL, Oryx and Process Compose are not installed or represented as operational by this change. Their useful controls can enter the same panel when an actual adapter and bounded qualification exist. In particular, a Linux eBPF viewer is not a Mac capture-readiness fix, and a splat renderer is not a solid-volume verifier.
+The motion HTML uses an explicit timeline. HTML preview and native MP4 render are separate actions with separate statuses. OpenDesign cloud generation, OpenSplat reconstruction/training, historical Chumpy/OpenDR/Chainer experiments, TermGL, Oryx and Process Compose are not installed or represented as operational by this change. Their useful controls can enter the same panel when an actual adapter and bounded qualification exist. In particular, a Linux eBPF viewer is not a Mac capture-readiness fix, and a splat renderer is not a solid-volume verifier.
 
 ## Why this small layer exists
 
-The concrete failure was usable helpers hidden behind source files and status-only integration lists. One fixed operation service connects existing helpers to a TUI panel. Cost: four dispatch paths, transient UI state, and local output files. No extra persisted job state, authority heuristic or recovery ledger is introduced. Deleting the panel/service would return users to hand-assembled commands. Authority comes from the user's explicit action plus fixed tool contracts; the result reports observed execution and computed measurements, never an agent's assertion of success.
+The concrete failure was usable helpers hidden behind source files and status-only integration lists. One fixed operation service connects existing helpers to a TUI panel. Cost: six dispatch paths, transient UI state, and local output files. No extra persisted job state, authority heuristic or recovery ledger is introduced. Deleting the panel/service would return users to hand-assembled commands. Authority comes from the user's explicit action plus fixed tool contracts; the result reports observed execution and computed measurements, never an agent's assertion of success.

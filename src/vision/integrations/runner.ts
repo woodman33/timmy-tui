@@ -60,10 +60,10 @@ export async function runIntegration(id: string, raw: unknown, dir = process.cwd
   const adapterSource = existsSync(definition.script) ? readFileSync(definition.script) : null;
   const adapterSnapshot = join(outputDir, 'adapter-source.py');
   if (adapterSource) writeFileSync(adapterSnapshot, adapterSource, { flag: 'wx', mode: 0o600 });
-  // Camera fitting is self-contained: execute the retained bytes, so concurrent source
+  // Camera fitting and telemetry are self-contained: execute the retained bytes, so concurrent source
   // edits cannot change the implementation after its intent was recorded. Legacy
   // native adapters may rely on sibling files and remain at their original path.
-  const executionScript = id === 'camera-fit' ? adapterSnapshot : definition.script;
+  const executionScript = ['camera-fit', 'mcap', 'plotjuggler'].includes(id) ? adapterSnapshot : definition.script;
   const intent = appendReceipt('runs', {
     kind: 'vision.integration.intent', subject: `${id}.${request.operation}`,
     policy: 'Explicit bounded Timmy adapter invocation', prompt_hash: digest(requestBody),
@@ -110,7 +110,7 @@ export async function runIntegration(id: string, raw: unknown, dir = process.cwd
   const report = { schema: 'timmy.integration-run/1', id: runId, capability: id, operation: request.operation,
     ok: !failure, admissionReceipt: intent.hash, exitCode: code, elapsedMs: Date.now() - started,
     result: redactVisionValue(result), error: failure || null, artifacts,
-    limits: { executedRetainedAdapterSnapshot: id === 'camera-fit', inferenceJudgmentIsProof: false, byteIntegrityIsBehaviorProof: false } };
+    limits: { executedRetainedAdapterSnapshot: ['camera-fit', 'mcap', 'plotjuggler'].includes(id), inferenceJudgmentIsProof: false, byteIntegrityIsBehaviorProof: false } };
   const reportBody = JSON.stringify(report, null, 2) + '\n';
   const reportPath = join(outputDir, 'result.json');
   writeFileSync(reportPath, reportBody, { flag: 'wx', mode: 0o600 });
