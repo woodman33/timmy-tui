@@ -10,7 +10,7 @@ import { readChain } from './receipts.js';
 // https://opentelemetry.io/docs/specs/otlp/#json-protobuf-encoding
 
 const hex16 = (s: string): string => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
-const errorClasses = new Set(['exec', 'missing_source', 'schema', 'env', 'replay_drift', 'http_4xx', 'http_5xx', 'network', 'approval', 'unresolved_model', 'no_key']);
+const errorClasses = new Set(['exec', 'missing_source', 'schema', 'env', 'replay_drift', 'http_4xx', 'http_5xx', 'network', 'approval', 'unresolved_model', 'no_key', 'adapter']);
 const isHash = (s: string): boolean => /^sha256_[a-f0-9]{64}$/.test(s);
 
 export function receiptsToOtlp(streams: string[] = ['gens', 'harness', 'context', 'doctor', 'runs'], dir?: string): unknown {
