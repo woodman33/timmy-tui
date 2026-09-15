@@ -1,0 +1,114 @@
+
+======================== TAB 1/4 — HOME · journey ladder (default tab)  [120x40] ========================
+TIMMY   1 HOME  2 RUN 3 CHAIN 4 LIBRARY 5 CHAT 6 COMMAND  chain ● 0  bus □  drops 3  model claude-sonnet-4.5
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+╭────────────────────────────────────────────────────────────────────────╮  ╭──────────────────────────────────────────╮
+│ ◇ YOUR JOURNEY                                                         │  │ ◇ LATEST RECEIPT      │
+│ seven steps · the next unsealed step is the only bold                  │  │ historical record · inspect its checks│
+│                                                                        │  │                       │
+│ ▶ doctor     timmy doctor — read-only posture                          │  │ no receipts yet — run anything│
+│ ○ connect    timmy connect <tool> — env-lock                           │  ╰──────────────────────────────────────────╯
+│ ○ run        timmy run <lane> — live in RUN                            │
+│ ○ receipt    a receipt lands — prev → this                             │  ╭──────────────────────────────────────────╮
+│ ○ verify     press v — chain ok · N                                    │  │ ◇ ACTIVITY            │
+│ ○ companion  pair a phone · [q] shows QR                               │  │ refusals red only     │
+│ ○ seal       anything · [s]                                            │  │                       │
+╰────────────────────────────────────────────────────────────────────────╯  │ quiet so far          │
+                                                                            │                       │
+╭────────────────────────────────────────────────────────────────────────╮  │                       │
+│ ◇ STATUS                                                               │  │                       │
+│ one line · off is dim, never red                                       │  │                       │
+│                                                                        │  │                       │
+│ ■ fleet · 15 available  bus quiet  ■ docker on                         │  │                       │
+│ recorded cost $0.00 · model policy: anthropic/claude-sonnet-4.5 · har… │  │                       │
+│ ADAPTERS · 0/8 found · readiness unassessed                            │  │                       │
+│ ○ openhands  ○ viser  ○ mcap  ○ cosmos  +4                             │  │                       │
+│ Inspect: timmy vision integrations list                                │  │                       │
+╰────────────────────────────────────────────────────────────────────────╯  ╰──────────────────────────────────────────╯
+ NORMAL  HOME   [1-6] tab  [Enter] open  [v] verify  [q] QR  [s] seal  [c] chat  [?] keys  chain ● 0  bus □
+
+======================== TAB 2/4 — RUN · SignalPane rail bounded  [120x40] ========================
+TIMMY   1 HOME 2 RUN  3 CHAIN 4 LIBRARY 5 CHAT 6 COMMAND  chain ● 0  bus □  drops 3  model claude-sonnet-4.5
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+╭────────────────────────────────────────────────────────────────────────╮  ╭──────────────────────────────────────────╮
+│ ◇ RUNS                                                                 │  │ ◇ SIGNAL              │
+│ sealed ✓ · running ● · queued ○ · REFUSED ×                            │  │ the-signal game · live│
+│                                                                        │  │                       │
+│ no runs yet                                                            │  │ round  0 · —          │
+│ 22 idle · [n] new run                                                  │  │ Attention  0/20 · ledger 0 rows│
+╰────────────────────────────────────────────────────────────────────────╯  │ reserved $0.00 · cp   │
+                                                                            ╰──────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────╮
+│ ◇ DROPS                                                                │  ╭──────────────────────────────────────────╮
+│ watched: defold · houdini · observer                                   │  │ ◇ LIVE                │
+│                                                                        │  │ bus-subscribed · never a poll│
+│ drops quiet — nothing waiting in intake                                │  │                       │
+╰────────────────────────────────────────────────────────────────────────╯  │ nothing running · [n] new run│
+                                                                            ╰──────────────────────────────────────────╯
+ NORMAL  RUN   [1-6] tab  [Enter] open  [a] approve  [r] refuse  [s] seal  [c] chat  [?] keys  chain ● 0  bus □
+
+======================== TAB 3/4 — LIBRARY · OllamaPane rail bounded  [120x40] ========================
+TIMMY   1 HOME 2 RUN 3 CHAIN 4 LIBRARY  5 CHAT 6 COMMAND  chain ● 0  bus □  drops 3  model claude-sonnet-4.5
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+╭────────────────────────────────────────────────────────────────────────╮  ╭──────────────────────────────────────────╮
+│ ◇ MODELS                                                               │  │ ◇ FLEET               │
+│                                                                        │  │ absence is dim, not red│
+│ role: workhorse reasoning ▾                                            │  │                       │
+│ ✦ anthropic/claude-son 1M    $3/$15     T·R       $0.00  edge  ◉—      │  │ ■ opencode      (policy) claude-sonnet│
+│ role: default router ▾                                                 │  │ ■ hermes        (policy) claude-sonnet│
+│   openrouter/auto      2M    —/—        T·R       $0.00  edge  ◉—      │  │ ■ pi            (policy) claude-sonnet│
+│ role: fast code ▾                                                      │  │ ■ jcode         (policy) claude-sonnet│
+│   qwen/qwen3-coder     262k  $0.3/$1    T··       $0.00  edge  ◉—      │  │ ■ minds         (policy) claude-sonnet│
+│ role: general ▾                                                        │  │ ■ aichat        (policy) claude-sonnet│
+│   ~anthropic/claude-fa 1M    $10/$50    T·R       $0.00  edge  ◉—      │  │ ■ deepagents    (policy) claude-sonnet│
+│   ~anthropic/claude-ha 200k  $1/$5      T·R       $0.00  edge  ◉—      │  │ ■ openhands     (policy) claude-sonnet│
+│   ~anthropic/claude-op 1M    $5/$25     T·R       $0.00  edge  ◉—      │  │ □ cocos         not_configured│
+│   ~anthropic/claude-so 1M    $2/$10     T·R       $0.00  edge  ◉—      │  │ □ defold        not_configured│
+│   ~deepseek/deepseek-v 1M    $0.0/$0.2  T·R       $0.00  edge  ◉—      │  │ □ godot         not_configured│
+│   ~google/gemini-flash 1M    $0.8/$3.8  T·R       $0.00  edge  ◉—      │  │ □ blender       not_configured│
+│ notes: "primary coding lane"                                           │  │ □ unity         not_configured│
+│ [Enter] set policy  [h] harness ▸  [p] pin  [n] note                   │  │ ▾ 9 more connectors   │
+│ ▾ 422 more models · ↑↓ scroll                                          │  ╰──────────────────────────────────────────╯
+╰────────────────────────────────────────────────────────────────────────╯  ╭──────────────────────────────────────────╮
+╭────────────────────────────────────────────────────────────────────────╮  │ ◇ OLLAMA LOCAL/CLOUD  │
+│ ◇ BOARDS                                                               │  │ FIT + schema strictness│
+│                                                                        │  │                       │
+│ mission   ledger                                                       │  │ kimi-k3:cloud      cloud edge  strict│
+│ blueprint architecture · doctrine +1                                   │  │ qwen3-coder        cloud edge  never│
+│ template  refactor · ship +1                                           │  │ llama3.1-8b        cloud edge  lenient│
+│ PROJECTS  order-blank-slate-v1k9 · order-captain-y9g4 +21              │  ╰──────────────────────────────────────────╯
+╰────────────────────────────────────────────────────────────────────────╯  ▾ SKILLS folded — a taller window shows it
+ NORMAL  LIBRARY   [1-6] tab  [Enter] open  [h] harness  [p] pin  [n] note  [f] files  [s] seal  chain ● 0  bus □
+
+======================== TAB 4/4 — COMMAND · HANDS beside SWARM + ENGINE ROOM (unreal/houdini rows)  [120x40] ========================
+TIMMY   1 HOME 2 RUN 3 CHAIN 4 LIBRARY 5 CHAT 6 COMMAND   chain ● 0  bus □  drops 3  model claude-sonnet-4.5
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+╭────────────────────────────────────────────────────────────────────────╮  ╭──────────────────────────────────────────╮
+│ ◇ COMMANDER · OPENROUTER/AUTO                                          │  │ ◇ HARNESS PANES       │
+│ ws□ offline — set TIMMY_COMMANDER_WS                                   │  │                       │
+│                                                                        │  │ sbx none     · open   · mcp none│
+│ cmdr openrouter/auto ws□                                               │  │ sk  0 · pl  0 · four-wor · dp  0 · auto│
+│ spend $0.0000                                                          │  │ 1 jcode      cmdr         off      h= 0│
+│ [m] model [M] harness-model [K] handoff [X] kill                       │  │ 2 opencode   cmdr         off      h= 0│
+│ [t] toggle [b] body [f] fusion [g] gen [1-6] focus                     │  │ 3 pi         cmdr         off      h= 0│
+╰────────────────────────────────────────────────────────────────────────╯  │ 4 hermes     cmdr         off      h= 0│
+                                                                            │ 5 minds      cmdr         off      h= 0│
+                                                                            │ 6 openhands  cmdr         off      h= 0│
+                                                                            │ not started · timmy profile --restore│
+                                                                            ╰──────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────╮  ╭──────────────────────────────────────────╮
+│ ◇ HANDS                                                                │  │ ◇ ENGINE ROOM         │
+│ 3 hands · R0–R4 · [Enter] prompt                                       │  │                       │
+│                                                                        │  │ ○ spark-a down mem?   0mdl t/s?  │
+│ HAND        TOOL      RD  STATE            SEAL      R0 R1 R2 R3 R4    │  │ ○ spark-b down mem?   0mdl t/s?  │
+│ claude      claude    R2  HOLD             ○00aa11bb  ·  ·  ●  ·  ·    │  │ unreal  proj env    RC ok   Py pending│
+│   wt-claude · ui-next-2                                                │  │   last render none yet (collector pendi…│
+│ codex       codex-cl  R1  running          ○22cc33dd  ·  ●  ·  ·  ·    │  │ houdini Houdini 22 inst · —│
+│   wt-codex · ui-next-2                                                 │  │   drop  0 runs · tpl  5 proven  2│
+│ observer    external  R0  idle             · —        ·  ·  ·  ·  ·    │  ╰──────────────────────────────────────────╯
+│   — · obs                                                              │  ╭──────────────────────────────────────────╮
+│                                                                        │  │ ◇ BULKHEADS           │
+│                                                                        │  │                       │
+│                                                                        │  │ docker up · no sandboxes│
+╰────────────────────────────────────────────────────────────────────────╯  ╰──────────────────────────────────────────╯
+ NORMAL  COMMAND   [1-6] tab  [Enter] open  chain ● 0  bus □
