@@ -1,0 +1,107 @@
+{
+  "schema": "timmy.route.op.result/1",
+  "op_id": "route-262bd7f1-f08c-48a2-8255-18f8b146bdd1",
+  "status": "ok",
+  "outcome": "refused",
+  "graphSha256": "e57bfc9054e37a0ef946056dabb888fdf495899a58b08c9375df9dea063bd8fd",
+  "admittedBy": "sha256_f515a7312a183a9d32338b9769278a5c94cd387a450b94425ad1ca6793cd6b3d",
+  "request": {
+    "from": "mesh.json",
+    "to": "grounded.point",
+    "requiredProperties": [
+      "physical.measured"
+    ],
+    "independent": 1
+  },
+  "plan": {
+    "status": "refused",
+    "reason": "source_properties_unavailable",
+    "paths": [],
+    "unavailable": [
+      {
+        "edgeId": "obj-to-glb-export",
+        "reason": "not_qualified",
+        "qualificationStatus": "historical-cube-only",
+        "dependencies": [
+          "same-box unit conversion and native output readback"
+        ],
+        "missingProperties": [
+          "physical.measured"
+        ]
+      },
+      {
+        "edgeId": "obj-to-usd-export",
+        "reason": "not_qualified",
+        "qualificationStatus": "historical-cube-only",
+        "dependencies": [
+          "same-box unit conversion and native output readback"
+        ],
+        "missingProperties": [
+          "physical.measured"
+        ]
+      },
+      {
+        "edgeId": "package-to-cell-report",
+        "reason": "required_properties_lost",
+        "qualificationStatus": "retained-fixture-bytes-verified",
+        "dependencies": [
+          "retained package and all artifact SHA256 hashes"
+        ],
+        "missingProperties": [
+          "physical.measured"
+        ]
+      },
+      {
+        "edgeId": "package-to-retained-surface",
+        "reason": "required_properties_lost",
+        "qualificationStatus": "retained-fixture-only",
+        "dependencies": [
+          "fixed box fixture",
+          "manifest sidecar accompanies surface"
+        ],
+        "missingProperties": [
+          "physical.measured"
+        ]
+      },
+      {
+        "edgeId": "surface-to-native-view",
+        "reason": "required_properties_lost",
+        "qualificationStatus": "same-box-native-qualified",
+        "dependencies": [
+          "Blender 5.1.1",
+          "exact source mesh hash",
+          "fixed calibrated camera and 128x128 raster"
+        ],
+        "missingProperties": [
+          "physical.measured"
+        ]
+      },
+      {
+        "edgeId": "usd-flatten",
+        "reason": "not_qualified",
+        "qualificationStatus": "historical-stage-only",
+        "dependencies": [
+          "qualified same-box USD input",
+          "resolved-stage native readback"
+        ],
+        "missingProperties": [
+          "physical.measured"
+        ]
+      },
+      {
+        "edgeId": "view-to-grounded-point",
+        "reason": "required_properties_lost",
+        "qualificationStatus": "same-box-native-qualified",
+        "dependencies": [
+          "camera-Z depth mm",
+          "matching camera/object-ID/source revision"
+        ],
+        "missingProperties": [
+          "physical.measured"
+        ]
+      }
+    ]
+  },
+  "scope": "planning-only",
+  "durationMs": 182
+}

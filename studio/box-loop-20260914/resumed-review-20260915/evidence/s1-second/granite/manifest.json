@@ -1,0 +1,92 @@
+{
+  "schema": "timmy.evidence-binding.manifest/1",
+  "status": "ok",
+  "artifacts": [
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/live/episodes/light-missing-evidence.json",
+      "sha256": "53508a907a6568589948654146ea6f8b9f56eae31a2a37c862af534263f613ca"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/live/evaluator-only/cases.json",
+      "sha256": "dfb07a65db59851ad37650cf14354716ba0cc44c5f96ca7ebf0dcf51661df8e8"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/live/implementation/lab-challenges.ts",
+      "sha256": "c4366896d33bc659b886a9560b1dfee0ca0eaf81315aa9aec0ac3ff32d8ee55c"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/live/implementation/lab-independent-verifier.ts",
+      "sha256": "bf611b86f3c714530dd4cd6f924fedb9a53879b1fcf8eb4f07a41237fc936ce6"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/live/implementation/lab-model-adapter.ts",
+      "sha256": "b96644ae8ebe15cb48c0cb7f25936cdf8b17adf84a7986b21b6a736da07b89a5"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/live/implementation/workflow-benchmark.ts",
+      "sha256": "db1d919d5c239858106ed418639ff28da1be55af590c55eaab2aa0bc9ad2cffa"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/live/implementation/workflow-citations.ts",
+      "sha256": "32046951eeecc05700a270273116a0a0fbe996cf14887e2574aa62e67cd6e66b"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/live/implementation/workflow-isolation.ts",
+      "sha256": "641f75a6e7937f13b82750c998852ce8cbc3a9239a9f847a0a6faad8d751ab63"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/live/implementation/workflow-model-adapter.ts",
+      "sha256": "71d58c9d10f843c20257599be40765432307905210b43a6cf59e9af0a8bdac08"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/live/isolation.json",
+      "sha256": "e3f23aa6094b04bc79f4d265fa236736b3c69f788952c0a566c19a35a40781c1"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/live/oracle-checks.json",
+      "sha256": "59bf49f253370bfd2965364b0744b809101be5a4e91b1a8a1e5e7ebfbbce09f7"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/live/protocol.json",
+      "sha256": "3a8eefee772f6e9b5802234f44a1d44a3490802333946b9e120d62a11c049b61"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/live/public-workflows.json",
+      "sha256": "d7d9c8f81300204fe0ad7bd320ea7716fed055708655ce86a42220d7b124f226"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/live/receipt-links.json",
+      "sha256": "5435c9fea5107a4dbf3d549073c752692123ee45a759e79ff665ca2a0bad2946"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/live/result.json",
+      "sha256": "3ef5ca52a4d31ecee70613bf6071097241a0053af83af4d0f91ba2e80c6f2e11"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/request.json",
+      "sha256": "af16a37f3b9319a68a2f39e4b640ac320dbded24b396982778e605b6a7c5a543"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/request.receipt.json",
+      "sha256": "3aa66c1a4700cc32df793cd87ac2cefcc6ab73ee5f6a923cbcfdb1d29b98c6df"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/granite/result.json",
+      "sha256": "1321494e2708a90024d558b70f8062d958ebb6006c73a70137e33965d7fcce97"
+    }
+  ],
+  "controls": [
+    {
+      "path": "tests/workflow-citation-controls.test.ts",
+      "sha256": "258956c87c55776fc68d854e327105c3a9d77610a7413ed995c1c27a6f23d519"
+    },
+    {
+      "path": "tests/workflow-model-adapter.test.ts",
+      "sha256": "9f155657572e17993c89231c8ce2894a432473097ead334d4327eab3e22ca632"
+    },
+    {
+      "path": "studio/box-loop-20260914/s1-second/tests.txt",
+      "sha256": "996ac0d89e5ace0c38d2cd8aa0497d853021f7be487de02be41bc89413ca8058"
+    }
+  ]
+}

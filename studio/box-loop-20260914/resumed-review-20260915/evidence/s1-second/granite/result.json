@@ -1,0 +1,43 @@
+{
+  "schema": "timmy.op.result/1",
+  "op_id": "citation-27c31ee0-0613-4edc-9bb2-ce306379289c",
+  "status": "ok",
+  "model": "granite4.2:latest",
+  "strictSuccess": "1/1",
+  "citationRequests": 1,
+  "finalJson": {
+    "evidenceByFact": {
+      "missingEvidence": [
+        "ev-b58e270067-1-96f0ce58fc"
+      ]
+    },
+    "facts": {},
+    "missingEvidence": [
+      "metric_depth"
+    ],
+    "status": "insufficient_evidence",
+    "candidateRevision": "fc5043e365ad2af0f85fefdd4bbb17893b2cd2edc218a5e072be7ef9ff367d79"
+  },
+  "episodeMs": 16788.459791,
+  "stopReason": null,
+  "nextStageAdmitted": true,
+  "nativeCiteCalls": [
+    {
+      "id": "workflow-call-2",
+      "name": "cite",
+      "args": {
+        "handle_id": "ev-b58e270067-1-96f0ce58fc"
+      },
+      "output": {
+        "status": "cited",
+        "handle_id": "ev-b58e270067-1-96f0ce58fc",
+        "revision": "fc5043e365ad2af0f85fefdd4bbb17893b2cd2edc218a5e072be7ef9ff367d79",
+        "evidenceType": "scene_inventory"
+      },
+      "ok": true,
+      "executed": true,
+      "error": null,
+      "durationMs": 0.14441699999952107
+    }
+  ]
+}

@@ -1,0 +1,150 @@
+{
+  "schema": "timmy.native-job.manifest/1",
+  "subject": "job.revise",
+  "status": "ok",
+  "sourceRevision": "223392ee88d0e7d4cde14ea617d7b996e6ae731fd5614c3cc0e26bc10b2e0059",
+  "documentRevision": "45fd90561e7eeb5855e6e2e63e77eb401f388e93c1534ad0f0c7b180a25756ed",
+  "sourcePaths": [
+    "tools/box-loop-20260914/durable-manual-20260915/checkpoint.ts",
+    "tools/box-loop-20260914/durable-manual-20260915/checkpoint.py",
+    "tools/box-loop-20260914/durable-manual-20260915/native-host.py",
+    "tools/box-loop-20260914/durable-manual-20260915/workflow.ts",
+    "tools/box-loop-20260914/durable-manual-20260915/wrangler.json",
+    "tools/box-loop-20260914/durable-manual-20260915/revise-bore.py"
+  ],
+  "artifacts": [
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/edit-launch.json",
+      "sha256": "d141fd041066d20dda29bdd16d544e6ff41ee9f3740c05f58de547a4552eac26"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/edit-process.json",
+      "sha256": "ff873f2808cb3901c81da8a58ac14311f7c73d7bfdd29d685f0330cc7aa22dab"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/edit.json",
+      "sha256": "e3bd6320d532f2bc8f7dfd94dc113d3ca327cfa834e71e9a033522b577e43751"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/native-edit-started.json",
+      "sha256": "5f053ca087c91f0e14b43196e0a7f9b94f545e05349049861e5393bbb6502d7c"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/native-ownership.json",
+      "sha256": "e174a355bcfb912bdaa285229a4b9fcb6762fa0b6decbe2af881a5dffffaf3e8"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/readback-launch.json",
+      "sha256": "946cb40e743ca8a24ecc91eee09955e09c6b8fdd7028c2f739474e7887947e72"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/readback-process.json",
+      "sha256": "49e2b95cb4846ac3e4e3abbe3939a01e61fe187e27ef1edbf048a7c79829a39a"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/readback.json",
+      "sha256": "8c488edabd117e14e97644aeb27d5a8553901976ee8873bdae6c446fb200757c"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/result.json",
+      "sha256": "e2f96c251dee2218242695d4083cd674a1ae07e346b4fe25560918586909087f"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/revision.blend",
+      "sha256": "45fd90561e7eeb5855e6e2e63e77eb401f388e93c1534ad0f0c7b180a25756ed"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/admission.json",
+      "sha256": "171dc2d9d18fd9fbcb0cdbef88461f3d7c32abbb74164922258932ee9c18a20f"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/controller-success.log",
+      "sha256": "dac4dab808e5982102384e91e13441f70ec4f756e999321cbfd950c6a8c5869d"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/dedupe-control.json",
+      "sha256": "1e72cabd6f764433cddd0e50a31b5384aeeea47197435d35810776123ab04921"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/implementation-after.json",
+      "sha256": "1ae748d5796cc995906ddf0fba5e5626f9c1c6ac79cec8fb465106e92254a77b"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/implementation-before.json",
+      "sha256": "8389e8f23e2a8d6e9a4f877708aa880809df7add72c6e593a95a8e0c3eddcdc9"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/implementation/0-checkpoint.ts",
+      "sha256": "3c9cf983c0bfc88fcf60995fb50cf24614627a06509365eb39c95f79e5296188"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/implementation/1-checkpoint.py",
+      "sha256": "6c3779ad4f8a03481c7b0d5acb4cacf74251c8f0b2ae24479588e45f84e722df"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/implementation/2-native-host.py",
+      "sha256": "73487171a7014f81023e13beeb68d3b8be145feaa1827ecf85f9eea683dfe2a3"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/implementation/3-workflow.ts",
+      "sha256": "3fe265ab5728f80affb3a24dba91eb8c8a46509d449c621874f92a0ab9f09cdb"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/implementation/4-wrangler.json",
+      "sha256": "46b9529e123830da646eb2dcae356789761a54ebf2aa87bf505abf6d76de7794"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/implementation/5-revise-bore.py",
+      "sha256": "f596f19099cce12f324a2833617dbe363ae807ffe28c8c87df102565fa4a037a"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/native-complete.json",
+      "sha256": "c43daa0aed2db3e51376feb2e156419ce22aa6c04b65b28432692fd3c37e6dbb"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/native-host.log",
+      "sha256": "3ca4a872575b8efff25e6038185066acc64e695a231f07413f1d3cf4ad2b3551"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/op.result.receipt.json",
+      "sha256": "478ad1c98d3cb21214bdde90ae15f58151965a6c8b80580e7f8058f83c06e625"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/process.json",
+      "sha256": "070118080e4ba91f906f0b8e1691b3bb8717a0160f020504dcb8d4a4ff19d436"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/request.json",
+      "sha256": "4428fec20c5c97697249b8d8c668e6daf2a8d08791f035e948891ab68aeecc07"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/request.receipt.json",
+      "sha256": "2d7e761371befb6c8e53fefa82231cc67d41a995cf43c26819e27e75cde93b3a"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/result.json",
+      "sha256": "3409bf20d2e0070e7dbb8e3b4b5da3aa2e1c2adfd85d4c49ab9c2b9bdb9c8127"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/scope.json",
+      "sha256": "ef90c74e527c1ce2b482716d52a15ece78e73ab8591854188772cbf60b6524e6"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/service-ownership.json",
+      "sha256": "3fc3cea7f24be1c4a2e02f95d77a7b94a7f48c2a59af6ebf95ab95ccbafbe27f"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/status-history.jsonl",
+      "sha256": "24f3a1febab689070b1e8c29b35144eef7f004e14ce73e8306c5e9ebe987e5ef"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/submitted.json",
+      "sha256": "21ec4ef7219dbab197782db7020e6a6cc31c2fcc4173c4bcdb35768feaa5efe1"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-success/workflow-complete.json",
+      "sha256": "80dcdd31f508bc9e32a7ab690d79e9ce747353bd771ce6c41e28cfeec50ba173"
+    }
+  ],
+  "pairedSuccess": null
+}

@@ -1,0 +1,338 @@
+{
+  "schema": "timmy.op.result/1",
+  "op_id": "durable-491c3118-37fe-4663-bf1d-35070b8ee977",
+  "job_id": "bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f",
+  "run_id": "bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f",
+  "status": "ok",
+  "mode": "recovery",
+  "controller": "Cloudflare Workflows local dev",
+  "nativeOwner": "native-01993321-3932-430b-969e-c55641aa7c8d",
+  "controllerPid": 21282,
+  "nativePid": 14242,
+  "controllerInterrupted": true,
+  "sourceRevision": "223392ee88d0e7d4cde14ea617d7b996e6ae731fd5614c3cc0e26bc10b2e0059",
+  "documentRevision": "377cb02492ec21ddcb48aab990caeb942ad8e060c86aa05809b00dd9d83c114c",
+  "document": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/revision.blend",
+  "readback": {
+    "schema": "timmy.native-bore-revision/1",
+    "mode": "readback",
+    "status": "ok",
+    "jobId": "bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f",
+    "pid": 27055,
+    "blenderVersion": "5.1.1",
+    "source": "{{TIMMY_ROOT}}/studio/box-loop-20260914/s2/native/scene.blend",
+    "output": "{{TIMMY_ROOT}}/studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/revision.blend",
+    "sourceSha256": "223392ee88d0e7d4cde14ea617d7b996e6ae731fd5614c3cc0e26bc10b2e0059",
+    "targetDiameterMm": 32.0,
+    "units": "mm",
+    "exactlyOnceBasis": "Host job ledger plus reopened native properties; properties alone are insufficient",
+    "sourceMeshSha256": "6e45f47454375c3612a8c80a19ce98dbfad11a11380739c14fe9b59171cbef04",
+    "sourceRevision": "ba985730f3b89a7b87308072dd0dc2fc82f5143acc26cf615c18f842c51a46bc",
+    "geometry": {
+      "passed": true,
+      "vertices": 6568,
+      "triangles": 13136,
+      "evaluatedWorldMeshSha256": "32348838383e4d35001b0c0c5760531602f5a0df239a55657f59796d965f62d8",
+      "boundsMm": {
+        "minimum": [
+          -40.0,
+          -40.0,
+          -40.0
+        ],
+        "maximum": [
+          40.0,
+          40.0,
+          40.0
+        ],
+        "dimensions": [
+          80.0,
+          80.0,
+          80.0
+        ]
+      },
+      "topology": {
+        "connectedComponents": 1,
+        "boundaryEdges": 0,
+        "nonManifoldEdges": 0,
+        "edges": 19704
+      },
+      "toleranceMm": 0.05,
+      "rayMethod": "Independent Moller-Trumbore over native evaluated world-space triangles",
+      "rays": [
+        {
+          "angleDegrees": 0.0,
+          "originMm": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "direction": [
+            1.0,
+            0.0,
+            0.0
+          ],
+          "radiusMm": 16.0,
+          "hitPointMm": [
+            16.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "angleDegrees": 90.0,
+          "originMm": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "direction": [
+            6.123234262925839e-17,
+            1.0,
+            0.0
+          ],
+          "radiusMm": 16.000000132822567,
+          "hitPointMm": [
+            9.797174820681343e-16,
+            16.0,
+            0.0
+          ]
+        },
+        {
+          "angleDegrees": 180.0,
+          "originMm": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "direction": [
+            -1.0,
+            1.2246468525851679e-16,
+            0.0
+          ],
+          "radiusMm": 16.0,
+          "hitPointMm": [
+            -16.0,
+            1.9594349641362686e-15,
+            0.0
+          ]
+        },
+        {
+          "angleDegrees": 270.0,
+          "originMm": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "direction": [
+            -1.8369701465288538e-16,
+            -1.0,
+            0.0
+          ],
+          "radiusMm": 16.0,
+          "hitPointMm": [
+            -2.939152234446166e-15,
+            -16.0,
+            0.0
+          ]
+        },
+        {
+          "angleDegrees": 22.5,
+          "originMm": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "direction": [
+            0.9238795042037964,
+            0.3826834261417389,
+            0.0
+          ],
+          "radiusMm": 16.000000486047593,
+          "hitPointMm": [
+            14.782072067260742,
+            6.122934818267822,
+            0.0
+          ]
+        },
+        {
+          "angleDegrees": 67.5,
+          "originMm": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "direction": [
+            0.3826834261417389,
+            0.9238795042037964,
+            0.0
+          ],
+          "radiusMm": 15.999999027956768,
+          "hitPointMm": [
+            6.122934341430664,
+            14.782071113586426,
+            0.0
+          ]
+        },
+        {
+          "angleDegrees": 112.5,
+          "originMm": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "direction": [
+            -0.3826834261417389,
+            0.9238795042037964,
+            0.0
+          ],
+          "radiusMm": 15.999999756976209,
+          "hitPointMm": [
+            -6.122934818267822,
+            14.782072067260742,
+            0.0
+          ]
+        },
+        {
+          "angleDegrees": 157.5,
+          "originMm": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "direction": [
+            -0.9238795042037964,
+            0.3826834261417389,
+            0.0
+          ],
+          "radiusMm": 15.999999756976209,
+          "hitPointMm": [
+            -14.782072067260742,
+            6.122934818267822,
+            0.0
+          ]
+        },
+        {
+          "angleDegrees": 202.5,
+          "originMm": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "direction": [
+            -0.9238795042037964,
+            -0.3826834261417389,
+            0.0
+          ],
+          "radiusMm": 15.99999927146264,
+          "hitPointMm": [
+            -14.782071113586426,
+            -6.122934341430664,
+            0.0
+          ]
+        },
+        {
+          "angleDegrees": 247.5,
+          "originMm": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "direction": [
+            -0.3826834261417389,
+            -0.9238795042037964,
+            0.0
+          ],
+          "radiusMm": 15.999999513003107,
+          "hitPointMm": [
+            -6.122934341430664,
+            -14.782071113586426,
+            0.0
+          ]
+        },
+        {
+          "angleDegrees": 292.5,
+          "originMm": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "direction": [
+            0.3826834261417389,
+            -0.9238795042037964,
+            0.0
+          ],
+          "radiusMm": 16.000000486047593,
+          "hitPointMm": [
+            6.122934818267822,
+            -14.782072067260742,
+            0.0
+          ]
+        },
+        {
+          "angleDegrees": 337.5,
+          "originMm": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "direction": [
+            0.9238795042037964,
+            -0.3826834261417389,
+            0.0
+          ],
+          "radiusMm": 15.999998534262831,
+          "hitPointMm": [
+            14.78207015991211,
+            -6.122933864593506,
+            0.0
+          ]
+        }
+      ],
+      "diameters": [
+        {
+          "angleDegrees": 0.0,
+          "diameterMm": 32.0
+        },
+        {
+          "angleDegrees": 90.0,
+          "diameterMm": 32.000000132822564
+        },
+        {
+          "angleDegrees": 22.5,
+          "diameterMm": 31.99999975751023
+        },
+        {
+          "angleDegrees": 67.5,
+          "diameterMm": 31.999998540959876
+        },
+        {
+          "angleDegrees": 112.5,
+          "diameterMm": 32.000000243023806
+        },
+        {
+          "angleDegrees": 157.5,
+          "diameterMm": 31.999998291239038
+        }
+      ],
+      "axisDiametersMm": {
+        "x": 32.0,
+        "y": 32.000000132822564
+      }
+    },
+    "revisionUnchanged": true,
+    "editApplied": false,
+    "objectProperties": {
+      "timmy_job_id": "bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f",
+      "source_sha256": "223392ee88d0e7d4cde14ea617d7b996e6ae731fd5614c3cc0e26bc10b2e0059",
+      "edit_count": 1,
+      "target_diameter_mm": 32.0
+    },
+    "sourceUnchanged": true,
+    "outputSha256": "377cb02492ec21ddcb48aab990caeb942ad8e060c86aa05809b00dd9d83c114c",
+    "passed": true
+  },
+  "editExecutions": 1,
+  "sourcePreserved": true,
+  "durationSeconds": 34.005594968795776,
+  "scope": "Signal-assisted Cloudflare local recovery: controller SIGKILL, same persistence directory, explicit reconnect event, retained step results. Native-host crash and power loss not tested."
+}

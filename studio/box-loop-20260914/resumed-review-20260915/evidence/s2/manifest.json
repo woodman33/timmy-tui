@@ -1,0 +1,84 @@
+{
+  "schema": "timmy.native-view.manifest/1",
+  "status": "ok",
+  "artifacts": [
+    {
+      "path": "studio/box-loop-20260914/s2/grounded.json",
+      "sha256": "4fe299e9f39d243bfed4331a919da16c3176a85738bd27b22274cd58810d51f2"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/grounding-controls.json",
+      "sha256": "f8773cd595ec33d188e445d1d40f1670f0c2971d17ec26faa5bbe01622d4c63a"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/independent-process.json",
+      "sha256": "913d3cd9672af631eae1ae3046b3781c0d7ad51e17631f8c32dc9da64ada07da"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/independent-verification.json",
+      "sha256": "492e3e0ea25524622deff745795f5fbf2bdfba8cbec51dd67d43dbc796945818"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/native-process.json",
+      "sha256": "a07c66b41c97106159be7b23238f6cad0830b2ce4946137a40498db9c4935f1b"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/native/capture-metadata.json",
+      "sha256": "113bead962e93ebd2e645f917d2c59bbf005b8008c3fc57e82fc5de932501116"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/native/grounding-input.json",
+      "sha256": "a26872d19f837cd0949534f56405e3fb97a32f003b9803e1f2e550d5f973c018"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/native/ray-hit-points.json",
+      "sha256": "d6ab8cc8d97cd96529d70b25a5a9030a0abf72be6385e6e015b6ee73caf7b0b5"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/native/rgb-alpha.json",
+      "sha256": "8e412c81818088de92f825e3be0e64414642a9cb3eba74da3d3f791933ff6dc4"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/native/rgb.png",
+      "sha256": "de2679f581e9f2f39f6d0757f17445a1e714b6bae02fe066ea7ad1bdbd9ac8b8"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/native/scene.blend",
+      "sha256": "223392ee88d0e7d4cde14ea617d7b996e6ae731fd5614c3cc0e26bc10b2e0059"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/request.json",
+      "sha256": "0c3fa09fd820c60f5e9e81b78328511179916cb4c32ea240c76fd8470eb6555b"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/request.receipt.json",
+      "sha256": "69d8b3c297f51478f41a0a2a3bd66caaae2a31ac5d841ddf00e2c9429f507e99"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/result.json",
+      "sha256": "4ba4604166d799ad37ae98ad497d36f25a86c1ed1a95b10b4c45abdcb326329f"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/scope.json",
+      "sha256": "c19681033c0b442daa81f5d711ef5b24879d2cc28201a401967884ac8b6068b6"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/source-verification.json",
+      "sha256": "0d590748c4769d9c4ffeee7edd08ed5f0466d0d0e0b3af1505e2189acf0291c9"
+    }
+  ],
+  "implementation": [
+    {
+      "path": "tools/box-loop-20260914/export-native-view.py",
+      "sha256": "a47d697ed7f203dab70b9a0602e763c66c1fd9116450326bf198b1eaed70dd9f"
+    },
+    {
+      "path": "tools/box-loop-20260914/verify-native-view.py",
+      "sha256": "95825336de6a339963df2c7cf4224d54155e6cc5831326a01baf453d5057fc3d"
+    },
+    {
+      "path": "tools/box-loop-20260914/native-view.ts",
+      "sha256": "8e88c9573044f19b3d44364f9e49e9b8cdae1608461894ffaa11ed42397b97a6"
+    }
+  ]
+}

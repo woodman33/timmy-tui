@@ -1,0 +1,322 @@
+{
+  "schema": "timmy.route-graph/1",
+  "scope": "analytic-box-bore-40 retained source only",
+  "sourceProperties": [
+    "sourceRevision",
+    "units.mm",
+    "generated.provenance",
+    "physical.unknown",
+    "cell.knownMasks"
+  ],
+  "sourceRevision": "ba985730f3b89a7b87308072dd0dc2fc82f5143acc26cf615c18f842c51a46bc",
+  "measuredScope": "Timmy can compute and verify dimensions of generated CAD. Converting that CAD cannot establish the dimensions or density of a physical object.",
+  "independenceRule": "Every pair of selected paths must have disjoint backend sets; wrappers/transports do not create independence.",
+  "policy": "Planning only; select fewest edges, no monetary cost or scalar cross-property loss optimization.",
+  "admission": {
+    "receiptPath": "studio/box-loop-20260914/s2/view.ground.receipt.json",
+    "manifestPath": "studio/box-loop-20260914/s2/manifest.json"
+  },
+  "evidence": [
+    {
+      "path": "lanes/engines/proofs.json",
+      "sha256": "d84943131bfe2f2e440f7825e214f9d780c9553f3b8ab5f5a3c7c0428c14a7b2"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/grounded.json",
+      "sha256": "4fe299e9f39d243bfed4331a919da16c3176a85738bd27b22274cd58810d51f2"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/grounding-controls.json",
+      "sha256": "f8773cd595ec33d188e445d1d40f1670f0c2971d17ec26faa5bbe01622d4c63a"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/independent-verification.json",
+      "sha256": "492e3e0ea25524622deff745795f5fbf2bdfba8cbec51dd67d43dbc796945818"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/native/capture-metadata.json",
+      "sha256": "113bead962e93ebd2e645f917d2c59bbf005b8008c3fc57e82fc5de932501116"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/source-verification.json",
+      "sha256": "0d590748c4769d9c4ffeee7edd08ed5f0466d0d0e0b3af1505e2189acf0291c9"
+    },
+    {
+      "path": "studio/box-loop-20260914/s2/view.ground.receipt.json",
+      "sha256": "8acc2205772479e73568138a0762e59aeb573c1661645ad6ea5059bc92de6d18"
+    },
+    {
+      "path": "studio/spatial-volume-20260912/grid40/manifest.json",
+      "sha256": "ba985730f3b89a7b87308072dd0dc2fc82f5143acc26cf615c18f842c51a46bc"
+    },
+    {
+      "path": "studio/spatial-volume-20260912/grid40/roundtrip.json",
+      "sha256": "9d22bba4e31d6bdd4c8956933ad668ce40e47330121b715330e599339c4bae27"
+    },
+    {
+      "path": "studio/spatial-volume-20260912/grid40/surface.json",
+      "sha256": "6e45f47454375c3612a8c80a19ce98dbfad11a11380739c14fe9b59171cbef04"
+    }
+  ],
+  "edges": [
+    {
+      "id": "package-to-cell-report",
+      "from": "volume.package",
+      "to": "cells.report",
+      "backendId": "timmy-volume-reader",
+      "entrypoint": "src/vision/spatial/volume-cli.ts#readVolumePackage",
+      "qualification": {
+        "status": "retained-fixture-bytes-verified",
+        "eligible": true,
+        "evidence": [
+          "studio/box-loop-20260914/s2/source-verification.json",
+          "studio/box-loop-20260914/s2/view.ground.receipt.json"
+        ]
+      },
+      "dependencies": [
+        "retained package and all artifact SHA256 hashes"
+      ],
+      "preservedProperties": [
+        "sourceRevision",
+        "units.mm",
+        "generated.provenance",
+        "physical.unknown",
+        "cell.knownMasks"
+      ],
+      "losses": {
+        "selection": "Summary or selected-cell projection; original package remains referenced.",
+        "inheritedFillSampling": {
+          "samplesPerAxis": 8,
+          "volumeAbsErrorMm3": 34.897369354439434,
+          "volumeRelError": 7.334325362275067e-05
+        },
+        "nativeParser": "Reader verifies VDB bytes; it does not parse native grids."
+      }
+    },
+    {
+      "id": "package-to-retained-surface",
+      "from": "volume.package",
+      "to": "mesh.json",
+      "backendId": "openvdb-13.0.0",
+      "entrypoint": "tools/spatial-volume/build_fixture.py#export_mesh",
+      "qualification": {
+        "status": "retained-fixture-only",
+        "eligible": true,
+        "evidence": [
+          "studio/spatial-volume-20260912/grid40/manifest.json",
+          "studio/spatial-volume-20260912/grid40/roundtrip.json",
+          "studio/spatial-volume-20260912/grid40/surface.json",
+          "studio/box-loop-20260914/s2/view.ground.receipt.json"
+        ]
+      },
+      "dependencies": [
+        "fixed box fixture",
+        "manifest sidecar accompanies surface"
+      ],
+      "preservedProperties": [
+        "sourceRevision",
+        "units.mm",
+        "generated.provenance",
+        "physical.unknown"
+      ],
+      "losses": {
+        "cellValues": "Absent from surface; keep source package.",
+        "knownMasks": "Absent from surface; keep source package.",
+        "objectIds": "Mesh has no stable IDs; S2 assigns source-scoped box-bore.",
+        "frameAndRevision": "Manifest sidecar required; not embedded in surface.json.",
+        "geometry": {
+          "status": "measured-from-native-reconstruction",
+          "vertices": 7272,
+          "triangles": 14544,
+          "connectedComponents": 1,
+          "closedTwoManifoldEdges": true,
+          "consistentEdgeOrientation": true,
+          "vertexLinksSingleCycles": true,
+          "invalidVertexLinks": 0,
+          "eulerCharacteristic": 0,
+          "genus": 1,
+          "volumeMm3": 474539.05434386636,
+          "surfaceError": {
+            "method": "independent analytic boundary distance at mesh vertices and triangle centroids",
+            "sampleCount": 21816,
+            "meanMm": 0.053196231537085116,
+            "rmsMm": 0.13823534565462006,
+            "maxSampleMm": 0.8333320617675781,
+            "hausdorffMeasured": false
+          },
+          "volumeAbsErrorMm3": 1269.7982867792016,
+          "volumeRelError": 0.002668715135833976
+        },
+        "physicalDensity": "Unknown; no physical observation."
+      },
+      "executorScope": "Selects existing verified fixture artifact. Producer rebuilds this fixed fixture, not arbitrary packages.",
+      "artifact": "studio/spatial-volume-20260912/grid40/surface.json"
+    },
+    {
+      "id": "surface-to-native-view",
+      "from": "mesh.json",
+      "to": "view.bundle",
+      "backendId": "blender-native",
+      "entrypoint": "tools/box-loop-20260914/export-native-view.py",
+      "qualification": {
+        "status": "same-box-native-qualified",
+        "eligible": true,
+        "evidence": [
+          "studio/box-loop-20260914/s2/view.ground.receipt.json",
+          "studio/box-loop-20260914/s2/independent-verification.json",
+          "studio/box-loop-20260914/s2/native/capture-metadata.json"
+        ]
+      },
+      "dependencies": [
+        "Blender 5.1.1",
+        "exact source mesh hash",
+        "fixed calibrated camera and 128x128 raster"
+      ],
+      "preservedProperties": [
+        "sourceRevision",
+        "units.mm",
+        "generated.provenance",
+        "physical.unknown"
+      ],
+      "losses": {
+        "occlusion": "Only one visible view; occluded and interior geometry cannot be reconstructed.",
+        "rgbSilhouette": {
+          "threshold": 0.5,
+          "boundaryTolerancePixels": 1,
+          "disagreements": 1,
+          "interiorDisagreements": 0
+        },
+        "depth": {
+          "definition": "native geometry ray cast camera-Z mm, not renderer Z buffer",
+          "independentRays": 5,
+          "toleranceMm": 0.001,
+          "maximumSamplePointErrorMm": 3.552713678800501e-15,
+          "fullRasterIndependentGeometryProof": false
+        },
+        "projection": {
+          "method": "world_to_camera_view at every native hit",
+          "maximumErrorPixels": 3.814697265625e-06,
+          "tolerancePixels": 0.001,
+          "passed": true
+        },
+        "physicalDensity": "Unknown."
+      }
+    },
+    {
+      "id": "view-to-grounded-point",
+      "from": "view.bundle",
+      "to": "grounded.point",
+      "backendId": "timmy-pixel-grounding",
+      "entrypoint": "src/vision/spatial/voxel-image-grounding.ts#groundVoxelImagePixel",
+      "qualification": {
+        "status": "same-box-native-qualified",
+        "eligible": true,
+        "evidence": [
+          "studio/box-loop-20260914/s2/view.ground.receipt.json",
+          "studio/box-loop-20260914/s2/grounded.json",
+          "studio/box-loop-20260914/s2/grounding-controls.json"
+        ]
+      },
+      "dependencies": [
+        "camera-Z depth mm",
+        "matching camera/object-ID/source revision"
+      ],
+      "preservedProperties": [
+        "sourceRevision",
+        "units.mm",
+        "generated.provenance",
+        "physical.unknown"
+      ],
+      "losses": {
+        "selection": "One nearest pixel-center surface point; not entire object or interior.",
+        "missingDepth": "Unknown point; never infer empty space.",
+        "materialAndDensity": "Unknown; not derived from color."
+      }
+    },
+    {
+      "id": "obj-to-glb-export",
+      "from": "mesh.obj",
+      "to": "mesh.glb",
+      "backendId": "blender-native",
+      "entrypoint": "lanes/engines/blender/templates/glb-export/script.py",
+      "qualification": {
+        "status": "historical-cube-only",
+        "eligible": false,
+        "evidence": [
+          "lanes/engines/proofs.json"
+        ]
+      },
+      "dependencies": [
+        "same-box unit conversion and native output readback"
+      ],
+      "preservedProperties": [],
+      "losses": {
+        "geometry": null,
+        "units": "Same-box preservation unverified.",
+        "objectIdentity": "Same-box preservation unverified.",
+        "sourceRevision": "Propagation unverified."
+      }
+    },
+    {
+      "id": "obj-to-usd-export",
+      "from": "mesh.obj",
+      "to": "scene.usd",
+      "backendId": "blender-native",
+      "entrypoint": "lanes/engines/blender/templates/usd-export/script.py",
+      "qualification": {
+        "status": "historical-cube-only",
+        "eligible": false,
+        "evidence": [
+          "lanes/engines/proofs.json"
+        ]
+      },
+      "dependencies": [
+        "same-box unit conversion and native output readback"
+      ],
+      "preservedProperties": [],
+      "losses": {
+        "geometry": null,
+        "units": "Same-box preservation unverified.",
+        "objectIdentity": "Same-box preservation unverified.",
+        "sourceRevision": "Propagation unverified."
+      }
+    },
+    {
+      "id": "usd-flatten",
+      "from": "scene.usd",
+      "to": "scene.usd.flattened",
+      "backendId": "openusd-usdcat",
+      "entrypoint": "lanes/engines/usd/templates/usd-flatten/run.mjs",
+      "qualification": {
+        "status": "historical-stage-only",
+        "eligible": false,
+        "evidence": [
+          "lanes/engines/proofs.json"
+        ]
+      },
+      "dependencies": [
+        "qualified same-box USD input",
+        "resolved-stage native readback"
+      ],
+      "preservedProperties": [],
+      "losses": {
+        "composition": "Flatten removes arcs, variants and inheritance structure; original composition not recoverable.",
+        "sameBoxGeometry": null
+      }
+    }
+  ],
+  "unavailableSurfaces": [
+    {
+      "surface": "cad.brep",
+      "reason": "No qualified mesh-to-B-rep adapter preserving construction history or analytic geometry."
+    },
+    {
+      "surface": "plasticity.native",
+      "reason": "Protocol tool listing does not admit native editing; app probe queued after S3."
+    },
+    {
+      "surface": "spline.parametric",
+      "reason": "No qualified same-box source and parameter-preservation route in this checkpoint."
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schema": "timmy.native-job.failure-closeout/1",
+  "at": "2026-09-15T07:09:54.367929+00:00",
+  "failedSeal": "rc_mu2c02vn_cse3",
+  "failedHash": "sha256_f98bf26320ec5cdb93cfe81170883dcbf7609548f973e5c37875db0987b35982",
+  "boundArtifactsVerified": 20,
+  "ports": [
+    {
+      "port": 18891,
+      "closed": true
+    },
+    {
+      "port": 18892,
+      "closed": true
+    }
+  ],
+  "sourcePreserved": true,
+  "nativeJobsSubmitted": 0,
+  "nativeEditsExecuted": 0,
+  "recoveryRun": "not executed",
+  "queueStopped": true,
+  "repairRequired": "Use manual redirects and explicitly reject 3xx in the Cloudflare native request; check workflow terminal failure before treating native 404 as pending. Fresh attempt required; no repair applied to the sealed sources."
+}

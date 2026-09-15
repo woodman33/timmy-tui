@@ -1,0 +1,30 @@
+{
+  "schema": "timmy.public-receipt-reference/1",
+  "id": "rc_mu2ca3aa_ozwh",
+  "ts": "2026-09-15T07:17:18.754Z",
+  "kind": "seal",
+  "subject": "S4.checkpoint",
+  "status": "ok",
+  "tier": "LIGHT",
+  "hash": "sha256_7dfd4950c4ab3c962b82c25c35fc541a2ac81a970837d6bb03d086d03a4d783d",
+  "output_sha256": "cdff18f80487b1261d111ca5584e944e2706c6262393ad3aceb3ad718179d630",
+  "artifacts": [
+    "studio/box-loop-20260914/s4m-checkpoint/demo-card.json"
+  ],
+  "child_receipts": [
+    "sha256_6cffbbe482e771d85ea4606ebc15b6dfafb45cf75dc78337778b243aaa3ff487",
+    "sha256_fc0eb5d82c666bcf6da9c34485f22242b3042331d73e3a28f1ec06336e235059"
+  ],
+  "sources": [
+    {
+      "job_id": "bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74",
+      "document_revision": "45fd90561e7eeb5855e6e2e63e77eb401f388e93c1534ad0f0c7b180a25756ed"
+    },
+    {
+      "job_id": "bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f",
+      "document_revision": "377cb02492ec21ddcb48aab990caeb942ad8e060c86aa05809b00dd9d83c114c"
+    }
+  ],
+  "signatureOmitted": true,
+  "verification": "Original signature and artifact binding verified by coordinating agent; this projection is not a signed receipt."
+}

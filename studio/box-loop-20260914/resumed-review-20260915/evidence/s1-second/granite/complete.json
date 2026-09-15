@@ -1,0 +1,10 @@
+{
+  "op_id": "citation-27c31ee0-0613-4edc-9bb2-ce306379289c",
+  "model": "granite4.2:latest",
+  "status": "ok",
+  "strictSuccess": "1/1",
+  "sealId": "rc_mu260gn3_rze5",
+  "hash": "sha256_1ddedee7ca7b2225113c19abbd61807df107a08f99d315f1029ef2bf3ccf3991",
+  "opResultId": "rc_mu260gjo_6cif",
+  "verified": true
+}

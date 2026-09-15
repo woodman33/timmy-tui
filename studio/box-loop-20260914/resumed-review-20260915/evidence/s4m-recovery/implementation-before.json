@@ -1,0 +1,34 @@
+{
+  "artifacts": [
+    {
+      "path": "tools/box-loop-20260914/durable-manual-20260915/checkpoint.ts",
+      "sha256": "3c9cf983c0bfc88fcf60995fb50cf24614627a06509365eb39c95f79e5296188"
+    },
+    {
+      "path": "tools/box-loop-20260914/durable-manual-20260915/checkpoint.py",
+      "sha256": "6c3779ad4f8a03481c7b0d5acb4cacf74251c8f0b2ae24479588e45f84e722df"
+    },
+    {
+      "path": "tools/box-loop-20260914/durable-manual-20260915/native-host.py",
+      "sha256": "73487171a7014f81023e13beeb68d3b8be145feaa1827ecf85f9eea683dfe2a3"
+    },
+    {
+      "path": "tools/box-loop-20260914/durable-manual-20260915/workflow.ts",
+      "sha256": "3fe265ab5728f80affb3a24dba91eb8c8a46509d449c621874f92a0ab9f09cdb"
+    },
+    {
+      "path": "tools/box-loop-20260914/durable-manual-20260915/wrangler.json",
+      "sha256": "46b9529e123830da646eb2dcae356789761a54ebf2aa87bf505abf6d76de7794"
+    },
+    {
+      "path": "tools/box-loop-20260914/durable-manual-20260915/revise-bore.py",
+      "sha256": "f596f19099cce12f324a2833617dbe363ae807ffe28c8c87df102565fa4a037a"
+    }
+  ],
+  "runtime": {
+    "wrangler": "4.129.0",
+    "workerd": "1.20260903.1",
+    "compatibilityDate": "2026-09-03"
+  },
+  "priorFailedSeal": "rc_mu2c02vn_cse3"
+}

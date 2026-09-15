@@ -1,0 +1,16 @@
+{
+  "schema": "timmy.checkpoint.cleanup/1",
+  "nativePid": 95437,
+  "ownedPidVerified": true,
+  "nativeJobs": 0,
+  "portsStillListening": {
+    "18891": false,
+    "18892": false
+  },
+  "sourceSha256": "223392ee88d0e7d4cde14ea617d7b996e6ae731fd5614c3cc0e26bc10b2e0059",
+  "sourcePreserved": true,
+  "newNativeDocuments": 0,
+  "recoveryExecuted": false,
+  "prUpdated": false,
+  "s5Executed": false
+}

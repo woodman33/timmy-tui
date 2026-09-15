@@ -1,0 +1,186 @@
+{
+  "schema": "timmy.native-job.manifest/1",
+  "subject": "job.recover",
+  "status": "ok",
+  "sourceRevision": "223392ee88d0e7d4cde14ea617d7b996e6ae731fd5614c3cc0e26bc10b2e0059",
+  "documentRevision": "377cb02492ec21ddcb48aab990caeb942ad8e060c86aa05809b00dd9d83c114c",
+  "sourcePaths": [
+    "tools/box-loop-20260914/durable-manual-20260915/checkpoint.ts",
+    "tools/box-loop-20260914/durable-manual-20260915/checkpoint.py",
+    "tools/box-loop-20260914/durable-manual-20260915/native-host.py",
+    "tools/box-loop-20260914/durable-manual-20260915/workflow.ts",
+    "tools/box-loop-20260914/durable-manual-20260915/wrangler.json",
+    "tools/box-loop-20260914/durable-manual-20260915/revise-bore.py"
+  ],
+  "artifacts": [
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/edit-launch.json",
+      "sha256": "80df0e5b148afcecb6493353c5f23ed34a4fe393169c94ee77d3ccbe9dde9bb8"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/edit-process.json",
+      "sha256": "805bad4d5c18b6f7d6cf1962c800c351ccff276c98d9faf564903376e761abe8"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/edit.json",
+      "sha256": "b21cf4c17ee40718156edd8e5d02381e13595bdf09b253560316379a039f8696"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/native-edit-started.json",
+      "sha256": "900321315fcb982ef49b2a4c88b6f33cab522b8faa0f6e6f459cd48fe66c17b7"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/native-ownership.json",
+      "sha256": "0b4df6eb169835ce6e4b699b059a9e1ccf66ec0edff5f07cfd0614350396bad6"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/readback-launch.json",
+      "sha256": "28e737585b8075da7546f40d216f5d32e7e7c8750497fafe98e47a15303fdfda"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/readback-process.json",
+      "sha256": "a885164c70ae12eeecc91aaae6125526c61881d527fa0498969c71014a91b2a5"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/readback.json",
+      "sha256": "2c41ed14a1a18bcc09d145d3db2a967178ae46b5d416608244e5a0cc8bae21a2"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/result.json",
+      "sha256": "dd5ac7bb3960f7ebddfda8d46d4d25144651e7597228ea9d5df71d0c568bae81"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/revision.blend",
+      "sha256": "377cb02492ec21ddcb48aab990caeb942ad8e060c86aa05809b00dd9d83c114c"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/admission.json",
+      "sha256": "0dd3bb391d3a15f77303900d125c003757e311256741a85448194943fac13f64"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/before-kill.json",
+      "sha256": "cae38173331ca28bf2695f3c4f77d6fbf93c1d0307bb5a54b4dfc81ae40d7af7"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/cleanup-requested.json",
+      "sha256": "8f958394e5ba19592543d7b869cbdedb01e37a5f9442ab6138f70d4bbe426a66"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/cleanup-verified.json",
+      "sha256": "0e93109f20e2619b4928138276bf75cabfa23dee27d45b42498ad29d409202d3"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/controller-identity.json",
+      "sha256": "fb3a0201dfa835ec5d40afd39df21ffafa24e23c9df8b47faf7a916eba8e4104"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/controller-killed.json",
+      "sha256": "4ce72349ba509d234741cc91ceca976fdff19f839a84a81e6fbf9e9e2ba59463"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/controller-recovery.log",
+      "sha256": "9ff7a3c7b0923bd4e70a3b4655173884f47a1bbadac85f2e8431be5d77b11a88"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/controller-success.log",
+      "sha256": "7b575cce37139671494c952dd80545f3bc9a925dc44bbc4ffd0caf764a5a2817"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/dedupe-control.json",
+      "sha256": "0c2eb7cb93b25f00c45d433f315799e315f94f6b1d7a8838594371833cd164c6"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/implementation-after.json",
+      "sha256": "1ae748d5796cc995906ddf0fba5e5626f9c1c6ac79cec8fb465106e92254a77b"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/implementation-before.json",
+      "sha256": "8389e8f23e2a8d6e9a4f877708aa880809df7add72c6e593a95a8e0c3eddcdc9"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/implementation/0-checkpoint.ts",
+      "sha256": "3c9cf983c0bfc88fcf60995fb50cf24614627a06509365eb39c95f79e5296188"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/implementation/1-checkpoint.py",
+      "sha256": "6c3779ad4f8a03481c7b0d5acb4cacf74251c8f0b2ae24479588e45f84e722df"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/implementation/2-native-host.py",
+      "sha256": "73487171a7014f81023e13beeb68d3b8be145feaa1827ecf85f9eea683dfe2a3"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/implementation/3-workflow.ts",
+      "sha256": "3fe265ab5728f80affb3a24dba91eb8c8a46509d449c621874f92a0ab9f09cdb"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/implementation/4-wrangler.json",
+      "sha256": "46b9529e123830da646eb2dcae356789761a54ebf2aa87bf505abf6d76de7794"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/implementation/5-revise-bore.py",
+      "sha256": "f596f19099cce12f324a2833617dbe363ae807ffe28c8c87df102565fa4a037a"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/native-complete.json",
+      "sha256": "5761a451c6cf2bd6691a4b93fb8d385155d182deec8e4a7920ca3c772e52ac60"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/native-host.log",
+      "sha256": "3ca4a872575b8efff25e6038185066acc64e695a231f07413f1d3cf4ad2b3551"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/op.result.receipt.json",
+      "sha256": "c0d41a887ed41b9f42ddbb6f36862c66b36763d58dbd382260375fa819ebdb75"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/process.json",
+      "sha256": "b052e80f667b6fce20cc98137e1256678e13a880451c1438f8dd87a78cb9a72e"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/reconnected.json",
+      "sha256": "8e1244695c4fdabb4609f505903ec49c3001c292054258d7378a826d04ed12db"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/recovery-signal.json",
+      "sha256": "c47366f0c7d1b19bc1a511fce5845275c715e586d0c7fe6e608ed3d8a2448c35"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/request.json",
+      "sha256": "b1902b29e48ceb38695a7b8474433d12e06956669b31ce4bddd7bfb83084af1d"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/request.receipt.json",
+      "sha256": "5a060cc5173eddfdefcff0be3ab97f92d23df8e52d862d8a8032b9173db5f1c4"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/result.json",
+      "sha256": "245a294af1e0102aab19c1c5f4c855d1a51005374304e112112042f67aba2b81"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/scope.json",
+      "sha256": "a4eb8e7b00fdc09d7f8066619eaade14e4d0a335be8445ac96aaf034b9d3158f"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/service-ownership.json",
+      "sha256": "4981dfec31ef4ea0b79ba74739bcd3858a4390951edea3b8d78ccf2c5550fbde"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/status-history.jsonl",
+      "sha256": "1a2aa0373a33dd62c0828cf7223abb37d289054b43caeefe4700c39d0c65db15"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/submitted.json",
+      "sha256": "88561e183ac9f18346a9c0d4fe3250ae22a94e849322337987bcba843342450e"
+    },
+    {
+      "path": "studio/box-loop-20260914/s4m-recovery/workflow-complete.json",
+      "sha256": "138dbd18fd4367cbb3eeb657c31517ea1a3c43c19b1189393a29e7f4b776a44d"
+    }
+  ],
+  "pairedSuccess": {
+    "id": "rc_mu2c7z0b_ufmh",
+    "hash": "sha256_6cffbbe482e771d85ea4606ebc15b6dfafb45cf75dc78337778b243aaa3ff487",
+    "manifest": "studio/box-loop-20260914/s4m-success/manifest.json"
+  }
+}

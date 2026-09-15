@@ -1,0 +1,9 @@
+{
+  "op_id": "route-19547a8a-249c-472d-9397-fc274fd75671",
+  "status": "ok",
+  "outcome": "planned",
+  "verified": true,
+  "resultSha256": "db2c1ee46d3b10ea360b96c65d74ea465c8412384c04a492297366432576ddf5",
+  "receiptId": "rc_mu272fjw_bvfy",
+  "receipt": "sha256_a3f7e7f550bf6c518c75130ec29b147579fe976d0bf5f73535504e5b301e9db6"
+}

@@ -1,0 +1,728 @@
+{
+  "schema": "timmy.public-review-derivation/2",
+  "scope": "S1\u2013S4 resumed bounded review; independent of preserved original PUBLIC-DERIVATION.json",
+  "sealedOriginalsModified": false,
+  "originalSignaturesVerifiedBy": "coordinating agent before packaging; no new seal created by packaging",
+  "verificationLimit": "Original seals bind original files. Redacted artifacts and receipt-reference projections are not signature-valid substitutes. Public bundle is intentionally incomplete.",
+  "redactionConvention": "TIMMY_ROOT, REVIEW_ROOT and HOME placeholders; local identity and private network literals removed; receipt signer/signature/environment omitted from reference projections.",
+  "omittedCategories": [
+    "raw model requests and full episodes",
+    "native blend documents and all binary artifacts",
+    "host databases and persistence stores",
+    "private keys, credentials and model weights",
+    "controller/native host logs and unselected process reports",
+    "unselected files referenced by original manifests"
+  ],
+  "preservedPriorPublicFiles": {
+    "studio/box-loop-20260914/PUBLIC-DERIVATION.json": "762fe1447b4adb40809267d8b1046ac59b43644508ff15bb5f60aa169293b58d",
+    "studio/box-loop-20260914/s1/README.md": "59f5bf2bf628016be3c7a70c52e81f468a9d62178502c85712c7840ebd5153e7",
+    "studio/box-loop-20260914/checkpoint-seals.json": "ead8818955af8dc3da3682b325ea1306346847d947a971f99d524b08c0ed1375"
+  },
+  "files": [
+    {
+      "sourcePath": "studio/box-loop-20260914/s1-second/granite/complete.json",
+      "originalSha256": "a6f705a9b2dbbc6c29e2837a9b3a70677d2823829b4bdf63edf4ec2c0c9b8fc9",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s1-second/granite/complete.json",
+      "publicSha256": "a6f705a9b2dbbc6c29e2837a9b3a70677d2823829b4bdf63edf4ec2c0c9b8fc9",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s1-second/granite/manifest.json",
+      "originalSha256": "4611717d790d75a042548ebdf31607e1aae10cc058b03af26a25ec1e2a828857",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s1-second/granite/manifest.json",
+      "publicSha256": "4611717d790d75a042548ebdf31607e1aae10cc058b03af26a25ec1e2a828857",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s2/complete.json",
+      "originalSha256": "4fdbea7be46facfc8af70925d4291add48e68a5cfb66c72ee75d2ee0c4b5620c",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s2/complete.json",
+      "publicSha256": "4fdbea7be46facfc8af70925d4291add48e68a5cfb66c72ee75d2ee0c4b5620c",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s2/manifest.json",
+      "originalSha256": "bd79d129846d71b06ab49e38e75b788489a414c5b641dfc632395277dc91393a",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s2/manifest.json",
+      "publicSha256": "bd79d129846d71b06ab49e38e75b788489a414c5b641dfc632395277dc91393a",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s2/result.json",
+      "originalSha256": "4ba4604166d799ad37ae98ad497d36f25a86c1ed1a95b10b4c45abdcb326329f",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s2/result.json",
+      "publicSha256": "4ba4604166d799ad37ae98ad497d36f25a86c1ed1a95b10b4c45abdcb326329f",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s2/grounded.json",
+      "originalSha256": "4fe299e9f39d243bfed4331a919da16c3176a85738bd27b22274cd58810d51f2",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s2/grounded.json",
+      "publicSha256": "4fe299e9f39d243bfed4331a919da16c3176a85738bd27b22274cd58810d51f2",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s2/grounding-controls.json",
+      "originalSha256": "f8773cd595ec33d188e445d1d40f1670f0c2971d17ec26faa5bbe01622d4c63a",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s2/grounding-controls.json",
+      "publicSha256": "f8773cd595ec33d188e445d1d40f1670f0c2971d17ec26faa5bbe01622d4c63a",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s2/independent-verification.json",
+      "originalSha256": "492e3e0ea25524622deff745795f5fbf2bdfba8cbec51dd67d43dbc796945818",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s2/independent-verification.json",
+      "publicSha256": "492e3e0ea25524622deff745795f5fbf2bdfba8cbec51dd67d43dbc796945818",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s2/source-verification.json",
+      "originalSha256": "0d590748c4769d9c4ffeee7edd08ed5f0466d0d0e0b3af1505e2189acf0291c9",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s2/source-verification.json",
+      "publicSha256": "0d590748c4769d9c4ffeee7edd08ed5f0466d0d0e0b3af1505e2189acf0291c9",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s3-repair/complete.json",
+      "originalSha256": "7555eb200b5c54a8c0e18d36ebde9db31c1ce799f1512f0ad2781adc07e89e40",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s3-repair/complete.json",
+      "publicSha256": "7555eb200b5c54a8c0e18d36ebde9db31c1ce799f1512f0ad2781adc07e89e40",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s3-repair/manifest.json",
+      "originalSha256": "2250b0c9edf5df92cebec2ca4018225d1c2ef6d43b0289244925257156db885c",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s3-repair/manifest.json",
+      "publicSha256": "2250b0c9edf5df92cebec2ca4018225d1c2ef6d43b0289244925257156db885c",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s3-repair/result.json",
+      "originalSha256": "309dbef1ef84df02874cbd28306906936b3a5abfff40f5cce6146afbd6cb7549",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s3-repair/result.json",
+      "publicSha256": "309dbef1ef84df02874cbd28306906936b3a5abfff40f5cce6146afbd6cb7549",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s3-repair/shared-backend-control.json",
+      "originalSha256": "52f9177ca8c9a4c102a3730ac62b408be3a4bd8a15fb15c59631c0118e8a0de1",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s3-repair/shared-backend-control.json",
+      "publicSha256": "52f9177ca8c9a4c102a3730ac62b408be3a4bd8a15fb15c59631c0118e8a0de1",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s3-repair/toolchain-pins.json",
+      "originalSha256": "7b6a9b9df867168eb722a4d5e5c592139c5b4b47b20c9e3e6d8823599e0deb3a",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s3-repair/toolchain-pins.json",
+      "publicSha256": "ba95a0a050176d55c3633808b80651ef2b69440952e6d615bac37a2a1ecac66f",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4-success/complete.json",
+      "originalSha256": "147a052212ef2e4cfdb920e5bf8f51a0e006e81c83b016a3a3855cb4c675c1ce",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-success/complete.json",
+      "publicSha256": "147a052212ef2e4cfdb920e5bf8f51a0e006e81c83b016a3a3855cb4c675c1ce",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4-success/result.json",
+      "originalSha256": "3a86455370004d6c01d8ca35792fe9bfd5efb2c642e47dfc28c81ee7e28f85d5",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-success/result.json",
+      "publicSha256": "3a86455370004d6c01d8ca35792fe9bfd5efb2c642e47dfc28c81ee7e28f85d5",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4-success/startup-failure.json",
+      "originalSha256": "6db11277347843355139e2c1e897eb489bdf4620698dca90a9c8a6db8e2bc33f",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-success/startup-failure.json",
+      "publicSha256": "6db11277347843355139e2c1e897eb489bdf4620698dca90a9c8a6db8e2bc33f",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4-success/cleanup.json",
+      "originalSha256": "ddb8c2ffb4d0413f6970ccf35baa90be9706c0c309054270b785739d49a279f9",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-success/cleanup.json",
+      "publicSha256": "ddb8c2ffb4d0413f6970ccf35baa90be9706c0c309054270b785739d49a279f9",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4r-success/complete.json",
+      "originalSha256": "f8b89abd4cbc31c43d8e136ae0f823187a79ca6af10b979bc6e68e61efc7a874",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4r-success/complete.json",
+      "publicSha256": "f8b89abd4cbc31c43d8e136ae0f823187a79ca6af10b979bc6e68e61efc7a874",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4r-success/result.json",
+      "originalSha256": "6a4ac9c6308b5677886806f4e0c75362ce5bc0716291523fd6aa9837360aaa0e",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4r-success/result.json",
+      "publicSha256": "6a4ac9c6308b5677886806f4e0c75362ce5bc0716291523fd6aa9837360aaa0e",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4r-success/failure-closeout.json",
+      "originalSha256": "eb51b8c83bc3e2aa73b3cbc9ecc7949ad45c6d5c474173699275d07bd71f24d2",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4r-success/failure-closeout.json",
+      "publicSha256": "eb51b8c83bc3e2aa73b3cbc9ecc7949ad45c6d5c474173699275d07bd71f24d2",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/complete.json",
+      "originalSha256": "5584d06329815a878aeb3e518a4900356090e59f07c52504c1d0bcf4f5681b4e",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-success/complete.json",
+      "publicSha256": "5584d06329815a878aeb3e518a4900356090e59f07c52504c1d0bcf4f5681b4e",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/manifest.json",
+      "originalSha256": "bfa2f3f891902a18f1600a2b835619af44b441d34de17f48f7b1229e57f9b715",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-success/manifest.json",
+      "publicSha256": "bfa2f3f891902a18f1600a2b835619af44b441d34de17f48f7b1229e57f9b715",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/result.json",
+      "originalSha256": "3409bf20d2e0070e7dbb8e3b4b5da3aa2e1c2adfd85d4c49ab9c2b9bdb9c8127",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-success/result.json",
+      "publicSha256": "1213bf4e7e9b3ff6dead98b573c83d18e77496594434e2bb55b9e74b0bea45de",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/checkpoint.json",
+      "originalSha256": "90811bdf907f9278cba29550ead77e80bb2e272f3bf036452a73d4b4547606e7",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-success/checkpoint.json",
+      "publicSha256": "90811bdf907f9278cba29550ead77e80bb2e272f3bf036452a73d4b4547606e7",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/dedupe-control.json",
+      "originalSha256": "1e72cabd6f764433cddd0e50a31b5384aeeea47197435d35810776123ab04921",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-success/dedupe-control.json",
+      "publicSha256": "5d9b2bcade337aa89d71f3ee8c1e1e86ddd3d4fdd00112504fa4adeeca6d11af",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/workflow-complete.json",
+      "originalSha256": "80dcdd31f508bc9e32a7ab690d79e9ce747353bd771ce6c41e28cfeec50ba173",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-success/workflow-complete.json",
+      "publicSha256": "54e0feea7af378d709a3f4ebcd7cf334f182a1e1ffbf28e80a0572b0d23f19b5",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/native-complete.json",
+      "originalSha256": "c43daa0aed2db3e51376feb2e156419ce22aa6c04b65b28432692fd3c37e6dbb",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-success/native-complete.json",
+      "publicSha256": "5a9b76061497c624ebe5df169e51e69ba7fc04a3b53845e32752f6bae0d89890",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/implementation-before.json",
+      "originalSha256": "8389e8f23e2a8d6e9a4f877708aa880809df7add72c6e593a95a8e0c3eddcdc9",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-success/implementation-before.json",
+      "publicSha256": "8389e8f23e2a8d6e9a4f877708aa880809df7add72c6e593a95a8e0c3eddcdc9",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/implementation-after.json",
+      "originalSha256": "1ae748d5796cc995906ddf0fba5e5626f9c1c6ac79cec8fb465106e92254a77b",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-success/implementation-after.json",
+      "publicSha256": "1ae748d5796cc995906ddf0fba5e5626f9c1c6ac79cec8fb465106e92254a77b",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/complete.json",
+      "originalSha256": "c2abcdbc79f13e906a4952652b373738bcbc1dc5d72c4601a8c778c7df2534ce",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/complete.json",
+      "publicSha256": "c2abcdbc79f13e906a4952652b373738bcbc1dc5d72c4601a8c778c7df2534ce",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/manifest.json",
+      "originalSha256": "65d0304606ced379f5b0ef11267c2e32ca47dfe18acaac9e76072589b4261abc",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/manifest.json",
+      "publicSha256": "65d0304606ced379f5b0ef11267c2e32ca47dfe18acaac9e76072589b4261abc",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/result.json",
+      "originalSha256": "245a294af1e0102aab19c1c5f4c855d1a51005374304e112112042f67aba2b81",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/result.json",
+      "publicSha256": "c2c946a271710b25326e4668963a6b970b566ab47aab1afa116e00d3f3cb7e7a",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/checkpoint.json",
+      "originalSha256": "e3317190e77b6d0daac381609dd50ec8c31ba1bc43b6b413e1775c6d82832b21",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/checkpoint.json",
+      "publicSha256": "e3317190e77b6d0daac381609dd50ec8c31ba1bc43b6b413e1775c6d82832b21",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/dedupe-control.json",
+      "originalSha256": "0c2eb7cb93b25f00c45d433f315799e315f94f6b1d7a8838594371833cd164c6",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/dedupe-control.json",
+      "publicSha256": "583ec2cfba65dcc2c54ee42f00eb0771394e95b61e160c6263fd43a6f62fd718",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/workflow-complete.json",
+      "originalSha256": "138dbd18fd4367cbb3eeb657c31517ea1a3c43c19b1189393a29e7f4b776a44d",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/workflow-complete.json",
+      "publicSha256": "c88139e66a90a7a90d032260eb923b70aa2d1cae9fa50ec7872f4b7ce470706e",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/native-complete.json",
+      "originalSha256": "5761a451c6cf2bd6691a4b93fb8d385155d182deec8e4a7920ca3c772e52ac60",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/native-complete.json",
+      "publicSha256": "66b93056a20f8f94c967df320353ab60044f61701e293ce580b5c16e5cf8a709",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/implementation-before.json",
+      "originalSha256": "8389e8f23e2a8d6e9a4f877708aa880809df7add72c6e593a95a8e0c3eddcdc9",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/implementation-before.json",
+      "publicSha256": "8389e8f23e2a8d6e9a4f877708aa880809df7add72c6e593a95a8e0c3eddcdc9",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/implementation-after.json",
+      "originalSha256": "1ae748d5796cc995906ddf0fba5e5626f9c1c6ac79cec8fb465106e92254a77b",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/implementation-after.json",
+      "publicSha256": "1ae748d5796cc995906ddf0fba5e5626f9c1c6ac79cec8fb465106e92254a77b",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/before-kill.json",
+      "originalSha256": "cae38173331ca28bf2695f3c4f77d6fbf93c1d0307bb5a54b4dfc81ae40d7af7",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/before-kill.json",
+      "publicSha256": "94a18526f69791c2ac51d3463b020f281394cebb6a7cf13189d260cb7aecf5a4",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/controller-identity.json",
+      "originalSha256": "fb3a0201dfa835ec5d40afd39df21ffafa24e23c9df8b47faf7a916eba8e4104",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/controller-identity.json",
+      "publicSha256": "bebda06308af6e23015dc46955845fc2775fbe2202b33b9161b7d57e474c64d4",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/controller-killed.json",
+      "originalSha256": "4ce72349ba509d234741cc91ceca976fdff19f839a84a81e6fbf9e9e2ba59463",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/controller-killed.json",
+      "publicSha256": "2c519de7a8b693a4cbf8e8838906dd8250d3f7cfcab84e534ed5d30442be8d2b",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/reconnected.json",
+      "originalSha256": "8e1244695c4fdabb4609f505903ec49c3001c292054258d7378a826d04ed12db",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/reconnected.json",
+      "publicSha256": "2c1bcd95113110be2f1b8459a96ac6d568b7bca595b65f579a9a10f6ee51922f",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/recovery-signal.json",
+      "originalSha256": "c47366f0c7d1b19bc1a511fce5845275c715e586d0c7fe6e608ed3d8a2448c35",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/recovery-signal.json",
+      "publicSha256": "c47366f0c7d1b19bc1a511fce5845275c715e586d0c7fe6e608ed3d8a2448c35",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/cleanup-verified.json",
+      "originalSha256": "0e93109f20e2619b4928138276bf75cabfa23dee27d45b42498ad29d409202d3",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/cleanup-verified.json",
+      "publicSha256": "0e93109f20e2619b4928138276bf75cabfa23dee27d45b42498ad29d409202d3",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-checkpoint/demo-card.json",
+      "originalSha256": "cdff18f80487b1261d111ca5584e944e2706c6262393ad3aceb3ad718179d630",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-checkpoint/demo-card.json",
+      "publicSha256": "cdff18f80487b1261d111ca5584e944e2706c6262393ad3aceb3ad718179d630",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-checkpoint/scope.json",
+      "originalSha256": "894f00674c1bc57eeeea0f61e10bffa9417bee8d6db2297d5c063371bc0f3b91",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-checkpoint/scope.json",
+      "publicSha256": "894f00674c1bc57eeeea0f61e10bffa9417bee8d6db2297d5c063371bc0f3b91",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s1-second/granite/result.json",
+      "originalSha256": "1321494e2708a90024d558b70f8062d958ebb6006c73a70137e33965d7fcce97",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s1-second/granite/result.json",
+      "publicSha256": "c200e2cc9ef6d2de2f631ec1831b506c4101f3a76a321e5597b7d4c7cb92cbb9",
+      "change": "selected-field public projection; path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s1-second/granite/live/result.json",
+      "originalSha256": "3ef5ca52a4d31ecee70613bf6071097241a0053af83af4d0f91ba2e80c6f2e11",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s1-second/granite/live/result.json",
+      "publicSha256": "3ef5ca52a4d31ecee70613bf6071097241a0053af83af4d0f91ba2e80c6f2e11",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s1-second/granite/evidence.bind.receipt.json",
+      "originalSha256": "0e4a409c70881652a85c324ffce3dc13aca27dd740681701048c3f28f3f2943a",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s1-second/granite/evidence.bind.receipt.json",
+      "publicSha256": "ca67a12f1b0fe3a62fe1b4119031a30fddd161e568b0f413f45f96090b5b1c4e",
+      "change": "selected-field public projection; path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s2/view.ground.receipt.json",
+      "originalSha256": "8acc2205772479e73568138a0762e59aeb573c1661645ad6ea5059bc92de6d18",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s2/view.ground.receipt.json",
+      "publicSha256": "2129dbaa1f964a45a307b9955f95f72a42dc5d51ad7916786b09caf3187d9e6d",
+      "change": "selected-field public projection; path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s3-repair/route.graph.receipt.json",
+      "originalSha256": "c8a6c3ef7c61c041cf6183f050b474b47f957fbee7585bd2b3911e619f24dc59",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s3-repair/route.graph.receipt.json",
+      "publicSha256": "e4874c77cd03b0ba2e1fd48f27a200bb41face3b2853d53d492798ada25ebbf7",
+      "change": "selected-field public projection; path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/job.revise.receipt.json",
+      "originalSha256": "7fdf4e1ba4b49ddfb30e88563fd82dc6362a460f78d54775864daea89d248328",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-success/job.revise.receipt.json",
+      "publicSha256": "d0744cb21f794a748b76624113502e04f5ade83ae9077ca8754f960d916130ed",
+      "change": "selected-field public projection; path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/job.recover.receipt.json",
+      "originalSha256": "093379d2001756b5ebc37230d69b69533767bb370e65f973fe04d965fcb5ef59",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-recovery/job.recover.receipt.json",
+      "publicSha256": "43d8f010b3ff9ed9dc6c3c919179cc66c0ee8bec55db67fde777ecda4050b849",
+      "change": "selected-field public projection; path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-checkpoint/receipt.json",
+      "originalSha256": "291c41bf02b8377412b75356572b2b58c988a1c71d076be2cf77a4283393c745",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4m-checkpoint/receipt.json",
+      "publicSha256": "d24a79bc43a7b9c8127b66df54e6e5dcbc9041afe31b7c7c7957b2386a4e3b0a",
+      "change": "selected-field public projection; path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s3-repair/planned/result.json",
+      "originalSha256": "db2c1ee46d3b10ea360b96c65d74ea465c8412384c04a492297366432576ddf5",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s3-repair/planned/result.json",
+      "publicSha256": "db2c1ee46d3b10ea360b96c65d74ea465c8412384c04a492297366432576ddf5",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s3-repair/planned/complete.json",
+      "originalSha256": "aec70b4c716ca374b34e89c721a8a58ebb092f2048d1ea0d1ec4c5a3c0761541",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s3-repair/planned/complete.json",
+      "publicSha256": "aec70b4c716ca374b34e89c721a8a58ebb092f2048d1ea0d1ec4c5a3c0761541",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s3-repair/measured-refusal/result.json",
+      "originalSha256": "faa5842b0b7f97de798c1b2877c56ea6e2e1533fc1d0ab00105af97c08bec466",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s3-repair/measured-refusal/result.json",
+      "publicSha256": "faa5842b0b7f97de798c1b2877c56ea6e2e1533fc1d0ab00105af97c08bec466",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s3-repair/measured-refusal/complete.json",
+      "originalSha256": "481bcd353b821624e5961cf1504ab0273670dff8123b9cfdf4c1e0bc125db5ba",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s3-repair/measured-refusal/complete.json",
+      "publicSha256": "481bcd353b821624e5961cf1504ab0273670dff8123b9cfdf4c1e0bc125db5ba",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s3-repair/independence-refusal/result.json",
+      "originalSha256": "da6f8246577129963af4b0e875f7da7d027b6b7397099d3378b523303b1277e9",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s3-repair/independence-refusal/result.json",
+      "publicSha256": "da6f8246577129963af4b0e875f7da7d027b6b7397099d3378b523303b1277e9",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s3-repair/independence-refusal/complete.json",
+      "originalSha256": "43891c707d9a1e77c12824be58e8de15e0497a05d71ec8ca513b9d71e15603fe",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s3-repair/independence-refusal/complete.json",
+      "publicSha256": "43891c707d9a1e77c12824be58e8de15e0497a05d71ec8ca513b9d71e15603fe",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s3-repair/planned/graph.json",
+      "originalSha256": "e57bfc9054e37a0ef946056dabb888fdf495899a58b08c9375df9dea063bd8fd",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s3-repair/planned/graph.json",
+      "publicSha256": "e57bfc9054e37a0ef946056dabb888fdf495899a58b08c9375df9dea063bd8fd",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/implementation/0-checkpoint.ts",
+      "originalSha256": "3c9cf983c0bfc88fcf60995fb50cf24614627a06509365eb39c95f79e5296188",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s4-success/0-checkpoint.ts",
+      "publicSha256": "3c9cf983c0bfc88fcf60995fb50cf24614627a06509365eb39c95f79e5296188",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/implementation/1-checkpoint.py",
+      "originalSha256": "6c3779ad4f8a03481c7b0d5acb4cacf74251c8f0b2ae24479588e45f84e722df",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s4-success/1-checkpoint.py",
+      "publicSha256": "b6cabe7c0fbe30f25c5eaa0c39c861d545b8d6897cc099e9341f2713db48f4a6",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/implementation/2-native-host.py",
+      "originalSha256": "73487171a7014f81023e13beeb68d3b8be145feaa1827ecf85f9eea683dfe2a3",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s4-success/2-native-host.py",
+      "publicSha256": "73487171a7014f81023e13beeb68d3b8be145feaa1827ecf85f9eea683dfe2a3",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/implementation/3-workflow.ts",
+      "originalSha256": "3fe265ab5728f80affb3a24dba91eb8c8a46509d449c621874f92a0ab9f09cdb",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s4-success/3-workflow.ts",
+      "publicSha256": "3fe265ab5728f80affb3a24dba91eb8c8a46509d449c621874f92a0ab9f09cdb",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/implementation/4-wrangler.json",
+      "originalSha256": "46b9529e123830da646eb2dcae356789761a54ebf2aa87bf505abf6d76de7794",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s4-success/4-wrangler.json",
+      "publicSha256": "46b9529e123830da646eb2dcae356789761a54ebf2aa87bf505abf6d76de7794",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-success/implementation/5-revise-bore.py",
+      "originalSha256": "f596f19099cce12f324a2833617dbe363ae807ffe28c8c87df102565fa4a037a",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s4-success/5-revise-bore.py",
+      "publicSha256": "f596f19099cce12f324a2833617dbe363ae807ffe28c8c87df102565fa4a037a",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/edit.json",
+      "originalSha256": "e3bd6320d532f2bc8f7dfd94dc113d3ca327cfa834e71e9a033522b577e43751",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-native-success/edit.json",
+      "publicSha256": "5a9e7e8e75f5a1cd79394c931c2b8cbfb83281f26800243c251e3c11f967534d",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/readback.json",
+      "originalSha256": "8c488edabd117e14e97644aeb27d5a8553901976ee8873bdae6c446fb200757c",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-native-success/readback.json",
+      "publicSha256": "1079ed87d539583840f35f4cc27440b7249e4c50448fa4be6754d33c94518334",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/edit-launch.json",
+      "originalSha256": "d141fd041066d20dda29bdd16d544e6ff41ee9f3740c05f58de547a4552eac26",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-native-success/edit-launch.json",
+      "publicSha256": "f0831d0d00cbdecd94fa893d8742f6184edf54bf53b1b2fc1ac0535f46f8801f",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/readback-launch.json",
+      "originalSha256": "946cb40e743ca8a24ecc91eee09955e09c6b8fdd7028c2f739474e7887947e72",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-native-success/readback-launch.json",
+      "publicSha256": "f7d91944b1474c89b9230628e3acf0fba60b2290b0b656068dd59837677ef480",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/native-edit-started.json",
+      "originalSha256": "5f053ca087c91f0e14b43196e0a7f9b94f545e05349049861e5393bbb6502d7c",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-native-success/native-edit-started.json",
+      "publicSha256": "5f053ca087c91f0e14b43196e0a7f9b94f545e05349049861e5393bbb6502d7c",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/native-ownership.json",
+      "originalSha256": "e174a355bcfb912bdaa285229a4b9fcb6762fa0b6decbe2af881a5dffffaf3e8",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-native-success/native-ownership.json",
+      "publicSha256": "e174a355bcfb912bdaa285229a4b9fcb6762fa0b6decbe2af881a5dffffaf3e8",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/implementation/0-checkpoint.ts",
+      "originalSha256": "3c9cf983c0bfc88fcf60995fb50cf24614627a06509365eb39c95f79e5296188",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s4-recovery/0-checkpoint.ts",
+      "publicSha256": "3c9cf983c0bfc88fcf60995fb50cf24614627a06509365eb39c95f79e5296188",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/implementation/1-checkpoint.py",
+      "originalSha256": "6c3779ad4f8a03481c7b0d5acb4cacf74251c8f0b2ae24479588e45f84e722df",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s4-recovery/1-checkpoint.py",
+      "publicSha256": "b6cabe7c0fbe30f25c5eaa0c39c861d545b8d6897cc099e9341f2713db48f4a6",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/implementation/2-native-host.py",
+      "originalSha256": "73487171a7014f81023e13beeb68d3b8be145feaa1827ecf85f9eea683dfe2a3",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s4-recovery/2-native-host.py",
+      "publicSha256": "73487171a7014f81023e13beeb68d3b8be145feaa1827ecf85f9eea683dfe2a3",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/implementation/3-workflow.ts",
+      "originalSha256": "3fe265ab5728f80affb3a24dba91eb8c8a46509d449c621874f92a0ab9f09cdb",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s4-recovery/3-workflow.ts",
+      "publicSha256": "3fe265ab5728f80affb3a24dba91eb8c8a46509d449c621874f92a0ab9f09cdb",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/implementation/4-wrangler.json",
+      "originalSha256": "46b9529e123830da646eb2dcae356789761a54ebf2aa87bf505abf6d76de7794",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s4-recovery/4-wrangler.json",
+      "publicSha256": "46b9529e123830da646eb2dcae356789761a54ebf2aa87bf505abf6d76de7794",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-recovery/implementation/5-revise-bore.py",
+      "originalSha256": "f596f19099cce12f324a2833617dbe363ae807ffe28c8c87df102565fa4a037a",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s4-recovery/5-revise-bore.py",
+      "publicSha256": "f596f19099cce12f324a2833617dbe363ae807ffe28c8c87df102565fa4a037a",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/edit.json",
+      "originalSha256": "b21cf4c17ee40718156edd8e5d02381e13595bdf09b253560316379a039f8696",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-native-recovery/edit.json",
+      "publicSha256": "f991a5215f46cf68bdc7f798337b7ae1980cd840dcdfe2937224c907f8e98a58",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/readback.json",
+      "originalSha256": "2c41ed14a1a18bcc09d145d3db2a967178ae46b5d416608244e5a0cc8bae21a2",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-native-recovery/readback.json",
+      "publicSha256": "b6dcccf21cd5fc62b0b8424c04a8b1a8f1427d877a851899cf93eab1d0346ac9",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/edit-launch.json",
+      "originalSha256": "80df0e5b148afcecb6493353c5f23ed34a4fe393169c94ee77d3ccbe9dde9bb8",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-native-recovery/edit-launch.json",
+      "publicSha256": "ee1ba0b823b83dd3adf3be0df60a6ab8a4ee966c14e6aad8e63e1b9e3fb94310",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/readback-launch.json",
+      "originalSha256": "28e737585b8075da7546f40d216f5d32e7e7c8750497fafe98e47a15303fdfda",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-native-recovery/readback-launch.json",
+      "publicSha256": "96d7556ea5dbca3bb792cd05949d63d4398ea186e3b808c4549e4cdbac7eee62",
+      "change": "path and local identity redaction; retained numeric evidence unchanged"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/native-edit-started.json",
+      "originalSha256": "900321315fcb982ef49b2a4c88b6f33cab522b8faa0f6e6f459cd48fe66c17b7",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-native-recovery/native-edit-started.json",
+      "publicSha256": "900321315fcb982ef49b2a4c88b6f33cab522b8faa0f6e6f459cd48fe66c17b7",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/native-ownership.json",
+      "originalSha256": "0b4df6eb169835ce6e4b699b059a9e1ccf66ec0edff5f07cfd0614350396bad6",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/evidence/s4-native-recovery/native-ownership.json",
+      "publicSha256": "0b4df6eb169835ce6e4b699b059a9e1ccf66ec0edff5f07cfd0614350396bad6",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s1-second/granite/live/implementation/lab-challenges.ts",
+      "originalSha256": "c4366896d33bc659b886a9560b1dfee0ca0eaf81315aa9aec0ac3ff32d8ee55c",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s1/lab-challenges.ts",
+      "publicSha256": "c4366896d33bc659b886a9560b1dfee0ca0eaf81315aa9aec0ac3ff32d8ee55c",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s1-second/granite/live/implementation/lab-independent-verifier.ts",
+      "originalSha256": "bf611b86f3c714530dd4cd6f924fedb9a53879b1fcf8eb4f07a41237fc936ce6",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s1/lab-independent-verifier.ts",
+      "publicSha256": "bf611b86f3c714530dd4cd6f924fedb9a53879b1fcf8eb4f07a41237fc936ce6",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s1-second/granite/live/implementation/lab-model-adapter.ts",
+      "originalSha256": "b96644ae8ebe15cb48c0cb7f25936cdf8b17adf84a7986b21b6a736da07b89a5",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s1/lab-model-adapter.ts",
+      "publicSha256": "b96644ae8ebe15cb48c0cb7f25936cdf8b17adf84a7986b21b6a736da07b89a5",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s1-second/granite/live/implementation/workflow-benchmark.ts",
+      "originalSha256": "db1d919d5c239858106ed418639ff28da1be55af590c55eaab2aa0bc9ad2cffa",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s1/workflow-benchmark.ts",
+      "publicSha256": "db1d919d5c239858106ed418639ff28da1be55af590c55eaab2aa0bc9ad2cffa",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s1-second/granite/live/implementation/workflow-citations.ts",
+      "originalSha256": "32046951eeecc05700a270273116a0a0fbe996cf14887e2574aa62e67cd6e66b",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s1/workflow-citations.ts",
+      "publicSha256": "32046951eeecc05700a270273116a0a0fbe996cf14887e2574aa62e67cd6e66b",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s1-second/granite/live/implementation/workflow-isolation.ts",
+      "originalSha256": "641f75a6e7937f13b82750c998852ce8cbc3a9239a9f847a0a6faad8d751ab63",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s1/workflow-isolation.ts",
+      "publicSha256": "641f75a6e7937f13b82750c998852ce8cbc3a9239a9f847a0a6faad8d751ab63",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "studio/box-loop-20260914/s1-second/granite/live/implementation/workflow-model-adapter.ts",
+      "originalSha256": "71d58c9d10f843c20257599be40765432307905210b43a6cf59e9af0a8bdac08",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s1/workflow-model-adapter.ts",
+      "publicSha256": "71d58c9d10f843c20257599be40765432307905210b43a6cf59e9af0a8bdac08",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "tools/box-loop-20260914/export-native-view.py",
+      "originalSha256": "a47d697ed7f203dab70b9a0602e763c66c1fd9116450326bf198b1eaed70dd9f",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s2/export-native-view.py",
+      "publicSha256": "a47d697ed7f203dab70b9a0602e763c66c1fd9116450326bf198b1eaed70dd9f",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "tools/box-loop-20260914/verify-native-view.py",
+      "originalSha256": "95825336de6a339963df2c7cf4224d54155e6cc5831326a01baf453d5057fc3d",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s2/verify-native-view.py",
+      "publicSha256": "95825336de6a339963df2c7cf4224d54155e6cc5831326a01baf453d5057fc3d",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "tools/box-loop-20260914/native-view.ts",
+      "originalSha256": "8e88c9573044f19b3d44364f9e49e9b8cdae1608461894ffaa11ed42397b97a6",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s2/native-view.ts",
+      "publicSha256": "8e88c9573044f19b3d44364f9e49e9b8cdae1608461894ffaa11ed42397b97a6",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "tools/box-loop-20260914/repair-route.ts",
+      "originalSha256": "ae885fccd65ac310785279a094d0895b3a2428173fdf0cd9832362682c9fdb17",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s3-repair/repair-route.ts",
+      "publicSha256": "ae885fccd65ac310785279a094d0895b3a2428173fdf0cd9832362682c9fdb17",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "src/vision/spatial/route-cli.ts",
+      "originalSha256": "4b22347506aa4b346956b263ea84e90f97b2b7c33b6d9cf8bf05394cf1adfb82",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s3-repair/route-cli.ts",
+      "publicSha256": "4b22347506aa4b346956b263ea84e90f97b2b7c33b6d9cf8bf05394cf1adfb82",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "src/vision/spatial/route-graph.ts",
+      "originalSha256": "a43dc083738e33fd8bbdd22d03a3419e85e004d9f94874b54f104ad799f275b0",
+      "publicPath": "studio/box-loop-20260914/resumed-review-20260915/snapshots/s3-repair/route-graph.ts",
+      "publicSha256": "a43dc083738e33fd8bbdd22d03a3419e85e004d9f94874b54f104ad799f275b0",
+      "change": "byte-identical selected artifact"
+    },
+    {
+      "sourcePath": "docs/TRANSFORMS-20260914.md",
+      "originalSha256": "ac5ef6690d0469a3f9e782f6b02ba41c2437ffb1700c85e5a2d4d3006a6798e8",
+      "publicPath": "docs/TRANSFORMS-20260914.md",
+      "publicSha256": "3bf72148575c112b39bd450726619193713644739492ff588f8d919de86e9813",
+      "change": "Local paths replaced by public placeholders; canonical text and sections retained."
+    }
+  ],
+  "authoredFiles": [
+    "studio/box-loop-20260914/resumed-review-20260915/README.md",
+    "studio/box-loop-20260914/PR-BODY.md"
+  ],
+  "sourceVerificationScope": "Only selected frozen artifacts and manifest-pinned source copied at packaging time; not all current developed-seed files."
+}

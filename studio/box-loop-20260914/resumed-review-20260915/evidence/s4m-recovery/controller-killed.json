@@ -1,0 +1,62 @@
+{
+  "signal": "SIGKILL",
+  "controllerPid": 14340,
+  "controllerDown": true,
+  "nativeStillOwned": {
+    "id": "bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f",
+    "owner_id": "native-01993321-3932-430b-969e-c55641aa7c8d",
+    "diameter": 32.0,
+    "hold_seconds": 30,
+    "status": "running",
+    "phase": "editing",
+    "executions": 1,
+    "submissions": 1,
+    "result": null,
+    "error": null,
+    "created": 1789456564.536119,
+    "finished": null,
+    "nativeHostPid": 14242,
+    "editLaunch": {
+      "job_id": "bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f",
+      "pid": 20766,
+      "parentPid": 14242,
+      "at": 1789456564.547611,
+      "argv": [
+        "/Applications/Blender.app/Contents/MacOS/Blender",
+        "--background",
+        "--factory-startup",
+        "--disable-autoexec",
+        "--python-exit-code",
+        "2",
+        "--python",
+        "{{TIMMY_ROOT}}/tools/box-loop-20260914/durable-manual-20260915/revise-bore.py",
+        "--",
+        "edit",
+        "--source",
+        "{{TIMMY_ROOT}}/studio/box-loop-20260914/s2/native/scene.blend",
+        "--out",
+        "{{TIMMY_ROOT}}/studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/revision.blend",
+        "--job-id",
+        "bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f",
+        "--source-sha256",
+        "223392ee88d0e7d4cde14ea617d7b996e6ae731fd5614c3cc0e26bc10b2e0059",
+        "--diameter",
+        "32.0",
+        "--report",
+        "{{TIMMY_ROOT}}/studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/edit.json",
+        "--hold-seconds",
+        "30"
+      ],
+      "executionOrdinal": 1
+    },
+    "editPhase": {
+      "job_id": "bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f",
+      "pid": 20766,
+      "parentPid": 14242,
+      "phase": "geometry-edited-before-publication",
+      "at": 1789456566.2128372,
+      "holdSeconds": 30
+    }
+  },
+  "at": 1789456567.276938
+}

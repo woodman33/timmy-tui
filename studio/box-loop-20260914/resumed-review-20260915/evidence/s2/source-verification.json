@@ -1,0 +1,109 @@
+{
+  "schema": "timmy.spatial-volume-report/1",
+  "id": "analytic-box-bore-40",
+  "grid": {
+    "frameId": "fixture",
+    "units": "mm",
+    "origin": [
+      -50,
+      -50,
+      -50
+    ],
+    "dimensions": [
+      40,
+      40,
+      40
+    ],
+    "cellSize": [
+      2.5,
+      2.5,
+      2.5
+    ],
+    "basis": [
+      [
+        1,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0
+      ],
+      [
+        0,
+        0,
+        1
+      ]
+    ]
+  },
+  "coverage": {
+    "total": 64000,
+    "knownLocations": 64000,
+    "fill": {
+      "unknown": 0,
+      "sampled": 64000,
+      "declared": 0,
+      "empty": 32896,
+      "partial": 1152,
+      "full": 29952
+    },
+    "material": {
+      "unknown": 64000,
+      "declared": 0,
+      "measured": 0
+    },
+    "density": {
+      "unknown": 64000,
+      "declared": 0,
+      "measured": 0
+    }
+  },
+  "volume": {
+    "unit": "mm3",
+    "accountedFilledVolume": 475843.75,
+    "unknownCapacity": 0,
+    "completeEstimate": 475843.75,
+    "method": "regular-subcell-centers",
+    "exact": false
+  },
+  "references": {
+    "count": 0,
+    "role": "suggestions-only"
+  },
+  "scope": {
+    "artifactVerification": "sha256-bytes-checked",
+    "nativeVolumeRead": false,
+    "authenticatedProducer": false,
+    "physicalValidation": false,
+    "outsideDomain": "unknown",
+    "propertyStatuses": "source-reported; declarations and measurements require separate provenance review"
+  },
+  "verification": {
+    "manifestSha256": "ba985730f3b89a7b87308072dd0dc2fc82f5143acc26cf615c18f842c51a46bc",
+    "artifacts": {
+      "cells": {
+        "sha256": "33d1805d9bad106b80cf185bee1684829ed68abc319b9ac6feb605c3ecf8ce35",
+        "bytes": 837805
+      },
+      "native": {
+        "sha256": "b899c594c3a543f8a1f7a2bbc3608f8e26267fc70d97d5c3bd8e130d2e4f14b3",
+        "bytes": 123408
+      },
+      "mesh": {
+        "sha256": "6e45f47454375c3612a8c80a19ce98dbfad11a11380739c14fe9b59171cbef04",
+        "bytes": 360929
+      },
+      "obj": {
+        "sha256": "156527ea98c48c31033885b99d6146a274dc72e9ca531f057b6fb984559bddf7",
+        "bytes": 363764
+      },
+      "roundtrip": {
+        "sha256": "9d22bba4e31d6bdd4c8956933ad668ce40e47330121b715330e599339c4bae27",
+        "bytes": 1226
+      }
+    },
+    "producerAuthenticated": false,
+    "nativeArtifactParsed": false
+  }
+}

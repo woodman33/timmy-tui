@@ -1,0 +1,23 @@
+{
+  "response": {
+    "id": "bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f",
+    "before": {
+      "status": "running",
+      "__LOCAL_DEV_STEP_OUTPUTS": [
+        {
+          "job_id": "bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f",
+          "owner_id": "native-01993321-3932-430b-969e-c55641aa7c8d",
+          "fresh": true,
+          "status": "queued"
+        }
+      ],
+      "output": null
+    },
+    "wake": "controller-reconnected",
+    "resetSteps": false,
+    "nativeOwner": "native-01993321-3932-430b-969e-c55641aa7c8d"
+  },
+  "at": 1789456569.015598,
+  "method": "Cloudflare instance.sendEvent",
+  "stepCacheReset": false
+}

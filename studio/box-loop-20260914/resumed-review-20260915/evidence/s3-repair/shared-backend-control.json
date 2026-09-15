@@ -1,0 +1,238 @@
+{
+  "scope": "Control fixture only; never admitted as graph",
+  "fixture": {
+    "schema": "timmy.route-graph/1",
+    "scope": "analytic-box-bore-40 retained source only",
+    "sourceProperties": [
+      "sourceRevision",
+      "units.mm",
+      "generated.provenance",
+      "physical.unknown",
+      "cell.knownMasks"
+    ],
+    "sourceRevision": "ba985730f3b89a7b87308072dd0dc2fc82f5143acc26cf615c18f842c51a46bc",
+    "measuredScope": "Timmy can compute and verify dimensions of generated CAD. Converting that CAD cannot establish the dimensions or density of a physical object.",
+    "independenceRule": "Every pair of selected paths must have disjoint backend sets; wrappers/transports do not create independence.",
+    "policy": "Planning only; select fewest edges, no monetary cost or scalar cross-property loss optimization.",
+    "admission": {
+      "receiptPath": "studio/box-loop-20260914/s2/view.ground.receipt.json",
+      "manifestPath": "studio/box-loop-20260914/s2/manifest.json"
+    },
+    "evidence": [
+      {
+        "path": "lanes/engines/proofs.json",
+        "sha256": "d84943131bfe2f2e440f7825e214f9d780c9553f3b8ab5f5a3c7c0428c14a7b2"
+      },
+      {
+        "path": "studio/box-loop-20260914/s2/grounded.json",
+        "sha256": "4fe299e9f39d243bfed4331a919da16c3176a85738bd27b22274cd58810d51f2"
+      },
+      {
+        "path": "studio/box-loop-20260914/s2/grounding-controls.json",
+        "sha256": "f8773cd595ec33d188e445d1d40f1670f0c2971d17ec26faa5bbe01622d4c63a"
+      },
+      {
+        "path": "studio/box-loop-20260914/s2/independent-verification.json",
+        "sha256": "492e3e0ea25524622deff745795f5fbf2bdfba8cbec51dd67d43dbc796945818"
+      },
+      {
+        "path": "studio/box-loop-20260914/s2/native/capture-metadata.json",
+        "sha256": "113bead962e93ebd2e645f917d2c59bbf005b8008c3fc57e82fc5de932501116"
+      },
+      {
+        "path": "studio/box-loop-20260914/s2/source-verification.json",
+        "sha256": "0d590748c4769d9c4ffeee7edd08ed5f0466d0d0e0b3af1505e2189acf0291c9"
+      },
+      {
+        "path": "studio/box-loop-20260914/s2/view.ground.receipt.json",
+        "sha256": "8acc2205772479e73568138a0762e59aeb573c1661645ad6ea5059bc92de6d18"
+      },
+      {
+        "path": "studio/spatial-volume-20260912/grid40/manifest.json",
+        "sha256": "ba985730f3b89a7b87308072dd0dc2fc82f5143acc26cf615c18f842c51a46bc"
+      },
+      {
+        "path": "studio/spatial-volume-20260912/grid40/roundtrip.json",
+        "sha256": "9d22bba4e31d6bdd4c8956933ad668ce40e47330121b715330e599339c4bae27"
+      },
+      {
+        "path": "studio/spatial-volume-20260912/grid40/surface.json",
+        "sha256": "6e45f47454375c3612a8c80a19ce98dbfad11a11380739c14fe9b59171cbef04"
+      }
+    ],
+    "edges": [
+      {
+        "id": "surface-to-native-view",
+        "from": "mesh.json",
+        "to": "view.bundle",
+        "backendId": "blender-native",
+        "entrypoint": "tools/box-loop-20260914/export-native-view.py",
+        "qualification": {
+          "status": "same-box-native-qualified",
+          "eligible": true,
+          "evidence": [
+            "studio/box-loop-20260914/s2/view.ground.receipt.json",
+            "studio/box-loop-20260914/s2/independent-verification.json",
+            "studio/box-loop-20260914/s2/native/capture-metadata.json"
+          ]
+        },
+        "dependencies": [
+          "Blender 5.1.1",
+          "exact source mesh hash",
+          "fixed calibrated camera and 128x128 raster"
+        ],
+        "preservedProperties": [
+          "sourceRevision",
+          "units.mm",
+          "generated.provenance",
+          "physical.unknown"
+        ],
+        "losses": {
+          "occlusion": "Only one visible view; occluded and interior geometry cannot be reconstructed.",
+          "rgbSilhouette": {
+            "threshold": 0.5,
+            "boundaryTolerancePixels": 1,
+            "disagreements": 1,
+            "interiorDisagreements": 0
+          },
+          "depth": {
+            "definition": "native geometry ray cast camera-Z mm, not renderer Z buffer",
+            "independentRays": 5,
+            "toleranceMm": 0.001,
+            "maximumSamplePointErrorMm": 3.552713678800501e-15,
+            "fullRasterIndependentGeometryProof": false
+          },
+          "projection": {
+            "method": "world_to_camera_view at every native hit",
+            "maximumErrorPixels": 0.000003814697265625,
+            "tolerancePixels": 0.001,
+            "passed": true
+          },
+          "physicalDensity": "Unknown."
+        }
+      },
+      {
+        "id": "same-blender-through-second-wrapper",
+        "from": "mesh.json",
+        "to": "view.bundle",
+        "backendId": "blender-native",
+        "entrypoint": "tools/box-loop-20260914/export-native-view.py",
+        "qualification": {
+          "status": "same-box-native-qualified",
+          "eligible": true,
+          "evidence": [
+            "studio/box-loop-20260914/s2/view.ground.receipt.json",
+            "studio/box-loop-20260914/s2/independent-verification.json",
+            "studio/box-loop-20260914/s2/native/capture-metadata.json"
+          ]
+        },
+        "dependencies": [
+          "Blender 5.1.1",
+          "exact source mesh hash",
+          "fixed calibrated camera and 128x128 raster"
+        ],
+        "preservedProperties": [
+          "sourceRevision",
+          "units.mm",
+          "generated.provenance",
+          "physical.unknown"
+        ],
+        "losses": {
+          "occlusion": "Only one visible view; occluded and interior geometry cannot be reconstructed.",
+          "rgbSilhouette": {
+            "threshold": 0.5,
+            "boundaryTolerancePixels": 1,
+            "disagreements": 1,
+            "interiorDisagreements": 0
+          },
+          "depth": {
+            "definition": "native geometry ray cast camera-Z mm, not renderer Z buffer",
+            "independentRays": 5,
+            "toleranceMm": 0.001,
+            "maximumSamplePointErrorMm": 3.552713678800501e-15,
+            "fullRasterIndependentGeometryProof": false
+          },
+          "projection": {
+            "method": "world_to_camera_view at every native hit",
+            "maximumErrorPixels": 0.000003814697265625,
+            "tolerancePixels": 0.001,
+            "passed": true
+          },
+          "physicalDensity": "Unknown."
+        }
+      }
+    ],
+    "unavailableSurfaces": [
+      {
+        "surface": "cad.brep",
+        "reason": "No qualified mesh-to-B-rep adapter preserving construction history or analytic geometry."
+      },
+      {
+        "surface": "plasticity.native",
+        "reason": "Protocol tool listing does not admit native editing; app probe queued after S3."
+      },
+      {
+        "surface": "spline.parametric",
+        "reason": "No qualified same-box source and parameter-preservation route in this checkpoint."
+      }
+    ]
+  },
+  "request": {
+    "from": "mesh.json",
+    "to": "view.bundle",
+    "requiredProperties": [
+      "sourceRevision",
+      "units.mm"
+    ],
+    "independent": 2
+  },
+  "result": {
+    "status": "refused",
+    "reason": "insufficient_independent_backends",
+    "paths": [],
+    "unavailable": []
+  },
+  "singleRoute": {
+    "status": "planned",
+    "reason": "qualified_paths",
+    "paths": [
+      {
+        "edgeIds": [
+          "same-blender-through-second-wrapper"
+        ],
+        "backendIds": [
+          "blender-native"
+        ],
+        "losses": [
+          {
+            "edgeId": "same-blender-through-second-wrapper",
+            "losses": {
+              "occlusion": "Only one visible view; occluded and interior geometry cannot be reconstructed.",
+              "rgbSilhouette": {
+                "threshold": 0.5,
+                "boundaryTolerancePixels": 1,
+                "disagreements": 1,
+                "interiorDisagreements": 0
+              },
+              "depth": {
+                "definition": "native geometry ray cast camera-Z mm, not renderer Z buffer",
+                "independentRays": 5,
+                "toleranceMm": 0.001,
+                "maximumSamplePointErrorMm": 3.552713678800501e-15,
+                "fullRasterIndependentGeometryProof": false
+              },
+              "projection": {
+                "method": "world_to_camera_view at every native hit",
+                "maximumErrorPixels": 0.000003814697265625,
+                "tolerancePixels": 0.001,
+                "passed": true
+              },
+              "physicalDensity": "Unknown."
+            }
+          }
+        ]
+      }
+    ],
+    "unavailable": []
+  }
+}

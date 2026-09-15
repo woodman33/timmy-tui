@@ -1,0 +1,10 @@
+{
+  "gate": "Cloudflare local Workflows startup",
+  "requestedCompatibilityDate": "2026-09-14",
+  "runtimeMaximumCompatibilityDate": "2026-09-10",
+  "wranglerVersion": "4.129.0",
+  "nativeJobsSubmitted": 0,
+  "nativeEditsExecuted": 0,
+  "stopOnFailure": true,
+  "nextRepair": "Use a compatibility date supported by the installed runtime, or explicitly qualify a newer installed runtime; no repair attempted after this failed gate."
+}

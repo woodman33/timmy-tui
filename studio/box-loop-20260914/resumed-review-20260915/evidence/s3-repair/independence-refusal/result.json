@@ -1,0 +1,63 @@
+{
+  "schema": "timmy.route.op.result/1",
+  "op_id": "route-e1f6bb4c-0c4b-4e95-8f24-ae29d16017f1",
+  "status": "ok",
+  "outcome": "refused",
+  "graphSha256": "e57bfc9054e37a0ef946056dabb888fdf495899a58b08c9375df9dea063bd8fd",
+  "admittedBy": "sha256_f515a7312a183a9d32338b9769278a5c94cd387a450b94425ad1ca6793cd6b3d",
+  "request": {
+    "from": "volume.package",
+    "to": "grounded.point",
+    "requiredProperties": [
+      "sourceRevision",
+      "units.mm"
+    ],
+    "independent": 2
+  },
+  "plan": {
+    "status": "refused",
+    "reason": "insufficient_independent_backends",
+    "paths": [],
+    "unavailable": [
+      {
+        "edgeId": "obj-to-glb-export",
+        "reason": "not_qualified",
+        "qualificationStatus": "historical-cube-only",
+        "dependencies": [
+          "same-box unit conversion and native output readback"
+        ],
+        "missingProperties": [
+          "sourceRevision",
+          "units.mm"
+        ]
+      },
+      {
+        "edgeId": "obj-to-usd-export",
+        "reason": "not_qualified",
+        "qualificationStatus": "historical-cube-only",
+        "dependencies": [
+          "same-box unit conversion and native output readback"
+        ],
+        "missingProperties": [
+          "sourceRevision",
+          "units.mm"
+        ]
+      },
+      {
+        "edgeId": "usd-flatten",
+        "reason": "not_qualified",
+        "qualificationStatus": "historical-stage-only",
+        "dependencies": [
+          "qualified same-box USD input",
+          "resolved-stage native readback"
+        ],
+        "missingProperties": [
+          "sourceRevision",
+          "units.mm"
+        ]
+      }
+    ]
+  },
+  "scope": "planning-only",
+  "durationMs": 174
+}

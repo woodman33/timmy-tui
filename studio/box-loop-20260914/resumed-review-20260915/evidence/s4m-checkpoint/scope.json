@@ -1,0 +1,13 @@
+{
+  "schema": "timmy.checkpoint/1",
+  "tier": "LIGHT",
+  "started": "2026-09-15T07:13:49.584419+00:00",
+  "deadline": "2026-09-15T07:28:49.584419+00:00",
+  "steps": [
+    "repair",
+    "job.revise",
+    "job.recover"
+  ],
+  "priorFailure": "rc_mu2c02vn_cse3",
+  "stopOnFailure": true
+}

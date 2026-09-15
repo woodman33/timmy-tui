@@ -1,0 +1,33 @@
+{
+  "job_id": "bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74",
+  "pid": 14647,
+  "parentPid": 14242,
+  "at": 1789456534.295199,
+  "argv": [
+    "/Applications/Blender.app/Contents/MacOS/Blender",
+    "--background",
+    "--factory-startup",
+    "--disable-autoexec",
+    "--python-exit-code",
+    "2",
+    "--python",
+    "{{TIMMY_ROOT}}/tools/box-loop-20260914/durable-manual-20260915/revise-bore.py",
+    "--",
+    "edit",
+    "--source",
+    "{{TIMMY_ROOT}}/studio/box-loop-20260914/s2/native/scene.blend",
+    "--out",
+    "{{TIMMY_ROOT}}/studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/revision.blend",
+    "--job-id",
+    "bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74",
+    "--source-sha256",
+    "223392ee88d0e7d4cde14ea617d7b996e6ae731fd5614c3cc0e26bc10b2e0059",
+    "--diameter",
+    "32.0",
+    "--report",
+    "{{TIMMY_ROOT}}/studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/edit.json",
+    "--hold-seconds",
+    "0"
+  ],
+  "executionOrdinal": 1
+}

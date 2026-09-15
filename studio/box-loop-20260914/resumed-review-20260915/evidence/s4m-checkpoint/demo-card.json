@@ -1,0 +1,64 @@
+{
+  "schema": "timmy.native-durability.demo-card/1",
+  "status": "ok",
+  "tier": "LIGHT",
+  "started": "2026-09-15T07:13:49.584419+00:00",
+  "ended": "2026-09-15T07:17:18.659Z",
+  "within15Minutes": true,
+  "scope": "Generated native geometry; signal-assisted local controller SIGKILL/reconnect. No native-host crash, power-loss, or physical measurement claim.",
+  "measuredScope": "Timmy can compute and verify dimensions of generated CAD. Converting that CAD cannot establish the dimensions or density of a physical object.",
+  "runs": [
+    {
+      "phase": "success",
+      "subject": "job.revise",
+      "sealId": "rc_mu2c7z0b_ufmh",
+      "receiptHash": "sha256_6cffbbe482e771d85ea4606ebc15b6dfafb45cf75dc78337778b243aaa3ff487",
+      "jobId": "bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74",
+      "document": "studio/box-loop-20260914/s4m-native/bore-success-c64072a6-182d-4fc8-8ef3-1c3e337bca74/revision.blend",
+      "documentRevision": "45fd90561e7eeb5855e6e2e63e77eb401f388e93c1534ad0f0c7b180a25756ed",
+      "sourceRevision": "223392ee88d0e7d4cde14ea617d7b996e6ae731fd5614c3cc0e26bc10b2e0059",
+      "axisDiametersMm": {
+        "x": 32,
+        "y": 32.000000132822564
+      },
+      "editExecutions": 1,
+      "editPid": 14647,
+      "readbackPid": 15238,
+      "duplicateSubmissionRefused": true,
+      "sourcePreserved": true,
+      "verifiedArtifacts": 33,
+      "recovery": null
+    },
+    {
+      "phase": "recovery",
+      "subject": "job.recover",
+      "sealId": "rc_mu2c98lz_igd0",
+      "receiptHash": "sha256_fc0eb5d82c666bcf6da9c34485f22242b3042331d73e3a28f1ec06336e235059",
+      "jobId": "bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f",
+      "document": "studio/box-loop-20260914/s4m-native/bore-recovery-187b75b2-7d84-4650-8e08-f75a28d3977f/revision.blend",
+      "documentRevision": "377cb02492ec21ddcb48aab990caeb942ad8e060c86aa05809b00dd9d83c114c",
+      "sourceRevision": "223392ee88d0e7d4cde14ea617d7b996e6ae731fd5614c3cc0e26bc10b2e0059",
+      "axisDiametersMm": {
+        "x": 32,
+        "y": 32.000000132822564
+      },
+      "editExecutions": 1,
+      "editPid": 20766,
+      "readbackPid": 27055,
+      "duplicateSubmissionRefused": true,
+      "sourcePreserved": true,
+      "verifiedArtifacts": 41,
+      "recovery": {
+        "controllerKilled": true,
+        "controllerPidBefore": 14340,
+        "controllerPidAfter": 21282,
+        "nativeEditPid": 20766,
+        "nativeHostPid": 14242,
+        "explicitReconnectEvent": true,
+        "stepCacheReset": false,
+        "completedNativeSubmitRetained": true
+      }
+    }
+  ],
+  "verificationSourceSha256": "b9d113045a5524c23f1cf9d09567f4c22de4a98a585480e5a838bcb43e582f7b"
+}

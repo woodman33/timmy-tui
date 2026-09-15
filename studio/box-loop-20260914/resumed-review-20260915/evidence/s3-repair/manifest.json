@@ -1,0 +1,173 @@
+{
+  "schema": "timmy.checkpoint.manifest/1",
+  "subject": "route.graph",
+  "status": "ok",
+  "artifacts": [
+    {
+      "path": "studio/box-loop-20260914/s3-repair/bin-permission.json",
+      "sha256": "0f37663f50e9e6e33a42b27f5a11e03c03f00bbdf40f820a89e30c5e75642db2"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/independence-refusal.process.json",
+      "sha256": "dce4577891666f25bd2cf17d7525186bedb7ae2087aa2276b0bd0801a6aa0fdb"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/independence-refusal/complete.json",
+      "sha256": "43891c707d9a1e77c12824be58e8de15e0497a05d71ec8ca513b9d71e15603fe"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/independence-refusal/graph.json",
+      "sha256": "e57bfc9054e37a0ef946056dabb888fdf495899a58b08c9375df9dea063bd8fd"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/independence-refusal/op.request.receipt.json",
+      "sha256": "5e8a7ebc09dff9f5fc63f69d3136acd7eaecd2c7f41ada2a690f3162e1519418"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/independence-refusal/op.result.receipt.json",
+      "sha256": "dad3de2659aecfcf0280d38d5ee402de93d77426a0986ec152529a7fc09cdcef"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/independence-refusal/request.json",
+      "sha256": "03a54574a1fb647d1053769157b047d3beff302dedec3cf5d145162f59b6f563"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/independence-refusal/result.json",
+      "sha256": "da6f8246577129963af4b0e875f7da7d027b6b7397099d3378b523303b1277e9"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/independence-refusal/started.json",
+      "sha256": "684df0ca05e39acf3650b31273d9b5e6559aa890805016fb8d4fe69b26e446ea"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/installed-bin.process.json",
+      "sha256": "d280338bc89b14508ab5e3f650dbf219304f3a13d8503f287307bfaa775c2b06"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/measured-refusal.process.json",
+      "sha256": "70dfd66b96778f3a034e60804b8f15ee50af5fd32fcdf6b456e779e1960d0dc6"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/measured-refusal/complete.json",
+      "sha256": "481bcd353b821624e5961cf1504ab0273670dff8123b9cfdf4c1e0bc125db5ba"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/measured-refusal/graph.json",
+      "sha256": "e57bfc9054e37a0ef946056dabb888fdf495899a58b08c9375df9dea063bd8fd"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/measured-refusal/op.request.receipt.json",
+      "sha256": "3f8e98853159ee16e49aa86dd1de574f0712ec3316228e99d7e48077ed8b4307"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/measured-refusal/op.result.receipt.json",
+      "sha256": "d17522aefafae5bb38ecc15847bbc6c516b3d2587ad73f65a0d1d4b54c1e7be6"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/measured-refusal/request.json",
+      "sha256": "0175a889f84c97dcda61af36a0fb26c3a260d13807243dfe528ef908b42fe803"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/measured-refusal/result.json",
+      "sha256": "faa5842b0b7f97de798c1b2877c56ea6e2e1533fc1d0ab00105af97c08bec466"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/measured-refusal/started.json",
+      "sha256": "1c1b89be3177839b8f4bf7c4d29e9fae71504b19a692ca34d0cc94f42a8baed7"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/npx-tsc.process.json",
+      "sha256": "8e0f2734a217dd61d68b1ca9e5aa71895173a99643349ac6ba895c69be09bb3d"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/op.result.receipt.json",
+      "sha256": "7d7918477393f468a1e337e5e6ffd1667553d5209a4200f57d8a26c1820d664a"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/planned.process.json",
+      "sha256": "589fc60fe7359e81e689d21d1fd767df268c38c5e0cc977119bd1f198b8c57de"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/planned/complete.json",
+      "sha256": "aec70b4c716ca374b34e89c721a8a58ebb092f2048d1ea0d1ec4c5a3c0761541"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/planned/graph.json",
+      "sha256": "e57bfc9054e37a0ef946056dabb888fdf495899a58b08c9375df9dea063bd8fd"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/planned/op.request.receipt.json",
+      "sha256": "72700982e69bbf044cb25cf2e0d17a3626c0f45c941abde863212dbae9886c0e"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/planned/op.result.receipt.json",
+      "sha256": "9e7bb41fd598cbc5af26dd56f0a5ae442fd3ca5725c045633e020983cac06430"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/planned/request.json",
+      "sha256": "610c21a3d236348d412687dfe5b847790a3e9e08761c9bc0b55aa69fbd766698"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/planned/result.json",
+      "sha256": "db2c1ee46d3b10ea360b96c65d74ea465c8412384c04a492297366432576ddf5"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/planned/started.json",
+      "sha256": "6385588229d4e0e2cd74f7822fb76b35dbfd3fe710d5aee8f1276d519a4e5284"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/request.json",
+      "sha256": "ff9ae90ddf9add5c1b9a5b0f70bb9ed614c8b838743c1918852488ae85103ea7"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/request.receipt.json",
+      "sha256": "53f1c44970a1ca6e7148afce2a9c848ee5b1dca2a03cb1b6e4fd1538a505e8ce"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/result.json",
+      "sha256": "309dbef1ef84df02874cbd28306906936b3a5abfff40f5cce6146afbd6cb7549"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/root-tsc.process.json",
+      "sha256": "4cf13990294056d47029e62dd3d93412bb69a54b4f63dbacc72fff23d0e35f5d"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/scope.json",
+      "sha256": "900dc8a69a8beaccf484f268addbe7b35cc88b4c2304fb10198268491fd8ddc6"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/shared-backend-control.json",
+      "sha256": "52f9177ca8c9a4c102a3730ac62b408be3a4bd8a15fb15c59631c0118e8a0de1"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/source-help.process.json",
+      "sha256": "4b92b551155b8d2185b1ed159f21b2c52d1799ad4dd27c5aaeab1b26bf956546"
+    },
+    {
+      "path": "studio/box-loop-20260914/s3-repair/toolchain-pins.json",
+      "sha256": "7b6a9b9df867168eb722a4d5e5c592139c5b4b47b20c9e3e6d8823599e0deb3a"
+    }
+  ],
+  "implementation": [
+    {
+      "path": "tools/box-loop-20260914/repair-route.ts",
+      "sha256": "ae885fccd65ac310785279a094d0895b3a2428173fdf0cd9832362682c9fdb17"
+    },
+    {
+      "path": "src/vision/spatial/route-cli.ts",
+      "sha256": "4b22347506aa4b346956b263ea84e90f97b2b7c33b6d9cf8bf05394cf1adfb82"
+    },
+    {
+      "path": "src/vision/spatial/route-graph.ts",
+      "sha256": "a43dc083738e33fd8bbdd22d03a3419e85e004d9f94874b54f104ad799f275b0"
+    },
+    {
+      "path": "timmy.ts",
+      "sha256": "890140ab32b17508b8796346f14f2feebcb3493a30a421b0f5bda34c7ae13971"
+    },
+    {
+      "path": "src/cli.ts",
+      "sha256": "c9b439d9ad0df8c93439de9bc80b395c38427a46d035b59901945be73e545b6e"
+    }
+  ]
+}

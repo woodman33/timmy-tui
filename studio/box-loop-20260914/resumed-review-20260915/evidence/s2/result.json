@@ -1,0 +1,254 @@
+{
+  "schema": "timmy.op.result/1",
+  "op_id": "view-f7c46d9f-94bf-40a9-aa55-1bca7f67fd48",
+  "status": "ok",
+  "sourceRevision": "ba985730f3b89a7b87308072dd0dc2fc82f5143acc26cf615c18f842c51a46bc",
+  "sourcePreserved": true,
+  "objectId": "box-bore",
+  "selectedPixel": [
+    84,
+    64
+  ],
+  "pointWorldMm": [
+    25.625,
+    -0.625,
+    40
+  ],
+  "nativeView": true,
+  "sourceProvenance": "generated",
+  "depthMethod": "native geometry ray cast, camera-Z mm",
+  "density": null,
+  "physicalMeasurement": false,
+  "controlsPassed": true,
+  "independent": {
+    "schema": "timmy.native-view.independent-verification/1",
+    "passed": true,
+    "sourceSurfaceSha256": "6e45f47454375c3612a8c80a19ce98dbfad11a11380739c14fe9b59171cbef04",
+    "sourceRevision": "ba985730f3b89a7b87308072dd0dc2fc82f5143acc26cf615c18f842c51a46bc",
+    "checks": {
+      "source_revision_format": true,
+      "source_surface_bytes": true,
+      "source_size": true,
+      "source_unchanged": true,
+      "source_world_alignment": true,
+      "metadata_revision": true,
+      "expected_revision": true,
+      "generated_scope": true,
+      "selected_pixel": true,
+      "artifact_rgb.png": true,
+      "artifact_scene.blend": true,
+      "artifact_grounding-input.json": true,
+      "artifact_ray-hit-points.json": true,
+      "artifact_rgb-alpha.json": true,
+      "camera_contract": true,
+      "camera_intrinsics": true,
+      "camera_extrinsics": true,
+      "camera_size": true,
+      "camera_revision": true,
+      "camera_generated": true,
+      "depth_quantity": true,
+      "depth_alignment": true,
+      "depth_generated": true,
+      "object_ids_alignment": true,
+      "object_ids_generated": true,
+      "object_mapping": true,
+      "native_contract": true,
+      "depth_values": true,
+      "object_id_values": true,
+      "raster_validity_masks": true,
+      "rgb_png_128_square": true,
+      "alpha_contract": true,
+      "alpha_values": true,
+      "png_has_alpha": true,
+      "native_alpha_matches_png": true,
+      "full_silhouette_within_one_boundary_pixel": true,
+      "pixel_84_64_expected_hit": true,
+      "pixel_84_64_native_point": true,
+      "pixel_84_64_native_range": true,
+      "pixel_84_64_camera_z": true,
+      "pixel_84_64_ray_is_not_z": true,
+      "pixel_84_64_object": true,
+      "pixel_84_64_alpha": true,
+      "pixel_44_64_expected_hit": true,
+      "pixel_44_64_native_point": true,
+      "pixel_44_64_native_range": true,
+      "pixel_44_64_camera_z": true,
+      "pixel_44_64_ray_is_not_z": true,
+      "pixel_44_64_object": true,
+      "pixel_44_64_alpha": true,
+      "pixel_64_44_expected_hit": true,
+      "pixel_64_44_native_point": true,
+      "pixel_64_44_native_range": true,
+      "pixel_64_44_camera_z": true,
+      "pixel_64_44_ray_is_not_z": true,
+      "pixel_64_44_object": true,
+      "pixel_64_44_alpha": true,
+      "pixel_64_84_expected_hit": true,
+      "pixel_64_84_native_point": true,
+      "pixel_64_84_native_range": true,
+      "pixel_64_84_camera_z": true,
+      "pixel_64_84_ray_is_not_z": true,
+      "pixel_64_84_object": true,
+      "pixel_64_84_alpha": true,
+      "pixel_64_64_expected_hit": true,
+      "pixel_64_64_empty": true,
+      "pixel_64_64_alpha": true
+    },
+    "failures": [],
+    "samples": [
+      {
+        "pixel": [
+          84,
+          64
+        ],
+        "independent": {
+          "rayRangeMm": 162.04021491592758,
+          "pointWorldMm": [
+            25.625,
+            -0.625,
+            40
+          ]
+        },
+        "native": {
+          "pointWorldMm": [
+            25.625,
+            -0.625,
+            40
+          ],
+          "normalWorld": [
+            0,
+            0,
+            1
+          ],
+          "objectId": "box-bore",
+          "polygonIndex": 12547,
+          "rayRangeMm": 162.04021491592758
+        },
+        "cameraZMm": 160,
+        "pointErrorMm": 0,
+        "expectedCameraZMm": 160,
+        "alpha": 255
+      },
+      {
+        "pixel": [
+          44,
+          64
+        ],
+        "independent": {
+          "rayRangeMm": 161.84724665560424,
+          "pointWorldMm": [
+            -24.375000000000004,
+            -0.625,
+            40
+          ]
+        },
+        "native": {
+          "pointWorldMm": [
+            -24.375,
+            -0.625,
+            40
+          ],
+          "normalWorld": [
+            0,
+            0,
+            1
+          ],
+          "objectId": "box-bore",
+          "polygonIndex": 2287,
+          "rayRangeMm": 161.84724665560424
+        },
+        "cameraZMm": 160,
+        "pointErrorMm": 3.552713678800501e-15,
+        "expectedCameraZMm": 160,
+        "alpha": 255
+      },
+      {
+        "pixel": [
+          64,
+          44
+        ],
+        "independent": {
+          "rayRangeMm": 161.84724665560424,
+          "pointWorldMm": [
+            0.625,
+            24.375000000000004,
+            40
+          ]
+        },
+        "native": {
+          "pointWorldMm": [
+            0.625,
+            24.375,
+            40
+          ],
+          "normalWorld": [
+            0,
+            0,
+            1
+          ],
+          "objectId": "box-bore",
+          "polygonIndex": 11446,
+          "rayRangeMm": 161.84724665560424
+        },
+        "cameraZMm": 160,
+        "pointErrorMm": 3.552713678800501e-15,
+        "expectedCameraZMm": 160,
+        "alpha": 255
+      },
+      {
+        "pixel": [
+          64,
+          84
+        ],
+        "independent": {
+          "rayRangeMm": 162.04021491592758,
+          "pointWorldMm": [
+            0.625,
+            -25.625,
+            40
+          ]
+        },
+        "native": {
+          "pointWorldMm": [
+            0.625,
+            -25.625,
+            40
+          ],
+          "normalWorld": [
+            0,
+            0,
+            1
+          ],
+          "objectId": "box-bore",
+          "polygonIndex": 3459,
+          "rayRangeMm": 162.04021491592758
+        },
+        "cameraZMm": 160,
+        "pointErrorMm": 0,
+        "expectedCameraZMm": 160,
+        "alpha": 255
+      },
+      {
+        "pixel": [
+          64,
+          64
+        ],
+        "independent": null,
+        "native": null,
+        "cameraZMm": null,
+        "alpha": 0
+      }
+    ],
+    "toleranceMm": 0.001,
+    "depthDefinition": "Camera-axis Z in mm; ray range independently checked separately.",
+    "scope": "Five sampled rays against original generated mesh; not physical measurement or a full raster correctness proof.",
+    "alphaSilhouetteSampled": true,
+    "silhouette": {
+      "threshold": 0.5,
+      "boundaryTolerancePixels": 1,
+      "disagreements": 1,
+      "interiorDisagreements": 0
+    }
+  },
+  "durationMs": 8278
+}

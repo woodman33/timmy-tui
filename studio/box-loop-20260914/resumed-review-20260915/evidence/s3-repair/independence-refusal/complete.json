@@ -1,0 +1,9 @@
+{
+  "op_id": "route-e1f6bb4c-0c4b-4e95-8f24-ae29d16017f1",
+  "status": "ok",
+  "outcome": "refused",
+  "verified": true,
+  "resultSha256": "da6f8246577129963af4b0e875f7da7d027b6b7397099d3378b523303b1277e9",
+  "receiptId": "rc_mu272jwn_tlyc",
+  "receipt": "sha256_b6ae1e5c42e9cba500ba624f8f66419def86142e62a0eaae8b601a6a388bd3fa"
+}

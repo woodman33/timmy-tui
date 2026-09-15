@@ -22,12 +22,12 @@ Run from the Timmy repository root. These commands are the adopted local entry p
 
 ```sh
 TRANSFORMS_DIR="$PWD/studio/transforms-20260914"
-UV_CACHE_DIR="$TRANSFORMS_DIR/.cache/uv" UV_PYTHON_DOWNLOADS=never ~/.local/bin/uv run --no-project "$TRANSFORMS_DIR/python-inline.py"
+UV_CACHE_DIR="$TRANSFORMS_DIR/.cache/uv" UV_PYTHON_DOWNLOADS=never {{HOME}}/.local/bin/uv run --no-project "$TRANSFORMS_DIR/python-inline.py"
 python3 "$TRANSFORMS_DIR/smoke-jc.py"
 python3 "$TRANSFORMS_DIR/smoke-restish.py"
 python3 "$TRANSFORMS_DIR/smoke-ttyd.py"
-UV_CACHE_DIR="$TRANSFORMS_DIR/.cache/uv" UV_PYTHON_DOWNLOADS=never ~/.local/bin/uv run --no-project "$TRANSFORMS_DIR/smoke-textual.py"
-UV_CACHE_DIR="$TRANSFORMS_DIR/.cache/uv" UV_PYTHON_DOWNLOADS=never ~/.local/bin/uv run --no-project "$TRANSFORMS_DIR/smoke-ttyd-websocket.py"
+UV_CACHE_DIR="$TRANSFORMS_DIR/.cache/uv" UV_PYTHON_DOWNLOADS=never {{HOME}}/.local/bin/uv run --no-project "$TRANSFORMS_DIR/smoke-textual.py"
+UV_CACHE_DIR="$TRANSFORMS_DIR/.cache/uv" UV_PYTHON_DOWNLOADS=never {{HOME}}/.local/bin/uv run --no-project "$TRANSFORMS_DIR/smoke-ttyd-websocket.py"
 ```
 
 The Restish, ttyd and Textual scripts start a fixture server on a fresh `127.0.0.1` port, perform their finite checks, then stop the server. Historical URLs in the evidence are not live services. Every rerun now allocates a unique timestamp/UUID directory under `studio/transforms-20260914/runs/` and leaves prior evidence untouched. An explicit Python HTML output path uses exclusive creation and refuses an existing file. A [preservation check](../studio/transforms-20260914/runs/20260914T091901.603208Z-preservation-c1762855/preservation-evidence.json) reran all four original entry points, preserved all eleven original JSON/HTML/log/text files byte-for-byte, and observed the expected `FileExistsError` for an attempted existing output. Original evidence must remain immutable after its seal.
@@ -35,7 +35,7 @@ The Restish, ttyd and Textual scripts start a fixture server on a fresh `127.0.0
 For a supported legacy text stream, jc is also directly usable:
 
 ```sh
-UV_CACHE_DIR="$TRANSFORMS_DIR/.cache/uv" UV_TOOL_DIR="$TRANSFORMS_DIR/.cache/uv-tools" ~/.local/bin/uv tool run --from jc==1.25.7 jc --date < "$TRANSFORMS_DIR/legacy-date.txt"
+UV_CACHE_DIR="$TRANSFORMS_DIR/.cache/uv" UV_TOOL_DIR="$TRANSFORMS_DIR/.cache/uv-tools" {{HOME}}/.local/bin/uv tool run --from jc==1.25.7 jc --date < "$TRANSFORMS_DIR/legacy-date.txt"
 ```
 
 Use the source command's stable JSON output when it already exists. jc requires a known parser; neither an unknown parser nor unrecognized text should be silently promoted to successful structured extraction. The negative control exercises an unsupported parser, not every malformed-input case.
@@ -146,3 +146,39 @@ The original transform manifests and receipts remain unchanged. The separate
 maps the original and revised document hashes to immutable retained copies;
 it does not rewrite historical receipts or present this revision as the bytes
 covered by those receipts.
+
+## 10. Resumed box proof checkpoints
+
+The earlier S1 failure above remains historical evidence. In the resumed queue, S1 passed strict **0/1 → 1/1** using Granite once, a constrained citation enum, and an actual `cite(handle_id)` tool. Seal: `rc_mu260gn3_rze5`. Ornith was not run.
+
+S2 passed one retained-box native Blender view through the existing pixel-grounding function. RGB, native camera-Z depth, object IDs, camera and source revision are aligned within the declared sampled-geometry and raster checks. Seal: `rc_mu2666lr_7wft`. The original volume package remains byte-identical.
+
+S3 prepared seven route edges, four eligible declarations and three unavailable export routes, plus property-loss and backend-independence checks. Its 10 pure-planner tests passed. The installed CLI build/invocation failed before graph admission; failed seal: `rc_mu26enuc_at93`. These declarations are **not an admitted route graph**. The queue stopped there; Plasticity was not launched. Fleet remains parked until the user says “sparks up.”
+
+[Checkpoint outcomes and limits](../studio/box-loop-20260914/CHECKPOINT-RESULTS-20260914.md). This addendum does not alter the bytes or claims of earlier sealed documents.
+
+## 11. Mandatory rule for model-authored evidence
+
+Every model-authored evidence field must select from a **constrained enum of actual evidence handles observed for the current run and source revision**, with each cited handle backed by an **actual successful `cite(handle_id)` tool call observed in that run**. Merely generating a string that matches an allowed handle does not establish citation. The enum must come from the actual observed handle set, not property names or plausible labels.
+
+An empty actual handle set must produce **unknown or refusal**; never invent a handle to fill it. Reject property names used as handles and stale, unobserved or uncited handles. Preserve raw model outputs and refusal reasons; **no post hoc label rewriting** may turn invalid evidence into passing evidence.
+
+This is a mandatory policy for Timmy's model-authored evidence fields. It does not claim that all legacy fields have been migrated or that every existing adapter enforces the rule. S1's bounded repair is evidence for its exercised field and run only. This addendum changes no sealed snapshots, retained model output, implementation or historical receipts.
+
+## 12. S3 source-toolchain repair and Plasticity outcome
+
+S3's subsequent repair passed: `route.graph` seal **`rc_mu272kea_e4ge`** admits the pinned bounded graph through the root source CLI (`npx --no-install tsx timmy.ts route`). Both compiler version checks returned **7.0.2**, matching the root lockfile. The bin execute permission was restored without modifying its bytes. The compiled CLI was not rebuilt. The planned route passed; physical-measurement provenance from a generated surface and a second route sharing a backend were refused. The earlier failed S3 seal remains historical evidence.
+
+Plasticity 26.1.3's bounded owned launch exposed no CDP endpoint within 20 seconds. Cleanup was verified. `app.drive.probe` seal **`rc_mu274a0b_01mq`** records the completed **not-observed** outcome; it does not diagnose the reason or admit an editing driver. No asar extraction or IPC hook was used.
+
+[Repair results, command and limits](../studio/box-loop-20260914/REPAIR-RESULTS-20260914.md). Fleet remains parked.
+
+## 13. Plasticity driver order after the sealed probe
+
+Treat **channel C (CDP) as unavailable for the tested Plasticity 26.1.3 setup**: the bounded owned-process probe observed no endpoint within 20 seconds, did not admit a driver, and verified cleanup. This operational decision is scoped to [`app.drive.probe` seal `rc_mu274a0b_01mq`](../studio/box-loop-20260914/c-plasticity/checkpoint.json) and its [retained result](../studio/box-loop-20260914/c-plasticity/result.json); it does not establish that every Plasticity installation or version lacks CDP.
+
+The next driver order is **A: STEP roundtrip via build123d**, then **D: macOS accessibility**. A is queued for a later bounded implementation and native readback qualification; it is not built or admitted by this addendum. Its eventual STEP roundtrip must retain source/candidate revisions, units and identity sidecars, record conversion losses, and verify the actual returned geometry before reporting success. D remains the following control path to qualify. This records the order only: no Plasticity launch, conversion, accessibility action or new proof was performed here.
+
+## 14. S4 startup checkpoint
+
+The normal S4 revision attempt stopped before job submission: the local Workflows configuration requested compatibility date 2026-09-14, but the installed Wrangler 4.129.0 runtime supports only through 2026-09-10. Failed step seal `rc_mu27ey0a_ia2y`; runtime-error and cleanup seal `rc_mu27gdyc_fval`. No native edit or new revision ran, the original source was preserved, and the owned native host was stopped. Recovery, PR #74 update and S5 remain unexecuted after that failed gate. [Checkpoint evidence and next repair](../studio/box-loop-20260914/S4-STARTUP-RESULT-20260914.md).

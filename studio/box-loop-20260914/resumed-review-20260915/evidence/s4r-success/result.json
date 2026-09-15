@@ -1,0 +1,16 @@
+{
+  "schema": "timmy.op.result/1",
+  "op_id": "durable-b56b381c-5b9b-40b9-9d8f-59281cd8472c",
+  "job_id": "bore-success-cef1e825-5d5b-4c88-8a79-bf43af4df29a",
+  "run_id": "bore-success-cef1e825-5d5b-4c88-8a79-bf43af4df29a",
+  "status": "failed",
+  "mode": "success",
+  "error": "Cloudflare local runtime rejects fetch redirect:error; native-submit failed before reaching the native host",
+  "queueStopped": true,
+  "sourceRevision": "223392ee88d0e7d4cde14ea617d7b996e6ae731fd5614c3cc0e26bc10b2e0059",
+  "sourcePreserved": true,
+  "nativeJobsSubmitted": 0,
+  "nativeEditsExecuted": 0,
+  "recoveryExecuted": false,
+  "durationSeconds": 45.20706796646118
+}

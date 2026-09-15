@@ -1,0 +1,32 @@
+import{createHash,randomUUID}from'node:crypto';import{copyFileSync,existsSync,mkdirSync,readFileSync,readdirSync,writeFileSync}from'node:fs';import{dirname,join,relative,resolve}from'node:path';import{fileURLToPath}from'node:url';import{spawn,spawnSync}from'node:child_process';import{appendReceipt,hashOf,rootStoreDir,verifySignature}from'../../../src/utils/receipts.js';
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../..');const [mode,phase,op]=process.argv.slice(2);if(!['success','recovery'].includes(phase))throw Error('Unknown phase');
+const out=join(root,'studio/box-loop-20260914/s4m-'+phase),sha=(p:string)=>createHash('sha256').update(readFileSync(p)).digest('hex');const save=(p:string,x:unknown)=>writeFileSync(p,JSON.stringify(x,null,2)+'\n',{flag:'wx',mode:0o600});const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));const valid=(r:any)=>verifySignature(r)&&hashOf({...r,hash:''})===r.hash;
+const sources=['checkpoint.ts','checkpoint.py','native-host.py','workflow.ts','wrangler.json','revise-bore.py'].map(name=>'tools/box-loop-20260914/durable-manual-20260915/'+name);
+function seal(kind:string,subject:string,status:'ok'|'failed',p:string,id:string,result:any={},children:string[]=[]){if(rootStoreDir(root)!==join(root,'.timmy/receipts'))throw Error('Store mismatch');console.log('store: '+rootStoreDir(root));const r=appendReceipt('runs',{kind,subject,status,tier:'LIGHT',policy:'Cloudflare local Workflows and independently owned native host. One LIGHT checkpoint; source preserved; explicit signal-assisted local recovery. Existing detached fleet download is independent.',artifacts:[relative(root,p)],output_sha256:sha(p),sources:[{op_id:id,run_id:result.job_id,job_id:result.job_id,document_revision:result.documentRevision}],child_receipts:children,...(status==='failed'?{error_class:'native_durable_job_gate',exit_code:2}:{})},root);if(!valid(r))throw Error('Seal mismatch');return r;}
+if(mode==='submit'){
+ const gate=read(join(root,'studio/box-loop-20260914',phase==='success'?'s3-repair/route.graph.receipt.json':'s4m-success/job.revise.receipt.json'));if(gate.status!=='ok'||!valid(gate))throw Error('Prior gate failed');
+ mkdirSync(out,{recursive:false});
+ const snapshot=join(out,'implementation');mkdirSync(snapshot);
+ sources.forEach((p,i)=>copyFileSync(join(root,p),join(snapshot,i+'-'+p.split('/').at(-1))));
+ save(join(out,'implementation-before.json'),{artifacts:sources.map(p=>({path:p,sha256:sha(join(root,p))})),runtime:{wrangler:'4.129.0',workerd:'1.20260903.1',compatibilityDate:'2026-09-03'},priorFailedSeal:'rc_mu2c02vn_cse3'});
+ const common=read(join(root,'studio/box-loop-20260914/s4m-checkpoint/scope.json'));if(Date.now()>=Date.parse(common.deadline))throw Error('Shared checkpoint expired');
+ if(phase==='recovery'){const before=read(join(root,'studio/box-loop-20260914/s4m-success/implementation-before.json'));if(!before.artifacts.every((a:any)=>sha(join(root,a.path))===a.sha256))throw Error('Sources changed since success');}
+ save(join(out,'scope.json'),{...common,step:'S4 '+phase,phaseStarted:new Date().toISOString(),source:'studio/box-loop-20260914/s2/native/scene.blend',targetDiameterMm:32,sourceNominalDiameterMm:24,scope:'Generated native geometry; controller SIGKILL/reconnect plus explicit wake event. No native-host crash or power-loss claim.'});
+ const id='durable-'+randomUUID();save(join(out,'request.json'),{schema:'timmy.op/1',op_id:id,phase,admittedBy:gate.hash,worker:'independent native host plus Cloudflare local controller; detached checkpoint worker'});const r=seal('op.request','job.'+phase,'ok',join(out,'request.json'),id);save(join(out,'request.receipt.json'),r);
+ const child=spawn(process.execPath,['--import','tsx',fileURLToPath(import.meta.url),'worker',phase,id],{cwd:root,detached:true,stdio:'ignore'});child.unref();console.log(JSON.stringify({op_id:id,pid:child.pid,requestSeal:r.id}));
+}else if(mode==='worker'){
+ const run=spawnSync('python3',[join(root,'tools/box-loop-20260914/durable-manual-20260915/checkpoint.py'),phase,'--op-id',op],{encoding:'utf8',timeout:300000,maxBuffer:3000000});save(join(out,'process.json'),{status:run.status,signal:run.signal,error:run.error?.message,stdout:run.stdout,stderr:run.stderr});
+ if(!existsSync(join(out,'result.json')))save(join(out,'result.json'),{schema:'timmy.op.result/1',op_id:op,status:'failed',phase,error:'Checkpoint process failed before result',queueStopped:true});
+ const result=read(join(out,'result.json'));
+ const unchanged=read(join(out,'implementation-before.json')).artifacts.every((a:any)=>sha(join(root,a.path))===a.sha256);save(join(out,'implementation-after.json'),{unchanged});
+ const within15Minutes=Date.now()<=Date.parse(read(join(out,'scope.json')).deadline);
+ if(!unchanged||!within15Minutes)result.status='failed';
+ save(join(out,'admission.json'),{status:result.status,implementationUnchanged:unchanged,within15Minutes,resultSha256:sha(join(out,'result.json'))});
+ const boundary=seal('op.result','job.'+phase,result.status,join(out,'result.json'),op,result);save(join(out,'op.result.receipt.json'),boundary);
+ const walk=(d:string):string[]=>readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(join(d,e.name)):[join(d,e.name)]);
+ const files=walk(out);if(result.job_id){const native=join(root,'studio/box-loop-20260914/s4m-native',result.job_id);if(existsSync(native))files.push(...walk(native));}
+ const prior=phase==='recovery'?read(join(root,'studio/box-loop-20260914/s4m-success/job.revise.receipt.json')):null;
+ const subject=phase==='success'?'job.revise':'job.recover';save(join(out,'manifest.json'),{schema:'timmy.native-job.manifest/1',subject,status:result.status,sourceRevision:result.sourceRevision,documentRevision:result.documentRevision,sourcePaths:sources,artifacts:files.sort().map(p=>({path:relative(root,p),sha256:sha(p)})),pairedSuccess:prior?{id:prior.id,hash:prior.hash,manifest:'studio/box-loop-20260914/s4m-success/manifest.json'}:null});
+ const r=seal('seal',subject,result.status,join(out,'manifest.json'),op,result,[boundary.hash,...(prior?[prior.hash]:[])]);save(join(out,subject+'.receipt.json'),r);
+ const scope=read(join(out,'scope.json'));save(join(out,'checkpoint.json'),{started:scope.started,ended:new Date().toISOString(),within15Minutes:Date.now()<=Date.parse(scope.deadline),status:result.status,sealId:r.id});save(join(out,'complete.json'),{status:result.status,sealId:r.id,hash:r.hash,opResultId:boundary.id,job_id:result.job_id});
+}else throw Error('Use submit or worker');

@@ -1,0 +1,106 @@
+{
+  "schema": "timmy.voxel-image-grounding.receipt/1",
+  "status": "grounded",
+  "reason": "one_coregistered_surface_sample",
+  "evidenceSha256": "824e18797c87e305c1fcae0fcfccc553beb7b8e5e91c230c12338d1cde70cc33",
+  "anchor": {
+    "sourceRevision": "ba985730f3b89a7b87308072dd0dc2fc82f5143acc26cf615c18f842c51a46bc",
+    "objectId": "box-bore",
+    "camera": {
+      "id": "box-bore-camera",
+      "frameId": "fixture",
+      "sourceRevision": "ba985730f3b89a7b87308072dd0dc2fc82f5143acc26cf615c18f842c51a46bc",
+      "provenance": "generated",
+      "imageSize": [
+        128,
+        128
+      ],
+      "pixelConvention": "integer-pixel-centers",
+      "projection": "rectified-pinhole",
+      "axes": "x-right-y-down-z-forward",
+      "units": "mm",
+      "intrinsics": {
+        "fx": 128,
+        "fy": 128,
+        "cx": 63.5,
+        "cy": 63.5
+      },
+      "cameraToWorld": {
+        "rotationRows": [
+          [
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            -1,
+            0
+          ],
+          [
+            0,
+            0,
+            -1
+          ]
+        ],
+        "translationMm": [
+          0,
+          0,
+          200
+        ]
+      }
+    }
+  },
+  "observation": {
+    "detectorPixel": [
+      84,
+      64
+    ],
+    "requestedSourcePixel": [
+      84,
+      64
+    ],
+    "sampledSourcePixel": [
+      84,
+      64
+    ],
+    "pointCameraMm": [
+      25.625,
+      0.625,
+      160
+    ],
+    "pointWorldMm": [
+      25.625,
+      -0.625,
+      40
+    ]
+  },
+  "ray": {
+    "originWorldMm": [
+      0,
+      0,
+      200
+    ],
+    "directionWorldUnit": [
+      0.15813975569765315,
+      -0.0038570672121378815,
+      -0.9874092063072977
+    ]
+  },
+  "provenance": {
+    "source": "generated",
+    "depth": "generated",
+    "objectAssociation": "generated",
+    "calibration": "generated",
+    "pixelSelection": "model-proposed-candidate"
+  },
+  "limitations": [
+    "A grounded result associates one sampled surface point with a source object ID; it does not ground an entire box, mask, object interior or material.",
+    "The detector supplies a candidate pixel. Object association comes from the co-registered ID raster, not the detector class label or confidence.",
+    "Depth, calibration, ID association and source provenance are caller declarations; their input hashes provide consistency, not independent authentication or physical validation.",
+    "Missing depth, missing IDs, space behind the observed surface and space outside image bounds remain unknown, never empty.",
+    "Only rectified pinhole cameras and known-scale camera-Z depth in millimetres are supported. Ordinal, relative-scale and ray-range depth cannot be substituted.",
+    "Crop/resize coordinates use pixel centers and nearest source-pixel sampling. No depth interpolation, lens-distortion correction or segmentation model runs here."
+  ],
+  "receiptSha256": "dc5a74eec1450b5bc4be420d944aaf86ee639f0f58dbb21ca1e6734d8327b48b"
+}

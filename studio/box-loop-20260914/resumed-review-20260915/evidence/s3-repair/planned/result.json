@@ -1,0 +1,149 @@
+{
+  "schema": "timmy.route.op.result/1",
+  "op_id": "route-19547a8a-249c-472d-9397-fc274fd75671",
+  "status": "ok",
+  "outcome": "planned",
+  "graphSha256": "e57bfc9054e37a0ef946056dabb888fdf495899a58b08c9375df9dea063bd8fd",
+  "admittedBy": "sha256_f515a7312a183a9d32338b9769278a5c94cd387a450b94425ad1ca6793cd6b3d",
+  "request": {
+    "from": "volume.package",
+    "to": "grounded.point",
+    "requiredProperties": [
+      "sourceRevision",
+      "units.mm",
+      "generated.provenance"
+    ],
+    "independent": 1
+  },
+  "plan": {
+    "status": "planned",
+    "reason": "qualified_paths",
+    "paths": [
+      {
+        "edgeIds": [
+          "package-to-retained-surface",
+          "surface-to-native-view",
+          "view-to-grounded-point"
+        ],
+        "backendIds": [
+          "blender-native",
+          "openvdb-13.0.0",
+          "timmy-pixel-grounding"
+        ],
+        "losses": [
+          {
+            "edgeId": "package-to-retained-surface",
+            "losses": {
+              "cellValues": "Absent from surface; keep source package.",
+              "knownMasks": "Absent from surface; keep source package.",
+              "objectIds": "Mesh has no stable IDs; S2 assigns source-scoped box-bore.",
+              "frameAndRevision": "Manifest sidecar required; not embedded in surface.json.",
+              "geometry": {
+                "status": "measured-from-native-reconstruction",
+                "vertices": 7272,
+                "triangles": 14544,
+                "connectedComponents": 1,
+                "closedTwoManifoldEdges": true,
+                "consistentEdgeOrientation": true,
+                "vertexLinksSingleCycles": true,
+                "invalidVertexLinks": 0,
+                "eulerCharacteristic": 0,
+                "genus": 1,
+                "volumeMm3": 474539.05434386636,
+                "surfaceError": {
+                  "method": "independent analytic boundary distance at mesh vertices and triangle centroids",
+                  "sampleCount": 21816,
+                  "meanMm": 0.053196231537085116,
+                  "rmsMm": 0.13823534565462006,
+                  "maxSampleMm": 0.8333320617675781,
+                  "hausdorffMeasured": false
+                },
+                "volumeAbsErrorMm3": 1269.7982867792016,
+                "volumeRelError": 0.002668715135833976
+              },
+              "physicalDensity": "Unknown; no physical observation."
+            }
+          },
+          {
+            "edgeId": "surface-to-native-view",
+            "losses": {
+              "occlusion": "Only one visible view; occluded and interior geometry cannot be reconstructed.",
+              "rgbSilhouette": {
+                "threshold": 0.5,
+                "boundaryTolerancePixels": 1,
+                "disagreements": 1,
+                "interiorDisagreements": 0
+              },
+              "depth": {
+                "definition": "native geometry ray cast camera-Z mm, not renderer Z buffer",
+                "independentRays": 5,
+                "toleranceMm": 0.001,
+                "maximumSamplePointErrorMm": 3.552713678800501e-15,
+                "fullRasterIndependentGeometryProof": false
+              },
+              "projection": {
+                "method": "world_to_camera_view at every native hit",
+                "maximumErrorPixels": 0.000003814697265625,
+                "tolerancePixels": 0.001,
+                "passed": true
+              },
+              "physicalDensity": "Unknown."
+            }
+          },
+          {
+            "edgeId": "view-to-grounded-point",
+            "losses": {
+              "selection": "One nearest pixel-center surface point; not entire object or interior.",
+              "missingDepth": "Unknown point; never infer empty space.",
+              "materialAndDensity": "Unknown; not derived from color."
+            }
+          }
+        ]
+      }
+    ],
+    "unavailable": [
+      {
+        "edgeId": "obj-to-glb-export",
+        "reason": "not_qualified",
+        "qualificationStatus": "historical-cube-only",
+        "dependencies": [
+          "same-box unit conversion and native output readback"
+        ],
+        "missingProperties": [
+          "generated.provenance",
+          "sourceRevision",
+          "units.mm"
+        ]
+      },
+      {
+        "edgeId": "obj-to-usd-export",
+        "reason": "not_qualified",
+        "qualificationStatus": "historical-cube-only",
+        "dependencies": [
+          "same-box unit conversion and native output readback"
+        ],
+        "missingProperties": [
+          "generated.provenance",
+          "sourceRevision",
+          "units.mm"
+        ]
+      },
+      {
+        "edgeId": "usd-flatten",
+        "reason": "not_qualified",
+        "qualificationStatus": "historical-stage-only",
+        "dependencies": [
+          "qualified same-box USD input",
+          "resolved-stage native readback"
+        ],
+        "missingProperties": [
+          "generated.provenance",
+          "sourceRevision",
+          "units.mm"
+        ]
+      }
+    ]
+  },
+  "scope": "planning-only",
+  "durationMs": 217
+}

@@ -1,0 +1,45 @@
+{
+  "schema": "timmy.op.result/1",
+  "op_id": "route-repair-537e978f-cb41-48a7-bf8a-d43a40cf1414",
+  "status": "ok",
+  "graphSha256": "e57bfc9054e37a0ef946056dabb888fdf495899a58b08c9375df9dea063bd8fd",
+  "admittedGraph": "studio/box-loop-20260914/s3/graph.json",
+  "sourceRunner": "npx --no-install tsx timmy.ts route",
+  "toolchain": "Version 7.0.2",
+  "planned": {
+    "op_id": "route-19547a8a-249c-472d-9397-fc274fd75671",
+    "opResultSeal": "rc_mu272fjw_bvfy",
+    "outcome": "planned",
+    "reason": "qualified_paths",
+    "paths": [
+      [
+        "package-to-retained-surface",
+        "surface-to-native-view",
+        "view-to-grounded-point"
+      ]
+    ]
+  },
+  "measured": {
+    "op_id": "route-262bd7f1-f08c-48a2-8255-18f8b146bdd1",
+    "opResultSeal": "rc_mu272hq2_x9me",
+    "outcome": "refused",
+    "reason": "source_properties_unavailable",
+    "paths": []
+  },
+  "independent": {
+    "op_id": "route-e1f6bb4c-0c4b-4e95-8f24-ae29d16017f1",
+    "opResultSeal": "rc_mu272jwn_tlyc",
+    "outcome": "refused",
+    "reason": "insufficient_independent_backends",
+    "paths": []
+  },
+  "sharedBackendControl": "passed",
+  "generatedMeasurementScope": "Timmy can compute and verify dimensions of generated CAD. Converting that CAD cannot establish the dimensions or density of a physical object.",
+  "compiledRouteUpdated": false,
+  "sourceRouteAdmitted": true,
+  "child_receipts": [
+    "sha256_a3f7e7f550bf6c518c75130ec29b147579fe976d0bf5f73535504e5b301e9db6",
+    "sha256_8e25d94d8b2cedf38ea7d5ad26399af61df1d6ce263d28a307dea5ad06ae8f49",
+    "sha256_b6ae1e5c42e9cba500ba624f8f66419def86142e62a0eaae8b601a6a388bd3fa"
+  ]
+}

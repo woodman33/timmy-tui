@@ -1,0 +1,21 @@
+{
+  "schema": "timmy.workflow-canary.result/1",
+  "mode": "explicit-single-case",
+  "protocolHash": "3a8eefee772f6e9b5802234f44a1d44a3490802333946b9e120d62a11c049b61",
+  "model": "granite4.2:latest",
+  "completedEpisodes": 1,
+  "passedEpisodes": 1,
+  "stoppedBecause": null,
+  "allSelectedPassed": true,
+  "files": [
+    {
+      "path": "episodes/light-missing-evidence.json",
+      "sha256": "53508a907a6568589948654146ea6f8b9f56eae31a2a37c862af534263f613ca"
+    }
+  ],
+  "skippedCases": [],
+  "modelsCompared": false,
+  "nativeSoftwareTested": false,
+  "trainingExecuted": false,
+  "next": "Selected case passed. This isolated diagnostic does not establish a canary gate or authorize expansion."
+}

@@ -1,0 +1,8 @@
+{
+  "rootDeclared": "^7.0.2",
+  "lockRootDeclared": "^7.0.2",
+  "lockInstalled": "7.0.2",
+  "installedVersion": "7.0.2",
+  "typescriptPackagePath": "file://{{TIMMY_ROOT}}/node_modules/typescript/lib/version.cjs",
+  "tsxPackageVersion": "4.22.3"
+}
