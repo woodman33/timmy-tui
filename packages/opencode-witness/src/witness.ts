@@ -13,7 +13,8 @@
 // happens to carry identical shapes for these three hooks, but the installed 1.4.7 d.ts is the
 // authority here: a registry version is not evidence about a local install.
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs';
+import { dirname, isAbsolute, join, parse, resolve as resolvePath } from 'node:path';
 
 export class WitnessRefusal extends Error {
   readonly reason: string;
@@ -110,6 +111,49 @@ export const guardedHit = (args: unknown): { id: string; path_sha256: string } |
   return null;
 };
 
+const pathPrefixes = (p: string): { path: string; rest: string[] }[] => {
+  const root = parse(p).root;
+  const segments = p
+    .slice(root.length)
+    .split(/[/\\]+/)
+    .filter(Boolean);
+  const prefixes: { path: string; rest: string[] }[] = [];
+  let acc = root;
+  for (let i = 0; i < segments.length; i++) {
+    acc = acc ? join(acc, segments[i]) : segments[i];
+    prefixes.push({ path: acc, rest: segments.slice(i + 1) });
+  }
+  return prefixes;
+};
+
+const guardedSymlinkAlias = (p: string): { hit: { id: string }; alias: string } | null => {
+  let current = p;
+  const seen = new Set<string>([resolvePath(p)]);
+  for (let hops = 0; hops < 40; hops++) {
+    let followed = false;
+    for (const prefix of pathPrefixes(current)) {
+      try {
+        if (!lstatSync(prefix.path).isSymbolicLink()) continue;
+        const target = readlinkSync(prefix.path);
+        const alias = isAbsolute(target) ? target : join(dirname(prefix.path), target);
+        const hit = guardedHit([target, alias]);
+        if (hit) return { hit, alias };
+        const next = prefix.rest.length ? join(alias, ...prefix.rest) : alias;
+        const key = resolvePath(next);
+        if (seen.has(key)) return null;
+        seen.add(key);
+        current = next;
+        followed = true;
+        break;
+      } catch {
+        continue;
+      }
+    }
+    if (!followed) return null;
+  }
+  return null;
+};
+
 // A Managed Tool Output File is the harness-persisted file a large tool result is spilled to (the
 // `<persisted-output>` / truncated-output case). OpenCode's after-hook exposes only {title,output,metadata},
 // so the file is found by a metadata key or by the marker in the output text — and bound by hash, never
@@ -155,9 +199,18 @@ export function resolveManagedOutput(
   const hit = guardedHit(path);
   if (hit) return { refused: 'guarded_path', guarded_id: hit.id, path_sha256: hit.path_sha256 };
   // A lexical miss is not enough: the candidate can be a symlink, or sit under a symlinked directory,
-  // whose real target is guarded. Resolve the alias and re-guard the real path BEFORE any exists/stat/
-  // read, so protected content cannot be reached — or hashed — behind an innocent-looking name.
+  // whose target chain is guarded. Resolve aliases BEFORE any exists/stat/read, so protected content
+  // cannot be reached — or hashed — behind an innocent-looking name.
   // Resolution reads no content; an unresolvable path falls through to the missing branch.
+  const symlinkAlias = deps.realpath ? null : guardedSymlinkAlias(path);
+  if (symlinkAlias) {
+    return {
+      refused: 'guarded_path',
+      guarded_id: symlinkAlias.hit.id,
+      path_sha256: sha256(path),
+      alias_of_sha256: sha256(symlinkAlias.alias),
+    };
+  }
   const resolve = deps.realpath ?? realpathSync;
   let real = path;
   try {

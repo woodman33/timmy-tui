@@ -619,6 +619,39 @@ describe('witness-o7c2 C1 · symlink aliases cannot reach protected content', ()
     }
   });
 
+  it('refuses a symlink chain whose guarded hop resolves to an unguarded name', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'witness-alias-chain-'));
+    try {
+      const devFile = join(dir, 'development.env');
+      writeFileSync(devFile, 'SECRET-MATERIAL');
+      const envLink = join(dir, '.env');
+      symlinkSync(devFile, envLink);
+      const link = join(dir, 'innocent.output'); // final realpath has no guarded token
+      symlinkSync(envLink, link);
+      expect(realpathSync(link)).toBe(devFile);
+      expect(devFile).not.toMatch(/(^|[/\s'"])\.env(\.[A-Za-z0-9_.-]+)?($|[/\s'"])/i);
+      const s = fsSpies();
+      const { sealed, need } = await load(IN_ORDER, 'fake', s.deps);
+      await sealPair(need as Need, 'run_shell_command', { command: 'make' }, 'preview', {
+        managedOutputFile: link,
+      });
+      expect(s.ex).toEqual([]);
+      expect(s.read).toEqual([]);
+      expect(s.sized).toEqual([]);
+      const mo = sealed.find((x) => x.subject === 'witness.result')?.input
+        .managed_output as Record<string, unknown>;
+      expect(mo.refused).toBe('guarded_path');
+      expect(mo.guarded_id).toBe('dotenv');
+      expect(mo.sha256).toBeUndefined();
+      expect(mo.size).toBeUndefined();
+      const body = JSON.stringify(sealed.map((x) => x.input));
+      expect(body).not.toContain('SECRET-MATERIAL');
+      expect(body).not.toContain(sha256Of('SECRET-MATERIAL'));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('refuses a symlinked directory that aliases the private overlay', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'witness-alias-dir-'));
     try {
