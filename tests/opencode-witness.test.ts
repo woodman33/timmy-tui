@@ -1,11 +1,23 @@
 // ORDER witness-o7c2 C1: an OpenCode plugin that seals intent before a tool runs and the result after it,
 // injects the order into every shell, refuses any read of .env or the private overlay, and refuses outright
-// outside an order. The hook contract is verified against @opencode-ai/plugin 1.18.31 — the exact version of
-// the installed binary — whose Hooks keys are "tool.execute.before"(input{tool,sessionID,callID}, output{args}),
+// outside an order. The hook contract is read from the INSTALLED @opencode-ai/plugin 1.4.7 (both
+// ~/.opencode/node_modules and ~/.config/opencode/node_modules); the OpenCode CLI is 1.18.31 — the two
+// versions are recorded separately and need not match. Its Hooks keys are
+// "tool.execute.before"(input{tool,sessionID,callID}, output{args}),
 // "tool.execute.after"(input{tool,sessionID,callID,args}, output{title,output,metadata}) and
 // "shell.env"(input{cwd,sessionID?,callID?}, output{env}).
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, statSync } from 'node:fs';
+import {
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  existsSync,
+  mkdirSync,
+  symlinkSync,
+  realpathSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -85,9 +97,9 @@ describe('witness-o7c2 C1 · tool.execute.before seals intent', () => {
   it('hashes args canonically: key order cannot change the seal, different args must', async () => {
     const { sealed, need } = await load(IN_ORDER, 'fake');
     const hook = need('tool.execute.before');
-    const a = callBefore('edit', { file_path: 'a.ts', old: 'x', new: 'y' });
-    const b = callBefore('edit', { new: 'y', old: 'x', file_path: 'a.ts' });
-    const c = callBefore('edit', { file_path: 'a.ts', old: 'x', new: 'CHANGED' });
+    const a = callBefore('edit', { file_path: 'a.ts', old: 'x', new: 'y' }, 'call_c1');
+    const b = callBefore('edit', { new: 'y', old: 'x', file_path: 'a.ts' }, 'call_c2');
+    const c = callBefore('edit', { file_path: 'a.ts', old: 'x', new: 'CHANGED' }, 'call_c3');
     await hook(a.input as never, a.output as never);
     await hook(b.input as never, b.output as never);
     await hook(c.input as never, c.output as never);
@@ -496,5 +508,238 @@ describe('witness-o7c2 C1 · a result must present its matching intent', () => {
     expect(result?.input.args_drift).toBe(false);
     expect(result?.input.intent_receipt).toBe('rc_fake_1');
     expect(result?.input.intent_hash).toBe('sha256_fake');
+  });
+});
+
+describe('witness-o7c2 C1 · lexical aliases of a guarded path are refused', () => {
+  it('normalizes lexically, without touching the filesystem', async () => {
+    const { mod } = await load(IN_ORDER, 'fake');
+    expect(mod.normalizePathish('/a/b/../c/./d')).toBe('/a/c/d');
+    expect(mod.normalizePathish('/a//b///c/')).toBe('/a/b/c');
+    expect(mod.normalizePathish('~/x/../.timmy/private/y')).toBe('~/.timmy/private/y');
+    expect(mod.normalizePathish('/a/../../.env')).toBe('/.env');
+    expect(mod.normalizePathish('make -j8')).toBe('make -j8'); // a non-path passes through harmless
+  });
+
+  it('refuses a traversal that hides the private overlay from a raw match', async () => {
+    const { sealed, need, mod } = await load(IN_ORDER, 'fake');
+    const sneaky = '/synthetic/.timmy/public/../private/config.json';
+    expect(sneaky).not.toMatch(/\.timmy[/\\]private([/\\]|$)/i); // the raw form genuinely evades
+    const c = callBefore('read_file', { file_path: sneaky });
+    await expect(need('tool.execute.before')(c.input as never, c.output as never)).rejects.toBeInstanceOf(
+      mod.WitnessRefusal
+    );
+    expect(sealed.find((s) => s.subject === 'witness.denial')?.input.guarded_id).toBe('private_overlay');
+    expect(sealed.filter((s) => s.subject === 'witness.intent')).toHaveLength(0);
+  });
+
+  it('refuses ~ plus traversal into the private ledger', async () => {
+    const { sealed, need, mod } = await load(IN_ORDER, 'fake');
+    const sneaky = '~/work/.timmy/public/../private/orders.log';
+    expect(sneaky).not.toMatch(/\.timmy[/\\]private([/\\]|$)/i);
+    const c = callBefore('read_file', { file_path: sneaky });
+    await expect(need('tool.execute.before')(c.input as never, c.output as never)).rejects.toBeInstanceOf(
+      mod.WitnessRefusal
+    );
+    expect(sealed.find((s) => s.subject === 'witness.denial')?.input.guarded_id).toBe('private_overlay');
+  });
+
+  it('refuses case aliases, because the host filesystem is case-insensitive', async () => {
+    const { sealed, need, mod } = await load(IN_ORDER, 'fake');
+    for (const p of ['/synthetic/project/.ENV', '/synthetic/project/.Env.Local']) {
+      const c = callBefore('read_file', { file_path: p });
+      await expect(need('tool.execute.before')(c.input as never, c.output as never)).rejects.toBeInstanceOf(
+        mod.WitnessRefusal
+      );
+    }
+    expect(sealed.filter((s) => s.subject === 'witness.denial')).toHaveLength(2);
+    expect(sealed.find((s) => s.subject === 'witness.denial')?.input.guarded_id).toBe('dotenv');
+    expect(sealed.filter((s) => s.subject === 'witness.intent')).toHaveLength(0);
+  });
+});
+
+describe('witness-o7c2 C1 · symlink aliases cannot reach protected content', () => {
+  // Real synthetic temporary files, and spies on every fs call the witness could make. The presented name
+  // carries no guarded token, so only alias resolution can catch it.
+  const fsSpies = () => {
+    const ex: string[] = [];
+    const read: string[] = [];
+    const sized: string[] = [];
+    return {
+      ex,
+      read,
+      sized,
+      deps: {
+        exists: (p: string) => {
+          ex.push(p);
+          return existsSync(p);
+        },
+        readFile: (p: string) => {
+          read.push(p);
+          return readFileSync(p, 'utf8');
+        },
+        sizeOf: (p: string) => {
+          sized.push(p);
+          return statSync(p).size;
+        },
+      },
+    };
+  };
+
+  it('refuses a symlink to .env: never stat-ed, read, measured or hashed', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'witness-alias-file-'));
+    try {
+      const envFile = join(dir, '.env');
+      writeFileSync(envFile, 'SECRET-MATERIAL');
+      const link = join(dir, 'innocent.output'); // no guarded token in the presented name
+      symlinkSync(envFile, link);
+      expect(link).not.toMatch(/(^|[/\s'"])\.env(\.[A-Za-z0-9_.-]+)?($|[/\s'"])/i);
+      const s = fsSpies();
+      const { sealed, need } = await load(IN_ORDER, 'fake', s.deps);
+      await sealPair(need as Need, 'run_shell_command', { command: 'make' }, 'preview', {
+        managedOutputFile: link,
+      });
+      expect(s.ex).toEqual([]);
+      expect(s.read).toEqual([]);
+      expect(s.sized).toEqual([]);
+      const mo = sealed.find((x) => x.subject === 'witness.result')?.input
+        .managed_output as Record<string, unknown>;
+      expect(mo.refused).toBe('guarded_path');
+      expect(mo.guarded_id).toBe('dotenv');
+      expect(mo.sha256).toBeUndefined();
+      expect(mo.size).toBeUndefined();
+      const body = JSON.stringify(sealed.map((x) => x.input));
+      expect(body).not.toContain('SECRET-MATERIAL');
+      expect(body).not.toContain(sha256Of('SECRET-MATERIAL')); // the content was never hashed either
+      expect(sealed.find((x) => x.subject === 'witness.denial')?.input.reason).toBe(
+        'managed_output_redirect'
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a symlinked directory that aliases the private overlay', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'witness-alias-dir-'));
+    try {
+      mkdirSync(join(dir, '.timmy', 'private'), { recursive: true });
+      writeFileSync(join(dir, '.timmy', 'private', 'config.json'), 'SECRET-MATERIAL');
+      const logs = join(dir, 'logs');
+      symlinkSync(join(dir, '.timmy', 'private'), logs);
+      const candidate = join(logs, 'config.json');
+      expect(candidate).not.toMatch(/\.timmy[/\\]private([/\\]|$)/i);
+      const s = fsSpies();
+      const { sealed, need } = await load(IN_ORDER, 'fake', s.deps);
+      await sealPair(need as Need, 'read_file', { file_path: 'src/cli.ts' }, 'preview', {
+        persistedOutput: candidate,
+      });
+      expect(s.read).toEqual([]);
+      expect(s.sized).toEqual([]);
+      expect(sealed.find((x) => x.subject === 'witness.result')?.input.managed_output).toMatchObject({
+        refused: 'guarded_path',
+        guarded_id: 'private_overlay',
+      });
+      expect(JSON.stringify(sealed.map((x) => x.input))).not.toContain('SECRET-MATERIAL');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('still binds a safe symlink target, and the permitted path stays visible', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'witness-alias-ok-'));
+    try {
+      const real = join(dir, 'real.output');
+      writeFileSync(real, 'safe-content');
+      const link = join(dir, 'alias.output');
+      symlinkSync(real, link);
+      const { sealed, need } = await load(IN_ORDER, 'fake');
+      await sealPair(need as Need, 'run_shell_command', { command: 'make' }, 'preview', {
+        managedOutputFile: link,
+      });
+      const mo = sealed.find((x) => x.subject === 'witness.result')?.input
+        .managed_output as Record<string, unknown>;
+      expect(mo.refused).toBeUndefined();
+      expect(mo.path).toBe(link); // permitted paths are bound literally, not hashed
+      expect(mo.realpath).toBe(realpathSync(link));
+      expect(mo.sha256).toBe(sha256Of('safe-content'));
+      expect(mo.size).toBe(12);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('witness-o7c2 C1 · session/call identity and duplicate intents', () => {
+  const intents = (sealed: Sealed[]) => sealed.filter((s) => s.subject === 'witness.intent');
+  const results = (sealed: Sealed[]) => sealed.filter((s) => s.subject === 'witness.result');
+  const denial = (sealed: Sealed[]) => sealed.find((s) => s.subject === 'witness.denial');
+
+  it('defines identity as the (sessionID, callID) pair, injectively', async () => {
+    const { mod } = await load(IN_ORDER, 'fake');
+    expect(mod.intentKey('ses_A', 'call_1')).toBe(mod.intentKey('ses_A', 'call_1'));
+    expect(mod.intentKey('ses_A', 'call_1')).not.toBe(mod.intentKey('ses_B', 'call_1'));
+    expect(mod.intentKey('ses_A', 'call_1')).not.toBe(mod.intentKey('ses_A|call', '1')); // no forged separator
+  });
+
+  it('refuses a duplicate pending intent before sealing a replacement, and preserves the original', async () => {
+    const { sealed, need, mod } = await load(IN_ORDER, 'fake');
+    const first = callBefore('read_file', { file_path: 'src/cli.ts' }, 'call_dup');
+    await need('tool.execute.before')(first.input as never, first.output as never);
+    const second = callBefore('read_file', { file_path: 'DIFFERENT-ARGS' }, 'call_dup');
+    await expect(
+      need('tool.execute.before')(second.input as never, second.output as never)
+    ).rejects.toBeInstanceOf(mod.WitnessRefusal);
+    expect(intents(sealed)).toHaveLength(1); // no replacement was sealed, nothing overwritten
+    expect(denial(sealed)?.input.reason).toBe('duplicate_intent');
+    expect(denial(sealed)?.input.status).toBe('denied');
+    expect(denial(sealed)?.input.existing_intent_receipt).toBe('rc_fake_1');
+    expect(JSON.stringify(denial(sealed)?.input)).not.toContain('DIFFERENT-ARGS');
+    // the original intent still binds its own result
+    const a = callAfter('read_file', { file_path: 'src/cli.ts' }, 'out', {}, 'call_dup');
+    await need('tool.execute.after')(a.input as never, a.output as never);
+    expect(results(sealed)).toHaveLength(1);
+    expect(results(sealed)[0].input.args_sha256).toBe(intents(sealed)[0].input.args_sha256);
+  });
+
+  it('treats the same callID in another session as a different identity, and binds each after-hook correctly', async () => {
+    const { sealed, need } = await load(IN_ORDER, 'fake');
+    const bA = { input: { tool: 'glob', sessionID: 'ses_A', callID: 'call_1' }, output: { args: { pattern: 'a' } } };
+    const bB = { input: { tool: 'glob', sessionID: 'ses_B', callID: 'call_1' }, output: { args: { pattern: 'b' } } };
+    await need('tool.execute.before')(bA.input as never, bA.output as never);
+    await need('tool.execute.before')(bB.input as never, bB.output as never);
+    expect(intents(sealed)).toHaveLength(2); // same callID, different session: no collision, no refusal
+    const aB = {
+      input: { tool: 'glob', sessionID: 'ses_B', callID: 'call_1', args: { pattern: 'b' } },
+      output: { title: 'glob', output: 'ok', metadata: {} },
+    };
+    await need('tool.execute.after')(aB.input as never, aB.output as never);
+    expect(results(sealed)).toHaveLength(1);
+    expect(results(sealed)[0].input.sessionID).toBe('ses_B');
+    expect(results(sealed)[0].input.args_sha256).toBe(intents(sealed)[1].input.args_sha256);
+    // ses_A's intent is untouched and still binds its own result
+    const aA = {
+      input: { tool: 'glob', sessionID: 'ses_A', callID: 'call_1', args: { pattern: 'a' } },
+      output: { title: 'glob', output: 'ok2', metadata: {} },
+    };
+    await need('tool.execute.after')(aA.input as never, aA.output as never);
+    expect(results(sealed)).toHaveLength(2);
+    expect(results(sealed)[1].input.sessionID).toBe('ses_A');
+    expect(results(sealed)[1].input.args_sha256).toBe(intents(sealed)[0].input.args_sha256);
+  });
+
+  it('an after-hook from a third session with the same callID is an orphan, not a rebind', async () => {
+    const { sealed, need, mod } = await load(IN_ORDER, 'fake');
+    const b = { input: { tool: 'glob', sessionID: 'ses_A', callID: 'call_1' }, output: { args: { pattern: 'a' } } };
+    await need('tool.execute.before')(b.input as never, b.output as never);
+    const a = {
+      input: { tool: 'glob', sessionID: 'ses_C', callID: 'call_1', args: { pattern: 'a' } },
+      output: { title: 'glob', output: 'ok', metadata: {} },
+    };
+    await expect(need('tool.execute.after')(a.input as never, a.output as never)).rejects.toBeInstanceOf(
+      mod.WitnessRefusal
+    );
+    expect(results(sealed)).toHaveLength(0);
+    expect(denial(sealed)?.input.reason).toBe('orphan_result');
+    expect(intents(sealed)).toHaveLength(1); // the pending intent survives the refused orphan
   });
 });

@@ -13,7 +13,7 @@
 // happens to carry identical shapes for these three hooks, but the installed 1.4.7 d.ts is the
 // authority here: a registry version is not evidence about a local install.
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 
 export class WitnessRefusal extends Error {
   readonly reason: string;
@@ -33,15 +33,40 @@ export type WitnessDeps = {
   readFile?: (p: string) => string;
   exists?: (p: string) => boolean;
   sizeOf?: (p: string) => number;
+  realpath?: (p: string) => string;
 };
 
 // Fail-closed by design: a witness does not parse intent. `.env.example` is refused too — narrowing this
-// list is an operator decision, documented in the package README.
+// list is an operator decision, documented in the package README. Case-insensitive because the host
+// filesystem (macOS/APFS by default) is case-insensitive, so `.ENV` opens `.env`.
 export const GUARDED_PATHS: { id: string; re: RegExp }[] = [
-  { id: 'dotenv', re: /(^|[/\s'"])\.env(\.[A-Za-z0-9_.-]+)?($|[/\s'"])/ },
-  { id: 'private_overlay', re: /\.timmy[/\\]private([/\\]|$)/ },
-  { id: 'privacy_overlay_module', re: /lanes[/\\]privacy[/\\]overlay\./ },
+  { id: 'dotenv', re: /(^|[/\s'"])\.env(\.[A-Za-z0-9_.-]+)?($|[/\s'"])/i },
+  { id: 'private_overlay', re: /\.timmy[/\\]private([/\\]|$)/i },
+  { id: 'privacy_overlay_module', re: /lanes[/\\]privacy[/\\]overlay\./i },
 ];
+
+// Lexical normalization for GUARD MATCHING ONLY — never used to open a file. Collapses `.` and `..`
+// segments, expands a leading `~`, drops duplicate and trailing separators, and clamps a `..` that would
+// escape the root, so `/a/../../.env` still matches as `/.env`. Without it, `/x/.timmy/pub/../private/y`
+// hides a guarded path from a raw match. Non-path strings pass through unchanged and harmless.
+export const normalizePathish = (s: string): string => {
+  const t = s.trim();
+  if (!t) return t;
+  const home = t === '~' || t.startsWith('~/') || t.startsWith('~\\');
+  const win = /^[A-Za-z]:[\\/]/.test(t);
+  const prefix = home ? '~/' : win ? t.slice(0, 2) + '/' : t.startsWith('/') ? '/' : '';
+  const body = home ? t.slice(1) : win ? t.slice(2) : t;
+  const out: string[] = [];
+  for (const seg of body.split(/[/\\]+/)) {
+    if (!seg || seg === '.') continue;
+    if (seg === '..') {
+      if (out.length) out.pop(); // clamped at the root: escaping `..` cannot smuggle a guarded tail past
+      continue;
+    }
+    out.push(seg);
+  }
+  return prefix + out.join('/');
+};
 
 const sha256 = (s: string): string => 'sha256_' + createHash('sha256').update(s).digest('hex');
 
@@ -69,10 +94,17 @@ const strings = (v: unknown, out: string[] = []): string[] => {
   return out;
 };
 
+// Both the raw string and its lexical normalization are matched: the raw form catches what a reader would
+// see, the normalized form catches a traversal alias such as `/x/.timmy/pub/../private/y`. The hash bound
+// in a refusal is of the ORIGINAL string, so the evidence names what was actually presented.
 export const guardedHit = (args: unknown): { id: string; path_sha256: string } | null => {
   for (const s of strings(args)) {
-    for (const g of GUARDED_PATHS) {
-      if (g.re.test(s)) return { id: g.id, path_sha256: sha256(s) };
+    const norm = normalizePathish(s);
+    const forms = norm === s ? [s] : [s, norm];
+    for (const f of forms) {
+      for (const g of GUARDED_PATHS) {
+        if (g.re.test(f)) return { id: g.id, path_sha256: sha256(s) };
+      }
     }
   }
   return null;
@@ -87,8 +119,8 @@ const MOF_TEXT = /([/~][^\s'"<>|]+\.output)\b/;
 
 export type ManagedOutput =
   | 'none'
-  | { path: string; sha256?: string; size?: number; missing?: boolean }
-  | { refused: 'guarded_path'; guarded_id: string; path_sha256: string };
+  | { path: string; realpath?: string; sha256?: string; size?: number; missing?: boolean }
+  | { refused: 'guarded_path'; guarded_id: string; path_sha256: string; alias_of_sha256?: string };
 
 export function resolveManagedOutput(
   metadata: unknown,
@@ -122,8 +154,37 @@ export function resolveManagedOutput(
   // enters the chain, and nothing is read or measured.
   const hit = guardedHit(path);
   if (hit) return { refused: 'guarded_path', guarded_id: hit.id, path_sha256: hit.path_sha256 };
+  // A lexical miss is not enough: the candidate can be a symlink, or sit under a symlinked directory,
+  // whose real target is guarded. Resolve the alias and re-guard the real path BEFORE any exists/stat/
+  // read, so protected content cannot be reached — or hashed — behind an innocent-looking name.
+  // Resolution reads no content; an unresolvable path falls through to the missing branch.
+  const resolve = deps.realpath ?? realpathSync;
+  let real = path;
+  try {
+    real = resolve(path);
+  } catch {
+    real = path;
+  }
+  if (real !== path) {
+    const alias = guardedHit(real);
+    if (alias) {
+      return {
+        refused: 'guarded_path',
+        guarded_id: alias.id,
+        path_sha256: sha256(path),
+        alias_of_sha256: sha256(real),
+      };
+    }
+  }
   if (!exists(path)) return { path, missing: true };
-  return { path, sha256: sha256(read(path)), size: sizeOf(path) };
+  // A PERMITTED path is bound literally: `path` (and `realpath` when it differs) stay visible in the
+  // receipt. Only refused candidates are hash-only.
+  return {
+    path,
+    ...(real !== path ? { realpath: real } : {}),
+    sha256: sha256(read(path)),
+    size: sizeOf(path),
+  };
 }
 
 export function orderOf(deps: WitnessDeps = {}): OrderContext {
@@ -173,10 +234,16 @@ export async function chainSeal(subject: string, input: Record<string, unknown>)
   return { id: rec.id, hash: rec.hash };
 }
 
-// An intent is single-use and stays bound to the context it was sealed in: the after-hook must present
-// the same callID, tool, session, order and head, or the result is refused. A witness that re-bound a
-// result to whatever the environment happens to say now would be forgeable, and a nonempty
-// TIMMY_ORDER/TIMMY_HEAD is context, not authorization.
+// Session/call identity: an intent is identified by the pair OpenCode hands both hooks — (sessionID,
+// callID). callID alone is NOT unique across sessions, so it is never the key by itself; the key is the
+// JSON pair, which is injective (no value can forge the separator).
+export const intentKey = (sessionID: string, callID: string): string => JSON.stringify([sessionID, callID]);
+
+// An intent is single-use and stays bound to the context it was sealed in: the after-hook must present the
+// same identity, tool, order and head, or the result is refused. A duplicate before-hook is refused rather
+// than overwriting the pending intent or sealing a replacement. A witness that re-bound a result to
+// whatever the environment happens to say now would be forgeable, and a nonempty TIMMY_ORDER /
+// TIMMY_HEAD is context — not authorization, and not identity.
 type PendingIntent = {
   tool: string;
   sessionID: string;
@@ -221,6 +288,27 @@ export function createWitness(deps: WitnessDeps = {}): WitnessHooks {
       const o = orderOf(deps); // outside an order: refused, and nothing is sealed (there is no order to bind)
       const hit = guardedHit(output.args);
       if (hit) await refuseGuarded(hit, o, input.tool, input.callID, input.sessionID);
+      const key = intentKey(input.sessionID, input.callID);
+      const existing = pending.get(key);
+      if (existing) {
+        // Refuse BEFORE sealing a replacement or overwriting: the original intent stays authoritative and
+        // the denial cites it, so a second before-hook cannot launder a different call under one identity.
+        await seal('witness.denial', {
+          reason: 'duplicate_intent',
+          status: 'denied',
+          tool: input.tool,
+          callID: input.callID,
+          sessionID: input.sessionID,
+          order: o.id,
+          head: o.head,
+          existing_intent_receipt: existing.receipt.id,
+          existing_intent_hash: existing.receipt.hash,
+        });
+        throw new WitnessRefusal(
+          'duplicate_intent',
+          'an intent is already pending for this (sessionID, callID) — the original is preserved and no replacement is sealed'
+        );
+      }
       const args_sha256 = argsHash(output.args);
       const receipt = await seal('witness.intent', {
         tool: input.tool,
@@ -230,7 +318,7 @@ export function createWitness(deps: WitnessDeps = {}): WitnessHooks {
         sessionID: input.sessionID,
         callID: input.callID,
       });
-      pending.set(input.callID, {
+      pending.set(key, {
         tool: input.tool,
         sessionID: input.sessionID,
         args_sha256,
@@ -261,18 +349,20 @@ export function createWitness(deps: WitnessDeps = {}): WitnessHooks {
         throw new WitnessRefusal(reason, detail);
       };
 
-      const intent = pending.get(input.callID);
+      const key = intentKey(input.sessionID, input.callID);
+      const intent = pending.get(key);
       if (!intent) {
         await refuseResult(
           'orphan_result',
-          'no witness.intent was sealed for this callID — a result without its matching intent is refused, not sealed'
+          'no witness.intent is pending for this (sessionID, callID) — a result without its matching intent is refused, not sealed'
         );
         return;
       }
-      if (intent.tool !== input.tool || intent.sessionID !== input.sessionID) {
+      // sessionID is already part of the identity key, so only the tool can mismatch here
+      if (intent.tool !== input.tool) {
         await refuseResult(
           'intent_mismatch',
-          'this after-hook does not describe the call the intent was sealed for (tool or session differs)'
+          'this after-hook names a different tool than the intent sealed for this (sessionID, callID)'
         );
         return;
       }
@@ -283,7 +373,7 @@ export function createWitness(deps: WitnessDeps = {}): WitnessHooks {
         );
         return;
       }
-      pending.delete(input.callID); // single-use: a replayed after-hook arrives as an orphan
+      pending.delete(key); // single-use: a replayed after-hook arrives as an orphan
 
       const text = String(output.output ?? '');
       const afterArgs = argsHash(input.args);

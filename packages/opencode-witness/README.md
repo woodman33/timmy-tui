@@ -34,20 +34,31 @@ chain — only hashes. A denial is sealed *before* it throws, so a blocked call 
 - **Outside an order.** `TIMMY_ORDER` and `TIMMY_HEAD` must both be bound and non-empty. All three hooks
   throw `WitnessRefusal('no_order')` and seal nothing — there is no order to bind. A half-bound order
   (id without head) is refused the same way.
-- **Guarded paths.** Any string anywhere in the arguments matching `.env` / `.env.*`, `.timmy/private/`,
-  or `lanes/privacy/overlay.*` throws `WitnessRefusal('guarded_path')`. This is deliberately blunt:
-  `.env.example` is refused too, because a witness does not parse intent. Narrow `GUARDED_PATHS` in
-  `src/witness.ts` if that ever blocks real work.
-- **A result must present its matching intent.** `tool.execute.after` is refused unless the same
-  `callID` was sealed by `tool.execute.before` in this witness instance:
-  - `orphan_result` — no intent for that callID (including a replayed after-hook: an intent is
-    single-use and is dropped once its result is sealed);
-  - `intent_mismatch` — the after-hook names a different tool or session than the intent;
+- **Guarded paths, including aliases.** Any string anywhere in the arguments matching `.env` / `.env.*`,
+  `.timmy/private/`, or `lanes/privacy/overlay.*` throws `WitnessRefusal('guarded_path')`. Matching runs
+  on the raw string **and** on `normalizePathish()`, a lexical normalization (collapses `.`/`..`, expands
+  a leading `~`, drops duplicate and trailing separators, clamps a `..` that would escape the root) used
+  for guard decisions only — never to open a file. Patterns are case-insensitive because the host
+  filesystem is. So `/x/.timmy/pub/../private/y`, `~/work/.timmy/pub/../private/orders.log` and `.ENV`
+  are all refused. This is deliberately blunt: `.env.example` is refused too, because a witness does not
+  parse intent. Narrow `GUARDED_PATHS` in `src/witness.ts` if that ever blocks real work.
+- **Identity is the `(sessionID, callID)` pair** — `intentKey()`, a JSON pair, so `callID` alone (which is
+  not unique across sessions) is never the key and no value can forge the separator.
+- **A duplicate pending intent is refused**, not overwritten: a second `tool.execute.before` for the same
+  identity throws `WitnessRefusal('duplicate_intent')` *before* any replacement is sealed, and the denial
+  cites the original intent's receipt id and hash. The original stays authoritative and still binds its
+  own result.
+- **A result must present its matching intent.** `tool.execute.after` is refused unless that identity was
+  sealed by `tool.execute.before` in this witness instance:
+  - `orphan_result` — no pending intent for that identity (a replayed after-hook, since an intent is
+    single-use and dropped once its result is sealed; or an after-hook from a different session);
+  - `intent_mismatch` — the after-hook names a different tool than the intent (session is already bound
+    by the identity key);
   - `context_changed` — `TIMMY_ORDER` / `TIMMY_HEAD` moved between the two hooks.
   Each refusal seals `witness.denial` first, then throws. The original intent seal is never edited or
   rebound, and the result always carries the *intent's* `args_sha256` plus `intent_receipt` /
   `intent_hash`; when the after-hook's args differ, that is flagged as `args_drift` rather than
-  substituted. A nonempty `TIMMY_ORDER` / `TIMMY_HEAD` is context, not authorization, and not evidence
+  substituted. A nonempty `TIMMY_ORDER` / `TIMMY_HEAD` is context — not authorization, and not evidence
   of who is acting.
 
 ## Managed Tool Output File
@@ -55,16 +66,28 @@ chain — only hashes. A denial is sealed *before* it throws, so a blocked call 
 Not an OpenCode term — the after-hook exposes only `{title, output, metadata}`. It is the harness-persisted
 file a large tool result spills to (the truncated-output / `<persisted-output>` case). The witness finds it
 by a metadata key matching `/managed|persisted|output_?file|outfile|truncated_?to/i`, otherwise by a
-`*.output` path in the output text, and binds `{path, sha256, size}`. A referenced path that does not
-exist is bound as `{path, missing: true}`; nothing referenced means `managed_output: "none"`. It never
-fabricates a file and never copies the spilled content into the chain.
+`*.output` path in the output text, and binds `{path, sha256, size}` — plus `realpath` when the resolved
+path differs (on macOS a temp dir under `/var` resolves to `/private/var`, so that is common and benign).
+A referenced path that does not exist is bound as `{path, missing: true}`; nothing referenced means
+`managed_output: "none"`. It never fabricates a file and never copies the spilled content into the chain.
 
 **The candidate is untrusted input.** Metadata and output text are tool-controlled, so a tool could try to
-redirect the witness into hashing `.env` or the private overlay. Every candidate is checked against
-`GUARDED_PATHS` *before* any `exists` / `stat` / `read` — a guarded candidate is never opened, read or
-measured, is bound as `{refused: 'guarded_path', guarded_id, path_sha256}` (hash only, no literal path),
-and seals a `witness.denial` with reason `managed_output_redirect`. The result seal still lands, so the
-call is witnessed rather than silently dropped.
+redirect the witness into hashing `.env` or the private overlay. Two layers run *before* any `exists` /
+`stat` / `read`:
+
+1. the lexical guard — raw string and `normalizePathish()`, case-insensitive;
+2. an **alias guard** — the candidate is resolved with `realpath` and the real path is guarded again, so a
+   symlink (or a file under a symlinked directory) whose target is guarded is caught even when the
+   presented name looks innocent. Resolution reads no content; an unresolvable path falls through to the
+   `missing` branch.
+
+A refused candidate is bound as `{refused: 'guarded_path', guarded_id, path_sha256, alias_of_sha256?}` and
+seals a `witness.denial` with reason `managed_output_redirect`; the result seal still lands, so the call is
+witnessed rather than silently dropped.
+
+**Visibility, stated plainly.** A *refused* path is hash-only — no literal path enters the chain. A
+*permitted* managed-output path is currently bound **literally** (`path`, plus `realpath` when it
+differs), so allowed output paths remain visible in the receipt. Only file *content* is always hash-only.
 
 ## Loading
 
@@ -94,7 +117,7 @@ The order context arrives by env, so pair it with whatever binds `TIMMY_ORDER` /
 
 ## Tests
 
-`tests/opencode-witness.test.ts` — **26 tests**, run only in isolated per-test `TIMMY_STORE` dirs
+`tests/opencode-witness.test.ts` — **37 tests**, run only in isolated per-test `TIMMY_STORE` dirs
 (`tests/isolation-setup.ts`); no model calls, no real secret reads, no installs, no writes to the shared
 chain.
 
@@ -110,6 +133,17 @@ chain.
 - managed-output redirect refusals via metadata and via output text, with adversarial `exists` /
   `readFile` / `sizeOf` spies on synthetic paths proving a forbidden path is never stat-ed, read or
   measured, and that no literal path or secret material reaches a seal;
+- lexical aliases: `normalizePathish` unit cases, a `..` traversal that genuinely evades the raw pattern
+  (asserted with `not.toMatch` before the refusal), `~` plus traversal, and case aliases (`.ENV`,
+  `.Env.Local`);
+- **symlink aliases against real synthetic temporary files**: a link named `innocent.output` pointing at a
+  real `.env`, and a symlinked *directory* aliasing `.timmy/private`. In both, the presented name carries
+  no guarded token, the spies record nothing (never stat-ed, read, measured), the seal contains neither
+  the secret nor its hash, and a safe symlink still binds `path` + `realpath` + `sha256` + `size`;
+- identity and duplicates: `intentKey` injectivity, a duplicate `before` refused before any replacement is
+  sealed (one intent only, denial citing the original receipt, original still binds its result), the same
+  `callID` in two sessions as two identities each binding its own after-hook, and a third session's
+  after-hook as an orphan that leaves the pending intent intact;
 - intent/result binding: orphan result, changed order, changed head, tool mismatch, replayed after-hook,
   argument drift flagged rather than substituted, and the no-drift positive control;
 - one test writes a real hash-chained receipt into a temp store and asserts the two-row shape — one
