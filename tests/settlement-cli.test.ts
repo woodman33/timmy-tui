@@ -29,18 +29,22 @@ async function cli(cwd: string, args: string[], extraEnv: Record<string, string>
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 describe('settlement CLI routing', () => {
-  it('forwards native cockpit verbs to the lane without launching tmux or agents', async () => {
+  it.each([false, true])('forwards native cockpit verbs without launching agents (leading JSON flag: %s)', async leadingJson => {
     const cwd = sandbox(), bin = join(cwd, 'bin');
     mkdirSync(bin);
     writeFileSync(join(bin, 'node'), `#!${process.execPath}\nconsole.log(JSON.stringify({argv:process.argv.slice(2),cwd:process.cwd()}));\n`, { mode: 0o700 });
     for (const verb of ['up', 'attach', 'status', 'down', 'hands']) {
-      const result = await cli(cwd, ['cockpit', verb, '--session', 'fixture'], { PATH: `${bin}:${process.env.PATH ?? ''}` });
+      const result = await cli(cwd, [...(leadingJson ? ['--json'] : []), 'cockpit', verb, '--session', 'fixture'], { PATH: `${bin}:${process.env.PATH ?? ''}` });
       expect(result.code, result.stderr).toBe(0);
       const forwarded = JSON.parse(result.stdout.trim());
       expect(forwarded.argv[0]).toBe(join(root, 'lanes/cockpit/cockpit.mjs'));
       expect(forwarded.argv.slice(1)).toEqual([verb, '--session', 'fixture']);
       expect(forwarded.cwd).toBe(cwd);
     }
+    const refused = await cli(cwd, ['--json', 'cockpit', 'up', '--out'], { PATH: `${bin}:${process.env.PATH ?? ''}` });
+    expect(refused.code).toBe(2);
+    expect(refused.stderr).toContain('--out requires a directory');
+    expect(refused.stdout).toBe('');
   });
 
   it('explicit TUI settings reject non-terminal input without replacing plain init', async () => {

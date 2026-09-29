@@ -658,8 +658,12 @@ if (command === 'release') {
 
 if (command === 'cockpit') {
   // factory-f1d0 C2 PANES: `timmy cockpit up|attach|status|down|hands` — one tmux pane per local hand, logs piped privately
+  if (args.some((arg, index) => arg === '--out' && (!args[index + 1] || args[index + 1].startsWith('--')))) {
+    console.error('Invalid cockpit arguments: --out requires a directory.');
+    process.exit(2);
+  }
   const lane = fileURLToPath(new URL('../lanes/cockpit/cockpit.mjs', import.meta.url));
-  const r = spawnSync('node', [lane, ...args.slice(1)], { stdio: 'inherit', cwd: process.cwd() });
+  const r = spawnSync('node', [lane, ...cleanArgs.slice(1)], { stdio: 'inherit', cwd: process.cwd() });
   process.exit(r.status ?? 1);
 }
 
