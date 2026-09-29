@@ -53,4 +53,28 @@ describe('PTY capture command boundary', () => {
     })).rejects.toThrow();
     expect(readFileSync(target, 'utf8')).toBe('preserve');
   });
+  it.each([999, 1000, 1001])('requires readiness observed before the 1000ms deadline: %ims', async observedAt => {
+    let t = 0; const out = fixture(); const calls: string[][] = [];
+    const result = captureFrames(parseCaptureArgs(['--out', out, '--name', 'frame', '--wait', '1000']), {
+      tmux: args => { calls.push(args); return 'TIMMY 1 HOME'; },
+      sleep: async () => { t = observedAt; }, now: () => t,
+    });
+    if (observedAt < 1000) {
+      await expect(result).resolves.toMatchObject({ file: join(out, 'frame') });
+      expect(readFileSync(join(out, 'frame'), 'utf8')).toBe('TIMMY 1 HOME');
+    } else {
+      await expect(result).rejects.toThrow('did not assemble');
+      expect(existsSync(join(out, 'frame'))).toBe(false);
+    }
+    expect(calls.at(-1)?.[0]).toBe('kill-session');
+  });
+  it('rejects a ready capture that returns after the deadline despite starting before it', async () => {
+    let t = 0; const out = fixture(); const calls: string[][] = [];
+    await expect(captureFrames(parseCaptureArgs(['--out', out, '--name', 'frame', '--wait', '1000']), {
+      tmux: args => { calls.push(args); if (args[0] === 'capture-pane') t = 1001; return 'TIMMY 1 HOME'; },
+      sleep: async () => { t = 500; }, now: () => t,
+    })).rejects.toThrow('did not assemble');
+    expect(calls.at(-1)?.[0]).toBe('kill-session');
+    expect(existsSync(join(out, 'frame'))).toBe(false);
+  });
 });

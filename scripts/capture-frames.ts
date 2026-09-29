@@ -46,6 +46,8 @@ export async function captureFrames(options: CaptureOptions, io: CaptureIO = {
     for (;;) {
       await io.sleep(500);
       const candidate = io.tmux(['capture-pane', '-p', '-t', `=${session}`]);
+      // Readiness must be observed strictly before the deadline. Pane text
+      // supplies no ready-at timestamp that could justify accepting a late read.
       if (io.now() - started >= wait) throw new Error('capture shell did not assemble before timeout');
       if (/TIMMY\s+1 /.test(candidate) && !/assembling/.test(candidate)) break;
     }
