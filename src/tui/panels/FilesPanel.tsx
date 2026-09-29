@@ -554,7 +554,7 @@ export function FilesPanel({ agent, setInspector, focusArea = 'stage' }: FilesPa
                   <Text color={theme.textSecondary}> · scope enforced   : <Text color={theme.accent}>fs.read.workspace</Text></Text>
 
                   <Box marginY={1}>
-                    <Text color={theme.warn}>Open Folder reveals the selected path in Finder. TIMMY keeps the root, receipts, and proof.</Text>
+                    <Text color={theme.textMuted}>Open Folder reveals the selected path in Finder. TIMMY keeps the root, receipts, and proof.</Text>
                   </Box>
 
                   <Box flexDirection="column">

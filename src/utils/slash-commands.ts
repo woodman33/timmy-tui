@@ -26,6 +26,7 @@ import { captureFrames, defaultFramesDir, FRAME_EVERY, ASSUMED_FPS } from './fra
 import { locateGenAgent, buildGenAgentArgs, launchDetached } from './genbridge.js';
 import { BRAND } from './brand.js';
 import { loadTemplate, listTemplates } from './templates.js';
+import { renderStudioComposition } from './studio-composition.js';
 import { writeDashboard, ensureDashServer, dashUrl, probeUrl } from './dash.js';
 import { aggregateGenerations, parseCostFromLog } from './generations.js';
 import { loadOrgConfig, exportSession } from './sessionstore.js';
@@ -38,7 +39,7 @@ import { writeTemplateSeeds, listMarket, installMarketTemplate } from './templat
 import { recall, buildIndex, condenseSession } from './iceberg.js';
 import { loadAgentPass, saveAgentPass, detectProvider, CLEARANCE_LEVELS, clearanceFor, type ClearanceProvider } from './agentpass.js';
 import { policyCheck } from './effects.js';
-import { readChain } from './receipts.js';
+import { readChain, formatCostUsd, measuredCostUsd, hasMeasuredCostUsd } from './receipts.js';
 import { loadBank, addBankEntry, useBankEntry, randomCharacter } from './promptbank.js';
 import { seedStarter } from './starter.js';
 import { renderComfyWorkflow } from './comfy.js';
@@ -621,7 +622,6 @@ export default function DemoDashboard() {
       }
       const brief = restArgs;
       if (!brief) return 'Usage: /studio [--template <name>] <idea>  — templates live in studio/templates/ (any agent may author one)';
-      const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const slugId = brief.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'untitled';
       const dir = join(process.cwd(), 'studio', slugId);
       mkdirSync(dir, { recursive: true });
@@ -629,39 +629,7 @@ export default function DemoDashboard() {
       const template = loadTemplate(templateName, brief);
       const beats = template.beats;
       const total = template.total;
-      const clips = beats.map(b =>
-        `  <div class="clip" data-start="${b.at}" data-duration="${b.dur}">` +
-        `<span class="label">${b.label}</span><h1>${esc(b.text)}</h1></div>`
-      ).join('\n');
-      const html = `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>TIMMY Studios — ${esc(slugId)}</title>
-<style>
-body{margin:0;background:${theme.ground};color:${theme.textPrimary};font:14px/1.5 ui-monospace,Menlo,Consolas,monospace;overflow:hidden}
-#stage{position:relative;width:100vw;height:100vh}
-.clip{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;opacity:0;animation:beat var(--dur) linear var(--at) forwards}
-.label{color:${theme.accent};letter-spacing:.3em;font-size:12px}
-h1{margin:0;color:${theme.accent};font-size:28px;text-align:center;max-width:80%}
-@keyframes beat{0%{opacity:0}12%{opacity:1}88%{opacity:1}100%{opacity:0}}
-</style>
-</head>
-<body>
-<div id="stage" data-composition-id="${compId}" data-start="0" data-duration="${total}">
-${clips}
-</div>
-<script>
-window.__timelines = window.__timelines || {};
-window.__timelines["${compId}"] = { duration: ${total} };
-document.querySelectorAll(".clip").forEach(function (el) {
-  el.style.setProperty("--at", el.getAttribute("data-start") + "s");
-  el.style.setProperty("--dur", el.getAttribute("data-duration") + "s");
-});
-</script>
-</body>
-</html>
-`;
+      const html = renderStudioComposition({ id: compId, title: slugId, duration: total, beats });
       writeFileSync(join(dir, 'index.html'), html, 'utf8');
       writeFileSync(join(dir, 'STORYBOARD.md'),
         `# ${BRAND.studios} storyboard — ${slugId}\n\nBrief: ${brief}\nTemplate: ${template.name} (${template.source})\n\n` +
@@ -705,7 +673,7 @@ document.querySelectorAll(".clip").forEach(function (el) {
              `• preview:     ${url}\n` +
              `• lane:        ${lane}\n` +
              `• render:      npx hyperframes render studio/${slugId}\n` +
-             `• receipt:     sealed (studio run created)`;
+             `• receipt:     not created by this seed; run event emitted when an agent is attached`;
     }
   },
   {
@@ -856,7 +824,7 @@ document.querySelectorAll(".clip").forEach(function (el) {
             } catch { /* project sync is best-effort */ }
           }
         }
-        return `• ${g.id}  ${g.provider.padEnd(18)} ${status.padEnd(7)}${cost !== undefined ? ` $${cost.toFixed(3)}` : ''}${g.frameCount ? ` ${g.frameCount}f` : ''}${artifact ? ` → ${artifact}` : ''}  "${g.prompt.slice(0, 44)}${g.prompt.length > 44 ? '…' : ''}"`;
+        return `• ${g.id}  ${g.provider.padEnd(18)} ${status.padEnd(7)} ${formatCostUsd({ ...g, cost_usd: cost }, 3)}${g.frameCount ? ` ${g.frameCount}f` : ''}${artifact ? ` → ${artifact}` : ''}  "${g.prompt.slice(0, 44)}${g.prompt.length > 44 ? '…' : ''}"`;
       });
       return `◆  GENERATION LEDGER\n${lines.join('\n')}\n\n${generationsOverview()}`;
     }
@@ -913,9 +881,9 @@ document.querySelectorAll(".clip").forEach(function (el) {
       const stats = aggregateGenerations(args.trim() || undefined);
       if (!stats.length) return `🗄️  Prompt DB is empty — run /gen first. ${generationsOverview()}`;
       const lines = stats.map(s =>
-        `• ${s.provider.padEnd(18)} total:${String(s.total).padEnd(3)} done:${String(s.done).padEnd(3)} failed:${String(s.failed).padEnd(2)} $${s.cost.toFixed(3)}  models: ${Object.entries(s.models).map(([m, n]) => `${m}×${n}`).join(', ')}  last:${(s.last_at || '').slice(0, 19).replace('T', ' ')}`);
+        `• ${s.provider.padEnd(18)} total:${String(s.total).padEnd(3)} done:${String(s.done).padEnd(3)} failed:${String(s.failed).padEnd(2)} $${s.cost.toFixed(3)}${s.declared_unknown ? ` + ${s.declared_unknown} unknown` : ''}  models: ${Object.entries(s.models).map(([m, n]) => `${m}×${n}`).join(', ')}  last:${(s.last_at || '').slice(0, 19).replace('T', ' ')}`);
       const recent = listGenerations({}).slice(0, 6).map(g =>
-        `  - ${g.id} [${g.status}]${g.cost_usd !== undefined ? ` $${g.cost_usd.toFixed(3)}` : ''} (${g.provider}${g.model ? `/${g.model}` : ''}) "${g.prompt.slice(0, 40)}${g.prompt.length > 40 ? '…' : ''}" → ${g.artifact || 'no artifact yet'}`);
+        `  - ${g.id} [${g.status}] ${formatCostUsd(g, 3)} (${g.provider}${g.model ? `/${g.model}` : ''}) "${g.prompt.slice(0, 40)}${g.prompt.length > 40 ? '…' : ''}" → ${g.artifact || 'no artifact yet'}`);
       return `🗄️  PROMPT & RESULT DB — timestamped trail in .timmy/runs/events.jsonl\n${lines.join('\n')}\nrecent:\n${recent.join('\n')}`;
     }
   },
@@ -1358,15 +1326,18 @@ document.querySelectorAll(".clip").forEach(function (el) {
       const gens = listGenerations({});
       const failed = gens.filter(g => g.status === 'failed').length;
       const denied = chain.filter(r => (r.decisions || []).some(d => d.decision === 'deny')).length;
-      const costs = gens.map(g => g.cost_usd || 0);
+      // A zero placeholder or missing/invalid cost cannot become a measured sample.
+      const costs = gens.filter(hasMeasuredCostUsd).map(measuredCostUsd);
+      const unknownCosts = gens.length - costs.length;
       const total = costs.reduce((a, b) => a + b, 0);
-      const avg = costs.length ? total / costs.length : 0;
-      const sigma = costs.length ? Math.sqrt(costs.reduce((a, b) => a + (b - avg) ** 2, 0) / costs.length) : 0;
+      const avg = costs.length ? total / costs.length : undefined;
+      const sigma = avg !== undefined ? Math.sqrt(costs.reduce((a, b) => a + (b - avg) ** 2, 0) / costs.length) : undefined;
       const ts = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
       const lines = [
         `# eval · ${ts}`,
         `runs: ${gens.length} · failed: ${failed} · denied: ${denied}`,
-        `cost: total $${total.toFixed(4)} · avg $${avg.toFixed(4)} · σ $${sigma.toFixed(4)}`,
+        `cost: known total ${formatCostUsd({ cost_usd: costs.length ? total : undefined })} · known avg ${formatCostUsd({ cost_usd: avg })} · known σ ${formatCostUsd({ cost_usd: sigma })}`,
+        `cost samples: ${costs.length} known · ${unknownCosts} unknown`,
         failed > 0 ? '→ suggest: route failed providers to fallback' : '→ no failures — routing stable'
       ];
       const p = join(process.cwd(), 'context', 'topics', `eval-${ts}.md`);

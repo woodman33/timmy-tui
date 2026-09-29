@@ -1,0 +1,59 @@
+{
+  "case": "synthetic-interchange-example-not-a-physics-run",
+  "rows": [
+    {
+      "timeSeconds": 0.0,
+      "positionMetres": [
+        0,
+        0,
+        1.0
+      ],
+      "contactCount": 0
+    },
+    {
+      "timeSeconds": 0.1,
+      "positionMetres": [
+        0,
+        0,
+        0.9
+      ],
+      "contactCount": 0
+    },
+    {
+      "timeSeconds": 0.2,
+      "positionMetres": [
+        0,
+        0,
+        0.8
+      ],
+      "contactCount": 0
+    },
+    {
+      "timeSeconds": 0.30000000000000004,
+      "positionMetres": [
+        0,
+        0,
+        0.7
+      ],
+      "contactCount": 0
+    },
+    {
+      "timeSeconds": 0.4,
+      "positionMetres": [
+        0,
+        0,
+        0.6
+      ],
+      "contactCount": 0
+    },
+    {
+      "timeSeconds": 0.5,
+      "positionMetres": [
+        0,
+        0,
+        0.5
+      ],
+      "contactCount": 0
+    }
+  ]
+}

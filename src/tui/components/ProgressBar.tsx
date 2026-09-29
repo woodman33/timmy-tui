@@ -17,7 +17,7 @@ export function ProgressBar({ value, width = 30, label, showPercent = true, colo
   const filled = Math.round(clamped * safeWidth);
   const empty = safeWidth - filled;
 
-  const bar = chalk.hex(color)('█'.repeat(filled)) + chalk.gray('░'.repeat(empty));
+  const bar = chalk.hex(color)('█'.repeat(filled)) + chalk.hex(theme.textMuted)('░'.repeat(empty));
   const pct = showPercent ? ` ${Math.round(clamped * 100)}%` : '';
 
   return (

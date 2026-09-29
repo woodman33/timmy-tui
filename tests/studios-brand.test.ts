@@ -75,6 +75,15 @@ describe('prompt & result DB', () => {
     expect(aggregateGenerations('nano', dir)).toHaveLength(1);
   });
 
+  it('counts declared-unknown costs separately instead of summing them', () => {
+    recordGeneration({ prompt: 'live', provider: 'higgsfield', kind: 'image', transport: 'higgsfield', status: 'done', cost_usd: 0, cost_measured: false }, dir);
+    recordGeneration({ prompt: 'stub', provider: 'higgsfield', kind: 'image', transport: 'higgsfield', status: 'done', cost_usd: 0, cost_measured: true }, dir);
+    const stats = aggregateGenerations('higgsfield', dir);
+    expect(stats).toHaveLength(1);
+    expect(stats[0].cost).toBe(0);                    // placeholder never summed
+    expect(stats[0].declared_unknown).toBe(1);        // counted separately
+  });
+
   it('writes a timestamped jsonl event trail', () => {
     const rec = recordGeneration({ prompt: 'x', provider: 'wan-2-7', kind: 'video', transport: 'openrouter', status: 'queued' }, dir);
     const events = readFileSync(join(dir, '.timmy', 'runs', 'events.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));

@@ -4,6 +4,7 @@
 // inner width): sliced, never ellipsized. net.policy shows hashes only;
 // swarm.airgap carries the ⊘ glyph.
 import type { Receipt } from '../utils/receipts.js';
+import { stripTerminalCodes, truncateVisible } from './utils/text.js';
 
 const meta = (r: Receipt): Record<string, unknown> =>
   (Array.isArray(r.sources) && typeof r.sources[0] === 'object' && r.sources[0] !== null ? r.sources[0] : {}) as Record<string, unknown>;
@@ -16,6 +17,10 @@ const s = (m: Record<string, unknown>, ...keys: string[]): string => {
 };
 const money = (v: string): string => (v === '—' ? '——' : `$${Number(v).toFixed(4)}`);
 const h12 = (v: string): string => (v === '—' ? '—' : String(v).replace(/^sha256_/, '').slice(0, 12));
+// Historical model declarations are display text, never evidence admission.
+// Sanitize only the projection; keep the original receipt/refusal unchanged.
+const declared = (m: Record<string, unknown>, width: number, ...keys: string[]): string =>
+  truncateVisible(stripTerminalCodes(s(m, ...keys)).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, ' '), width, '');
 
 /** the run_id a receipt belongs to (swarm cross-link key), else null */
 export const runIdOf = (r: Receipt): string | null => {
@@ -107,6 +112,12 @@ export function typedLines(r: Receipt): string[] {
         `  subject ${s(m, 'subject', 'who').slice(0, 14)} · frames ${s(m, 'frames').slice(0, 5)}`,
         `  quality ${s(m, 'quality', 'score').slice(0, 8)} · ${h12(s(m, 'capture_sha256', 'sha256'))}`,
       ];
+    case 'studio.preserve':
+      return [
+        '  historical declaration · unverified',
+        `  studio ${declared(m, 12, 'studio')} · proj ${declared(m, 12, 'project', 'proj')}`,
+        `  assets ${declared(m, 4, 'preserved', 'assets')} · hash ${declared(m, 12, 'preserve_sha256', 'sha256')}`,
+      ];
     case 'tripo.generate': {
       // ui-next: the never-measured flag is part of the view, not a footnote
       const measured = m.measured === true || m.measured === 'true';
@@ -116,6 +127,14 @@ export function typedLines(r: Receipt): string[] {
       ];
     }
     default:
+      if (subj.startsWith('judgment.')) {
+        return [
+          '  historical declaration · unverified',
+          `  pred ${declared(m, 30, 'predicted')}`,
+          `  act  ${declared(m, 30, 'actual')}`,
+          `  diff ${declared(m, 30, 'difference')}`,
+        ];
+      }
       if (subj.startsWith('signal.')) {
         return [
           `  round ${s(m, 'round', 'checkpoint').slice(0, 4)} · attention ${s(m, 'attention').slice(0, 3)}/20`,

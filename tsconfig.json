@@ -12,6 +12,6 @@
     "resolveJsonModule": true,
     "declaration": true
   },
-  "include": ["cli.tsx", "headless.ts", "timmy.ts", "scripts/timmy-docs.ts", "scripts/timmy-doctor.ts", "scripts/timmy-providers.ts", "scripts/timmy-sceneforge.ts", "src/**/*"],
+  "include": ["cli.tsx", "headless.ts", "timmy.ts", "scripts/timmy-docs.ts", "scripts/timmy-doctor.ts", "scripts/timmy-providers.ts", "scripts/timmy-sceneforge.ts", "src/**/*", "packages/opencode-witness/src/**/*"],
   "exclude": ["node_modules", "dist", "src/companion/client", "src/companion/cloudflare-worker.ts"]
 }

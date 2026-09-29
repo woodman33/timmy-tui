@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync } from 'fs';
 import { join, dirname } from 'path';
 import crypto from 'crypto';
-import { appendReceipt } from './receipts.js';
+import { appendReceipt, measuredCostUsd, declaredUnknownCostUsd } from './receipts.js';
 import { publish as appendEvent } from '../bus/index.js';
 
 // TIMMY Generation Ledger — every prompt → generation → capture → critique
@@ -23,6 +23,9 @@ export interface GenerationRecord {
   framesDir?: string;
   frameCount?: number;
   cost_usd?: number;
+  // evidence-rule accounting: false = cost_usd is a declared-unknown
+  // placeholder, never a measured $0 (forge live spend before usage lands).
+  cost_measured?: boolean;
   critique?: string;
   log?: string;
   project?: string;
@@ -47,6 +50,9 @@ export interface ProviderStats {
   done: number;
   failed: number;
   cost: number;
+  // count (not dollars) of records whose cost is declared-unknown
+  // (cost_measured:false) — excluded from `cost`, surfaced separately
+  declared_unknown: number;
   last_at?: string;
 }
 
@@ -101,6 +107,7 @@ export function recordGeneration(
     subject: record.id,
     prompt_hash: record.prompt_hash,
     cost_usd: record.cost_usd,
+    ...(record.cost_measured !== undefined ? { cost_measured: record.cost_measured } : {}),
     policy: 'human-gated',
     spans: record.spans as { name: string; kind: 'root' | 'chat' | 'execute_tool' | 'deny' }[] | undefined,
     decisions: record.decisions
@@ -166,7 +173,7 @@ export function aggregateGenerations(providerFilter?: string, dir?: string): Pro
     if (providerFilter && !g.provider.includes(providerFilter.toLowerCase())) continue;
     let s = map.get(g.provider);
     if (!s) {
-      s = { provider: g.provider, models: {}, total: 0, done: 0, failed: 0, cost: 0 };
+      s = { provider: g.provider, models: {}, total: 0, done: 0, failed: 0, cost: 0, declared_unknown: 0 };
       map.set(g.provider, s);
     }
     const model = g.model || '(unspecified)';
@@ -174,7 +181,9 @@ export function aggregateGenerations(providerFilter?: string, dir?: string): Pro
     s.total += 1;
     if (g.status === 'done') s.done += 1;
     if (g.status === 'failed') s.failed += 1;
-    s.cost += g.cost_usd || 0;
+    // evidence-rule accounting: declared-unknown placeholders are counted, never summed
+    s.cost += measuredCostUsd(g);
+    s.declared_unknown += declaredUnknownCostUsd(g);
     if (!s.last_at || g.created_at > s.last_at) s.last_at = g.created_at;
   }
   return [...map.values()].sort((a, b) => b.total - a.total);

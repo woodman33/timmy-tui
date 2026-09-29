@@ -1,5 +1,6 @@
 import { buildVolumeModelContext } from './model-context.js';
 import { buildNativeModelContext } from './native-model-context.js';
+import { buildGaussianPlyContext } from './gaussian-ply-context.js';
 import { localSpatialModels, reviewSpatialContext } from './local-model-review.js';
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
@@ -11,10 +12,11 @@ import { readSpatialPackDescriptor, retainSpatialDescriptor, spatialCliOutputDir
 
 const HELP = [
   'timmy vision spatial models list [--json]',
-  'timmy vision spatial models context <source.json> [--kind volume|spline|hana] [--object ID] [--json]',
+  'timmy vision spatial models context <source> [--kind volume|spline|hana|gaussian-splats] [--object ID] [--json]',
   'timmy vision spatial models review <source.json> --model NAME --question TEXT [--kind volume|spline|hana] [--object ID] [--image FILE] [--json]',
   'timmy vision spatial models review-pack <pack.descriptor.json> --model NAME --question TEXT --out <directory> [--json]',
   'Volume sources are verified manifests. Spline/Hana sources are retained MCP envelopes.',
+  'Gaussian-splats context accepts bounded ASCII Gaussian PLY only; raw parameters, unknown physical scale, no review or pack export.',
   'Review calls a locally installed Ollama model and records signed execution receipts. Comments remain proposals; no native edits execute.',
 ].join('\n');
 
@@ -54,8 +56,9 @@ async function reviewPack(source: string, flags: Record<string, string | boolean
 }
 export function contextFromSource(path: string, kind = 'volume', objectId?: string) {
   if (kind === 'volume') { if (objectId) throw new Error('--object is for native sources.'); return buildVolumeModelContext(path); }
+  if (kind === 'gaussian-splats') { if (objectId) throw new Error('--object is not supported for Gaussian PLY.'); return buildGaussianPlyContext(path); }
   if (kind === 'spline' || kind === 'hana') return buildNativeModelContext(path, kind, objectId);
-  throw new Error('Supported source kinds: volume, spline, hana.');
+  throw new Error('Supported source kinds: volume, spline, hana, gaussian-splats.');
 }
 export async function runModelCli(args: string[], out: (s: string) => void = console.log, dir = process.cwd()) {
   if (!args.length || args.includes('--help')) { out(HELP); return 0; }
@@ -72,6 +75,7 @@ export async function runModelCli(args: string[], out: (s: string) => void = con
   try {
     if (operation === 'list') { out(JSON.stringify(await localSpatialModels(), null, 2)); return 0; }
     if (operation === 'review-pack') return await reviewPack(source!, flags, out, dir);
+    if (operation === 'review' && flags['--kind'] === 'gaussian-splats') { out(JSON.stringify({ ok: false, error: 'Gaussian PLY is inspection-only; model review is not enabled.' })); return 2; }
     const context = contextFromSource(source!, flags['--kind'] as string | undefined, flags['--object'] as string | undefined);
     if (operation === 'context') { out(JSON.stringify(context, null, 2)); return 0; }
     if (typeof flags['--model'] !== 'string' || typeof flags['--question'] !== 'string') { out('Review requires --model and --question.'); return 2; }

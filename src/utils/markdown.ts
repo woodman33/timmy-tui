@@ -82,7 +82,7 @@ export function renderMarkdown(text: string, width: number = 80): string {
     if (rawInCode || inCode) {
       const contentWidth = boxWidth - 4;
       const padded = truncateVisible(line, contentWidth).padEnd(contentWidth, ' ');
-      rendered.push(chalk.dim('│ ') + chalk.green(padded) + chalk.dim(' │'));
+      rendered.push(chalk.dim('│ ') + chalk.hex(theme.textSecondary)(padded) + chalk.dim(' │'));
       continue;
     }
 
@@ -114,10 +114,10 @@ export function renderMarkdown(text: string, width: number = 80): string {
     let processed = line;
     processed = processed.replace(/\*\*(.*?)\*\*/g, chalk.bold('$1'));
     processed = processed.replace(/\*(.*?)\*/g, chalk.italic('$1'));
-    processed = processed.replace(/`(.*?)`/g, chalk.cyan('`$1`'));
-    processed = processed.replace(/^- (.*)$/m, chalk.gray('• ') + '$1');
+    processed = processed.replace(/`(.*?)`/g, chalk.bold('`$1`'));
+    processed = processed.replace(/^- (.*)$/m, chalk.hex(theme.textMuted)('• ') + '$1');
     processed = processed.replace(/^#{1,6}\s+(.*)$/, chalk.bold.underline('$1'));
-    processed = processed.replace(/\[(.*?)\]\((.*?)\)/g, `\x1b]8;;$2\x1b\\${chalk.blue.underline('$1')}\x1b]8;;\x1b\\`);
+    processed = processed.replace(/\[(.*?)\]\((.*?)\)/g, `\x1b]8;;$2\x1b\\${chalk.underline('$1')}\x1b]8;;\x1b\\`);
 
     rendered.push(processed);
   }

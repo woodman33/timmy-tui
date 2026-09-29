@@ -8,12 +8,18 @@ export interface ShellState {
   tab: ShellTab;
   input: string;
   overlay: 'whichkey' | 'qr' | 'sealconfirm' | 'refuse' | 'newrun' | 'harnesspick' | 'note' | 'status' | 'cmdharness' | 'cmdmodel' | null;
+  demoArmed: boolean;
   filter: string;
   selected: number;
   /** sub-picker cursor (new-run fleet list, harness sub-picker) */
   pick: number;
+  /** ui-cockpit-k7m3: HANDS sub-tab (beside SWARM) + grid cursor + prompt viewer */
+  handsOn: boolean;
+  handsRow: number;
+  handsCol: number;
+  handsPrompt: boolean;
 }
-export const initialShell = (): ShellState => ({ mode: 'NORMAL', tab: 'HOME', input: '', overlay: null, filter: '', selected: 0, pick: 0 });
+export const initialShell = (): ShellState => ({ mode: 'NORMAL', tab: 'HOME', input: '', overlay: null, filter: '', selected: 0, pick: 0, demoArmed: false, handsOn: false, handsRow: 0, handsCol: 0, handsPrompt: false });
 
 export const TABS: ShellTab[] = ['HOME', 'RUN', 'CHAIN', 'LIBRARY', 'CHAT', 'COMMAND'];
 
@@ -111,6 +117,21 @@ export function shellOnKey(s: ShellState, key: string): ShellStep {
     if (key === 'M') { st.overlay = 'cmdharness'; st.pick = 0; return { state: st, handled: true, actions: ['cmd-harness-model'] }; }
     if (key === 'K') return { state: st, handled: true, actions: ['cmd-handoff'] };
     if (key === 'X') return { state: st, handled: true, actions: ['cmd-kill'] };
+    // ui-cockpit-k7m3: HANDS sub-tab beside SWARM ([h]); arrows move the grid
+    // cursor, [Enter] opens the cell's full prompt, Esc closes the viewer
+    if (key === 'h') {
+      st.handsOn = !st.handsOn;
+      st.handsPrompt = false;
+      return { state: st, handled: true, actions: ['hands-toggle'] };
+    }
+    if (st.handsOn) {
+      if (key === 'up') { st.handsRow = Math.max(0, st.handsRow - 1); return { state: st, handled: true, actions: ['hands-move'] }; }
+      if (key === 'down') { st.handsRow += 1; return { state: st, handled: true, actions: ['hands-move'] }; }
+      if (key === 'left') { st.handsCol = Math.max(0, st.handsCol - 1); return { state: st, handled: true, actions: ['hands-move'] }; }
+      if (key === 'right') { st.handsCol = Math.min(4, st.handsCol + 1); return { state: st, handled: true, actions: ['hands-move'] }; }
+      if (key === 'return' || key === 'Enter') { st.handsPrompt = !st.handsPrompt; return { state: st, handled: true, actions: ['hands-prompt'] }; }
+      if ((key === 'escape' || key === 'Esc') && st.handsPrompt) { st.handsPrompt = false; return { state: st, handled: true, actions: ['hands-prompt'] }; }
+    }
     // warroom-v2-c4m8: SWARM sub-tab keys ([w] view, pickers, launch)
     if (key === 'w') return { state: st, handled: true, actions: ['swarm-toggle'] };
     if (key === '[') return { state: st, handled: true, actions: ['sw-preset-prev'] };
@@ -122,6 +143,16 @@ export function shellOnKey(s: ShellState, key: string): ShellStep {
     if (key === 'P') return { state: st, handled: true, actions: ['sw-policy'] };
     if (key === 'H') return { state: st, handled: true, actions: ['sw-focus'] };
     if (key === 'l') return { state: st, handled: true, actions: ['sw-launch'] };
+  }
+  if (key === 'V' && st.tab === 'LIBRARY') return { state: st, handled: true, actions: ['open-visual-tools'] };
+  if (st.tab === 'LIBRARY') {
+    if (key === 'D') { st.demoArmed = !st.demoArmed; return { state: st, handled: true, actions: ['demo-arm'] }; }
+    if (st.demoArmed) {
+      if (key === ']') return { state: st, handled: true, actions: ['demo-next'] };
+      if (key === '[') return { state: st, handled: true, actions: ['demo-prev'] };
+      if (key === 'Enter' || key === 'return') return { state: st, handled: true, actions: ['demo-open'] };
+      if (key === 'escape' || key === 'Esc') { st.demoArmed = false; return { state: st, handled: true, actions: ['demo-arm'] }; }
+    }
   }
   // LIBRARY [f]: yazi/broot tmux pane over skills/projects folders
   if (key === 'f' && st.tab === 'LIBRARY') return { state: st, handled: true, actions: ['open-files'] };

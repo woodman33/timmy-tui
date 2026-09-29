@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import { appendFileSync, existsSync, mkdirSync, statSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { theme } from '../tui/theme.js';
 
 // Ensure logs/ directory and all bounded log files exist automatically upon initialization
 try {
@@ -86,22 +87,22 @@ export const logger = {
   debug: (...args: unknown[]) => {
     writeToLogFile('debug', ...args);
     if (process.env.TIMMY_TUI_ACTIVE === 'true') return;
-    if (levels[currentLevel] <= levels.debug) console.error(chalk.gray('[DEBUG]', ...args));
+    if (levels[currentLevel] <= levels.debug) console.error(chalk.hex(theme.textMuted)('[DEBUG]', ...args));
   },
   info: (...args: unknown[]) => {
     writeToLogFile('info', ...args);
     if (process.env.TIMMY_TUI_ACTIVE === 'true') return;
-    if (levels[currentLevel] <= levels.info) console.error(chalk.blue('[INFO]', ...args));
+    if (levels[currentLevel] <= levels.info) console.error(chalk.hex(theme.textPrimary)('[INFO]', ...args));
   },
   warn: (...args: unknown[]) => {
     writeToLogFile('warn', ...args);
     if (process.env.TIMMY_TUI_ACTIVE === 'true') return;
-    if (levels[currentLevel] <= levels.warn) console.error(chalk.yellow('[WARN]', ...args));
+    if (levels[currentLevel] <= levels.warn) console.error(chalk.hex(theme.warn).bold('[WARN]', ...args));
   },
   error: (...args: unknown[]) => {
     writeToLogFile('error', ...args);
     if (process.env.TIMMY_TUI_ACTIVE === 'true') return;
-    if (levels[currentLevel] <= levels.error) console.error(chalk.red('[ERROR]', ...args));
+    if (levels[currentLevel] <= levels.error) console.error(chalk.hex(theme.refuse)('[ERROR]', ...args));
   }
 };
 

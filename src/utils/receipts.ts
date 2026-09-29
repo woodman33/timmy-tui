@@ -22,6 +22,11 @@ export interface Receipt {
   prompt_hash?: string;
   artifacts?: string[];
   cost_usd?: number;
+  // Evidence-rule accounting (forge v1): cost_measured === false marks
+  // cost_usd as a PLACEHOLDER — declared-unknown, never a measured $0 (live
+  // higgsfield spend before usage lands). Absent flag = measured (legacy
+  // receipts predate the flag and carry genuinely measured costs).
+  cost_measured?: boolean;
   policy: string; // human-gated | auto
   // receipt v2 (research rulings): OTel-style span tree + PDP decisions ride
   // inside the sealed body, so the receipt is evidence structure, not just
@@ -50,7 +55,7 @@ export interface Receipt {
   tier?: string;
   signer?: string;   // ed25519 public key (SPKI PEM)
   signature?: string; // base64 over canonical body (minus hash/prev_hash/signature)
-  status?: 'ok' | 'failed' | 'denied';
+  status?: 'ok' | 'failed' | 'denied' | 'surfaced'; // surfaced = gate exercised, nothing minted (forge.approve)
   error_class?: string; // exec|missing_source|schema|env|replay_drift|http_4xx|http_5xx|network|approval|unresolved_model|no_key|…
   exit_code?: number;
   partial_artifacts?: string[];
@@ -64,6 +69,28 @@ export interface Receipt {
 }
 
 export type ReceiptInput = Omit<Receipt, 'v' | 'id' | 'ts' | 'stream' | 'prev_hash' | 'hash'>;
+
+// ---- evidence-rule cost accounting (Task 21, spec limitation (a)) ----------
+// A receipt with cost_measured === false carries a PLACEHOLDER cost
+// (declared-unknown, never measured $0). Aggregators must never sum it as if
+// measured: measured sums go through measuredCostUsd; declared-unknown
+// receipts are COUNTED separately via declaredUnknownCostUsd — never silently
+// included, never presented as measured dollars.
+type CostRecord = { cost_usd?: number; cost_measured?: boolean };
+export function hasMeasuredCostUsd(r: CostRecord): boolean {
+  return (r.cost_measured === undefined || r.cost_measured === true) &&
+    typeof r.cost_usd === 'number' && Number.isFinite(r.cost_usd) && r.cost_usd >= 0;
+}
+export function measuredCostUsd(r: CostRecord): number {
+  return hasMeasuredCostUsd(r) ? r.cost_usd! : 0;
+}
+// A legacy event with neither field is unpriced, rather than an unknown charge.
+export function declaredUnknownCostUsd(r: CostRecord): number {
+  return !hasMeasuredCostUsd(r) && (r.cost_usd !== undefined || r.cost_measured !== undefined) ? 1 : 0;
+}
+export function formatCostUsd(r: CostRecord, digits = 4): string {
+  return hasMeasuredCostUsd(r) ? `$${r.cost_usd!.toFixed(digits)}` : 'cost unknown';
+}
 
 const canon = (o: Record<string, unknown>): string =>
   JSON.stringify(

@@ -13,6 +13,9 @@ import { policyPath, readPolicy } from '../src/harness/policy.js';
 import { notesPath } from '../src/models/registry.js';
 
 process.env.TIMMY_TELEMETRY_URL = 'off';
+// ui-cockpit-k7m3 C5: rows are bounded now — a 120-column content check needs the
+// 120x40 reference grid, or the rail folds cards it can no longer fit
+Object.defineProperty(process.stdout, 'rows', { value: 40, configurable: true });
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function until(view: ReturnType<typeof render>, pred: (f: string) => boolean, ms = 20000): Promise<string> {
   const t0 = Date.now();

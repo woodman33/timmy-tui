@@ -1,0 +1,11 @@
+{
+  "id": "timmy-visual-tools",
+  "title": "From intent to evidence",
+  "duration": 6,
+  "appearance": { "background": "#000000", "text": "#ffffff", "label": "#ff6b35", "fontFamilies": ["Avenir", "sans-serif"], "headlinePx": 64 },
+  "beats": [
+    { "at": 0, "dur": 2, "label": "PREDICTION", "text": "Ask the scene." },
+    { "at": 2, "dur": 2, "label": "EVIDENCE", "text": "Inspect the geometry." },
+    { "at": 4, "dur": 2, "label": "RESULT", "text": "Keep the unknowns visible." }
+  ]
+}

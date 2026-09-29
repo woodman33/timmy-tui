@@ -58,7 +58,30 @@ describe('CHAIN tab (spec §05)', { timeout: 60000 }, () => {
     view.unmount();
   });
 
-  const ROW = /^(OK|FAIL|—)\s+[0-9a-f]{8} /;
+  it('C1b-2: checked is per-receipt coverage — a receipt appended after [v] is ● constructed, covered rows stay ✓, the strip goes stale', async () => {
+    appendReceipt('runs', { kind: 'run', subject: 'custody.commit · before verify', policy: 'auto', status: 'ok' });
+    const first = render(React.createElement(ShellV2, { width: 120 }));
+    await until(first, x => x.includes('YOUR JOURNEY'));
+    first.stdin.write('3');
+    await until(first, x => x.includes('RECEIPTS'));
+    first.stdin.write('v');
+    let f = await until(first, x => x.includes('✓ chain ok'));
+    expect(f).toMatch(/✓OK\s+[0-9a-f]{8} custody\.commit · before verify/);
+    first.unmount();
+    appendReceipt('runs', { kind: 'run', subject: 'post.verify · appended after', policy: 'auto', status: 'ok' });
+    // a fresh mount reads the one verify fact from the verify receipt's named head
+    const view = render(React.createElement(ShellV2, { width: 120 }));
+    await until(view, x => x.includes('YOUR JOURNEY'));
+    view.stdin.write('3');
+    f = await until(view, x => x.includes('post.verify') && x.includes('appended since'));
+    expect(f).toMatch(/●OK\s+[0-9a-f]{8} post\.verify · appended after/);
+    expect(f).toMatch(/✓OK\s+[0-9a-f]{8} custody\.commit · before verify/);
+    expect(f).toContain('◌ chain ok');
+    expect(f).toContain('appended since');
+    view.unmount();
+  });
+
+  const ROW = /^[✓●○◉◌×](OK|FAIL|—)\s+[0-9a-f]{8} /; // C1b-2: the status cell carries the evidence glyph
   it('FIX 1+3: column budget holds at 120 and 80; no glyph touches the border; hash prefix 8', async () => {
     appendReceipt('runs', { kind: 'run', subject: 'custody.commit · contents_hash=9f3a7c1e', policy: 'auto', status: 'ok' });
     for (const width of [120, 80]) {
@@ -73,7 +96,7 @@ describe('CHAIN tab (spec §05)', { timeout: 60000 }, () => {
       for (const ln of rows) {
         expect(ln.trimEnd().length, `row over budget at ${width}: ${ln}`).toBeLessThanOrEqual(limit);
         expect(ln, `row touches border at ${width}`).not.toContain('│');
-        expect(ln, `hash prefix not 8 at ${width}`).toMatch(/^(OK|FAIL|—)\s+[0-9a-f]{8} /);
+        expect(ln, `hash prefix not 8 at ${width}`).toMatch(/^[✓●○◉◌×](OK|FAIL|—)\s+[0-9a-f]{8} /);
       }
       view.unmount();
     }

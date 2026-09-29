@@ -6,6 +6,7 @@ import { readChain, type Receipt } from '../utils/receipts.js';
 import { journeyRows } from '../tui/journey.js';
 import { subscribe } from '../bus/index.js';
 import { TABS } from '../tui/shell-mode.js';
+import { theme } from '../tui/theme.js';
 
 const renderer = await createCliRenderer({ exitOnCtrlC: true });
 const chain = readChain('runs');
@@ -18,7 +19,7 @@ const root = new BoxRenderable(renderer, { flexDirection: 'column', width: '100%
 renderer.root.add(root);
 
 const colorOf = (s: string): string =>
-  s === 'sealed' || s === 'done' ? '#33FF66' : s === 'next' ? '#FF8C1A' : s === 'REFUSED' ? '#FF3B3B' : '#8899aa';
+  s === 'sealed' ? theme.seal : s === 'done' || s === 'next' ? theme.textPrimary : s === 'REFUSED' ? theme.refuse : theme.textMuted;
 
 const added: unknown[] = [];
 function paint(): void {
@@ -38,7 +39,7 @@ function paint(): void {
       root.add(line); added.push(line);
       void i;
     });
-    if (selected) root.add(new TextRenderable(renderer, { content: `selected: ${selected.hash.slice(0, 16)} ${selected.subject.slice(0, 50)}`, fg: '#dfe8f5' }));
+    if (selected) root.add(new TextRenderable(renderer, { content: `selected: ${selected.hash.slice(0, 16)} ${selected.subject.slice(0, 50)}`, fg: theme.textPrimary }));
   } else {
     root.add(new TextRenderable(renderer, { content: `${tab === 2 ? `RECEIPTS ${chain.length}` : `tab ${TABS[tab]} (spike: HOME only ported)`}` }));
   }
