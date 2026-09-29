@@ -44,7 +44,12 @@ vi.mock('../src/harness/warroom2.js', () => ({
   })),
   nodeForModel: () => null, modelFit: () => true,
 }));
-vi.mock('../src/harness/uinext.js', () => ({
+vi.mock('../src/harness/uinext.js', async importOriginal => ({
+  // Windowing is pure production code; only discovery/readers are fixtures.
+  demoWindow: (await importOriginal<typeof import('../src/harness/uinext.js')>()).demoWindow,
+  // Demo inventory is outside this fixture; keep its reader explicit so a
+  // newly mounted shelf cannot fall through to host files or abort rendering.
+  demosRows: () => [],
   unrealRow: () => ({ present: true, root: 'env', rc: true, py: 'ok', lastRender: { hash: 'abcdef01', stage: 'fixture-stage' } }),
   houdiniRow: () => ({ present: true, installed: true, version: '22.0.429', bridge: 'cli,mcp', templates: 4, proven: 1, dropRuns: 3 }),
   modelStrictness: () => [
@@ -56,8 +61,9 @@ vi.mock('../src/harness/uinext.js', () => ({
 
 class Output extends EventEmitter {
   last = '';
+  writes: string[] = [];
   constructor(public columns: number, public rows: number) { super(); }
-  write = (value: string): boolean => { this.last = value; return true; };
+  write = (value: string): boolean => { this.last = value; this.writes.push(value); return true; };
 }
 class Input extends EventEmitter {
   isTTY = true;
@@ -78,7 +84,15 @@ function frameAt(width: number, height: number) {
     stdin: stdin as unknown as NodeJS.ReadStream,
     debug: true, exitOnCtrlC: false, patchConsole: false,
   });
-  return { frame: () => clean(stdout.last), stderr: () => clean(stderr.last), key: (key: string) => stdin.write(key), unmount: () => view.unmount() };
+  let failure: unknown;
+  // Ink catches render exceptions and appends a newline when it unmounts.
+  // Surface the original error instead of reporting that final chunk as a
+  // blank frame; a prior nonempty frame must never hide a crashed shell.
+  void view.waitUntilExit().catch(error => { failure = error; });
+  return { frame: () => {
+    if (failure) throw failure;
+    return clean(stdout.last);
+  }, stderr: () => clean(stderr.writes.join('')), key: (key: string) => stdin.write(key), unmount: () => view.unmount() };
 }
 function expectBounded(frame: string, width: number, height: number) {
   const lines = frame.split('\n');
