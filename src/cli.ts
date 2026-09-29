@@ -142,9 +142,16 @@ const command = cleanArgs[0];
 if (command === 'cockpit' && !['up', 'attach', 'status', 'down', 'hands'].includes(cleanArgs[1] ?? '')) {
   if (cleanArgs[1] === 'shot') {
     const { cockpitShotMain } = await import('./demo/cockpit-shot.js');
-    // Keep the original flags and caller directory: global parsing removes
-    // --out/--json, and package-relative paths would target the wrong board.
-    process.exit(await cockpitShotMain(args.slice(2), process.cwd()));
+    // Globals may precede or split the verb words. Start with normalized
+    // command arguments, then restore the globals removed by that parser.
+    const shotArgs = [...cleanArgs.slice(2)];
+    if (outDir !== null) shotArgs.push('--out', outDir);
+    if (isJson) shotArgs.push('--json');
+    // Removing globals must not conceal a missing option value in the raw
+    // input, including a malformed occurrence after an earlier valid --out.
+    const missingValue = args.find((arg, index) => ['--out', '--rounds', '--marker'].includes(arg) && (!args[index + 1] || args[index + 1].startsWith('--')));
+    if (missingValue) shotArgs.push(missingValue);
+    process.exit(await cockpitShotMain(shotArgs, process.cwd()));
   }
   // ui-cockpit-k7m3 — the HANDS cockpit. The board, prompts, pane logs and
   // transcripts live ONLY in .timmy/private/cockpit/ (gitignored, mode 700);

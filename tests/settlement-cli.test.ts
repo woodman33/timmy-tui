@@ -79,4 +79,27 @@ describe('settlement CLI routing', () => {
     expect(captured.code, captured.stderr).toBe(0);
     expect(JSON.parse(captured.stdout).board).toMatchObject({ kind: 'private', hands: 8 });
   });
+
+  it.each([
+    ['--json', '--out', 'captures', 'cockpit', 'shot'],
+    ['cockpit', '--json', '--out', 'captures', 'shot'],
+    ['cockpit', 'shot', '--out', 'captures', '--json'],
+  ])('accepts global flags around the cockpit shot verbs: %j', async (...prefix) => {
+    const cwd = sandbox();
+    copyFileSync(join(root, 'lanes/demos/hands-8.rounds.md'), join(cwd, 'chart.md'));
+    const result = await cli(cwd, [...prefix, '--rounds', 'chart.md', '--marker', 'global-flags', '--no-film', '--no-seal']);
+    expect(result.code, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout).directory).toBe(join(cwd, 'captures/global-flags'));
+  });
+
+  it.each([
+    ['cockpit', 'shot', '--out'],
+    ['cockpit', 'shot', '--out', 'captures', '--out'],
+    ['cockpit', 'shot', '--rounds', '--json', 'chart.md'],
+    ['cockpit', 'shot', '--marker', '--out', 'captures', 'name'],
+  ])('refuses missing values before removing globals: %j', async (...argv) => {
+    const result = await cli(sandbox(), [...argv]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('Invalid cockpit shot arguments');
+  });
 });
