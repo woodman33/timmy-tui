@@ -7,6 +7,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { installDemoPolicy } from './fixture-policy.js';
 import { spawnSync } from 'node:child_process';
 
 // frozen clock: every ago()/stamp()/new Date() in the TUI and the receipt
@@ -39,6 +40,8 @@ async function main(): Promise<void> {
   //    fixed zero-seed ed25519 identity pre-placed at the store's key path,
   //    and a fixed env_lock on every seeded receipt.
   const store = mkdtempSync(join(tmpdir(), 'timmy-demo-'));
+  const restorePolicy = installDemoPolicy(store);
+  try {
   process.env.TIMMY_STORE = join(store, 'receipts');
   process.env.TIMMY_DEMO = '1';
   let prngState = 0x2f6e2b1 >>> 0;
@@ -140,6 +143,9 @@ async function main(): Promise<void> {
     sources: [{ frames: frames.length, width: WIDTH, height: HEIGHT, cast_sha256: sha(castBuf), mp4: mp4.ok ? sha(readFileSync(mp4Path)) : 'none', deterministic: 'frozen-clock + fixture-store + placeholder-data' }],
   } as never);
   console.log(JSON.stringify({ ok: true, cast: castPath, gif: existsSync(gifPath) ? gifPath : null, mp4: mp4.ok ? mp4Path : null, mp4_note: mp4.note ?? null, frames: frames.length, cast_sha256: sha(castBuf).slice(0, 16), sealed: String(rec.hash).slice(0, 16) }, null, 1));
+  } finally {
+    restorePolicy();
+  }
 }
 
 main().catch(e => { console.error(`demo failed: ${e instanceof Error ? e.message : String(e)}`); process.exit(1); });
