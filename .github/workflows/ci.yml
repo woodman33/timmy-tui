@@ -14,7 +14,6 @@ env:
   #
   #   tests/keyboard-contract.pty.test.ts  keyboard contract at PTY level; fixed by #36 (warroom-t3b1)
   #   tests/companion-mission.test.ts      mission studio gateway (:4310) arming test times out (5000 ms) on the runner
-  #   tests/forge.test.ts                  "OTIO acceptance failed": otioconvert (pinned python 0.18.1) rejects the emitted OTIO on the runner
   #   tests/mission-live.test.ts           EACCES: the committed .timmy/store-pin is a Mac-only absolute path the runner cannot mkdir
   #                                        (moves to the private overlay in ORDER blank-slate-v1k9)
   #   tests/ai-proxy.test.ts               the root suite runs in Node; @cloudflare/codemode imports the workerd-only
@@ -30,7 +29,6 @@ env:
   KNOWN_WIP_TESTS: >-
     tests/keyboard-contract.pty.test.ts
     tests/companion-mission.test.ts
-    tests/forge.test.ts
     tests/mission-live.test.ts
     tests/ai-proxy.test.ts
     tests/vision-templates.test.ts
