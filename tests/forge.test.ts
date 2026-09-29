@@ -261,7 +261,7 @@ it('native OTIO rejection leaves no public output and no staging directory', asy
   const spawn = vi.mocked(childProcess.spawnSync);
   const original = spawn.getMockImplementation()!;
   spawn.mockImplementation(((command: string, ...args: unknown[]) => {
-    if (String(command).includes('opentimelineio')) return { status: 1, stderr: 'synthetic parser failure', stdout: '' };
+    if (Array.isArray(args[0]) && args[0].some(arg => typeof arg === 'string' && arg.includes('import opentimelineio as otio'))) return { status: 1, stderr: 'synthetic parser failure', stdout: '' };
     return (original as (...a: unknown[]) => unknown)(command, ...args);
   }) as typeof childProcess.spawnSync);
   try {

@@ -33,7 +33,19 @@ export function validateTimelineSpec(spec: TimelineSpec): void {
   if (r.status !== 0) throw new Error(`timeline spec rejected by CUE: ${(r.stderr ?? '').split('\n')[0]}`);
 }
 
-const OTIO_PY = join(homedir(), '.local', 'share', 'uv', 'tools', 'opentimelineio', 'bin', 'python');
+const UV_OTIO_PY = join(homedir(), '.local', 'share', 'uv', 'tools', 'opentimelineio', 'bin', 'python');
+
+/** Interpreter location varies by installation; the OTIO version remains pinned below. */
+function otioPython(): string {
+  const configured = process.env.TIMMY_OTIO_PYTHON;
+  if (configured !== undefined) {
+    if (!configured.trim()) throw new Error('OTIO acceptance failed: TIMMY_OTIO_PYTHON is empty');
+    return configured;
+  }
+  // Local uv tool installations and CI's pinned python3 user-site installation
+  // both run the same native parser/version check; never fall back after rejection.
+  return existsSync(UV_OTIO_PY) ? UV_OTIO_PY : 'python3';
+}
 
 // Probe-validation status for one segment/clip, carried in from
 // probe/segments.ts (ProbeSegment.beat_id / probe_validated). Only the two
@@ -153,13 +165,14 @@ export function emitTimeline(opts: { specPath?: string; out?: string; dir?: stri
   try {
   writeFileSync(candidate, JSON.stringify(tl, null, 2), { flag: 'wx' });
   // D6 acceptance: the pinned OTIO python must parse what we wrote.
-  const chk = spawnSync(OTIO_PY, ['-c',
+  const chk = spawnSync(otioPython(), ['-c',
     'import opentimelineio as otio,sys\n' +
     'if otio.__version__ != "0.18.1": raise RuntimeError("OTIO version mismatch")\n' +
     't=otio.adapters.read_from_file(sys.argv[1]); c=list(t.tracks[0])\n' +
     'if not c or "timmy" not in c[0].metadata: raise RuntimeError("invalid timeline metadata")\n' +
-    'print(len(c), c[0].metadata["timmy"]["receipt_hash"][:12])', candidate], { encoding: 'utf8' });
-  if (chk.status !== 0) throw new Error(`OTIO acceptance failed: ${(chk.stderr ?? '').slice(0, 300)}`);
+    'print(len(c), c[0].metadata["timmy"]["receipt_hash"][:12])', candidate], { encoding: 'utf8', timeout: 30000, maxBuffer: 1024 * 1024 });
+  if (chk.error) throw new Error(`OTIO acceptance failed: interpreter could not run (${(chk.error as NodeJS.ErrnoException).code ?? 'spawn error'})`);
+  if (chk.status !== 0) throw new Error(`OTIO acceptance failed: ${(chk.stderr ?? '').slice(0, 300) || (chk.signal ? `interpreter terminated by ${chk.signal}` : `interpreter exited ${chk.status}`)}`);
   linkSync(candidate, out);
   } finally { rmSync(staging, { recursive: true, force: true }); }
   const seal = appendReceipt('runs', {
