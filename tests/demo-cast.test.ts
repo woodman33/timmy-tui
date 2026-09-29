@@ -2,7 +2,7 @@
 // data produce byte-identical casts (frozen clock + seeded prng + fixed
 // env_lock + fixture store) and an mp4 through agg+ffmpeg.
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -16,6 +16,14 @@ const runDemo = (out: string): { status: number; out: string } => {
 
 describe('timmy demo', { timeout: 300000 }, () => {
   it('is deterministic: identical casts + mp4 across two runs', () => {
+    // This is a required native export test. Missing tools must fail visibly,
+    // never turn the MP4 contract into a skip or a cast-only success.
+    for (const [command, args] of [['agg', ['--version']], ['ffmpeg', ['-version']]] as const) {
+      const tool = spawnSync(command, [...args], { encoding: 'utf8', timeout: 10000 });
+      const diagnostic = `${command}: ${tool.error?.message ?? ''} ${tool.signal ?? ''} ${tool.stderr ?? ''}`;
+      expect(tool.error, diagnostic).toBeUndefined();
+      expect(tool.status, diagnostic).toBe(0);
+    }
     const a = mkdtempSync(join(tmpdir(), 'demo-gate-a-'));
     const b = mkdtempSync(join(tmpdir(), 'demo-gate-b-'));
     const ra = runDemo(a);
@@ -37,7 +45,10 @@ describe('timmy demo', { timeout: 300000 }, () => {
     expect(frames.some(f => f.includes('SWARM'))).toBe(true);         // swarm view
     expect(frames.some(f => f.includes('closed-3'))).toBe(true);      // launch beat preset
     expect(frames.some(f => f.includes('swarm.airgap'))).toBe(true);  // CHAIN airgap
-    expect(existsSync(join(a, 'demo.mp4'))).toBe(true);
+    expect(existsSync(join(a, 'demo.mp4')), ra.out).toBe(true);
+    expect(existsSync(join(b, 'demo.mp4')), rb.out).toBe(true);
+    expect(statSync(join(a, 'demo.mp4')).size, ra.out).toBeGreaterThan(0);
+    expect(statSync(join(b, 'demo.mp4')).size, rb.out).toBeGreaterThan(0);
     expect(readFileSync(join(a, 'demo.mp4')).equals(readFileSync(join(b, 'demo.mp4')))).toBe(true);
     // placeholder-only: no real hosts, paths, names or live-lane ids in the cast
     expect(castA).not.toMatch(/workers\.dev/);
