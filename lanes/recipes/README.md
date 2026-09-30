@@ -1,9 +1,14 @@
 # Timmy recipes
 
-`timmy recipe list`, `plan --request FILE`, and `build --request FILE` admit
-`enclosure.tray/1` as a bounded native recipe. The existing unmerged spatial
-foundation prototype is left intact; this lane is available from the released
-CLI without depending on that prototype's untracked files.
+The source recipe CLI admits `enclosure.tray/1` through `list`,
+`plan --request FILE`, and `build --request FILE`. With development dependencies
+installed, invoke it directly using `node --import tsx lanes/recipes/cli.ts`.
+The existing unmerged spatial foundation prototype is left intact.
+
+Installed-package delivery is incomplete: the packaged dispatcher still needs
+compiled recipe entrypoints and workers, required runtime assets, and correct
+caller-workspace handling. Production-only package validation and release remain
+pending; the source commands below do not establish released CLI support.
 
 ```json
 {"schema":"timmy.recipe-request/1","recipe":"enclosure.tray/1","parameters":{"width":140,"wall":3,"supportOffset":10,"bore":3}}
