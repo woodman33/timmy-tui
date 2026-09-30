@@ -23,16 +23,26 @@ export function useCompanionSync({
     if (globalServer) {
       try {
         globalServer.agent = agent;
-        if (activeRunId) globalServer.activeRunId = activeRunId;
-        if (activeReceiptUrl) globalServer.activeReceiptUrl = activeReceiptUrl;
+        globalServer.activeRunId = activeRunId;
+        globalServer.activeReceiptUrl = activeReceiptUrl;
       } catch {
         // Guard against any companion server property assignment crashes
       }
     }
-  }, [agent, activeRunId, activeReceiptUrl]);
+    return () => {
+      // A remount/replacement must not leave browser commands routed to an
+      // agent whose TUI listeners have been removed. Do not clear a new owner.
+      if (globalServer?.agent === agent) {
+        delete globalServer.agent;
+        delete globalServer.activeRunId;
+        delete globalServer.activeReceiptUrl;
+      }
+    };
+  }, [agent, activeRunId, activeReceiptUrl, enabled]);
 
   // Sync message history dynamically
   useEffect(() => {
+    if (!enabled) return;
     const globalServer = (global as any).companionServer;
     if (globalServer) {
       try {
@@ -44,17 +54,18 @@ export function useCompanionSync({
         // Guard against companion broadcast failures
       }
     }
-  }, [messages]);
+  }, [messages, enabled]);
 
   // Sync tmux sessions dynamically
   useEffect(() => {
+    if (!enabled) return;
     const syncTmuxToCompanion = () => {
       const globalServer = (global as any).companionServer;
       if (globalServer) {
         try {
-          globalServer.lastTmux = agent.tmuxSessions;
+          globalServer.lastTmux = agent.tmuxSessions ?? [];
           if (typeof globalServer.sendUpdate === 'function') {
-            globalServer.sendUpdate('tmux', agent.tmuxSessions);
+            globalServer.sendUpdate('tmux', globalServer.lastTmux);
           }
         } catch {
           // Guard against companion broadcast failures
@@ -68,36 +79,30 @@ export function useCompanionSync({
     return () => {
       agent.off('tmux:update' as any, syncTmuxToCompanion);
     };
-  }, [agent]);
+  }, [agent, enabled]);
 
   // Sync real-time agent events to companion live!
   useEffect(() => {
+    if (!enabled) return;
+    const publish = (type: string, data: unknown) => {
+      const server = (global as any).companionServer;
+      try { server?.sendUpdate?.(type, data); }
+      catch { /* A closed companion must not interrupt the terminal stream. */ }
+    };
     const handleOutputLine = (data: any) => {
-      const globalServer = (global as any).companionServer;
-      if (globalServer && typeof globalServer.sendUpdate === 'function') {
-        globalServer.sendUpdate('tmux:line', data);
-      }
+      publish('tmux:line', data);
     };
 
     const handleCommandSent = (data: any) => {
-      const globalServer = (global as any).companionServer;
-      if (globalServer && typeof globalServer.sendUpdate === 'function') {
-        globalServer.sendUpdate('tmux:command', data);
-      }
+      publish('tmux:command', data);
     };
 
     const handleToolCall = (name: string, args: any) => {
-      const globalServer = (global as any).companionServer;
-      if (globalServer && typeof globalServer.sendUpdate === 'function') {
-        globalServer.sendUpdate('agent:tool', { name, args });
-      }
+      publish('agent:tool', { name, args });
     };
 
     const handleStreamDelta = (delta: string, fullText: string) => {
-      const globalServer = (global as any).companionServer;
-      if (globalServer && typeof globalServer.sendUpdate === 'function') {
-        globalServer.sendUpdate('agent:delta', { delta, fullText });
-      }
+      publish('agent:delta', { delta, fullText });
     };
 
     agent.on('tmux.output.line' as any, handleOutputLine);
@@ -111,5 +116,5 @@ export function useCompanionSync({
       agent.off('tool:call' as any, handleToolCall);
       agent.off('stream:delta' as any, handleStreamDelta);
     };
-  }, [agent]);
+  }, [agent, enabled]);
 }

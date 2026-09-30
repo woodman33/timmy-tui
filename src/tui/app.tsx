@@ -79,7 +79,7 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
     enabled: booted
   });
 
-  useCompanionSync({ agent, messages: agentState.messages, activeRunId, activeReceiptUrl, enabled: booted });
+  useCompanionSync({ agent, messages: agentState.mirrorHistory, activeRunId, activeReceiptUrl, enabled: booted });
   useModeAgentConfig({ agent, mode: 'brief', config, enabled: booted });
 
   useEffect(() => {
@@ -218,6 +218,7 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
           paneFocus={paneFocus}
           agent={agent}
           setInspector={setInspectorSafe}
+          companionSync={false}
         />
 
         {/* SOLID full-card overlay — opaque surfaceRaised field, never

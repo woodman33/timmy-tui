@@ -116,8 +116,7 @@
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: var(--success-hsl);
-      box-shadow: 0 0 10px var(--success-hsl);
+      background: var(--text-muted);
       display: inline-block;
     }
 
@@ -460,15 +459,15 @@
   <header>
     <h1>🛡️ TIMMY OS Companion</h1>
     <div style="display: flex; align-items: center; gap: 16px;">
-      <div id="status">
+      <div id="status" role="status" aria-live="polite">
         <span class="status-dot"></span>
-        <span id="status-text">LOCAL COMPANION CONNECTED | DO SYNCED</span>
+        <span id="status-text">COMPANION SOCKET · CONNECTING</span>
       </div>
     </div>
   </header>
 
   <div class="explainer-bar" style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px; z-index: 10;">
-    TIMMY Browser Companion mirrors terminal chat, shows workspace status, displays bounded logs, and previews the latest receipt. The terminal remains the source of truth.
+    TIMMY Browser Companion mirrors terminal chat, shows workspace status, displays bounded logs, and previews the latest receipt. The mirror caches chat in this browser; the terminal remains the source of truth.
   </div>
 
   <div class="main-grid">
@@ -856,7 +855,7 @@
       banner.id = 'saved-chat-banner';
       banner.style.cssText = 'background: rgba(218, 115, 0, 0.15); border: 1px solid var(--primary-hsl); padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; font-family: var(--font-inter);';
       banner.innerHTML = `
-        <span>📂 Viewing Saved Session from <strong>${chat.timestamp}</strong></span>
+        <span>📂 Viewing Saved Session from <strong>${escapeMirrorText(chat.timestamp)}</strong></span>
         <button class="btn-action success" onclick="exitSavedChatViewer()">Back to Live Mirror</button>
       `;
       
@@ -925,22 +924,31 @@
         return;
       }
 
-      listEl.innerHTML = chats.slice(0, 5).map(c => `
+      listEl.innerHTML = chats.slice(0, 5).map(c => {
+        // Encode the ID for its JS-string context as well as the HTML attribute.
+        // Prompt and metadata remain text; stored chat bytes stay unchanged.
+        const id = encodeURIComponent(String(c.id)).replace(/'/g, '%27');
+        return `
         <div style="background: rgba(22, 27, 34, 0.6); border: 1px solid var(--border-color); padding: 12px; border-radius: 8px; display: flex; flex-direction: column; gap: 8px;">
           <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: var(--text-muted);">
-            <span>${c.timestamp}</span>
-            <span style="color: var(--secondary-hsl); font-weight: bold;">${c.messagesCount} msgs</span>
+            <span>${escapeMirrorText(c.timestamp)}</span>
+            <span style="color: var(--secondary-hsl); font-weight: bold;">${escapeMirrorText(c.messagesCount)} msgs</span>
           </div>
           <div style="font-size: 11px; color: var(--text-main); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-            "${c.firstPrompt}"
+            "${escapeMirrorText(c.firstPrompt)}"
           </div>
           <div style="display: flex; gap: 6px; margin-top: 4px;">
-            <button class="btn-action success" style="padding: 2px 6px; font-size: 9px;" onclick="loadSavedChat('${c.id}')">Load</button>
-            <button class="btn-action" style="padding: 2px 6px; font-size: 9px;" onclick="downloadSavedChat('${c.id}')">Download</button>
-            <button class="btn-action danger" style="padding: 2px 6px; font-size: 9px;" onclick="deleteSavedChat('${c.id}')">Delete</button>
+            <button class="btn-action success" style="padding: 2px 6px; font-size: 9px;" onclick="loadSavedChat(decodeURIComponent('${id}'))">Load</button>
+            <button class="btn-action" style="padding: 2px 6px; font-size: 9px;" onclick="downloadSavedChat(decodeURIComponent('${id}'))">Download</button>
+            <button class="btn-action danger" style="padding: 2px 6px; font-size: 9px;" onclick="deleteSavedChat(decodeURIComponent('${id}'))">Delete</button>
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
+    }
+
+    function escapeMirrorText(value) {
+      return String(value).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
     }
 
     function appendToLocalLogs(level, msg) {
@@ -953,22 +961,23 @@
       logsList.innerHTML += `
         <div style="margin-bottom: 4px;">
           <span style="color: #484f58;">[${timeStr}]</span> 
-          <span style="color: ${color}">[${level.toUpperCase()}]</span> 
-          <span>${msg}</span>
+          <span style="color: ${color}">[${escapeMirrorText(level.toUpperCase())}]</span>
+          <span>${escapeMirrorText(msg)}</span>
         </div>
       `;
       logsList.scrollTop = logsList.scrollHeight;
     }
 
     function connect() {
-      const ws = new WebSocket(`ws://${location.host}`);
+      const socketProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${socketProtocol}//${location.host}`);
       wsConnection = ws;
 
       ws.onopen = () => {
-        statusEl.textContent = 'LOCAL COMPANION CONNECTED | DO ACTIVE';
-        document.querySelector('.status-dot').style.background = 'var(--success-hsl)';
-        document.querySelector('.status-dot').style.boxShadow = '0 0 10px var(--success-hsl)';
-        appendToLocalLogs('SUCCESS', 'WebSocket telemetry sync channel established successfully.');
+        statusEl.textContent = 'COMPANION SOCKET · CONNECTED';
+        document.querySelector('.status-dot').style.background = 'var(--text-main)';
+        document.querySelector('.status-dot').style.boxShadow = 'none';
+        appendToLocalLogs('INFO', 'Companion WebSocket connected.');
         
         ws.send(JSON.stringify({ type: 'hello' }));
       };
@@ -981,8 +990,12 @@
           if (msg.type === 'state' || msg.type === 'welcome') {
             appendToLocalLogs('INFO', `TUI State change: ${msg.state || 'idle'}`);
           } else if (msg.type === 'sync') {
-            // Merge or replace history
-            activeChatHistory = msg.history || [];
+            // Live broadcasts use data; the hello/reconnect snapshot uses history.
+            const history = msg.data ?? msg.history;
+            if (!Array.isArray(history) || !history.every(m => m && typeof m.role === 'string' && typeof m.content === 'string')) {
+              throw new Error('Invalid chat sync: expected messages with role and text content');
+            }
+            activeChatHistory = history;
             saveActiveChat();
             if (!isViewingSaved) {
               renderConsoleLogs(activeChatHistory);
@@ -994,22 +1007,8 @@
             appendToLocalLogs('INFO', `tmux pane trace: ${msg.data.line.substring(0, 40)}...`);
           } else if (msg.type === 'agent:tool') {
             appendToLocalLogs('WARN', `Agent tool-call gate triggered: ${msg.data.name}`);
-            
-            // Exit saved chat view to show live sync
-            if (isViewingSaved) {
-              exitSavedChatViewer();
-            }
-            
-            activeChatHistory.push({
-              role: 'system',
-              content: `Swarm Orchestrator Tool Call: ${msg.data.name} with arguments: ${JSON.stringify(msg.data.args, null, 2)}`,
-              timestamp: Date.now(),
-              isTool: true
-            });
-            saveActiveChat();
-            if (!isViewingSaved) {
-              renderConsoleLogs(activeChatHistory);
-            }
+            // Notification only: the terminal's canonical mirror snapshot
+            // includes this tool row. Never synthesize or merge a second copy.
           } else if (msg.type === 'agent:delta') {
             // Exit saved chat view to show live sync
             if (isViewingSaved) {
@@ -1051,10 +1050,11 @@
       };
 
       ws.onclose = () => {
-        statusEl.textContent = 'TUI DISCONNECTED. RECONNECTING...';
+        statusEl.textContent = 'COMPANION SOCKET · RECONNECTING';
         document.querySelector('.status-dot').style.background = '#ff7b72';
         document.querySelector('.status-dot').style.boxShadow = '0 0 10px #ff7b72';
         appendToLocalLogs('ERROR', 'WebSocket connection lost. Retrying in 2s...');
+        if (!isViewingSaved) updateMirrorStatus('RECONNECTING');
         setTimeout(connect, 2000);
       };
 
@@ -1078,9 +1078,11 @@
         
         if (msg.role === 'system' && msg.isTool) {
           try {
-            const parts = msg.content.split('with arguments:');
-            const name = parts[0].replace('Swarm Orchestrator Tool Call:', '').trim();
-            const args = JSON.parse(parts[1].trim());
+            const delimiter = 'with arguments:';
+            const index = msg.content.indexOf(delimiter);
+            if (index < 0) throw new Error('Missing tool arguments delimiter');
+            const name = msg.content.slice(0, index).replace('Swarm Orchestrator Tool Call:', '').trim();
+            const args = JSON.parse(msg.content.slice(index + delimiter.length).trim());
             return `
               <div class="log-msg system">
                 <div class="log-header system">
@@ -1088,8 +1090,8 @@
                   <span class="log-time">${timeStr}</span>
                 </div>
                 <div class="log-content">
-                  Calling tool <code style="color: var(--primary-hsl);">${name}</code> with arguments:
-                  <pre class="code-box">${JSON.stringify(args, null, 2)}</pre>
+                  Calling tool <code style="color: var(--primary-hsl);">${escapeMirrorText(name)}</code> with arguments:
+                  <pre class="code-box">${escapeMirrorText(JSON.stringify(args, null, 2))}</pre>
                 </div>
               </div>
             `;
@@ -1116,11 +1118,6 @@
           formatted = formatted.replace('⚙️ **[SYSTEM]**', '').trim();
         }
 
-        let cloudflareReceiptBadge = '';
-        if (msg.role === 'assistant' && !msg.content.includes('[SYSTEM]')) {
-          cloudflareReceiptBadge = `<div style="margin-top: 8px; font-size: 11px; color: var(--success-hsl); font-weight: bold; font-family: var(--font-fira);">☁️ [Saved to Cloudflare Durable Object SQLite Session #default-local-run]</div>`;
-        }
-
         return `
           <div class="log-msg ${msgClass}">
             <div class="log-header ${msgClass}">
@@ -1128,7 +1125,6 @@
               <span class="log-time">${timeStr}</span>
             </div>
             <div class="log-content">${formatted}</div>
-            ${cloudflareReceiptBadge}
           </div>
         `;
       }).join('');
