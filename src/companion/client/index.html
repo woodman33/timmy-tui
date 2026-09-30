@@ -855,7 +855,7 @@
       banner.id = 'saved-chat-banner';
       banner.style.cssText = 'background: rgba(218, 115, 0, 0.15); border: 1px solid var(--primary-hsl); padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; font-family: var(--font-inter);';
       banner.innerHTML = `
-        <span>📂 Viewing Saved Session from <strong>${chat.timestamp}</strong></span>
+        <span>📂 Viewing Saved Session from <strong>${escapeMirrorText(chat.timestamp)}</strong></span>
         <button class="btn-action success" onclick="exitSavedChatViewer()">Back to Live Mirror</button>
       `;
       
@@ -924,22 +924,27 @@
         return;
       }
 
-      listEl.innerHTML = chats.slice(0, 5).map(c => `
+      listEl.innerHTML = chats.slice(0, 5).map(c => {
+        // Encode the ID for its JS-string context as well as the HTML attribute.
+        // Prompt and metadata remain text; stored chat bytes stay unchanged.
+        const id = encodeURIComponent(String(c.id)).replace(/'/g, '%27');
+        return `
         <div style="background: rgba(22, 27, 34, 0.6); border: 1px solid var(--border-color); padding: 12px; border-radius: 8px; display: flex; flex-direction: column; gap: 8px;">
           <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: var(--text-muted);">
-            <span>${c.timestamp}</span>
-            <span style="color: var(--secondary-hsl); font-weight: bold;">${c.messagesCount} msgs</span>
+            <span>${escapeMirrorText(c.timestamp)}</span>
+            <span style="color: var(--secondary-hsl); font-weight: bold;">${escapeMirrorText(c.messagesCount)} msgs</span>
           </div>
           <div style="font-size: 11px; color: var(--text-main); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-            "${c.firstPrompt}"
+            "${escapeMirrorText(c.firstPrompt)}"
           </div>
           <div style="display: flex; gap: 6px; margin-top: 4px;">
-            <button class="btn-action success" style="padding: 2px 6px; font-size: 9px;" onclick="loadSavedChat('${c.id}')">Load</button>
-            <button class="btn-action" style="padding: 2px 6px; font-size: 9px;" onclick="downloadSavedChat('${c.id}')">Download</button>
-            <button class="btn-action danger" style="padding: 2px 6px; font-size: 9px;" onclick="deleteSavedChat('${c.id}')">Delete</button>
+            <button class="btn-action success" style="padding: 2px 6px; font-size: 9px;" onclick="loadSavedChat(decodeURIComponent('${id}'))">Load</button>
+            <button class="btn-action" style="padding: 2px 6px; font-size: 9px;" onclick="downloadSavedChat(decodeURIComponent('${id}'))">Download</button>
+            <button class="btn-action danger" style="padding: 2px 6px; font-size: 9px;" onclick="deleteSavedChat(decodeURIComponent('${id}'))">Delete</button>
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
     }
 
     function escapeMirrorText(value) {

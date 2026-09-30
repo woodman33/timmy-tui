@@ -218,6 +218,7 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
           paneFocus={paneFocus}
           agent={agent}
           setInspector={setInspectorSafe}
+          companionSync={false}
         />
 
         {/* SOLID full-card overlay — opaque surfaceRaised field, never

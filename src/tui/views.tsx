@@ -45,6 +45,8 @@ export interface ViewStageProps {
   paneFocus: number;
   agent: Agent;
   setInspector: (d: unknown) => void;
+  /** False when a parent App already owns the companion synchronization. */
+  companionSync?: boolean;
 }
 
 const noopZone = (_z: number): void => undefined;
@@ -158,14 +160,14 @@ const stamp = (ts: string): string => {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 };
 
-export function ViewStage({ view, paneFocus, agent, setInspector }: ViewStageProps) {
+export function ViewStage({ view, paneFocus, agent, setInspector, companionSync = true }: ViewStageProps) {
   const { w: width, h: height } = React.useContext(ViewportContext);
   const pane = (i: number): boolean => paneFocus === i;
 
   // TUI REDESIGN (tui-redesign-p6a3, CUTOVER): v2 shell is the DEFAULT; the
   // legacy nine-view shell stays behind TIMMY_SHELL=v1 for one release.
   if (process.env.TIMMY_SHELL !== 'v1') {
-    return <ShellV2 width={width} agent={agent} />;
+    return <ShellV2 width={width} agent={agent} companionSync={companionSync} />;
   }
 
   if (view === 0) {

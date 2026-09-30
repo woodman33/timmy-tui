@@ -5,6 +5,7 @@ import { cleanup, render } from 'ink-testing-library';
 import type { Agent } from '../src/agent/core.js';
 import type { Message } from '../src/types/index.js';
 import { useCompanionSync } from '../src/tui/hooks/useCompanionSync.js';
+import { useAgent, type AgentUIState } from '../src/tui/hooks/useAgent.js';
 import { createAgent } from '../src/agent/core.js';
 
 vi.mock('../src/agent/core.js', () => ({ createAgent: vi.fn(() => {
@@ -44,6 +45,13 @@ function fixtureAgent() {
 }
 function Harness(props: Parameters<typeof useCompanionSync>[0]) {
   useCompanionSync(props);
+  return null;
+}
+let observedAgentState: AgentUIState;
+function AgentHarness({ agent }: { agent: Agent }) {
+  const state = useAgent(agent);
+  observedAgentState = state;
+  useCompanionSync({ agent, messages: state.messages });
   return null;
 }
 let server: Record<string, any>;
@@ -149,6 +157,7 @@ describe('companion synchronization lifecycle', () => {
   });
 
   it('attaches listeners before the lazy agent emits its first user message and reply', async () => {
+    server.lastHistory = history;
     const view = render(<ShellV2 width={120} config={{ onboarded: true }} />);
     await vi.waitFor(() => expect(view.lastFrame()).toContain('YOUR JOURNEY'));
     view.stdin.write('c');
@@ -156,12 +165,48 @@ describe('companion synchronization lifecycle', () => {
     view.stdin.write('Synthetic first request');
     await vi.waitFor(() => expect(view.lastFrame()).toContain('Synthetic first request'));
     view.stdin.write('\r');
-    await vi.waitFor(() => expect(server.lastHistory?.map((m: Message) => m.content)).toEqual(['Synthetic first request', 'Synthetic first reply']));
+    await vi.waitFor(() => expect(server.lastHistory?.map((m: Message) => m.content)).toEqual(['Synthetic local question', 'Synthetic first request', 'Synthetic first reply']));
+    const snapshots = server.sendUpdate.mock.calls.filter(([type]: [string]) => type === 'sync').map(([, data]: [string, Message[]]) => data);
+    expect(snapshots.length).toBeGreaterThan(0);
+    expect(snapshots.every((messages: Message[]) => messages[0]?.content === 'Synthetic local question')).toBe(true);
     expect(createAgent).toHaveBeenCalledTimes(1);
     expect(server.agent.send).toHaveBeenCalledExactlyOnceWith('Synthetic first request');
     expect(server.sendUpdate).toHaveBeenCalledWith('agent:delta', { delta: 'reply', fullText: 'Synthetic first reply' });
     view.unmount();
     await tick();
     expect(server.agent).toBeUndefined();
+  });
+
+  it('hydrates a replacement agent before publishing and resets transient/provider state', async () => {
+    const previous = fixtureAgent();
+    const replacement = fixtureAgent();
+    const replacementHistory: Message[] = [{ role: 'assistant', content: 'Synthetic retained replacement', timestamp: 3 }];
+    replacement.conversation = { getHistory: () => replacementHistory } as never;
+    replacement.getModel = () => 'fixture/replacement';
+    (replacement as any).modelHealthStatus = 'READY';
+    replacement.totalCost = 0.25;
+    const view = render(<AgentHarness agent={previous} />);
+    await tick();
+    previous.emit('thinking:start');
+    previous.emit('stream:delta', 'partial', 'Synthetic abandoned partial');
+    previous.emit('tool:call', 'synthetic-old-tool');
+    previous.emit('cost:update', 1, 1);
+    previous.emit('error', new Error('Synthetic previous failure'));
+    await vi.waitFor(() => expect(observedAgentState.error?.message).toBe('Synthetic previous failure'));
+    server.sendUpdate.mockClear();
+    view.rerender(<AgentHarness agent={replacement} />);
+    await vi.waitFor(() => expect(server.agent).toBe(replacement));
+    expect(observedAgentState.messages).toEqual(replacementHistory);
+    expect(observedAgentState).toMatchObject({
+      streamingText: '', isThinking: false, isStreaming: false, currentTools: [],
+      error: null, totalTokens: 0, totalCost: 0.25,
+      model: 'fixture/replacement', modelHealthStatus: 'READY',
+    });
+    const snapshots = server.sendUpdate.mock.calls.filter(([type]: [string]) => type === 'sync').map(([, data]: [string, Message[]]) => data);
+    expect(snapshots).toEqual([replacementHistory]);
+    expect(previous.eventNames()).toEqual([]);
+    replacement.emit('stream:end', 'Synthetic replacement continuation');
+    await vi.waitFor(() => expect(server.lastHistory.map((m: Message) => m.content)).toEqual(['Synthetic retained replacement', 'Synthetic replacement continuation']));
+    view.unmount();
   });
 });

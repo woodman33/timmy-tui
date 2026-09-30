@@ -90,12 +90,14 @@ const NOOP_AGENT = {
   conversation: { getHistory: () => [] }, totalCost: 0,
 } as unknown as Agent;
 
-export function ShellV2({ width = 120, agent, config }: { width?: number; agent?: Agent; config?: unknown }) {
+export function ShellV2({ width = 120, agent, config, companionSync = true }: { width?: number; agent?: Agent; config?: unknown; companionSync?: boolean }) {
   const [lazyAgent, setLazyAgent] = useState<Agent | undefined>(undefined);
   const effectiveAgent = agent ?? lazyAgent;
   const firstChatText = useRef<string | null>(null);
   const chat = useAgent(effectiveAgent ?? NOOP_AGENT);
-  useCompanionSync({ agent: effectiveAgent ?? NOOP_AGENT, messages: chat.messages, enabled: Boolean(effectiveAgent) });
+  // Standalone shells own their mirror; the full App owns its run metadata
+  // and opts its nested shell out to avoid duplicate broadcasts/listeners.
+  useCompanionSync({ agent: effectiveAgent ?? NOOP_AGENT, messages: chat.messages, enabled: companionSync && Boolean(effectiveAgent) });
   useEffect(() => {
     if (!effectiveAgent || firstChatText.current === null) return;
     const text = firstChatText.current;

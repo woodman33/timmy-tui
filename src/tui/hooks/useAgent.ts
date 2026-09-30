@@ -15,36 +15,47 @@ export interface AgentUIState {
   modelHealthStatus: 'UNTESTED' | 'READY' | 'ERROR' | 'FALLBACK READY';
 }
 
-export function useAgent(agent: Agent) {
-  // Hydrate from the Agent's conversation so switching panels (unmount/remount)
-  // no longer wipes the visible chat — the history lives in core, not in React.
-  const [state, setState] = useState<AgentUIState>(() => {
-    let history: Message[] = [];
-    try {
-      const conv = (agent as any).conversation;
-      if (conv?.getHistory) {
-        history = conv
-          .getHistory()
-          .filter((m: any) => m.role === 'user' || m.role === 'assistant')
-          .map((m: any) => ({ role: m.role, content: m.content, timestamp: m.timestamp || Date.now() }));
-      }
-    } catch {
-      history = [];
+function initialAgentState(agent: Agent): AgentUIState {
+  let history: Message[] = [];
+  try {
+    const conv = (agent as any).conversation;
+    if (conv?.getHistory) {
+      history = conv
+        .getHistory()
+        .filter((m: any) => m.role === 'user' || m.role === 'assistant')
+        .map((m: any) => ({ role: m.role, content: m.content, timestamp: m.timestamp ?? Date.now() }));
     }
-    return {
-      messages: history,
-      streamingText: '',
-      isThinking: false,
-      isStreaming: false,
-      currentTools: [],
-      error: null,
-      totalTokens: 0,
-      totalCost: (agent as any).totalCost || 0,
-      model: agent.getModel(),
-      modelHealthStatus: (agent as any).modelHealthStatus || 'UNTESTED',
-    };
-  });
+  } catch {
+    history = [];
+  }
+  return {
+    messages: history,
+    streamingText: '',
+    isThinking: false,
+    isStreaming: false,
+    currentTools: [],
+    error: null,
+    totalTokens: 0,
+    totalCost: (agent as any).totalCost || 0,
+    model: agent.getModel(),
+    modelHealthStatus: (agent as any).modelHealthStatus || 'UNTESTED',
+  };
+}
+
+export function useAgent(agent: Agent) {
+  // The default shell begins with a NOOP agent, then creates the real one on
+  // first send. Reset during render so downstream effects never publish the
+  // previous agent's history (or []) before retained history is hydrated.
+  const [state, setState] = useState<AgentUIState>(() => initialAgentState(agent));
+  const [stateAgent, setStateAgent] = useState(() => agent);
   const toolsRef = useRef<string[]>([]);
+  let currentState = state;
+  if (stateAgent !== agent) {
+    currentState = initialAgentState(agent);
+    setStateAgent(agent);
+    setState(currentState);
+    toolsRef.current = [];
+  }
 
   useEffect(() => {
     const handlers = {
@@ -125,5 +136,5 @@ export function useAgent(agent: Agent) {
     agent.setModel(model);
   }, [agent]);
 
-  return { ...state, send, clearHistory, switchModel };
+  return { ...currentState, send, clearHistory, switchModel };
 }

@@ -5,16 +5,19 @@ import { runInNewContext } from 'node:vm';
 // Execute the connection and mirror code that the served page actually runs.
 // Synthetic messages exercise transport/display only; no provider is contacted.
 const html = readFileSync(new URL('../src/companion/client/index.html', import.meta.url), 'utf8');
-const code = html.slice(html.indexOf('    function escapeMirrorText('), html.indexOf('    // GSAP Tab Deck Controller'));
+const code = html.slice(html.indexOf('    function saveActiveChat()'), html.indexOf('    // GSAP Tab Deck Controller'));
 
 function client(protocol = 'http:') {
   const statusEl = { textContent: '' };
   const dot = { style: {} as Record<string, string> };
   const consoleLogs = { innerHTML: '', scrollTop: 0, scrollHeight: 0 };
+  const savedList = { innerHTML: '' };
+  const storage = new Map<string, string>();
   const sockets: any[] = [];
   const context: any = {
     statusEl, consoleLogs, logsList: { innerHTML: '', scrollTop: 0, scrollHeight: 0 }, location: { protocol, host: '127.0.0.1:3001' },
-    document: { querySelector: () => dot },
+    document: { querySelector: () => dot, getElementById: (id: string) => id === 'saved-chats-list' ? savedList : consoleLogs },
+    localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) },
     WebSocket: class {
       url: string;
       send = vi.fn();
@@ -22,14 +25,14 @@ function client(protocol = 'http:') {
       constructor(url: string) { this.url = url; sockets.push(this); }
     },
     wsConnection: null, activeChatHistory: [], isViewingSaved: false,
-    saveActiveChat: vi.fn(), updateMirrorStatus: vi.fn(),
+    updateMirrorStatus: vi.fn(),
     exitSavedChatViewer: vi.fn(), setTimeout: vi.fn(), console: { error: vi.fn() },
     pHash: { textContent: '' }, pRunId: { textContent: '' }, pPath: { textContent: '' },
   };
   runInNewContext(code + '\nconnect();', context);
   const socket = sockets[0];
   const receive = (msg: unknown) => socket.onmessage({ data: JSON.stringify(msg) });
-  return { context, socket, statusEl, dot, consoleLogs, receive };
+  return { context, socket, statusEl, dot, consoleLogs, savedList, storage, receive };
 }
 
 describe('companion connection and chat mirror', () => {
@@ -83,5 +86,18 @@ describe('companion connection and chat mirror', () => {
     expect(c.consoleLogs.innerHTML).not.toContain('<img');
     c.receive({ type: attack });
     expect(c.context.logsList.innerHTML).not.toContain('<img');
+  });
+
+  it('preserves HTML-bearing prompt text through actual save and restored-card rendering', () => {
+    const c = client();
+    const prompt = '<img src=x onerror=alert(1)>';
+    c.receive({ type: 'sync', data: [{ role: 'user', content: prompt }] });
+    c.context.saveCurrentChat();
+    expect(JSON.parse(c.storage.get('timmy.chat.sessions')!)[0].messages[0].content).toBe(prompt);
+    expect(c.savedList.innerHTML).not.toContain('<img');
+    expect(c.savedList.innerHTML).toContain('&lt;img');
+    c.savedList.innerHTML = '';
+    c.context.renderSavedChatsList();
+    expect(c.savedList.innerHTML).toContain('&lt;img');
   });
 });
