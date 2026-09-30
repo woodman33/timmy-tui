@@ -140,7 +140,10 @@ describe('ShellV2 visual tools interaction', () => {
       expect(readFileSync(policyPath(policyRoot))).toEqual(policyBytes);
       expect(network).not.toHaveBeenCalled();
       expect(spawn).not.toHaveBeenCalled();
-      expect(spawnSync).toHaveBeenCalledExactlyOnceWith('docker', ['info', '--format', 'ok'], { timeout: 2500, stdio: 'ignore' });
+      expect(spawnSync).toHaveBeenCalledExactlyOnceWith('docker', ['info', '--format', '{{json .ServerVersion}}'], {
+        encoding: 'utf8', timeout: 2500, killSignal: 'SIGKILL', maxBuffer: 16 * 1024,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
     } finally {
       cleanup();
       process.chdir(originalCwd);

@@ -9,6 +9,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { createConnection } from 'net';
 import { openscadBin } from './usd-compiler.js';
+import { probeDockerServerVersion } from './docker-server.js';
 
 export interface DoctorCheck {
   name: string;
@@ -22,9 +23,9 @@ export const comfyToolPython = (): string =>
   join(homedir(), '.local', 'share', 'uv', 'tools', 'comfy-cli', 'bin', 'python');
 
 export function checkDocker(): DoctorCheck {
-  const r = spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], { encoding: 'utf8', timeout: 5000 });
-  return r.status === 0
-    ? { name: 'docker daemon', required: true, state: 'ok', note: `v${(r.stdout ?? '').trim()}` }
+  const version = probeDockerServerVersion(5000);
+  return version !== null
+    ? { name: 'docker daemon', required: true, state: 'ok', note: `v${version}` }
     : { name: 'docker daemon', required: true, state: 'not_configured', note: 'docker info failed — containerized lanes fail closed' };
 }
 

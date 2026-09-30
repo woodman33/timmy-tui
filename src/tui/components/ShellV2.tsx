@@ -32,6 +32,7 @@ import { IntegrationStatus } from './IntegrationStatus.js';
 import { integrationCatalog } from '../../vision/integrations/registry.js';
 import { VisualToolsPanel, type VisualToolRunState } from './VisualToolsPanel.js';
 import { runVisualTool, visualToolsAvailability, visualToolExamples, visualToolsSetup, type VisualOperation } from '../../utils/visual-tools.js';
+import { probeDockerServerVersion } from '../../utils/docker-server.js';
 
 // TUI REDESIGN (spec §01/§02/§03) — IA collapse: nine tabs become four.
 // HOME · RUN · CHAIN · LIBRARY. HOME is the journey ladder: seven steps read
@@ -276,8 +277,7 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
 
   // docker is a capability, not a danger: off renders dim □, never red
   useEffect(() => {
-    const r = spawnSync('docker', ['info', '--format', 'ok'], { timeout: 2500, stdio: 'ignore' });
-    setDocker(r.status === 0);
+    setDocker(probeDockerServerVersion() !== null);
   }, []);
 
   // FIX 3 (director): first run seeds a default model policy (pinned model,
