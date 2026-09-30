@@ -139,3 +139,26 @@ an intact cancelled result keeps its cancelled lifecycle. Job reads also compare
 the embedded signer with the existing workspace key without creating or caching
 an identity. These are custody consistency checks, not protection against a host
 that can replace the entire workspace and its keys.
+
+## Retained Study 03 inspection
+
+`timmy inspect <question>` reads the caller workspace's retained Study 03 scene,
+or the receipt selected with `--receipt ID`. Supported questions are `clearance`,
+`frame`, `empty spaces`, `arrows`, `bore A`, and `coverage`. The compiled inspector
+and its scene/store modules are delivered by the normal build and use Node plus
+the existing production `zod` dependency. Source execution resolves its optional
+development loader from the repository while preserving caller paths.
+
+Inspection does not run the observer, rebuild geometry, or execute an arrow.
+Frame and unit options change the display transform only; the original observed
+timestamp is retained. The 2 mm wall-gap calculation is analytical, and neither
+that gap nor the four empty-space envelopes establishes a complete tool path or
+physical validation. Missing or changed retained sources return unavailable.
+
+`tests/inspect-package.test.ts` exercises the actual compiled bin with private,
+explicitly synthetic signed contract fixtures, including missing/tampered
+sources and the under-2 mm refusal. It compares installed and caller evidence
+bytes after reads. Those signatures and 72 fixture checks test the reader; they
+are not new native observations. The existing reader's individual signature and
+source-hash checks do not establish full-chain custody or an independently
+trusted signer, and this delivery change does not expand that evidence boundary.
