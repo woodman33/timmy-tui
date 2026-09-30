@@ -48,3 +48,67 @@ acceptance with `npx tsx lanes/recipes/qualify.ts` after configuring the runtime
 It builds 140 and 180, checks native motion, varies wall/offset/bore, refuses
 wall=0 before native execution, and rejects a modified mesh and incomplete gate.
 Each invocation adds real receipts; it is not part of the ordinary test suite.
+
+## Queued recipe jobs
+
+The existing synchronous `build` API is unchanged. `recipe jobs` places that
+build behind a separate Node supervisor and a separate native-build process;
+CadQuery itself remains synchronous. Commands work through the recipe CLI:
+
+```
+node --import tsx lanes/recipes/cli.ts jobs enqueue --request request.json
+node --import tsx lanes/recipes/cli.ts jobs start JOB_UUID
+node --import tsx lanes/recipes/cli.ts jobs status JOB_UUID
+node --import tsx lanes/recipes/cli.ts jobs cancel JOB_UUID
+node --import tsx lanes/recipes/cli.ts jobs recover JOB_UUID
+```
+
+Enqueue persists a validated request, request/source hashes and a private signing
+identity under `.timmy/recipe-jobs/JOB_UUID`. Start returns after launching a
+detached supervisor; status reports queued/running/succeeded/failed/cancelled/
+interrupted plus progress and the result receipt pointer. Every job has its own
+workspace and receipt stream; these are not shared root seals. No installation
+or model/provider call is involved. POSIX process groups and installed `tsx`
+are currently required.
+
+Cancellation writes a request marker. Only the live supervisor can terminate
+its own child group; a CLI never kills a PID read from disk. Partial native
+artifacts remain available. A source change before execution refuses launch.
+An exclusive execution marker prevents a second launch, even after a crash.
+Recovery checks existing result/request bindings, the retained report, pinned
+signer, prediction/result receipts and artifact hashes. A stale heartbeat or
+unverifiable result becomes interrupted, with no automatic replay. A worker
+lost during a native edit may leave an orphan process: inspect its artifacts;
+recovery does not guess whether repeating that edit is safe. There is no
+automatic global scheduler, cross-job concurrency limit or native progress
+percentage; progress is the observed execution phase. This boundary does not
+claim a hermetic dependency lock or new native qualification.
+
+`tests/recipe-jobs.test.ts` exercises this lifecycle with a separate fake worker
+and private synthetic receipts. It does not run CadQuery or qualify geometry.
+
+The internal `execute` entry has its own independent exclusive marker before
+any native or fixture executor runs. Direct invocation requires the existing
+supervisor claim, refuses completed/cancelled/interrupted jobs, and cannot replay
+a claimed execution after success, failure or a crash. The supervisor always
+launches that common entry, including the offline fixture seam; cancellation
+terminates its owned process group. Claim files remain as crash evidence.
+
+Every new job workspace has its own checked store pin; a shared parent pin or
+changed local pin cannot redirect its receipts. The result envelope is signed by
+the workspace identity and binds the request, execution/source hashes and report
+hash. Recovery verifies that envelope before the native receipt and artifact
+checks, so editing a report and its unsigned hash cannot produce verified success.
+
+Direct worker entry also establishes the private workspace and clears any Python
+not bound at enqueue. Recovery rehashes the retained request, prediction and
+frozen build source, and honors a pending cancellation even when native output
+already exists. Cancellation does not undo completed work; partial or completed
+artifacts remain retained. External installed dependencies are not a hermetic
+runtime lock. Native qualification of this new worker boundary is still pending.
+
+A cancel marker alone does not prove a lost worker stopped. Recovery with no
+verified result keeps a live cancellation pending; a stale heartbeat becomes
+interrupted with unknown outcome. A verified completed result can be retained
+with cancelled lifecycle status, without implying that its native effects were
+rolled back.
