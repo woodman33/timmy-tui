@@ -35,7 +35,7 @@ beforeAll(() => {
   ] }));
   w('fleet/nodes.json', JSON.stringify({ v: 1, nodes: [{ id: 'node-a', status: 'joined', kind: 'fixture', ssh: 'ssh node-a', role: ['ollama'] }] }));
   w('lanes/unreal/README.md', '# fixture unreal lane\n');
-  // signal fixture: live checkpoint + opening state + ledger reservations
+  // signal fixture: held checkpoint + opening state + historical ledger reservations
   const sw = (rel: string, body: string) => {
     const p = join(signalDir, rel);
     mkdirSync(join(p, '..'), { recursive: true });
@@ -85,7 +85,8 @@ describe('uinext readers', () => {
   it('signal state reads round, attention and ledger reservations', () => {
     const st = signalState();
     expect(st).not.toBeNull();
-    expect(st?.live).toBe(true);
+    expect(st?.live).toBe(false);
+    expect(st?.label).toBe('hold');
     expect(st?.round).toBe(2);
     expect(st?.attention).toBe(7);
     expect(st?.rows).toBe(2);
@@ -120,7 +121,7 @@ describe('typed views for the new kinds', () => {
 });
 
 describe('ui-next panes render', { timeout: 60000 }, () => {
-  it('RUN shows the SIGNAL panel while the game is live; LIBRARY shows Ollama rows; ENGINE ROOM shows houdini', async () => {
+  it('RUN shows the SIGNAL panel while the game is held; LIBRARY shows Ollama rows; ENGINE ROOM shows houdini', async () => {
     const view = render(React.createElement(ShellV2, { width: 120 }));
     await until(view, x => x.includes('YOUR JOURNEY') || x.includes('TIMMY'));
     view.stdin.write('2');

@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "missions": [
+    {
+      "id": "golden-product-shot",
+      "brief": {
+        "mission_id": "golden-product-shot",
+        "prompt": "a matte-black espresso machine on walnut, product hero film",
+        "stage": "i2v",
+        "provider": "higgsfield-stub",
+        "beats": [
+          { "id": "b1", "t": 0, "text": "slow push-in on the machine, steam rising" },
+          { "id": "b2", "t": 1, "text": "latte art pours into the cup beside it" },
+          { "id": "b3", "t": 2, "text": "logo lockup, warm rim light" }
+        ],
+        "max_spend_usd": 0.10,
+        "max_probe_calls": 3,
+        "max_render_calls": 2,
+        "declared_balance_usd": 0.50,
+        "threshold": 0.7,
+        "facets": ["adherence", "coherence"],
+        "local_judges": ["judge-local"],
+        "frontier_judges": ["judge-frontier"],
+        "rewriters": ["rw-1", "rw-2"],
+        "judge_model": "parliament-judge",
+        "max_iterations": 3,
+        "max_probe_attempts": 2
+      },
+      "script": {
+        "generations": [
+          { "stage": "probe", "status": "completed", "cost_usd": 0.01, "cost_measured": true, "via": "real-hf-stub" },
+          { "stage": "render", "status": "completed", "cost_usd": 0.05, "cost_measured": true, "via": "scripted" }
+        ],
+        "probe_judge_verdicts": [
+          { "scores": { "adherence": 8, "coherence": 8 }, "confidence": 0.9, "critique": "" }
+        ],
+        "expected": {
+          "final_stage": "done",
+          "generations": 2,
+          "probe_panels": 1,
+          "parliaments": 0,
+          "iterations": 0,
+          "versions": 1,
+          "probe_calls": 1,
+          "render_calls": 1,
+          "total_calls": 2,
+          "within_budget": true
+        }
+      }
+    },
+    {
+      "id": "golden-scene-orbit",
+      "brief": {
+        "mission_id": "golden-scene-orbit",
+        "prompt": "an orbit around a foggy coastal lighthouse at dusk",
+        "stage": "i2v",
+        "provider": "higgsfield-stub",
+        "beats": [
+          { "id": "b1", "t": 0, "text": "wide establishing orbit, lighthouse beam sweeps" },
+          { "id": "b2", "t": 1, "text": "camera drops below the fog line toward the rocks" },
+          { "id": "b3", "t": 2, "text": "beam passes overhead, gulls scatter" }
+        ],
+        "max_spend_usd": 0.10,
+        "max_probe_calls": 3,
+        "max_render_calls": 2,
+        "declared_balance_usd": 0.50,
+        "threshold": 0.7,
+        "facets": ["adherence", "coherence"],
+        "local_judges": ["judge-local"],
+        "frontier_judges": ["judge-frontier"],
+        "rewriters": ["rw-1", "rw-2"],
+        "judge_model": "parliament-judge",
+        "max_iterations": 3,
+        "max_probe_attempts": 2
+      },
+      "script": {
+        "generations": [
+          { "stage": "probe", "status": "completed", "cost_usd": 0.01, "cost_measured": true, "via": "scripted" },
+          { "stage": "probe", "status": "completed", "cost_usd": 0.01, "cost_measured": true, "via": "scripted" },
+          { "stage": "render", "status": "completed", "cost_usd": 0.05, "cost_measured": true, "via": "scripted" }
+        ],
+        "probe_judge_verdicts": [
+          { "scores": { "adherence": 4, "coherence": 5 }, "confidence": 0.9, "critique": "fog line beat reads as a hard cut, no continuity" },
+          { "scores": { "adherence": 8, "coherence": 9 }, "confidence": 0.9, "critique": "" }
+        ],
+        "parliament": {
+          "failingBeatIds": ["b2"],
+          "rewrites": {
+            "rw-1": { "b2": "the camera glides down through the fog in one continuous move" },
+            "rw-2": { "b2": "a single smooth descent carries the orbit below the fog to the rocks" }
+          },
+          "judge": {
+            "picks": [{ "beat_id": "b2", "rewriter": "rw-2", "reason": "preserves the orbit continuity" }]
+          }
+        },
+        "expected": {
+          "final_stage": "done",
+          "generations": 3,
+          "probe_panels": 2,
+          "parliaments": 1,
+          "iterations": 1,
+          "versions": 2,
+          "probe_calls": 2,
+          "render_calls": 1,
+          "total_calls": 3,
+          "within_budget": true
+        }
+      }
+    },
+    {
+      "id": "golden-talking-head",
+      "brief": {
+        "mission_id": "golden-talking-head",
+        "prompt": "a spokesperson delivers the product line to camera",
+        "stage": "speak",
+        "provider": "higgsfield-stub",
+        "beats": [
+          { "id": "b1", "t": 0, "text": "medium close-up, spokesperson smiles and begins" },
+          { "id": "b2", "t": 1, "text": "delivers the tagline with a nod" }
+        ],
+        "max_spend_usd": 0.10,
+        "max_probe_calls": 3,
+        "max_render_calls": 2,
+        "declared_balance_usd": 0.50,
+        "threshold": 0.7,
+        "facets": ["adherence", "identity_lock"],
+        "local_judges": ["judge-local"],
+        "frontier_judges": ["judge-frontier"],
+        "rewriters": ["rw-1", "rw-2"],
+        "judge_model": "parliament-judge",
+        "max_iterations": 3,
+        "max_probe_attempts": 2
+      },
+      "script": {
+        "generations": [
+          { "stage": "probe", "status": "nsfw", "cost_usd": 0, "cost_measured": true, "via": "scripted" }
+        ],
+        "probe_judge_verdicts": [],
+        "expected": {
+          "final_stage": "quarantined",
+          "generations": 1,
+          "probe_panels": 0,
+          "parliaments": 0,
+          "iterations": 0,
+          "versions": 1,
+          "probe_calls": 1,
+          "render_calls": 0,
+          "total_calls": 1,
+          "within_budget": true,
+          "toxic": true
+        }
+      }
+    }
+  ]
+}

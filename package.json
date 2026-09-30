@@ -22,7 +22,13 @@
     "studio/tldraw-mission-map",
     "templates/vision",
     "deploy/vision",
-    "docs/ROBOFLOW-VISION.md"
+    "docs/ROBOFLOW-VISION.md",
+    "tools/spatial-fit-20260915/adapter.py",
+    "tools/spatial-fit-20260915/README.md",
+    "docs/VISUAL-TOOLS.md",
+    "docs/VISION-SOFTWARE-INTAKE-20260915.md",
+    "examples/visual-tools",
+    "tools/platform-vision-20260910/telemetry/adapter.py"
   ],
   "scripts": {
     "start": "node boot.cjs",
@@ -31,7 +37,7 @@
     "timmy:setup": "tsx src/cli.ts setup",
     "start:headless": "tsx headless.ts",
     "dev": "tsx watch cli.tsx",
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-runtime-assets.mjs",
     "test": "vitest run",
     "test:live": "RUN_LIVE_INTEGRATION=1 vitest run tests/list-card.test.ts",
     "companion:dev": "vite",
@@ -84,6 +90,9 @@
   ],
   "author": "The TIMMY authors (https://github.com/woodman33/timmy-tui)",
   "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
   "bugs": {
     "url": "https://github.com/woodman33/timmy-tui/issues"
   },
@@ -93,7 +102,7 @@
     "@mcpc-tech/cmcp": "^0.0.15",
     "@mcpc/core": "npm:@jsr/mcpc__core@^0.3.48",
     "@openfeature/server-sdk": "^1.21.0",
-    "@openrouter/sdk": "latest",
+    "@openrouter/sdk": "0.12.35",
     "@opentui/core": "^0.5.10",
     "@opentui/react": "^0.5.10",
     "@quiverai/sdk": "^0.9.0",

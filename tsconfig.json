@@ -12,6 +12,6 @@
     "resolveJsonModule": true,
     "declaration": true
   },
-  "include": ["cli.tsx", "headless.ts", "timmy.ts", "scripts/timmy-docs.ts", "scripts/timmy-doctor.ts", "scripts/timmy-providers.ts", "scripts/timmy-sceneforge.ts", "src/**/*"],
+  "include": ["cli.tsx", "headless.ts", "timmy.ts", "scripts/timmy-docs.ts", "scripts/timmy-doctor.ts", "scripts/timmy-providers.ts", "scripts/timmy-sceneforge.ts", "src/**/*", "lanes/recipes/cli.ts", "lanes/recipes/tray.ts", "lanes/recipes/jobs.ts", "lanes/recipes/job-worker.ts", "lanes/recipes/spatial03/inspect.ts", "packages/opencode-witness/src/**/*"],
   "exclude": ["node_modules", "dist", "src/companion/client", "src/companion/cloudflare-worker.ts"]
 }

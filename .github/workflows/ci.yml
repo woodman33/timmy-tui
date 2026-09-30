@@ -12,32 +12,9 @@ env:
   # the failures stay visible, and the merge-train runner reads this variable — a failing
   # test NOT named here stops the train. Delete a line when its cause is fixed.
   #
-  #   tests/keyboard-contract.pty.test.ts  keyboard contract at PTY level; fixed by #36 (warroom-t3b1)
-  #   tests/companion-mission.test.ts      mission studio gateway (:4310) arming test times out (5000 ms) on the runner
-  #   tests/forge.test.ts                  "OTIO acceptance failed": otioconvert (pinned python 0.18.1) rejects the emitted OTIO on the runner
-  #   tests/mission-live.test.ts           EACCES: the committed .timmy/store-pin is a Mac-only absolute path the runner cannot mkdir
-  #                                        (moves to the private overlay in ORDER blank-slate-v1k9)
-  #   tests/ai-proxy.test.ts               the root suite runs in Node; @cloudflare/codemode imports the workerd-only
-  #                                        `cloudflare:workers`; the worker's own suite (step below) is the gate for workers/ai-proxy
-  #   tests/vision-templates.test.ts       (#36 warroom-t3b1) imports studio/tldraw-mission-map/vision-templates.js, which was never
-  #                                        committed on any branch; fails on #36's own tree — the module has to be added by its author
-  #   tests/receipt-hotfix.test.tsx        (#36 warroom-t3b1) C2 expects a `prev … → this` line the receipt-detail overlay does not
-  #                                        show inside the test harness; fails on #36's own tree 793f9b9
-  #   tests/demo-cast.test.ts              (#41 chain-views-e6p2) demo.mp4 needs `agg` (asciinema→gif), which the ubuntu runner does not
-  #                                        install; the cast determinism assertions pass — install agg in this workflow to clear it
-  #   tests/warroom2.test.ts               (#39 warroom-v2-c4m8) render gates; named by Will 2026-09-12 — clears when #47 (ui-next-2) lands
-  #   tests/openhands.test.ts              named by Will 2026-09-12: fails on the ubuntu runner (openhands adapter); delete when its cause is fixed
+  #   tests/vision-templates.test.ts       missing public implementation and consumer; requires scoped source recovery and privacy review
   KNOWN_WIP_TESTS: >-
-    tests/keyboard-contract.pty.test.ts
-    tests/companion-mission.test.ts
-    tests/forge.test.ts
-    tests/mission-live.test.ts
-    tests/ai-proxy.test.ts
     tests/vision-templates.test.ts
-    tests/receipt-hotfix.test.tsx
-    tests/demo-cast.test.ts
-    tests/warroom2.test.ts
-    tests/openhands.test.ts
 
 jobs:
   gate:
@@ -78,8 +55,23 @@ jobs:
           path: ~/.npm
           key: ${{ steps.npm-cache.outputs.cache-primary-key }}
 
-      - name: Install ffmpeg (clip runner E2E)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: Install ffmpeg, fonts and tmux (film and keyboard E2E)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core tmux
+
+      - name: Install agg 1.9.0 (demo film, checksum pinned)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Official x86_64 Linux release; verify before executing or adding to PATH.
+          curl --fail --location --retry 3 --max-time 60 \
+            https://github.com/asciinema/agg/releases/download/v1.9.0/agg-x86_64-unknown-linux-gnu \
+            --output "$RUNNER_TEMP/timmy-agg-download"
+          printf '%s  %s\n' f111e315cd71056b116302342553dd765b7297579ed511f111d0cedb442aeda6 \
+            "$RUNNER_TEMP/timmy-agg-download" | sha256sum --check --strict -
+          mkdir -p "$RUNNER_TEMP/timmy-ci-tools"
+          install -m 755 "$RUNNER_TEMP/timmy-agg-download" "$RUNNER_TEMP/timmy-ci-tools/agg"
+          test "$("$RUNNER_TEMP/timmy-ci-tools/agg" --version)" = 'agg 1.9.0'
+          echo "$RUNNER_TEMP/timmy-ci-tools" >> "$GITHUB_PATH"
 
       - name: Install OpenTimelineIO 0.18.1 (otioconvert, pinned)
         run: python3 -m pip install --user opentimelineio==0.18.1 && echo "$HOME/.local/bin" >> $GITHUB_PATH
@@ -103,9 +95,16 @@ jobs:
           echo "excluding: $KNOWN_WIP_TESTS"
           npx vitest run $args
 
-      - name: Test gate (workers/ai-proxy own suite)
+      # Node unit/HTTP routing coverage with Cloudflare runtime boundaries mocked.
+      # This does not establish native workerd or deployed-worker qualification.
+      - name: Test gate (workers/ai-proxy core and HTTP routes)
         working-directory: workers/ai-proxy
         run: npx vitest run
+
+      - name: Test gate (isolated ShellV2 keyboard in a real PTY)
+        env:
+          TIMMY_PTY_TESTS: '1'
+        run: npx vitest run tests/keyboard-contract.pty.test.ts
 
       - name: Known-WIP tests (named above; visible, non-blocking)
         continue-on-error: true

@@ -22,6 +22,7 @@ import { runOpenHandsTask, openHandsPlanHash, type OpenHandsOpts } from '../util
 import { roboflowRun, type RoboflowReq } from '../utils/roboflow-adapter.js';
 import { oapiRun, type OapiReq } from '../utils/oapi-adapter.js';
 import { VISION_TOOLS, callVisionTool } from '../vision/mcp.js';
+import { forgeRun, forgeStatus, forgeApprove } from '../forge/mcp-tools.js';
 
 const sleepSync = (ms: number) => spawnSync('sleep', [String(ms / 1000)]);
 
@@ -49,7 +50,10 @@ const TOOLS = [
   { name: 'timmy_tail_lane', description: 'Command Post: tail the last 40 pane lines of a dispatched plan session.', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   { name: 'timmy_pause_or_cancel_lane', description: 'Command Post: hold (SIGTSTP) or cancel (kill session) a dispatched plan; cancellations seal receipts.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, action: { type: 'string', description: 'hold | cancel' } }, required: ['id', 'action'] } },
   { name: 'timmy_collect_run', description: 'Command Post: collect a dispatched run (tail, wall-limit check, collect receipt, lifecycle → judging).', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-  { name: 'timmy_judge_loop', description: 'One-command judge loop. Phase 1 (no approval): returns the resolved executor/judge plan + plan hash. Phase 2: requires an operator-minted single-use expiring token bound to that exact plan hash (`timmy approve <planHash>`); a bare boolean never approves. Runs 3-5 executors via Promise.allSettled, one configurable judge, child receipts per executor/judge + one parent receipt linking them. Default-deny on unresolved models or missing approval.', inputSchema: { type: 'object', properties: { prompt: { type: 'string' }, system: { type: 'string' }, executors: { type: 'array', items: { type: 'string' } }, judge: { type: 'string' }, approval: { type: 'string', description: 'operator approval token from `timmy approve <planHash>`' }, max_spend: { type: 'number', description: 'approved USD ceiling (AgentPass max_spend); 0 = local/free routes only, paid routes denied' }, tier: { type: 'string', description: 'AgentPass clearance tier (default T0)' } }, required: ['prompt'] } }
+  { name: 'timmy_judge_loop', description: 'One-command judge loop. Phase 1 (no approval): returns the resolved executor/judge plan + plan hash. Phase 2: requires an operator-minted single-use expiring token bound to that exact plan hash (`timmy approve <planHash>`); a bare boolean never approves. Runs 3-5 executors via Promise.allSettled, one configurable judge, child receipts per executor/judge + one parent receipt linking them. Default-deny on unresolved models or missing approval.', inputSchema: { type: 'object', properties: { prompt: { type: 'string' }, system: { type: 'string' }, executors: { type: 'array', items: { type: 'string' } }, judge: { type: 'string' }, approval: { type: 'string', description: 'operator approval token from `timmy approve <planHash>`' }, max_spend: { type: 'number', description: 'approved USD ceiling (AgentPass max_spend); 0 = local/free routes only, paid routes denied' }, tier: { type: 'string', description: 'AgentPass clearance tier (default T0)' } }, required: ['prompt'] } },
+  { name: 'timmy_forge_run', description: 'Forge: build a DispatchPlan-shaped run plan for a mission stage (planHash + caps + mode proposal + hfReadiness). Planning is free — spends nothing. Live higgsfield without HF_CREDENTIALS still returns the plan with readiness needs_key and a live-spend-blocked warning. Next step for the operator: timmy_forge_approve <planHash>. Every call sealed as a forge.plan receipt. Gated by TIMMY_FORGE=1 (D1).', inputSchema: { type: 'object', properties: { brief: { type: 'object', properties: { mission_id: { type: 'string' }, prompt: { type: 'string' }, beats: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, t: { type: 'number' } }, required: ['id', 't'], description: 'beat timeline entries (≤100, t finite ≥ 0)' } }, stage: { type: 'string', enum: ['t2i', 'i2v', 'speak'] }, provider: { type: 'string', enum: ['higgsfield-stub', 'higgsfield'] }, max_spend_usd: { type: 'number' }, declared_balance_usd: { type: 'number' } }, required: ['mission_id', 'prompt', 'stage', 'provider'] } }, required: ['brief'] } },
+  { name: 'timmy_forge_status', description: 'Forge: read the forge ledger for a mission — latest pipeline_stage, open pipeline_submission count, toxic flag, latest orchestrator_mode. Empty ledger reports intake/approval/0/false. Every call sealed as a forge.status receipt. Gated by TIMMY_FORGE=1 (D1).', inputSchema: { type: 'object', properties: { mission_id: { type: 'string' } }, required: ['mission_id'] } },
+  { name: 'timmy_forge_approve', description: 'Forge: surfaces the operator approval command — mints nothing. Checks the chain for a sealed forge.plan with this planHash and returns the exact `timmy approve <planHash>` CLI command the operator must run to mint the single-use token (agents cannot self-approve; max_spend was bound into the planHash at plan time). Unknown hash is refused with a receipt, not a crash. Every call sealed as a forge.approve receipt (status surfaced/denied). Gated by TIMMY_FORGE=1 (D1).', inputSchema: { type: 'object', properties: { planHash: { type: 'string' } }, required: ['planHash'] } }
 ];
 
 // Judge chain (owner-picked order): free local first (M5-max optimized),
@@ -595,6 +599,26 @@ function promoApply(args: { beats: { id: string; claim?: string; sub?: string; e
   return { ok: true, applied, out: join(outDir, 'index.html') };
 }
 
+// Forge dispatch guard: an unexpected throw becomes a structured error result
+// (never a transport-level crash for the agent), and a forge.error receipt is
+// sealed best-effort through the canonical appendReceipt path.
+const forgeGuard = (tool: string, fn: () => unknown): unknown => {
+  try {
+    return fn();
+  } catch {
+    try {
+      appendReceipt('runs', {
+        kind: 'forge.error', subject: `${tool} internal error`,
+        policy: 'auto', status: 'failed', error_class: 'internal',
+        spans: [], artifacts: [],
+      } as never);
+    } catch { /* best-effort: the error result below is the contract */ }
+    // Exception messages may contain private paths or credential-bearing
+    // provider payloads. A bounded substring is not a privacy boundary.
+    return { ok: false, error_class: 'internal', error: 'forge internal error' };
+  }
+};
+
 const call = (name: string, args: any): unknown => {
   if (name.startsWith('timmy_vision_')) return callVisionTool(name, args);
   switch (name) {
@@ -628,6 +652,9 @@ const call = (name: string, args: any): unknown => {
     case 'timmy_tail_lane': return tailLane(String(args?.id ?? ''));
     case 'timmy_pause_or_cancel_lane': return pauseOrCancelLane(String(args?.id ?? ''), args?.action === 'hold' ? 'hold' : 'cancel');
     case 'timmy_collect_run': return collectRun(String(args?.id ?? ''));
+    case 'timmy_forge_run': return forgeGuard('timmy_forge_run', () => forgeRun((args?.brief ?? {}) as Parameters<typeof forgeRun>[0]));
+    case 'timmy_forge_status': return forgeGuard('timmy_forge_status', () => forgeStatus(args?.mission_id));
+    case 'timmy_forge_approve': return forgeGuard('timmy_forge_approve', () => forgeApprove(args?.planHash));
     default: throw new Error(`unknown tool ${name}`);
   }
 };
@@ -676,4 +703,4 @@ process.stdin.on('data', d => {
 const isMain = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) startMcpServer();
 
-export { llmCall, judgeLoop, redact };
+export { llmCall, judgeLoop, redact, call as dispatchMcpTool };

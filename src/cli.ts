@@ -50,9 +50,11 @@ Commands:
   version         Print package name and version
   setup           Initialize directory and template folder structure
   init            First run: operator, seed identity, providers, first project (writes only ~/timmy/ and .timmy/private/)
+  init --tui      Edit private operator, connection and model settings interactively
   release check   Release gate: fresh clone in a clean container, zero personal matches, wizard shown, §12 control
   doctor          Check optional local capabilities without running workloads
   cockpit up      One tmux pane per local hand (cd worktree, launch its CLI, pipe-pane log); attach|status|down|hands
+  cockpit shot    Capture a labeled read-only HANDS view (--rounds file, --out dir)
   docs verify     Verify GitBook docs structure, CLI, and safe env setup
   docs preview    Render and serve local docs preview
   docs publish    Verify GitBook auth and prepare Git Sync publication
@@ -137,9 +139,55 @@ if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) 
 
 const command = cleanArgs[0];
 
+if (command === 'cockpit' && !['up', 'attach', 'status', 'down', 'hands'].includes(cleanArgs[1] ?? '')) {
+  if (cleanArgs[1] === 'shot') {
+    const { cockpitShotMain } = await import('./demo/cockpit-shot.js');
+    // Globals may precede or split the verb words. Start with normalized
+    // command arguments, then restore the globals removed by that parser.
+    const shotArgs = [...cleanArgs.slice(2)];
+    if (outDir !== null) shotArgs.push('--out', outDir);
+    if (isJson) shotArgs.push('--json');
+    // Removing globals must not conceal a missing option value in the raw
+    // input, including a malformed occurrence after an earlier valid --out.
+    const missingValue = args.find((arg, index) => ['--out', '--rounds', '--marker'].includes(arg) && (!args[index + 1] || args[index + 1].startsWith('--')));
+    if (missingValue) shotArgs.push(missingValue);
+    process.exit(await cockpitShotMain(shotArgs, process.cwd()));
+  }
+  // ui-cockpit-k7m3 — the HANDS cockpit. The board, prompts, pane logs and
+  // transcripts live ONLY in .timmy/private/cockpit/ (gitignored, mode 700);
+  // the verb is the only writer. Panes (up/attach) land in C2.
+  const ck = await import('./harness/cockpit.js');
+  if (cleanArgs[1] === 'board' && cleanArgs[2] === 'import') {
+    const file = cleanArgs[3];
+    if (!file) {
+      console.error('usage: timmy cockpit board import <ROUNDS.md>');
+      process.exit(2);
+    }
+    const r = ck.importRounds(file);
+    if (isJson) console.log(JSON.stringify({ ok: r.ok, note: r.note ?? null, path: r.path ?? null, hands: r.hands ?? 0, prompts: r.prompts ?? 0 }));
+    else console.log(r.ok ? `board imported · ${r.hands} hands · ${r.prompts} prompts → ${r.path}` : `import failed: ${r.note}`);
+    process.exit(r.ok ? 0 : 1);
+  }
+  if (cleanArgs[1] === 'board' && cleanArgs[2] === 'show') {
+    const b = ck.loadBoard();
+    if (isJson) console.log(JSON.stringify(b));
+    else console.log(b ? JSON.stringify(b, null, 2) : 'no board — timmy cockpit board import <ROUNDS.md>');
+    process.exit(b ? 0 : 1);
+  }
+  if (cleanArgs[1] === 'leak-check') {
+    // release check (§12): a board.json or cockpit log planted anywhere in
+    // the tracked tree fails; .timmy/ is the only legal home.
+    const leaks = ck.leakCheck();
+    console.log(leaks.length ? `LEAK: ${leaks.join(', ')}` : 'clean: no cockpit artifacts in the tracked tree');
+    process.exit(leaks.length ? 1 : 0);
+  }
+  console.error('usage: timmy cockpit board import <ROUNDS.md> | board show | leak-check | shot | up | attach | status | down | hands');
+  process.exit(2);
+}
+
 if (command === 'vision') {
   const { runVisionCli } = await import('./vision/cli.js');
-  await runVisionCli(cleanArgs.slice(1));
+  await runVisionCli(cleanArgs.slice(1), { json: isJson });
   if (cleanArgs[1] === 'serve' && !args.includes('--help') && !args.includes('-h')) await new Promise(() => {});
   process.exit(process.exitCode ?? 0);
 }
@@ -316,13 +364,18 @@ const forgeGate = (): void => {
 if (command === 'gen') {
   forgeGate();
   const { runGen } = await import('./forge/gen.js');
-  const lines = runGen({
+  const { formatCostUsd } = await import('./utils/receipts.js');
+  const lines = await runGen({
     sheet: forgeFlag('sheet'), provider: forgeFlag('provider'),
     stub: args.includes('--stub'), allowSpend: args.includes('--allow-spend'),
     slots: forgeFlag('slots')?.split(','),
+    // higgsfield live spend gate: operator-minted single-use token + hard
+    // max_spend bound (timmy approve <planHash>); NOT --allow-spend.
+    approval: forgeFlag('approval'),
+    maxSpend: forgeFlag('max-spend') !== undefined ? Number(forgeFlag('max-spend')) : undefined,
   });
   for (const l of lines) {
-    console.log(`${l.slot_id}  req ${l.request.slice(7, 15)}…  res ${l.result.slice(7, 15)}…  ${l.local ? 'local' : 'remote'}  $${l.cost.toFixed(2)}  ${l.ms}ms  ${l.artifact}`);
+    console.log(`${l.slot_id}  req ${l.request.slice(7, 15)}…  res ${l.result.slice(7, 15)}…  ${l.local ? 'local' : 'remote'}  ${formatCostUsd({ cost_usd: l.cost, cost_measured: l.cost_measured }, 2)}  ${l.ms}ms  ${l.artifact}`);
   }
   process.exit(0);
 }
@@ -399,13 +452,16 @@ if (command === 'profile') {
   process.exit(0);
 }
 if (command === 'starship') {
-  const { readChain } = await import('./utils/receipts.js');
+  const { readChain, measuredCostUsd, declaredUnknownCostUsd } = await import('./utils/receipts.js');
   const all = readChain('runs');
   const head = String(all[all.length - 1]?.hash ?? '—').slice(7, 15);
   const day = new Date().toISOString().slice(0, 10);
-  const spend = all.filter(r => String(r.ts).slice(0, 10) === day).reduce((n, r) => n + (r.cost_usd ?? 0), 0);
+  const dayRecs = all.filter(r => String(r.ts).slice(0, 10) === day);
+  // evidence-rule accounting: declared-unknown placeholders are counted, never summed
+  const spend = dayRecs.reduce((n, r) => n + measuredCostUsd(r), 0);
+  const unknown = dayRecs.reduce((n, r) => n + declaredUnknownCostUsd(r), 0);
   const profile = process.env.TIMMY_PROFILE ?? 'default';
-  console.log(`chain ${head} · $${spend.toFixed(2)} · ${profile}`);
+  console.log(`chain ${head} · $${spend.toFixed(2)}${unknown ? ` (+${unknown} declared-unknown)` : ''} · ${profile}`);
   process.exit(0);
 }
 if (command === 'zsh') {
@@ -584,6 +640,10 @@ if (command === 'nfc' || command === 'custody') {
 }
 
 if (command === 'init') {
+  if (args.includes('--tui')) {
+    const { runWizard } = await import('./tui/wizard-entry.js');
+    process.exit(await runWizard(args.slice(1).filter(arg => arg !== '--tui')));
+  }
   // blank-slate-v1k9: operator, seed identity, providers, first project → ~/timmy/ and .timmy/private/ only
   const { runInit } = await import('./utils/init.js');
   process.exit(await runInit(args.slice(1)));
@@ -598,20 +658,28 @@ if (command === 'release') {
 
 if (command === 'cockpit') {
   // factory-f1d0 C2 PANES: `timmy cockpit up|attach|status|down|hands` — one tmux pane per local hand, logs piped privately
+  if (args.some((arg, index) => arg === '--out' && (!args[index + 1] || args[index + 1].startsWith('--')))) {
+    console.error('Invalid cockpit arguments: --out requires a directory.');
+    process.exit(2);
+  }
   const lane = fileURLToPath(new URL('../lanes/cockpit/cockpit.mjs', import.meta.url));
-  const r = spawnSync('node', [lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  const r = spawnSync('node', [lane, ...cleanArgs.slice(1)], { stdio: 'inherit', cwd: process.cwd() });
   process.exit(r.status ?? 1);
 }
 
 if (command === 'inspect') {
-  const lane = fileURLToPath(new URL('../lanes/recipes/spatial03/inspect.ts', import.meta.url));
-  const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  const compiled = import.meta.url.endsWith('.js');
+  const lane = fileURLToPath(new URL(compiled ? '../lanes/recipes/spatial03/inspect.js' : '../lanes/recipes/spatial03/inspect.ts', import.meta.url));
+  const loader = compiled ? [] : ['--import', (await import('node:module')).createRequire(import.meta.url).resolve('tsx')];
+  const r = spawnSync(process.execPath, [...loader, lane, ...args.slice(1)], { stdio: 'inherit', cwd: process.cwd() });
   process.exit(r.status ?? 1);
 }
 
 if (command === 'recipe') {
-  const lane = fileURLToPath(new URL('../lanes/recipes/cli.ts', import.meta.url));
-  const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  const compiled = import.meta.url.endsWith('.js');
+  const lane = fileURLToPath(new URL(compiled ? '../lanes/recipes/cli.js' : '../lanes/recipes/cli.ts', import.meta.url));
+  const loader = compiled ? [] : ['--import', (await import('node:module')).createRequire(import.meta.url).resolve('tsx')];
+  const r = spawnSync(process.execPath, [...loader, lane, ...args.slice(1)], { stdio: 'inherit', cwd: process.cwd() });
   process.exit(r.status ?? 1);
 }
 

@@ -205,7 +205,7 @@ export function LanesPanel({ agent, zone = 0, setZone, setModalInput, inputLocke
       focused={focused}
       purpose="real multiplexer sessions — you're watching their actual terminals, risky commands stop for approval"
       pill={{
-        kind: blockedCount ? 'warn' : aliveCount ? 'accent' : 'muted',
+        kind: blockedCount ? 'accent' : aliveCount ? 'accent' : 'muted',
         label: `${aliveCount}/${lanes.length} alive${blockedCount ? ` · ${blockedCount} waiting on you` : ''}`
       }}
       flexGrow={1}

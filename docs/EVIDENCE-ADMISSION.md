@@ -1,0 +1,29 @@
+# Evidence admission
+
+`src/evidence/admission.ts` is a controller capability scoped to one run and one source revision. Trusted observation callbacks create handles; model text cannot register handles or successful citations. The registry freezes before tools and response schemas are exported. Each evidence field has a declared kind, object and optional region. Its schema enum contains only matching observed handles.
+
+The `cite` tool reads an observed handle and records its successful execution inside the controller. Admission rejects missing observations, unknown/property-name handles, stale source context, foreign runs/revisions, duplicates, wrong kind/object/region, and uncited references. Duplicate JSON keys are refused. Raw output and the exact refusal remain in the snapshot. The first admission or execution refusal closes the run; later citations cannot repair it. Callers must retain the snapshot privately. Admission establishes reference provenance, not semantic, native-behavior or physical correctness.
+
+Development checks: `tests/evidence-admission.test.ts` exercises the installed SDK execute path and negative controls; `tests/forge-vision-feed.test.ts` protects the existing refusal boundary. No live-model or full application qualification is implied.
+
+## Local spatial review
+
+`reviewSpatialContext` uses the documented [Ollama tool-calling API](https://docs.ollama.com/capabilities/tool-calling) and [structured outputs](https://docs.ollama.com/capabilities/structured-outputs). It requires an exact installed local model advertising completion and tool support, plus a trusted `currentContext()` callback that rereads and validates the source. The model digest and local metadata are rechecked before each inference. A catalog entry does not attest network isolation.
+
+This migration reviews one source entity per run. Retained facts become `source_declaration` observations; their original fact IDs, frame and `computed`/`declared`/`unknown` metadata remain in their values. This does not promote source claims to native measurements. Unknown values remain null. The model first requests one to eight actual `cite(handle_id)` calls. Only that tool is accepted. A second request receives a strict final JSON schema and cannot call further tools. There are at most two inference requests, eight citations, a single 1–300 second deadline (minimum one second), and optional caller cancellation. No retries or cloud fallback occur.
+
+The final envelope is `{run_id, source_revision, evidence, payload}`. Each declared `evidence` field uses the actual run's handle enum. The interpretation payload has one annotation for the selected entity, a summary, and inert proposed actions. `materialKnown` and `densityKnown` must be false: this path does not establish physical material or density. No old fact ID is relabeled into an evidence handle after generation.
+
+Private per-run artifacts retain the input, image bytes separately when supplied, exact model message content, original tool-call arguments, observed tool results, controller snapshot, and refusal/result. Each chat response also retains body bytes and HTTP status before parsing, including non-2xx refusals and malformed JSON. Retention is bounded to 2 MiB; interrupted/oversized bodies are explicitly marked truncated. Raw bodies can include provider metadata or deliberation and remain private; deliberation is excluded from the interpreted message transcript. These are HTTP response body records, not packet-level captures. Signed result receipts identify execution provenance only. Cancellation, tool errors and transport failures retain a failed result, never admitted evidence from a partial response.
+
+The old `validateSpatialReview` function remains reference-only compatibility validation. It does not establish this protocol. Existing pack/annotation paths must refuse promotion until their signed schema accepts the new observed handle records; they must not reconstruct legacy fact IDs to make new model evidence pass. General agent chat, Forge judges and other legacy paths are not migrated by this change.
+
+Direct annotation submission now retains the exact submitted content in a mode-0400 artifact and records an annotation receipt with schema `/2`, rejected status and a signed denial. Pack review refuses promotion before inference. These paths do not rewrite previously sealed artifacts or retrofit old references into observed citations.
+
+Validation in this checkpoint uses offline responses and real tool execute closures. No live model, native application or immutable qualification claim is made.
+
+## Retained bundle integrity
+
+New local reviews embed a versioned artifact manifest in the result before signing its hash. It binds every retained pre-result file: context, requests, image input, response content, tool calls/results, admission/refusal and bounded raw HTTP bodies with transport metadata. The result and receipt sidecar are excluded from the manifest to avoid a signing cycle; both are separately verified. Historical records without this manifest remain historical and are not upgraded.
+
+`verifySpatialReviewBundle(reportPath, expectedReceipt)` requires a receipt obtained through trusted execution or chain custody. An arbitrary embedded public key is not an external trust anchor. The verifier checks the receipt hash/signature, result identity/hash, exact directory membership, required unique safe artifact names and stable regular-file byte counts/hashes. It refuses missing, changed, extra or symlinked artifacts. This checks retained integrity only; it does not recite evidence, establish current-source freshness or validate semantics or physical properties. Live callers also require successful bundle verification before reporting effective success; the signed original model outcome and raw files remain unchanged.

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { readChain } from '../utils/receipts.js';
+import { readChain, measuredCostUsd } from '../utils/receipts.js';
 
 // CONTROL PLANE (ORDER control-plane-k3e7) — MODEL REGISTRY (data only).
 // Extends the /models slimming with architecture, supported_parameters and
@@ -75,8 +75,13 @@ export function spendByModel(dir?: string): Record<string, number> {
   const out: Record<string, number> = {};
   for (const rec of readChain('runs', dir)) {
     const r = rec as unknown as Record<string, unknown>;
+    // evidence-rule accounting: declared-unknown receipts (cost_measured:false)
+    // carry a placeholder cost and are EXCLUDED here — their cost is unknown,
+    // so there is nothing measurable to attribute to a model (they contribute
+    // 0 via measuredCostUsd and are dropped by the !cost guard below).
     const model = String(r.model ?? r.harness_model ?? '');
-    const cost = Number(r.cost_usd ?? r.spend_usd ?? 0);
+    const costField = typeof rec.cost_usd === 'number' ? rec.cost_usd : (r.spend_usd as number | undefined);
+    const cost = measuredCostUsd({ cost_usd: costField, cost_measured: rec.cost_measured });
     if (!model || !cost) continue;
     out[model] = (out[model] ?? 0) + cost;
   }

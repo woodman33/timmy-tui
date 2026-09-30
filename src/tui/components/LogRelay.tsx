@@ -56,7 +56,7 @@ export function LogRelay({ height }: { height: number }) {
       flexGrow={1}
     >
       <Box key="relay-seal" flexShrink={0}>
-        <Text bold color={theme.seal} wrap="truncate">
+        <Text bold={Boolean(seal)} color={seal ? theme.seal : theme.textMuted} wrap="truncate">
           {seal ? `[SHA-256 SEALED] ${seal.slice(7, 23)}…` : '[SHA-256 SEALED] awaiting first seal…'}
         </Text>
       </Box>

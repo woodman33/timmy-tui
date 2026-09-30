@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, isAbsolute } from 'node:path';
 import { tmpdir } from 'node:os';
 import { verifySignature } from '../src/utils/receipts.js';
@@ -12,7 +12,7 @@ afterEach(() => { rmSync(root, { recursive: true, force: true }); });
 const options = () => ({ outputDir: join(root, 'C2'), receiptDir: root, sourceRoot: root });
 const pack = () => buildVolumeContextPack(join(root, 'grid10/manifest.json'), { camera, sourceRoot: root });
 
-describe('C2 sealed context pack and grounded annotation receipts', () => {
+describe('C2 sealed context packs and retained annotation refusals', () => {
   it('seals identified generated volume/reconstructed mesh, constructed camera and explicit unknowns separately from its receipt', () => {
     const value = pack(), seal = sealContextPack(value, options()), bytes = readFileSync(join(root, seal.artifact.path));
     expect(value.geometry.map(g => [g.kind, g.provenance])).toEqual([['volume', 'generated'], ['mesh', 'reconstructed']]);
@@ -24,11 +24,14 @@ describe('C2 sealed context pack and grounded annotation receipts', () => {
     expect(seal.receipt.env_lock?.tools).toEqual({}); expect(seal.receipt.artifacts?.every(p => !isAbsolute(p))).toBe(true);
     expect(readSealedContextPack(seal, root)).toEqual(value);
   });
-  it('anchors admitted annotations to object identity, exact source revision and the sealed camera', () => {
+  it('refuses uncited legacy fact IDs while retaining exact raw output privately', () => {
     const value = pack(), seal = sealContextPack(value, options());
     const review = { sourceSha256: value.sourceRevision, materialKnown: false, densityKnown: false, annotations: [{ entityId: 'cell-center', factIds: ['cell-center.location', 'cell-center.fill'], comment: 'The selected cell has a known location; fill alone does not establish material.', proposedAction: 'inspect' }] };
     const result = sealSpatialAnnotation(seal, { camera, review }, options());
-    expect(result.result.status).toBe('grounded'); expect(result.result.annotations[0]).toMatchObject({ objectId: 'cell-center', sourceRevision: value.sourceRevision, camera, provenance: 'generated' });
+    expect(result.result.status).toBe('rejected'); expect(result.result.reason).toBe('annotation_evidence_protocol_missing');
+    expect(result.result.annotations).toEqual([]); expect(result.result.rawModelOutput).toBe(JSON.stringify(review));
+    expect(statSync(join(root, result.artifact.path)).mode & 0o777).toBe(0o400);
+    expect(readSealedContextPack(seal, root)).toEqual(value);
     expect(result.result.scope).toMatchObject({ nativeEditsExecuted: false, physicalValidation: false, semanticCorrectnessChecked: false });
     expect(verifySignature(result.receipt)).toBe(true);
   });
@@ -37,6 +40,7 @@ describe('C2 sealed context pack and grounded annotation receipts', () => {
     expect(JSON.parse(historic.message.content).sourceSha256).toBe(value.sourceRevision);
     const denied = sealSpatialAnnotation(seal, { camera, review: historic.message.content }, options());
     expect(denied.result.status).toBe('rejected'); expect(denied.result.reason).toBe('annotation_ungrounded'); expect(denied.result.annotations).toEqual([]);
+    expect(denied.result.rawModelOutput).toBe(historic.message.content);
     expect(denied.result.inputSha256).toBe(spatialBytesHash(historic.message.content)); expect(denied.receipt.status).toBe('denied'); expect(verifySignature(denied.receipt)).toBe(true);
   });
   it('refuses changed camera/revision and unknown-property promotion as sealed rejections', () => {

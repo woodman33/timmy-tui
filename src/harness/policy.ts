@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, resolve } from 'path';
 import { execSync } from 'child_process';
 import * as opencode from './adapters/opencode.js';
 import * as hermes from './adapters/hermes.js';
@@ -22,7 +22,9 @@ export const ADAPTERS: Adapter[] = [opencode, hermes, jcode, pi, minds];
 export const adapterFor = (harness: string): Adapter | undefined => ADAPTERS.find(a => a.name === harness);
 
 export interface ModelPolicy { default: string | null; scopes: Record<string, string> }
-export const policyPath = (dir: string = process.cwd()): string => join(dir, '.timmy', 'model-policy.json');
+/** Policy location is independent of receipt storage; an explicit directory wins. */
+export const policyRoot = (dir?: string): string => resolve(dir ?? process.env.TIMMY_POLICY_DIR ?? process.cwd());
+export const policyPath = (dir?: string): string => join(policyRoot(dir), '.timmy', 'model-policy.json');
 
 export function readPolicy(dir?: string): ModelPolicy {
   const p = policyPath(dir);

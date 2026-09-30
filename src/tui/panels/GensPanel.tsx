@@ -182,7 +182,7 @@ export function GensPanel({ agent, zone = 0, setZone, setModalInput, inputLocked
             <EmptyState line="no generations yet" action="[n] writes a prompt · ↑↓ provider · ] options" />
           )}
           {gens.map((g, i) => {
-            const glyph = statusGlyph(g.status === 'done' ? 'sealed' : g.status === 'failed' ? 'failed' : g.status === 'running' ? 'running' : 'queued');
+            const glyph = statusGlyph(g.status === 'done' ? 'completed' : g.status === 'failed' ? 'failed' : g.status === 'running' ? 'running' : 'queued');
             const isSel = i === Math.min(idx, gens.length - 1);
             return (
               <Text key={g.id} color={isSel ? theme.accent : glyph.color} bold={isSel} wrap="truncate">

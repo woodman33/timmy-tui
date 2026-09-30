@@ -107,9 +107,11 @@ if (command === 'version' || args.includes('--version') || args.includes('-v')) 
 // Every verb the bin does not answer itself — help included — goes to the CLI untouched.
 if (command !== 'demo') {
   // linked bin runs from dist/; dev runs from source — resolve accordingly
-  const cliPath = fileURLToPath(new URL(import.meta.url.includes('/dist/') ? './src/cli.js' : './src/cli.ts', import.meta.url));
+  const compiled = import.meta.url.endsWith('.js');
+  const cliPath = fileURLToPath(new URL(compiled ? './src/cli.js' : './src/cli.ts', import.meta.url));
   decide({ forward: 'src/cli', cli: path.relative(process.cwd(), cliPath), argv: args });
-  const r = spawnSync(process.execPath, ['--import', 'tsx', cliPath, ...args], { stdio: 'inherit' });
+  const loader = compiled ? [] : ['--import', (await import('node:module')).createRequire(import.meta.url).resolve('tsx')];
+  const r = spawnSync(process.execPath, [...loader, cliPath, ...args], { stdio: 'inherit' });
   process.exit(r.status ?? 1);
 }
 

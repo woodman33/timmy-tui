@@ -26,6 +26,8 @@ const WORDMARK = [
   '   ██    ██ ██  ██  ██ ██  ██  ██    ██   ',
   '   ██    ██ ██      ██ ██      ██   ██    '
 ];
+// C1c: the wordmark's five-step ramp is weight and dimness over the law's two greys
+// (bold white · bold white · white · grey-3 · dim grey-3) — accent and textPrimary are one white now
 const MARK_COLORS = [theme.accent, theme.accent, theme.textPrimary, theme.textSecondary, theme.textMuted];
 
 /**
@@ -174,7 +176,7 @@ export function Onboarding({ agent, onDone }: OnboardingProps) {
       >
         {step === 'splash' && (
           <Box flexDirection="column">
-            {WORDMARK.map((l, i) => <Text key={i} bold color={MARK_COLORS[i]}>{l}</Text>)}
+            {WORDMARK.map((l, i) => <Text key={i} bold={i < 2} dimColor={i === 4} color={MARK_COLORS[i]}>{l}</Text>)}
             <Text bold color={theme.accent}>Terminal-first Agent Trust OS — Flight Recorder for AI Agent Runs</Text>
             <Text color={theme.textSecondary}>Every action seals a cryptographic receipt. Targets are not receipts.</Text>
             {envNote && <Text color={theme.warn}>{envNote}</Text>}

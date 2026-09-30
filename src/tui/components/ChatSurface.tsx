@@ -41,14 +41,14 @@ export function ChatSurface({ agent, keys }: { agent: Agent; keys: 'dispatcher' 
             <Text key={s}>
               {i > 0 && <Text color={theme.textMuted}>─</Text>}
               {s === 'PROOF' && sealed
-                ? <Text bold color={theme.seal}> {s} </Text>
+                ? <Text bold color={theme.textPrimary}> {s} </Text>
                 : s === 'PROMPT'
                   ? <Text bold color={theme.accent}> {s} </Text>
                   : <Text color={theme.textMuted}> {s} </Text>}
             </Text>
           ))}
           <Text color={theme.textMuted}>{'  ·  '}</Text>
-          <Text color={prov === 'ollama' ? theme.warn : theme.accent}>[{model}]</Text>
+          <Text color={theme.accent}>[{prov === 'ollama' ? '⌂ ' : ''}{model}]</Text>
         </Text>
       </Box>
       <Box flexDirection="row" flexGrow={1}>

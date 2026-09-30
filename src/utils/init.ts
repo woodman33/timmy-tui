@@ -10,13 +10,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve, relative, isAbsolute } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync } from 'node:crypto';
 
-const REPO_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
+// Match the cockpit's workspace override. Installed modules are application
+// code, never the default destination for operator state.
+const workspaceRoot = (): string => resolve(process.env.TIMMY_REPO_ROOT || process.cwd());
 export const timmyHome = (): string => process.env.TIMMY_HOME || join(homedir(), 'timmy');
-export const privateDir = (): string => process.env.TIMMY_PRIVATE_DIR || join(REPO_ROOT, '.timmy', 'private');
+export const privateDir = (workspace = workspaceRoot()): string => resolve(process.env.TIMMY_PRIVATE_DIR || join(workspace, '.timmy', 'private'));
 export const identityPath = (): string => join(timmyHome(), 'identity.json');
 export const isBlankSlate = (): boolean => !existsSync(identityPath());
 
@@ -37,7 +38,7 @@ export function printBlankSlateBanner(log: (s: string) => void = console.log): v
   log('\n  Non-interactive: timmy init --yes [--operator <name>] [--seed generate|<pem|hex>] [--openrouter <key>]');
   log('                   [--anthropic <key>] [--ollama <host>] [--project <name>] [--edge-host <host>] [--json]\n');
 }
-const relPretty = (p: string): string => (p.startsWith(homedir()) ? '~' + p.slice(homedir().length) : p.startsWith(REPO_ROOT) ? '<repo>' + p.slice(REPO_ROOT.length) : p);
+const relPretty = (p: string): string => (p.startsWith(homedir()) ? '~' + p.slice(homedir().length) : p.startsWith(workspaceRoot()) ? '<repo>' + p.slice(workspaceRoot().length) : p);
 
 export interface InitOptions {
   yes: boolean; json: boolean;
@@ -70,26 +71,27 @@ export function seedIdentity(seed: string | undefined): Identity {
 /** Every path this command writes must sit under TIMMY_HOME or TIMMY_PRIVATE_DIR — asserted, not assumed.
  *  The one named exception is <repo>/.timmy/store-pin: the receipts store pin is generated on the first
  *  run and never committed (.timmy/ is gitignored); receipts.ts owns its location. */
-function guardPath(p: string, extraAllowed: string[] = []): string {
+function guardPath(p: string, extraAllowed: string[] = [], workspace = workspaceRoot()): string {
   const abs = resolve(p);
   const under = (root: string) => { const r = relative(resolve(root), abs); return r === '' || (!r.startsWith('..') && !isAbsolute(r)); };
-  const ok = [timmyHome(), privateDir()].some(under) || extraAllowed.some((e) => resolve(e) === abs);
+  const ok = [timmyHome(), privateDir(workspace)].some(under) || extraAllowed.some((e) => resolve(e) === abs);
   if (!ok) throw new Error(`refusing to write outside TIMMY_HOME / TIMMY_PRIVATE_DIR: ${abs}`);
   return abs;
 }
-function writeJson(p: string, data: unknown, mode = 0o644): string { const abs = guardPath(p); mkdirSync(join(abs, '..'), { recursive: true }); writeFileSync(abs, JSON.stringify(data, null, 1) + '\n', { mode }); return abs; }
-function mergeJson(p: string, patch: Record<string, unknown>, mode = 0o600): string {
-  const abs = guardPath(p);
+function writeJson(p: string, data: unknown, mode = 0o644, workspace = workspaceRoot()): string { const abs = guardPath(p, [], workspace); mkdirSync(join(abs, '..'), { recursive: true }); writeFileSync(abs, JSON.stringify(data, null, 1) + '\n', { mode }); return abs; }
+function mergeJson(p: string, patch: Record<string, unknown>, mode = 0o600, workspace = workspaceRoot()): string {
+  const abs = guardPath(p, [], workspace);
   let cur: Record<string, unknown> = {};
   if (existsSync(abs)) { try { cur = JSON.parse(readFileSync(abs, 'utf8')); } catch { cur = {}; } }
-  return writeJson(abs, { ...cur, ...patch }, mode);
+  return writeJson(abs, { ...cur, ...patch }, mode, workspace);
 }
 
 export interface InitResult { ok: boolean; written: string[]; operator: string; operator_id: string; project: string; identity_source: string; home: string; private_dir: string; store_pin?: string }
 
-export function applyInit(a: Required<Pick<InitOptions, 'operator' | 'project'>> & InitOptions, repoRoot: string = REPO_ROOT): InitResult {
+export function applyInit(a: Required<Pick<InitOptions, 'operator' | 'project'>> & InitOptions, repoRoot: string = workspaceRoot()): InitResult {
+  repoRoot = resolve(repoRoot);
   const id = seedIdentity(a.seed);
-  const home = timmyHome(); const priv = privateDir();
+  const home = timmyHome(); const priv = privateDir(repoRoot);
   const written: string[] = [];
   // the receipts store pin: generated here on the first run, never committed. receipts.ts's
   // ensureStorePin() returns early whenever a package.json is in reach, so the pin is written here.
@@ -105,8 +107,8 @@ export function applyInit(a: Required<Pick<InitOptions, 'operator' | 'project'>>
   const readme = join(projDir, 'README.md');
   if (!existsSync(readme)) writeFileSync(readme, `# ${a.project}\n\nFirst TIMMY project of ${a.operator} (${id.operatorId}). Created by \`timmy init\`.\n`);
   written.push(readme);
-  written.push(mergeJson(join(priv, 'config.json'), { operator_label: a.operator, operator_id: id.operatorId, first_project: a.project, ...(a.edgeHost ? { edge_host: a.edgeHost } : {}) }));
-  written.push(writeJson(join(priv, 'projects.json'), { projects: [{ name: a.project, path: projDir, created: new Date().toISOString() }] }, 0o600));
+  written.push(mergeJson(join(priv, 'config.json'), { operator_label: a.operator, operator_id: id.operatorId, first_project: a.project, ...(a.edgeHost ? { edge_host: a.edgeHost } : {}) }, 0o600, repoRoot));
+  written.push(writeJson(join(priv, 'projects.json'), { projects: [{ name: a.project, path: projDir, created: new Date().toISOString() }] }, 0o600, repoRoot));
   return { ok: true, written, operator: a.operator, operator_id: id.operatorId, project: a.project, identity_source: id.source, home, private_dir: priv, store_pin: existsSync(pin) ? pin : undefined };
 }
 

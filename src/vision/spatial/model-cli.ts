@@ -1,20 +1,23 @@
 import { buildVolumeModelContext } from './model-context.js';
 import { buildNativeModelContext } from './native-model-context.js';
+import { buildGaussianPlyContext } from './gaussian-ply-context.js';
 import { localSpatialModels, reviewSpatialContext } from './local-model-review.js';
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { appendReceipt } from '../../utils/receipts.js';
 import { captureEnvLock } from '../../utils/envlock.js';
-import { readSealedContextPack, sealSpatialAnnotation, spatialBytesHash, type SpatialArtifactSeal } from './context-pack.js';
+import { readSealedContextPack, spatialBytesHash, type SpatialArtifactSeal } from './context-pack.js';
 import { readSpatialPackDescriptor, retainSpatialDescriptor, spatialCliOutputDirectory } from './context-order-cli.js';
 
 const HELP = [
   'timmy vision spatial models list [--json]',
-  'timmy vision spatial models context <source.json> [--kind volume|spline|hana] [--object ID] [--json]',
+  'timmy vision spatial models context <source> [--kind volume|spline|hana|gaussian-splats] [--object ID] [--json]',
   'timmy vision spatial models review <source.json> --model NAME --question TEXT [--kind volume|spline|hana] [--object ID] [--image FILE] [--json]',
   'timmy vision spatial models review-pack <pack.descriptor.json> --model NAME --question TEXT --out <directory> [--json]',
   'Volume sources are verified manifests. Spline/Hana sources are retained MCP envelopes.',
+  'Gaussian-splats context accepts bounded ASCII Gaussian PLY only; raw parameters, unknown physical scale, no review or pack export.',
+  'review-pack is held until annotation seals support observed citation admission; no inference is dispatched.',
   'Review calls a locally installed Ollama model and records signed execution receipts. Comments remain proposals; no native edits execute.',
 ].join('\n');
 
@@ -38,24 +41,18 @@ async function reviewPack(source: string, flags: Record<string, string | boolean
   if (typeof flags['--model'] !== 'string' || typeof flags['--question'] !== 'string' || typeof flags['--out'] !== 'string') {
     out('Pack review requires --model, --question and --out.'); return 2;
   }
-  const packSeal = readSpatialPackDescriptor(source, dir), pack = readSealedContextPack(packSeal, dir);
+  const packSeal = readSpatialPackDescriptor(source, dir);
+  readSealedContextPack(packSeal, dir);
   const outputDir = spatialCliOutputDirectory(flags['--out'], dir);
-  let result: Awaited<ReturnType<typeof reviewSpatialContext>>;
-  try { result = await reviewSpatialContext(pack.context, { model: flags['--model'], question: flags['--question'], dir }); }
-  catch (error) {
-    out(JSON.stringify(retainPackReviewFailure(packSeal, error instanceof Error ? error.message : 'Local pack review failed.', outputDir, dir), null, 2)); return 1;
-  }
-  if (!result.ok || !result.review) {
-    out(JSON.stringify(retainPackReviewFailure(packSeal, result.error ?? 'Local model returned no admitted review.', outputDir, dir, result.receiptHash), null, 2)); return 1;
-  }
-  const annotation = sealSpatialAnnotation(packSeal, { camera: pack.camera, review: result.review }, { outputDir, sourceRoot: dir, receiptDir: dir });
-  const descriptorPath = retainSpatialDescriptor(annotation, dir), ok = annotation.result.status === 'grounded';
-  out(JSON.stringify({ ok, descriptorPath, review: result, annotation }, null, 2)); return ok ? 0 : 1;
+  const error = 'Sealed annotation review is held: this legacy route has no current-run observed cite(handle_id) admission protocol. Use direct source review for admitted model interpretations.';
+  out(JSON.stringify(retainPackReviewFailure(packSeal, error, outputDir, dir), null, 2));
+  return 1;
 }
 export function contextFromSource(path: string, kind = 'volume', objectId?: string) {
   if (kind === 'volume') { if (objectId) throw new Error('--object is for native sources.'); return buildVolumeModelContext(path); }
+  if (kind === 'gaussian-splats') { if (objectId) throw new Error('--object is not supported for Gaussian PLY.'); return buildGaussianPlyContext(path); }
   if (kind === 'spline' || kind === 'hana') return buildNativeModelContext(path, kind, objectId);
-  throw new Error('Supported source kinds: volume, spline, hana.');
+  throw new Error('Supported source kinds: volume, spline, hana, gaussian-splats.');
 }
 export async function runModelCli(args: string[], out: (s: string) => void = console.log, dir = process.cwd()) {
   if (!args.length || args.includes('--help')) { out(HELP); return 0; }
@@ -72,12 +69,14 @@ export async function runModelCli(args: string[], out: (s: string) => void = con
   try {
     if (operation === 'list') { out(JSON.stringify(await localSpatialModels(), null, 2)); return 0; }
     if (operation === 'review-pack') return await reviewPack(source!, flags, out, dir);
-    const context = contextFromSource(source!, flags['--kind'] as string | undefined, flags['--object'] as string | undefined);
+    if (operation === 'review' && flags['--kind'] === 'gaussian-splats') { out(JSON.stringify({ ok: false, error: 'Gaussian PLY is inspection-only; model review is not enabled.' })); return 2; }
+    const currentContext = () => contextFromSource(resolve(dir, source!), flags['--kind'] as string | undefined, flags['--object'] as string | undefined);
+    const context = currentContext();
     if (operation === 'context') { out(JSON.stringify(context, null, 2)); return 0; }
     if (typeof flags['--model'] !== 'string' || typeof flags['--question'] !== 'string') { out('Review requires --model and --question.'); return 2; }
-    const result = await reviewSpatialContext(context, { model: flags['--model'], question: flags['--question'], imagePath: flags['--image'] as string | undefined, dir });
+    const result = await reviewSpatialContext(context, { model: flags['--model'], question: flags['--question'], imagePath: flags['--image'] as string | undefined, dir, currentContext });
     out(flags['--json'] ? JSON.stringify(result, null, 2) : [
-      `TIMMY / LOCAL SPATIAL REVIEW / ${result.model.name}`, `${result.ok ? 'References checked' : 'Review failed'} · ${(result.elapsedMs / 1000).toFixed(1)} s`,
+      `TIMMY / LOCAL SPATIAL REVIEW / ${result.model.name}`, `${result.ok ? 'Observed citations admitted' : 'Review failed'} · ${(result.elapsedMs / 1000).toFixed(1)} s`,
       result.review?.summary ?? result.error, ...(result.review?.annotations.map(a => `• ${a.entityId}: ${a.comment} [${a.proposedAction}; proposal]`) ?? []),
       'Model interpretation; semantic correctness unverified. Native edits executed: no.', `Evidence: ${result.reportPath}`,
     ].join('\n')); return result.ok ? 0 : 1;

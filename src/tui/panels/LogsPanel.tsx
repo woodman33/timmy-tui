@@ -264,7 +264,7 @@ export function LogsPanel({ agent: _agent, setInspector, zone = 0 }: LogsPanelPr
             : `lines ${off + 1}-${Math.min(rows.length, off + visibleHeight)} of ${rows.length}${human ? ' (human view)' : ' (last 100)'}`}
           {fileStat ? ` · ${fileStat.sizeKb} KB · upd ${fileStat.mtime}` : ''}
         </Text>
-        <Text color={atBottom ? theme.accent : theme.warn}>
+        <Text color={theme.textPrimary}>
           {autoFollow ? '▸ following tail' : '↑ paused — [F] to resume'}
         </Text>
       </Box>

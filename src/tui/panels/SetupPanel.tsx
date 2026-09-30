@@ -76,7 +76,7 @@ export function SetupPanel({ agent }: SetupPanelProps) {
       title="Welcome to OpenRouter terminal TUI"
       focused={focused}
       purpose="link your account, pick a tier, paste your API key — the workspace unlocks"
-      pill={success ? { kind: 'accent', label: 'KEY SAVED' } : { kind: 'warn', label: 'NEEDS KEY' }}
+      pill={success ? { kind: 'accent', label: 'KEY SAVED' } : { kind: 'accent', label: 'NEEDS KEY' }}
       width={mainStageWidth}
     >
       <Text color={theme.textPrimary} wrap="wrap">

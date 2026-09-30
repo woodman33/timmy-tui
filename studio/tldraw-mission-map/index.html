@@ -21,43 +21,36 @@
   <button id="capsule">+ Task Capsule</button>
   <button id="gate">+ Gate</button>
   <button id="receipt">+ Receipt node</button>
+  <span id="sync-status" class="stat" role="status">Plans not synchronized</span>
 </div>
 <div id="root" style="height:100%"></div>
 <script type="module">
-import { Tldraw, createShapeId, DefaultTheme } from "https://esm.sh/tldraw@3.15.0";
-
-const COMPANION = "http://localhost:4310";
-const COLORS = { ready: "#8b949e", armed: "#f5b540", running: "#a98bff", judging: "#4aa8ff",
-  passed: "#3fb950", failed: "#f87171", needs_approval: "#f5b540", archived: "#5a6470" };
+import { Tldraw, createShapeId, toRichText } from "https://esm.sh/tldraw@3.15.0?deps=react@18.3.1,react-dom@18.3.1";
+import React from "https://esm.sh/react@18.3.1";
+import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
+import { createPlanSync } from './plan-sync.js';
 
 let editor = null;
+let sync = null;
 const root = document.getElementById("root");
 root.innerHTML = "";
 
-// mount tldraw (full control: dark theme, custom handlers)
-import("https://esm.sh/tldraw@3.15.0").then(async (mod) => {
-  const { Tldraw } = mod;
-  const React = (await import("https://esm.sh/react@18.3.1")).default;
-  const ReactDOM = await import("https://esm.sh/react-dom@18.3.1/client");
-  ReactDOM.createRoot(root).render(React.createElement(Tldraw, {
-    forceDarkMode: true,
-    onMount: (ed) => { editor = ed; syncPlans(); }
-  }));
-});
+createRoot(root).render(React.createElement(Tldraw, {
+  onMount: (ed) => {
+    editor = ed;
+    ed.user.updateUserPreferences({ colorScheme: 'dark' });
+    sync = createPlanSync(ed, { createShapeId, toRichText });
+    syncPlans();
+    setInterval(syncPlans, 5000);
+  }
+}));
 
 async function syncPlans() {
-  if (!editor) return setTimeout(syncPlans, 1000);
-  let plans = [];
-  try { plans = await (await fetch(COMPANION + "/dispatch")).json(); } catch { /* companion down */ }
-  editor.selectAll(); editor.deleteShapes(editor.getSelectedShapeIds());
-  plans.forEach((p, i) => {
-    const id = createShapeId();
-    editor.createShape({
-      id, type: "note", x: 80 + (i % 3) * 320, y: 80 + Math.floor(i / 3) * 260,
-      props: { text: `${p.id}\n${p.lifecycle}\n${p.harness}\nhash ${(p.plan_hash || "").slice(0, 10)}…`,
-        color: COLORS[p.lifecycle] ?? "grey", size: "m" }
-    });
-  });
+  if (!sync) return;
+  const result = await sync();
+  if (result.state === 'pending') return;
+  document.getElementById('sync-status').textContent = result.state === 'synced'
+    ? `${result.count} plans received` : 'Plans unavailable — notes retained';
 }
 
 document.getElementById("sync").onclick = syncPlans;
@@ -66,13 +59,12 @@ const addNode = (label, color) => {
   const id = createShapeId();
   editor.createShape({ id, type: "note",
     x: (editor.getViewportPageBounds().centerX ?? 400) - 100, y: 420,
-    props: { text: label, color, size: "m" } });
+    props: { richText: toRichText(label), color, size: "m" } });
 };
-document.getElementById("capsule").onclick = () => addNode("Task Capsule\nobjective: …\nharness: openhands\napproval: manual", "violet");
-document.getElementById("gate").onclick = () => addNode("Gate\nplan-hash token\nsingle-use · 5min", "yellow");
-document.getElementById("receipt").onclick = () => addNode("Result / Receipt\nhash …\nverify ✓", "green");
+document.getElementById("capsule").onclick = () => addNode("Task Capsule\nobjective: add your objective\nharness: choose a harness\napproval: unconfigured", "violet");
+document.getElementById("gate").onclick = () => addNode("Gate\nplan hash: add a reference\napproval: unconfigured", "yellow");
+document.getElementById("receipt").onclick = () => addNode("Result / Receipt\nhash: add a reference\nverification: unknown", "grey");
 
-setInterval(syncPlans, 5000);
 </script>
 <div style="position:fixed;right:12px;bottom:12px;font:11px ui-monospace,Menlo,monospace">
   <a href="http://localhost:4310/mission" target="_blank"

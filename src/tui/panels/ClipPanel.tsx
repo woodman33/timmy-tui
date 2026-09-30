@@ -141,7 +141,7 @@ export function ClipPanel({ zone = 0, setZone, setModalInput, inputLocked }: Cli
                   <Text key={`${li}-${l}`} color={theme.textSecondary} wrap="truncate">  {l}</Text>
                 ))}
               </Box>
-              {!st.dir && <Text color={theme.warn} wrap="truncate">agent layer: {st.note ?? CLIP_INSTALL}</Text>}
+              {!st.dir && <Text color={theme.textMuted} wrap="truncate">agent layer: {st.note ?? CLIP_INSTALL}</Text>}
               {note && <Text color={theme.accent} wrap="truncate">{note}</Text>}
             </>
           ) : (

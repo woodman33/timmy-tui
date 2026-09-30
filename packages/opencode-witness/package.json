@@ -1,0 +1,25 @@
+{
+  "name": "@timmy/opencode-witness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenCode witness plugin: seals tool intent and results into the Timmy receipt chain, injects the order into every shell, refuses guarded paths, and refuses outright outside an order.",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./witness": "./src/witness.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "witness",
+    "receipts"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  }
+}

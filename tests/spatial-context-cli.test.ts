@@ -63,14 +63,29 @@ describe('explicit sealed spatial CLI flows', () => {
     expect(result.value.receipt.status).toBe('denied'); expect(verifySignature(result.value.receipt)).toBe(true); expect(readFileSync(path)).toEqual(changed);
   });
 
-  it('reviews verified context and seals an annotation using the exact pack camera', async () => {
+  it('holds legacy pack review before inference and retains a signed refusal', async () => {
     const packed = await makePack(), seal = readSpatialPackDescriptor(packed.descriptorPath, root), pack = readSealedContextPack(seal, root), before = readFileSync(join(root, seal.artifact.path));
     mocked.review.mockResolvedValue({ ok: true, review: { sourceSha256: pack.sourceRevision, summary: 'Material remains unknown.', materialKnown: false, densityKnown: false, annotations: [{ entityId: 'cell-center', factIds: ['cell-center.location'], comment: 'Inspect the identified center voxel.', proposedAction: 'inspect' }] }, receiptHash: 'mock-local-review-receipt' });
     const result = await review(packed.descriptorPath);
-    expect(mocked.review).toHaveBeenCalledWith(pack.context, { model: 'local-fixture:latest', question: 'Inspect the center voxel.', dir: root });
-    expect(result.code).toBe(0); expect(result.value.annotation.result.annotations[0]).toMatchObject({ camera: pack.camera, sourceRevision: pack.sourceRevision, objectId: 'cell-center' });
-    expect(verifySignature(result.value.annotation.receipt)).toBe(true); expect(readFileSync(join(root, seal.artifact.path))).toEqual(before);
-    expect(JSON.parse(readFileSync(join(root, result.value.descriptorPath), 'utf8')).receipt.kind).toBe('annotation.receipt');
+    expect(mocked.review).not.toHaveBeenCalled();
+    expect(result.code).toBe(1); expect(result.value.error).toContain('observed cite(handle_id)');
+    expect(result.value.scope.annotationProduced).toBe(false);
+    expect(verifySignature(result.value.receipt)).toBe(true); expect(readFileSync(join(root, seal.artifact.path))).toEqual(before);
+    expect(JSON.parse(readFileSync(join(root, result.value.descriptorPath), 'utf8')).receipt.kind).toBe('spatial.pack.review');
+  });
+
+  it('supplies fresh source readback to direct reviews with directory-relative paths', async () => {
+    const source = join(root, 'grid10/manifest.json');
+    mocked.review.mockImplementation(async (context, options) => {
+      expect(options.currentContext().source.sha256).toBe(context.source.sha256);
+      writeFileSync(source, readFileSync(source, 'utf8') + '\n');
+      expect(options.currentContext().source.sha256).not.toBe(context.source.sha256);
+      return { ok: false, error: 'Fixture source changed.' };
+    });
+    const lines: string[] = [];
+    const code = await runModelCli(['review', 'grid10/manifest.json', '--model', 'local-fixture:latest', '--question', 'Inspect.', '--json'], s => lines.push(s), root);
+    expect(code).toBe(1); expect(mocked.review).toHaveBeenCalledOnce();
+    expect(JSON.parse(lines[0]).error).toBe('Fixture source changed.');
   });
 
   it('rejects a forged pack or escaping output before any model review', async () => {
@@ -82,21 +97,24 @@ describe('explicit sealed spatial CLI flows', () => {
     expect(code).toBe(1); expect(mocked.review).not.toHaveBeenCalled();
   });
 
-  it.each(['before-dispatch', 'failed-response'])('keeps %s review failure signed and produces no successful annotation', async failure => {
+  it.each(['before-dispatch', 'failed-response'])('refuses legacy review before %s inference can run', async failure => {
     const packed = await makePack();
     if (failure === 'before-dispatch') mocked.review.mockRejectedValue(new Error('Requested local model unavailable.'));
     else mocked.review.mockResolvedValue({ ok: false, review: null, error: 'Model response is incomplete.', receiptHash: 'retained-failed-inference' });
     const result = await review(packed.descriptorPath);
+    expect(mocked.review).not.toHaveBeenCalled();
     expect(result.code).toBe(1); expect(result.value.ok).toBe(false); expect(result.value.receipt.status).toBe('failed'); expect(verifySignature(result.value.receipt)).toBe(true);
     expect(result.value.scope.annotationProduced).toBe(false); expect(readChain('runs', root).some(row => row.kind === 'annotation.receipt')).toBe(false);
     expect(readdirSync(join(root, 'annotations')).some(name => name.endsWith('.descriptor.json'))).toBe(true);
   });
 
-  it('keeps unknown-property promotion as a denied annotation rather than a successful review', async () => {
+  it('cannot bypass the pack hold with a model-reported success', async () => {
     const packed = await makePack(), pack = readSealedContextPack(readSpatialPackDescriptor(packed.descriptorPath, root), root);
     mocked.review.mockResolvedValue({ ok: true, review: { sourceSha256: pack.sourceRevision, summary: 'Claimed material.', materialKnown: true, densityKnown: false, annotations: [{ entityId: 'volume', factIds: ['volume.material'], comment: 'A material claim.', proposedAction: 'none' }] } });
     const result = await review(packed.descriptorPath);
-    expect(result.code).toBe(1); expect(result.value.annotation.result.reason).toBe('annotation_unknown_promoted'); expect(result.value.annotation.receipt.status).toBe('denied');
+    expect(result.code).toBe(1); expect(result.value.error).toContain('observed cite(handle_id)');
+    expect(result.value.receipt.status).toBe('failed'); expect(mocked.review).not.toHaveBeenCalled();
+    expect(readChain('runs', root).some(row => row.kind === 'annotation.receipt')).toBe(false);
   });
 
   it('exposes CLI dispatch and rejects duplicate/missing options without inference', async () => {

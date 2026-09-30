@@ -20,7 +20,7 @@ import { theme } from '../tui/theme.js';
 export const LOGS_PORT = (): number => Number(process.env.TIMMY_LOGS_PORT ?? 4310);
 
 const kindColor = (kind: string): string => {
-  if (kind.includes('sealed') || kind.includes('completed')) return theme.seal;
+  if (kind.includes('sealed')) return theme.seal;
   if (kind.includes('failed') || kind.includes('broken')) return theme.danger;
   if (kind.includes('approval') || kind.includes('gated')) return theme.warn;
   if (kind.includes('fusion') || kind.includes('run')) return theme.accent;
@@ -70,7 +70,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8">
 <script>
 const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const eventsEl = document.getElementById('events');
-const colors = KIND => KIND.includes('sealed')||KIND.includes('completed') ? theme.seal
+const colors = KIND => KIND.includes('sealed') ? theme.seal
   : KIND.includes('failed')||KIND.includes('broken') ? theme.danger
   : KIND.includes('approval')||KIND.includes('gated') ? theme.warn
   : KIND.includes('fusion')||KIND.includes('run') ? theme.accent : theme.textSecondary;
@@ -449,7 +449,7 @@ const BROWSER_HTML = `<!doctype html><html><head><meta charset="utf-8">
   .rc { border: 1px solid ${theme.line}; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; background: ${theme.ground}; }
   .rc .row1 { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
   .rc .sub { color: ${theme.textPrimary}; font-weight: 600; }
-  .rc .st-ok { color: ${theme.seal}; } .rc .st-failed { color: ${theme.danger}; } .rc .st-denied { color: ${theme.warn}; }
+  .rc .st-ok { color: ${theme.seal}; } .rc .st-failed { color: ${theme.danger}; } .rc .st-denied { color: ${theme.refuse}; }
   .rc .hash { color: ${theme.seal}; } .rc .prev { color: ${theme.textMuted}; }
   .rc .meta { color: ${theme.textSecondary}; font-size: 11px; }
   .rc .vf { color: ${theme.accent}; font-size: 11px; }
@@ -484,7 +484,7 @@ function render() {
     html += '<div class="rc" id="rc-' + esc(r.id) + '"><div class="row1">'
       + '<span class="sub">' + esc(r.subject ?? r.kind) + '</span>'
       + '<span class="st-' + esc(r.status ?? 'ok') + '">' + esc(r.status ?? 'ok') + '</span>'
-      + '<span class="meta">' + esc(r.ts ?? '').slice(11, 19) + ' · ' + esc(r.kind) + (r.cost_usd ? ' · $' + r.cost_usd : '') + (r.tokens ? ' · ' + r.tokens + 'tok' : '') + '</span>'
+      + '<span class="meta">' + esc(r.ts ?? '').slice(11, 19) + ' · ' + esc(r.kind) + (r.cost_measured === false ? ' · cost declared-unknown' : (r.cost_usd ? ' · $' + r.cost_usd : '')) + (r.tokens ? ' · ' + r.tokens + 'tok' : '') + '</span>'
       + '<button onclick="vf(\\'' + esc(r.id) + '\\')">verify</button><span class="vf" id="vf-' + esc(r.id) + '"></span></div>'
       + '<div><span class="hash">hash ' + esc(String(r.hash ?? '').slice(0, 20)) + '…</span> <span class="prev">prev ' + esc(String(r.prev_hash ?? '').slice(0, 20)) + '…</span></div>'
       + (r.error_class ? '<div class="meta">error_class: ' + esc(r.error_class) + '</div>' : '')
@@ -502,33 +502,6 @@ document.getElementById('stream').onchange = load;
 document.getElementById('verify').onclick = load;
 load(); setInterval(load, 5000);
 </script></body></html>`;
-
-interface SseClient { res: ServerResponse }
-let clients: SseClient[] = [];
-let tailOffset = 0;
-
-function broadcast(ev: TimmyEvent) {
-  const data = `data: ${JSON.stringify(ev)}\n\n`;
-  for (const c of clients) c.res.write(data);
-}
-
-function tailLoop() {
-  setInterval(() => {
-    const p = eventsPath();
-    if (!existsSync(p)) return;
-    const size = statSync(p).size;
-    if (size < tailOffset) tailOffset = 0; // truncated — restart
-    if (size === tailOffset) return;
-    const fd = openSync(p, 'r');
-    const buf = Buffer.alloc(size - tailOffset);
-    readSync(fd, buf, 0, buf.length, tailOffset);
-    closeSync(fd);
-    tailOffset = size;
-    for (const line of buf.toString('utf8').split('\n').filter(Boolean)) {
-      try { broadcast(JSON.parse(line) as TimmyEvent); } catch { /* partial line */ }
-    }
-  }, 700);
-}
 
 // WALNUT /chat mirror (work order p12 OPTIONAL): left column streams the
 // TUI conversation through Vercel streamdown; right column is the receipt
@@ -553,9 +526,41 @@ function sessionSize(): number {
   try { return p ? statSync(p).size : 0; } catch { return 0; }
 }
 
-export function startLogServer(opts: { port?: number; open?: boolean } = {}): Promise<number> {
-  const port = opts.port ?? LOGS_PORT();
-  let pairSealed = false; // one companion.pair receipt per server process
+export interface LogServerHandle {
+  port: number;
+  stop(): Promise<void>;
+}
+
+/** Own the listener and polling lifecycle; callers may request port 0. */
+export function startManagedLogServer(opts: { port?: number; open?: boolean; host?: string } = {}): Promise<LogServerHandle> {
+  let port = opts.port ?? LOGS_PORT();
+  let pairSealed = false;
+  interface SseClient { res: ServerResponse }
+  let clients: SseClient[] = [];
+  let tailOffset = 0;
+
+  function broadcast(ev: TimmyEvent) {
+    const data = `data: ${JSON.stringify(ev)}\n\n`;
+    for (const c of clients) c.res.write(data);
+  }
+
+  function tailLoop() {
+    return setInterval(() => {
+      const p = eventsPath();
+      if (!existsSync(p)) return;
+      const size = statSync(p).size;
+      if (size < tailOffset) tailOffset = 0; // truncated — restart
+      if (size === tailOffset) return;
+      const fd = openSync(p, 'r');
+      const buf = Buffer.alloc(size - tailOffset);
+      readSync(fd, buf, 0, buf.length, tailOffset);
+      closeSync(fd);
+      tailOffset = size;
+      for (const line of buf.toString('utf8').split('\n').filter(Boolean)) {
+        try { broadcast(JSON.parse(line) as TimmyEvent); } catch { /* partial line */ }
+      }
+    }, 700);
+  }
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://localhost:${port}`);
     if (url.pathname === '/health') {
@@ -773,13 +778,37 @@ export function startLogServer(opts: { port?: number; open?: boolean } = {}): Pr
   });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, () => {
+    server.listen(port, opts.host, () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        server.close();
+        reject(new Error('companion did not bind a TCP port'));
+        return;
+      }
+      port = address.port;
       tailOffset = existsSync(eventsPath()) ? statSync(eventsPath()).size : 0;
-      tailLoop();
+      const poll = tailLoop();
+      let stopping: Promise<void> | undefined;
+      const stop = (): Promise<void> => {
+        if (!stopping) {
+          clearInterval(poll);
+          stopping = new Promise<void>((done, fail) => {
+            server.close(error => error ? fail(error) : done());
+            // Includes SSE and keep-alive connections owned by this server.
+            server.closeAllConnections();
+          });
+        }
+        return stopping;
+      };
       if (opts.open) openBrowser(`http://localhost:${port}`);
-      resolve(port);
+      resolve({ port, stop });
     });
   });
+}
+
+/** Compatibility entry point for the long-lived CLI companion. */
+export async function startLogServer(opts: { port?: number; open?: boolean } = {}): Promise<number> {
+  return (await startManagedLogServer(opts)).port;
 }
 
 export function openBrowser(url: string): void {

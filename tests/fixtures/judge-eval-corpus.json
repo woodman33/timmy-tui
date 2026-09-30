@@ -1,0 +1,218 @@
+{
+  "schema_version": 1,
+  "description": "runPanel contract evals. Each case scripts the local judges' verdicts via a deterministic llmCall stub; expected results assert the panel's contractual behavior. A case tagged known_bad MUST NOT yield final.pass=true; known_good MUST yield final.pass=true without escalation (unless the case says escalated). Fusion-strategy scope: v1 first-parse fusion is pinned only for garbage-skip (the first parseable verdict wins); weighted-fusion drift is out of corpus scope.",
+  "cases": [
+    {
+      "id": "clean-pass-high-confidence",
+      "class": "known_good",
+      "facets": ["adherence", "coherence"],
+      "threshold": 0.7,
+      "local_verdicts": [
+        { "scores": { "adherence": 9, "coherence": 8 }, "confidence": 0.9, "critique": "" }
+      ],
+      "expected": { "final_pass": true, "escalated": false }
+    },
+    {
+      "id": "low-score-clean-confidence",
+      "class": "known_bad",
+      "facets": ["adherence"],
+      "threshold": 0.7,
+      "fenced_local": true,
+      "local_verdicts": [
+        { "scores": { "adherence": 4 }, "confidence": 0.95, "critique": "off-brief" }
+      ],
+      "expected": { "final_pass": false, "escalated": false }
+    },
+    {
+      "id": "nsfw-hard-fail",
+      "class": "known_bad",
+      "facets": ["adherence", "nsfw"],
+      "threshold": 0.7,
+      "local_verdicts": [
+        { "scores": { "adherence": 9, "nsfw": 10 }, "confidence": 0.99, "critique": "", "hard_fails": ["nsfw"] }
+      ],
+      "arbitrator_verdict": {"scores": {"adherence": 9, "nsfw": 10}, "confidence": 0.9, "critique": "Explicit fixture: prohibited output", "hard_fails": ["nsfw"]},
+      "expected": { "final_pass": false, "escalated": true, "arbitrator_must_veto": true, "veto_facets": ["nsfw"] }
+    },
+    {
+      "id": "low-confidence-escalates",
+      "class": "known_good",
+      "facets": ["adherence"],
+      "threshold": 0.7,
+      "local_verdicts": [
+        { "scores": { "adherence": 8 }, "confidence": 0.4, "critique": "unsure" }
+      ],
+      "arbitrator_verdict": { "scores": { "adherence": 8 }, "confidence": 0.9, "critique": "" },
+      "expected": { "final_pass": true, "escalated": true }
+    },
+    {
+      "id": "identity-mismatch-arbitrator-veto",
+      "class": "known_bad",
+      "facets": ["adherence", "identity_mismatch"],
+      "threshold": 0.7,
+      "local_verdicts": [
+        { "scores": { "adherence": 9, "identity_mismatch": 9 }, "confidence": 0.99, "critique": "", "hard_fails": ["identity_mismatch"] }
+      ],
+      "arbitrator_verdict": { "scores": { "adherence": 9, "identity_mismatch": 9 }, "confidence": 0.95, "critique": "face is not the reference", "hard_fails": ["identity_mismatch"] },
+      "expected": { "final_pass": false, "escalated": true, "arbitrator_must_veto": true, "veto_facets": ["identity_mismatch"] }
+    },
+    {
+      "id": "boundary-confidence-equals-threshold",
+      "class": "known_good",
+      "facets": ["adherence"],
+      "threshold": 0.7,
+      "fenced_local": true,
+      "local_verdicts": [
+        { "scores": { "adherence": 8 }, "confidence": 0.7, "critique": "" }
+      ],
+      "expected": { "final_pass": true, "escalated": false }
+    },
+    {
+      "id": "malformed-local-clean-second",
+      "class": "known_good",
+      "facets": ["adherence"],
+      "threshold": 0.7,
+      "local_verdicts": [
+        "total garbage — no json in this output at all",
+        { "scores": { "adherence": 8 }, "confidence": 0.9, "critique": "" }
+      ],
+      "expected": { "final_pass": true, "escalated": false }
+    },
+    {
+      "id": "all-local-judges-malformed",
+      "class": "known_bad",
+      "facets": ["adherence"],
+      "threshold": 0.7,
+      "local_verdicts": [
+        "garbage one, not json",
+        "garbage two, also not json"
+      ],
+      "expected": { "throws": true, "matches": "no local judge answered" }
+    },
+    {
+      "id": "missing-facet-defaults-zero",
+      "class": "known_bad",
+      "facets": ["adherence", "coherence"],
+      "threshold": 0.7,
+      "local_verdicts": [
+        { "scores": { "adherence": 9 }, "confidence": 0.9, "critique": "" }
+      ],
+      "expected": { "final_pass": false, "escalated": false }
+    },
+    {
+      "id": "arbitrator-rescue",
+      "class": "known_good",
+      "facets": ["adherence", "coherence"],
+      "threshold": 0.7,
+      "fenced_arbitrator": true,
+      "local_verdicts": [
+        { "scores": { "adherence": 5, "coherence": 8 }, "confidence": 0.5, "critique": "mixed" }
+      ],
+      "arbitrator_verdict": { "scores": { "adherence": 8, "coherence": 9 }, "confidence": 0.9, "critique": "" },
+      "expected": { "final_pass": true, "escalated": true }
+    },
+    {
+      "id": "low-confidence-confirmed-bad",
+      "class": "known_bad",
+      "facets": ["adherence"],
+      "threshold": 0.7,
+      "local_verdicts": [
+        { "scores": { "adherence": 4 }, "confidence": 0.3, "critique": "weak" }
+      ],
+      "arbitrator_verdict": {"scores": {"adherence": 4}, "confidence": 0.9, "critique": "Explicit fixture: off brief"},
+      "expected": { "final_pass": false, "escalated": true }
+    },
+    {
+      "id": "mediocre-avg-in-pass-bar-band",
+      "class": "known_bad",
+      "facets": ["adherence", "coherence"],
+      "threshold": 0.7,
+      "local_verdicts": [
+        { "scores": { "adherence": 6, "coherence": 6 }, "confidence": 0.9, "critique": "" }
+      ],
+      "expected": { "final_pass": false, "escalated": false }
+    },
+    {
+      "id": "arbitrator-mediocre-band",
+      "class": "known_bad",
+      "facets": ["adherence", "coherence"],
+      "threshold": 0.7,
+      "local_verdicts": [
+        { "scores": { "adherence": 5, "coherence": 5 }, "confidence": 0.4, "critique": "unsure" }
+      ],
+      "arbitrator_verdict": { "scores": { "adherence": 6, "coherence": 6 }, "confidence": 0.9, "critique": "" },
+      "expected": { "final_pass": false, "escalated": true }
+    },
+    {
+      "id": "high-average-cannot-hide-missing-facet",
+      "class": "known_bad",
+      "facets": [
+        "adherence",
+        "coherence",
+        "identity",
+        "motion"
+      ],
+      "threshold": 0.7,
+      "local_verdicts": [
+        {
+          "scores": {
+            "adherence": 10,
+            "coherence": 10,
+            "identity": 10
+          },
+          "confidence": 0.95,
+          "critique": "motion deliberately omitted"
+        }
+      ],
+      "expected": {
+        "final_pass": false,
+        "escalated": false
+      }
+    },
+    {
+      "id": "later-local-hard-fail-must-escalate",
+      "class": "known_bad",
+      "facets": [
+        "adherence"
+      ],
+      "threshold": 0.7,
+      "local_verdicts": [
+        {
+          "scores": {
+            "adherence": 9
+          },
+          "confidence": 0.95,
+          "critique": "first appears fine"
+        },
+        {
+          "scores": {
+            "adherence": 9
+          },
+          "confidence": 0.99,
+          "critique": "second detects prohibited output",
+          "hard_fails": [
+            "nsfw"
+          ]
+        }
+      ],
+      "arbitrator_verdict": {
+        "scores": {
+          "adherence": 9
+        },
+        "confidence": 0.99,
+        "critique": "confirms prohibited output",
+        "hard_fails": [
+          "nsfw"
+        ]
+      },
+      "expected": {
+        "final_pass": false,
+        "escalated": true,
+        "arbitrator_must_veto": true,
+        "veto_facets": [
+          "nsfw"
+        ]
+      }
+    }
+  ]
+}

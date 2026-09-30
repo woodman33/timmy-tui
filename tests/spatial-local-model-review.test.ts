@@ -1,16 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildVolumeModelContext, type SpatialModelContext } from '../src/vision/spatial/model-context.js';
 import { buildNativeModelContext } from '../src/vision/spatial/native-model-context.js';
-import { localSpatialModels, reviewSpatialContext, validateSpatialReview } from '../src/vision/spatial/local-model-review.js';
+import { verifySpatialReviewBundle, localSpatialModels, reviewSpatialContext as executeReview, validateSpatialReview } from '../src/vision/spatial/local-model-review.js';
 import { contextFromSource, runModelCli } from '../src/vision/spatial/model-cli.js';
 import { runSpatialCli } from '../src/vision/spatial/cli.js';
-import { readChain, verifyChain, verifySignature } from '../src/utils/receipts.js';
+import { readChain, verifyChain, verifySignature, appendReceipt } from '../src/utils/receipts.js';
 import { spatialModelCatalogTool, spatialModelContextTool, spatialModelReviewTool } from '../src/agent/spatial-model-tools.js';
 import { defaultTools } from '../src/agent/tools.js';
+
+const retainedWriteHook = vi.hoisted(() => ({ afterWrite: undefined as undefined | ((path: string, fs: typeof import('node:fs')) => void) }));
+vi.mock('node:fs', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return { ...actual, writeFileSync: (...args: Parameters<typeof actual.writeFileSync>) => {
+    actual.writeFileSync(...args); retainedWriteHook.afterWrite?.(String(args[0]), actual);
+  } };
+});
 
 const canonicalManifest = resolve('studio/spatial-volume-20260912/grid10/manifest.json');
 const digest = 'e'.repeat(64);
@@ -19,7 +27,8 @@ const sha = (value: string | Buffer) => createHash('sha256').update(value).diges
 let directory: string;
 let context: SpatialModelContext;
 const jsonResponse = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
-const metadata = (vision = false) => ({ details: { format: 'gguf', family: 'test' }, capabilities: ['completion', ...(vision ? ['vision'] : [])], model_info: { 'test.context_length': 8192 } });
+const reviewSpatialContext: typeof executeReview = (packet, options) => executeReview(packet, { currentContext: () => packet as SpatialModelContext, ...options });
+const metadata = (vision = false) => ({ details: { format: 'gguf', family: 'test' }, capabilities: ['completion', 'tools', ...(vision ? ['vision'] : [])], model_info: { 'test.context_length': 8192 } });
 function goodReview(packet = context) {
   const fact = packet.facts[0];
   return { sourceSha256: packet.source.sha256, summary: 'Review the known location while preserving unknown material.', materialKnown: false, densityKnown: false,
@@ -38,28 +47,48 @@ interface ServerOptions {
   responseModel?: string;
   responseRemoteHost?: string;
   responseRemoteModel?: string;
+  noTools?: boolean;
+  skipCite?: boolean;
+  wrongHandle?: boolean;
+  excessCalls?: boolean;
+  wrongTool?: boolean;
+  onChat?: () => void;
+  changedWeights?: boolean;
+  physicalClaim?: boolean;
+  transportBody?: string;
+  transportStatus?: number;
 }
 function mockOllama(options: ServerOptions = {}) {
-  let showCount = 0;
+  let showCount = 0, chatCount = 0, tagsCount = 0;
   const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const path = new URL(String(url)).pathname;
-    if (path === '/api/tags') return jsonResponse({ models: (options.names ?? [modelName]).map(name => ({ name, digest, size: 1_000_000 })) });
+    if (path === '/api/tags') { tagsCount++; return jsonResponse({ models: (options.names ?? [modelName]).map(name => ({ name, digest: options.changedWeights && tagsCount > 1 ? 'changed' : digest, size: 1_000_000 })) }); }
     if (path === '/api/show') {
       showCount++;
-      return jsonResponse({ ...metadata(options.vision), model_info: { 'test.context_length': options.contextLength ?? 8192 },
+      return jsonResponse({ ...metadata(options.vision), ...(options.noTools ? { capabilities: ['completion'] } : {}), model_info: { 'test.context_length': options.contextLength ?? 8192 },
         ...(options.aliasTurnsRemote && showCount > 1 ? { remote_model: 'some-remote-model' } : {}) });
     }
     if (path === '/api/chat') {
+      chatCount++; options.onChat?.();
+      if (options.transportBody !== undefined) return new Response(options.transportBody, { status: options.transportStatus ?? 200 });
       if (options.timeout) return new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => reject(new Error('fixture request timed out')), { once: true });
       });
       if (options.failure) return jsonResponse({ error: 'fixture server failure' }, options.failure);
       if (options.excessBody) return new Response('x'.repeat(2 * 1024 * 1024 + 1));
       const request = JSON.parse(String(init?.body));
-      const packet = JSON.parse(request.messages[1].content).context as SpatialModelContext;
+      const input = JSON.parse(request.messages[1].content), packet = input.context as SpatialModelContext;
+      const handle = input.observations[0].handle_id, entityId = input.observations[0].objectId;
+      const format = input.outputSchema;
+      const final = { run_id: format.properties.run_id.const, source_revision: options.review ? (options.review as any).sourceSha256 : packet.source.sha256,
+        evidence: { [entityId]: [options.wrongHandle ? 'metric_depth' : handle] }, payload: {
+          summary: 'Inspect the source without claiming physical truth.', materialKnown: options.physicalClaim ?? false, densityKnown: false,
+          annotations: [{ entityId, comment: 'Inspect this retained source declaration.', proposedAction: 'inspect' }] } };
+      const calls = Array.from({ length: options.excessCalls ? 9 : 1 }, () => ({ function: { name: options.wrongTool ? 'shell' : 'cite', arguments: { handle_id: options.wrongHandle ? 'metric_depth' : handle } } }));
       return jsonResponse({ model: options.responseModel ?? modelName, remote_host: options.responseRemoteHost,
         remote_model: options.responseRemoteModel, done: true, done_reason: options.doneReason ?? 'stop',
-        message: { role: 'assistant', content: JSON.stringify(options.review ?? goodReview(packet)), thinking: 'PRIVATE_DELIBERATION_NOT_RETAINED' },
+        message: { role: 'assistant', content: chatCount === 1 && !options.skipCite ? '' : JSON.stringify(final),
+          ...(chatCount === 1 && !options.skipCite ? { tool_calls: calls } : {}), thinking: 'PRIVATE_DELIBERATION_NOT_RETAINED' },
         prompt_eval_count: 100, eval_count: 25, total_duration: 1_000_000 });
     }
     throw new Error(`Unexpected external or native mutation request: ${String(url)}`);
@@ -79,11 +108,13 @@ function nativeFile(kind: 'hana' | 'spline', count = 1) {
 }
 
 beforeEach(() => {
+  retainedWriteHook.afterWrite = undefined;
   directory = mkdtempSync(join(tmpdir(), 'timmy-local-spatial-review-'));
   vi.stubEnv('OLLAMA_HOST', 'http://127.0.0.1:11434');
   context = buildVolumeModelContext(canonicalManifest);
 });
 afterEach(() => {
+  retainedWriteHook.afterWrite = undefined;
   vi.unstubAllGlobals(); vi.unstubAllEnvs();
   rmSync(directory, { recursive: true, force: true });
 });
@@ -152,7 +183,7 @@ describe('local inference admission and retained execution', () => {
   it('retains authentic signed receipts and bindings while leaving native edits unexecuted', async () => {
     const fetcher = mockOllama();
     const result = await reviewSpatialContext(context, { model: modelName, question: 'What is known about this volume?', dir: directory });
-    expect(result.ok).toBe(true); expect(result.signatureVerified).toBe(true);
+    expect(result.ok).toBe(true); expect(result.signatureVerified).toBe(true); expect(result.bundleVerification.ok).toBe(true);
     expect(result.scope).toMatchObject({ sourceReferencesChecked: true, semanticCorrectnessChecked: false, nativeEditsExecuted: false, physicalValidation: false });
     const chain = readChain('runs', directory);
     expect(chain.map(r => r.kind)).toEqual(['spatial.model.intent', 'spatial.model.result']);
@@ -163,11 +194,12 @@ describe('local inference admission and retained execution', () => {
     expect(chain[0].sources).toEqual([{ source_sha256: context.source.sha256, model_digest: digest, endpoint: 'http://127.0.0.1:11434' }]);
     expect(result.reportPath.startsWith(directory)).toBe(true);
     expect(readFileSync(join(dirname(result.reportPath), 'response.json'), 'utf8')).not.toContain('PRIVATE_DELIBERATION');
-    expect(chatCalls(fetcher)).toHaveLength(1);
+    expect(chatCalls(fetcher)).toHaveLength(2);
     const request = JSON.parse(String(chatCalls(fetcher)[0][1]?.body));
     expect(request.options).toMatchObject({ num_ctx: 8192, temperature: 0 });
     expect(request).toMatchObject({ truncate: false, shift: false });
-    expect(request.tools).toBeUndefined();
+    expect(request.tools[0].function.name).toBe('cite');
+    expect(JSON.parse(String(chatCalls(fetcher)[1][1]?.body)).format.properties.evidence).toBeDefined();
   });
   it('caps the allocated context to the model limit while refusing silent truncation', async () => {
     const fetcher = mockOllama({ contextLength: 4096 });
@@ -191,7 +223,7 @@ describe('local inference admission and retained execution', () => {
   it('records a failed result when the response cites another source revision', async () => {
     mockOllama({ review: { ...goodReview(), sourceSha256: 'a'.repeat(64) } });
     const result = await reviewSpatialContext(context, { model: modelName, question: 'Review the packet.', dir: directory });
-    expect(result.ok).toBe(false); expect(result.review).toBeNull(); expect(result.error).toMatch(/different source/);
+    expect(result.ok).toBe(false); expect(result.review).toBeNull(); expect(result.error).toMatch(/wrong_revision/);
     expect(readChain('runs', directory)[1].status).toBe('failed');
     expect(result.signatureVerified).toBe(true);
   });
@@ -282,5 +314,162 @@ describe('CLI and registered SDK tool surfaces', () => {
     expect(catalog.models[0].name).toBe(modelName);
     expect(readChain('runs', directory)).toHaveLength(0);
     expect(defaultTools).toEqual(expect.arrayContaining([spatialModelCatalogTool, spatialModelContextTool, spatialModelReviewTool]));
+  });
+});
+
+
+describe('observed spatial citation admission', () => {
+  it('refuses an unsupported model before inference and does not invent tool support', async () => {
+    const fetcher = mockOllama({ noTools: true });
+    await expect(reviewSpatialContext(context, { model: modelName, question: 'Review.', dir: directory })).rejects.toThrow(/tool support/);
+    expect(chatCalls(fetcher)).toHaveLength(0);
+  });
+  it('requires trusted source readback before model requests', async () => {
+    const fetcher = mockOllama();
+    await expect(executeReview(context, { model: modelName, question: 'Review.', dir: directory })).rejects.toThrow(/currentContext/);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('retains actual tool outputs and original handle labels in the final raw envelope', async () => {
+    mockOllama(); const r = await reviewSpatialContext(context, { model: modelName, question: 'Review.', dir: directory });
+    expect(r.ok).toBe(true); expect(r.evidenceAdmission).toMatchObject({ ok: true, evidence: 'admitted_references' });
+    const record = JSON.parse(readFileSync(join(dirname(r.reportPath), 'admission.json'), 'utf8'));
+    expect(record.controller.citations).toHaveLength(1);
+    expect(record.controller.observations[0]).toMatchObject({ kind: 'source_declaration' });
+    const raw = JSON.parse(record.decision.raw_output);
+    expect(r.review?.evidence).toEqual(raw.evidence);
+    expect(r.review?.annotations[0]).not.toHaveProperty('factIds');
+  });
+  it('refuses uncited, property-name, unknown-tool and excessive-call answers', async () => {
+    for (const config of [{ skipCite: true }, { wrongHandle: true }, { wrongTool: true }, { excessCalls: true }]) {
+      const fetcher = mockOllama(config);
+      const r = await reviewSpatialContext(context, { model: modelName, question: 'Review.', dir: directory });
+      expect(r.ok).toBe(false); expect(r.review).toBeNull(); expect(r.evidenceAdmission.ok).toBe(false);
+      expect(chatCalls(fetcher)).toHaveLength(1);
+      const record = JSON.parse(readFileSync(join(dirname(r.reportPath), 'response.json'), 'utf8'));
+      expect(record.transcript).toHaveLength(1);
+    }
+  });
+  it('refuses changed source facts even if the declared source hash is unchanged', async () => {
+    const changed = structuredClone(context);
+    mockOllama({ onChat: () => { changed.facts[0].value = 123456; } });
+    const r = await reviewSpatialContext(context, { model: modelName, question: 'Review.', dir: directory, currentContext: () => changed });
+    expect(r.ok).toBe(false); expect(r.evidenceAdmission.ok).toBe(false);
+  });
+  it('respects caller cancellation without a second inference', async () => {
+    const abort = new AbortController();
+    const fetcher = mockOllama({ onChat: () => abort.abort() });
+    const r = await reviewSpatialContext(context, { model: modelName, question: 'Review.', dir: directory, signal: abort.signal });
+    expect(r.ok).toBe(false); expect(chatCalls(fetcher)).toHaveLength(1);
+  });
+  it('refuses model alias weight drift before dispatch', async () => {
+    const fetcher = mockOllama({ changedWeights: true });
+    const r = await reviewSpatialContext(context, { model: modelName, question: 'Review.', dir: directory });
+    expect(r.ok).toBe(false); expect(r.error).toMatch(/weights identity/); expect(chatCalls(fetcher)).toHaveLength(0);
+  });
+  it('refuses physical material promotion and retains the exact invalid field', async () => {
+    mockOllama({ physicalClaim: true });
+    const r = await reviewSpatialContext(context, { model: modelName, question: 'Review.', dir: directory });
+    expect(r.ok).toBe(false); expect(r.evidenceAdmission).toMatchObject({ ok: false, reason: 'invalid_output' });
+    expect(JSON.parse(r.evidenceAdmission.raw_output).payload.materialKnown).toBe(true);
+  });
+  it('retains exact HTTP refusal and malformed JSON bodies before parsing', async () => {
+    for (const fixture of [{ body: '  {"refusal":"fixture policy denial"}\n', status: 403 },
+      { body: '\n{malformed-json with original spaces  ', status: 200 }]) {
+      mockOllama({ transportBody: fixture.body, transportStatus: fixture.status });
+      const r = await reviewSpatialContext(context, { model: modelName, question: 'Review.', dir: directory });
+      expect(r.ok).toBe(false); expect(r.review).toBeNull(); expect(r.evidenceAdmission.ok).toBe(false);
+      const retained = JSON.parse(readFileSync(join(dirname(r.reportPath), 'transport-0.json'), 'utf8'));
+      expect(retained).toMatchObject({ status: fixture.status, truncated: false, bytes: Buffer.byteLength(fixture.body), sha256: sha(fixture.body) });
+      expect(readFileSync(retained.bodyPath)).toEqual(Buffer.from(fixture.body));
+      expect(readChain('runs', directory).at(-1)?.status).toBe('failed');
+    }
+  });
+});
+
+
+describe('signed local review bundle integrity', () => {
+  async function run(config: ServerOptions = {}) {
+    mockOllama(config);
+    const result = await reviewSpatialContext(context, { model: modelName, question: 'Review.', dir: directory });
+    const receipt = readChain('runs', directory).at(-1)!;
+    expect(result.bundleVerification.ok).toBe(true);
+    return { result, receipt, base: dirname(result.reportPath) };
+  }
+  it('binds every retained input, cite transcript, response and admission artifact', async () => {
+    const { result, receipt, base } = await run();
+    expect(result.artifactManifest.map(a => a.path)).toEqual(expect.arrayContaining(['context.json', 'request.json', 'request-1.json', 'response-0.json', 'response-1.json', 'response.json', 'admission.json', 'transport-0.bin', 'transport-1.bin']));
+    for (const name of ['admission.json', 'response.json', 'request-1.json', 'response-0.json', 'transport-1.bin']) {
+      const file = join(base, name), original = readFileSync(file);
+      writeFileSync(file, Buffer.concat([original, Buffer.from(' ')]));
+      expect(verifySignature(receipt)).toBe(true);
+      expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false);
+      writeFileSync(file, original);
+      expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(true);
+    }
+  });
+  it('refuses deleted artifacts, unexpected files and symlink substitutions', async () => {
+    const { result, receipt, base } = await run(), target = join(base, 'admission.json'), original = readFileSync(target);
+    rmSync(target); expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false);
+    const outside = join(directory, 'outside.json'); writeFileSync(outside, original); symlinkSync(outside, target);
+    expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false);
+    rmSync(target); writeFileSync(target, original);
+    writeFileSync(join(base, 'extra.json'), '{}'); expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false);
+  });
+  it('binds malformed and refused HTTP response bytes in signed failed bundles', async () => {
+    for (const config of [{ transportBody: '  denied original bytes\n', transportStatus: 403 }, { transportBody: '{invalid JSON' }]) {
+      const { result, receipt, base } = await run(config);
+      expect(result.ok).toBe(false); expect(receipt.status).toBe('failed');
+      const raw = join(base, 'transport-0.bin'); expect(readFileSync(raw, 'utf8')).toBe(config.transportBody);
+      rmSync(raw); expect(verifySignature(receipt)).toBe(true);
+      expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false);
+    }
+  });
+  it('binds vision input bytes and refuses altered receipt and report files', async () => {
+    const image = join(directory, 'fixture.png'); writeFileSync(image, Buffer.from([137,80,78,71,13,10,26,10]));
+    mockOllama({ vision: true }); const result = await reviewSpatialContext(context, { model: modelName, question: 'Review.', imagePath: image, dir: directory });
+    const receipt = readChain('runs', directory).at(-1)!, base = dirname(result.reportPath);
+    expect(result.bundleVerification.ok).toBe(true); expect(result.artifactManifest.some(a => a.path === 'image.bin')).toBe(true);
+    const retained = join(base, 'image.bin'), bytes = readFileSync(retained); writeFileSync(retained, 'changed');
+    expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false); writeFileSync(retained, bytes);
+    const sidecar = join(base, 'receipt.json'), saved = readFileSync(sidecar); writeFileSync(sidecar, '{}');
+    expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false); writeFileSync(sidecar, saved);
+    writeFileSync(result.reportPath, readFileSync(result.reportPath, 'utf8') + ' ');
+    expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false);
+  });
+  it('refuses unsafe, duplicate or incomplete manifests even when signed', async () => {
+    const { result, receipt, base } = await run(), original = JSON.parse(readFileSync(result.reportPath, 'utf8'));
+    for (const mutate of [
+      (p: any) => { p.artifactManifest[0].path = '../outside.json'; },
+      (p: any) => { p.artifactManifest.push(p.artifactManifest[0]); },
+      (p: any) => { p.artifactManifest = p.artifactManifest.filter((a: any) => a.path !== 'admission.json'); },
+      (p: any) => { p.artifactManifestSchema = 'unsupported'; },
+    ]) {
+      const altered = structuredClone(original); mutate(altered); const bytes = JSON.stringify(altered); writeFileSync(result.reportPath, bytes);
+      const signed = appendReceipt('runs', { kind: 'spatial.model.result', subject: receipt.subject, status: 'ok', policy: 'synthetic negative control', artifacts: [result.reportPath], output_sha256: sha(bytes) }, directory);
+      writeFileSync(join(base, 'receipt.json'), JSON.stringify(signed));
+      expect(verifySignature(signed)).toBe(true); expect(verifySpatialReviewBundle(result.reportPath, signed).ok).toBe(false);
+    }
+  });
+  it('refuses a symlinked bundle parent even when every leaf byte still matches', async () => {
+    const { result, receipt, base } = await run(), parent = dirname(base), moved = parent + '-retained';
+    renameSync(parent, moved); symlinkSync(moved, parent);
+    expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false);
+  });
+  it('fails the real caller when evidence changes before bundle verification without rewriting its signed outcome', async () => {
+    mockOllama();
+    retainedWriteHook.afterWrite = (path, fs) => {
+      if (path.endsWith('/receipt.json')) fs.writeFileSync(join(dirname(path), 'admission.json'), '{}');
+    };
+    const result = await reviewSpatialContext(context, { model: modelName, question: 'Review.', dir: directory });
+    retainedWriteHook.afterWrite = undefined;
+    expect(result.ok).toBe(false); expect(result.review).toBeNull(); expect(result.bundleVerification.ok).toBe(false);
+    expect(result.modelOutcome.ok).toBe(true); expect(result.error).toBe('bundle verification failed');
+    expect(JSON.parse(readFileSync(result.reportPath, 'utf8')).ok).toBe(true);
+    expect(verifySignature(readChain('runs', directory).at(-1)!)).toBe(true);
+  });
+  it('requires the expected receipt identity and rejects an untrusted receipt edit', async () => {
+    const { result, receipt } = await run();
+    expect(verifySpatialReviewBundle(result.reportPath, { ...receipt, subject: 'different' }).ok).toBe(false);
+    expect(verifySpatialReviewBundle(result.reportPath, { ...receipt, output_sha256: '0'.repeat(64) }).ok).toBe(false);
   });
 });

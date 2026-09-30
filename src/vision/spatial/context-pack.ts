@@ -18,7 +18,7 @@ export interface ContextPack {
   unknowns: { factId: string; objectId: string; key: string }[];
   scope: { nativeDocumentFreshness: false; physicalValidation: false; cameraIsNativeCapture: false; meaning: string };
 }
-export interface SpatialSealOptions { outputDir: string; receiptDir?: string; sourceRoot?: string }
+export interface SpatialSealOptions { outputDir: string; receiptDir?: string; sourceRoot?: string; privatePayload?: boolean }
 export interface SpatialArtifactSeal { artifact: { path: string; sha256: string; bytes: number }; receipt: Receipt }
 export class SpatialSealError extends Error { constructor(public code: string, message: string) { super(message); this.name = 'SpatialSealError'; } }
 export const spatialBytesHash = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex');
@@ -84,10 +84,10 @@ export function sealSpatialArtifact(kind: string, payload: unknown, sourceRevisi
   while (!existsSync(ancestor)) { const parent = dirname(ancestor); if (parent === ancestor) fail('output_unavailable', 'Evidence output has no resolvable ancestor.'); ancestor = parent; }
   const canonicalAncestor = realpathSync(ancestor), ancestorRelative = relative(root, canonicalAncestor);
   if (canonicalAncestor !== ancestor || ancestorRelative === '..' || ancestorRelative.startsWith(`..${sep}`) || isAbsolute(ancestorRelative)) fail('output_symlink', 'Evidence output must not traverse symlink directories.');
-  mkdirSync(output, { recursive: true }); if (realpathSync(output) !== output) fail('output_symlink', 'Evidence output must not traverse symlink directories.');
+  mkdirSync(output, { recursive: true, mode: options.privatePayload ? 0o700 : 0o755 }); if (realpathSync(output) !== output) fail('output_symlink', 'Evidence output must not traverse symlink directories.');
   const bytes = Buffer.from(JSON.stringify(payload, null, 2) + '\n'); if (bytes.length > 512 * 1024) fail('unbounded_seal', 'Evidence payload exceeds its bounded size.');
   const sha256 = spatialBytesHash(bytes), filename = `${kind}-${sha256.slice(0, 16)}-${randomUUID()}.json`, absolute = resolve(output, filename), path = relative(root, absolute);
-  writeFileSync(absolute, bytes, { flag: 'wx', mode: 0o444 });
+  writeFileSync(absolute, bytes, { flag: 'wx', mode: options.privatePayload ? 0o400 : 0o444 });
   const receipt = appendReceipt('runs', { kind, subject: kind, policy: 'Retain immutable spatial evidence; no authority or physical correctness promotion', status, output_sha256: sha256, manifest_sha256: digest(sourceRevision), artifacts: [path], sources: [{ source_sha256: sourceRevision, artifact_sha256: sha256, authority: 'retained-local-file' }], env_lock: captureEnvLock([], options.receiptDir ?? process.cwd()) }, options.receiptDir);
   return { artifact: { path, sha256, bytes: bytes.length }, receipt };
 }
@@ -110,7 +110,8 @@ export function sealSpatialAnnotation(packSeal: SpatialArtifactSeal, input: { ca
     for (const property of ['material', 'density'] as const) if (pack.context.facts.some(f => f.id === `volume.${property}` && f.epistemic === 'unknown') && raw[`${property}Known`] !== false) fail('annotation_unknown_promoted', 'Annotation promotes an explicitly unknown material or density.');
     const facts = new Map(pack.context.facts.map(f => [f.id, f]));
     annotations = raw.annotations.map(item => { const a = object(item), objectId = text(a.entityId, 128); if (!pack.context.entities.some(e => e.id === objectId) || !Array.isArray(a.factIds) || a.factIds.length < 1 || a.factIds.length > 8 || a.factIds.some(id => typeof id !== 'string' || facts.get(id)?.entityId !== objectId)) fail('annotation_ungrounded', 'Annotation cites an unknown fact or a fact belonging to another object.'); if (!['inspect', 'refine', 'annotate', 'none'].includes(String(a.proposedAction))) fail('annotation_action', 'Unsupported annotation proposal.'); return { objectId, sourceRevision: pack.sourceRevision, camera, factIds: a.factIds as string[], comment: text(a.comment, 1200), proposedAction: String(a.proposedAction), provenance: 'generated' as const }; });
+    fail('annotation_evidence_protocol_missing', 'Legacy fact IDs do not establish observed current-run cite(handle_id) evidence.');
   } catch (error) { reason = error instanceof SpatialSealError ? error.code : 'invalid_annotation_json'; annotations = []; }
-  const result = { schema: 'timmy.annotation.receipt/1', status: reason ? 'rejected' : 'grounded', packSha256: packSeal.artifact.sha256, sourceRevision: pack.sourceRevision, inputSha256: spatialBytesHash(inputBytes), annotations, reason, scope: { modelInterpretationOnly: true, semanticCorrectnessChecked: false, nativeEditsExecuted: false, physicalValidation: false } };
-  const seal = sealSpatialArtifact('annotation.receipt', result, pack.sourceRevision, options, reason ? 'denied' : 'ok'); return { result, ...seal };
+  const result = { schema: 'timmy.annotation.receipt/2', status: 'rejected', packSha256: packSeal.artifact.sha256, sourceRevision: pack.sourceRevision, inputSha256: spatialBytesHash(inputBytes), rawModelOutput: inputBytes, annotations, reason, scope: { modelInterpretationOnly: true, semanticCorrectnessChecked: false, nativeEditsExecuted: false, physicalValidation: false } };
+  const seal = sealSpatialArtifact('annotation.receipt', result, pack.sourceRevision, { ...options, privatePayload: true }, 'denied'); return { result, ...seal };
 }

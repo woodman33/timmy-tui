@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -22,6 +24,12 @@ jobs:
           node-version: 24
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
+
+      # Distribution is limited to a scoped release candidate. The guard checks
+      # exact tag/manifest/lock identity, clean source, and merged-main ancestry.
+      # Passing it does not replace package or native capability qualification.
+      - name: Verify release candidate identity and source
+        run: node scripts/release-preflight.mjs
 
       - name: Install Dependencies
         run: npm ci
@@ -39,6 +47,6 @@ jobs:
         run: npm test
 
       - name: Publish to NPM
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --tag next
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
