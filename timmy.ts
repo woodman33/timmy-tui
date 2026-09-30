@@ -110,7 +110,7 @@ if (command !== 'demo') {
   const compiled = import.meta.url.endsWith('.js');
   const cliPath = fileURLToPath(new URL(compiled ? './src/cli.js' : './src/cli.ts', import.meta.url));
   decide({ forward: 'src/cli', cli: path.relative(process.cwd(), cliPath), argv: args });
-  const loader = compiled ? [] : ['--import', 'tsx'];
+  const loader = compiled ? [] : ['--import', (await import('node:module')).createRequire(import.meta.url).resolve('tsx')];
   const r = spawnSync(process.execPath, [...loader, cliPath, ...args], { stdio: 'inherit' });
   process.exit(r.status ?? 1);
 }
