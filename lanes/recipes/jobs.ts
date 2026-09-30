@@ -16,6 +16,7 @@ export type JobState='queued'|'running'|'succeeded'|'failed'|'cancelled'|'interr
 export interface Job {schema:'timmy.recipe-job/1';id:string;created:number;request:unknown;requestHash:string;sourceHash:string;executionHash:string;sources:{file:string;hash:string}[];signer:string;signature:string;executor:string;python?:string;pythonRealPath?:string}
 const executionHash=(j:Pick<Job,'requestHash'|'sources'|'executor'|'python'|'pythonRealPath'>)=>sha(JSON.stringify({requestHash:j.requestHash,sources:j.sources,executor:j.executor,python:j.python??null,pythonRealPath:j.pythonRealPath??null}));
 const regular=(p:string)=>{const s=fs.lstatSync(p);if(!s.isFile()||s.isSymbolicLink())throw Error('Expected regular job file');return p;};
+const present=(p:string)=>{try{fs.lstatSync(p);return true;}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return false;throw error;}};
 function directory(p:string,create=false){if(create&&!fs.existsSync(p))fs.mkdirSync(p,{mode:0o700});const s=fs.lstatSync(p);if(!s.isDirectory()||s.isSymbolicLink())throw Error('Unsafe job directory');return p;}
 export function jobDirectory(root:string,id:string){
  if(!uuid.test(id))throw Error('Invalid recipe job UUID');
@@ -84,14 +85,16 @@ export function status(root:string,id:string):{job:Job;state:JobState;progress:s
  const job=loadJob(root,id),dir=jobDirectory(root,id);
  for(const name of ['recovered.json','terminal.json'])if(fs.existsSync(path.join(dir,name))){
   const recorded=read(path.join(dir,name));
-  if(recorded.state==='succeeded'||Object.hasOwn(recorded,'resultReceipt')||Object.hasOwn(recorded,'resultHash')){
+  const hasReferences=Object.hasOwn(recorded,'resultReceipt')||Object.hasOwn(recorded,'resultHash');
+  const legacyCancellation=recorded.state==='cancelled'&&!hasReferences&&present(path.join(dir,'result.json'));
+  if(recorded.state==='succeeded'||hasReferences||legacyCancellation){
    try{
     const verified=completion(root,id);
     if(!['succeeded','failed','cancelled'].includes(recorded.state)||
-     typeof recorded.resultReceipt!=='string'||!recorded.resultReceipt||typeof recorded.resultHash!=='string'||!recorded.resultHash||
-     recorded.resultReceipt!==verified.resultReceipt||recorded.resultHash!==verified.resultHash||
+     (!legacyCancellation&&(typeof recorded.resultReceipt!=='string'||!recorded.resultReceipt||typeof recorded.resultHash!=='string'||!recorded.resultHash||
+     recorded.resultReceipt!==verified.resultReceipt||recorded.resultHash!==verified.resultHash))||
      (recorded.state!=='cancelled'&&recorded.state!==verified.state))throw Error('Terminal result reference mismatch');
-    return {...recorded,...verified,state:recorded.state,job};
+    return {...recorded,...verified,state:recorded.state,...(legacyCancellation?{reason:'Cancellation requested; completed native result retained; no replay'}:{}),job};
    }catch{return {job,state:'interrupted',progress:'verification-failed',reason:'Recorded result could not be verified; original metadata retained; no replay'};}
   }
   return {...recorded,job};
@@ -101,6 +104,14 @@ export function status(root:string,id:string):{job:Job;state:JobState;progress:s
 }
 export function cancel(root:string,id:string){const current=status(root,id);if(['queued','running'].includes(current.state))once(path.join(jobDirectory(root,id),'cancel.json'),{requested:Date.now()});return status(root,id);}
 function terminal(dir:string,state:JobState,reason?:string,extra:object={}){once(path.join(dir,'terminal.json'),{state,progress:'finished',...extra,...(reason?{reason}:{}),finished:Date.now()});}
+function terminalCancellation(root:string,id:string,dir:string){
+ if(present(path.join(dir,'result.json'))){
+  try{const result=completion(root,id);terminal(dir,'cancelled','Cancellation requested; completed native result retained; no replay',{...result,state:'cancelled'});}
+  catch{terminal(dir,'interrupted','Result could not be verified; no replay',{progress:'verification-failed'});}
+  return;
+ }
+ terminal(dir,'cancelled','Partial artifacts retained; no replay');
+}
 export async function start(root:string,id:string,options:{onSupervisor?:(child:ReturnType<typeof spawn>)=>void}={}){
  if(process.platform==='win32')throw Error('Recipe workers currently require POSIX process groups');
  const current=status(root,id);if(current.state!=='queued')return current;
@@ -123,7 +134,7 @@ export async function executeJob(root:string,id:string,native:(job:Job,workspace
  const job=loadJob(root,id),dir=jobDirectory(root,id);
  sourceGate(job);
  if(!fs.existsSync(path.join(dir,'claim.json'))||!fs.existsSync(path.join(dir,'execution.json')))throw Error('Job has no supervisor execution claim');
- if(['terminal.json','recovered.json','result.json','cancel.json'].some(name=>fs.existsSync(path.join(dir,name))))throw Error('Job is completed, interrupted or cancelled; no execution replay');
+ if(['terminal.json','recovered.json','result.json','cancel.json'].some(name=>present(path.join(dir,name))))throw Error('Job is completed, interrupted or cancelled; no execution replay');
  const workspace=workspaceStore(dir);
  if(!once(path.join(dir,'native-execution.json'),{id,executionHash:job.executionHash,started:Date.now()}))throw Error('Job native execution already claimed; no replay');
  // The marker is intentionally retained on every outcome, including a crash.
@@ -183,11 +194,11 @@ export function recover(root:string,id:string){
  // hides the retained result reference. Restoration can be inspected afresh.
  if(current.progress==='verification-failed')return current;
  if(!['running','interrupted'].includes(current.state))return current;
- if(fs.existsSync(path.join(dir,'result.json'))){
+ if(present(path.join(dir,'result.json'))){
   try{const result=completion(root,id);
    const recovered=fs.existsSync(path.join(dir,'cancel.json'))?{...result,state:'cancelled',reason:'Cancellation requested; completed native result retained; no replay'}:result;
    once(path.join(dir,current.state==='interrupted'?'recovered.json':'terminal.json'),recovered);return status(root,id);}
-  catch{terminal(dir,'interrupted','Result could not be verified; no replay');return status(root,id);}
+  catch{terminal(dir,'interrupted','Result could not be verified; no replay',{progress:'verification-failed'});return status(root,id);}
  }
  const heartbeat=path.join(dir,'heartbeat.json');
  const last=fs.existsSync(heartbeat)?read(heartbeat).at:read(path.join(dir,'claim.json')).started;
@@ -195,11 +206,11 @@ export function recover(root:string,id:string){
  return status(root,id);
 }
 /** Supervisor stays responsive while the incumbent synchronous build runs in a child. */
-export async function supervise(root:string,id:string){
+export async function supervise(root:string,id:string,options:{onExecutionClosed?:(code:number|null,signal:NodeJS.Signals|null)=>void}={}){
  const job=loadJob(root,id),dir=jobDirectory(root,id);
  if(!fs.existsSync(path.join(dir,'claim.json'))||fs.existsSync(path.join(dir,'terminal.json')))return;
  try{sourceGate(job);}catch{terminal(dir,'failed','Source changed before execution');return;}
- if(fs.existsSync(path.join(dir,'cancel.json'))){terminal(dir,'cancelled');return;}
+ if(fs.existsSync(path.join(dir,'cancel.json'))){terminalCancellation(root,id,dir);return;}
  // A second supervisor cannot launch the same job, including after a crash.
  if(!once(path.join(dir,'execution.json'),{started:Date.now()}))return;
  const workspace=directory(path.join(dir,'workspace'));
@@ -212,11 +223,17 @@ export async function supervise(root:string,id:string){
    const began=Date.now();atomic(path.join(dir,'heartbeat.json'),{at:began});
    const timer=setInterval(()=>{atomic(path.join(dir,'heartbeat.json'),{at:Date.now()});if(cancelled()||Date.now()-began>150000)kill();},250);
    child.once('error',e=>{clearInterval(timer);reject(e);});
-   child.once('close',code=>{clearInterval(timer);code===0?resolve():reject(Error('Native worker did not complete'));});
+   child.once('close',(code,signal)=>{
+    clearInterval(timer);
+    // Programmatic observers see the actual close boundary, including failure;
+    // CLI workers do not supply this callback or infer timing from a marker.
+    try{options.onExecutionClosed?.(code,signal);}catch(error){console.warn('Recipe execution observer failed after close: '+(error instanceof Error?error.message:String(error)));}
+    code===0?resolve():reject(Error('Native worker did not complete'));
+   });
   });
-  if(cancelled())terminal(dir,'cancelled','Partial artifacts retained; no replay');
+  if(cancelled())terminalCancellation(root,id,dir);
   else{const result=completion(root,id);terminal(dir,result.state,undefined,result);}
- }catch{terminal(dir,cancelled()?'cancelled':'failed',cancelled()?'Partial artifacts retained; no replay':'Worker failed; inspect worker.log');}
+ }catch{cancelled()?terminalCancellation(root,id,dir):terminal(dir,'failed','Worker failed; inspect worker.log');}
  finally{kill();}
 }
 export function recordResult(root:string,id:string,result:any){

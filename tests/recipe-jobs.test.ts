@@ -8,12 +8,13 @@ import {createRequire} from 'node:module';
 import {receiptsDir,verifySignature} from '../src/utils/receipts.js';
 import {keysPath,loadOrCreateKeys,signBody} from '../src/utils/signing.js';
 import {sha} from '../lanes/recipes/tray.js';
-import {enqueue,start as startJob,status,cancel,recover,jobDirectory} from '../lanes/recipes/jobs.js';
+import {enqueue,start as startJob,status,cancel,recover,jobDirectory,supervise} from '../lanes/recipes/jobs.js';
 
 const request={schema:'timmy.recipe-request/1',recipe:'enclosure.tray/1',parameters:{width:140,wall:3,supportOffset:10,bore:3}};
 let root:string;
 type Owned={child:ChildProcess;id:string;supervisor:boolean;closed:boolean;done:Promise<void>};
 let owned:Owned[],diagnostics:unknown[],cancellationFailures:number,retained:boolean;
+let controllers:{id:string;done:Promise<void>;closed:boolean}[];
 function observe(child:ChildProcess,id:string,supervisor:boolean){
  const events=diagnostics;
  let finish!:()=>void;const entry:Owned={child,id,supervisor,closed:false,done:new Promise(r=>{finish=r;})};owned.push(entry);
@@ -21,17 +22,22 @@ function observe(child:ChildProcess,id:string,supervisor:boolean){
  child.once('close',(code,signal)=>{entry.closed=true;events.push({id,supervisor,code,signal});finish();});return entry;
 }
 const start=(jobRoot:string,id:string)=>startJob(jobRoot,id,{onSupervisor:child=>observe(child,id,true)});
+function supervised(id:string,onClose:(code:number|null)=>void){
+ const events=diagnostics,entry={id,done:Promise.resolve(),closed:false};
+ entry.done=supervise(root,id,{onExecutionClosed:(code,signal)=>{events.push({id,supervisedClose:{code,signal}});onClose(code);}}).finally(()=>{entry.closed=true;});
+ controllers.push(entry);return entry.done;
+}
 async function drainOwned(deadline=5000){
- for(const entry of owned)if(entry.supervisor&&!entry.closed){
+ for(const entry of [...owned.filter(x=>x.supervisor),...controllers])if(!entry.closed){
   try{cancel(root,entry.id);}catch(error){cancellationFailures++;diagnostics.push({id:entry.id,cancellationError:error instanceof Error?error.message:String(error)});}
  }
  let timer:ReturnType<typeof setTimeout>|undefined;
- try{await Promise.race([Promise.all(owned.map(entry=>entry.done)),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Owned fixture worker did not close; fixture retained')),deadline);})]);}
+ try{await Promise.race([Promise.all([...owned,...controllers].map(entry=>entry.done)),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Owned fixture worker did not close; fixture retained')),deadline);})]);}
  finally{if(timer)clearTimeout(timer);}
 }
 function retainFailure(error?:unknown,assertionErrors?:unknown){
  retained=true;
- const detail={root,node:process.version,diagnostics,assertionErrors,teardownError:error instanceof Error?error.message:error,openChildren:owned.filter(x=>!x.closed).map(x=>({id:x.id,supervisor:x.supervisor,pid:x.child.pid}))};
+ const detail={root,node:process.version,diagnostics,assertionErrors,teardownError:error instanceof Error?error.message:error,openChildren:owned.filter(x=>!x.closed).map(x=>({id:x.id,supervisor:x.supervisor,pid:x.child.pid})),openControllers:controllers.filter(x=>!x.closed).map(x=>x.id)};
  fs.writeFileSync(path.join(root,'test-failure.json'),JSON.stringify(detail,null,2),{mode:0o600});
  const output=process.env.TIMMY_RECIPE_TEST_ARTIFACT_DIR;
  if(output){fs.mkdirSync(output,{recursive:true,mode:0o700});fs.appendFileSync(path.join(output,'retained-fixtures.jsonl'),JSON.stringify(detail)+'\n',{mode:0o600});}
@@ -39,7 +45,7 @@ function retainFailure(error?:unknown,assertionErrors?:unknown){
 }
 function snapshotBeforeCleanup(){
  const snapshot=path.join(root,'before-cleanup');fs.mkdirSync(snapshot,{mode:0o700});
- for(const id of new Set(owned.filter(x=>x.supervisor).map(x=>x.id))){
+ for(const id of new Set([...owned.filter(x=>x.supervisor).map(x=>x.id),...controllers.map(x=>x.id)])){
   const dir=jobDirectory(root,id),dest=path.join(snapshot,id);fs.mkdirSync(dest,{mode:0o700});
   for(const name of ['worker.log','terminal.json','heartbeat.json','claim.json','execution.json','native-execution.json','result.json']){
    const file=path.join(dir,name);if(fs.existsSync(file)&&fs.lstatSync(file).isFile())fs.writeFileSync(path.join(dest,name),fs.readFileSync(file),{mode:0o600});
@@ -69,10 +75,14 @@ const native=path.join(base,'native');fs.mkdirSync(native);
 const exports=['outer.stl','cavity.stl','bosses.stl','bores.stl','console-tray.step'].map(file=>{fs.writeFileSync(path.join(native,file),'SYNTHETIC lifecycle fixture; not geometry');return {file,sha256:sha(fs.readFileSync(path.join(native,file)))};});
 fs.writeFileSync(path.join(native,'result.json'),'{}');fs.writeFileSync(path.join(base,'native.log'),'synthetic worker');
 const sources=[path.join(native,'result.json'),path.join(base,'native.log'),...exports.map(e=>path.join(native,e.file))].map(file=>({path:file,sha256:sha(fs.readFileSync(file))}));
-const failed=${JSON.stringify(mode)}==='reported-failure';
+const failed=${JSON.stringify(mode)}.startsWith('reported-failure');
 const receipt=appendReceipt('runs',{...common,status:failed?'failed':'ok',kind:'recipe.build',child_receipts:[prediction.id],sources:${JSON.stringify(mode)}==='empty-sources'?[]:sources},workspace);
 const result={state:failed?'failed':'succeeded',run,receipt:receipt.id,receiptHash:receipt.hash,checksPassed:failed?0:30,exports:failed?[]:exports};fs.writeFileSync(path.join(base,'report.json'),JSON.stringify(result));
 recordResult(root,id,{...result,directory:base});
+if(${JSON.stringify(mode)}==='cancel-after-result')fs.writeFileSync(path.join(dir,'cancel.json'),JSON.stringify({requested:Date.now()}));
+if(${JSON.stringify(mode)}==='tamper-result')fs.appendFileSync(path.join(base,'native.log'),'tampered');
+if(${JSON.stringify(mode)}==='malformed-result-exit-error')fs.writeFileSync(path.join(dir,'result.json'),'{');
+if(${JSON.stringify(mode)}.endsWith('exit-error'))process.exitCode=3;
 `);return file;
 }
 const loader=createRequire(import.meta.url).resolve('tsx');
@@ -89,7 +99,7 @@ const invoke=(id:string,env:NodeJS.ProcessEnv={})=>new Promise<number>((resolve,
   else reject(Error('Direct fixture worker failed: '+JSON.stringify(detail)));
  });
 });
-beforeEach(()=>{root=fs.mkdtempSync(path.join(os.tmpdir(),'recipe-jobs-test-'));owned=[];diagnostics=[];cancellationFailures=0;retained=false;});
+beforeEach(()=>{root=fs.mkdtempSync(path.join(os.tmpdir(),'recipe-jobs-test-'));owned=[];controllers=[];diagnostics=[];cancellationFailures=0;retained=false;});
 afterEach(async context=>{
  vi.restoreAllMocks();if(!fs.existsSync(root))return;
  const failed=context.task.result?.state==='fail';let snapshotError:unknown;
@@ -306,6 +316,13 @@ describe('durable recipe worker boundary (offline fake executor)',()=>{
   expect(recover(root,id).state).toBe('cancelled');expect(fs.existsSync(path.join(dir,'result.json'))).toBe(true);
   expect(await invoke(id)).toBe(1);
  });
+ it('keeps a verified result when cancellation arrives before supervise records completion',async()=>{
+  const id=enqueue(request,{root,executor:executor('cancel-after-result')}).job.id;
+  await start(root,id);await wait(()=>status(root,id).state==='cancelled');
+  const observed=status(root,id);
+  expect(observed).toMatchObject({state:'cancelled',progress:'finished',reason:'Cancellation requested; completed native result retained; no replay'});
+  expect(observed.resultReceipt).toMatch(/^rc_/);expect(observed.resultHash).toBeTruthy();
+ });
  it.each(['complete','reported-failure'])('revalidates cancelled %s result references on status and recovery without rewriting metadata',async mode=>{
   const id=enqueue(request,{root,executor:executor(mode)}).job.id,dir=jobDirectory(root,id);
   await start(root,id);await wait(()=>['succeeded','failed'].includes(status(root,id).state));
@@ -411,5 +428,102 @@ describe('durable recipe worker boundary (offline fake executor)',()=>{
   fs.renameSync(path.join(dir,'job.json'),path.join(dir,'original.json'));
   fs.symlinkSync(path.join(dir,'original.json'),path.join(dir,'job.json'));
   expect(()=>status(root,id)).toThrow(/regular job file/);
+ });
+ it.each([
+  {mode:'complete',name:'terminal.json'},
+  {mode:'reported-failure',name:'terminal.json'},
+  {mode:'complete',name:'recovered.json'},
+  {mode:'reported-failure',name:'recovered.json'}
+ ])('reads legacy pointerless cancelled $mode results from $name without changing retained metadata',async({mode,name})=>{
+  const id=enqueue(request,{root,executor:executor(mode)}).job.id,dir=jobDirectory(root,id);
+  await start(root,id);await wait(()=>['succeeded','failed'].includes(status(root,id).state));await drainOwned();
+  const result=status(root,id),original=Buffer.from(JSON.stringify({state:'cancelled',progress:'finished',reason:'Partial artifacts retained; no replay'}));
+  const priorTerminal=fs.readFileSync(path.join(dir,'terminal.json'));fs.writeFileSync(path.join(dir,name),original);
+  for(const value of [status(root,id),recover(root,id)])expect(value).toMatchObject({state:'cancelled',resultReceipt:result.resultReceipt,resultHash:result.resultHash});
+  expect(fs.readFileSync(path.join(dir,name))).toEqual(original);expect(fs.existsSync(path.join(dir,'recovered.json'))).toBe(name==='recovered.json');
+  const envelope=JSON.parse(fs.readFileSync(path.join(dir,'result.json'),'utf8'));
+  fs.appendFileSync(path.join(envelope.result.directory,'native.log'),'changed');
+  for(const value of [status(root,id),recover(root,id)]){
+   expect(value).toMatchObject({state:'interrupted',progress:'verification-failed'});expect(value).not.toHaveProperty('resultReceipt');expect(value).not.toHaveProperty('resultHash');
+  }
+  expect(fs.readFileSync(path.join(dir,name))).toEqual(original);if(name==='recovered.json')expect(fs.readFileSync(path.join(dir,'terminal.json'))).toEqual(priorTerminal);expect(await invoke(id)).toBe(1);
+ });
+ it.each([
+  {mode:'complete',exit:0,result:'succeeded'},
+  {mode:'reported-failure',exit:0,result:'failed'},
+  {mode:'result-exit-error',exit:1,result:'succeeded'},
+  {mode:'reported-failure-exit-error',exit:1,result:'failed'},
+  {mode:'tamper-result',exit:0,result:null},
+  {mode:'malformed-result-exit-error',exit:1,result:null}
+ ])('handles cancellation at the actual supervisor close boundary: $mode',async scenario=>{
+  const id=enqueue(request,{root,executor:executor(scenario.mode)}).job.id,dir=jobDirectory(root,id);
+  fs.writeFileSync(path.join(dir,'claim.json'),JSON.stringify({started:Date.now()}));let closed:number|null|undefined;
+  await supervised(id,code=>{closed=code;cancel(root,id);});expect(closed).toBe(scenario.exit);
+  const terminal=fs.readFileSync(path.join(dir,'terminal.json'));
+  if(scenario.result){
+   const result=JSON.parse(fs.readFileSync(path.join(dir,'result.json'),'utf8'));expect(result.result.state).toBe(scenario.result);
+   for(const observed of [status(root,id),recover(root,id)])expect(observed).toMatchObject({state:'cancelled',resultReceipt:result.result.receipt,resultHash:result.result.receiptHash});
+  }else{
+   for(const observed of [status(root,id),recover(root,id)]){
+    expect(observed).toMatchObject({state:'interrupted',progress:'verification-failed'});expect(observed).not.toHaveProperty('resultReceipt');expect(observed).not.toHaveProperty('resultHash');
+   }
+  }
+  expect(fs.readFileSync(path.join(dir,'terminal.json'))).toEqual(terminal);expect(await invoke(id)).toBe(1);
+  expect(fs.readFileSync(path.join(dir,'executions.txt'),'utf8').trim().split('\n')).toHaveLength(1);
+ });
+ it.each(['terminal.json','recovered.json'])('refuses malformed legacy cancelled result readback from %s without rewriting it',name=>{
+  const id=enqueue(request,{root,executor:executor()}).job.id,dir=jobDirectory(root,id);
+  const raw=Buffer.from(JSON.stringify({state:'cancelled',progress:'finished'}));fs.writeFileSync(path.join(dir,name),raw);fs.writeFileSync(path.join(dir,'result.json'),'{');
+  for(const observed of [status(root,id),recover(root,id)]){
+   expect(observed).toMatchObject({state:'interrupted',progress:'verification-failed'});expect(observed).not.toHaveProperty('resultReceipt');expect(observed).not.toHaveProperty('resultHash');
+  }
+  expect(fs.readFileSync(path.join(dir,name))).toEqual(raw);expect(fs.readFileSync(path.join(dir,'result.json'),'utf8')).toBe('{');
+ });
+ it('records verification refusal when recovering a cancelled running job with an invalid result',async()=>{
+  const id=enqueue(request,{root,executor:executor()}).job.id,dir=jobDirectory(root,id);
+  fs.writeFileSync(path.join(dir,'claim.json'),JSON.stringify({started:0}));fs.writeFileSync(path.join(dir,'execution.json'),JSON.stringify({started:0}));cancel(root,id);
+  const raw=JSON.stringify({id,result:{state:'succeeded',receipt:'not-admitted'}});fs.writeFileSync(path.join(dir,'result.json'),raw);
+  for(const value of [recover(root,id),status(root,id)]){
+   expect(value).toMatchObject({state:'interrupted',progress:'verification-failed'});expect(value).not.toHaveProperty('resultReceipt');expect(value).not.toHaveProperty('resultHash');
+  }
+  const terminal=fs.readFileSync(path.join(dir,'terminal.json'));recover(root,id);expect(fs.readFileSync(path.join(dir,'terminal.json'))).toEqual(terminal);expect(fs.readFileSync(path.join(dir,'result.json'),'utf8')).toBe(raw);
+  expect(await invoke(id)).toBe(1);expect(fs.existsSync(path.join(dir,'executions.txt'))).toBe(false);
+ });
+ it('refuses a signed result from another job in a legacy cancelled record',async()=>{
+  const file=executor(),first=enqueue(request,{root,executor:file}).job.id,second=enqueue(request,{root,executor:file}).job.id;
+  await Promise.all([start(root,first),start(root,second)]);await wait(()=>status(root,first).state==='succeeded'&&status(root,second).state==='succeeded');await drainOwned();
+  const foreign=fs.readFileSync(path.join(jobDirectory(root,first),'result.json'));expect(verifySignature(JSON.parse(foreign.toString()))).toBe(true);
+  const dir=jobDirectory(root,second),terminal=Buffer.from(JSON.stringify({state:'cancelled',progress:'finished'}));fs.writeFileSync(path.join(dir,'terminal.json'),terminal);fs.writeFileSync(path.join(dir,'result.json'),foreign);
+  for(const value of [status(root,second),recover(root,second)]){
+   expect(value).toMatchObject({state:'interrupted',progress:'verification-failed'});expect(value).not.toHaveProperty('resultReceipt');expect(value).not.toHaveProperty('resultHash');
+  }
+  expect(fs.readFileSync(path.join(dir,'terminal.json'))).toEqual(terminal);expect(fs.readFileSync(path.join(dir,'result.json'))).toEqual(foreign);expect(await invoke(second)).toBe(1);
+  expect(fs.readFileSync(path.join(dir,'executions.txt'),'utf8').trim().split('\n')).toHaveLength(1);
+ });
+ it.each(['terminal.json','recovered.json'])('refuses dangling retained result in legacy %s without changing its link or marker',async name=>{
+  const id=enqueue(request,{root,executor:executor()}).job.id,dir=jobDirectory(root,id),target=path.join(root,'missing-result');
+  const raw=Buffer.from(JSON.stringify({state:'cancelled',progress:'finished'}));fs.writeFileSync(path.join(dir,name),raw);fs.symlinkSync(target,path.join(dir,'result.json'));
+  for(const value of [status(root,id),recover(root,id)]){
+   expect(value).toMatchObject({state:'interrupted',progress:'verification-failed'});expect(value).not.toHaveProperty('resultReceipt');expect(value).not.toHaveProperty('resultHash');
+  }
+  expect(fs.readFileSync(path.join(dir,name))).toEqual(raw);expect(fs.readlinkSync(path.join(dir,'result.json'))).toBe(target);expect(await invoke(id)).toBe(1);
+ });
+ it('refuses a dangling retained result during cancelled running-job recovery',async()=>{
+  const id=enqueue(request,{root,executor:executor()}).job.id,dir=jobDirectory(root,id),target=path.join(root,'missing-result');
+  fs.writeFileSync(path.join(dir,'claim.json'),JSON.stringify({started:0}));fs.writeFileSync(path.join(dir,'execution.json'),JSON.stringify({started:0}));cancel(root,id);fs.symlinkSync(target,path.join(dir,'result.json'));
+  const value=recover(root,id);expect(value).toMatchObject({state:'interrupted',progress:'verification-failed'});expect(value).not.toHaveProperty('resultReceipt');expect(value).not.toHaveProperty('resultHash');
+  expect(fs.readlinkSync(path.join(dir,'result.json'))).toBe(target);expect(await invoke(id)).toBe(1);expect(fs.existsSync(path.join(dir,'executions.txt'))).toBe(false);
+ });
+ it('refuses a dangling retained result when the supervisor observes cancellation before execution',async()=>{
+  const id=enqueue(request,{root,executor:executor()}).job.id,dir=jobDirectory(root,id),target=path.join(root,'missing-result');
+  fs.writeFileSync(path.join(dir,'claim.json'),JSON.stringify({started:0}));cancel(root,id);fs.symlinkSync(target,path.join(dir,'result.json'));let childClosed=false;
+  await supervised(id,()=>{childClosed=true;});expect(childClosed).toBe(false);
+  const value=status(root,id);expect(value).toMatchObject({state:'interrupted',progress:'verification-failed'});expect(value).not.toHaveProperty('resultReceipt');expect(value).not.toHaveProperty('resultHash');
+  expect(fs.readlinkSync(path.join(dir,'result.json'))).toBe(target);expect(fs.existsSync(path.join(dir,'execution.json'))).toBe(false);expect(await invoke(id)).toBe(1);
+ });
+ it('does not execute through a dangling result entry with no cancellation marker',async()=>{
+  const id=enqueue(request,{root,executor:executor()}).job.id,dir=jobDirectory(root,id),target=path.join(root,'missing-result');
+  fs.writeFileSync(path.join(dir,'claim.json'),JSON.stringify({started:Date.now()}));fs.writeFileSync(path.join(dir,'execution.json'),JSON.stringify({started:Date.now()}));fs.symlinkSync(target,path.join(dir,'result.json'));
+  expect(await invoke(id)).toBe(1);expect(fs.readlinkSync(path.join(dir,'result.json'))).toBe(target);expect(fs.existsSync(path.join(dir,'native-execution.json'))).toBe(false);expect(fs.existsSync(path.join(dir,'executions.txt'))).toBe(false);
  });
 });
