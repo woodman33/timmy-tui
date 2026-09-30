@@ -116,8 +116,7 @@
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: var(--success-hsl);
-      box-shadow: 0 0 10px var(--success-hsl);
+      background: var(--text-muted);
       display: inline-block;
     }
 
@@ -460,15 +459,15 @@
   <header>
     <h1>🛡️ TIMMY OS Companion</h1>
     <div style="display: flex; align-items: center; gap: 16px;">
-      <div id="status">
+      <div id="status" role="status" aria-live="polite">
         <span class="status-dot"></span>
-        <span id="status-text">LOCAL COMPANION CONNECTED | DO SYNCED</span>
+        <span id="status-text">COMPANION SOCKET · CONNECTING</span>
       </div>
     </div>
   </header>
 
   <div class="explainer-bar" style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px; z-index: 10;">
-    TIMMY Browser Companion mirrors terminal chat, shows workspace status, displays bounded logs, and previews the latest receipt. The terminal remains the source of truth.
+    TIMMY Browser Companion mirrors terminal chat, shows workspace status, displays bounded logs, and previews the latest receipt. The mirror caches chat in this browser; the terminal remains the source of truth.
   </div>
 
   <div class="main-grid">
@@ -943,6 +942,10 @@
       `).join('');
     }
 
+    function escapeMirrorText(value) {
+      return String(value).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    }
+
     function appendToLocalLogs(level, msg) {
       const timeStr = new Date().toLocaleTimeString();
       let color = 'var(--text-muted)';
@@ -953,22 +956,23 @@
       logsList.innerHTML += `
         <div style="margin-bottom: 4px;">
           <span style="color: #484f58;">[${timeStr}]</span> 
-          <span style="color: ${color}">[${level.toUpperCase()}]</span> 
-          <span>${msg}</span>
+          <span style="color: ${color}">[${escapeMirrorText(level.toUpperCase())}]</span>
+          <span>${escapeMirrorText(msg)}</span>
         </div>
       `;
       logsList.scrollTop = logsList.scrollHeight;
     }
 
     function connect() {
-      const ws = new WebSocket(`ws://${location.host}`);
+      const socketProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${socketProtocol}//${location.host}`);
       wsConnection = ws;
 
       ws.onopen = () => {
-        statusEl.textContent = 'LOCAL COMPANION CONNECTED | DO ACTIVE';
-        document.querySelector('.status-dot').style.background = 'var(--success-hsl)';
-        document.querySelector('.status-dot').style.boxShadow = '0 0 10px var(--success-hsl)';
-        appendToLocalLogs('SUCCESS', 'WebSocket telemetry sync channel established successfully.');
+        statusEl.textContent = 'COMPANION SOCKET · CONNECTED';
+        document.querySelector('.status-dot').style.background = 'var(--text-main)';
+        document.querySelector('.status-dot').style.boxShadow = 'none';
+        appendToLocalLogs('INFO', 'Companion WebSocket connected.');
         
         ws.send(JSON.stringify({ type: 'hello' }));
       };
@@ -981,8 +985,12 @@
           if (msg.type === 'state' || msg.type === 'welcome') {
             appendToLocalLogs('INFO', `TUI State change: ${msg.state || 'idle'}`);
           } else if (msg.type === 'sync') {
-            // Merge or replace history
-            activeChatHistory = msg.history || [];
+            // Live broadcasts use data; the hello/reconnect snapshot uses history.
+            const history = msg.data ?? msg.history;
+            if (!Array.isArray(history) || !history.every(m => m && typeof m.role === 'string' && typeof m.content === 'string')) {
+              throw new Error('Invalid chat sync: expected messages with role and text content');
+            }
+            activeChatHistory = history;
             saveActiveChat();
             if (!isViewingSaved) {
               renderConsoleLogs(activeChatHistory);
@@ -1051,10 +1059,11 @@
       };
 
       ws.onclose = () => {
-        statusEl.textContent = 'TUI DISCONNECTED. RECONNECTING...';
+        statusEl.textContent = 'COMPANION SOCKET · RECONNECTING';
         document.querySelector('.status-dot').style.background = '#ff7b72';
         document.querySelector('.status-dot').style.boxShadow = '0 0 10px #ff7b72';
         appendToLocalLogs('ERROR', 'WebSocket connection lost. Retrying in 2s...');
+        if (!isViewingSaved) updateMirrorStatus('RECONNECTING');
         setTimeout(connect, 2000);
       };
 
@@ -1088,8 +1097,8 @@
                   <span class="log-time">${timeStr}</span>
                 </div>
                 <div class="log-content">
-                  Calling tool <code style="color: var(--primary-hsl);">${name}</code> with arguments:
-                  <pre class="code-box">${JSON.stringify(args, null, 2)}</pre>
+                  Calling tool <code style="color: var(--primary-hsl);">${escapeMirrorText(name)}</code> with arguments:
+                  <pre class="code-box">${escapeMirrorText(JSON.stringify(args, null, 2))}</pre>
                 </div>
               </div>
             `;
@@ -1116,11 +1125,6 @@
           formatted = formatted.replace('⚙️ **[SYSTEM]**', '').trim();
         }
 
-        let cloudflareReceiptBadge = '';
-        if (msg.role === 'assistant' && !msg.content.includes('[SYSTEM]')) {
-          cloudflareReceiptBadge = `<div style="margin-top: 8px; font-size: 11px; color: var(--success-hsl); font-weight: bold; font-family: var(--font-fira);">☁️ [Saved to Cloudflare Durable Object SQLite Session #default-local-run]</div>`;
-        }
-
         return `
           <div class="log-msg ${msgClass}">
             <div class="log-header ${msgClass}">
@@ -1128,7 +1132,6 @@
               <span class="log-time">${timeStr}</span>
             </div>
             <div class="log-content">${formatted}</div>
-            ${cloudflareReceiptBadge}
           </div>
         `;
       }).join('');

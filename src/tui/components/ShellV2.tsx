@@ -27,6 +27,7 @@ import { fitStackAdaptive, capRows, moreLine, foldedLine, wrapText, type StackSp
 import { CommanderClient, edgeToken, type CommanderEvent } from '../../harness/commander.js';
 import { Card } from '../ui/Card.js';
 import { useAgent } from '../hooks/useAgent.js';
+import { useCompanionSync } from '../hooks/useCompanionSync.js';
 import type { Agent } from '../../agent/core.js';
 import { IntegrationStatus } from './IntegrationStatus.js';
 import { integrationCatalog } from '../../vision/integrations/registry.js';
@@ -92,7 +93,16 @@ const NOOP_AGENT = {
 export function ShellV2({ width = 120, agent, config }: { width?: number; agent?: Agent; config?: unknown }) {
   const [lazyAgent, setLazyAgent] = useState<Agent | undefined>(undefined);
   const effectiveAgent = agent ?? lazyAgent;
+  const firstChatText = useRef<string | null>(null);
   const chat = useAgent(effectiveAgent ?? NOOP_AGENT);
+  useCompanionSync({ agent: effectiveAgent ?? NOOP_AGENT, messages: chat.messages, enabled: Boolean(effectiveAgent) });
+  useEffect(() => {
+    if (!effectiveAgent || firstChatText.current === null) return;
+    const text = firstChatText.current;
+    firstChatText.current = null;
+    // useAgent and companion listeners attach before a lazy agent's first send.
+    void chat.send(text);
+  }, [effectiveAgent, chat.send]);
   const [s, setS] = useState<ShellState>(initialShell);
   const sRef = React.useRef<ShellState>(s);
   // BOOT (opentui-u4e9): the chain head is read SYNCHRONOUSLY so the very
@@ -499,8 +509,8 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
           const text = chatText.trim();
           void import('../../agent/core.js').then(m => {
             const ag = m.createAgent(config as never);
+            firstChatText.current = text;
             setLazyAgent(ag);
-            void ag.send(text);
           });
           setFlash('sovereign chat warming…');
           return;

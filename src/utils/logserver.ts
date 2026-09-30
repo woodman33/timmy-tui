@@ -19,14 +19,6 @@ import { theme } from '../tui/theme.js';
 
 export const LOGS_PORT = (): number => Number(process.env.TIMMY_LOGS_PORT ?? 4310);
 
-const kindColor = (kind: string): string => {
-  if (kind.includes('sealed')) return theme.seal;
-  if (kind.includes('failed') || kind.includes('broken')) return theme.danger;
-  if (kind.includes('approval') || kind.includes('gated')) return theme.warn;
-  if (kind.includes('fusion') || kind.includes('run')) return theme.accent;
-  return theme.textSecondary;
-};
-
 const PAGE = `<!doctype html><html><head><meta charset="utf-8">
 <title>TIMMY :: LIVE LOGS</title>
 <style>
@@ -45,6 +37,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8">
   section { overflow-y: auto; padding: 12px 16px; }
   section + section { border-left: 1px solid ${theme.surfaceRaised}; }
   h2 { color: ${theme.accent}; font-size: 11px; letter-spacing: .18em; margin-bottom: 10px; }
+  .empty { color: ${theme.textMuted}; margin-bottom: 10px; }
   .ev { display: flex; gap: 10px; padding: 2px 0; white-space: pre-wrap; word-break: break-word; }
   .ev .ts { color: ${theme.textMuted}; flex: 0 0 86px; }
   .ev .kind { flex: 0 0 150px; font-weight: 600; }
@@ -64,26 +57,36 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8">
 </header>
 <div id="verify-out"></div>
 <main>
-  <section><h2>EVENT BUS · LIVE</h2><div id="events"></div></section>
-  <section><h2>RECEIPT CHAIN · runs</h2><div id="chain"></div></section>
+  <section><h2>EVENT BUS · LIVE</h2><p id="event-note" class="empty" role="status">No events received yet · waiting for this instance.</p><div id="events"></div></section>
+  <section><h2>RECEIPT CHAIN · runs</h2><p id="chain-note" class="empty" role="status">Loading this store's receipt history…</p><div id="chain"></div></section>
 </main>
 <script>
 const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const eventsEl = document.getElementById('events');
-const colors = KIND => KIND.includes('sealed') ? theme.seal
-  : KIND.includes('failed')||KIND.includes('broken') ? theme.danger
-  : KIND.includes('approval')||KIND.includes('gated') ? theme.warn
-  : KIND.includes('fusion')||KIND.includes('run') ? theme.accent : theme.textSecondary;
+// Serialize server palette values; the browser has no imported theme module.
+const eventPalette = ${JSON.stringify({ seal: theme.seal, danger: theme.danger, warn: theme.warn, accent: theme.accent, textSecondary: theme.textSecondary })};
+const colors = KIND => KIND.includes('sealed') ? eventPalette.seal
+  : KIND.includes('failed')||KIND.includes('broken') ? eventPalette.danger
+  : KIND.includes('approval')||KIND.includes('gated') ? eventPalette.warn
+  : KIND.includes('fusion')||KIND.includes('run') ? eventPalette.accent : eventPalette.textSecondary;
+const maxEventRows = 200;
+let eventCount = 0;
 function addEvent(ev, scroll) {
+  if (!ev || typeof ev.kind !== 'string' || !ev.kind || (ev.ts !== undefined && typeof ev.ts !== 'string')) throw new Error('unreadable event');
   const d = document.createElement('div'); d.className = 'ev';
   d.innerHTML = '<span class="ts">'+esc((ev.ts||'').slice(11,19))+'</span>'
     + '<span class="kind" style="color:'+colors(ev.kind)+'">'+esc(ev.kind)+'</span>'
     + '<span class="pl">'+esc(JSON.stringify(ev.payload||{}).slice(0,220))+'</span>';
   eventsEl.appendChild(d);
+  eventCount++;
+  while (eventsEl.children.length > maxEventRows) eventsEl.removeChild(eventsEl.firstElementChild);
+  document.getElementById('event-note').textContent = eventCount > maxEventRows
+    ? 'Showing last '+maxEventRows+' events · older rows omitted.' : eventCount+' events received.';
   if (scroll) eventsEl.parentElement.scrollTop = eventsEl.parentElement.scrollHeight;
 }
 function loadChain() {
-  fetch('/receipts?stream=runs').then(r=>r.json()).then(list => {
+  fetch('/receipts?stream=runs').then(r=> { if (!r.ok) throw new Error('receipt request failed'); return r.json(); }).then(list => {
+    if (!Array.isArray(list)) throw new Error('unreadable receipt history');
     const el = document.getElementById('chain');
     el.innerHTML = list.slice(-25).reverse().map(r =>
       '<div class="rc"><div class="sub">'+esc(r.subject||r.kind||'')+'</div>'
@@ -91,20 +94,25 @@ function loadChain() {
       + '<span class="prev">prev '+esc(String(r.prev_hash||'').slice(0,18))+'…</span></div>'
       + '<div class="meta">'+esc(r.policy||'')+' · '+esc(String(r.ts||r.created_at||'').slice(11,19))+'</div></div>'
     ).join('');
-  }).catch(()=>{});
+    document.getElementById('chain-note').textContent = list.length
+      ? 'Showing '+Math.min(list.length,25)+' of '+list.length+' receipts · use verify chain to check integrity.' : 'No receipts in this store yet.';
+  }).catch(()=> { document.getElementById('chain-note').textContent = 'Receipt history unavailable · retrying when a receipt arrives.'; });
 }
 const es = new EventSource('/events');
 es.onopen = () => { document.getElementById('dot').className = 'dot on'; document.getElementById('conn').textContent = 'live'; };
 es.onerror = () => { document.getElementById('dot').className = 'dot'; document.getElementById('conn').textContent = 'reconnecting…'; };
-es.onmessage = m => { addEvent(JSON.parse(m.data), true); if (JSON.parse(m.data).kind === 'receipt.sealed') loadChain(); };
+es.onmessage = m => {
+  try { const ev = JSON.parse(m.data); addEvent(ev, true); if (ev.kind === 'receipt.sealed') loadChain(); }
+  catch { document.getElementById('event-note').textContent = 'Skipped an unreadable event · waiting for the next event.'; }
+};
 document.getElementById('verify').onclick = () => {
-  fetch('/verify?stream=runs').then(r=>r.json()).then(v => {
+  fetch('/verify?stream=runs').then(r=> { if (!r.ok) throw new Error('verification request failed'); return r.json(); }).then(v => {
     document.getElementById('verify-out').textContent = v.ok
       ? '✓ chain intact · '+v.count+' receipts · ed25519 signed · hash-linked'
       : '× chain BROKEN at '+(v.brokenAt||'?');
-  });
+  }).catch(()=> { document.getElementById('verify-out').textContent = 'Chain verification unavailable · try again.'; });
 };
-fetch('/health').then(r=>r.json()).then(h => { document.getElementById('cwd').textContent = h.cwd; });
+fetch('/health').then(r=>r.json()).then(h => { document.getElementById('cwd').textContent = h.cwd; }).catch(()=> { document.getElementById('cwd').textContent = 'workspace unavailable'; });
 loadChain();
 </script></body></html>`;
 
