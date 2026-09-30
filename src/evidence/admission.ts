@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { z } from 'zod/v4';
 
-export const evidenceKinds = ['native_readback', 'calibrated_observation', 'deterministic_computation', 'machine_inference', 'generated_hypothesis'] as const;
+export const evidenceKinds = ['native_readback', 'calibrated_observation', 'deterministic_computation', 'source_declaration', 'machine_inference', 'generated_hypothesis'] as const;
 export type EvidenceKind = typeof evidenceKinds[number];
 export interface EvidenceScope { objectId: string; regionId?: string }
 export interface EvidenceField extends EvidenceScope { kinds: readonly EvidenceKind[] }
@@ -12,7 +12,7 @@ export interface Observation extends EvidenceScope {
   value: unknown;
 }
 export interface EvidenceHandle extends Observation { handle_id: string; run_id: string }
-export type RefusalReason = 'invalid_output' | 'stale_context' | 'wrong_run' | 'wrong_revision' | 'run_closed'
+export type RefusalReason = 'invalid_output' | 'stale_context' | 'wrong_run' | 'wrong_revision' | 'run_closed' | 'execution_failed'
   | 'no_observations' | 'unknown_handle' | 'duplicate_handle' | 'uncited_handle' | 'irrelevant_handle';
 export type Admission = {
   ok: false; evidence: 'unknown'; reason: RefusalReason; raw_output: string;
@@ -60,10 +60,13 @@ export function createEvidenceAdmission(options: {
   sourceRevision: string;
   currentRevision: () => string;
   fields: Readonly<Record<string, EvidenceField>>;
+  /** Optional caller-declared interpretation payload, validated without rewriting. */
+  payloadSchema?: z.ZodType;
 }) {
   const sourceRevision = id.parse(options.sourceRevision);
   const currentRevision = options.currentRevision;
   const runId = randomUUID();
+  const payloadSchema = options.payloadSchema;
   const fields = new Map(Object.entries(options.fields).map(([name, spec]) => [id.parse(name), fieldSchema.parse(spec)]));
   if (!fields.size) throw new Error('At least one declared evidence field is required.');
   const records = new Map<string, EvidenceHandle>();
@@ -116,7 +119,8 @@ export function createEvidenceAdmission(options: {
       registryFrozen = true;
       const shape = Object.fromEntries([...fields].map(([name, field]) =>
         [name, z.array(enumSchema(isCurrent() ? allowed(field) : [])).min(1).max(64)]));
-      return z.object({ run_id: z.literal(runId), source_revision: z.literal(sourceRevision), evidence: z.object(shape).strict() }).strict();
+      return z.object({ run_id: z.literal(runId), source_revision: z.literal(sourceRevision), evidence: z.object(shape).strict(),
+        ...(payloadSchema ? { payload: payloadSchema } : {}) }).strict();
     },
     /** Actual SDK execute closure; there is no API for importing cite success. */
     citationTool() {
@@ -143,6 +147,10 @@ export function createEvidenceAdmission(options: {
       });
     },
     /** Exact raw response is retained on success and every refusal. */
+    refuse(raw_output: string): Admission {
+      const result: Admission = { ok: false, evidence: 'unknown', reason: closed ? 'run_closed' : 'execution_failed', raw_output };
+      closed = true; decisions.push(copy(result)); return copy(result);
+    },
     admit(raw_output: string): Admission {
       function retain(result: Admission): Admission { decisions.push(copy(result)); return copy(result); }
       function refuse(reason: RefusalReason): Admission { return retain({ ok: false, evidence: 'unknown', reason, raw_output }); }
@@ -152,7 +160,8 @@ export function createEvidenceAdmission(options: {
       let parsed: unknown;
       try { parsed = JSON.parse(raw_output); } catch { return refuse('invalid_output'); }
       if (duplicateKeys(raw_output)) return refuse('invalid_output');
-      const envelope = z.object({ run_id: z.string(), source_revision: z.string(), evidence: z.record(z.string(), z.array(z.string()).min(1).max(64)) }).strict().safeParse(parsed);
+      const envelope = z.object({ run_id: z.string(), source_revision: z.string(), evidence: z.record(z.string(), z.array(z.string()).min(1).max(64)),
+        ...(payloadSchema ? { payload: payloadSchema } : {}) }).strict().safeParse(parsed);
       if (!envelope.success) return refuse('invalid_output');
       const output = envelope.data;
       if (output.run_id !== runId) return refuse('wrong_run');

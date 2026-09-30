@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod/v4';
 import { createEvidenceAdmission, type Observation } from '../src/evidence/admission.js';
 
 const observed = (extra: Partial<Observation> = {}): Observation => ({ sourceRevision: 'revision-a', kind: 'native_readback', objectId: 'tray', regionId: 'bore', value: { width: 3, unit: 'mm' }, ...extra });
@@ -107,5 +108,20 @@ describe('controller-owned evidence admission', () => {
     const original = raw(c, [handle.handle_id]);
     const text = original.replace('"evidence":', '"evidence":{"clearance":["metric_depth"]},"evidence":');
     expect(c.admit(text)).toMatchObject({ reason: 'invalid_output', raw_output: text });
+  });
+  it('validates caller-declared payload without changing raw output or importing success', async () => {
+    const c = createEvidenceAdmission({ sourceRevision: 'revision-a', currentRevision: () => 'revision-a',
+      fields: { clearance: { objectId: 'tray', kinds: ['native_readback'] } }, payloadSchema: z.object({ comment: z.string() }).strict() });
+    const [h] = await c.observe(async () => [observed()]);
+    await c.citationTool().function.execute({ handle_id: h.handle_id }, undefined as never);
+    const text = raw(c, [h.handle_id], { payload: { comment: 'unverified interpretation', success: true } });
+    expect(c.admit(text)).toMatchObject({ reason: 'invalid_output', raw_output: text });
+  });
+  it('explicit execution failure closes a cited run without admitting partial content', async () => {
+    const { controller: c, handle, cite } = await ready();
+    await cite({ handle_id: handle.handle_id }, undefined as never);
+    const text = raw(c, [handle.handle_id]);
+    expect(c.refuse(text)).toMatchObject({ ok: false, reason: 'execution_failed', raw_output: text });
+    expect(c.admit(text)).toMatchObject({ reason: 'run_closed' });
   });
 });
