@@ -8,4 +8,4 @@ The SDK tool's execute closure records each successful citation. Model-authored 
 
 The caller must privately retain `snapshot()` and the raw response through its authorized persistence path. This module does not write receipts, call providers or establish semantic truth. Admitted references remain subject to independent claim verification; native digital measurements do not establish physical properties. Existing vision evidence remains fail-closed until its actual tool path is migrated.
 
-Development checks: `tests/evidence-admission.test.ts` exercises the installed SDK execute path and negative controls; `tests/vision-feed.test.ts` protects the existing refusal boundary. No live-model or full application qualification is implied.
+Development checks: `tests/evidence-admission.test.ts` exercises the installed SDK execute path and negative controls; `tests/forge-vision-feed.test.ts` protects the existing refusal boundary. No live-model or full application qualification is implied.
