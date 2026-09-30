@@ -26,6 +26,24 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 
 describe('private settings wizard', () => {
+  it('reads and saves the supplied workspace without a private-directory override', () => {
+    vi.stubEnv('TIMMY_PRIVATE_DIR', ''); vi.stubEnv('TIMMY_REPO_ROOT', '');
+    const paths = wizardConfigPaths(root);
+    expect(root).not.toBe(process.cwd());
+    expect(paths.overlay).toBe(join(root, '.timmy', 'private', 'config.json'));
+    json(paths.overlay, { operator_id: 'op_workspace', unrelated: 'retained' });
+    expect(saveWizardSettings(values, root)).toEqual({ dry: false });
+    expect(loadWizardSettings(root)).toMatchObject({ ...values, operatorId: 'op_workspace' });
+    expect(JSON.parse(readFileSync(paths.overlay, 'utf8'))).toMatchObject({ unrelated: 'retained' });
+  });
+  it('uses the repository override by default and lets an explicit workspace select another project', () => {
+    vi.stubEnv('TIMMY_PRIVATE_DIR', ''); vi.stubEnv('TIMMY_REPO_ROOT', root);
+    expect(wizardConfigPaths().overlay).toBe(join(root, '.timmy', 'private', 'config.json'));
+    expect(saveWizardSettings(values)).toEqual({ dry: false });
+    expect(loadWizardSettings().operator).toBe(values.operator);
+    const other = join(root, 'another-project');
+    expect(wizardConfigPaths(other).overlay).toBe(join(other, '.timmy', 'private', 'config.json'));
+  });
   it('resolves the actual store pin, overlay/env identity and model policy', () => {
     const paths = wizardConfigPaths(root);
     json(paths.overlay, { operator_label: 'Overlay operator', operator_id: 'op_overlay', edge_host: 'overlay.example.invalid', commander_ws: 'wss://commander.example.invalid/ws' });

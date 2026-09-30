@@ -26,8 +26,12 @@ function installed() {
   const module = join(packageDir, 'dist/src/utils/init.js');
   const source = readFileSync(fileURLToPath(new URL('../src/utils/init.ts', import.meta.url)), 'utf8');
   write(module, transformSync(source, { loader: 'ts', format: 'esm', target: 'es2022' }).code);
+  const overlay = join(packageDir, 'dist/lanes/privacy/overlay.mjs');
+  write(overlay, readFileSync(fileURLToPath(new URL('../lanes/privacy/overlay.mjs', import.meta.url)), 'utf8'));
+  write(join(packageDir, 'dist/fleet/nodes.example.json'), '{"bundled":true}');
+  write(join(caller, 'fleet/nodes.example.json'), '{"bundled":false}');
   const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: home, USERPROFILE: home };
-  return { root, packageDir, caller, home, module, env };
+  return { root, packageDir, caller, home, module, overlay, env };
 }
 function run(fixture: ReturnType<typeof installed>, options: { privateDir?: string; workspace?: string; repoOverride?: string; yes?: boolean } = {}) {
   const args = ['--operator', 'sample operator', '--project', 'sample-project', '--json', ...(options.yes === false ? [] : ['--yes'])];
@@ -60,6 +64,19 @@ describe('compiled init from an installed package', () => {
     expect(lstatSync(join(output.home, 'identity.seed')).mode & 0o777).toBe(0o600);
     expect(JSON.parse(readFileSync(join(output.home, 'identity.json'), 'utf8')).operator_id).toBe(output.operator_id);
     expect(readFileSync(join(output.home, 'projects/sample-project/README.md'), 'utf8')).toContain('sample-project');
+    const reader = spawnSync(process.execPath, ['--input-type=module', '--eval', `
+      import { readPrivateJson } from ${JSON.stringify(pathToFileURL(fixture.overlay).href)};
+      console.log(JSON.stringify({ config: readPrivateJson('config.json'), fallback: readPrivateJson('fleet/nodes.json') }));
+    `], {
+      cwd: mode === 'workspace argument' ? workspace : fixture.caller,
+      env: { ...fixture.env, ...(mode === 'private override' ? { TIMMY_PRIVATE_DIR: privateDir } : {}), ...(mode === 'repository override' ? { TIMMY_REPO_ROOT: workspace } : {}) },
+      encoding: 'utf8', timeout: 10000,
+    });
+    expect(reader.status).toBe(0); expect(reader.stderr).toBe('');
+    const observed = JSON.parse(reader.stdout);
+    expect(observed.config).toMatchObject({ source: 'private', path: join(privateDir, 'config.json'), data: { operator_id: output.operator_id, operator_label: 'sample operator' } });
+    expect(observed.fallback).toEqual({ source: 'template', path: join(fixture.packageDir, 'dist/fleet/nodes.example.json'), data: { bundled: true } });
+    expect(snapshot(fixture.packageDir)).toEqual(before);
   });
 
   it('preserves an existing caller receipt pin and resolves a relative private override from the caller', () => {

@@ -64,8 +64,9 @@ function replacePrivateObject(path: string, body: string): void {
     checkDirectories(dirname(path)); readPrivateObject(path); renameSync(temp, path);
   } finally { try { unlinkSync(temp); } catch (e) { if (!missing(e)) throw e; } }
 }
-export const wizardConfigPaths = (cwd = process.cwd()) => ({
-  overlay: join(overlayDirectory(), 'config.json'),
+const workspaceRoot = () => process.env.TIMMY_REPO_ROOT || process.cwd();
+export const wizardConfigPaths = (cwd = workspaceRoot()) => ({
+  overlay: join(overlayDirectory(cwd), 'config.json'),
   // Explicit policy override wins; otherwise settings apply to the caller project.
   policy: policyPath(process.env.TIMMY_POLICY_DIR ?? cwd),
 });
@@ -89,7 +90,7 @@ export function validateWizardValue(field: WizardField, input: string): string {
   if (field === 'policy' && v && !/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(v)) fail();
   return v;
 }
-export function loadWizardSettings(cwd = process.cwd()): WizardSettings {
+export function loadWizardSettings(cwd = workspaceRoot()): WizardSettings {
   const paths = wizardConfigPaths(cwd), overlay = readPrivateObject(paths.overlay), policy = readPrivateObject(paths.policy);
   // Match the existing receipt-store resolver, checking pins before it reads them.
   for (let dir = resolve(cwd); ; dir = dirname(dir)) {
@@ -111,7 +112,7 @@ export function loadWizardSettings(cwd = process.cwd()): WizardSettings {
   for (const field of ['operator', 'edge', 'commander', 'policy'] as const) validateWizardValue(field, result[field]);
   return result;
 }
-export function saveWizardSettings(values: WizardValues, cwd = process.cwd(), dry = false): { dry: boolean } {
+export function saveWizardSettings(values: WizardValues, cwd = workspaceRoot(), dry = false): { dry: boolean } {
   const checked = Object.fromEntries(Object.entries(values).map(([field, text]) => [field, validateWizardValue(field as WizardField, text)])) as unknown as WizardValues;
   const paths = wizardConfigPaths(cwd);
   // Fresh reads preserve unrelated fields changed after the screen was opened.

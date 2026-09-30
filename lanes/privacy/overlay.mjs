@@ -12,9 +12,10 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..', '..');
+/** @deprecated Static legacy location; use privateDir() for operator state. */
 export const PRIVATE_DIR = join(ROOT, '.timmy', 'private');
-/** Resolve at call time, matching init's configurable private overlay. */
-export const privateDir = () => resolve(process.env.TIMMY_PRIVATE_DIR || PRIVATE_DIR);
+/** Operator state follows the caller; ROOT remains the bundled-template root. */
+export const privateDir = (workspace = process.env.TIMMY_REPO_ROOT || process.cwd()) => resolve(process.env.TIMMY_PRIVATE_DIR || join(workspace, '.timmy', 'private'));
 
 /** Where a site-specific file is read from: the private overlay, the .example template, or the public path. */
 export function privatePath(rel) {
