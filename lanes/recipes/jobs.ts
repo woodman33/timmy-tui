@@ -25,7 +25,17 @@ export function jobDirectory(root:string,id:string){
  return path.join(jobs,id);
 }
 const read=(p:string)=>JSON.parse(fs.readFileSync(regular(p),'utf8'));
-function once(p:string,value:unknown){try{fs.writeFileSync(p,JSON.stringify(value)+'\n',{flag:'wx',mode:0o600});return true;}catch(e){if((e as NodeJS.ErrnoException).code==='EEXIST'){regular(p);return false;}throw e;}}
+function once(p:string,value:unknown){
+ const tmp=p+'.'+randomUUID(),fd=fs.openSync(tmp,'wx',0o600);
+ let open=true;
+ try{
+  fs.writeFileSync(fd,JSON.stringify(value)+'\n');fs.closeSync(fd);open=false;
+  // A hard link publishes complete bytes atomically without replacing a winner.
+  // Renaming over the destination would break the persistent one-shot gate.
+  try{fs.linkSync(tmp,p);return true;}
+  catch(e){if((e as NodeJS.ErrnoException).code==='EEXIST'){regular(p);return false;}throw e;}
+ }finally{if(open)fs.closeSync(fd);fs.unlinkSync(tmp);}
+}
 function atomic(p:string,value:unknown){if(fs.existsSync(p))regular(p);const tmp=p+'.'+randomUUID();fs.writeFileSync(tmp,JSON.stringify(value)+'\n',{flag:'wx',mode:0o600});fs.renameSync(tmp,p);}
 function workspaceStore(dir:string){
  const workspace=directory(path.join(dir,'workspace'));
@@ -91,7 +101,7 @@ export function status(root:string,id:string):{job:Job;state:JobState;progress:s
 }
 export function cancel(root:string,id:string){const current=status(root,id);if(['queued','running'].includes(current.state))once(path.join(jobDirectory(root,id),'cancel.json'),{requested:Date.now()});return status(root,id);}
 function terminal(dir:string,state:JobState,reason?:string,extra:object={}){once(path.join(dir,'terminal.json'),{state,progress:'finished',...extra,...(reason?{reason}:{}),finished:Date.now()});}
-export async function start(root:string,id:string){
+export async function start(root:string,id:string,options:{onSupervisor?:(child:ReturnType<typeof spawn>)=>void}={}){
  if(process.platform==='win32')throw Error('Recipe workers currently require POSIX process groups');
  const current=status(root,id);if(current.state!=='queued')return current;
  const dir=jobDirectory(root,id);sourceGate(current.job);
@@ -101,6 +111,10 @@ export async function start(root:string,id:string){
   const child=spawn(process.execPath,['--import',loader,worker,'supervise',path.resolve(root),id],{detached:true,stdio:['ignore',log,log],shell:false});
   child.once('error',e=>{terminal(dir,'failed','Worker could not start');reject(e);});
   child.once('spawn',()=>{child.unref();resolve();});
+  // Programmatic observers can await this actual owned process during teardown;
+  // the CLI never reads a saved PID or changes the detached job lifecycle.
+  try{options.onSupervisor?.(child);}
+  catch(error){console.warn('Recipe supervisor observer failed after launch: '+(error instanceof Error?error.message:String(error)));}
  });}finally{fs.closeSync(log);}
  return status(root,id);
 }

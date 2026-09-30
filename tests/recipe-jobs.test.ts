@@ -1,17 +1,51 @@
-import {afterEach,beforeEach,describe,expect,it} from 'vitest';
+import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {pathToFileURL} from 'node:url';
-import {execFile} from 'node:child_process';
+import {spawn,ChildProcess} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {receiptsDir,verifySignature} from '../src/utils/receipts.js';
 import {keysPath,loadOrCreateKeys,signBody} from '../src/utils/signing.js';
 import {sha} from '../lanes/recipes/tray.js';
-import {enqueue,start,status,cancel,recover,jobDirectory} from '../lanes/recipes/jobs.js';
+import {enqueue,start as startJob,status,cancel,recover,jobDirectory} from '../lanes/recipes/jobs.js';
 
 const request={schema:'timmy.recipe-request/1',recipe:'enclosure.tray/1',parameters:{width:140,wall:3,supportOffset:10,bore:3}};
 let root:string;
+type Owned={child:ChildProcess;id:string;supervisor:boolean;closed:boolean;done:Promise<void>};
+let owned:Owned[],diagnostics:unknown[],cancellationFailures:number,retained:boolean;
+function observe(child:ChildProcess,id:string,supervisor:boolean){
+ const events=diagnostics;
+ let finish!:()=>void;const entry:Owned={child,id,supervisor,closed:false,done:new Promise(r=>{finish=r;})};owned.push(entry);
+ child.once('error',error=>events.push({id,supervisor,error:error.message,code:(error as NodeJS.ErrnoException).code}));
+ child.once('close',(code,signal)=>{entry.closed=true;events.push({id,supervisor,code,signal});finish();});return entry;
+}
+const start=(jobRoot:string,id:string)=>startJob(jobRoot,id,{onSupervisor:child=>observe(child,id,true)});
+async function drainOwned(deadline=5000){
+ for(const entry of owned)if(entry.supervisor&&!entry.closed){
+  try{cancel(root,entry.id);}catch(error){cancellationFailures++;diagnostics.push({id:entry.id,cancellationError:error instanceof Error?error.message:String(error)});}
+ }
+ let timer:ReturnType<typeof setTimeout>|undefined;
+ try{await Promise.race([Promise.all(owned.map(entry=>entry.done)),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Owned fixture worker did not close; fixture retained')),deadline);})]);}
+ finally{if(timer)clearTimeout(timer);}
+}
+function retainFailure(error?:unknown,assertionErrors?:unknown){
+ retained=true;
+ const detail={root,node:process.version,diagnostics,assertionErrors,teardownError:error instanceof Error?error.message:error,openChildren:owned.filter(x=>!x.closed).map(x=>({id:x.id,supervisor:x.supervisor,pid:x.child.pid}))};
+ fs.writeFileSync(path.join(root,'test-failure.json'),JSON.stringify(detail,null,2),{mode:0o600});
+ const output=process.env.TIMMY_RECIPE_TEST_ARTIFACT_DIR;
+ if(output){fs.mkdirSync(output,{recursive:true,mode:0o700});fs.appendFileSync(path.join(output,'retained-fixtures.jsonl'),JSON.stringify(detail)+'\n',{mode:0o600});}
+ console.warn('Retained recipe fixture diagnostics: '+root);
+}
+function snapshotBeforeCleanup(){
+ const snapshot=path.join(root,'before-cleanup');fs.mkdirSync(snapshot,{mode:0o700});
+ for(const id of new Set(owned.filter(x=>x.supervisor).map(x=>x.id))){
+  const dir=jobDirectory(root,id),dest=path.join(snapshot,id);fs.mkdirSync(dest,{mode:0o700});
+  for(const name of ['worker.log','terminal.json','heartbeat.json','claim.json','execution.json','native-execution.json','result.json']){
+   const file=path.join(dir,name);if(fs.existsSync(file)&&fs.lstatSync(file).isFile())fs.writeFileSync(path.join(dest,name),fs.readFileSync(file),{mode:0o600});
+  }
+ }
+}
 const wait=async(pred:()=>boolean)=>{const end=Date.now()+15000;while(!pred()){if(Date.now()>end)throw Error('Fake worker timeout');await new Promise(r=>setTimeout(r,50));}};
 function executor(mode='complete'){
  const file=path.join(root,`fake-${mode}.mts`);
@@ -44,15 +78,77 @@ recordResult(root,id,{...result,directory:base});
 const loader=createRequire(import.meta.url).resolve('tsx');
 const worker=path.resolve('lanes/recipes/job-worker.ts');
 const invoke=(id:string,env:NodeJS.ProcessEnv={})=>new Promise<number>((resolve,reject)=>{
- execFile(process.execPath,['--import',loader,worker,'execute',root,id],{timeout:10000,env:{...process.env,TIMMY_STORE:path.join(jobDirectory(root,id),'workspace','.timmy','receipts'),...env}},(error)=>{
-  if(!error)return resolve(0);
-  if(typeof error.code==='number')return resolve(error.code);
-  reject(error);
+ const events=diagnostics;
+ const child=spawn(process.execPath,['--import',loader,worker,'execute',root,id],{detached:true,stdio:['ignore','pipe','pipe'],env:{...process.env,TIMMY_STORE:path.join(jobDirectory(root,id),'workspace','.timmy','receipts'),...env}});
+ const entry=observe(child,id,false);let stdout='',stderr='',timedOut=false;
+ child.stdout?.on('data',b=>{stdout+=b;});child.stderr?.on('data',b=>{stderr+=b;});
+ const timer=setTimeout(()=>{timedOut=true;if(!entry.closed&&child.pid)try{process.kill(-child.pid,'SIGKILL');}catch(error){events.push({id,killError:String(error)});}},10000);
+ child.once('error',error=>{clearTimeout(timer);reject(error);});
+ child.once('close',(code,signal)=>{clearTimeout(timer);const detail={id,code,signal,timedOut,stdout,stderr};events.push(detail);
+  if(!timedOut&&typeof code==='number')resolve(code);
+  else reject(Error('Direct fixture worker failed: '+JSON.stringify(detail)));
  });
 });
-beforeEach(()=>{root=fs.mkdtempSync(path.join(os.tmpdir(),'recipe-jobs-test-'));});
-afterEach(()=>{fs.rmSync(root,{recursive:true,force:true});});
+beforeEach(()=>{root=fs.mkdtempSync(path.join(os.tmpdir(),'recipe-jobs-test-'));owned=[];diagnostics=[];cancellationFailures=0;retained=false;});
+afterEach(async context=>{
+ vi.restoreAllMocks();if(!fs.existsSync(root))return;
+ const failed=context.task.result?.state==='fail';let snapshotError:unknown;
+ try{if(failed)snapshotBeforeCleanup();}catch(error){snapshotError=error;diagnostics.push({snapshotError:error instanceof Error?error.message:String(error)});}
+ let teardownError:unknown;try{await drainOwned();}catch(error){teardownError=error;}
+ if(teardownError||snapshotError||failed||cancellationFailures||retained){retainFailure(teardownError??snapshotError,context.task.result?.errors);if(teardownError||snapshotError)throw teardownError??snapshotError;return;}
+ fs.rmSync(root,{recursive:true,force:true});
+});
 describe('durable recipe worker boundary (offline fake executor)',()=>{
+ it('keeps late child-close diagnostics with their original fixture',async()=>{
+  const original=diagnostics,child=new ChildProcess(),entry=observe(child,'late-close-control',false);
+  diagnostics=[];child.emit('close',0,null);await entry.done;
+  expect(original).toContainEqual({id:'late-close-control',supervisor:false,code:0,signal:null});expect(diagnostics).toEqual([]);
+ });
+ it('never exposes a partially written terminal marker to status during recovery',()=>{
+  const id=enqueue(request,{root,executor:executor()}).job.id,dir=jobDirectory(root,id),terminal=path.join(dir,'terminal.json');
+  fs.writeFileSync(path.join(dir,'claim.json'),JSON.stringify({started:0}));
+  const open=fs.openSync.bind(fs),write=fs.writeFileSync.bind(fs);let publicationFd:number|undefined,observations=0;
+  vi.spyOn(fs,'openSync').mockImplementation((file,flags,mode)=>{const fd=open(file,flags,mode);if(String(file).startsWith(terminal+'.'))publicationFd=fd;return fd;});
+  vi.spyOn(fs,'writeFileSync').mockImplementation((file,data,options)=>{
+   if(file===publicationFd||file===terminal){
+    const fd=typeof file==='number'?file:open(file,'wx',0o600),bytes=Buffer.from(String(data)),half=Math.floor(bytes.length/2);
+    try{fs.writeSync(fd,bytes.subarray(0,half));expect(status(root,id).state).toBe('running');observations++;fs.writeSync(fd,bytes.subarray(half));}
+    finally{if(typeof file!=='number')fs.closeSync(fd);}
+   }else write(file,data,options);
+  });
+  expect(recover(root,id).state).toBe('interrupted');expect(observations).toBe(1);
+  vi.restoreAllMocks();expect(JSON.parse(fs.readFileSync(terminal,'utf8')).state).toBe('interrupted');
+  const retained=fs.readFileSync(terminal);recover(root,id);expect(fs.readFileSync(terminal)).toEqual(retained);
+  expect(fs.readdirSync(dir).filter(name=>name.startsWith('terminal.json.'))).toEqual([]);
+ });
+ it('preserves an incumbent terminal marker that wins the publication race',()=>{
+  const id=enqueue(request,{root,executor:executor()}).job.id,dir=jobDirectory(root,id),terminal=path.join(dir,'terminal.json');
+  fs.writeFileSync(path.join(dir,'claim.json'),JSON.stringify({started:0}));
+  const link=fs.linkSync.bind(fs),winner=JSON.stringify({state:'cancelled',progress:'cancelled-before-start'});
+  vi.spyOn(fs,'linkSync').mockImplementation((source,target)=>{if(target===terminal)fs.writeFileSync(terminal,winner,{flag:'wx'});link(source,target);});
+  expect(recover(root,id).state).toBe('cancelled');expect(fs.readFileSync(terminal,'utf8')).toBe(winner);
+  expect(fs.readdirSync(dir).filter(name=>name.startsWith('terminal.json.'))).toEqual([]);
+ });
+ it('waits for the actual owned supervisor to close before removing its fixture',async()=>{
+  const id=enqueue(request,{root,executor:executor('wait')}).job.id,dir=jobDirectory(root,id);
+  await start(root,id);await wait(()=>fs.existsSync(path.join(dir,'heartbeat.json')));
+  expect(owned.some(entry=>entry.id===id&&!entry.closed)).toBe(true);
+  await drainOwned();expect(owned.every(entry=>entry.closed)).toBe(true);expect(status(root,id).state).toBe('cancelled');
+  fs.rmSync(root,{recursive:true,force:true});expect(fs.existsSync(root)).toBe(false);
+ });
+ it('retains the fixture when an owned child does not meet the teardown deadline',async()=>{
+  const probe=path.join(root,'probe.txt');fs.writeFileSync(probe,'retained');
+  const child=spawn(process.execPath,['-e','setTimeout(()=>{},30000)'],{stdio:'ignore'}),entry=observe(child,'teardown-control',false);
+  try{await expect(drainOwned(1)).rejects.toThrow(/did not close; fixture retained/);retainFailure('Expected teardown negative control');
+   expect(fs.readFileSync(probe,'utf8')).toBe('retained');expect(fs.existsSync(path.join(root,'test-failure.json'))).toBe(true);
+  }finally{if(!entry.closed)child.kill('SIGKILL');await entry.done;}
+ });
+ it('reports observer errors without rejecting an already launched supervisor',async()=>{
+  const id=enqueue(request,{root,executor:executor('fail')}).job.id,warn=vi.spyOn(console,'warn').mockImplementation(()=>{});
+  await expect(startJob(root,id,{onSupervisor:child=>{observe(child,id,true);throw Error('observer control');}})).resolves.toBeDefined();
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining('observer failed after launch'));
+  await wait(()=>status(root,id).state==='failed');
+ });
  it('queues, completes in a separate process, and recovers an existing signed result without re-execution',async()=>{
   const job=enqueue(request,{root,executor:executor()});expect(job.state).toBe('queued');
   const id=job.job.id,dir=jobDirectory(root,id);
