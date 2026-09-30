@@ -12,19 +12,12 @@ env:
   # the failures stay visible, and the merge-train runner reads this variable — a failing
   # test NOT named here stops the train. Delete a line when its cause is fixed.
   #
-  #   tests/keyboard-contract.pty.test.ts  keyboard contract at PTY level; fixed by #36 (warroom-t3b1)
-  #   tests/companion-mission.test.ts      mission studio gateway (:4310) arming test times out (5000 ms) on the runner
-  #   tests/ai-proxy.test.ts               the root suite runs in Node; @cloudflare/codemode imports the workerd-only
-  #                                        `cloudflare:workers`; the worker's own suite (step below) is the gate for workers/ai-proxy
+  #   tests/keyboard-contract.pty.test.ts  obsolete UI contract and shared tmux harness; remains opt-in pending isolated PTY coverage
   #   tests/vision-templates.test.ts       (#36 warroom-t3b1) imports studio/tldraw-mission-map/vision-templates.js, which was never
   #                                        committed on any branch; fails on #36's own tree — the module has to be added by its author
-  #   tests/openhands.test.ts              named by Will 2026-09-12: fails on the ubuntu runner (openhands adapter); delete when its cause is fixed
   KNOWN_WIP_TESTS: >-
     tests/keyboard-contract.pty.test.ts
-    tests/companion-mission.test.ts
-    tests/ai-proxy.test.ts
     tests/vision-templates.test.ts
-    tests/openhands.test.ts
 
 jobs:
   gate:
@@ -105,7 +98,9 @@ jobs:
           echo "excluding: $KNOWN_WIP_TESTS"
           npx vitest run $args
 
-      - name: Test gate (workers/ai-proxy own suite)
+      # Node unit/HTTP routing coverage with Cloudflare runtime boundaries mocked.
+      # This does not establish native workerd or deployed-worker qualification.
+      - name: Test gate (workers/ai-proxy core and HTTP routes)
         working-directory: workers/ai-proxy
         run: npx vitest run
 

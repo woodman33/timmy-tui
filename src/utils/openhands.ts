@@ -11,11 +11,12 @@ export const OPENHANDS_INSTALL = 'uv tool install openhands --python 3.12';
 
 export function detectOpenHands(): OpenHandsStatus {
   try {
-    const path = execFileSync('sh', ['-c', 'command -v openhands'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const path = execFileSync('sh', ['-c', 'command -v openhands'], { encoding: 'utf8', timeout: 1500, killSignal: 'SIGKILL', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    if (!path) return { installed: false, install: OPENHANDS_INSTALL };
     let version: string | undefined;
     try {
       // short probe: some openhands builds hang on --version (interactive boot)
-      version = execFileSync('openhands', ['--version'], { encoding: 'utf8', timeout: 1500, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      version = execFileSync(path, ['--version'], { encoding: 'utf8', timeout: 1500, killSignal: 'SIGKILL', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
     } catch { /* version flag varies or hangs — detection still stands */ }
     return { installed: true, path, version, install: OPENHANDS_INSTALL };
   } catch {
