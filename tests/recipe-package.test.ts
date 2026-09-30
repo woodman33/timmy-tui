@@ -58,6 +58,15 @@ afterAll(()=>{
  if(fixture)fs.rmSync(fixture,{recursive:true,force:true});
 });
 
+describe('source recipe dispatcher',()=>{
+ it.skipIf(Boolean(process.env.TIMMY_RECIPE_PACKAGE_INSTALL))('resolves its development loader from the repository while preserving an unrelated caller',()=>{
+  const sourceLoader=createRequire(import.meta.url).resolve('tsx');
+  const output=execFileSync(process.execPath,['--import',sourceLoader,path.join(repository,'src/cli.ts'),'recipe','plan','--request','request with spaces.json'],{cwd:caller,timeout:15000,encoding:'utf8',env:{PATH:path.dirname(process.execPath),HOME:path.join(fixture,'home'),TMPDIR:path.join(fixture,'tmp'),XDG_CONFIG_HOME:path.join(fixture,'config')}});
+  expect(JSON.parse(output)).toMatchObject({bounds:[140,80,30]});
+  expect(fs.existsSync(path.join(caller,'.timmy'))).toBe(false);
+ });
+});
+
 describe('compiled recipe delivery without source or development dependencies',()=>{
  it('uses the real bin and caller workspace for plans, refusal and queued lifecycle',()=>{
   const before=manifest(install);
