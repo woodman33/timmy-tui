@@ -112,6 +112,27 @@ describe('companion connection and chat mirror', () => {
     expect(JSON.parse(c.storage.get('timmy.chat.sessions')!)[0].messages).toEqual(transcript);
   });
 
+  it('keeps a live streaming reply visible when a tool sync arrives', () => {
+    const c = client();
+    const user = { role: 'user', content: 'SYNTHETIC request', timestamp: 1 };
+    const tool = { role: 'system', isTool: true, content: 'Swarm Orchestrator Tool Call: synthetic_tool with arguments: {"offline":true}', timestamp: 2 };
+    c.receive({ type: 'sync', data: [user] });
+    c.receive({ type: 'agent:delta', data: { delta: 'SYNTHETIC partial', fullText: 'SYNTHETIC partial' } });
+    c.receive({ type: 'sync', data: [user, tool] });
+    expect(c.context.activeChatHistory.map((m: any) => m.content)).toEqual([
+      'SYNTHETIC request',
+      tool.content,
+      'SYNTHETIC partial',
+    ]);
+    expect(JSON.parse(c.storage.get('timmy.chat.active')!).map((m: any) => m.content)).toContain('SYNTHETIC partial');
+    c.receive({ type: 'sync', data: [user, tool, { role: 'assistant', content: 'SYNTHETIC partial final', timestamp: 3 }] });
+    expect(c.context.activeChatHistory.map((m: any) => m.content)).toEqual([
+      'SYNTHETIC request',
+      tool.content,
+      'SYNTHETIC partial final',
+    ]);
+  });
+
   it('renders tool arguments containing the display delimiter without truncating JSON', () => {
     const c = client();
     c.receive({ type: 'sync', data: [{ role: 'system', isTool: true,

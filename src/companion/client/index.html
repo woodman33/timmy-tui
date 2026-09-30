@@ -748,6 +748,28 @@
       }
     }
 
+    function mergeLiveStreamingHistory(history) {
+      const streamingMessage = activeChatHistory[activeChatHistory.length - 1];
+      if (!history.length || !streamingMessage || streamingMessage.role !== 'assistant' || !streamingMessage.streaming) {
+        return history;
+      }
+
+      const stableLocalHistory = activeChatHistory.filter(m => !m.streaming);
+      const sameThread = stableLocalHistory.every((message, index) => {
+        const next = history[index];
+        return next && next.role === message.role && next.content === message.content;
+      });
+      if (!sameThread) return history;
+
+      const streamingContent = streamingMessage.content || '';
+      const hasCompletedAssistant = history.some(m =>
+        m.role === 'assistant' &&
+        typeof m.content === 'string' &&
+        (m.content === streamingContent || m.content.startsWith(streamingContent))
+      );
+      return hasCompletedAssistant ? history : [...history, streamingMessage];
+    }
+
     function getSavedChats() {
       try {
         const raw = localStorage.getItem('timmy.chat.sessions');
@@ -995,7 +1017,7 @@
             if (!Array.isArray(history) || !history.every(m => m && typeof m.role === 'string' && typeof m.content === 'string')) {
               throw new Error('Invalid chat sync: expected messages with role and text content');
             }
-            activeChatHistory = history;
+            activeChatHistory = mergeLiveStreamingHistory(history);
             saveActiveChat();
             if (!isViewingSaved) {
               renderConsoleLogs(activeChatHistory);
