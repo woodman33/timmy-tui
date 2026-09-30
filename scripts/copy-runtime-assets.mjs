@@ -12,6 +12,12 @@ export const RUNTIME_ASSETS = Object.freeze([
   'lanes/cockpit/cockpit.mjs',
   'lanes/cockpit/hands.example.json',
   'fleet/harness-menu.mjs',
+  'schemas/agent-pass.cue',
+  'schemas/context-cone.cue',
+  'schemas/dispatch.cue',
+  'schemas/escrow.cue',
+  'schemas/mesh-asset.cue',
+  'schemas/usd.cue',
 ]);
 const repository = fileURLToPath(new URL('../', import.meta.url));
 

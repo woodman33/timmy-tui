@@ -90,6 +90,9 @@
   ],
   "author": "The TIMMY authors (https://github.com/woodman33/timmy-tui)",
   "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
   "bugs": {
     "url": "https://github.com/woodman33/timmy-tui/issues"
   },
@@ -99,7 +102,7 @@
     "@mcpc-tech/cmcp": "^0.0.15",
     "@mcpc/core": "npm:@jsr/mcpc__core@^0.3.48",
     "@openfeature/server-sdk": "^1.21.0",
-    "@openrouter/sdk": "latest",
+    "@openrouter/sdk": "0.12.35",
     "@opentui/core": "^0.5.10",
     "@opentui/react": "^0.5.10",
     "@quiverai/sdk": "^0.9.0",
