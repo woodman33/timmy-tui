@@ -9,8 +9,14 @@ import {hashOf,verifySignature,receiptsDir} from '../../src/utils/receipts.js';
 import {loadOrCreateKeys,signBody} from '../../src/utils/signing.js';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
-const worker=path.join(here,'job-worker.ts');
-const loader=createRequire(import.meta.url).resolve('tsx');
+const extension=import.meta.url.endsWith('.js')?'js':'ts';
+const worker=path.join(here,`job-worker.${extension}`);
+// Production workers are emitted JavaScript; only source fixture/development
+// entrypoints resolve the optional tsx development loader.
+function nodeArguments(entry:string,...args:string[]){
+ const loader=/\.[cm]?tsx?$/.test(entry)?['--import',createRequire(import.meta.url).resolve('tsx')]:[];
+ return [...loader,entry,...args];
+}
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export type JobState='queued'|'running'|'succeeded'|'failed'|'cancelled'|'interrupted';
 export interface Job {schema:'timmy.recipe-job/1';id:string;created:number;request:unknown;requestHash:string;sourceHash:string;executionHash:string;sources:{file:string;hash:string}[];signer:string;signature:string;executor:string;python?:string;pythonRealPath?:string}
@@ -74,7 +80,7 @@ export function enqueue(input:unknown,options:{root?:string;python?:string;execu
  const python=options.python??process.env.TIMMY_CADQUERY_PYTHON;
  if(python&&!path.isAbsolute(python))throw Error('Python must be an absolute installed executable');
  const pythonRealPath=python?fs.realpathSync(python):undefined;
- const sources=[fileURLToPath(import.meta.url),path.join(here,'tray.ts'),cardPath,path.join(here,'enclosure-tray/build.py'),worker,executor,...(pythonRealPath?[pythonRealPath]:[])]
+ const sources=[fileURLToPath(import.meta.url),path.join(here,`tray.${extension}`),cardPath,path.join(here,'enclosure-tray/build.py'),worker,executor,...(pythonRealPath?[pythonRealPath]:[])]
   .filter((p,i,a)=>a.indexOf(p)===i).map(file=>({file,hash:sha(fs.readFileSync(regular(file)))}));
  const body={schema:'timmy.recipe-job/1' as const,id,created:Date.now(),request,requestHash:sha(JSON.stringify(request)),sources,sourceHash:sha(JSON.stringify(sources)),signer:loadOrCreateKeys(workspace).publicPem,executor,...(python?{python,pythonRealPath}:{})};
  const bound={...body,executionHash:executionHash(body)};
@@ -119,7 +125,7 @@ export async function start(root:string,id:string,options:{onSupervisor?:(child:
  if(!once(path.join(dir,'claim.json'),{started:Date.now()}))return status(root,id);
  const log=fs.openSync(path.join(dir,'worker.log'),'ax',0o600);
  try{await new Promise<void>((resolve,reject)=>{
-  const child=spawn(process.execPath,['--import',loader,worker,'supervise',path.resolve(root),id],{detached:true,stdio:['ignore',log,log],shell:false});
+  const child=spawn(process.execPath,nodeArguments(worker,'supervise',path.resolve(root),id),{detached:true,stdio:['ignore',log,log],shell:false});
   child.once('error',e=>{terminal(dir,'failed','Worker could not start');reject(e);});
   child.once('spawn',()=>{child.unref();resolve();});
   // Programmatic observers can await this actual owned process during teardown;
@@ -141,7 +147,7 @@ export async function executeJob(root:string,id:string,native:(job:Job,workspace
  // Custom executors are a programmatic fixture seam and pass the same gate.
  if(job.executor===worker)await native(job,workspace);
  else await new Promise<void>((resolve,reject)=>{
-  const child=spawn(process.execPath,['--import',loader,job.executor,'execute',path.resolve(root),id],{cwd:workspace,shell:false,stdio:'inherit',env:{...process.env,TIMMY_STORE:path.join(workspace,'.timmy','receipts'),TIMMY_CADQUERY_PYTHON:job.python??''}});
+  const child=spawn(process.execPath,nodeArguments(job.executor,'execute',path.resolve(root),id),{cwd:workspace,shell:false,stdio:'inherit',env:{...process.env,TIMMY_STORE:path.join(workspace,'.timmy','receipts'),TIMMY_CADQUERY_PYTHON:job.python??''}});
   child.once('error',reject);child.once('close',code=>code===0?resolve():reject(Error('Recipe executor did not complete')));
  });
 }
@@ -219,7 +225,7 @@ export async function supervise(root:string,id:string,options:{onExecutionClosed
  const kill=()=>{if(child?.pid)try{process.kill(-child.pid,'SIGKILL');}catch{/* owned child already exited */}};
  try{
   await new Promise<void>((resolve,reject)=>{
-   child=spawn(process.execPath,['--import',loader,worker,'execute',path.resolve(root),id],{cwd:workspace,detached:true,shell:false,stdio:'inherit',env:{...process.env,TIMMY_STORE:path.join(workspace,'.timmy','receipts'),TIMMY_CADQUERY_PYTHON:job.python??''}});
+   child=spawn(process.execPath,nodeArguments(worker,'execute',path.resolve(root),id),{cwd:workspace,detached:true,shell:false,stdio:'inherit',env:{...process.env,TIMMY_STORE:path.join(workspace,'.timmy','receipts'),TIMMY_CADQUERY_PYTHON:job.python??''}});
    const began=Date.now();atomic(path.join(dir,'heartbeat.json'),{at:began});
    const timer=setInterval(()=>{atomic(path.join(dir,'heartbeat.json'),{at:Date.now()});if(cancelled()||Date.now()-began>150000)kill();},250);
    child.once('error',e=>{clearInterval(timer);reject(e);});

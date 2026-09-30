@@ -674,8 +674,10 @@ if (command === 'inspect') {
 }
 
 if (command === 'recipe') {
-  const lane = fileURLToPath(new URL('../lanes/recipes/cli.ts', import.meta.url));
-  const r = spawnSync('npx', ['tsx', lane, ...args.slice(1)], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  const compiled = import.meta.url.endsWith('.js');
+  const lane = fileURLToPath(new URL(compiled ? '../lanes/recipes/cli.js' : '../lanes/recipes/cli.ts', import.meta.url));
+  const loader = compiled ? [] : ['--import', 'tsx'];
+  const r = spawnSync(process.execPath, [...loader, lane, ...args.slice(1)], { stdio: 'inherit', cwd: process.cwd() });
   process.exit(r.status ?? 1);
 }
 

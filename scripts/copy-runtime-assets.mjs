@@ -18,6 +18,8 @@ export const RUNTIME_ASSETS = Object.freeze([
   'schemas/escrow.cue',
   'schemas/mesh-asset.cue',
   'schemas/usd.cue',
+  'lanes/recipes/enclosure-tray/recipe.json',
+  'lanes/recipes/enclosure-tray/build.py',
 ]);
 const repository = fileURLToPath(new URL('../', import.meta.url));
 

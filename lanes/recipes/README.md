@@ -1,14 +1,23 @@
 # Timmy recipes
 
-The source recipe CLI admits `enclosure.tray/1` through `list`,
-`plan --request FILE`, and `build --request FILE`. With development dependencies
-installed, invoke it directly using `node --import tsx lanes/recipes/cli.ts`.
+The `enclosure.tray/1` recipe exposes `list`, `plan --request FILE`,
+`build --request FILE`, and `jobs` through `timmy recipe`. The normal TypeScript
+build emits the recipe CLI, worker and runtime modules into `dist`; the asset
+copy step delivers only the reviewed recipe card and native build script.
+Compiled commands use Node directly, without `npx` or the `tsx` development
+loader. Relative request paths and `.timmy` job state belong to the caller's
+workspace. Source development still supports
+`node --import tsx lanes/recipes/cli.ts` with development dependencies installed.
 The existing unmerged spatial foundation prototype is left intact.
 
-Installed-package delivery is incomplete: the packaged dispatcher still needs
-compiled recipe entrypoints and workers, required runtime assets, and correct
-caller-workspace handling. Production-only package validation and release remain
-pending; the source commands below do not establish released CLI support.
+Offline package controls exercise the actual compiled bin and dispatcher,
+planning, zero-wall refusal, queued lifecycle, source drift, and a signed
+missing-native-runtime failure. An optional `TIMMY_RECIPE_PACKAGE_INSTALL`
+fixture lets the same controls inspect a separately unpacked artifact with
+production dependencies. These controls establish recipe runtime delivery;
+they do not qualify native geometry or establish a complete release. Native
+qualification, other prototype commands, and general release validation remain
+separate gates.
 
 ```json
 {"schema":"timmy.recipe-request/1","recipe":"enclosure.tray/1","parameters":{"width":140,"wall":3,"supportOffset":10,"bore":3}}
@@ -58,14 +67,14 @@ Each invocation adds real receipts; it is not part of the ordinary test suite.
 
 The existing synchronous `build` API is unchanged. `recipe jobs` places that
 build behind a separate Node supervisor and a separate native-build process;
-CadQuery itself remains synchronous. Commands work through the recipe CLI:
+CadQuery itself remains synchronous. Commands preserve the caller workspace:
 
 ```
-node --import tsx lanes/recipes/cli.ts jobs enqueue --request request.json
-node --import tsx lanes/recipes/cli.ts jobs start JOB_UUID
-node --import tsx lanes/recipes/cli.ts jobs status JOB_UUID
-node --import tsx lanes/recipes/cli.ts jobs cancel JOB_UUID
-node --import tsx lanes/recipes/cli.ts jobs recover JOB_UUID
+timmy recipe jobs enqueue --request request.json
+timmy recipe jobs start JOB_UUID
+timmy recipe jobs status JOB_UUID
+timmy recipe jobs cancel JOB_UUID
+timmy recipe jobs recover JOB_UUID
 ```
 
 Enqueue persists a validated request, request/source hashes and a private signing
@@ -73,8 +82,8 @@ identity under `.timmy/recipe-jobs/JOB_UUID`. Start returns after launching a
 detached supervisor; status reports queued/running/succeeded/failed/cancelled/
 interrupted plus progress and the result receipt pointer. Every job has its own
 workspace and receipt stream; these are not shared root seals. No installation
-or model/provider call is involved. POSIX process groups and installed `tsx`
-are currently required.
+or model/provider call is involved. POSIX process groups are currently required. Compiled workers need no
+`tsx`; source development workers and TypeScript fixture executors use it.
 
 Cancellation writes a request marker. Only the live supervisor can terminate
 its own child group; a CLI never kills a PID read from disk. Partial native
@@ -90,7 +99,12 @@ percentage; progress is the observed execution phase. This boundary does not
 claim a hermetic dependency lock or new native qualification.
 
 `tests/recipe-jobs.test.ts` exercises this lifecycle with a separate fake worker
-and private synthetic receipts. It does not run CadQuery or qualify geometry.
+and private synthetic receipts. `tests/recipe-package.test.ts` compiles the real
+bin and dispatcher into an isolated runtime without development dependencies,
+checks caller ownership and installed source hashes, observes actual worker
+closure, and verifies the missing-runtime failure receipts. The fixture blocks
+non-Node subprocesses; network denial is supplied separately by the smoke-run
+harness. Neither suite runs CadQuery or qualifies geometry.
 
 The internal `execute` entry has its own independent exclusive marker before
 any native or fixture executor runs. Direct invocation requires the existing
