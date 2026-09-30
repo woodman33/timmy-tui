@@ -1,14 +1,104 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync, openSync, closeSync, fstatSync, readSync, constants } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, writeFileSync, openSync, closeSync, fstatSync, lstatSync, realpathSync, readdirSync, readSync, constants } from 'node:fs';
+import { basename, dirname, join, parse, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { z as schema } from 'zod/v4';
 import { createEvidenceAdmission, type Admission } from '../../evidence/admission.js';
-import { appendReceipt, receiptsDir, verifySignature } from '../../utils/receipts.js';
+import { appendReceipt, receiptsDir, verifySignature, hashOf, type Receipt } from '../../utils/receipts.js';
 import { assertLocalOllamaModel, getLocalOllamaBaseUrl } from '../../agent/providers.js';
 import { validateSpatialModelContext, type SpatialModelContext } from './model-context.js';
 
 const sha = (s: string | Buffer) => createHash('sha256').update(s).digest('hex');
+export interface SpatialReviewArtifact { path: string; sha256: string; bytes: number }
+const artifactNames = new Set(['context.json', 'request.json', 'request-1.json', 'response.json', 'admission.json', 'image.bin',
+  'response-0.json', 'response-1.json', 'transport-0.bin', 'transport-0.json', 'transport-1.bin', 'transport-1.json']);
+const sameFile = (a: ReturnType<typeof fstatSync>, b: ReturnType<typeof fstatSync>) =>
+  a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+function retainedDirectoryChain(directory: string) {
+  const absolute = resolve(directory), root = parse(absolute).root;
+  let cursor = root;
+  const chain: { path: string; stat: NonNullable<ReturnType<typeof lstatSync>> }[] = [];
+  for (const part of absolute.slice(root.length).split(sep).filter(Boolean)) {
+    cursor = join(cursor, part);
+    const stat = lstatSync(cursor);
+    // macOS's system temp alias is an OS-owned fixed mapping, not a bundle link.
+    const systemTempAlias = process.platform === 'darwin' && cursor === '/var' && stat.isSymbolicLink()
+      && stat.uid === 0 && realpathSync(cursor) === '/private/var';
+    if ((!stat.isDirectory() || stat.isSymbolicLink()) && !systemTempAlias) throw new Error('unsafe bundle ancestor');
+    chain.push({ path: cursor, stat });
+  }
+  return chain;
+}
+function retainedBytes(path: string, limit = 24 * 1024 * 1024): Buffer {
+  const before = lstatSync(path);
+  if (!before.isFile() || before.isSymbolicLink() || before.size > limit) throw new Error('invalid retained artifact');
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const opened = fstatSync(fd);
+    if (!opened.isFile() || !sameFile(before, opened)) throw new Error('retained artifact changed');
+    const bytes = Buffer.alloc(opened.size + 1); let length = 0;
+    while (length < bytes.length) { const n = readSync(fd, bytes, length, bytes.length - length, null); if (!n) break; length += n; }
+    if (length !== opened.size || !sameFile(opened, fstatSync(fd)) || !sameFile(opened, lstatSync(path))) throw new Error('retained artifact changed');
+    return bytes.subarray(0, length);
+  } finally { closeSync(fd); }
+}
+
+/** Expected receipt must come from trusted execution/chain custody, never model output.
+ * A valid signature alone does not authenticate an untrusted caller-supplied signer.
+ * Checks retained bytes only: this is not semantic or native qualification.
+ */
+export function verifySpatialReviewBundle(reportPath: string, expectedReceipt: Receipt):
+  { ok: true; receiptHash: string; artifactsChecked: number } | { ok: false; error: 'bundle verification failed' } {
+  try {
+    if (expectedReceipt.kind !== 'spatial.model.result' || expectedReceipt.stream !== 'runs'
+      || !['ok', 'failed'].includes(expectedReceipt.status ?? '') || !verifySignature(expectedReceipt)
+      || hashOf({ ...expectedReceipt, hash: '' }) !== expectedReceipt.hash
+      || expectedReceipt.artifacts?.length !== 1 || resolve(expectedReceipt.artifacts[0]) !== resolve(reportPath)
+      || basename(reportPath) !== 'result.json') throw new Error('untrusted receipt');
+    const directory = dirname(resolve(reportPath)), ancestors = retainedDirectoryChain(directory), before = lstatSync(directory);
+    if (!before.isDirectory() || before.isSymbolicLink()) throw new Error('invalid bundle directory');
+    const reportBytes = retainedBytes(reportPath);
+    if (sha(reportBytes) !== expectedReceipt.output_sha256) throw new Error('result changed');
+    const report = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(reportBytes));
+    if (report.schema !== 'timmy.spatial-model-review/2' || typeof report.runId !== 'string' || basename(directory) !== report.runId
+      || typeof report.ok !== 'boolean' || expectedReceipt.status !== (report.ok ? 'ok' : 'failed')
+      || report.model?.name !== expectedReceipt.subject) throw new Error('result identity mismatch');
+    if (report.artifactManifestSchema !== 'timmy.spatial-review-artifacts/1') throw new Error('unsupported manifest');
+    const manifest = schema.array(schema.object({ path: schema.string(), sha256: schema.string().regex(/^[a-f0-9]{64}$/),
+      bytes: schema.number().int().min(0).max(24 * 1024 * 1024) }).strict()).min(4).max(16).parse(report.artifactManifest);
+    if (manifest.reduce((total, entry) => total + entry.bytes, 0) > 64 * 1024 * 1024) throw new Error('bundle too large');
+    const names = new Set<string>();
+    for (const entry of manifest) {
+      if (!artifactNames.has(entry.path) || names.has(entry.path)) throw new Error('invalid manifest path');
+      names.add(entry.path);
+    }
+    const required = ['context.json', 'request.json', 'response.json', 'admission.json'];
+    if (report.ok) required.push('request-1.json', 'response-0.json', 'response-1.json', 'transport-0.bin', 'transport-0.json', 'transport-1.bin', 'transport-1.json');
+    if (report.input?.imageSha256 !== null) required.push('image.bin');
+    if (required.some(name => !names.has(name))) throw new Error('incomplete manifest');
+    const expectedNames = [...names, 'result.json', 'receipt.json'].sort();
+    const membership = () => JSON.stringify(readdirSync(directory).sort());
+    if (membership() !== JSON.stringify(expectedNames)) throw new Error('unmanifested entry');
+    const observedFiles: { path: string; stat: NonNullable<ReturnType<typeof lstatSync>> }[] = [];
+    for (const entry of manifest) {
+      const path = join(directory, entry.path), stat = lstatSync(path);
+      const bytes = retainedBytes(join(directory, entry.path));
+      if (bytes.length !== entry.bytes || sha(bytes) !== entry.sha256 || !sameFile(stat, lstatSync(path))) throw new Error('artifact changed');
+      observedFiles.push({ path, stat });
+    }
+    const receiptPath = join(directory, 'receipt.json'), receiptStat = lstatSync(receiptPath);
+    const retainedReceipt = JSON.parse(retainedBytes(receiptPath, 1024 * 1024).toString('utf8')) as Receipt;
+    if (!sameFile(receiptStat, lstatSync(receiptPath))) throw new Error('receipt changed during read');
+    observedFiles.push({ path: receiptPath, stat: receiptStat });
+    if (retainedReceipt.hash !== expectedReceipt.hash || hashOf({ ...retainedReceipt, hash: '' }) !== expectedReceipt.hash
+      || !verifySignature(retainedReceipt)) throw new Error('retained receipt changed');
+    if (observedFiles.some(file => !sameFile(file.stat, lstatSync(file.path)))) throw new Error('artifact changed after read');
+    if (sha(retainedBytes(reportPath)) !== expectedReceipt.output_sha256) throw new Error('result changed after read');
+    if (ancestors.some(entry => { const now = lstatSync(entry.path); return entry.stat.dev !== now.dev || entry.stat.ino !== now.ino || entry.stat.isSymbolicLink() !== now.isSymbolicLink(); })) throw new Error('bundle ancestor changed');
+    if (!sameFile(before, lstatSync(directory)) || membership() !== JSON.stringify(expectedNames)) throw new Error('bundle changed');
+    return { ok: true, receiptHash: expectedReceipt.hash, artifactsChecked: manifest.length };
+  } catch { return { ok: false, error: 'bundle verification failed' }; }
+}
 const annotation = z.object({ entityId: z.string().min(1).max(160), factIds: z.array(z.string().min(1).max(160)).min(1).max(8), comment: z.string().min(1).max(1200), proposedAction: z.enum(['inspect', 'refine', 'annotate', 'none']) }).strict();
 export const spatialReviewSchema = z.object({ sourceSha256: z.string().regex(/^[a-f0-9]{64}$/), summary: z.string().min(1).max(2000), materialKnown: z.boolean(), densityKnown: z.boolean(), annotations: z.array(annotation).min(1).max(4) }).strict();
 
@@ -129,9 +219,16 @@ export async function reviewSpatialContext(rawContext: unknown, options: LocalRe
   const request = { ...baseRequest, tools, messages };
   const runId = admission.runId, directory = join(receiptsDir(options.dir), 'spatial-models', runId);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const put = (name: string, value: unknown) => { const bytes = JSON.stringify(value, null, 2) + '\n'; const path = join(directory, name); writeFileSync(path, bytes, { flag: 'wx', mode: 0o600 }); return { path, sha256: sha(bytes) }; };
+  const retainedArtifacts: SpatialReviewArtifact[] = [];
+  const putBytes = (name: string, bytes: Buffer) => {
+    const path = join(directory, name); writeFileSync(path, bytes, { flag: 'wx', mode: 0o600 });
+    const artifact = { path: name, sha256: sha(bytes), bytes: bytes.length };
+    if (name !== 'result.json' && name !== 'receipt.json') retainedArtifacts.push(artifact);
+    return { ...artifact, path };
+  };
+  const put = (name: string, value: unknown) => putBytes(name, Buffer.from(JSON.stringify(value, null, 2) + '\n'));
   const retainedContext = put('context.json', context);
-  if (imageBytes) writeFileSync(join(directory, 'image.bin'), imageBytes, { flag: 'wx', mode: 0o600 });
+  if (imageBytes) putBytes('image.bin', imageBytes);
   const retainedRequest = put('request.json', { ...request, messages: messages.map(({ images: _images, ...m }) => m),
     image: imageBytes ? { sha256: sha(imageBytes), bytes: imageBytes.length, geometryAlignment: 'not-verified' } : null });
   const intent = appendReceipt('runs', { kind: 'spatial.model.intent', subject: model.name, policy: 'Explicit local spatial review; observed citations; no native edits', prompt_hash: retainedRequest.sha256,
@@ -152,7 +249,7 @@ export async function reviewSpatialContext(rawContext: unknown, options: LocalRe
       response = await requestJson(endpoint, '/api/chat', { ...baseRequest, ...(round === 0 ? { tools } : { format }), messages }, remaining(), signal,
         (status, bytes, truncated) => {
           const bodyPath = join(directory, `transport-${round}.bin`);
-          writeFileSync(bodyPath, bytes, { flag: 'wx', mode: 0o600 });
+          putBytes(`transport-${round}.bin`, bytes);
           put(`transport-${round}.json`, { status, bodyPath, bytes: bytes.length, sha256: sha(bytes), truncated });
         });
       // Preserve exact final content and tool-call data, excluding private model deliberation.
@@ -192,6 +289,8 @@ export async function reviewSpatialContext(rawContext: unknown, options: LocalRe
   put('response.json', { raw_output: rawOutput, transcript, error });
   put('admission.json', { decision, executionError: error, controller: admission.snapshot() });
   const result = { schema: 'timmy.spatial-model-review/2', runId, ok: !error && !!review, model, endpoint, source: context.source, contextSha256: retainedContext.sha256,
+    artifactManifestSchema: 'timmy.spatial-review-artifacts/1',
+    artifactManifest: retainedArtifacts.slice().sort((a, b) => a.path.localeCompare(b.path)),
     elapsedMs: performance.now() - started, input: { mode: imageBytes ? 'context-and-image' : 'structured-context', imageSha256: imageBytes ? sha(imageBytes) : null }, review, error,
     evidenceAdmission: decision, scope: { sourceReferencesChecked: !!review, sourceBinding: 'fresh-context-readback',
       semanticCorrectnessChecked: false, nativeEditsExecuted: false, physicalValidation: false, signedReceiptMeans: 'execution provenance only', maxChatRequests: 2, maxCiteCalls: 8 } };
@@ -199,5 +298,8 @@ export async function reviewSpatialContext(rawContext: unknown, options: LocalRe
   const receipt = appendReceipt('runs', { kind: 'spatial.model.result', subject: model.name, policy: 'Retain observed citations and exact model output; comments remain interpretations', status: result.ok ? 'ok' : 'failed',
     plan_hash: intent.hash, output_sha256: artifact.sha256, artifacts: [artifact.path], ms: result.elapsedMs }, options.dir);
   put('receipt.json', receipt);
-  return { ...result, reportPath: artifact.path, receiptHash: receipt.hash, signatureVerified: verifySignature(receipt) };
+  const bundleVerification = verifySpatialReviewBundle(artifact.path, receipt);
+  return { ...result, ok: result.ok && bundleVerification.ok, review: bundleVerification.ok ? result.review : null,
+    error: bundleVerification.ok ? result.error : bundleVerification.error, modelOutcome: { ok: result.ok, error: result.error },
+    reportPath: artifact.path, receiptHash: receipt.hash, signatureVerified: verifySignature(receipt), bundleVerification };
 }

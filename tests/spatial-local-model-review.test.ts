@@ -1,16 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildVolumeModelContext, type SpatialModelContext } from '../src/vision/spatial/model-context.js';
 import { buildNativeModelContext } from '../src/vision/spatial/native-model-context.js';
-import { localSpatialModels, reviewSpatialContext as executeReview, validateSpatialReview } from '../src/vision/spatial/local-model-review.js';
+import { verifySpatialReviewBundle, localSpatialModels, reviewSpatialContext as executeReview, validateSpatialReview } from '../src/vision/spatial/local-model-review.js';
 import { contextFromSource, runModelCli } from '../src/vision/spatial/model-cli.js';
 import { runSpatialCli } from '../src/vision/spatial/cli.js';
-import { readChain, verifyChain, verifySignature } from '../src/utils/receipts.js';
+import { readChain, verifyChain, verifySignature, appendReceipt } from '../src/utils/receipts.js';
 import { spatialModelCatalogTool, spatialModelContextTool, spatialModelReviewTool } from '../src/agent/spatial-model-tools.js';
 import { defaultTools } from '../src/agent/tools.js';
+
+const retainedWriteHook = vi.hoisted(() => ({ afterWrite: undefined as undefined | ((path: string, fs: typeof import('node:fs')) => void) }));
+vi.mock('node:fs', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return { ...actual, writeFileSync: (...args: Parameters<typeof actual.writeFileSync>) => {
+    actual.writeFileSync(...args); retainedWriteHook.afterWrite?.(String(args[0]), actual);
+  } };
+});
 
 const canonicalManifest = resolve('studio/spatial-volume-20260912/grid10/manifest.json');
 const digest = 'e'.repeat(64);
@@ -100,11 +108,13 @@ function nativeFile(kind: 'hana' | 'spline', count = 1) {
 }
 
 beforeEach(() => {
+  retainedWriteHook.afterWrite = undefined;
   directory = mkdtempSync(join(tmpdir(), 'timmy-local-spatial-review-'));
   vi.stubEnv('OLLAMA_HOST', 'http://127.0.0.1:11434');
   context = buildVolumeModelContext(canonicalManifest);
 });
 afterEach(() => {
+  retainedWriteHook.afterWrite = undefined;
   vi.unstubAllGlobals(); vi.unstubAllEnvs();
   rmSync(directory, { recursive: true, force: true });
 });
@@ -173,7 +183,7 @@ describe('local inference admission and retained execution', () => {
   it('retains authentic signed receipts and bindings while leaving native edits unexecuted', async () => {
     const fetcher = mockOllama();
     const result = await reviewSpatialContext(context, { model: modelName, question: 'What is known about this volume?', dir: directory });
-    expect(result.ok).toBe(true); expect(result.signatureVerified).toBe(true);
+    expect(result.ok).toBe(true); expect(result.signatureVerified).toBe(true); expect(result.bundleVerification.ok).toBe(true);
     expect(result.scope).toMatchObject({ sourceReferencesChecked: true, semanticCorrectnessChecked: false, nativeEditsExecuted: false, physicalValidation: false });
     const chain = readChain('runs', directory);
     expect(chain.map(r => r.kind)).toEqual(['spatial.model.intent', 'spatial.model.result']);
@@ -373,5 +383,93 @@ describe('observed spatial citation admission', () => {
       expect(readFileSync(retained.bodyPath)).toEqual(Buffer.from(fixture.body));
       expect(readChain('runs', directory).at(-1)?.status).toBe('failed');
     }
+  });
+});
+
+
+describe('signed local review bundle integrity', () => {
+  async function run(config: ServerOptions = {}) {
+    mockOllama(config);
+    const result = await reviewSpatialContext(context, { model: modelName, question: 'Review.', dir: directory });
+    const receipt = readChain('runs', directory).at(-1)!;
+    expect(result.bundleVerification.ok).toBe(true);
+    return { result, receipt, base: dirname(result.reportPath) };
+  }
+  it('binds every retained input, cite transcript, response and admission artifact', async () => {
+    const { result, receipt, base } = await run();
+    expect(result.artifactManifest.map(a => a.path)).toEqual(expect.arrayContaining(['context.json', 'request.json', 'request-1.json', 'response-0.json', 'response-1.json', 'response.json', 'admission.json', 'transport-0.bin', 'transport-1.bin']));
+    for (const name of ['admission.json', 'response.json', 'request-1.json', 'response-0.json', 'transport-1.bin']) {
+      const file = join(base, name), original = readFileSync(file);
+      writeFileSync(file, Buffer.concat([original, Buffer.from(' ')]));
+      expect(verifySignature(receipt)).toBe(true);
+      expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false);
+      writeFileSync(file, original);
+      expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(true);
+    }
+  });
+  it('refuses deleted artifacts, unexpected files and symlink substitutions', async () => {
+    const { result, receipt, base } = await run(), target = join(base, 'admission.json'), original = readFileSync(target);
+    rmSync(target); expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false);
+    const outside = join(directory, 'outside.json'); writeFileSync(outside, original); symlinkSync(outside, target);
+    expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false);
+    rmSync(target); writeFileSync(target, original);
+    writeFileSync(join(base, 'extra.json'), '{}'); expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false);
+  });
+  it('binds malformed and refused HTTP response bytes in signed failed bundles', async () => {
+    for (const config of [{ transportBody: '  denied original bytes\n', transportStatus: 403 }, { transportBody: '{invalid JSON' }]) {
+      const { result, receipt, base } = await run(config);
+      expect(result.ok).toBe(false); expect(receipt.status).toBe('failed');
+      const raw = join(base, 'transport-0.bin'); expect(readFileSync(raw, 'utf8')).toBe(config.transportBody);
+      rmSync(raw); expect(verifySignature(receipt)).toBe(true);
+      expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false);
+    }
+  });
+  it('binds vision input bytes and refuses altered receipt and report files', async () => {
+    const image = join(directory, 'fixture.png'); writeFileSync(image, Buffer.from([137,80,78,71,13,10,26,10]));
+    mockOllama({ vision: true }); const result = await reviewSpatialContext(context, { model: modelName, question: 'Review.', imagePath: image, dir: directory });
+    const receipt = readChain('runs', directory).at(-1)!, base = dirname(result.reportPath);
+    expect(result.bundleVerification.ok).toBe(true); expect(result.artifactManifest.some(a => a.path === 'image.bin')).toBe(true);
+    const retained = join(base, 'image.bin'), bytes = readFileSync(retained); writeFileSync(retained, 'changed');
+    expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false); writeFileSync(retained, bytes);
+    const sidecar = join(base, 'receipt.json'), saved = readFileSync(sidecar); writeFileSync(sidecar, '{}');
+    expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false); writeFileSync(sidecar, saved);
+    writeFileSync(result.reportPath, readFileSync(result.reportPath, 'utf8') + ' ');
+    expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false);
+  });
+  it('refuses unsafe, duplicate or incomplete manifests even when signed', async () => {
+    const { result, receipt, base } = await run(), original = JSON.parse(readFileSync(result.reportPath, 'utf8'));
+    for (const mutate of [
+      (p: any) => { p.artifactManifest[0].path = '../outside.json'; },
+      (p: any) => { p.artifactManifest.push(p.artifactManifest[0]); },
+      (p: any) => { p.artifactManifest = p.artifactManifest.filter((a: any) => a.path !== 'admission.json'); },
+      (p: any) => { p.artifactManifestSchema = 'unsupported'; },
+    ]) {
+      const altered = structuredClone(original); mutate(altered); const bytes = JSON.stringify(altered); writeFileSync(result.reportPath, bytes);
+      const signed = appendReceipt('runs', { kind: 'spatial.model.result', subject: receipt.subject, status: 'ok', policy: 'synthetic negative control', artifacts: [result.reportPath], output_sha256: sha(bytes) }, directory);
+      writeFileSync(join(base, 'receipt.json'), JSON.stringify(signed));
+      expect(verifySignature(signed)).toBe(true); expect(verifySpatialReviewBundle(result.reportPath, signed).ok).toBe(false);
+    }
+  });
+  it('refuses a symlinked bundle parent even when every leaf byte still matches', async () => {
+    const { result, receipt, base } = await run(), parent = dirname(base), moved = parent + '-retained';
+    renameSync(parent, moved); symlinkSync(moved, parent);
+    expect(verifySpatialReviewBundle(result.reportPath, receipt).ok).toBe(false);
+  });
+  it('fails the real caller when evidence changes before bundle verification without rewriting its signed outcome', async () => {
+    mockOllama();
+    retainedWriteHook.afterWrite = (path, fs) => {
+      if (path.endsWith('/receipt.json')) fs.writeFileSync(join(dirname(path), 'admission.json'), '{}');
+    };
+    const result = await reviewSpatialContext(context, { model: modelName, question: 'Review.', dir: directory });
+    retainedWriteHook.afterWrite = undefined;
+    expect(result.ok).toBe(false); expect(result.review).toBeNull(); expect(result.bundleVerification.ok).toBe(false);
+    expect(result.modelOutcome.ok).toBe(true); expect(result.error).toBe('bundle verification failed');
+    expect(JSON.parse(readFileSync(result.reportPath, 'utf8')).ok).toBe(true);
+    expect(verifySignature(readChain('runs', directory).at(-1)!)).toBe(true);
+  });
+  it('requires the expected receipt identity and rejects an untrusted receipt edit', async () => {
+    const { result, receipt } = await run();
+    expect(verifySpatialReviewBundle(result.reportPath, { ...receipt, subject: 'different' }).ok).toBe(false);
+    expect(verifySpatialReviewBundle(result.reportPath, { ...receipt, output_sha256: '0'.repeat(64) }).ok).toBe(false);
   });
 });

@@ -21,3 +21,9 @@ The old `validateSpatialReview` function remains reference-only compatibility va
 Direct annotation submission now retains the exact submitted content in a mode-0400 artifact and records an annotation receipt with schema `/2`, rejected status and a signed denial. Pack review refuses promotion before inference. These paths do not rewrite previously sealed artifacts or retrofit old references into observed citations.
 
 Validation in this checkpoint uses offline responses and real tool execute closures. No live model, native application or immutable qualification claim is made.
+
+## Retained bundle integrity
+
+New local reviews embed a versioned artifact manifest in the result before signing its hash. It binds every retained pre-result file: context, requests, image input, response content, tool calls/results, admission/refusal and bounded raw HTTP bodies with transport metadata. The result and receipt sidecar are excluded from the manifest to avoid a signing cycle; both are separately verified. Historical records without this manifest remain historical and are not upgraded.
+
+`verifySpatialReviewBundle(reportPath, expectedReceipt)` requires a receipt obtained through trusted execution or chain custody. An arbitrary embedded public key is not an external trust anchor. The verifier checks the receipt hash/signature, result identity/hash, exact directory membership, required unique safe artifact names and stable regular-file byte counts/hashes. It refuses missing, changed, extra or symlinked artifacts. This checks retained integrity only; it does not recite evidence, establish current-source freshness or validate semantics or physical properties. Live callers also require successful bundle verification before reporting effective success; the signed original model outcome and raw files remain unchanged.
