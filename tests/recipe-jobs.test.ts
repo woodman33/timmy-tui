@@ -6,6 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {execFile} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {receiptsDir,verifySignature} from '../src/utils/receipts.js';
+import {keysPath,loadOrCreateKeys,signBody} from '../src/utils/signing.js';
 import {sha} from '../lanes/recipes/tray.js';
 import {enqueue,start,status,cancel,recover,jobDirectory} from '../lanes/recipes/jobs.js';
 
@@ -34,8 +35,9 @@ const native=path.join(base,'native');fs.mkdirSync(native);
 const exports=['outer.stl','cavity.stl','bosses.stl','bores.stl','console-tray.step'].map(file=>{fs.writeFileSync(path.join(native,file),'SYNTHETIC lifecycle fixture; not geometry');return {file,sha256:sha(fs.readFileSync(path.join(native,file)))};});
 fs.writeFileSync(path.join(native,'result.json'),'{}');fs.writeFileSync(path.join(base,'native.log'),'synthetic worker');
 const sources=[path.join(native,'result.json'),path.join(base,'native.log'),...exports.map(e=>path.join(native,e.file))].map(file=>({path:file,sha256:sha(fs.readFileSync(file))}));
-const receipt=appendReceipt('runs',{...common,kind:'recipe.build',child_receipts:[prediction.id],sources:${JSON.stringify(mode)}==='empty-sources'?[]:sources},workspace);
-const result={state:'succeeded',run,receipt:receipt.id,receiptHash:receipt.hash,checksPassed:30,exports};fs.writeFileSync(path.join(base,'report.json'),JSON.stringify(result));
+const failed=${JSON.stringify(mode)}==='reported-failure';
+const receipt=appendReceipt('runs',{...common,status:failed?'failed':'ok',kind:'recipe.build',child_receipts:[prediction.id],sources:${JSON.stringify(mode)}==='empty-sources'?[]:sources},workspace);
+const result={state:failed?'failed':'succeeded',run,receipt:receipt.id,receiptHash:receipt.hash,checksPassed:failed?0:30,exports:failed?[]:exports};fs.writeFileSync(path.join(base,'report.json'),JSON.stringify(result));
 recordResult(root,id,{...result,directory:base});
 `);return file;
 }
@@ -207,6 +209,84 @@ describe('durable recipe worker boundary (offline fake executor)',()=>{
   fs.unlinkSync(path.join(dir,'terminal.json'));cancel(root,id);
   expect(recover(root,id).state).toBe('cancelled');expect(fs.existsSync(path.join(dir,'result.json'))).toBe(true);
   expect(await invoke(id)).toBe(1);
+ });
+ it.each(['complete','reported-failure'])('revalidates cancelled %s result references on status and recovery without rewriting metadata',async mode=>{
+  const id=enqueue(request,{root,executor:executor(mode)}).job.id,dir=jobDirectory(root,id);
+  await start(root,id);await wait(()=>['succeeded','failed'].includes(status(root,id).state));
+  const original=status(root,id);expect(original.resultReceipt).toMatch(/^rc_/);expect(original.resultHash).toBeTruthy();
+  fs.unlinkSync(path.join(dir,'terminal.json'));cancel(root,id);
+  expect(recover(root,id)).toMatchObject({state:'cancelled',resultReceipt:original.resultReceipt,resultHash:original.resultHash});
+  expect(status(root,id).reason).toMatch(/completed native result retained/);
+  const retained=['terminal.json','result.json'].map(name=>({name,bytes:fs.readFileSync(path.join(dir,name))}));
+  const envelope=JSON.parse(retained[1].bytes.toString());
+  fs.unlinkSync(path.join(envelope.result.directory,mode==='complete'?'native/outer.stl':'native.log'));
+  for(const observed of [status(root,id),recover(root,id)]){
+   expect(observed).toMatchObject({state:'interrupted',progress:'verification-failed'});
+   expect(observed).not.toHaveProperty('resultReceipt');expect(observed).not.toHaveProperty('resultHash');
+  }
+  for(const item of retained)expect(fs.readFileSync(path.join(dir,item.name))).toEqual(item.bytes);
+  expect(fs.existsSync(path.join(dir,'recovered.json'))).toBe(false);
+  expect(await invoke(id)).toBe(1);
+  expect(fs.readFileSync(path.join(dir,'executions.txt'),'utf8').trim().split('\n')).toHaveLength(1);
+ });
+ it('revalidates a failed native result receipt before exposing it after failure',async()=>{
+  const id=enqueue(request,{root,executor:executor('reported-failure')}).job.id,dir=jobDirectory(root,id);
+  await start(root,id);await wait(()=>status(root,id).state==='failed');
+  expect(status(root,id).resultReceipt).toMatch(/^rc_/);
+  const retained=['terminal.json','result.json'].map(name=>({name,bytes:fs.readFileSync(path.join(dir,name))}));
+  const envelope=JSON.parse(retained[1].bytes.toString());fs.appendFileSync(path.join(envelope.result.directory,'native.log'),'changed');
+  for(const observed of [status(root,id),recover(root,id)]){
+   expect(observed).toMatchObject({state:'interrupted',progress:'verification-failed'});
+   expect(observed).not.toHaveProperty('resultReceipt');expect(observed).not.toHaveProperty('resultHash');
+  }
+  for(const item of retained)expect(fs.readFileSync(path.join(dir,item.name))).toEqual(item.bytes);
+  expect(fs.existsSync(path.join(dir,'recovered.json'))).toBe(false);
+ });
+ it('refuses mismatched, incomplete or malformed result references across terminal states without repairing markers',async()=>{
+  const id=enqueue(request,{root,executor:executor()}).job.id,dir=jobDirectory(root,id);
+  await start(root,id);await wait(()=>status(root,id).state==='succeeded');
+  const original=status(root,id),file=path.join(dir,'terminal.json');
+  const cases=[
+   {state:'cancelled',resultReceipt:original.resultReceipt,resultHash:'wrong'},
+   {state:'cancelled',resultReceipt:'wrong',resultHash:original.resultHash},
+   {state:'cancelled',resultReceipt:original.resultReceipt},
+   {state:'cancelled',resultHash:original.resultHash},
+   {state:'cancelled',resultReceipt:null,resultHash:original.resultHash},
+   {state:'cancelled',resultReceipt:original.resultReceipt,resultHash:''},
+   {state:'failed',resultReceipt:original.resultReceipt,resultHash:original.resultHash},
+   {state:'interrupted',resultReceipt:original.resultReceipt,resultHash:original.resultHash},
+   {state:'cancelled',resultReceipt:undefined,resultHash:original.resultHash}
+  ];
+  for(const marker of cases){
+   const bytes=Buffer.from(JSON.stringify(marker));fs.writeFileSync(file,bytes);
+   for(const observed of [status(root,id),recover(root,id)]){
+    expect(observed).toMatchObject({state:'interrupted',progress:'verification-failed'});
+    expect(observed).not.toHaveProperty('resultReceipt');expect(observed).not.toHaveProperty('resultHash');
+   }
+   expect(fs.readFileSync(file)).toEqual(bytes);expect(fs.existsSync(path.join(dir,'recovered.json'))).toBe(false);
+  }
+  expect(fs.readFileSync(path.join(dir,'executions.txt'),'utf8').trim().split('\n')).toHaveLength(1);
+ });
+ it('rejects a job re-signed by a foreign identity without replacing the existing workspace key',()=>{
+  const id=enqueue(request,{root,executor:executor()}).job.id,dir=jobDirectory(root,id),workspace=path.join(dir,'workspace');
+  const file=path.join(dir,'job.json'),job=JSON.parse(fs.readFileSync(file,'utf8')),key=fs.readFileSync(keysPath(workspace));
+  const foreign={...job,...signBody(job,path.join(root,'foreign'))};expect(verifySignature(foreign)).toBe(true);
+  fs.writeFileSync(file,JSON.stringify(foreign));
+  expect(()=>status(root,id)).toThrow(/workspace signer mismatch/);
+  expect(()=>recover(root,id)).toThrow(/workspace signer mismatch/);
+  expect(fs.readFileSync(keysPath(workspace))).toEqual(key);
+  expect(fs.readFileSync(file,'utf8')).toBe(JSON.stringify(foreign));
+ });
+ it('reads the existing identity without a stale cache, key recreation or symlink substitution',()=>{
+  const id=enqueue(request,{root,executor:executor()}).job.id,dir=jobDirectory(root,id),workspace=path.join(dir,'workspace');
+  const keyFile=keysPath(workspace),original=fs.readFileSync(keyFile),foreignRoot=path.join(root,'foreign');
+  const foreign=loadOrCreateKeys(foreignRoot);
+  fs.writeFileSync(keyFile,foreign.privatePem);expect(()=>status(root,id)).toThrow(/workspace signer mismatch/);
+  fs.writeFileSync(keyFile,original);expect(status(root,id).state).toBe('queued');
+  fs.unlinkSync(keyFile);expect(()=>status(root,id)).toThrow();expect(fs.existsSync(keyFile)).toBe(false);
+  fs.symlinkSync(keysPath(foreignRoot),keyFile);expect(()=>status(root,id)).toThrow(/regular job file/);
+  expect(fs.readlinkSync(keyFile)).toBe(keysPath(foreignRoot));
+  expect(fs.existsSync(path.join(dir,'executions.txt'))).toBe(false);
  });
  it('does not claim completed cancellation without a verified result or stopped worker',()=>{
   const id=enqueue(request,{root,executor:executor()}).job.id,dir=jobDirectory(root,id);

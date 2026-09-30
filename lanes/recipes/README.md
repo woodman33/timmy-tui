@@ -112,3 +112,11 @@ verified result keeps a live cancellation pending; a stale heartbeat becomes
 interrupted with unknown outcome. A verified completed result can be retained
 with cancelled lifecycle status, without implying that its native effects were
 rolled back.
+
+Status and recovery freshly verify every retained result receipt/hash, including
+cancelled and failed jobs. If an artifact or recorded reference changes, they
+return interrupted without a result pointer and retain the original metadata;
+an intact cancelled result keeps its cancelled lifecycle. Job reads also compare
+the embedded signer with the existing workspace key without creating or caching
+an identity. These are custody consistency checks, not protection against a host
+that can replace the entire workspace and its keys.

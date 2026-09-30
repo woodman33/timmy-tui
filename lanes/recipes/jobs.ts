@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createPrivateKey,createPublicKey} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
@@ -35,10 +35,19 @@ function workspaceStore(dir:string){
  if(fs.readFileSync(pin,'utf8').trim()!==store||receiptsDir(workspace)!==store)throw Error('Recipe workspace store pin mismatch');
  return workspace;
 }
+function workspaceSigner(workspace:string){
+ const keys=directory(path.join(workspace,'.timmy','keys'));
+ const privateKey=createPrivateKey(fs.readFileSync(regular(path.join(keys,'ed25519.pem')),'utf8'));
+ return createPublicKey(privateKey).export({type:'spki',format:'pem'}).toString();
+}
 export function loadJob(root:string,id:string):Job {
  const dir=directory(jobDirectory(root,id)),job=read(path.join(dir,'job.json')) as Job;
  if(job.schema!=='timmy.recipe-job/1'||job.id!==id||sha(JSON.stringify(job.request))!==job.requestHash||sha(JSON.stringify(job.sources))!==job.sourceHash||executionHash(job)!==job.executionHash||!verifySignature(job as never)||!job.sources.some(s=>s.file===job.executor)||!path.isAbsolute(job.executor)||(job.python&&(!job.pythonRealPath||!job.sources.some(s=>s.file===job.pythonRealPath))))throw Error('Job binding mismatch');
- validate(job.request);workspaceStore(dir);return job;
+ validate(job.request);const workspace=workspaceStore(dir);
+ // Read the existing identity afresh: status must neither create a missing key
+ // nor accept a cached key after custody changes on disk.
+ if(workspaceSigner(workspace)!==job.signer)throw Error('Recipe job workspace signer mismatch');
+ return job;
 }
 function sourceGate(job:Job){if(job.python&&fs.realpathSync(job.python)!==job.pythonRealPath)throw Error('Recipe job source changed; Python target differs');for(const source of job.sources)if(sha(fs.readFileSync(regular(source.file)))!==source.hash)throw Error('Recipe job source changed; enqueue a new job');}
 export function enqueue(input:unknown,options:{root?:string;python?:string;executor?:string}={}) {
@@ -65,9 +74,15 @@ export function status(root:string,id:string):{job:Job;state:JobState;progress:s
  const job=loadJob(root,id),dir=jobDirectory(root,id);
  for(const name of ['recovered.json','terminal.json'])if(fs.existsSync(path.join(dir,name))){
   const recorded=read(path.join(dir,name));
-  if(recorded.state==='succeeded'){
-   try{const verified=completion(root,id);if(verified.state!=='succeeded')throw Error('Terminal state mismatch');return {...recorded,...verified,job};}
-   catch{return {job,state:'interrupted',progress:'verification-failed',reason:'Recorded success could not be verified; original metadata retained; no replay'};}
+  if(recorded.state==='succeeded'||Object.hasOwn(recorded,'resultReceipt')||Object.hasOwn(recorded,'resultHash')){
+   try{
+    const verified=completion(root,id);
+    if(!['succeeded','failed','cancelled'].includes(recorded.state)||
+     typeof recorded.resultReceipt!=='string'||!recorded.resultReceipt||typeof recorded.resultHash!=='string'||!recorded.resultHash||
+     recorded.resultReceipt!==verified.resultReceipt||recorded.resultHash!==verified.resultHash||
+     (recorded.state!=='cancelled'&&recorded.state!==verified.state))throw Error('Terminal result reference mismatch');
+    return {...recorded,...verified,state:recorded.state,job};
+   }catch{return {job,state:'interrupted',progress:'verification-failed',reason:'Recorded result could not be verified; original metadata retained; no replay'};}
   }
   return {...recorded,job};
  }
@@ -150,6 +165,9 @@ function completion(root:string,id:string){
 }
 export function recover(root:string,id:string){
  const current=status(root,id),dir=jobDirectory(root,id);
+ // A failed readback must remain a refusal, not a new marker that repairs or
+ // hides the retained result reference. Restoration can be inspected afresh.
+ if(current.progress==='verification-failed')return current;
  if(!['running','interrupted'].includes(current.state))return current;
  if(fs.existsSync(path.join(dir,'result.json'))){
   try{const result=completion(root,id);
