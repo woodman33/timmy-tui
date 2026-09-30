@@ -12,11 +12,8 @@ env:
   # the failures stay visible, and the merge-train runner reads this variable — a failing
   # test NOT named here stops the train. Delete a line when its cause is fixed.
   #
-  #   tests/keyboard-contract.pty.test.ts  obsolete UI contract and shared tmux harness; remains opt-in pending isolated PTY coverage
-  #   tests/vision-templates.test.ts       (#36 warroom-t3b1) imports studio/tldraw-mission-map/vision-templates.js, which was never
-  #                                        committed on any branch; fails on #36's own tree — the module has to be added by its author
+  #   tests/vision-templates.test.ts       missing public implementation and consumer; requires scoped source recovery and privacy review
   KNOWN_WIP_TESTS: >-
-    tests/keyboard-contract.pty.test.ts
     tests/vision-templates.test.ts
 
 jobs:
@@ -58,8 +55,8 @@ jobs:
           path: ~/.npm
           key: ${{ steps.npm-cache.outputs.cache-primary-key }}
 
-      - name: Install ffmpeg and fonts (clip and demo film E2E)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+      - name: Install ffmpeg, fonts and tmux (film and keyboard E2E)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core tmux
 
       - name: Install agg 1.9.0 (demo film, checksum pinned)
         shell: bash
@@ -103,6 +100,11 @@ jobs:
       - name: Test gate (workers/ai-proxy core and HTTP routes)
         working-directory: workers/ai-proxy
         run: npx vitest run
+
+      - name: Test gate (isolated ShellV2 keyboard in a real PTY)
+        env:
+          TIMMY_PTY_TESTS: '1'
+        run: npx vitest run tests/keyboard-contract.pty.test.ts
 
       - name: Known-WIP tests (named above; visible, non-blocking)
         continue-on-error: true

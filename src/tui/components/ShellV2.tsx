@@ -301,7 +301,8 @@ export function ShellV2({ width = 120, agent, config }: { width?: number; agent?
     // ui-cockpit-k7m3: arrows reach the reducer as names so the HANDS grid
     // cursor can use them; everything else keeps its raw input char
     const k = key.return ? 'Enter' : key.escape ? 'Esc' : key.tab ? 'Tab'
-      : key.upArrow ? 'up' : key.downArrow ? 'down' : key.leftArrow ? 'left' : key.rightArrow ? 'right'
+      : key.backspace || key.delete ? 'backspace'
+        : key.upArrow ? 'up' : key.downArrow ? 'down' : key.leftArrow ? 'left' : key.rightArrow ? 'right'
         : input;
     // CHAT Enter ships the buffer: capture before the reducer clears it
     const chatText = sRef.current.mode === 'CHAT' ? sRef.current.input : '';
