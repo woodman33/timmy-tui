@@ -41,7 +41,12 @@ async function main(): Promise<void> {
   //    and a fixed env_lock on every seeded receipt.
   const store = mkdtempSync(join(tmpdir(), 'timmy-demo-'));
   const restorePolicy = installDemoPolicy(store);
+  const dockerEnv = { DOCKER_HOST: process.env.DOCKER_HOST, DOCKER_CONTEXT: process.env.DOCKER_CONTEXT };
   try {
+  // Docker availability belongs to the fixture, not the operator's daemon.
+  // A private absent socket keeps discovery offline without rewriting frames.
+  process.env.DOCKER_HOST = `unix://${join(store, 'docker-unavailable.sock')}`;
+  delete process.env.DOCKER_CONTEXT;
   process.env.TIMMY_STORE = join(store, 'receipts');
   process.env.TIMMY_DEMO = '1';
   let prngState = 0x2f6e2b1 >>> 0;
@@ -91,34 +96,42 @@ async function main(): Promise<void> {
   let t = 0;
   const grab = (hold: number) => { frames.push({ t, text: view.lastFrame() ?? '' }); t += hold; };
   const press = async (key: string, ms = 140) => { view.stdin.write(key); await sleep(ms); };
-  const settle = async (pred: (f: string) => boolean, ms = 6000) => {
+  const settle = async (screen: string, pred: (f: string) => boolean, ms = 6000) => {
     // performance.now is NOT the frozen Date.now — timeouts stay real
     const t0 = performance.now();
     for (;;) {
-      if (pred(view.lastFrame() ?? '') || performance.now() - t0 > ms) return;
+      if (pred(view.lastFrame() ?? '')) return;
+      if (performance.now() - t0 > ms) throw new Error(`demo did not reach ${screen}`);
       await sleep(60);
     }
   };
-  await settle(f => f.includes('YOUR JOURNEY'));
+  try {
+  await settle('HOME', f => f.includes('YOUR JOURNEY'));
   grab(1.0);                                   // boot → HOME settled
-  await press('2'); await settle(f => f.includes('RUNS')); grab(1.0);   // RUN
-  await press('6'); await settle(f => f.includes('COMMANDER'));
+  await press('2'); await settle('RUN', f => f.includes('RUNS')); grab(1.0);   // RUN
+  await press('6'); await settle('COMMAND', f => f.includes('COMMANDER'));
   await press('w');
   // wait for the war-room readers (fixture presets + projects) so the grab
   // never races the first poll tick under machine load
-  await settle(f => f.includes('SWARM') && f.includes('closed-3') && f.includes('proj-a'));
+  await settle('COMMAND / SWARM', f => f.includes('SWARM') && f.includes('closed-3') && f.includes('proj-a'));
   grab(1.2);   // SWARM view (closed-3 preset, fixture readers loaded)
-  await press('l'); await sleep(200); grab(1.0);                        // launch beat (demo-guarded)
-  await press('3'); await settle(f => f.includes('RECEIPTS'));
-  await press('/'); await press('swarm.airgap', 160); await press('\x1b'); await settle(f => f.includes('swarm.airgap'));
+  await press('l'); await settle('demo launch', f => f.includes('swarm closed-3 launched')); grab(1.0);
+  // Digits focus harness panes inside COMMAND. Tab returns to HOME before
+  // the normal tab shortcut can select CHAIN; use the actual input path.
+  await press('\t'); await settle('HOME after COMMAND', f => /NORMAL\s+HOME\b/.test(f));
+  await press('3'); await settle('CHAIN', f => /NORMAL\s+CHAIN\b/.test(f) && f.includes('RECEIPTS'));
+  await press('/'); await press('swarm.airgap', 160); await press('\x1b');
+  await settle('CHAIN airgap filter', f => /NORMAL\s+CHAIN\b/.test(f) && /RECEIPTS\s+\/ swarm\.airgap/.test(f));
   grab(1.2);                               // CHAIN → airgap receipt + typed view
-  await press('o'); await sleep(200); grab(1.4);                        // [o] cross-link the run
-  view.unmount();
+  await press('o'); await settle('CHAIN run cross-link', f => /NORMAL\s+CHAIN\b/.test(f) && f.includes('[o] unlink')); grab(1.4);
+  } finally { view.unmount(); }
 
   // 3. asciinema v2 cast (deterministic timestamps + frozen content)
   const castPath = join(outDir, 'demo.cast');
   const lines: string[] = [JSON.stringify({ version: 2, width: WIDTH, height: HEIGHT, timestamp: Math.floor(NOW / 1000), env: { SHELL: '/bin/bash', TERM: 'xterm-256color' } })];
-  for (const f of frames) lines.push(JSON.stringify([Number(f.t.toFixed(3)), 'o', `\x1b[2J\x1b[H${f.text}`]));
+  // Ink captures are line-oriented; terminal playback needs a carriage return
+  // as well as a line feed, just as a TTY's ONLCR output processing provides.
+  for (const f of frames) lines.push(JSON.stringify([Number(f.t.toFixed(3)), 'o', `\x1b[2J\x1b[H${f.text.replace(/\r?\n/g, '\r\n')}`]));
   writeFileSync(castPath, lines.join('\n') + '\n');
 
   // 4. gif + mp4 through the operator's toolchain (agg, ffmpeg)
@@ -145,6 +158,10 @@ async function main(): Promise<void> {
   console.log(JSON.stringify({ ok: true, cast: castPath, gif: existsSync(gifPath) ? gifPath : null, mp4: mp4.ok ? mp4Path : null, mp4_note: mp4.note ?? null, frames: frames.length, cast_sha256: sha(castBuf).slice(0, 16), sealed: String(rec.hash).slice(0, 16) }, null, 1));
   } finally {
     restorePolicy();
+    for (const [key, value] of Object.entries(dockerEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 }
 

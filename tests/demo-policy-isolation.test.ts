@@ -4,11 +4,15 @@ import { dirname, join } from 'node:path';
 import { readPolicy, policyPath, writePolicy } from '../src/harness/policy.js';
 import { installDemoPolicy } from '../src/demo/fixture-policy.js';
 
-const startup = vi.hoisted(() => ({ append: vi.fn(() => ({ hash: 'fixture-receipt' })) }));
+const startup = vi.hoisted(() => ({ append: vi.fn(() => ({ hash: 'fixture-receipt' })), dockerHost: undefined as string | undefined, dockerContext: undefined as string | undefined }));
 vi.mock('../src/utils/receipts.js', () => ({ appendReceipt: startup.append }));
 vi.mock('../src/tui/components/ShellV2.js', () => ({ ShellV2: () => null }));
 vi.mock('ink-testing-library', () => ({
-  render: () => { throw new Error('DEMO_FIXTURE_STARTUP_STOP'); },
+  render: () => {
+    startup.dockerHost = process.env.DOCKER_HOST;
+    startup.dockerContext = process.env.DOCKER_CONTEXT;
+    throw new Error('DEMO_FIXTURE_STARTUP_STOP');
+  },
 }));
 vi.mock('node:child_process', async importOriginal => ({
   ...await importOriginal<typeof import('node:child_process')>(),
@@ -62,7 +66,7 @@ describe('demo policy isolation', () => {
     const before = readFileSync(policyPath());
     const originalDate = globalThis.Date;
     const originalRandom = Math.random;
-    const envKeys = ['TIMMY_STORE', 'TIMMY_DEMO', 'TIMMY_REPO_ROOT', 'TIMMY_PROJECTS_ROOT', 'TIMMY_POLICY_DIR'] as const;
+    const envKeys = ['TIMMY_STORE', 'TIMMY_DEMO', 'TIMMY_REPO_ROOT', 'TIMMY_PROJECTS_ROOT', 'TIMMY_POLICY_DIR', 'DOCKER_HOST', 'DOCKER_CONTEXT'] as const;
     const inheritedEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
     const fixtureBytes: Buffer[] = [];
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -78,12 +82,18 @@ describe('demo policy isolation', () => {
         const exit = vi.spyOn(process, 'exit').mockImplementation(() => { stopped(); return undefined as never; });
         let fixtureRoot: string | undefined;
         try {
+          process.env.DOCKER_HOST = 'unix:///operator-fixture.sock';
+          process.env.DOCKER_CONTEXT = 'operator-fixture-context';
           await import('../src/demo/cast.js');
           await done;
           fixtureRoot = dirname(process.env.TIMMY_STORE!);
           expect(errors).toHaveBeenLastCalledWith(expect.stringContaining('DEMO_FIXTURE_STARTUP_STOP'));
           expect(exit).toHaveBeenCalledWith(1);
           expect(fixtureRoot).not.toBe(inherited);
+          expect(startup.dockerHost).toBe(`unix://${join(fixtureRoot, 'docker-unavailable.sock')}`);
+          expect(startup.dockerContext).toBeUndefined();
+          expect(process.env.DOCKER_HOST).toBe('unix:///operator-fixture.sock');
+          expect(process.env.DOCKER_CONTEXT).toBe('operator-fixture-context');
           fixtureBytes.push(readFileSync(policyPath(fixtureRoot)));
           expect(readPolicy(fixtureRoot)).toEqual({ default: 'placeholder/auto', scopes: {} });
           expect(startup.append).toHaveBeenCalledTimes(7);

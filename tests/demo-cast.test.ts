@@ -5,17 +5,17 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 
-const runDemo = (out: string): { status: number; out: string } => {
-  const r = spawnSync('npx', ['tsx', 'src/demo/cast.ts', '--out', out, '--no-seal'], {
+// Await the native export without blocking Vitest's worker/RPC event loop.
+const runDemo = (out: string): Promise<{ status: number; out: string }> => new Promise(resolve => {
+  execFile(process.execPath, ['--import', 'tsx', 'src/demo/cast.ts', '--out', out, '--no-seal'], {
     encoding: 'utf8', timeout: 180000, cwd: process.cwd(),
-  });
-  return { status: r.status ?? 1, out: (r.stdout ?? '') + (r.stderr ?? '') };
-};
+  }, (error, stdout, stderr) => resolve({ status: error ? 1 : 0, out: stdout + stderr + (error?.message ?? '') }));
+});
 
 describe('timmy demo', { timeout: 300000 }, () => {
-  it('is deterministic: identical casts + mp4 across two runs', () => {
+  it('is deterministic: identical casts + mp4 across two runs', async () => {
     // This is a required native export test. Missing tools must fail visibly,
     // never turn the MP4 contract into a skip or a cast-only success.
     for (const [command, args] of [['agg', ['--version']], ['ffmpeg', ['-version']]] as const) {
@@ -26,8 +26,8 @@ describe('timmy demo', { timeout: 300000 }, () => {
     }
     const a = mkdtempSync(join(tmpdir(), 'demo-gate-a-'));
     const b = mkdtempSync(join(tmpdir(), 'demo-gate-b-'));
-    const ra = runDemo(a);
-    const rb = runDemo(b);
+    const ra = await runDemo(a);
+    const rb = await runDemo(b);
     expect(ra.status, ra.out.slice(-400)).toBe(0);
     expect(rb.status, rb.out.slice(-400)).toBe(0);
     const castA = readFileSync(join(a, 'demo.cast'), 'utf8');
@@ -45,6 +45,22 @@ describe('timmy demo', { timeout: 300000 }, () => {
     expect(frames.some(f => f.includes('SWARM'))).toBe(true);         // swarm view
     expect(frames.some(f => f.includes('closed-3'))).toBe(true);      // launch beat preset
     expect(frames.some(f => f.includes('swarm.airgap'))).toBe(true);  // CHAIN airgap
+    // An activity row mentioning airgap is not a CHAIN capture. Verify the
+    // ordered active screens and both actual receipt-panel interactions.
+    expect(frames).toHaveLength(6);
+    const tabs = ['HOME', 'RUN', 'COMMAND', 'COMMAND', 'CHAIN', 'CHAIN'];
+    for (const [index, frame] of frames.entries()) {
+      expect(frame).toMatch(new RegExp(`NORMAL\\s+${tabs[index]}\\b`));
+      // A bare LF preserves the terminal cursor column and causes staircase
+      // playback, even when the cast and MP4 bytes are deterministic.
+      expect(frame).toContain('\r\n');
+      expect(frame).not.toMatch(/(?<!\r)\n/);
+    }
+    expect(frames[4]).toMatch(/RECEIPTS\s+\/ swarm\.airgap/);
+    expect(frames[4]).not.toContain('COMMANDER');
+    expect(frames[0]).toContain('docker off');
+    expect(frames[5]).toContain('[o] unlink');
+    expect(frames[5]).not.toBe(frames[4]);
     expect(existsSync(join(a, 'demo.mp4')), ra.out).toBe(true);
     expect(existsSync(join(b, 'demo.mp4')), rb.out).toBe(true);
     expect(statSync(join(a, 'demo.mp4')).size, ra.out).toBeGreaterThan(0);
