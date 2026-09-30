@@ -2,15 +2,15 @@
 // data produce byte-identical casts (frozen clock + seeded prng + fixed
 // env_lock + fixture store) and an mp4 through agg+ffmpeg.
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, readFileSync, existsSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { execFile, spawnSync } from 'node:child_process';
 
 // Await the native export without blocking Vitest's worker/RPC event loop.
-const runDemo = (out: string): Promise<{ status: number; out: string }> => new Promise(resolve => {
+const runDemo = (out: string, env: NodeJS.ProcessEnv): Promise<{ status: number; out: string }> => new Promise(resolve => {
   execFile(process.execPath, ['--import', 'tsx', 'src/demo/cast.ts', '--out', out, '--no-seal'], {
-    encoding: 'utf8', timeout: 180000, cwd: process.cwd(),
+    encoding: 'utf8', timeout: 180000, cwd: process.cwd(), env,
   }, (error, stdout, stderr) => resolve({ status: error ? 1 : 0, out: stdout + stderr + (error?.message ?? '') }));
 });
 
@@ -26,10 +26,15 @@ describe('timmy demo', { timeout: 300000 }, () => {
     }
     const a = mkdtempSync(join(tmpdir(), 'demo-gate-a-'));
     const b = mkdtempSync(join(tmpdir(), 'demo-gate-b-'));
-    const ra = await runDemo(a);
-    const rb = await runDemo(b);
+    const hostBin = mkdtempSync(join(tmpdir(), 'demo-host-docker-'));
+    const marker = join(hostBin, 'invoked');
+    writeFileSync(join(hostBin, 'docker'), '#!/bin/sh\nprintf invoked > "$DEMO_HOST_DOCKER_MARKER"\nprintf ok\nexit 0\n', { mode: 0o700 });
+    const env = { ...process.env, PATH: `${hostBin}${delimiter}${process.env.PATH ?? ''}`, DEMO_HOST_DOCKER_MARKER: marker };
+    const ra = await runDemo(a, env);
+    const rb = await runDemo(b, env);
     expect(ra.status, ra.out.slice(-400)).toBe(0);
     expect(rb.status, rb.out.slice(-400)).toBe(0);
+    expect(existsSync(marker), 'demo must not invoke the inherited Docker client').toBe(false);
     const castA = readFileSync(join(a, 'demo.cast'), 'utf8');
     const castB = readFileSync(join(b, 'demo.cast'), 'utf8');
     expect(castA).toBe(castB);

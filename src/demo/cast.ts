@@ -6,7 +6,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { installDemoPolicy } from './fixture-policy.js';
 import { spawnSync } from 'node:child_process';
 
@@ -41,10 +41,16 @@ async function main(): Promise<void> {
   //    and a fixed env_lock on every seeded receipt.
   const store = mkdtempSync(join(tmpdir(), 'timmy-demo-'));
   const restorePolicy = installDemoPolicy(store);
-  const dockerEnv = { DOCKER_HOST: process.env.DOCKER_HOST, DOCKER_CONTEXT: process.env.DOCKER_CONTEXT };
+  const dockerEnv = { DOCKER_HOST: process.env.DOCKER_HOST, DOCKER_CONTEXT: process.env.DOCKER_CONTEXT, PATH: process.env.PATH };
   try {
   // Docker availability belongs to the fixture, not the operator's daemon.
-  // A private absent socket keeps discovery offline without rewriting frames.
+  // Shadow the host client: a client can report success for a literal info
+  // template even when its configured daemon is unavailable. Neither client
+  // configuration nor daemon availability may determine these fixture frames.
+  const fixtureBin = join(store, 'bin');
+  mkdirSync(fixtureBin, { mode: 0o700 });
+  writeFileSync(join(fixtureBin, 'docker'), '#!/bin/sh\nexit 1\n', { mode: 0o700 });
+  process.env.PATH = [fixtureBin, dockerEnv.PATH].filter(Boolean).join(delimiter);
   process.env.DOCKER_HOST = `unix://${join(store, 'docker-unavailable.sock')}`;
   delete process.env.DOCKER_CONTEXT;
   process.env.TIMMY_STORE = join(store, 'receipts');
