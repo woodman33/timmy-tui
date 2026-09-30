@@ -51,7 +51,7 @@ let observedAgentState: AgentUIState;
 function AgentHarness({ agent }: { agent: Agent }) {
   const state = useAgent(agent);
   observedAgentState = state;
-  useCompanionSync({ agent, messages: state.messages });
+  useCompanionSync({ agent, messages: state.mirrorHistory });
   return null;
 }
 let server: Record<string, any>;
@@ -128,17 +128,21 @@ describe('companion synchronization lifecycle', () => {
     expect(agent.eventNames()).toEqual([]);
   });
 
-  it('mirrors the actual default ShellV2 history, streaming delta and final reply', async () => {
+  it('mirrors default ShellV2 chat and preserves one tool through the final reply', async () => {
     const agent = fixtureAgent();
     const view = render(<ShellV2 width={120} agent={agent} />);
     await tick();
     expect(server.agent).toBe(agent);
     expect(server.lastHistory[0].content).toBe('Synthetic local question');
+    agent.emit('tool:call', 'synthetic-shell-tool', { scope: 'offline' });
+    await vi.waitFor(() => expect(server.lastHistory).toHaveLength(2));
     agent.emit('stream:delta', 'answer', 'Synthetic local answer');
     expect(server.sendUpdate).toHaveBeenCalledWith('agent:delta', { delta: 'answer', fullText: 'Synthetic local answer' });
     agent.emit('stream:end', 'Synthetic local answer');
-    for (let attempt = 0; attempt < 50 && server.lastHistory.length < 2; attempt++) await tick();
-    expect(server.lastHistory.map((m: Message) => m.content)).toEqual(['Synthetic local question', 'Synthetic local answer']);
+    await vi.waitFor(() => expect(server.lastHistory).toHaveLength(3));
+    expect(server.lastHistory[1]).toMatchObject({ role: 'system', isTool: true });
+    expect(server.lastHistory[1].content).toContain('synthetic-shell-tool');
+    expect(server.lastHistory.filter((m: Message & { isTool?: boolean }) => !m.isTool).map((m: Message) => m.content)).toEqual(['Synthetic local question', 'Synthetic local answer']);
     expect(agent.send).not.toHaveBeenCalled();
     view.unmount();
     await tick();

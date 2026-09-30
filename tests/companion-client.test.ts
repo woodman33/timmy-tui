@@ -82,10 +82,43 @@ describe('companion connection and chat mirror', () => {
     const c = client();
     const attack = '<img src=x onerror=alert(1)>';
     c.receive({ type: 'agent:tool', data: { name: attack, args: { value: attack } } });
+    c.receive({ type: 'sync', data: [{ role: 'system', isTool: true, content: `Swarm Orchestrator Tool Call: ${attack} with arguments: ${JSON.stringify({ value: attack })}` }] });
     expect(c.consoleLogs.innerHTML).toContain('&lt;img src=x onerror=alert(1)&gt;');
     expect(c.consoleLogs.innerHTML).not.toContain('<img');
     c.receive({ type: attack });
     expect(c.context.logsList.innerHTML).not.toContain('<img');
+  });
+
+  it('retains one canonical tool row through sync, save and reconnect, and obeys clear/replacement', () => {
+    const c = client();
+    const tool = { role: 'system', isTool: true, content: 'Swarm Orchestrator Tool Call: synthetic_tool with arguments: {"offline":true}', timestamp: 2 };
+    const transcript = [{ role: 'user', content: 'SYNTHETIC request', timestamp: 1 }, tool, { role: 'assistant', content: 'SYNTHETIC reply', timestamp: 3 }];
+    c.receive({ type: 'sync', data: transcript.slice(0, 1) });
+    c.receive({ type: 'agent:tool', data: { name: 'synthetic_tool', args: { offline: true } } });
+    expect(c.context.activeChatHistory).toHaveLength(1);
+    c.receive({ type: 'sync', data: transcript });
+    c.receive({ type: 'sync', data: transcript });
+    expect(c.context.activeChatHistory).toHaveLength(3);
+    expect(c.context.activeChatHistory.filter((m: any) => m.isTool)).toHaveLength(1);
+    expect(c.consoleLogs.innerHTML).toContain('synthetic_tool');
+    c.context.saveCurrentChat();
+    expect(JSON.parse(c.storage.get('timmy.chat.sessions')!)[0].messages).toEqual(transcript);
+    c.receive({ type: 'sync', history: transcript });
+    expect(JSON.parse(c.storage.get('timmy.chat.active')!)).toEqual(transcript);
+    c.receive({ type: 'sync', data: [] });
+    expect(c.context.activeChatHistory).toEqual([]);
+    c.receive({ type: 'sync', data: [{ role: 'user', content: 'SYNTHETIC different agent' }] });
+    expect(c.consoleLogs.innerHTML).not.toContain('synthetic_tool');
+    expect(JSON.parse(c.storage.get('timmy.chat.sessions')!)[0].messages).toEqual(transcript);
+  });
+
+  it('renders tool arguments containing the display delimiter without truncating JSON', () => {
+    const c = client();
+    c.receive({ type: 'sync', data: [{ role: 'system', isTool: true,
+      content: `Swarm Orchestrator Tool Call: synthetic_tool with arguments: ${JSON.stringify({ instruction: 'with arguments: keep literal text' })}` }] });
+    expect(c.consoleLogs.innerHTML).toContain('Calling tool');
+    expect(c.consoleLogs.innerHTML).toContain('with arguments: keep literal text');
+    expect(c.consoleLogs.innerHTML).toContain('log-msg system');
   });
 
   it('preserves HTML-bearing prompt text through actual save and restored-card rendering', () => {

@@ -12,6 +12,19 @@ App owns synchronization and opts its nested ViewStage/ShellV2 out; a
 standalone shell owns its own sync. This preserves the parent's active run
 and receipt metadata and emits each delta/tool update once.
 
+The active synchronization owner keeps a separate, ordered mirror transcript
+containing chat and observed tool calls. Later snapshots retain those tool
+rows; the browser treats immediate tool events as notifications and replaces
+its history from each canonical snapshot. It never unions cached tools into
+a different conversation. Clear and agent replacement reset the transcript.
+Tool activity stays outside ordinary TUI messages and provider conversation.
+Unavailable tool arguments receive an explicit JSON marker.
+
+Browser Save stores this complete transcript; reload and browser reconnect
+receive the current owner's snapshot without duplicating tool rows. This is
+active-owner retention, not process-restart persistence: a newly mounted
+owner hydrates retained provider chat, which does not contain UI-only tools.
+
 Live broadcasts use `{ type: 'sync', data: messages }`; reconnect snapshots
 use `{ type: 'sync', history: messages }`. The browser accepts both, refuses
 malformed message lists before changing its cached chat, and escapes tool
@@ -31,6 +44,8 @@ history and verification request failures.
 Regression coverage lives in `tests/logserver.test.ts`,
 `tests/companion-client.test.ts`, `tests/companion-sync.test.tsx`, and
 `tests/companion-owner.test.tsx`.
+Tool retention, clearing and replacement controls live in
+`tests/use-agent-tools.test.tsx`.
 The page-script controls run the served JavaScript; ShellV2 controls use
 synthetic agent events without provider calls. Existing real PTY controls
 exercise navigation and text entry with integrations unavailable. These are

@@ -1007,22 +1007,8 @@
             appendToLocalLogs('INFO', `tmux pane trace: ${msg.data.line.substring(0, 40)}...`);
           } else if (msg.type === 'agent:tool') {
             appendToLocalLogs('WARN', `Agent tool-call gate triggered: ${msg.data.name}`);
-            
-            // Exit saved chat view to show live sync
-            if (isViewingSaved) {
-              exitSavedChatViewer();
-            }
-            
-            activeChatHistory.push({
-              role: 'system',
-              content: `Swarm Orchestrator Tool Call: ${msg.data.name} with arguments: ${JSON.stringify(msg.data.args, null, 2)}`,
-              timestamp: Date.now(),
-              isTool: true
-            });
-            saveActiveChat();
-            if (!isViewingSaved) {
-              renderConsoleLogs(activeChatHistory);
-            }
+            // Notification only: the terminal's canonical mirror snapshot
+            // includes this tool row. Never synthesize or merge a second copy.
           } else if (msg.type === 'agent:delta') {
             // Exit saved chat view to show live sync
             if (isViewingSaved) {
@@ -1092,9 +1078,11 @@
         
         if (msg.role === 'system' && msg.isTool) {
           try {
-            const parts = msg.content.split('with arguments:');
-            const name = parts[0].replace('Swarm Orchestrator Tool Call:', '').trim();
-            const args = JSON.parse(parts[1].trim());
+            const delimiter = 'with arguments:';
+            const index = msg.content.indexOf(delimiter);
+            if (index < 0) throw new Error('Missing tool arguments delimiter');
+            const name = msg.content.slice(0, index).replace('Swarm Orchestrator Tool Call:', '').trim();
+            const args = JSON.parse(msg.content.slice(index + delimiter.length).trim());
             return `
               <div class="log-msg system">
                 <div class="log-header system">

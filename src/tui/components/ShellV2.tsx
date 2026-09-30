@@ -97,7 +97,7 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
   const chat = useAgent(effectiveAgent ?? NOOP_AGENT);
   // Standalone shells own their mirror; the full App owns its run metadata
   // and opts its nested shell out to avoid duplicate broadcasts/listeners.
-  useCompanionSync({ agent: effectiveAgent ?? NOOP_AGENT, messages: chat.messages, enabled: companionSync && Boolean(effectiveAgent) });
+  useCompanionSync({ agent: effectiveAgent ?? NOOP_AGENT, messages: chat.mirrorHistory, enabled: companionSync && Boolean(effectiveAgent) });
   useEffect(() => {
     if (!effectiveAgent || firstChatText.current === null) return;
     const text = firstChatText.current;
