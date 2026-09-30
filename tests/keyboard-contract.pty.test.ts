@@ -1,18 +1,22 @@
 // Actual ShellV2 + Ink input under a real PTY. Integration probes are stubbed;
 // full CLI startup, providers, and native jobs require their separate controls.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 
 const require = createRequire(import.meta.url);
 let root = '';
+let compiled = '';
+const repository = process.cwd();
 let socket = '';
 let binary = '';
 let env: NodeJS.ProcessEnv;
 let ownedChildren: { pid: number; signature: string }[] = [];
 const cleanupRecords: unknown[] = [];
+const progressRecords: unknown[] = [];
 
 function processSignature(pid: number): string {
   const r = spawnSync('/bin/ps', ['-p', String(pid), '-o', 'pid=,lstart=,command='], { encoding: 'utf8', env, timeout: 1000 });
@@ -48,6 +52,34 @@ const type = (value: string) => tmux(['send-keys', '-l', '-t', `=${session}:0.0`
 const mode = (name: string, tab: string) => (text: string) => new RegExp(`\\b${name}\\s+${tab}\\b`).test(text);
 
 describe.skipIf(process.env.TIMMY_PTY_TESTS !== '1')('isolated ShellV2 keyboard PTY contract', () => {
+  beforeAll(async () => {
+    // Compile the source graph once before measuring interactive readiness.
+    // No tsx/esbuild loader or its child processes run inside the PTY.
+    const builds = join(repository, '.timmy', 'private');
+    mkdirSync(builds, { recursive: true, mode: 0o700 });
+    compiled = mkdtempSync(join(builds, 'keyboard-compiled-'));
+    const declarations = readdirSync(join(repository, 'src/types')).filter(p => p.endsWith('.d.ts')).map(p => join(repository, 'src/types', p));
+    const began = performance.now();
+    const build = spawnSync(process.execPath, [join(dirname(require.resolve('typescript/package.json')), 'bin/tsc'),
+      '--ignoreConfig', '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext',
+      '--jsx', 'react-jsx', '--types', 'node,react', '--esModuleInterop', '--skipLibCheck', '--noEmitOnError',
+      '--rootDir', repository, '--outDir', compiled,
+      resolve('tests/helpers/keyboard-pty.ts'), ...declarations], {
+      cwd: repository, encoding: 'utf8', timeout: 60000, killSignal: 'SIGKILL',
+    });
+    if (process.env.TIMMY_PTY_ARTIFACTS) {
+      const out = resolve(process.env.TIMMY_PTY_ARTIFACTS);
+      mkdirSync(out, { recursive: true, mode: 0o700 });
+      writeFileSync(join(out, 'keyboard-build.json'), JSON.stringify({ status: build.status, error: build.error?.message, ms: performance.now() - began, stdout: build.stdout, stderr: build.stderr }, null, 2), { mode: 0o600 });
+    }
+    expect(build.error, 'fixture compilation must finish before PTY startup').toBeUndefined();
+    expect(build.status, `${build.stdout}\n${build.stderr}`).toBe(0);
+    writeFileSync(join(compiled, 'package.json'), JSON.stringify({ type: 'module' }));
+    const { copyRuntimeAssets } = await import(pathToFileURL(join(repository, 'scripts/copy-runtime-assets.mjs')).href);
+    copyRuntimeAssets(repository, compiled);
+  }, 65000);
+  afterAll(() => { if (compiled) rmSync(compiled, { recursive: true, force: true }); });
+
   beforeEach(async () => {
     ownedChildren = [];
     binary = (process.env.PATH ?? '').split(':').map(p => join(p, 'tmux')).find(p => {
@@ -71,7 +103,7 @@ describe.skipIf(process.env.TIMMY_PTY_TESTS !== '1')('isolated ShellV2 keyboard 
     };
     tmux(['new-session', '-d', '-s', session, '-x', '120', '-y', '40', '-c', root, '/bin/sleep', '90']);
     tmux(['set-window-option', '-t', `=${session}:0`, 'remain-on-exit', 'on']);
-    tmux(['respawn-pane', '-k', '-t', `=${session}:0.0`, '-c', root, process.execPath, require.resolve('tsx/cli'), resolve('tests/helpers/keyboard-pty.ts'), '--fixture-run', root]);
+    tmux(['respawn-pane', '-k', '-t', `=${session}:0.0`, '-c', root, process.execPath, join(compiled, 'tests/helpers/keyboard-pty.js'), '--fixture-run', root]);
     const panePid = Number(tmux(['display-message', '-p', '-t', `=${session}:0.0`, '#{pane_pid}']).trim());
     expect(panePid).toBeGreaterThan(0);
     ownedChildren.push({ pid: panePid, signature: processSignature(panePid) });
@@ -105,11 +137,13 @@ describe.skipIf(process.env.TIMMY_PTY_TESTS !== '1')('isolated ShellV2 keyboard 
       if (alive.length) failures.push('owned PTY child remained alive after private server shutdown');
       if (root && existsSync(join(root, 'violations.jsonl'))) failures.push('forbidden network, agent, or subprocess attempt');
       if (root && existsSync(join(root, 'receipts/runs.jsonl'))) failures.push('keyboard navigation wrote receipts');
+      if (root && existsSync(join(root, 'progress.jsonl'))) progressRecords.push({ root, progress: readFileSync(join(root, 'progress.jsonl'), 'utf8') });
       cleanupRecords.push({ children: ownedChildren, exited: alive.length === 0, failures });
       if (process.env.TIMMY_PTY_ARTIFACTS) {
         const out = resolve(process.env.TIMMY_PTY_ARTIFACTS);
         mkdirSync(out, { recursive: true, mode: 0o700 });
         writeFileSync(join(out, 'keyboard-captures.json'), JSON.stringify(captures, null, 2), { mode: 0o600 });
+        writeFileSync(join(out, 'keyboard-progress.json'), JSON.stringify(progressRecords, null, 2), { mode: 0o600 });
         writeFileSync(join(out, 'keyboard-cleanup.json'), JSON.stringify(cleanupRecords, null, 2), { mode: 0o600 });
         if (root && existsSync(join(root, 'violations.jsonl'))) writeFileSync(join(out, 'keyboard-violations.jsonl'), readFileSync(join(root, 'violations.jsonl')), { mode: 0o600 });
       }

@@ -16,6 +16,10 @@ if (process.env.TIMMY_PTY_FIXTURE !== '1'
 }
 writeFileSync(join(root, 'child.json'), JSON.stringify({ pid: process.pid, run: process.argv.at(-1) }));
 
+const began = performance.now();
+const milestone = (phase: string) => appendFileSync(join(root, 'progress.jsonl'), JSON.stringify({ phase, elapsed_ms: performance.now() - began }) + '\n');
+milestone('helper-start');
+
 function refuse(kind: string): never {
   appendFileSync(join(root, 'violations.jsonl'), JSON.stringify({ kind, stack: new Error().stack }) + '\n');
   throw new Error(`PTY fixture forbids ${kind}`);
@@ -47,15 +51,21 @@ childProcess.spawnSync = ((command: string, args: string[] = []) => {
 }) as typeof childProcess.spawnSync;
 syncBuiltinESMExports();
 
+milestone('guards-installed');
 const { default: React } = await import('react');
+milestone('react-imported');
 const { render } = await import('ink');
+milestone('ink-imported');
 const { ShellV2 } = await import('../../src/tui/components/ShellV2.js');
+milestone('shell-imported');
 const agent = {
   on() {}, off() {}, getModel: () => 'fixture/keyboard', totalCost: 0,
   conversation: { getHistory: () => [] },
   send: async () => refuse('agent send'), clearHistory() {}, setModel() {},
 };
+milestone('before-render');
 const view = render(React.createElement(ShellV2, { width: 120, agent: agent as never }));
+milestone('render-returned');
 const stop = () => { view.unmount(); process.exit(0); };
 process.once('SIGTERM', stop);
 process.once('SIGINT', stop);
