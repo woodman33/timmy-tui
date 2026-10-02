@@ -1,0 +1,486 @@
+syntax = "proto3";
+package timmy.space.v1;
+
+option go_package = "github.com/woodman33/timmy-tui/proto/gen/go/timmy/space/v1;spacev1";
+
+// Semantic validation is mandatory; protobuf wire acceptance is insufficient.
+// The imported CUE contract is applied before downstream execution.
+enum Units {
+  UNITS_UNSPECIFIED = 0;
+  UNITS_MM = 1;
+  UNITS_CM = 2;
+  UNITS_M = 3;
+}
+enum VoxelState {
+  VOXEL_STATE_UNKNOWN = 0;
+  VOXEL_STATE_FREE = 1;
+  VOXEL_STATE_OCCUPIED = 2;
+}
+enum Provenance {
+  PROVENANCE_UNSPECIFIED = 0;
+  PROVENANCE_MEASURED = 1;
+  PROVENANCE_RECONSTRUCTED_SCALE_UNCHECKED = 2;
+  PROVENANCE_GENERATED = 3;
+}
+enum EvidenceState {
+  EVIDENCE_STATE_UNSPECIFIED = 0;
+  EVIDENCE_STATE_DECLARED = 1;
+  EVIDENCE_STATE_CONSTRUCTED = 2;
+  EVIDENCE_STATE_CHECKED = 3;
+  EVIDENCE_STATE_INFERRED = 4;
+  EVIDENCE_STATE_STALE = 5;
+}
+enum UiOutcome {
+  UI_OUTCOME_UNSPECIFIED = 0;
+  UI_OUTCOME_FAILED = 1;
+  UI_OUTCOME_MISSING = 2;
+}
+enum EvidenceKind {
+  EVIDENCE_KIND_UNSPECIFIED = 0;
+  EVIDENCE_KIND_NATIVE_READBACK = 1;
+  EVIDENCE_KIND_CALIBRATED_OBSERVATION = 2;
+  EVIDENCE_KIND_DETERMINISTIC_COMPUTATION = 3;
+  EVIDENCE_KIND_SOURCE_DECLARATION = 4;
+  EVIDENCE_KIND_MACHINE_INFERENCE = 5;
+  EVIDENCE_KIND_GENERATED_HYPOTHESIS = 6;
+}
+enum ChannelKind {
+  CHANNEL_KIND_UNSPECIFIED = 0;
+  CHANNEL_KIND_STATE = 1;
+  CHANNEL_KIND_TSDF = 2;
+  CHANNEL_KIND_WEIGHT = 3;
+  CHANNEL_KIND_RGB = 4;
+  CHANNEL_KIND_INSTANCE_LABEL = 5;
+  CHANNEL_KIND_FILL = 6;
+  CHANNEL_KIND_NORMAL = 7;
+  CHANNEL_KIND_FEATURE_REF = 8;
+  CHANNEL_KIND_SIGMA = 9;
+}
+enum CapabilityRung {
+  CAPABILITY_RUNG_UNSPECIFIED = 0;
+  CAPABILITY_RUNG_DECLARED = 1;
+  CAPABILITY_RUNG_CONFIGURED = 2;
+  CAPABILITY_RUNG_FILES_PRESENT = 3;
+  CAPABILITY_RUNG_INTERPRETER_RUNS = 4;
+  CAPABILITY_RUNG_SDK_IMPORTS = 5;
+  CAPABILITY_RUNG_SMOKE_RUN = 6;
+  CAPABILITY_RUNG_OBSERVED_OPERATION = 7;
+  CAPABILITY_RUNG_QUALIFIED = 8;
+  CAPABILITY_RUNG_DEPLOYED = 9;
+}
+enum LicenseTier {
+  LICENSE_TIER_UNSPECIFIED = 0;
+  LICENSE_TIER_COMMERCIAL = 1;
+  LICENSE_TIER_RESEARCH_ONLY = 2;
+  LICENSE_TIER_NEEDS_LICENSE = 3;
+  LICENSE_TIER_VERIFY = 4;
+}
+enum JobState {
+  JOB_STATE_UNSPECIFIED = 0;
+  JOB_STATE_QUEUED = 1;
+  JOB_STATE_RUNNING = 2;
+  JOB_STATE_SUCCEEDED = 3;
+  JOB_STATE_FAILED = 4;
+  JOB_STATE_CANCELLED = 5;
+  JOB_STATE_INTERRUPTED = 6;
+}
+
+message Vec3 {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+message Int3 {
+  sint32 x = 1;
+  sint32 y = 2;
+  sint32 z = 3;
+}
+message Basis {
+  Vec3 x = 1;
+  Vec3 y = 2;
+  Vec3 z = 3;
+}
+message Identity {
+  string id = 1;
+  string source_revision = 2;
+  string frame_id = 3;
+  string object_id = 4;
+  string region_id = 5;
+}
+message Frame {
+  Identity identity = 1;
+  Units units = 2;
+  Vec3 origin = 3;
+  Basis basis = 4;
+}
+message EvidenceReference {
+  string handle_id = 1;
+  string run_id = 2;
+  string source_revision = 3;
+  string object_id = 4;
+  string region_id = 5;
+  EvidenceKind kind = 6;
+}
+// This is a transport reference, never an admission token or a cited:true bit.
+// Existing createEvidenceAdmission retains sole controller authority.
+message Evidence {
+  EvidenceKind kind = 1;
+  EvidenceState state = 2;
+  Provenance provenance = 3;
+  string run_id = 4;
+  string source_revision = 5;
+  string object_id = 6;
+  string region_id = 7;
+  repeated EvidenceReference references = 8;
+  bytes raw_model_response = 9;
+  bytes refusal = 10;
+}
+message UncertaintyBudget {
+  double fiducial_scale_mm = 1;
+  double calibration_residual_mm = 2;
+  double edge_localization_mm = 3;
+  double sensor_floor_mm = 4;
+}
+message Dimension {
+  double value_mm = 1;
+  double plus_minus_mm = 2;
+  UncertaintyBudget budget = 3;
+  Evidence evidence = 4;
+  bool measured = 5;
+  optional double caliper_mm = 6;
+  optional double frozen_threshold_mm = 7;
+  string instrument = 8;
+  string benchmark_approval_ref = 9;
+}
+// Raw floating producer arrays are distinct from encoded ledger channels.
+// Quantization only in Rust: finite input, declared scale/clamp, half-even.
+message Quantization {
+  double scale = 1;
+  double clamp_min = 2;
+  double clamp_max = 3;
+  string rounding = 4;
+  string owner = 5;
+}
+message ChannelDeclaration {
+  ChannelKind kind = 1;
+  string storage = 2;
+  uint32 components = 3;
+  string unit = 4;
+  Quantization quantization = 5;
+  // Sigma declarations require statistic = "1sigma" and unit = "um".
+  string statistic = 6;
+}
+message RawChannel {
+  ChannelKind kind = 1;
+  repeated double values = 2;
+}
+message RawVoxelInput {
+  string schema = 1;
+  string source_revision = 2;
+  repeated RawChannel channels = 3;
+}
+message VoxelHeader {
+  string schema = 1;
+  string frame_id = 2;
+  Units units = 3;
+  double voxel_size = 4;
+  Vec3 origin = 5;
+  Basis basis = 6;
+  bytes channel_schema_hash = 7;
+  string source_revision = 8;
+  repeated ChannelDeclaration channels = 9;
+  repeated uint32 topology_log2 = 10;
+}
+message U8Channel {
+  repeated uint32 values = 1;
+}
+message I16Channel {
+  repeated sint32 values = 1;
+}
+message U16Channel {
+  repeated uint32 values = 1;
+}
+message U32Channel {
+  repeated uint32 values = 1;
+}
+message RGB8 {
+  uint32 r = 1;
+  uint32 g = 2;
+  uint32 b = 3;
+}
+message RGB8Channel {
+  repeated RGB8 values = 1;
+}
+message Normal8 {
+  sint32 x = 1;
+  sint32 y = 2;
+  sint32 z = 3;
+}
+message Normal8Channel {
+  repeated Normal8 values = 1;
+}
+message LeafMetadata {
+  Provenance provenance = 1;
+  EvidenceState evidence_state = 2;
+  uint32 observation_count = 3;
+  bytes source_set_hash = 4;
+}
+// Optional message presence distinguishes unrecorded sigma from 512 zero codes.
+// sigma is u16, 1-sigma micrometres. Ledger resolution is never accuracy.
+message VoxelLeaf {
+  Int3 origin = 1;
+  LeafMetadata metadata = 2;
+  repeated ChannelKind channel_order = 3;
+  U8Channel state = 4;
+  I16Channel tsdf = 5;
+  U16Channel weight = 6;
+  RGB8Channel rgb = 7;
+  U32Channel instance_label = 8;
+  U16Channel fill = 9;
+  Normal8Channel normal = 10;
+  U32Channel feature_ref = 11;
+  U16Channel sigma = 12;
+}
+message VoxelRegion {
+  Identity identity = 1;
+  bool allocated = 2;
+  VoxelState state = 3;
+  optional VoxelLeaf leaf = 4;
+}
+message SourceVersion {
+  string producer = 1;
+  string version = 2;
+  string revision = 3;
+}
+message License {
+  LicenseTier tier = 1;
+  repeated string sources = 2;
+}
+message Capability {
+  string verb = 1;
+  CapabilityRung rung = 2;
+  string observed_at = 3;
+  repeated EvidenceReference supporting_references = 4;
+  License license = 5;
+  bool public_eligible = 6;
+  string next_action = 7;
+}
+message Observation {
+  Identity identity = 1;
+  Evidence evidence = 2;
+  repeated Dimension dimensions = 3;
+}
+message Relation {
+  Identity identity = 1;
+  string subject_id = 2;
+  string predicate = 3;
+  string target_id = 4;
+  bool established = 5;
+  string method = 6;
+  double tolerance_mm = 7;
+  repeated EvidenceReference voxel_references = 8;
+  Evidence evidence = 9;
+}
+message Materialize {
+  Identity identity = 1;
+  string plan_hash = 2;
+  string approval_reference = 3;
+  string job_id = 4;
+  bool approved = 5;
+}
+message Proof {
+  Identity identity = 1;
+  bytes root = 2;
+  bytes leaf_hash = 3;
+  repeated bytes siblings = 4;
+  bytes child_mask = 5;
+  bool unknown_region = 6;
+}
+message HarnessPresence {
+  string harness = 1;
+  string model = 2;
+  string node_id = 3;
+  string room = 4;
+  string job_id = 5;
+  string source_revision = 6;
+  string target_region_id = 7;
+}
+message Space {
+  Identity identity = 1;
+  Evidence evidence = 2;
+  repeated string references = 3;
+}
+message Datum {
+  Identity identity = 1;
+  Evidence evidence = 2;
+  repeated string references = 3;
+}
+message Region {
+  Identity identity = 1;
+  Evidence evidence = 2;
+  repeated string references = 3;
+}
+message Object {
+  Identity identity = 1;
+  Evidence evidence = 2;
+  repeated string references = 3;
+}
+message Part {
+  Identity identity = 1;
+  Evidence evidence = 2;
+  repeated string references = 3;
+}
+message Feature {
+  Identity identity = 1;
+  Evidence evidence = 2;
+  repeated string references = 3;
+}
+message Profile {
+  Identity identity = 1;
+  Evidence evidence = 2;
+  repeated string references = 3;
+}
+message Constraint {
+  Identity identity = 1;
+  Evidence evidence = 2;
+  repeated string references = 3;
+}
+message Judgment {
+  Identity identity = 1;
+  Evidence evidence = 2;
+  repeated string references = 3;
+}
+message SceneIR {
+  string schema = 1;
+  string source_revision = 2;
+  repeated Space spaces = 3;
+  repeated Frame frames = 4;
+  repeated Datum data = 5;
+  repeated Region regions = 6;
+  repeated Object objects = 7;
+  repeated Part parts = 8;
+  repeated Feature features = 9;
+  repeated Profile profiles = 10;
+  repeated Constraint constraints = 11;
+  repeated Relation relations = 12;
+  repeated Observation observations = 13;
+  repeated Judgment judgments = 14;
+  repeated Materialize materializations = 15;
+  repeated Proof proofs = 16;
+  repeated HarnessPresence presence = 17;
+}
+message Failure {
+  string code = 1;
+  string message = 2;
+  bytes details = 3;
+}
+message Recovery {
+  bool verified_complete = 1;
+  string readback_reference = 2;
+  bool replay_safe = 3;
+  string prior_job_id = 4;
+}
+message Job {
+  string schema = 1;
+  string job_id = 2;
+  string operation_id = 3;
+  string source_revision = 4;
+  string document_revision = 5;
+  string request_id = 6;
+  JobState state = 7;
+  double progress = 8;
+  repeated string result_references = 9;
+  repeated string receipt_references = 10;
+  string created_at = 11;
+  string updated_at = 12;
+  optional Failure failure = 13;
+  optional string cancellation_reason = 14;
+  optional Recovery recovery = 15;
+}
+message SubmitRequest {
+  string request_id = 1;
+  string operation_id = 2;
+  string source_revision = 3;
+  string document_revision = 4;
+  string capability = 5;
+  bytes payload = 6;
+}
+message SubmitResponse {
+  Job job = 1;
+}
+message StatusRequest {
+  string job_id = 1;
+  string source_revision = 2;
+}
+message StatusResponse {
+  Job job = 1;
+}
+message CancelRequest {
+  string job_id = 1;
+  string source_revision = 2;
+  string reason = 3;
+}
+message CancelResponse {
+  Job job = 1;
+}
+message RecoverRequest {
+  string job_id = 1;
+  string source_revision = 2;
+  string readback_reference = 3;
+}
+message RecoverResponse {
+  Job job = 1;
+}
+message ProgressRequest {
+  string job_id = 1;
+  string source_revision = 2;
+  uint64 after_sequence = 3;
+}
+message ProgressResponse {
+  Job job = 1;
+  uint64 sequence = 2;
+}
+service JobService {
+  rpc Submit(SubmitRequest) returns (SubmitResponse);
+  rpc Status(StatusRequest) returns (StatusResponse);
+  rpc Cancel(CancelRequest) returns (CancelResponse);
+  rpc Recover(RecoverRequest) returns (RecoverResponse);
+  rpc Progress(ProgressRequest) returns (stream ProgressResponse);
+}
+// canonical_json is the unchanged existing recursive canonicalBody bytes.
+// Proto encoding is transport only and never replaces signed JSON authority.
+message SpatialReceipt {
+  bytes canonical_json = 1;
+  string receipt_id = 2;
+  string hash = 3;
+  string prev_hash = 4;
+  bytes signature = 5;
+  string signer = 6;
+  string harness = 7;
+  string model = 8;
+  string node_id = 9;
+  string room = 10;
+  string job_id = 11;
+  string source_revision = 12;
+  optional bytes root = 13;
+  optional bytes header_hash = 14;
+  optional bytes header = 15;
+  optional uint32 leaf_count = 16;
+  optional uint32 changed_leaf_count = 17;
+  repeated SourceVersion producer_versions = 18;
+  optional Evidence evidence = 19;
+}
+// A transport fixture envelope; it grants no native/physical capabilities.
+message ContractFixture {
+  Frame frame = 1;
+  VoxelHeader header = 2;
+  VoxelLeaf leaf = 3;
+  VoxelRegion region = 4;
+  SceneIR scene = 5;
+  repeated Job jobs = 6;
+  repeated ProgressResponse progress = 7;
+  SpatialReceipt receipt = 8;
+  optional Capability capability = 9;
+  optional Dimension dimension = 10;
+  optional Relation relation = 11;
+}
