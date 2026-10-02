@@ -11,7 +11,7 @@
 - [x] Froze and ran the 38 local artifact checks once; all passed.
 - [x] Privacy tree: zero medium-or-above findings; defective fixture: 17 blocking findings.
 - [x] Finalized the three R0.1 documents for the authorized local commit.
-- [ ] Remote publication and draft PR: authorized under A2; final publication record below.
+- [x] Pushed the build branch and opened draft PR #82; publication record below.
 - [x] A2 verified and copied verbatim; direct network execution authorized.
 - [x] Fetched origin and pinged each of the five nodes exactly once.
 
@@ -238,9 +238,38 @@ reported 0 medium-or-above findings (368 review-level findings); the defective
 fixture still tripped 17 blocking findings. The license gate remains not-run
 because it is not yet implemented. No runtime or integration was qualified.
 
+### Publication observed under A2
+
+The build branch was pushed successfully. Draft PR: [#82](https://github.com/woodman33/timmy-tui/pull/82).
+The initial publication head is `a22e8754ef282fea99197b18ec00c3f313daf8a4`; the final documentation head is
+reported after its push. The PR is a draft for independent review, not a CLEAR
+or merge authority. R0.1's requested artifacts are complete; CI and independent
+review remain separate. The initial INCOMPLETE round above is retained unchanged.
+
+A second `git fetch origin` observed the verifier's frozen acceptance commit
+`628f308d9631ef56e636f080c2dd96371917cdd7` on `origin/order/spacelang-v7k2-verify`, with C6.1, C6.2
+and F1 acceptance files. No builder checkpoint began. The next named builder
+round must cite that exact commit. The benchmark remains unapproved.
+
+Additional executed network commands:
+
+- `git push -u origin order/spacelang-v7k2-build` — exit 0.
+- `gh pr create --repo woodman33/timmy-tui --base main --head order/spacelang-v7k2-build --draft --title "docs: record Timmy Space baseline and amendments" --body-file <private-pr-body>` — exit 0.
+- `git fetch origin` — second fetch, exit 0; observes the verifier's publication.
+
+This final reporting update will be followed by one `git push origin
+order/spacelang-v7k2-build` and one `gh pr view 82 --repo woodman33/timmy-tui
+--json url,isDraft,headRefOid,statusCheckRollup`; their exact outcomes are retained
+in the private publication log and final report. The app's attach_artifact action
+attached PR #82 to this task; its coordination message informs timmy-new-2.
+
+No source files, external applications, node settings or shared receipts were
+changed. The build branch carries R0.1 documentation only; all C6 candidate
+files remain unstaged and byte-preserved. No runtime or UI readiness is claimed.
+
 ## Next
 
-Finish only the authorized R0.1 publication, report and HOLD.
+R0.1 is complete after observed publication; report and HOLD.
 Under A2, C6.1 starts only after the operator names that round and the verifier's
 frozen acceptance is on origin; the builder must cite that exact commit. Native ownership remains with
 new-3 unless the operator explicitly says that thread is not open.
