@@ -181,6 +181,52 @@ OPERATOR AMENDMENT A2 · worktrees, execution mode, sequencing, spark3
 4. spark3 answers ping, but its SSH server is off (port 22 refuses). Report it as "UP, SSH unavailable" until I write "spark3 SSH ready". Never try to enable it. Work that needs spark3 waits; everything else proceeds.
 <!-- END A2 VERBATIM -->
 
+### R1 / C6.1 — mutable repair, bounded acceptance, HOLD
+
+Authority: operator R1; ORDER §9 C6.1; A2. Frozen independent acceptance:
+`628f308d9631ef56e636f080c2dd96371917cdd7`, `docs/orders/spacelang-v7k2/verify/C6.1-ACCEPTANCE.md`,
+SHA-256 `ad8d14bbeb5801fb44259df9e937cfa74376516e0b6d68cbd4f3c7a56273d5e4`. Candidate source commit:
+`bd9a20dc92cdae6236fb759c6a02675e1cdf60f9`. C6 branch was fast-forwarded to this thread's
+published R0.1 documentation before repair; no PR or main merge occurred.
+
+Implemented independent status-card probes with per-probe catches, timeout and
+schema checks, `Promise.allSettled`, and safe variable-name/rule diagnostics.
+Status catalog failures stay with the affected integration; execution definitions
+still refuse invalid interpreter configuration. Timers bound asynchronous stalls;
+they cannot preempt blocking synchronous code or cancel underlying work.
+Canvas failures preserve both exact error objects in an AggregateError, original
+cause and import-first diagnostics. An independent cloned snapshot is retrievable
+and remains safe from rollback mutation and caller mutation.
+
+Frozen builder checks: 51/51 detached candidate cases; 3/3 browser cases; 79/79
+focused tests; `tsgo --noEmit` exit 0. The actual tldraw 3.15 SDK accepted a valid
+synthetic native document, refused nonnumeric shape x, restored its prior document
+and retained the full recovery snapshot. Browser rendering of both injected
+recovery failures was observed; that double failure remains an injected case.
+Detached catalog defect rejected ISO-01/02 and both config-privacy cases;
+detached recovery defect rejected REC-02/03/04. Both expected exits were 1.
+Privacy tree: 0 medium-or-above, 368 review-level; defective fixture: 17 blocking.
+
+**INCOMPLETE / HOLD:** ISO-04's actual workspace DOM observations for every status
+fault were not run; escaped guidance serialization is not an actual DOM result.
+The full directory membership/empty-directory preimage requirement was not
+separately bound, so no directory-level preservation qualification is claimed.
+All declared immutable file, source, dependency and fixture preimages compared
+byte-for-byte; protected candidate files and the own receipt journal are unchanged.
+No failed frozen result was repaired or rerun. No independent CLEARED verdict,
+application integration qualification or UI readiness claim is made.
+
+Seal preflight resolved to the worktree-local `.timmy/receipts`; no actual root
+store pin was present. The conditional A1/A2 seal was skipped, and no pin was
+created. The exact resolved store path is retained privately and reported to the
+operator. A1/A2 and the governing ORDER hashes remain unchanged.
+
+Network commands this round: `git fetch origin`; the development and focused
+Vitest commands used owned loopback HTTP fixtures; `node browser-acceptance.mjs`
+used an owned loopback fixture plus pinned esm.sh/tldraw public assets. Exact
+commands and browser request URLs are retained privately. Publication commands
+will push only `codex/workspace-ux-20260930` and open its draft PR; no merge.
+
 ## Outcomes
 
 ### Initial round, before A2
@@ -269,7 +315,9 @@ files remain unstaged and byte-preserved. No runtime or UI readiness is claimed.
 
 ## Next
 
-R0.1 is complete after observed publication; report and HOLD.
+R1 / C6.1 is INCOMPLETE / HOLD. Next: independently verify the repaired candidate
+and authorize a separately bound round for the missing actual-DOM and directory
+preservation controls. No next checkpoint starts. R0.1 remains complete.
 Under A2, C6.1 starts only after the operator names that round and the verifier's
 frozen acceptance is on origin; the builder must cite that exact commit. Native ownership remains with
 new-3 unless the operator explicitly says that thread is not open.
