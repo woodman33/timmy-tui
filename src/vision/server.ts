@@ -7,10 +7,12 @@ import { imageHash, readVisionEvent, visionStorageDir } from './store.js';
 import { visionAsset, loadVisionEnvironment } from './config.js';
 import { getVisionCatalog } from './platform.js';
 import { publicVisionEvent, findVisionOutput } from './presentation.js';
+import { visionWorkspacePage } from './workspace.js';
+import { visionWorkspaceStatus, type StatusDependencies } from './workspace-status.js';
 import { getVisionStatus, runVisionInspection, listVisionEvents, recordVisionFeedback,
   syncVisionEvent, queryCloudVisionEvents, listLearningCandidates } from './runtime.js';
 
-export function createVisionApp(dir = process.cwd()) {
+export function createVisionApp(dir = process.cwd(), statusFixtures: { workspaceStatus?: StatusDependencies } = {}) {
   loadVisionEnvironment(dir);
   const app = express();
   app.disable('x-powered-by');
@@ -32,6 +34,11 @@ export function createVisionApp(dir = process.cwd()) {
     try { res.json(await fn(req)); }
     catch { res.status(500).json({ ok: false, state: 'error', note: 'The operation failed. Check the local runtime and try again.' }); }
   };
+  app.get('/workspace', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.type('html').send(visionWorkspacePage());
+  });
+  app.get('/api/vision/workspace', handle(() => visionWorkspaceStatus(dir, statusFixtures.workspaceStatus)));
   app.get('/api/vision/status', handle(() => getVisionStatus(options)));
   app.get('/api/vision/catalog', handle(() => getVisionCatalog(options)));
   app.get('/api/vision/events', handle(() => {
