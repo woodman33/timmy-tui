@@ -1,0 +1,184 @@
+{
+  "checkpoint": "R0.2",
+  "kind": "detached prospective acceptance manifest; not signed receipt or qualification",
+  "status": "PROSPECTIVE ACCEPTANCE FROZEN / HOLD — A2 authorizes own-branch publication; completion requires observed origin ref",
+  "base_commit": "76d3e23fac9e82032535194e5739189cae4734ba",
+  "branch": "order/spacelang-v7k2-verify",
+  "operator_inputs": [
+    {
+      "path": "ORDER.md",
+      "size": 57027,
+      "sha256": "b810840d0236d4a8f67a75ccd29b2f2d79a0e3695ab230c9c4240d673968ab7d"
+    },
+    {
+      "path": "A1.md",
+      "size": 1966,
+      "sha256": "fd37d86224661fe5d2d69bc2b4fb1234a6cf91e9846bfe2711dc0d577e67452a"
+    },
+    {
+      "path": "prompt-new-2.md",
+      "size": 9506,
+      "sha256": "281b4f61c1c6c1600ddd3554b62950fc9cb4f0b4c7b18f50338645f8a39f9fdb"
+    },
+    {
+      "path": "A2.md",
+      "size": 1391,
+      "sha256": "ba0a764973fdab205fe99c63bf382b72a770f7d2ebe7e09fadb6a08e8c2356d1"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "docs/WORKFLOW-BENCHMARK.md",
+      "bytes": 21901,
+      "sha256": "b17cdcd6bf53b0c271853a2e2d5e5c69f0b3231f1b8a50d66e906a2b6ad1609e"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/C6.1-ACCEPTANCE.md",
+      "bytes": 10106,
+      "sha256": "ad8d14bbeb5801fb44259df9e937cfa74376516e0b6d68cbd4f3c7a56273d5e4"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/C6.2-ACCEPTANCE.md",
+      "bytes": 11885,
+      "sha256": "e7f25146776e1340e961137eddbe8d5e8894dc60fffa51d0dcdcf0b0003b8120"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/F1-ACCEPTANCE.md",
+      "bytes": 21009,
+      "sha256": "7199510e373c53bc04bce60de7a122eac8ecbd1445f05d32df1e69db5f5c450d"
+    }
+  ],
+  "a1_decision_log_block_sha256": "fd37d86224661fe5d2d69bc2b4fb1234a6cf91e9846bfe2711dc0d577e67452a",
+  "nodes": [
+    {
+      "node": "spark1",
+      "status": "UP",
+      "method": "one ICMP ping",
+      "time": "2026-10-02T08:07:34.448Z",
+      "exit": 0
+    },
+    {
+      "node": "spark2",
+      "status": "UP",
+      "method": "one ICMP ping",
+      "time": "2026-10-02T08:07:34.556Z",
+      "exit": 0
+    },
+    {
+      "node": "spark3",
+      "status": "UP, SSH unavailable",
+      "method": "one ICMP ping",
+      "time": "2026-10-02T08:07:34.564Z",
+      "exit": 0,
+      "ssh_authority": "A2 operator statement",
+      "ssh_probe": "not-run; no enablement"
+    },
+    {
+      "node": "nas1",
+      "status": "UP",
+      "method": "one ICMP ping",
+      "time": "2026-10-02T08:07:34.570Z",
+      "exit": 0
+    },
+    {
+      "node": "nas2",
+      "status": "unreachable",
+      "method": "one ICMP ping",
+      "time": "2026-10-02T08:07:34.580Z",
+      "exit": 2
+    }
+  ],
+  "protected_comparisons": [
+    {
+      "path": "AGENTS.md",
+      "unchanged": true
+    },
+    {
+      "path": "DOCTRINE.md",
+      "unchanged": true
+    },
+    {
+      "path": "DESIGN.md",
+      "unchanged": true
+    },
+    {
+      "path": "decisions.md",
+      "unchanged": true
+    },
+    {
+      "path": "lanes/privacy/scan.mjs",
+      "unchanged": true
+    },
+    {
+      "path": "lanes/privacy/patterns.json",
+      "unchanged": true
+    },
+    {
+      "path": "ORDER.md",
+      "unchanged": true
+    },
+    {
+      "path": "A1.md",
+      "unchanged": true
+    },
+    {
+      "path": "prompt-new-2.md",
+      "unchanged": true
+    }
+  ],
+  "application_source_diff": "empty",
+  "license_gate": "not-run: absent at base; ORDER2 once-it-exists qualifier",
+  "controls": "C6 and F1 controls NOT RUN; no builder clearance or rung changes",
+  "publication": "published identity is the owning Git commit; verify own-branch origin ref after push and report full SHA; no self-referential embedded commit hash",
+  "readiness": "UI readiness not claimed",
+  "initial_attempt": {
+    "status": "INCOMPLETE / HOLD — publication awaiting managed-worktree authority",
+    "publication": "not committed, not pushed, no PR; builder must wait for published freeze",
+    "nodes": [
+      {
+        "node": "spark1",
+        "status": "UP",
+        "method": "one ICMP ping",
+        "time": "2026-10-02T08:07:34.448Z",
+        "exit": 0
+      },
+      {
+        "node": "spark2",
+        "status": "UP",
+        "method": "one ICMP ping",
+        "time": "2026-10-02T08:07:34.556Z",
+        "exit": 0
+      },
+      {
+        "node": "spark3",
+        "status": "UP",
+        "method": "one ICMP ping",
+        "time": "2026-10-02T08:07:34.564Z",
+        "exit": 0
+      },
+      {
+        "node": "nas1",
+        "status": "UP",
+        "method": "one ICMP ping",
+        "time": "2026-10-02T08:07:34.570Z",
+        "exit": 0
+      },
+      {
+        "node": "nas2",
+        "status": "unreachable",
+        "method": "one ICMP ping",
+        "time": "2026-10-02T08:07:34.580Z",
+        "exit": 2
+      }
+    ]
+  },
+  "a2_decision_log_block_sha256": "ba0a764973fdab205fe99c63bf382b72a770f7d2ebe7e09fadb6a08e8c2356d1",
+  "authority_amendment": {
+    "path": "~/timmy/orders/spacelang-v7k2/A2.md",
+    "sha256": "ba0a764973fdab205fe99c63bf382b72a770f7d2ebe7e09fadb6a08e8c2356d1",
+    "worktree": "ordinary same-repository Git worktree authorized",
+    "execution": "direct ORDER-granted network commands authorized",
+    "sequencing": "builder reports must cite this acceptance commit already on origin",
+    "spark3": "UP, SSH unavailable; operator statement, no SSH attempt"
+  }
+}
