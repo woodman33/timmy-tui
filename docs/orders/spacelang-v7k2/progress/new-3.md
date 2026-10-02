@@ -2,7 +2,7 @@
 
 ## Progress
 
-- R0.3: hashes verified; read-only fleet and wheel inventory collected. Data frozen for one acceptance execution; result recorded below after execution. Integration only by PR; no merge until timmy-new-2 CLEARED and applicable checks are green.
+- R0.3 COMPLETE / HOLD: all hashes verified, private fleet/wheel matrix written, one acceptance passed 13/13, and privacy scan passed. Draft PR #80 is open; no merge performed. Integration only by PR; no merge until timmy-new-2 CLEARED and applicable checks are green.
 - Baseline source: `76d3e23fac9e82032535194e5739189cae4734ba` on `order/spacelang-v7k2-native`; isolated worktree initially clean. Fetch and rebase exited 0.
 - Allowed writes: `.timmy/private/space/**`, `.timmy/private/fleet/nodes.json`, `.timmy/private/fleet/ssh_config`, this file and `docs/orders/spacelang-v7k2/handoff/R0.3-new-3.md`. All native implementation, workflows, governance, primary checkout changes and shared receipt chains are protected.
 - Start: 2026-10-02T08:04:18.040580+00:00; monotonic 900-second budget, deadline 2026-10-02T08:19:18.040580+00:00, 180 seconds reserved.
@@ -38,7 +38,7 @@ Why: published evaluations put phone LiDAR at about ±1 cm absolute on objects o
 
 ## Outcomes
 
-Inventory acceptance PASS: 13/13 checks, one execution, exit 0. Raw acceptance sha256 `040ba88c07c23b8586bf8b3634b15b6623b2098724a2fdaaddfebc4e8e6c6d4d`. These are detached diagnostic artifacts, not signed receipts. Delivery privacy check and PR head are reported separately. No installs, pulls, benchmarks, measurements, source builds, model access requests, system changes, deployments, merges or shared-chain seals. NAS storage remains disabled. Private output paths: `.timmy/private/space/runs-where-r0.3.{md,json}`, `.timmy/private/fleet/nodes.json`, `.timmy/private/fleet/ssh_config`, and checkpoint-local diagnostics/journal under `.timmy/private/space/r0.3/`.
+Inventory acceptance PASS: 13/13 checks, one execution, exit 0. Raw acceptance sha256 `040ba88c07c23b8586bf8b3634b15b6623b2098724a2fdaaddfebc4e8e6c6d4d`. These are detached diagnostic artifacts, not signed receipts. Staged privacy scan exit 0, no findings; commit and push exited 0. Draft PR: https://github.com/woodman33/timmy-tui/pull/80. The final delivery SHA is the PR head; no CI wait or merge in this checkpoint. No installs, pulls, benchmarks, measurements, source builds, model access requests, system changes, deployments, merges or shared-chain seals. NAS storage remains disabled. Private output paths: `.timmy/private/space/runs-where-r0.3.{md,json}`, `.timmy/private/fleet/nodes.json`, `.timmy/private/fleet/ssh_config`, and checkpoint-local diagnostics/journal under `.timmy/private/space/r0.3/`.
 
 ## Next
 
