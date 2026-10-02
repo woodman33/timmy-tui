@@ -11,8 +11,9 @@
 - [x] Froze and ran the 38 local artifact checks once; all passed.
 - [x] Privacy tree: zero medium-or-above findings; defective fixture: 17 blocking findings.
 - [x] Finalized the three R0.1 documents for the authorized local commit.
-- [ ] Remote publication and PR: held with fetch and node discovery.
-- [ ] Fetch, node discovery and push: stopped pending network-mode clarification.
+- [ ] Remote publication and draft PR: authorized under A2; final publication record below.
+- [x] A2 verified and copied verbatim; direct network execution authorized.
+- [x] Fetched origin and pinged each of the five nodes exactly once.
 
 ## Surprises & Discoveries
 
@@ -22,9 +23,9 @@
   durable automatic reopening. Prior outcomes are preserved.
 - The baseline has a local `v1.1.0` tag. ORDER §11's fallback release target is
   therefore `v1.2.0-rc.1`, subject to later fresh remote inventory and release approval.
-- This session disables approval requests and rejects per-command sandbox
-  escalation. Network work is stopped pending clarification of that mode;
-  no sandbox or node setting has been changed.
+- The initial round stopped network work because this session rejects per-command
+  escalation. Operator A2 now authorizes direct execution of already-granted
+  network actions. No sandbox or node setting was changed.
 
 ### Baseline and local inventory
 
@@ -165,7 +166,24 @@ Why: published evaluations put phone LiDAR at about ±1 cm absolute on objects o
 6. new-1 F6b: add Timmy's own agent loop (the OpenRouter Agents SDK layer) and OpenRouter's Ori harness, if installed, to the spatial_language probe, negative control included. A harness that can't register MCP is recorded null with the reason.
 <!-- END A1 VERBATIM -->
 
+- 2026-10-02: Operator A2 authorizes the existing worktree and direct execution
+  of already-granted network commands. Source: `~/timmy/orders/spacelang-v7k2/A2.md`;
+  SHA-256: `ba0a764973fdab205fe99c63bf382b72a770f7d2ebe7e09fadb6a08e8c2356d1`.
+  The operator explicitly requests R0.1 completion. Future builder checkpoints
+  wait for their independent frozen acceptance on origin.
+
+<!-- BEGIN A2 VERBATIM -->
+OPERATOR AMENDMENT A2 · worktrees, execution mode, sequencing, spark3
+(Level 1. Amends ORDER §2 and §4 as written below. This is an amendment, not a conflict: apply it and copy it verbatim into your Decision Log, with this file's path and sha256.)
+1. Worktrees. The ordinary git worktree each thread is using now (same .git, same origin, its own branch) satisfies ORDER §2's worktree override, whether or not the Codex app registers it as managed. Each thread commits and pushes only its own branch from its own worktree, and never touches another worktree or the main checkout.
+2. Execution mode. A session that cannot request per-command sandbox escalation may run the network actions ORDER §2 GRANTS directly: git fetch, push and pull requests for its own branch; ping and SSH to the MACHINES nodes; the listed package registries. List every network command in the report. Everything on §2's APPROVAL and ESCROW lists still needs my APPROVE line.
+3. Sequencing. A builder checkpoint starts only after timmy-new-2's frozen acceptance for it is on origin, and the builder's report cites that commit. If it is not there yet, report WAITING and HOLD without building.
+4. spark3 answers ping, but its SSH server is off (port 22 refuses). Report it as "UP, SSH unavailable" until I write "spark3 SSH ready". Never try to enable it. Work that needs spark3 waits; everything else proceeds.
+<!-- END A2 VERBATIM -->
+
 ## Outcomes
+
+### Initial round, before A2
 
 R0.1 remains **INCOMPLETE / HOLD**. Local R0.1 artifacts are prepared. Canonical ORDER and A1 verified; the verifier
 prompt was hashed only and its instructions were not read or acted upon. Raw
@@ -179,8 +197,50 @@ only the documentation/inventory constraints, not any application integration.
 The license gate is not-run because it has not been implemented. No network
 command or publication ran before this reporting update.
 
+### R0.1 completion under A2
+
+A2 SHA-256 matches the operator's value; both amendment blocks remain verbatim.
+`git fetch origin` exited 0. `origin/main` remains
+`76d3e23fac9e82032535194e5739189cae4734ba`; no rebase was needed.
+The doctrine branch ref remains `b1ecefada43992498564068b3e268f5e977acb3d`
+after fetch. Local inventory limitations and the initial round's results remain
+historical; no capability rung or UI readiness claim is raised.
+
+| Node | One LAN ping exit | Observed reachability |
+| --- | --- | --- |
+| `spark1` | 0 | UP |
+| `spark2` | 0 | UP |
+| `spark3` | 0 | UP, SSH unavailable |
+| `nas1` | 0 | UP |
+| `nas2` | 2 | unreachable |
+
+Pings ran at 01:29:47–01:29:49 Pacific on 2026-10-02. Each node received one
+request. spark3's SSH unavailability comes from A2; SSH was not probed or enabled.
+NAS discovery used ping only; no login was attempted and NAS storage stays false.
+The unreachable nas2 is a retained discovery result, not a failed local gate.
+
+Network commands executed so far (private addresses appear only in raw private logs):
+
+- `git fetch origin`
+- `/sbin/ping -n -c 1 -W 1000 -t 3 <spark1:private-address>`
+- `/sbin/ping -n -c 1 -W 1000 -t 3 <spark2:private-address>`
+- `/sbin/ping -n -c 1 -W 1000 -t 3 <spark3:private-address>`
+- `/sbin/ping -n -c 1 -W 1000 -t 3 <nas1:private-address>`
+- `/sbin/ping -n -c 1 -W 1000 -t 3 <nas2:private-address>`
+
+Planned publication commands, not yet executed at this documentation freeze:
+`git push -u origin order/spacelang-v7k2-build`, then
+`gh pr create --repo woodman33/timmy-tui --base main --head order/spacelang-v7k2-build --draft --title "docs: record Timmy Space baseline and amendments" --body-file <private-pr-body>`.
+Final publication outcomes will be appended after observation.
+
+The A2 completion freeze passed all 35 local checks once. The privacy scan
+reported 0 medium-or-above findings (368 review-level findings); the defective
+fixture still tripped 17 blocking findings. The license gate remains not-run
+because it is not yet implemented. No runtime or integration was qualified.
+
 ## Next
 
-Finish R0.1's frozen acceptance and allowed publication, report and HOLD.
-C6.1 begins only in a separately named round. Native ownership remains with
+Finish only the authorized R0.1 publication, report and HOLD.
+Under A2, C6.1 starts only after the operator names that round and the verifier's
+frozen acceptance is on origin; the builder must cite that exact commit. Native ownership remains with
 new-3 unless the operator explicitly says that thread is not open.
