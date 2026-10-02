@@ -1,0 +1,146 @@
+{
+  "checkpoint": "R1",
+  "status": "FAILED / HOLD board digital qualification; independent inventory scopes CLEARED",
+  "source_heads": {
+    "R01": "b786db2c15469840bc08346b3ad64be5defb28c7",
+    "R03": "0829b5d87c17b196e4d5e883d68d04101bb13f1b",
+    "verifier_base": "628f308d9631ef56e636f080c2dd96371917cdd7"
+  },
+  "verification": {
+    "checks": 18,
+    "passed": 18,
+    "freeze_sha256": "07cb2aa95e60f83e0f9869a2ec92646780f352c35d91d1c66a363eec019b1bac",
+    "raw_result_sha256": "0b0e5077c4319af0457d0b8ea89fb63553dee7946c43c6393e48c08e326b570f"
+  },
+  "artifacts": [
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/C6.3-ACCEPTANCE.md",
+      "bytes": 22273,
+      "sha256": "1464db5029c50c3e97d6f54f402023d5809afeb660dec647e95bbf720cff8415"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/F2a-ACCEPTANCE.md",
+      "bytes": 19076,
+      "sha256": "1e98d8f6c1cc838d9104a2da347a546ec70df00979520fed8ec0be726debf9f1"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/board_generator.py",
+      "bytes": 7229,
+      "sha256": "7a519415e180c42397c0ba5c0310b70e3bccd646cd983af096336c298e5e501f"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/BOARD-MANIFEST.json",
+      "bytes": 20795,
+      "sha256": "3c0ec91fb626291f2adac68cb7cc5b970d8c372e84c5488a8963e79639736cb7"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/BOARD.md",
+      "bytes": 6334,
+      "sha256": "dd506f872ffbf1f1040316867a4cab9245f900b86283b00c45886d346bd16f1e"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/f2a/MANIFEST.json",
+      "bytes": 2168,
+      "sha256": "f8e2446ac7969e8cb8c4eb3865c82b68e9b64dd6d4c4ebce8a70dcd3836b67a5"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/f2a/README.md",
+      "bytes": 1878,
+      "sha256": "1a395042023e0571d9161704180d58f9c0ce56b8db7479eda6e02ee37c81d33f"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/f2a/reference.py",
+      "bytes": 9773,
+      "sha256": "e2d28395b5945ff9dc04c2acea89d725edee467baf044c5493b80d3664d03590"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/f2a/sigma-absent.expected-values.json",
+      "bytes": 73582,
+      "sha256": "b0907da11847d625dd684872fbcb174b5d152f373c56caf09a30cd25807d3e9a"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/f2a/sigma-absent.expected.json",
+      "bytes": 261,
+      "sha256": "283173391c44581ab982b1c4181594c9beea63be415fe612381bb9c739a4d91f"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/f2a/sigma-absent.input.json",
+      "bytes": 106060,
+      "sha256": "87751f0411f727f76312ef5ae07303f7493c19cd17a3f5c7498eaca8952eb80b"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/f2a/sigma-absent.leaf-preimage.bin",
+      "bytes": 10851,
+      "sha256": "8e263e12f15195de885e3093fa4418fc76b9ca7028f5d844d7cd2bff06197002"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/f2a/sigma-absent.leaf-preimage.hex",
+      "bytes": 21703,
+      "sha256": "693f16e94adb01825c0226c0e85b5979b42db7bf7fdc8df220bf2354b435a038"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/f2a/sigma-absent.raw-f64le.bin",
+      "bytes": 49152,
+      "sha256": "4805ce474de28ac52af289a51ed8745af979dfb94439c4d08b5b6f0554b9d965"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/f2a/sigma-present.expected-values.json",
+      "bytes": 77951,
+      "sha256": "56c323ab72490fbb8ac49938b31f14578fe444026238ef41e504ae3f8a0705ad"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/f2a/sigma-present.expected.json",
+      "bytes": 261,
+      "sha256": "b491da1915c41472ff4001b7f06e82c60ac05cfcb836900b59d83d27dbb15f62"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/f2a/sigma-present.input.json",
+      "bytes": 112747,
+      "sha256": "e8bcf6bc9ebbaef401c4d2fdc9f17c5e7394b184cec21cc38ffd95f7f2c1fa63"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/f2a/sigma-present.leaf-preimage.bin",
+      "bytes": 11875,
+      "sha256": "a5fe40b0da5c5cec3ee1e166908e5bb5d790445d0f6e82eee5d7ae7627dbed6c"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/f2a/sigma-present.leaf-preimage.hex",
+      "bytes": 23751,
+      "sha256": "ab18d7ba3e400d5d4da69d9feb7122112c43b47618955b8f32d1da838d2fa0d6"
+    },
+    {
+      "path": "docs/orders/spacelang-v7k2/verify/f2a/sigma-present.raw-f64le.bin",
+      "bytes": 53248,
+      "sha256": "d5f4c437f8c090781235e906e5cec8c8beee5b691baf8125b3ffbc02fd519709"
+    }
+  ],
+  "pdf": {
+    "relative_path": ".timmy/private/space/r1/board/run-a/timmy-fiducial-letter-draft.pdf",
+    "sha256": "3340f733e32dcac936f779dde07aabc162f4d6cf3134b918ba5c27dd4f1b450f",
+    "ignored": true,
+    "status": "DRAFT / FAILED digital qualification"
+  },
+  "board_failure": {
+    "actual_exit": null,
+    "actual_exit_reason": "Standalone exit code not retained; unhandled AttributeError observed; enclosing log-print command exit 0 is not validator success",
+    "apriltag_detection": "NOT RUN: validator stopped before that phase",
+    "charuco_corner_detection": "FAILED: unavailable legacy API",
+    "checks_before_exception": "not retained individually; no PASS claimed",
+    "deterministic_pdf_sha256_runs": [
+      "3340f733e32dcac936f779dde07aabc162f4d6cf3134b918ba5c27dd4f1b450f",
+      "3340f733e32dcac936f779dde07aabc162f4d6cf3134b918ba5c27dd4f1b450f"
+    ],
+    "error": "AttributeError: module 'cv2.aruco' has no attribute 'interpolateCornersCharuco'",
+    "expected_exit": 0,
+    "physical_print_check": "NOT RUN",
+    "raster_visual_inspection": "observed generated page; not machine qualification",
+    "raw_failure_sha256": "9aa75da271d7c8a0c291192140a204ff93debfb579831a56cca6a7a11300abc1",
+    "rerun": "NOT RUN; frozen failure retained unchanged",
+    "status": "FAILED / HOLD",
+    "validator_sha256": "e4527c222746c9f4835ec8641a9e63618d78e77e81b521457b1997a1e1b257e1"
+  },
+  "model_admitted_evidence": "unknown",
+  "shared_receipts": "none",
+  "rungs_moved": [],
+  "remaining": "benchmark approval; new separately authorized board validation; future candidate/global encoding bindings"
+}

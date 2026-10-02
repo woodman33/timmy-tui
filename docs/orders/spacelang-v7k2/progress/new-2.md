@@ -144,3 +144,27 @@ Time: start 2026-10-02T08:28:32Z; deadline 2026-10-02T08:43:32Z; reporting reser
 ### Next
 
 After origin verification and the final report, HOLD. The benchmark remains DRAFT until the operator supplies APPROVE bench b17cdcd6bf53b0c271853a2e2d5e5c69f0b3231f1b8a50d66e906a2b6ad1609e. Numerical thresholds remain R10 work after M1b/M3a verification. R1 and all builder execution require the operator's round instruction; builders must cite the actual frozen commit already on origin. Spark3-dependent work waits for “spark3 SSH ready.” All other approval/escrow requirements and historical HOLDs remain intact.
+
+## R1 · operator-named round
+
+### Progress
+
+Verified PR82 b786db2 and PR80 0829b5d at the requested full heads. Independent retained-artifact checks18/18 passed. A1/A2 bytes, source paths and SHA-256 match in all three Decision Logs. C6.3 and F2a prospective acceptance plus sigma-present/absent leaf fixtures authored. Board generator and ignored draft PDF produced; its frozen validator FAILED. See verify/R1-VERDICT.md and R1-MANIFEST.json. Publication identity is established by the owning Git commit and observed origin ref, not a self-referential field.
+
+### Surprises & Discoveries
+
+Board detector validator used cv2.aruco.interpolateCornersCharuco, which pinned OpenCV4.12.0 lacks. Raw AttributeError and null standalone exit are retained; the enclosing log-print exit0 is not a PASS. No repair/rerun. Header/schema canonical bytes, metadata enum mappings and packing/scales need an explicit prospective F2a binding; supplied leaf digests are opaque fixture inputs, not qualified header hashes.
+
+### Decision Log
+
+Authority: operator R1, ORDER/A1/A2. Write budget: new verify/R1 verdict+manifest, C6.3/F2a acceptance, verify/f2a/**, board generator+manifest+report, this progress file and ignored .timmy/private/space/r1/**. No application source or shared chain. Protected R0.2 freezes/benchmark, governance/gates and operator inputs retain complete independent preimages. No historical result relabeled. Root runtime model/effort identity remains unverified; documentation delegates requested GPT-6 Astra/Ultra. Network command roster and source limits are in R1-VERDICT.md; no SSH or physical capture.
+
+### Outcomes
+
+R0.1/R0.3 CLEARED only as retained documentation/inventory scopes at named revisions. Amendment identity CLEARED. Board FAILED/HOLD, PDF hash3340f733e32dcac936f779dde07aabc162f4d6cf3134b918ba5c27dd4f1b450f; C6.3/F2a candidate acceptance NOT RUN. Raw model-admitted evidence unknown; no handles/cite calls, shared receipts, roots, recordings or capability-rung changes. No UI readiness claim. Privacy/license/preservation results and final origin commit are retained in the local journal and reported after publication. License gate remains absent/not-run.
+
+Time start2026-10-02T08:44:18Z; reserve08:56:18Z; deadline08:59:18Z. End recorded in operator report/private journal.
+
+### Next
+
+HOLD. Separate operator authorization is needed for a new board-validation attempt; keep this failed freeze unchanged. Benchmark remains DRAFT at b17cdcd6bf53b0c271853a2e2d5e5c69f0b3231f1b8a50d66e906a2b6ad1609e. No next round begins. Builders cite the published verifier acceptance commit under A2; incomplete global bindings cannot be silently inferred from candidate outputs.
