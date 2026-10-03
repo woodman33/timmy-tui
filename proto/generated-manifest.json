@@ -1,0 +1,32 @@
+{
+  "qualification": false,
+  "plugins": {
+    "es": "v2.9.0",
+    "prost": "v0.4.0",
+    "go": "v1.36.8",
+    "connect-go": "v1.19.1",
+    "python": "v31.1"
+  },
+  "files": {
+    "proto/gen/go/timmy/space/v1/space.pb.go": {
+      "size": 172180,
+      "sha256": "e4d595669a1ab4a6b93a02021dc2b4e4eb0756ed50b60eb7b9bb0a86940a3089"
+    },
+    "proto/gen/go/timmy/space/v1/spacev1connect/space.connect.go": {
+      "size": 10590,
+      "sha256": "e08284df0dac0aafac2dbe0aa1e4b5f1075784af296643a9b4329f1118f657f7"
+    },
+    "proto/gen/python/timmy/space/v1/space_pb2.py": {
+      "size": 30837,
+      "sha256": "907cf5411567f3ebd8f9352407907ef7a7322e40167cb55a63168ddd9207b752"
+    },
+    "proto/gen/rust/timmy.space.v1.rs": {
+      "size": 46071,
+      "sha256": "3536d799d6d97f8cce0330aaa590a4a3d68f7e8d788e1464197d758b2092ce06"
+    },
+    "proto/gen/ts/timmy/space/v1/space_pb.ts": {
+      "size": 71886,
+      "sha256": "5f3c86c4e4ccb3ca63efa4474d5da339a28cab07c75a9a5f47b88facba87d3ad"
+    }
+  }
+}

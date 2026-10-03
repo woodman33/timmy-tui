@@ -1,0 +1,84 @@
+{
+  "qualification": false,
+  "negatives": {
+    "N01-free-zero-weight": {
+      "fixture": "N01-free-zero-weight.json",
+      "expected_exit": 1,
+      "diagnostic": "_stateRules.0"
+    },
+    "N01-unallocated-free": {
+      "fixture": "N01-unallocated-free.json",
+      "expected_exit": 1,
+      "diagnostic": "region.state"
+    },
+    "N02-sigma-negative": {
+      "fixture": "N02-sigma-negative.json",
+      "expected_exit": 1,
+      "diagnostic": "sigma.values.0"
+    },
+    "N02-sigma-overflow": {
+      "fixture": "N02-sigma-overflow.json",
+      "expected_exit": 1,
+      "diagnostic": "sigma.values.0"
+    },
+    "N02-sigma-unit": {
+      "fixture": "N02-sigma-unit.json",
+      "expected_exit": 1,
+      "diagnostic": "unit"
+    },
+    "N02-sigma-statistic": {
+      "fixture": "N02-sigma-statistic.json",
+      "expected_exit": 1,
+      "diagnostic": "statistic"
+    },
+    "N04-empty-revision": {
+      "fixture": "N04-empty-revision.json",
+      "expected_exit": 1,
+      "diagnostic": "sourceRevision"
+    },
+    "N04-voxel-zero": {
+      "fixture": "N04-voxel-zero.json",
+      "expected_exit": 1,
+      "diagnostic": "voxelSize"
+    },
+    "N04-left-handed": {
+      "fixture": "N04-left-handed.json",
+      "expected_exit": 1,
+      "diagnostic": "rightHanded"
+    },
+    "N05-tsdf-overflow": {
+      "fixture": "N05-tsdf-overflow.json",
+      "expected_exit": 1,
+      "diagnostic": "tsdf.values.0"
+    },
+    "N05-cardinality": {
+      "fixture": "N05-cardinality.json",
+      "expected_exit": 1,
+      "diagnostic": "weight.values"
+    },
+    "N05-digest": {
+      "fixture": "N05-digest.json",
+      "expected_exit": 1,
+      "diagnostic": "_channelHashLength"
+    },
+    "N05-order": {
+      "fixture": "N05-order.json",
+      "expected_exit": 1,
+      "diagnostic": "order"
+    }
+  },
+  "missing_controls": [
+    "N03",
+    "N06",
+    "N07",
+    "N08",
+    "N09",
+    "N10",
+    "N11",
+    "N12",
+    "N13",
+    "N14",
+    "N15"
+  ],
+  "note": "Development fixtures only; this subset cannot qualify F1."
+}

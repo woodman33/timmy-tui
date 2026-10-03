@@ -1,0 +1,10 @@
+version: v2
+modules:
+  - path: proto
+lint:
+  use: [STANDARD]
+  ignore_only:
+    ENUM_ZERO_VALUE_SUFFIX:
+      - proto/timmy/space/v1/space.proto
+breaking:
+  use: [FILE]
