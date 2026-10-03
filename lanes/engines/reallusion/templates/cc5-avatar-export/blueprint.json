@@ -1,0 +1,31 @@
+{
+ "kind": "blueprint",
+ "name": "Reallusion CC5 · avatar-export",
+ "source": "lanes/engines/reallusion/templates/cc5-avatar-export/plan.cue",
+ "date": "2026-10-03",
+ "engine": "reallusion",
+ "workflow": "cc5-avatar-export",
+ "note": "Load a Character Creator 5 character (.ccAvatar or .fbx), apply morphs/materials, export as FBX/OBJ/GLB for downstream use in Unreal, Unity, Blender, or iClone. Requires CC5 running with Python API plugin active.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "avatar", "value": "*.ccAvatar · *.fbx · *.obj", "note": "CC5 character or importable mesh" },
+   { "label": "morph_preset", "value": "*.rlMorphPreset · *.json", "note": "optional morph/slider preset" },
+   { "label": "refused", "value": "> 1 GB single file", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 load", "value": "CharacterCreatorpy.exe load_avatar.py: open avatar or import character", "note": "character loaded" },
+   { "label": "2 configure", "value": "CharacterCreatorpy.exe apply_settings.py: apply morphs, materials, LOD", "note": "settings applied" },
+   { "label": "3 export", "value": "CharacterCreatorpy.exe export_avatar.py: export to FBX/OBJ/GLB", "note": "exported mesh + textures" },
+   { "label": "4 report", "value": "node report.mjs: verify export, record stats", "note": "export_ok in {stem}.cc5.json" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "mesh", "value": "{stem}.cc5.fbx (or .obj/.glb)", "note": "exported character mesh" },
+   { "label": "textures", "value": "{stem}_textures/", "note": "exported texture maps" },
+   { "label": "report", "value": "{stem}.cc5.json", "note": "vertex_count, texture_count, export_ok, timing" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "input sha256 · export sha256 · env-lock", "note": "" },
+   { "label": "extra", "value": "export_ok · format · vertex_count · cc5_version", "note": "from the report" }
+  ] }
+ ]
+}

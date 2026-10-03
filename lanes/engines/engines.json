@@ -96,17 +96,35 @@
    "fleet_id": "godot",
    "templates": ["headless-export", "gdscript-run", "import-only"]
   },
-  {
-   "id": "blender",
-   "label": "Blender 5.1.1",
-   "installed": true,
-   "version": "5.1.1",
-   "bridge": ["cli"],
-   "binaries": { "blender": "/Applications/Blender.app/Contents/MacOS/Blender" },
-   "envlock_bins": ["blender"],
-   "mcp": null,
-   "fleet_id": "blender",
-   "templates": ["render-still", "glb-export", "usd-export"]
-  }
- ]
+   {
+    "id": "blender",
+    "label": "Blender 5.1.1",
+    "installed": true,
+    "version": "5.1.1",
+    "bridge": ["cli"],
+    "binaries": { "blender": "/Applications/Blender.app/Contents/MacOS/Blender" },
+    "envlock_bins": ["blender"],
+    "mcp": null,
+    "fleet_id": "blender",
+    "templates": ["render-still", "glb-export", "usd-export"]
+   },
+   {
+    "id": "reallusion",
+    "label": "Reallusion iClone 8 + Character Creator 5",
+    "installed": true,
+    "version": "iClone 8 + CC5 (RLPy SWIG Python API via iClonepy.exe / CharacterCreatorpy.exe)",
+    "bridge": ["cli", "python-api"],
+    "binaries": {
+     "iclonepy": "C:\\Program Files\\Reallusion\\iClone 8\\Bin64\\iClonepy.exe",
+     "cc5py": "C:\\Program Files\\Reallusion\\Character Creator 5\\Bin64\\CharacterCreatorpy.exe",
+     "iclone": "C:\\Program Files\\Reallusion\\iClone 8\\Bin64\\iClone.exe",
+     "character_creator": "C:\\Program Files\\Reallusion\\Character Creator 5\\Bin64\\CharacterCreator.exe"
+    },
+    "envlock_bins": ["iclonepy", "cc5py"],
+    "mcp": null,
+    "fleet_id": "reallusion",
+    "templates": ["iclone-render-still", "cc5-avatar-export", "hub-content-sync"],
+    "note": "Windows-only. RLPy requires the host app running for live API access. Headless workflows need socket/script bridge."
+   }
+  ]
 }

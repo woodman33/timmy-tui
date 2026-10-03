@@ -1,0 +1,29 @@
+{
+ "kind": "blueprint",
+ "name": "Reallusion Hub · content-sync",
+ "source": "lanes/engines/reallusion/templates/hub-content-sync/plan.cue",
+ "date": "2026-10-03",
+ "engine": "reallusion",
+ "workflow": "hub-content-sync",
+ "note": "Sync content between Reallusion Hub and local iClone/CC5 libraries. Lists available content, downloads selected packs, and verifies installation. Uses the Reallusion Hub CLI or REST API when available.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs", "rows": [
+   { "label": "content_id", "value": "string", "note": "Reallusion marketplace content ID or pack name" },
+   { "label": "target_app", "value": "iclone | cc5 | both", "note": "which app library to sync into" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 list", "value": "Query Reallusion Hub for installed/available content", "note": "content catalog" },
+   { "label": "2 download", "value": "Download selected content pack via Hub API", "note": "pack downloaded" },
+   { "label": "3 install", "value": "Install/verify content in target app library", "note": "content available" },
+   { "label": "4 report", "value": "Verify installation + record content manifest", "note": "sync_ok in {stem}.hub.json" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "manifest", "value": "{stem}.hub.manifest.json", "note": "installed content list" },
+   { "label": "report", "value": "{stem}.hub.json", "note": "sync_ok, pack_count, timing" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "manifest sha256 · env-lock", "note": "" },
+   { "label": "extra", "value": "sync_ok · pack_count · hub_version", "note": "from the report" }
+  ] }
+ ]
+}

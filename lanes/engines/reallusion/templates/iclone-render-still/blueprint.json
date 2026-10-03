@@ -1,0 +1,30 @@
+{
+ "kind": "blueprint",
+ "name": "Reallusion iClone 8 · render-still",
+ "source": "lanes/engines/reallusion/templates/iclone-render-still/plan.cue",
+ "date": "2026-10-03",
+ "engine": "reallusion",
+ "workflow": "iclone-render-still",
+ "note": "Load an iClone project (.iProject) or import a supported asset (.fbx/.obj), set camera + lights, render one still frame via RLPy. Requires iClone 8 running with the Python API plugin active.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "project", "value": "*.iProject", "note": "iClone project file" },
+   { "label": "asset", "value": "*.fbx · *.obj · *.3dx", "note": "importable 3D asset" },
+   { "label": "refused", "value": "> 512 MB single file", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 load", "value": "iClonepy.exe load_scene.py: open project or import asset into current scene", "note": "scene ready" },
+   { "label": "2 configure", "value": "iClonepy.exe setup_render.py: set camera, resolution, lights, render settings", "note": "render config applied" },
+   { "label": "3 render", "value": "iClonepy.exe render_still.py: RGlobal.RenderImage to output path", "note": "PNG/JPG output" },
+   { "label": "4 report", "value": "node report.mjs: verify output image, record timing", "note": "render_ok in {stem}.iclone.json" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "still", "value": "{stem}.iclone.png", "note": "rendered image" },
+   { "label": "report", "value": "{stem}.iclone.json", "note": "resolution, camera, render_ok, timing" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "input sha256 · still sha256 · env-lock", "note": "" },
+   { "label": "extra", "value": "render_ok · resolution · iclone_version", "note": "from the report" }
+  ] }
+ ]
+}

@@ -1,0 +1,32 @@
+{
+ "v": 1,
+ "engine": "reallusion",
+ "captured_at": "2026-10-03T14:00:00.000Z",
+ "os": {
+  "platform": "win32",
+  "build": "5080-MSI",
+  "version": "10.0.26100"
+ },
+ "arch": "x64",
+ "tools": {
+  "iclonepy": {
+   "path": "C:\\Program Files\\Reallusion\\iClone 8\\Bin64\\iClonepy.exe",
+   "note": "Embedded Python with RLPy SWIG bindings; requires iClone 8 running for live API access"
+  },
+  "cc5py": {
+   "path": "C:\\Program Files\\Reallusion\\Character Creator 5\\Bin64\\CharacterCreatorpy.exe",
+   "note": "Embedded Python with RLPy SWIG bindings; requires CC5 running for live API access"
+  },
+  "iclone": {
+   "path": "C:\\Program Files\\Reallusion\\iClone 8\\Bin64\\iClone.exe",
+   "note": "Main iClone 8 application"
+  },
+  "character_creator": {
+   "path": "C:\\Program Files\\Reallusion\\Character Creator 5\\Bin64\\CharacterCreator.exe",
+   "note": "Main Character Creator 5 application"
+  }
+ },
+ "installed": true,
+ "bridge": ["cli", "python-api"],
+ "note": "RLPy is a SWIG-generated Python binding to Reallusion's C++ API. Scripts run inside the host app's embedded interpreter via iClonepy.exe or CharacterCreatorpy.exe. Headless/async workflows require the host app to be running and accepting socket/script commands."
+}
