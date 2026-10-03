@@ -1,0 +1,67 @@
+{
+  "format": "timmy.f2a.synthetic-fixtures/1",
+  "candidate_qualification": "not-run",
+  "files": [
+    {
+      "path": "sigma-absent.expected-values.json",
+      "bytes": 73582,
+      "sha256": "b0907da11847d625dd684872fbcb174b5d152f373c56caf09a30cd25807d3e9a"
+    },
+    {
+      "path": "sigma-absent.expected.json",
+      "bytes": 261,
+      "sha256": "283173391c44581ab982b1c4181594c9beea63be415fe612381bb9c739a4d91f"
+    },
+    {
+      "path": "sigma-absent.input.json",
+      "bytes": 106060,
+      "sha256": "87751f0411f727f76312ef5ae07303f7493c19cd17a3f5c7498eaca8952eb80b"
+    },
+    {
+      "path": "sigma-absent.leaf-preimage.bin",
+      "bytes": 10851,
+      "sha256": "8e263e12f15195de885e3093fa4418fc76b9ca7028f5d844d7cd2bff06197002"
+    },
+    {
+      "path": "sigma-absent.leaf-preimage.hex",
+      "bytes": 21703,
+      "sha256": "693f16e94adb01825c0226c0e85b5979b42db7bf7fdc8df220bf2354b435a038"
+    },
+    {
+      "path": "sigma-absent.raw-f64le.bin",
+      "bytes": 49152,
+      "sha256": "4805ce474de28ac52af289a51ed8745af979dfb94439c4d08b5b6f0554b9d965"
+    },
+    {
+      "path": "sigma-present.expected-values.json",
+      "bytes": 77951,
+      "sha256": "56c323ab72490fbb8ac49938b31f14578fe444026238ef41e504ae3f8a0705ad"
+    },
+    {
+      "path": "sigma-present.expected.json",
+      "bytes": 261,
+      "sha256": "b491da1915c41472ff4001b7f06e82c60ac05cfcb836900b59d83d27dbb15f62"
+    },
+    {
+      "path": "sigma-present.input.json",
+      "bytes": 112747,
+      "sha256": "e8bcf6bc9ebbaef401c4d2fdc9f17c5e7394b184cec21cc38ffd95f7f2c1fa63"
+    },
+    {
+      "path": "sigma-present.leaf-preimage.bin",
+      "bytes": 11875,
+      "sha256": "a5fe40b0da5c5cec3ee1e166908e5bb5d790445d0f6e82eee5d7ae7627dbed6c"
+    },
+    {
+      "path": "sigma-present.leaf-preimage.hex",
+      "bytes": 23751,
+      "sha256": "ab18d7ba3e400d5d4da69d9feb7122112c43b47618955b8f32d1da838d2fa0d6"
+    },
+    {
+      "path": "sigma-present.raw-f64le.bin",
+      "bytes": 53248,
+      "sha256": "d5f4c437f8c090781235e906e5cec8c8beee5b691baf8125b3ffbc02fd519709"
+    }
+  ],
+  "reference_sha256": "e2d28395b5945ff9dc04c2acea89d725edee467baf044c5493b80d3664d03590"
+}

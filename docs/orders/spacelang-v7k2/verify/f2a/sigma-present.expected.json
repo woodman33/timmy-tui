@@ -1,0 +1,7 @@
+{
+  "fixture": "sigma-present",
+  "preimage_length": 11875,
+  "leaf_sha256": "a5fe40b0da5c5cec3ee1e166908e5bb5d790445d0f6e82eee5d7ae7627dbed6c",
+  "raw_input_sha256": "d5f4c437f8c090781235e906e5cec8c8beee5b691baf8125b3ffbc02fd519709",
+  "sigma_present": true
+}
