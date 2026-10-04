@@ -29,6 +29,13 @@ per DOCTRINE §15, computed geometry does not establish a physical object's dime
 identified observation and calibration — the camera poses are that observation, and their error
 budget is the claim's error budget.
 
+## Routes
+
+Every geo tool has three routes to the same code: the lane script (`python3 lanes/geo/<tool>.py …`), the Timmy CLI
+(`timmy geo score|bench|scale --key value …`, receipted through `src/geo/mcp.ts`), and the MCP tools `timmy_geo_score`,
+`timmy_geo_bench`, `timmy_geo_scale` on the Timmy server — a score from the terminal and a score from an agent seal the
+same receipt. Exit codes are shared: 0 ok · 2 computed but not trusted / partial · 3 not_configured · 64 bad request.
+
 ## `voxel_score.py` — truth vs prediction, down to the voxel
 
 The bench scorer behind the Lab50 numbers, as a lane anyone can run: a truth shape and a predicted shape
