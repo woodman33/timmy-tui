@@ -4,19 +4,20 @@
 //   node bridge.mjs predict <drop> <out> <stem> [<project>] request hash + idempotency key + predicted tokens/cost  → {stem}.predict.json
 //   node bridge.mjs chat    <out> <stem>                    one receipted call to api.routemux.com                  → {stem}.response.json, {stem}.headers.json
 //   node bridge.mjs feed    <out> <stem> [<project>]        public pricing feed snapshot + diff vs the last snapshot → {stem}.feed.json, {stem}.feed-diff.json
-//   node bridge.mjs balance <out> <stem>                    /v1/user/balance + /v1/key/info (+ /v1/account/info)   → {stem}.balance.json
+//   node bridge.mjs balance <out> <stem> [<drop>]           /v1/user/balance + /v1/key/info (+ /v1/account/info), plus the drop's expected_spend_usd → {stem}.balance.json
 //   node bridge.mjs report  <workflow> <out> <stem>         analysis: prediction vs actual                         → {stem}.routemux.json
 //
 // Honesty clause: with no ROUTEMUX_API_KEY the bridge writes {stem}.routemux.json {status:"not_configured"} and
 // exits 3, so the engine.run receipt seals ok:false with status=not_configured. The key never appears in any file.
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const BASE = process.env.ROUTEMUX_BASE_URL ?? 'https://api.routemux.com';
 const KEY = process.env.ROUTEMUX_API_KEY ?? '';
 const UA = 'timmy-tui/engine-shelf routemux-lane';
-const sha = (s) => createHash('sha256').update(typeof s === 'string' ? s : JSON.stringify(s)).digest('hex');
+// sha256 of bytes when given bytes (Buffer/Uint8Array), of the string when given a string, of canonical JSON otherwise.
+const sha = (s) => createHash('sha256').update(typeof s === 'string' || s instanceof Uint8Array ? s : JSON.stringify(s)).digest('hex');
 const canon = (o) => JSON.stringify(sortKeys(o));
 function sortKeys(o) { return Array.isArray(o) ? o.map(sortKeys) : o && typeof o === 'object' ? Object.fromEntries(Object.keys(o).sort().map((k) => [k, sortKeys(o[k])])) : o; }
 const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'));
@@ -48,11 +49,14 @@ function feedPrice(feed, model) {
   return { input_per_1m: inp, output_per_1m: outp, raw_keys: Object.keys(row).slice(0, 12) };
 }
 
-function latestFeed(project) {
+// The newest *.feed.json under <project>/out/routemux/model-feed-snapshot/, skipping the run directory that is being
+// written right now (otherwise a feed diff would compare the snapshot with itself).
+function latestFeed(project, excludeDir = null) {
   if (!project) return null;
   const dir = join(project, 'out', 'routemux', 'model-feed-snapshot');
   if (!existsSync(dir)) return null;
-  const runs = readdirSync(dir).map((n) => join(dir, n)).filter((p) => statSync(p).isDirectory()).sort().reverse();
+  const skip = excludeDir ? resolve(excludeDir) : null;
+  const runs = readdirSync(dir).map((n) => join(dir, n)).filter((p) => statSync(p).isDirectory() && resolve(p) !== skip).sort().reverse();
   for (const r of runs) for (const f of readdirSync(r)) if (f.endsWith('.feed.json')) { try { return { path: join(r, f), feed: readJson(join(r, f)) }; } catch { /* skip */ } }
   return null;
 }
@@ -72,7 +76,7 @@ async function predict([drop, out, stem, projectArg]) {
   const cost = price ? ((tokens_in * (price.input_per_1m ?? 0)) + (tokens_out * (price.output_per_1m ?? 0))) / 1e6 : null;
   const pred = {
     kind: 'routemux.predict', at: now(), model: req.model, protocol, request_sha256,
-    idempotency_key: `timmy-${request_sha256.slice(0, 48)}`,
+    idempotency_key: `timmy-${request_sha256}`,   // the full request hash, namespaced so Timmy's keys never collide with another client's
     predicted: { tokens_in, tokens_out, cost_usd: req.predict?.cost_usd ?? cost, latency_ms: req.predict?.latency_ms ?? null, outcome: req.predict?.outcome ?? 'ok' },
     price_source: feed ? { feed: feed.path.replace(process.env.HOME ?? '', '~'), price } : null,
     body,
@@ -107,10 +111,11 @@ async function feed([out, stem, project]) {
   try { res = await fetch(url, { headers: { 'user-agent': UA } }); text = await res.text(); } catch (e) { fail(out, stem, 'blocked', `network error: ${e.message}`, 4); }
   if (!res.ok) fail(out, stem, 'failed', `HTTP ${res.status} from ${url}`, 5);
   let json; try { json = JSON.parse(text); } catch { fail(out, stem, 'failed', 'pricing feed is not JSON', 5); }
+  // previous snapshot first (never this run's own directory), then write the current one
+  const prev = latestFeed(project ?? process.env.TIMMY_PROJECT_DIR ?? null, out);
   writeJson(join(out, `${stem}.feed.json`), json);
   const rows = Array.isArray(json) ? json : json?.models ?? json?.data ?? json?.items ?? [];
   const ids = (r) => r.id ?? r.model ?? r.slug ?? r.name ?? JSON.stringify(r).slice(0, 40);
-  const prev = latestFeed(project ?? process.env.TIMMY_PROJECT_DIR ?? null);
   const prevRows = prev ? (Array.isArray(prev.feed) ? prev.feed : prev.feed?.models ?? prev.feed?.data ?? prev.feed?.items ?? []) : [];
   const cur = new Map(rows.map((r) => [ids(r), r])); const old = new Map(prevRows.map((r) => [ids(r), r]));
   const added = [...cur.keys()].filter((k) => !old.has(k)); const removed = [...old.keys()].filter((k) => !cur.has(k));
@@ -120,10 +125,25 @@ async function feed([out, stem, project]) {
   console.log(JSON.stringify({ ok: true, models: rows.length, added: added.length, removed: removed.length, price_changes: price_changes.length }));
 }
 
-async function balance([out, stem]) {
+// The operator's expectation comes from the dropped *.reconcile.json ({expected_spend_usd, since?}); TIMMY_EXPECTED_SPEND_USD
+// is only a fallback for a drop that carries none. A non-numeric or negative value is recorded as invalid, not coerced.
+function expectation(drop) {
+  let req = null;
+  if (drop && existsSync(drop)) { try { req = readJson(drop); } catch (e) { return { expected_spend_usd: null, since: null, source: 'drop', error: `drop is not JSON: ${e.message}` }; } }
+  const fromDrop = req?.expected_spend_usd;
+  if (fromDrop != null) {
+    const n = Number(fromDrop);
+    return Number.isFinite(n) && n >= 0 ? { expected_spend_usd: n, since: req.since ?? null, source: 'drop' } : { expected_spend_usd: null, since: req.since ?? null, source: 'drop', error: `expected_spend_usd ${JSON.stringify(fromDrop)} is not a non-negative number` };
+  }
+  const env = process.env.TIMMY_EXPECTED_SPEND_USD;
+  if (env != null && env !== '') { const n = Number(env); return Number.isFinite(n) && n >= 0 ? { expected_spend_usd: n, since: req?.since ?? null, source: 'env' } : { expected_spend_usd: null, since: null, source: 'env', error: `TIMMY_EXPECTED_SPEND_USD ${JSON.stringify(env)} is not a non-negative number` }; }
+  return { expected_spend_usd: null, since: req?.since ?? null, source: null };
+}
+
+async function balance([out, stem, drop]) {
   if (!KEY) fail(out, stem, 'not_configured', 'ROUTEMUX_API_KEY is not set in the environment');
   const get = async (path) => { try { const r = await fetch(`${BASE}${path}`, { headers: { authorization: `Bearer ${KEY}`, 'user-agent': UA } }); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch { /* text */ } return { status: r.status, body: j ?? t.slice(0, 2000), request_id: r.headers.get('x-request-id') }; } catch (e) { return { status: 0, error: e.message }; } };
-  const result = { kind: 'routemux.balance', at: now(), balance: await get('/v1/user/balance'), key: await get('/v1/key/info'), account: await get('/v1/account/info') };
+  const result = { kind: 'routemux.balance', at: now(), expectation: expectation(drop), balance: await get('/v1/user/balance'), key: await get('/v1/key/info'), account: await get('/v1/account/info') };
   writeJson(join(out, `${stem}.balance.json`), result);
   if (result.balance.status === 401 || result.balance.status === 403) fail(out, stem, 'blocked', `balance endpoint HTTP ${result.balance.status}`, 5);
   console.log(JSON.stringify({ ok: result.balance.status === 200, balance_status: result.balance.status }));
@@ -156,8 +176,10 @@ function report([workflow, out, stem]) {
     const b = rd(`${stem}.balance.json`);
     const balance_usd = num(b?.balance?.body ?? {}, ['balance', 'balance_usd', 'data.balance', 'credits', 'remaining']);
     const spent_usd = num(b?.key?.body ?? {}, ['spent', 'spent_usd', 'usage', 'data.spent', 'total_spend']);
-    const expected = process.env.TIMMY_EXPECTED_SPEND_USD != null ? Number(process.env.TIMMY_EXPECTED_SPEND_USD) : null;
-    rep = { ok: b?.balance?.status === 200, status: b?.balance?.status === 200 ? 'ok' : 'failed', balance_usd, spend_observed_usd: spent_usd, spend_predicted_usd: expected, reconciled: expected != null && spent_usd != null ? Math.abs(expected - spent_usd) <= Math.max(0.01, 0.05 * expected) : null, request_id: b?.balance?.request_id ?? null, at: now() };
+    const exp = b?.expectation ?? expectation(null);           // the drop's expectation was captured by the read step
+    const expected = exp.expected_spend_usd ?? null;
+    rep = { ok: b?.balance?.status === 200, status: b?.balance?.status === 200 ? 'ok' : 'failed', balance_usd, spend_observed_usd: spent_usd, spend_predicted_usd: expected, spend_predicted_source: exp.source ?? null, since: exp.since ?? null,
+      reconciled: expected != null && spent_usd != null ? Math.abs(expected - spent_usd) <= Math.max(0.01, 0.05 * expected) : null, request_id: b?.balance?.request_id ?? null, ...(exp.error ? { expectation_error: exp.error } : {}), at: now() };
   } else { console.log(JSON.stringify({ ok: false, error: `unknown workflow ${workflow}` })); process.exit(2); }
   writeJson(join(out, `${stem}.routemux.json`), rep);
   console.log(JSON.stringify(rep));

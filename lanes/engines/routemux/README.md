@@ -10,14 +10,19 @@ through a project's drop folder, one `engine.run` per workflow.
 
 ```
 drop/*.routemux.json ─► predict ─► POST api.routemux.com/v1/… ─► report ─► engine.run receipt
-                        (sealed       X-Idempotency-Key = sha256(request)      prediction vs actual
+                        (sealed       X-Idempotency-Key = timmy-<sha256(request)>  prediction vs actual
                          first)       X-Request-ID, X-RouteMux-Billed ◄──┘
 ```
 
 - Auth: `ROUTEMUX_API_KEY` in the environment (`Authorization: Bearer` for OpenAI
   routes, `x-api-key` for the Anthropic route). Never in argv, files or receipts.
-- Idempotency: the request hash is the key, so a re-run of the same drop cannot
-  bill twice; a `409` is recorded as `status=replayed`.
+- Idempotency: the key is `timmy-` + the full sha256 of the canonical request body
+  (the `timmy-` prefix namespaces Timmy's keys on a shared gateway key; the hash is
+  never truncated), so a re-run of the same drop cannot bill twice; a `409` is
+  recorded as `status=replayed`.
+- `balance-reconcile` reads `expected_spend_usd` from the dropped `*.reconcile.json`
+  (`spend_predicted_source=drop`); `TIMMY_EXPECTED_SPEND_USD` is only the fallback
+  (`source=env`). No expectation → `reconciled: null`, never a guess.
 - Honesty clause: no key → `status=not_configured`, run seals `ok:false`.
 
 ## Templates

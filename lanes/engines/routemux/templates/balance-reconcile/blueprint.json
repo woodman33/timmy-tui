@@ -11,7 +11,7 @@
    { "label": "trigger", "value": "*.reconcile.json", "note": "expected_spend_usd from the receipts being checked" }
   ] },
   { "id": "steps", "title": "Steps", "rows": [
-   { "label": "1 read", "value": "bridge.mjs balance: /v1/user/balance · /v1/key/info · /v1/account/info", "note": "raw answers stored" },
+   { "label": "1 read", "value": "bridge.mjs balance: /v1/user/balance · /v1/key/info · /v1/account/info + the drop's expected_spend_usd", "note": "raw answers and the expectation stored together" },
    { "label": "2 report", "value": "bridge.mjs report: predicted vs observed spend", "note": "reconciled true/false" }
   ] },
   { "id": "outputs", "title": "Outputs · out/", "rows": [
@@ -19,7 +19,7 @@
    { "label": "report", "value": "{stem}.routemux.json", "note": "balance_usd · spend_observed_usd · reconciled" }
   ] },
   { "id": "receipt", "title": "Receipt · engine.run", "rows": [
-   { "label": "extra", "value": "status · balance_usd · spend_observed_usd · spend_predicted_usd · reconciled", "note": "" }
+   { "label": "extra", "value": "status · balance_usd · spend_observed_usd · spend_predicted_usd · spend_predicted_source · reconciled", "note": "source is drop or env; null means no expectation was given" }
   ] }
  ]
 }

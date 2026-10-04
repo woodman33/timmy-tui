@@ -8,16 +8,33 @@ their own receipt:
 
 ```
 drop/*.runable.json  ─► predict (tools/list snapshot, expected deliverable) ─► start ─► task id
-drop/*.poll.json     ─► progress every N s → progress.jsonl → final.json (done | failed | timed_out)
-drop/*.collect.json  ─► files tool → download + sha256 every artifact → files.json
+drop/*.poll.json     ─► predict (minutes: drop › start run › default) ─► progress every N s → progress.jsonl → final.json (ok | failed | timed_out)
+drop/*.collect.json  ─► predict (files_min: drop › start run › default) ─► files tool → guarded download + sha256 → files.json
 ```
+
+Every drop seals its own prediction before it acts. A poll or collect drop can carry its
+own `predict` block; otherwise the bridge looks the task id up under
+`<project>/out/runable/task-start/*/` and carries that run's sealed prediction forward
+(its file hash lands in the new prediction as `carried_from`); failing both, a default
+is used and labelled `prediction_source: default`.
 
 - Credentials: `RUNABLE_ACCESS_TOKEN`, or `RUNABLE_CLIENT_ID` + `RUNABLE_CLIENT_SECRET`
   (client_credentials against the server's OAuth metadata). Never written anywhere.
 - Tool names are discovered, not pinned: `tools.json` records what the server offered and
   `chosen` records which tool the lane used for start / progress / files. A rename shows up
   as a changed `tools_sha256`, not a silent failure.
-- Honesty clause: no credentials → `status=not_configured`; cap reached → `status=timed_out`.
+- Honesty clause: no credentials → `status=not_configured`; an OAuth endpoint that is down
+  or answers garbage → `status=blocked` (written, never thrown); cap reached →
+  `status=timed_out`. A poll that hits its cap writes `{stem}.runable.json` itself before
+  exiting, so the receipt seals `status=timed_out` even though the lane stops before its
+  report step (`final.json` keeps the task's own last state as `task_status`).
+- Download guard: `collect` follows only `https` URLs on the artifact allow-list (the MCP
+  server's host, `*.runable.com`, plus `RUNABLE_ARTIFACT_HOSTS`) that resolve to public
+  addresses — loopback, link-local, RFC 1918, CGNAT, metadata and ULA ranges are refused
+  after DNS resolution, redirects are re-checked hop by hop (max 3), only 2xx bodies are
+  saved, and each file is capped at `RUNABLE_MAX_FILE_MB` (200). Everything refused is
+  listed under `skipped` with its reason, so a task result that tries to point the lane at
+  an internal service is a visible finding, not a fetch.
 
 ## Async, both directions
 

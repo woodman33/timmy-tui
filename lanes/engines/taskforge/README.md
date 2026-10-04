@@ -18,8 +18,12 @@ drop/*.health.json    ─► GET /api/runtime/health (+ agentpass hook) ─► r
 - Approval semantics are TaskForge's: `autoAccept` never bypasses ALWAYS_REVIEW actions
   (`agentpass.issue_passport`, `agentpass.call_tool`); `userApproved` is the one signal
   that does, and the lane only forwards it when the operator wrote it into the drop.
-- Honesty clause: API unreachable → `status=not_configured`; cap reached → `timed_out`;
-  a mock-parser answer is labelled `mock_parser:true`.
+- Honesty clause: API unreachable → `status=not_configured`; cap reached → `status=timed_out`
+  (the execute step writes `{stem}.taskforge.json` itself before exiting, so the receipt carries
+  it even though the lane stops before the report step; `result.json` keeps the task's own
+  terminal state as `task_status`); a mock-parser answer is labelled `mock_parser:true`.
+- The SSE log stream is opened with an `AbortController` and aborted the moment the status
+  poll sees a terminal state or the cap expires — no fetch outlives the bridge.
 
 ## Where TaskForge lives
 

@@ -167,6 +167,20 @@ function seal(subject, meta) {
 const proofsPath = join(HERE, 'proofs.json');
 const loadProofs = () => (existsSync(proofsPath) ? JSON.parse(readFileSync(proofsPath, 'utf8')) : { v: 1, proofs: {} });
 
+// Receipt `extra` keys are read from the JSON files a run left in its out dir, first non-null value wins. The engine's
+// own report (`{stem}.<engine>.json`, the file every bridge's report step writes) is read first, so a lane-level
+// `status` such as timed_out is never shadowed by a raw task state in an intermediate file; the rest follow by name.
+export function collectExtra(outDir, engineId, keys) {
+  const extra = {};
+  if (!keys.length) return extra;
+  const own = (n) => n.endsWith(`.${engineId}.json`);
+  const names = readdirSync(outDir).filter((x) => x.endsWith('.json')).sort((a, b) => Number(own(b)) - Number(own(a)) || a.localeCompare(b));
+  for (const n of names) {
+    try { const j = JSON.parse(readFileSync(join(outDir, n), 'utf8')); for (const k of keys) if (j[k] != null && extra[k] == null) extra[k] = typeof j[k] === 'object' ? JSON.stringify(j[k]) : String(j[k]); } catch { /* not a report */ }
+  }
+  return extra;
+}
+
 export async function runWorkflow(engineId, workflow, { project, input, noSeal = false, viaDrop = true, rule = null }) {
   const engine = engineById(engineId);
   if (!engine) throw new Error(`unknown engine ${engineId}`);
@@ -212,13 +226,7 @@ export async function runWorkflow(engineId, workflow, { project, input, noSeal =
   const outputs = [];
   for (const o of tpl.workflow.outputs) { const re = globToRegex(subst(o.glob)); for (const n of readdirSync(outDir).filter((x) => re.test(x))) outputs.push({ id: o.id, kind: o.kind, file: n, sha256: sha(join(outDir, n)), bytes: statSync(join(outDir, n)).size }); }
   // extra fields from a JSON report the template wrote, if the plan names any
-  const extra = {};
-  const extraKeys = tpl.workflow.receipt?.extra ?? [];
-  if (extraKeys.length) {
-    for (const n of readdirSync(outDir).filter((x) => x.endsWith('.json'))) {
-      try { const j = JSON.parse(readFileSync(join(outDir, n), 'utf8')); for (const k of extraKeys) if (j[k] != null && extra[k] == null) extra[k] = typeof j[k] === 'object' ? JSON.stringify(j[k]) : String(j[k]); } catch { /* not a report */ }
-    }
-  }
+  const extra = collectExtra(outDir, engineId, tpl.workflow.receipt?.extra ?? []);
   const record = { v: 1, engine: engineId, workflow, project, input: dropped, input_sha256: inputSha, via_drop: viaDrop, rule: rule?.id ?? null, out_dir: outDir, steps: stepResults, outputs, ok, ms: Date.now() - started, template_sha256: tpl.template_sha256, template_files: tpl.shas, envlock_sha256: lock.sha256, envlock: lock.lock.tools, bridge: tpl.workflow.bridge, extra, ts: new Date().toISOString() };
   writeFileSync(join(outDir, 'engine.run.json'), JSON.stringify(record, null, 1));
   // the dropped file moves out of drop/ so it is not processed twice

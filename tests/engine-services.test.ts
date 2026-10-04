@@ -81,7 +81,7 @@ describe('routemux bridge (offline)', () => {
     expect(r.status).toBe(0);
     const pred = JSON.parse(readFileSync(join(out, 'hello.predict.json'), 'utf8'));
     expect(pred.request_sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(pred.idempotency_key).toBe(`timmy-${pred.request_sha256.slice(0, 48)}`);
+    expect(pred.idempotency_key).toBe(`timmy-${pred.request_sha256}`);   // the full hash, never truncated
     expect(pred.predicted.tokens_in).toBeGreaterThan(0);
     expect(pred.predicted.cost_usd).toBeNull();           // no pricing snapshot in a fresh project → honest null
   });

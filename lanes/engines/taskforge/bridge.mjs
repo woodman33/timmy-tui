@@ -10,13 +10,15 @@
 //   node bridge.mjs report  <workflow> <out> <stem>                                                            → {stem}.taskforge.json
 //
 // TASKFORGE_API_URL defaults to http://127.0.0.1:3001/api. Unreachable API → status=not_configured, exit 3.
+// An execute that times out or fails writes {stem}.taskforge.json itself before exiting, so the receipt seals status=timed_out / failed.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const API = (process.env.TASKFORGE_API_URL ?? 'http://127.0.0.1:3001/api').replace(/\/$/, '');
 const UA = 'timmy-tui/engine-shelf taskforge-lane';
-const sha = (s) => createHash('sha256').update(typeof s === 'string' ? s : JSON.stringify(s)).digest('hex');
+// sha256 of bytes when given bytes (Buffer/Uint8Array), of the string when given a string, of JSON otherwise.
+const sha = (s) => createHash('sha256').update(typeof s === 'string' || s instanceof Uint8Array ? s : JSON.stringify(s)).digest('hex');
 const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'));
 const writeJson = (p, o) => writeFileSync(p, JSON.stringify(o, null, 2) + '\n');
 const now = () => new Date().toISOString();
@@ -85,14 +87,19 @@ async function execute([out, stem, drop]) {
   const log = join(out, `${stem}.events.jsonl`);
   appendFileSync(log, JSON.stringify({ at: now(), event: 'execute', http: r.status, response: r.json ?? r.text }) + '\n');
   if (!r.ok) { writeJson(join(out, `${stem}.result.json`), { at: now(), task_id: req.taskId, execute: r, status: 'rejected' }); fail(out, stem, 'failed', `POST /execute HTTP ${r.status}`, 5); }
-  // SSE log stream + status polling, whichever finishes first, within the cap
+  // SSE log stream + status polling, whichever finishes first, within the cap. The stream is aborted the moment the
+  // status poll sees a terminal state or the cap expires, so no fetch or reader outlives the bridge.
   const capMs = Number(req.max_minutes ?? process.env.TASKFORGE_MAX_MINUTES ?? 30) * 60000; const t0 = Date.now();
+  const pollEvery = Number(req.poll_seconds ?? process.env.TASKFORGE_POLL_SECONDS ?? 5) * 1000;
   let events = 0, final = null;
+  const ac = new AbortController();
+  const capTimer = setTimeout(() => ac.abort(new Error('time cap reached')), capMs);
   const streaming = (async () => {
     try {
-      const res = await fetch(`${API}/logs/stream/${encodeURIComponent(req.taskId)}`, { headers: { accept: 'text/event-stream', 'user-agent': UA } });
+      const res = await fetch(`${API}/logs/stream/${encodeURIComponent(req.taskId)}`, { headers: { accept: 'text/event-stream', 'user-agent': UA }, signal: ac.signal });
+      if (!res.ok || !res.body) { appendFileSync(log, JSON.stringify({ at: now(), event: 'stream_unavailable', http: res.status }) + '\n'); return; }
       const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
-      while (Date.now() - t0 < capMs && !final) {
+      while (!final) {
         const { value, done } = await reader.read(); if (done) break;
         buf += dec.decode(value, { stream: true });
         let i; while ((i = buf.indexOf('\n\n')) >= 0) {
@@ -102,25 +109,28 @@ async function execute([out, stem, drop]) {
           appendFileSync(log, JSON.stringify({ at: now(), event: ev, data: j ?? data, sha256: sha(data ?? '') }) + '\n'); events++;
         }
       }
-    } catch (e) { appendFileSync(log, JSON.stringify({ at: now(), event: 'stream_error', error: e.message }) + '\n'); }
+    } catch (e) { appendFileSync(log, JSON.stringify({ at: now(), event: ac.signal.aborted ? 'stream_closed' : 'stream_error', error: e?.message ?? String(e) }) + '\n'); }
   })();
   while (Date.now() - t0 < capMs) {
     const s = await api('GET', `/status/${encodeURIComponent(req.taskId)}`);
     const st = s.json?.task?.status ?? s.json?.status ?? null;
     if (st && TERMINAL.test(st)) { final = { status: st, snapshot: s.json }; break; }
-    await sleep(5000);
+    await sleep(Math.min(pollEvery, Math.max(0, capMs - (Date.now() - t0))));
   }
+  clearTimeout(capTimer);
+  ac.abort(new Error(final ? 'task reached a terminal state' : 'time cap reached'));
   await Promise.race([streaming, sleep(2000)]);
   const s = final?.snapshot ?? (await api('GET', `/status/${encodeURIComponent(req.taskId)}`)).json;
   const stepRows = s?.steps ?? [];
-  const result = { kind: 'taskforge.result', at: now(), task_id: req.taskId, status: final?.status ?? 'timed_out', timed_out: !final, minutes: Math.round((Date.now() - t0) / 600) / 100, events, steps: stepRows.length, steps_failed: stepRows.filter((x) => /fail|error/i.test(x.status ?? '')).length, steps_by_status: stepRows.reduce((a, x) => ({ ...a, [x.status ?? 'unknown']: (a[x.status ?? 'unknown'] ?? 0) + 1 }), {}), snapshot: s ?? null };
+  const failedTask = !!final && /fail|error|cancel|stop/i.test(final.status);
+  // `status` is the lane's verdict (ok | failed | timed_out); the task's own terminal state is `task_status`
+  const result = { kind: 'taskforge.result', at: now(), task_id: req.taskId, task_status: final?.status ?? null, status: !final ? 'timed_out' : failedTask ? 'failed' : 'ok', timed_out: !final, cap_minutes: capMs / 60000, minutes: Math.round((Date.now() - t0) / 600) / 100, events, steps: stepRows.length, steps_failed: stepRows.filter((x) => /fail|error/i.test(x.status ?? '')).length, steps_by_status: stepRows.reduce((a, x) => ({ ...a, [x.status ?? 'unknown']: (a[x.status ?? 'unknown'] ?? 0) + 1 }), {}), snapshot: s ?? null };
   writeJson(join(out, `${stem}.result.json`), result);
-  console.log(JSON.stringify({ ok: !!final && !/fail|error|cancel|stop/i.test(final.status), status: result.status, events, minutes: result.minutes }));
-  if (!final) process.exit(6);
-  if (/fail|error|cancel|stop/i.test(final.status)) process.exit(5);
+  console.log(JSON.stringify({ ok: result.status === 'ok', status: result.status, task_status: result.task_status, events, minutes: result.minutes }));
+  if (result.status !== 'ok') { reportFor('workflow-execute', out, stem); process.exit(result.timed_out ? 6 : 5); }   // report sealed before the lane stops
 }
 
-function report([workflow, out, stem]) {
+function reportFor(workflow, out, stem) {
   const rd = (n) => (existsSync(join(out, n)) ? readJson(join(out, n)) : null);
   let rep;
   if (workflow === 'runtime-health') {
@@ -134,9 +144,14 @@ function report([workflow, out, stem]) {
     rep = { ok: !!w && !w.error, status: w && !w.error ? 'ok' : 'failed', task_id: w?.taskId ?? w?.task_id ?? null, steps: steps.length, executors: executors.join(','), gate: typeof gate === 'object' ? JSON.stringify(gate) : gate, confidence: typeof confidence === 'number' ? confidence : null, steps_as_predicted: p.steps == null ? null : p.steps === steps.length, gate_as_predicted: p.gate == null || gate == null ? null : String(gate).toLowerCase() === String(p.gate).toLowerCase(), workflow_sha256: w?.workflow ? sha(w.workflow) : null, mock_parser: w?.mock ?? w?.parser === 'mock' ? true : null, at: now() };
   } else if (workflow === 'workflow-execute') {
     const p = rd(`${stem}.predict.json`)?.predicted ?? {}, r = rd(`${stem}.result.json`);
-    rep = { ok: !!r && !r.timed_out && !/fail|error|cancel|stop/i.test(r.status), status: r ? (r.timed_out ? 'timed_out' : /fail|error|cancel|stop/i.test(r.status) ? 'failed' : 'ok') : 'failed', task_id: r?.task_id ?? null, task_status: r?.status ?? null, steps: r?.steps ?? null, steps_failed: r?.steps_failed ?? null, events: r?.events ?? null, minutes: r?.minutes ?? null, predicted_minutes: p.minutes ?? null, failures_as_predicted: p.failures == null || r?.steps_failed == null ? null : p.failures === r.steps_failed, minutes_error_pct: p.minutes && r?.minutes ? Math.round(Math.abs(p.minutes - r.minutes) / r.minutes * 1000) / 10 : null, at: now() };
+    rep = { ok: r?.status === 'ok', status: r?.status ?? 'failed', task_id: r?.task_id ?? null, task_status: r?.task_status ?? null, cap_minutes: r?.cap_minutes ?? null, steps: r?.steps ?? null, steps_failed: r?.steps_failed ?? null, events: r?.events ?? null, minutes: r?.minutes ?? null, predicted_minutes: p.minutes ?? null, failures_as_predicted: p.failures == null || r?.steps_failed == null ? null : p.failures === r.steps_failed, minutes_error_pct: p.minutes && r?.minutes ? Math.round(Math.abs(p.minutes - r.minutes) / r.minutes * 1000) / 10 : null, at: now() };
   } else { console.log(JSON.stringify({ ok: false, error: `unknown workflow ${workflow}` })); process.exit(2); }
   writeJson(join(out, `${stem}.taskforge.json`), rep);
+  return rep;
+}
+
+function report([workflow, out, stem]) {
+  const rep = reportFor(workflow, out, stem);
   console.log(JSON.stringify(rep));
   if (!rep.ok) process.exit(5);
 }

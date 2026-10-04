@@ -36,9 +36,9 @@ workflow: #Workflow & {
 	]
 	acceptance: [
 		"the prediction is sealed before the passport exists",
-		"fields_as_predicted is true: agent, tool, scope, ttl and budget match the request exactly",
+		"fields_as_predicted is true only when agent, tool, scope, ttl and budget are all present in the passport and match the request exactly; a missing field is a mismatch (status=mismatch, ok:false), never a pass",
 		"the passport's sha256 is in the report; the passport itself never leaves the project",
 	]
-	receipt: {kind: "engine.run", extra: ["status", "agent", "tool", "scope", "ttl", "budget_usd", "passport_id", "fields_as_predicted"]}
+	receipt: {kind: "engine.run", extra: ["status", "agent", "tool", "scope", "ttl", "budget_usd", "passport_id", "fields_as_predicted", "fields_missing"]}
 	limits: {wall_ms: 300000, cost_usd: 0}
 }

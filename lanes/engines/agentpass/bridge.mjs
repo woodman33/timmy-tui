@@ -16,7 +16,8 @@ const HOME = process.env.HOME ?? '';
 const REPO = process.env.AGENTPASS_REPO_PATH ?? join(HOME, 'agent-cloud-lab', 'agentpass-lab');
 const CLI = join(REPO, 'scripts', 'agentpass.py');
 const PY = process.env.AGENTPASS_PYTHON ?? 'python3';
-const sha = (s) => createHash('sha256').update(typeof s === 'string' ? s : JSON.stringify(s)).digest('hex');
+// sha256 of bytes when given bytes (Buffer/Uint8Array), of the string when given a string, of JSON otherwise.
+const sha = (s) => createHash('sha256').update(typeof s === 'string' || s instanceof Uint8Array ? s : JSON.stringify(s)).digest('hex');
 const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'));
 const writeJson = (p, o) => writeFileSync(p, JSON.stringify(o, null, 2) + '\n');
 const now = () => new Date().toISOString();
@@ -100,8 +101,12 @@ function report([workflow, out, stem]) {
     const p = rd(`${stem}.predict.json`)?.predicted ?? {}, r = rd(`${stem}.passport.json`), j = r?.json ?? {};
     const pp = j.passport ?? j;
     const got = { agent: pp.agent ?? pp.agent_id ?? null, tool: pp.tool ?? (Array.isArray(pp.tools) ? pp.tools[0] : null), scope: pp.scope ?? (Array.isArray(pp.scopes) ? pp.scopes[0] : null), ttl: pp.ttl ?? pp.ttl_seconds ?? null, budget_usd: pp.budget ?? pp.budget_usd ?? null };
-    const match = Object.fromEntries(Object.keys(got).map((k) => [k, got[k] == null ? null : String(got[k]) === String(p[k])]));
-    rep = { ok: r?.exit === 0 && j?.ok !== false, status: r?.exit === 0 ? 'ok' : 'failed', passport_id: pp.id ?? pp.passport_id ?? null, ...got, fields_as_predicted: Object.values(match).every((v) => v !== false), match, passport_sha256: r ? sha(JSON.stringify(j)) : null, at: now() };
+    // a field the passport does not carry is a mismatch, not a pass: nothing was compared, so nothing was confirmed
+    const match = Object.fromEntries(Object.keys(got).map((k) => [k, got[k] != null && String(got[k]) === String(p[k])]));
+    const fields_missing = Object.keys(got).filter((k) => got[k] == null);
+    const fields_as_predicted = Object.values(match).every(Boolean);
+    const issued = r?.exit === 0 && j?.ok !== false;
+    rep = { ok: issued && fields_as_predicted, status: !issued ? 'failed' : fields_as_predicted ? 'ok' : 'mismatch', passport_id: pp.id ?? pp.passport_id ?? null, ...got, fields_as_predicted, fields_compared: Object.keys(got).length - fields_missing.length, fields_missing, match, passport_sha256: r ? sha(JSON.stringify(j)) : null, at: now() };
   } else if (workflow === 'call-tool') {
     const p = rd(`${stem}.predict.json`)?.predicted ?? {}, c = rd(`${stem}.call.json`), a = rd(`${stem}.status-after.json`);
     const after = a?.json?.counts?.auditEvents ?? null;
