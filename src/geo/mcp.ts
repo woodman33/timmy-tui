@@ -74,7 +74,7 @@ export function callGeoTool(name: string, args: Record<string, unknown> = {}, di
       if (!isFile(args.truth)) return refuse('truth must be an existing file (PLY, JSON {"points"} or mesh)');
       if (!isFile(args.pred)) return refuse('pred must be an existing file (PLY, JSON {"points"} or mesh)');
       const argv = ['--truth', String(args.truth), '--pred', String(args.pred), ...flags(args, ['voxel', 'tau', 'tolerance', 'samples', 'normalize', 'fit', 'out'])];
-      return runLane('voxel_score.py', argv, `geo.voxel-score ${basename(String(args.truth))} vs ${basename(String(args.pred))}${args.fit ? ' (fitted)' : ''}`, dir);
+      return runLane('voxel_score.py', argv, `geo.voxel-score ${basename(String(args.truth))} vs ${basename(String(args.pred))}${truthy(args.fit) ? ' (fitted)' : ''}`, dir);
     }
     case 'timmy_geo_bench': {
       const bench = String(args.bench ?? '');
@@ -88,7 +88,7 @@ export function callGeoTool(name: string, args: Record<string, unknown> = {}, di
       if (args.step === 'score') {
         if (typeof args.pred_dir !== 'string' || !existsSync(args.pred_dir) || !statSync(args.pred_dir).isDirectory()) return refuse('score needs pred_dir, an existing directory of PRED/<id>.(ply|glb|obj|json)');
         const argv = ['score', '--bench', bench, '--pred-dir', String(args.pred_dir), ...flags({ ...args, 'normalize-each': args.normalize_each }, ['frame', 'voxel', 'tau', 'tolerance', 'samples', 'fit', 'normalize-each'])];
-        return runLane('bench_loader.py', argv, `geo.bench-score ${basename(bench)} ${basename(String(args.pred_dir))}${args.fit || args.normalize_each ? ' (shape score)' : ''}`, dir);
+        return runLane('bench_loader.py', argv, `geo.bench-score ${basename(bench)} ${basename(String(args.pred_dir))}${truthy(args.fit) || truthy(args.normalize_each) ? ' (shape score)' : ''}`, dir);
       }
       return refuse('step must be predict or score');
     }

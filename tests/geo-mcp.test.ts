@@ -75,6 +75,9 @@ describe('geo MCP tools', () => {
     expect(strNoFit.status).toBe('ok'); expect((strNoFit.result as any).fit.applied).toBe(false); expect((strNoFit.result as any).unit).toBe('m');
     const chain = readChain('runs', dir);
     expect(chain.map((c) => [c.status, c.error_class])).toEqual([['failed', 'usage'], ['ok', 'untrusted_metric'], ['ok', undefined]]);
+    // the receipt subject follows the same coercion: 'true' is fitted, 'false' is not (Cursor: string false still labelled receipts fitted)
+    expect(chain[1].subject).toBe('geo.voxel-score truth.ply vs shift.ply (fitted)');
+    expect(chain[2].subject).toBe('geo.voxel-score truth.ply vs same.ply');
   });
 
   it.skipIf(!deps)('bench: predict seals before score, score grades it, a missing prediction is partial not ok, a wrong step is refused', () => {
@@ -104,8 +107,11 @@ pts, _ = trimesh.sample.sample_surface(trimesh.creation.box(extents=[0.1, 0.2, 0
     const r: any = sc.result;
     expect(r.scored).toBe(1); expect(r.missing).toBe(1); expect(r.prediction).toMatchObject({ model: 'exact-a', graded: true, as_predicted: true, falsified: false });
     expect(callGeoTool('timmy_geo_bench', { step: 'nope', bench: join(dir, 'bench') }, dir).status).toBe('invalid_request');
+    // a string 'false' for fit / normalize_each is neither the flag nor a "(shape score)" label on the receipt
+    const plain = callGeoTool('timmy_geo_bench', { step: 'score', bench: join(dir, 'bench'), pred_dir: join(dir, 'pred'), frame: 'metric', voxel: 0.01, tau: 0.005, samples: 20000, fit: 'false' as unknown as boolean, normalize_each: 'false' as unknown as boolean }, dir);
+    expect(plain.status).toBe('partial'); expect((plain.result as any).metric).toBe(true);
     const chain = readChain('runs', dir);
-    expect(chain.map((c) => [c.subject, c.error_class])).toEqual([['geo.bench-predict bench exact-a', undefined], ['geo.bench-score bench pred', 'partial']]);
+    expect(chain.map((c) => [c.subject, c.error_class])).toEqual([['geo.bench-predict bench exact-a', undefined], ['geo.bench-score bench pred', 'partial'], ['geo.bench-score bench pred', 'partial']]);
   }, 120000);
 
   it.skipIf(!deps)('scale: the synthetic views solve to ok on the default grid and to untrusted on a grid that excludes a true scale', () => {
