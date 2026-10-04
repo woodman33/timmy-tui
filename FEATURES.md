@@ -60,6 +60,8 @@ REACHABLE / CODED-UNMOUNTED / STUB-BROKEN.
 | timmy_dispatch_plan | REACHABLE | arm/launch; honest unknown-plan |
 | timmy_tail_lane | REACHABLE | honest no-session |
 | timmy_pause_or_cancel_lane | REACHABLE | hold/cancel; receipted |
+| timmy_geo_score | REACHABLE | voxel F1/IoU + Chamfer + F-score@τ against truth; metric unless fit=true (then `untrusted`, exit 2); receipted; not_configured without numpy+scipy |
+| timmy_geo_scale | REACHABLE | per-view metric scales from self-consistency; `untrusted` when a scale pins to the grid bound; receipted |
 | timmy_collect_run | REACHABLE | honest unknown-run |
 | timmy_judge_loop | REACHABLE | phase-1 plan + needs_approval gate |
 
