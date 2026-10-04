@@ -25,8 +25,19 @@ import json
 import sys
 from pathlib import Path
 
-import numpy as np
-from scipy.spatial import cKDTree
+try:
+    import numpy as np
+    from scipy.spatial import cKDTree
+except ImportError:                      # --help must work on a bare interpreter; solving itself needs both (see require_numeric)
+    np = None
+    cKDTree = None
+
+
+def require_numeric() -> None:
+    """Honesty clause: without numpy + scipy the lane reports not_configured (exit 3) instead of a traceback."""
+    if np is None or cKDTree is None:
+        print(json.dumps({"ok": False, "status": "not_configured", "note": "scale_solver needs numpy and scipy: pip install numpy scipy"}))
+        sys.exit(3)
 
 
 def to_world(pts_cam: np.ndarray, R: np.ndarray, t: np.ndarray, s: float = 1.0) -> np.ndarray:
@@ -155,6 +166,7 @@ def main(argv=None):
     ap.add_argument("--hi", type=float, default=60.0)
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args(argv)
+    require_numeric()
     if a.selftest:
         views, truth = synthetic()
         res = solve_view_scales([v[0] for v in views], [v[1] for v in views], [v[2] for v in views], rounds=a.rounds, sub=a.sub, lo=a.lo, hi=a.hi)

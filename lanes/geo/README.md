@@ -22,7 +22,7 @@ What it reports, and what each number means:
 | `consistency_median_nn[k]` | after solving, how far view k's points sit from the others — the agreement the metric claim rests on |
 | `at_grid_edge` | a scale on the edge of the search grid means the answer is not trusted (exit 2) |
 
-Pure numpy + scipy; no model, no truth, no network. Measured: solved scales within 1.5 % of exact
+Pure numpy + scipy; no model, no truth, no network. Without them the lane prints `{status: not_configured}` and exits 3 (`--help` always works). Measured: solved scales within 1.5 % of exact
 Blender Z-pass scales for VGGT on six views of a house; the self-test recovers scales of 0.5–1.5
 within 0.1 %. A claim made with this tool is "metric, self-consistent to N cm", never "measured":
 per DOCTRINE §15, computed geometry does not establish a physical object's dimensions without an
