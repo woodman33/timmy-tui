@@ -33,6 +33,6 @@ workflow: #Workflow & {
 		"added/removed/price_changes count against the previous snapshot in <project>/out/routemux/model-feed-snapshot",
 		"no key is used or needed; the run works on a machine with no RouteMux account",
 	]
-	receipt: {kind: "engine.run", extra: ["status", "models", "feed_sha256", "feed_updated", "added", "removed", "price_changes"]}
+	receipt: {kind: "engine.run", extra: ["status", "models", "models_enabled", "feed_sha256", "feed_updated", "price_unit", "added", "removed", "price_changes", "enabled_changes"]}
 	limits: {wall_ms: 180000, cost_usd: 0}
 }

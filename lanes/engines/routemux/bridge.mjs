@@ -36,17 +36,29 @@ function estTokens(messages) {
   return Math.ceil(text.length / 4);
 }
 
+// The public feed (GET /public/pricing, exercised 2026-10-04) is {schema_version, success, data: {currency, price_unit:
+// "per_1m_tokens", updated_at, models: [{model_name, group_name, input_price, output_price, cache_input_price, enabled, …}]}}.
+// Older or other shapes (a bare array, {models}, {items}) are still read; unknown shapes yield no rows, never a crash.
+function feedRows(json) {
+  if (Array.isArray(json)) return json;
+  for (const c of [json?.data?.models, json?.models, json?.data, json?.items]) if (Array.isArray(c)) return c;
+  return [];
+}
+const feedMeta = (json) => ({ price_unit: json?.data?.price_unit ?? json?.price_unit ?? null, currency: json?.data?.currency ?? json?.currency ?? null, updated: json?.data?.updated_at ?? json?.updated_at ?? json?.updated ?? json?.generated_at ?? null });
+const rowId = (r) => r.model_name ?? r.id ?? r.model ?? r.slug ?? r.name ?? JSON.stringify(r).slice(0, 40);
+
 // Best-effort price lookup in the public feed: rows are matched on model id; price fields are read from the
 // first key that looks like an input/output per-million price. Unknown shapes yield null (reported as such).
 function feedPrice(feed, model) {
-  const rows = Array.isArray(feed) ? feed : feed?.models ?? feed?.data ?? feed?.items ?? [];
-  const row = rows.find((r) => [r.id, r.model, r.slug, r.name].includes(model));
+  const rows = feedRows(feed);
+  const row = rows.find((r) => [r.model_name, r.id, r.model, r.slug, r.name].includes(model));
   if (!row) return null;
   const pick = (keys) => { for (const k of keys) if (row[k] != null && !isNaN(Number(row[k]))) return Number(row[k]); const p = row.pricing ?? row.price ?? {}; for (const k of keys) if (p[k] != null && !isNaN(Number(p[k]))) return Number(p[k]); return null; };
-  const inp = pick(['input_per_1m', 'input_price_per_1m', 'prompt_per_1m', 'input', 'prompt', 'input_usd_per_1m']);
-  const outp = pick(['output_per_1m', 'output_price_per_1m', 'completion_per_1m', 'output', 'completion', 'output_usd_per_1m']);
+  const inp = pick(['input_price', 'input_per_1m', 'input_price_per_1m', 'prompt_per_1m', 'input', 'prompt', 'input_usd_per_1m']);
+  const outp = pick(['output_price', 'output_per_1m', 'output_price_per_1m', 'completion_per_1m', 'output', 'completion', 'output_usd_per_1m']);
   if (inp == null && outp == null) return null;
-  return { input_per_1m: inp, output_per_1m: outp, raw_keys: Object.keys(row).slice(0, 12) };
+  const cache = pick(['cache_input_price', 'cache_input_per_1m', 'cached_input']);
+  return { input_per_1m: inp, output_per_1m: outp, cache_input_per_1m: cache, enabled: row.enabled ?? null, group: row.group_name ?? null, raw_keys: Object.keys(row).slice(0, 12) };
 }
 
 // The newest *.feed.json under <project>/out/routemux/model-feed-snapshot/, skipping the run directory that is being
@@ -114,13 +126,16 @@ async function feed([out, stem, project]) {
   // previous snapshot first (never this run's own directory), then write the current one
   const prev = latestFeed(project ?? process.env.TIMMY_PROJECT_DIR ?? null, out);
   writeJson(join(out, `${stem}.feed.json`), json);
-  const rows = Array.isArray(json) ? json : json?.models ?? json?.data ?? json?.items ?? [];
-  const ids = (r) => r.id ?? r.model ?? r.slug ?? r.name ?? JSON.stringify(r).slice(0, 40);
-  const prevRows = prev ? (Array.isArray(prev.feed) ? prev.feed : prev.feed?.models ?? prev.feed?.data ?? prev.feed?.items ?? []) : [];
+  const rows = feedRows(json);
+  const ids = rowId;
+  const prevRows = prev ? feedRows(prev.feed) : [];
   const cur = new Map(rows.map((r) => [ids(r), r])); const old = new Map(prevRows.map((r) => [ids(r), r]));
   const added = [...cur.keys()].filter((k) => !old.has(k)); const removed = [...old.keys()].filter((k) => !cur.has(k));
   const price_changes = [...cur.keys()].filter((k) => old.has(k) && sha(canon(feedPrice(rows, k) ?? {})) !== sha(canon(feedPrice(prevRows, k) ?? {})));
-  const diff = { kind: 'routemux.feed-diff', at: now(), feed_sha256: sha(text), models: rows.length, previous: prev ? prev.path.replace(process.env.HOME ?? '', '~') : null, added, removed, price_changes, feed_updated: json?.updated ?? json?.updated_at ?? json?.generated_at ?? null };
+  const enabled_changes = [...cur.keys()].filter((k) => old.has(k) && (cur.get(k).enabled ?? null) !== (old.get(k).enabled ?? null));
+  const meta = feedMeta(json);
+  const diff = { kind: 'routemux.feed-diff', at: now(), feed_sha256: sha(text), models: rows.length, models_enabled: rows.filter((r) => r.enabled !== false).length, groups: [...new Set(rows.map((r) => r.group_name).filter(Boolean))].sort(),
+    previous: prev ? prev.path.replace(process.env.HOME ?? '', '~') : null, added, removed, price_changes, enabled_changes, feed_updated: meta.updated, price_unit: meta.price_unit, currency: meta.currency };
   writeJson(join(out, `${stem}.feed-diff.json`), diff);
   console.log(JSON.stringify({ ok: true, models: rows.length, added: added.length, removed: removed.length, price_changes: price_changes.length }));
 }
@@ -171,7 +186,7 @@ function report([workflow, out, stem]) {
     };
   } else if (workflow === 'model-feed-snapshot') {
     const d = rd(`${stem}.feed-diff.json`);
-    rep = { ok: !!d, status: d ? 'ok' : 'failed', models: d?.models ?? null, feed_sha256: d?.feed_sha256 ?? null, feed_updated: d?.feed_updated ?? null, added: d?.added?.length ?? null, removed: d?.removed?.length ?? null, price_changes: d?.price_changes?.length ?? null, added_ids: d?.added ?? [], removed_ids: d?.removed ?? [], at: now() };
+    rep = { ok: !!d, status: d ? 'ok' : 'failed', models: d?.models ?? null, models_enabled: d?.models_enabled ?? null, groups: d?.groups?.length ?? null, feed_sha256: d?.feed_sha256 ?? null, feed_updated: d?.feed_updated ?? null, price_unit: d?.price_unit ?? null, added: d?.added?.length ?? null, removed: d?.removed?.length ?? null, price_changes: d?.price_changes?.length ?? null, enabled_changes: d?.enabled_changes?.length ?? null, added_ids: d?.added ?? [], removed_ids: d?.removed ?? [], price_changed_ids: d?.price_changes ?? [], at: now() };
   } else if (workflow === 'balance-reconcile') {
     const b = rd(`${stem}.balance.json`);
     const balance_usd = num(b?.balance?.body ?? {}, ['balance', 'balance_usd', 'data.balance', 'credits', 'remaining']);

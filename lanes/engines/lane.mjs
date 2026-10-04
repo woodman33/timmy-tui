@@ -154,6 +154,18 @@ function matchRule(drop, fileName, bytes) {
 
 // ------------------------------------------------------------------ run
 
+// runs.jsonl is ONE BUS (order onebus-m5f2): every sealed receipt is followed by a `receipt.sealed` event envelope on
+// the same file, so "the last line" is the envelope, not the receipt. The receipt is the newest line that carries a
+// top-level hash for this subject; the envelope's payload.hash is accepted as a fallback.
+export function lastReceiptHash(lines, subject) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let j; try { j = JSON.parse(lines[i]); } catch { continue; }
+    if (typeof j.hash === 'string' && (subject == null || j.subject === subject)) return j.hash;
+    if (j.kind === 'receipt.sealed' && typeof j.payload?.hash === 'string' && (subject == null || j.payload.subject === subject)) return j.payload.hash;
+  }
+  return null;
+}
+
 function seal(subject, meta) {
   const a = ['tsx', 'src/cli.ts', 'seal', subject];
   for (const [k, v] of Object.entries(meta)) if (v != null && v !== '') a.push('--meta', `${k}=${String(v).replace(/\n/g, ' ').slice(0, 1500)}`);
@@ -161,7 +173,9 @@ function seal(subject, meta) {
   if (r.status !== 0) { process.stderr.write(r.stderr ?? ''); throw new Error(`seal ${subject} failed`); }
   const store = existsSync(join(ROOT, '.timmy', 'store-pin')) ? readFileSync(join(ROOT, '.timmy', 'store-pin'), 'utf8').trim() : join(ROOT, '.timmy', 'receipts');
   const lines = readFileSync(join(store, 'runs.jsonl'), 'utf8').trim().split('\n');
-  return JSON.parse(lines[lines.length - 1]).hash;
+  const hash = lastReceiptHash(lines, subject);
+  if (!hash) throw new Error(`seal ${subject}: receipt written but no hash found on the bus`);
+  return hash;
 }
 
 const proofsPath = join(HERE, 'proofs.json');
@@ -243,7 +257,7 @@ export async function runWorkflow(engineId, workflow, { project, input, noSeal =
     });
     record.receipt = receipt;
     writeFileSync(join(outDir, 'engine.run.json'), JSON.stringify(record, null, 1));
-    if (ok) { const p = loadProofs(); p.proofs[`${engineId}/${workflow}`] = { receipt, ts: record.ts, out_dir: record.out_dir, input_sha256: inputSha, template_sha256: tpl.template_sha256 }; writeFileSync(proofsPath, JSON.stringify(p, null, 1)); }
+    if (ok) { const p = loadProofs(); p.proofs[`${engineId}/${workflow}`] = { receipt, ts: record.ts, out_dir: outDir.replace(process.env.HOME ?? '', '~'), input_sha256: inputSha, template_sha256: tpl.template_sha256 }; writeFileSync(proofsPath, JSON.stringify(p, null, 1)); }   // proofs.json ships: never a home path
   }
   return record;
 }

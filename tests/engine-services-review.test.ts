@@ -7,7 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { collectExtra } from '../lanes/engines/lane.mjs';
+import { collectExtra, lastReceiptHash } from '../lanes/engines/lane.mjs';
 import { checkArtifactUrl, fetchArtifact, hostAllowed, isPrivateIp } from '../lanes/engines/runable/bridge.mjs';
 
 const SHELF = join(__dirname, '..', 'lanes', 'engines');
@@ -267,6 +267,56 @@ describe('agentpass bridge', () => {
     writeFileSync(join(out, 'p.passport.json'), JSON.stringify({ exit: 0, json: { ok: true, passport: { id: 'pp_1', agent: 'lab.timmy', tool: 'openrouter.chat', scope: '*', ttl: 300, budget: 0.1 } } }));
     expect(run([bridge, 'report', 'passport-issue', out, 'p']).status).toBe(5);
     expect(rj(join(out, 'p.agentpass.json'))).toMatchObject({ ok: false, status: 'mismatch', match: { scope: false } });
+  });
+});
+
+describe('routemux live feed shape (exercised against api.routemux.com on 2026-10-04)', () => {
+  const bridge = join(SHELF, 'routemux', 'bridge.mjs');
+  // the real feed: {data: {currency, price_unit, updated_at, models: [{model_name, group_name, input_price, output_price, …}]}}
+  const live = { schema_version: '1.0', success: true, message: '', data: { currency: 'USD', price_unit: 'per_1m_tokens', site_name: 'RouteMux', updated_at: '2026-10-04T12:46:45.804Z', models: [
+    { model_name: 'claude-sonnet-5-5', group_name: 'anthropic', input_price: 0.4, output_price: 2, cache_input_price: 0.04, enabled: true, note: '' },
+    { model_name: 'gpt-5.4', group_name: 'openai', input_price: 0.25, output_price: 1.5, cache_input_price: 0.025, enabled: false, note: '' },
+    { model_name: 'gemini-3.1-flash-image', group_name: 'google', input_price: 0.15, output_price: 0.9, cache_input_price: null, enabled: true, note: '' },
+  ] } };
+  it('feed reads data.models, counts enabled rows, keeps unit and groups, and the report carries them (the first live run crashed on rows.map)', async () => {
+    const srv = createServer((req, res) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(live)); });
+    const port = await listen(srv);
+    const project = tmp('proj-'); const run1 = join(project, 'out', 'routemux', 'model-feed-snapshot', 'feed-1'); mkdirSync(run1, { recursive: true });
+    const r = await runAsync([bridge, 'feed', run1, 'feed', project], { ROUTEMUX_BASE_URL: `http://127.0.0.1:${port}` });
+    expect(r.status).toBe(0);
+    const d = rj(join(run1, 'feed.feed-diff.json'));
+    expect(d).toMatchObject({ models: 3, models_enabled: 2, groups: ['anthropic', 'google', 'openai'], price_unit: 'per_1m_tokens', currency: 'USD', feed_updated: '2026-10-04T12:46:45.804Z', added: ['claude-sonnet-5-5', 'gpt-5.4', 'gemini-3.1-flash-image'], previous: null });
+    expect(run([bridge, 'report', 'model-feed-snapshot', run1, 'feed']).status).toBe(0);
+    expect(rj(join(run1, 'feed.routemux.json'))).toMatchObject({ ok: true, status: 'ok', models: 3, models_enabled: 2, groups: 3, price_unit: 'per_1m_tokens', added: 3, removed: 0, price_changes: 0, enabled_changes: 0 });
+    // predict prices a request from that snapshot: input_price / output_price per 1M tokens
+    const out = tmp('rm-'); const drop = join(out, 'q.routemux.json');
+    writeFileSync(drop, JSON.stringify({ model: 'claude-sonnet-5-5', messages: [{ role: 'user', content: 'x'.repeat(4000) }], max_tokens: 100, predict: { tokens_out: 100 } }));
+    expect(run([bridge, 'predict', drop, out, 'q', project]).status).toBe(0);
+    const pred = rj(join(out, 'q.predict.json'));
+    expect(pred.predicted.tokens_in).toBe(1000);
+    expect(pred.predicted.cost_usd).toBeCloseTo((1000 * 0.4 + 100 * 2) / 1e6, 10);
+    expect(pred.price_source.price).toMatchObject({ input_per_1m: 0.4, output_per_1m: 2, cache_input_per_1m: 0.04, enabled: true, group: 'anthropic' });
+    // a disabled or unknown model prices to null, never to a guess
+    writeFileSync(drop, JSON.stringify({ model: 'not-a-model', messages: [{ role: 'user', content: 'hi' }] }));
+    run([bridge, 'predict', drop, out, 'q', project]);
+    expect(rj(join(out, 'q.predict.json')).predicted.cost_usd).toBeNull();
+  });
+});
+
+describe('lane receipt hash on the one-bus runs.jsonl', () => {
+  it('takes the newest receipt line for the subject, not the receipt.sealed envelope that follows it (receipts were null before)', () => {
+    const lines = [
+      JSON.stringify({ kind: 'seal', subject: 'engine.run', hash: 'sha256_aaa' }),
+      JSON.stringify({ v: 1, kind: 'receipt.sealed', payload: { subject: 'engine.run', hash: 'sha256_aaa' } }),
+      JSON.stringify({ kind: 'seal', subject: 'engine.shelf', hash: 'sha256_bbb' }),
+      JSON.stringify({ v: 1, kind: 'receipt.sealed', payload: { subject: 'engine.shelf', hash: 'sha256_bbb' } }),
+      'not json',
+    ];
+    expect(lastReceiptHash(lines, 'engine.run')).toBe('sha256_aaa');
+    expect(lastReceiptHash(lines, 'engine.shelf')).toBe('sha256_bbb');
+    expect(lastReceiptHash(lines, null)).toBe('sha256_bbb');
+    expect(lastReceiptHash(lines, 'engine.refuse')).toBeNull();
+    expect(lastReceiptHash([JSON.stringify({ kind: 'receipt.sealed', payload: { subject: 'engine.run', hash: 'sha256_ccc' } })], 'engine.run')).toBe('sha256_ccc');   // envelope-only fallback
   });
 });
 
