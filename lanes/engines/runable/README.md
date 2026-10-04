@@ -32,7 +32,8 @@ is used and labelled `prediction_source: default`.
   server's host, `*.runable.com`, plus `RUNABLE_ARTIFACT_HOSTS`) that resolve to public
   addresses — loopback, link-local, RFC 1918, CGNAT, metadata and ULA ranges are refused
   after DNS resolution, redirects are re-checked hop by hop (max 3), only 2xx bodies are
-  saved, and each file is capped at `RUNABLE_MAX_FILE_MB` (200). Everything refused is
+  saved, and each file is capped at `RUNABLE_MAX_FILE_MB` (200) while it streams — a
+  missing or lying content-length never buffers more than the cap. Everything refused is
   listed under `skipped` with its reason, so a task result that tries to point the lane at
   an internal service is a visible finding, not a fetch.
 

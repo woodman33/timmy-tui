@@ -128,9 +128,9 @@ export function defaultArtifactHosts() {
   return [...new Set(hosts)];
 }
 // Resolves to {ok:true, url} or {ok:false, reason}. `lookup` is injectable for tests; the default is DNS.
-export async function checkArtifactUrl(raw, { allow = defaultArtifactHosts(), lookup = (h) => dns.lookup(h, { all: true }) } = {}) {
+export async function checkArtifactUrl(raw, { allow = defaultArtifactHosts(), lookup = (h) => dns.lookup(h, { all: true }), schemes = ['https:'] } = {}) {
   let u; try { u = new URL(raw); } catch { return { ok: false, reason: 'not a URL' }; }
-  if (u.protocol !== 'https:') return { ok: false, reason: `scheme ${u.protocol} refused (https only)` };
+  if (!schemes.includes(u.protocol)) return { ok: false, reason: `scheme ${u.protocol} refused (${schemes.join(' ')} only)` };
   if (u.username || u.password) return { ok: false, reason: 'credentials in URL refused' };
   if (!hostAllowed(u.hostname, allow)) return { ok: false, reason: `host ${u.hostname} is not in the artifact allow-list` };
   const literal = u.hostname.replace(/^\[|\]$/g, '');
@@ -142,21 +142,33 @@ export async function checkArtifactUrl(raw, { allow = defaultArtifactHosts(), lo
   return bad ? { ok: false, reason: `${u.hostname} resolves to non-public ${bad}` } : { ok: true, url: u.toString() };
 }
 const MAX_FILE_BYTES = Number(process.env.RUNABLE_MAX_FILE_MB ?? 200) * 1024 * 1024;
-async function fetchArtifact(raw, opts = {}) {
+// The body is streamed and counted as it arrives: a missing, zero or lying content-length never buffers more than the
+// cap, and an oversized declared length cancels the stream instead of reading it.
+export async function fetchArtifact(raw, { maxBytes = MAX_FILE_BYTES, ...opts } = {}) {
   let url = raw;
   for (let hop = 0; hop <= 3; hop++) {
     const chk = await checkArtifactUrl(url, opts);
     if (!chk.ok) return { ok: false, url, reason: chk.reason, hop };
     const r = await fetch(chk.url, { headers: { 'user-agent': UA }, redirect: 'manual' });
     if (r.status >= 300 && r.status < 400) {
-      const loc = r.headers.get('location'); if (!loc) return { ok: false, url, reason: `redirect ${r.status} without location`, hop };
+      const loc = r.headers.get('location'); try { await r.body?.cancel(); } catch { /* already closed */ }
+      if (!loc) return { ok: false, url, reason: `redirect ${r.status} without location`, hop };
       url = new URL(loc, chk.url).toString(); continue;                     // re-checked on the next hop
     }
-    if (!r.ok) return { ok: false, url, reason: `HTTP ${r.status}`, http: r.status, hop };
+    if (!r.ok) { try { await r.body?.cancel(); } catch { /* already closed */ } return { ok: false, url, reason: `HTTP ${r.status}`, http: r.status, hop }; }
     const declared = Number(r.headers.get('content-length') ?? 0);
-    if (declared > MAX_FILE_BYTES) return { ok: false, url, reason: `content-length ${declared} exceeds cap ${MAX_FILE_BYTES}`, http: r.status, hop };
-    const buf = Buffer.from(await r.arrayBuffer());
-    if (buf.length > MAX_FILE_BYTES) return { ok: false, url, reason: `body ${buf.length} exceeds cap ${MAX_FILE_BYTES}`, http: r.status, hop };
+    if (declared > maxBytes) { try { await r.body?.cancel(); } catch { /* already closed */ } return { ok: false, url, reason: `content-length ${declared} exceeds cap ${maxBytes}`, http: r.status, hop }; }
+    const chunks = []; let total = 0;
+    if (r.body) {
+      const reader = r.body.getReader();
+      for (;;) {
+        const { value, done } = await reader.read(); if (done) break;
+        total += value.byteLength;
+        if (total > maxBytes) { try { await reader.cancel(); } catch { /* already closed */ } return { ok: false, url, reason: `body exceeds cap ${maxBytes} bytes (stopped after ${total})`, http: r.status, hop }; }
+        chunks.push(value);
+      }
+    }
+    const buf = Buffer.concat(chunks.map((c) => Buffer.from(c.buffer, c.byteOffset, c.byteLength)));
     return { ok: true, url, buf, http: r.status, type: r.headers.get('content-type'), hop };
   }
   return { ok: false, url, reason: 'too many redirects' };

@@ -8,7 +8,7 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { collectExtra } from '../lanes/engines/lane.mjs';
-import { checkArtifactUrl, hostAllowed, isPrivateIp } from '../lanes/engines/runable/bridge.mjs';
+import { checkArtifactUrl, fetchArtifact, hostAllowed, isPrivateIp } from '../lanes/engines/runable/bridge.mjs';
 
 const SHELF = join(__dirname, '..', 'lanes', 'engines');
 const node = process.execPath;
@@ -153,7 +153,7 @@ describe('runable bridge', () => {
     expect(hostAllowed('files.example', ['files.example'])).toBe(true);
     const allow = ['*.runable.com'];
     const pub = async () => [{ address: '104.18.0.1', family: 4 }];
-    expect(await checkArtifactUrl('http://cdn.runable.com/a.pdf', { allow, lookup: pub })).toMatchObject({ ok: false, reason: expect.stringContaining('https only') });
+    expect(await checkArtifactUrl('http://cdn.runable.com/a.pdf', { allow, lookup: pub })).toMatchObject({ ok: false, reason: expect.stringContaining('https: only') });
     const metadata = v4(169, 254, 169, 254);
     expect(await checkArtifactUrl(`https://${metadata}/latest/meta-data`, { allow: ['*'], lookup: pub })).toMatchObject({ ok: false });
     expect(await checkArtifactUrl(`https://${metadata}/latest/meta-data`, { allow: [metadata], lookup: pub })).toMatchObject({ ok: false, reason: expect.stringContaining('not public') });
@@ -163,6 +163,27 @@ describe('runable bridge', () => {
     expect(await checkArtifactUrl('https://cdn.runable.com/x', { allow, lookup: async () => [{ address: v4(10, 0, 0, 5), family: 4 }] })).toMatchObject({ ok: false, reason: expect.stringContaining('non-public') });
     expect(await checkArtifactUrl('https://cdn.runable.com/x', { allow, lookup: async () => { throw new Error('ENOTFOUND'); } })).toMatchObject({ ok: false, reason: expect.stringContaining('DNS failed') });
     expect(await checkArtifactUrl('https://cdn.runable.com/x.pdf', { allow, lookup: pub })).toEqual({ ok: true, url: 'https://cdn.runable.com/x.pdf' });
+  });
+
+  it('the artifact byte cap is enforced while the body streams, with or without an honest content-length (Cursor: cap buffered full bodies)', async () => {
+    let sent = 0;
+    const srv = createServer((req, res) => {
+      if (req.url === '/no-length') { res.setHeader('content-type', 'application/octet-stream'); const chunk = Buffer.alloc(64 * 1024, 1); const iv = setInterval(() => { if (res.writableEnded) return clearInterval(iv); res.write(chunk); sent += chunk.length; if (sent >= 8 * 1024 * 1024) { clearInterval(iv); res.end(); } }, 1); req.on('close', () => clearInterval(iv)); return; }
+      if (req.url === '/lying-length') { res.setHeader('content-length', '10'); res.write(Buffer.alloc(10, 2)); return setTimeout(() => res.end(), 50); }
+      if (req.url === '/declared-too-big') { res.setHeader('content-length', String(50 * 1024 * 1024)); res.write(Buffer.alloc(1024, 3)); return; }
+      if (req.url === '/small') { res.setHeader('content-type', 'text/plain'); return res.end('hello artifact'); }
+      res.statusCode = 404; res.end();
+    });
+    const port = await listen(srv);
+    const opts = { allow: ['localhost'], lookup: async () => [{ address: '104.18.0.1', family: 4 }], schemes: ['http:'], maxBytes: 1024 * 1024 };
+    const big = await fetchArtifact(`http://localhost:${port}/no-length`, opts);
+    expect(big).toMatchObject({ ok: false, reason: expect.stringContaining('exceeds cap') });
+    expect(sent).toBeLessThan(6 * 1024 * 1024);                            // the stream was cancelled, not drained
+    expect(await fetchArtifact(`http://localhost:${port}/declared-too-big`, opts)).toMatchObject({ ok: false, reason: expect.stringContaining('content-length') });
+    const ok = await fetchArtifact(`http://localhost:${port}/small`, opts);
+    expect(ok.ok).toBe(true); expect(ok.buf.toString()).toBe('hello artifact'); expect(ok.http).toBe(200);
+    const lie = await fetchArtifact(`http://localhost:${port}/lying-length`, { ...opts, maxBytes: 4 });
+    expect(lie).toMatchObject({ ok: false, reason: expect.stringContaining('exceeds cap') });
   });
 
   it('a poll that hits its cap seals status=timed_out via the report it writes before exiting (Cursor: timeout never seals)', async () => {
