@@ -62,7 +62,9 @@ def load_points(path: Path, samples: int, seed: int) -> tuple[np.ndarray, str]:
     try:
         import trimesh  # optional: meshes are sampled on their surface
     except ImportError:
-        raise SystemExit(json.dumps({"ok": False, "status": "not_configured", "note": f"{path.name} is a mesh; pip install trimesh to sample it"}))
+        # same honesty clause as the numeric stack: a documented optional dependency is not_configured (exit 3), never a traceback or exit 1
+        print(json.dumps({"ok": False, "status": "not_configured", "note": f"{path.name} is a mesh; pip install trimesh to sample it"}))
+        sys.exit(3)
     m = trimesh.load(path, force="mesh")
     if getattr(m, "faces", None) is None or len(m.faces) == 0:
         return np.asarray(m.vertices, dtype=np.float64), "mesh-vertices"

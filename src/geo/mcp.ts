@@ -26,11 +26,16 @@ export const GEO_TOOLS = [
 
 type Outcome = { ok: boolean; status: 'ok' | 'partial' | 'untrusted' | 'not_configured' | 'failed' | 'invalid_request'; exit_code: number | null; ms: number; result: unknown; stderr?: string; receipt?: string; note?: string };
 
+// store_true flags on the lanes: a client's 'true' / 1 / 'yes' means the flag, anything else means its absence —
+// never `--fit true`, which argparse rejects with exit 2 (and exit 2 is the lanes' "untrusted" code).
+const BOOL_FLAGS = new Set(['fit', 'normalize', 'normalize-each']);
+const truthy = (v: unknown) => v === true || v === 1 || v === '1' || (typeof v === 'string' && ['true', 'yes', 'on'].includes(v.toLowerCase()));
 function flags(args: Record<string, unknown>, keys: string[]): string[] {
   const out: string[] = [];
   for (const k of keys) {
     const v = args[k];
     if (v === undefined || v === null || v === false) continue;
+    if (BOOL_FLAGS.has(k)) { if (truthy(v)) out.push(`--${k}`); continue; }
     if (v === true) { out.push(`--${k}`); continue; }
     if (typeof v === 'number' && !Number.isFinite(v)) continue;
     out.push(`--${k}`, String(v));
@@ -45,12 +50,15 @@ function runLane(script: string, argv: string[], subject: string, dir?: string):
   const last = (r.stdout ?? '').trim().split('\n').pop() ?? '';
   let result: unknown = null; try { result = JSON.parse(last); } catch { /* not JSON: a traceback or nothing */ }
   const code = r.status;
-  const partial = script === 'bench_loader.py' && code === 2;                 // bench score: some objects had no prediction — scored, reported, not a trust problem
-  const status: Outcome['status'] = code === 0 ? 'ok' : partial ? 'partial' : code === 2 ? 'untrusted' : code === 3 ? 'not_configured' : 'failed';
+  // exit 2 means "computed but not trusted" only when the lane wrote its JSON; argparse also exits 2 on a usage error and
+  // writes nothing to stdout — that is a failure (error_class usage), never an untrusted-but-ok receipt
+  const usage = code === 2 && result === null;
+  const partial = script === 'bench_loader.py' && code === 2 && result !== null;   // bench score: some objects had no prediction — scored, reported, not a trust problem
+  const status: Outcome['status'] = code === 0 ? 'ok' : usage ? 'failed' : partial ? 'partial' : code === 2 ? 'untrusted' : code === 3 ? 'not_configured' : 'failed';
   const stderr = scrub((r.stderr ?? '').slice(-2000)) || undefined;
   const rec = appendReceipt('runs', {
     kind: 'run', subject, policy: 'auto', status: status === 'ok' || status === 'untrusted' || status === 'partial' ? 'ok' : 'failed',
-    error_class: status === 'ok' ? undefined : status === 'untrusted' ? 'untrusted_metric' : status === 'partial' ? 'partial' : status === 'not_configured' ? 'env' : 'exec',
+    error_class: status === 'ok' ? undefined : status === 'untrusted' ? 'untrusted_metric' : status === 'partial' ? 'partial' : status === 'not_configured' ? 'env' : usage ? 'usage' : 'exec',
     exit_code: code ?? -1, ms, response_hash: result ? sha256(JSON.stringify(result)) : undefined,
     spans: [{ name: `${script} ${scrub(argv.join(' '))}`.slice(0, 400), kind: 'execute_tool' }], artifacts: [],
   }, dir);

@@ -2,8 +2,9 @@
 // WebDataset shard (two trimesh boxes with GSO-style metadata) stands in for a GSO tar; the real smoke shard (5 objects,
 // 90 MB, CC-BY-4.0) was run by hand on 2026-10-04 with the same code path. Needs python3 + numpy + scipy + trimesh.
 import { describe, it, expect } from 'vitest';
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,6 +12,13 @@ const ROOT = join(__dirname, '..');
 const loader = join(ROOT, 'lanes', 'geo', 'bench_loader.py');
 const deps = spawnSync('python3', ['-c', 'import numpy, scipy, trimesh'], { encoding: 'utf8' }).status === 0;
 const run = (args: string[]) => spawnSync('python3', [loader, ...args], { encoding: 'utf8', timeout: 180000 });
+// the fetch test hosts its server in this worker: a spawnSync there would block the event loop the server needs (the engine
+// tests hit the same thing), so the loader is spawned asynchronously for it
+const runAsync = (args: string[], env: NodeJS.ProcessEnv) => new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
+  const c = spawn('python3', [loader, ...args], { env }); let out = '', err = '';
+  c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { err += d; });
+  c.on('close', (status) => resolve({ status, stdout: out, stderr: err }));
+});
 
 const FAKE_SHARD = `
 import io, json, sys, tarfile, numpy as np, trimesh
@@ -59,7 +67,7 @@ describe('geo bench loader', () => {
     const man = JSON.parse(readFileSync(join(dir, 'bench', 'manifest.json'), 'utf8'));
     expect(man).toMatchObject({ kind: 'geo.bench-manifest', set: 'gso', count: 2, samples_per_object: 40000 });
     expect(man.source.license).toBe('cc-by-4.0'); expect(man.source.tar_sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(man.skipped).toEqual([{ id: 'orphan', why: 'no metadata or no mesh' }]);
+    expect(man.skipped).toEqual([{ id: 'orphan', why: 'no metadata or no mesh', shard: 'fake-00000.tar' }]);
     const a = man.objects.find((o: any) => o.id === 'box_a');
     expect(a.frames.metric.extents_m.map((x: number) => Math.round(x * 100) / 100)).toEqual([0.1, 0.2, 0.4]);
     expect(a.frames.metric.unit).toBe('m'); expect(a.frames.unit.applied_scale).toBeCloseTo(2.5, 6);
@@ -97,5 +105,70 @@ describe('geo bench loader', () => {
     expect(g).toMatchObject({ model: 'exact-boxes', graded: true, frame_matches: true, prediction_sha256: prediction.prediction_sha256 });
     expect(g.falsified).toBe(g.gap < -0.08);                                                        // the median over {exact, 5 cm off} decides; the rule is the receipt's
     expect(typeof g.observed_median_fscore).toBe('number');
-  }, 180000);
+    // Cursor: --normalize-each discards relative scale, so every per-object record must say metric:false, not only the summary
+    const ne = run(['score', '--bench', join(dir, 'bench'), '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--normalize-each', '--voxel', '0.02', '--tau', '0.01', '--samples', '40000']);
+    expect(ne.status).toBe(0);
+    expect(JSON.parse(readFileSync(join(dir, 'bench', 'scores', 'summary.json'), 'utf8')).metric).toBe(false);
+    const perObj = JSON.parse(readFileSync(join(dir, 'bench', 'scores', 'box_a.json'), 'utf8'));
+    expect(perObj.metric).toBe(false); expect(perObj.unit).toBe('unit-cube'); expect(perObj.note.join(' ')).toMatch(/normalize_each/);
+    // Cursor: a second shard into the same bench must add to the manifest, not replace it
+    const SECOND = `
+import io, json, sys, tarfile, trimesh
+from pathlib import Path
+S = Path(sys.argv[1])
+def add(tar, name, data):
+    ti = tarfile.TarInfo(name); ti.size = len(data); tar.addfile(ti, io.BytesIO(data))
+with tarfile.open(S / 'fake-00001.tar', 'w') as tar:
+    m = trimesh.creation.box(extents=[0.2, 0.2, 0.2]); add(tar, 'box_c.obj', m.export(file_type='obj').encode())
+    add(tar, 'box_c.json', json.dumps({'object_id': 'box_c', 'license_id': 'cc-by-4.0', 'glb_processing': {}}).encode())
+print('ok')
+`;
+    expect(spawnSync('python3', ['-c', SECOND, dir], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
+    const ex2 = run(['extract', '--tar', join(dir, 'fake-00001.tar'), '--out', join(dir, 'bench'), '--samples', '40000']);
+    expect(ex2.status, ex2.stderr).toBe(0);
+    const man2 = JSON.parse(readFileSync(join(dir, 'bench', 'manifest.json'), 'utf8'));
+    expect(man2.count).toBe(3); expect(man2.objects.map((o: any) => o.id)).toEqual(['box_a', 'box_b', 'box_c']);
+    expect(man2.shards.map((x: any) => [x.tar, x.objects])).toEqual([['fake-00000.tar', 2], ['fake-00001.tar', 1]]);
+    expect(man2.objects.find((o: any) => o.id === 'box_c').shard).toBe('fake-00001.tar');
+    expect(JSON.parse(ex2.stdout.trim())).toMatchObject({ objects_in_shard: 1, objects: 3, shards: 2 });
+    // re-extracting the first shard replaces its objects in place, never duplicates them
+    expect(run(['extract', '--tar', join(dir, 'fake-00000.tar'), '--out', join(dir, 'bench'), '--samples', '40000']).status).toBe(0);
+    const man3 = JSON.parse(readFileSync(join(dir, 'bench', 'manifest.json'), 'utf8'));
+    expect(man3.count).toBe(3); expect(man3.shards).toHaveLength(2);
+    // different settings into the same bench are refused instead of silently mixing sample counts
+    expect(run(['extract', '--tar', join(dir, 'fake-00001.tar'), '--out', join(dir, 'bench'), '--samples', '999']).status).toBe(2);
+  }, 240000);
+
+  it('fetch keeps a dropped download out of the shard directory and verifies size before calling a file present (Cursor: truncated tars were trusted)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'geo-fetch-'));
+    const body = Buffer.alloc(300_000, 7);
+    let mode: 'truncate' | 'full' = 'truncate';
+    const srv = createServer((req, res) => {
+      res.setHeader('content-length', String(body.length));
+      if (req.method === 'HEAD') return res.end();
+      if (mode === 'truncate') { res.write(body.subarray(0, 100_000)); return setTimeout(() => res.destroy(), 20); }
+      res.end(body);
+    });
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', () => r()));
+    const port = (srv.address() as any).port;
+    // the loopback server must not be routed through the sandbox's HTTP proxy
+    const env = { ...process.env, TIMMY_BENCH_BASE_URL: `http://127.0.0.1:${port}`, PYTHONDONTWRITEBYTECODE: '1', NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost' };
+    const fetch1 = await runAsync(['fetch', '--set', 'gso', '--smoke', '--shard', '0', '--out', join(dir, 'bench')], env);
+    expect(fetch1.status).toBe(5);
+    expect(JSON.parse(fetch1.stdout.trim())).toMatchObject({ ok: false, status: 'incomplete', expected_bytes: body.length });
+    expect(existsSync(join(dir, 'bench', 'shards', 'gso-train-00000.tar'))).toBe(false);
+    expect(existsSync(join(dir, 'bench', 'shards', 'gso-train-00000.tar.part'))).toBe(false);
+    mode = 'full';
+    const fetch2 = await runAsync(['fetch', '--set', 'gso', '--smoke', '--shard', '0', '--out', join(dir, 'bench')], env);
+    expect(fetch2.status, fetch2.stderr).toBe(0);
+    const rec = JSON.parse(fetch2.stdout.trim());
+    expect(rec).toMatchObject({ ok: true, status: 'fetched', bytes: body.length, expected_bytes: body.length, license: 'cc-by-4.0' });
+    expect(rec.sha256).toMatch(/^[0-9a-f]{64}$/);
+    const again = await runAsync(['fetch', '--set', 'gso', '--smoke', '--shard', '0', '--out', join(dir, 'bench')], env);
+    expect(JSON.parse(again.stdout.trim())).toMatchObject({ status: 'present', bytes: body.length, sha256: rec.sha256 });
+    writeFileSync(join(dir, 'bench', 'shards', 'gso-train-00000.tar'), body.subarray(0, 1000));           // a leftover stub is not "present"
+    const stub = await runAsync(['fetch', '--set', 'gso', '--smoke', '--shard', '0', '--out', join(dir, 'bench')], env);
+    expect(stub.status).toBe(5); expect(JSON.parse(stub.stdout.trim()).status).toBe('incomplete');
+    srv.close();
+  }, 90000);
 });

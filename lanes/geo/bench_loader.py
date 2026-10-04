@@ -25,6 +25,7 @@ import argparse
 import hashlib
 import io
 import json
+import os
 import sys
 import tarfile
 import tempfile
@@ -55,24 +56,40 @@ def fetch(a) -> int:
     s = SETS[a.set]
     repo = s["smoke_repo"] if a.smoke else s["repo"]
     rel = s["shard"].format(n=a.shard)
-    url = f"https://huggingface.co/datasets/{repo}/resolve/main/{rel}"
+    base = os.environ.get("TIMMY_BENCH_BASE_URL") or f"https://huggingface.co/datasets/{repo}/resolve/main/"
+    url = base.rstrip("/") + "/" + rel
     out = Path(a.out) / "shards"; out.mkdir(parents=True, exist_ok=True)
-    dst = out / Path(rel).name
-    if dst.exists() and not a.force:
-        print(json.dumps({"ok": True, "status": "present", "path": str(dst), "bytes": dst.stat().st_size, "sha256": sha256_file(dst), "note": "already downloaded; --force to refetch"}))
-        return 0
+    dst = out / Path(rel).name; part = dst.with_suffix(dst.suffix + ".part"); side = out / (dst.name + ".json")
     req = urllib.request.Request(url, method="HEAD")
     with urllib.request.urlopen(req, timeout=60) as r:
         size = int(r.headers.get("Content-Length") or 0)
+    if dst.exists() and not a.force:
+        # present is only "present" when the bytes on disk are the bytes the server advertises (a dropped connection used to pass here)
+        have = dst.stat().st_size
+        if size and have != size:
+            print(json.dumps({"ok": False, "status": "incomplete", "path": str(dst), "bytes": have, "expected_bytes": size, "note": "file on disk is not the advertised size; rerun with --force"}))
+            return 5
+        rec_prev = json.loads(side.read_text()) if side.exists() else {}
+        print(json.dumps({"ok": True, "status": "present", "path": str(dst), "bytes": have, "expected_bytes": size or None, "sha256": rec_prev.get("sha256") or sha256_file(dst), "note": "already downloaded and size-verified; --force to refetch"}))
+        return 0
     if size > a.max_gb * (1 << 30) and not a.yes_big:
         print(json.dumps({"ok": False, "status": "refused", "note": f"{rel} is {size / (1 << 30):.2f} GB > --max-gb {a.max_gb}; pass --yes-big with an explicit order line"}))
         return 2
-    h = hashlib.sha256(); n = 0
-    with urllib.request.urlopen(url, timeout=120) as r, dst.open("wb") as f:
-        for chunk in iter(lambda: r.read(1 << 20), b""):
-            f.write(chunk); h.update(chunk); n += len(chunk)
-    rec = {"ok": True, "status": "fetched", "set": a.set, "repo": repo, "shard": rel, "url": url, "path": str(dst), "bytes": n, "sha256": h.hexdigest(), "license": s["license"]}
-    (out / (dst.name + ".json")).write_text(json.dumps(rec, indent=1) + "\n")
+    h = hashlib.sha256(); n = 0; err = None
+    try:
+        with urllib.request.urlopen(url, timeout=120) as r, part.open("wb") as f:
+            size = int(r.headers.get("Content-Length") or size or 0)
+            for chunk in iter(lambda: r.read(1 << 20), b""):
+                f.write(chunk); h.update(chunk); n += len(chunk)
+    except Exception as e:                                   # a connection that drops mid-body: whatever landed is not a shard
+        err = f"{type(e).__name__}: {e}"[:200]
+    if err or (size and n != size):
+        part.unlink(missing_ok=True)
+        print(json.dumps({"ok": False, "status": "incomplete", "shard": rel, "bytes": n, "expected_bytes": size or None, "note": err or "short read; partial file removed, nothing recorded"}))
+        return 5
+    part.replace(dst)
+    rec = {"ok": True, "status": "fetched", "set": a.set, "repo": repo, "shard": rel, "url": url, "path": str(dst), "bytes": n, "expected_bytes": size or None, "sha256": h.hexdigest(), "license": s["license"]}
+    side.write_text(json.dumps(rec, indent=1) + "\n")
     print(json.dumps(rec)); return 0
 
 
@@ -118,17 +135,24 @@ def extract(a) -> int:
         print(json.dumps({"ok": False, "status": "not_configured", "note": "extract needs numpy + trimesh: pip install numpy trimesh"})); return 3
     tar_path = Path(a.tar); bench = Path(a.out); objdir = bench / "objects"; objdir.mkdir(parents=True, exist_ok=True)
     tar_sha = sha256_file(tar_path)
-    manifest = {"kind": "geo.bench-manifest", "set": a.set, "source": {"tar": tar_path.name, "tar_sha256": tar_sha, "tar_bytes": tar_path.stat().st_size, **{k: SETS[a.set][k] for k in ("repo", "license", "attribution")}},
-                "samples_per_object": a.samples, "seed": a.seed, "objects": []}
+    source = {"tar": tar_path.name, "tar_sha256": tar_sha, "tar_bytes": tar_path.stat().st_size, **{k: SETS[a.set][k] for k in ("repo", "license", "attribution")}}
+    # shards accumulate: an existing manifest for the same set keeps its objects from other tars; objects with the same id are replaced
+    mp = bench / "manifest.json"
+    prev = json.loads(mp.read_text()) if mp.exists() else None
+    if prev and (prev.get("set") != a.set or prev.get("samples_per_object") != a.samples or prev.get("seed") != a.seed):
+        print(json.dumps({"ok": False, "status": "refused", "note": f"{mp} is for set={prev.get('set')} samples={prev.get('samples_per_object')} seed={prev.get('seed')}; use the same settings or another --out"})); return 2
+    kept = [o for o in (prev or {}).get("objects", []) if o.get("shard") != tar_path.name]
+    shards = [sh for sh in (prev or {}).get("shards", []) if sh.get("tar") != tar_path.name]
+    manifest = {"kind": "geo.bench-manifest", "set": a.set, "source": source, "shards": shards, "samples_per_object": a.samples, "seed": a.seed, "objects": kept, "skipped": [x for x in (prev or {}).get("skipped", []) if x.get("shard") != tar_path.name]}
     with tarfile.open(tar_path) as tar:
         groups = group_members(tar)
         for oid in sorted(groups):
             g = groups[oid]
             if "json" not in g or ("obj" not in g and "glb" not in g):
-                manifest.setdefault("skipped", []).append({"id": oid, "why": "no metadata or no mesh"}); continue
+                manifest["skipped"].append({"id": oid, "why": "no metadata or no mesh", "shard": tar_path.name}); continue
             meta = json.loads(tar.extractfile(g["json"]).read().decode("utf8"))
             od = objdir / oid; od.mkdir(exist_ok=True)
-            entry = {"id": oid, "name": meta.get("name"), "category": meta.get("category"), "license_id": meta.get("license_id"), "frames": {}}
+            entry = {"id": oid, "name": meta.get("name"), "category": meta.get("category"), "license_id": meta.get("license_id"), "shard": tar_path.name, "frames": {}}
             with tempfile.TemporaryDirectory() as td:
                 tdp = Path(td)
                 if "obj" in g:                                                 # metric truth: the original scan in metres
@@ -152,10 +176,15 @@ def extract(a) -> int:
                     (od / f"view_{k}.jpg").write_bytes(tar.extractfile(g[key]).read())
             entry["views"] = sorted(p.name for p in od.glob("view_*.jpg"))
             (od / "meta.json").write_text(json.dumps(meta, indent=1) + "\n")
-            manifest["objects"].append(entry)
+            manifest["objects"] = [o for o in manifest["objects"] if o["id"] != oid] + [entry]
+    new_ids = sorted(o["id"] for o in manifest["objects"] if o["shard"] == tar_path.name)
+    manifest["shards"].append({**source, "objects": len(new_ids)})
+    manifest["objects"].sort(key=lambda o: o["id"])
     manifest["count"] = len(manifest["objects"])
-    (bench / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
-    print(json.dumps({"ok": True, "status": "extracted", "objects": manifest["count"], "skipped": len(manifest.get("skipped", [])), "manifest": str(bench / "manifest.json"), "tar_sha256": tar_sha}))
+    if not manifest["skipped"]:
+        del manifest["skipped"]
+    mp.write_text(json.dumps(manifest, indent=1) + "\n")
+    print(json.dumps({"ok": True, "status": "extracted", "objects_in_shard": len(new_ids), "objects": manifest["count"], "shards": len(manifest["shards"]), "skipped": len(manifest.get("skipped", [])), "manifest": str(mp), "tar_sha256": tar_sha}))
     return 0
 
 
@@ -218,6 +247,9 @@ def score(a) -> int:
             for arr in (truth_pts, pred_pts):
                 lo, hi = arr.min(0), arr.max(0); arr -= (lo + hi) / 2; arr /= float((hi - lo).max())
         res = vscore(truth_pts, pred_pts, a.voxel, a.tau, fit=a.fit, tol=a.tolerance)
+        if a.normalize_each:                                                   # rescaled shapes: the per-object record says shape score too, not only the summary
+            res["metric"] = False; res["unit"] = "unit-cube"
+            res["note"].append("each shape rescaled to its own unit cube (normalize_each): relative scale discarded, shape score, not metric")
         res["inputs"] = {"truth": fr["file"], "truth_from": how_t, "pred": pred.name, "pred_from": how_p, "frame": a.frame, "normalize_each": a.normalize_each}
         (sdir / f"{e['id']}.json").write_text(json.dumps(res, indent=1) + "\n")
         rows.append({"id": e["id"], "voxel_f1": res["voxel"]["f1"], "fscore": res["surface"]["fscore"]["f"], "chamfer_mean_dist": res["surface"]["chamfer_mean_dist"], "grid_unstable": res["voxel"]["grid_unstable"]})
@@ -225,7 +257,7 @@ def score(a) -> int:
     summary = {"kind": "geo.bench-summary", "set": manifest["set"], "frame": a.frame, "unit": "m" if a.frame == "metric" and not a.normalize_each else "unit-cube", "metric": not a.fit and not a.normalize_each,
                "voxel": a.voxel, "tau": a.tau, "tolerance": a.tolerance, "fit": a.fit, "normalize_each": a.normalize_each, "scored": len(rows), "missing": missing,
                "median": {"voxel_f1": med("voxel_f1"), "fscore": med("fscore"), "chamfer_mean_dist": med("chamfer_mean_dist")}, "rows": rows,
-               "source": manifest["source"], "note": "metric:true only when nothing was fitted or rescaled; a generation model's output needs --fit or --normalize-each and is a shape score"}
+               "source": manifest["source"], "shards": len(manifest.get("shards", [])) or 1, "note": "metric:true only when nothing was fitted or rescaled; a generation model's output needs --fit or --normalize-each and is a shape score"}
     summary["prediction"] = grade_prediction(sdir, summary)
     (sdir / "summary.json").write_text(json.dumps(summary, indent=1) + "\n")
     print(json.dumps({k: summary[k] for k in ("kind", "set", "frame", "metric", "scored", "median")} | {"missing": len(missing), "prediction": summary["prediction"]}))

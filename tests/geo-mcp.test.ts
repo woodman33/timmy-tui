@@ -64,6 +64,19 @@ describe('geo MCP tools', () => {
     expect(verifyChain('runs', dir).ok).toBe(true);
   });
 
+  it.skipIf(!deps)('a usage error (argparse exit 2, no JSON) is failed/usage, not untrusted; fit:"true" from a client is the flag, not `--fit true` (Cursor)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'geo-mcp-'));
+    expect(spawnSync('python3', ['-c', PLANES, dir], { encoding: 'utf8' }).status).toBe(0);
+    const bad = callGeoTool('timmy_geo_score', { truth: join(dir, 'truth.ply'), pred: join(dir, 'same.ply'), voxel: 'abc' as unknown as number }, dir);
+    expect(bad.status).toBe('failed'); expect(bad.exit_code).toBe(2); expect(bad.result).toBeNull(); expect(bad.stderr).toMatch(/usage|invalid/);
+    const strFit = callGeoTool('timmy_geo_score', { truth: join(dir, 'truth.ply'), pred: join(dir, 'shift.ply'), fit: 'true' as unknown as boolean }, dir);
+    expect(strFit.status).toBe('untrusted'); expect((strFit.result as any).fit.applied).toBe(true);
+    const strNoFit = callGeoTool('timmy_geo_score', { truth: join(dir, 'truth.ply'), pred: join(dir, 'same.ply'), fit: 'false' as unknown as boolean, normalize: 0 as unknown as boolean }, dir);
+    expect(strNoFit.status).toBe('ok'); expect((strNoFit.result as any).fit.applied).toBe(false); expect((strNoFit.result as any).unit).toBe('m');
+    const chain = readChain('runs', dir);
+    expect(chain.map((c) => [c.status, c.error_class])).toEqual([['failed', 'usage'], ['ok', 'untrusted_metric'], ['ok', undefined]]);
+  });
+
   it.skipIf(!deps)('bench: predict seals before score, score grades it, a missing prediction is partial not ok, a wrong step is refused', () => {
     const dir = mkdtempSync(join(tmpdir(), 'geo-mcp-'));
     expect(callGeoTool('timmy_geo_bench', { step: 'score', bench: dir, pred_dir: dir }, dir).status).toBe('invalid_request');     // no manifest → refused, nothing sealed

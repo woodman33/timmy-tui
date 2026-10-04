@@ -39,6 +39,15 @@ describe('geo voxel scorer', () => {
     expect(r.status).toBe(3);
     expect(JSON.parse(r.stdout.trim())).toMatchObject({ ok: false, status: 'not_configured' });
   });
+  it.skipIf(!deps)('a mesh input without trimesh is not_configured (exit 3) too, never an exit-1 traceback (Cursor: mesh path broke the honesty clause)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'geo-mesh-'));
+    writeFileSync(join(dir, 'box.obj'), 'v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nf 1 2 3\nf 1 3 4\n');
+    const shadow = mkdtempSync(join(tmpdir(), 'geo-notrimesh-')); writeFileSync(join(shadow, 'trimesh.py'), 'raise ImportError("shadowed for the test")\n');
+    const r = run(['--truth', join(dir, 'box.obj'), '--pred', join(dir, 'box.obj')], { PYTHONPATH: shadow, PYTHONDONTWRITEBYTECODE: '1' });
+    expect(r.status).toBe(3);
+    expect(JSON.parse(r.stdout.trim())).toMatchObject({ ok: false, status: 'not_configured' });
+    expect(r.stderr).not.toMatch(/Traceback/);
+  });
 
   it.skipIf(!deps)('one voxel of displacement is the whole story: strict voxel F1 0, F-score 0 under τ and 1 over it; the same plane scores ≈1', () => {
     const dir = mkdtempSync(join(tmpdir(), 'geo-vox-'));

@@ -73,7 +73,7 @@ scale recorded, so every object has two truth frames: `metric` (the scorer's met
 houses) and `unit` (the papers' frame). Five rendered thumbnails per object are the single-view inputs for image-to-3D.
 
 ```
-python3 lanes/geo/bench_loader.py fetch   --set gso --smoke --out bench/gso          # one shard; size + sha256 recorded; > 2 GB needs --yes-big
+python3 lanes/geo/bench_loader.py fetch   --set gso --smoke --out bench/gso          # one shard to a .part file, size-verified against Content-Length, then sha256; > 2 GB needs --yes-big
 python3 lanes/geo/bench_loader.py extract --tar bench/gso/shards/gso-train-00000.tar --out bench/gso
 python3 lanes/geo/bench_loader.py predict --bench bench/gso --model trellis2 --expect-f1 0.60 --frame unit --basis "lab50 chain, house bench"
 python3 lanes/geo/bench_loader.py score   --bench bench/gso --pred-dir out/trellis2 --frame unit --normalize-each --fit --voxel 0.02 --tau 0.01
@@ -84,11 +84,11 @@ hashed, with the falsifier spelled out: median F1 more than `--tolerance-f1` bel
 is wrong, not the bench); `score` then grades it into the summary (`as_predicted`, `falsified`, `gap`). That is the Timmy
 formula applied to a benchmark run: the claim exists before the evidence, and the evidence grades the claim.
 
-`extract` writes `objects/<id>/{truth_metric.ply, truth_unit.glb, view_0..4.jpg, meta.json}` and `manifest.json`
+`extract` writes `objects/<id>/{truth_metric.ply, truth_unit.glb, view_0..4.jpg, meta.json}` and merges into `manifest.json` — shards accumulate under one `--out` (same set, sample count and seed, else refused), re-extracting a shard replaces its objects — the manifest
 (licence, attribution, tar sha256, per-object extents in metres, mesh hashes, sample count and seed). `score` takes
 `PRED/<id>.(ply|glb|obj|json)`, runs `voxel_score.py` per object and writes `scores/summary.json` with medians and the
 list of objects that had no prediction — missing is reported, never dropped. A generation model's output has its own
-scale and pose, so it is scored with `--normalize-each --fit` and the summary says `metric:false`; a geometry pipeline
+scale and pose, so it is scored with `--normalize-each --fit` and both the summary and every per-object record say `metric:false`; a geometry pipeline
 with known poses is scored in the metric frame with neither, and keeps `metric:true`.
 
 Measured on the smoke shard (Oct 4 2026): the recorded `applied_translation`/`applied_scale` map the metric OBJ sample
