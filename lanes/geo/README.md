@@ -54,7 +54,7 @@ python3 lanes/geo/voxel_score.py --truth t.ply --pred p.ply --normalize --voxel 
 | `surface.fscore` | F-score@τ (Tatarchenko et al. 2019): precision = predicted points within τ of truth, recall = truth points within τ of prediction | continuous, no grid edge; the number most 3D-generation papers report |
 | `surface.chamfer_mean_dist` | mean nearest-neighbour distance both ways, averaged (metres) | its floor is the sampling density: resampling the same surface gives ≈ 2.6 cm at 60 k points on a house — the self-test reports it as `sampling_floor_chamfer` |
 | `surface.chamfer_l2_sq` | sum of the two mean squared distances — the "CD" of the 3D-gen literature | compare only when sampling count and normalisation match |
-| `metric` | `true` only when nothing was fitted | `--fit` (centroid + 10-step scaled ICP) is diagnostic: output says `metric:false` and the process exits 2 so a fitted number can never pass a metric gate |
+| `metric` | `true` only when nothing was fitted | `--fit` is diagnostic: centroid alignment, then Open3D point-to-point ICP **with scaling, coarse to fine** (thresholds 50 % → 20 % → 5 % of the truth's longest side; a single tight threshold found no correspondences on a 15 % shrink) when Open3D is installed, else the numpy Umeyama loop; the receipt names the engine. Output says `metric:false` and the process exits 2 so a fitted number can never pass a metric gate |
 
 Inputs: point PLY (any vertex layout), JSON `{"points": […]}`, or a mesh (OBJ/GLB/STL/PLY with faces) sampled on
 its surface with trimesh when it is installed (`--samples`, seeded). Exit 0 scored · 2 fitted · 3 not_configured.

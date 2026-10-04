@@ -143,9 +143,32 @@ def umeyama(src: np.ndarray, dst: np.ndarray) -> tuple[float, np.ndarray, np.nda
     return s, R, mu_d - s * R @ mu_s
 
 
-def fit_pred_to_truth(truth: np.ndarray, pred: np.ndarray, iters: int = 10) -> tuple[np.ndarray, dict]:
-    """Centroid alignment, then nearest-neighbour correspondences + Umeyama, iterated (a small ICP with scale)."""
-    cur = pred - pred.mean(0) + truth.mean(0); total_s = 1.0; done = 0
+def fit_pred_to_truth(truth: np.ndarray, pred: np.ndarray, iters: int = 10, threshold: float | None = None) -> tuple[np.ndarray, dict]:
+    """Diagnostic similarity fit (centroid alignment, then scaled ICP). Open3D's point-to-point ICP with scaling when it is
+    installed (correspondence threshold = `threshold`, default 5 % of the truth's longest side); otherwise the numpy
+    Umeyama loop. Either way the result is a shape score, never a metric one — score() marks it metric:false."""
+    cur = pred - pred.mean(0) + truth.mean(0)
+    thr = threshold if threshold else 0.05 * float((truth.max(0) - truth.min(0)).max())
+    try:
+        import open3d as o3d  # optional: the arsenal's registration engine
+        # coarse to fine: a single tight threshold finds no correspondences when the prediction is 15 % off in scale
+        # (measured: fitness 0.0, identity returned); the schedule starts wide and tightens to `thr`
+        side = float((truth.max(0) - truth.min(0)).max())
+        schedule = sorted({round(x, 6) for x in (0.5 * side, 0.2 * side, thr)}, reverse=True)
+        dst = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(truth))
+        total_s = 1.0; reg = None
+        for t_k in schedule:
+            src = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(cur))
+            reg = o3d.pipelines.registration.registration_icp(src, dst, t_k, np.eye(4), o3d.pipelines.registration.TransformationEstimationPointToPoint(with_scaling=True),
+                                                               o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max(iters, 30)))
+            T = np.asarray(reg.transformation)
+            cur = (T[:3, :3] @ cur.T).T + T[:3, 3]
+            total_s *= float(np.cbrt(abs(np.linalg.det(T[:3, :3]))))
+        return cur, {"applied": True, "engine": f"open3d-{o3d.__version__}", "method": "point-to-point ICP with scaling, coarse to fine", "thresholds": schedule, "fitness": round(float(reg.fitness), 4),
+                     "inlier_rmse": round(float(reg.inlier_rmse), 6), "scale_applied": round(total_s, 5), "centroid_shift": round(float(np.linalg.norm(cur.mean(0) - pred.mean(0))), 5)}
+    except ImportError:
+        pass
+    total_s = 1.0; done = 0
     tree = cKDTree(truth)
     for done in range(1, iters + 1):
         idx = tree.query(cur, k=1)[1]
@@ -154,7 +177,8 @@ def fit_pred_to_truth(truth: np.ndarray, pred: np.ndarray, iters: int = 10) -> t
         total_s *= s
         if abs(s - 1) < 1e-4 and np.linalg.norm(t) < 1e-3 and abs(np.trace(R) - 3) < 1e-6:
             break
-    return cur, {"applied": True, "iterations": done, "scale_applied": round(total_s, 5), "centroid_shift": round(float(np.linalg.norm(cur.mean(0) - pred.mean(0))), 5)}
+    return cur, {"applied": True, "engine": "numpy-umeyama", "method": "nearest-neighbour Umeyama, iterated", "iterations": done, "threshold": None,
+                 "scale_applied": round(total_s, 5), "centroid_shift": round(float(np.linalg.norm(cur.mean(0) - pred.mean(0))), 5)}
 
 
 def score(truth: np.ndarray, pred: np.ndarray, voxel: float, tau: float, fit: bool = False, normalize: bool = False, tol: float = 0.05, phases: int = 8) -> dict:
@@ -208,7 +232,7 @@ def selftest(voxel: float, tau: float) -> tuple[dict, bool]:
             "voxel_f1_band": {k: r["voxel"]["f1_band"] for k, r in res.items()}, "grid_sensitivity": {k: r["voxel"]["grid_sensitivity"] for k, r in res.items()},
             "chamfer_mean_dist": {k: r["surface"]["chamfer_mean_dist"] for k, r in res.items()},
             "sampling_floor_chamfer": res["in_place"]["surface"]["chamfer_mean_dist"],      # resampling the same surface is never 0: that is the floor
-            "fit_recovers_shift": {"voxel_f1": fitted["voxel"]["f1"], "metric": fitted["metric"], "scale_applied": fitted["fit"]["scale_applied"]}}, ok
+            "fit_recovers_shift": {"voxel_f1": fitted["voxel"]["f1"], "metric": fitted["metric"], "scale_applied": fitted["fit"]["scale_applied"], "engine": fitted["fit"]["engine"]}}, ok
 
 
 def main(argv=None):
