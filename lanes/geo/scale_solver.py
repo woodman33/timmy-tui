@@ -70,7 +70,7 @@ def solve_view_scales(view_pts: list[np.ndarray], Rs: list[np.ndarray], ts: list
         return float(np.mean(tot))
     gcost = [global_cost(sv) for sv in coarse]
     s0 = float(coarse[int(np.argmin(gcost))])
-    fine0 = s0 * np.exp(np.linspace(-0.04, 0.04, 41))
+    fine0 = np.clip(s0 * np.exp(np.linspace(-0.04, 0.04, 41)), lo, hi)
     g2 = [global_cost(sv) for sv in fine0]
     s0 = float(fine0[int(np.argmin(g2))])
     scales = np.full(n, s0)
@@ -82,10 +82,11 @@ def solve_view_scales(view_pts: list[np.ndarray], Rs: list[np.ndarray], ts: list
 
             def cost(sv):
                 return float(np.median(tree.query(world(k, sv), k=1)[0]))
-            grid = scales[k] * np.exp(np.linspace(-0.4, 0.4, 121)) if r == 0 else scales[k] * np.exp(np.linspace(-0.25, 0.25, 101))
+            # candidates never leave [lo, hi]: a scale that wants to go further sits on the bound and trips at_grid_edge below
+            grid = np.clip(scales[k] * np.exp(np.linspace(-0.4, 0.4, 121)) if r == 0 else scales[k] * np.exp(np.linspace(-0.25, 0.25, 101)), lo, hi)
             c = [cost(sv) for sv in grid]
             scales[k] = float(grid[int(np.argmin(c))])
-            fine = scales[k] * np.exp(np.linspace(-0.03, 0.03, 31))
+            fine = np.clip(scales[k] * np.exp(np.linspace(-0.03, 0.03, 31)), lo, hi)
             c2 = [cost(sv) for sv in fine]
             scales[k] = float(fine[int(np.argmin(c2))])
             history.append({"round": r, "view": k, "scale": round(scales[k], 5), "median_nn": round(min(c2), 5)})
@@ -94,26 +95,51 @@ def solve_view_scales(view_pts: list[np.ndarray], Rs: list[np.ndarray], ts: list
     for k in range(n):
         tree = cKDTree(np.concatenate([allw[j] for j in range(n) if j != k]))
         resid.append(float(np.median(tree.query(allw[k], k=1)[0])))
-    edge = bool(any(abs(np.log(x / lo)) < 0.02 or abs(np.log(x / hi)) < 0.02 for x in scales))
+    edge = bool(any(np.log(x / lo) < 0.02 or np.log(hi / x) < 0.02 for x in scales))   # signed: on, at or beyond either bound
     return {"scales": [round(float(x), 5) for x in scales], "global_scale": round(s0, 5), "consistency_median_nn": [round(x, 5) for x in resid],
             "rounds": rounds, "grid": [lo, hi], "at_grid_edge": edge, "views": n, "points_used": [int(len(p)) for p in pts], "history": history}
 
 
 def read_ply_xyz(path: Path) -> np.ndarray:
-    """Minimal binary/ascii PLY reader for x y z (the lab's own writer and most exporters)."""
+    """Minimal binary/ascii PLY reader for the vertex x y z. Faces and any other element are skipped, not parsed:
+    a mesh exporter's `element face` + `property list uchar int vertex_indices` no longer breaks the vertex dtype."""
     data = path.read_bytes()
     head_end = data.index(b"end_header\n") + len(b"end_header\n")
     header = data[:head_end].decode("ascii", "replace").split("\n")
-    n = int(next(l for l in header if l.startswith("element vertex")).split()[-1])
     fmt = next(l for l in header if l.startswith("format")).split()[1]
-    props = [l.split()[1:] for l in header if l.startswith("property ")]
+    elements: list[dict] = []
+    for line in header:
+        w = line.split()
+        if w and w[0] == "element":
+            elements.append({"name": w[1], "count": int(w[2]), "props": []})
+        elif w and w[0] == "property" and elements:
+            elements[-1]["props"].append(w[1:])           # ["float", "x"] or ["list", "uchar", "int", "vertex_indices"]
+    vi = next((i for i, e in enumerate(elements) if e["name"] == "vertex"), None)
+    if vi is None:
+        raise ValueError(f"{path.name}: no vertex element")
+    vert = elements[vi]
+    n = vert["count"]
+    if any(pr[0] == "list" for pr in vert["props"]):
+        raise ValueError(f"{path.name}: list properties on the vertex element are not supported")
+    names = [pr[-1] for pr in vert["props"]]
+    for ax in "xyz":
+        if ax not in names:
+            raise ValueError(f"{path.name}: vertex element has no property {ax}")
+    cols = [names.index(ax) for ax in "xyz"]
+    typemap = {"float": "f4", "float32": "f4", "double": "f8", "float64": "f8", "uchar": "u1", "uint8": "u1", "char": "i1", "int8": "i1",
+               "ushort": "u2", "uint16": "u2", "short": "i2", "int16": "i2", "uint": "u4", "uint32": "u4", "int": "i4", "int32": "i4"}
     if fmt == "ascii":
-        rows = np.loadtxt(path.open("rb"), skiprows=len(header) - 1, max_rows=n)
-        return rows[:, :3].astype(np.float64)
-    typemap = {"float": "f4", "float32": "f4", "double": "f8", "float64": "f8", "uchar": "u1", "uint8": "u1", "int": "i4", "int32": "i4", "uint": "u4", "ushort": "u2", "short": "i2", "char": "i1"}
+        skip = len(header) - 1 + sum(e["count"] for e in elements[:vi])        # one ascii line per record of every earlier element
+        rows = np.loadtxt(path.open("rb"), skiprows=skip, max_rows=n, ndmin=2)
+        return rows[:, cols].astype(np.float64)
     order = "<" if fmt == "binary_little_endian" else ">"
-    dt = np.dtype([(name, order + typemap[t]) for t, name in props])
-    arr = np.frombuffer(data, dtype=dt, count=n, offset=head_end)
+    offset = head_end
+    for e in elements[:vi]:                                                    # fixed-size elements before the vertices are stepped over
+        if any(pr[0] == "list" for pr in e["props"]):
+            raise ValueError(f"{path.name}: element {e['name']} with list properties precedes the vertices; cannot locate them")
+        offset += e["count"] * sum(np.dtype(typemap[pr[0]]).itemsize for pr in e["props"])
+    dt = np.dtype([(name, order + typemap[t]) for t, name in vert["props"]])
+    arr = np.frombuffer(data, dtype=dt, count=n, offset=offset)
     return np.stack([arr["x"], arr["y"], arr["z"]], 1).astype(np.float64)
 
 

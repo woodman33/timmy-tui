@@ -131,13 +131,17 @@ async function feed([out, stem, project]) {
   const prevRows = prev ? feedRows(prev.feed) : [];
   const cur = new Map(rows.map((r) => [ids(r), r])); const old = new Map(prevRows.map((r) => [ids(r), r]));
   const added = [...cur.keys()].filter((k) => !old.has(k)); const removed = [...old.keys()].filter((k) => !cur.has(k));
-  const price_changes = [...cur.keys()].filter((k) => old.has(k) && sha(canon(feedPrice(rows, k) ?? {})) !== sha(canon(feedPrice(prevRows, k) ?? {})));
-  const enabled_changes = [...cur.keys()].filter((k) => old.has(k) && (cur.get(k).enabled ?? null) !== (old.get(k).enabled ?? null));
+  // a price change is a change in a PRICE: enabled flips and group moves are reported on their own lists, never as price movement
+  const priceOnly = (p) => (p ? { input_per_1m: p.input_per_1m ?? null, output_per_1m: p.output_per_1m ?? null, cache_input_per_1m: p.cache_input_per_1m ?? null } : null);
+  const kept = [...cur.keys()].filter((k) => old.has(k));
+  const price_changes = kept.filter((k) => canon(priceOnly(feedPrice(rows, k))) !== canon(priceOnly(feedPrice(prevRows, k))));
+  const enabled_changes = kept.filter((k) => (cur.get(k).enabled ?? null) !== (old.get(k).enabled ?? null));
+  const group_changes = kept.filter((k) => (cur.get(k).group_name ?? null) !== (old.get(k).group_name ?? null));
   const meta = feedMeta(json);
   const diff = { kind: 'routemux.feed-diff', at: now(), feed_sha256: sha(text), models: rows.length, models_enabled: rows.filter((r) => r.enabled !== false).length, groups: [...new Set(rows.map((r) => r.group_name).filter(Boolean))].sort(),
-    previous: prev ? prev.path.replace(process.env.HOME ?? '', '~') : null, added, removed, price_changes, enabled_changes, feed_updated: meta.updated, price_unit: meta.price_unit, currency: meta.currency };
+    previous: prev ? prev.path.replace(process.env.HOME ?? '', '~') : null, added, removed, price_changes, enabled_changes, group_changes, feed_updated: meta.updated, price_unit: meta.price_unit, currency: meta.currency };
   writeJson(join(out, `${stem}.feed-diff.json`), diff);
-  console.log(JSON.stringify({ ok: true, models: rows.length, added: added.length, removed: removed.length, price_changes: price_changes.length }));
+  console.log(JSON.stringify({ ok: true, models: rows.length, added: added.length, removed: removed.length, price_changes: price_changes.length, enabled_changes: enabled_changes.length, group_changes: group_changes.length }));
 }
 
 // The operator's expectation comes from the dropped *.reconcile.json ({expected_spend_usd, since?}); TIMMY_EXPECTED_SPEND_USD
@@ -186,7 +190,7 @@ function report([workflow, out, stem]) {
     };
   } else if (workflow === 'model-feed-snapshot') {
     const d = rd(`${stem}.feed-diff.json`);
-    rep = { ok: !!d, status: d ? 'ok' : 'failed', models: d?.models ?? null, models_enabled: d?.models_enabled ?? null, groups: d?.groups?.length ?? null, feed_sha256: d?.feed_sha256 ?? null, feed_updated: d?.feed_updated ?? null, price_unit: d?.price_unit ?? null, added: d?.added?.length ?? null, removed: d?.removed?.length ?? null, price_changes: d?.price_changes?.length ?? null, enabled_changes: d?.enabled_changes?.length ?? null, added_ids: d?.added ?? [], removed_ids: d?.removed ?? [], price_changed_ids: d?.price_changes ?? [], at: now() };
+    rep = { ok: !!d, status: d ? 'ok' : 'failed', models: d?.models ?? null, models_enabled: d?.models_enabled ?? null, groups: d?.groups?.length ?? null, feed_sha256: d?.feed_sha256 ?? null, feed_updated: d?.feed_updated ?? null, price_unit: d?.price_unit ?? null, added: d?.added?.length ?? null, removed: d?.removed?.length ?? null, price_changes: d?.price_changes?.length ?? null, enabled_changes: d?.enabled_changes?.length ?? null, group_changes: d?.group_changes?.length ?? null, added_ids: d?.added ?? [], removed_ids: d?.removed ?? [], price_changed_ids: d?.price_changes ?? [], enabled_changed_ids: d?.enabled_changes ?? [], group_changed_ids: d?.group_changes ?? [], at: now() };
   } else if (workflow === 'balance-reconcile') {
     const b = rd(`${stem}.balance.json`);
     const balance_usd = num(b?.balance?.body ?? {}, ['balance', 'balance_usd', 'data.balance', 'credits', 'remaining']);

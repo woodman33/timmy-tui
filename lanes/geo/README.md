@@ -20,9 +20,9 @@ What it reports, and what each number means:
 | `global_scale` | one scale for all views, found first over a wide log grid (0.02–60) so no view is solved against unscaled neighbours |
 | `scales[k]` | the per-view scales after coordinate descent (median nearest-neighbour distance of view k to the other views) |
 | `consistency_median_nn[k]` | after solving, how far view k's points sit from the others — the agreement the metric claim rests on |
-| `at_grid_edge` | a scale on the edge of the search grid means the answer is not trusted (exit 2) |
+| `at_grid_edge` | a scale on, at or pinned to either bound of the search grid means the answer is not trusted (exit 2); refinement never leaves `[lo, hi]`, so a scale outside the grid pins to the bound instead of walking off it |
 
-Pure numpy + scipy; no model, no truth, no network. Without them the lane prints `{status: not_configured}` and exits 3 (`--help` always works). Measured: solved scales within 1.5 % of exact
+PLY input reads only the vertex element (x y z by name, any column order, ascii or either byte order); faces, normals and colours from a mesh exporter are stepped over. Pure numpy + scipy; no model, no truth, no network. Without them the lane prints `{status: not_configured}` and exits 3 (`--help` always works). Measured: solved scales within 1.5 % of exact
 Blender Z-pass scales for VGGT on six views of a house; the self-test recovers scales of 0.5–1.5
 within 0.1 %. A claim made with this tool is "metric, self-consistent to N cm", never "measured":
 per DOCTRINE §15, computed geometry does not establish a physical object's dimensions without an

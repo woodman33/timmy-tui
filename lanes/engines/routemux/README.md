@@ -62,3 +62,5 @@ and `mcp2cli`. `apisnip` captures the HTTPS calls for the API-side of a receipt.
 routemux.com/docs (chat, authentication, rate-limits, observability, balance),
 `GET https://api.routemux.com/public/pricing` (53 rows on 2026-10-02). Anything the
 docs do not state (webhooks, BYOK, fallback policy) is treated as absent.
+
+Feed diffs: `price_changes` compares only the three price fields; `enabled_changes` and `group_changes` are listed separately, so an enabled flip is never reported as price movement.

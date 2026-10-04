@@ -70,6 +70,15 @@ describe('routemux bridge', () => {
     const d = rj(join(run2, 'feed.feed-diff.json'));
     expect(d.previous).toContain('feed-20260101T000000');
     expect(d.added).toEqual(['c']); expect(d.removed).toEqual(['b']); expect(d.price_changes).toEqual(['a']);
+    // Cursor: an enabled flip or a group move used to be hashed into the price comparison and reported as price movement
+    feed = { models: [{ id: 'a', input_per_1m: 1.5, output_per_1m: 2, enabled: false, group_name: 'legacy' }, { id: 'c', input_per_1m: 9, output_per_1m: 9 }] };
+    const run3 = join(snap, 'feed-20260103T000000'); mkdirSync(run3, { recursive: true });
+    expect((await runAsync([bridge, 'feed', run3, 'feed', project], { ROUTEMUX_BASE_URL: `http://127.0.0.1:${port}` })).status).toBe(0);
+    const d3 = rj(join(run3, 'feed.feed-diff.json'));
+    expect(d3.previous).toContain('feed-20260102T000000');
+    expect(d3).toMatchObject({ added: [], removed: [], price_changes: [], enabled_changes: ['a'], group_changes: ['a'] });
+    expect(run([bridge, 'report', 'model-feed-snapshot', run3, 'feed']).status).toBe(0);
+    expect(rj(join(run3, 'feed.routemux.json'))).toMatchObject({ price_changes: 0, enabled_changes: 1, group_changes: 1, enabled_changed_ids: ['a'], group_changed_ids: ['a'] });
   });
 
   it('balance-reconcile reads expected_spend_usd from the drop (both bots: reconcile ignores the drop)', async () => {
