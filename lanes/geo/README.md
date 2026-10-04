@@ -28,3 +28,31 @@ within 0.1 %. A claim made with this tool is "metric, self-consistent to N cm", 
 per DOCTRINE §15, computed geometry does not establish a physical object's dimensions without an
 identified observation and calibration — the camera poses are that observation, and their error
 budget is the claim's error budget.
+
+## `voxel_score.py` — truth vs prediction, down to the voxel
+
+The bench scorer behind the Lab50 numbers, as a lane anyone can run: a truth shape and a predicted shape
+in the **same metric frame**, scored three ways in one receipt.
+
+```
+python3 lanes/geo/voxel_score.py --selftest                                   # controls: in place ≈1, +0.5 m and ×0.85 drop clearly
+python3 lanes/geo/voxel_score.py --truth house.obj --pred recon.ply --voxel 0.25 --tau 0.10 --out score.json
+python3 lanes/geo/voxel_score.py --truth t.ply --pred p.ply --normalize --voxel 0.02 --tau 0.05   # unit-cube protocol of the papers
+```
+
+| block | what it measures | notes |
+|---|---|---|
+| `voxel.f1 / precision / recall / iou` | occupied voxels of truth vs prediction on one grid (edge `--voxel`, metres) | grid anchored half a voxel off the truth's bounding-box minimum so CAD-round surfaces sit at voxel centres; headline numbers carry a 5 % sub-voxel tolerance, `voxel.strict` is ε = 0 |
+| `voxel.grid_sensitivity` | the same F1 on the half-shifted grid, as a gap | voxel occupancy is discontinuous at grid planes — a surface on one flips rows under a millimetre of motion (measured: 0.97 → 0.68 for 2 mm). Over 0.1 → `grid_unstable`, do not rank on that pair |
+| `surface.fscore` | F-score@τ (Tatarchenko et al. 2019): precision = predicted points within τ of truth, recall = truth points within τ of prediction | continuous, no grid edge; the number most 3D-generation papers report |
+| `surface.chamfer_mean_dist` | mean nearest-neighbour distance both ways, averaged (metres) | its floor is the sampling density: resampling the same surface gives ≈ 2.6 cm at 60 k points on a house — the self-test reports it as `sampling_floor_chamfer` |
+| `surface.chamfer_l2_sq` | sum of the two mean squared distances — the "CD" of the 3D-gen literature | compare only when sampling count and normalisation match |
+| `metric` | `true` only when nothing was fitted | `--fit` (centroid + 10-step scaled ICP) is diagnostic: output says `metric:false` and the process exits 2 so a fitted number can never pass a metric gate |
+
+Inputs: point PLY (any vertex layout), JSON `{"points": […]}`, or a mesh (OBJ/GLB/STL/PLY with faces) sampled on
+its surface with trimesh when it is installed (`--samples`, seeded). Exit 0 scored · 2 fitted · 3 not_configured.
+
+How this relates to the published protocols (docs/BENCHMARKS.md §3D): Toys4K / GSO-style evaluations normalise the
+object to a unit cube, sample a fixed number of surface points and report Chamfer + F-score at a fixed τ; papers differ
+on τ, point count and whether the prediction is aligned first. `--normalize` reproduces the frame, the receipt records
+τ, point counts and `fit.applied`, so a Timmy number is comparable to a paper's only when those three match — and says so.

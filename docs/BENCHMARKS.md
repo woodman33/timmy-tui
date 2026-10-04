@@ -44,6 +44,14 @@ Lab50 result to beat (Oct 3, 2026, chain `lab50`): Pixal3D 0.80 voxel F1, Hunyua
 0.77, TRELLIS.2 0.60, TripoSplat 0.59, Depth Anything 3 single view 0.10 (5 cm voxels,
 1-voxel tolerance, upright fit, one house family).
 
+The scorer now ships in the repo as `lanes/geo/voxel_score.py` (Oct 4): voxel F1/IoU on a
+truth-anchored grid (`--voxel`, `--tolerance 1.0` for the bench's one-voxel tolerance, `--fit`
+for the upright fit — which marks the result `metric:false`), plus the two numbers the papers
+quote, Chamfer distance and F-score@τ, with `--normalize` for the unit-cube frame. The Toys4K,
+GSO and HY3D-Bench rows above are filled by pointing it at a loader's truth mesh and the model's
+output; a number is comparable to a paper's only when τ, point count and alignment match, and
+the receipt records all three so the comparison can be checked rather than believed.
+
 ## 3. Multi-view and metric geometry (the part that can be *measured*)
 
 | Claim | How it is tested | Receipted so far (chain `lab50-ext`, Oct 4, 2026) |
