@@ -99,6 +99,7 @@ call receipted.
 - [docs/README.md](docs/README.md) — full doc index
 - [docs/fal3d-provider.md](docs/fal3d-provider.md) — reference-driven P1/H3.1/TRELLIS.2 assets, offline plans and operator-gated fal jobs
 - [docs/RECEIPT-SPEC-v2.md](docs/RECEIPT-SPEC-v2.md) — receipt schema
+- [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — which benchmarks Timmy is judged against, what each needs, and the receipted numbers so far
 - [docs/UI-REFERENCE-NOTES.md](docs/UI-REFERENCE-NOTES.md) — the UI north-star
 - [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
 
