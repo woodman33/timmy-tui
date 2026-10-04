@@ -89,28 +89,35 @@ def _prf(T: np.ndarray, P: np.ndarray, T_tol: np.ndarray, P_tol: np.ndarray) -> 
     return {"precision": round(float(prec), 4), "recall": round(float(rec), 4), "f1": round(float(f1), 4)}
 
 
-def voxel_occupancy(truth: np.ndarray, pred: np.ndarray, voxel: float, tol: float = 0.05) -> dict:
+def voxel_occupancy(truth: np.ndarray, pred: np.ndarray, voxel: float, tol: float = 0.05, phases: int = 8) -> dict:
     """Occupied-voxel sets on a grid anchored half a voxel off the truth's floored bounding-box minimum, so truth surfaces
     on round coordinates (CAD walls, synthetic boxes) sit at voxel CENTRES rather than on grid planes. Voxel occupancy is
     discontinuous at grid planes: a surface lying on one flips to the neighbouring row under a millimetre of motion
     (measured here: F1 0.97 → 0.68 for |t| = 2 mm on the synthetic house). The headline precision/recall/F1 therefore
     carry a sub-voxel tolerance of tol × voxel (5 %: 12.5 mm at 0.25 m) — a point within that of a plane counts for both
-    sides; the strict ε = 0 numbers are kept alongside, and the same tolerant F1 on the half-shifted grid gives
-    grid_sensitivity (flagged over 0.1): a pair whose score depends on where the grid lines fall is not one to rank on."""
+    sides; the strict ε = 0 numbers are kept alongside. The same tolerant F1 is then scored on the shifted grids — all 8
+    phases (0 / ½ voxel on each axis) by default, or the 2 diagonal ones — and the spread across phases is f1_band and
+    grid_sensitivity (flagged over 0.1): a pair whose score depends on where the grid lines fall is not one to rank on,
+    and two models whose bands overlap are a tie. F-score@τ has no such edge."""
+    from itertools import product
     base = np.floor(truth.min(0) / voxel) * voxel - voxel / 2
     eps = tol * voxel
+    offsets = [np.zeros(3), np.full(3, 0.5)] if phases == 2 else [np.array(o) for o in product((0.0, 0.5), repeat=3)]
     out = []
-    for ph in (0.0, 0.5):
+    for ph in offsets:
         origin = base + ph * voxel
         T, P = _keys(truth, origin, voxel, 0.0), _keys(pred, origin, voxel, 0.0)
         strict = _prf(T, P, T, P)
         tolerant = _prf(T, P, _keys(truth, origin, voxel, eps), _keys(pred, origin, voxel, eps))
         both = len(np.intersect1d(T, P, assume_unique=True))
         iou = both / len(np.union1d(T, P)) if len(T) or len(P) else 0.0
-        out.append({**tolerant, "iou": round(float(iou), 4), "strict": strict, "n_truth_vox": int(len(T)), "n_pred_vox": int(len(P)), "n_both": int(both)})
-    main, half = out
-    sens = round(abs(main["f1"] - half["f1"]), 4)
-    return {"voxel_m": voxel, "tolerance_m": round(eps, 5), **main, "phase_half": {k: half[k] for k in ("precision", "recall", "f1", "iou")},
+        out.append({**tolerant, "iou": round(float(iou), 4), "strict": strict, "n_truth_vox": int(len(T)), "n_pred_vox": int(len(P)), "n_both": int(both), "phase": [float(x) for x in ph]})
+    main = out[0]                                                            # phase (0,0,0): truth surfaces at voxel centres
+    f1s = [o["f1"] for o in out]
+    band = [round(min(f1s), 4), round(max(f1s), 4)]
+    sens = round(band[1] - band[0], 4)
+    return {"voxel_m": voxel, "tolerance_m": round(eps, 5), **{k: main[k] for k in ("precision", "recall", "f1", "iou", "strict", "n_truth_vox", "n_pred_vox", "n_both")},
+            "phases": len(out), "f1_phases": f1s, "f1_band": band, "phase_half": {k: out[-1][k] for k in ("precision", "recall", "f1", "iou")},
             "grid_sensitivity": sens, "grid_unstable": sens > 0.1, "origin": [round(float(x), 4) for x in base]}
 
 
@@ -150,7 +157,7 @@ def fit_pred_to_truth(truth: np.ndarray, pred: np.ndarray, iters: int = 10) -> t
     return cur, {"applied": True, "iterations": done, "scale_applied": round(total_s, 5), "centroid_shift": round(float(np.linalg.norm(cur.mean(0) - pred.mean(0))), 5)}
 
 
-def score(truth: np.ndarray, pred: np.ndarray, voxel: float, tau: float, fit: bool = False, normalize: bool = False, tol: float = 0.05) -> dict:
+def score(truth: np.ndarray, pred: np.ndarray, voxel: float, tau: float, fit: bool = False, normalize: bool = False, tol: float = 0.05, phases: int = 8) -> dict:
     note = []
     unit = "m"
     if normalize:
@@ -162,7 +169,7 @@ def score(truth: np.ndarray, pred: np.ndarray, voxel: float, tau: float, fit: bo
     if fit:
         pred, fitinfo = fit_pred_to_truth(truth, pred)
         note.append("prediction fitted to truth (similarity); the result is a shape score, not a metric one")
-    return {"kind": "geo.voxel-score", "metric": not fit, "unit": unit, "fit": fitinfo, "voxel": voxel_occupancy(truth, pred, voxel, tol),
+    return {"kind": "geo.voxel-score", "metric": not fit, "unit": unit, "fit": fitinfo, "voxel": voxel_occupancy(truth, pred, voxel, tol, phases),
             "surface": surface_metrics(truth, pred, tau), "points": {"truth": int(len(truth)), "pred": int(len(pred))}, "note": note}
 
 
@@ -198,7 +205,7 @@ def selftest(voxel: float, tau: float) -> tuple[dict, bool]:
     ok = (f1["in_place"] >= 0.97 and fs["in_place"] >= 0.99 and f1["shift_0p5m"] < 0.6 and fs["shift_0p5m"] < 0.7 and f1["scale_0p85"] < 0.6
           and fitted["voxel"]["f1"] >= 0.95 and fitted["metric"] is False)
     return {"selftest": "ok" if ok else "failed", "voxel_m": voxel, "tau": tau, "voxel_f1": f1, "fscore": fs,
-            "grid_sensitivity": {k: r["voxel"]["grid_sensitivity"] for k, r in res.items()},
+            "voxel_f1_band": {k: r["voxel"]["f1_band"] for k, r in res.items()}, "grid_sensitivity": {k: r["voxel"]["grid_sensitivity"] for k, r in res.items()},
             "chamfer_mean_dist": {k: r["surface"]["chamfer_mean_dist"] for k, r in res.items()},
             "sampling_floor_chamfer": res["in_place"]["surface"]["chamfer_mean_dist"],      # resampling the same surface is never 0: that is the floor
             "fit_recovers_shift": {"voxel_f1": fitted["voxel"]["f1"], "metric": fitted["metric"], "scale_applied": fitted["fit"]["scale_applied"]}}, ok
@@ -210,6 +217,7 @@ def main(argv=None):
     ap.add_argument("--voxel", type=float, default=0.25, help="voxel edge in metres (unit-cube fraction with --normalize)")
     ap.add_argument("--tau", type=float, default=0.10, help="F-score distance threshold, same unit as --voxel")
     ap.add_argument("--tolerance", type=float, default=0.05, help="sub-voxel tolerance as a fraction of a voxel (0 strict; 1.0 = the Lab50 generation bench's one-voxel tolerance)")
+    ap.add_argument("--phases", type=int, default=8, choices=[2, 8], help="grid phases scored for the F1 band: 8 (0/½ voxel on each axis) or the 2 diagonal ones")
     ap.add_argument("--samples", type=int, default=200000, help="surface samples per mesh input")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--fit", action="store_true", help="similarity-fit the prediction first (diagnostic; metric:false, exit 2)")
@@ -224,7 +232,7 @@ def main(argv=None):
     if not (a.truth and a.pred):
         ap.error("--truth and --pred, or --selftest")
     truth, how_t = load_points(a.truth, a.samples, a.seed); pred, how_p = load_points(a.pred, a.samples, a.seed)
-    out = {**score(truth, pred, a.voxel, a.tau, fit=a.fit, normalize=a.normalize, tol=a.tolerance), "inputs": {"truth": a.truth.name, "truth_from": how_t, "pred": a.pred.name, "pred_from": how_p}}
+    out = {**score(truth, pred, a.voxel, a.tau, fit=a.fit, normalize=a.normalize, tol=a.tolerance, phases=a.phases), "inputs": {"truth": a.truth.name, "truth_from": how_t, "pred": a.pred.name, "pred_from": how_p}}
     if a.out:
         a.out.write_text(json.dumps(out, indent=1) + "\n")
     print(json.dumps(out))

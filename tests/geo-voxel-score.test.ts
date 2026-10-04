@@ -50,6 +50,12 @@ describe('geo voxel scorer', () => {
     expect(s.voxel.f1).toBeGreaterThan(0.97); expect(s.surface.fscore.f).toBeGreaterThan(0.99);
     expect(s.surface.chamfer_mean_dist).toBeLessThan(0.02);                       // the sampling floor, never exactly 0
     expect(s.voxel.grid_unstable).toBe(false);                                     // 2 mm jitter must not move a truth-centred grid
+    // the F1 band: eight grid phases, headline inside the band, band width is the sensitivity; --phases 2 keeps the diagonal pair
+    expect(s.voxel.phases).toBe(8); expect(s.voxel.f1_phases).toHaveLength(8);
+    expect(s.voxel.f1_band[0]).toBeLessThanOrEqual(s.voxel.f1); expect(s.voxel.f1_band[1]).toBeGreaterThanOrEqual(s.voxel.f1);
+    expect(s.voxel.grid_sensitivity).toBeCloseTo(s.voxel.f1_band[1] - s.voxel.f1_band[0], 4);
+    const two = JSON.parse(run(['--truth', join(dir, 'truth.ply'), '--pred', join(dir, 'same.ply'), '--voxel', '0.25', '--tau', '0.1', '--phases', '2']).stdout.trim());
+    expect(two.voxel.phases).toBe(2); expect(two.voxel.f1_phases).toHaveLength(2);
     const sh = JSON.parse(run(['--truth', join(dir, 'truth.ply'), '--pred', join(dir, 'shift.ply'), '--voxel', '0.25', '--tau', '0.1']).stdout.trim());
     expect(sh.voxel.f1).toBe(0); expect(sh.voxel.iou).toBe(0);
     expect(sh.surface.fscore).toMatchObject({ tau: 0.1, precision: 0, recall: 0, f: 0 });
@@ -82,5 +88,7 @@ describe('geo voxel scorer', () => {
     expect(j.voxel_f1.shift_0p5m).toBeLessThan(0.6); expect(j.voxel_f1.scale_0p85).toBeLessThan(0.6);
     expect(j.fit_recovers_shift).toMatchObject({ metric: false }); expect(j.fit_recovers_shift.voxel_f1).toBeGreaterThan(0.95);
     expect(j.sampling_floor_chamfer).toBeGreaterThan(0);
-  }, 60000);
+    expect(j.voxel_f1_band.shift_0p5m[1]).toBeGreaterThan(j.voxel_f1_band.shift_0p5m[0]);     // the knife edge shows up as band width, not as luck
+    expect(j.voxel_f1_band.scale_0p85).toEqual([0, 0]);
+  }, 90000);
 });
