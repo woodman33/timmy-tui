@@ -59,10 +59,12 @@ the receipt records all three so the comparison can be checked rather than belie
 | Six views + exact poses → metric cloud, **no fit** | scorer v3.1 `--no-fit`; control: exact truth 0.998 in place, +50 cm 0.48, ×0.85 0.34 | VGGT 0.66 (floating), 0.35 (ground + sky); Apache MapAnything 0.39 (ground + sky); second house gable-standard-fence 0.68 / 0.52 / 0.37 |
 | Per-view depth scale vs exact Z pass | median predicted/true depth per view, spread across views | VGGT agrees to 1 % floating, 5–10 % with a ground in frame; MapAnything's metres are 0.17×–1.2× |
 | Pose heads vs depth heads | camera-centre RMS after a similarity fit to the known centres | 0.4–1.7 m on a 17 m orbit, 11 m for VGGT with a ground: poses must come from outside the model |
-| Model lens profile | effective focal of the model's rays vs the intrinsics it was handed | MapAnything rays 0.79–1.07× of K per view — only its z-depth is trusted |
+| Model lens profile | effective focal of the model's rays vs the intrinsics it was handed | MapAnything rays 0.79–1.07× of K per view — only its z-depth is trusted (0.87–0.95 on the 24-view shed) |
+| **SfM poses instead of exact poses** (Arm G, tests 117–120) | pycolmap 4.2 on 24 textured views, scale from one measured baseline, per-view depth scales from self-consistency, scored no-fit; prediction receipt 80 named the falsifier (SfM F1 more than 0.08 below exact-pose F1) | **Held.** VGGT 0.412 exact vs 0.412 SfM; MapAnything 0.474 exact vs 0.477 SfM; consistency 3–4 cm per view; solved global scales 24.8× (VGGT) and 2.44× (MapAnything). Measured Oct 4 19:10Z on spark2; the *result* receipt is still to be sealed (bridge dropped after the read) |
 
-Next steps on this axis: SfM (pycolmap 4.2, CUDA) poses instead of exact poses, one measured
-baseline for scale, then real photographs.
+Next steps on this axis: real photographs through the same SfM path (the camera poses are now the
+only observation the metric claim rests on), and a model lens profile per model (`fx_eff_ratio`,
+depth-scale bias) that the scale solver can take as a prior.
 
 ## 4. Spatial reasoning (VQA) — offline-clean sets only
 
