@@ -34,8 +34,8 @@ the same scorer on public sets.
 
 | Benchmark | What it scores | Status | What Timmy still needs |
 |---|---|---|---|
-| **Toys4K** | 4,000 toy-scale meshes; the comparability set most papers quote | proposed | A loader that turns each mesh into the lab's IR truth (parts optional) and renders one view; the scorer already takes any mesh as truth |
-| **GSO (Google Scanned Objects)** | 1,030 scanned household objects, CC-BY | proposed | Same loader; GSO is the set to publish on because the licence allows the renders to ship |
+| **Toys4K** | 4,000 toy-scale meshes; the comparability set most papers quote | proposed | Same loader shape as GSO once a licensed mirror is pinned (none verified on the Hub yet); the scorer already takes any mesh as truth |
+| **GSO (Google Scanned Objects)** | 1,030 scanned household objects, CC-BY | **loader shipped** (`lanes/geo/bench_loader.py`, Oct 4) | Truth in two frames per object — metric from the original OBJ, unit-cube from the GLB — plus the five shipped renders as inputs; smoke shard (5 objects) extracted and frame-verified; the 44-shard pull (~8 GB) waits for an explicit order line; model outputs from spark2 still to score |
 | **HY3D-Bench (test split)** | Watertight 512³ truth, the Hunyuan3D house set | proposed | Voxel-grid truth is a direct fit for the scorer; licence is test-only, numbers only |
 | **SA-3DAO** | The only set with a published vIoU protocol | proposed | Match their voxel size and tolerance before comparing a number |
 | **3D Arena / top3d.ai** | Human preference rankings | n/a | Preference is not geometry; cite for context only |

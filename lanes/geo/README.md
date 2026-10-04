@@ -56,3 +56,29 @@ How this relates to the published protocols (docs/BENCHMARKS.md §3D): Toys4K / 
 object to a unit cube, sample a fixed number of surface points and report Chamfer + F-score at a fixed τ; papers differ
 on τ, point count and whether the prediction is aligned first. `--normalize` reproduces the frame, the receipt records
 τ, point counts and `fit.applied`, so a Timmy number is comparable to a paper's only when those three match — and says so.
+
+## `bench_loader.py` — public sets as truth, with a manifest
+
+Fills the Toys4K / GSO rows of docs/BENCHMARKS.md. First set: **Google Scanned Objects** (CC-BY-4.0, 1 030 scans) via
+its WebDataset packaging on the Hugging Face Hub (`suvadityamuk/google-scanned-objects`; `--smoke` = 5 objects, 90 MB).
+Each object ships the original scan **in metres** (`model.obj`) and a GLB normalised to unit max extent with the applied
+scale recorded, so every object has two truth frames: `metric` (the scorer's metric claim on real objects, not only CAD
+houses) and `unit` (the papers' frame). Five rendered thumbnails per object are the single-view inputs for image-to-3D.
+
+```
+python3 lanes/geo/bench_loader.py fetch   --set gso --smoke --out bench/gso          # one shard; size + sha256 recorded; > 2 GB needs --yes-big
+python3 lanes/geo/bench_loader.py extract --tar bench/gso/shards/gso-train-00000.tar --out bench/gso
+python3 lanes/geo/bench_loader.py score   --bench bench/gso --pred-dir out/trellis2 --frame unit --normalize-each --fit --voxel 0.02 --tau 0.01
+```
+
+`extract` writes `objects/<id>/{truth_metric.ply, truth_unit.glb, view_0..4.jpg, meta.json}` and `manifest.json`
+(licence, attribution, tar sha256, per-object extents in metres, mesh hashes, sample count and seed). `score` takes
+`PRED/<id>.(ply|glb|obj|json)`, runs `voxel_score.py` per object and writes `scores/summary.json` with medians and the
+list of objects that had no prediction — missing is reported, never dropped. A generation model's output has its own
+scale and pose, so it is scored with `--normalize-each --fit` and the summary says `metric:false`; a geometry pipeline
+with known poses is scored in the metric frame with neither, and keeps `metric:true`.
+
+Measured on the smoke shard (Oct 4 2026): the recorded `applied_translation`/`applied_scale` map the metric OBJ sample
+onto the shipped GLB exactly (Chamfer 0.000, F1 1.0 on all five), and scoring each object against its neighbour gives
+voxel F1 0.03–0.20 — the loader's frames are consistent and the scorer separates right object from wrong object on real
+scans. Loader attribution for anything published: *Google Scanned Objects, © 2020 Google LLC, CC-BY-4.0*.
