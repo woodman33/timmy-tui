@@ -34,10 +34,10 @@ the same scorer on public sets.
 
 | Benchmark | What it scores | Status | What Timmy still needs |
 |---|---|---|---|
-| **Toys4K** | 4,000 toy-scale meshes; the comparability set most papers quote | proposed | Same loader shape as GSO once a licensed mirror is pinned (none verified on the Hub yet); the scorer already takes any mesh as truth |
+| **Toys4K** | 4,000 toy-scale meshes; the comparability set most papers quote | source pinned | Hub mirror `Yang2001/toys4k_meshes` (3 854 `<category>/<id>/mesh.ply`, Blender units → unit-cube frame only). The mirror's MIT tag does not speak for the upstream per-object artist licences: numbers only until each object's licence is checked; no renders ship |
 | **GSO (Google Scanned Objects)** | 1,030 scanned household objects, CC-BY | **loader shipped** (`lanes/geo/bench_loader.py`, Oct 4) | Truth in two frames per object — metric from the original OBJ, unit-cube from the GLB — plus the five shipped renders as inputs; smoke shard (5 objects) extracted and frame-verified; the 44-shard pull (~8 GB) waits for an explicit order line; model outputs from spark2 still to score |
-| **HY3D-Bench (test split)** | Watertight 512³ truth, the Hunyuan3D house set | proposed | Voxel-grid truth is a direct fit for the scorer; licence is test-only, numbers only |
-| **SA-3DAO** | The only set with a published vIoU protocol | proposed | Match their voxel size and tolerance before comparing a number |
+| **HY3D-Bench (test split)** | Tencent's cleaned watertight meshes with multi-view renders and sampled points (252 K full objects; paper 2602.03907) | source pinned | `tencent/HY3D-Bench` on the Hub, dataset licence **CC-BY-4.0** (the Hunyuan3D 2.1 *model* stays test-only for us — different licence). Test split = 2 chunks × {images 6.3 GB, sample_points 0.96 GB, water_tight_meshes 1.26 GB}; the sample_points chunks are the truth the scorer needs (~1.9 GB, under the 10 GB line but not pulled yet) |
+| **SA-3DAO** | The only set with a published vIoU protocol | no Hub mirror | Not on the Hugging Face Hub (searched Oct 4); distributed with Meta's SAM 3D release — fetch by hand, then match their voxel size and tolerance (`voxel_score.py --voxel … --tolerance …`) before comparing a number |
 | **3D Arena / top3d.ai** | Human preference rankings | n/a | Preference is not geometry; cite for context only |
 
 Lab50 result to beat (Oct 3, 2026, chain `lab50`): Pixal3D 0.80 voxel F1, Hunyuan3D 2.1
