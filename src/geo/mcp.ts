@@ -20,10 +20,11 @@ const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 export const GEO_TOOLS = [
   { name: 'timmy_geo_score', description: 'Voxel bench: score a predicted shape (PLY/JSON/mesh) against a truth shape in the SAME metric frame — voxel precision/recall/F1/IoU on a truth-anchored grid (voxel metres; tolerance as a voxel fraction, 1.0 = one-voxel rule), Chamfer distance and F-score@τ. Nothing is fitted unless fit=true, which marks metric:false (status untrusted). normalize=true uses the unit-cube protocol of 3D-generation papers. Every call sealed as a geo.voxel-score receipt; without numpy+scipy returns not_configured.', inputSchema: schema({ truth: text, pred: text, voxel: num, tau: num, tolerance: num, samples: num, normalize: bool, fit: bool, out: text }, ['truth', 'pred']) },
+  { name: 'timmy_geo_bench', description: 'Public-set bench (Google Scanned Objects first): step=predict seals the expected median voxel F1 / F-score for a model BEFORE scoring (scores/prediction.json, hashed); step=score runs voxel_score.py over PRED/<id>.(ply|glb|obj|json) against the extracted truth (frame metric|unit) and writes scores/summary.json with medians, missing predictions, and the graded prediction (as_predicted / falsified). fit or normalize_each mark the run metric:false (generation outputs). Receipted; not_configured without numpy+scipy+trimesh. Downloads are a CLI step (bench_loader.py fetch), never taken here.', inputSchema: schema({ step: { type: 'string', enum: ['predict', 'score'] }, bench: text, model: text, expect_f1: num, expect_fscore: num, tolerance_f1: num, basis: text, pred_dir: text, frame: { type: 'string', enum: ['metric', 'unit'] }, voxel: num, tau: num, tolerance: num, samples: num, fit: bool, normalize_each: bool }, ['step', 'bench']) },
   { name: 'timmy_geo_scale', description: 'Metric scale from self-consistency: given per-view depth clouds with known camera poses in metres (views.json: {views:[{ply|points_cam, R, t}]}, OpenCV cameras), solve one depth scale per view from cross-view agreement alone. at_grid_edge=true means a scale sat on the search bound and the result is untrusted (status untrusted). Sealed as a geo.scale-solve receipt; not_configured without numpy+scipy.', inputSchema: schema({ views: text, rounds: num, sub: num, lo: num, hi: num, out: text }, ['views']) },
 ];
 
-type Outcome = { ok: boolean; status: 'ok' | 'untrusted' | 'not_configured' | 'failed' | 'invalid_request'; exit_code: number | null; ms: number; result: unknown; stderr?: string; receipt?: string; note?: string };
+type Outcome = { ok: boolean; status: 'ok' | 'partial' | 'untrusted' | 'not_configured' | 'failed' | 'invalid_request'; exit_code: number | null; ms: number; result: unknown; stderr?: string; receipt?: string; note?: string };
 
 function flags(args: Record<string, unknown>, keys: string[]): string[] {
   const out: string[] = [];
@@ -44,11 +45,12 @@ function runLane(script: string, argv: string[], subject: string, dir?: string):
   const last = (r.stdout ?? '').trim().split('\n').pop() ?? '';
   let result: unknown = null; try { result = JSON.parse(last); } catch { /* not JSON: a traceback or nothing */ }
   const code = r.status;
-  const status: Outcome['status'] = code === 0 ? 'ok' : code === 2 ? 'untrusted' : code === 3 ? 'not_configured' : 'failed';
+  const partial = script === 'bench_loader.py' && code === 2;                 // bench score: some objects had no prediction — scored, reported, not a trust problem
+  const status: Outcome['status'] = code === 0 ? 'ok' : partial ? 'partial' : code === 2 ? 'untrusted' : code === 3 ? 'not_configured' : 'failed';
   const stderr = scrub((r.stderr ?? '').slice(-2000)) || undefined;
   const rec = appendReceipt('runs', {
-    kind: 'run', subject, policy: 'auto', status: status === 'ok' || status === 'untrusted' ? 'ok' : 'failed',
-    error_class: status === 'ok' ? undefined : status === 'untrusted' ? 'untrusted_metric' : status === 'not_configured' ? 'env' : 'exec',
+    kind: 'run', subject, policy: 'auto', status: status === 'ok' || status === 'untrusted' || status === 'partial' ? 'ok' : 'failed',
+    error_class: status === 'ok' ? undefined : status === 'untrusted' ? 'untrusted_metric' : status === 'partial' ? 'partial' : status === 'not_configured' ? 'env' : 'exec',
     exit_code: code ?? -1, ms, response_hash: result ? sha256(JSON.stringify(result)) : undefined,
     spans: [{ name: `${script} ${scrub(argv.join(' '))}`.slice(0, 400), kind: 'execute_tool' }], artifacts: [],
   }, dir);
@@ -65,6 +67,22 @@ export function callGeoTool(name: string, args: Record<string, unknown> = {}, di
       if (!isFile(args.pred)) return refuse('pred must be an existing file (PLY, JSON {"points"} or mesh)');
       const argv = ['--truth', String(args.truth), '--pred', String(args.pred), ...flags(args, ['voxel', 'tau', 'tolerance', 'samples', 'normalize', 'fit', 'out'])];
       return runLane('voxel_score.py', argv, `geo.voxel-score ${basename(String(args.truth))} vs ${basename(String(args.pred))}${args.fit ? ' (fitted)' : ''}`, dir);
+    }
+    case 'timmy_geo_bench': {
+      const bench = String(args.bench ?? '');
+      if (!isFile(join(bench, 'manifest.json'))) return refuse('bench must be an extracted bench directory (manifest.json missing); run bench_loader.py fetch + extract first');
+      if (args.step === 'predict') {
+        if (typeof args.model !== 'string' || !args.model) return refuse('predict needs model');
+        if (typeof args.expect_f1 !== 'number' || !Number.isFinite(args.expect_f1)) return refuse('predict needs a numeric expect_f1');
+        const argv = ['predict', '--bench', bench, '--model', String(args.model), '--expect-f1', String(args.expect_f1), ...flags({ 'expect-fscore': args.expect_fscore, 'tolerance-f1': args.tolerance_f1, frame: args.frame, basis: args.basis }, ['expect-fscore', 'tolerance-f1', 'frame', 'basis'])];
+        return runLane('bench_loader.py', argv, `geo.bench-predict ${basename(bench)} ${String(args.model)}`, dir);
+      }
+      if (args.step === 'score') {
+        if (typeof args.pred_dir !== 'string' || !existsSync(args.pred_dir) || !statSync(args.pred_dir).isDirectory()) return refuse('score needs pred_dir, an existing directory of PRED/<id>.(ply|glb|obj|json)');
+        const argv = ['score', '--bench', bench, '--pred-dir', String(args.pred_dir), ...flags({ ...args, 'normalize-each': args.normalize_each }, ['frame', 'voxel', 'tau', 'tolerance', 'samples', 'fit', 'normalize-each'])];
+        return runLane('bench_loader.py', argv, `geo.bench-score ${basename(bench)} ${basename(String(args.pred_dir))}${args.fit || args.normalize_each ? ' (shape score)' : ''}`, dir);
+      }
+      return refuse('step must be predict or score');
     }
     case 'timmy_geo_scale': {
       if (!isFile(args.views)) return refuse('views must be an existing views.json');

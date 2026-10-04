@@ -68,8 +68,14 @@ houses) and `unit` (the papers' frame). Five rendered thumbnails per object are 
 ```
 python3 lanes/geo/bench_loader.py fetch   --set gso --smoke --out bench/gso          # one shard; size + sha256 recorded; > 2 GB needs --yes-big
 python3 lanes/geo/bench_loader.py extract --tar bench/gso/shards/gso-train-00000.tar --out bench/gso
+python3 lanes/geo/bench_loader.py predict --bench bench/gso --model trellis2 --expect-f1 0.60 --frame unit --basis "lab50 chain, house bench"
 python3 lanes/geo/bench_loader.py score   --bench bench/gso --pred-dir out/trellis2 --frame unit --normalize-each --fit --voxel 0.02 --tau 0.01
 ```
+
+`predict` seals the expected median voxel F1 / F-score for a model *before* anything is scored (`scores/prediction.json`,
+hashed, with the falsifier spelled out: median F1 more than `--tolerance-f1` below the expectation means the model profile
+is wrong, not the bench); `score` then grades it into the summary (`as_predicted`, `falsified`, `gap`). That is the Timmy
+formula applied to a benchmark run: the claim exists before the evidence, and the evidence grades the claim.
 
 `extract` writes `objects/<id>/{truth_metric.ply, truth_unit.glb, view_0..4.jpg, meta.json}` and `manifest.json`
 (licence, attribution, tar sha256, per-object extents in metres, mesh hashes, sample count and seed). `score` takes

@@ -22,10 +22,11 @@ ply('truth.ply', truth); ply('same.ply', truth + rng.normal(0, 0.002, truth.shap
 `;
 
 describe('geo MCP tools', () => {
-  it('both tools are registered on the server with their lane names and required inputs', () => {
-    expect(GEO_TOOLS.map((t) => t.name)).toEqual(['timmy_geo_score', 'timmy_geo_scale']);
+  it('the three tools are registered on the server with their lane names and required inputs', () => {
+    expect(GEO_TOOLS.map((t) => t.name)).toEqual(['timmy_geo_score', 'timmy_geo_bench', 'timmy_geo_scale']);
     expect(GEO_TOOLS[0].inputSchema.required).toEqual(['truth', 'pred']);
-    expect(GEO_TOOLS[1].inputSchema.required).toEqual(['views']);
+    expect(GEO_TOOLS[1].inputSchema.required).toEqual(['step', 'bench']);
+    expect(GEO_TOOLS[2].inputSchema.required).toEqual(['views']);
     const server = readFileSync(join(ROOT, 'src', 'mcp', 'server.ts'), 'utf8');
     expect(server).toContain('...GEO_TOOLS');
     expect(server).toContain("name.startsWith('timmy_geo_')");
@@ -62,6 +63,37 @@ describe('geo MCP tools', () => {
     expect(JSON.stringify(chain)).not.toContain(process.env.HOME ?? '/nonexistent-home');
     expect(verifyChain('runs', dir).ok).toBe(true);
   });
+
+  it.skipIf(!deps)('bench: predict seals before score, score grades it, a missing prediction is partial not ok, a wrong step is refused', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'geo-mcp-'));
+    expect(callGeoTool('timmy_geo_bench', { step: 'score', bench: dir, pred_dir: dir }, dir).status).toBe('invalid_request');     // no manifest → refused, nothing sealed
+    const shard = `
+import io, json, sys, tarfile, numpy as np, trimesh
+from pathlib import Path
+S = Path(sys.argv[1])
+def add(tar, name, data):
+    ti = tarfile.TarInfo(name); ti.size = len(data); tar.addfile(ti, io.BytesIO(data))
+with tarfile.open(S / 'fake.tar', 'w') as tar:
+    for oid, ext in (('a', [0.1, 0.2, 0.3]), ('b', [0.2, 0.2, 0.1])):
+        m = trimesh.creation.box(extents=ext); add(tar, f'{oid}.obj', m.export(file_type='obj').encode())
+        add(tar, f'{oid}.json', json.dumps({'object_id': oid, 'license_id': 'cc-by-4.0', 'glb_processing': {}}).encode())
+P = S / 'pred'; P.mkdir()
+pts, _ = trimesh.sample.sample_surface(trimesh.creation.box(extents=[0.1, 0.2, 0.3]), 20000, seed=2); p = np.asarray(pts, dtype=np.float32)
+(P / 'a.ply').write_bytes((f'ply\\nformat binary_little_endian 1.0\\nelement vertex {len(p)}\\nproperty float x\\nproperty float y\\nproperty float z\\nend_header\\n').encode() + p.tobytes())
+`;
+    expect(spawnSync('python3', ['-c', shard, dir], { encoding: 'utf8' }).status).toBe(0);
+    expect(spawnSync('python3', [join(ROOT, 'lanes', 'geo', 'bench_loader.py'), 'extract', '--tar', join(dir, 'fake.tar'), '--out', join(dir, 'bench'), '--samples', '20000'], { encoding: 'utf8' }).status).toBe(0);
+    expect(callGeoTool('timmy_geo_bench', { step: 'predict', bench: join(dir, 'bench') }, dir).status).toBe('invalid_request');           // no model / expect_f1
+    const pr = callGeoTool('timmy_geo_bench', { step: 'predict', bench: join(dir, 'bench'), model: 'exact-a', expect_f1: 0.97, frame: 'metric' }, dir);
+    expect(pr.status, pr.stderr).toBe('ok');
+    const sc = callGeoTool('timmy_geo_bench', { step: 'score', bench: join(dir, 'bench'), pred_dir: join(dir, 'pred'), frame: 'metric', voxel: 0.01, tau: 0.005, samples: 20000 }, dir);
+    expect(sc.status, sc.stderr).toBe('partial'); expect(sc.exit_code).toBe(2);                                                   // b had no prediction
+    const r: any = sc.result;
+    expect(r.scored).toBe(1); expect(r.missing).toBe(1); expect(r.prediction).toMatchObject({ model: 'exact-a', graded: true, as_predicted: true, falsified: false });
+    expect(callGeoTool('timmy_geo_bench', { step: 'nope', bench: join(dir, 'bench') }, dir).status).toBe('invalid_request');
+    const chain = readChain('runs', dir);
+    expect(chain.map((c) => [c.subject, c.error_class])).toEqual([['geo.bench-predict bench exact-a', undefined], ['geo.bench-score bench pred', 'partial']]);
+  }, 120000);
 
   it.skipIf(!deps)('scale: the synthetic views solve to ok on the default grid and to untrusted on a grid that excludes a true scale', () => {
     const dir = mkdtempSync(join(tmpdir(), 'geo-mcp-'));

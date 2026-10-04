@@ -9,8 +9,11 @@ That gives two truth frames per object: metric (from the OBJ) and unit-cube (the
 
   fetch    --set gso --shard 0 [--smoke] --out BENCH      download one shard (size and sha256 recorded; >2 GB needs --yes-big)
   extract  --tar BENCH/shards/x.tar --out BENCH            objects/<id>/{truth_metric.ply, truth_unit.glb, view_0.jpg, meta.json} + manifest.json
+  predict  --bench BENCH --model NAME --expect-f1 F [--expect-fscore F] [--tolerance-f1 0.08] [--frame …]
+                                                           seal what the model is expected to score BEFORE scoring → scores/prediction.json
   score    --bench BENCH --pred-dir PRED [--frame metric|unit] [--fit] [--voxel V] [--tau T]
-                                                           PRED/<id>.(ply|glb|obj|json) scored against the truth → scores/<id>.json + summary.json
+                                                           PRED/<id>.(ply|glb|obj|json) scored against the truth → scores/<id>.json + summary.json;
+                                                           with a prediction on file the summary says as_predicted / falsified
 
 Nothing here fits anything: `score --fit` passes the flag through to voxel_score.py, whose output then says metric:false.
 A generation model's output has an arbitrary scale and pose, so scoring it needs --fit (a shape score); a geometry
@@ -158,6 +161,41 @@ def extract(a) -> int:
 
 # ---------------------------------------------------------------- score
 
+def predict(a) -> int:
+    """The Timmy formula: say what will happen before it happens. The prediction is written (hashed) before any score
+    exists; `score` then grades it. A falsifier is part of the prediction: median voxel F1 more than --tolerance-f1 below
+    --expect-f1 means the model profile that produced the expectation is wrong, not the bench."""
+    bench = Path(a.bench); sdir = bench / "scores"; sdir.mkdir(parents=True, exist_ok=True)
+    manifest = json.loads((bench / "manifest.json").read_text())
+    pred = {"kind": "geo.bench-prediction", "set": manifest["set"], "model": a.model, "frame": a.frame, "objects": manifest["count"],
+            "expected": {"median_voxel_f1": a.expect_f1, "median_fscore": a.expect_fscore}, "tolerance_f1": a.tolerance_f1,
+            "falsifier": f"median voxel F1 more than {a.tolerance_f1} below {a.expect_f1}", "basis": a.basis, "at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(timespec="seconds"),
+            "manifest_sha256": hashlib.sha256((bench / "manifest.json").read_bytes()).hexdigest()}
+    body = json.dumps(pred, sort_keys=True, separators=(",", ":"))
+    pred["prediction_sha256"] = hashlib.sha256(body.encode()).hexdigest()
+    (sdir / "prediction.json").write_text(json.dumps(pred, indent=1) + "\n")
+    print(json.dumps({"ok": True, "status": "predicted", "model": a.model, "expected": pred["expected"], "prediction_sha256": pred["prediction_sha256"]}))
+    return 0
+
+
+def grade_prediction(sdir: Path, summary: dict) -> dict | None:
+    pp = sdir / "prediction.json"
+    if not pp.exists():
+        return None
+    pred = json.loads(pp.read_text())
+    exp = pred["expected"]; obs = summary["median"]
+    if obs["voxel_f1"] is None:
+        return {"model": pred.get("model"), "prediction_sha256": pred.get("prediction_sha256"), "graded": False, "why": "nothing scored"}
+    gap = round(obs["voxel_f1"] - exp["median_voxel_f1"], 4)
+    falsified = gap < -pred["tolerance_f1"]
+    out = {"model": pred.get("model"), "prediction_sha256": pred.get("prediction_sha256"), "graded": True, "expected_median_voxel_f1": exp["median_voxel_f1"],
+           "observed_median_voxel_f1": obs["voxel_f1"], "gap": gap, "tolerance_f1": pred["tolerance_f1"], "as_predicted": abs(gap) <= pred["tolerance_f1"], "falsified": falsified,
+           "frame_matches": pred.get("frame") == summary["frame"]}
+    if exp.get("median_fscore") is not None and obs.get("fscore") is not None:
+        out["expected_median_fscore"] = exp["median_fscore"]; out["observed_median_fscore"] = obs["fscore"]; out["fscore_gap"] = round(obs["fscore"] - exp["median_fscore"], 4)
+    return out
+
+
 def score(a) -> int:
     try:
         import numpy as np
@@ -188,8 +226,9 @@ def score(a) -> int:
                "voxel": a.voxel, "tau": a.tau, "tolerance": a.tolerance, "fit": a.fit, "normalize_each": a.normalize_each, "scored": len(rows), "missing": missing,
                "median": {"voxel_f1": med("voxel_f1"), "fscore": med("fscore"), "chamfer_mean_dist": med("chamfer_mean_dist")}, "rows": rows,
                "source": manifest["source"], "note": "metric:true only when nothing was fitted or rescaled; a generation model's output needs --fit or --normalize-each and is a shape score"}
+    summary["prediction"] = grade_prediction(sdir, summary)
     (sdir / "summary.json").write_text(json.dumps(summary, indent=1) + "\n")
-    print(json.dumps({k: summary[k] for k in ("kind", "set", "frame", "metric", "scored", "median")} | {"missing": len(missing)}))
+    print(json.dumps({k: summary[k] for k in ("kind", "set", "frame", "metric", "scored", "median")} | {"missing": len(missing), "prediction": summary["prediction"]}))
     return 0 if rows and not missing else (2 if rows else 1)
 
 
@@ -200,6 +239,9 @@ def main(argv=None):
     f.add_argument("--out", required=True); f.add_argument("--max-gb", type=float, default=2.0); f.add_argument("--yes-big", action="store_true"); f.add_argument("--force", action="store_true"); f.set_defaults(fn=fetch)
     e = sub.add_parser("extract"); e.add_argument("--set", default="gso", choices=sorted(SETS)); e.add_argument("--tar", required=True); e.add_argument("--out", required=True)
     e.add_argument("--samples", type=int, default=200000); e.add_argument("--seed", type=int, default=7); e.set_defaults(fn=extract)
+    pr = sub.add_parser("predict"); pr.add_argument("--bench", required=True); pr.add_argument("--model", required=True); pr.add_argument("--expect-f1", type=float, required=True)
+    pr.add_argument("--expect-fscore", type=float); pr.add_argument("--tolerance-f1", type=float, default=0.08); pr.add_argument("--frame", default="metric", choices=["metric", "unit"])
+    pr.add_argument("--basis", default="", help="where the expectation comes from (receipt hash, profile, prior run)"); pr.set_defaults(fn=predict)
     s = sub.add_parser("score"); s.add_argument("--bench", required=True); s.add_argument("--pred-dir", required=True); s.add_argument("--frame", default="metric", choices=["metric", "unit"])
     s.add_argument("--voxel", type=float, default=0.01); s.add_argument("--tau", type=float, default=0.005); s.add_argument("--tolerance", type=float, default=0.05); s.add_argument("--samples", type=int, default=200000)
     s.add_argument("--seed", type=int, default=7); s.add_argument("--fit", action="store_true"); s.add_argument("--normalize-each", action="store_true"); s.set_defaults(fn=score)

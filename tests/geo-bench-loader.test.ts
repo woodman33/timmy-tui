@@ -45,9 +45,9 @@ print('ok')
 `;
 
 describe('geo bench loader', () => {
-  it('has a usage line and documents the three steps in the README', () => {
+  it('has a usage line and documents the steps in the README', () => {
     const h = run(['--help']);
-    expect(h.status, h.stderr).toBe(0); expect(h.stdout).toMatch(/fetch,extract,score/);
+    expect(h.status, h.stderr).toBe(0); expect(h.stdout).toMatch(/fetch,extract,predict,score/);
     expect(readFileSync(join(ROOT, 'lanes', 'geo', 'README.md'), 'utf8')).toContain('bench_loader.py');
   });
 
@@ -85,5 +85,17 @@ describe('geo bench loader', () => {
     const partial = run(['score', '--bench', join(dir, 'bench'), '--pred-dir', dir, '--frame', 'metric', '--samples', '40000']);
     expect(partial.status).toBe(1);                                                                 // nothing scored
     expect(JSON.parse(partial.stdout.trim()).missing).toBe(2);
+    // the Timmy formula: a prediction sealed before scoring is graded by the score — and a wrong one is called falsified
+    const pr = run(['predict', '--bench', join(dir, 'bench'), '--model', 'exact-boxes', '--expect-f1', '0.95', '--expect-fscore', '0.97', '--frame', 'metric', '--basis', 'test']);
+    expect(pr.status, pr.stderr).toBe(0);
+    const prediction = JSON.parse(readFileSync(join(dir, 'bench', 'scores', 'prediction.json'), 'utf8'));
+    expect(prediction).toMatchObject({ kind: 'geo.bench-prediction', model: 'exact-boxes', expected: { median_voxel_f1: 0.95, median_fscore: 0.97 }, tolerance_f1: 0.08 });
+    expect(prediction.prediction_sha256).toMatch(/^[0-9a-f]{64}$/); expect(prediction.manifest_sha256).toMatch(/^[0-9a-f]{64}$/);
+    const graded = run(['score', '--bench', join(dir, 'bench'), '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.005', '--samples', '40000']);
+    expect(graded.status).toBe(0);
+    const g = JSON.parse(readFileSync(join(dir, 'bench', 'scores', 'summary.json'), 'utf8')).prediction;
+    expect(g).toMatchObject({ model: 'exact-boxes', graded: true, frame_matches: true, prediction_sha256: prediction.prediction_sha256 });
+    expect(g.falsified).toBe(g.gap < -0.08);                                                        // the median over {exact, 5 cm off} decides; the rule is the receipt's
+    expect(typeof g.observed_median_fscore).toBe('number');
   }, 180000);
 });
