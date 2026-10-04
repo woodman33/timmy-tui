@@ -14,7 +14,7 @@
 // executed, and its outputs land in out/<engine>/<workflow>/<stem>-<ts>/. One
 // engine.run receipt per run; engine.refuse when a rule refuses a drop.
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, constants as fsConstants, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { runStepCommand } from './step.mjs';
 import { basename, dirname, extname, join, resolve } from 'node:path';
@@ -38,6 +38,7 @@ const engineById = (id) => ENGINES.engines.find((e) => e.id === id);
 
 function expandPath(p) {
   if (!p) return null;
+  if (p.startsWith('<home>')) p = (process.env.HOME ?? '') + p.slice('<home>'.length);   // engines.json writes <home> so no home path lands in the repo
   const abs = p.startsWith('/') ? p : join(ROOT, p);
   if (!abs.includes('*')) return existsSync(abs) ? abs : null;
   // one glob segment: pick the newest matching directory entry
@@ -55,9 +56,22 @@ function expandPath(p) {
   return null;
 }
 
-function resolveBin(engine, name) {
+// A bare command name (no slash) resolves on PATH, the way a shell would — but the lane still never runs a shell.
+// `node` falls back to the interpreter running the lane, so report steps work on every machine.
+export function whichOnPath(name) {
+  if (!name || name.includes('/')) return null;
+  for (const dir of (process.env.PATH ?? '').split(':').filter(Boolean)) {
+    const p = join(dir, name);
+    try { if (statSync(p).isFile()) { accessSync(p, fsConstants.X_OK); return p; } } catch { /* keep looking */ }
+  }
+  return name === 'node' ? process.execPath : null;
+}
+
+export function resolveBin(engine, name) {
   if (name.startsWith('/')) return existsSync(name) ? name : null;
-  return expandPath(engine.binaries?.[name]);
+  const spec = engine.binaries?.[name];
+  if (spec && !spec.includes('/') && !spec.includes('\\')) return whichOnPath(spec) ?? expandPath(spec);   // "node": "node"
+  return expandPath(spec) ?? whichOnPath(name);                                                           // "node" named directly in a plan
 }
 
 function versionOf(path) {
@@ -307,7 +321,11 @@ export function inventory({ fleet = true } = {}) {
 
 const out = (o) => console.log(JSON.stringify(o, null, 1));
 
-try {
+// The CLI runs only when this file is the entry point (`timmy engine …` → tsx lane.mjs). Importing the module
+// (tests, other lanes) gets the exported functions and no side effects.
+const isMain = !!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMain) try {
   switch (cmd) {
     case 'list': out(ENGINES.engines.map((e) => ({ id: e.id, installed: e.installed, templates: listTemplates(e.id) }))); break;
     case 'inventory': { const inv = inventory({ fleet: !has('--no-fleet') }); out(inv.engines.map((e) => ({ id: e.id, installed: e.installed, version: e.version, primary: e.primary_binary, envlock: e.envlock_sha256.slice(0, 12), templates: e.templates.length, complete: e.templates_complete, proven: e.proven.length }))); break; }

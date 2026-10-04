@@ -1,0 +1,25 @@
+{
+ "kind": "blueprint",
+ "name": "RouteMux · balance-reconcile",
+ "source": "lanes/engines/routemux/templates/balance-reconcile/plan.cue",
+ "date": "2026-10-04",
+ "engine": "routemux",
+ "workflow": "balance-reconcile",
+ "note": "RouteMux has no webhooks, so the async loop closes from our side: predict → call → read the wallet → reconcile. A gap between predicted and observed spend is a finding, not a footnote.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "trigger", "value": "*.reconcile.json", "note": "expected_spend_usd from the receipts being checked" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 read", "value": "bridge.mjs balance: /v1/user/balance · /v1/key/info · /v1/account/info", "note": "raw answers stored" },
+   { "label": "2 report", "value": "bridge.mjs report: predicted vs observed spend", "note": "reconciled true/false" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "balance", "value": "{stem}.balance.json", "note": "gateway answers + request ids" },
+   { "label": "report", "value": "{stem}.routemux.json", "note": "balance_usd · spend_observed_usd · reconciled" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "extra", "value": "status · balance_usd · spend_observed_usd · spend_predicted_usd · reconciled", "note": "" }
+  ] }
+ ]
+}

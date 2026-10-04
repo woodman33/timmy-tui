@@ -1,0 +1,65 @@
+{
+ "kind": "blueprint",
+ "name": "Runable · task-collect",
+ "source": "lanes/engines/runable/templates/task-collect/plan.cue",
+ "date": "2026-10-04",
+ "engine": "runable",
+ "workflow": "task-collect",
+ "note": "Artifacts are only real once they are on disk and hashed. The files tool lists them; the lane downloads, hashes and counts them against the prediction.",
+ "sheets": [
+  {
+   "id": "inputs",
+   "title": "Inputs · drop/",
+   "rows": [
+    {
+     "label": "request",
+     "value": "*.collect.json",
+     "note": "task_id"
+    }
+   ]
+  },
+  {
+   "id": "steps",
+   "title": "Steps",
+   "rows": [
+    {
+     "label": "1 collect",
+     "value": "bridge.mjs collect: tools/call <files>, download every URL, save inline resources",
+     "note": "files/* · {stem}.files.json"
+    },
+    {
+     "label": "2 report",
+     "value": "bridge.mjs report: count vs files_min",
+     "note": "{stem}.runable.json"
+    }
+   ]
+  },
+  {
+   "id": "outputs",
+   "title": "Outputs · out/",
+   "rows": [
+    {
+     "label": "files",
+     "value": "{stem}.files.json",
+     "note": "per-file sha256 + file-set sha256"
+    },
+    {
+     "label": "report",
+     "value": "{stem}.runable.json",
+     "note": ""
+    }
+   ]
+  },
+  {
+   "id": "receipt",
+   "title": "Receipt · engine.run",
+   "rows": [
+    {
+     "label": "extra",
+     "value": "status · task_id · files · bytes · files_sha256 · files_as_predicted",
+     "note": ""
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,65 @@
+{
+ "kind": "blueprint",
+ "name": "TaskForge · runtime-health",
+ "source": "lanes/engines/taskforge/templates/runtime-health/plan.cue",
+ "date": "2026-10-04",
+ "engine": "taskforge",
+ "workflow": "runtime-health",
+ "note": "TaskForge is itself a harness that controls executors. Before Timmy hands it work, this template asks which executors are alive and whether the AgentPass governance hook is on.",
+ "sheets": [
+  {
+   "id": "inputs",
+   "title": "Inputs · drop/",
+   "rows": [
+    {
+     "label": "trigger",
+     "value": "*.health.json",
+     "note": "{}"
+    }
+   ]
+  },
+  {
+   "id": "steps",
+   "title": "Steps",
+   "rows": [
+    {
+     "label": "1 health",
+     "value": "bridge.mjs health: GET /api/runtime/health + /api/runtime/agentpass/health",
+     "note": "raw answers stored"
+    },
+    {
+     "label": "2 report",
+     "value": "bridge.mjs report",
+     "note": "{stem}.taskforge.json"
+    }
+   ]
+  },
+  {
+   "id": "outputs",
+   "title": "Outputs · out/",
+   "rows": [
+    {
+     "label": "health",
+     "value": "{stem}.health.json",
+     "note": "executors list + agentpass hook"
+    },
+    {
+     "label": "report",
+     "value": "{stem}.taskforge.json",
+     "note": "counts for the receipt"
+    }
+   ]
+  },
+  {
+   "id": "receipt",
+   "title": "Receipt · engine.run",
+   "rows": [
+    {
+     "label": "extra",
+     "value": "status · executors · executors_available · agentpass_hook · api_ms",
+     "note": ""
+    }
+   ]
+  }
+ ]
+}

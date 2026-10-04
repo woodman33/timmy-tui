@@ -1,0 +1,30 @@
+{
+ "kind": "blueprint",
+ "name": "RouteMux · chat-receipted",
+ "source": "lanes/engines/routemux/templates/chat-receipted/plan.cue",
+ "date": "2026-10-04",
+ "engine": "routemux",
+ "workflow": "chat-receipted",
+ "note": "Predict → call once → reconcile. The request hash is the idempotency key, so the same drop can never bill twice; X-Request-ID and X-RouteMux-Billed come back in the receipt.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "request", "value": "*.routemux.json", "note": "model, messages, optional predict{} block written by the operator or an upstream agent" },
+   { "label": "refused", "value": "> 1 MB", "note": "rules: refuse → engine.refuse" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 predict", "value": "bridge.mjs predict: sha256(request) → idempotency key; tokens ≈ chars/4; cost from the last pricing snapshot", "note": "{stem}.predict.json sealed first" },
+   { "label": "2 call", "value": "bridge.mjs chat: POST api.routemux.com/v1/chat/completions with Authorization + X-Idempotency-Key", "note": "409 = replayed, not re-billed" },
+   { "label": "3 report", "value": "bridge.mjs report: usage, headers, latency vs the prediction", "note": "{stem}.routemux.json" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "prediction", "value": "{stem}.predict.json", "note": "what we said would happen" },
+   { "label": "response", "value": "{stem}.response.json", "note": "the model's answer + usage" },
+   { "label": "headers", "value": "{stem}.headers.json", "note": "X-Request-ID, X-RouteMux-Billed, latency" },
+   { "label": "report", "value": "{stem}.routemux.json", "note": "errors of each prediction, in percent" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "request sha256 · response sha256 · env-lock", "note": "" },
+   { "label": "extra", "value": "status · model · request_id · billed · tokens · cost · latency", "note": "from the report" }
+  ] }
+ ]
+}

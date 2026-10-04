@@ -23,6 +23,28 @@ timmy engine shelf                     the shelf table + engine.shelf receipt
 | unity | not installed | cli | batch-build · asset-import · test-runner | authored, unproven |
 | cocos | not installed | cli | web-build · asset-pack · scene-lint | authored, unproven |
 | godot | not installed | cli | headless-export · gdscript-run · import-only | authored, unproven |
+| reallusion | iClone 8 + CC5 (Windows host) | cli (iClonepy / CharacterCreatorpy) | iclone-render-still · cc5-avatar-export · hub-content-sync | authored, unproven |
+
+## Services on the shelf (kind "service")
+
+Same shelf, same contract, no binaries to pin except the interpreter: a service is reached
+over an API, MCP or a CLI, its endpoints and discovered tool names are recorded in the
+env-lock and the report, and each workflow is **predict → act → analyze**: the prediction
+is sealed before the call, the report scores it, and the receipt carries both. Keys live in
+the environment only; a missing key seals `status=not_configured` (honesty clause).
+
+| service | plane | bridge | templates | key |
+|---|---|---|---|---|
+| routemux | model gateway (OpenAI + Anthropic passthrough, public pricing feed) | api | model-feed-snapshot · chat-receipted · balance-reconcile | `ROUTEMUX_API_KEY` |
+| runable | artifact executor (cloud agent, remote MCP only) | mcp | task-start · task-poll · task-collect | `RUNABLE_ACCESS_TOKEN` or client credentials |
+| agentpass | authority (passports, brokered calls, approvals, audit) | cli (`agentpass.py taskforge …`) | broker-health · passport-issue · call-tool | `AGENTPASS_REPO_PATH` |
+| taskforge | local workflow OS (parse → gate → executors) | api | runtime-health · workflow-parse · workflow-execute | `TASKFORGE_API_URL` |
+
+Each service folder has a `bridge.mjs` (dependency-free Node) that the templates call with
+`bin: "node"`; the lane resolves a bare command name on PATH and falls back to the running
+Node for `node`, so the same templates run on the Mac, a Spark or CI. See
+`docs/HARNESS-CONTROL-PLANE.md` for how these services stack under the OpenRouter Agent SDK
+and the Cloudflare Agents SDK.
 
 ## A template
 

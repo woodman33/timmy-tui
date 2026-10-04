@@ -1,0 +1,80 @@
+{
+ "kind": "blueprint",
+ "name": "TaskForge · workflow-execute",
+ "source": "lanes/engines/taskforge/templates/workflow-execute/plan.cue",
+ "date": "2026-10-04",
+ "engine": "taskforge",
+ "workflow": "workflow-execute",
+ "note": "Execution is async on both sides: POST starts it, SSE streams it, status polling ends it. The JSONL log is the flight recording; the receipt is the verdict.",
+ "sheets": [
+  {
+   "id": "inputs",
+   "title": "Inputs · drop/",
+   "rows": [
+    {
+     "label": "request",
+     "value": "*.execute.json",
+     "note": "taskId · workflow · autoAccept · userApproved · max_minutes · predict{}"
+    }
+   ]
+  },
+  {
+   "id": "steps",
+   "title": "Steps",
+   "rows": [
+    {
+     "label": "1 predict",
+     "value": "bridge.mjs predict: workflow sha256, expected steps/minutes/failures",
+     "note": "sealed first"
+    },
+    {
+     "label": "2 execute",
+     "value": "POST /api/execute, then SSE /api/logs/stream/:taskId + GET /api/status/:taskId",
+     "note": "events.jsonl + result.json"
+    },
+    {
+     "label": "3 report",
+     "value": "bridge.mjs report: minutes and failures vs prediction",
+     "note": "{stem}.taskforge.json"
+    }
+   ]
+  },
+  {
+   "id": "outputs",
+   "title": "Outputs · out/",
+   "rows": [
+    {
+     "label": "prediction",
+     "value": "{stem}.predict.json",
+     "note": ""
+    },
+    {
+     "label": "events",
+     "value": "{stem}.events.jsonl",
+     "note": "one line per SSE event, hashed"
+    },
+    {
+     "label": "result",
+     "value": "{stem}.result.json",
+     "note": "terminal status, steps by status"
+    },
+    {
+     "label": "report",
+     "value": "{stem}.taskforge.json",
+     "note": ""
+    }
+   ]
+  },
+  {
+   "id": "receipt",
+   "title": "Receipt · engine.run",
+   "rows": [
+    {
+     "label": "extra",
+     "value": "status · task_id · task_status · steps · steps_failed · events · minutes · predicted_minutes · failures_as_predicted",
+     "note": ""
+    }
+   ]
+  }
+ ]
+}

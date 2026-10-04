@@ -1,0 +1,14 @@
+{
+ "v": 1,
+ "engine": "agentpass",
+ "captured_at": "2026-10-04T09:40:00.000Z",
+ "os": { "platform": "authored", "build": "", "version": "" },
+ "arch": "any",
+ "tools": {
+  "python3": { "path": "python3 (resolved on PATH by the lane)", "note": "runs scripts/agentpass.py from the AgentPass repo; `timmy engine envlock agentpass` replaces this file with the measured sha256/size/version" },
+  "agentpass": { "path": "<home>/agent-cloud-lab/agentpass-lab/scripts/agentpass.py", "note": "override with AGENTPASS_REPO_PATH; the bridge also hashes this file into every report via the CLI's own JSON" }
+ },
+ "installed": true,
+ "bridge": ["cli"],
+ "note": "Authored 2026-10-04. The AgentPass TaskForge bridge (`taskforge health|status|audit|passport issue|call-tool`) is fake-first and JSON-only; this lane never changes its mode."
+}

@@ -1,0 +1,19 @@
+{
+ "v": 1,
+ "engine": "runable",
+ "captured_at": "2026-10-04T09:50:00.000Z",
+ "os": { "platform": "authored", "build": "", "version": "" },
+ "arch": "any",
+ "tools": {
+  "node": { "path": "node (resolved on PATH by the lane)", "note": "the bridge is a dependency-free MCP client; `timmy engine envlock runable` replaces this file with the measured sha256/size/version" }
+ },
+ "installed": true,
+ "bridge": ["mcp", "cli"],
+ "endpoints": {
+  "mcp": "https://api.runable.com/api/mcp (Streamable HTTP)",
+  "oauth": "https://api.runable.com/api/auth (OAuth 2.1; client_credentials, scopes mcp:tasks.read mcp:tasks.write)",
+  "tools": "discovered at run time via tools/list and recorded with a sha256 of their names",
+  "receipt_headers": ["x-request-id", "mcp-session-id"]
+ },
+ "note": "Authored 2026-10-04 from runable.com/docs/mcp. Tool names are not pinned on purpose: the bridge picks them by pattern and the report shows which it chose."
+}

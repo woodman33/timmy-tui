@@ -1,0 +1,27 @@
+{
+ "kind": "blueprint",
+ "name": "AgentPass · broker-health",
+ "source": "lanes/engines/agentpass/templates/broker-health/plan.cue",
+ "date": "2026-10-04",
+ "engine": "agentpass",
+ "workflow": "broker-health",
+ "note": "AgentPass is the authority layer: passports, brokered tool calls, approval gates, audit log. This template asks it who it is and what it governs, and seals the answer.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "trigger", "value": "*.health.json", "note": "{}" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 health", "value": "agentpass.py taskforge health", "note": "ok · mode · fakeMode · brokerAvailable" },
+   { "label": "2 status", "value": "agentpass.py taskforge status", "note": "packs · tools (risk, approval) · counts" },
+   { "label": "3 report", "value": "bridge.mjs report", "note": "{stem}.agentpass.json" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "health", "value": "{stem}.health.json", "note": "raw CLI JSON + exit code" },
+   { "label": "status", "value": "{stem}.status.json", "note": "raw CLI JSON + exit code" },
+   { "label": "report", "value": "{stem}.agentpass.json", "note": "counts for the receipt" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "extra", "value": "status · mode · fake_mode · broker_available · packs · tools · audit_events · pending_approvals", "note": "" }
+  ] }
+ ]
+}

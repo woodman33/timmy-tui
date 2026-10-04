@@ -1,0 +1,21 @@
+{
+ "v": 1,
+ "engine": "routemux",
+ "captured_at": "2026-10-04T09:30:00.000Z",
+ "os": { "platform": "authored", "build": "", "version": "" },
+ "arch": "any",
+ "tools": {
+  "node": { "path": "node (resolved on PATH by the lane)", "note": "the bridge is dependency-free Node 18+; `timmy engine envlock routemux` replaces this file with the measured sha256/size/version" }
+ },
+ "installed": true,
+ "bridge": ["api", "cli"],
+ "endpoints": {
+  "base_url": "https://api.routemux.com",
+  "openai_compatible": "/v1/chat/completions · /v1/responses · /v1/models",
+  "anthropic_compatible": "/anthropic/v1/messages",
+  "public_pricing_feed": "/public/pricing (no auth)",
+  "spend": "/v1/user/balance · /v1/key/info · /v1/account/info",
+  "receipt_headers": ["X-Request-ID", "X-RouteMux-Billed", "X-Idempotency-Key (request)"]
+ },
+ "note": "Authored 2026-10-04 from https://routemux.com/docs. The key is read from ROUTEMUX_API_KEY at run time and is never written to this lock, a report or a receipt."
+}

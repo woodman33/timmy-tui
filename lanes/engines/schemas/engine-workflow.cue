@@ -11,7 +11,7 @@
 //   cue vet -d '#Workflow' lanes/engines/schemas/engine-workflow.cue lanes/engines/blender/templates/render-still/plan.cue
 package engine
 
-#EngineId: "houdini" | "unreal" | "usd" | "unity" | "defold" | "cocos" | "godot" | "blender"
+#EngineId: "houdini" | "unreal" | "usd" | "unity" | "defold" | "cocos" | "godot" | "blender" | "reallusion" | "routemux" | "runable" | "agentpass" | "taskforge"
 
 // A command the lane runs. {drop} {out} {project} {template} {stem} are
 // substituted; nothing else is interpolated, and the command never runs in a shell.
