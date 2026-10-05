@@ -139,6 +139,51 @@ print('ok')
     expect(run(['extract', '--tar', join(dir, 'fake-00001.tar'), '--out', join(dir, 'bench'), '--samples', '999']).status).toBe(2);
   }, 240000);
 
+  it.skipIf(!deps)('card: one self-contained Bench Card per run, hashed, escaped, with the prediction verdict; runs keep their own folders and get an index', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'geo-card-'));
+    expect(spawnSync('python3', ['-c', FAKE_SHARD, dir], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
+    const B = join(dir, 'bench');
+    expect(run(['extract', '--tar', join(dir, 'fake-00000.tar'), '--out', B, '--samples', '30000']).status).toBe(0);
+    expect(spawnSync('python3', ['-c', PREDS, B, join(dir, 'pred')], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
+    // nothing to card before a score exists: refused, exit 2, JSON on stdout
+    const early = run(['card', '--bench', B, '--run', 'm1']);
+    expect(early.status).toBe(2); expect(JSON.parse(early.stdout.trim()).status).toBe('refused');
+    // a run name is a slug, never a path
+    const trav = run(['card', '--bench', B, '--run', '../escape']);
+    expect(trav.status).toBe(2); expect(JSON.parse(trav.stdout.trim()).status).toBe('refused');
+    // run m1: a model name that is markup must come out as text
+    const evil = '<script>alert(1)</script> box-model';
+    expect(run(['predict', '--bench', B, '--run', 'm1', '--model', evil, '--expect-f1', '0.5', '--frame', 'metric', '--basis', 'test']).status).toBe(0);
+    expect(run(['score', '--bench', B, '--run', 'm1', '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.005', '--samples', '30000']).status).toBe(0);
+    const c1 = run(['card', '--bench', B, '--run', 'm1']);
+    expect(c1.status, c1.stderr).toBe(0);
+    expect(JSON.parse(c1.stdout.trim())).toMatchObject({ ok: true, status: 'carded', runs_on_bench: 1 });
+    const html = readFileSync(join(B, 'scores', 'm1', 'card.html'), 'utf8');
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt; box-model'); expect(html).not.toMatch(/<script/i);
+    expect(html).not.toMatch(/\ssrc=|<link|@import|https?:\/\//i);                        // self-contained: nothing loads from anywhere
+    expect(html).toMatch(/AS PREDICTED|FALSIFIED|OUTSIDE TOLERANCE/);
+    expect(html).toContain('over 8 grid phases');
+    const card = JSON.parse(readFileSync(join(B, 'scores', 'm1', 'card.json'), 'utf8'));
+    expect(card).toMatchObject({ kind: 'geo.bench-card', run: 'm1', set: 'gso', frame: 'metric', metric: true, scored: 2 });
+    expect(html).toContain(card.card_sha256);
+    // the card hash is the hash of its own data, and the summary hash is the summary's bytes: both recomputable by anyone
+    const check = spawnSync('python3', ['-c', `
+import hashlib, json, sys
+d = json.load(open(sys.argv[1])); h = d.pop('card_sha256')
+print(hashlib.sha256(json.dumps(d, sort_keys=True, separators=(',', ':')).encode()).hexdigest() == h,
+      hashlib.sha256(open(sys.argv[2], 'rb').read()).hexdigest() == d['summary_sha256'])`, join(B, 'scores', 'm1', 'card.json'), join(B, 'scores', 'm1', 'summary.json')], { encoding: 'utf8' });
+    expect(check.stdout.trim()).toBe('True True');
+    // run m2 without a prediction: its own folder, an honest NO PREDICTION, and an index of both runs
+    expect(run(['score', '--bench', B, '--run', 'm2', '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--fit', '--voxel', '0.01', '--tau', '0.005', '--samples', '30000']).status).toBe(0);
+    const c2 = run(['card', '--bench', B, '--run', 'm2', '--model', 'fitted boxes']);
+    expect(JSON.parse(c2.stdout.trim())).toMatchObject({ verdict: 'NO PREDICTION', runs_on_bench: 2 });
+    expect(readFileSync(join(B, 'scores', 'm2', 'card.html'), 'utf8')).toContain('SHAPE SCORE');
+    const index = readFileSync(join(B, 'scores', 'index.html'), 'utf8');
+    expect(index).toContain('2 runs'); expect(index).toContain('href="m1/card.html"'); expect(index).toContain('fitted boxes');
+    expect(index.indexOf('fitted boxes')).toBeLessThan(index.indexOf('box-model'));          // sorted by median voxel F1: the fitted run scores higher
+    expect(existsSync(join(B, 'scores', 'summary.json'))).toBe(false);                       // named runs never touch the default folder
+  }, 180000);
+
   it('fetch keeps a dropped download out of the shard directory and verifies size before calling a file present (Cursor: truncated tars were trusted)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'geo-fetch-'));
     const body = Buffer.alloc(300_000, 7);

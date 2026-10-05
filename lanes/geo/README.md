@@ -84,6 +84,22 @@ hashed, with the falsifier spelled out: median F1 more than `--tolerance-f1` bel
 is wrong, not the bench); `score` then grades it into the summary (`as_predicted`, `falsified`, `gap`). That is the Timmy
 formula applied to a benchmark run: the claim exists before the evidence, and the evidence grades the claim.
 
+### Bench Cards
+
+`card` turns a scored run into one self-contained HTML page (`scores/<run>/card.html`) plus the data it shows
+(`card.json`): the model, the sealed prediction and its verdict (AS PREDICTED / FALSIFIED / NOT GRADED / NO PREDICTION),
+median voxel F1 with its 8-phase band, F-score@τ and Chamfer, every object's numbers, the settings, the dataset
+attribution, and three hashes — the card's own data, the summary it was built from, and the source tar. Nothing on the
+page loads from anywhere, every string is escaped, and anyone can recompute the card hash from `card.json`. With two or
+more runs on one bench, `scores/index.html` lists them by median voxel F1 (overlapping bands are a tie). Give each model
+its own `--run NAME` on `predict`, `score` and `card` so results never overwrite each other.
+
+```
+python3 lanes/geo/bench_loader.py predict --bench bench/gso --run trellis2 --model "TRELLIS.2" --expect-f1 0.60 --frame unit
+python3 lanes/geo/bench_loader.py score   --bench bench/gso --run trellis2 --pred-dir out/trellis2 --frame unit --normalize-each --fit
+python3 lanes/geo/bench_loader.py card    --bench bench/gso --run trellis2
+```
+
 `extract` writes `objects/<id>/{truth_metric.ply, truth_unit.glb, view_0..4.jpg, meta.json}` and merges into `manifest.json` — shards accumulate under one `--out` (same set, sample count and seed, else refused), re-extracting a shard replaces its objects — the manifest
 (licence, attribution, tar sha256, per-object extents in metres, mesh hashes, sample count and seed). `score` takes
 `PRED/<id>.(ply|glb|obj|json)`, runs `voxel_score.py` per object and writes `scores/summary.json` with medians and the

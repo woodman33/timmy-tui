@@ -14,6 +14,10 @@ That gives two truth frames per object: metric (from the OBJ) and unit-cube (the
   score    --bench BENCH --pred-dir PRED [--frame metric|unit] [--fit] [--voxel V] [--tau T]
                                                            PRED/<id>.(ply|glb|obj|json) scored against the truth → scores/<id>.json + summary.json;
                                                            with a prediction on file the summary says as_predicted / falsified
+  card     --bench BENCH [--model NAME]                    one self-contained HTML Bench Card (and its hashed card.json) from the summary and
+                                                           the sealed prediction → scores/card.html; with several runs, scores/index.html too
+
+predict, score and card take --run NAME to keep each model's results in scores/<NAME>/ (without it: scores/, as before).
 
 Nothing here fits anything: `score --fit` passes the flag through to voxel_score.py, whose output then says metric:false.
 A generation model's output has an arbitrary scale and pose, so scoring it needs --fit (a shape score); a geometry
@@ -47,6 +51,19 @@ def sha256_file(p: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+RUN_RE = __import__("re").compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def scores_dir(bench: Path, run: str | None) -> Path:
+    """scores/ for the default run, scores/<run>/ for a named one; a run name is a plain slug, never a path."""
+    if run is None:
+        return bench / "scores"
+    if not RUN_RE.match(run) or run in (".", ".."):
+        print(json.dumps({"ok": False, "status": "refused", "note": f"--run must match {RUN_RE.pattern}"}))
+        sys.exit(2)
+    return bench / "scores" / run
 
 
 # ---------------------------------------------------------------- fetch
@@ -194,9 +211,9 @@ def predict(a) -> int:
     """The Timmy formula: say what will happen before it happens. The prediction is written (hashed) before any score
     exists; `score` then grades it. A falsifier is part of the prediction: median voxel F1 more than --tolerance-f1 below
     --expect-f1 means the model profile that produced the expectation is wrong, not the bench."""
-    bench = Path(a.bench); sdir = bench / "scores"; sdir.mkdir(parents=True, exist_ok=True)
+    bench = Path(a.bench); sdir = scores_dir(bench, a.run); sdir.mkdir(parents=True, exist_ok=True)
     manifest = json.loads((bench / "manifest.json").read_text())
-    pred = {"kind": "geo.bench-prediction", "set": manifest["set"], "model": a.model, "frame": a.frame, "objects": manifest["count"],
+    pred = {"kind": "geo.bench-prediction", "set": manifest["set"], "model": a.model, "run": a.run, "frame": a.frame, "objects": manifest["count"],
             "expected": {"median_voxel_f1": a.expect_f1, "median_fscore": a.expect_fscore}, "tolerance_f1": a.tolerance_f1,
             "falsifier": f"median voxel F1 more than {a.tolerance_f1} below {a.expect_f1}", "basis": a.basis, "at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(timespec="seconds"),
             "manifest_sha256": hashlib.sha256((bench / "manifest.json").read_bytes()).hexdigest()}
@@ -232,7 +249,7 @@ def score(a) -> int:
     except ImportError:
         print(json.dumps({"ok": False, "status": "not_configured", "note": "score needs numpy + scipy (+ trimesh for meshes)"})); return 3
     bench = Path(a.bench); manifest = json.loads((bench / "manifest.json").read_text())
-    pred_dir = Path(a.pred_dir); sdir = bench / "scores"; sdir.mkdir(exist_ok=True)
+    pred_dir = Path(a.pred_dir); sdir = scores_dir(bench, a.run); sdir.mkdir(parents=True, exist_ok=True)
     rows = []; missing = []
     for e in manifest["objects"]:
         fr = e["frames"].get(a.frame)
@@ -252,16 +269,145 @@ def score(a) -> int:
             res["note"].append("each shape rescaled to its own unit cube (normalize_each): relative scale discarded, shape score, not metric")
         res["inputs"] = {"truth": fr["file"], "truth_from": how_t, "pred": pred.name, "pred_from": how_p, "frame": a.frame, "normalize_each": a.normalize_each}
         (sdir / f"{e['id']}.json").write_text(json.dumps(res, indent=1) + "\n")
-        rows.append({"id": e["id"], "voxel_f1": res["voxel"]["f1"], "fscore": res["surface"]["fscore"]["f"], "chamfer_mean_dist": res["surface"]["chamfer_mean_dist"], "grid_unstable": res["voxel"]["grid_unstable"]})
+        rows.append({"id": e["id"], "voxel_f1": res["voxel"]["f1"], "voxel_f1_band": res["voxel"].get("f1_band"), "fscore": res["surface"]["fscore"]["f"],
+                     "chamfer_mean_dist": res["surface"]["chamfer_mean_dist"], "grid_unstable": res["voxel"]["grid_unstable"]})
     med = lambda k: round(float(np.median([r[k] for r in rows])), 4) if rows else None      # noqa: E731
     summary = {"kind": "geo.bench-summary", "set": manifest["set"], "frame": a.frame, "unit": "m" if a.frame == "metric" and not a.normalize_each else "unit-cube", "metric": not a.fit and not a.normalize_each,
                "voxel": a.voxel, "tau": a.tau, "tolerance": a.tolerance, "fit": a.fit, "normalize_each": a.normalize_each, "scored": len(rows), "missing": missing,
-               "median": {"voxel_f1": med("voxel_f1"), "fscore": med("fscore"), "chamfer_mean_dist": med("chamfer_mean_dist")}, "rows": rows,
+               "median": {"voxel_f1": med("voxel_f1"), "fscore": med("fscore"), "chamfer_mean_dist": med("chamfer_mean_dist"),
+                          "voxel_f1_band": ([round(float(np.median([r["voxel_f1_band"][0] for r in rows])), 4), round(float(np.median([r["voxel_f1_band"][1] for r in rows])), 4)]
+                                            if rows and all(r.get("voxel_f1_band") for r in rows) else None)}, "rows": rows, "run": a.run,
                "source": manifest["source"], "shards": len(manifest.get("shards", [])) or 1, "note": "metric:true only when nothing was fitted or rescaled; a generation model's output needs --fit or --normalize-each and is a shape score"}
     summary["prediction"] = grade_prediction(sdir, summary)
     (sdir / "summary.json").write_text(json.dumps(summary, indent=1) + "\n")
     print(json.dumps({k: summary[k] for k in ("kind", "set", "frame", "metric", "scored", "median")} | {"missing": len(missing), "prediction": summary["prediction"]}))
     return 0 if rows and not missing else (2 if rows else 1)
+
+
+# ---------------------------------------------------------------- card
+
+def _canon(o) -> str:
+    return json.dumps(o, sort_keys=True, separators=(",", ":"))
+
+
+def card_data(sdir: Path, bench: Path, model: str | None) -> dict:
+    summary = json.loads((sdir / "summary.json").read_text())
+    pp = sdir / "prediction.json"
+    prediction = json.loads(pp.read_text()) if pp.exists() else None
+    graded = summary.get("prediction")
+    verdict = ("NO PREDICTION" if prediction is None else "NOT GRADED" if not (graded and graded.get("graded"))
+               else "FALSIFIED" if graded.get("falsified") else "AS PREDICTED" if graded.get("as_predicted") else "OUTSIDE TOLERANCE")
+    data = {"kind": "geo.bench-card", "model": model or (prediction or {}).get("model") or summary.get("run") or "unnamed", "run": summary.get("run"),
+            "set": summary.get("set"), "frame": summary.get("frame"), "unit": summary.get("unit"), "metric": summary.get("metric"),
+            "median": summary.get("median"), "scored": summary.get("scored"), "missing": summary.get("missing", []), "rows": summary.get("rows", []),
+            "settings": {k: summary.get(k) for k in ("voxel", "tau", "tolerance", "fit", "normalize_each", "shards")},
+            "verdict": verdict, "graded": graded,
+            "prediction": None if prediction is None else {k: prediction.get(k) for k in ("expected", "tolerance_f1", "falsifier", "basis", "at", "prediction_sha256")},
+            "attribution": (summary.get("source") or {}).get("attribution"), "license": (summary.get("source") or {}).get("license"),
+            "source_tar_sha256": (summary.get("source") or {}).get("tar_sha256"),
+            "summary_sha256": hashlib.sha256((sdir / "summary.json").read_bytes()).hexdigest()}
+    data["card_sha256"] = hashlib.sha256(_canon(data).encode()).hexdigest()
+    return data
+
+
+VERDICT_COLOR = {"AS PREDICTED": "#3ddc84", "FALSIFIED": "#ff5a52", "OUTSIDE TOLERANCE": "#ffb020", "NOT GRADED": "#ffb020", "NO PREDICTION": "#ffb020"}
+CARD_CSS = """
+:root{color-scheme:dark}*{box-sizing:border-box}
+body{margin:0;background:#000;color:#fff;font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif;line-height:1.45}
+main{max-width:920px;margin:0 auto;padding:40px 16px 56px}
+.label{font-size:12px;letter-spacing:.12em;text-transform:uppercase;font-weight:600}
+h1{font-size:44px;line-height:1.1;margin:6px 0 4px;font-weight:700}
+.sub{font-size:17px;margin:0 0 28px}
+.verdict{display:inline-block;margin:0 0 28px;padding:8px 14px;border:2px solid var(--v);color:var(--v);font-weight:700;letter-spacing:.1em}
+.nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:0 0 32px}
+.num{border:1px solid #333;padding:18px}
+.num b{display:block;font-size:52px;line-height:1.05;margin:8px 0 6px;font-variant-numeric:tabular-nums}
+.num span{font-size:15px}
+section{margin:0 0 32px}
+table{width:100%;border-collapse:collapse;font-size:15px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #333;vertical-align:top}
+th{font-size:12px;letter-spacing:.12em;text-transform:uppercase}
+.hash{font-family:ui-monospace,Menlo,monospace;font-size:13px;word-break:break-all}
+.flag{color:#ffb020;font-weight:700}
+footer{border-top:1px solid #333;padding-top:16px;font-size:14px}
+a{color:#fff}
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.sym{text-transform:none}
+html,body{overflow-x:hidden}
+@media (max-width:560px){h1{font-size:32px}.num b{font-size:40px}}
+"""
+
+
+def render_card(d: dict) -> str:
+    from html import escape as E
+    f = lambda v, n=3: "&mdash;" if v is None else E(f"{v:.{n}f}") if isinstance(v, (int, float)) else E(str(v))      # noqa: E731
+    med = d.get("median") or {}
+    band = med.get("voxel_f1_band")
+    color = VERDICT_COLOR.get(d["verdict"], "#ffb020")
+    kind = "METRIC" if d.get("metric") else "SHAPE SCORE (fitted or rescaled)"
+    any_flag = any(r.get("grid_unstable") for r in d.get("rows", []))
+    rows = "".join(
+        f"<tr><td>{E(str(r.get('id')))}</td><td>{f(r.get('voxel_f1'))}"
+        + (f" <small>[{f(r['voxel_f1_band'][0])}, {f(r['voxel_f1_band'][1])}]</small>" if r.get("voxel_f1_band") else "")
+        + f"</td><td>{f(r.get('fscore'))}</td><td>{f(r.get('chamfer_mean_dist'), 4)}</td>"
+        + (f"<td>{'<span class=flag>grid-sensitive</span>' if r.get('grid_unstable') else ''}</td>" if any_flag else "") + "</tr>"
+        for r in d.get("rows", []))
+    missing = "".join(f"<li>{E(str(m.get('id')))} &mdash; {E(str(m.get('why')))}</li>" for m in d.get("missing", []))
+    g = d.get("graded") or {}; p = d.get("prediction") or {}
+    pred_rows = ("<p>No prediction was sealed before this run, so nothing here was predicted.</p>" if not d.get("prediction") else
+        "<div class=tw><table><tr><th>expected median voxel F1</th><th>observed</th><th>gap</th><th>allowed</th></tr>"
+        f"<tr><td>{f((p.get('expected') or {}).get('median_voxel_f1'))}</td><td>{f(g.get('observed_median_voxel_f1'))}</td><td>{f(g.get('gap'))}</td><td>&plusmn;{f(p.get('tolerance_f1'), 2)}</td></tr></table></div>"
+        f"<p>Falsifier, written before the run: {E(str(p.get('falsifier') or ''))}. Basis: {E(str(p.get('basis') or 'not given'))}. Sealed {E(str(p.get('at') or ''))}.</p>"
+        f"<p class=hash>prediction sha256 {E(str(p.get('prediction_sha256') or ''))}</p>")
+    s = d.get("settings") or {}
+    unit = "m" if d.get("unit") == "m" else "unit-cube"
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bench Card · {E(str(d['model']))}</title><style>{CARD_CSS}</style></head><body><main>
+<div class="label">Bench Card · {E(str(d.get('set') or '').upper())} · {E(str(d.get('frame') or ''))} frame</div>
+<h1>{E(str(d['model']))}</h1>
+<p class="sub">{E(str(d.get('scored')))} objects scored, {len(d.get('missing', []))} missing · {E(kind)}</p>
+<div class="verdict" style="--v:{color}">{E(d['verdict'])}</div>
+<div class="nums">
+<div class="num"><div class="label">median voxel F1</div><b>{f(med.get('voxel_f1'))}</b><span>{'band ' + f(band[0]) + ' – ' + f(band[1]) + ' over 8 grid phases' if band else 'no band recorded'}</span></div>
+<div class="num"><div class="label">median F-score @ <span class="sym">τ</span> {f(s.get('tau'), 3)} {unit}</div><b>{f(med.get('fscore'))}</b><span>no grid edge; the number papers quote</span></div>
+<div class="num"><div class="label">median Chamfer ({unit})</div><b>{f(med.get('chamfer_mean_dist'), 4)}</b><span>mean nearest-neighbour distance, both ways</span></div>
+</div>
+<section><div class="label">The prediction, sealed before the run</div>{pred_rows}</section>
+<section><div class="label">Per object</div><div class="tw"><table><tr><th>object</th><th>voxel F1 [band]</th><th>F-score</th><th>Chamfer</th>{'<th></th>' if any_flag else ''}</tr>{rows}</table></div>
+{('<p class="label" style="margin-top:16px">Missing predictions</p><ul>' + missing + '</ul>') if missing else ''}</section>
+<section><div class="label">Settings</div><p>voxel {f(s.get('voxel'), 3)} {unit} · τ {f(s.get('tau'), 3)} · sub-voxel tolerance {f(s.get('tolerance'), 2)} · fit {E(str(bool(s.get('fit'))).lower())} · rescaled each {E(str(bool(s.get('normalize_each'))).lower())} · shards {E(str(s.get('shards')))}</p></section>
+<footer><p>{E(str(d.get('attribution') or 'source attribution not recorded'))}{'' if (d.get('license') or '').lower() in (d.get('attribution') or '').lower() else ' (' + E(str(d.get('license') or 'licence not recorded')) + ')'}.</p>
+<p class="hash">card sha256 {E(d['card_sha256'])}<br>summary sha256 {E(d['summary_sha256'])}<br>source tar sha256 {E(str(d.get('source_tar_sha256') or ''))}</p>
+<p>Generated by <span class="hash">timmy geo bench card</span>. Every number on this card is in the summary it hashes; change one and the hash no longer matches.</p></footer>
+</main></body></html>
+"""
+
+
+def card(a) -> int:
+    bench = Path(a.bench); sdir = scores_dir(bench, a.run)
+    if not (sdir / "summary.json").exists():
+        print(json.dumps({"ok": False, "status": "refused", "note": f"no summary.json in {sdir.name}/; run score first"})); return 2
+    d = card_data(sdir, bench, a.model)
+    (sdir / "card.json").write_text(json.dumps(d, indent=1) + "\n")
+    (sdir / "card.html").write_text(render_card(d))
+    runs = sorted(p.parent for p in (bench / "scores").glob("*/summary.json"))
+    if len(runs) > 1:                                                          # several models on one bench: an index of their cards
+        from html import escape as E
+        items = []
+        for rd in runs:
+            sm = json.loads((rd / "summary.json").read_text()); med = sm.get("median") or {}
+            cj = json.loads((rd / "card.json").read_text()) if (rd / "card.json").exists() else None
+            name = (cj or {}).get("model") or rd.name
+            items.append((med.get("voxel_f1") if med.get("voxel_f1") is not None else -1, f"<tr><td>{'<a href=\"' + E(rd.name) + '/card.html\">' + E(name) + '</a>' if cj else E(name)}</td>"
+                          f"<td>{'' if med.get('voxel_f1') is None else f'{med["voxel_f1"]:.3f}'}</td><td>{'' if not med.get('voxel_f1_band') else f'{med["voxel_f1_band"][0]:.3f} – {med["voxel_f1_band"][1]:.3f}'}</td>"
+                          f"<td>{'' if med.get('fscore') is None else f'{med["fscore"]:.3f}'}</td><td>{E((cj or {}).get('verdict', 'no card yet'))}</td><td>{'metric' if sm.get('metric') else 'shape'}</td></tr>"))
+        body = "".join(r for _, r in sorted(items, key=lambda t: -t[0]))
+        (bench / "scores" / "index.html").write_text(f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bench Cards</title><style>{CARD_CSS}</style></head>
+<body><main><div class="label">Bench Cards</div><h1>{len(runs)} runs</h1><p class="sub">Sorted by median voxel F1. Overlapping bands are a tie.</p>
+<div class="tw"><table><tr><th>model</th><th>voxel F1</th><th>band</th><th>F-score</th><th>prediction</th><th>kind</th></tr>{body}</table></div></main></body></html>
+""")
+    print(json.dumps({"ok": True, "status": "carded", "model": d["model"], "verdict": d["verdict"], "card": str(sdir / "card.html"), "card_sha256": d["card_sha256"], "runs_on_bench": len(runs)}))
+    return 0
 
 
 def main(argv=None):
@@ -273,10 +419,11 @@ def main(argv=None):
     e.add_argument("--samples", type=int, default=200000); e.add_argument("--seed", type=int, default=7); e.set_defaults(fn=extract)
     pr = sub.add_parser("predict"); pr.add_argument("--bench", required=True); pr.add_argument("--model", required=True); pr.add_argument("--expect-f1", type=float, required=True)
     pr.add_argument("--expect-fscore", type=float); pr.add_argument("--tolerance-f1", type=float, default=0.08); pr.add_argument("--frame", default="metric", choices=["metric", "unit"])
-    pr.add_argument("--basis", default="", help="where the expectation comes from (receipt hash, profile, prior run)"); pr.set_defaults(fn=predict)
+    pr.add_argument("--basis", default="", help="where the expectation comes from (receipt hash, profile, prior run)"); pr.add_argument("--run"); pr.set_defaults(fn=predict)
     s = sub.add_parser("score"); s.add_argument("--bench", required=True); s.add_argument("--pred-dir", required=True); s.add_argument("--frame", default="metric", choices=["metric", "unit"])
     s.add_argument("--voxel", type=float, default=0.01); s.add_argument("--tau", type=float, default=0.005); s.add_argument("--tolerance", type=float, default=0.05); s.add_argument("--samples", type=int, default=200000)
-    s.add_argument("--seed", type=int, default=7); s.add_argument("--fit", action="store_true"); s.add_argument("--normalize-each", action="store_true"); s.set_defaults(fn=score)
+    s.add_argument("--seed", type=int, default=7); s.add_argument("--fit", action="store_true"); s.add_argument("--normalize-each", action="store_true"); s.add_argument("--run"); s.set_defaults(fn=score)
+    c = sub.add_parser("card"); c.add_argument("--bench", required=True); c.add_argument("--run"); c.add_argument("--model"); c.set_defaults(fn=card)
     a = ap.parse_args(argv)
     return a.fn(a)
 

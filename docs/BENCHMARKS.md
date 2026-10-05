@@ -50,7 +50,9 @@ for the upright fit — which marks the result `metric:false`), plus the two num
 quote, Chamfer distance and F-score@τ, with `--normalize` for the unit-cube frame. The Toys4K,
 GSO and HY3D-Bench rows above are filled by pointing it at a loader's truth mesh and the model's
 output; a number is comparable to a paper's only when τ, point count and alignment match, and
-the receipt records all three so the comparison can be checked rather than believed.
+the receipt records all three so the comparison can be checked rather than believed. Each scored run renders as a **Bench Card**
+(`bench_loader.py card`): one self-contained page with the sealed prediction and its verdict, the voxel F1 band, F-score@τ,
+Chamfer and the hashes that tie it to its summary and source data — the public, shareable form of every number in this file.
 
 ## 3. Multi-view and metric geometry (the part that can be *measured*)
 
