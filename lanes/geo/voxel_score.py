@@ -53,7 +53,9 @@ def load_points(path: Path, samples: int, seed: int, splat_min_opacity: float = 
     """Points from a PLY / JSON / mesh file; returns (N,3) float64 and how they were obtained. A PLY whose vertices carry
     `opacity` and `scale_0` is a 3D Gaussian splat (the 3DGS / SuperSplat layout, opacity stored as a logit): its points
     are the centres of the Gaussians whose opacity is at least splat_min_opacity — near-transparent floaters are not
-    surface — and the how-string says so, with the counts. A splat has no surface to sample; centres are its geometry."""
+    surface — and the how-string says so, with the counts. A splat has no surface to sample; centres are its geometry.
+    With every Gaussian under the bar the cloud is empty ("0 of N"): score() grades that as an empty prediction (F1 0, no
+    Chamfer), never a traceback."""
     suf = path.suffix.lower()
     if suf == ".json":
         j = json.loads(path.read_text())
@@ -137,6 +139,11 @@ def voxel_occupancy(truth: np.ndarray, pred: np.ndarray, voxel: float, tol: floa
 
 
 def surface_metrics(truth: np.ndarray, pred: np.ndarray, tau: float) -> dict:
+    if not len(pred) or not len(truth):
+        # an empty cloud has no nearest neighbour: no point lies within tau of it (F-score 0) and Chamfer has no finite
+        # value — null, never NaN or inf, which would not survive as JSON
+        return {"chamfer_mean_dist": None, "chamfer_l2_sq": None, "pred_to_truth_p95": None, "truth_to_pred_p95": None,
+                "fscore": {"tau": tau, "precision": 0.0, "recall": 0.0, "f": 0.0}}
     d_pt = cKDTree(truth).query(pred, k=1)[0]      # each predicted point → nearest truth point
     d_tp = cKDTree(pred).query(truth, k=1)[0]      # each truth point → nearest predicted point
     prec = float(np.mean(d_pt <= tau)); rec = float(np.mean(d_tp <= tau))
@@ -268,6 +275,11 @@ def fit_pred_to_truth(truth: np.ndarray, pred: np.ndarray, iters: int = 10, thre
                  "scale_applied": round(total_s, 5), "centroid_shift": round(float(np.linalg.norm(cur.mean(0) - pred.mean(0))), 5)}
 
 
+def fittable(pts: np.ndarray) -> bool:
+    """A similarity fit needs at least 3 points with some extent; fewer (or all coincident) and there is nothing to fit."""
+    return len(pts) >= 3 and float(np.ptp(pts, axis=0).max()) > 0
+
+
 def score(truth: np.ndarray, pred: np.ndarray, voxel: float, tau: float, fit: bool = False, normalize: bool = False, tol: float = 0.05, phases: int = 8,
           fit_rotations: str = "identity", return_points: bool = False):
     """Scores pred against truth. With return_points=True returns (result, truth, pred) as compared — after normalize and
@@ -280,13 +292,21 @@ def score(truth: np.ndarray, pred: np.ndarray, voxel: float, tau: float, fit: bo
         truth = (truth - c) / side; pred = (pred - c) / side
         unit = "unit-cube"; note.append("both shapes scaled by the truth's longest bounding-box side; voxel and tau are unit-cube fractions")
     fitinfo = {"applied": False}
-    if fit:
+    empty = not len(pred)
+    if empty:
+        note.append("the prediction has no points (an empty file, or a splat with no Gaussian at or above the opacity bar): it scores 0 and has no Chamfer distance")
+    if fit and not fittable(pred):
+        # a similarity needs extent: Umeyama divides by the prediction's spread, so fitting an empty or one-point cloud is
+        # NaN, not a score. The run asked for a fit, so the record still says metric:false like the rest of the run.
+        fitinfo = {"applied": False, "skipped": "empty prediction" if empty else "fewer than 3 points, or no extent: nothing to fit"}
+        note.append(f"fit skipped ({fitinfo['skipped']}); the run is still a shape score, not a metric one")
+    elif fit:
         pred, fitinfo = fit_pred_to_truth(truth, pred, rotations=fit_rotations)
         note.append("prediction fitted to truth (similarity); the result is a shape score, not a metric one")
         if fit_rotations == "global":
             note.append(f"global rotation search over {fitinfo.get('start_poses')} start poses before the fit (a generator's up axis and yaw are its own)")
     res = {"kind": "geo.voxel-score", "metric": not fit, "unit": unit, "fit": fitinfo, "voxel": voxel_occupancy(truth, pred, voxel, tol, phases),
-           "surface": surface_metrics(truth, pred, tau), "points": {"truth": int(len(truth)), "pred": int(len(pred))}, "note": note}
+           "surface": surface_metrics(truth, pred, tau), "points": {"truth": int(len(truth)), "pred": int(len(pred))}, "empty_prediction": empty, "note": note}
     return (res, truth, pred) if return_points else res
 
 
@@ -352,6 +372,10 @@ def main(argv=None):
         ap.error("--truth and --pred, or --selftest")
     fit = a.fit or a.fit_global
     truth, how_t = load_points(a.truth, a.samples, a.seed, a.splat_min_opacity); pred, how_p = load_points(a.pred, a.samples, a.seed, a.splat_min_opacity)
+    if not len(truth):
+        # an empty prediction is a result (it scores 0); an empty truth leaves nothing to score against
+        print(json.dumps({"ok": False, "status": "refused", "note": f"the truth has no points ({how_t}); nothing to score against", "truth": a.truth.name}))
+        return 2
     out = {**score(truth, pred, a.voxel, a.tau, fit=fit, normalize=a.normalize, tol=a.tolerance, phases=a.phases, fit_rotations="global" if a.fit_global else "identity"),
            "inputs": {"truth": a.truth.name, "truth_from": how_t, "pred": a.pred.name, "pred_from": how_p}}
     if a.out:

@@ -268,6 +268,71 @@ head, body = b.split(b'DATA binary\\n'); print(n, b'POINTS 4' in head, np.frombu
     expect(spawnSync('python3', [board, '--bench', join(dir, 'gen')], { encoding: 'utf8' }).status).toBe(2);       // nothing scored there: refused
   }, 240000);
 
+  it.skipIf(!deps)('Bugbot: an empty splat is scored 0 and listed, never a traceback; the scoreboard finds the default run in scores/compared', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'geo-empty-'));
+    expect(spawnSync('python3', ['-c', FAKE_SHARD, dir], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
+    const B = join(dir, 'bench');
+    expect(run(['extract', '--tar', join(dir, 'fake-00000.tar'), '--out', B, '--samples', '20000']).status).toBe(0);
+    // box_a comes back as the box itself (points); box_b as a splat of the box whose every Gaussian is 95 % opaque — under a bar of 1.0
+    const MK = `
+import sys, json, numpy as np, trimesh
+from pathlib import Path
+B = Path(sys.argv[1]); P = Path(sys.argv[2]); P.mkdir(exist_ok=True)
+def ply(name, pts, extra=()):
+    cols = [pts[:, 0], pts[:, 1], pts[:, 2]] + [c for _, c in extra]; names = ['x', 'y', 'z'] + [n for n, _ in extra]
+    head = 'ply\\nformat binary_little_endian 1.0\\nelement vertex %d\\n' % len(pts) + ''.join('property float %s\\n' % n for n in names) + 'end_header\\n'
+    (P / name).write_bytes(head.encode() + np.stack(cols, 1).astype(np.float32).tobytes())
+for o in json.load(open(B / 'manifest.json'))['objects']:
+    e = o['frames']['metric']['extents_m']; m = trimesh.creation.box(extents=e); m.apply_translation([0, 0, e[2] / 2])
+    pts = np.asarray(trimesh.sample.sample_surface(m, 20000, seed=5)[0]); z = np.zeros(len(pts))
+    if o['id'] == 'box_a':
+        ply('box_a.ply', pts)
+    else:
+        ply('box_b.ply', pts, [('opacity', z + 3.0), ('scale_0', z), ('scale_1', z), ('scale_2', z)])
+print('ok')
+`;
+    expect(spawnSync('python3', ['-c', MK, B, join(dir, 'gen')], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
+    const common = ['--bench', B, '--pred-dir', join(dir, 'gen'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.01', '--samples', '20000', '--splat-min-opacity', '1'];
+    // the default run (no --run), fitted globally like a generator, keeping its compared points for the scoreboard
+    const s0 = run(['score', ...common, '--fit-global', '--save-compared', '300']);
+    expect(s0.status, s0.stderr).toBe(0); expect(s0.stderr).not.toMatch(/Traceback/);
+    expect(JSON.parse(s0.stdout.trim())).toMatchObject({ scored: 2, missing: 0, empty_predictions: 1 });
+    const sm = JSON.parse(readFileSync(join(B, 'scores', 'summary.json'), 'utf8'));
+    expect(sm.empty_predictions).toEqual(['box_b']);
+    const a = sm.rows.find((r: any) => r.id === 'box_a'), b = sm.rows.find((r: any) => r.id === 'box_b');
+    expect(b).toMatchObject({ voxel_f1: 0, fscore: 0, chamfer_mean_dist: null, empty_prediction: true, pred_from: 'splat-centers opacity>=1 (0 of 20000)' });
+    expect(a.empty_prediction).toBe(false); expect(a.voxel_f1).toBeGreaterThan(0.85);
+    // the empty one ranks as the worst, never as dropped: one of two empty puts the median Chamfer past every finite value → null
+    expect(sm.median.chamfer_mean_dist).toBeNull(); expect(sm.median.voxel_f1).toBeCloseTo(a.voxel_f1 / 2, 3);
+    expect(JSON.parse(readFileSync(join(B, 'scores', 'box_b.json'), 'utf8')).fit).toMatchObject({ applied: false, skipped: 'empty prediction' });
+    // rescaling each shape skips the empty one instead of taking the extent of nothing
+    const ne = run(['score', ...common, '--run', 'ne', '--normalize-each', '--fit', '--save-compared', '200']);
+    expect(ne.status, ne.stderr).toBe(0); expect(JSON.parse(ne.stdout.trim()).empty_predictions).toBe(1);
+    // the card says so, with a dash where there is no Chamfer
+    expect(run(['card', '--bench', B, '--model', 'empty splat']).status).toBe(0);
+    const html = readFileSync(join(B, 'scores', 'card.html'), 'utf8');
+    expect(html).toContain('2 objects scored (1 with an empty prediction, scored 0)'); expect(html).toContain('box_b <span class=flag>empty prediction</span>');
+    expect(JSON.parse(readFileSync(join(B, 'scores', 'card.json'), 'utf8')).empty_predictions).toEqual(['box_b']);
+    // the scoreboard: the default run's clouds are in scores/compared/ and count like a named run's; '.' selects it by hand
+    const C = `
+import sys, json; sys.path.insert(0, sys.argv[1]); from pathlib import Path
+from fo_scoreboard import collect
+for runs in (None, ['.'], ['ne']):
+    print(json.dumps(sorted([e['run'], e['stem'], e['id'], e['empty_prediction']] for e in collect(Path(sys.argv[2]), runs))))`;
+    const col = spawnSync('python3', ['-c', C, join(ROOT, 'lanes', 'geo'), B], { encoding: 'utf8' });
+    expect(col.status, col.stderr).toBe(0);
+    const d = [['default run', '_default', 'box_a', false], ['default run', '_default', 'box_b', true]];
+    const n = [['ne', 'ne', 'box_a', false], ['ne', 'ne', 'box_b', true]];
+    expect(col.stdout.trim().split('\n').map((l) => JSON.parse(l))).toEqual([[...d, ...n], d, n]);
+    const board = join(ROOT, 'lanes', 'geo', 'fo_scoreboard.py');
+    const hasFo = spawnSync('python3', ['-c', 'import fiftyone'], { encoding: 'utf8' }).status === 0;
+    const fb = spawnSync('python3', [board, '--bench', B, '--name', 'timmy-test-' + Date.now()], { encoding: 'utf8', timeout: 120000 });
+    if (!hasFo) { expect(fb.status).toBe(3); expect(JSON.parse(fb.stdout.trim())).toMatchObject({ status: 'not_configured', entries: 4 }); }
+    else { expect(fb.status, fb.stderr).toBe(0); expect(JSON.parse(fb.stdout.trim())).toMatchObject({ status: 'built', samples: 4, runs: ['default run', 'ne'] }); }
+    const bad = spawnSync('python3', [board, '--bench', B, '--runs', '../escape'], { encoding: 'utf8' });   // a run is a name, never a path
+    expect(bad.status).toBe(2); expect(JSON.parse(bad.stdout.trim()).status).toBe('refused');
+  }, 240000);
+
   it('fetch keeps a dropped download out of the shard directory and verifies size before calling a file present (Cursor: truncated tars were trusted)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'geo-fetch-'));
     const body = Buffer.alloc(300_000, 7);

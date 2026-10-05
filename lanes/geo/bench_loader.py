@@ -64,11 +64,16 @@ RUN_RE = __import__("re").compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 RUN_RESERVED_SUFFIXES = (".json", ".html")
 
 
+def run_name_ok(run: str) -> bool:
+    """A run name is a plain slug, never a path, and never ends like a file the default run keeps in scores/."""
+    return bool(RUN_RE.match(run)) and run not in (".", "..") and not run.lower().endswith(RUN_RESERVED_SUFFIXES)
+
+
 def scores_dir(bench: Path, run: str | None) -> Path:
     """scores/ for the default run, scores/<run>/ for a named one; a run name is a plain slug, never a path."""
     if run is None:
         return bench / "scores"
-    if not RUN_RE.match(run) or run in (".", "..") or run.lower().endswith(RUN_RESERVED_SUFFIXES):
+    if not run_name_ok(run):
         print(json.dumps({"ok": False, "status": "refused", "note": f"--run must match {RUN_RE.pattern} and not end in .json or .html"}))
         sys.exit(2)
     return bench / "scores" / run
@@ -268,10 +273,18 @@ def score(a) -> int:
         if pred is None:
             missing.append({"id": e["id"], "why": "no prediction"}); continue
         truth_pts, how_t = load_points(bench / "objects" / e["id"] / fr["file"], a.samples, a.seed)
+        if not len(truth_pts):                                                 # nothing to score against: reported, never a traceback
+            missing.append({"id": e["id"], "why": f"truth has no points ({how_t})"}); continue
+        # an empty prediction (a splat with no Gaussian at or above --splat-min-opacity, an empty file) is a result, not a
+        # gap: voxel_score grades it F1 0 with no Chamfer, the row says empty_prediction, the summary lists it
         pred_pts, how_p = load_points(pred, a.samples, a.seed, a.splat_min_opacity)
         if a.normalize_each:                                                   # a generator's output has its own scale: unit-cube both before comparing
             for arr in (truth_pts, pred_pts):
-                lo, hi = arr.min(0), arr.max(0); arr -= (lo + hi) / 2; arr /= float((hi - lo).max())
+                if not len(arr):                                               # an empty prediction has nothing to rescale
+                    continue
+                lo, hi = arr.min(0), arr.max(0); side = float((hi - lo).max()); arr -= (lo + hi) / 2
+                if side > 0:                                                   # a single point has no extent to divide by
+                    arr /= side
         res, t_cmp, p_cmp = vscore(truth_pts, pred_pts, a.voxel, a.tau, fit=fit, tol=a.tolerance, fit_rotations="global" if a.fit_global else "identity", return_points=True)
         if a.save_compared:                                                    # what was actually compared, for a viewer (FiftyOne, Rerun, Viser)
             cdir = sdir / "compared"; cdir.mkdir(exist_ok=True)
@@ -287,19 +300,26 @@ def score(a) -> int:
         (sdir / f"{e['id']}.json").write_text(json.dumps(res, indent=1) + "\n")
         rows.append({"id": e["id"], "voxel_f1": res["voxel"]["f1"], "voxel_f1_band": res["voxel"].get("f1_band"), "fscore": res["surface"]["fscore"]["f"],
                      "chamfer_mean_dist": res["surface"]["chamfer_mean_dist"], "grid_unstable": res["voxel"]["grid_unstable"], "pred_from": how_p,
-                     "rotation_ambiguous": res["fit"].get("rotation_ambiguous")})
-    med = lambda k: round(float(np.median([r[k] for r in rows])), 4) if rows else None      # noqa: E731
+                     "rotation_ambiguous": res["fit"].get("rotation_ambiguous"), "empty_prediction": res["empty_prediction"]})
+    def med(k):
+        # null (an empty prediction's Chamfer) ranks as the worst value, never as a dropped row: dropping it would flatter
+        # the median. A median that lands on one is not finite, and is null too.
+        if not rows:
+            return None
+        m = float(np.median([float("inf") if r[k] is None else r[k] for r in rows]))
+        return round(m, 4) if np.isfinite(m) else None
+    empty = [r["id"] for r in rows if r["empty_prediction"]]
     summary = {"kind": "geo.bench-summary", "set": manifest["set"], "frame": a.frame, "unit": "m" if a.frame == "metric" and not a.normalize_each else "unit-cube", "metric": not fit and not a.normalize_each,
                "voxel": a.voxel, "tau": a.tau, "tolerance": a.tolerance, "fit": fit, "fit_rotations": ("global" if a.fit_global else "identity") if fit else None,
                "pred_kinds": sorted({r["pred_from"].split(" ")[0] for r in rows}), "splat_min_opacity": a.splat_min_opacity if any(r["pred_from"].startswith("splat") for r in rows) else None,
-               "normalize_each": a.normalize_each, "scored": len(rows), "missing": missing,
+               "normalize_each": a.normalize_each, "scored": len(rows), "missing": missing, "empty_predictions": empty,
                "median": {"voxel_f1": med("voxel_f1"), "fscore": med("fscore"), "chamfer_mean_dist": med("chamfer_mean_dist"),
                           "voxel_f1_band": ([round(float(np.median([r["voxel_f1_band"][0] for r in rows])), 4), round(float(np.median([r["voxel_f1_band"][1] for r in rows])), 4)]
                                             if rows and all(r.get("voxel_f1_band") for r in rows) else None)}, "rows": rows, "run": a.run,
                "source": manifest["source"], "shards": len(manifest.get("shards", [])) or 1, "note": "metric:true only when nothing was fitted or rescaled; a generation model's output needs --fit or --normalize-each and is a shape score"}
     summary["prediction"] = grade_prediction(sdir, summary)
     (sdir / "summary.json").write_text(json.dumps(summary, indent=1) + "\n")
-    print(json.dumps({k: summary[k] for k in ("kind", "set", "frame", "metric", "scored", "median")} | {"missing": len(missing), "prediction": summary["prediction"]}))
+    print(json.dumps({k: summary[k] for k in ("kind", "set", "frame", "metric", "scored", "median")} | {"missing": len(missing), "empty_predictions": len(empty), "prediction": summary["prediction"]}))
     return 0 if rows and not missing else (2 if rows else 1)
 
 
@@ -319,6 +339,7 @@ def card_data(sdir: Path, bench: Path, model: str | None) -> dict:
     data = {"kind": "geo.bench-card", "model": model or (prediction or {}).get("model") or summary.get("run") or "unnamed", "run": summary.get("run"),
             "set": summary.get("set"), "frame": summary.get("frame"), "unit": summary.get("unit"), "metric": summary.get("metric"),
             "median": summary.get("median"), "scored": summary.get("scored"), "missing": summary.get("missing", []), "rows": summary.get("rows", []),
+            "empty_predictions": summary.get("empty_predictions", []),
             "settings": {k: summary.get(k) for k in ("voxel", "tau", "tolerance", "fit", "fit_rotations", "normalize_each", "shards", "pred_kinds", "splat_min_opacity")},
             "verdict": verdict, "graded": graded,
             # OUTSIDE TOLERANCE says the prediction missed; which way it missed is the other half of the news
@@ -374,7 +395,7 @@ def render_card(d: dict) -> str:
     if st.get("splat_min_opacity") is not None:
         read_txt += " (Gaussians at least %g opaque)" % st["splat_min_opacity"]
     rows = "".join(
-        f"<tr><td>{E(str(r.get('id')))}</td><td>{f(r.get('voxel_f1'))}"
+        f"<tr><td>{E(str(r.get('id')))}{' <span class=flag>empty prediction</span>' if r.get('empty_prediction') else ''}</td><td>{f(r.get('voxel_f1'))}"
         + (f" <small>[{f(r['voxel_f1_band'][0])}, {f(r['voxel_f1_band'][1])}]</small>" if r.get("voxel_f1_band") else "")
         + f"</td><td>{f(r.get('fscore'))}</td><td>{f(r.get('chamfer_mean_dist'), 4)}</td>"
         + (f"<td>{'<span class=flag>grid-sensitive</span>' if r.get('grid_unstable') else ''}</td>" if any_flag else "") + "</tr>"
@@ -388,11 +409,13 @@ def render_card(d: dict) -> str:
         f"<p class=hash>prediction sha256 {E(str(p.get('prediction_sha256') or ''))}</p>")
     s = d.get("settings") or {}
     unit = "m" if d.get("unit") == "m" else "unit-cube"
+    n_empty = len(d.get("empty_predictions") or [])
+    empty_txt = "" if not n_empty else " (%d with an empty prediction, scored 0)" % n_empty
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bench Card · {E(str(d['model']))}</title><style>{CARD_CSS}</style></head><body><main>
 <div class="label">Bench Card · {E(str(d.get('set') or '').upper())} · {E(str(d.get('frame') or ''))} frame</div>
 <h1>{E(str(d['model']))}</h1>
-<p class="sub">{E(str(d.get('scored')))} objects scored, {len(d.get('missing', []))} missing · {E(kind)}</p>
+<p class="sub">{E(str(d.get('scored')))} objects scored{empty_txt}, {len(d.get('missing', []))} missing · {E(kind)}</p>
 <div class="verdict" style="--v:{color}">{E(d['verdict'])}{' · ' + E(d['verdict_detail']) if d.get('verdict_detail') else ''}</div>
 <div class="nums">
 <div class="num"><div class="label">median voxel F1</div><b>{f(med.get('voxel_f1'))}</b><span>{'band ' + f(band[0]) + ' – ' + f(band[1]) + ' over 8 grid phases' if band else 'no band recorded'}</span></div>

@@ -190,4 +190,49 @@ print('ok')
     expect(all.inputs.pred_from).toBe('splat-centers opacity>=0.001 (15000 of 15000)');
     expect(all.voxel.precision).toBeLessThan(j.voxel.precision - 0.1);
   }, 120000);
+
+  // Bugbot (PR #86): with every Gaussian under --splat-min-opacity the prediction is empty, and the scorer died in cKDTree
+  // with a traceback. An empty prediction is a result — F1 0, F-score 0, no Chamfer (null, never NaN) — and a fit has
+  // nothing to work on, so it is skipped and said so; an empty TRUTH leaves nothing to score against and is refused.
+  const EMPTY = `
+import sys, json, numpy as np
+from pathlib import Path
+S = Path(sys.argv[1]); rng = np.random.default_rng(4)
+u = rng.uniform(0, 2, (5000, 2)); pts = np.c_[u, np.zeros(len(u))]; z = np.zeros(len(pts))
+cols = [pts[:, 0], pts[:, 1], pts[:, 2], z + 3.0, z, z, z]; names = ['x', 'y', 'z', 'opacity', 'scale_0', 'scale_1', 'scale_2']
+head = 'ply\\nformat binary_little_endian 1.0\\nelement vertex %d\\n' % len(pts) + ''.join('property float %s\\n' % n for n in names) + 'end_header\\n'
+(S / 'splat.ply').write_bytes(head.encode() + np.stack(cols, 1).astype(np.float32).tobytes())
+(S / 'truth.json').write_text(json.dumps({'points': pts.tolist()}))
+(S / 'one.json').write_text(json.dumps({'points': [[0.5, 0.5, 0.0]]}))
+print('ok')
+`;
+
+  it.skipIf(!deps)('Bugbot: a splat with no Gaussian over the bar is an empty prediction — F1 0, Chamfer null, fit skipped — never a traceback', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'geo-empty-'));
+    const mk = py(EMPTY, dir);
+    expect(mk.stdout.trim(), mk.stderr).toBe('ok');
+    const args = ['--truth', join(dir, 'truth.json'), '--pred', join(dir, 'splat.ply'), '--voxel', '0.1', '--tau', '0.05', '--splat-min-opacity', '1'];
+    const r = run(args);                                                   // a logit of 3 is 95 % opaque: under a bar of 1.0
+    expect(r.status, r.stderr).toBe(0); expect(r.stderr).not.toMatch(/Traceback/);
+    const j = JSON.parse(r.stdout.trim());
+    expect(j).toMatchObject({ empty_prediction: true, points: { truth: 5000, pred: 0 }, inputs: { pred_from: 'splat-centers opacity>=1 (0 of 5000)' } });
+    expect(j.voxel.f1).toBe(0); expect(j.voxel.recall).toBe(0); expect(j.surface.fscore.f).toBe(0);
+    expect(j.surface).toMatchObject({ chamfer_mean_dist: null, chamfer_l2_sq: null, pred_to_truth_p95: null, truth_to_pred_p95: null });
+    expect(j.note.join(' ')).toMatch(/no points/);
+    for (const extra of [['--fit-global'], ['--fit', '--normalize']]) {   // a fit asked for: skipped, still metric:false (exit 2), JSON all the same
+      const f = run([...args, ...extra]);
+      expect(f.status, `${extra} ${f.stderr}`).toBe(2);
+      const k = JSON.parse(f.stdout.trim());
+      expect(k.metric).toBe(false); expect(k.fit).toMatchObject({ applied: false, skipped: 'empty prediction' });
+    }
+    // one point has no extent: the similarity fit would divide by zero (NaN, which is not JSON); it is skipped too
+    const one = run(['--truth', join(dir, 'truth.json'), '--pred', join(dir, 'one.json'), '--voxel', '0.1', '--tau', '0.05', '--fit-global']);
+    expect(one.status, one.stderr).toBe(2); expect(one.stdout).not.toMatch(/NaN|Infinity/);
+    const o = JSON.parse(one.stdout.trim());
+    expect(o.empty_prediction).toBe(false); expect(o.fit.skipped).toMatch(/fewer than 3 points/); expect(o.surface.chamfer_mean_dist).toBeGreaterThan(0);
+    // the other way round there is nothing to score against: refused (exit 2) with a status, not a traceback
+    const t = run(['--truth', join(dir, 'splat.ply'), '--pred', join(dir, 'truth.json'), '--splat-min-opacity', '1']);
+    expect(t.status).toBe(2); expect(t.stderr).not.toMatch(/Traceback/);
+    expect(JSON.parse(t.stdout.trim())).toMatchObject({ ok: false, status: 'refused' });
+  }, 120000);
 });

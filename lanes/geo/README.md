@@ -117,14 +117,20 @@ A **3D Gaussian splat** (a `.ply` whose vertices carry `opacity` and `scale_*`, 
 as a logit) has no surface to sample: it is read as the centres of the Gaussians at least `--splat-min-opacity` opaque
 (default 0.1), so near-transparent floaters do not count as surface. Every record says how its prediction was read
 (`splat-centers opacity>=0.1 (kept of total)`, `mesh-surface-N`, `ply-vertices`), the summary lists the kinds, and the
-Bench Card prints them next to the fit mode.
+Bench Card prints them next to the fit mode. A prediction with no points left — every Gaussian under the bar, or an empty
+file — is a result, not a gap: it scores voxel F1 0 and F-score 0 with no Chamfer (`null`), any fit is skipped and said
+so, the row carries `empty_prediction: true`, the summary lists the ids under `empty_predictions`, and the card flags the
+row. For the median Chamfer an empty prediction counts as the worst value, never as a dropped row. An empty truth leaves
+nothing to score against: `voxel_score.py` refuses it (exit 2) and `score` reports the object as missing.
 
 ### Scoreboard (FiftyOne)
 
 `score --save-compared N` keeps N points of the truth and of each prediction exactly as they were scored (after the fit)
-under `scores/<run>/compared/`. `fo_scoreboard.py --bench BENCH` turns every run that has them into one FiftyOne dataset:
+under `scores/<run>/compared/` (`scores/compared/` for the default run, the one scored without `--run`; in
+`--runs` it is written `.`). `fo_scoreboard.py --bench BENCH` turns every run that has them into one FiftyOne dataset:
 a sample per (object, run), each a `.fo3d` scene with the truth in grey and that run's prediction in its own colour in the
-same frame (nothing re-centred), carrying voxel_f1, fscore, chamfer, how the prediction was read and the card's verdict.
+same frame (nothing re-centred; each run keeps its own truth cloud, since runs in different frames compared different
+truths), carrying voxel_f1, fscore, chamfer, how the prediction was read, empty_prediction and the card's verdict.
 Sort by voxel_f1 in the app and open a sample to see what the number saw; `fiftyone app launch <dataset>` reopens it.
 Needs `pip install fiftyone` (not_configured, exit 3, without it).
 
