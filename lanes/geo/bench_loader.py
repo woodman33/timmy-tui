@@ -439,6 +439,8 @@ def card(a) -> int:
             cell_band = "" if not band else "%.3f – %.3f" % (band[0], band[1])
             cell_fs = "" if fsc is None else "%.3f" % fsc
             verdict = E((cj or {}).get("verdict", "no card yet"))
+            if (cj or {}).get("verdict_detail"):
+                verdict += " &middot; " + E(cj["verdict_detail"].split(",")[0].lower())   # "above the prediction" / "below the prediction"
             kind = "metric" if sm.get("metric") else "shape"
             row = ("<tr><td>" + cell_name + "</td><td>" + cell_f1 + "</td><td>" + cell_band + "</td><td>" + cell_fs
                    + "</td><td>" + verdict + "</td><td>" + kind + "</td></tr>")

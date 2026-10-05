@@ -184,6 +184,7 @@ print(hashlib.sha256(json.dumps(d, sort_keys=True, separators=(',', ':')).encode
     const index = readFileSync(join(B, 'scores', 'index.html'), 'utf8');
     expect(index).toContain('2 runs'); expect(index).toContain('href="m1/card.html"'); expect(index).toContain('fitted boxes');
     expect(index.indexOf('fitted boxes')).toBeLessThan(index.indexOf('box-model'));          // sorted by median voxel F1: the fitted run scores higher
+    if (card.verdict_detail) expect(index).toContain(card.verdict_detail.split(',')[0].toLowerCase());   // the index says which way a miss went too
     expect(existsSync(join(B, 'scores', 'summary.json'))).toBe(false);                       // named runs never touch the default folder
     // Sourcery: the default run (no --run) keeps its files in scores/ itself, and the index skipped it — it is a run like the others
     expect(run(['score', '--bench', B, '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.005', '--samples', '30000']).status).toBe(0);
