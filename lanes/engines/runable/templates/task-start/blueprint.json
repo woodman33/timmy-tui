@@ -1,0 +1,80 @@
+{
+ "kind": "blueprint",
+ "name": "Runable · task-start",
+ "source": "lanes/engines/runable/templates/task-start/plan.cue",
+ "date": "2026-10-04",
+ "engine": "runable",
+ "workflow": "task-start",
+ "note": "Runable has no webhooks or REST API — only a remote MCP server. The lane starts a task from a drop and hands the task id to later drops, so the agent never blocks.",
+ "sheets": [
+  {
+   "id": "inputs",
+   "title": "Inputs · drop/",
+   "rows": [
+    {
+     "label": "request",
+     "value": "*.runable.json",
+     "note": "prompt · mode · model · predict{}"
+    }
+   ]
+  },
+  {
+   "id": "steps",
+   "title": "Steps",
+   "rows": [
+    {
+     "label": "1 predict",
+     "value": "bridge.mjs predict: tools/list snapshot, choose start/progress/files tools by name, seal the expected deliverable",
+     "note": "{stem}.predict.json · {stem}.tools.json"
+    },
+    {
+     "label": "2 start",
+     "value": "bridge.mjs start: tools/call <start task>",
+     "note": "{stem}.task.json with the task id"
+    },
+    {
+     "label": "3 report",
+     "value": "bridge.mjs report",
+     "note": "{stem}.runable.json"
+    }
+   ]
+  },
+  {
+   "id": "outputs",
+   "title": "Outputs · out/",
+   "rows": [
+    {
+     "label": "prediction",
+     "value": "{stem}.predict.json",
+     "note": ""
+    },
+    {
+     "label": "tools",
+     "value": "{stem}.tools.json",
+     "note": "names + input keys, hashed"
+    },
+    {
+     "label": "task",
+     "value": "{stem}.task.json",
+     "note": "task id, status, request ids"
+    },
+    {
+     "label": "report",
+     "value": "{stem}.runable.json",
+     "note": ""
+    }
+   ]
+  },
+  {
+   "id": "receipt",
+   "title": "Receipt · engine.run",
+   "rows": [
+    {
+     "label": "extra",
+     "value": "status · task_id · tool · tools_sha256 · predicted_minutes · predicted_files_min",
+     "note": ""
+    }
+   ]
+  }
+ ]
+}

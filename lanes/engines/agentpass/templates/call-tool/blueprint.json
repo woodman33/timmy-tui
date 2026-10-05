@@ -1,0 +1,28 @@
+{
+ "kind": "blueprint",
+ "name": "AgentPass · call-tool",
+ "source": "lanes/engines/agentpass/templates/call-tool/plan.cue",
+ "date": "2026-10-04",
+ "engine": "agentpass",
+ "workflow": "call-tool",
+ "note": "The broker owns the external boundary; Timmy owns the proof. Audit count before and after brackets the call, and the payload hash pins what was sent.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "request", "value": "*.call.json", "note": "agent · tool · payload" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 predict", "value": "bridge.mjs predict: audit count before, payload sha256, expected delta", "note": "sealed first" },
+   { "label": "2 call", "value": "agentpass.py taskforge call-tool …; then taskforge status", "note": "result + count after" },
+   { "label": "3 report", "value": "bridge.mjs report: delta as predicted?", "note": "audit_delta_ok" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "prediction", "value": "{stem}.predict.json", "note": "" },
+   { "label": "call", "value": "{stem}.call.json", "note": "raw broker result" },
+   { "label": "status_after", "value": "{stem}.status-after.json", "note": "counts after the call" },
+   { "label": "report", "value": "{stem}.agentpass.json", "note": "" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "extra", "value": "status · agent · tool · approval_required · audit_events_before/after · audit_delta_ok · result_sha256", "note": "" }
+  ] }
+ ]
+}

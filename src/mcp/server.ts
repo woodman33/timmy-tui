@@ -22,12 +22,14 @@ import { runOpenHandsTask, openHandsPlanHash, type OpenHandsOpts } from '../util
 import { roboflowRun, type RoboflowReq } from '../utils/roboflow-adapter.js';
 import { oapiRun, type OapiReq } from '../utils/oapi-adapter.js';
 import { VISION_TOOLS, callVisionTool } from '../vision/mcp.js';
+import { GEO_TOOLS, callGeoTool } from '../geo/mcp.js';
 import { forgeRun, forgeStatus, forgeApprove } from '../forge/mcp-tools.js';
 
 const sleepSync = (ms: number) => spawnSync('sleep', [String(ms / 1000)]);
 
 const TOOLS = [
   ...VISION_TOOLS,
+  ...GEO_TOOLS,
   { name: 'timmy_env_lock', description: 'Environment lock: OS build, arch, tool BUILD HASHES (sha256 of binaries, not version strings).', inputSchema: { type: 'object', properties: {} } },
   { name: 'timmy_events_tail', description: 'Last N events from the timmy event bus (NDJSON spine).', inputSchema: { type: 'object', properties: { n: { type: 'number' } } } },
   { name: 'timmy_receipt_verify', description: 'Walk the hash chain of a receipt stream; returns ok/brokenAt.', inputSchema: { type: 'object', properties: { stream: { type: 'string' } }, required: ['stream'] } },
@@ -621,6 +623,7 @@ const forgeGuard = (tool: string, fn: () => unknown): unknown => {
 
 const call = (name: string, args: any): unknown => {
   if (name.startsWith('timmy_vision_')) return callVisionTool(name, args);
+  if (name.startsWith('timmy_geo_')) return callGeoTool(name, args ?? {});
   switch (name) {
     case 'timmy_env_lock': return captureEnvLock();
     case 'timmy_events_tail': return readEvents(Number(args?.n ?? 10));

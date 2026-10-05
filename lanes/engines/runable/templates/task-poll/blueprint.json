@@ -1,0 +1,80 @@
+{
+ "kind": "blueprint",
+ "name": "Runable · task-poll",
+ "source": "lanes/engines/runable/templates/task-poll/plan.cue",
+ "date": "2026-10-04",
+ "engine": "runable",
+ "workflow": "task-poll",
+ "note": "Polling is the async half of a webhook-less service. Every answer is logged and hashed; the cap turns a stuck task into an honest timed_out receipt.",
+ "sheets": [
+  {
+   "id": "inputs",
+   "title": "Inputs · drop/",
+   "rows": [
+    {
+     "label": "request",
+     "value": "*.poll.json",
+     "note": "task_id · max_minutes · every_seconds"
+    }
+   ]
+  },
+  {
+   "id": "steps",
+   "title": "Steps",
+   "rows": [
+    {
+     "label": "1 predict",
+     "value": "bridge.mjs predict task-poll: minutes from the drop, else the task-start run's sealed prediction for this task id, else a labelled default",
+     "note": "{stem}.predict.json sealed before anything is called"
+    },
+    {
+     "label": "2 poll",
+     "value": "bridge.mjs poll: tools/call <progress> every N s until done/failed/cap",
+     "note": "{stem}.progress.jsonl · {stem}.final.json"
+    },
+    {
+     "label": "3 report",
+     "value": "bridge.mjs report: minutes vs predicted",
+     "note": "{stem}.runable.json"
+    }
+   ]
+  },
+  {
+   "id": "outputs",
+   "title": "Outputs · out/",
+   "rows": [
+    {
+     "label": "prediction",
+     "value": "{stem}.predict.json",
+     "note": "prediction_source: drop | task-start | default"
+    },
+    {
+     "label": "progress",
+     "value": "{stem}.progress.jsonl",
+     "note": "one line per poll, each hashed"
+    },
+    {
+     "label": "final",
+     "value": "{stem}.final.json",
+     "note": "status · polls · minutes"
+    },
+    {
+     "label": "report",
+     "value": "{stem}.runable.json",
+     "note": ""
+    }
+   ]
+  },
+  {
+   "id": "receipt",
+   "title": "Receipt · engine.run",
+   "rows": [
+    {
+     "label": "extra",
+     "value": "status · task_id · task_status · polls · minutes · predicted_minutes · prediction_source · minutes_error_pct",
+     "note": ""
+    }
+   ]
+  }
+ ]
+}

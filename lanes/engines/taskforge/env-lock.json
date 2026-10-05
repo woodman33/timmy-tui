@@ -1,0 +1,18 @@
+{
+ "v": 1,
+ "engine": "taskforge",
+ "captured_at": "2026-10-04T10:00:00.000Z",
+ "os": { "platform": "authored", "build": "", "version": "" },
+ "arch": "any",
+ "tools": {
+  "node": { "path": "node (resolved on PATH by the lane)", "note": "the bridge is dependency-free; `timmy engine envlock taskforge` replaces this file with the measured sha256/size/version" }
+ },
+ "installed": true,
+ "bridge": ["api", "cli"],
+ "endpoints": {
+  "api": "TASKFORGE_API_URL (default http://127.0.0.1:3001/api)",
+  "routes": ["POST /parse", "POST /execute", "POST /execute/cancel/:taskId", "GET /status/:taskId", "GET /logs/:taskId", "GET /logs/stream/:taskId (SSE)", "GET /runtime/health", "GET /runtime/agentpass/{health,status,audit}", "POST /runtime/agentpass/passport/issue", "POST /runtime/agentpass/call-tool", "GET|POST /connect (A2A)"],
+  "body_limit": "4 MB (express.json)"
+ },
+ "note": "Authored 2026-10-04 from the TaskForge monorepo (apps/api routes, packages/shared schemas). TaskForge runs on the operator's machine; this lane never starts or stops it."
+}

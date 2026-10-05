@@ -14,7 +14,7 @@
 // executed, and its outputs land in out/<engine>/<workflow>/<stem>-<ts>/. One
 // engine.run receipt per run; engine.refuse when a rule refuses a drop.
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, constants as fsConstants, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { runStepCommand } from './step.mjs';
 import { basename, dirname, extname, join, resolve } from 'node:path';
@@ -38,6 +38,7 @@ const engineById = (id) => ENGINES.engines.find((e) => e.id === id);
 
 function expandPath(p) {
   if (!p) return null;
+  if (p.startsWith('<home>')) p = (process.env.HOME ?? '') + p.slice('<home>'.length);   // engines.json writes <home> so no home path lands in the repo
   const abs = p.startsWith('/') ? p : join(ROOT, p);
   if (!abs.includes('*')) return existsSync(abs) ? abs : null;
   // one glob segment: pick the newest matching directory entry
@@ -55,9 +56,22 @@ function expandPath(p) {
   return null;
 }
 
-function resolveBin(engine, name) {
+// A bare command name (no slash) resolves on PATH, the way a shell would — but the lane still never runs a shell.
+// `node` falls back to the interpreter running the lane, so report steps work on every machine.
+export function whichOnPath(name) {
+  if (!name || name.includes('/')) return null;
+  for (const dir of (process.env.PATH ?? '').split(':').filter(Boolean)) {
+    const p = join(dir, name);
+    try { if (statSync(p).isFile()) { accessSync(p, fsConstants.X_OK); return p; } } catch { /* keep looking */ }
+  }
+  return name === 'node' ? process.execPath : null;
+}
+
+export function resolveBin(engine, name) {
   if (name.startsWith('/')) return existsSync(name) ? name : null;
-  return expandPath(engine.binaries?.[name]);
+  const spec = engine.binaries?.[name];
+  if (spec && !spec.includes('/') && !spec.includes('\\')) return whichOnPath(spec) ?? expandPath(spec);   // "node": "node"
+  return expandPath(spec) ?? whichOnPath(name);                                                           // "node" named directly in a plan
 }
 
 function versionOf(path) {
@@ -140,6 +154,18 @@ function matchRule(drop, fileName, bytes) {
 
 // ------------------------------------------------------------------ run
 
+// runs.jsonl is ONE BUS (order onebus-m5f2): every sealed receipt is followed by a `receipt.sealed` event envelope on
+// the same file, so "the last line" is the envelope, not the receipt. The receipt is the newest line that carries a
+// top-level hash for this subject; the envelope's payload.hash is accepted as a fallback.
+export function lastReceiptHash(lines, subject) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let j; try { j = JSON.parse(lines[i]); } catch { continue; }
+    if (typeof j.hash === 'string' && (subject == null || j.subject === subject)) return j.hash;
+    if (j.kind === 'receipt.sealed' && typeof j.payload?.hash === 'string' && (subject == null || j.payload.subject === subject)) return j.payload.hash;
+  }
+  return null;
+}
+
 function seal(subject, meta) {
   const a = ['tsx', 'src/cli.ts', 'seal', subject];
   for (const [k, v] of Object.entries(meta)) if (v != null && v !== '') a.push('--meta', `${k}=${String(v).replace(/\n/g, ' ').slice(0, 1500)}`);
@@ -147,11 +173,27 @@ function seal(subject, meta) {
   if (r.status !== 0) { process.stderr.write(r.stderr ?? ''); throw new Error(`seal ${subject} failed`); }
   const store = existsSync(join(ROOT, '.timmy', 'store-pin')) ? readFileSync(join(ROOT, '.timmy', 'store-pin'), 'utf8').trim() : join(ROOT, '.timmy', 'receipts');
   const lines = readFileSync(join(store, 'runs.jsonl'), 'utf8').trim().split('\n');
-  return JSON.parse(lines[lines.length - 1]).hash;
+  const hash = lastReceiptHash(lines, subject);
+  if (!hash) throw new Error(`seal ${subject}: receipt written but no hash found on the bus`);
+  return hash;
 }
 
 const proofsPath = join(HERE, 'proofs.json');
 const loadProofs = () => (existsSync(proofsPath) ? JSON.parse(readFileSync(proofsPath, 'utf8')) : { v: 1, proofs: {} });
+
+// Receipt `extra` keys are read from the JSON files a run left in its out dir, first non-null value wins. The engine's
+// own report (`{stem}.<engine>.json`, the file every bridge's report step writes) is read first, so a lane-level
+// `status` such as timed_out is never shadowed by a raw task state in an intermediate file; the rest follow by name.
+export function collectExtra(outDir, engineId, keys) {
+  const extra = {};
+  if (!keys.length) return extra;
+  const own = (n) => n.endsWith(`.${engineId}.json`);
+  const names = readdirSync(outDir).filter((x) => x.endsWith('.json')).sort((a, b) => Number(own(b)) - Number(own(a)) || a.localeCompare(b));
+  for (const n of names) {
+    try { const j = JSON.parse(readFileSync(join(outDir, n), 'utf8')); for (const k of keys) if (j[k] != null && extra[k] == null) extra[k] = typeof j[k] === 'object' ? JSON.stringify(j[k]) : String(j[k]); } catch { /* not a report */ }
+  }
+  return extra;
+}
 
 export async function runWorkflow(engineId, workflow, { project, input, noSeal = false, viaDrop = true, rule = null }) {
   const engine = engineById(engineId);
@@ -198,13 +240,7 @@ export async function runWorkflow(engineId, workflow, { project, input, noSeal =
   const outputs = [];
   for (const o of tpl.workflow.outputs) { const re = globToRegex(subst(o.glob)); for (const n of readdirSync(outDir).filter((x) => re.test(x))) outputs.push({ id: o.id, kind: o.kind, file: n, sha256: sha(join(outDir, n)), bytes: statSync(join(outDir, n)).size }); }
   // extra fields from a JSON report the template wrote, if the plan names any
-  const extra = {};
-  const extraKeys = tpl.workflow.receipt?.extra ?? [];
-  if (extraKeys.length) {
-    for (const n of readdirSync(outDir).filter((x) => x.endsWith('.json'))) {
-      try { const j = JSON.parse(readFileSync(join(outDir, n), 'utf8')); for (const k of extraKeys) if (j[k] != null && extra[k] == null) extra[k] = typeof j[k] === 'object' ? JSON.stringify(j[k]) : String(j[k]); } catch { /* not a report */ }
-    }
-  }
+  const extra = collectExtra(outDir, engineId, tpl.workflow.receipt?.extra ?? []);
   const record = { v: 1, engine: engineId, workflow, project, input: dropped, input_sha256: inputSha, via_drop: viaDrop, rule: rule?.id ?? null, out_dir: outDir, steps: stepResults, outputs, ok, ms: Date.now() - started, template_sha256: tpl.template_sha256, template_files: tpl.shas, envlock_sha256: lock.sha256, envlock: lock.lock.tools, bridge: tpl.workflow.bridge, extra, ts: new Date().toISOString() };
   writeFileSync(join(outDir, 'engine.run.json'), JSON.stringify(record, null, 1));
   // the dropped file moves out of drop/ so it is not processed twice
@@ -221,7 +257,7 @@ export async function runWorkflow(engineId, workflow, { project, input, noSeal =
     });
     record.receipt = receipt;
     writeFileSync(join(outDir, 'engine.run.json'), JSON.stringify(record, null, 1));
-    if (ok) { const p = loadProofs(); p.proofs[`${engineId}/${workflow}`] = { receipt, ts: record.ts, out_dir: record.out_dir, input_sha256: inputSha, template_sha256: tpl.template_sha256 }; writeFileSync(proofsPath, JSON.stringify(p, null, 1)); }
+    if (ok) { const p = loadProofs(); p.proofs[`${engineId}/${workflow}`] = { receipt, ts: record.ts, out_dir: outDir.replace(process.env.HOME ?? '', '~'), input_sha256: inputSha, template_sha256: tpl.template_sha256 }; writeFileSync(proofsPath, JSON.stringify(p, null, 1)); }   // proofs.json ships: never a home path
   }
   return record;
 }
@@ -307,7 +343,11 @@ export function inventory({ fleet = true } = {}) {
 
 const out = (o) => console.log(JSON.stringify(o, null, 1));
 
-try {
+// The CLI runs only when this file is the entry point (`timmy engine …` → tsx lane.mjs). Importing the module
+// (tests, other lanes) gets the exported functions and no side effects.
+const isMain = !!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMain) try {
   switch (cmd) {
     case 'list': out(ENGINES.engines.map((e) => ({ id: e.id, installed: e.installed, templates: listTemplates(e.id) }))); break;
     case 'inventory': { const inv = inventory({ fleet: !has('--no-fleet') }); out(inv.engines.map((e) => ({ id: e.id, installed: e.installed, version: e.version, primary: e.primary_binary, envlock: e.envlock_sha256.slice(0, 12), templates: e.templates.length, complete: e.templates_complete, proven: e.proven.length }))); break; }

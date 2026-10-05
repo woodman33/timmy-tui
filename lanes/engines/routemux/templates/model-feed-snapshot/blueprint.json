@@ -1,0 +1,27 @@
+{
+ "kind": "blueprint",
+ "name": "RouteMux · model-feed-snapshot",
+ "source": "lanes/engines/routemux/templates/model-feed-snapshot/plan.cue",
+ "date": "2026-10-04",
+ "engine": "routemux",
+ "workflow": "model-feed-snapshot",
+ "note": "The public pricing feed is the gateway's model list. Pinning it by hash lets a receipt say exactly which price table a cost prediction used, and the diff shows new models the day they appear.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "trigger", "value": "*.feed.json", "note": "{} is enough; optional watch list" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 fetch", "value": "bridge.mjs feed: GET /public/pricing → feed + diff vs last snapshot", "note": "no auth" },
+   { "label": "2 report", "value": "bridge.mjs report: counts + feed sha256", "note": "{stem}.routemux.json" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "feed", "value": "{stem}.feed.json", "note": "raw feed, hashed" },
+   { "label": "diff", "value": "{stem}.feed-diff.json", "note": "added · removed · price_changes" },
+   { "label": "report", "value": "{stem}.routemux.json", "note": "summary for the receipt" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "cites", "value": "feed sha256 · env-lock", "note": "" },
+   { "label": "extra", "value": "models · feed_sha256 · feed_updated · added · removed · price_changes", "note": "" }
+  ] }
+ ]
+}

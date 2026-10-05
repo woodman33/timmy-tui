@@ -1,0 +1,27 @@
+{
+ "kind": "blueprint",
+ "name": "AgentPass · passport-issue",
+ "source": "lanes/engines/agentpass/templates/passport-issue/plan.cue",
+ "date": "2026-10-04",
+ "engine": "agentpass",
+ "workflow": "passport-issue",
+ "note": "Review-gated in TaskForge; here the drop is the approval and the receipt is the proof that the passport granted exactly what was requested — no wider scope, no longer ttl, no bigger budget.",
+ "sheets": [
+  { "id": "inputs", "title": "Inputs · drop/", "rows": [
+   { "label": "request", "value": "*.passport.json", "note": "agent · tool · scope · ttl · budget" }
+  ] },
+  { "id": "steps", "title": "Steps", "rows": [
+   { "label": "1 predict", "value": "bridge.mjs predict: the passport we expect", "note": "sealed first" },
+   { "label": "2 issue", "value": "agentpass.py taskforge passport issue …", "note": "JSON passport" },
+   { "label": "3 report", "value": "bridge.mjs report: field-by-field match", "note": "fields_as_predicted" }
+  ] },
+  { "id": "outputs", "title": "Outputs · out/", "rows": [
+   { "label": "prediction", "value": "{stem}.predict.json", "note": "" },
+   { "label": "passport", "value": "{stem}.passport.json", "note": "raw CLI JSON" },
+   { "label": "report", "value": "{stem}.agentpass.json", "note": "match table + passport sha256" }
+  ] },
+  { "id": "receipt", "title": "Receipt · engine.run", "rows": [
+   { "label": "extra", "value": "status · agent · tool · scope · ttl · budget_usd · passport_id · fields_as_predicted", "note": "" }
+  ] }
+ ]
+}

@@ -65,6 +65,7 @@ Commands:
   events          Stream the TUI's event envelope as NDJSON (--follow, --human, --otlp)
   logs            Live web companion: event bus + receipt chain + verify (auto-pops browser; --port N)
   vision          Roboflow visual templates, inspections, evidence and review (--port N)
+  geo score|bench|scale  Voxel bench: score truth vs prediction, run a public-set bench, solve metric scales (receipted; --key value)
   approve <hash>  Mint a single-use, 5-min approval token bound to a gated tool's plan hash
   clip list|run|replay  List · run headless + seal · replay from cut-list alone
   model set|get         Set/get model policy (default or --scope harness:<name>)
@@ -688,6 +689,25 @@ if (command === 'demo') {
   // data — cast + gif + mp4 + demo.cast seal. Runs under tsx (ink render).
   const r = spawnSync('npx', ['tsx', 'src/demo/cast.ts', ...args], { stdio: 'inherit', cwd: fileURLToPath(new URL('..', import.meta.url)) });
   process.exit(r.status ?? 1);
+}
+
+if (command === 'geo') {
+  // geo lanes: `timmy geo score|bench|scale --key value …` is the CLI route to the same receipted dispatcher the MCP
+  // tools timmy_geo_* use (src/geo/mcp.ts), so a score from the terminal and a score from an agent seal the same receipt.
+  // `--out <path>` is the global flag the CLI strips above; it is handed through as the lane's --out.
+  const { callGeoTool } = await import('./geo/mcp.js');
+  const tool = ({ score: 'timmy_geo_score', bench: 'timmy_geo_bench', scale: 'timmy_geo_scale' } as Record<string, string>)[cleanArgs[1] ?? ''];
+  if (!tool) { console.error('usage: timmy geo score|bench|scale --key value … (lanes/geo/README.md); e.g. timmy geo score --truth t.ply --pred p.ply --voxel 0.25'); process.exit(64); }
+  const geoArgs: Record<string, unknown> = {};
+  for (let i = 2; i < cleanArgs.length; i++) {
+    if (!cleanArgs[i].startsWith('--')) continue;
+    const key = cleanArgs[i].slice(2).replace(/-/g, '_'); const v = cleanArgs[i + 1];
+    if (v === undefined || v.startsWith('--')) geoArgs[key] = true; else { geoArgs[key] = /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v; i++; }
+  }
+  if (outDir) geoArgs.out = outDir;
+  const r = callGeoTool(tool, geoArgs);
+  console.log(JSON.stringify(r, null, isJson ? 0 : 2));
+  process.exit(r.status === 'ok' ? 0 : r.status === 'partial' || r.status === 'untrusted' ? 2 : r.status === 'not_configured' ? 3 : r.status === 'invalid_request' ? 64 : 1);
 }
 
 if (command === 'privacy') {

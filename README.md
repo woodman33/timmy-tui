@@ -99,6 +99,8 @@ call receipted.
 - [docs/README.md](docs/README.md) — full doc index
 - [docs/fal3d-provider.md](docs/fal3d-provider.md) — reference-driven P1/H3.1/TRELLIS.2 assets, offline plans and operator-gated fal jobs
 - [docs/RECEIPT-SPEC-v2.md](docs/RECEIPT-SPEC-v2.md) — receipt schema
+- [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — which benchmarks Timmy is judged against, what each needs, and the receipted numbers so far
+- [lanes/geo/README.md](lanes/geo/README.md) — the geo lanes: metric scale from self-consistency, the voxel bench scorer (voxel F1 band + Chamfer + F-score@τ, metric unless fitted) and the public-set bench loader (Google Scanned Objects), each with a CLI (`timmy geo …`) and MCP route
 - [docs/UI-REFERENCE-NOTES.md](docs/UI-REFERENCE-NOTES.md) — the UI north-star
 - [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
 

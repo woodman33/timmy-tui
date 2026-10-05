@@ -125,6 +125,66 @@
     "fleet_id": "reallusion",
     "templates": ["iclone-render-still", "cc5-avatar-export", "hub-content-sync"],
     "note": "Windows-only. RLPy requires the host app running for live API access. Headless workflows need socket/script bridge."
+   },
+   {
+    "id": "routemux",
+    "kind": "service",
+    "label": "RouteMux model gateway (OpenAI + Anthropic + Vertex passthrough)",
+    "installed": true,
+    "version": "api.routemux.com/v1 (OpenAI-compatible) · /anthropic/v1/messages · public pricing feed",
+    "bridge": ["api", "cli"],
+    "binaries": { "node": "node" },
+    "envlock_bins": ["node"],
+    "mcp": null,
+    "fleet_id": "routemux",
+    "templates": ["chat-receipted", "model-feed-snapshot", "balance-reconcile"],
+    "config_env": ["ROUTEMUX_API_KEY"],
+    "note": "Model plane. One key, protocol passthrough; every call carries X-Idempotency-Key = request hash and records X-Request-ID + X-RouteMux-Billed. No webhooks: async is predict -> call -> reconcile against /v1/user/balance. Key lives in env, never in receipts."
+   },
+   {
+    "id": "runable",
+    "kind": "service",
+    "label": "Runable cloud agent (remote MCP: start task, poll, collect files)",
+    "installed": true,
+    "version": "api.runable.com/api/mcp (Streamable HTTP, OAuth 2.1 client_credentials)",
+    "bridge": ["mcp", "cli"],
+    "binaries": { "node": "node" },
+    "envlock_bins": ["node"],
+    "mcp": { "name": "runable", "transport": "streamable-http", "url": "https://api.runable.com/api/mcp", "note": "also reachable through mcporter call runable <tool> / cmcp / bindPuppet(); the bridge speaks JSON-RPC directly so no MCP CLI is required" },
+    "fleet_id": "runable",
+    "templates": ["task-start", "task-poll", "task-collect"],
+    "config_env": ["RUNABLE_CLIENT_ID", "RUNABLE_CLIENT_SECRET", "RUNABLE_ACCESS_TOKEN"],
+    "note": "Executor plane for artifacts (sites, decks, reports, video). Async = start, then poll by task id; no webhooks documented. Outputs are downloaded and hashed before the receipt seals."
+   },
+   {
+    "id": "agentpass",
+    "kind": "service",
+    "label": "AgentPass Labs broker (passports, approval gates, audit) via the TaskForge bridge CLI",
+    "installed": true,
+    "version": "scripts/agentpass.py taskforge health|status|audit|passport issue|call-tool (JSON out, fake-first)",
+    "bridge": ["cli"],
+    "binaries": { "node": "node", "python3": "python3", "agentpass": "<home>/agent-cloud-lab/agentpass-lab/scripts/agentpass.py" },
+    "envlock_bins": ["python3"],
+    "mcp": null,
+    "fleet_id": "agentpass",
+    "templates": ["broker-health", "passport-issue", "call-tool"],
+    "config_env": ["AGENTPASS_REPO_PATH"],
+    "note": "Authority plane. Every brokered call is passport-scoped and lands in AgentPass's own audit log; the receipt cites the audit event count before and after. Fake mode stays the default; nothing here flips it."
+   },
+   {
+    "id": "taskforge",
+    "kind": "service",
+    "label": "TaskForge local-first workflow OS (parse -> confidence gate -> executors) via its HTTP API",
+    "installed": true,
+    "version": "@taskforge/api on TASKFORGE_API_URL (default http://127.0.0.1:3001/api): parse, execute, status, logs/stream (SSE), runtime/health",
+    "bridge": ["api", "cli"],
+    "binaries": { "node": "node" },
+    "envlock_bins": ["node"],
+    "mcp": null,
+    "fleet_id": "taskforge",
+    "templates": ["workflow-parse", "workflow-execute", "runtime-health"],
+    "config_env": ["TASKFORGE_API_URL"],
+    "note": "Executor plane for local workflows (shell, docker, tmux, ollama, litellm, pinokio, qdrant, redis, agentpass). The confidence gate is recorded as the prediction; the SSE log stream is captured to JSONL and hashed."
    }
   ]
 }

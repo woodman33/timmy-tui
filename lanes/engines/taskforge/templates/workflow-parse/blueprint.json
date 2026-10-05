@@ -1,0 +1,75 @@
+{
+ "kind": "blueprint",
+ "name": "TaskForge · workflow-parse",
+ "source": "lanes/engines/taskforge/templates/workflow-parse/plan.cue",
+ "date": "2026-10-04",
+ "engine": "taskforge",
+ "workflow": "workflow-parse",
+ "note": "The confidence gate (Auto / Review / Clarify) is TaskForge's own prediction about risk; sealing ours first turns every parse into a calibration point.",
+ "sheets": [
+  {
+   "id": "inputs",
+   "title": "Inputs · drop/",
+   "rows": [
+    {
+     "label": "request",
+     "value": "*.taskforge.json",
+     "note": "task · context · predict{steps, executors, gate}"
+    }
+   ]
+  },
+  {
+   "id": "steps",
+   "title": "Steps",
+   "rows": [
+    {
+     "label": "1 predict",
+     "value": "bridge.mjs predict: expected steps, executors, gate",
+     "note": "sealed first"
+    },
+    {
+     "label": "2 parse",
+     "value": "POST /api/parse",
+     "note": "workflow JSON + gate + confidence"
+    },
+    {
+     "label": "3 report",
+     "value": "bridge.mjs report: steps/gate as predicted?",
+     "note": "{stem}.taskforge.json"
+    }
+   ]
+  },
+  {
+   "id": "outputs",
+   "title": "Outputs · out/",
+   "rows": [
+    {
+     "label": "prediction",
+     "value": "{stem}.predict.json",
+     "note": ""
+    },
+    {
+     "label": "workflow",
+     "value": "{stem}.workflow.json",
+     "note": "the parser's answer, hashed"
+    },
+    {
+     "label": "report",
+     "value": "{stem}.taskforge.json",
+     "note": ""
+    }
+   ]
+  },
+  {
+   "id": "receipt",
+   "title": "Receipt · engine.run",
+   "rows": [
+    {
+     "label": "extra",
+     "value": "status · task_id · steps · executors · gate · confidence · steps_as_predicted · gate_as_predicted · workflow_sha256",
+     "note": ""
+    }
+   ]
+  }
+ ]
+}
