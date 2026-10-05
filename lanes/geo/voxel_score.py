@@ -269,7 +269,9 @@ def fit_pred_to_truth(truth: np.ndarray, pred: np.ndarray, iters: int = 10, thre
 
 
 def score(truth: np.ndarray, pred: np.ndarray, voxel: float, tau: float, fit: bool = False, normalize: bool = False, tol: float = 0.05, phases: int = 8,
-          fit_rotations: str = "identity") -> dict:
+          fit_rotations: str = "identity", return_points: bool = False):
+    """Scores pred against truth. With return_points=True returns (result, truth, pred) as compared — after normalize and
+    fit — so a viewer can show exactly what was scored."""
     note = []
     unit = "m"
     if normalize:
@@ -283,8 +285,9 @@ def score(truth: np.ndarray, pred: np.ndarray, voxel: float, tau: float, fit: bo
         note.append("prediction fitted to truth (similarity); the result is a shape score, not a metric one")
         if fit_rotations == "global":
             note.append(f"global rotation search over {fitinfo.get('start_poses')} start poses before the fit (a generator's up axis and yaw are its own)")
-    return {"kind": "geo.voxel-score", "metric": not fit, "unit": unit, "fit": fitinfo, "voxel": voxel_occupancy(truth, pred, voxel, tol, phases),
-            "surface": surface_metrics(truth, pred, tau), "points": {"truth": int(len(truth)), "pred": int(len(pred))}, "note": note}
+    res = {"kind": "geo.voxel-score", "metric": not fit, "unit": unit, "fit": fitinfo, "voxel": voxel_occupancy(truth, pred, voxel, tol, phases),
+           "surface": surface_metrics(truth, pred, tau), "points": {"truth": int(len(truth)), "pred": int(len(pred))}, "note": note}
+    return (res, truth, pred) if return_points else res
 
 
 # ---------------------------------------------------------------- controls

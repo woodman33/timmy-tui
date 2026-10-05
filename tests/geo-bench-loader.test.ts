@@ -232,7 +232,7 @@ print('ok')
     expect(spawnSync('python3', ['-c', GEN, B, join(dir, 'gen')], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
     const common = ['--bench', B, '--pred-dir', join(dir, 'gen'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.01', '--samples', '20000'];
     expect(run(['score', ...common, '--run', 'plain', '--fit']).status).toBe(0);
-    expect(run(['score', ...common, '--run', 'global', '--fit-global']).status).toBe(0);
+    expect(run(['score', ...common, '--run', 'global', '--fit-global', '--save-compared', '500']).status).toBe(0);
     const plain = JSON.parse(readFileSync(join(B, 'scores', 'plain', 'summary.json'), 'utf8'));
     const glob = JSON.parse(readFileSync(join(B, 'scores', 'global', 'summary.json'), 'utf8'));
     expect(plain).toMatchObject({ metric: false, fit: true, fit_rotations: 'identity' });
@@ -243,6 +243,15 @@ print('ok')
     expect(run(['card', '--bench', B, '--run', 'global', '--model', 'turned boxes']).status).toBe(0);
     const html = readFileSync(join(B, 'scores', 'global', 'card.html'), 'utf8');
     expect(html).toContain('global rotation search + similarity fit'); expect(html).toContain('splat-centers (Gaussians at least 0.1 opaque)');
+    // --save-compared keeps what was scored: the fitted prediction now sits on the truth (a viewer shows the same thing the numbers saw)
+    const near = spawnSync('python3', ['-c', `
+import sys, numpy as np
+sys.path.insert(0, sys.argv[1]); from scale_solver import read_ply_xyz
+from scipy.spatial import cKDTree
+t = read_ply_xyz(__import__('pathlib').Path(sys.argv[2])); p = read_ply_xyz(__import__('pathlib').Path(sys.argv[3]))
+print(len(t), len(p), round(float(cKDTree(t).query(p)[0].mean()), 4))`, join(ROOT, 'lanes', 'geo'), join(B, 'scores', 'global', 'compared', 'box_a.truth.ply'), join(B, 'scores', 'global', 'compared', 'box_a.pred.ply')], { encoding: 'utf8' });
+    const [nt, np_, d] = near.stdout.trim().split(' ').map(Number);
+    expect([nt, np_]).toEqual([500, 500]); expect(d).toBeLessThan(0.02);
   }, 240000);
 
   it('fetch keeps a dropped download out of the shard directory and verifies size before calling a file present (Cursor: truncated tars were trusted)', async () => {

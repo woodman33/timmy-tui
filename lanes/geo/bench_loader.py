@@ -272,7 +272,14 @@ def score(a) -> int:
         if a.normalize_each:                                                   # a generator's output has its own scale: unit-cube both before comparing
             for arr in (truth_pts, pred_pts):
                 lo, hi = arr.min(0), arr.max(0); arr -= (lo + hi) / 2; arr /= float((hi - lo).max())
-        res = vscore(truth_pts, pred_pts, a.voxel, a.tau, fit=fit, tol=a.tolerance, fit_rotations="global" if a.fit_global else "identity")
+        res, t_cmp, p_cmp = vscore(truth_pts, pred_pts, a.voxel, a.tau, fit=fit, tol=a.tolerance, fit_rotations="global" if a.fit_global else "identity", return_points=True)
+        if a.save_compared:                                                    # what was actually compared, for a viewer (FiftyOne, Rerun, Viser)
+            cdir = sdir / "compared"; cdir.mkdir(exist_ok=True)
+            rng = np.random.default_rng(a.seed)
+            for tag, arr in (("truth", t_cmp), ("pred", p_cmp)):
+                sub = arr[rng.choice(len(arr), min(len(arr), a.save_compared), replace=False)].astype(np.float32)
+                (cdir / f"{e['id']}.{tag}.ply").write_bytes((f"ply\nformat binary_little_endian 1.0\nelement vertex {len(sub)}\n"
+                                                              "property float x\nproperty float y\nproperty float z\nend_header\n").encode() + sub.tobytes())
         if a.normalize_each:                                                   # rescaled shapes: the per-object record says shape score too, not only the summary
             res["metric"] = False; res["unit"] = "unit-cube"
             res["note"].append("each shape rescaled to its own unit cube (normalize_each): relative scale discarded, shape score, not metric")
@@ -458,7 +465,9 @@ def main(argv=None):
     s = sub.add_parser("score"); s.add_argument("--bench", required=True); s.add_argument("--pred-dir", required=True); s.add_argument("--frame", default="metric", choices=["metric", "unit"])
     s.add_argument("--voxel", type=float, default=0.01); s.add_argument("--tau", type=float, default=0.005); s.add_argument("--tolerance", type=float, default=0.05); s.add_argument("--samples", type=int, default=200000)
     s.add_argument("--seed", type=int, default=7); s.add_argument("--fit", action="store_true"); s.add_argument("--normalize-each", action="store_true"); s.add_argument("--run")
-    s.add_argument("--fit-global", action="store_true"); s.add_argument("--splat-min-opacity", type=float, default=0.1); s.set_defaults(fn=score)
+    s.add_argument("--fit-global", action="store_true"); s.add_argument("--splat-min-opacity", type=float, default=0.1)
+    s.add_argument("--save-compared", type=int, default=0, metavar="N", help="also write scores/<run>/compared/<id>.{truth,pred}.ply: N points of each, as scored (after any fit)")
+    s.set_defaults(fn=score)
     c = sub.add_parser("card"); c.add_argument("--bench", required=True); c.add_argument("--run"); c.add_argument("--model"); c.set_defaults(fn=card)
     a = ap.parse_args(argv)
     return a.fn(a)
