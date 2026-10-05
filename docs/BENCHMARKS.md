@@ -35,7 +35,7 @@ the same scorer on public sets.
 | Benchmark | What it scores | Status | What Timmy still needs |
 |---|---|---|---|
 | **Toys4K** | 4,000 toy-scale meshes; the comparability set most papers quote | source pinned | Hub mirror `Yang2001/toys4k_meshes` (3 854 `<category>/<id>/mesh.ply`, Blender units → unit-cube frame only). The mirror's MIT tag does not speak for the upstream per-object artist licences: numbers only until each object's licence is checked; no renders ship |
-| **GSO (Google Scanned Objects)** | 1,030 scanned household objects, CC-BY | **loader shipped** (`lanes/geo/bench_loader.py`, Oct 4) | Truth in two frames per object — metric from the original OBJ, unit-cube from the GLB — plus the five shipped renders as inputs; smoke shard (5 objects) extracted and frame-verified; the 44-shard pull (~8 GB) waits for an explicit order line; model outputs from spark2 still to score |
+| **GSO (Google Scanned Objects)** | 1,030 scanned household objects, CC-BY | **loader shipped** (`lanes/geo/bench_loader.py`, Oct 4) | Truth in two frames per object — metric from the original OBJ, unit-cube from the GLB — plus the five shipped renders as inputs; smoke shard (5 objects) extracted and frame-verified; the 44-shard pull (~8 GB) waits for an explicit order line; **first generator round scored on the smoke set, Oct 5** (table below) |
 | **HY3D-Bench (test split)** | Tencent's cleaned watertight meshes with multi-view renders and sampled points (252 K full objects; paper 2602.03907) | source pinned | `tencent/HY3D-Bench` on the Hub, dataset licence **CC-BY-4.0** (the Hunyuan3D 2.1 *model* stays test-only for us — different licence). Test split = 2 chunks × {images 6.3 GB, sample_points 0.96 GB, water_tight_meshes 1.26 GB}; the sample_points chunks are the truth the scorer needs (~1.9 GB, under the 10 GB line but not pulled yet) |
 | **SA-3DAO** | The only set with a published vIoU protocol | no Hub mirror | Not on the Hugging Face Hub (searched Oct 4); distributed with Meta's SAM 3D release — fetch by hand, then match their voxel size and tolerance (`voxel_score.py --voxel … --tolerance …`) before comparing a number |
 | **3D Arena / top3d.ai** | Human preference rankings | n/a | Preference is not geometry; cite for context only |
@@ -56,6 +56,22 @@ Chamfer and the hashes that tie it to its summary and source data — the public
 Generator outputs are scored with `--fit-global` (a 384-pose rotation search before the scaled fit, since a generator's up
 axis and yaw are its own) and a 3D Gaussian splat is read as the centres of its opaque Gaussians; both are shape scores and
 the card says how each prediction was read.
+
+**First generator round, GSO smoke set (5 objects), Oct 5, 2026, spark2 (NVIDIA GB10).** Unit frame, voxel 1/64, τ 0.02,
+sub-voxel tolerance 0.05, `--fit-global`; every model got the same BiRefNet cut-out of `view_0` (identical input hashes),
+seed 42 and its own default settings. All three predictions were sealed at 21:35Z, before any generator ran; re-scoring
+reproduces a summary byte for byte.
+
+| Model (licence) | Median voxel F1 [8-phase band] | F-score @ τ 0.02 | Chamfer | Sealed prediction → verdict | Per object | Per object on spark2 |
+|---|---|---|---|---|---|---|
+| Hunyuan3D-2.1, shape only (Tencent community licence: test only) | **0.616** [0.611–0.616] | 0.887 | 0.0098 | 0.55 → as predicted | best on 4 of 5 | 86 s · 8.2 GB |
+| TripoSplat (MIT), read as opaque Gaussian centres | 0.583 [0.575–0.586] | 0.842 | 0.0118 | 0.40 → outside tolerance, above | best on the shoe | 28 s · 5.0 GB |
+| TripoSG (MIT) | 0.518 [0.514–0.532] | 0.816 | 0.0121 | 0.50 → as predicted | 0.283 on the construction kit: it rebuilt the assembly, not the loose pieces | 33 s · 6.1 GB |
+
+Five objects make a smoke test: the order is a first read, not a result, and the band is the grid-phase spread, not
+sampling error. The a-priori ranking (Hunyuan3D > TripoSG > TripoSplat) got the leader right and the other two the wrong
+way round. Next on this axis: TRELLIS.2 and Pixal3D (already on spark2 as int8 ComfyUI builds, so their numbers will be
+for those builds), then the 1,030-object set.
 
 ## 3. Multi-view and metric geometry (the part that can be *measured*)
 
