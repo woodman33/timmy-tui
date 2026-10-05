@@ -252,6 +252,19 @@ t = read_ply_xyz(__import__('pathlib').Path(sys.argv[2])); p = read_ply_xyz(__im
 print(len(t), len(p), round(float(cKDTree(t).query(p)[0].mean()), 4))`, join(ROOT, 'lanes', 'geo'), join(B, 'scores', 'global', 'compared', 'box_a.truth.ply'), join(B, 'scores', 'global', 'compared', 'box_a.pred.ply')], { encoding: 'utf8' });
     const [nt, np_, d] = near.stdout.trim().split(' ').map(Number);
     expect([nt, np_]).toEqual([500, 500]); expect(d).toBeLessThan(0.02);
+    // the FiftyOne scoreboard finds exactly the (object, run) pairs that kept compared points; without fiftyone it says so (exit 3)
+    const board = join(ROOT, 'lanes', 'geo', 'fo_scoreboard.py');
+    const hasFo = spawnSync('python3', ['-c', 'import fiftyone'], { encoding: 'utf8' }).status === 0;
+    const fb = spawnSync('python3', [board, '--bench', B, '--name', 'timmy-test-' + Date.now()], { encoding: 'utf8', timeout: 120000 });
+    if (!hasFo) { expect(fb.status).toBe(3); expect(JSON.parse(fb.stdout.trim())).toMatchObject({ status: 'not_configured', entries: 2 }); }
+    else { expect(fb.status, fb.stderr).toBe(0); expect(JSON.parse(fb.stdout.trim())).toMatchObject({ status: 'built', samples: 2, runs: ['global'] }); }
+    const pcd = spawnSync('python3', ['-c', `
+import sys; sys.path.insert(0, sys.argv[1]); from pathlib import Path; import numpy as np
+from fo_scoreboard import write_pcd
+p = Path(sys.argv[2]) / 'x.pcd'; n = write_pcd(np.arange(12).reshape(4, 3), p); b = p.read_bytes()
+head, body = b.split(b'DATA binary\\n'); print(n, b'POINTS 4' in head, np.frombuffer(body, np.float32).tolist() == list(range(12)))`, join(ROOT, 'lanes', 'geo'), dir], { encoding: 'utf8' });
+    expect(pcd.stdout.trim(), pcd.stderr).toBe('4 True True');
+    expect(spawnSync('python3', [board, '--bench', join(dir, 'gen')], { encoding: 'utf8' }).status).toBe(2);       // nothing scored there: refused
   }, 240000);
 
   it('fetch keeps a dropped download out of the shard directory and verifies size before calling a file present (Cursor: truncated tars were trusted)', async () => {

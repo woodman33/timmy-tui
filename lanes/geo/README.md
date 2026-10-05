@@ -119,6 +119,15 @@ as a logit) has no surface to sample: it is read as the centres of the Gaussians
 (`splat-centers opacity>=0.1 (kept of total)`, `mesh-surface-N`, `ply-vertices`), the summary lists the kinds, and the
 Bench Card prints them next to the fit mode.
 
+### Scoreboard (FiftyOne)
+
+`score --save-compared N` keeps N points of the truth and of each prediction exactly as they were scored (after the fit)
+under `scores/<run>/compared/`. `fo_scoreboard.py --bench BENCH` turns every run that has them into one FiftyOne dataset:
+a sample per (object, run), each a `.fo3d` scene with the truth in grey and that run's prediction in its own colour in the
+same frame (nothing re-centred), carrying voxel_f1, fscore, chamfer, how the prediction was read and the card's verdict.
+Sort by voxel_f1 in the app and open a sample to see what the number saw; `fiftyone app launch <dataset>` reopens it.
+Needs `pip install fiftyone` (not_configured, exit 3, without it).
+
 `extract` writes `objects/<id>/{truth_metric.ply, truth_unit.glb, view_0..4.jpg, meta.json}` and merges into `manifest.json` — shards accumulate under one `--out` (same set, sample count and seed, else refused), re-extracting a shard replaces its objects — the manifest
 (licence, attribution, tar sha256, per-object extents in metres, mesh hashes, sample count and seed). `score` takes
 `PRED/<id>.(ply|glb|obj|json)`, runs `voxel_score.py` per object and writes `scores/summary.json` with medians and the
