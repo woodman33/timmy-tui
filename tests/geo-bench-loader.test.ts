@@ -166,6 +166,9 @@ print('ok')
     const card = JSON.parse(readFileSync(join(B, 'scores', 'm1', 'card.json'), 'utf8'));
     expect(card).toMatchObject({ kind: 'geo.bench-card', run: 'm1', set: 'gso', frame: 'metric', metric: true, scored: 2 });
     expect(html).toContain(card.card_sha256);
+    // a missed prediction says which way it missed: above is news, below-but-not-falsified is a different story
+    if (card.verdict === 'OUTSIDE TOLERANCE') expect(html).toContain(card.graded.gap > 0 ? 'ABOVE THE PREDICTION' : 'BELOW THE PREDICTION, NOT PAST THE FALSIFIER');
+    else expect(card.verdict_detail).toBeNull();
     // the card hash is the hash of its own data, and the summary hash is the summary's bytes: both recomputable by anyone
     const check = spawnSync('python3', ['-c', `
 import hashlib, json, sys
