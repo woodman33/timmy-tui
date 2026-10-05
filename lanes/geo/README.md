@@ -92,7 +92,9 @@ median voxel F1 with its 8-phase band, F-score@τ and Chamfer, every object's nu
 attribution, and three hashes — the card's own data, the summary it was built from, and the source tar. Nothing on the
 page loads from anywhere, every string is escaped, and anyone can recompute the card hash from `card.json`. With two or
 more runs on one bench, `scores/index.html` lists them by median voxel F1 (overlapping bands are a tie). Give each model
-its own `--run NAME` on `predict`, `score` and `card` so results never overwrite each other.
+its own `--run NAME` on `predict`, `score` and `card` so results never overwrite each other. A run name is a plain slug
+(letters, digits, `.`, `-`, `_`) that never ends in `.json` or `.html`, so it cannot collide with the files the default run
+(no `--run`) keeps in `scores/` itself; the index lists that default run too.
 
 ```
 python3 lanes/geo/bench_loader.py predict --bench bench/gso --run trellis2 --model "TRELLIS.2" --expect-f1 0.60 --frame unit

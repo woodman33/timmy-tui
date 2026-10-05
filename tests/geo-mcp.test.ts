@@ -112,6 +112,7 @@ pts, _ = trimesh.sample.sample_surface(trimesh.creation.box(extents=[0.1, 0.2, 0
     const cardOk = callGeoTool('timmy_geo_bench', { step: 'card', bench: join(dir, 'bench') }, dir);
     expect(cardOk.status, cardOk.stderr).toBe('ok'); expect((cardOk.result as any).verdict).toBe('AS PREDICTED');
     expect(callGeoTool('timmy_geo_bench', { step: 'card', bench: join(dir, 'bench'), run: '../x' }, dir).status).toBe('invalid_request');
+    for (const reserved of ['summary.json', 'Card.HTML']) expect(callGeoTool('timmy_geo_bench', { step: 'card', bench: join(dir, 'bench'), run: reserved }, dir).status, reserved).toBe('invalid_request');
     const noScore = callGeoTool('timmy_geo_bench', { step: 'card', bench: join(dir, 'bench'), run: 'never-scored' }, dir);
     expect(noScore.status).toBe('invalid_request'); expect((noScore.result as any).status).toBe('refused');
     // a string 'false' for fit / normalize_each is neither the flag nor a "(shape score)" label on the receipt

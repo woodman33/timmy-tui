@@ -17,7 +17,8 @@ That gives two truth frames per object: metric (from the OBJ) and unit-cube (the
   card     --bench BENCH [--model NAME]                    one self-contained HTML Bench Card (and its hashed card.json) from the summary and
                                                            the sealed prediction → scores/card.html; with several runs, scores/index.html too
 
-predict, score and card take --run NAME to keep each model's results in scores/<NAME>/ (without it: scores/, as before).
+predict, score and card take --run NAME to keep each model's results in scores/<NAME>/ (without it: scores/, as before);
+NAME is a plain slug that never ends in .json or .html, the files the default run keeps in scores/ itself.
 
 Nothing here fits anything: `score --fit` passes the flag through to voxel_score.py, whose output then says metric:false.
 A generation model's output has an arbitrary scale and pose, so scoring it needs --fit (a shape score); a geometry
@@ -56,12 +57,17 @@ def sha256_file(p: Path) -> str:
 RUN_RE = __import__("re").compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
+# the default run writes its files straight into scores/ (prediction.json, summary.json, <id>.json, card.json, card.html,
+# index.html): a run named like one of them would collide with it, so a run name never ends in .json or .html
+RUN_RESERVED_SUFFIXES = (".json", ".html")
+
+
 def scores_dir(bench: Path, run: str | None) -> Path:
     """scores/ for the default run, scores/<run>/ for a named one; a run name is a plain slug, never a path."""
     if run is None:
         return bench / "scores"
-    if not RUN_RE.match(run) or run in (".", ".."):
-        print(json.dumps({"ok": False, "status": "refused", "note": f"--run must match {RUN_RE.pattern}"}))
+    if not RUN_RE.match(run) or run in (".", "..") or run.lower().endswith(RUN_RESERVED_SUFFIXES):
+        print(json.dumps({"ok": False, "status": "refused", "note": f"--run must match {RUN_RE.pattern} and not end in .json or .html"}))
         sys.exit(2)
     return bench / "scores" / run
 
@@ -390,19 +396,34 @@ def card(a) -> int:
     d = card_data(sdir, bench, a.model)
     (sdir / "card.json").write_text(json.dumps(d, indent=1) + "\n")
     (sdir / "card.html").write_text(render_card(d))
-    runs = sorted(p.parent for p in (bench / "scores").glob("*/summary.json"))
+    # every run on this bench: the default one (scores/summary.json, from runs without --run) and each named one
+    root = bench / "scores"
+    runs = ([root] if (root / "summary.json").exists() else []) + sorted(p.parent for p in root.glob("*/summary.json"))
     if len(runs) > 1:                                                          # several models on one bench: an index of their cards
         from html import escape as E
         items = []
         for rd in runs:
-            sm = json.loads((rd / "summary.json").read_text()); med = sm.get("median") or {}
+            # plain variables, no nested quotes or backslashes inside f-string fields: this file must parse on Python 3.9+
+            sm = json.loads((rd / "summary.json").read_text())
+            med = sm.get("median") or {}
             cj = json.loads((rd / "card.json").read_text()) if (rd / "card.json").exists() else None
-            name = (cj or {}).get("model") or rd.name
-            items.append((med.get("voxel_f1") if med.get("voxel_f1") is not None else -1, f"<tr><td>{'<a href=\"' + E(rd.name) + '/card.html\">' + E(name) + '</a>' if cj else E(name)}</td>"
-                          f"<td>{'' if med.get('voxel_f1') is None else f'{med["voxel_f1"]:.3f}'}</td><td>{'' if not med.get('voxel_f1_band') else f'{med["voxel_f1_band"][0]:.3f} – {med["voxel_f1_band"][1]:.3f}'}</td>"
-                          f"<td>{'' if med.get('fscore') is None else f'{med["fscore"]:.3f}'}</td><td>{E((cj or {}).get('verdict', 'no card yet'))}</td><td>{'metric' if sm.get('metric') else 'shape'}</td></tr>"))
+            is_default = rd == root
+            name = (cj or {}).get("model") or ("default run" if is_default else rd.name)
+            href = "card.html" if is_default else rd.name + "/card.html"
+            cell_name = '<a href="' + E(href) + '">' + E(name) + "</a>" if cj else E(name)
+            vf1 = med.get("voxel_f1")
+            band = med.get("voxel_f1_band")
+            fsc = med.get("fscore")
+            cell_f1 = "" if vf1 is None else "%.3f" % vf1
+            cell_band = "" if not band else "%.3f – %.3f" % (band[0], band[1])
+            cell_fs = "" if fsc is None else "%.3f" % fsc
+            verdict = E((cj or {}).get("verdict", "no card yet"))
+            kind = "metric" if sm.get("metric") else "shape"
+            row = ("<tr><td>" + cell_name + "</td><td>" + cell_f1 + "</td><td>" + cell_band + "</td><td>" + cell_fs
+                   + "</td><td>" + verdict + "</td><td>" + kind + "</td></tr>")
+            items.append((vf1 if vf1 is not None else -1, row))
         body = "".join(r for _, r in sorted(items, key=lambda t: -t[0]))
-        (bench / "scores" / "index.html").write_text(f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bench Cards</title><style>{CARD_CSS}</style></head>
+        (root / "index.html").write_text(f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bench Cards</title><style>{CARD_CSS}</style></head>
 <body><main><div class="label">Bench Cards</div><h1>{len(runs)} runs</h1><p class="sub">Sorted by median voxel F1. Overlapping bands are a tie.</p>
 <div class="tw"><table><tr><th>model</th><th>voxel F1</th><th>band</th><th>F-score</th><th>prediction</th><th>kind</th></tr>{body}</table></div></main></body></html>
 """)

@@ -81,8 +81,9 @@ export function callGeoTool(name: string, args: Record<string, unknown> = {}, di
     case 'timmy_geo_bench': {
       const bench = String(args.bench ?? '');
       if (!isFile(join(bench, 'manifest.json'))) return refuse('bench must be an extracted bench directory (manifest.json missing); run bench_loader.py fetch + extract first');
-      // a run name is a plain slug (the lane enforces the same rule): it names scores/<run>/, it is never a path
-      if (args.run !== undefined && (typeof args.run !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(args.run))) return refuse('run must be a plain name: letters, digits, dot, dash, underscore');
+      // a run name is a plain slug (the lane enforces the same rule): it names scores/<run>/, it is never a path, and it never
+      // ends in .json/.html, the files the default run keeps in scores/ itself
+      if (args.run !== undefined && (typeof args.run !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(args.run) || /\.(json|html)$/i.test(args.run))) return refuse('run must be a plain name (letters, digits, dot, dash, underscore) that does not end in .json or .html');
       const runArg = typeof args.run === 'string' ? ['--run', args.run] : [];
       const runTag = typeof args.run === 'string' ? ` [${args.run}]` : '';
       if (args.step === 'predict') {

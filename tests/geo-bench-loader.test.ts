@@ -182,6 +182,20 @@ print(hashlib.sha256(json.dumps(d, sort_keys=True, separators=(',', ':')).encode
     expect(index).toContain('2 runs'); expect(index).toContain('href="m1/card.html"'); expect(index).toContain('fitted boxes');
     expect(index.indexOf('fitted boxes')).toBeLessThan(index.indexOf('box-model'));          // sorted by median voxel F1: the fitted run scores higher
     expect(existsSync(join(B, 'scores', 'summary.json'))).toBe(false);                       // named runs never touch the default folder
+    // Sourcery: the default run (no --run) keeps its files in scores/ itself, and the index skipped it — it is a run like the others
+    expect(run(['score', '--bench', B, '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.005', '--samples', '30000']).status).toBe(0);
+    const c0 = run(['card', '--bench', B, '--model', 'default boxes']);
+    expect(c0.status, c0.stderr).toBe(0); expect(JSON.parse(c0.stdout.trim())).toMatchObject({ status: 'carded', runs_on_bench: 3 });
+    const index3 = readFileSync(join(B, 'scores', 'index.html'), 'utf8');
+    expect(index3).toContain('3 runs'); expect(index3).toContain('<a href="card.html">default boxes</a>');
+    expect(index3).toContain('href="m1/card.html"'); expect(index3).toContain('href="m2/card.html"');
+    // a run named like a file the default run writes into scores/ would collide with it: refused, in any letter case
+    for (const bad of ['summary.json', 'card.html', 'Index.HTML', 'box_a.json']) {
+      const r = run(['predict', '--bench', B, '--run', bad, '--model', 'x', '--expect-f1', '0.5', '--frame', 'metric', '--basis', 'test']);
+      expect(r.status, bad).toBe(2); expect(JSON.parse(r.stdout.trim()).status, bad).toBe('refused');
+    }
+    expect(existsSync(join(B, 'scores', 'summary.json', 'prediction.json'))).toBe(false);
+    expect(run(['predict', '--bench', B, '--run', 'trellis-2.0', '--model', 'x', '--expect-f1', '0.5', '--frame', 'metric', '--basis', 'test']).status).toBe(0);  // a dotted version is still a fine run name
   }, 180000);
 
   it('fetch keeps a dropped download out of the shard directory and verifies size before calling a file present (Cursor: truncated tars were trusted)', async () => {
