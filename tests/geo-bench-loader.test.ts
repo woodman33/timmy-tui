@@ -198,6 +198,50 @@ print(hashlib.sha256(json.dumps(d, sort_keys=True, separators=(',', ':')).encode
     expect(run(['predict', '--bench', B, '--run', 'trellis-2.0', '--model', 'x', '--expect-f1', '0.5', '--frame', 'metric', '--basis', 'test']).status).toBe(0);  // a dotted version is still a fine run name
   }, 180000);
 
+  it.skipIf(!deps)('generator outputs: --fit-global scores a turned, rescaled box that --fit cannot, a splat PLY is read as its opaque centres, and the card says both', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'geo-gen-'));
+    expect(spawnSync('python3', ['-c', FAKE_SHARD, dir], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
+    const B = join(dir, 'bench');
+    expect(run(['extract', '--tar', join(dir, 'fake-00000.tar'), '--out', B, '--samples', '20000']).status).toBe(0);
+    // box_a comes back turned 90° about x and 30° about z, 3× larger and elsewhere (points); box_b the same way as a 3DGS splat with floaters
+    const GEN = `
+import sys, json, numpy as np, trimesh
+from pathlib import Path
+B = Path(sys.argv[1]); P = Path(sys.argv[2]); P.mkdir(exist_ok=True)
+def rot(ax, deg):
+    c, s = np.cos(np.radians(deg)), np.sin(np.radians(deg)); i, j = [k for k in range(3) if k != ax]
+    m = np.eye(3); m[i, i] = c; m[i, j] = -s; m[j, i] = s; m[j, j] = c; return m
+R = rot(2, 30) @ rot(0, 90)
+def ply(name, pts, extra=()):
+    cols = [pts[:, 0], pts[:, 1], pts[:, 2]] + [c for _, c in extra]; names = ['x', 'y', 'z'] + [n for n, _ in extra]
+    head = 'ply\\nformat binary_little_endian 1.0\\nelement vertex %d\\n' % len(pts) + ''.join('property float %s\\n' % n for n in names) + 'end_header\\n'
+    (P / name).write_bytes(head.encode() + np.stack(cols, 1).astype(np.float32).tobytes())
+for o in json.load(open(B / 'manifest.json'))['objects']:
+    e = o['frames']['metric']['extents_m']; m = trimesh.creation.box(extents=e); m.apply_translation([0, 0, e[2] / 2])
+    pts = np.asarray(trimesh.sample.sample_surface(m, 20000, seed=5)[0]) @ R.T * 3.0 + np.array([2.0, 1.0, -1.0])
+    if o['id'] == 'box_a':
+        ply('box_a.ply', pts)
+    else:
+        fl = np.random.default_rng(1).uniform(-3, 3, (4000, 3)); allp = np.r_[pts, fl]; z = np.zeros(len(allp))
+        ply('box_b.ply', allp, [('opacity', np.r_[np.full(len(pts), 3.0), np.full(len(fl), -5.0)]), ('scale_0', z), ('scale_1', z), ('scale_2', z)])
+print('ok')
+`;
+    expect(spawnSync('python3', ['-c', GEN, B, join(dir, 'gen')], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
+    const common = ['--bench', B, '--pred-dir', join(dir, 'gen'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.01', '--samples', '20000'];
+    expect(run(['score', ...common, '--run', 'plain', '--fit']).status).toBe(0);
+    expect(run(['score', ...common, '--run', 'global', '--fit-global']).status).toBe(0);
+    const plain = JSON.parse(readFileSync(join(B, 'scores', 'plain', 'summary.json'), 'utf8'));
+    const glob = JSON.parse(readFileSync(join(B, 'scores', 'global', 'summary.json'), 'utf8'));
+    expect(plain).toMatchObject({ metric: false, fit: true, fit_rotations: 'identity' });
+    expect(glob).toMatchObject({ metric: false, fit: true, fit_rotations: 'global', pred_kinds: ['ply-vertices', 'splat-centers'], splat_min_opacity: 0.1, scored: 2 });
+    for (const r of glob.rows) expect(r.voxel_f1, r.id).toBeGreaterThan(0.85);
+    expect(plain.median.voxel_f1).toBeLessThan(glob.median.voxel_f1 - 0.3);
+    expect(glob.rows.find((r: any) => r.id === 'box_b').pred_from).toBe('splat-centers opacity>=0.1 (20000 of 24000)');
+    expect(run(['card', '--bench', B, '--run', 'global', '--model', 'turned boxes']).status).toBe(0);
+    const html = readFileSync(join(B, 'scores', 'global', 'card.html'), 'utf8');
+    expect(html).toContain('global rotation search + similarity fit'); expect(html).toContain('splat-centers (Gaussians at least 0.1 opaque)');
+  }, 240000);
+
   it('fetch keeps a dropped download out of the shard directory and verifies size before calling a file present (Cursor: truncated tars were trusted)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'geo-fetch-'));
     const body = Buffer.alloc(300_000, 7);

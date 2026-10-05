@@ -98,9 +98,26 @@ its own `--run NAME` on `predict`, `score` and `card` so results never overwrite
 
 ```
 python3 lanes/geo/bench_loader.py predict --bench bench/gso --run trellis2 --model "TRELLIS.2" --expect-f1 0.60 --frame unit
-python3 lanes/geo/bench_loader.py score   --bench bench/gso --run trellis2 --pred-dir out/trellis2 --frame unit --normalize-each --fit
+python3 lanes/geo/bench_loader.py score   --bench bench/gso --run trellis2 --pred-dir out/trellis2 --frame unit --fit-global
 python3 lanes/geo/bench_loader.py card    --bench bench/gso --run trellis2
 ```
+
+### Scoring generator outputs
+
+An image-to-3D generator hands back a shape in its own frame: its own up axis, its own yaw relative to the photo, its own
+scale. The plain `--fit` starts its scaled ICP from the identity, so a quarter turn defeats it (measured on a turned,
+rescaled L shape: voxel F1 below 0.5 with `--fit`, 1.0 with `--fit-global`). `--fit-global` first centres the prediction,
+matches its RMS radius to the truth's, scores 384 start rotations (the 24 axis-aligned ones, each followed by turns of
+15°–75° about each truth axis) by symmetric Chamfer on 2 000-point subsets, refines the four best distinct starts with
+the same scaled ICP and keeps the lowest final Chamfer. When two poses more than 30° apart end within 5 % of each other the
+shape is near-symmetric and the record says `rotation_ambiguous` — the score is still the best pose's. Both fits mark the
+result `metric: false`: a shape score.
+
+A **3D Gaussian splat** (a `.ply` whose vertices carry `opacity` and `scale_*`, the 3DGS / SuperSplat layout with opacity
+as a logit) has no surface to sample: it is read as the centres of the Gaussians at least `--splat-min-opacity` opaque
+(default 0.1), so near-transparent floaters do not count as surface. Every record says how its prediction was read
+(`splat-centers opacity>=0.1 (kept of total)`, `mesh-surface-N`, `ply-vertices`), the summary lists the kinds, and the
+Bench Card prints them next to the fit mode.
 
 `extract` writes `objects/<id>/{truth_metric.ply, truth_unit.glb, view_0..4.jpg, meta.json}` and merges into `manifest.json` — shards accumulate under one `--out` (same set, sample count and seed, else refused), re-extracting a shard replaces its objects — the manifest
 (licence, attribution, tar sha256, per-object extents in metres, mesh hashes, sample count and seed). `score` takes

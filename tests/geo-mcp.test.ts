@@ -79,7 +79,11 @@ describe('geo MCP tools', () => {
     // the receipt subject follows the same coercion: 'true' is fitted, 'false' is not (Cursor: string false still labelled receipts fitted)
     expect(chain[1].subject).toBe('geo.voxel-score truth.ply vs shift.ply (fitted)');
     expect(chain[2].subject).toBe('geo.voxel-score truth.ply vs same.ply');
-  });
+    // fit_global is --fit-global (a rotation search, then the fit): untrusted like any fit, labelled fitted on its receipt
+    const glob = callGeoTool('timmy_geo_score', { truth: join(dir, 'truth.ply'), pred: join(dir, 'shift.ply'), fit_global: true, splat_min_opacity: 0.2 }, dir);
+    expect(glob.status).toBe('untrusted'); expect((glob.result as any).fit).toMatchObject({ applied: true, rotations: 'global', start_poses: 384 });
+    expect(readChain('runs', dir)[3].subject).toBe('geo.voxel-score truth.ply vs shift.ply (fitted)');
+  }, 60000);
 
   it.skipIf(!deps)('bench: predict seals before score, score grades it, a missing prediction is partial not ok, a wrong step is refused', () => {
     const dir = mkdtempSync(join(tmpdir(), 'geo-mcp-'));

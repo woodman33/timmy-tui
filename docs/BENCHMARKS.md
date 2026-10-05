@@ -53,6 +53,9 @@ output; a number is comparable to a paper's only when τ, point count and alignm
 the receipt records all three so the comparison can be checked rather than believed. Each scored run renders as a **Bench Card**
 (`bench_loader.py card`): one self-contained page with the sealed prediction and its verdict, the voxel F1 band, F-score@τ,
 Chamfer and the hashes that tie it to its summary and source data — the public, shareable form of every number in this file.
+Generator outputs are scored with `--fit-global` (a 384-pose rotation search before the scaled fit, since a generator's up
+axis and yaw are its own) and a 3D Gaussian splat is read as the centres of its opaque Gaussians; both are shape scores and
+the card says how each prediction was read.
 
 ## 3. Multi-view and metric geometry (the part that can be *measured*)
 

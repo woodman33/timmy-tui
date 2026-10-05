@@ -11,7 +11,7 @@ That gives two truth frames per object: metric (from the OBJ) and unit-cube (the
   extract  --tar BENCH/shards/x.tar --out BENCH            objects/<id>/{truth_metric.ply, truth_unit.glb, view_0.jpg, meta.json} + manifest.json
   predict  --bench BENCH --model NAME --expect-f1 F [--expect-fscore F] [--tolerance-f1 0.08] [--frame …]
                                                            seal what the model is expected to score BEFORE scoring → scores/prediction.json
-  score    --bench BENCH --pred-dir PRED [--frame metric|unit] [--fit] [--voxel V] [--tau T]
+  score    --bench BENCH --pred-dir PRED [--frame metric|unit] [--fit | --fit-global] [--voxel V] [--tau T]
                                                            PRED/<id>.(ply|glb|obj|json) scored against the truth → scores/<id>.json + summary.json;
                                                            with a prediction on file the summary says as_predicted / falsified
   card     --bench BENCH [--model NAME]                    one self-contained HTML Bench Card (and its hashed card.json) from the summary and
@@ -22,7 +22,9 @@ NAME is a plain slug that never ends in .json or .html, the files the default ru
 
 Nothing here fits anything: `score --fit` passes the flag through to voxel_score.py, whose output then says metric:false.
 A generation model's output has an arbitrary scale and pose, so scoring it needs --fit (a shape score); a geometry
-pipeline with known poses is scored metric without it. The summary records which it was.
+pipeline with known poses is scored metric without it. The summary records which it was. --fit-global adds a search over
+384 start rotations before the fit — a generator's up axis and yaw are its own — and a 3D Gaussian splat (.ply with
+opacity + scale_*) is read as the centres of its Gaussians at least --splat-min-opacity opaque (default 0.1).
 """
 from __future__ import annotations
 
@@ -256,6 +258,7 @@ def score(a) -> int:
         print(json.dumps({"ok": False, "status": "not_configured", "note": "score needs numpy + scipy (+ trimesh for meshes)"})); return 3
     bench = Path(a.bench); manifest = json.loads((bench / "manifest.json").read_text())
     pred_dir = Path(a.pred_dir); sdir = scores_dir(bench, a.run); sdir.mkdir(parents=True, exist_ok=True)
+    fit = a.fit or a.fit_global                                                    # --fit-global is --fit with a rotation search first
     rows = []; missing = []
     for e in manifest["objects"]:
         fr = e["frames"].get(a.frame)
@@ -265,21 +268,24 @@ def score(a) -> int:
         if pred is None:
             missing.append({"id": e["id"], "why": "no prediction"}); continue
         truth_pts, how_t = load_points(bench / "objects" / e["id"] / fr["file"], a.samples, a.seed)
-        pred_pts, how_p = load_points(pred, a.samples, a.seed)
+        pred_pts, how_p = load_points(pred, a.samples, a.seed, a.splat_min_opacity)
         if a.normalize_each:                                                   # a generator's output has its own scale: unit-cube both before comparing
             for arr in (truth_pts, pred_pts):
                 lo, hi = arr.min(0), arr.max(0); arr -= (lo + hi) / 2; arr /= float((hi - lo).max())
-        res = vscore(truth_pts, pred_pts, a.voxel, a.tau, fit=a.fit, tol=a.tolerance)
+        res = vscore(truth_pts, pred_pts, a.voxel, a.tau, fit=fit, tol=a.tolerance, fit_rotations="global" if a.fit_global else "identity")
         if a.normalize_each:                                                   # rescaled shapes: the per-object record says shape score too, not only the summary
             res["metric"] = False; res["unit"] = "unit-cube"
             res["note"].append("each shape rescaled to its own unit cube (normalize_each): relative scale discarded, shape score, not metric")
         res["inputs"] = {"truth": fr["file"], "truth_from": how_t, "pred": pred.name, "pred_from": how_p, "frame": a.frame, "normalize_each": a.normalize_each}
         (sdir / f"{e['id']}.json").write_text(json.dumps(res, indent=1) + "\n")
         rows.append({"id": e["id"], "voxel_f1": res["voxel"]["f1"], "voxel_f1_band": res["voxel"].get("f1_band"), "fscore": res["surface"]["fscore"]["f"],
-                     "chamfer_mean_dist": res["surface"]["chamfer_mean_dist"], "grid_unstable": res["voxel"]["grid_unstable"]})
+                     "chamfer_mean_dist": res["surface"]["chamfer_mean_dist"], "grid_unstable": res["voxel"]["grid_unstable"], "pred_from": how_p,
+                     "rotation_ambiguous": res["fit"].get("rotation_ambiguous")})
     med = lambda k: round(float(np.median([r[k] for r in rows])), 4) if rows else None      # noqa: E731
-    summary = {"kind": "geo.bench-summary", "set": manifest["set"], "frame": a.frame, "unit": "m" if a.frame == "metric" and not a.normalize_each else "unit-cube", "metric": not a.fit and not a.normalize_each,
-               "voxel": a.voxel, "tau": a.tau, "tolerance": a.tolerance, "fit": a.fit, "normalize_each": a.normalize_each, "scored": len(rows), "missing": missing,
+    summary = {"kind": "geo.bench-summary", "set": manifest["set"], "frame": a.frame, "unit": "m" if a.frame == "metric" and not a.normalize_each else "unit-cube", "metric": not fit and not a.normalize_each,
+               "voxel": a.voxel, "tau": a.tau, "tolerance": a.tolerance, "fit": fit, "fit_rotations": ("global" if a.fit_global else "identity") if fit else None,
+               "pred_kinds": sorted({r["pred_from"].split(" ")[0] for r in rows}), "splat_min_opacity": a.splat_min_opacity if any(r["pred_from"].startswith("splat") for r in rows) else None,
+               "normalize_each": a.normalize_each, "scored": len(rows), "missing": missing,
                "median": {"voxel_f1": med("voxel_f1"), "fscore": med("fscore"), "chamfer_mean_dist": med("chamfer_mean_dist"),
                           "voxel_f1_band": ([round(float(np.median([r["voxel_f1_band"][0] for r in rows])), 4), round(float(np.median([r["voxel_f1_band"][1] for r in rows])), 4)]
                                             if rows and all(r.get("voxel_f1_band") for r in rows) else None)}, "rows": rows, "run": a.run,
@@ -306,7 +312,7 @@ def card_data(sdir: Path, bench: Path, model: str | None) -> dict:
     data = {"kind": "geo.bench-card", "model": model or (prediction or {}).get("model") or summary.get("run") or "unnamed", "run": summary.get("run"),
             "set": summary.get("set"), "frame": summary.get("frame"), "unit": summary.get("unit"), "metric": summary.get("metric"),
             "median": summary.get("median"), "scored": summary.get("scored"), "missing": summary.get("missing", []), "rows": summary.get("rows", []),
-            "settings": {k: summary.get(k) for k in ("voxel", "tau", "tolerance", "fit", "normalize_each", "shards")},
+            "settings": {k: summary.get(k) for k in ("voxel", "tau", "tolerance", "fit", "fit_rotations", "normalize_each", "shards", "pred_kinds", "splat_min_opacity")},
             "verdict": verdict, "graded": graded,
             "prediction": None if prediction is None else {k: prediction.get(k) for k in ("expected", "tolerance_f1", "falsifier", "basis", "at", "prediction_sha256")},
             "attribution": (summary.get("source") or {}).get("attribution"), "license": (summary.get("source") or {}).get("license"),
@@ -352,6 +358,11 @@ def render_card(d: dict) -> str:
     color = VERDICT_COLOR.get(d["verdict"], "#ffb020")
     kind = "METRIC" if d.get("metric") else "SHAPE SCORE (fitted or rescaled)"
     any_flag = any(r.get("grid_unstable") for r in d.get("rows", []))
+    st = d.get("settings") or {}
+    fit_txt = "false" if not st.get("fit") else ("global rotation search + similarity fit" if st.get("fit_rotations") == "global" else "similarity fit")
+    read_txt = ", ".join(st.get("pred_kinds") or []) or "&mdash;"
+    if st.get("splat_min_opacity") is not None:
+        read_txt += " (Gaussians at least %g opaque)" % st["splat_min_opacity"]
     rows = "".join(
         f"<tr><td>{E(str(r.get('id')))}</td><td>{f(r.get('voxel_f1'))}"
         + (f" <small>[{f(r['voxel_f1_band'][0])}, {f(r['voxel_f1_band'][1])}]</small>" if r.get("voxel_f1_band") else "")
@@ -381,7 +392,7 @@ def render_card(d: dict) -> str:
 <section><div class="label">The prediction, sealed before the run</div>{pred_rows}</section>
 <section><div class="label">Per object</div><div class="tw"><table><tr><th>object</th><th>voxel F1 [band]</th><th>F-score</th><th>Chamfer</th>{'<th></th>' if any_flag else ''}</tr>{rows}</table></div>
 {('<p class="label" style="margin-top:16px">Missing predictions</p><ul>' + missing + '</ul>') if missing else ''}</section>
-<section><div class="label">Settings</div><p>voxel {f(s.get('voxel'), 3)} {unit} · τ {f(s.get('tau'), 3)} · sub-voxel tolerance {f(s.get('tolerance'), 2)} · fit {E(str(bool(s.get('fit'))).lower())} · rescaled each {E(str(bool(s.get('normalize_each'))).lower())} · shards {E(str(s.get('shards')))}</p></section>
+<section><div class="label">Settings</div><p>voxel {f(s.get('voxel'), 3)} {unit} · τ {f(s.get('tau'), 3)} · sub-voxel tolerance {f(s.get('tolerance'), 2)} · fit {E(fit_txt)} · predictions read as {E(read_txt) if read_txt != "&mdash;" else read_txt} · rescaled each {E(str(bool(s.get('normalize_each'))).lower())} · shards {E(str(s.get('shards')))}</p></section>
 <footer><p>{E(str(d.get('attribution') or 'source attribution not recorded'))}{'' if (d.get('license') or '').lower() in (d.get('attribution') or '').lower() else ' (' + E(str(d.get('license') or 'licence not recorded')) + ')'}.</p>
 <p class="hash">card sha256 {E(d['card_sha256'])}<br>summary sha256 {E(d['summary_sha256'])}<br>source tar sha256 {E(str(d.get('source_tar_sha256') or ''))}</p>
 <p>Generated by <span class="hash">timmy geo bench card</span>. Every number on this card is in the summary it hashes; change one and the hash no longer matches.</p></footer>
@@ -443,7 +454,8 @@ def main(argv=None):
     pr.add_argument("--basis", default="", help="where the expectation comes from (receipt hash, profile, prior run)"); pr.add_argument("--run"); pr.set_defaults(fn=predict)
     s = sub.add_parser("score"); s.add_argument("--bench", required=True); s.add_argument("--pred-dir", required=True); s.add_argument("--frame", default="metric", choices=["metric", "unit"])
     s.add_argument("--voxel", type=float, default=0.01); s.add_argument("--tau", type=float, default=0.005); s.add_argument("--tolerance", type=float, default=0.05); s.add_argument("--samples", type=int, default=200000)
-    s.add_argument("--seed", type=int, default=7); s.add_argument("--fit", action="store_true"); s.add_argument("--normalize-each", action="store_true"); s.add_argument("--run"); s.set_defaults(fn=score)
+    s.add_argument("--seed", type=int, default=7); s.add_argument("--fit", action="store_true"); s.add_argument("--normalize-each", action="store_true"); s.add_argument("--run")
+    s.add_argument("--fit-global", action="store_true"); s.add_argument("--splat-min-opacity", type=float, default=0.1); s.set_defaults(fn=score)
     c = sub.add_parser("card"); c.add_argument("--bench", required=True); c.add_argument("--run"); c.add_argument("--model"); c.set_defaults(fn=card)
     a = ap.parse_args(argv)
     return a.fn(a)
