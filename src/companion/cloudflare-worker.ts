@@ -3,6 +3,11 @@ import type { Message } from "../types/index.js";
 import { computeReceiptHash, Receipt } from "../receipt/schema.js";
 import { VERSION } from "../version.js";
 import { theme } from '../tui/theme.js';
+import { verifyStripeSignature } from "../pro/stripe-signature.js";
+
+/** Clerk user ids look like `user_2abc…`; anything else (markup, quotes, spaces) is treated as no user. */
+const safeClerkUserId = (value: unknown): string =>
+  typeof value === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(value) ? value : "";
 
 
 // Cloudflare Env Bindings conforming exactly to user receipt parameters
@@ -18,6 +23,8 @@ export interface Env {
   OPENROUTER_TUI_AGENT_WORKFLOW?: any;
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
+  /** "1" enables the no-Stripe demo checkout in local development only. Never set in production. */
+  BILLING_MOCK?: string;
   STRIPE_PRICE_BUILDER?: string;
   STRIPE_PRICE_PRO?: string;
   STRIPE_PRICE_TEAM?: string;
@@ -829,7 +836,14 @@ export class MyDurableObject extends DurableObject {
     if (method === "POST" && url.pathname === "/api/create-checkout-session") {
       try {
         const body = await request.json() as any;
-        const clerkUserId = body.clerk_user_id || "user_clerk_timmy_33a1";
+        // No shared fallback account: a missing user must never collapse onto one row.
+        const clerkUserId = safeClerkUserId(body?.clerk_user_id);
+        if (!clerkUserId) {
+          return new Response(JSON.stringify({ success: false, error: "clerk_user_id required" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
         const priceTier = body.price_tier || "builder";
         
         let priceId = "";
@@ -884,18 +898,23 @@ export class MyDurableObject extends DurableObject {
             const data = await stripeRes.json() as any;
             redirectUrl = data.url;
           } else {
-            const err = await stripeRes.text();
-            throw new Error(`Stripe Checkout Session API returned: ${err}`);
+            // Stripe's error text can name the key in use; keep it in the logs, not the response.
+            console.error(`checkout: Stripe returned HTTP ${stripeRes.status}`);
+            throw new Error("payment provider error");
           }
-        } else {
+        } else if (this.env.BILLING_MOCK === "1") {
           redirectUrl = `${url.origin}/success?session_id=cs_test_mock_${Math.random().toString(36).substring(2, 9)}&clerk_user_id=${clerkUserId}&price_id=${priceId}`;
+        } else {
+          throw new Error("billing not configured");
         }
         
         return new Response(JSON.stringify({ success: true, url: redirectUrl }), {
           headers: { "Content-Type": "application/json" }
         });
       } catch (e: any) {
-        return new Response(JSON.stringify({ success: false, error: e.message }), {
+        const known = e?.message === "payment provider error" || e?.message === "billing not configured";
+        if (!known) console.error("checkout failed:", e?.message);
+        return new Response(JSON.stringify({ success: false, error: known ? e.message : "checkout failed" }), {
           status: 500,
           headers: { "Content-Type": "application/json" }
         });
@@ -904,7 +923,13 @@ export class MyDurableObject extends DurableObject {
 
     // GET /api/subscription
     if (url.pathname === "/api/subscription") {
-      const clerkUserId = url.searchParams.get("clerk_user_id") || "user_clerk_timmy_33a1";
+      const clerkUserId = safeClerkUserId(url.searchParams.get("clerk_user_id"));
+      if (!clerkUserId) {
+        return new Response(JSON.stringify({ error: "clerk_user_id required" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
       this.initSql();
       const cursor = this.ctx.storage.sql.exec("SELECT * FROM subscriptions WHERE clerk_user_id = ?", clerkUserId);
       const rows = [...cursor];
@@ -944,18 +969,46 @@ export class MyDurableObject extends DurableObject {
     // POST /api/stripe/webhook
     if (method === "POST" && url.pathname === "/api/stripe/webhook") {
       try {
-        const body = await request.json() as any;
-        const session = body.data?.object || body.data || {};
-        const clerkUserId = session.metadata?.clerk_user_id || "user_clerk_timmy_33a1";
+        // Grant nothing unless Stripe signed this exact body (https://docs.stripe.com/webhooks#verify-manually).
+        // Before this check, anyone could POST a fake "paid" event and give themselves a tier.
+        const raw = await request.text();
+        const check = await verifyStripeSignature(raw, request.headers.get("stripe-signature"), this.env.STRIPE_WEBHOOK_SECRET, Math.floor(Date.now() / 1000));
+        if (!check.ok) {
+          console.warn(`stripe webhook: signature rejected (${check.reason})`);
+          return new Response(JSON.stringify({ success: false, error: "invalid signature" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        const body = JSON.parse(raw) as any;
+        if (body.type !== "checkout.session.completed" || body.data?.object?.payment_status !== "paid") {
+          return new Response(JSON.stringify({ success: true, ignored: `event ${String(body.type)} grants nothing` }), {
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        const session = body.data?.object || {};
+        const clerkUserId = safeClerkUserId(session.metadata?.clerk_user_id);
+        if (!clerkUserId) {
+          return new Response(JSON.stringify({ success: true, ignored: "no clerk_user_id on the event" }), {
+            headers: { "Content-Type": "application/json" }
+          });
+        }
         const priceId = session.line_items?.[0]?.price || session.price_id || "";
         
+        // Tiers come only from configured price IDs, never from amounts or placeholder names.
         let tier = "free";
-        if (priceId === "price_builder" || priceId === this.env.STRIPE_PRICE_BUILDER || session.amount_total === 1900) {
+        if (priceId && priceId === this.env.STRIPE_PRICE_BUILDER) {
           tier = "builder";
-        } else if (priceId === "price_pro" || priceId === this.env.STRIPE_PRICE_PRO || session.amount_total === 4900) {
+        } else if (priceId && priceId === this.env.STRIPE_PRICE_PRO) {
           tier = "pro";
-        } else if (priceId === "price_team" || priceId === this.env.STRIPE_PRICE_TEAM || session.amount_total === 19900) {
+        } else if (priceId && priceId === this.env.STRIPE_PRICE_TEAM) {
           tier = "team";
+        }
+        if (tier === "free") {
+          // Event payloads carry no line items, so an unknown price must not overwrite (downgrade) a paid row.
+          return new Response(JSON.stringify({ success: true, ignored: "price is not a configured tier" }), {
+            headers: { "Content-Type": "application/json" }
+          });
         }
         
         this.initSql();
@@ -999,10 +1052,12 @@ export class MyDurableObject extends DurableObject {
 
     // RENDER PAGES GORGEOUSLY
     if (method === "GET") {
-      const clerkUserId = url.searchParams.get("clerk_user_id") || "user_clerk_timmy_33a1";
+      // Pages render for anonymous visitors as the free tier instead of a shared account.
+      const clerkUserId = safeClerkUserId(url.searchParams.get("clerk_user_id"));
       this.initSql();
-      const cursor = this.ctx.storage.sql.exec("SELECT * FROM subscriptions WHERE clerk_user_id = ?", clerkUserId);
-      const rows = [...cursor];
+      const rows = clerkUserId
+        ? [...this.ctx.storage.sql.exec("SELECT * FROM subscriptions WHERE clerk_user_id = ?", clerkUserId)]
+        : [];
       
       let tier = "free";
       if (rows.length > 0) {
@@ -1133,9 +1188,13 @@ export class MyDurableObject extends DurableObject {
             </script>
           `;
         } else if (url.pathname === "/success") {
-          const sessionId = url.searchParams.get("session_id") || "unknown";
+          // Only [A-Za-z0-9_] ever reaches the page: this value is printed into HTML below.
+          const rawSessionId = url.searchParams.get("session_id") || "";
+          const sessionId = /^[A-Za-z0-9_]{1,200}$/.test(rawSessionId) ? rawSessionId : "unknown";
           
-          if (sessionId.startsWith("cs_test_mock_")) {
+          // Tiers are granted only by the signature-checked webhook. This demo grant exists for local
+          // development without Stripe and runs only when BILLING_MOCK=1 and no Stripe key is set.
+          if (this.env.BILLING_MOCK === "1" && !this.env.STRIPE_SECRET_KEY && sessionId.startsWith("cs_test_mock_")) {
             const priceId = url.searchParams.get("price_id") || "";
             let planTier = "builder";
             if (priceId.includes("pro")) planTier = "pro";

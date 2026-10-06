@@ -1,0 +1,20 @@
+{
+  // Timmy Pro billing Worker. Secrets (never in this file):
+  //   wrangler secret put STRIPE_SECRET_KEY        sk_test_… first, sk_live_… at launch
+  //   wrangler secret put STRIPE_WEBHOOK_SECRET    whsec_… from the Stripe webhook endpoint
+  //   wrangler secret put LICENSE_SIGNING_KEY      from scripts/pro/gen-license-keys.mjs
+  //   wrangler secret put LICENSE_KEY_SECRET       from scripts/pro/gen-license-keys.mjs
+  // Vars: STRIPE_PORTAL_LOGIN_URL (Stripe Dashboard → Billing → Customer portal → login link),
+  // optional STRIPE_PRICE_PRO (else lookup key timmy_pro_monthly) and PUBLIC_URL.
+  "name": "timmy-pro",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [{ "name": "LEDGER", "class_name": "ProLedger" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ProLedger"] }],
+  // 20 requests a minute per client IP on checkout, welcome, claim, activate and rotate:
+  // each costs Stripe calls, and the Stripe rate limit is shared account-wide.
+  "ratelimits": [{ "name": "PRO_LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } }]
+}
