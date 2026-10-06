@@ -57,6 +57,11 @@ jobs:
   publish:
     needs: gate
     runs-on: ubuntu-latest
+    # GitHub environment "npm" (created on the first run if it does not exist). Add the
+    # owner as a required reviewer under Settings → Environments → npm, and keep the npm
+    # token there as an environment secret: then no workflow, branch or collaborator can
+    # publish or read it without the owner's click.
+    environment: npm
     permissions:
       contents: read
       id-token: write # npm trusted publishing (OIDC) and provenance
@@ -108,8 +113,9 @@ jobs:
           # configured for release.yml the exchanged token replaces this one for the
           # publish; when the exchange fails (none configured yet) npm falls back to this
           # token. Once a release has gone out through the trusted publisher, the
-          # NPM_TOKEN secret can be deleted: an empty value here no longer matters.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # npm secrets can be deleted: an empty value here no longer matters.
+          # NPM_ACCESS_TOKEN (granular, bypass-2FA) is preferred; NPM_TOKEN is the fallback.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_ACCESS_TOKEN || secrets.NPM_TOKEN }}
 
       - name: Rehearsal publish (dry run, nothing is published)
         if: github.event_name == 'workflow_dispatch'
