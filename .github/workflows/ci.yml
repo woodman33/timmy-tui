@@ -5,6 +5,9 @@ on:
     branches: [ main, master, feature/hermes-gateway-mvp ]
   pull_request:
     branches: [ main, master, feature/hermes-gateway-mvp ]
+  # release.yml calls this exact gate before it publishes, so a tag never ships on a
+  # weaker test run than a pull request gets.
+  workflow_call:
 
 env:
   # Known-WIP tests (ORDER privacy-d5n9 step 2, 2026-09-11). Named here and nowhere else:

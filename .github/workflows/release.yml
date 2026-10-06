@@ -1,16 +1,65 @@
 name: Release
 
+# Two ways in:
+#   - pushing a tag publishes it, if scripts/release-preflight.mjs authorizes it;
+#   - "Run workflow" (workflow_dispatch) is a rehearsal: the full gate, the build and
+#     `npm publish --dry-run`. It never publishes and needs no token.
+# Channel policy lives in the preflight: only vX.Y.Z-rc.N tags, only to the `next`
+# channel. Publishing to `latest` is a separate, owner-approved change to that policy.
 on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  # Refuse an unauthorized tag in seconds, before the long gate runs.
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Distribution is limited to a scoped release candidate. The guard checks
+      # exact tag/manifest/lock identity, clean source, and merged-main ancestry.
+      # Passing it does not replace package or native capability qualification.
+      - name: Verify release candidate identity and source
+        if: github.event_name == 'push'
+        run: node scripts/release-preflight.mjs
+
+      - name: Rehearsal (no tag to verify)
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "Rehearsal on ${GITHUB_REF_NAME} at ${GITHUB_SHA}; nothing will be published."
+
+  # The exact gate every pull request runs (ci.yml): both type gates, the vitest suite
+  # minus the named known-WIP list, the worker suite and the PTY keyboard contract, with
+  # the same pinned tools (cue v0.17.1, agg 1.9.0, OpenTimelineIO 0.18.1, tmux, ffmpeg).
+  # The old release job ran a bare `npm test` without cue, so every CUE-gated test
+  # failed and no tag from v1.0.5 to v1.0.8 reached the publish step.
+  gate:
+    needs: preflight
+    uses: ./.github/workflows/ci.yml
+
   publish:
+    needs: gate
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      id-token: write
+      contents: read
+      id-token: write # npm trusted publishing (OIDC) and provenance
 
     steps:
       - name: Checkout Code
@@ -25,28 +74,41 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
 
-      # Distribution is limited to a scoped release candidate. The guard checks
-      # exact tag/manifest/lock identity, clean source, and merged-main ancestry.
-      # Passing it does not replace package or native capability qualification.
+      # Re-checked on the checkout that actually publishes.
       - name: Verify release candidate identity and source
+        if: github.event_name == 'push'
         run: node scripts/release-preflight.mjs
+
+      # npm trusted publishing needs npm 11.5.1 or later.
+      - name: npm 11.5.1 or later
+        run: |
+          v="$(npm --version)"
+          if node -e 'const [a,b,c]=process.argv[1].split(".").map(Number);process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)' "$v"; then
+            echo "npm $v"
+          else
+            npm install -g npm@^11.5.1
+            echo "npm $(npm --version) (upgraded from $v)"
+          fi
 
       - name: Install Dependencies
         run: npm ci
 
-      - name: Install ffmpeg (clip runner E2E)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-
-      - name: Install OpenTimelineIO 0.18.1 (otioconvert, pinned)
-        run: python3 -m pip install --user opentimelineio==0.18.1 && echo "$HOME/.local/bin" >> $GITHUB_PATH
-
       - name: Compile Code
         run: npm run build
 
-      - name: Run Tests
-        run: npm test
-
-      - name: Publish to NPM
-        run: npm publish --provenance --access public --tag next
+      # --ignore-scripts: the gate already ran the suite on this commit with the tools it
+      # needs. prepublishOnly would re-run it here without them (no cue), and prepack
+      # would only rebuild what the step above just built.
+      - name: Publish to npm (next)
+        if: github.event_name == 'push'
+        run: npm publish --provenance --access public --tag next --ignore-scripts
         env:
+          # npm tries OIDC first when a trusted publisher is configured for this
+          # workflow, and falls back to this token only if OIDC is unavailable. Once the
+          # trusted publisher is set and a release has gone out through it, the
+          # NPM_TOKEN secret can be deleted.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Rehearsal publish (dry run, nothing is published)
+        if: github.event_name == 'workflow_dispatch'
+        run: npm publish --dry-run --access public --tag next --ignore-scripts
