@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.1] - 2026-10-06
+
+First release candidate for v2, published to npm's `next` channel. Everything
+below was unreleased since 1.0.x: no tag from v1.0.5 to v1.0.8 reached npm.
+
 ### Added
 - Feature audit + surface everything (p10, v1.0.6): `FEATURES.md` honest
   inventory (every TUI surface, all 23 MCP tools, spine services — each row
