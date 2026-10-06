@@ -1,75 +1,122 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>TIMMY Mission Map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Timmy Canvas</title>
 <link rel="stylesheet" href="https://esm.sh/tldraw@3.15.0/tldraw.css" />
 <style>
-  html, body { margin: 0; height: 100%; background: #0a0e12; }
-  #ui { position: fixed; top: 8px; left: 8px; z-index: 50; display: flex; gap: 6px; flex-wrap: wrap;
-    font: 12px ui-monospace, monospace; color: #c9d1d9; }
-  #ui button { background: #101418; border: 1px solid #2d333b; color: #a98bff; border-radius: 6px;
-    font: inherit; padding: 4px 10px; cursor: pointer; }
-  #ui .stat { border: 1px solid #2d333b; border-radius: 6px; padding: 4px 10px; background: #101418; }
+  html, body { margin: 0; height: 100%; background: #0a0e12; color: #eef3f8; }
+  [hidden] { display: none !important; }
+  body { display: flex; flex-direction: column; font: 16px system-ui, sans-serif; }
+  #ui { padding: 10px 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; border-bottom: 1px solid #2d3b4b; background: #111923; }
+  #ui strong { margin-right: 12px; }
+  #ui button, #ui a { background: #182331; border: 1px solid #435366; color: #8ab4ff; border-radius: 6px; font: inherit; min-height: 44px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 7px 12px; cursor: pointer; text-decoration: none; }
+  #ui button.primary { color: #63d6e8; border-color: #4f8d99; }
+  #ui button:disabled { opacity: .5; cursor: wait; }
+  #ui button:focus-visible, #ui a:focus-visible { outline: 2px solid #63d6e8; outline-offset: 2px; }
+  #board-help { flex-basis: 100%; margin: 0; color: #bac7d5; }
+  #save-status, #sync-status { color: #bac7d5; }
+  #root { flex: 1; min-height: 0; position: relative; }
+  #load-status { padding: 24px; max-width: 600px; line-height: 1.6; }
   .tldraw__editor { height: 100%; }
 </style>
 </head>
 <body>
 <div id="ui">
-  <span class="stat">TIMMY Mission Map · plans compile into DispatchPlan controller</span>
-  <button id="sync">sync plans</button>
-  <button id="capsule">+ Task Capsule</button>
-  <button id="gate">+ Gate</button>
-  <button id="receipt">+ Receipt node</button>
-  <span id="sync-status" class="stat" role="status">Plans not synchronized</span>
+  <strong id="board-title">Timmy Canvas</strong>
+  <a href="/workspace">Vision workspace</a>
+  <a id="mission-studio" href="http://localhost:4310/mission" target="_blank" rel="noopener">Mission Studio</a>
+  <button id="capsule" class="primary" disabled>+ Task note</button>
+  <button id="gate" disabled>+ Check note</button>
+  <button id="receipt" disabled>+ Result note</button>
+  <button id="save" class="primary" disabled>Save checkpoint</button>
+  <button id="restore" disabled>Restore checkpoint</button>
+  <button id="export" disabled>Export JSON</button>
+  <button id="import" disabled>Import JSON</button>
+  <input id="file" type="file" accept="application/json,.json" hidden />
+  <button id="sync" disabled>Sync plans</button>
+  <span id="save-status" role="status" aria-live="polite">Canvas loading</span>
+  <span id="sync-status" role="status">Plans not synchronized</span>
+  <p id="board-help">Draw and edit freely. Notes are planning references; they do not execute jobs or grant approval.</p>
 </div>
-<div id="root" style="height:100%"></div>
+<div id="root"><p id="load-status" role="status">Loading the canvas SDK. It requires access to esm.sh and tldraw's asset service. Your local board is retained if loading fails.</p></div>
 <script type="module">
-import { Tldraw, createShapeId, toRichText } from "https://esm.sh/tldraw@3.15.0?deps=react@18.3.1,react-dom@18.3.1";
-import React from "https://esm.sh/react@18.3.1";
-import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 import { createPlanSync } from './plan-sync.js';
-
-let editor = null;
-let sync = null;
-const root = document.getElementById("root");
-root.innerHTML = "";
-
-createRoot(root).render(React.createElement(Tldraw, {
-  onMount: (ed) => {
-    editor = ed;
-    ed.user.updateUserPreferences({ colorScheme: 'dark' });
-    sync = createPlanSync(ed, { createShapeId, toRichText });
-    syncPlans();
-    setInterval(syncPlans, 5000);
-  }
-}));
-
-async function syncPlans() {
-  if (!sync) return;
-  const result = await sync();
-  if (result.state === 'pending') return;
-  document.getElementById('sync-status').textContent = result.state === 'synced'
-    ? `${result.count} plans received` : 'Plans unavailable — notes retained';
-}
-
-document.getElementById("sync").onclick = syncPlans;
-const addNode = (label, color) => {
-  if (!editor) return;
-  const id = createShapeId();
-  editor.createShape({ id, type: "note",
-    x: (editor.getViewportPageBounds().centerX ?? 400) - 100, y: 420,
-    props: { richText: toRichText(label), color, size: "m" } });
+import { canvasStorageKey, createCanvasCheckpoint, formatCanvasError, MAX_CANVAS_BYTES } from './canvas-state.js';
+const board = new URLSearchParams(location.search).get('board') === 'blank' ? 'blank' : 'dispatch';
+const blank = board === 'blank';
+const status = document.getElementById('save-status');
+document.getElementById('board-title').textContent = blank ? 'Timmy · Blank planning canvas' : 'Timmy · Mission Map';
+document.getElementById('sync').hidden = blank;
+document.getElementById('sync-status').hidden = blank;
+document.getElementById('mission-studio').hidden = blank;
+document.getElementById('board-help').textContent += ' The board stays in this browser; JSON exports contain document references, not embedded uploaded assets.';
+const show = (text) => { status.textContent = text; };
+const attempt = (fn) => { try { return fn(); } catch (error) { show(`Not saved or loaded: ${formatCanvasError(error)}`); throw error; } };
+let editor, checkpoint, sync, syncTimer, createShapeId, toRichText;
+const addNote = (label, color = 'blue') => {
+  if (!editor) throw new Error('Canvas is not ready.');
+  if (typeof label !== 'string' || !label.trim() || label.length > 2000 || !['blue', 'violet', 'yellow', 'grey', 'green', 'red', 'orange'].includes(color)) throw new Error('Use a nonempty note of up to 2,000 characters and a supported color.');
+  const { center } = editor.getViewportPageBounds(); const id = createShapeId();
+  editor.createShape({ id, type: 'note', x: center.x - 100, y: center.y - 100, props: { richText: toRichText(label), color, size: 'm' } });
+  return id;
 };
-document.getElementById("capsule").onclick = () => addNode("Task Capsule\nobjective: add your objective\nharness: choose a harness\napproval: unconfigured", "violet");
-document.getElementById("gate").onclick = () => addNode("Gate\nplan hash: add a reference\napproval: unconfigured", "yellow");
-document.getElementById("receipt").onclick = () => addNode("Result / Receipt\nhash: add a reference\nverification: unknown", "grey");
-
+const loadingTimer = setTimeout(() => {
+  document.getElementById('load-status')?.replaceChildren('Canvas SDK is taking longer than expected. Check network access to esm.sh; local work has not been cleared.');
+}, 20000);
+try {
+  const [sdk, react, dom] = await Promise.all([
+    import('https://esm.sh/tldraw@3.15.0?deps=react@18.3.1,react-dom@18.3.1'),
+    import('https://esm.sh/react@18.3.1'), import('https://esm.sh/react-dom@18.3.1/client'),
+  ]);
+  ({ createShapeId, toRichText } = sdk);
+  dom.createRoot(document.getElementById('root')).render(react.createElement(sdk.Tldraw, {
+    persistenceKey: canvasStorageKey(board),
+    onMount: (ed) => {
+      clearTimeout(loadingTimer); editor = ed; ed.user.updateUserPreferences({ colorScheme: 'dark' });
+      checkpoint = createCanvasCheckpoint({ board, storage: localStorage, getSnapshot: () => sdk.getSnapshot(ed.store), loadSnapshot: (snapshot) => sdk.loadSnapshot(ed.store, snapshot) });
+      document.querySelectorAll('#ui button').forEach((button) => { button.disabled = false; });
+      show('Browser-local board ready · use Save for a checkpoint');
+      window.timmyCanvas = Object.freeze({ board, addNote,
+        getShapes: () => structuredClone(ed.getCurrentPageShapes()),
+        save: () => attempt(() => { const time = checkpoint.save(); show(`Checkpoint saved · ${time}`); return time; }),
+        restore: (options) => attempt(() => { const time = checkpoint.restore(options); show(`Checkpoint restored · ${time}`); return time; }),
+        exportSnapshot: () => attempt(checkpoint.exportSnapshot),
+        getRecoverySnapshot: checkpoint.getRecoverySnapshot,
+        importSnapshot: (text, options) => attempt(() => { const time = checkpoint.importSnapshot(text, options); show('Canvas imported · save a checkpoint to retain this version'); return time; }),
+      });
+      if (!blank) { sync = createPlanSync(ed, { createShapeId, toRichText }); syncPlans(); syncTimer = setInterval(syncPlans, 5000); }
+    },
+  }));
+} catch (error) {
+  clearTimeout(loadingTimer); show('Canvas unavailable · local work retained');
+  document.getElementById('root').replaceChildren(Object.assign(document.createElement('p'), { id: 'load-status', textContent: 'The canvas SDK could not load. Check network access and reload. No saved board was removed.' }));
+}
+async function syncPlans() {
+  if (!sync) return; const result = await sync();
+  if (result.state !== 'pending') document.getElementById('sync-status').textContent = result.state === 'synced' ? `${result.count} plans received` : 'Plans unavailable — notes retained';
+}
+const click = (id, fn) => { document.getElementById(id).onclick = () => { try { fn(); } catch (error) { show(`Action failed: ${formatCanvasError(error)}`); } }; };
+click('capsule', () => addNote('Task\nObjective: describe the outcome\nNext action: choose a tool', 'blue'));
+click('gate', () => addNote('Check\nExpected result: describe it\nObserved result: unknown', 'yellow'));
+click('receipt', () => addNote('Result\nArtifact reference: add a reference\nVerification: unknown', 'grey'));
+click('sync', syncPlans); click('save', () => window.timmyCanvas.save());
+click('restore', () => { if (confirm('Replace this board with its last saved checkpoint?')) window.timmyCanvas.restore({ replace: true }); });
+click('export', () => {
+  const data = window.timmyCanvas.exportSnapshot(); const url = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
+  const link = document.createElement('a'); link.href = url; link.download = `timmy-${board}-canvas.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  show('JSON exported · uploaded assets remain browser-local');
+});
+click('import', () => document.getElementById('file').click());
+document.getElementById('file').onchange = async (event) => {
+  const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
+  try { if (file.size > MAX_CANVAS_BYTES) throw new Error('Canvas file exceeds the 8 MB limit.');
+    if (!confirm('Replace this board with the selected canvas file?')) return;
+    window.timmyCanvas.importSnapshot(await file.text(), { replace: true });
+  } catch (error) { show(`Not loaded: ${formatCanvasError(error)}`); }
+};
+addEventListener('pagehide', () => clearInterval(syncTimer));
 </script>
-<div style="position:fixed;right:12px;bottom:12px;font:11px ui-monospace,Menlo,monospace">
-  <a href="http://localhost:4310/mission" target="_blank"
-     style="color:#7dcfff;border:1px solid #3b4261;background:#1f2337;border-radius:6px;padding:6px 10px;text-decoration:none">
-    Mission Studio · compile + playback ↗</a>
-</div>
 </body>
 </html>

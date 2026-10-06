@@ -43,30 +43,64 @@ const requestContracts: Record<string, object> = {
   cosmos: { example: { operation: 'infer', input_image: '/absolute/render.png', prompt: 'Describe visible colors and spatial relationships.', max_new_tokens: 256 }, input: 'One local PNG/JPEG≤8MiB and2MP; prompt≤2000characters; tokens16–384. Fixed Cosmos3-Edge reasoner on configured GPU. Generator not enabled.' },
 };
 
-/** Optional adapters keep large native runtimes out of Timmy's control plane. */
-export function integrationDefinitions(dir = process.cwd()) {
+export const integrationIds = ['camera-fit', 'mcap', 'plotjuggler', 'viser', 'fiftyone', 'paraview', 'trame', 'openhands', 'cosmos'] as const;
+export type IntegrationId = typeof integrationIds[number];
+
+/** Resolve only the requested adapter's configuration. Full execution catalogs still fail closed. */
+export function integrationDefinition(id: IntegrationId, dir = process.cwd(), env: NodeJS.ProcessEnv = process.env) {
   const root = resolve(dir);
   const tool = (name: string) => resolve(root, 'tools/platform-vision-20260910', name, 'adapter.py');
-  const telemetry = telemetryPythonExecutable(root);
   const analytics = resolve(root, 'studio/platform-expansion-20260910/analytics/.venv/bin/python');
-  return [
-    { id: 'camera-fit', name: 'OpenCV camera alignment', executable: visualPythonExecutable(root), script: packagedAdapter('tools/spatial-fit-20260915/adapter.py'), operations: ['probe', 'fit'], executionKind: 'local-geometry-fit' },
-    { id: 'mcap', name: 'MCAP recordings', executable: telemetry, script: packagedAdapter('tools/platform-vision-20260910/telemetry/adapter.py'), operations: ['probe', 'export', 'replay'], executionKind: 'local-interchange' },
-    { id: 'plotjuggler', name: 'PlotJuggler telemetry', executable: telemetry, script: packagedAdapter('tools/platform-vision-20260910/telemetry/adapter.py'), operations: ['probe', 'export', 'open'], executionKind: 'local-native-viewer' },
-    { id: 'viser', name: 'Viser interactive 3D', executable: analytics, script: tool('analytics'), operations: ['probe', 'scene'], executionKind: 'local-3d-viewer' },
-    { id: 'fiftyone', name: 'FiftyOne Brain', executable: analytics, script: tool('analytics'), operations: ['probe', 'curate'], executionKind: 'local-dataset-analysis' },
-    { id: 'paraview', name: 'ParaView scientific analysis', executable: analytics, script: tool('analytics'), operations: ['probe', 'field'], executionKind: 'local-native-analysis' },
-    { id: 'trame', name: 'trame scientific views', executable: analytics, script: tool('analytics'), operations: ['probe', 'field'], executionKind: 'local-web-analysis' },
-    { id: 'openhands', name: 'OpenHands · Qwen', executable: resolve(homedir(), '.local/share/timmy/runtimes/openhands-1.46.0/bin/python'), script: tool('openhands'), operations: ['probe', 'review'], executionKind: 'local-agent' },
-    { id: 'cosmos', name: 'NVIDIA Cosmos3-Edge Reasoner', executable: telemetry, script: tool('cosmos'), operations: ['probe', 'infer'], executionKind: 'gpu-model' },
-  ];
+  const definitions = {
+    'camera-fit': () => ({ id: 'camera-fit', name: 'OpenCV camera alignment', executable: visualPythonExecutable(root, env), script: packagedAdapter('tools/spatial-fit-20260915/adapter.py'), operations: ['probe', 'fit'], executionKind: 'local-geometry-fit' }),
+    mcap: () => ({ id: 'mcap', name: 'MCAP recordings', executable: telemetryPythonExecutable(root, env), script: packagedAdapter('tools/platform-vision-20260910/telemetry/adapter.py'), operations: ['probe', 'export', 'replay'], executionKind: 'local-interchange' }),
+    plotjuggler: () => ({ id: 'plotjuggler', name: 'PlotJuggler telemetry', executable: telemetryPythonExecutable(root, env), script: packagedAdapter('tools/platform-vision-20260910/telemetry/adapter.py'), operations: ['probe', 'export', 'open'], executionKind: 'local-native-viewer' }),
+    viser: () => ({ id: 'viser', name: 'Viser interactive 3D', executable: analytics, script: tool('analytics'), operations: ['probe', 'scene'], executionKind: 'local-3d-viewer' }),
+    fiftyone: () => ({ id: 'fiftyone', name: 'FiftyOne Brain', executable: analytics, script: tool('analytics'), operations: ['probe', 'curate'], executionKind: 'local-dataset-analysis' }),
+    paraview: () => ({ id: 'paraview', name: 'ParaView scientific analysis', executable: analytics, script: tool('analytics'), operations: ['probe', 'field'], executionKind: 'local-native-analysis' }),
+    trame: () => ({ id: 'trame', name: 'trame scientific views', executable: analytics, script: tool('analytics'), operations: ['probe', 'field'], executionKind: 'local-web-analysis' }),
+    openhands: () => ({ id: 'openhands', name: 'OpenHands · Qwen', executable: resolve(homedir(), '.local/share/timmy/runtimes/openhands-1.46.0/bin/python'), script: tool('openhands'), operations: ['probe', 'review'], executionKind: 'local-agent' }),
+    cosmos: () => ({ id: 'cosmos', name: 'NVIDIA Cosmos3-Edge Reasoner', executable: telemetryPythonExecutable(root, env), script: tool('cosmos'), operations: ['probe', 'infer'], executionKind: 'gpu-model' }),
+  };
+  return definitions[id]();
+}
+
+/** Optional adapters keep large native runtimes out of Timmy's control plane. */
+export function integrationDefinitions(dir = process.cwd(), env: NodeJS.ProcessEnv = process.env) {
+  return integrationIds.map(id => integrationDefinition(id, dir, env));
+}
+
+export type IntegrationCatalogItem = Omit<ReturnType<typeof integrationDefinition>, 'executable' | 'script'> & {
+  installedAdapter: boolean;
+  configurationError?: string;
+  requestContract: object;
+  qualification: string;
+};
+
+/** One filesystem observation cannot be suppressed by another adapter's configuration. */
+export function integrationCatalogEntry(id: IntegrationId, dir = process.cwd(), env: NodeJS.ProcessEnv = process.env): IntegrationCatalogItem {
+  const qualification = 'Run a declared operation and inspect its receipt; presence is not qualification.';
+  try {
+    const { executable, script, ...item } = integrationDefinition(id, dir, env);
+    return {
+      ...item, installedAdapter: existsSync(executable) && existsSync(script),
+      requestContract: requestContracts[item.id], qualification,
+    };
+  } catch (error) {
+    // Recover only fixed metadata; the invalid interpreter is never used or returned.
+    const { executable: _executable, script: _script, ...item } = integrationDefinition(id, dir, {});
+    const message = error instanceof Error ? error.message : '';
+    const configurationError = message === 'TIMMY_VISUAL_PYTHON must be an absolute interpreter path.'
+      || message === 'TIMMY_TELEMETRY_PYTHON must be an absolute interpreter path.'
+      ? message : 'The local adapter status probe needs attention.';
+    return {
+      ...item, installedAdapter: false, configurationError,
+      requestContract: requestContracts[item.id], qualification,
+    };
+  }
 }
 
 /** Installed adapter is a filesystem observation, never an inference/readiness claim. */
-export function integrationCatalog(dir = process.cwd()) {
-  return integrationDefinitions(dir).map(({ executable, script, ...item }) => ({
-    ...item, installedAdapter: existsSync(executable) && existsSync(script),
-    requestContract: requestContracts[item.id],
-    qualification: 'Run a declared operation and inspect its receipt; presence is not qualification.',
-  }));
+export function integrationCatalog(dir = process.cwd(), env: NodeJS.ProcessEnv = process.env) {
+  return integrationIds.map(id => integrationCatalogEntry(id, dir, env));
 }
