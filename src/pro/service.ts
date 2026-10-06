@@ -214,7 +214,7 @@ async function webhook(request: Request, deps: ProDeps): Promise<Response> {
 
 // ── core ──────────────────────────────────────────────────────────────────
 
-/** `expired`: Stripe gave up on the checkout before it was paid; it can never complete. */
+/** `expired`: Stripe closed the checkout and nothing was bought through it, so another may be opened. */
 type Settled = { state: 'ready'; record: SubscriptionRecord } | { state: 'pending' } | { state: 'expired' } | { state: 'invalid' };
 
 const unknownSessions = new Map<string, number>();
@@ -240,8 +240,10 @@ async function settleCheckout(sessionId: string, deps: ProDeps, opts: { refresh?
     throw err;
   }
   if (info.mode !== 'subscription') return { state: 'invalid' };
-  if (info.status === 'expired') return { state: 'expired' };
-  if (info.status !== 'complete' || !PAID.has(info.paymentStatus ?? '') || !info.subscription) return { state: 'pending' };
+  // What a checkout bought decides it, not the status Stripe reports for the session. `expired` lets the CLI open
+  // another payable checkout, so it is only for one Stripe closed with no subscription and no payment.
+  if (!info.subscription) return { state: info.status === 'expired' && info.paymentStatus !== 'paid' ? 'expired' : 'pending' };
+  if (!PAID.has(info.paymentStatus ?? '')) return { state: 'pending' };
   if (!isProSubscription(info.subscription, deps.env)) return { state: 'invalid' };
   const record = await syncSubscription(info.subscription.id, { customerId: info.customerId, email: info.email, checkoutSessionId: info.id }, deps);
   return record ? { state: 'ready', record } : { state: 'invalid' };

@@ -140,6 +140,37 @@ describe('after payment', () => {
     expect(await welcome.text()).toContain('This checkout expired before it was paid.');
   });
 
+  // Stripe documents that only unpaid, open checkouts expire. `expired` still lets the CLI open another payable
+  // checkout, so it is only said of one that bought nothing, whatever status Stripe reports for the session.
+  const markExpired = (sessionId: string, paymentStatus?: string) => {
+    const session = stripe.sessions.get(sessionId)!;
+    stripe.sessions.set(sessionId, { ...session, status: 'expired', paymentStatus: paymentStatus ?? session.paymentStatus });
+  };
+
+  it('settles a checkout marked expired after it started a paid subscription', async () => {
+    const sessionId = await paidSession();
+    markExpired(sessionId);
+    const res = await call('POST', '/license/claim', { session_id: sessionId });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'ready', key: expect.stringMatching(/^tpro_/) });
+  });
+
+  it('never calls a checkout expired while the subscription it started is still being paid for', async () => {
+    const sessionId = await paidSession();
+    markExpired(sessionId, 'unpaid');
+    const res = await call('POST', '/license/claim', { session_id: sessionId });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ status: 'pending' });
+  });
+
+  it('never calls a checkout expired when Stripe reports it paid, even with no subscription to show', async () => {
+    const sessionId = await newSession();
+    markExpired(sessionId, 'paid');
+    const res = await call('POST', '/license/claim', { session_id: sessionId });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ status: 'pending' });
+  });
+
   it('says what became of the subscription when it can no longer show a key', async () => {
     const kept = await paidSession();
     const ended = await paidSession();

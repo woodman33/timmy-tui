@@ -67,8 +67,10 @@ next `upgrade` asks the service what became of that checkout; this computer's cl
 - Still unpaid: `upgrade` resumes the same checkout ("still open") instead of opening another, for as
   long as Stripe keeps it open.
 - Paid meanwhile: `upgrade` saves its key at once, without reopening anything.
-- Expired unpaid (Stripe says so, by default 24 hours after it opened): it is forgotten and a new
-  checkout opens. An `upgrade` still waiting when the checkout expires stops and says so.
+- Expired unpaid (Stripe closed it, by default 24 hours after it opened, and nothing was bought through
+  it: no subscription, no payment): it is forgotten and a new checkout opens. One Stripe calls expired
+  that did start a subscription is settled like any paid one, never replaced. An `upgrade` still waiting
+  when the checkout expires stops and says so.
 - Paid, its key can no longer be shown here (the 24-hour window closed, or the key was replaced), and
   the subscription it started has not ended: no new checkout opens, since it would charge you twice.
   `upgrade` points to that key (`timmy pro activate -`) and, if it was lost, to `timmy pro billing`.
