@@ -1,0 +1,12 @@
+{
+  "name": "timmy-pro-worker",
+  "private": true,
+  "type": "module",
+  "description": "Timmy Pro billing: Stripe Checkout, license keys, signed license tokens. Logic and tests live in src/pro at the repo root.",
+  "scripts": {
+    "dev": "npx wrangler@4 dev --port 8787",
+    "deploy": "npx wrangler@4 deploy",
+    "tail": "npx wrangler@4 tail",
+    "stripe:listen": "stripe listen --forward-to localhost:8787/stripe/webhook"
+  }
+}
