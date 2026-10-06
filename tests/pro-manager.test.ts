@@ -1,14 +1,14 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { HttpProService, type FetchLike } from '../src/pro/client.js';
 import { accessMessage, featureAccess, nextStep, type Entitlement, type InactiveReason } from '../src/pro/entitlement.js';
 import { generateLicenseKeyPair, importSigningKey, importVerifyKey, signLicenseToken } from '../src/pro/license.js';
-import { LicenseInputError, LicenseManager, ProUnavailableError, PurchaseRefusedError } from '../src/pro/manager.js';
+import { LicenseInputError, LicenseManager, PaidCheckoutError, ProUnavailableError, PurchaseRefusedError, type PurchaseStart } from '../src/pro/manager.js';
 import { PRO_FEATURES } from '../src/pro/plan.js';
 import { LicenseStorageError, type LicenseVault } from '../src/pro/ports.js';
-import { FileLicenseVault } from '../src/pro/vault.js';
+import { FileCheckoutStore, FileLicenseVault } from '../src/pro/vault.js';
 import { DAY, proSub, proWorld, type ProWorld } from './helpers/pro-harness.js';
 
 let root: string;
@@ -28,9 +28,12 @@ const recordingFetch = (): FetchLike => async (input, init) => {
 const offline = async (): Promise<Response> => { throw new TypeError('fetch failed'); };
 const proxyPage = async () => new Response('<html>Access denied</html>', { status: 403, headers: { 'content-type': 'text/html' } });
 
+const checkoutPath = () => join(root, 'pro', 'checkout.json');
+
 function manager(over: Partial<ConstructorParameters<typeof LicenseManager>[0]> = {}) {
   return new LicenseManager({
     vault,
+    checkouts: new FileCheckoutStore(checkoutPath()),
     service: new HttpProService(world.origin, recordingFetch()),
     publicKey,
     now: world.now,
@@ -84,6 +87,12 @@ function holdFirstActivation(when: 'sent' | 'answered') {
 const notFound = async () => new Response(JSON.stringify({ error: 'not found', code: 'not_found' }), { status: 404, headers: { 'content-type': 'application/json' } });
 
 const checkoutsCreated = () => world.stripe.calls.filter((call) => call.startsWith('create:')).length;
+
+/** The checkout startPurchase handed over; anything else fails the test. */
+function opened(start: PurchaseStart): Extract<PurchaseStart, { state: 'checkout' }> {
+  if (start.state !== 'checkout') throw new Error(`expected a checkout to finish, got ${start.state}`);
+  return start;
+}
 
 beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), 'timmy-pro-manager-'));
@@ -384,7 +393,7 @@ describe('bookkeeping never overwrites a newer license', () => {
 
 describe('purchase guard', () => {
   it('sells to someone with no license', async () => {
-    const { url, sessionId } = await manager().startPurchase();
+    const { url, sessionId } = opened(await manager().startPurchase());
     expect(url).toBe(`https://checkout.stripe.com/c/pay/${sessionId}`);
   });
 
@@ -419,7 +428,7 @@ describe('purchase guard', () => {
     const { key, subscriptionId } = await purchasedKey();
     await manager().activate(key);
     await cancel(subscriptionId);
-    expect((await manager().startPurchase()).url).toMatch(/^https:\/\/checkout\.stripe\.com\//);
+    expect(opened(await manager().startPurchase()).url).toMatch(/^https:\/\/checkout\.stripe\.com\//);
   });
 
   it('sends a past-due subscriber to billing instead of selling a second subscription', async () => {
@@ -440,9 +449,43 @@ describe('purchase guard', () => {
   });
 });
 
+describe('the checkout an earlier purchase opened', () => {
+  it('forgets a checkout the service says expired unpaid', async () => {
+    const { sessionId } = opened(await manager().startPurchase());
+    world.stripe.expire(sessionId);
+    expect(await manager().claimPurchase(sessionId)).toEqual({ state: 'expired' });
+    expect(existsSync(checkoutPath())).toBe(false);
+  });
+
+  it('resumes it, however long ago it opened, when the service cannot say what became of it', async () => {
+    const first = opened(await manager().startPurchase());
+    world.advance(2 * DAY);
+    faults.set('/license/claim', offline);
+    expect(await manager().startPurchase()).toEqual({ ...first, resumed: true });
+    expect(checkoutsCreated()).toBe(1);
+  });
+
+  it('opens a new one when the subscription it started ended before its key was collected', async () => {
+    const first = opened(await manager().startPurchase());
+    world.stripe.pay(first.sessionId, proSub('sub_refunded', 'canceled'));
+    const next = opened(await manager().startPurchase());
+    expect(next).toMatchObject({ resumed: false });
+    expect(next.sessionId).not.toBe(first.sessionId);
+    expect(checkoutsCreated()).toBe(2);
+  });
+
+  it('opens none while the subscription it started can still charge, though its key cannot be collected', async () => {
+    const first = opened(await manager().startPurchase());
+    world.stripe.pay(first.sessionId, proSub('sub_unpaid', 'unpaid'));
+    await expect(manager().startPurchase()).rejects.toBeInstanceOf(PaidCheckoutError);
+    expect(checkoutsCreated()).toBe(1);
+    expect(existsSync(checkoutPath())).toBe(true);
+  });
+});
+
 describe('purchase, billing and rotation', () => {
   it('saves the key the first time a purchase is ready', async () => {
-    const { sessionId } = await manager().startPurchase();
+    const { sessionId } = opened(await manager().startPurchase());
     expect(await manager().claimPurchase(sessionId)).toEqual({ state: 'pending' });
     expect(vault.read()).toBeNull();
 
@@ -455,7 +498,7 @@ describe('purchase, billing and rotation', () => {
   });
 
   it('hands back a purchased key even when it cannot be saved', async () => {
-    const { sessionId } = await manager().startPurchase();
+    const { sessionId } = opened(await manager().startPurchase());
     world.stripe.pay(sessionId);
     const readOnly: LicenseVault = { read: () => vault.read(), write: () => { throw new LicenseStorageError('cannot write: EROFS', 'write'); }, clear: () => vault.clear() };
     const ready = await manager({ vault: readOnly }).claimPurchase(sessionId);

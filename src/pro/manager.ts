@@ -1,6 +1,14 @@
 // The license lifecycle on this machine: buy, activate, renew, refresh, rotate,
 // forget. Network calls go through the ProService port and storage through the
-// LicenseVault port (ports.ts); what the result means is entitlement.ts's job.
+// LicenseVault and CheckoutStore ports (ports.ts); what the result means is
+// entitlement.ts's job.
+//
+// Buying never opens a second payable checkout: the one `upgrade` opened is
+// recorded before the user sees it and resumed by the next `upgrade` until the
+// service says otherwise. The service, not this machine's clock, decides: the
+// record is forgotten once its key is saved here, or the service says it
+// expired unpaid, does not know it, or the subscription it started has ended;
+// a paid one whose subscription can still charge blocks a new checkout.
 //
 // Two kinds of write, kept apart:
 // - adopting a key the user gave, bought or rotated to replaces whatever is stored;
@@ -12,9 +20,9 @@
 // whichever command heard it, and an automatic refresh that should not be
 // repeated soon leaves the time it may be tried again.
 
-import { entitlementFromToken, evaluateLicense, nextStep, problemFromRefusal, type Entitlement } from './entitlement.js';
+import { entitlementFromToken, evaluateLicense, isEndedSubscriptionStatus, nextStep, problemFromRefusal, type Entitlement } from './entitlement.js';
 import { normalizeLicenseKey } from './license.js';
-import { LicenseStorageError, PERSISTED_PROBLEMS, ProServiceError, type LicenseVault, type PersistedProblem, type ProService, type StoredLicense } from './ports.js';
+import { LicenseStorageError, PERSISTED_PROBLEMS, ProServiceError, type CheckoutStore, type ClaimResult, type LicenseVault, type PersistedProblem, type ProService, type StoredLicense } from './ports.js';
 
 /** The user gave something that is not a usable license key. */
 export class LicenseInputError extends Error {
@@ -37,6 +45,18 @@ export class PurchaseRefusedError extends Error {
   }
 }
 
+/**
+ * An earlier checkout from this machine started a subscription that has not ended, but its key cannot
+ * be collected here (the 24-hour window closed, the key was replaced, or the subscription is not
+ * active). Opening another checkout would start a second subscription.
+ */
+export class PaidCheckoutError extends Error {
+  override name = 'PaidCheckoutError';
+  constructor() {
+    super('an earlier checkout from this machine started a subscription that has not ended');
+  }
+}
+
 /** After a refusal, an unusable token or a renewal that came back short-lived, refresh automatically at most this often. */
 const PROBLEM_RECHECK_SECONDS = 3600;
 /** After the service was busy or out of reach, or the license file could not be written, wait this long. */
@@ -44,6 +64,8 @@ const TRANSIENT_BACKOFF_SECONDS = 300;
 
 export interface LicenseManagerDeps {
   vault: LicenseVault;
+  /** The checkout `upgrade` has open, so that running it again resumes that checkout instead of opening another. */
+  checkouts: CheckoutStore;
   service: ProService | null;
   publicKey: CryptoKey | null;
   /** Unix seconds. */
@@ -53,9 +75,19 @@ export interface LicenseManagerDeps {
 /** What a checkout has produced so far. A ready key always comes back, saved or not. */
 export type PurchaseClaim =
   | { state: 'pending' }
+  /** Stripe gave up on the checkout before it was paid; its record here is forgotten. */
+  | { state: 'expired' }
   | { state: 'ready'; key: string; saved: true; entitlement: Entitlement }
   /** The key could not be written to the license file: the caller must show it now. */
   | { state: 'ready'; key: string; saved: false; saveError: Error };
+
+export type ReadyPurchase = Extract<PurchaseClaim, { state: 'ready' }>;
+
+/** What `upgrade` has to do next: finish a checkout in the browser, or nothing, because an earlier checkout from here was already paid. */
+export type PurchaseStart =
+  /** `resumed`: the checkout an earlier `upgrade` opened, still payable. */
+  | { state: 'checkout'; url: string; sessionId: string; resumed: boolean }
+  | ReadyPurchase;
 
 /** The new key always comes back: the old one stopped working on the server before rotate() returned. */
 export type RotationResult =
@@ -100,26 +132,50 @@ export class LicenseManager {
   }
 
   /**
-   * Opens a Stripe Checkout, but only for someone with no license here or whose subscription has ended.
-   * Checkout cannot tell who is buying, so this is what stops a second subscription by accident.
+   * Opens a Stripe Checkout, but only for someone with no license here or whose subscription has ended,
+   * and never while the checkout an earlier `upgrade` opened can still be paid: that one is resumed, and
+   * one paid meanwhile is saved instead. Checkout cannot tell who is buying, so these checks are what
+   * stop a second subscription by accident. Throws PaidCheckoutError when an earlier checkout started a
+   * subscription that can still charge but whose key cannot be collected here.
    */
-  async startPurchase(): Promise<{ url: string; sessionId: string }> {
+  async startPurchase(): Promise<PurchaseStart> {
     const service = this.requireService();
     const entitlement = await this.freshEntitlement();
     if (nextStep(entitlement) !== 'buy') throw new PurchaseRefusedError(entitlement);
-    return service.startCheckout();
+    const earlier = await this.settleEarlierCheckout();
+    if (earlier) return earlier;
+    const checkout = await service.startCheckout();
+    this.deps.checkouts.write({ v: 1, sessionId: checkout.sessionId, url: checkout.url, openedAt: this.deps.now() });
+    return { state: 'checkout', ...checkout, resumed: false };
   }
 
-  /** Asks once whether a checkout has produced a key; saves it the moment it has, and never loses it. */
+  /**
+   * Asks once whether a checkout has produced a key; saves it the moment it has, and never loses it.
+   * The checkout stays recorded until its key is saved here, so a later `upgrade` can still collect it,
+   * or until the service says it expired unpaid or does not know it.
+   */
   async claimPurchase(sessionId: string): Promise<PurchaseClaim> {
-    const result = await this.requireService().claim(sessionId);
-    if (result.state === 'pending') return result;
-    const key = normalizeLicenseKey(result.key) ?? result.key;
+    let result: ClaimResult;
     try {
-      return { state: 'ready', key, saved: true, entitlement: await this.recordToken(key, result.token, 'adopt') };
+      result = await this.requireService().claim(sessionId);
+    } catch (error) {
+      if (error instanceof ProServiceError && error.code === 'unknown_checkout') this.forgetCheckout(sessionId);
+      throw error;
+    }
+    if (result.state === 'pending') return result;
+    if (result.state === 'expired') {
+      this.forgetCheckout(sessionId);
+      return result;
+    }
+    const key = normalizeLicenseKey(result.key) ?? result.key;
+    let entitlement: Entitlement;
+    try {
+      entitlement = await this.recordToken(key, result.token, 'adopt');
     } catch (error) {
       return { state: 'ready', key, saved: false, saveError: asError(error) };
     }
+    this.forgetCheckout(sessionId);
+    return { state: 'ready', key, saved: true, entitlement };
   }
 
   async billingPortalUrl(): Promise<string> {
@@ -155,7 +211,10 @@ export class LicenseManager {
     return this.refreshing;
   }
 
-  /** Forgets the license on this machine. The subscription itself is untouched. */
+  /**
+   * Forgets the license on this machine. The subscription itself is untouched, and so is the record of
+   * an open checkout: a checkout that can still be paid must still be resumed, not doubled.
+   */
   deactivate(): boolean {
     this.paced = null;
     return this.deps.vault.clear();
@@ -182,6 +241,44 @@ export class LicenseManager {
       if (!(error instanceof ProServiceError)) throw error;
       this.pace(stored.key, now + (error.retryable ? TRANSIENT_BACKOFF_SECONDS : PROBLEM_RECHECK_SECONDS));
       return this.currentEntitlement();
+    }
+  }
+
+  /**
+   * The checkout an earlier `upgrade` opened here, as the service sees it: saved when it was paid,
+   * resumed while it is unpaid or the service cannot say, and forgotten (null: open a new one) once the
+   * service says it expired, does not know it, or the subscription it started has ended. A paid one
+   * whose subscription can still charge throws PaidCheckoutError; a damaged record, LicenseStorageError.
+   */
+  private async settleEarlierCheckout(): Promise<PurchaseStart | null> {
+    const earlier = this.deps.checkouts.read();
+    if (!earlier) return null;
+    const resume: PurchaseStart = { state: 'checkout', sessionId: earlier.sessionId, url: earlier.url, resumed: true };
+    let claim: PurchaseClaim;
+    try {
+      claim = await this.claimPurchase(earlier.sessionId);
+    } catch (error) {
+      if (!(error instanceof ProServiceError)) throw error;
+      // The service could not say what became of it: resuming the same checkout is safe, opening another is not.
+      if (error.retryable) return resume;
+      if (error.code === 'unknown_checkout') return null; // claimPurchase forgot it
+      if (error.code !== 'key_already_issued' && error.code !== 'subscription_inactive') throw error;
+      // Paid, but its key cannot be collected here: only a subscription that has ended leaves room for another.
+      if (!isEndedSubscriptionStatus(error.subscriptionStatus)) throw new PaidCheckoutError();
+      this.forgetCheckout(earlier.sessionId);
+      return null;
+    }
+    if (claim.state === 'pending') return resume;
+    if (claim.state === 'expired') return null; // claimPurchase forgot it
+    return claim;
+  }
+
+  /** Drops the record of checkout `sessionId` (a record of another checkout stays). Never hides the caller's answer. */
+  private forgetCheckout(sessionId: string): void {
+    try {
+      if (this.deps.checkouts.read()?.sessionId === sessionId) this.deps.checkouts.clear();
+    } catch (error) {
+      if (!(error instanceof LicenseStorageError)) throw error;
     }
   }
 

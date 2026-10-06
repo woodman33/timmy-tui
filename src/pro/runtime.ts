@@ -2,12 +2,13 @@
 // file under TIMMY_HOME, the network and the clock. No terminal code lives here,
 // so Pro features can depend on it (through gate.ts) without loading the CLI.
 
+import { dirname, join } from 'node:path';
 import { resolveTimmyHome } from '../utils/timmy-home.js';
 import { HttpProService, type FetchLike } from './client.js';
 import { importVerifyKey } from './license.js';
 import { LicenseManager } from './manager.js';
 import { ProConfigError, resolveProSettings, type ProSettings } from './settings.js';
-import { FileLicenseVault } from './vault.js';
+import { FileCheckoutStore, FileLicenseVault } from './vault.js';
 
 export type Env = Readonly<Record<string, string | undefined>>;
 
@@ -30,6 +31,7 @@ export async function resolveProRuntime(env: Env = process.env, overrides: Runti
   const settings = resolveProSettings(env, resolveTimmyHome(env));
   const manager = new LicenseManager({
     vault: new FileLicenseVault(settings.licensePath),
+    checkouts: new FileCheckoutStore(join(dirname(settings.licensePath), 'checkout.json')),
     service: settings.serviceUrl ? new HttpProService(settings.serviceUrl, overrides.fetch, overrides.timeoutMs) : null,
     publicKey: settings.publicKey ? await verifyKey(settings.publicKey, settings.publicKeySource) : null,
     now: overrides.now ?? (() => Math.floor(Date.now() / 1000)),

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -8,7 +8,7 @@ import { importVerifyKey } from '../src/pro/license.js';
 import { LicenseManager } from '../src/pro/manager.js';
 import { PRO_FEATURES } from '../src/pro/plan.js';
 import { LicenseStorageError, type LicenseVault } from '../src/pro/ports.js';
-import { FileLicenseVault } from '../src/pro/vault.js';
+import { FileCheckoutStore, FileLicenseVault } from '../src/pro/vault.js';
 import { DAY, proSub, proWorld, type ProWorld } from './helpers/pro-harness.js';
 
 let root: string;
@@ -47,7 +47,13 @@ const faultyFetch = (): FetchLike => async (input, init) => {
 function context(io: ProCliIO, over: { available?: boolean; vault?: LicenseVault; publicKey?: CryptoKey | null } = {}): ProCliContext {
   const service = over.available === false ? null : new HttpProService(world.origin, faultyFetch());
   return {
-    manager: new LicenseManager({ vault: over.vault ?? vault, service, publicKey: over.publicKey === undefined ? publicKey : over.publicKey, now: world.now }),
+    manager: new LicenseManager({
+      vault: over.vault ?? vault,
+      checkouts: new FileCheckoutStore(checkoutFile()),
+      service,
+      publicKey: over.publicKey === undefined ? publicKey : over.publicKey,
+      now: world.now,
+    }),
     settings: { serviceUrl: service ? world.origin : null, publicKey: world.publicKey, publicKeySource: 'env', licensePath: vault.location },
     io,
   };
@@ -89,6 +95,15 @@ function corruptLicenseFile() {
 
 const KEY_PATTERN = /tpro_[0-9A-Z]{8}(?:-[0-9A-Z]{8}){3}/;
 
+/** An upgrade the user stopped while it waited for payment (Ctrl-C). Returns the checkout it opened. */
+async function interruptedUpgrade(): Promise<string> {
+  const io = recordingIO(() => { throw new Error('interrupted'); });
+  await runProCli(['upgrade', '--no-open'], context(io)).catch(() => 1);
+  return latestSession();
+}
+
+const checkoutFile = () => join(root, 'pro', 'checkout.json');
+
 async function cancelSubscription(subscriptionId: string) {
   world.stripe.subs.set(subscriptionId, { ...world.stripe.subs.get(subscriptionId)!, status: 'canceled' });
   await world.webhook({ id: `evt_cancel_${subscriptionId}`, type: 'customer.subscription.deleted', data: { object: { id: subscriptionId } } });
@@ -129,6 +144,8 @@ describe('timmy pro upgrade', () => {
     expect(await runProCli(['upgrade', '--no-open'], context(io))).toBe(1);
     expect(io.sleeps.reduce((total, ms) => total + ms, 0)).toBe(30 * 60_000);
     expect(errors(io)).toContain('timmy pro activate');
+    expect(errors(io)).toContain('timmy pro upgrade');
+    expect(errors(io)).not.toContain('for a day');
     expect(vault.read()).toBeNull();
   });
 
@@ -202,6 +219,114 @@ describe('timmy pro upgrade', () => {
     expect(errors(io)).toContain('EROFS');
     expect(errors(io)).toContain('Copy the key above');
     expect((await new HttpProService(world.origin, world.fetch).activate(key!)).token).toBeTruthy();
+  });
+});
+
+describe('timmy pro upgrade after an earlier one stopped', () => {
+  it('resumes the checkout it opened instead of opening a second one', async () => {
+    const first = await interruptedUpgrade();
+    const io = recordingIO((count) => { if (count === 1) world.stripe.pay(first); });
+    expect(await runProCli(['upgrade'], context(io))).toBe(0);
+    expect(checkoutsCreated()).toBe(1);
+    expect(io.opened).toEqual([`https://checkout.stripe.com/c/pay/${first}`]);
+    expect(output(io)).toContain('still open');
+    expect(vault.read()?.token).not.toBeNull();
+  });
+
+  it('saves a checkout that was paid after the wait stopped, without opening it again', async () => {
+    const first = await interruptedUpgrade();
+    world.stripe.pay(first);
+    const io = recordingIO();
+    expect(await runProCli(['upgrade'], context(io))).toBe(0);
+    expect(checkoutsCreated()).toBe(1);
+    expect(io.opened).toEqual([]);
+    expect(io.sleeps).toEqual([]);
+    expect(vault.read()?.token).not.toBeNull();
+  });
+
+  it('opens a new checkout once the earlier one expired unpaid', async () => {
+    const first = await interruptedUpgrade();
+    world.stripe.expire(first);
+    const io = recordingIO((count) => { if (count === 1) world.stripe.pay(latestSession()); });
+    expect(await runProCli(['upgrade', '--no-open'], context(io))).toBe(0);
+    expect(checkoutsCreated()).toBe(2);
+    expect(latestSession()).not.toBe(first);
+    expect(existsSync(checkoutFile())).toBe(false);
+  });
+
+  it('stops waiting when the checkout expires', async () => {
+    const io = recordingIO((count) => { if (count === 1) world.stripe.expire(latestSession()); });
+    expect(await runProCli(['upgrade', '--no-open'], context(io))).toBe(1);
+    expect(io.sleeps).toHaveLength(1);
+    expect(errors(io)).toContain('expired');
+    expect(errors(io)).toContain('timmy pro upgrade');
+    expect(existsSync(checkoutFile())).toBe(false);
+  });
+
+  it('opens no second checkout while an earlier paid one is still active', async () => {
+    const first = await interruptedUpgrade();
+    world.stripe.pay(first);
+    await new HttpProService(world.origin, world.fetch).claim(first); // the welcome page showed the key, once
+    world.advance(DAY + 60);
+    const io = recordingIO();
+    expect(await runProCli(['upgrade', '--no-open'], context(io))).toBe(1);
+    expect(checkoutsCreated()).toBe(1);
+    expect(errors(io)).toContain('timmy pro activate');
+    expect(errors(io)).toContain('timmy pro billing');
+    expect(errors(io)).not.toContain('deactivate');
+  });
+
+  it('lets a customer whose earlier subscription ended buy again', async () => {
+    const first = await interruptedUpgrade();
+    const sub = world.stripe.pay(first);
+    const welcome = await new HttpProService(world.origin, world.fetch).claim(first); // the key the welcome page showed
+    if (welcome.state !== 'ready') throw new Error('expected a ready claim');
+    expect(await runProCli(['activate', welcome.key], context(recordingIO()))).toBe(0);
+    await cancelSubscription(sub.id);
+    world.advance(DAY + 60);
+    const io = recordingIO((count) => { if (count === 1) world.stripe.pay(latestSession()); });
+    expect(await runProCli(['upgrade', '--no-open'], context(io))).toBe(0);
+    expect(checkoutsCreated()).toBe(2);
+    expect(vault.read()?.key).not.toBe(welcome.key);
+    expect(vault.read()?.token).not.toBeNull();
+  });
+
+  it('keeps an open checkout through deactivate', async () => {
+    const first = await interruptedUpgrade();
+    expect(await runProCli(['deactivate'], context(recordingIO()))).toBe(0);
+    const io = recordingIO((count) => { if (count === 1) world.stripe.pay(first); });
+    expect(await runProCli(['upgrade', '--no-open'], context(io))).toBe(0);
+    expect(checkoutsCreated()).toBe(1);
+    expect(output(io)).toContain('still open');
+  });
+
+  it('forgets a checkout the service does not know and opens a new one', async () => {
+    mkdirSync(join(root, 'pro'), { recursive: true });
+    const unknown = 'cs_test_fromanotheraccount';
+    writeFileSync(checkoutFile(), JSON.stringify({ v: 1, sessionId: unknown, url: `https://checkout.stripe.com/c/pay/${unknown}`, openedAt: world.now() }));
+    const io = recordingIO((count) => { if (count === 1) world.stripe.pay(latestSession()); });
+    expect(await runProCli(['upgrade', '--no-open'], context(io))).toBe(0);
+    expect(checkoutsCreated()).toBe(1);
+    expect(existsSync(checkoutFile())).toBe(false);
+  });
+
+  it('starts no checkout while the record of an open checkout is damaged', async () => {
+    mkdirSync(join(root, 'pro'), { recursive: true });
+    writeFileSync(checkoutFile(), 'not json');
+    const io = recordingIO();
+    expect(await runProCli(['upgrade', '--no-open'], context(io))).toBe(1);
+    expect(checkoutsCreated()).toBe(0);
+    expect(errors(io)).toContain('checkout.json');
+  });
+
+  it('treats a recorded checkout whose link is not https as damaged', async () => {
+    const first = await interruptedUpgrade();
+    writeFileSync(checkoutFile(), JSON.stringify({ v: 1, sessionId: first, url: `http://checkout.stripe.com/c/pay/${first}`, openedAt: world.now() }));
+    const io = recordingIO();
+    expect(await runProCli(['upgrade'], context(io))).toBe(1);
+    expect(io.opened).toEqual([]);
+    expect(checkoutsCreated()).toBe(1);
+    expect(errors(io)).toContain('checkout.json');
   });
 });
 

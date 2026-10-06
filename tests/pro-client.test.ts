@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HttpProService, type FetchLike } from '../src/pro/client.js';
 import { ProServiceError } from '../src/pro/ports.js';
-import { proWorld } from './helpers/pro-harness.js';
+import { DAY, proWorld } from './helpers/pro-harness.js';
 
 const UNKNOWN_KEY = 'tpro_00000000-00000000-00000000-00000000';
 const servers: Server[] = [];
@@ -78,6 +78,24 @@ describe('HttpProService details', () => {
     world.stripe.subs.set(sub.id, { ...sub, status: 'canceled' });
     await world.webhook({ id: 'evt_cancel', type: 'customer.subscription.deleted', data: { object: { id: sub.id } } });
     expect(await serviceError(service.activate(claim.key))).toMatchObject({ kind: 'refused', code: 'subscription_inactive', subscriptionStatus: 'canceled' });
+  });
+
+  it('reads a checkout that expired unpaid', async () => {
+    const world = await proWorld();
+    const service = new HttpProService(world.origin, world.fetch);
+    const { sessionId } = await service.startCheckout();
+    world.stripe.expire(sessionId);
+    expect(await service.claim(sessionId)).toEqual({ state: 'expired' });
+  });
+
+  it('carries the subscription status behind a key the service can no longer show', async () => {
+    const world = await proWorld();
+    const service = new HttpProService(world.origin, world.fetch);
+    const { sessionId } = await service.startCheckout();
+    world.stripe.pay(sessionId);
+    await service.claim(sessionId);
+    world.advance(DAY + 1);
+    expect(await serviceError(service.claim(sessionId))).toMatchObject({ kind: 'refused', code: 'key_already_issued', subscriptionStatus: 'active' });
   });
 
   it('only passes on https links, so a browser opener never sees another scheme', async () => {

@@ -24,3 +24,6 @@ export type ProErrorCode = (typeof PRO_ERROR_CODES)[number];
 export function isProErrorCode(value: unknown): value is ProErrorCode {
   return typeof value === 'string' && (PRO_ERROR_CODES as readonly string[]).includes(value);
 }
+
+/** A Stripe Checkout Session id, the only checkout reference either side accepts. */
+export const CHECKOUT_SESSION_ID = /^cs_(test|live)_[A-Za-z0-9]{8,200}$/;

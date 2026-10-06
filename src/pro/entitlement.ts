@@ -133,9 +133,14 @@ const STEP_FOR: Readonly<Record<InactiveReason, NextStep>> = {
 /** A subscription in one of these states is over; anything else (past_due, unpaid, paused) can still charge or resume. */
 const ENDED_SUBSCRIPTION_STATUSES: ReadonlySet<string> = new Set(['canceled', 'incomplete_expired']);
 
+/** Stripe's status says the subscription is over for good: it will never charge again. Unknown or missing is not over. */
+export function isEndedSubscriptionStatus(status: string | null | undefined): boolean {
+  return ENDED_SUBSCRIPTION_STATUSES.has(status ?? '');
+}
+
 export function nextStep(entitlement: Entitlement): NextStep {
   if (entitlement.active) return 'none';
-  if (entitlement.reason === 'subscription_inactive' && ENDED_SUBSCRIPTION_STATUSES.has(entitlement.subscriptionStatus ?? '')) return 'buy';
+  if (entitlement.reason === 'subscription_inactive' && isEndedSubscriptionStatus(entitlement.subscriptionStatus)) return 'buy';
   return STEP_FOR[entitlement.reason];
 }
 

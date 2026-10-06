@@ -129,6 +129,33 @@ describe('after payment', () => {
     expect((await call('POST', '/license/claim', { session_id: sessionId })).status).toBe(410);
   });
 
+  it('says when a checkout expired unpaid, to the CLI and on the welcome page', async () => {
+    const sessionId = await newSession();
+    stripe.expire(sessionId);
+    const claimed = await call('POST', '/license/claim', { session_id: sessionId });
+    expect(claimed.status).toBe(200);
+    expect(await claimed.json()).toEqual({ status: 'expired' });
+    const welcome = await call('GET', `/welcome?session_id=${sessionId}`);
+    expect(welcome.status).toBe(410);
+    expect(await welcome.text()).toContain('This checkout expired before it was paid.');
+  });
+
+  it('says what became of the subscription when it can no longer show a key', async () => {
+    const kept = await paidSession();
+    const ended = await paidSession();
+    await claimKey(kept);
+    await claimKey(ended);
+    const endedSub = `sub_${ended.slice(-8)}`;
+    stripe.subs.set(endedSub, proSub(endedSub, 'canceled'));
+    await webhook({ id: 'evt_gone', type: 'customer.subscription.deleted', data: { object: { id: endedSub } } });
+    clock = NOW + DAY + 1;
+    for (const [sessionId, status] of [[kept, 'active'], [ended, 'canceled']]) {
+      const res = await call('POST', '/license/claim', { session_id: sessionId });
+      expect(res.status, status).toBe(410);
+      expect(await res.json(), status).toEqual({ error: 'license key already issued', code: 'key_already_issued', status });
+    }
+  });
+
   it('gives a canceled subscription no token, even inside the reveal window', async () => {
     const sessionId = await paidSession((id) => proSub(`sub_${id.slice(-8)}`, 'canceled'));
     const res = await call('POST', '/license/claim', { session_id: sessionId });
@@ -203,8 +230,9 @@ describe('activate, rotate, billing', () => {
     expect(await body(await call('GET', '/license/claim'))).toEqual({ status: 405, error: 'method not allowed', code: 'method_not_allowed' });
     expect(await body(await call('GET', '/nowhere'))).toEqual({ status: 404, error: 'not found', code: 'not_found' });
     clock += 2 * DAY;
-    expect(await body(await call('POST', '/license/claim', { session_id: sessionId })))
-      .toEqual({ status: 410, error: 'license key already issued', code: 'key_already_issued' });
+    const issued = await call('POST', '/license/claim', { session_id: sessionId });
+    expect(issued.status).toBe(410);
+    expect(await issued.json()).toEqual({ error: 'license key already issued', code: 'key_already_issued', status: 'active' });
     expect((await call('POST', '/license/activate', { key })).status).toBe(200);
   });
 

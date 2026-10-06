@@ -7,7 +7,7 @@
 
 import { accessMessage, entitlementFromProblem, nextStep, problemFromRefusal, type Entitlement, type InactiveReason, type NextStep } from './entitlement.js';
 import { LICENSE_KEY_PREFIX } from './license.js';
-import { LicenseInputError, ProUnavailableError, PurchaseRefusedError, type LicenseManager, type PurchaseClaim } from './manager.js';
+import { LicenseInputError, PaidCheckoutError, ProUnavailableError, PurchaseRefusedError, type LicenseManager, type PurchaseStart, type ReadyPurchase } from './manager.js';
 import { PRO_FEATURE_LABELS, PRO_PLAN, type ProFeature } from './plan.js';
 import { LicenseStorageError, ProServiceError } from './ports.js';
 import type { ProSettings } from './settings.js';
@@ -109,6 +109,15 @@ export function answerHelpOrUsageError(argv: readonly string[], io: ProCliIO): n
   return parsed.name === 'help' ? showUsage(io) : null;
 }
 
+/**
+ * argv with the global `timmy --json` flag handed back, for a command that has a `--json` of its own.
+ * Every other command, help and a usage error never see it.
+ */
+export function withGlobalJson(argv: readonly string[]): readonly string[] {
+  const parsed = parseArgs(argv);
+  return parsed.kind === 'command' && parsed.command.flags.includes('--json') ? [...argv, '--json'] : argv;
+}
+
 type ParsedArgs =
   | { kind: 'usage_error'; problem: string }
   | { kind: 'command'; name: string; command: Command; invocation: Invocation };
@@ -154,14 +163,19 @@ async function status({ flags }: Invocation, ctx: ProCliContext): Promise<number
 }
 
 async function upgrade({ flags }: Invocation, ctx: ProCliContext): Promise<number> {
-  let checkout: { url: string; sessionId: string };
+  let start: PurchaseStart;
   try {
-    checkout = await ctx.manager.startPurchase();
+    start = await ctx.manager.startPurchase();
   } catch (error) {
     if (error instanceof PurchaseRefusedError) return refusePurchase(error.entitlement, ctx);
+    if (error instanceof PaidCheckoutError) return refusePaidCheckout(ctx);
     throw error;
   }
-  ctx.io.out(`${PRO_PLAN.name} is ${PRICE}. Finish checkout in your browser:`);
+  if (start.state === 'ready') return announcePurchase(start, ctx);
+  const checkout = start;
+  ctx.io.out(checkout.resumed
+    ? `Your ${PRO_PLAN.name} checkout from earlier is still open. Finish it in your browser:`
+    : `${PRO_PLAN.name} is ${PRICE}. Finish checkout in your browser:`);
   ctx.io.out(`  ${checkout.url}`);
   if (!flags.has('--no-open')) ctx.io.openUrl(checkout.url);
   ctx.io.out('Waiting for payment… (Ctrl-C stops waiting; the welcome page also shows your key)');
@@ -174,13 +188,17 @@ async function upgrade({ flags }: Invocation, ctx: ProCliContext): Promise<numbe
     try {
       const claim = await ctx.manager.claimPurchase(checkout.sessionId);
       if (claim.state === 'ready') return announcePurchase(claim, ctx);
+      if (claim.state === 'expired') {
+        ctx.io.err('That checkout expired before it was paid. Run `timmy pro upgrade` to open a new one.');
+        return 1;
+      }
       interval = UPGRADE_POLL_INTERVAL_MS;
     } catch (error) {
       if (!(error instanceof ProServiceError) || !error.retryable) throw error;
       if (error.kind === 'rate_limited') interval = Math.min(interval * 2, UPGRADE_MAX_POLL_INTERVAL_MS);
     }
   }
-  ctx.io.err(`No payment arrived in ${UPGRADE_TIMEOUT_MS / 60_000} minutes. If you finish checkout later, copy the key from the welcome page and run \`timmy pro activate -\`.`);
+  ctx.io.err(`No payment arrived in ${UPGRADE_TIMEOUT_MS / 60_000} minutes. Run \`timmy pro upgrade\` again to pick the same checkout up while Stripe still has it open. If you pay in the browser meanwhile, the welcome page shows your key for \`timmy pro activate -\`.`);
   return 1;
 }
 
@@ -248,7 +266,14 @@ function refusePurchase(entitlement: Entitlement, ctx: ProCliContext): number {
   return 1;
 }
 
-function announcePurchase(claim: Extract<PurchaseClaim, { state: 'ready' }>, ctx: ProCliContext): number {
+/** The earlier checkout's subscription can still charge, so another checkout would bill the same buyer twice. */
+function refusePaidCheckout(ctx: ProCliContext): number {
+  ctx.io.err(`An earlier checkout from this machine started a ${PRO_PLAN.name} subscription that has not ended, so no new checkout was started (it would charge you twice).`);
+  ctx.io.err('Activate it with the key from its welcome page: `timmy pro activate -`. Lost the key? `timmy pro billing` opens Stripe\'s customer portal (sign in with your purchase email).');
+  return 1;
+}
+
+function announcePurchase(claim: ReadyPurchase, ctx: ProCliContext): number {
   printKey('Payment received. Your Timmy Pro license key:', claim.key, ctx);
   if (!claim.saved) {
     ctx.io.err(`Could not save it to ${ctx.settings.licensePath} (${claim.saveError.message}). Copy the key above now; once that file can be written, run \`timmy pro activate -\` and paste it.`);
@@ -325,15 +350,15 @@ function reportFailure(error: unknown, io: ProCliIO): number {
   throw error;
 }
 
-const STORAGE_FAILURE: Readonly<Record<LicenseStorageError['operation'], (detail: string) => string>> = {
-  read: (detail) => `Could not read the Timmy Pro license file (${detail}). Fix or remove that file.`,
-  write: (detail) => `Could not save the Timmy Pro license file (${detail}). Check that you own that file and its folder.`,
-  clear: (detail) => `Could not remove the Timmy Pro license file (${detail}). Check that you own that file and its folder.`,
+const STORAGE_FAILURE: Readonly<Record<LicenseStorageError['operation'], (file: string, detail: string) => string>> = {
+  read: (file, detail) => `Could not read the Timmy Pro ${file} (${detail}). Fix or remove that file.`,
+  write: (file, detail) => `Could not save the Timmy Pro ${file} (${detail}). Check that you own that file and its folder.`,
+  clear: (file, detail) => `Could not remove the Timmy Pro ${file} (${detail}). Check that you own that file and its folder.`,
 };
 
 /** The one place a failure becomes words for the user. */
 function explainFailure(error: Error): string {
-  if (error instanceof LicenseStorageError) return STORAGE_FAILURE[error.operation](error.message);
+  if (error instanceof LicenseStorageError) return STORAGE_FAILURE[error.operation](error.subject, error.message);
   if (!(error instanceof ProServiceError)) return error.message;
   switch (error.kind) {
     case 'unreachable':

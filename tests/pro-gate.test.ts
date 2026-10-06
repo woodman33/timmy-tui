@@ -7,7 +7,7 @@ import { checkProFeature, createProGate } from '../src/pro/gate.js';
 import { importVerifyKey } from '../src/pro/license.js';
 import { LicenseManager } from '../src/pro/manager.js';
 import { loadLicenseManager } from '../src/pro/runtime.js';
-import { FileLicenseVault } from '../src/pro/vault.js';
+import { FileCheckoutStore, FileLicenseVault } from '../src/pro/vault.js';
 import { DAY, proWorld, type ProWorld } from './helpers/pro-harness.js';
 
 let home: string;
@@ -90,6 +90,7 @@ describe('a Pro gate', () => {
   it('turns an unexpected failure into a denial instead of an exception', async () => {
     const broken = new LicenseManager({
       vault: { read: () => { throw new Error('EPERM: operation not permitted'); }, write: () => {}, clear: () => false },
+      checkouts: new FileCheckoutStore(join(home, 'pro', 'checkout.json')),
       service: null,
       publicKey: null,
       now: world.now,
@@ -147,6 +148,7 @@ describe('a Pro gate and the network', () => {
     const files = new FileLicenseVault(licensePath());
     const unwritable = new LicenseManager({
       vault: { read: () => files.read(), write: () => { throw new TypeError('vault exploded'); }, clear: () => false },
+      checkouts: new FileCheckoutStore(join(home, 'pro', 'checkout.json')),
       service: new HttpProService(world.origin, world.fetch),
       publicKey: await importVerifyKey(world.publicKey),
       now: world.now,

@@ -58,11 +58,39 @@ Otherwise `upgrade` starts nothing and says why. An active license points to `ti
 past-due, unpaid or paused subscription also goes to billing, since it can still resume. A lapsed
 token goes to `timmy pro activate`. A license file Timmy cannot read blocks buying until the file is
 fixed or removed, because Timmy cannot tell whether you already pay. `timmy pro deactivate` removes the
-license from this machine, after which `upgrade` will sell a new subscription.
+license from this machine, after which `upgrade` will sell a new subscription, subject to "One checkout
+at a time" below.
+
+**One checkout at a time.** `upgrade` records the checkout it opens before showing it, so stopping the
+wait (Ctrl-C, the 30-minute timeout, a closed terminal) never leads to a second payable checkout. The
+next `upgrade` asks the service what became of that checkout; this computer's clock never decides:
+- Still unpaid: `upgrade` resumes the same checkout ("still open") instead of opening another, for as
+  long as Stripe keeps it open.
+- Paid meanwhile: `upgrade` saves its key at once, without reopening anything.
+- Expired unpaid (Stripe says so, by default 24 hours after it opened): it is forgotten and a new
+  checkout opens. An `upgrade` still waiting when the checkout expires stops and says so.
+- Paid, its key can no longer be shown here (the 24-hour window closed, or the key was replaced), and
+  the subscription it started has not ended: no new checkout opens, since it would charge you twice.
+  `upgrade` points to that key (`timmy pro activate -`) and, if it was lost, to `timmy pro billing`.
+- Paid, and the subscription it started has since ended (`canceled` or `incomplete_expired`): it is
+  forgotten and a new checkout opens.
+- Unknown to the service (another Stripe account, test vs live): it is forgotten.
+- The service is busy or out of reach: the same checkout is resumed, which is always safe.
+- A record Timmy cannot read, or one that does not name a Stripe Checkout session behind an https link,
+  blocks buying until it is fixed or removed, like a damaged license.
+
+`timmy pro deactivate` removes only the license and leaves the checkout record alone, so a checkout that
+can still be paid is resumed, never doubled. The record is forgotten once `upgrade` saves its key here,
+or once the service says the checkout expired, does not know it, or its subscription ended. A key that
+cannot be saved is printed, and the record stays, so the next `upgrade` can collect the key again.
 
 **Where the license lives:** `<TIMMY_HOME>/pro/license.json` (`~/timmy/pro/license.json` by default),
 mode 0600 in a 0700 directory, replaced atomically. A file that exists but cannot be read or understood
-is reported as `license_unreadable`, never as "no license".
+is reported as `license_unreadable`, never as "no license". The open checkout, if any, is recorded beside
+it in `checkout.json`, with the same permissions.
+
+**`--json`** applies to `status` only. The global `timmy --json` flag reaches `timmy pro status` (and bare
+`timmy pro`); the other `pro` commands ignore it.
 
 **Renewal and pacing:**
 - Tokens last up to 7 days. They renew automatically when under two days are left and the service is

@@ -1,12 +1,14 @@
-// The two ports the license manager works through, owned here rather than by
-// their adapters: the Pro service (client.ts speaks it over HTTP) and the
-// license store on this machine (vault.ts keeps it in a file).
+// The ports the license manager works through, owned here rather than by their
+// adapters: the Pro service (client.ts speaks it over HTTP), the license store
+// on this machine and the record of the checkout it has open (vault.ts keeps
+// both in files).
 
 import type { ProErrorCode } from './protocol.js';
 
 // ── the Pro service ──────────────────────────────────────────────────────
 
-export type ClaimResult = { state: 'pending' } | { state: 'ready'; key: string; token: string };
+/** `expired`: Stripe gave up on the checkout before it was paid; it can never complete. */
+export type ClaimResult = { state: 'pending' } | { state: 'expired' } | { state: 'ready'; key: string; token: string };
 
 export interface ProService {
   startCheckout(): Promise<{ url: string; sessionId: string }>;
@@ -29,7 +31,10 @@ export interface ProServiceErrorDetails {
   /** The worker's error code, present only when the Pro service itself answered. */
   code?: ProErrorCode | null;
   httpStatus?: number | null;
-  /** Stripe's status for the subscription, when the service refused because it is not active. */
+  /**
+   * Stripe's status for the subscription, when the service reported one with its refusal: the
+   * subscription is not active (`subscription_inactive`), or its key can no longer be shown (`key_already_issued`).
+   */
   subscriptionStatus?: string | null;
 }
 
@@ -80,10 +85,15 @@ export interface StoredLicense {
   nextRefreshAt?: number;
 }
 
-/** The license file could not be read, written or removed, or its contents are not a license this build understands. */
+/** A Pro file on this machine could not be read, written or removed, or its contents are not something this build understands. */
 export class LicenseStorageError extends Error {
   override name = 'LicenseStorageError';
-  constructor(message: string, readonly operation: 'read' | 'write' | 'clear') {
+  constructor(
+    message: string,
+    readonly operation: 'read' | 'write' | 'clear',
+    /** Which file: the license, or the record of an open checkout. */
+    readonly subject: 'license file' | 'checkout record' = 'license file',
+  ) {
     super(message);
   }
 }
@@ -93,5 +103,28 @@ export interface LicenseVault {
   read(): StoredLicense | null;
   write(license: StoredLicense): void;
   /** Removes the stored license; true when there was one. */
+  clear(): boolean;
+}
+
+// ── the checkout this machine has open ───────────────────────────────────
+
+/** A Stripe Checkout that `timmy pro upgrade` opened here and has not seen through yet. */
+export interface OpenCheckout {
+  v: 1;
+  sessionId: string;
+  url: string;
+  /** Unix seconds. For reference only: whether it can still be paid is for the service to say. */
+  openedAt: number;
+}
+
+/**
+ * The record of the one checkout this machine has open, so that running `upgrade` again resumes it
+ * instead of opening a second payable checkout. read() is null only when there is none; anything
+ * unusable throws LicenseStorageError (never "no checkout": that would invite a second purchase).
+ */
+export interface CheckoutStore {
+  read(): OpenCheckout | null;
+  write(checkout: OpenCheckout): void;
+  /** Removes the record; true when there was one. */
   clear(): boolean;
 }

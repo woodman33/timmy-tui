@@ -59,7 +59,11 @@ export function fakeStripe() {
     sessions.set(sessionId, { ...sessions.get(sessionId)!, status: 'complete', paymentStatus: 'paid', customerId: 'cus_buyer', email: 'buyer@example.com', subId: sub.id });
     return sub;
   };
-  return { client, sessions, subs, calls, slowReads, pay };
+  /** Stripe gave up on an unpaid checkout (it does so 24 hours after opening it, by default). */
+  const expire = (sessionId: string) => {
+    sessions.set(sessionId, { ...sessions.get(sessionId)!, status: 'expired' });
+  };
+  return { client, sessions, subs, calls, slowReads, pay, expire };
 }
 
 /**

@@ -3,12 +3,18 @@
 
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { answerHelpOrUsageError, runProCli, type ProCliContext, type ProCliIO } from './cli.js';
+import { answerHelpOrUsageError, runProCli, withGlobalJson, type ProCliContext, type ProCliIO } from './cli.js';
 import { resolveProRuntime, type Env, type RuntimeOverrides } from './runtime.js';
 import { ProConfigError } from './settings.js';
 
+export interface ProCommandOptions {
+  /** The global `timmy --json` flag. Commands with a `--json` of their own get it; the rest never see it. */
+  json?: boolean;
+}
+
 /** Runs `timmy pro …` and returns its exit code. Help and usage errors need no configuration. */
-export async function runProCommand(argv: readonly string[], env: Env = process.env): Promise<number> {
+export async function runProCommand(rawArgv: readonly string[], env: Env = process.env, options: ProCommandOptions = {}): Promise<number> {
+  const argv = options.json ? withGlobalJson(rawArgv) : rawArgv;
   const io = terminalIO();
   const answered = answerHelpOrUsageError(argv, io);
   if (answered !== null) return answered;

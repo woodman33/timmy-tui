@@ -2,8 +2,8 @@ import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, write
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { LicenseStorageError, type StoredLicense } from '../src/pro/ports.js';
-import { FileLicenseVault } from '../src/pro/vault.js';
+import { LicenseStorageError, type OpenCheckout, type StoredLicense } from '../src/pro/ports.js';
+import { FileCheckoutStore, FileLicenseVault } from '../src/pro/vault.js';
 
 const LICENSE: StoredLicense = { v: 1, key: 'tpro_ABCDEFGH-JKMNPQRS-TVWXYZ01-23456789', token: 'tpro1.payload.signature', savedAt: 1_800_000_000 };
 
@@ -93,5 +93,28 @@ describe('FileLicenseVault', () => {
     expect(vault.clear()).toBe(true);
     expect(vault.read()).toBeNull();
     expect(vault.clear()).toBe(false);
+  });
+});
+
+describe('FileCheckoutStore', () => {
+  const CHECKOUT: OpenCheckout = { v: 1, sessionId: 'cs_test_a1B2c3D4e5', url: 'https://checkout.stripe.com/c/pay/cs_test_a1B2c3D4e5', openedAt: 1_800_000_000 };
+
+  it('refuses a record whose link is not https or whose session is not a Stripe Checkout session', () => {
+    const checkoutPath = join(root, 'pro', 'checkout.json');
+    const store = new FileCheckoutStore(checkoutPath);
+    store.write(CHECKOUT);
+    expect(store.read()).toEqual(CHECKOUT);
+    const damaged: Array<Partial<OpenCheckout>> = [
+      { url: 'http://checkout.stripe.com/c/pay/cs_test_a1B2c3D4e5' },
+      { url: 'javascript:alert(1)' },
+      { url: 'not a url' },
+      { sessionId: 'cs_test_short' },
+      { sessionId: 'sub_a1B2c3D4e5' },
+      { sessionId: 'cs_test_../../a1B2c3D4e5' },
+    ];
+    for (const change of damaged) {
+      writeFileSync(checkoutPath, JSON.stringify({ ...CHECKOUT, ...change }));
+      expect(storageError(() => store.read()), JSON.stringify(change)).toMatchObject({ operation: 'read', subject: 'checkout record' });
+    }
   });
 });

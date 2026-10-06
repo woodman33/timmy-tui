@@ -28,6 +28,7 @@ export class HttpProService implements ProService {
   async claim(sessionId: string): Promise<ClaimResult> {
     const { data, status } = await this.post('/license/claim', { session_id: sessionId });
     if (status === 202 || data.status === 'pending') return { state: 'pending' };
+    if (data.status === 'expired') return { state: 'expired' };
     return { state: 'ready', key: field(data, 'key', status), token: field(data, 'token', status) };
   }
 
@@ -94,7 +95,7 @@ function failure(status: number, data: unknown): ProServiceError {
   if (code === 'unavailable' || code === 'payment_provider_error' || code === 'internal_error') {
     return new ProServiceError(message, 'server_error', details);
   }
-  if (code === 'subscription_inactive') {
+  if (code === 'subscription_inactive' || code === 'key_already_issued') {
     const subscriptionStatus = isRecord(data) && typeof data.status === 'string' ? data.status : null;
     return new ProServiceError(message, 'refused', { ...details, subscriptionStatus });
   }

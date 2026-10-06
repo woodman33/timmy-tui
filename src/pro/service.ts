@@ -6,7 +6,8 @@
 //   GET  /                   landing page with the Upgrade button
 //   POST /checkout           Stripe Checkout Session (JSON for the CLI, 303 for the web form)
 //   GET  /welcome            after payment: shows the license key (first 24 hours only)
-//   POST /license/claim      the CLI polls this after `timmy pro upgrade` (same 24-hour window)
+//   POST /license/claim      the CLI polls this after `timmy pro upgrade` (same 24-hour window);
+//                            it also says when Stripe let the checkout expire unpaid
 //   POST /license/activate   key → signed license token
 //   POST /license/rotate     key → new key; the old key stops working
 //   GET|POST /billing        Stripe's customer-portal login (the customer signs in by email)
@@ -24,7 +25,7 @@
 
 import { PAST_DUE_GRACE_SECONDS, PRO_FEATURE_LABELS, PRO_FEATURES, PRO_PLAN, isProActive } from './plan.js';
 import { sha256Hex } from './encoding.js';
-import type { ProErrorCode } from './protocol.js';
+import { CHECKOUT_SESSION_ID, type ProErrorCode } from './protocol.js';
 import { deriveLicenseKey, importSigningKey, licenseKeyHash, normalizeLicenseKey, proClaims, signLicenseToken, type LicenseClaims } from './license.js';
 import { verifyStripeSignature } from './stripe-signature.js';
 import { StripeApiError, type StripeClient, type SubscriptionInfo } from './stripe-api.js';
@@ -60,7 +61,6 @@ const DAY = 86_400;
 const TOKEN_TTL = 7 * DAY;
 const PERIOD_GRACE = 3 * DAY;
 const REVEAL_WINDOW = DAY;
-const SESSION_ID = /^cs_(test|live)_[A-Za-z0-9]{8,200}$/;
 const PAID = new Set(['paid', 'no_payment_required']);
 const CHECKOUT_EVENTS = new Set(['checkout.session.completed', 'checkout.session.async_payment_succeeded']);
 const SUBSCRIPTION_EVENTS = new Set([
@@ -144,9 +144,10 @@ async function checkout(request: Request, url: URL, deps: ProDeps): Promise<Resp
 
 async function welcome(url: URL, deps: ProDeps): Promise<Response> {
   const sessionId = url.searchParams.get('session_id') ?? '';
-  if (!SESSION_ID.test(sessionId)) return html(messagePage('That link is not a Timmy Pro checkout link.'), 400);
+  if (!CHECKOUT_SESSION_ID.test(sessionId)) return html(messagePage('That link is not a Timmy Pro checkout link.'), 400);
   const settled = await settleCheckout(sessionId, deps);
   if (settled.state === 'invalid') return html(messagePage('We could not find a Timmy Pro purchase for that checkout.'), 404);
+  if (settled.state === 'expired') return html(expiredPage(), 410);
   if (settled.state === 'pending') return html(messagePage('Your payment is still processing. Refresh this page in a moment.'), 202);
   if (!canReveal(settled.record, deps.now())) return html(alreadyIssuedPage(), 410);
   return html(welcomePage(await keyFor(settled.record, deps), settled.record.status));
@@ -154,11 +155,13 @@ async function welcome(url: URL, deps: ProDeps): Promise<Response> {
 
 async function claim(request: Request, deps: ProDeps): Promise<Response> {
   const sessionId = String((await readJson(request))?.session_id ?? '');
-  if (!SESSION_ID.test(sessionId)) throw new HttpError(400, 'invalid_request', 'invalid session_id');
+  if (!CHECKOUT_SESSION_ID.test(sessionId)) throw new HttpError(400, 'invalid_request', 'invalid session_id');
   const settled = await settleCheckout(sessionId, deps);
   if (settled.state === 'invalid') throw new HttpError(404, 'unknown_checkout', 'no Timmy Pro purchase for that checkout');
+  if (settled.state === 'expired') return json({ status: 'expired' });
   if (settled.state === 'pending') return json({ status: 'pending' }, 202);
-  if (!canReveal(settled.record, deps.now())) throw new HttpError(410, 'key_already_issued', 'license key already issued');
+  // The subscription's status tells the CLI whether this purchase can still charge (so it must not sell another) or has ended.
+  if (!canReveal(settled.record, deps.now())) throw new HttpError(410, 'key_already_issued', 'license key already issued', { status: settled.record.status });
   const record = await requireActive(settled.record, deps);
   return json({ status: 'ready', key: await keyFor(record, deps), ...(await issueToken(record, deps)) });
 }
@@ -211,7 +214,8 @@ async function webhook(request: Request, deps: ProDeps): Promise<Response> {
 
 // ── core ──────────────────────────────────────────────────────────────────
 
-type Settled = { state: 'ready'; record: SubscriptionRecord } | { state: 'pending' } | { state: 'invalid' };
+/** `expired`: Stripe gave up on the checkout before it was paid; it can never complete. */
+type Settled = { state: 'ready'; record: SubscriptionRecord } | { state: 'pending' } | { state: 'expired' } | { state: 'invalid' };
 
 const unknownSessions = new Map<string, number>();
 const UNKNOWN_TTL = 600;
@@ -236,6 +240,7 @@ async function settleCheckout(sessionId: string, deps: ProDeps, opts: { refresh?
     throw err;
   }
   if (info.mode !== 'subscription') return { state: 'invalid' };
+  if (info.status === 'expired') return { state: 'expired' };
   if (info.status !== 'complete' || !PAID.has(info.paymentStatus ?? '') || !info.subscription) return { state: 'pending' };
   if (!isProSubscription(info.subscription, deps.env)) return { state: 'invalid' };
   const record = await syncSubscription(info.subscription.id, { customerId: info.customerId, email: info.email, checkoutSessionId: info.id }, deps);
@@ -441,6 +446,11 @@ function alreadyIssuedPage(): string {
   return page('Timmy Pro', `<div class="label">Timmy Pro</div><h1>Your license key was already issued.</h1>
 <p>For your security this link only shows the key once, for 24 hours. Use the key you saved with <code>timmy pro activate</code>.</p>
 <p>Lost it? Reply to your Stripe receipt email and we'll help.</p>`);
+}
+
+function expiredPage(): string {
+  return page('Timmy Pro', `<div class="label">Timmy Pro</div><h1>This checkout expired before it was paid.</h1>
+<p>Run <code>timmy pro upgrade</code> to start a new one.</p>`);
 }
 
 function messagePage(message: string): string {

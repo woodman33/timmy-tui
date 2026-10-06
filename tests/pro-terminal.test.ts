@@ -30,6 +30,15 @@ describe('runProCommand', () => {
     });
   });
 
+  it('hands the global --json flag to the commands that print JSON, and only to them', async () => {
+    expect(await runProCommand([], { TIMMY_HOME: home }, { json: true })).toBe(0);
+    expect(JSON.parse(stdout.join(''))).toMatchObject({ schemaVersion: 1, active: false });
+    stdout.length = 0;
+    expect(await runProCommand(['deactivate'], { TIMMY_HOME: home }, { json: true })).toBe(0);
+    expect(stdout.join('')).toContain('There was no Timmy Pro license');
+    expect(stderr.join('')).toBe('');
+  });
+
   it('refuses an insecure service URL before sending anything', async () => {
     expect(await runProCommand(['status'], { TIMMY_HOME: home, TIMMY_PRO_URL: 'http://example.com' })).toBe(2);
     expect(stderr.join('')).toContain('TIMMY_PRO_URL must use https');
