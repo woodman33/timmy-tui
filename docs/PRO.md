@@ -68,11 +68,18 @@ is reported as `license_unreadable`, never as "no license".
 - Tokens last up to 7 days. They renew automatically when under two days are left and the service is
   reachable.
 - Offline, the current token keeps working until it expires.
-- If the service is busy or out of reach, automatic renewal waits 5 minutes before trying again.
+- Automatic renewal paces itself:
+  - after the service was busy or out of reach, it waits 5 minutes;
+  - after a refusal, a new token this build cannot use, or a renewal that came back short-lived (as in
+    the last days of a past-due grace period), it waits an hour.
 - If the service refuses the key, the token is dropped and the reason is remembered, whichever command
-  heard it. That covers a subscription that is not active (with its Stripe status) and a key that was
-  replaced. The service is then asked again at most hourly. The same applies when a token fails
-  verification, or when this computer's clock disagrees with the service.
+  heard it, `rotate` included. That covers a subscription that is not active (with its Stripe status)
+  and a key that was replaced. The same applies when a new token fails verification, or when this
+  computer's clock disagrees with the service in either direction.
+- Every command words a refusal the same way `status` does: a cancelled subscription points to
+  `timmy pro upgrade`, a past-due one to `timmy pro billing`.
+- A renewal only ever updates the key it was for. If you rotate, activate, buy or deactivate while a
+  renewal is in flight (say, in another terminal), the renewal leaves your change alone.
 - A proxy page, a redirect or an outage never counts as a refusal.
 - Links the service sends (checkout, billing portal) must be `https`.
 
@@ -107,8 +114,10 @@ if (!access.allowed) return showNotice(access.message); // never throws; the mes
 - An active license answers at once; a renewal that is due runs in the background.
 - An inactive license waits for a refresh, since that may turn it back on. Requests from a feature
   check give up after 5 s (`GATE_TIMEOUT_MS`).
-- `refresh: 'wait'` waits for any renewal that is due before answering; `refresh: 'never'` stays off
-  the network.
+- `checkProFeature(feature, { refresh: 'wait' })` waits for any renewal that is due before answering;
+  `refresh: 'never'` stays off the network.
+- One gate serves the whole process, so checks share renewals and pacing. `createProGate({ env, overrides })`
+  or `createProGate({ manager })` builds a separate one, for tests and embedders.
 - A denial's `reason` is an entitlement reason, `not_in_plan`, `config_error` (bad `TIMMY_PRO_URL`
   or public key) or `unexpected_error`.
 

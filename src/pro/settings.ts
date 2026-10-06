@@ -31,6 +31,9 @@ export class ProConfigError extends Error {
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
+/** Plain http is acceptable only to this machine: the one exception to "license traffic is https". */
+export const isLoopbackHttp = (url: URL): boolean => url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname);
+
 export function resolveProSettings(
   env: Readonly<Record<string, string | undefined>>,
   timmyHomeDir: string,
@@ -61,7 +64,7 @@ function serviceOrigin(raw: string): string {
   } catch {
     throw new ProConfigError(`TIMMY_PRO_URL is not a URL: ${raw}`);
   }
-  const secure = url.protocol === 'https:' || (url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname));
+  const secure = url.protocol === 'https:' || isLoopbackHttp(url);
   if (!secure) throw new ProConfigError(`TIMMY_PRO_URL must use https (http is allowed only for localhost): ${raw}`);
   if (url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) {
     throw new ProConfigError(`TIMMY_PRO_URL must be a bare origin such as https://pro.example.com: ${raw}`);

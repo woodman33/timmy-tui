@@ -7,6 +7,7 @@
 import type { ClaimResult, ProService } from './ports.js';
 import { ProServiceError } from './ports.js';
 import { isProErrorCode, type ProErrorCode } from './protocol.js';
+import { isLoopbackHttp } from './settings.js';
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -77,13 +78,10 @@ export class HttpProService implements ProService {
     } catch {
       throw unexpectedResponse(status);
     }
-    const loopbackService = new URL(this.baseUrl).protocol === 'http:';
-    if (url.protocol === 'https:' || (loopbackService && url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname))) return url.href;
+    if (url.protocol === 'https:' || (isLoopbackHttp(new URL(this.baseUrl)) && isLoopbackHttp(url))) return url.href;
     throw new ProServiceError('the Pro service sent a link that is not https', 'unexpected_response', { httpStatus: status });
   }
 }
-
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 /** The one place an HTTP answer becomes a failure kind. Only the Pro service's own coded JSON counts as a refusal. */
 function failure(status: number, data: unknown): ProServiceError {

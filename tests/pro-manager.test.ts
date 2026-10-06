@@ -58,6 +58,31 @@ function corruptLicenseFile() {
   writeFileSync(vault.location, 'not json');
 }
 
+/**
+ * A service whose first /license/activate waits until `release` is called (with an error to fail
+ * it). `arrived` resolves once that request is in flight; with 'answered', the real service has
+ * already answered it by then, so the token in hand predates anything done meanwhile.
+ */
+function holdFirstActivation(when: 'sent' | 'answered') {
+  let release!: (failure?: Error) => void;
+  const gate = new Promise<Error | undefined>((resolve) => { release = resolve; });
+  let reached!: () => void;
+  const arrived = new Promise<void>((resolve) => { reached = resolve; });
+  let first = true;
+  const fetch: FetchLike = async (input, init) => {
+    if (!first || new URL(input).pathname !== '/license/activate') return world.fetch(input, init);
+    first = false;
+    const early = when === 'answered' ? await world.fetch(input, init) : null;
+    reached();
+    const failure = await gate;
+    if (failure) throw failure;
+    return early ?? world.fetch(input, init);
+  };
+  return { service: new HttpProService(world.origin, fetch), arrived, release };
+}
+
+const notFound = async () => new Response(JSON.stringify({ error: 'not found', code: 'not_found' }), { status: 404, headers: { 'content-type': 'application/json' } });
+
 const checkoutsCreated = () => world.stripe.calls.filter((call) => call.startsWith('create:')).length;
 
 beforeEach(async () => {
@@ -140,6 +165,22 @@ describe('activation', () => {
     expect(await manager().refreshIfDue()).toMatchObject({ reason: 'license_unreadable' });
     expect(manager().storedKey()).toBeNull();
   });
+
+  it('says the license file cannot be read when renewing or rotating', async () => {
+    corruptLicenseFile();
+    await expect(manager().renew()).rejects.toBeInstanceOf(LicenseStorageError);
+    await expect(manager().rotate()).rejects.toBeInstanceOf(LicenseStorageError);
+  });
+
+  it('says to check the clock when this computer runs ahead of the service', async () => {
+    const { key } = await purchasedKey();
+    const fastClock = () => world.now() + 10 * DAY;
+    expect(await manager({ now: fastClock }).activate(key)).toMatchObject({ active: false, reason: 'clock_skew' });
+    expect(vault.read()).toMatchObject({ key, token: null, problem: { reason: 'clock_skew' } });
+    requests = [];
+    await manager({ now: fastClock }).refreshIfDue();
+    expect(requests).toEqual([]);
+  });
 });
 
 describe('refusals are remembered whichever command hears them', () => {
@@ -150,6 +191,14 @@ describe('refusals are remembered whichever command hears them', () => {
     await expect(manager().renew()).rejects.toMatchObject({ code: 'subscription_inactive' });
     expect(vault.read()).toMatchObject({ key, token: null, problem: { reason: 'subscription_inactive', subscriptionStatus: 'canceled' } });
     expect(await manager({ service: null }).currentEntitlement()).toMatchObject({ active: false, reason: 'subscription_inactive', subscriptionStatus: 'canceled' });
+  });
+
+  it('records a key that rotate learns was replaced elsewhere', async () => {
+    const { key } = await purchasedKey();
+    await manager().activate(key);
+    await new HttpProService(world.origin, world.fetch).rotate(key);
+    await expect(manager().rotate()).rejects.toMatchObject({ code: 'unknown_key' });
+    expect(vault.read()).toMatchObject({ key, token: null, problem: { reason: 'key_revoked' } });
   });
 
   it('never replaces the stored key with a different key the service refused', async () => {
@@ -243,12 +292,93 @@ describe('refresh', () => {
     expect(vault.read()).toMatchObject({ key, token: null, problem: { reason: 'key_revoked' } });
   });
 
+  it('asks again at most hourly when a renewal comes back short-lived', async () => {
+    const { key } = await purchasedKey('past_due');
+    await manager().activate(key);
+    world.advance(12.5 * DAY);
+    requests = [];
+    expect(await manager().refreshIfDue()).toMatchObject({ active: true, refreshDue: true });
+    expect(await manager().refreshIfDue()).toMatchObject({ active: true });
+    expect(requests).toEqual(['/license/activate']);
+    world.advance(3601);
+    await manager().refreshIfDue();
+    expect(requests).toEqual(['/license/activate', '/license/activate']);
+  });
+
+  it('asks again at most hourly after a refusal that is not about the key', async () => {
+    const { key } = await purchasedKey();
+    await manager().activate(key);
+    world.advance(8 * DAY);
+    faults.set('/license/activate', notFound);
+    requests = [];
+    await manager().refreshIfDue();
+    await manager().refreshIfDue();
+    expect(requests).toEqual(['/license/activate']);
+    world.advance(3601);
+    await manager().refreshIfDue();
+    expect(requests).toEqual(['/license/activate', '/license/activate']);
+  });
+
+  it('keeps its pacing in memory when the license file cannot be written', async () => {
+    const { key } = await purchasedKey();
+    await manager().activate(key);
+    world.advance(6 * DAY);
+    const readOnly: LicenseVault = { read: () => vault.read(), write: () => { throw new LicenseStorageError('cannot write: EROFS', 'write'); }, clear: () => vault.clear() };
+    const stuck = manager({ vault: readOnly });
+    requests = [];
+    expect((await stuck.refreshIfDue()).active).toBe(true);
+    expect((await stuck.refreshIfDue()).active).toBe(true);
+    expect(requests).toEqual(['/license/activate']);
+  });
+
   it('keeps what it has when the license file cannot be written', async () => {
     const { key } = await purchasedKey();
     await manager().activate(key);
     world.advance(6 * DAY);
     const readOnly: LicenseVault = { read: () => vault.read(), write: () => { throw new LicenseStorageError('cannot write: EROFS', 'write'); }, clear: () => vault.clear() };
     expect((await manager({ vault: readOnly }).refreshIfDue()).active).toBe(true);
+  });
+});
+
+describe('bookkeeping never overwrites a newer license', () => {
+  async function dueLicense(): Promise<void> {
+    const { key } = await purchasedKey();
+    await manager().activate(key);
+    world.advance(6 * DAY);
+  }
+
+  it('keeps a key rotated while a refresh was failing', async () => {
+    await dueLicense();
+    const held = holdFirstActivation('sent');
+    const refreshing = manager({ service: held.service }).refreshIfDue();
+    await held.arrived;
+    const rotated = await manager().rotate();
+    held.release(new TypeError('fetch failed'));
+    await refreshing;
+    expect(vault.read()).toMatchObject({ key: rotated.key });
+    expect(vault.read()?.token).toBeTruthy();
+  });
+
+  it('keeps a key rotated after the service answered a refresh for the old one', async () => {
+    await dueLicense();
+    const held = holdFirstActivation('answered');
+    const refreshing = manager({ service: held.service }).refreshIfDue();
+    await held.arrived;
+    const rotated = await manager().rotate();
+    held.release();
+    expect(await refreshing).toMatchObject({ active: true });
+    expect(vault.read()).toMatchObject({ key: rotated.key });
+  });
+
+  it('does not bring back a license removed while a refresh was failing', async () => {
+    await dueLicense();
+    const held = holdFirstActivation('sent');
+    const refreshing = manager({ service: held.service }).refreshIfDue();
+    await held.arrived;
+    expect(manager().deactivate()).toBe(true);
+    held.release(new TypeError('fetch failed'));
+    await refreshing;
+    expect(vault.read()).toBeNull();
   });
 });
 

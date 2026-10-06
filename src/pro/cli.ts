@@ -5,7 +5,7 @@
 // ProCliContext, so tests run them against the real service handler with a
 // recording IO.
 
-import { accessMessage, nextStep, type Entitlement, type InactiveReason, type NextStep } from './entitlement.js';
+import { accessMessage, entitlementFromProblem, nextStep, problemFromRefusal, type Entitlement, type InactiveReason, type NextStep } from './entitlement.js';
 import { LICENSE_KEY_PREFIX } from './license.js';
 import { LicenseInputError, ProUnavailableError, PurchaseRefusedError, type LicenseManager, type PurchaseClaim } from './manager.js';
 import { PRO_FEATURE_LABELS, PRO_PLAN, type ProFeature } from './plan.js';
@@ -349,12 +349,11 @@ function explainFailure(error: Error): string {
   }
 }
 
+/** A refusal that says something about the key is worded from what it means for the license, like `status` words it. */
 function explainRefusal(error: ProServiceError): string {
+  const problem = problemFromRefusal(error);
+  if (problem) return accessMessage(entitlementFromProblem(problem));
   switch (error.code) {
-    case 'subscription_inactive':
-      return 'Your Timmy Pro subscription is not active. Check it with `timmy pro billing`.';
-    case 'unknown_key':
-      return 'That license key is not recognized. If it was replaced, activate the newest key with `timmy pro activate -`.';
     case 'invalid_key':
       return 'That is not a Timmy Pro license key.';
     case 'key_already_issued':

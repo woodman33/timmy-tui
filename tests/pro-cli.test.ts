@@ -89,6 +89,11 @@ function corruptLicenseFile() {
 
 const KEY_PATTERN = /tpro_[0-9A-Z]{8}(?:-[0-9A-Z]{8}){3}/;
 
+async function cancelSubscription(subscriptionId: string) {
+  world.stripe.subs.set(subscriptionId, { ...world.stripe.subs.get(subscriptionId)!, status: 'canceled' });
+  await world.webhook({ id: `evt_cancel_${subscriptionId}`, type: 'customer.subscription.deleted', data: { object: { id: subscriptionId } } });
+}
+
 beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), 'timmy-pro-cli-'));
   world = await proWorld();
@@ -273,6 +278,22 @@ describe('timmy pro activate, rotate, billing, deactivate', () => {
     const io = recordingIO();
     expect(await runProCli(['activate', 'tpro_nope'], context(io))).toBe(2);
     expect(errors(io)).toContain('not a Timmy Pro license key');
+  });
+
+  it('activate after a cancellation points to upgrade, not billing', async () => {
+    const { subscriptionId } = await activated();
+    await cancelSubscription(subscriptionId);
+    const io = recordingIO();
+    expect(await runProCli(['activate'], context(io))).toBe(1);
+    expect(errors(io)).toContain('timmy pro upgrade');
+    expect(errors(io)).not.toContain('timmy pro billing');
+  });
+
+  it('rotate says when the license file cannot be read', async () => {
+    corruptLicenseFile();
+    const io = recordingIO();
+    expect(await runProCli(['rotate'], context(io))).toBe(1);
+    expect(errors(io)).toContain('Could not read the Timmy Pro license file');
   });
 
   it('activate says when the license file cannot be saved', async () => {

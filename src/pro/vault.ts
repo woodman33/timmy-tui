@@ -61,7 +61,7 @@ export class FileLicenseVault implements LicenseVault {
   }
 }
 
-/** A v1 license, or null. An unrecognized `problem` or `retryAfter` is dropped rather than losing the key. */
+/** A v1 license, or null. An unrecognized `problem` or `nextRefreshAt` is dropped rather than losing the key. */
 function toStoredLicense(value: unknown): StoredLicense | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
@@ -70,7 +70,7 @@ function toStoredLicense(value: unknown): StoredLicense | null {
   const license: StoredLicense = { v: 1, key: record.key, token: record.token, savedAt: record.savedAt };
   const problem = toStoredProblem(record.problem);
   if (problem) license.problem = problem;
-  if (typeof record.retryAfter === 'number') license.retryAfter = record.retryAfter;
+  if (typeof record.nextRefreshAt === 'number') license.nextRefreshAt = record.nextRefreshAt;
   return license;
 }
 

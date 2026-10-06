@@ -2,13 +2,19 @@
 // forget. Network calls go through the ProService port and storage through the
 // LicenseVault port (ports.ts); what the result means is entitlement.ts's job.
 //
-// Every outcome is recorded in one place: a token that verifies is saved, a
-// token that does not is dropped with its reason, and a refusal of the stored
-// key is remembered whichever command heard it.
+// Two kinds of write, kept apart:
+// - adopting a key the user gave, bought or rotated to replaces whatever is stored;
+// - bookkeeping for the stored key (renewals, refusals, pacing) re-reads the file
+//   and applies only while that same key is still stored, so a slow request never
+//   overwrites a key, a purchase or a removal made meanwhile by another command.
+// Every outcome is recorded here: a token that verifies is saved, one that does
+// not is dropped with its reason, a refusal of the stored key is remembered
+// whichever command heard it, and an automatic refresh that should not be
+// repeated soon leaves the time it may be tried again.
 
-import { entitlementFromToken, evaluateLicense, nextStep, type Entitlement } from './entitlement.js';
+import { entitlementFromToken, evaluateLicense, nextStep, problemFromRefusal, type Entitlement } from './entitlement.js';
 import { normalizeLicenseKey } from './license.js';
-import { LicenseStorageError, PERSISTED_PROBLEMS, ProServiceError, type LicenseVault, type PersistedProblem, type ProService, type StoredLicense, type StoredProblem } from './ports.js';
+import { LicenseStorageError, PERSISTED_PROBLEMS, ProServiceError, type LicenseVault, type PersistedProblem, type ProService, type StoredLicense } from './ports.js';
 
 /** The user gave something that is not a usable license key. */
 export class LicenseInputError extends Error {
@@ -31,9 +37,9 @@ export class PurchaseRefusedError extends Error {
   }
 }
 
-/** After the service refused the stored key (or its token could not be used), ask again at most this often. */
+/** After a refusal, an unusable token or a renewal that came back short-lived, refresh automatically at most this often. */
 const PROBLEM_RECHECK_SECONDS = 3600;
-/** After the service was busy or out of reach, wait this long before refreshing automatically again. */
+/** After the service was busy or out of reach, or the license file could not be written, wait this long. */
 const TRANSIENT_BACKOFF_SECONDS = 300;
 
 export interface LicenseManagerDeps {
@@ -60,8 +66,13 @@ export type RotationResult =
 
 type StoredRead = { license: StoredLicense | null } | { unreadable: Entitlement };
 
+/** `adopt` replaces whatever is stored; `bookkeep` writes only while the same key is still stored. */
+type WriteMode = 'adopt' | 'bookkeep';
+
 export class LicenseManager {
   private refreshing: Promise<Entitlement> | null = null;
+  /** The latest pacing decision, also kept here so an unwritable license file cannot mean one request per check. */
+  private paced: { key: string; until: number } | null = null;
 
   constructor(private readonly deps: LicenseManagerDeps) {}
 
@@ -72,19 +83,20 @@ export class LicenseManager {
     return evaluateLicense(read.license, this.deps.publicKey, this.deps.now());
   }
 
+  /** The stored key, for display; null when there is none or the file cannot be read (currentEntitlement says which). */
   storedKey(): string | null {
     const read = this.readStored();
     return 'license' in read ? read.license?.key ?? null : null;
   }
 
-  /** Exchanges a typed or pasted key for a token and saves both. */
+  /** Exchanges a typed or pasted key for a token and saves both, replacing any stored license. */
   async activate(rawKey: string): Promise<Entitlement> {
-    return this.exchange(parseKey(rawKey));
+    return this.exchange(parseKey(rawKey), 'adopt');
   }
 
   /** Gets a fresh token for the stored key. */
   async renew(): Promise<Entitlement> {
-    return this.exchange(this.requireStoredKey());
+    return this.exchange(this.requireStoredKey(), 'bookkeep');
   }
 
   /**
@@ -104,7 +116,7 @@ export class LicenseManager {
     if (result.state === 'pending') return result;
     const key = normalizeLicenseKey(result.key) ?? result.key;
     try {
-      return { state: 'ready', key, saved: true, entitlement: await this.recordToken(key, result.token) };
+      return { state: 'ready', key, saved: true, entitlement: await this.recordToken(key, result.token, 'adopt') };
     } catch (error) {
       return { state: 'ready', key, saved: false, saveError: asError(error) };
     }
@@ -116,14 +128,17 @@ export class LicenseManager {
 
   /** Replaces the stored key. Once the server has rotated, nothing here may lose the new key. */
   async rotate(): Promise<RotationResult> {
-    const { key } = await this.requireService().rotate(this.requireStoredKey());
+    const service = this.requireService();
+    const oldKey = this.requireStoredKey();
+    const rotated = await this.rememberingRefusal(oldKey, () => service.rotate(oldKey));
+    const key = normalizeLicenseKey(rotated.key) ?? rotated.key;
     try {
-      this.deps.vault.write({ v: 1, key, token: null, savedAt: this.deps.now() });
+      this.adopt({ v: 1, key, token: null, savedAt: this.deps.now() });
     } catch (error) {
       return { key, saved: false, saveError: asError(error) };
     }
     try {
-      return { key, saved: true, entitlement: await this.exchange(key), activationError: null };
+      return { key, saved: true, entitlement: await this.exchange(key, 'bookkeep'), activationError: null };
     } catch (error) {
       return { key, saved: true, entitlement: await this.currentEntitlement(), activationError: asError(error) };
     }
@@ -131,9 +146,9 @@ export class LicenseManager {
 
   /**
    * Gets a new token when the current one is missing, unusable or close to expiry, with pacing:
-   * a stored problem is rechecked at most hourly, and a busy or unreachable service is left
-   * alone for a few minutes. Concurrent callers share one refresh. Never throws for network or
-   * storage trouble: it returns what it has.
+   * after a busy or unreachable service it waits a few minutes, and after a refusal, an unusable
+   * token or a renewal that came back short-lived, an hour. Concurrent callers share one refresh.
+   * Never throws for network or storage trouble: it returns what it has.
    */
   refreshIfDue(): Promise<Entitlement> {
     this.refreshing ??= this.refreshOnce().finally(() => { this.refreshing = null; });
@@ -142,6 +157,7 @@ export class LicenseManager {
 
   /** Forgets the license on this machine. The subscription itself is untouched. */
   deactivate(): boolean {
+    this.paced = null;
     return this.deps.vault.clear();
   }
 
@@ -153,15 +169,19 @@ export class LicenseManager {
     const stored = read.license;
     const now = this.deps.now();
     const entitlement = await evaluateLicense(stored, this.deps.publicKey, now);
-    if (!stored || !this.deps.service || !needsRefresh(entitlement, stored, now)) return entitlement;
+    if (!stored || !this.deps.service || !this.needsRefresh(entitlement, stored, now)) return entitlement;
     try {
-      return await this.exchange(stored.key);
+      const outcome = await this.exchange(stored.key, 'bookkeep');
+      this.pace(stored.key, nextAttemptAfter(outcome, now));
+      return outcome;
     } catch (error) {
-      if (error instanceof LicenseInputError || error instanceof LicenseStorageError) return entitlement;
+      if (error instanceof LicenseStorageError) {
+        this.paced = { key: stored.key, until: now + TRANSIENT_BACKOFF_SECONDS };
+        return entitlement;
+      }
       if (!(error instanceof ProServiceError)) throw error;
-      if (isKeyRefusal(error)) return this.currentEntitlement();
-      if (error.retryable) this.writeQuietly({ ...stored, retryAfter: now + TRANSIENT_BACKOFF_SECONDS });
-      return entitlement;
+      this.pace(stored.key, now + (error.retryable ? TRANSIENT_BACKOFF_SECONDS : PROBLEM_RECHECK_SECONDS));
+      return this.currentEntitlement();
     }
   }
 
@@ -171,7 +191,7 @@ export class LicenseManager {
     if ('unreadable' in read) return read.unreadable;
     if (!read.license) return evaluateLicense(null, this.deps.publicKey, this.deps.now());
     try {
-      return await this.exchange(read.license.key);
+      return await this.exchange(read.license.key, 'bookkeep');
     } catch (error) {
       if (error instanceof ProServiceError || error instanceof LicenseStorageError) return this.currentEntitlement();
       throw error;
@@ -179,42 +199,83 @@ export class LicenseManager {
   }
 
   /** Exchanges a key for a token and records the outcome. A refusal of the stored key is recorded, then rethrown. */
-  private async exchange(key: string): Promise<Entitlement> {
-    let token: string;
-    try {
-      ({ token } = await this.requireService().activate(key));
-    } catch (error) {
-      if (error instanceof ProServiceError && isKeyRefusal(error) && this.storedKey() === key) this.recordRefusal(key, error);
-      throw error;
-    }
-    return this.recordToken(key, token);
+  private async exchange(key: string, mode: WriteMode): Promise<Entitlement> {
+    const service = this.requireService();
+    const { token } = await this.rememberingRefusal(key, () => service.activate(key));
+    return this.recordToken(key, token, mode);
   }
 
-  /** Saves the key with its token when the token verifies (or cannot be checked here), else with why it was dropped. */
-  private async recordToken(key: string, token: string): Promise<Entitlement> {
+  /** Calls the service with a key; when the service refuses that key while it is the stored one, the refusal is recorded first. */
+  private async rememberingRefusal<T>(key: string, call: () => Promise<T>): Promise<T> {
+    try {
+      return await call();
+    } catch (error) {
+      if (error instanceof ProServiceError) this.recordRefusal(key, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Saves the key with a token the service just issued when it verifies (or cannot be checked here),
+   * else with why it was dropped. In bookkeeping mode a key replaced meanwhile is left alone, and the
+   * newer license's state is returned instead.
+   */
+  private async recordToken(key: string, token: string, mode: WriteMode): Promise<Entitlement> {
     const now = this.deps.now();
-    const entitlement = await entitlementFromToken(token, this.deps.publicKey, now);
+    const entitlement = await entitlementFromToken(token, this.deps.publicKey, now, 'issued');
     const keepToken = entitlement.active || entitlement.reason === 'no_public_key';
     const license: StoredLicense = { v: 1, key, token: keepToken ? token : null, savedAt: now };
     if (!entitlement.active && isPersistedProblem(entitlement.reason)) license.problem = { reason: entitlement.reason, at: now };
-    this.deps.vault.write(license);
-    return entitlement;
+    if (mode === 'adopt') {
+      this.adopt(license);
+      return entitlement;
+    }
+    return this.updateStored(key, () => license) ? entitlement : this.currentEntitlement();
   }
 
   private recordRefusal(key: string, error: ProServiceError): void {
+    const problem = problemFromRefusal(error);
+    if (!problem) return;
     const now = this.deps.now();
-    const problem: StoredProblem = { reason: error.code === 'unknown_key' ? 'key_revoked' : 'subscription_inactive', at: now };
-    if (error.subscriptionStatus) problem.subscriptionStatus = error.subscriptionStatus;
-    this.writeQuietly({ v: 1, key, token: null, savedAt: now, problem });
+    this.updateStoredQuietly(key, () => ({ v: 1, key, token: null, savedAt: now, problem: { ...problem, at: now } }));
   }
 
-  /** Best-effort bookkeeping: a write that fails here must not hide the answer the caller is waiting for. */
-  private writeQuietly(license: StoredLicense): void {
+  /** Remembers when to try an automatic refresh for `key` again: here, and in the license file while it still holds `key`. */
+  private pace(key: string, until: number | null): void {
+    this.paced = until === null ? null : { key, until };
+    if (until !== null) this.updateStoredQuietly(key, (current) => ({ ...current, nextRefreshAt: until }));
+  }
+
+  /** Writes a license the user chose (a typed key, a purchase, a rotation), replacing whatever was stored. */
+  private adopt(license: StoredLicense): void {
+    this.deps.vault.write(license);
+    this.paced = null;
+  }
+
+  /** Bookkeeping for `key`: re-reads the license and applies `change` only if `key` is still the stored one. */
+  private updateStored(key: string, change: (current: StoredLicense) => StoredLicense): boolean {
+    const current = this.deps.vault.read();
+    if (current?.key !== key) return false;
+    this.deps.vault.write(change(current));
+    return true;
+  }
+
+  /** Bookkeeping that must not hide the answer the caller is waiting for when the file cannot be read or written. */
+  private updateStoredQuietly(key: string, change: (current: StoredLicense) => StoredLicense): void {
     try {
-      this.deps.vault.write(license);
+      this.updateStored(key, change);
     } catch (error) {
       if (!(error instanceof LicenseStorageError)) throw error;
     }
+  }
+
+  private needsRefresh(entitlement: Entitlement, stored: StoredLicense, now: number): boolean {
+    const pacedHere = this.paced?.key === stored.key ? this.paced.until : 0;
+    if (now < Math.max(stored.nextRefreshAt ?? 0, pacedHere)) return false;
+    if (entitlement.active) return entitlement.refreshDue;
+    if (entitlement.reason === 'no_public_key') return false;
+    if (!stored.token && stored.problem) return now - stored.problem.at >= PROBLEM_RECHECK_SECONDS;
+    return true;
   }
 
   private readStored(): StoredRead {
@@ -231,9 +292,10 @@ export class LicenseManager {
     return this.deps.service;
   }
 
+  /** The stored key. A license file that cannot be read throws LicenseStorageError: it is not "no key". */
   private requireStoredKey(): string {
-    const key = this.storedKey();
-    if (!key) throw new LicenseInputError('No usable Timmy Pro license key on this machine. Run `timmy pro activate -` and paste your key.');
+    const key = this.deps.vault.read()?.key;
+    if (!key) throw new LicenseInputError('No Timmy Pro license key on this machine. Run `timmy pro activate -` and paste your key.');
     return key;
   }
 }
@@ -244,16 +306,13 @@ function parseKey(raw: string): string {
   return key;
 }
 
-function needsRefresh(entitlement: Entitlement, stored: StoredLicense, now: number): boolean {
-  if (stored.retryAfter !== undefined && now < stored.retryAfter) return false;
-  if (entitlement.active) return entitlement.refreshDue;
-  if (entitlement.reason === 'no_public_key') return false;
-  if (!stored.token && stored.problem) return now - stored.problem.at >= PROBLEM_RECHECK_SECONDS;
-  return true;
+/** When to try again after an automatic refresh that reached the service; null when the new token needs nothing. */
+function nextAttemptAfter(outcome: Entitlement, now: number): number | null {
+  if (!outcome.active) return now + PROBLEM_RECHECK_SECONDS;
+  // A token that is due on arrival is short on purpose (a past-due grace period, a late renewal): asking again now will not help.
+  if (outcome.refreshDue) return Math.min(now + PROBLEM_RECHECK_SECONDS, outcome.tokenExpiresAt);
+  return null;
 }
-
-const isKeyRefusal = (error: ProServiceError): boolean =>
-  error.kind === 'refused' && (error.code === 'subscription_inactive' || error.code === 'unknown_key');
 
 const isPersistedProblem = (reason: string): reason is PersistedProblem => (PERSISTED_PROBLEMS as readonly string[]).includes(reason);
 

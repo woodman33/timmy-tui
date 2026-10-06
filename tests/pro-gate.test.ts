@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HttpProService, type FetchLike } from '../src/pro/client.js';
-import { checkProFeature } from '../src/pro/gate.js';
+import { checkProFeature, createProGate } from '../src/pro/gate.js';
 import { importVerifyKey } from '../src/pro/license.js';
 import { LicenseManager } from '../src/pro/manager.js';
 import { loadLicenseManager } from '../src/pro/runtime.js';
@@ -19,7 +19,10 @@ beforeEach(async () => {
   world = await proWorld();
   env = { TIMMY_HOME: home, TIMMY_PRO_URL: world.origin, TIMMY_PRO_PUBLIC_KEY: world.publicKey };
 });
-afterEach(() => rmSync(home, { recursive: true, force: true }));
+afterEach(() => {
+  vi.unstubAllEnvs();
+  rmSync(home, { recursive: true, force: true });
+});
 
 const overrides = () => ({ fetch: world.fetch, now: world.now });
 const licensePath = () => join(home, 'pro', 'license.json');
@@ -58,20 +61,20 @@ function heldActivation(): { fetch: FetchLike; release: () => void; calls: strin
 const within = <T>(promise: Promise<T>, ms: number): Promise<T | 'still waiting'> =>
   Promise.race([promise, new Promise<'still waiting'>((resolve) => setTimeout(() => resolve('still waiting'), ms))]);
 
-describe('checkProFeature', () => {
+describe('a Pro gate', () => {
   it('tells a free user how to get the feature', async () => {
-    const access = await checkProFeature('cloud_logs', { env, overrides: overrides() });
+    const access = await createProGate({ env, overrides: overrides() }).check('cloud_logs');
     expect(access).toMatchObject({ allowed: false, reason: 'no_license' });
     expect(access.allowed ? '' : access.message).toContain('timmy pro upgrade');
   });
 
   it('allows a feature once the license on this machine is active', async () => {
     await activatedHere();
-    expect(await checkProFeature('cloud_logs', { env, overrides: overrides() })).toEqual({ allowed: true });
+    expect(await createProGate({ env, overrides: overrides() }).check('cloud_logs')).toEqual({ allowed: true });
   });
 
   it('turns a bad configuration into a denial instead of an exception', async () => {
-    const access = await checkProFeature('cloud_logs', { env: { ...env, TIMMY_PRO_URL: 'http://example.com' } });
+    const access = await createProGate({ env: { ...env, TIMMY_PRO_URL: 'http://example.com' } }).check('cloud_logs');
     expect(access).toMatchObject({ allowed: false, reason: 'config_error' });
     expect(access.allowed ? '' : access.message).toContain('TIMMY_PRO_URL');
   });
@@ -79,7 +82,7 @@ describe('checkProFeature', () => {
   it('explains a damaged license file', async () => {
     mkdirSync(join(home, 'pro'), { recursive: true });
     writeFileSync(licensePath(), 'not json');
-    const access = await checkProFeature('cloud_logs', { env, overrides: overrides() });
+    const access = await createProGate({ env, overrides: overrides() }).check('cloud_logs');
     expect(access).toMatchObject({ allowed: false, reason: 'license_unreadable' });
     expect(access.allowed ? '' : access.message).toContain('cannot be read');
   });
@@ -91,19 +94,19 @@ describe('checkProFeature', () => {
       publicKey: null,
       now: world.now,
     });
-    const access = await checkProFeature('cloud_logs', { manager: broken });
+    const access = await createProGate({ manager: broken }).check('cloud_logs');
     expect(access).toMatchObject({ allowed: false, reason: 'unexpected_error' });
     expect(access.allowed ? '' : access.message).toContain('EPERM');
   });
 });
 
-describe('checkProFeature and the network', () => {
+describe('a Pro gate and the network', () => {
   it('answers at once from an active license and renews it in the background', async () => {
     await activatedHere();
     world.advance(6 * DAY);
     const before = storedToken();
     const held = heldActivation();
-    const access = checkProFeature('cloud_logs', { env, overrides: { ...overrides(), fetch: held.fetch } });
+    const access = createProGate({ env, overrides: { ...overrides(), fetch: held.fetch } }).check('cloud_logs');
     expect(await within(access, 1000)).toEqual({ allowed: true });
     held.release();
     await vi.waitFor(() => expect(storedToken()).not.toBe(before));
@@ -114,7 +117,7 @@ describe('checkProFeature and the network', () => {
     world.advance(6 * DAY);
     const before = storedToken();
     const held = heldActivation();
-    const access = checkProFeature('cloud_logs', { env, overrides: { ...overrides(), fetch: held.fetch }, refresh: 'wait' });
+    const access = createProGate({ env, overrides: { ...overrides(), fetch: held.fetch } }).check('cloud_logs', { refresh: 'wait' });
     expect(await within(access, 200)).toBe('still waiting');
     held.release();
     expect(await access).toEqual({ allowed: true });
@@ -125,7 +128,7 @@ describe('checkProFeature and the network', () => {
     await activatedHere();
     world.advance(6 * DAY);
     const held = heldActivation();
-    expect(await checkProFeature('cloud_logs', { env, overrides: { ...overrides(), fetch: held.fetch }, refresh: 'never' })).toEqual({ allowed: true });
+    expect(await createProGate({ env, overrides: { ...overrides(), fetch: held.fetch } }).check('cloud_logs', { refresh: 'never' })).toEqual({ allowed: true });
     expect(held.calls).toEqual([]);
   });
 
@@ -133,7 +136,7 @@ describe('checkProFeature and the network', () => {
     await activatedHere();
     world.advance(8 * DAY);
     const held = heldActivation();
-    const access = await within(checkProFeature('cloud_logs', { env, overrides: { ...overrides(), fetch: held.fetch, timeoutMs: 50 } }), 2000);
+    const access = await within(createProGate({ env, overrides: { ...overrides(), fetch: held.fetch, timeoutMs: 50 } }).check('cloud_logs'), 2000);
     expect(access).toMatchObject({ allowed: false, reason: 'token_expired' });
     expect(held.calls).toEqual(['/license/activate']);
   });
@@ -152,11 +155,33 @@ describe('checkProFeature and the network', () => {
     const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
     process.on('unhandledRejection', onUnhandled);
     try {
-      expect(await checkProFeature('cloud_logs', { manager: unwritable })).toEqual({ allowed: true });
+      expect(await createProGate({ manager: unwritable }).check('cloud_logs')).toEqual({ allowed: true });
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(unhandled).toEqual([]);
     } finally {
       process.off('unhandledRejection', onUnhandled);
     }
+  });
+
+  it('shares one renewal between concurrent checks', async () => {
+    await activatedHere();
+    world.advance(6 * DAY);
+    const before = storedToken();
+    const held = heldActivation();
+    const gate = createProGate({ env, overrides: { ...overrides(), fetch: held.fetch } });
+    expect(await Promise.all([gate.check('cloud_logs'), gate.check('cloud_logs')])).toEqual([{ allowed: true }, { allowed: true }]);
+    held.release();
+    await vi.waitFor(() => expect(storedToken()).not.toBe(before));
+    expect(held.calls).toEqual(['/license/activate']);
+  });
+});
+
+describe('checkProFeature', () => {
+  it('asks one gate built from this process environment', async () => {
+    vi.stubEnv('TIMMY_HOME', home);
+    vi.stubEnv('TIMMY_PRO_URL', '');
+    vi.stubEnv('TIMMY_PRO_PUBLIC_KEY', '');
+    expect(await checkProFeature('cloud_logs')).toMatchObject({ allowed: false, reason: 'no_license' });
+    expect(await checkProFeature('cloud_logs', { refresh: 'never' })).toMatchObject({ allowed: false, reason: 'no_license' });
   });
 });

@@ -37,7 +37,7 @@ export async function resolveProRuntime(env: Env = process.env, overrides: Runti
   return { settings, manager };
 }
 
-/** The license manager for this machine. Most features want checkProFeature (gate.ts) instead. */
+/** A license manager for this machine. Features want checkProFeature (gate.ts) instead, which shares one per process. */
 export async function loadLicenseManager(env: Env = process.env, overrides: RuntimeOverrides = {}): Promise<LicenseManager> {
   return (await resolveProRuntime(env, overrides)).manager;
 }

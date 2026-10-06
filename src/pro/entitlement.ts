@@ -7,7 +7,8 @@
 
 import { verifyLicenseToken, type TokenProblem } from './license.js';
 import { PRO_FEATURE_LABELS, PRO_PLAN, isProFeature, type ProFeature } from './plan.js';
-import type { PersistedProblem, StoredLicense } from './ports.js';
+import type { PersistedProblem, ProServiceError, StoredLicense, StoredProblem } from './ports.js';
+import type { ProErrorCode } from './protocol.js';
 
 /** Refresh a token once it has this little time left (tokens last up to 7 days). */
 export const REFRESH_WINDOW_SECONDS = 2 * 86_400;
@@ -36,16 +37,42 @@ export type Entitlement =
     }
   | { active: false; reason: InactiveReason; detail: string; subscriptionStatus?: string };
 
-const REASON_FOR_TOKEN: Readonly<Record<TokenProblem, InactiveReason>> = {
-  missing: 'key_not_activated',
-  not_timmy: 'key_not_activated',
-  malformed: 'key_not_activated',
-  bad_signature: 'invalid_token',
-  unsupported: 'invalid_token',
-  inactive: 'subscription_inactive',
-  expired: 'token_expired',
-  future: 'clock_skew',
+/** Where a token came from: read from this machine, or issued by the service just now. */
+export type TokenSource = 'stored' | 'issued';
+
+const REASON_FOR_TOKEN: Readonly<Record<TokenSource, Readonly<Record<TokenProblem, InactiveReason>>>> = {
+  stored: {
+    missing: 'key_not_activated',
+    not_timmy: 'key_not_activated',
+    malformed: 'key_not_activated',
+    bad_signature: 'invalid_token',
+    unsupported: 'invalid_token',
+    inactive: 'subscription_inactive',
+    expired: 'token_expired',
+    future: 'clock_skew',
+  },
+  // The service never issues an expired token, so a new one that looks expired means this computer's
+  // clock runs ahead; and a new one this build cannot read means the build is older than the service.
+  issued: {
+    missing: 'invalid_token',
+    not_timmy: 'invalid_token',
+    malformed: 'invalid_token',
+    bad_signature: 'invalid_token',
+    unsupported: 'invalid_token',
+    inactive: 'subscription_inactive',
+    expired: 'clock_skew',
+    future: 'clock_skew',
+  },
 };
+
+/** The service's refusals that say something about the key itself; other refusals say nothing about the license. */
+const REASON_FOR_REFUSAL: Readonly<Partial<Record<ProErrorCode, PersistedProblem>>> = {
+  subscription_inactive: 'subscription_inactive',
+  unknown_key: 'key_revoked',
+};
+
+/** A known problem with a key: why the service will not issue it a token. */
+export type KeyProblem = Omit<StoredProblem, 'at'>;
 
 const PROBLEM_DETAIL: Readonly<Record<PersistedProblem, string>> = {
   subscription_inactive: 'the Pro service says the subscription is not active',
@@ -56,19 +83,15 @@ const PROBLEM_DETAIL: Readonly<Record<PersistedProblem, string>> = {
 
 export async function evaluateLicense(license: StoredLicense | null, publicKey: CryptoKey | null, nowSeconds: number): Promise<Entitlement> {
   if (!license) return { active: false, reason: 'no_license', detail: 'no Timmy Pro license on this machine' };
-  if (!license.token && license.problem) {
-    const { reason, subscriptionStatus } = license.problem;
-    const detail = subscriptionStatus ? `${PROBLEM_DETAIL[reason]} (${subscriptionStatus})` : PROBLEM_DETAIL[reason];
-    return subscriptionStatus ? { active: false, reason, detail, subscriptionStatus } : { active: false, reason, detail };
-  }
+  if (!license.token && license.problem) return entitlementFromProblem(license.problem);
   if (!license.token) return { active: false, reason: 'key_not_activated', detail: 'license key saved but not activated' };
-  return entitlementFromToken(license.token, publicKey, nowSeconds);
+  return entitlementFromToken(license.token, publicKey, nowSeconds, 'stored');
 }
 
-export async function entitlementFromToken(token: string, publicKey: CryptoKey | null, nowSeconds: number): Promise<Entitlement> {
+export async function entitlementFromToken(token: string, publicKey: CryptoKey | null, nowSeconds: number, source: TokenSource): Promise<Entitlement> {
   if (!publicKey) return { active: false, reason: 'no_public_key', detail: 'this build has no Timmy Pro public key to check licenses with' };
   const check = await verifyLicenseToken(token, publicKey, nowSeconds);
-  if (!check.ok) return { active: false, reason: REASON_FOR_TOKEN[check.code], detail: check.reason };
+  if (!check.ok) return { active: false, reason: REASON_FOR_TOKEN[source][check.code], detail: check.reason };
   return {
     active: true,
     features: check.claims.features.filter(isProFeature),
@@ -76,6 +99,19 @@ export async function entitlementFromToken(token: string, publicKey: CryptoKey |
     tokenExpiresAt: check.claims.exp,
     refreshDue: check.claims.exp - nowSeconds <= REFRESH_WINDOW_SECONDS,
   };
+}
+
+/** The problem a refusal shows about the key it was given, or null when it says nothing about that key. */
+export function problemFromRefusal(error: ProServiceError): KeyProblem | null {
+  const reason = error.kind === 'refused' && error.code ? REASON_FOR_REFUSAL[error.code] : undefined;
+  if (!reason) return null;
+  return error.subscriptionStatus ? { reason, subscriptionStatus: error.subscriptionStatus } : { reason };
+}
+
+/** What a known problem with the key means for this machine. */
+export function entitlementFromProblem({ reason, subscriptionStatus }: KeyProblem): Entitlement {
+  const detail = subscriptionStatus ? `${PROBLEM_DETAIL[reason]} (${subscriptionStatus})` : PROBLEM_DETAIL[reason];
+  return subscriptionStatus ? { active: false, reason, detail, subscriptionStatus } : { active: false, reason, detail };
 }
 
 // ── what to do about it ──────────────────────────────────────────────────
@@ -130,7 +166,7 @@ export function accessMessage(entitlement: Entitlement, feature?: ProFeature): s
     case 'billing':
       return `Your ${PRO_PLAN.name} subscription is ${entitlement.subscriptionStatus?.replaceAll('_', ' ') ?? 'not active'}. Fix it with \`timmy pro billing\`, then run \`timmy pro activate\`.`;
     case 'use_newest_key':
-      return `This license key was replaced. Activate the newest key with \`timmy pro activate -\`.`;
+      return `The ${PRO_PLAN.name} service does not recognize this license key; it may have been replaced. Activate your newest key with \`timmy pro activate -\`.`;
     case 'update_timmy':
       return `This build of Timmy cannot check Pro licenses (${entitlement.detail}). Update Timmy, or check TIMMY_PRO_PUBLIC_KEY.`;
     case 'check_clock':

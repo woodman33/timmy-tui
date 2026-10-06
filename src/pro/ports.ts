@@ -76,8 +76,8 @@ export interface StoredLicense {
   savedAt: number;
   /** Why there is no token, when the reason is known. */
   problem?: StoredProblem;
-  /** Unix seconds before which an automatic refresh should not be tried again (after a busy or unreachable service). */
-  retryAfter?: number;
+  /** Unix seconds before which no automatic refresh is tried; set after every automatic attempt that needs a pause. */
+  nextRefreshAt?: number;
 }
 
 /** The license file could not be read, written or removed, or its contents are not a license this build understands. */
