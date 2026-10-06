@@ -211,6 +211,36 @@ describe('activate, rotate, billing', () => {
     expect((await call('POST', '/license/rotate', { session_id: sessionId })).status).toBe(400);
   });
 
+  it('keeps the successful replacement key valid when rotates race', async () => {
+    const oldKey = await claimKey(await paidSession());
+    const baseStore = deps.store;
+    let lookups = 0;
+    let releaseLookups: (() => void) | null = null;
+    const bothLookups = new Promise<void>((resolve) => { releaseLookups = resolve; });
+    deps.store = {
+      getBySubscription: (id) => baseStore.getBySubscription(id),
+      async getByKeyHash(hash) {
+        const record = await baseStore.getByKeyHash(hash);
+        lookups += 1;
+        if (lookups === 2) releaseLookups?.();
+        await bothLookups;
+        return record;
+      },
+      getByCheckoutSession: (id) => baseStore.getByCheckoutSession(id),
+      upsert: (record) => baseStore.upsert(record),
+      hasProcessedEvent: (id) => baseStore.hasProcessedEvent(id),
+      markEventProcessed: (id, at) => baseStore.markEventProcessed(id, at),
+    };
+
+    const responses = await Promise.all([
+      call('POST', '/license/rotate', { key: oldKey }),
+      call('POST', '/license/rotate', { key: oldKey }),
+    ]);
+    expect(responses.map((res) => res.status).sort()).toEqual([200, 404]);
+    const rotated = (await responses.find((res) => res.status === 200)!.json()) as { key: string };
+    expect((await call('POST', '/license/activate', { key: rotated.key })).status).toBe(200);
+  });
+
   it('past_due keeps Pro for 14 days, then stops', async () => {
     const sessionId = await paidSession((id) => proSub(`sub_${id.slice(-8)}`, 'past_due'));
     const key = await claimKey(sessionId);

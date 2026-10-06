@@ -166,9 +166,15 @@ async function activate(request: Request, deps: ProDeps): Promise<Response> {
 }
 
 async function rotate(request: Request, deps: ProDeps): Promise<Response> {
-  const current = await recordForKey((await readJson(request))?.key, deps);
+  const rawKey = (await readJson(request))?.key;
+  const key = normalizeLicenseKey(typeof rawKey === 'string' ? rawKey : null);
+  if (!key) throw new HttpError(400, 'that is not a Timmy Pro license key');
+  const keyHash = await licenseKeyHash(key);
+  const current = await deps.store.getByKeyHash(keyHash);
+  if (!current) throw new HttpError(404, 'unknown license key');
   const next = await withLock(current.subscriptionId, async () => {
     const latest = (await deps.store.getBySubscription(current.subscriptionId)) ?? current;
+    if (latest.keyHash !== keyHash) throw new HttpError(404, 'unknown license key');
     return saveRecord({ ...latest, keyVersion: latest.keyVersion + 1 }, deps);
   });
   return json({ key: await keyFor(next, deps) });
