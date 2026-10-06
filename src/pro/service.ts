@@ -214,7 +214,7 @@ async function webhook(request: Request, deps: ProDeps): Promise<Response> {
 
 // ── core ──────────────────────────────────────────────────────────────────
 
-/** `expired`: Stripe gave up on the checkout before it was paid; it can never complete. */
+/** `expired`: Stripe gave up on the checkout and no paid subscription was found. */
 type Settled = { state: 'ready'; record: SubscriptionRecord } | { state: 'pending' } | { state: 'expired' } | { state: 'invalid' };
 
 const unknownSessions = new Map<string, number>();
@@ -240,11 +240,13 @@ async function settleCheckout(sessionId: string, deps: ProDeps, opts: { refresh?
     throw err;
   }
   if (info.mode !== 'subscription') return { state: 'invalid' };
+  if (PAID.has(info.paymentStatus ?? '') && info.subscription) {
+    if (!isProSubscription(info.subscription, deps.env)) return { state: 'invalid' };
+    const record = await syncSubscription(info.subscription.id, { customerId: info.customerId, email: info.email, checkoutSessionId: info.id }, deps);
+    return record ? { state: 'ready', record } : { state: 'invalid' };
+  }
   if (info.status === 'expired') return { state: 'expired' };
-  if (info.status !== 'complete' || !PAID.has(info.paymentStatus ?? '') || !info.subscription) return { state: 'pending' };
-  if (!isProSubscription(info.subscription, deps.env)) return { state: 'invalid' };
-  const record = await syncSubscription(info.subscription.id, { customerId: info.customerId, email: info.email, checkoutSessionId: info.id }, deps);
-  return record ? { state: 'ready', record } : { state: 'invalid' };
+  return { state: 'pending' };
 }
 
 /** Only a subscription to the Timmy Pro price unlocks Pro — not any subscription on the account. */

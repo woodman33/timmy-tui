@@ -319,6 +319,14 @@ describe('webhook', () => {
     expect(stripe.calls.filter((c) => c === `retrieve:${sessionId}`)).toHaveLength(retrievals);
   });
 
+  it('checkout.session.async_payment_succeeded records delayed payments after Stripe expires the session', async () => {
+    const sessionId = await paidSession();
+    stripe.expire(sessionId);
+    await webhook({ id: 'evt_async_done', type: 'checkout.session.async_payment_succeeded', data: { object: { id: sessionId, mode: 'subscription' } } });
+    expect(await deps.store.getByCheckoutSession(sessionId)).toMatchObject({ checkoutSessionId: sessionId });
+    expect((await call('POST', '/license/claim', { session_id: sessionId })).status).toBe(200);
+  });
+
   it('ignores subscription events for other products', async () => {
     stripe.subs.set('sub_other', proSub('sub_other', 'active', { priceIds: ['price_other'], priceLookupKeys: [] }));
     expect((await webhook({ id: 'evt_other', type: 'customer.subscription.created', data: { object: { id: 'sub_other' } } })).status).toBe(200);
