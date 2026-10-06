@@ -80,6 +80,7 @@ Commands:
   export otio <run> | agentrun <job>  OTIO timeline or a portable .agentrun bundle
   epoch <n> [reason]  Rotate the receipt release epoch
   q <file> <expr> Query json/yaml/toml/xml/csv with dasel
+  pro             Timmy Pro ($19/month): status | upgrade | activate | rotate | billing | deactivate
 
 Options:
   --json          Output results in raw JSON format (for demo/proof)
@@ -776,6 +777,12 @@ if (command === 'clip') {
   }
   console.error('Usage: timmy clip list | timmy clip run <id> | timmy clip replay <id>');
   process.exit(2);
+}
+
+if (command === 'pro') {
+  // Timmy Pro: license, purchase and billing (docs/PRO.md).
+  const { runProCommand } = await import('./pro/runtime.js');
+  process.exit(await runProCommand(args.slice(args.indexOf('pro') + 1)));
 }
 
 if (command === 'mcp' && args[1] === 'serve') {

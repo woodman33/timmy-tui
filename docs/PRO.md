@@ -11,12 +11,11 @@ that run on Timmy's servers, and you opt in to each one.
 | Hosted agent runs | planned |
 
 This page covers **billing and licensing**, which ship first: Stripe Checkout,
-license keys, and signed license tokens. The `timmy pro` CLI commands come in the
-next PR.
+license keys, signed license tokens, and the `timmy pro` commands.
 
 ## How buying works
 
-1. `timmy pro upgrade` (next PR) or the **Upgrade** button on the landing page opens Stripe Checkout.
+1. `timmy pro upgrade` or the **Upgrade** button on the landing page opens Stripe Checkout.
 2. After payment, the CLI receives the key automatically. The browser's welcome page also shows it.
 3. `timmy pro activate <key>` exchanges the key for a **license token**: an ed25519-signed
    claim (the same signature family as receipts) that the CLI verifies offline for up to 7 days.
@@ -32,6 +31,38 @@ signs in by email. A license key alone never opens the portal.
 
 **Enforcement.** Hosted Pro features check the key on the server. The local token only
 decides what the TUI offers, so editing a local file cannot unlock anything hosted.
+
+## The `timmy pro` commands
+
+| Command | What it does |
+|---|---|
+| `timmy pro` / `timmy pro status [--json]` | Shows whether Pro is active on this machine. The key is shown masked; the token never. |
+| `timmy pro upgrade [--no-open]` | Opens Stripe Checkout, waits for payment (checks every 5 s, backs off when rate-limited, stops after 30 min), then saves and prints the key once. |
+| `timmy pro activate [<key> \| -]` | Exchanges a key for a token. `-` reads the key from stdin, which keeps it out of shell history. No key renews the saved one. |
+| `timmy pro rotate` | Replaces the key. The new key is saved before anything else can fail, because the old one stops working at once. |
+| `timmy pro billing [--no-open]` | Opens Stripe's customer portal (sign-in by purchase email). |
+| `timmy pro deactivate` | Removes the license from this machine. The subscription is unchanged. |
+
+**Where the license lives:** `<TIMMY_HOME>/pro/license.json` (`~/timmy/pro/license.json` by default),
+mode 0600 in a 0700 directory, replaced atomically. Tokens renew automatically when they have under
+two days left and the service is reachable; offline, the current token keeps working until it expires.
+
+**Configuration:**
+- `TIMMY_PRO_URL`: the Pro service. It must be `https://` (plain `http://` only for localhost) and a bare
+  origin; anything else is refused before a key is sent.
+- `TIMMY_PRO_PUBLIC_KEY`: the ed25519 public key tokens must verify against (32 raw bytes, base64url).
+- Without either, the build's values in `src/pro/settings.ts` apply. Both are empty until go-live, so
+  `upgrade` says Pro is not available yet.
+
+**Gating a Pro feature (for Timmy code):**
+```ts
+import { loadLicenseManager } from './pro/runtime.js';
+import { allowsFeature, upgradeMessage } from './pro/entitlement.js';
+
+const entitlement = await (await loadLicenseManager()).refreshIfDue();
+if (!allowsFeature(entitlement, 'cloud_logs')) throw new Error(upgradeMessage('cloud_logs'));
+```
+The local check only decides what Timmy offers. Hosted features must also check the key on the server.
 
 ## Architecture
 
@@ -84,10 +115,11 @@ Each rule below has a test, and a negative control (break the rule → a test fa
 4. Run the worker: `cd workers/pro && npm run dev` (port 8787).
 5. Forward webhooks: `npm run stripe:listen`. Copy the printed `whsec_…` into `.dev.vars` as
    `STRIPE_WEBHOOK_SECRET` and restart `npm run dev`.
-6. Buy: `curl -s -XPOST localhost:8787/checkout -H 'content-type: application/json' -d '{"source":"cli"}'`.
-   Open the URL and pay with card `4242 4242 4242 4242`. The welcome page shows the key.
+6. Buy from the CLI:
+   `TIMMY_PRO_URL=http://localhost:8787 TIMMY_PRO_PUBLIC_KEY=<public key from step 2> timmy pro upgrade`.
+   Pay with card `4242 4242 4242 4242`. The CLI saves and prints the key; the welcome page shows it too.
 7. Cancel from the Stripe dashboard (test mode), or run `stripe trigger customer.subscription.deleted`.
-   `POST /license/activate` with the key now returns 403.
+   `timmy pro activate` now reports that the subscription is not active.
 
 ## Going live (owner)
 
@@ -104,7 +136,9 @@ Each rule below has a test, and a negative control (break the rule → a test fa
    - `STRIPE_WEBHOOK_SECRET`
    - `LICENSE_SIGNING_KEY`
    - `LICENSE_KEY_SECRET`
-4. Deploy: `npm run deploy`. Then put the public key from step 2 of test mode into the CLI build.
+4. Deploy: `npm run deploy`.
+5. In `src/pro/settings.ts`, set `BUILD_PRO_SERVICE_URL` to the live worker's URL and `BUILD_PRO_PUBLIC_KEY`
+   to the public key matching the `LICENSE_SIGNING_KEY` from step 3. Release the CLI.
 
 ## The older billing scaffold
 
