@@ -169,6 +169,8 @@ async function rotate(request: Request, deps: ProDeps): Promise<Response> {
   const current = await recordForKey((await readJson(request))?.key, deps);
   const next = await withLock(current.subscriptionId, async () => {
     const latest = (await deps.store.getBySubscription(current.subscriptionId)) ?? current;
+    // A rotation that ran while this one waited for the lock already revoked the key it was given.
+    if (latest.keyHash !== current.keyHash) throw new HttpError(404, 'unknown license key');
     return saveRecord({ ...latest, keyVersion: latest.keyVersion + 1 }, deps);
   });
   return json({ key: await keyFor(next, deps) });
