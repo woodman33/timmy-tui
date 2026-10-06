@@ -1,64 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { handleProRequest, resetProCaches, type ProDeps } from '../src/pro/service.js';
 import { MemoryLicenseStore } from '../src/pro/store.js';
-import { StripeApiError, type CheckoutSessionInfo, type StripeClient, type SubscriptionInfo } from '../src/pro/stripe-api.js';
+import { StripeApiError, type SubscriptionInfo } from '../src/pro/stripe-api.js';
 import { generateLicenseKeyPair, importVerifyKey, verifyLicenseToken } from '../src/pro/license.js';
 import { signStripePayload } from '../src/pro/stripe-signature.js';
 import { PRO_FEATURES } from '../src/pro/plan.js';
-
-const NOW = 1_800_000_000;
-const DAY = 86_400;
-const WEBHOOK_SECRET = 'whsec_test';
-const ORIGIN = 'https://pro.example.test';
-const PORTAL = 'https://billing.stripe.com/p/login/test_portal';
-
-const proSub = (id: string, status = 'active', over: Partial<SubscriptionInfo> = {}): SubscriptionInfo => ({
-  id, status, customerId: 'cus_buyer', currentPeriodEnd: NOW + 30 * DAY,
-  priceIds: ['price_test_pro'], priceLookupKeys: ['timmy_pro_monthly'], ...over,
-});
-
-function fakeStripe() {
-  const sessions = new Map<string, CheckoutSessionInfo & { subId?: string }>();
-  const subs = new Map<string, SubscriptionInfo>();
-  const calls: string[] = [];
-  const slowReads = new Map<string, number>();
-  let n = 0;
-  const client: StripeClient = {
-    async createCheckoutSession(input) {
-      calls.push(`create:${input.priceId}:${input.source}:${input.successUrl}`);
-      const id = `cs_test_session${n++}abcdef`;
-      sessions.set(id, { id, mode: 'subscription', status: 'open', paymentStatus: 'unpaid', customerId: null, email: null, subscription: null });
-      return { id, url: `https://checkout.stripe.com/c/pay/${id}` };
-    },
-    async retrieveCheckoutSession(id) {
-      calls.push(`retrieve:${id}`);
-      const s = sessions.get(id);
-      if (!s) throw new StripeApiError('No such checkout.session: secret detail sk_test_****1234', 404);
-      const { subId, ...info } = s;
-      return structuredClone({ ...info, subscription: subId ? subs.get(subId) ?? null : null });
-    },
-    async retrieveSubscription(id) {
-      calls.push(`subscription:${id}`);
-      const snapshot = subs.has(id) ? structuredClone(subs.get(id)!) : null; // state as of the call
-      const delay = slowReads.get(id);
-      if (delay) {
-        slowReads.delete(id);
-        await new Promise((r) => setTimeout(r, delay));
-      }
-      return snapshot;
-    },
-    async findPriceIdByLookupKey(key) {
-      calls.push(`lookup:${key}`);
-      return key === 'timmy_pro_monthly' ? 'price_test_pro' : null;
-    },
-  };
-  const pay = (sessionId: string, sub: SubscriptionInfo = proSub(`sub_${sessionId.slice(-8)}`)) => {
-    subs.set(sub.id, sub);
-    sessions.set(sessionId, { ...sessions.get(sessionId)!, status: 'complete', paymentStatus: 'paid', customerId: 'cus_buyer', email: 'buyer@example.com', subId: sub.id });
-    return sub;
-  };
-  return { client, sessions, subs, calls, slowReads, pay };
-}
+import { DAY, NOW, ORIGIN, PORTAL, WEBHOOK_SECRET, fakeStripe, proSub } from './helpers/pro-harness.js';
 
 let stripe: ReturnType<typeof fakeStripe>;
 let deps: ProDeps;
