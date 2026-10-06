@@ -1,15 +1,15 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { HttpProService, type FetchLike } from '../src/pro/client.js';
 import { accessMessage, featureAccess, nextStep, type Entitlement, type InactiveReason } from '../src/pro/entitlement.js';
 import { generateLicenseKeyPair, importSigningKey, importVerifyKey, signLicenseToken } from '../src/pro/license.js';
-import { LicenseInputError, LicenseManager, ProUnavailableError } from '../src/pro/manager.js';
+import { LicenseInputError, LicenseManager, ProUnavailableError, PurchaseRefusedError } from '../src/pro/manager.js';
 import { PRO_FEATURES } from '../src/pro/plan.js';
-import type { LicenseVault, StoredLicense } from '../src/pro/ports.js';
+import { LicenseStorageError, type LicenseVault } from '../src/pro/ports.js';
 import { FileLicenseVault } from '../src/pro/vault.js';
-import { DAY, proWorld, type ProWorld } from './helpers/pro-harness.js';
+import { DAY, proSub, proWorld, type ProWorld } from './helpers/pro-harness.js';
 
 let root: string;
 let world: ProWorld;
@@ -39,10 +39,10 @@ function manager(over: Partial<ConstructorParameters<typeof LicenseManager>[0]> 
 }
 
 /** Buys Pro through the service and returns the issued key without saving it anywhere. */
-async function purchasedKey(): Promise<{ key: string; subscriptionId: string }> {
+async function purchasedKey(status = 'active'): Promise<{ key: string; subscriptionId: string }> {
   const service = new HttpProService(world.origin, world.fetch);
   const { sessionId } = await service.startCheckout();
-  const sub = world.stripe.pay(sessionId);
+  const sub = world.stripe.pay(sessionId, proSub(`sub_${sessionId.slice(-8)}`, status));
   const claim = await service.claim(sessionId);
   if (claim.state !== 'ready') throw new Error('expected a ready claim');
   return { key: claim.key, subscriptionId: sub.id };
@@ -52,6 +52,13 @@ async function cancel(subscriptionId: string) {
   world.stripe.subs.set(subscriptionId, { ...world.stripe.subs.get(subscriptionId)!, status: 'canceled' });
   expect((await world.webhook({ id: `evt_cancel_${subscriptionId}`, type: 'customer.subscription.deleted', data: { object: { id: subscriptionId } } })).status).toBe(200);
 }
+
+function corruptLicenseFile() {
+  mkdirSync(dirname(vault.location), { recursive: true });
+  writeFileSync(vault.location, 'not json');
+}
+
+const checkoutsCreated = () => world.stripe.calls.filter((call) => call.startsWith('create:')).length;
 
 beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), 'timmy-pro-manager-'));
@@ -88,11 +95,20 @@ describe('activation', () => {
     await expect(manager({ service: null }).activate(key)).rejects.toBeInstanceOf(ProUnavailableError);
   });
 
-  it('drops a token that fails verification against the build key', async () => {
+  it('drops a token that fails verification and remembers why', async () => {
     const { key } = await purchasedKey();
     const otherKey = await importVerifyKey((await generateLicenseKeyPair()).publicRaw);
     expect(await manager({ publicKey: otherKey }).activate(key)).toEqual({ active: false, reason: 'invalid_token', detail: 'signature does not verify' });
-    expect(vault.read()).toMatchObject({ key, token: null });
+    expect(vault.read()).toMatchObject({ key, token: null, problem: { reason: 'invalid_token' } });
+    expect(await manager({ publicKey: otherKey, service: null }).currentEntitlement()).toMatchObject({ reason: 'invalid_token' });
+  });
+
+  it('says to check the clock when tokens seem to come from the future', async () => {
+    const { key } = await purchasedKey();
+    const slowClock = () => world.now() - 600;
+    expect(await manager({ now: slowClock }).activate(key)).toMatchObject({ active: false, reason: 'clock_skew' });
+    expect(vault.read()).toMatchObject({ key, token: null, problem: { reason: 'clock_skew' } });
+    expect(nextStep(await manager({ now: slowClock, service: null }).currentEntitlement())).toBe('check_clock');
   });
 
   it('keeps key and token when no public key is configured', async () => {
@@ -115,6 +131,34 @@ describe('activation', () => {
     vault.write({ v: 1, key: 'tpro_ABCDEFGH-JKMNPQRS-TVWXYZ01-23456789', token, savedAt: now });
     expect(await manager({ service: null }).currentEntitlement()).toMatchObject({ active: true, features: ['cloud_logs'] });
   });
+
+  it('reports a damaged license file as license_unreadable, never as no license', async () => {
+    corruptLicenseFile();
+    const entitlement = await manager().currentEntitlement();
+    expect(entitlement).toMatchObject({ active: false, reason: 'license_unreadable' });
+    expect(nextStep(entitlement)).toBe('fix_license_file');
+    expect(await manager().refreshIfDue()).toMatchObject({ reason: 'license_unreadable' });
+    expect(manager().storedKey()).toBeNull();
+  });
+});
+
+describe('refusals are remembered whichever command hears them', () => {
+  it('records a cancelled subscription heard by renew', async () => {
+    const { key, subscriptionId } = await purchasedKey();
+    await manager().activate(key);
+    await cancel(subscriptionId);
+    await expect(manager().renew()).rejects.toMatchObject({ code: 'subscription_inactive' });
+    expect(vault.read()).toMatchObject({ key, token: null, problem: { reason: 'subscription_inactive', subscriptionStatus: 'canceled' } });
+    expect(await manager({ service: null }).currentEntitlement()).toMatchObject({ active: false, reason: 'subscription_inactive', subscriptionStatus: 'canceled' });
+  });
+
+  it('never replaces the stored key with a different key the service refused', async () => {
+    const { key } = await purchasedKey();
+    await manager().activate(key);
+    const token = vault.read()?.token;
+    await expect(manager().activate('tpro_00000000-00000000-00000000-00000000')).rejects.toMatchObject({ code: 'unknown_key' });
+    expect(vault.read()).toMatchObject({ key, token });
+  });
 });
 
 describe('refresh', () => {
@@ -133,14 +177,32 @@ describe('refresh', () => {
     expect(vault.read()?.token).not.toBe(before);
   });
 
-  it('keeps a valid token when the refresh fails offline', async () => {
+  it('keeps a valid token when the refresh fails offline, and backs off', async () => {
     const { key } = await purchasedKey();
     await manager().activate(key);
     const token = vault.read()?.token;
     world.advance(6 * DAY);
     faults.set('/license/activate', offline);
+
+    requests = [];
     expect((await manager().refreshIfDue()).active).toBe(true);
     expect(vault.read()?.token).toBe(token);
+    await manager().refreshIfDue();
+    expect(requests).toEqual(['/license/activate']);
+    world.advance(301);
+    await manager().refreshIfDue();
+    expect(requests).toEqual(['/license/activate', '/license/activate']);
+  });
+
+  it('shares one refresh between concurrent callers', async () => {
+    const { key } = await purchasedKey();
+    await manager().activate(key);
+    world.advance(6 * DAY);
+    const shared = manager();
+    requests = [];
+    const [first, second] = await Promise.all([shared.refreshIfDue(), shared.refreshIfDue()]);
+    expect(first.active && second.active).toBe(true);
+    expect(requests).toEqual(['/license/activate']);
   });
 
   it('never mistakes a proxy page for a cancelled subscription', async () => {
@@ -151,7 +213,7 @@ describe('refresh', () => {
     faults.set('/license/activate', proxyPage);
     expect((await manager().refreshIfDue()).active).toBe(true);
     expect(vault.read()).toMatchObject({ token });
-    expect(vault.read()?.refusal).toBeUndefined();
+    expect(vault.read()?.problem).toBeUndefined();
   });
 
   it('remembers a refusal, reports it offline, and asks again at most hourly', async () => {
@@ -162,7 +224,7 @@ describe('refresh', () => {
 
     requests = [];
     expect(await manager().refreshIfDue()).toMatchObject({ active: false, reason: 'subscription_inactive' });
-    expect(vault.read()).toMatchObject({ key, token: null, refusal: { reason: 'subscription_inactive', at: world.now() } });
+    expect(vault.read()).toMatchObject({ key, token: null, problem: { reason: 'subscription_inactive', at: world.now() } });
     expect(await manager({ service: null }).currentEntitlement()).toMatchObject({ active: false, reason: 'subscription_inactive' });
 
     expect(await manager().refreshIfDue()).toMatchObject({ reason: 'subscription_inactive' });
@@ -178,23 +240,99 @@ describe('refresh', () => {
     await new HttpProService(world.origin, world.fetch).rotate(key);
     world.advance(6 * DAY);
     expect(await manager().refreshIfDue()).toMatchObject({ active: false, reason: 'key_revoked' });
-    expect(vault.read()).toMatchObject({ key, token: null, refusal: { reason: 'key_revoked' } });
+    expect(vault.read()).toMatchObject({ key, token: null, problem: { reason: 'key_revoked' } });
+  });
+
+  it('keeps what it has when the license file cannot be written', async () => {
+    const { key } = await purchasedKey();
+    await manager().activate(key);
+    world.advance(6 * DAY);
+    const readOnly: LicenseVault = { read: () => vault.read(), write: () => { throw new LicenseStorageError('cannot write: EROFS', 'write'); }, clear: () => vault.clear() };
+    expect((await manager({ vault: readOnly }).refreshIfDue()).active).toBe(true);
+  });
+});
+
+describe('purchase guard', () => {
+  it('sells to someone with no license', async () => {
+    const { url, sessionId } = await manager().startPurchase();
+    expect(url).toBe(`https://checkout.stripe.com/c/pay/${sessionId}`);
+  });
+
+  it('refuses while Pro is active, or while a key holder only needs to renew', async () => {
+    const { key } = await purchasedKey();
+    await manager().activate(key);
+    const before = checkoutsCreated();
+    const active = await manager().startPurchase().then(() => null, (e: unknown) => e);
+    expect(active).toBeInstanceOf(PurchaseRefusedError);
+    expect((active as PurchaseRefusedError).entitlement.active).toBe(true);
+
+    world.advance(8 * DAY);
+    faults.set('/license/activate', offline);
+    const lapsed = await manager().startPurchase().then(() => null, (e: unknown) => e);
+    expect(nextStep((lapsed as PurchaseRefusedError).entitlement)).toBe('renew');
+    expect(checkoutsCreated()).toBe(before);
+  });
+
+  it('checks with the service even inside the hourly recheck window', async () => {
+    const { key, subscriptionId } = await purchasedKey();
+    await manager().activate(key);
+    await cancel(subscriptionId);
+    world.advance(6 * DAY);
+    await manager().refreshIfDue();
+    world.stripe.subs.set(subscriptionId, { ...world.stripe.subs.get(subscriptionId)!, status: 'active' });
+    await world.webhook({ id: 'evt_back', type: 'customer.subscription.updated', data: { object: { id: subscriptionId } } });
+    const refused = await manager().startPurchase().then(() => null, (e: unknown) => e);
+    expect((refused as PurchaseRefusedError).entitlement.active).toBe(true);
+  });
+
+  it('lets a subscriber whose subscription ended buy again', async () => {
+    const { key, subscriptionId } = await purchasedKey();
+    await manager().activate(key);
+    await cancel(subscriptionId);
+    expect((await manager().startPurchase()).url).toMatch(/^https:\/\/checkout\.stripe\.com\//);
+  });
+
+  it('sends a past-due subscriber to billing instead of selling a second subscription', async () => {
+    const { key } = await purchasedKey('past_due');
+    await manager().activate(key);
+    world.advance(15 * DAY);
+    const refused = await manager().startPurchase().then(() => null, (e: unknown) => e);
+    expect(refused).toBeInstanceOf(PurchaseRefusedError);
+    const entitlement = (refused as PurchaseRefusedError).entitlement;
+    expect(entitlement).toMatchObject({ reason: 'subscription_inactive', subscriptionStatus: 'past_due' });
+    expect(nextStep(entitlement)).toBe('billing');
+  });
+
+  it('refuses while the license file cannot be read', async () => {
+    corruptLicenseFile();
+    const refused = await manager().startPurchase().then(() => null, (e: unknown) => e);
+    expect(nextStep((refused as PurchaseRefusedError).entitlement)).toBe('fix_license_file');
   });
 });
 
 describe('purchase, billing and rotation', () => {
-  it('starts a purchase, then saves the key the first time it is ready', async () => {
-    const { url, sessionId } = await manager().startPurchase();
-    expect(url).toBe(`https://checkout.stripe.com/c/pay/${sessionId}`);
+  it('saves the key the first time a purchase is ready', async () => {
+    const { sessionId } = await manager().startPurchase();
     expect(await manager().claimPurchase(sessionId)).toEqual({ state: 'pending' });
     expect(vault.read()).toBeNull();
 
     world.stripe.pay(sessionId);
     const ready = await manager().claimPurchase(sessionId);
-    expect(ready.state).toBe('ready');
+    expect(ready).toMatchObject({ state: 'ready', saved: true, entitlement: { active: true } });
+    expect(ready).not.toHaveProperty('saveError');
     if (ready.state !== 'ready') return;
-    expect(ready.entitlement.active).toBe(true);
     expect(vault.read()?.key).toBe(ready.key);
+  });
+
+  it('hands back a purchased key even when it cannot be saved', async () => {
+    const { sessionId } = await manager().startPurchase();
+    world.stripe.pay(sessionId);
+    const readOnly: LicenseVault = { read: () => vault.read(), write: () => { throw new LicenseStorageError('cannot write: EROFS', 'write'); }, clear: () => vault.clear() };
+    const ready = await manager({ vault: readOnly }).claimPurchase(sessionId);
+    expect(ready).toMatchObject({ state: 'ready', saved: false, saveError: { message: 'cannot write: EROFS' } });
+    expect(ready).not.toHaveProperty('entitlement');
+    if (ready.state !== 'ready') return;
+    expect((await new HttpProService(world.origin, world.fetch).activate(ready.key)).token).toBeTruthy();
   });
 
   it('hands out the billing portal link', async () => {
@@ -208,7 +346,7 @@ describe('purchase, billing and rotation', () => {
     faults.set('/license/activate', offline);
 
     const rotated = await manager().rotate();
-    expect(rotated).toMatchObject({ saved: true, followUpError: { kind: 'unreachable' } });
+    expect(rotated).toMatchObject({ saved: true, activationError: { kind: 'unreachable' } });
     expect(rotated.key).not.toBe(key);
     expect(vault.read()).toMatchObject({ key: rotated.key, token: null });
 
@@ -222,13 +360,13 @@ describe('purchase, billing and rotation', () => {
     await manager().activate(key);
     const failingWrites: LicenseVault = {
       read: () => vault.read(),
-      write: () => { throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }); },
+      write: () => { throw new LicenseStorageError('cannot write: EACCES', 'write'); },
       clear: () => vault.clear(),
     };
 
     const rotated = await manager({ vault: failingWrites }).rotate();
-    expect(rotated).toMatchObject({ saved: false, followUpError: { message: 'EACCES: permission denied' } });
-    expect(rotated.key).toMatch(/^tpro_/);
+    expect(rotated).toMatchObject({ saved: false, saveError: { message: 'cannot write: EACCES' } });
+    expect(rotated).not.toHaveProperty('entitlement');
     expect(rotated.key).not.toBe(key);
     expect((await new HttpProService(world.origin, world.fetch).activate(rotated.key)).token).toBeTruthy();
   });
@@ -244,7 +382,8 @@ describe('purchase, billing and rotation', () => {
 
 describe('feature access and guidance', () => {
   const active: Entitlement = { active: true, features: ['cloud_logs'], status: 'active', tokenExpiresAt: 2, refreshDue: false };
-  const inactive = (reason: InactiveReason): Entitlement => ({ active: false, reason, detail: 'x' });
+  const inactive = (reason: InactiveReason, subscriptionStatus?: string): Entitlement =>
+    ({ active: false, reason, detail: 'x', ...(subscriptionStatus ? { subscriptionStatus } : {}) });
 
   it('allows only the features the verified token lists', () => {
     expect(featureAccess(active, 'cloud_logs')).toEqual({ allowed: true });
@@ -255,18 +394,23 @@ describe('feature access and guidance', () => {
   });
 
   it('points each reason at the one step that fixes it', () => {
-    const cases: Array<[InactiveReason, string, string]> = [
-      ['no_license', 'buy', 'timmy pro upgrade'],
-      ['key_not_activated', 'renew', 'timmy pro activate'],
-      ['token_expired', 'renew', 'timmy pro activate'],
-      ['subscription_inactive', 'billing', 'timmy pro billing'],
-      ['key_revoked', 'use_newest_key', 'timmy pro activate -'],
-      ['invalid_token', 'update_timmy', 'TIMMY_PRO_PUBLIC_KEY'],
-      ['no_public_key', 'update_timmy', 'TIMMY_PRO_PUBLIC_KEY'],
+    const cases: Array<[Entitlement, string, string]> = [
+      [inactive('no_license'), 'buy', 'timmy pro upgrade'],
+      [inactive('key_not_activated'), 'renew', 'timmy pro activate'],
+      [inactive('token_expired'), 'renew', 'timmy pro activate'],
+      [inactive('subscription_inactive'), 'billing', 'timmy pro billing'],
+      [inactive('subscription_inactive', 'past_due'), 'billing', 'timmy pro billing'],
+      [inactive('subscription_inactive', 'canceled'), 'buy', 'timmy pro upgrade'],
+      [inactive('key_revoked'), 'use_newest_key', 'timmy pro activate -'],
+      [inactive('invalid_token'), 'update_timmy', 'TIMMY_PRO_PUBLIC_KEY'],
+      [inactive('no_public_key'), 'update_timmy', 'TIMMY_PRO_PUBLIC_KEY'],
+      [inactive('clock_skew'), 'check_clock', 'clock'],
+      [inactive('license_unreadable'), 'fix_license_file', 'license file'],
     ];
-    for (const [reason, step, command] of cases) {
-      expect(nextStep(inactive(reason)), reason).toBe(step);
-      expect(accessMessage(inactive(reason), 'cloud_logs'), reason).toContain(command);
+    for (const [entitlement, step, words] of cases) {
+      const label = `${entitlement.active ? '' : `${entitlement.reason} ${entitlement.subscriptionStatus ?? ''}`}`;
+      expect(nextStep(entitlement), label).toBe(step);
+      expect(accessMessage(entitlement, 'cloud_logs'), label).toContain(words);
     }
     expect(nextStep(active)).toBe('none');
     expect(accessMessage(inactive('no_license'), 'cloud_logs')).toContain('$19/month');

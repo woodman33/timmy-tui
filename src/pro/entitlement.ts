@@ -5,22 +5,24 @@
 // public key. Claims sent by the server next to a token are never trusted, and
 // feature ids this build does not know are dropped.
 
-import { verifyLicenseToken } from './license.js';
+import { verifyLicenseToken, type TokenProblem } from './license.js';
 import { PRO_FEATURE_LABELS, PRO_PLAN, isProFeature, type ProFeature } from './plan.js';
-import type { StoredLicense } from './ports.js';
+import type { PersistedProblem, StoredLicense } from './ports.js';
 
 /** Refresh a token once it has this little time left (tokens last up to 7 days). */
 export const REFRESH_WINDOW_SECONDS = 2 * 86_400;
 
-/** Why Pro is off on this machine. Each reason has exactly one next step (see nextStep). */
+/** Why Pro is off on this machine. Each reason (with the subscription status, for a stopped subscription) has one next step. */
 export type InactiveReason =
   | 'no_license' //            nothing stored here
   | 'key_not_activated' //     a key is stored without a usable token
   | 'token_expired' //         the token lapsed; the subscription may well be fine
   | 'invalid_token' //         the token does not verify against this build's public key
   | 'no_public_key' //         this build cannot check tokens at all
-  | 'subscription_inactive' // the subscription is off
-  | 'key_revoked'; //          the service no longer knows this key (it was replaced)
+  | 'clock_skew' //            this computer's clock disagrees with the service
+  | 'subscription_inactive' // the subscription is not active (see subscriptionStatus)
+  | 'key_revoked' //           the service no longer knows this key (it was replaced)
+  | 'license_unreadable'; //   the license file exists but cannot be read or understood
 
 export type Entitlement =
   | {
@@ -32,11 +34,33 @@ export type Entitlement =
       tokenExpiresAt: number;
       refreshDue: boolean;
     }
-  | { active: false; reason: InactiveReason; detail: string };
+  | { active: false; reason: InactiveReason; detail: string; subscriptionStatus?: string };
+
+const REASON_FOR_TOKEN: Readonly<Record<TokenProblem, InactiveReason>> = {
+  missing: 'key_not_activated',
+  not_timmy: 'key_not_activated',
+  malformed: 'key_not_activated',
+  bad_signature: 'invalid_token',
+  unsupported: 'invalid_token',
+  inactive: 'subscription_inactive',
+  expired: 'token_expired',
+  future: 'clock_skew',
+};
+
+const PROBLEM_DETAIL: Readonly<Record<PersistedProblem, string>> = {
+  subscription_inactive: 'the Pro service says the subscription is not active',
+  key_revoked: 'the Pro service no longer recognizes this license key',
+  invalid_token: 'the license token does not verify against this build of Timmy',
+  clock_skew: "this computer's clock disagrees with the Pro service",
+};
 
 export async function evaluateLicense(license: StoredLicense | null, publicKey: CryptoKey | null, nowSeconds: number): Promise<Entitlement> {
   if (!license) return { active: false, reason: 'no_license', detail: 'no Timmy Pro license on this machine' };
-  if (!license.token && license.refusal) return { active: false, reason: license.refusal.reason, detail: REFUSAL_DETAIL[license.refusal.reason] };
+  if (!license.token && license.problem) {
+    const { reason, subscriptionStatus } = license.problem;
+    const detail = subscriptionStatus ? `${PROBLEM_DETAIL[reason]} (${subscriptionStatus})` : PROBLEM_DETAIL[reason];
+    return subscriptionStatus ? { active: false, reason, detail, subscriptionStatus } : { active: false, reason, detail };
+  }
   if (!license.token) return { active: false, reason: 'key_not_activated', detail: 'license key saved but not activated' };
   return entitlementFromToken(license.token, publicKey, nowSeconds);
 }
@@ -44,27 +68,19 @@ export async function evaluateLicense(license: StoredLicense | null, publicKey: 
 export async function entitlementFromToken(token: string, publicKey: CryptoKey | null, nowSeconds: number): Promise<Entitlement> {
   if (!publicKey) return { active: false, reason: 'no_public_key', detail: 'this build has no Timmy Pro public key to check licenses with' };
   const check = await verifyLicenseToken(token, publicKey, nowSeconds);
-  if (check.ok) {
-    return {
-      active: true,
-      features: check.claims.features.filter(isProFeature),
-      status: check.claims.status,
-      tokenExpiresAt: check.claims.exp,
-      refreshDue: check.claims.exp - nowSeconds <= REFRESH_WINDOW_SECONDS,
-    };
-  }
-  const reason: InactiveReason = check.code === 'expired' ? 'token_expired' : check.code === 'inactive' ? 'subscription_inactive' : 'invalid_token';
-  return { active: false, reason, detail: check.reason };
+  if (!check.ok) return { active: false, reason: REASON_FOR_TOKEN[check.code], detail: check.reason };
+  return {
+    active: true,
+    features: check.claims.features.filter(isProFeature),
+    status: check.claims.status,
+    tokenExpiresAt: check.claims.exp,
+    refreshDue: check.claims.exp - nowSeconds <= REFRESH_WINDOW_SECONDS,
+  };
 }
-
-export const REFUSAL_DETAIL: Readonly<Record<'subscription_inactive' | 'key_revoked', string>> = {
-  subscription_inactive: 'the Pro service says the subscription is not active',
-  key_revoked: 'the Pro service no longer recognizes this license key',
-};
 
 // ── what to do about it ──────────────────────────────────────────────────
 
-export type NextStep = 'none' | 'buy' | 'renew' | 'billing' | 'use_newest_key' | 'update_timmy';
+export type NextStep = 'none' | 'buy' | 'renew' | 'billing' | 'use_newest_key' | 'update_timmy' | 'check_clock' | 'fix_license_file';
 
 const STEP_FOR: Readonly<Record<InactiveReason, NextStep>> = {
   no_license: 'buy',
@@ -74,10 +90,17 @@ const STEP_FOR: Readonly<Record<InactiveReason, NextStep>> = {
   key_revoked: 'use_newest_key',
   invalid_token: 'update_timmy',
   no_public_key: 'update_timmy',
+  clock_skew: 'check_clock',
+  license_unreadable: 'fix_license_file',
 };
 
+/** A subscription in one of these states is over; anything else (past_due, unpaid, paused) can still charge or resume. */
+const ENDED_SUBSCRIPTION_STATUSES: ReadonlySet<string> = new Set(['canceled', 'incomplete_expired']);
+
 export function nextStep(entitlement: Entitlement): NextStep {
-  return entitlement.active ? 'none' : STEP_FOR[entitlement.reason];
+  if (entitlement.active) return 'none';
+  if (entitlement.reason === 'subscription_inactive' && ENDED_SUBSCRIPTION_STATUSES.has(entitlement.subscriptionStatus ?? '')) return 'buy';
+  return STEP_FOR[entitlement.reason];
 }
 
 export type FeatureAccess =
@@ -90,23 +113,29 @@ export function featureAccess(entitlement: Entitlement, feature: ProFeature): Fe
   return { allowed: false, reason: 'not_in_plan', message: `${PRO_FEATURE_LABELS[feature]} needs a newer Timmy Pro license token. Run \`timmy pro activate\`.` };
 }
 
-/** One sentence telling this user what to do, never "buy" to someone who already holds a key. */
+const PRICE = `$${PRO_PLAN.priceUsdMonthly}/month`;
+
+/** One sentence telling this user what to do, never "buy" to someone whose subscription can still resume. */
 export function accessMessage(entitlement: Entitlement, feature?: ProFeature): string {
-  const subject = feature ? PRO_FEATURE_LABELS[feature] : PRO_PLAN.name;
-  switch (nextStep(entitlement)) {
-    case 'none':
-      return `${PRO_PLAN.name} is active.`;
+  const step = nextStep(entitlement);
+  if (entitlement.active || step === 'none') return `${PRO_PLAN.name} is active.`;
+  switch (step) {
     case 'buy':
+      if (entitlement.reason === 'subscription_inactive') return `Your ${PRO_PLAN.name} subscription has ended. Run \`timmy pro upgrade\` to start a new one (${PRICE}).`;
       return feature
-        ? `${subject} is part of ${PRO_PLAN.name} ($${PRO_PLAN.priceUsdMonthly}/month). Run \`timmy pro upgrade\`, or \`timmy pro activate -\` if you have a key.`
-        : `Get ${PRO_PLAN.name} ($${PRO_PLAN.priceUsdMonthly}/month) with \`timmy pro upgrade\`, or run \`timmy pro activate -\` if you have a key.`;
+        ? `${PRO_FEATURE_LABELS[feature]} is part of ${PRO_PLAN.name} (${PRICE}). Run \`timmy pro upgrade\`, or \`timmy pro activate -\` if you have a key.`
+        : `Get ${PRO_PLAN.name} (${PRICE}) with \`timmy pro upgrade\`, or run \`timmy pro activate -\` if you have a key.`;
     case 'renew':
       return `Your ${PRO_PLAN.name} license needs renewing on this machine. Run \`timmy pro activate\` while online.`;
     case 'billing':
-      return `Your ${PRO_PLAN.name} subscription is not active. Run \`timmy pro billing\` to check or restart it.`;
+      return `Your ${PRO_PLAN.name} subscription is ${entitlement.subscriptionStatus?.replaceAll('_', ' ') ?? 'not active'}. Fix it with \`timmy pro billing\`, then run \`timmy pro activate\`.`;
     case 'use_newest_key':
       return `This license key was replaced. Activate the newest key with \`timmy pro activate -\`.`;
     case 'update_timmy':
-      return `This build of Timmy cannot check Pro licenses (${entitlement.active ? '' : entitlement.detail}). Update Timmy, or check TIMMY_PRO_PUBLIC_KEY.`;
+      return `This build of Timmy cannot check Pro licenses (${entitlement.detail}). Update Timmy, or check TIMMY_PRO_PUBLIC_KEY.`;
+    case 'check_clock':
+      return `This computer's clock looks wrong, so the ${PRO_PLAN.name} license cannot be checked. Set the clock automatically, then run \`timmy pro activate\`.`;
+    case 'fix_license_file':
+      return `The ${PRO_PLAN.name} license file on this machine cannot be read (${entitlement.detail}). Fix or remove that file, then run \`timmy pro activate -\` with your key.`;
   }
 }

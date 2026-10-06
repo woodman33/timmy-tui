@@ -21,7 +21,7 @@ export class HttpProService implements ProService {
 
   async startCheckout(): Promise<{ url: string; sessionId: string }> {
     const { data, status } = await this.post('/checkout', { source: 'cli' });
-    return { url: field(data, 'url', status), sessionId: field(data, 'session_id', status) };
+    return { url: this.link(data, 'url', status), sessionId: field(data, 'session_id', status) };
   }
 
   async claim(sessionId: string): Promise<ClaimResult> {
@@ -42,7 +42,7 @@ export class HttpProService implements ProService {
 
   async billingUrl(): Promise<string> {
     const { data, status } = await this.post('/billing', {});
-    return field(data, 'url', status);
+    return this.link(data, 'url', status);
   }
 
   private async post(path: string, body: unknown): Promise<{ status: number; data: Record<string, unknown> }> {
@@ -61,27 +61,47 @@ export class HttpProService implements ProService {
       throw new ProServiceError(timedOut ? 'the Pro service did not answer in time' : 'could not reach the Pro service', 'unreachable');
     }
     if (response.status >= 300 && response.status < 400) {
-      throw new ProServiceError('the Pro service answered with a redirect, which Timmy does not follow', 'unexpected_response', null, response.status);
+      throw new ProServiceError('the Pro service answered with a redirect, which Timmy does not follow', 'unexpected_response', { httpStatus: response.status });
     }
     const data: unknown = await response.json().catch(() => null);
     if (!response.ok) throw failure(response.status, data);
     if (!isRecord(data)) throw unexpectedResponse(response.status);
     return { status: response.status, data };
   }
+
+  /** A link the CLI may hand to a browser opener: https, or plain http only when the service itself is on loopback http. */
+  private link(data: Record<string, unknown>, name: string, status: number): string {
+    let url: URL;
+    try {
+      url = new URL(field(data, name, status));
+    } catch {
+      throw unexpectedResponse(status);
+    }
+    const loopbackService = new URL(this.baseUrl).protocol === 'http:';
+    if (url.protocol === 'https:' || (loopbackService && url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname))) return url.href;
+    throw new ProServiceError('the Pro service sent a link that is not https', 'unexpected_response', { httpStatus: status });
+  }
 }
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 /** The one place an HTTP answer becomes a failure kind. Only the Pro service's own coded JSON counts as a refusal. */
 function failure(status: number, data: unknown): ProServiceError {
   const message = isRecord(data) && typeof data.error === 'string' && data.error ? data.error : `the Pro service answered HTTP ${status}`;
   const code: ProErrorCode | null = isRecord(data) && isProErrorCode(data.code) ? data.code : null;
+  const details = { code, httpStatus: status };
   if (status === 429 || code === 'rate_limited') {
-    return new ProServiceError('too many requests to the Pro service; wait a minute and try again', 'rate_limited', code, status);
+    return new ProServiceError('too many requests to the Pro service; wait a minute and try again', 'rate_limited', details);
   }
   if (code === 'unavailable' || code === 'payment_provider_error' || code === 'internal_error') {
-    return new ProServiceError(message, 'server_error', code, status);
+    return new ProServiceError(message, 'server_error', details);
   }
-  if (code) return new ProServiceError(message, 'refused', code, status);
-  return new ProServiceError(message, status >= 500 ? 'server_error' : 'unexpected_response', null, status);
+  if (code === 'subscription_inactive') {
+    const subscriptionStatus = isRecord(data) && typeof data.status === 'string' ? data.status : null;
+    return new ProServiceError(message, 'refused', { ...details, subscriptionStatus });
+  }
+  if (code) return new ProServiceError(message, 'refused', details);
+  return new ProServiceError(message, status >= 500 ? 'server_error' : 'unexpected_response', { httpStatus: status });
 }
 
 function field(data: Record<string, unknown>, name: string, status: number): string {
@@ -90,7 +110,7 @@ function field(data: Record<string, unknown>, name: string, status: number): str
   return value;
 }
 
-const unexpectedResponse = (status: number) => new ProServiceError('unexpected response from the Pro service', 'unexpected_response', null, status);
+const unexpectedResponse = (status: number) => new ProServiceError('unexpected response from the Pro service', 'unexpected_response', { httpStatus: status });
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);

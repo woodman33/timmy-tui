@@ -24,8 +24,10 @@ function installed() {
   for (const path of [caller, home]) mkdirSync(path);
   write(join(packageDir, 'package.json'), '{"type":"module"}');
   const module = join(packageDir, 'dist/src/utils/init.js');
-  const source = readFileSync(fileURLToPath(new URL('../src/utils/init.ts', import.meta.url)), 'utf8');
-  write(module, transformSync(source, { loader: 'ts', format: 'esm', target: 'es2022' }).code);
+  for (const name of ['init', 'timmy-home']) {
+    const source = readFileSync(fileURLToPath(new URL(`../src/utils/${name}.ts`, import.meta.url)), 'utf8');
+    write(join(packageDir, `dist/src/utils/${name}.js`), transformSync(source, { loader: 'ts', format: 'esm', target: 'es2022' }).code);
+  }
   const overlay = join(packageDir, 'dist/lanes/privacy/overlay.mjs');
   write(overlay, readFileSync(fileURLToPath(new URL('../lanes/privacy/overlay.mjs', import.meta.url)), 'utf8'));
   write(join(packageDir, 'dist/fleet/nodes.example.json'), '{"bundled":true}');

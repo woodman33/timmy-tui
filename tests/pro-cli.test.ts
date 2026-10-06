@@ -1,15 +1,15 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { HttpProService, type FetchLike } from '../src/pro/client.js';
 import { runProCli, type ProCliContext, type ProCliIO } from '../src/pro/cli.js';
 import { importVerifyKey } from '../src/pro/license.js';
 import { LicenseManager } from '../src/pro/manager.js';
 import { PRO_FEATURES } from '../src/pro/plan.js';
-import type { LicenseVault } from '../src/pro/ports.js';
+import { LicenseStorageError, type LicenseVault } from '../src/pro/ports.js';
 import { FileLicenseVault } from '../src/pro/vault.js';
-import { DAY, proWorld, type ProWorld } from './helpers/pro-harness.js';
+import { DAY, proSub, proWorld, type ProWorld } from './helpers/pro-harness.js';
 
 let root: string;
 let world: ProWorld;
@@ -44,10 +44,10 @@ const faultyFetch = (): FetchLike => async (input, init) => {
   return world.fetch(input, init);
 };
 
-function context(io: ProCliIO, over: { available?: boolean; vault?: LicenseVault } = {}): ProCliContext {
+function context(io: ProCliIO, over: { available?: boolean; vault?: LicenseVault; publicKey?: CryptoKey | null } = {}): ProCliContext {
   const service = over.available === false ? null : new HttpProService(world.origin, faultyFetch());
   return {
-    manager: new LicenseManager({ vault: over.vault ?? vault, service, publicKey, now: world.now }),
+    manager: new LicenseManager({ vault: over.vault ?? vault, service, publicKey: over.publicKey === undefined ? publicKey : over.publicKey, now: world.now }),
     settings: { serviceUrl: service ? world.origin : null, publicKey: world.publicKey, publicKeySource: 'env', licensePath: vault.location },
     io,
   };
@@ -60,20 +60,34 @@ const occurrences = (text: string, needle: string) => text.split(needle).length 
 const checkoutsCreated = () => world.stripe.calls.filter((call) => call.startsWith('create:')).length;
 
 /** Buys Pro without the CLI and returns the issued key and its subscription. */
-async function purchase(): Promise<{ key: string; subscriptionId: string }> {
+async function purchase(status = 'active'): Promise<{ key: string; subscriptionId: string }> {
   const service = new HttpProService(world.origin, world.fetch);
   const { sessionId } = await service.startCheckout();
-  const sub = world.stripe.pay(sessionId);
+  const sub = world.stripe.pay(sessionId, proSub(`sub_${sessionId.slice(-8)}`, status));
   const claim = await service.claim(sessionId);
   if (claim.state !== 'ready') throw new Error('expected a ready claim');
   return { key: claim.key, subscriptionId: sub.id };
 }
 
-async function activated(): Promise<{ key: string; subscriptionId: string }> {
-  const bought = await purchase();
+async function activated(status = 'active'): Promise<{ key: string; subscriptionId: string }> {
+  const bought = await purchase(status);
   await context(recordingIO()).manager.activate(bought.key);
   return bought;
 }
+
+/** Reads the real license file but cannot write it, like a read-only disk. */
+const readOnlyVault = (): LicenseVault => ({
+  read: () => vault.read(),
+  write: () => { throw new LicenseStorageError(`cannot write ${vault.location}: EROFS: read-only file system`, 'write'); },
+  clear: () => vault.clear(),
+});
+
+function corruptLicenseFile() {
+  mkdirSync(dirname(vault.location), { recursive: true });
+  writeFileSync(vault.location, 'not json');
+}
+
+const KEY_PATTERN = /tpro_[0-9A-Z]{8}(?:-[0-9A-Z]{8}){3}/;
 
 beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), 'timmy-pro-cli-'));
@@ -151,6 +165,39 @@ describe('timmy pro upgrade', () => {
     expect(vault.read()?.key).not.toBe(key);
     expect(vault.read()?.token).not.toBeNull();
   });
+
+  it('sends a past-due subscriber to billing instead of selling a second subscription', async () => {
+    await activated('past_due');
+    world.advance(15 * DAY);
+    const before = checkoutsCreated();
+    const io = recordingIO();
+    expect(await runProCli(['upgrade'], context(io))).toBe(1);
+    expect(errors(io)).toContain('past due');
+    expect(errors(io)).toContain('timmy pro billing');
+    expect(checkoutsCreated()).toBe(before);
+    expect(io.opened).toEqual([]);
+  });
+
+  it('starts no purchase while the license file is damaged, and says how to fix it', async () => {
+    corruptLicenseFile();
+    const io = recordingIO();
+    expect(await runProCli(['upgrade'], context(io))).toBe(1);
+    expect(errors(io)).toContain('cannot be read');
+    expect(errors(io)).toContain('timmy pro deactivate');
+    expect(errors(io)).not.toContain('There is already a');
+    expect(checkoutsCreated()).toBe(0);
+  });
+
+  it('prints a purchased key it cannot save, and says to copy it now', async () => {
+    const io = recordingIO((count) => { if (count === 1) world.stripe.pay(latestSession()); });
+    expect(await runProCli(['upgrade', '--no-open'], context(io, { vault: readOnlyVault() }))).toBe(1);
+    const key = output(io).match(KEY_PATTERN)?.[0];
+    expect(key).toBeDefined();
+    expect(output(io)).not.toContain('Saved to');
+    expect(errors(io)).toContain('EROFS');
+    expect(errors(io)).toContain('Copy the key above');
+    expect((await new HttpProService(world.origin, world.fetch).activate(key!)).token).toBeTruthy();
+  });
 });
 
 describe('timmy pro status', () => {
@@ -194,6 +241,13 @@ describe('timmy pro status', () => {
     expect(output(io)).toContain('timmy pro activate');
     expect(output(io)).not.toContain('timmy pro upgrade');
   });
+
+  it('explains a damaged license file instead of offering a purchase', async () => {
+    corruptLicenseFile();
+    const io = recordingIO();
+    expect(await runProCli(['status', '--json'], context(io))).toBe(0);
+    expect(JSON.parse(output(io))).toMatchObject({ active: false, reason: 'license_unreadable', nextStep: 'fix_license_file', licenseKeyMasked: null });
+  });
 });
 
 describe('timmy pro activate, rotate, billing, deactivate', () => {
@@ -221,6 +275,14 @@ describe('timmy pro activate, rotate, billing, deactivate', () => {
     expect(errors(io)).toContain('not a Timmy Pro license key');
   });
 
+  it('activate says when the license file cannot be saved', async () => {
+    const { key } = await purchase();
+    const io = recordingIO();
+    expect(await runProCli(['activate', key], context(io, { vault: readOnlyVault() }))).toBe(1);
+    expect(errors(io)).toContain('Could not save the Timmy Pro license file');
+    expect(errors(io)).toContain('EROFS');
+  });
+
   it('rotate prints the new key and the old one stops working', async () => {
     const { key: oldKey } = await activated();
     const io = recordingIO();
@@ -233,15 +295,20 @@ describe('timmy pro activate, rotate, billing, deactivate', () => {
 
   it('rotate still prints the new key when it cannot be saved', async () => {
     await activated();
-    const failingWrites: LicenseVault = {
-      read: () => vault.read(),
-      write: () => { throw new Error('EACCES: permission denied'); },
-      clear: () => vault.clear(),
-    };
     const io = recordingIO();
-    expect(await runProCli(['rotate'], context(io, { vault: failingWrites }))).toBe(1);
-    expect(output(io)).toMatch(/tpro_[0-9A-Z]{8}-/);
+    expect(await runProCli(['rotate'], context(io, { vault: readOnlyVault() }))).toBe(1);
+    expect(output(io)).toMatch(KEY_PATTERN);
+    expect(errors(io)).toContain('EROFS');
     expect(errors(io)).toContain('Copy the key above');
+  });
+
+  it('rotate does not claim Pro is active when this build cannot check the new token', async () => {
+    await activated();
+    const io = recordingIO();
+    expect(await runProCli(['rotate'], context(io, { publicKey: null }))).toBe(0);
+    expect(output(io)).toMatch(KEY_PATTERN);
+    expect(output(io)).not.toContain('is active on this machine');
+    expect(output(io)).toContain('cannot check');
   });
 
   it('billing prints the portal URL and opens it unless asked not to', async () => {

@@ -37,21 +37,44 @@ decides what the TUI offers, so editing a local file cannot unlock anything host
 | Command | What it does |
 |---|---|
 | `timmy pro` / `timmy pro status [--json]` | Shows whether Pro is active on this machine, and the one next step when it is not. May contact the service to renew a token that is due. The key is shown masked; the token never. |
-| `timmy pro upgrade [--no-open]` | Opens Stripe Checkout, waits for payment (checks every 5 s, backs off when rate-limited, stops after 30 min), then saves and prints the key once. Refuses while a key is already on this machine, unless the service has said that subscription is no longer active, so nobody pays twice by accident. |
+| `timmy pro upgrade [--no-open]` | Opens Stripe Checkout, waits for payment (checks every 5 s, backs off when rate-limited, stops after 30 min), then prints and saves the key. If the key cannot be saved, it is still printed, with a warning to copy it (exit 1). See "Who can buy" below. |
 | `timmy pro activate [<key> \| -]` | Exchanges a key for a token. `-` reads the key from stdin (it asks on a terminal), which keeps it out of shell history. No key renews the saved one. |
 | `timmy pro rotate` | Replaces the key. The old one stops working at once, so the new key is printed first, and saved before anything else is tried. |
 | `timmy pro billing [--no-open]` | Opens Stripe's customer portal (sign-in by purchase email). |
 | `timmy pro deactivate` | Removes the license from this machine. The subscription is unchanged. |
 | `timmy pro help`, `--help`, `-h` | Usage. |
 
-Exit codes: `0` done, `1` failed, `2` usage or input error.
+Exit codes: `0` done, `1` failed, `2` usage or input error. Help and usage errors work even when the
+configuration below is wrong. A license file that cannot be read, saved or removed is reported in one
+line with the reason (exit 1), never as a stack trace.
+
+**Who can buy.** Checkout cannot tell who is paying, so a second payment would start a second
+subscription. Before opening checkout, the license manager asks the service about any key already on
+this machine, and starts a purchase only when:
+- there is no license on this machine, or
+- the service says that key's subscription has ended (`canceled` or `incomplete_expired`).
+
+Otherwise `upgrade` starts nothing and says why. An active license points to `timmy pro billing`. A
+past-due, unpaid or paused subscription also goes to billing, since it can still resume. A lapsed
+token goes to `timmy pro activate`. A license file Timmy cannot read blocks buying until the file is
+fixed or removed, because Timmy cannot tell whether you already pay. `timmy pro deactivate` removes the
+license from this machine, after which `upgrade` will sell a new subscription.
 
 **Where the license lives:** `<TIMMY_HOME>/pro/license.json` (`~/timmy/pro/license.json` by default),
-mode 0600 in a 0700 directory, replaced atomically. Tokens last up to 7 days and renew automatically
-when they have under two days left and the service is reachable; offline, the current token keeps
-working until it expires. When the service refuses the key (subscription not active, or the key was
-replaced), the token is dropped, the reason is remembered, and the service is asked again at most hourly.
-A proxy page, a redirect or an outage never counts as a refusal.
+mode 0600 in a 0700 directory, replaced atomically. A file that exists but cannot be read or understood
+is reported as `license_unreadable`, never as "no license".
+
+**Renewal and pacing:**
+- Tokens last up to 7 days. They renew automatically when under two days are left and the service is
+  reachable.
+- Offline, the current token keeps working until it expires.
+- If the service is busy or out of reach, automatic renewal waits 5 minutes before trying again.
+- If the service refuses the key, the token is dropped and the reason is remembered, whichever command
+  heard it. That covers a subscription that is not active (with its Stripe status) and a key that was
+  replaced. The service is then asked again at most hourly. The same applies when a token fails
+  verification, or when this computer's clock disagrees with the service.
+- A proxy page, a redirect or an outage never counts as a refusal.
+- Links the service sends (checkout, billing portal) must be `https`.
 
 **Configuration:**
 - `TIMMY_PRO_URL`: the Pro service. It must be `https://` (plain `http://` only for localhost) and a bare
@@ -65,8 +88,8 @@ A proxy page, a redirect or an outage never counts as a refusal.
 | Field | Meaning |
 |---|---|
 | `active` | Pro is on for this machine (a token verified offline) |
-| `reason`, `detail` | Why not, when not: `no_license`, `key_not_activated`, `token_expired`, `invalid_token`, `no_public_key`, `subscription_inactive`, `key_revoked` |
-| `nextStep` | `none`, `buy`, `renew`, `billing`, `use_newest_key` or `update_timmy` |
+| `reason`, `detail` | Why not, when not: `no_license`, `key_not_activated`, `token_expired`, `invalid_token`, `no_public_key`, `clock_skew`, `subscription_inactive`, `key_revoked`, `license_unreadable` |
+| `nextStep` | `none`, `buy`, `renew`, `billing`, `use_newest_key`, `update_timmy`, `check_clock` or `fix_license_file` |
 | `plan`, `priceUsdMonthly`, `features` | The plan and the features the token lists |
 | `licenseKeyMasked` | `tpro_` + the first and last four characters, or `null` |
 | `tokenExpiresAt`, `refreshDue` | When the offline token runs out (not when the subscription ends) |
@@ -79,9 +102,17 @@ import { checkProFeature } from './pro/gate.js';
 const access = await checkProFeature('cloud_logs');
 if (!access.allowed) return showNotice(access.message); // never throws; the message fits the user's case
 ```
-The message tells a free user how to buy, a key holder how to renew, and a lapsed subscriber where
-billing is. The local check only decides what Timmy offers; hosted features must also check the key on
-the server.
+- The message tells a free user how to buy, a key holder how to renew, and a lapsed subscriber where
+  billing is.
+- An active license answers at once; a renewal that is due runs in the background.
+- An inactive license waits for a refresh, since that may turn it back on. Requests from a feature
+  check give up after 5 s (`GATE_TIMEOUT_MS`).
+- `refresh: 'wait'` waits for any renewal that is due before answering; `refresh: 'never'` stays off
+  the network.
+- A denial's `reason` is an entitlement reason, `not_in_plan`, `config_error` (bad `TIMMY_PRO_URL`
+  or public key) or `unexpected_error`.
+
+The local check only decides what Timmy offers; hosted features must also check the key on the server.
 
 **Errors on the wire:** every error the worker returns is JSON with a human `error` and a stable `code`
 (`src/pro/protocol.ts`). The client branches on the code, never on wording or a bare HTTP status.

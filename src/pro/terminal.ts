@@ -3,13 +3,15 @@
 
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { runProCli, type ProCliContext, type ProCliIO } from './cli.js';
+import { answerHelpOrUsageError, runProCli, type ProCliContext, type ProCliIO } from './cli.js';
 import { resolveProRuntime, type Env, type RuntimeOverrides } from './runtime.js';
 import { ProConfigError } from './settings.js';
 
-/** Runs `timmy pro …` and returns its exit code. */
+/** Runs `timmy pro …` and returns its exit code. Help and usage errors need no configuration. */
 export async function runProCommand(argv: readonly string[], env: Env = process.env): Promise<number> {
   const io = terminalIO();
+  const answered = answerHelpOrUsageError(argv, io);
+  if (answered !== null) return answered;
   let ctx: ProCliContext;
   try {
     ctx = await createProCliContext(env, io);

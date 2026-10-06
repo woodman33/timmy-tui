@@ -25,16 +25,25 @@ export interface ProService {
  */
 export type ProFailureKind = 'refused' | 'rate_limited' | 'server_error' | 'unreachable' | 'unexpected_response';
 
+export interface ProServiceErrorDetails {
+  /** The worker's error code, present only when the Pro service itself answered. */
+  code?: ProErrorCode | null;
+  httpStatus?: number | null;
+  /** Stripe's status for the subscription, when the service refused because it is not active. */
+  subscriptionStatus?: string | null;
+}
+
 export class ProServiceError extends Error {
   override name = 'ProServiceError';
-  constructor(
-    message: string,
-    readonly kind: ProFailureKind,
-    /** The worker's error code, present only when the Pro service itself answered. */
-    readonly code: ProErrorCode | null = null,
-    readonly httpStatus: number | null = null,
-  ) {
+  readonly code: ProErrorCode | null;
+  readonly httpStatus: number | null;
+  readonly subscriptionStatus: string | null;
+
+  constructor(message: string, readonly kind: ProFailureKind, details: ProServiceErrorDetails = {}) {
     super(message);
+    this.code = details.code ?? null;
+    this.httpStatus = details.httpStatus ?? null;
+    this.subscriptionStatus = details.subscriptionStatus ?? null;
   }
 
   /** Worth trying again later. Only a refusal is final. */
@@ -45,11 +54,16 @@ export class ProServiceError extends Error {
 
 // ── the license on this machine ──────────────────────────────────────────
 
-/** A refusal the service gave for the stored key, kept so offline checks report it too. */
-export interface StoredRefusal {
-  reason: 'subscription_inactive' | 'key_revoked';
+/** Why the stored key has no usable token, as learned from the service or from checking a token. */
+export const PERSISTED_PROBLEMS = ['subscription_inactive', 'key_revoked', 'invalid_token', 'clock_skew'] as const;
+export type PersistedProblem = (typeof PERSISTED_PROBLEMS)[number];
+
+export interface StoredProblem {
+  reason: PersistedProblem;
   /** Unix seconds. */
   at: number;
+  /** Stripe's status for the subscription, when the service reported one. */
+  subscriptionStatus?: string;
 }
 
 export interface StoredLicense {
@@ -60,9 +74,21 @@ export interface StoredLicense {
   token: string | null;
   /** Unix seconds of the last write. */
   savedAt: number;
-  refusal?: StoredRefusal;
+  /** Why there is no token, when the reason is known. */
+  problem?: StoredProblem;
+  /** Unix seconds before which an automatic refresh should not be tried again (after a busy or unreachable service). */
+  retryAfter?: number;
 }
 
+/** The license file could not be read, written or removed, or its contents are not a license this build understands. */
+export class LicenseStorageError extends Error {
+  override name = 'LicenseStorageError';
+  constructor(message: string, readonly operation: 'read' | 'write' | 'clear') {
+    super(message);
+  }
+}
+
+/** Storage for the one license on this machine. read() is null only when there is none; anything else unusable throws LicenseStorageError. */
 export interface LicenseVault {
   read(): StoredLicense | null;
   write(license: StoredLicense): void;

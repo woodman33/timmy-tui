@@ -67,6 +67,31 @@ describe('HttpProService against the real handler', () => {
   });
 });
 
+describe('HttpProService details', () => {
+  it('carries the subscription status the service reported with a refusal', async () => {
+    const world = await proWorld();
+    const service = new HttpProService(world.origin, world.fetch);
+    const { sessionId } = await service.startCheckout();
+    const sub = world.stripe.pay(sessionId);
+    const claim = await service.claim(sessionId);
+    if (claim.state !== 'ready') throw new Error('expected a ready claim');
+    world.stripe.subs.set(sub.id, { ...sub, status: 'canceled' });
+    await world.webhook({ id: 'evt_cancel', type: 'customer.subscription.deleted', data: { object: { id: sub.id } } });
+    expect(await serviceError(service.activate(claim.key))).toMatchObject({ kind: 'refused', code: 'subscription_inactive', subscriptionStatus: 'canceled' });
+  });
+
+  it('only passes on https links, so a browser opener never sees another scheme', async () => {
+    for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'http://pay.example.com/x', 'not a url']) {
+      const billing = await serviceError(new HttpProService('https://pro.example.com', answering(200, JSON.stringify({ url }))).billingUrl());
+      expect(billing, url).toMatchObject({ kind: 'unexpected_response' });
+      const checkout = await serviceError(new HttpProService('https://pro.example.com', answering(200, JSON.stringify({ url, session_id: 'cs_test_abc' }))).startCheckout());
+      expect(checkout, url).toMatchObject({ kind: 'unexpected_response' });
+    }
+    expect(await new HttpProService('https://pro.example.com', answering(200, '{"url":"https://billing.stripe.com/p/x"}')).billingUrl()).toBe('https://billing.stripe.com/p/x');
+    expect(await new HttpProService('http://127.0.0.1:8787', answering(200, '{"url":"http://127.0.0.1:8787/p"}')).billingUrl()).toBe('http://127.0.0.1:8787/p');
+  });
+});
+
 describe('HttpProService failure kinds', () => {
   it('explains rate limiting and marks it retryable', async () => {
     const error = await serviceError(new HttpProService('https://pro.example.com', answering(429, '{"error":"too many requests","code":"rate_limited"}')).claim('cs_test_abc'));

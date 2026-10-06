@@ -12,13 +12,13 @@ import { homedir } from 'node:os';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync } from 'node:crypto';
+import { resolveTimmyHome, timmyHome } from './timmy-home.js';
+
+export { resolveTimmyHome, timmyHome };
 
 // Match the cockpit's workspace override. Installed modules are application
 // code, never the default destination for operator state.
 const workspaceRoot = (): string => resolve(process.env.TIMMY_REPO_ROOT || process.cwd());
-/** TIMMY_HOME from the given environment only, else ~/timmy. */
-export const resolveTimmyHome = (env: Readonly<Record<string, string | undefined>>): string => env.TIMMY_HOME?.trim() || join(homedir(), 'timmy');
-export const timmyHome = (): string => resolveTimmyHome(process.env);
 export const privateDir = (workspace = workspaceRoot()): string => resolve(process.env.TIMMY_PRIVATE_DIR || join(workspace, '.timmy', 'private'));
 export const identityPath = (): string => join(timmyHome(), 'identity.json');
 export const isBlankSlate = (): boolean => !existsSync(identityPath());

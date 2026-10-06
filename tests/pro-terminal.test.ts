@@ -3,7 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runProCommand } from '../src/pro/terminal.js';
-import { resolveTimmyHome } from '../src/utils/init.js';
+import { resolveTimmyHome } from '../src/utils/timmy-home.js';
 
 let home: string;
 let stdout: string[];
@@ -33,6 +33,16 @@ describe('runProCommand', () => {
   it('refuses an insecure service URL before sending anything', async () => {
     expect(await runProCommand(['status'], { TIMMY_HOME: home, TIMMY_PRO_URL: 'http://example.com' })).toBe(2);
     expect(stderr.join('')).toContain('TIMMY_PRO_URL must use https');
+  });
+
+  it('answers --help and usage errors even when Pro is misconfigured', async () => {
+    const misconfigured = { TIMMY_HOME: home, TIMMY_PRO_URL: 'http://example.com' };
+    expect(await runProCommand(['--help'], misconfigured)).toBe(0);
+    expect(stdout.join('')).toContain('Usage: timmy pro');
+    expect(stderr.join('')).toBe('');
+    expect(await runProCommand(['frobnicate'], misconfigured)).toBe(2);
+    expect(stderr.join('')).toContain('timmy pro: unknown command "frobnicate"');
+    expect(stderr.join('')).not.toContain('must use https');
   });
 
   it('refuses a public key that is not 32 raw bytes', async () => {

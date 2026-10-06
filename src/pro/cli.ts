@@ -7,9 +7,9 @@
 
 import { accessMessage, nextStep, type Entitlement, type InactiveReason, type NextStep } from './entitlement.js';
 import { LICENSE_KEY_PREFIX } from './license.js';
-import { LicenseInputError, ProUnavailableError, type LicenseManager, type PurchaseClaim } from './manager.js';
+import { LicenseInputError, ProUnavailableError, PurchaseRefusedError, type LicenseManager, type PurchaseClaim } from './manager.js';
 import { PRO_FEATURE_LABELS, PRO_PLAN, type ProFeature } from './plan.js';
-import { ProServiceError } from './ports.js';
+import { LicenseStorageError, ProServiceError } from './ports.js';
 import type { ProSettings } from './settings.js';
 
 export interface ProCliIO {
@@ -84,38 +84,59 @@ const COMMANDS: Readonly<Record<string, Command>> = {
   rotate: { flags: [], maxArgs: 0, run: rotate },
   billing: { flags: ['--no-open'], maxArgs: 0, run: billing },
   deactivate: { flags: [], maxArgs: 0, run: deactivate },
-  help: { flags: [], maxArgs: 0, run: async (_invocation, ctx) => help(ctx) },
+  help: { flags: [], maxArgs: 0, run: async (_invocation, ctx) => showUsage(ctx.io) },
 };
 
 /** Runs one `timmy pro` command. Exit codes: 0 done, 1 failed, 2 usage or input error. */
 export async function runProCli(argv: readonly string[], ctx: ProCliContext): Promise<number> {
-  if (argv.includes('--help') || argv.includes('-h')) return help(ctx);
-  const positional = argv.filter((arg) => !arg.startsWith('--'));
-  const flags = new Set(argv.filter((arg) => arg.startsWith('--')));
-  const name = positional[0] ?? 'status';
-  const args = positional.slice(1);
-  const command = Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : undefined;
-  if (!command) return usageError(`timmy pro: unknown command "${name}"`, ctx);
-  const unknownFlag = [...flags].find((flag) => !command.flags.includes(flag));
-  if (unknownFlag) return usageError(`timmy pro ${name}: unknown option ${unknownFlag}`, ctx);
-  if (args.length > command.maxArgs) {
-    return usageError(`timmy pro ${name}: ${command.maxArgs === 0 ? 'takes no arguments' : `takes at most ${command.maxArgs} argument`}`, ctx);
-  }
+  const parsed = parseArgs(argv);
+  if (parsed.kind === 'usage_error') return usageError(parsed.problem, ctx.io);
   try {
-    return await command.run({ args, flags }, ctx);
+    return await parsed.command.run(parsed.invocation, ctx);
   } catch (error) {
     return reportFailure(error, ctx.io);
   }
 }
 
-function help(ctx: ProCliContext): number {
-  ctx.io.out(USAGE);
+/**
+ * Answers help and usage errors, which need no license or service, and returns the exit
+ * code; null means argv names a command for runProCli. Lets `timmy pro --help` work while
+ * Pro is misconfigured.
+ */
+export function answerHelpOrUsageError(argv: readonly string[], io: ProCliIO): number | null {
+  const parsed = parseArgs(argv);
+  if (parsed.kind === 'usage_error') return usageError(parsed.problem, io);
+  return parsed.name === 'help' ? showUsage(io) : null;
+}
+
+type ParsedArgs =
+  | { kind: 'usage_error'; problem: string }
+  | { kind: 'command'; name: string; command: Command; invocation: Invocation };
+
+/** `--help` or `-h` anywhere means `help`; no command means `status`. */
+function parseArgs(argv: readonly string[]): ParsedArgs {
+  const wantsHelp = argv.includes('--help') || argv.includes('-h');
+  const positional = wantsHelp ? ['help'] : argv.filter((arg) => !arg.startsWith('--'));
+  const flags = new Set(wantsHelp ? [] : argv.filter((arg) => arg.startsWith('--')));
+  const [name = 'status', ...args] = positional;
+  const command = Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : undefined;
+  if (!command) return { kind: 'usage_error', problem: `timmy pro: unknown command "${name}"` };
+  const unknownFlag = [...flags].find((flag) => !command.flags.includes(flag));
+  if (unknownFlag) return { kind: 'usage_error', problem: `timmy pro ${name}: unknown option ${unknownFlag}` };
+  if (args.length > command.maxArgs) {
+    return { kind: 'usage_error', problem: `timmy pro ${name}: ${command.maxArgs === 0 ? 'takes no arguments' : `takes at most ${command.maxArgs} argument`}` };
+  }
+  return { kind: 'command', name, command, invocation: { args, flags } };
+}
+
+function showUsage(io: ProCliIO): number {
+  io.out(USAGE);
   return 0;
 }
 
-function usageError(problem: string, ctx: ProCliContext): number {
-  ctx.io.err(problem);
-  ctx.io.err(USAGE);
+function usageError(problem: string, io: ProCliIO): number {
+  io.err(problem);
+  io.err(USAGE);
   return 2;
 }
 
@@ -133,19 +154,13 @@ async function status({ flags }: Invocation, ctx: ProCliContext): Promise<number
 }
 
 async function upgrade({ flags }: Invocation, ctx: ProCliContext): Promise<number> {
-  const current = await ctx.manager.refreshIfDue();
-  if (current.active) {
-    ctx.io.out(`You already have ${PRO_PLAN.name}. Manage it with \`timmy pro billing\`.`);
-    return 0;
+  let checkout: { url: string; sessionId: string };
+  try {
+    checkout = await ctx.manager.startPurchase();
+  } catch (error) {
+    if (error instanceof PurchaseRefusedError) return refusePurchase(error.entitlement, ctx);
+    throw error;
   }
-  // Checkout does not know who you are, so paying again would start a second subscription.
-  const step = nextStep(current);
-  if (step !== 'buy' && step !== 'billing') {
-    ctx.io.err(`There is already a ${PRO_PLAN.name} license key on this machine. ${accessMessage(current)}`);
-    ctx.io.err('To buy a separate subscription anyway, run `timmy pro deactivate` first.');
-    return 1;
-  }
-  const checkout = await ctx.manager.startPurchase();
   ctx.io.out(`${PRO_PLAN.name} is ${PRICE}. Finish checkout in your browser:`);
   ctx.io.out(`  ${checkout.url}`);
   if (!flags.has('--no-open')) ctx.io.openUrl(checkout.url);
@@ -189,15 +204,15 @@ async function rotate(_invocation: Invocation, ctx: ProCliContext): Promise<numb
   const result = await ctx.manager.rotate();
   printKey('New Timmy Pro license key (the old key stopped working):', result.key, ctx);
   if (!result.saved) {
-    ctx.io.err(`Could not save it to ${ctx.settings.licensePath} (${result.followUpError?.message ?? 'unknown error'}). Copy the key above now: the old key no longer works.`);
+    ctx.io.err(`Could not save it to ${ctx.settings.licensePath} (${result.saveError.message}). Copy the key above now: the old key no longer works.`);
     return 1;
   }
   ctx.io.out(`Saved to ${ctx.settings.licensePath} (readable only by you).`);
-  if (result.followUpError) {
-    ctx.io.err(`It is not activated on this machine yet: ${explainFailure(result.followUpError)} Run \`timmy pro activate\` to try again.`);
+  if (result.activationError) {
+    ctx.io.err(`It is not activated on this machine yet: ${explainFailure(result.activationError)} Run \`timmy pro activate\` to try again.`);
     return 0;
   }
-  ctx.io.out(`${PRO_PLAN.name} is active on this machine.`);
+  ctx.io.out(activeOrNext(result.entitlement));
   return 0;
 }
 
@@ -217,12 +232,35 @@ async function deactivate(_invocation: Invocation, ctx: ProCliContext): Promise<
 
 // ── presentation ─────────────────────────────────────────────────────────
 
+/** Checkout cannot tell who is paying, so a second payment would start a second subscription. */
+function refusePurchase(entitlement: Entitlement, ctx: ProCliContext): number {
+  if (entitlement.active) {
+    ctx.io.out(`You already have ${PRO_PLAN.name}. Manage it with \`timmy pro billing\`.`);
+    return 0;
+  }
+  if (entitlement.reason === 'license_unreadable') {
+    ctx.io.err(accessMessage(entitlement));
+    ctx.io.err(`Until then Timmy cannot tell whether you already pay for ${PRO_PLAN.name}, so no checkout was started. To buy anyway, run \`timmy pro deactivate\` (it removes that file) first.`);
+    return 1;
+  }
+  ctx.io.err(`There is already a ${PRO_PLAN.name} license key on this machine. ${accessMessage(entitlement)}`);
+  ctx.io.err('To buy a separate subscription anyway, run `timmy pro deactivate` first.');
+  return 1;
+}
+
 function announcePurchase(claim: Extract<PurchaseClaim, { state: 'ready' }>, ctx: ProCliContext): number {
   printKey('Payment received. Your Timmy Pro license key:', claim.key, ctx);
+  if (!claim.saved) {
+    ctx.io.err(`Could not save it to ${ctx.settings.licensePath} (${claim.saveError.message}). Copy the key above now; once that file can be written, run \`timmy pro activate -\` and paste it.`);
+    return 1;
+  }
   ctx.io.out(`Saved to ${ctx.settings.licensePath} (readable only by you). Keep a copy somewhere safe.`);
-  ctx.io.out(claim.entitlement.active ? `${PRO_PLAN.name} is active on this machine.` : accessMessage(claim.entitlement));
+  ctx.io.out(activeOrNext(claim.entitlement));
   return 0;
 }
+
+const activeOrNext = (entitlement: Entitlement): string =>
+  entitlement.active ? `${PRO_PLAN.name} is active on this machine.` : accessMessage(entitlement);
 
 function printKey(heading: string, key: string, ctx: ProCliContext): void {
   ctx.io.out('');
@@ -280,15 +318,22 @@ function reportFailure(error: unknown, io: ProCliIO): number {
     io.err(error.message);
     return 2;
   }
-  if (error instanceof ProUnavailableError || error instanceof ProServiceError) {
+  if (error instanceof ProUnavailableError || error instanceof ProServiceError || error instanceof LicenseStorageError) {
     io.err(explainFailure(error));
     return 1;
   }
   throw error;
 }
 
+const STORAGE_FAILURE: Readonly<Record<LicenseStorageError['operation'], (detail: string) => string>> = {
+  read: (detail) => `Could not read the Timmy Pro license file (${detail}). Fix or remove that file.`,
+  write: (detail) => `Could not save the Timmy Pro license file (${detail}). Check that you own that file and its folder.`,
+  clear: (detail) => `Could not remove the Timmy Pro license file (${detail}). Check that you own that file and its folder.`,
+};
+
 /** The one place a failure becomes words for the user. */
 function explainFailure(error: Error): string {
+  if (error instanceof LicenseStorageError) return STORAGE_FAILURE[error.operation](error.message);
   if (!(error instanceof ProServiceError)) return error.message;
   switch (error.kind) {
     case 'unreachable':
