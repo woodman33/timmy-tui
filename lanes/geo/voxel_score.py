@@ -46,8 +46,16 @@ def require_numeric() -> None:
 
 # ---------------------------------------------------------------- loading
 
-def load_points(path: Path, samples: int, seed: int) -> tuple[np.ndarray, str]:
-    """Points from a PLY / JSON / mesh file; returns (N,3) float64 and how they were obtained."""
+SPLAT_MIN_OPACITY = 0.1
+
+
+def load_points(path: Path, samples: int, seed: int, splat_min_opacity: float = SPLAT_MIN_OPACITY) -> tuple[np.ndarray, str]:
+    """Points from a PLY / JSON / mesh file; returns (N,3) float64 and how they were obtained. A PLY whose vertices carry
+    `opacity` and `scale_0` is a 3D Gaussian splat (the 3DGS / SuperSplat layout, opacity stored as a logit): its points
+    are the centres of the Gaussians whose opacity is at least splat_min_opacity — near-transparent floaters are not
+    surface — and the how-string says so, with the counts. A splat has no surface to sample; centres are its geometry.
+    With every Gaussian under the bar the cloud is empty ("0 of N"): score() grades that as an empty prediction (F1 0, no
+    Chamfer), never a traceback."""
     suf = path.suffix.lower()
     if suf == ".json":
         j = json.loads(path.read_text())
@@ -57,8 +65,15 @@ def load_points(path: Path, samples: int, seed: int) -> tuple[np.ndarray, str]:
         head = path.read_bytes()[:4096].decode("ascii", "replace")
         if "element face" not in head or " 0\n" in head.split("element face")[1][:4]:
             sys.path.insert(0, str(HERE))
-            from scale_solver import read_ply_xyz   # noqa: E402  (sibling lane module; vertex-only reader)
-            return read_ply_xyz(path), "ply-vertices"
+            from scale_solver import read_ply_vertices   # noqa: E402  (sibling lane module; vertex-only reader)
+            arr = read_ply_vertices(path)
+            names = arr.dtype.names or ()
+            xyz = np.stack([arr["x"], arr["y"], arr["z"]], 1).astype(np.float64)
+            if "opacity" in names and "scale_0" in names:
+                alpha = 1.0 / (1.0 + np.exp(-arr["opacity"].astype(np.float64)))
+                keep = alpha >= splat_min_opacity
+                return xyz[keep], f"splat-centers opacity>={splat_min_opacity:g} ({int(keep.sum())} of {len(xyz)})"
+            return xyz, "ply-vertices"
     try:
         import trimesh  # optional: meshes are sampled on their surface
     except ImportError:
@@ -124,6 +139,11 @@ def voxel_occupancy(truth: np.ndarray, pred: np.ndarray, voxel: float, tol: floa
 
 
 def surface_metrics(truth: np.ndarray, pred: np.ndarray, tau: float) -> dict:
+    if not len(pred) or not len(truth):
+        # an empty cloud has no nearest neighbour: no point lies within tau of it (F-score 0) and Chamfer has no finite
+        # value — null, never NaN or inf, which would not survive as JSON
+        return {"chamfer_mean_dist": None, "chamfer_l2_sq": None, "pred_to_truth_p95": None, "truth_to_pred_p95": None,
+                "fscore": {"tau": tau, "precision": 0.0, "recall": 0.0, "f": 0.0}}
     d_pt = cKDTree(truth).query(pred, k=1)[0]      # each predicted point → nearest truth point
     d_tp = cKDTree(pred).query(truth, k=1)[0]      # each truth point → nearest predicted point
     prec = float(np.mean(d_pt <= tau)); rec = float(np.mean(d_tp <= tau))
@@ -145,10 +165,82 @@ def umeyama(src: np.ndarray, dst: np.ndarray) -> tuple[float, np.ndarray, np.nda
     return s, R, mu_d - s * R @ mu_s
 
 
-def fit_pred_to_truth(truth: np.ndarray, pred: np.ndarray, iters: int = 10, threshold: float | None = None) -> tuple[np.ndarray, dict]:
+def rotation_candidates(step_deg: int = 15) -> list:
+    """Start poses for a global fit: the 24 axis-aligned rotations of a cube (any up-axis convention, any 90° turn),
+    each followed by a turn about each truth axis in step_deg steps short of 90°. A generator's output is upright in
+    its own frame but its up axis and its yaw relative to the truth are unknown, so this covers both; scaled ICP then
+    closes the last few degrees. Deduplicated; 24 × (1 + 3 × 5) = 384 starts at the default 15°."""
+    import itertools
+    cube = []
+    for perm in itertools.permutations(range(3)):
+        for signs in itertools.product((1, -1), repeat=3):
+            m = np.zeros((3, 3))
+            for r, (c, sg) in enumerate(zip(perm, signs)):
+                m[r, c] = sg
+            if np.linalg.det(m) > 0:
+                cube.append(m)
+
+    def axis_rot(ax: int, deg: float) -> np.ndarray:
+        c, s_ = np.cos(np.radians(deg)), np.sin(np.radians(deg)); i, j = [k for k in range(3) if k != ax]
+        m = np.eye(3); m[i, i] = c; m[i, j] = -s_; m[j, i] = s_; m[j, j] = c
+        return m
+    spins = [np.eye(3)] + [axis_rot(ax, d) for ax in range(3) for d in range(step_deg, 90, step_deg)]
+    out, seen = [], set()
+    for sp in spins:
+        for c in cube:
+            r = sp @ c
+            key = tuple(np.round(r, 6).ravel())
+            if key not in seen:
+                seen.add(key); out.append(r)
+    return out
+
+
+def _sym_chamfer(a: np.ndarray, b: np.ndarray, tree_a=None) -> float:
+    ta = tree_a if tree_a is not None else cKDTree(a)
+    return float(0.5 * (ta.query(b, k=1)[0].mean() + cKDTree(b).query(a, k=1)[0].mean()))
+
+
+def _angle_deg(r: np.ndarray) -> float:
+    return float(np.degrees(np.arccos(np.clip((np.trace(r) - 1) / 2, -1.0, 1.0))))
+
+
+def fit_pred_to_truth(truth: np.ndarray, pred: np.ndarray, iters: int = 10, threshold: float | None = None,
+                      rotations: str = "identity", seed: int = 0) -> tuple[np.ndarray, dict]:
     """Diagnostic similarity fit (centroid alignment, then scaled ICP). Open3D's point-to-point ICP with scaling when it is
     installed (correspondence threshold = `threshold`, default 5 % of the truth's longest side); otherwise the numpy
-    Umeyama loop. Either way the result is a shape score, never a metric one — score() marks it metric:false."""
+    Umeyama loop. Either way the result is a shape score, never a metric one — score() marks it metric:false.
+
+    rotations="global" is for generators, whose output has its own up axis and yaw: the prediction is centred and scaled
+    to the truth's RMS radius, every start pose from rotation_candidates() is scored by symmetric Chamfer on 2 000-point
+    subsets, the four best distinct starts (more than 20° apart) are each refined by the same scaled ICP, and the lowest
+    final Chamfer wins. Two different poses within 5 % of each other mean a near-symmetric shape: rotation_ambiguous."""
+    if rotations == "global":
+        rng = np.random.default_rng(seed)
+        sub = lambda a: a[rng.choice(len(a), min(2000, len(a)), replace=False)]      # noqa: E731
+        tc, pc = truth.mean(0), pred.mean(0)
+        s0 = float(np.sqrt(((truth - tc) ** 2).sum(1).mean()) / max(np.sqrt(((pred - pc) ** 2).sum(1).mean()), 1e-12))
+        P = (pred - pc) * s0
+        t_sub, p_sub = sub(truth - tc), sub(P)
+        t_tree = cKDTree(t_sub)
+        cands = rotation_candidates()
+        coarse = [_sym_chamfer(t_sub, p_sub @ r.T, t_tree) for r in cands]
+        picked: list = []
+        for i in np.argsort(coarse):
+            if all(_angle_deg(cands[i] @ cands[j].T) > 20 for j in picked):
+                picked.append(int(i))
+            if len(picked) == 4:
+                break
+        tries = []
+        for i in picked:
+            cur_i, info_i = fit_pred_to_truth(truth, (P @ cands[i].T) + tc, iters, threshold)
+            tries.append((_sym_chamfer(t_sub + tc, sub(cur_i)), i, cur_i, info_i))
+        tries.sort(key=lambda t: t[0])
+        best_ch, bi, cur, info = tries[0]
+        rival = next((t for t in tries[1:] if _angle_deg(cands[t[1]] @ cands[bi].T) > 30), None)
+        info = {**info, "rotations": "global", "start_poses": len(cands), "refined": len(tries), "start_rotation_deg": round(_angle_deg(cands[bi]), 1),
+                "chamfer_after_fit": round(best_ch, 6), "rotation_ambiguous": bool(rival is not None and rival[0] <= best_ch * 1.05),
+                "scale_applied": round(info["scale_applied"] * s0, 5), "prescale": round(s0, 5)}
+        return cur, info
     cur = pred - pred.mean(0) + truth.mean(0)
     thr = threshold if threshold else 0.05 * float((truth.max(0) - truth.min(0)).max())
     try:
@@ -166,7 +258,7 @@ def fit_pred_to_truth(truth: np.ndarray, pred: np.ndarray, iters: int = 10, thre
             T = np.asarray(reg.transformation)
             cur = (T[:3, :3] @ cur.T).T + T[:3, 3]
             total_s *= float(np.cbrt(abs(np.linalg.det(T[:3, :3]))))
-        return cur, {"applied": True, "engine": f"open3d-{o3d.__version__}", "method": "point-to-point ICP with scaling, coarse to fine", "thresholds": schedule, "fitness": round(float(reg.fitness), 4),
+        return cur, {"applied": True, "rotations": "identity", "engine": f"open3d-{o3d.__version__}", "method": "point-to-point ICP with scaling, coarse to fine", "thresholds": schedule, "fitness": round(float(reg.fitness), 4),
                      "inlier_rmse": round(float(reg.inlier_rmse), 6), "scale_applied": round(total_s, 5), "centroid_shift": round(float(np.linalg.norm(cur.mean(0) - pred.mean(0))), 5)}
     except ImportError:
         pass
@@ -179,11 +271,19 @@ def fit_pred_to_truth(truth: np.ndarray, pred: np.ndarray, iters: int = 10, thre
         total_s *= s
         if abs(s - 1) < 1e-4 and np.linalg.norm(t) < 1e-3 and abs(np.trace(R) - 3) < 1e-6:
             break
-    return cur, {"applied": True, "engine": "numpy-umeyama", "method": "nearest-neighbour Umeyama, iterated", "iterations": done, "threshold": None,
+    return cur, {"applied": True, "rotations": "identity", "engine": "numpy-umeyama", "method": "nearest-neighbour Umeyama, iterated", "iterations": done, "threshold": None,
                  "scale_applied": round(total_s, 5), "centroid_shift": round(float(np.linalg.norm(cur.mean(0) - pred.mean(0))), 5)}
 
 
-def score(truth: np.ndarray, pred: np.ndarray, voxel: float, tau: float, fit: bool = False, normalize: bool = False, tol: float = 0.05, phases: int = 8) -> dict:
+def fittable(pts: np.ndarray) -> bool:
+    """A similarity fit needs at least 3 points with some extent; fewer (or all coincident) and there is nothing to fit."""
+    return len(pts) >= 3 and float(np.ptp(pts, axis=0).max()) > 0
+
+
+def score(truth: np.ndarray, pred: np.ndarray, voxel: float, tau: float, fit: bool = False, normalize: bool = False, tol: float = 0.05, phases: int = 8,
+          fit_rotations: str = "identity", return_points: bool = False):
+    """Scores pred against truth. With return_points=True returns (result, truth, pred) as compared — after normalize and
+    fit — so a viewer can show exactly what was scored."""
     note = []
     unit = "m"
     if normalize:
@@ -192,11 +292,22 @@ def score(truth: np.ndarray, pred: np.ndarray, voxel: float, tau: float, fit: bo
         truth = (truth - c) / side; pred = (pred - c) / side
         unit = "unit-cube"; note.append("both shapes scaled by the truth's longest bounding-box side; voxel and tau are unit-cube fractions")
     fitinfo = {"applied": False}
-    if fit:
-        pred, fitinfo = fit_pred_to_truth(truth, pred)
+    empty = not len(pred)
+    if empty:
+        note.append("the prediction has no points (an empty file, or a splat with no Gaussian at or above the opacity bar): it scores 0 and has no Chamfer distance")
+    if fit and not fittable(pred):
+        # a similarity needs extent: Umeyama divides by the prediction's spread, so fitting an empty or one-point cloud is
+        # NaN, not a score. The run asked for a fit, so the record still says metric:false like the rest of the run.
+        fitinfo = {"applied": False, "skipped": "empty prediction" if empty else "fewer than 3 points, or no extent: nothing to fit"}
+        note.append(f"fit skipped ({fitinfo['skipped']}); the run is still a shape score, not a metric one")
+    elif fit:
+        pred, fitinfo = fit_pred_to_truth(truth, pred, rotations=fit_rotations)
         note.append("prediction fitted to truth (similarity); the result is a shape score, not a metric one")
-    return {"kind": "geo.voxel-score", "metric": not fit, "unit": unit, "fit": fitinfo, "voxel": voxel_occupancy(truth, pred, voxel, tol, phases),
-            "surface": surface_metrics(truth, pred, tau), "points": {"truth": int(len(truth)), "pred": int(len(pred))}, "note": note}
+        if fit_rotations == "global":
+            note.append(f"global rotation search over {fitinfo.get('start_poses')} start poses before the fit (a generator's up axis and yaw are its own)")
+    res = {"kind": "geo.voxel-score", "metric": not fit, "unit": unit, "fit": fitinfo, "voxel": voxel_occupancy(truth, pred, voxel, tol, phases),
+           "surface": surface_metrics(truth, pred, tau), "points": {"truth": int(len(truth)), "pred": int(len(pred))}, "empty_prediction": empty, "note": note}
+    return (res, truth, pred) if return_points else res
 
 
 # ---------------------------------------------------------------- controls
@@ -247,6 +358,8 @@ def main(argv=None):
     ap.add_argument("--samples", type=int, default=200000, help="surface samples per mesh input")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--fit", action="store_true", help="similarity-fit the prediction first (diagnostic; metric:false, exit 2)")
+    ap.add_argument("--fit-global", action="store_true", help="--fit preceded by a global rotation search (generator outputs: own up axis and yaw)")
+    ap.add_argument("--splat-min-opacity", type=float, default=SPLAT_MIN_OPACITY, help="3D Gaussian splat input: keep centres of Gaussians at least this opaque")
     ap.add_argument("--normalize", action="store_true", help="unit-cube protocol: scale both by the truth's longest side")
     ap.add_argument("--out", type=Path)
     ap.add_argument("--selftest", action="store_true")
@@ -257,12 +370,18 @@ def main(argv=None):
         print(json.dumps(rep)); return 0 if ok else 1
     if not (a.truth and a.pred):
         ap.error("--truth and --pred, or --selftest")
-    truth, how_t = load_points(a.truth, a.samples, a.seed); pred, how_p = load_points(a.pred, a.samples, a.seed)
-    out = {**score(truth, pred, a.voxel, a.tau, fit=a.fit, normalize=a.normalize, tol=a.tolerance, phases=a.phases), "inputs": {"truth": a.truth.name, "truth_from": how_t, "pred": a.pred.name, "pred_from": how_p}}
+    fit = a.fit or a.fit_global
+    truth, how_t = load_points(a.truth, a.samples, a.seed, a.splat_min_opacity); pred, how_p = load_points(a.pred, a.samples, a.seed, a.splat_min_opacity)
+    if not len(truth):
+        # an empty prediction is a result (it scores 0); an empty truth leaves nothing to score against
+        print(json.dumps({"ok": False, "status": "refused", "note": f"the truth has no points ({how_t}); nothing to score against", "truth": a.truth.name}))
+        return 2
+    out = {**score(truth, pred, a.voxel, a.tau, fit=fit, normalize=a.normalize, tol=a.tolerance, phases=a.phases, fit_rotations="global" if a.fit_global else "identity"),
+           "inputs": {"truth": a.truth.name, "truth_from": how_t, "pred": a.pred.name, "pred_from": how_p}}
     if a.out:
         a.out.write_text(json.dumps(out, indent=1) + "\n")
     print(json.dumps(out))
-    return 2 if a.fit else 0
+    return 2 if fit else 0
 
 
 if __name__ == "__main__":

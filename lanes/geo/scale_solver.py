@@ -100,9 +100,11 @@ def solve_view_scales(view_pts: list[np.ndarray], Rs: list[np.ndarray], ts: list
             "rounds": rounds, "grid": [lo, hi], "at_grid_edge": edge, "views": n, "points_used": [int(len(p)) for p in pts], "history": history}
 
 
-def read_ply_xyz(path: Path) -> np.ndarray:
-    """Minimal binary/ascii PLY reader for the vertex x y z. Faces and any other element are skipped, not parsed:
-    a mesh exporter's `element face` + `property list uchar int vertex_indices` no longer breaks the vertex dtype."""
+def read_ply_vertices(path: Path) -> "np.ndarray":
+    """Minimal binary/ascii PLY reader for the whole vertex element, as a structured array (one field per property).
+    Faces and any other element are skipped, not parsed: a mesh exporter's `element face` + `property list uchar int
+    vertex_indices` no longer breaks the vertex dtype. 3D Gaussian splat files are PLY vertices with extra properties
+    (opacity, scale_*, rot_*, f_dc_*), so the same reader serves them."""
     data = path.read_bytes()
     head_end = data.index(b"end_header\n") + len(b"end_header\n")
     header = data[:head_end].decode("ascii", "replace").split("\n")
@@ -122,16 +124,15 @@ def read_ply_xyz(path: Path) -> np.ndarray:
     if any(pr[0] == "list" for pr in vert["props"]):
         raise ValueError(f"{path.name}: list properties on the vertex element are not supported")
     names = [pr[-1] for pr in vert["props"]]
-    for ax in "xyz":
-        if ax not in names:
-            raise ValueError(f"{path.name}: vertex element has no property {ax}")
-    cols = [names.index(ax) for ax in "xyz"]
     typemap = {"float": "f4", "float32": "f4", "double": "f8", "float64": "f8", "uchar": "u1", "uint8": "u1", "char": "i1", "int8": "i1",
                "ushort": "u2", "uint16": "u2", "short": "i2", "int16": "i2", "uint": "u4", "uint32": "u4", "int": "i4", "int32": "i4"}
     if fmt == "ascii":
         skip = len(header) - 1 + sum(e["count"] for e in elements[:vi])        # one ascii line per record of every earlier element
         rows = np.loadtxt(path.open("rb"), skiprows=skip, max_rows=n, ndmin=2)
-        return rows[:, cols].astype(np.float64)
+        out = np.zeros(len(rows), dtype=[(nm, "f8") for nm in names])
+        for i, nm in enumerate(names):
+            out[nm] = rows[:, i]
+        return out
     order = "<" if fmt == "binary_little_endian" else ">"
     offset = head_end
     for e in elements[:vi]:                                                    # fixed-size elements before the vertices are stepped over
@@ -139,7 +140,15 @@ def read_ply_xyz(path: Path) -> np.ndarray:
             raise ValueError(f"{path.name}: element {e['name']} with list properties precedes the vertices; cannot locate them")
         offset += e["count"] * sum(np.dtype(typemap[pr[0]]).itemsize for pr in e["props"])
     dt = np.dtype([(name, order + typemap[t]) for t, name in vert["props"]])
-    arr = np.frombuffer(data, dtype=dt, count=n, offset=offset)
+    return np.frombuffer(data, dtype=dt, count=n, offset=offset)
+
+
+def read_ply_xyz(path: Path) -> np.ndarray:
+    """The vertex x y z of a PLY (see read_ply_vertices), as (N, 3) float64."""
+    arr = read_ply_vertices(path)
+    for ax in "xyz":
+        if ax not in (arr.dtype.names or ()):
+            raise ValueError(f"{path.name}: vertex element has no property {ax}")
     return np.stack([arr["x"], arr["y"], arr["z"]], 1).astype(np.float64)
 
 

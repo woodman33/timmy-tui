@@ -30,7 +30,7 @@ def main():
         # observer v1: sample N frames from a video, upload each as evidence
         n = req.get("frames", 4)
         tmp = tempfile.mkdtemp(prefix="timmy-rf-")
-        subprocess.run(["ffmpeg", "-y", "-i", req["video"], "-vf", f"select=not(mod(n\\,{max(1,int(req.get('every',30))))})",
+        subprocess.run(["ffmpeg", "-y", "-i", req["video"], "-vf", f"select=not(mod(n\\,{max(1,int(req.get('every',30)))}))",
                         "-vsync", "vfr", "-frames:v", str(n), f"{tmp}/f-%02d.png"],
                        check=True, capture_output=True)
         ids = []

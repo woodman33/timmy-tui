@@ -26,6 +26,7 @@ describe('geo MCP tools', () => {
     expect(GEO_TOOLS.map((t) => t.name)).toEqual(['timmy_geo_score', 'timmy_geo_bench', 'timmy_geo_scale']);
     expect(GEO_TOOLS[0].inputSchema.required).toEqual(['truth', 'pred']);
     expect(GEO_TOOLS[1].inputSchema.required).toEqual(['step', 'bench']);
+    expect((GEO_TOOLS[1].inputSchema.properties as any).step.enum).toEqual(['predict', 'score', 'card']);
     expect(GEO_TOOLS[2].inputSchema.required).toEqual(['views']);
     const server = readFileSync(join(ROOT, 'src', 'mcp', 'server.ts'), 'utf8');
     expect(server).toContain('...GEO_TOOLS');
@@ -78,7 +79,11 @@ describe('geo MCP tools', () => {
     // the receipt subject follows the same coercion: 'true' is fitted, 'false' is not (Cursor: string false still labelled receipts fitted)
     expect(chain[1].subject).toBe('geo.voxel-score truth.ply vs shift.ply (fitted)');
     expect(chain[2].subject).toBe('geo.voxel-score truth.ply vs same.ply');
-  });
+    // fit_global is --fit-global (a rotation search, then the fit): untrusted like any fit, labelled fitted on its receipt
+    const glob = callGeoTool('timmy_geo_score', { truth: join(dir, 'truth.ply'), pred: join(dir, 'shift.ply'), fit_global: true, splat_min_opacity: 0.2 }, dir);
+    expect(glob.status).toBe('untrusted'); expect((glob.result as any).fit).toMatchObject({ applied: true, rotations: 'global', start_poses: 384 });
+    expect(readChain('runs', dir)[3].subject).toBe('geo.voxel-score truth.ply vs shift.ply (fitted)');
+  }, 60000);
 
   it.skipIf(!deps)('bench: predict seals before score, score grades it, a missing prediction is partial not ok, a wrong step is refused', () => {
     const dir = mkdtempSync(join(tmpdir(), 'geo-mcp-'));
@@ -107,11 +112,19 @@ pts, _ = trimesh.sample.sample_surface(trimesh.creation.box(extents=[0.1, 0.2, 0
     const r: any = sc.result;
     expect(r.scored).toBe(1); expect(r.missing).toBe(1); expect(r.prediction).toMatchObject({ model: 'exact-a', graded: true, as_predicted: true, falsified: false });
     expect(callGeoTool('timmy_geo_bench', { step: 'nope', bench: join(dir, 'bench') }, dir).status).toBe('invalid_request');
+    // card: renders from the default run; a bad run name is refused before any process; a lane refusal is invalid_request, never partial
+    const cardOk = callGeoTool('timmy_geo_bench', { step: 'card', bench: join(dir, 'bench') }, dir);
+    expect(cardOk.status, cardOk.stderr).toBe('ok'); expect((cardOk.result as any).verdict).toBe('AS PREDICTED');
+    expect(callGeoTool('timmy_geo_bench', { step: 'card', bench: join(dir, 'bench'), run: '../x' }, dir).status).toBe('invalid_request');
+    for (const reserved of ['summary.json', 'Card.HTML']) expect(callGeoTool('timmy_geo_bench', { step: 'card', bench: join(dir, 'bench'), run: reserved }, dir).status, reserved).toBe('invalid_request');
+    const noScore = callGeoTool('timmy_geo_bench', { step: 'card', bench: join(dir, 'bench'), run: 'never-scored' }, dir);
+    expect(noScore.status).toBe('invalid_request'); expect((noScore.result as any).status).toBe('refused');
     // a string 'false' for fit / normalize_each is neither the flag nor a "(shape score)" label on the receipt
     const plain = callGeoTool('timmy_geo_bench', { step: 'score', bench: join(dir, 'bench'), pred_dir: join(dir, 'pred'), frame: 'metric', voxel: 0.01, tau: 0.005, samples: 20000, fit: 'false' as unknown as boolean, normalize_each: 'false' as unknown as boolean }, dir);
     expect(plain.status).toBe('partial'); expect((plain.result as any).metric).toBe(true);
     const chain = readChain('runs', dir);
-    expect(chain.map((c) => [c.subject, c.error_class])).toEqual([['geo.bench-predict bench exact-a', undefined], ['geo.bench-score bench pred', 'partial'], ['geo.bench-score bench pred', 'partial']]);
+    expect(chain.map((c) => [c.subject, c.error_class])).toEqual([['geo.bench-predict bench exact-a', undefined], ['geo.bench-score bench pred', 'partial'],
+      ['geo.bench-card bench', undefined], ['geo.bench-card bench [never-scored]', 'refused'], ['geo.bench-score bench pred', 'partial']]);
   }, 120000);
 
   it.skipIf(!deps)('scale: the synthetic views solve to ok on the default grid and to untrusted on a grid that excludes a true scale', () => {

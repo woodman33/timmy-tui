@@ -84,6 +84,56 @@ hashed, with the falsifier spelled out: median F1 more than `--tolerance-f1` bel
 is wrong, not the bench); `score` then grades it into the summary (`as_predicted`, `falsified`, `gap`). That is the Timmy
 formula applied to a benchmark run: the claim exists before the evidence, and the evidence grades the claim.
 
+### Bench Cards
+
+`card` turns a scored run into one self-contained HTML page (`scores/<run>/card.html`) plus the data it shows
+(`card.json`): the model, the sealed prediction and its verdict (AS PREDICTED / FALSIFIED / NOT GRADED / NO PREDICTION),
+median voxel F1 with its 8-phase band, F-score@τ and Chamfer, every object's numbers, the settings, the dataset
+attribution, and three hashes — the card's own data, the summary it was built from, and the source tar. Nothing on the
+page loads from anywhere, every string is escaped, and anyone can recompute the card hash from `card.json`. With two or
+more runs on one bench, `scores/index.html` lists them by median voxel F1 (overlapping bands are a tie). Give each model
+its own `--run NAME` on `predict`, `score` and `card` so results never overwrite each other. A run name is a plain slug
+(letters, digits, `.`, `-`, `_`) that never ends in `.json` or `.html`, so it cannot collide with the files the default run
+(no `--run`) keeps in `scores/` itself; the index lists that default run too.
+
+```
+python3 lanes/geo/bench_loader.py predict --bench bench/gso --run trellis2 --model "TRELLIS.2" --expect-f1 0.60 --frame unit
+python3 lanes/geo/bench_loader.py score   --bench bench/gso --run trellis2 --pred-dir out/trellis2 --frame unit --fit-global
+python3 lanes/geo/bench_loader.py card    --bench bench/gso --run trellis2
+```
+
+### Scoring generator outputs
+
+An image-to-3D generator hands back a shape in its own frame: its own up axis, its own yaw relative to the photo, its own
+scale. The plain `--fit` starts its scaled ICP from the identity, so a quarter turn defeats it (measured on a turned,
+rescaled L shape: voxel F1 below 0.5 with `--fit`, 1.0 with `--fit-global`). `--fit-global` first centres the prediction,
+matches its RMS radius to the truth's, scores 384 start rotations (the 24 axis-aligned ones, each followed by turns of
+15°–75° about each truth axis) by symmetric Chamfer on 2 000-point subsets, refines the four best distinct starts with
+the same scaled ICP and keeps the lowest final Chamfer. When two poses more than 30° apart end within 5 % of each other the
+shape is near-symmetric and the record says `rotation_ambiguous` — the score is still the best pose's. Both fits mark the
+result `metric: false`: a shape score.
+
+A **3D Gaussian splat** (a `.ply` whose vertices carry `opacity` and `scale_*`, the 3DGS / SuperSplat layout with opacity
+as a logit) has no surface to sample: it is read as the centres of the Gaussians at least `--splat-min-opacity` opaque
+(default 0.1), so near-transparent floaters do not count as surface. Every record says how its prediction was read
+(`splat-centers opacity>=0.1 (kept of total)`, `mesh-surface-N`, `ply-vertices`), the summary lists the kinds, and the
+Bench Card prints them next to the fit mode. A prediction with no points left — every Gaussian under the bar, or an empty
+file — is a result, not a gap: it scores voxel F1 0 and F-score 0 with no Chamfer (`null`), any fit is skipped and said
+so, the row carries `empty_prediction: true`, the summary lists the ids under `empty_predictions`, and the card flags the
+row. For the median Chamfer an empty prediction counts as the worst value, never as a dropped row. An empty truth leaves
+nothing to score against: `voxel_score.py` refuses it (exit 2) and `score` reports the object as missing.
+
+### Scoreboard (FiftyOne)
+
+`score --save-compared N` keeps N points of the truth and of each prediction exactly as they were scored (after the fit)
+under `scores/<run>/compared/` (`scores/compared/` for the default run, the one scored without `--run`; in
+`--runs` it is written `.`). `fo_scoreboard.py --bench BENCH` turns every run that has them into one FiftyOne dataset:
+a sample per (object, run), each a `.fo3d` scene with the truth in grey and that run's prediction in its own colour in the
+same frame (nothing re-centred; each run keeps its own truth cloud, since runs in different frames compared different
+truths), carrying voxel_f1, fscore, chamfer, how the prediction was read, empty_prediction and the card's verdict.
+Sort by voxel_f1 in the app and open a sample to see what the number saw; `fiftyone app launch <dataset>` reopens it.
+Needs `pip install fiftyone` (not_configured, exit 3, without it).
+
 `extract` writes `objects/<id>/{truth_metric.ply, truth_unit.glb, view_0..4.jpg, meta.json}` and merges into `manifest.json` — shards accumulate under one `--out` (same set, sample count and seed, else refused), re-extracting a shard replaces its objects — the manifest
 (licence, attribution, tar sha256, per-object extents in metres, mesh hashes, sample count and seed). `score` takes
 `PRED/<id>.(ply|glb|obj|json)`, runs `voxel_score.py` per object and writes `scores/summary.json` with medians and the
