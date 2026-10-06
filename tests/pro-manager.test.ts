@@ -388,6 +388,14 @@ describe('purchase guard', () => {
     expect(url).toBe(`https://checkout.stripe.com/c/pay/${sessionId}`);
   });
 
+  it('reuses an unfinished checkout instead of creating another payable session', async () => {
+    const first = await manager().startPurchase();
+    const before = checkoutsCreated();
+    const second = await manager().startPurchase();
+    expect(second).toEqual(first);
+    expect(checkoutsCreated()).toBe(before);
+  });
+
   it('refuses while Pro is active, or while a key holder only needs to renew', async () => {
     const { key } = await purchasedKey();
     await manager().activate(key);
@@ -445,6 +453,7 @@ describe('purchase, billing and rotation', () => {
     const { sessionId } = await manager().startPurchase();
     expect(await manager().claimPurchase(sessionId)).toEqual({ state: 'pending' });
     expect(vault.read()).toBeNull();
+    expect(vault.readPendingCheckout()?.sessionId).toBe(sessionId);
 
     world.stripe.pay(sessionId);
     const ready = await manager().claimPurchase(sessionId);
@@ -452,6 +461,7 @@ describe('purchase, billing and rotation', () => {
     expect(ready).not.toHaveProperty('saveError');
     if (ready.state !== 'ready') return;
     expect(vault.read()?.key).toBe(ready.key);
+    expect(vault.readPendingCheckout()).toBeNull();
   });
 
   it('hands back a purchased key even when it cannot be saved', async () => {
@@ -463,6 +473,7 @@ describe('purchase, billing and rotation', () => {
     expect(ready).not.toHaveProperty('entitlement');
     if (ready.state !== 'ready') return;
     expect((await new HttpProService(world.origin, world.fetch).activate(ready.key)).token).toBeTruthy();
+    expect(vault.readPendingCheckout()?.sessionId).toBe(sessionId);
   });
 
   it('hands out the billing portal link', async () => {

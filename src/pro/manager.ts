@@ -14,7 +14,7 @@
 
 import { entitlementFromToken, evaluateLicense, nextStep, problemFromRefusal, type Entitlement } from './entitlement.js';
 import { normalizeLicenseKey } from './license.js';
-import { LicenseStorageError, PERSISTED_PROBLEMS, ProServiceError, type LicenseVault, type PersistedProblem, type ProService, type StoredLicense } from './ports.js';
+import { LicenseStorageError, PERSISTED_PROBLEMS, ProServiceError, type LicenseVault, type PendingCheckout, type PersistedProblem, type ProService, type StoredLicense } from './ports.js';
 
 /** The user gave something that is not a usable license key. */
 export class LicenseInputError extends Error {
@@ -41,6 +41,8 @@ export class PurchaseRefusedError extends Error {
 const PROBLEM_RECHECK_SECONDS = 3600;
 /** After the service was busy or out of reach, or the license file could not be written, wait this long. */
 const TRANSIENT_BACKOFF_SECONDS = 300;
+/** Stripe Checkout sessions are payable for about a day; retry reuses one while it can still finish. */
+const PENDING_CHECKOUT_REUSE_SECONDS = 24 * 3600;
 
 export interface LicenseManagerDeps {
   vault: LicenseVault;
@@ -107,7 +109,10 @@ export class LicenseManager {
     const service = this.requireService();
     const entitlement = await this.freshEntitlement();
     if (nextStep(entitlement) !== 'buy') throw new PurchaseRefusedError(entitlement);
-    return service.startCheckout();
+    const pending = this.readReusablePendingCheckout();
+    if (pending) return { url: pending.url, sessionId: pending.sessionId };
+    const checkout = await service.startCheckout();
+    return this.recordPendingCheckout(checkout);
   }
 
   /** Asks once whether a checkout has produced a key; saves it the moment it has, and never loses it. */
@@ -250,6 +255,7 @@ export class LicenseManager {
   private adopt(license: StoredLicense): void {
     this.deps.vault.write(license);
     this.paced = null;
+    this.clearPendingCheckoutQuietly();
   }
 
   /** Bookkeeping for `key`: re-reads the license and applies `change` only if `key` is still the stored one. */
@@ -284,6 +290,38 @@ export class LicenseManager {
     } catch (error) {
       if (!(error instanceof LicenseStorageError)) throw error;
       return { unreadable: { active: false, reason: 'license_unreadable', detail: error.message } };
+    }
+  }
+
+  private readReusablePendingCheckout(): PendingCheckout | null {
+    const read = this.deps.vault.readPendingCheckout;
+    if (!read) return null;
+    const pending = read.call(this.deps.vault);
+    if (!pending) return null;
+    if (this.deps.now() - pending.startedAt < PENDING_CHECKOUT_REUSE_SECONDS) return pending;
+    this.clearPendingCheckoutQuietly();
+    return null;
+  }
+
+  private recordPendingCheckout(checkout: { url: string; sessionId: string }): { url: string; sessionId: string } {
+    const write = this.deps.vault.writePendingCheckout;
+    if (!write) return checkout;
+    try {
+      write.call(this.deps.vault, { v: 1, ...checkout, startedAt: this.deps.now() });
+      return checkout;
+    } catch (error) {
+      if (!(error instanceof LicenseStorageError)) throw error;
+      const pending = this.readReusablePendingCheckout();
+      if (pending) return { url: pending.url, sessionId: pending.sessionId };
+      throw error;
+    }
+  }
+
+  private clearPendingCheckoutQuietly(): void {
+    try {
+      this.deps.vault.clearPendingCheckout?.call(this.deps.vault);
+    } catch (error) {
+      if (!(error instanceof LicenseStorageError)) throw error;
     }
   }
 

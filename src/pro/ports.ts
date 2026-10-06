@@ -80,6 +80,15 @@ export interface StoredLicense {
   nextRefreshAt?: number;
 }
 
+/** A checkout session that was opened but has not produced a stored license yet. */
+export interface PendingCheckout {
+  v: 1;
+  url: string;
+  sessionId: string;
+  /** Unix seconds. */
+  startedAt: number;
+}
+
 /** The license file could not be read, written or removed, or its contents are not a license this build understands. */
 export class LicenseStorageError extends Error {
   override name = 'LicenseStorageError';
@@ -92,6 +101,12 @@ export class LicenseStorageError extends Error {
 export interface LicenseVault {
   read(): StoredLicense | null;
   write(license: StoredLicense): void;
+  /** Checkout in progress for `timmy pro upgrade`; null when there is none. */
+  readPendingCheckout?(): PendingCheckout | null;
+  /** Records a checkout before the URL is shown, so retrying can reuse it instead of selling again. */
+  writePendingCheckout?(checkout: PendingCheckout): void;
+  /** Removes the in-flight checkout marker after it is ready, expired or explicitly deactivated. */
+  clearPendingCheckout?(): boolean;
   /** Removes the stored license; true when there was one. */
   clear(): boolean;
 }

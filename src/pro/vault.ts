@@ -7,13 +7,17 @@
 
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { LicenseStorageError, PERSISTED_PROBLEMS, type LicenseVault, type StoredLicense, type StoredProblem } from './ports.js';
+import { LicenseStorageError, PERSISTED_PROBLEMS, type LicenseVault, type PendingCheckout, type StoredLicense, type StoredProblem } from './ports.js';
 
 const PRIVATE_FILE = 0o600;
 const PRIVATE_DIR = 0o700;
 
 export class FileLicenseVault implements LicenseVault {
   constructor(readonly location: string) {}
+
+  private get checkoutLocation(): string {
+    return `${this.location}.checkout.json`;
+  }
 
   read(): StoredLicense | null {
     let text: string;
@@ -50,14 +54,56 @@ export class FileLicenseVault implements LicenseVault {
     }
   }
 
-  clear(): boolean {
+  readPendingCheckout(): PendingCheckout | null {
+    let text: string;
     try {
-      unlinkSync(this.location);
+      text = readFileSync(this.checkoutLocation, 'utf8');
+    } catch (error) {
+      if (errorCode(error) === 'ENOENT') return null;
+      throw new LicenseStorageError(`cannot read ${this.checkoutLocation}: ${messageOf(error)}`, 'read');
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw new LicenseStorageError(`${this.checkoutLocation} is not valid JSON`, 'read');
+    }
+    const checkout = toPendingCheckout(parsed);
+    if (!checkout) throw new LicenseStorageError(`${this.checkoutLocation} is not a checkout this version of Timmy understands`, 'read');
+    return checkout;
+  }
+
+  writePendingCheckout(checkout: PendingCheckout): void {
+    try {
+      const dir = dirname(this.checkoutLocation);
+      mkdirSync(dir, { recursive: true, mode: PRIVATE_DIR });
+      chmodSync(dir, PRIVATE_DIR);
+      writeFileSync(this.checkoutLocation, `${JSON.stringify(checkout, null, 2)}\n`, { flag: 'wx', mode: PRIVATE_FILE });
+      chmodSync(this.checkoutLocation, PRIVATE_FILE);
+    } catch (error) {
+      throw new LicenseStorageError(`cannot write ${this.checkoutLocation}: ${messageOf(error)}`, 'write');
+    }
+  }
+
+  clearPendingCheckout(): boolean {
+    try {
+      unlinkSync(this.checkoutLocation);
       return true;
     } catch (error) {
       if (errorCode(error) === 'ENOENT') return false;
-      throw new LicenseStorageError(`cannot remove ${this.location}: ${messageOf(error)}`, 'clear');
+      throw new LicenseStorageError(`cannot remove ${this.checkoutLocation}: ${messageOf(error)}`, 'clear');
     }
+  }
+
+  clear(): boolean {
+    let removed = false;
+    try {
+      unlinkSync(this.location);
+      removed = true;
+    } catch (error) {
+      if (errorCode(error) !== 'ENOENT') throw new LicenseStorageError(`cannot remove ${this.location}: ${messageOf(error)}`, 'clear');
+    }
+    return this.clearPendingCheckout() || removed;
   }
 }
 
@@ -72,6 +118,13 @@ function toStoredLicense(value: unknown): StoredLicense | null {
   if (problem) license.problem = problem;
   if (typeof record.nextRefreshAt === 'number') license.nextRefreshAt = record.nextRefreshAt;
   return license;
+}
+
+function toPendingCheckout(value: unknown): PendingCheckout | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.v !== 1 || typeof record.url !== 'string' || typeof record.sessionId !== 'string' || typeof record.startedAt !== 'number') return null;
+  return { v: 1, url: record.url, sessionId: record.sessionId, startedAt: record.startedAt };
 }
 
 function toStoredProblem(value: unknown): StoredProblem | null {

@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -57,6 +58,16 @@ describe('runProCommand', () => {
     vi.stubEnv('TIMMY_HOME', elsewhere);
     expect(await runProCommand(['status', '--json'], { TIMMY_HOME: home })).toBe(0);
     expect(JSON.parse(stdout.join(''))).toMatchObject({ reason: 'no_license', licenseKeyMasked: null });
+  });
+
+  it('ignores global --json for Pro commands that do not produce JSON', () => {
+    const result = spawnSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', '--json', 'pro', 'billing'], {
+      encoding: 'utf8',
+      env: { ...process.env, TIMMY_HOME: home, TIMMY_PRO_URL: '', TIMMY_PRO_PUBLIC_KEY: '' },
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Timmy Pro is not available');
+    expect(result.stderr).not.toContain('unknown option --json');
   });
 });
 

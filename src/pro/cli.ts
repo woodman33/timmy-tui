@@ -164,7 +164,7 @@ async function upgrade({ flags }: Invocation, ctx: ProCliContext): Promise<numbe
   ctx.io.out(`${PRO_PLAN.name} is ${PRICE}. Finish checkout in your browser:`);
   ctx.io.out(`  ${checkout.url}`);
   if (!flags.has('--no-open')) ctx.io.openUrl(checkout.url);
-  ctx.io.out('Waiting for payment… (Ctrl-C stops waiting; the welcome page also shows your key)');
+  ctx.io.out('Waiting for payment… (Ctrl-C stops waiting; rerun this command to reuse this checkout; the welcome page also shows your key)');
 
   let interval = UPGRADE_POLL_INTERVAL_MS;
   for (let waited = 0; waited < UPGRADE_TIMEOUT_MS;) {

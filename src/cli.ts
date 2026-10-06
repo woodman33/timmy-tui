@@ -780,9 +780,11 @@ if (command === 'clip') {
 }
 
 if (command === 'pro') {
-  // Timmy Pro: license, purchase and billing (docs/PRO.md). --json was lifted out globally; hand it back.
+  // Timmy Pro: license, purchase and billing (docs/PRO.md). --json was lifted out globally; hand it back only to status.
   const { runProCommand } = await import('./pro/terminal.js');
-  process.exit(await runProCommand([...cleanArgs.slice(1), ...(isJson ? ['--json'] : [])]));
+  const proArgs = cleanArgs.slice(1);
+  const proCommand = proArgs.find((arg) => !arg.startsWith('--')) ?? 'status';
+  process.exit(await runProCommand([...proArgs, ...(isJson && proCommand === 'status' ? ['--json'] : [])]));
 }
 
 if (command === 'mcp' && args[1] === 'serve') {
