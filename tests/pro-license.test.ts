@@ -57,15 +57,15 @@ describe('license tokens', () => {
     const token = await signLicenseToken(claims(), signing);
     const [prefix, payload, sig] = token.split('.');
     const forged = Buffer.from(JSON.stringify({ ...claims(), exp: NOW + 10 ** 9 })).toString('base64url');
-    expect(await verifyLicenseToken(`${prefix}.${forged}.${sig}`, verifying, NOW)).toEqual({ ok: false, reason: 'signature does not verify' });
-    expect(await verifyLicenseToken(token, otherVerifying, NOW)).toEqual({ ok: false, reason: 'signature does not verify' });
-    expect(await verifyLicenseToken(token, verifying, NOW + 3600)).toEqual({ ok: false, reason: 'token expired' });
-    expect(await verifyLicenseToken('nope', verifying, NOW)).toEqual({ ok: false, reason: 'not a Timmy Pro token' });
-    expect(await verifyLicenseToken(`${prefix}.${payload}.!!`, verifying, NOW)).toEqual({ ok: false, reason: 'malformed token' });
+    expect(await verifyLicenseToken(`${prefix}.${forged}.${sig}`, verifying, NOW)).toEqual({ ok: false, code: 'bad_signature', reason: 'signature does not verify' });
+    expect(await verifyLicenseToken(token, otherVerifying, NOW)).toEqual({ ok: false, code: 'bad_signature', reason: 'signature does not verify' });
+    expect(await verifyLicenseToken(token, verifying, NOW + 3600)).toEqual({ ok: false, code: 'expired', reason: 'token expired' });
+    expect(await verifyLicenseToken('nope', verifying, NOW)).toEqual({ ok: false, code: 'not_timmy', reason: 'not a Timmy Pro token' });
+    expect(await verifyLicenseToken(`${prefix}.${payload}.!!`, verifying, NOW)).toEqual({ ok: false, code: 'malformed', reason: 'malformed token' });
   });
 
   it('rejects a correctly signed token whose subscription is not active', async () => {
     const canceled = await signLicenseToken({ ...claims(), status: 'canceled' }, signing);
-    expect(await verifyLicenseToken(canceled, verifying, NOW)).toEqual({ ok: false, reason: 'subscription not active' });
+    expect(await verifyLicenseToken(canceled, verifying, NOW)).toEqual({ ok: false, code: 'inactive', reason: 'subscription not active' });
   });
 });

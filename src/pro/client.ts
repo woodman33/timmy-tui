@@ -1,28 +1,14 @@
-// The `timmy pro` client's view of the Pro service (workers/pro).
+// HttpProService: the ProService port (ports.ts) over the Pro worker's JSON routes.
 //
-// ProService is the port the license manager and CLI depend on; HttpProService
-// speaks the worker's JSON routes. Every answer is checked for shape before use,
-// and claims inside a token are never read here: the manager verifies the token.
+// Every answer is checked for shape before use, every failure becomes one
+// ProServiceError kind here and nowhere else, redirects are never followed, and
+// claims inside a token are never read here: the manager verifies the token.
+
+import type { ClaimResult, ProService } from './ports.js';
+import { ProServiceError } from './ports.js';
+import { isProErrorCode, type ProErrorCode } from './protocol.js';
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
-
-/** A failed call to the Pro service. `status` is the HTTP status, or 0 when the service was not reached. */
-export class ProServiceError extends Error {
-  override name = 'ProServiceError';
-  constructor(message: string, readonly status: number) {
-    super(message);
-  }
-}
-
-export type ClaimResult = { state: 'pending' } | { state: 'ready'; key: string; token: string };
-
-export interface ProService {
-  startCheckout(): Promise<{ url: string; sessionId: string }>;
-  claim(sessionId: string): Promise<ClaimResult>;
-  activate(key: string): Promise<{ token: string }>;
-  rotate(key: string): Promise<{ key: string }>;
-  billingUrl(): Promise<string>;
-}
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -66,23 +52,36 @@ export class HttpProService implements ProService {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify(body),
+        // A redirect could carry the license key off the configured https origin.
+        redirect: 'manual',
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (error) {
       const timedOut = (error as { name?: unknown } | null)?.name === 'TimeoutError';
-      throw new ProServiceError(timedOut ? 'the Pro service did not answer in time' : 'could not reach the Pro service', 0);
+      throw new ProServiceError(timedOut ? 'the Pro service did not answer in time' : 'could not reach the Pro service', 'unreachable');
+    }
+    if (response.status >= 300 && response.status < 400) {
+      throw new ProServiceError('the Pro service answered with a redirect, which Timmy does not follow', 'unexpected_response', null, response.status);
     }
     const data: unknown = await response.json().catch(() => null);
-    if (!response.ok) throw new ProServiceError(errorMessage(response.status, data), response.status);
+    if (!response.ok) throw failure(response.status, data);
     if (!isRecord(data)) throw unexpectedResponse(response.status);
     return { status: response.status, data };
   }
 }
 
-function errorMessage(status: number, data: unknown): string {
-  if (status === 429) return 'too many requests to the Pro service; wait a minute and try again';
-  if (isRecord(data) && typeof data.error === 'string' && data.error) return data.error;
-  return `the Pro service answered HTTP ${status}`;
+/** The one place an HTTP answer becomes a failure kind. Only the Pro service's own coded JSON counts as a refusal. */
+function failure(status: number, data: unknown): ProServiceError {
+  const message = isRecord(data) && typeof data.error === 'string' && data.error ? data.error : `the Pro service answered HTTP ${status}`;
+  const code: ProErrorCode | null = isRecord(data) && isProErrorCode(data.code) ? data.code : null;
+  if (status === 429 || code === 'rate_limited') {
+    return new ProServiceError('too many requests to the Pro service; wait a minute and try again', 'rate_limited', code, status);
+  }
+  if (code === 'unavailable' || code === 'payment_provider_error' || code === 'internal_error') {
+    return new ProServiceError(message, 'server_error', code, status);
+  }
+  if (code) return new ProServiceError(message, 'refused', code, status);
+  return new ProServiceError(message, status >= 500 ? 'server_error' : 'unexpected_response', null, status);
 }
 
 function field(data: Record<string, unknown>, name: string, status: number): string {
@@ -91,7 +90,7 @@ function field(data: Record<string, unknown>, name: string, status: number): str
   return value;
 }
 
-const unexpectedResponse = (status: number) => new ProServiceError('unexpected response from the Pro service', status);
+const unexpectedResponse = (status: number) => new ProServiceError('unexpected response from the Pro service', 'unexpected_response', null, status);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);

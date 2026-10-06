@@ -80,7 +80,7 @@ Commands:
   export otio <run> | agentrun <job>  OTIO timeline or a portable .agentrun bundle
   epoch <n> [reason]  Rotate the receipt release epoch
   q <file> <expr> Query json/yaml/toml/xml/csv with dasel
-  pro             Timmy Pro ($19/month): status | upgrade | activate | rotate | billing | deactivate
+  pro             Timmy Pro: buy, activate and manage your license (timmy pro help)
 
 Options:
   --json          Output results in raw JSON format (for demo/proof)
@@ -139,7 +139,7 @@ if (cleanArgs.length === 0 && !args.includes('--help') && !args.includes('-h')) 
   const { isBlankSlate, runInit } = await import('./utils/init.js');
   if (isBlankSlate()) process.exit(await runInit(args));
 }
-if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && cleanArgs[0] !== 'vision') || cleanArgs[0] === 'help') {
+if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'pro'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
   printHelp();
   process.exit(0);
 }
@@ -780,9 +780,9 @@ if (command === 'clip') {
 }
 
 if (command === 'pro') {
-  // Timmy Pro: license, purchase and billing (docs/PRO.md).
-  const { runProCommand } = await import('./pro/runtime.js');
-  process.exit(await runProCommand(args.slice(args.indexOf('pro') + 1)));
+  // Timmy Pro: license, purchase and billing (docs/PRO.md). --json was lifted out globally; hand it back.
+  const { runProCommand } = await import('./pro/terminal.js');
+  process.exit(await runProCommand([...cleanArgs.slice(1), ...(isJson ? ['--json'] : [])]));
 }
 
 if (command === 'mcp' && args[1] === 'serve') {

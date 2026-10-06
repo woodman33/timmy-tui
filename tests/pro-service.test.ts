@@ -79,7 +79,7 @@ describe('checkout', () => {
     stripe.client.findPriceIdByLookupKey = async () => null;
     const res = await call('POST', '/checkout', { source: 'cli' });
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: 'service unavailable' });
+    expect(await res.json()).toEqual({ error: 'service unavailable', code: 'unavailable' });
   });
 });
 
@@ -133,7 +133,7 @@ describe('after payment', () => {
     const sessionId = await paidSession((id) => proSub(`sub_${id.slice(-8)}`, 'canceled'));
     const res = await call('POST', '/license/claim', { session_id: sessionId });
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: 'subscription not active', status: 'canceled' });
+    expect(await res.json()).toEqual({ error: 'subscription not active', code: 'subscription_inactive', status: 'canceled' });
   });
 });
 
@@ -188,6 +188,26 @@ describe('activate, rotate, billing', () => {
     expect((await call('POST', '/license/activate', { key: winner.key })).status).toBe(200);
   });
 
+  it('labels every refusal with a stable code the CLI can rely on', async () => {
+    const body = async (res: Response) => ({ status: res.status, ...((await res.json()) as object) });
+    const sessionId = await paidSession();
+    const key = await claimKey(sessionId);
+    expect(await body(await call('POST', '/license/activate', { key: 'tpro_00000000-00000000-00000000-00000000' })))
+      .toEqual({ status: 404, error: 'unknown license key', code: 'unknown_key' });
+    expect(await body(await call('POST', '/license/activate', { key: 'tpro_nope' })))
+      .toEqual({ status: 400, error: 'that is not a Timmy Pro license key', code: 'invalid_key' });
+    expect(await body(await call('POST', '/license/claim', { session_id: 'cs_test_unknownsession00' })))
+      .toEqual({ status: 404, error: 'no Timmy Pro purchase for that checkout', code: 'unknown_checkout' });
+    expect(await body(await call('POST', '/license/claim', { session_id: 'not a session' })))
+      .toEqual({ status: 400, error: 'invalid session_id', code: 'invalid_request' });
+    expect(await body(await call('GET', '/license/claim'))).toEqual({ status: 405, error: 'method not allowed', code: 'method_not_allowed' });
+    expect(await body(await call('GET', '/nowhere'))).toEqual({ status: 404, error: 'not found', code: 'not_found' });
+    clock += 2 * DAY;
+    expect(await body(await call('POST', '/license/claim', { session_id: sessionId })))
+      .toEqual({ status: 410, error: 'license key already issued', code: 'key_already_issued' });
+    expect((await call('POST', '/license/activate', { key })).status).toBe(200);
+  });
+
   it('past_due keeps Pro for 14 days, then stops', async () => {
     const sessionId = await paidSession((id) => proSub(`sub_${id.slice(-8)}`, 'past_due'));
     const key = await claimKey(sessionId);
@@ -226,7 +246,7 @@ describe('webhook', () => {
     const send = (sig?: string) => handleProRequest(new Request(`${ORIGIN}/stripe/webhook`, { method: 'POST', headers: sig ? { 'stripe-signature': sig } : {}, body: raw }), deps);
     for (const res of [await send(), await send(await signStripePayload(raw, 'whsec_wrong', NOW)), await send(await signStripePayload(raw, WEBHOOK_SECRET, NOW - 600))]) {
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: 'invalid signature' });
+      expect(await res.json()).toEqual({ error: 'invalid signature', code: 'invalid_signature' });
     }
     expect(stripe.calls.some((c) => c.startsWith('subscription:'))).toBe(false);
   });
@@ -239,7 +259,7 @@ describe('webhook', () => {
     expect((await webhook({ id: 'evt_cancel', type: 'customer.subscription.deleted', data: { object: { id: subId, status: 'active' } } })).status).toBe(200);
     const refused = await call('POST', '/license/activate', { key });
     expect(refused.status).toBe(403);
-    expect(await refused.json()).toEqual({ error: 'subscription not active', status: 'canceled' });
+    expect(await refused.json()).toEqual({ error: 'subscription not active', code: 'subscription_inactive', status: 'canceled' });
   });
 
   it('concurrent events for one subscription cannot leave a stale status', async () => {

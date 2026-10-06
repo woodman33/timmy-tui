@@ -7,14 +7,16 @@ import { runProCli, type ProCliContext, type ProCliIO } from '../src/pro/cli.js'
 import { importVerifyKey } from '../src/pro/license.js';
 import { LicenseManager } from '../src/pro/manager.js';
 import { PRO_FEATURES } from '../src/pro/plan.js';
+import type { LicenseVault } from '../src/pro/ports.js';
 import { FileLicenseVault } from '../src/pro/vault.js';
-import { proWorld, type ProWorld } from './helpers/pro-harness.js';
+import { DAY, proWorld, type ProWorld } from './helpers/pro-harness.js';
 
 let root: string;
 let world: ProWorld;
 let vault: FileLicenseVault;
 let publicKey: CryptoKey;
 let claimFaults: Array<'rate-limited' | 'offline'>;
+let offlinePaths: Set<string>;
 
 type RecordingIO = ProCliIO & { outText: string[]; errText: string[]; opened: string[]; sleeps: number[]; stdin: string };
 
@@ -30,21 +32,22 @@ function recordingIO(onSleep: (count: number) => void = () => {}): RecordingIO {
   return io;
 }
 
-/** The real handler, with scripted faults on /license/claim (one per call, in order). */
+/** The real handler, with scripted faults on /license/claim (one per call, in order) and paths taken offline. */
 const faultyFetch = (): FetchLike => async (input, init) => {
-  if (new URL(input).pathname === '/license/claim') {
+  const path = new URL(input).pathname;
+  if (offlinePaths.has(path)) throw new TypeError('fetch failed');
+  if (path === '/license/claim') {
     const fault = claimFaults.shift();
-    if (fault === 'rate-limited') return new Response('{"error":"rate limited"}', { status: 429 });
+    if (fault === 'rate-limited') return new Response('{"error":"too many requests","code":"rate_limited"}', { status: 429 });
     if (fault === 'offline') throw new TypeError('fetch failed');
   }
   return world.fetch(input, init);
 };
 
-function context(io: ProCliIO, over: { available?: boolean } = {}): ProCliContext {
+function context(io: ProCliIO, over: { available?: boolean; vault?: LicenseVault } = {}): ProCliContext {
   const service = over.available === false ? null : new HttpProService(world.origin, faultyFetch());
   return {
-    manager: new LicenseManager({ vault, service, publicKey, now: world.now }),
-    service,
+    manager: new LicenseManager({ vault: over.vault ?? vault, service, publicKey, now: world.now }),
     settings: { serviceUrl: service ? world.origin : null, publicKey: world.publicKey, publicKeySource: 'env', licensePath: vault.location },
     io,
   };
@@ -54,15 +57,22 @@ const latestSession = () => [...world.stripe.sessions.keys()].at(-1)!;
 const output = (io: RecordingIO) => io.outText.join('\n');
 const errors = (io: RecordingIO) => io.errText.join('\n');
 const occurrences = (text: string, needle: string) => text.split(needle).length - 1;
+const checkoutsCreated = () => world.stripe.calls.filter((call) => call.startsWith('create:')).length;
 
-/** Buys Pro without the CLI and returns the issued key. */
-async function purchasedKey(): Promise<string> {
+/** Buys Pro without the CLI and returns the issued key and its subscription. */
+async function purchase(): Promise<{ key: string; subscriptionId: string }> {
   const service = new HttpProService(world.origin, world.fetch);
   const { sessionId } = await service.startCheckout();
-  world.stripe.pay(sessionId);
+  const sub = world.stripe.pay(sessionId);
   const claim = await service.claim(sessionId);
   if (claim.state !== 'ready') throw new Error('expected a ready claim');
-  return claim.key;
+  return { key: claim.key, subscriptionId: sub.id };
+}
+
+async function activated(): Promise<{ key: string; subscriptionId: string }> {
+  const bought = await purchase();
+  await context(recordingIO()).manager.activate(bought.key);
+  return bought;
 }
 
 beforeEach(async () => {
@@ -71,6 +81,7 @@ beforeEach(async () => {
   vault = new FileLicenseVault(join(root, 'pro', 'license.json'));
   publicKey = await importVerifyKey(world.publicKey);
   claimFaults = [];
+  offlinePaths = new Set();
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
@@ -109,30 +120,62 @@ describe('timmy pro upgrade', () => {
     expect(io.opened).toEqual([]);
   });
 
-  it('does not sell Pro twice', async () => {
-    await context(recordingIO()).manager.activate(await purchasedKey());
-    world.stripe.calls.length = 0;
+  it('does not sell Pro to someone who has it', async () => {
+    await activated();
+    const before = checkoutsCreated();
     const io = recordingIO();
     expect(await runProCli(['upgrade'], context(io))).toBe(0);
     expect(output(io)).toContain('already');
-    expect(world.stripe.calls.filter((call) => call.startsWith('create:'))).toEqual([]);
+    expect(checkoutsCreated()).toBe(before);
+  });
+
+  it('does not sell Pro to a key holder whose token lapsed offline', async () => {
+    await activated();
+    world.advance(8 * DAY);
+    offlinePaths.add('/license/activate');
+    const before = checkoutsCreated();
+    const io = recordingIO();
+    expect(await runProCli(['upgrade', '--no-open'], context(io))).toBe(1);
+    expect(errors(io)).toContain('timmy pro activate');
+    expect(errors(io)).toContain('timmy pro deactivate');
+    expect(checkoutsCreated()).toBe(before);
+  });
+
+  it('lets a cancelled subscriber buy again', async () => {
+    const { key, subscriptionId } = await activated();
+    world.stripe.subs.set(subscriptionId, { ...world.stripe.subs.get(subscriptionId)!, status: 'canceled' });
+    await world.webhook({ id: 'evt_cancel', type: 'customer.subscription.deleted', data: { object: { id: subscriptionId } } });
+    world.advance(6 * DAY);
+    const io = recordingIO((count) => { if (count === 1) world.stripe.pay(latestSession()); });
+    expect(await runProCli(['upgrade', '--no-open'], context(io))).toBe(0);
+    expect(vault.read()?.key).not.toBe(key);
+    expect(vault.read()?.token).not.toBeNull();
   });
 });
 
 describe('timmy pro status', () => {
-  it('reports masked key and features as JSON, never the token', async () => {
-    const key = await purchasedKey();
-    await context(recordingIO()).manager.activate(key);
+  it('reports a versioned JSON status with a masked key and never the token', async () => {
+    const { key } = await activated();
     const io = recordingIO();
     expect(await runProCli(['status', '--json'], context(io))).toBe(0);
     const text = output(io);
-    const report = JSON.parse(text);
-    expect(report.active).toBe(true);
-    expect(report.features).toEqual([...PRO_FEATURES]);
-    expect(report.license).toBe(`tpro_${key.slice(5, 9)}…${key.slice(-4)}`);
+    expect(JSON.parse(text)).toEqual({
+      schemaVersion: 1,
+      active: true,
+      reason: null,
+      detail: null,
+      nextStep: 'none',
+      plan: 'pro',
+      priceUsdMonthly: 19,
+      features: [...PRO_FEATURES],
+      licenseKeyMasked: `tpro_${key.slice(5, 9)}…${key.slice(-4)}`,
+      tokenExpiresAt: new Date((world.now() + 7 * DAY) * 1000).toISOString(),
+      refreshDue: false,
+      serviceUrl: world.origin,
+      publicKeySource: 'env',
+    });
     expect(text).not.toContain(key);
     expect(text).not.toContain('tpro1.');
-    expect(text).not.toContain('"token"');
   });
 
   it('tells a free user how to get Pro', async () => {
@@ -141,15 +184,35 @@ describe('timmy pro status', () => {
     expect(output(io)).toContain('not active');
     expect(output(io)).toContain('timmy pro upgrade');
   });
+
+  it('never tells a key holder to buy', async () => {
+    await activated();
+    world.advance(8 * DAY);
+    offlinePaths.add('/license/activate');
+    const io = recordingIO();
+    expect(await runProCli(['status'], context(io))).toBe(0);
+    expect(output(io)).toContain('timmy pro activate');
+    expect(output(io)).not.toContain('timmy pro upgrade');
+  });
 });
 
 describe('timmy pro activate, rotate, billing, deactivate', () => {
   it('activate reads the key from stdin with -', async () => {
+    const { key } = await purchase();
     const io = recordingIO();
-    io.stdin = `${await purchasedKey()}\n`;
+    io.stdin = `${key}\n`;
     expect(await runProCli(['activate', '-'], context(io))).toBe(0);
-    expect(output(io)).toContain('active until');
-    expect(vault.read()?.key).toBe(io.stdin.trim());
+    expect(output(io)).toContain('active');
+    expect(vault.read()?.key).toBe(key);
+  });
+
+  it('activate with no key renews the saved one', async () => {
+    await activated();
+    const before = vault.read()?.token;
+    world.advance(DAY);
+    const io = recordingIO();
+    expect(await runProCli(['activate'], context(io))).toBe(0);
+    expect(vault.read()?.token).not.toBe(before);
   });
 
   it('activate refuses something that is not a key', async () => {
@@ -159,14 +222,26 @@ describe('timmy pro activate, rotate, billing, deactivate', () => {
   });
 
   it('rotate prints the new key and the old one stops working', async () => {
-    const oldKey = await purchasedKey();
-    await context(recordingIO()).manager.activate(oldKey);
+    const { key: oldKey } = await activated();
     const io = recordingIO();
     expect(await runProCli(['rotate'], context(io))).toBe(0);
     const newKey = vault.read()!.key;
     expect(newKey).not.toBe(oldKey);
     expect(output(io)).toContain(newKey);
-    await expect(new HttpProService(world.origin, world.fetch).activate(oldKey)).rejects.toMatchObject({ status: 404 });
+    await expect(new HttpProService(world.origin, world.fetch).activate(oldKey)).rejects.toMatchObject({ code: 'unknown_key' });
+  });
+
+  it('rotate still prints the new key when it cannot be saved', async () => {
+    await activated();
+    const failingWrites: LicenseVault = {
+      read: () => vault.read(),
+      write: () => { throw new Error('EACCES: permission denied'); },
+      clear: () => vault.clear(),
+    };
+    const io = recordingIO();
+    expect(await runProCli(['rotate'], context(io, { vault: failingWrites }))).toBe(1);
+    expect(output(io)).toMatch(/tpro_[0-9A-Z]{8}-/);
+    expect(errors(io)).toContain('Copy the key above');
   });
 
   it('billing prints the portal URL and opens it unless asked not to', async () => {
@@ -181,7 +256,7 @@ describe('timmy pro activate, rotate, billing, deactivate', () => {
   });
 
   it('deactivate removes the local license', async () => {
-    await context(recordingIO()).manager.activate(await purchasedKey());
+    await activated();
     const io = recordingIO();
     expect(await runProCli(['deactivate'], context(io))).toBe(0);
     expect(vault.read()).toBeNull();
@@ -189,11 +264,26 @@ describe('timmy pro activate, rotate, billing, deactivate', () => {
   });
 });
 
-describe('usage', () => {
-  it('rejects an unknown subcommand or flag with usage and exit 2', async () => {
-    for (const argv of [['frobnicate'], ['status', '--frob']]) {
+describe('help and usage', () => {
+  it('prints usage for --help and -h anywhere, with exit 0', async () => {
+    for (const argv of [['--help'], ['-h'], ['activate', '-h'], ['help']]) {
+      const io = recordingIO();
+      expect(await runProCli(argv, context(io)), argv.join(' ')).toBe(0);
+      expect(output(io)).toContain('Usage: timmy pro');
+      expect(io.errText).toEqual([]);
+    }
+  });
+
+  it('says exactly what was wrong before showing usage, with exit 2', async () => {
+    const cases: Array<[string[], string]> = [
+      [['frobnicate'], 'timmy pro: unknown command "frobnicate"'],
+      [['status', '--frob'], 'timmy pro status: unknown option --frob'],
+      [['rotate', 'extra'], 'timmy pro rotate: takes no arguments'],
+    ];
+    for (const [argv, first] of cases) {
       const io = recordingIO();
       expect(await runProCli(argv, context(io)), argv.join(' ')).toBe(2);
+      expect(io.errText[0]).toBe(first);
       expect(errors(io)).toContain('Usage: timmy pro');
     }
   });

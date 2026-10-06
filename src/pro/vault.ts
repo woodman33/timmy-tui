@@ -3,24 +3,9 @@
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { LicenseVault, StoredLicense, StoredRefusal } from './ports.js';
 
-export interface StoredLicense {
-  v: 1;
-  /** The license key, as issued (`tpro_XXXXXXXX-…`). */
-  key: string;
-  /** The latest signed license token, or null when none is held. */
-  token: string | null;
-  /** Unix seconds of the last write. */
-  savedAt: number;
-}
-
-export interface LicenseVault {
-  readonly location: string;
-  read(): StoredLicense | null;
-  write(license: StoredLicense): void;
-  /** Removes the stored license; true when there was one. */
-  clear(): boolean;
-}
+export type { LicenseVault, StoredLicense } from './ports.js';
 
 const PRIVATE_FILE = 0o600;
 const PRIVATE_DIR = 0o700;
@@ -71,5 +56,12 @@ function isStoredLicense(value: unknown): value is StoredLicense {
   return record.v === 1
     && typeof record.key === 'string'
     && (typeof record.token === 'string' || record.token === null)
-    && typeof record.savedAt === 'number';
+    && typeof record.savedAt === 'number'
+    && (record.refusal === undefined || isStoredRefusal(record.refusal));
+}
+
+function isStoredRefusal(value: unknown): value is StoredRefusal {
+  if (typeof value !== 'object' || value === null) return false;
+  const refusal = value as Record<string, unknown>;
+  return (refusal.reason === 'subscription_inactive' || refusal.reason === 'key_revoked') && typeof refusal.at === 'number';
 }

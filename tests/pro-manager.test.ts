@@ -3,10 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { HttpProService, type FetchLike } from '../src/pro/client.js';
-import { allowsFeature, upgradeMessage, type Entitlement } from '../src/pro/entitlement.js';
-import { generateLicenseKeyPair, importVerifyKey } from '../src/pro/license.js';
+import { accessMessage, featureAccess, nextStep, type Entitlement, type InactiveReason } from '../src/pro/entitlement.js';
+import { generateLicenseKeyPair, importSigningKey, importVerifyKey, signLicenseToken } from '../src/pro/license.js';
 import { LicenseInputError, LicenseManager, ProUnavailableError } from '../src/pro/manager.js';
 import { PRO_FEATURES } from '../src/pro/plan.js';
+import type { LicenseVault, StoredLicense } from '../src/pro/ports.js';
 import { FileLicenseVault } from '../src/pro/vault.js';
 import { DAY, proWorld, type ProWorld } from './helpers/pro-harness.js';
 
@@ -14,16 +15,18 @@ let root: string;
 let world: ProWorld;
 let vault: FileLicenseVault;
 let requests: string[];
-let failing: Set<string>;
+let faults: Map<string, () => Promise<Response>>;
 let publicKey: CryptoKey;
 
-/** Routes through the real handler, recording each path; paths in `failing` behave as if offline. */
+/** Routes through the real handler, recording each path; a path in `faults` answers with its fault instead. */
 const recordingFetch = (): FetchLike => async (input, init) => {
   const path = new URL(input).pathname;
   requests.push(path);
-  if (failing.has(path)) throw new TypeError('fetch failed');
-  return world.fetch(input, init);
+  const fault = faults.get(path);
+  return fault ? fault() : world.fetch(input, init);
 };
+const offline = async (): Promise<Response> => { throw new TypeError('fetch failed'); };
+const proxyPage = async () => new Response('<html>Access denied</html>', { status: 403, headers: { 'content-type': 'text/html' } });
 
 function manager(over: Partial<ConstructorParameters<typeof LicenseManager>[0]> = {}) {
   return new LicenseManager({
@@ -45,12 +48,17 @@ async function purchasedKey(): Promise<{ key: string; subscriptionId: string }> 
   return { key: claim.key, subscriptionId: sub.id };
 }
 
+async function cancel(subscriptionId: string) {
+  world.stripe.subs.set(subscriptionId, { ...world.stripe.subs.get(subscriptionId)!, status: 'canceled' });
+  expect((await world.webhook({ id: `evt_cancel_${subscriptionId}`, type: 'customer.subscription.deleted', data: { object: { id: subscriptionId } } })).status).toBe(200);
+}
+
 beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), 'timmy-pro-manager-'));
   world = await proWorld();
   vault = new FileLicenseVault(join(root, 'pro', 'license.json'));
   requests = [];
-  failing = new Set();
+  faults = new Map();
   publicKey = await importVerifyKey(world.publicKey);
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -59,18 +67,14 @@ describe('activation', () => {
   it('activates a key and verifies the token offline', async () => {
     const { key } = await purchasedKey();
     const entitlement = await manager().activate(key);
-    expect(entitlement.active).toBe(true);
-    if (!entitlement.active) return;
-    expect(entitlement.claims.features).toEqual([...PRO_FEATURES]);
-    expect(entitlement.refreshDue).toBe(false);
-    expect((await manager({ service: null }).current()).active).toBe(true);
+    expect(entitlement).toMatchObject({ active: true, features: [...PRO_FEATURES], refreshDue: false, tokenExpiresAt: world.now() + 7 * DAY });
+    expect((await manager({ service: null }).currentEntitlement()).active).toBe(true);
     expect(vault.read()?.key).toBe(key);
   });
 
   it('normalizes pasted keys and rejects malformed ones without a request', async () => {
     const { key } = await purchasedKey();
-    const pasted = `  ${key.toLowerCase().replace(/-/g, ' ')}\n`;
-    expect((await manager().activate(pasted)).active).toBe(true);
+    expect((await manager().activate(`  ${key.toLowerCase().replace(/-/g, ' ')}\n`)).active).toBe(true);
     expect(vault.read()?.key).toBe(key);
 
     requests = [];
@@ -78,8 +82,8 @@ describe('activation', () => {
     expect(requests).toEqual([]);
   });
 
-  it('needs a key and a service to activate', async () => {
-    await expect(manager().activate()).rejects.toBeInstanceOf(LicenseInputError);
+  it('renewing needs a stored key, and activating needs a service', async () => {
+    await expect(manager().renew()).rejects.toBeInstanceOf(LicenseInputError);
     const { key } = await purchasedKey();
     await expect(manager({ service: null }).activate(key)).rejects.toBeInstanceOf(ProUnavailableError);
   });
@@ -87,18 +91,29 @@ describe('activation', () => {
   it('drops a token that fails verification against the build key', async () => {
     const { key } = await purchasedKey();
     const otherKey = await importVerifyKey((await generateLicenseKeyPair()).publicRaw);
-    const entitlement = await manager({ publicKey: otherKey }).activate(key);
-    expect(entitlement).toEqual({ active: false, reason: 'invalid_token', detail: 'signature does not verify' });
+    expect(await manager({ publicKey: otherKey }).activate(key)).toEqual({ active: false, reason: 'invalid_token', detail: 'signature does not verify' });
     expect(vault.read()).toMatchObject({ key, token: null });
   });
 
   it('keeps key and token when no public key is configured', async () => {
     const { key } = await purchasedKey();
-    const entitlement = await manager({ publicKey: null }).activate(key);
-    expect(entitlement.active).toBe(false);
-    if (entitlement.active) return;
-    expect(entitlement.reason).toBe('no_public_key');
+    expect(await manager({ publicKey: null }).activate(key)).toMatchObject({ active: false, reason: 'no_public_key' });
     expect(vault.read()?.token?.split('.')[0]).toBe('tpro1');
+  });
+
+  it('reports a lapsed token as token_expired', async () => {
+    const { key } = await purchasedKey();
+    await manager().activate(key);
+    world.advance(8 * DAY);
+    expect(await manager({ service: null }).currentEntitlement()).toEqual({ active: false, reason: 'token_expired', detail: 'token expired' });
+  });
+
+  it('ignores feature ids this build does not know', async () => {
+    const signing = await importSigningKey(world.deps.env.LICENSE_SIGNING_KEY!);
+    const now = world.now();
+    const token = await signLicenseToken({ v: 1, plan: 'pro', features: ['cloud_logs', 'teleport' as never], status: 'active', sub: 'abc', iat: now, exp: now + DAY }, signing);
+    vault.write({ v: 1, key: 'tpro_ABCDEFGH-JKMNPQRS-TVWXYZ01-23456789', token, savedAt: now });
+    expect(await manager({ service: null }).currentEntitlement()).toMatchObject({ active: true, features: ['cloud_logs'] });
   });
 });
 
@@ -113,9 +128,8 @@ describe('refresh', () => {
     expect(requests).toEqual([]);
 
     world.advance(6 * DAY);
-    const refreshed = await manager().refreshIfDue();
+    expect(await manager().refreshIfDue()).toMatchObject({ active: true, refreshDue: false });
     expect(requests).toEqual(['/license/activate']);
-    expect(refreshed.active && refreshed.refreshDue).toBe(false);
     expect(vault.read()?.token).not.toBe(before);
   });
 
@@ -124,28 +138,54 @@ describe('refresh', () => {
     await manager().activate(key);
     const token = vault.read()?.token;
     world.advance(6 * DAY);
-    failing.add('/license/activate');
-    const entitlement = await manager().refreshIfDue();
-    expect(entitlement.active).toBe(true);
+    faults.set('/license/activate', offline);
+    expect((await manager().refreshIfDue()).active).toBe(true);
     expect(vault.read()?.token).toBe(token);
   });
 
-  it('marks a cancelled subscription revoked on refresh', async () => {
+  it('never mistakes a proxy page for a cancelled subscription', async () => {
+    const { key } = await purchasedKey();
+    await manager().activate(key);
+    const token = vault.read()?.token;
+    world.advance(6 * DAY);
+    faults.set('/license/activate', proxyPage);
+    expect((await manager().refreshIfDue()).active).toBe(true);
+    expect(vault.read()).toMatchObject({ token });
+    expect(vault.read()?.refusal).toBeUndefined();
+  });
+
+  it('remembers a refusal, reports it offline, and asks again at most hourly', async () => {
     const { key, subscriptionId } = await purchasedKey();
     await manager().activate(key);
-    world.stripe.subs.set(subscriptionId, { ...world.stripe.subs.get(subscriptionId)!, status: 'canceled' });
-    expect((await world.webhook({ id: 'evt_cancel', type: 'customer.subscription.deleted', data: { object: { id: subscriptionId } } })).status).toBe(200);
+    await cancel(subscriptionId);
     world.advance(6 * DAY);
 
-    expect(await manager().refreshIfDue()).toEqual({ active: false, reason: 'revoked', detail: 'subscription not active' });
-    expect(vault.read()).toMatchObject({ key, token: null });
+    requests = [];
+    expect(await manager().refreshIfDue()).toMatchObject({ active: false, reason: 'subscription_inactive' });
+    expect(vault.read()).toMatchObject({ key, token: null, refusal: { reason: 'subscription_inactive', at: world.now() } });
+    expect(await manager({ service: null }).currentEntitlement()).toMatchObject({ active: false, reason: 'subscription_inactive' });
+
+    expect(await manager().refreshIfDue()).toMatchObject({ reason: 'subscription_inactive' });
+    expect(requests).toEqual(['/license/activate']);
+    world.advance(3601);
+    await manager().refreshIfDue();
+    expect(requests).toEqual(['/license/activate', '/license/activate']);
+  });
+
+  it('reports a key replaced from another machine as key_revoked', async () => {
+    const { key } = await purchasedKey();
+    await manager().activate(key);
+    await new HttpProService(world.origin, world.fetch).rotate(key);
+    world.advance(6 * DAY);
+    expect(await manager().refreshIfDue()).toMatchObject({ active: false, reason: 'key_revoked' });
+    expect(vault.read()).toMatchObject({ key, token: null, refusal: { reason: 'key_revoked' } });
   });
 });
 
-describe('purchase and rotation', () => {
-  it('claimPurchase saves the key the first time it is ready', async () => {
-    const service = new HttpProService(world.origin, world.fetch);
-    const { sessionId } = await service.startCheckout();
+describe('purchase, billing and rotation', () => {
+  it('starts a purchase, then saves the key the first time it is ready', async () => {
+    const { url, sessionId } = await manager().startPurchase();
+    expect(url).toBe(`https://checkout.stripe.com/c/pay/${sessionId}`);
     expect(await manager().claimPurchase(sessionId)).toEqual({ state: 'pending' });
     expect(vault.read()).toBeNull();
 
@@ -157,44 +197,78 @@ describe('purchase and rotation', () => {
     expect(vault.read()?.key).toBe(ready.key);
   });
 
+  it('hands out the billing portal link', async () => {
+    expect(await manager().billingPortalUrl()).toBe('https://billing.stripe.com/p/login/test_portal');
+    await expect(manager({ service: null }).billingPortalUrl()).rejects.toBeInstanceOf(ProUnavailableError);
+  });
+
   it('rotate keeps the new key when activation fails', async () => {
     const { key } = await purchasedKey();
     await manager().activate(key);
-    failing.add('/license/activate');
+    faults.set('/license/activate', offline);
 
     const rotated = await manager().rotate();
+    expect(rotated).toMatchObject({ saved: true, followUpError: { kind: 'unreachable' } });
     expect(rotated.key).not.toBe(key);
-    expect(rotated.activationError).toBe('could not reach the Pro service');
     expect(vault.read()).toMatchObject({ key: rotated.key, token: null });
 
-    failing.clear();
+    faults.clear();
     expect((await manager().refreshIfDue()).active).toBe(true);
-    await expect(new HttpProService(world.origin, world.fetch).activate(key)).rejects.toMatchObject({ status: 404 });
+    await expect(new HttpProService(world.origin, world.fetch).activate(key)).rejects.toMatchObject({ code: 'unknown_key' });
+  });
+
+  it('rotate hands back the new key even when it cannot be saved', async () => {
+    const { key } = await purchasedKey();
+    await manager().activate(key);
+    const failingWrites: LicenseVault = {
+      read: () => vault.read(),
+      write: () => { throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }); },
+      clear: () => vault.clear(),
+    };
+
+    const rotated = await manager({ vault: failingWrites }).rotate();
+    expect(rotated).toMatchObject({ saved: false, followUpError: { message: 'EACCES: permission denied' } });
+    expect(rotated.key).toMatch(/^tpro_/);
+    expect(rotated.key).not.toBe(key);
+    expect((await new HttpProService(world.origin, world.fetch).activate(rotated.key)).token).toBeTruthy();
   });
 
   it('deactivate forgets the license on this machine', async () => {
     const { key } = await purchasedKey();
     await manager().activate(key);
     expect(manager().deactivate()).toBe(true);
-    expect(await manager().current()).toMatchObject({ active: false, reason: 'not_activated' });
+    expect(await manager().currentEntitlement()).toMatchObject({ active: false, reason: 'no_license' });
     expect(manager().storedKey()).toBeNull();
   });
 });
 
-describe('feature gate', () => {
-  const claims = { v: 1 as const, plan: 'pro' as const, features: ['cloud_logs' as const], status: 'active', sub: 'abc', iat: 1, exp: 2 };
+describe('feature access and guidance', () => {
+  const active: Entitlement = { active: true, features: ['cloud_logs'], status: 'active', tokenExpiresAt: 2, refreshDue: false };
+  const inactive = (reason: InactiveReason): Entitlement => ({ active: false, reason, detail: 'x' });
 
   it('allows only the features the verified token lists', () => {
-    const active: Entitlement = { active: true, claims, refreshDue: false };
-    expect(allowsFeature(active, 'cloud_logs')).toBe(true);
-    expect(allowsFeature(active, 'hosted_runs')).toBe(false);
-    expect(allowsFeature({ active: false, reason: 'expired', detail: 'token expired' }, 'cloud_logs')).toBe(false);
+    expect(featureAccess(active, 'cloud_logs')).toEqual({ allowed: true });
+    const missing = featureAccess(active, 'hosted_runs');
+    expect(missing).toMatchObject({ allowed: false, reason: 'not_in_plan' });
+    expect(missing.allowed ? '' : missing.message).toContain('timmy pro activate');
+    expect(featureAccess(inactive('no_license'), 'cloud_logs')).toMatchObject({ allowed: false, reason: 'no_license' });
   });
 
-  it('tells a free user how to get a Pro feature', () => {
-    const message = upgradeMessage('cloud_logs');
-    expect(message).toContain('Cloud Logs');
-    expect(message).toContain('$19/month');
-    expect(message).toContain('timmy pro upgrade');
+  it('points each reason at the one step that fixes it', () => {
+    const cases: Array<[InactiveReason, string, string]> = [
+      ['no_license', 'buy', 'timmy pro upgrade'],
+      ['key_not_activated', 'renew', 'timmy pro activate'],
+      ['token_expired', 'renew', 'timmy pro activate'],
+      ['subscription_inactive', 'billing', 'timmy pro billing'],
+      ['key_revoked', 'use_newest_key', 'timmy pro activate -'],
+      ['invalid_token', 'update_timmy', 'TIMMY_PRO_PUBLIC_KEY'],
+      ['no_public_key', 'update_timmy', 'TIMMY_PRO_PUBLIC_KEY'],
+    ];
+    for (const [reason, step, command] of cases) {
+      expect(nextStep(inactive(reason)), reason).toBe(step);
+      expect(accessMessage(inactive(reason), 'cloud_logs'), reason).toContain(command);
+    }
+    expect(nextStep(active)).toBe('none');
+    expect(accessMessage(inactive('no_license'), 'cloud_logs')).toContain('$19/month');
   });
 });

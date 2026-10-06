@@ -24,6 +24,7 @@
 
 import { PAST_DUE_GRACE_SECONDS, PRO_FEATURE_LABELS, PRO_FEATURES, PRO_PLAN, isProActive } from './plan.js';
 import { sha256Hex } from './encoding.js';
+import type { ProErrorCode } from './protocol.js';
 import { deriveLicenseKey, importSigningKey, licenseKeyHash, normalizeLicenseKey, proClaims, signLicenseToken, type LicenseClaims } from './license.js';
 import { verifyStripeSignature } from './stripe-signature.js';
 import { StripeApiError, type StripeClient, type SubscriptionInfo } from './stripe-api.js';
@@ -72,7 +73,7 @@ const SUBSCRIPTION_EVENTS = new Set([
 const KNOWN_PATHS = new Set(['/health', '/', '/checkout', '/welcome', '/license/claim', '/license/activate', '/license/rotate', '/billing', '/stripe/webhook']);
 
 class HttpError extends Error {
-  constructor(readonly status: number, message: string, readonly extra: Record<string, unknown> = {}) {
+  constructor(readonly status: number, readonly code: ProErrorCode, message: string, readonly extra: Record<string, unknown> = {}) {
     super(message);
   }
 }
@@ -80,7 +81,7 @@ class HttpError extends Error {
 /** Logs the specific reason server-side; callers only learn that the service is unavailable. */
 function unavailable(reason: string): HttpError {
   console.error(`timmy-pro: ${reason}`);
-  return new HttpError(503, 'service unavailable');
+  return new HttpError(503, 'unavailable', 'service unavailable');
 }
 
 export async function handleProRequest(request: Request, deps: ProDeps): Promise<Response> {
@@ -108,16 +109,18 @@ export async function handleProRequest(request: Request, deps: ProDeps): Promise
       case 'POST /stripe/webhook':
         return await webhook(request, deps);
       default:
-        return KNOWN_PATHS.has(url.pathname) ? json({ error: 'method not allowed' }, 405) : json({ error: 'not found' }, 404);
+        return KNOWN_PATHS.has(url.pathname)
+          ? json({ error: 'method not allowed', code: 'method_not_allowed' }, 405)
+          : json({ error: 'not found', code: 'not_found' }, 404);
     }
   } catch (err) {
-    if (err instanceof HttpError) return json({ error: err.message, ...err.extra }, err.status);
+    if (err instanceof HttpError) return json({ error: err.message, code: err.code, ...err.extra }, err.status);
     if (err instanceof StripeApiError) {
       console.error(`timmy-pro: Stripe API error (HTTP ${err.status})`);
-      return json({ error: 'payment provider error' }, 502);
+      return json({ error: 'payment provider error', code: 'payment_provider_error' }, 502);
     }
     console.error('timmy-pro: unhandled error', err instanceof Error ? err.message : String(err));
-    return json({ error: 'internal error' }, 500);
+    return json({ error: 'internal error', code: 'internal_error' }, 500);
   }
 }
 
@@ -151,11 +154,11 @@ async function welcome(url: URL, deps: ProDeps): Promise<Response> {
 
 async function claim(request: Request, deps: ProDeps): Promise<Response> {
   const sessionId = String((await readJson(request))?.session_id ?? '');
-  if (!SESSION_ID.test(sessionId)) throw new HttpError(400, 'invalid session_id');
+  if (!SESSION_ID.test(sessionId)) throw new HttpError(400, 'invalid_request', 'invalid session_id');
   const settled = await settleCheckout(sessionId, deps);
-  if (settled.state === 'invalid') throw new HttpError(404, 'no Timmy Pro purchase for that checkout');
+  if (settled.state === 'invalid') throw new HttpError(404, 'unknown_checkout', 'no Timmy Pro purchase for that checkout');
   if (settled.state === 'pending') return json({ status: 'pending' }, 202);
-  if (!canReveal(settled.record, deps.now())) throw new HttpError(410, 'license key already issued');
+  if (!canReveal(settled.record, deps.now())) throw new HttpError(410, 'key_already_issued', 'license key already issued');
   const record = await requireActive(settled.record, deps);
   return json({ status: 'ready', key: await keyFor(record, deps), ...(await issueToken(record, deps)) });
 }
@@ -170,7 +173,7 @@ async function rotate(request: Request, deps: ProDeps): Promise<Response> {
   const next = await withLock(current.subscriptionId, async () => {
     const latest = (await deps.store.getBySubscription(current.subscriptionId)) ?? current;
     // A rotation that ran while this one waited for the lock already revoked the key it was given.
-    if (latest.keyHash !== current.keyHash) throw new HttpError(404, 'unknown license key');
+    if (latest.keyHash !== current.keyHash) throw new HttpError(404, 'unknown_key', 'unknown license key');
     return saveRecord({ ...latest, keyVersion: latest.keyVersion + 1 }, deps);
   });
   return json({ key: await keyFor(next, deps) });
@@ -181,17 +184,17 @@ async function webhook(request: Request, deps: ProDeps): Promise<Response> {
   const check = await verifyStripeSignature(raw, request.headers.get('stripe-signature'), deps.env.STRIPE_WEBHOOK_SECRET, deps.now());
   if (!check.ok) {
     console.warn(`timmy-pro: webhook signature rejected (${check.reason})`);
-    throw new HttpError(400, 'invalid signature');
+    throw new HttpError(400, 'invalid_signature', 'invalid signature');
   }
 
   let event: any;
   try {
     event = JSON.parse(raw);
   } catch {
-    throw new HttpError(400, 'body is not JSON');
+    throw new HttpError(400, 'invalid_request', 'body is not JSON');
   }
   const eventId = typeof event?.id === 'string' ? event.id : '';
-  if (!eventId) throw new HttpError(400, 'event has no id');
+  if (!eventId) throw new HttpError(400, 'invalid_request', 'event has no id');
   if (await deps.store.hasProcessedEvent(eventId)) return json({ received: true, duplicate: true });
 
   const object = event?.data?.object ?? {};
@@ -276,8 +279,8 @@ async function requireActive(record: SubscriptionRecord, deps: ProDeps): Promise
   const now = deps.now();
   const stale = record.currentPeriodEnd !== null && record.currentPeriodEnd + PERIOD_GRACE <= now;
   const current = stale ? await syncSubscription(record.subscriptionId, {}, deps) : record;
-  if (!current) throw new HttpError(403, 'subscription not active', { status: 'unknown' });
-  if (!isProActive(current.status, current.pastDueSince, now)) throw new HttpError(403, 'subscription not active', { status: current.status });
+  if (!current) throw new HttpError(403, 'subscription_inactive', 'subscription not active', { status: 'unknown' });
+  if (!isProActive(current.status, current.pastDueSince, now)) throw new HttpError(403, 'subscription_inactive', 'subscription not active', { status: current.status });
   return current;
 }
 
@@ -298,9 +301,9 @@ async function keyFor(record: SubscriptionRecord, deps: ProDeps): Promise<string
 
 async function recordForKey(input: unknown, deps: ProDeps): Promise<SubscriptionRecord> {
   const key = normalizeLicenseKey(typeof input === 'string' ? input : null);
-  if (!key) throw new HttpError(400, 'that is not a Timmy Pro license key');
+  if (!key) throw new HttpError(400, 'invalid_key', 'that is not a Timmy Pro license key');
   const record = await deps.store.getByKeyHash(await licenseKeyHash(key));
-  if (!record) throw new HttpError(404, 'unknown license key');
+  if (!record) throw new HttpError(404, 'unknown_key', 'unknown license key');
   return record;
 }
 

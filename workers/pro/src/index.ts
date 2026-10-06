@@ -44,7 +44,7 @@ export default {
       const client = request.headers.get('cf-connecting-ip') ?? 'unknown';
       const { success } = await env.PRO_LIMITER.limit({ key: `${client}:${pathname}` });
       if (!success) {
-        return new Response(JSON.stringify({ error: 'too many requests' }), {
+        return new Response(JSON.stringify({ error: 'too many requests', code: 'rate_limited' }), {
           status: 429,
           headers: { 'Content-Type': 'application/json', 'Retry-After': '60' },
         });

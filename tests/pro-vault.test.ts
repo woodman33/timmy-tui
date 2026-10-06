@@ -2,7 +2,8 @@ import { chmodSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync, m
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { FileLicenseVault, type StoredLicense } from '../src/pro/vault.js';
+import type { StoredLicense } from '../src/pro/ports.js';
+import { FileLicenseVault } from '../src/pro/vault.js';
 
 const LICENSE: StoredLicense = { v: 1, key: 'tpro_ABCDEFGH-JKMNPQRS-TVWXYZ01-23456789', token: 'tpro1.payload.signature', savedAt: 1_800_000_000 };
 
@@ -30,6 +31,15 @@ describe('FileLicenseVault', () => {
     const vault = new FileLicenseVault(path);
     vault.write({ ...LICENSE, token: null });
     expect(vault.read()).toEqual({ ...LICENSE, token: null });
+  });
+
+  it('keeps a refusal the service gave, and rejects a malformed one', () => {
+    const vault = new FileLicenseVault(path);
+    const refused: StoredLicense = { ...LICENSE, token: null, refusal: { reason: 'key_revoked', at: 1_800_000_100 } };
+    vault.write(refused);
+    expect(vault.read()).toEqual(refused);
+    writeFileSync(path, JSON.stringify({ ...refused, refusal: { reason: 'bored', at: 1 } }));
+    expect(vault.read()).toBeNull();
   });
 
   it('reads a missing, corrupt or wrong-shaped file as null', () => {

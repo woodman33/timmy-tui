@@ -36,33 +36,55 @@ decides what the TUI offers, so editing a local file cannot unlock anything host
 
 | Command | What it does |
 |---|---|
-| `timmy pro` / `timmy pro status [--json]` | Shows whether Pro is active on this machine. The key is shown masked; the token never. |
-| `timmy pro upgrade [--no-open]` | Opens Stripe Checkout, waits for payment (checks every 5 s, backs off when rate-limited, stops after 30 min), then saves and prints the key once. |
-| `timmy pro activate [<key> \| -]` | Exchanges a key for a token. `-` reads the key from stdin, which keeps it out of shell history. No key renews the saved one. |
-| `timmy pro rotate` | Replaces the key. The new key is saved before anything else can fail, because the old one stops working at once. |
+| `timmy pro` / `timmy pro status [--json]` | Shows whether Pro is active on this machine, and the one next step when it is not. May contact the service to renew a token that is due. The key is shown masked; the token never. |
+| `timmy pro upgrade [--no-open]` | Opens Stripe Checkout, waits for payment (checks every 5 s, backs off when rate-limited, stops after 30 min), then saves and prints the key once. Refuses while a key is already on this machine, unless the service has said that subscription is no longer active, so nobody pays twice by accident. |
+| `timmy pro activate [<key> \| -]` | Exchanges a key for a token. `-` reads the key from stdin (it asks on a terminal), which keeps it out of shell history. No key renews the saved one. |
+| `timmy pro rotate` | Replaces the key. The old one stops working at once, so the new key is printed first, and saved before anything else is tried. |
 | `timmy pro billing [--no-open]` | Opens Stripe's customer portal (sign-in by purchase email). |
 | `timmy pro deactivate` | Removes the license from this machine. The subscription is unchanged. |
+| `timmy pro help`, `--help`, `-h` | Usage. |
+
+Exit codes: `0` done, `1` failed, `2` usage or input error.
 
 **Where the license lives:** `<TIMMY_HOME>/pro/license.json` (`~/timmy/pro/license.json` by default),
-mode 0600 in a 0700 directory, replaced atomically. Tokens renew automatically when they have under
-two days left and the service is reachable; offline, the current token keeps working until it expires.
+mode 0600 in a 0700 directory, replaced atomically. Tokens last up to 7 days and renew automatically
+when they have under two days left and the service is reachable; offline, the current token keeps
+working until it expires. When the service refuses the key (subscription not active, or the key was
+replaced), the token is dropped, the reason is remembered, and the service is asked again at most hourly.
+A proxy page, a redirect or an outage never counts as a refusal.
 
 **Configuration:**
 - `TIMMY_PRO_URL`: the Pro service. It must be `https://` (plain `http://` only for localhost) and a bare
-  origin; anything else is refused before a key is sent.
+  origin; anything else is refused before a key is sent. Redirects are never followed.
 - `TIMMY_PRO_PUBLIC_KEY`: the ed25519 public key tokens must verify against (32 raw bytes, base64url).
 - Without either, the build's values in `src/pro/settings.ts` apply. Both are empty until go-live, so
   `upgrade` says Pro is not available yet.
 
+**`timmy pro status --json`** (`schemaVersion: 1`; type `ProStatusReport` in `src/pro/cli.ts`):
+
+| Field | Meaning |
+|---|---|
+| `active` | Pro is on for this machine (a token verified offline) |
+| `reason`, `detail` | Why not, when not: `no_license`, `key_not_activated`, `token_expired`, `invalid_token`, `no_public_key`, `subscription_inactive`, `key_revoked` |
+| `nextStep` | `none`, `buy`, `renew`, `billing`, `use_newest_key` or `update_timmy` |
+| `plan`, `priceUsdMonthly`, `features` | The plan and the features the token lists |
+| `licenseKeyMasked` | `tpro_` + the first and last four characters, or `null` |
+| `tokenExpiresAt`, `refreshDue` | When the offline token runs out (not when the subscription ends) |
+| `serviceUrl`, `publicKeySource` | Where the service is, and whether the key came from the build or `env` |
+
 **Gating a Pro feature (for Timmy code):**
 ```ts
-import { loadLicenseManager } from './pro/runtime.js';
-import { allowsFeature, upgradeMessage } from './pro/entitlement.js';
+import { checkProFeature } from './pro/gate.js';
 
-const entitlement = await (await loadLicenseManager()).refreshIfDue();
-if (!allowsFeature(entitlement, 'cloud_logs')) throw new Error(upgradeMessage('cloud_logs'));
+const access = await checkProFeature('cloud_logs');
+if (!access.allowed) return showNotice(access.message); // never throws; the message fits the user's case
 ```
-The local check only decides what Timmy offers. Hosted features must also check the key on the server.
+The message tells a free user how to buy, a key holder how to renew, and a lapsed subscriber where
+billing is. The local check only decides what Timmy offers; hosted features must also check the key on
+the server.
+
+**Errors on the wire:** every error the worker returns is JSON with a human `error` and a stable `code`
+(`src/pro/protocol.ts`). The client branches on the code, never on wording or a bare HTTP status.
 
 ## Architecture
 
