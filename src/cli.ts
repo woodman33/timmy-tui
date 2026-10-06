@@ -75,6 +75,11 @@ Commands:
   design list|run       Open Design (MCP) gens: queue in GENS, execute + seal here
   doctor deps|network|hardware  Read-only posture checks (never auto-fixes)
   mcp status|inspect|probe  MCP wire visibility: mcpsnoop + mcp-probe (opt-in)
+  mcp serve       Serve Timmy's MCP tools to any MCP client over stdio
+  map             Open the Mission Map (vision server on :4336; --port N)
+  export otio <run> | agentrun <job>  OTIO timeline or a portable .agentrun bundle
+  epoch <n> [reason]  Rotate the receipt release epoch
+  q <file> <expr> Query json/yaml/toml/xml/csv with dasel
 
 Options:
   --json          Output results in raw JSON format (for demo/proof)

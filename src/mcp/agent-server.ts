@@ -4,12 +4,13 @@
 import { mcpc } from '@mcpc/core';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { join } from 'path';
+import { VERSION } from '../version.js';
 
 const root = process.cwd();
 const tsx = join(root, 'node_modules', '.bin', 'tsx');
 
 const server = await mcpc(
-  [{ name: 'timmy-agent', version: '0.5.0' }, { capabilities: { tools: {} } }],
+  [{ name: 'timmy-agent', version: VERSION }, { capabilities: { tools: {} } }],
   [{
     name: 'timmy-agent',
     description: `

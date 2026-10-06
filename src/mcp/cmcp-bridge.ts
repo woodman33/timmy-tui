@@ -7,19 +7,20 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { createClientExecServer, createClientExecClient } from '@mcpc-tech/cmcp';
 import { join } from 'path';
+import { VERSION } from '../version.js';
 
 const root = process.cwd();
 const tsx = join(root, 'node_modules', '.bin', 'tsx');
 
 const server = new Server(
-  { name: 'timmy-cmcp', version: '0.5.0' },
+  { name: 'timmy-cmcp', version: VERSION },
   { capabilities: { tools: {} } }
 );
 // cmcp ships CJS typings against the SDK's cjs dist; ours is esm — interop cast
 createClientExecServer(server as any, 'timmy');
 
 const client = new Client(
-  { name: 'timmy-cmcp-client', version: '0.5.0' },
+  { name: 'timmy-cmcp-client', version: VERSION },
   { capabilities: {} }
 );
 createClientExecClient(client as any, 'timmy');

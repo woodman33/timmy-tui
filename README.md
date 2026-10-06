@@ -22,7 +22,8 @@ cp .env.example .env        # optional: add OPENROUTER_API_KEY for frontier mode
 npm start                   # the TUI (local ollama models work with $0)
 ```
 
-Or: `npm install -g timmy-tui` · `npx timmy-tui demo`
+npm still serves an early 0.1.0 build, so install from source (above) for now.
+Once the v2 release is published: `npm install -g timmy-tui` · `npx timmy-tui demo`
 
 First receipt:
 
@@ -36,7 +37,7 @@ opens the live log monitor, `Ctrl+K` the command palette. Local Ollama models
 (`http://localhost:11434`) answer with $0 when OpenRouter is unreachable
 (`FALLBACK 🟡`).
 
-## What works today (v0.5.x)
+## What works today
 
 - **Receipts v2**: sha256 hash-chained, ed25519-signed run records with
   prompt/response hashes, usage, cost, latency, error class; failed and
@@ -55,11 +56,11 @@ opens the live log monitor, `Ctrl+K` the command palette. Local Ollama models
   houdini-mcp) + key-gated API lanes; tmux/zellij/rmux multiplexing.
 - **Judge loops**: local-first multi-model fan-out with confidence-gated
   frontier escalation; child + parent receipts per loop.
-- **MCP server**: 24 tools for any MCP-speaking agent (`timmy mcp serve`),
+- **MCP server**: 37 tools for any MCP-speaking agent (`timmy mcp serve`),
   composed `timmy-agent` server, client-exec bridge, OpenAPI invoker lane.
 - **Companions**: browser companion on :3001 (chat mirror) and the receipt
-  browser + dispatch survey on :4310 (`timmy logs`), Mission Map on :4321
-  (`timmy map`).
+  browser + dispatch survey on :4310 (`timmy logs`), Mission Map on :4336
+  (`timmy map`; `npm run mission-map` serves it on :4321).
 - **CLI verbs**: demo · proof · clip · export · events (--otlp) · mcp serve ·
   logs · approve · epoch · map · q (dasel across json/yaml/toml/xml/csv) ·
   doctor · sceneforge (read-only Houdini advisory; key from macOS keychain).
@@ -74,9 +75,10 @@ opens the live log monitor, `Ctrl+K` the command palette. Local Ollama models
 }}}
 ```
 
-Tools include receipt verify, env lock, judge loop, dispatch plan/arm/launch/
-tail/cancel/collect, lanes list, OpenHands/roboflow/3minapi/oapi lanes — every
-call receipted.
+Tools include receipt verify, env lock, judge loop, dispatch (plan, arm with
+`timmy approve`, dispatch, tail, pause/cancel, collect), lanes list, the geo
+voxel bench, vision inspection and the OpenHands/Roboflow/3minapi/oapi lanes —
+every call receipted.
 
 ## Example receipt (v2, abridged)
 
@@ -117,6 +119,6 @@ call receipted.
 
 ### Roboflow Vision Studio
 
-Open `timmy vision` (or `/vision` inside the TUI) for six editable tldraw templates, image inspection with a configured Roboflow model or saved Workflow, archived evidence, and operator review. `timmy vision status` checks setup; `timmy vision doctor` checks this computer without running inference. API keys stay in the server environment or private `.timmy/vision.env` file.
+Open `timmy vision` (or `/vision` inside the TUI) for image inspection with a configured Roboflow model or saved Workflow, archived evidence, and operator review. The six editable tldraw templates are not in the public checkout yet. `timmy vision status` checks setup; `timmy vision doctor` checks this computer without running inference. API keys stay in the server environment or private `.timmy/vision.env` file.
 
 See [Timmy Vision setup and deployment](docs/ROBOFLOW-VISION.md) for Spark/NAS placement, local versus hosted inference, Vision Events, WebRTC, MCP tools, and the limits of the current integration. Visual canvas recipes describe a process; the selected model or saved Workflow executes the inspection.

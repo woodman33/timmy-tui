@@ -24,6 +24,7 @@ import { oapiRun, type OapiReq } from '../utils/oapi-adapter.js';
 import { VISION_TOOLS, callVisionTool } from '../vision/mcp.js';
 import { GEO_TOOLS, callGeoTool } from '../geo/mcp.js';
 import { forgeRun, forgeStatus, forgeApprove } from '../forge/mcp-tools.js';
+import { VERSION } from '../version.js';
 
 const sleepSync = (ms: number) => spawnSync('sleep', [String(ms / 1000)]);
 
@@ -684,7 +685,7 @@ process.stdin.on('data', d => {
     let msg: any;
     try { msg = JSON.parse(line); } catch { continue; }
     if (msg.method === 'initialize') {
-      process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'timmy', version: '0.4.0' } } }) + '\n');
+      process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'timmy', version: VERSION } } }) + '\n');
     } else if (msg.method === 'notifications/initialized') {
       // no response for notifications
     } else if (msg.method === 'tools/list') {
