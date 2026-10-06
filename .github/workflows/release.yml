@@ -79,11 +79,11 @@ jobs:
         if: github.event_name == 'push'
         run: node scripts/release-preflight.mjs
 
-      # npm trusted publishing needs npm 11.5.1 or later.
+      # npm trusted publishing needs npm 11.5.1 or later (Node 24 currently bundles 11.19).
       - name: npm 11.5.1 or later
         run: |
           v="$(npm --version)"
-          if node -e 'const [a,b,c]=process.argv[1].split(".").map(Number);process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)' "$v"; then
+          if NPM_V="$v" node -e 'const [a,b,c]=process.env.NPM_V.split(".").map(Number);process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)'; then
             echo "npm $v"
           else
             npm install -g npm@^11.5.1
@@ -103,10 +103,12 @@ jobs:
         if: github.event_name == 'push'
         run: npm publish --provenance --access public --tag next --ignore-scripts
         env:
-          # npm tries OIDC first when a trusted publisher is configured for this
-          # workflow, and falls back to this token only if OIDC is unavailable. Once the
-          # trusted publisher is set and a release has gone out through it, the
-          # NPM_TOKEN secret can be deleted.
+          # `npm publish` (11.5.1+) runs its OIDC token exchange before it reads any
+          # credentials, whatever setup-node wrote to .npmrc. When a trusted publisher is
+          # configured for release.yml the exchanged token replaces this one for the
+          # publish; when the exchange fails (none configured yet) npm falls back to this
+          # token. Once a release has gone out through the trusted publisher, the
+          # NPM_TOKEN secret can be deleted: an empty value here no longer matters.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Rehearsal publish (dry run, nothing is published)
