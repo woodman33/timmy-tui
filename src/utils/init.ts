@@ -22,21 +22,28 @@ export const identityPath = (): string => join(timmyHome(), 'identity.json');
 export const isBlankSlate = (): boolean => !existsSync(identityPath());
 
 export const BANNER = 'TIMMY · first run — blank slate';
+// C-14: the first run fits 60 columns, the questions included (they ran to 120).
 export const QUESTIONS: ReadonlyArray<readonly [string, string]> = [
-  ['operator', 'Operator name (how the ship addresses you; goes into receipts as operator_label)'],
-  ['seed', 'Seed identity: [g]enerate an ed25519 seed, or a path to a PEM / 64-hex seed to import'],
-  ['providers', 'Providers: OpenRouter API key (blank = skip), Anthropic API key (blank = skip), Ollama host (default http://127.0.0.1:11434)'],
-  ['project', 'First project name (created under ~/timmy/projects/<name>)'],
+  ['operator', 'Operator name (your receipts show it)'],
+  ['seed', 'Identity: [g]enerate, or a PEM or hex path'],
+  ['providers', 'Model keys (OpenRouter, Anthropic), Ollama'],
+  ['project', 'First project name (under ~/timmy/projects/)'],
 ];
 
+/** The first-run banner, within 60 columns (C-14): what is missing, where init writes, how to skip the questions. */
 export function printBlankSlateBanner(log: (s: string) => void = console.log): void {
   log(`\n  ${BANNER}\n`);
-  log('  No operator, identity, providers or project yet. Nothing in this tree is personal,');
-  log('  and nothing will be written to it. `timmy init` asks four things and writes only to');
-  log(`  ${relPretty(timmyHome())}/ and ${relPretty(privateDir())}/ (plus the gitignored receipts store pin, <repo>/.timmy/store-pin):`);
+  log('  No operator, identity or project yet, and nothing');
+  log('  personal in this tree. `timmy init` asks four things');
+  log('  and writes only to:');
+  log(`    ${relPretty(timmyHome())}/`);
+  log(`    ${relPretty(privateDir())}/`);
+  log('    <repo>/.timmy/store-pin (the receipts store)\n');
   for (const [k, q] of QUESTIONS) log(`    ${k.padEnd(10)} ${q}`);
-  log('\n  Non-interactive: timmy init --yes [--operator <name>] [--seed generate|<pem|hex>] [--openrouter <key>]');
-  log('                   [--anthropic <key>] [--ollama <host>] [--project <name>] [--edge-host <host>] [--json]\n');
+  log('\n  Without questions: timmy init --yes, and any of');
+  log('    --operator <name>  --seed generate|<pem|hex>');
+  log('    --openrouter <key>  --anthropic <key>  --ollama <host>');
+  log('    --project <name>  --edge-host <host>  --json\n');
 }
 const relPretty = (p: string): string => (p.startsWith(homedir()) ? '~' + p.slice(homedir().length) : p.startsWith(workspaceRoot()) ? '<repo>' + p.slice(workspaceRoot().length) : p);
 

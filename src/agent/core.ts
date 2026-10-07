@@ -19,6 +19,30 @@ import { DEFAULT_LANE_BINDINGS, LANE_RUNNERS, laneStartupScript } from './lanes.
 import { writeLog, tuiLogger } from '../utils/logger.js';
 import { probeOllama, pickOllamaModel, ollamaChatCompletion } from './providers.js';
 
+export interface SendOptions {
+  /** Cancels the turn: the stream is cancelled and no fallback model is tried. */
+  signal?: AbortSignal;
+  /** Retry 429, 5xx and connection errors with exponential backoff from 1s (1s, 2s, 4s), giving up after 7.5s (playbook §17.8). */
+  retry?: boolean;
+}
+
+export interface AgentOptions {
+  /** Which multiplexer runs background lanes; 'none' starts no sessions (the inline REPL). */
+  multiplexer?: 'tmux' | 'zellij' | 'rmux' | 'none';
+}
+
+/** No background lanes: every call is a no-op. */
+class NoMultiplexer implements MultiplexerManager {
+  init(): void {}
+  spawnSession(): void {}
+  killSession(): void {}
+  getCwd(): string { return process.cwd(); }
+  capturePane(): string[] { return []; }
+  async sendCommand(): Promise<void> {}
+  poll(): void {}
+  destroy(): void {}
+}
+
 class TmuxManager implements MultiplexerManager {
   private pollInterval: NodeJS.Timeout | null = null;
   private lastOutputs: Map<string, string[]> = new Map();
@@ -337,16 +361,19 @@ export class Agent extends EventEmitter<AgentEvents> {
   ];
   public showTmuxDropdown = false;
 
-  constructor(config: AgentConfig) {
+  constructor(config: AgentConfig, options: AgentOptions = {}) {
     super();
     this.client = new OpenRouter({ apiKey: config.apiKey });
     this.conversation = new ConversationManager();
     this.config = config;
     this.tools = [...defaultTools];
 
-    // Initialize multiplexer background manager (tmux, zellij, or rmux)
-    const mux = process.env.TIMMY_MULTIPLEXER || 'tmux';
-    if (mux === 'zellij') {
+    // Initialize multiplexer background manager (tmux, zellij, or rmux). 'none' (the inline REPL)
+    // starts no lane sessions.
+    const mux = options.multiplexer || process.env.TIMMY_MULTIPLEXER || 'tmux';
+    if (mux === 'none') {
+      this.tmuxMgr = new NoMultiplexer();
+    } else if (mux === 'zellij') {
       this.tmuxMgr = new ZellijManager(this);
     } else if (mux === 'rmux') {
       this.tmuxMgr = new RmuxManager(this);
@@ -681,9 +708,23 @@ export class Agent extends EventEmitter<AgentEvents> {
     return this.running;
   }
 
-  async send(content: string): Promise<string> {
+  async send(content: string, opts: SendOptions = {}): Promise<string> {
     if (this.running) throw new Error('Agent is already processing a message');
     this.running = true;
+    // Additive options (inline REPL): a signal cancels the turn; retry asks the SDK to retry 429/5xx.
+    const requestOptions = opts.signal || opts.retry
+      ? {
+          ...(opts.signal ? { signal: opts.signal } : {}),
+          ...(opts.retry
+            ? {
+                retries: { strategy: 'backoff' as const, backoff: { initialInterval: 1000, maxInterval: 30000, exponent: 2, maxElapsedTime: 7500 }, retryConnectionErrors: true },
+                retryCodes: ['429', '5XX'],
+              }
+            : {}),
+        }
+      : undefined;
+    const aborted = (): boolean => opts.signal?.aborted === true;
+    const cancelled = (): Error => Object.assign(new Error('Cancelled.'), { name: 'AbortError' });
 
     const userMessage: Message = { role: 'user', content, timestamp: Date.now() };
     this.conversation.appendMessage(userMessage);
@@ -716,14 +757,27 @@ export class Agent extends EventEmitter<AgentEvents> {
           ...(this.config.temperature !== undefined ? { temperature: this.config.temperature } : {}),
           // clamp: some providers (Meta) reject maxOutputTokens < 16
           ...(this.config.maxOutputTokens ? { maxOutputTokens: Math.max(16, this.config.maxOutputTokens) } : {}),
-        });
+        }, requestOptions);
 
         this.emit('stream:start');
         let fullText = '';
         const textByItem = new Map<string, number>();
         const callNames = new Map<string, string>();
 
+        // On cancel, stop the stream and keep draining the SDK's generator to its end: leaving it early
+        // would strand its background execution promise, which then rejects unhandled.
+        let draining = false;
+        const onAbort = (): void => {
+          draining = true;
+          void Promise.resolve(result.cancel?.()).catch(() => {});
+        };
+        if (opts.signal) opts.signal.addEventListener('abort', onAbort, { once: true });
+        try {
         for await (const item of result.getItemsStream() as AsyncIterable<StreamableOutputItem>) {
+          if (draining || aborted()) {
+            if (!draining) onAbort();
+            continue;
+          }
           this.emit('item:update', item);
 
           if (item.type === 'message') {
@@ -755,6 +809,13 @@ export class Agent extends EventEmitter<AgentEvents> {
             if (text) this.emit('reasoning:update', text);
           }
         }
+        } catch (err) {
+          if (aborted()) throw cancelled();
+          throw err;
+        } finally {
+          opts.signal?.removeEventListener('abort', onAbort);
+        }
+        if (aborted()) throw cancelled();
 
         let usage: any = undefined;
         try {
@@ -783,7 +844,10 @@ export class Agent extends EventEmitter<AgentEvents> {
 
       try {
         executionResult = await runCompletionWithModel(activeModel, false);
+        if (aborted()) throw cancelled();
       } catch (err: any) {
+        // A cancelled turn tries no fallback model.
+        if (aborted() || err?.name === 'AbortError') throw cancelled();
         this.modelHealthStatus = 'ERROR';
         this.emit('model:health', 'ERROR');
         const sanitizedErr = err.message || 'Unknown provider error';
@@ -812,6 +876,7 @@ export class Agent extends EventEmitter<AgentEvents> {
             this.config.model = fallbackModel;
             this.emit('model:switch', fallbackModel);
           } catch (fallbackErr: any) {
+            if (aborted() || fallbackErr?.name === 'AbortError') throw cancelled();
             const ollamaResult = await this.tryOllamaLastResort(history, `${sanitizedErr} / ${fallbackErr.message}`);
             if (ollamaResult) {
               executionResult = ollamaResult;
@@ -854,7 +919,7 @@ export class Agent extends EventEmitter<AgentEvents> {
       return executionResult.fullText;
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      this.emit('error', error);
+      if (error.name !== 'AbortError') this.emit('error', error);
       throw error;
     } finally {
       this.emit('thinking:end');
@@ -863,6 +928,6 @@ export class Agent extends EventEmitter<AgentEvents> {
   }
 }
 
-export function createAgent(config: AgentConfig): Agent {
-  return new Agent(config);
+export function createAgent(config: AgentConfig, options: AgentOptions = {}): Agent {
+  return new Agent(config, options);
 }

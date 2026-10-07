@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Timmy Canvas</title>
+<link rel="icon" href="data:," />
+<link rel="stylesheet" href="https://esm.sh/tldraw@5.5.2/tldraw.css" />
+<style>
+  html, body, #root { margin: 0; height: 100%; }
+  body { background: #0a0e12; color: #e6edf3; font: 12px ui-monospace, Menlo, monospace; }
+  /* Top centre: tldraw's own panels hold the corners and the bottom edge. */
+  #status { position: fixed; left: 50%; top: 8px; transform: translateX(-50%); z-index: 400; padding: 4px 10px; border-radius: 6px;
+    background: #101418; border: 1px solid #2d333b; color: #e6edf3; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="status" role="status">Starting the canvas</div>
+<script type="module">
+// Timmy Canvas (plan F-4): tldraw, pinned, licensed from TLDRAW_LICENSE_KEY through the local server.
+import React from 'https://esm.sh/react@19.2.1';
+import { createRoot } from 'https://esm.sh/react-dom@19.2.1/client';
+import { Box, Tldraw, Vec, createBindingId, createShapeId, toRichText } from 'https://esm.sh/tldraw@5.5.2?deps=react@19.2.1,react-dom@19.2.1';
+
+const status = document.getElementById('status');
+// tldraw's own verdict on the license, never inferred from a key being present.
+const LICENSE = {
+  pending: 'checking the license',
+  licensed: 'licensed',
+  'licensed-with-watermark': 'licensed (watermark)',
+  unlicensed: 'unlicensed, fine locally',
+  'unlicensed-production': 'no valid license for this address',
+  expired: 'license expired',
+};
+let linked = false;
+function showLicense(editor, version) {
+  const state = editor.licenseManager?.state.get() ?? 'unknown';
+  window.timmyCanvas.licenseState = state;
+  status.textContent = `Canvas ready · tldraw ${version} · ${LICENSE[state] ?? `license state: ${state}`} · ${linked ? 'Timmy connected' : 'Timmy not connected'}`;
+  if (state === 'pending') setTimeout(() => showLicense(editor, version), 250);
+}
+
+// The agent bridge (F-4, slice 2): Timmy sends Editor API code; it runs here against the live editor
+// and the answer goes back with the canvas revision: document changes (shapes, bindings, pages,
+// assets, by Timmy or by hand) counted synchronously since the page opened, so it is exact when sent.
+const AsyncFunction = (async () => {}).constructor;
+const MAX_ANSWER = 256 * 1024;
+function connectBridge(editor, version) {
+  let revision = 0;
+  const bump = () => { revision += 1; };
+  for (const type of ['shape', 'binding', 'page', 'asset']) {
+    editor.sideEffects.registerAfterCreateHandler(type, bump);
+    editor.sideEffects.registerAfterChangeHandler(type, bump);
+    editor.sideEffects.registerAfterDeleteHandler(type, bump);
+  }
+  const helpers = { Box, Vec, createBindingId, createShapeId, toRichText };
+  const open = () => {
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/bridge`);
+    ws.onopen = () => { linked = true; showLicense(editor, version); };
+    ws.onclose = () => { linked = false; showLicense(editor, version); setTimeout(open, 2000); };
+    ws.onmessage = async (event) => {
+      let message;
+      try { message = JSON.parse(event.data); } catch { return; }
+      if (message.type !== 'exec') return;
+      let answer;
+      try {
+        const result = await new AsyncFunction('editor', 'helpers', message.code)(editor, helpers);
+        const json = JSON.stringify(result === undefined ? null : result);
+        answer = json.length > MAX_ANSWER
+          ? { ok: false, error: `The result is too large to send back (${Math.round(json.length / 1024)} KB); return less.` }
+          : { ok: true, result: JSON.parse(json) };
+      } catch (error) {
+        answer = { ok: false, error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) };
+      }
+      ws.send(JSON.stringify({ id: message.id, ...answer, revision }));
+    };
+  };
+  open();
+}
+try {
+  const config = await fetch('/studio-config.json', { cache: 'no-store' }).then((r) => r.json());
+  createRoot(document.getElementById('root')).render(
+    React.createElement(Tldraw, {
+      licenseKey: config.licenseKey ?? undefined,
+      // The canvas survives a reload (kept in this browser's storage for 127.0.0.1).
+      persistenceKey: 'timmy-canvas',
+      onMount: (editor) => {
+        editor.user.updateUserPreferences({ colorScheme: 'dark' });
+        // Timmy's agent bridge (F-4, slice 2) drives the canvas through this handle.
+        window.timmyCanvas = { editor, tldrawVersion: config.tldrawVersion, licenseState: 'pending' };
+        showLicense(editor, config.tldrawVersion);
+        connectBridge(editor, config.tldrawVersion);
+      },
+    }),
+  );
+} catch (error) {
+  status.textContent = `The canvas could not start: ${error instanceof Error ? error.message : String(error)}`;
+}
+</script>
+</body>
+</html>

@@ -305,6 +305,9 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
   }, []);
 
   useInput((input, key) => {
+    // C-11: Ctrl+C ends the monitor with 130 (cancelled), in every mode and overlay; the terminal
+    // session (cli.tsx) gives the screen back on exit.
+    if (key.ctrl && input === 'c') process.exit(130);
     if (visualToolsOpen) return;
     // Arrow events navigate HANDS; they are never printable text in a buffer.
     const state = sRef.current;
@@ -837,7 +840,7 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
                 <Text key={TABS[i]} bold={s.tab === TABS[i]} color={s.tab === TABS[i] ? theme.textPrimary : theme.textMuted}>{t}</Text>
               ))}
               {segs.map((sg, i) => (
-                <Text key={i} color={i === 0 ? evColor(chainEv, theme) : theme.textMuted} bold={i === 0 && chainEv === 'checked'} dimColor={i === 0 && chainEv === 'stale'}>{sg}</Text>
+                <Text key={i} color={i === 0 ? evColor(chainEv, theme) : theme.textMuted} bold={i === 0 && chainEv === 'checked'}>{sg}</Text>
               ))}
             </>
           );
@@ -957,7 +960,7 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
                 activity.slice(0, plans.activityRows).map((row, i) => (
                   <Text key={i} wrap="truncate">
                     <Text color={row.refused ? theme.refuse : row.sealed ? theme.structure : theme.textMuted}>{row.refused ? '× ' : row.sealed ? '● ' : '· '}</Text>
-                    <Text dimColor={!row.refused && !row.sealed} color={row.refused ? theme.danger : theme.textMuted}>{row.line}</Text>
+                    <Text color={row.refused ? theme.danger : theme.textMuted}>{row.line}</Text>
                   </Text>
                 ))
               )}
@@ -1111,7 +1114,7 @@ function HomePane(props: {
             <Text key={r.step.id} wrap="truncate">
               <Text bold color={PAL.seal}>{`✓ ${r.step.verb.padEnd(10)}`}</Text>
               <Text color={PAL.textSecondary}>{r.hash.padEnd(12)}</Text>
-              <Text dimColor color={PAL.textMuted}> {r.fact}</Text>
+              <Text color={PAL.textMuted}> {r.fact}</Text>
             </Text>
           ) : r.state === 'next' && !escrowOrange ? (
             <Text key={r.step.id} bold color={PAL.warn} wrap="truncate">{`▶ ${r.step.verb.padEnd(10)} ${r.fact}`}</Text>
@@ -1125,7 +1128,7 @@ function HomePane(props: {
         {done === rows.length && <Text color={PAL.seal}>journey complete · {done}/{rows.length} sealed</Text>}
       </Card>
       <Box height={1} />
-      <Card title="STATUS" purpose={props.compact ? undefined : 'one line · off is dim, never red'} flexGrow={1}>
+      <Card title="STATUS" purpose={props.compact ? undefined : 'one line · off is hollow (□ ○), never red'} flexGrow={1}>
         <Text wrap="truncate">
           <Text color={PAL.textSecondary}>{`${props.fleet > 0 ? LIVE.on : LIVE.off} fleet · ${props.fleet} available`}</Text>
           <Text color={PAL.textMuted}>{`  bus ${props.busLive ? 'activity seen' : 'quiet'}`}</Text>
@@ -1182,19 +1185,19 @@ function ChainPane(props: {
         const lockCell = (r.env_lock ? hashOf(r.env_lock as unknown as Record<string, unknown>).slice(7, 15) : '').padEnd(14);
         return (
           <Text key={r.id} wrap="truncate">
-            <Text bold={look?.bold} dimColor={look?.dim} color={col}>{statusCell}</Text>
+            <Text bold={look?.bold} color={col}>{statusCell}</Text>
             <Text color={sel ? PAL.textPrimary : PAL.textSecondary}>{` ${hashCell} ${subjectCell}`}</Text>
-            <Text dimColor={!sel && ev !== 'refused'} color={PAL.textMuted}>{lockCell}</Text>
+            <Text color={PAL.textMuted}>{lockCell}</Text>
           </Text>
         );
       })}
       {filtered.length > windowRows.length && (
-        <Text dimColor color={PAL.textMuted} wrap="truncate">{moreLine(filtered.length - windowRows.length, 'receipts', '↑↓ scroll')}</Text>
+        <Text color={PAL.textMuted} wrap="truncate">{moreLine(filtered.length - windowRows.length, 'receipts', '↑↓ scroll')}</Text>
       )}
       <Box height={1} />
       {props.verified ? (
         <>
-          <Text bold={props.chainEv === 'checked'} dimColor={props.chainEv === 'stale'} color={evColor(props.chainEv)} wrap="truncate">
+          <Text bold={props.chainEv === 'checked'} color={evColor(props.chainEv)} wrap="truncate">
             {`${evidenceGlyph(props.chainEv)} chain ${props.chainEv === 'refused' ? 'BROKEN' : 'ok'} · ${props.verified.count} receipts · ${props.verified.epochs} epochs · head ${props.verified.head}${props.chainEv === 'stale' ? ` · ${props.sinceVerify} appended since` : ''}`}
           </Text>
           <Text color={PAL.textMuted} wrap="truncate">
@@ -1224,7 +1227,7 @@ function DetailPane({ rec, covered }: { rec: Receipt | null; covered: (r: Receip
   const look = ev === 'refused' ? null : evidenceLook(ev);
   return (
     <Card title="DETAIL" purpose="fixed fields · schema names" flexGrow={1}>
-      <Text bold={look?.bold} dimColor={look?.dim} color={evColor(ev)} wrap="truncate">{`${evidenceGlyph(ev)} prev_hash ${prevLabel8(String(rec.prev_hash))} → hash ${rec.hash.slice(7, 15)}`}</Text>
+      <Text bold={look?.bold} color={evColor(ev)} wrap="truncate">{`${evidenceGlyph(ev)} prev_hash ${prevLabel8(String(rec.prev_hash))} → hash ${rec.hash.slice(7, 15)}`}</Text>
       <Text color={PAL.textSecondary} wrap="truncate">kind     {rec.kind}</Text>
       <Text color={PAL.textSecondary} wrap="truncate">policy   {rec.policy}</Text>
       <Text color={PAL.textSecondary} wrap="truncate">ts       {stamp(rec.ts)}</Text>
@@ -1272,7 +1275,7 @@ function RunsPane(props: {
             return (
               <Text key={r.id} wrap="truncate">
                 <Text color={sel ? PAL.textPrimary : col}>{`${sel ? '▶' : ' '} ${r.lane.slice(0, 13).padEnd(14)}`}</Text>
-                <Text bold={look?.bold} dimColor={look?.dim} color={col}>{`${evidenceGlyph(ev)} ${r.state}`.padEnd(10)}</Text>
+                <Text bold={look?.bold} color={col}>{`${evidenceGlyph(ev)} ${r.state}`.padEnd(10)}</Text>
                 <Text color={PAL.textMuted}>{r.dur.padEnd(7)}</Text>
                 <Text color={col}>{r.state === 'running' ? bar : r.hash}</Text>
               </Text>
@@ -1331,7 +1334,7 @@ function LivePane(props: { row: RunRow | undefined; recs: Receipt[]; covered: (r
         const look = ev === 'refused' ? null : evidenceLook(ev);
         return (
           <Text key={i} wrap="truncate">
-            <Text bold={look?.bold} dimColor={look?.dim} color={evColor(ev)}>{evidenceGlyph(ev)}</Text>
+            <Text bold={look?.bold} color={evColor(ev)}>{evidenceGlyph(ev)}</Text>
             <Text color={ev === 'refused' ? PAL.danger : PAL.textSecondary}>
               {` ${stamp(r.ts)} ${ev === 'refused' ? `${r.status === 'denied' ? 'DEN' : 'FAIL'} ${String(r.subject).slice(0, 22)}` : String(r.subject).slice(0, 27)}`}
             </Text>
@@ -1518,8 +1521,8 @@ function LogRain({ events, maxRows, compact }: { events: { line: string; refused
     <Card title="LOG RAIN" purpose={compact ? undefined : 'bus events enter at the top, falling, dimming'} flexGrow={1}>
       {events.length === 0 ? <Text color={PAL.textMuted}>quiet</Text> : events.slice(0, Math.max(1, Math.min(14, maxRows ?? 14))).map((e, i) => (
         <Text key={i} wrap="truncate">
-          <Text color={e.refused ? PAL.refuse : e.sealed ? PAL.structure : PAL.textMuted} dimColor={i > 8}>{e.refused ? '× ' : e.sealed ? '● ' : '· '}</Text>
-          <Text color={e.refused ? PAL.danger : i < 3 ? PAL.textSecondary : PAL.textMuted} dimColor={!e.refused && i >= 3}>{e.line.slice(0, 38)}</Text>
+          <Text color={e.refused ? PAL.refuse : e.sealed ? PAL.structure : PAL.textMuted}>{e.refused ? '× ' : e.sealed ? '● ' : '· '}</Text>
+          <Text color={e.refused ? PAL.danger : i < 3 ? PAL.textSecondary : PAL.textMuted}>{e.line.slice(0, 38)}</Text>
         </Text>
       ))}
     </Card>
@@ -1818,7 +1821,7 @@ function HandsPane(props: { board: ck.Board; recs: Receipt[]; covered: (r: Recei
                 const ev: EvidenceState | 'refused' | null = !h8 ? null : rec ? receiptEvidence(rec, { verified: props.covered(rec) }) : 'declared';
                 const look = ev && ev !== 'refused' ? evidenceLook(ev) : null;
                 return ev
-                  ? <Text bold={look?.bold} dimColor={look?.dim} color={evColor(ev)}>{`${evidenceGlyph(ev)}${h8}`.padEnd(9)}</Text>
+                  ? <Text bold={look?.bold} color={evColor(ev)}>{`${evidenceGlyph(ev)}${h8}`.padEnd(9)}</Text>
                   : <Text color={PAL.textMuted}>{'· —'.padEnd(9)}</Text>;
               })()}
               {ck.ROUNDS.map((r, c) => {

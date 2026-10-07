@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { Agent } from '../../agent/core.js';
 import type { AgentConfig } from '../../types/index.js';
 import { redactTelemetryPayload, safeStringify } from '../../utils/redact.js';
-import { edgeUrlOrNull, isPlaceholder, EDGE_INERT_LINE, operatorLabel } from '../../utils/edge-host.js';
+import { edgeUrlOrNull, isPlaceholder, operatorLabel } from '../../utils/edge-host.js';
 import type {
   TelemetryStatus,
   TelemetryPriority,
@@ -112,10 +112,9 @@ export function useTelemetryBridge({
   const lastDrainAtRef = useRef(0);
 
   const drainOfflineSpool = async (endpoint: string) => {
-    if (!endpoint || isPlaceholder(endpoint)) {
-      console.error(EDGE_INERT_LINE);
-      return;
-    }
+    // C-11: nothing is written to the terminal from inside the full-screen app (this line printed
+    // over the frame); an unresolved edge host keeps telemetry local, and `timmy doctor` says why.
+    if (!endpoint || isPlaceholder(endpoint)) return;
     try {
       if (!endpoint) return; // telemetry disabled
       if (Date.now() - lastDrainAtRef.current < 10000) return; // throttle: max 1 drain/10s
@@ -231,8 +230,7 @@ export function useTelemetryBridge({
     setTelemetryStatus('syncing');
     const endpoint = resolveEndpoint();
     if (!endpoint) {
-      // unresolved edge host is inert: one legible line, telemetry stays local
-      if (process.env.TIMMY_TELEMETRY_URL !== 'off') console.error(EDGE_INERT_LINE);
+      // unresolved edge host is inert: telemetry stays local (status: offline; `timmy doctor` names it)
       setTelemetryStatus('offline');
       return;
     }

@@ -32,11 +32,12 @@ describe('evidence states (lanes/visual/tokens.json evidence block)', () => {
     expect(glyphs).not.toContain(evidenceGlyph('refused'));
     expect(evidenceGlyph('refused')).toBe('×');
   });
-  it('only checked is bold; dim is exactly the law\'s opacity < 1', () => {
+  it('only checked is bold; no look is dim (B3, DESIGN.md §10: dim is banned): stale, the law\'s one opacity < 1, keeps its dashed ◌ and amber instead', () => {
     expect(EVIDENCE_STATES.filter(s => evidenceLook(s).bold)).toEqual(['checked']);
     const lawDim = EVIDENCE_STATES.filter(s => { const o = (evidenceLaw(s) as { opacity?: number }).opacity; return o !== undefined && o < 1; });
     expect(lawDim).toEqual(['stale']);
-    expect(EVIDENCE_STATES.filter(s => evidenceLook(s).dim)).toEqual(lawDim);
+    expect(EVIDENCE_STATES.filter(s => evidenceLook(s).dim)).toEqual([]);
+    expect(evidenceLook('stale').glyph).toBe('◌');
   });
   it('the evidence glyphs are reserved: no chrome glyph (card diamonds, live marks, attention, progress, the non-carrier dot) is one of them', async () => {
     const { CARD_GLYPHS } = await import('../src/tui/ui/Card.js');

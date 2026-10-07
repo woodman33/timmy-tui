@@ -42,7 +42,8 @@ const LOOK: Record<EvidenceState, EvidenceLook> = {
   constructed: { glyph: '●', color: theme.structure, bold: false, dim: false },
   checked: { glyph: '✓', color: theme.seal, bold: true, dim: false },
   inferred: { glyph: '◉', color: theme.generated, bold: false, dim: false },
-  stale: { glyph: '◌', color: theme.predict, bold: false, dim: true },
+  // B3 (DESIGN.md §10) bans dim: stale's opacity < 1 is its dashed ◌ and amber, never a dim cell
+  stale: { glyph: '◌', color: theme.predict, bold: false, dim: false },
 };
 
 /** The law's own fill/stroke for a state (for gates and the companion). */

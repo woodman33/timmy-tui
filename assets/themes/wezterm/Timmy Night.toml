@@ -1,0 +1,14 @@
+# Timmy Night for WezTerm (generated from src/term/palettes.ts by scripts/ui/themes.ts; do not edit)
+[colors]
+foreground = "#ffffff"
+background = "#000000"
+cursor_bg = "#ffffff"
+cursor_fg = "#000000"
+cursor_border = "#ffffff"
+selection_bg = "#3a3a3a"
+selection_fg = "#ffffff"
+ansi = ["#1a1a1a", "#ff3b3b", "#33ff66", "#ffb020", "#6ca0ff", "#8b5cf6", "#5fd7ff", "#d0d0d0"]
+brights = ["#6c6c6c", "#ff6b6b", "#5fff87", "#ffc857", "#9cc2ff", "#a78bfa", "#8be9ff", "#ffffff"]
+
+[metadata]
+name = "Timmy Night"

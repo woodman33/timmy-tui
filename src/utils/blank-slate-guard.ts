@@ -7,6 +7,7 @@ import { isBlankSlate, printBlankSlateBanner } from './init.js';
 const headless = process.argv.includes('--headless') || process.argv.includes('-h') || process.argv.includes('--help');
 if (!headless && !process.env.CI && !process.env.TIMMY_SKIP_INIT && isBlankSlate()) {
   printBlankSlateBanner();
-  console.log('  Run `timmy init` (or `npx tsx src/cli.ts init`) first.\n');
-  process.exit(0);
+  console.log('  Run `timmy init` first.\n');
+  // C-14: the monitor cannot run before setup: 78 (EX_CONFIG, needs setup), not 0 (success).
+  process.exit(78);
 }
