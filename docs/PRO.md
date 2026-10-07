@@ -11,12 +11,11 @@ that run on Timmy's servers, and you opt in to each one.
 | Hosted agent runs | planned |
 
 This page covers **billing and licensing**, which ship first: Stripe Checkout,
-license keys, and signed license tokens. The `timmy pro` CLI commands come in the
-next PR.
+license keys, signed license tokens, and the `timmy pro` commands.
 
 ## How buying works
 
-1. `timmy pro upgrade` (next PR) or the **Upgrade** button on the landing page opens Stripe Checkout.
+1. `timmy pro upgrade` or the **Upgrade** button on the landing page opens Stripe Checkout.
 2. After payment, the CLI receives the key automatically. The browser's welcome page also shows it.
 3. `timmy pro activate <key>` exchanges the key for a **license token**: an ed25519-signed
    claim (the same signature family as receipts) that the CLI verifies offline for up to 7 days.
@@ -32,6 +31,131 @@ signs in by email. A license key alone never opens the portal.
 
 **Enforcement.** Hosted Pro features check the key on the server. The local token only
 decides what the TUI offers, so editing a local file cannot unlock anything hosted.
+
+## The `timmy pro` commands
+
+| Command | What it does |
+|---|---|
+| `timmy pro` / `timmy pro status [--json]` | Shows whether Pro is active on this machine, and the one next step when it is not. May contact the service to renew a token that is due. The key is shown masked; the token never. |
+| `timmy pro upgrade [--no-open]` | Opens Stripe Checkout, waits for payment (checks every 5 s, backs off when rate-limited, stops after 30 min), then prints and saves the key. If the key cannot be saved, it is still printed, with a warning to copy it (exit 1). See "Who can buy" below. |
+| `timmy pro activate [<key> \| -]` | Exchanges a key for a token. `-` reads the key from stdin (it asks on a terminal), which keeps it out of shell history. No key renews the saved one. |
+| `timmy pro rotate` | Replaces the key. The old one stops working at once, so the new key is printed first, and saved before anything else is tried. |
+| `timmy pro billing [--no-open]` | Opens Stripe's customer portal (sign-in by purchase email). |
+| `timmy pro deactivate` | Removes the license from this machine. The subscription is unchanged. |
+| `timmy pro help`, `--help`, `-h` | Usage. |
+
+Exit codes: `0` done, `1` failed, `2` usage or input error. Help and usage errors work even when the
+configuration below is wrong. A license file that cannot be read, saved or removed is reported in one
+line with the reason (exit 1), never as a stack trace.
+
+**Who can buy.** Checkout cannot tell who is paying, so a second payment would start a second
+subscription. Before opening checkout, the license manager asks the service about any key already on
+this machine, and starts a purchase only when:
+- there is no license on this machine, or
+- the service says that key's subscription has ended (`canceled` or `incomplete_expired`).
+
+Otherwise `upgrade` starts nothing and says why. An active license points to `timmy pro billing`. A
+past-due, unpaid or paused subscription also goes to billing, since it can still resume. A lapsed
+token goes to `timmy pro activate`. A license file Timmy cannot read blocks buying until the file is
+fixed or removed, because Timmy cannot tell whether you already pay. `timmy pro deactivate` removes the
+license from this machine, after which `upgrade` will sell a new subscription, subject to "One checkout
+at a time" below.
+
+**One checkout at a time.** `upgrade` records the checkout it opens before showing it, so stopping the
+wait (Ctrl-C, the 30-minute timeout, a closed terminal) never leads to a second payable checkout. The
+next `upgrade` asks the service what became of that checkout; this computer's clock never decides:
+- Still unpaid: `upgrade` resumes the same checkout ("still open") instead of opening another, for as
+  long as Stripe keeps it open.
+- Paid meanwhile: `upgrade` saves its key at once, without reopening anything.
+- Expired unpaid (Stripe closed it, by default 24 hours after it opened, and nothing bought through it
+  can charge: no payment, and no subscription or only one that ended unpaid, as an abandoned 3D Secure
+  check leaves behind): it is forgotten and a new checkout opens. One Stripe calls expired whose
+  subscription can still charge is settled like any other, never replaced. An `upgrade` still waiting
+  when the checkout expires stops and says so.
+- Paid, its key can no longer be shown here (the 24-hour window closed, or the key was replaced), and
+  the subscription it started has not ended: no new checkout opens, since it would charge you twice.
+  `upgrade` points to that key (`timmy pro activate -`) and, if it was lost, to `timmy pro billing`.
+- Paid, and the subscription it started has since ended (`canceled` or `incomplete_expired`): it is
+  forgotten and a new checkout opens.
+- Unknown to the service (another Stripe account, test vs live): it is forgotten.
+- The service is busy or out of reach: the same checkout is resumed, which is always safe.
+- A record Timmy cannot read, or one that does not name a Stripe Checkout session behind an https link,
+  blocks buying until it is fixed or removed, like a damaged license.
+
+`timmy pro deactivate` removes only the license and leaves the checkout record alone, so a checkout that
+can still be paid is resumed, never doubled. The record is forgotten once `upgrade` saves its key here,
+or once the service says the checkout expired, does not know it, or its subscription ended. A key that
+cannot be saved is printed, and the record stays, so the next `upgrade` can collect the key again.
+
+**Where the license lives:** `<TIMMY_HOME>/pro/license.json` (`~/timmy/pro/license.json` by default),
+mode 0600 in a 0700 directory, replaced atomically. A file that exists but cannot be read or understood
+is reported as `license_unreadable`, never as "no license". The open checkout, if any, is recorded beside
+it in `checkout.json`, with the same permissions.
+
+**`--json`** applies to `status` only. The global `timmy --json` flag reaches `timmy pro status` (and bare
+`timmy pro`); the other `pro` commands ignore it.
+
+**Renewal and pacing:**
+- Tokens last up to 7 days. They renew automatically when under two days are left and the service is
+  reachable.
+- Offline, the current token keeps working until it expires.
+- Automatic renewal paces itself:
+  - after the service was busy or out of reach, it waits 5 minutes;
+  - after a refusal, a new token this build cannot use, or a renewal that came back short-lived (as in
+    the last days of a past-due grace period), it waits an hour.
+- If the service refuses the key, the token is dropped and the reason is remembered, whichever command
+  heard it, `rotate` included. That covers a subscription that is not active (with its Stripe status)
+  and a key that was replaced. The same applies when a new token fails verification, or when this
+  computer's clock disagrees with the service in either direction.
+- Every command words a refusal the same way `status` does: a cancelled subscription points to
+  `timmy pro upgrade`, a past-due one to `timmy pro billing`.
+- A renewal only ever updates the key it was for. If you rotate, activate, buy or deactivate while a
+  renewal is in flight (say, in another terminal), the renewal leaves your change alone.
+- A proxy page, a redirect or an outage never counts as a refusal.
+- Links the service sends (checkout, billing portal) must be `https`.
+
+**Configuration:**
+- `TIMMY_PRO_URL`: the Pro service. It must be `https://` (plain `http://` only for localhost) and a bare
+  origin; anything else is refused before a key is sent. Redirects are never followed.
+- `TIMMY_PRO_PUBLIC_KEY`: the ed25519 public key tokens must verify against (32 raw bytes, base64url).
+- Without either, the build's values in `src/pro/settings.ts` apply. Both are empty until go-live, so
+  `upgrade` says Pro is not available yet.
+
+**`timmy pro status --json`** (`schemaVersion: 1`; type `ProStatusReport` in `src/pro/cli.ts`):
+
+| Field | Meaning |
+|---|---|
+| `active` | Pro is on for this machine (a token verified offline) |
+| `reason`, `detail` | Why not, when not: `no_license`, `key_not_activated`, `token_expired`, `invalid_token`, `no_public_key`, `clock_skew`, `subscription_inactive`, `key_revoked`, `license_unreadable` |
+| `nextStep` | `none`, `buy`, `renew`, `billing`, `use_newest_key`, `update_timmy`, `check_clock` or `fix_license_file` |
+| `plan`, `priceUsdMonthly`, `features` | The plan and the features the token lists |
+| `licenseKeyMasked` | `tpro_` + the first and last four characters, or `null` |
+| `tokenExpiresAt`, `refreshDue` | When the offline token runs out (not when the subscription ends) |
+| `serviceUrl`, `publicKeySource` | Where the service is, and whether the key came from the build or `env` |
+
+**Gating a Pro feature (for Timmy code):**
+```ts
+import { checkProFeature } from './pro/gate.js';
+
+const access = await checkProFeature('cloud_logs');
+if (!access.allowed) return showNotice(access.message); // never throws; the message fits the user's case
+```
+- The message tells a free user how to buy, a key holder how to renew, and a lapsed subscriber where
+  billing is.
+- An active license answers at once; a renewal that is due runs in the background.
+- An inactive license waits for a refresh, since that may turn it back on. Requests from a feature
+  check give up after 5 s (`GATE_TIMEOUT_MS`).
+- `checkProFeature(feature, { refresh: 'wait' })` waits for any renewal that is due before answering;
+  `refresh: 'never'` stays off the network.
+- One gate serves the whole process, so checks share renewals and pacing. `createProGate({ env, overrides })`
+  or `createProGate({ manager })` builds a separate one, for tests and embedders.
+- A denial's `reason` is an entitlement reason, `not_in_plan`, `config_error` (bad `TIMMY_PRO_URL`
+  or public key) or `unexpected_error`.
+
+The local check only decides what Timmy offers; hosted features must also check the key on the server.
+
+**Errors on the wire:** every error the worker returns is JSON with a human `error` and a stable `code`
+(`src/pro/protocol.ts`). The client branches on the code, never on wording or a bare HTTP status.
 
 ## Architecture
 
@@ -84,10 +208,11 @@ Each rule below has a test, and a negative control (break the rule → a test fa
 4. Run the worker: `cd workers/pro && npm run dev` (port 8787).
 5. Forward webhooks: `npm run stripe:listen`. Copy the printed `whsec_…` into `.dev.vars` as
    `STRIPE_WEBHOOK_SECRET` and restart `npm run dev`.
-6. Buy: `curl -s -XPOST localhost:8787/checkout -H 'content-type: application/json' -d '{"source":"cli"}'`.
-   Open the URL and pay with card `4242 4242 4242 4242`. The welcome page shows the key.
+6. Buy from the CLI:
+   `TIMMY_PRO_URL=http://localhost:8787 TIMMY_PRO_PUBLIC_KEY=<public key from step 2> timmy pro upgrade`.
+   Pay with card `4242 4242 4242 4242`. The CLI saves and prints the key; the welcome page shows it too.
 7. Cancel from the Stripe dashboard (test mode), or run `stripe trigger customer.subscription.deleted`.
-   `POST /license/activate` with the key now returns 403.
+   `timmy pro activate` now reports that the subscription is not active.
 
 ## Going live (owner)
 
@@ -104,7 +229,9 @@ Each rule below has a test, and a negative control (break the rule → a test fa
    - `STRIPE_WEBHOOK_SECRET`
    - `LICENSE_SIGNING_KEY`
    - `LICENSE_KEY_SECRET`
-4. Deploy: `npm run deploy`. Then put the public key from step 2 of test mode into the CLI build.
+4. Deploy: `npm run deploy`.
+5. In `src/pro/settings.ts`, set `BUILD_PRO_SERVICE_URL` to the live worker's URL and `BUILD_PRO_PUBLIC_KEY`
+   to the public key matching the `LICENSE_SIGNING_KEY` from step 3. Release the CLI.
 
 ## The older billing scaffold
 

@@ -1,64 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { handleProRequest, resetProCaches, type ProDeps } from '../src/pro/service.js';
 import { MemoryLicenseStore } from '../src/pro/store.js';
-import { StripeApiError, type CheckoutSessionInfo, type StripeClient, type SubscriptionInfo } from '../src/pro/stripe-api.js';
+import { StripeApiError, type SubscriptionInfo } from '../src/pro/stripe-api.js';
 import { generateLicenseKeyPair, importVerifyKey, verifyLicenseToken } from '../src/pro/license.js';
 import { signStripePayload } from '../src/pro/stripe-signature.js';
 import { PRO_FEATURES } from '../src/pro/plan.js';
-
-const NOW = 1_800_000_000;
-const DAY = 86_400;
-const WEBHOOK_SECRET = 'whsec_test';
-const ORIGIN = 'https://pro.example.test';
-const PORTAL = 'https://billing.stripe.com/p/login/test_portal';
-
-const proSub = (id: string, status = 'active', over: Partial<SubscriptionInfo> = {}): SubscriptionInfo => ({
-  id, status, customerId: 'cus_buyer', currentPeriodEnd: NOW + 30 * DAY,
-  priceIds: ['price_test_pro'], priceLookupKeys: ['timmy_pro_monthly'], ...over,
-});
-
-function fakeStripe() {
-  const sessions = new Map<string, CheckoutSessionInfo & { subId?: string }>();
-  const subs = new Map<string, SubscriptionInfo>();
-  const calls: string[] = [];
-  const slowReads = new Map<string, number>();
-  let n = 0;
-  const client: StripeClient = {
-    async createCheckoutSession(input) {
-      calls.push(`create:${input.priceId}:${input.source}:${input.successUrl}`);
-      const id = `cs_test_session${n++}abcdef`;
-      sessions.set(id, { id, mode: 'subscription', status: 'open', paymentStatus: 'unpaid', customerId: null, email: null, subscription: null });
-      return { id, url: `https://checkout.stripe.com/c/pay/${id}` };
-    },
-    async retrieveCheckoutSession(id) {
-      calls.push(`retrieve:${id}`);
-      const s = sessions.get(id);
-      if (!s) throw new StripeApiError('No such checkout.session: secret detail sk_test_****1234', 404);
-      const { subId, ...info } = s;
-      return structuredClone({ ...info, subscription: subId ? subs.get(subId) ?? null : null });
-    },
-    async retrieveSubscription(id) {
-      calls.push(`subscription:${id}`);
-      const snapshot = subs.has(id) ? structuredClone(subs.get(id)!) : null; // state as of the call
-      const delay = slowReads.get(id);
-      if (delay) {
-        slowReads.delete(id);
-        await new Promise((r) => setTimeout(r, delay));
-      }
-      return snapshot;
-    },
-    async findPriceIdByLookupKey(key) {
-      calls.push(`lookup:${key}`);
-      return key === 'timmy_pro_monthly' ? 'price_test_pro' : null;
-    },
-  };
-  const pay = (sessionId: string, sub: SubscriptionInfo = proSub(`sub_${sessionId.slice(-8)}`)) => {
-    subs.set(sub.id, sub);
-    sessions.set(sessionId, { ...sessions.get(sessionId)!, status: 'complete', paymentStatus: 'paid', customerId: 'cus_buyer', email: 'buyer@example.com', subId: sub.id });
-    return sub;
-  };
-  return { client, sessions, subs, calls, slowReads, pay };
-}
+import { DAY, NOW, ORIGIN, PORTAL, WEBHOOK_SECRET, fakeStripe, proSub } from './helpers/pro-harness.js';
 
 let stripe: ReturnType<typeof fakeStripe>;
 let deps: ProDeps;
@@ -132,7 +79,7 @@ describe('checkout', () => {
     stripe.client.findPriceIdByLookupKey = async () => null;
     const res = await call('POST', '/checkout', { source: 'cli' });
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: 'service unavailable' });
+    expect(await res.json()).toEqual({ error: 'service unavailable', code: 'unavailable' });
   });
 });
 
@@ -182,11 +129,77 @@ describe('after payment', () => {
     expect((await call('POST', '/license/claim', { session_id: sessionId })).status).toBe(410);
   });
 
+  it('says when a checkout expired unpaid, to the CLI and on the welcome page', async () => {
+    const sessionId = await newSession();
+    stripe.expire(sessionId);
+    const claimed = await call('POST', '/license/claim', { session_id: sessionId });
+    expect(claimed.status).toBe(200);
+    expect(await claimed.json()).toEqual({ status: 'expired' });
+    const welcome = await call('GET', `/welcome?session_id=${sessionId}`);
+    expect(welcome.status).toBe(410);
+    expect(await welcome.text()).toContain('This checkout expired before it was paid.');
+  });
+
+  // Stripe documents that only unpaid, open checkouts expire. `expired` still lets the CLI open another payable
+  // checkout, so it is only said of one that bought nothing, whatever status Stripe reports for the session.
+  const markExpired = (sessionId: string, paymentStatus?: string) => {
+    const session = stripe.sessions.get(sessionId)!;
+    stripe.sessions.set(sessionId, { ...session, status: 'expired', paymentStatus: paymentStatus ?? session.paymentStatus });
+  };
+
+  it('settles a checkout marked expired after it started a paid subscription', async () => {
+    const sessionId = await paidSession();
+    markExpired(sessionId);
+    const res = await call('POST', '/license/claim', { session_id: sessionId });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'ready', key: expect.stringMatching(/^tpro_/) });
+  });
+
+  it('never calls a checkout expired while the subscription it started can still be paid', async () => {
+    const sessionId = await newSession();
+    stripe.abandon(sessionId, 'incomplete');
+    const res = await call('POST', '/license/claim', { session_id: sessionId });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ status: 'pending' });
+  });
+
+  it('calls a checkout expired once the subscription it left behind ended unpaid', async () => {
+    const sessionId = await newSession();
+    stripe.abandon(sessionId);
+    const res = await call('POST', '/license/claim', { session_id: sessionId });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'expired' });
+  });
+
+  it('never calls a checkout expired when Stripe reports it paid, even with no subscription to show', async () => {
+    const sessionId = await newSession();
+    markExpired(sessionId, 'paid');
+    const res = await call('POST', '/license/claim', { session_id: sessionId });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ status: 'pending' });
+  });
+
+  it('says what became of the subscription when it can no longer show a key', async () => {
+    const kept = await paidSession();
+    const ended = await paidSession();
+    await claimKey(kept);
+    await claimKey(ended);
+    const endedSub = `sub_${ended.slice(-8)}`;
+    stripe.subs.set(endedSub, proSub(endedSub, 'canceled'));
+    await webhook({ id: 'evt_gone', type: 'customer.subscription.deleted', data: { object: { id: endedSub } } });
+    clock = NOW + DAY + 1;
+    for (const [sessionId, status] of [[kept, 'active'], [ended, 'canceled']]) {
+      const res = await call('POST', '/license/claim', { session_id: sessionId });
+      expect(res.status, status).toBe(410);
+      expect(await res.json(), status).toEqual({ error: 'license key already issued', code: 'key_already_issued', status });
+    }
+  });
+
   it('gives a canceled subscription no token, even inside the reveal window', async () => {
     const sessionId = await paidSession((id) => proSub(`sub_${id.slice(-8)}`, 'canceled'));
     const res = await call('POST', '/license/claim', { session_id: sessionId });
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: 'subscription not active', status: 'canceled' });
+    expect(await res.json()).toEqual({ error: 'subscription not active', code: 'subscription_inactive', status: 'canceled' });
   });
 });
 
@@ -241,6 +254,27 @@ describe('activate, rotate, billing', () => {
     expect((await call('POST', '/license/activate', { key: winner.key })).status).toBe(200);
   });
 
+  it('labels every refusal with a stable code the CLI can rely on', async () => {
+    const body = async (res: Response) => ({ status: res.status, ...((await res.json()) as object) });
+    const sessionId = await paidSession();
+    const key = await claimKey(sessionId);
+    expect(await body(await call('POST', '/license/activate', { key: 'tpro_00000000-00000000-00000000-00000000' })))
+      .toEqual({ status: 404, error: 'unknown license key', code: 'unknown_key' });
+    expect(await body(await call('POST', '/license/activate', { key: 'tpro_nope' })))
+      .toEqual({ status: 400, error: 'that is not a Timmy Pro license key', code: 'invalid_key' });
+    expect(await body(await call('POST', '/license/claim', { session_id: 'cs_test_unknownsession00' })))
+      .toEqual({ status: 404, error: 'no Timmy Pro purchase for that checkout', code: 'unknown_checkout' });
+    expect(await body(await call('POST', '/license/claim', { session_id: 'not a session' })))
+      .toEqual({ status: 400, error: 'invalid session_id', code: 'invalid_request' });
+    expect(await body(await call('GET', '/license/claim'))).toEqual({ status: 405, error: 'method not allowed', code: 'method_not_allowed' });
+    expect(await body(await call('GET', '/nowhere'))).toEqual({ status: 404, error: 'not found', code: 'not_found' });
+    clock += 2 * DAY;
+    const issued = await call('POST', '/license/claim', { session_id: sessionId });
+    expect(issued.status).toBe(410);
+    expect(await issued.json()).toEqual({ error: 'license key already issued', code: 'key_already_issued', status: 'active' });
+    expect((await call('POST', '/license/activate', { key })).status).toBe(200);
+  });
+
   it('past_due keeps Pro for 14 days, then stops', async () => {
     const sessionId = await paidSession((id) => proSub(`sub_${id.slice(-8)}`, 'past_due'));
     const key = await claimKey(sessionId);
@@ -279,7 +313,7 @@ describe('webhook', () => {
     const send = (sig?: string) => handleProRequest(new Request(`${ORIGIN}/stripe/webhook`, { method: 'POST', headers: sig ? { 'stripe-signature': sig } : {}, body: raw }), deps);
     for (const res of [await send(), await send(await signStripePayload(raw, 'whsec_wrong', NOW)), await send(await signStripePayload(raw, WEBHOOK_SECRET, NOW - 600))]) {
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: 'invalid signature' });
+      expect(await res.json()).toEqual({ error: 'invalid signature', code: 'invalid_signature' });
     }
     expect(stripe.calls.some((c) => c.startsWith('subscription:'))).toBe(false);
   });
@@ -292,7 +326,7 @@ describe('webhook', () => {
     expect((await webhook({ id: 'evt_cancel', type: 'customer.subscription.deleted', data: { object: { id: subId, status: 'active' } } })).status).toBe(200);
     const refused = await call('POST', '/license/activate', { key });
     expect(refused.status).toBe(403);
-    expect(await refused.json()).toEqual({ error: 'subscription not active', status: 'canceled' });
+    expect(await refused.json()).toEqual({ error: 'subscription not active', code: 'subscription_inactive', status: 'canceled' });
   });
 
   it('concurrent events for one subscription cannot leave a stale status', async () => {

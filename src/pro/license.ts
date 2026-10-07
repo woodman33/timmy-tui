@@ -53,7 +53,10 @@ export interface LicenseClaims {
   exp: number;
 }
 
-export type TokenCheck = { ok: true; claims: LicenseClaims } | { ok: false; reason: string };
+/** Why a token was refused, as a code callers can branch on; `reason` is the human wording. */
+export type TokenProblem = 'missing' | 'not_timmy' | 'malformed' | 'bad_signature' | 'unsupported' | 'inactive' | 'expired' | 'future';
+
+export type TokenCheck = { ok: true; claims: LicenseClaims } | { ok: false; code: TokenProblem; reason: string };
 
 export async function signLicenseToken(claims: LicenseClaims, privateKey: CryptoKey): Promise<string> {
   const payload = toBase64Url(utf8(JSON.stringify(claims)));
@@ -68,24 +71,24 @@ export async function verifyLicenseToken(
   nowSeconds: number,
   clockSkewSeconds = 300,
 ): Promise<TokenCheck> {
-  if (typeof token !== 'string') return { ok: false, reason: 'no license token' };
+  if (typeof token !== 'string') return { ok: false, code: 'missing', reason: 'no license token' };
   const parts = token.split('.');
-  if (parts.length !== 3 || parts[0] !== TOKEN_PREFIX) return { ok: false, reason: 'not a Timmy Pro token' };
+  if (parts.length !== 3 || parts[0] !== TOKEN_PREFIX) return { ok: false, code: 'not_timmy', reason: 'not a Timmy Pro token' };
   const payloadBytes = fromBase64Url(parts[1]);
   const signature = fromBase64Url(parts[2]);
-  if (!payloadBytes || !signature) return { ok: false, reason: 'malformed token' };
+  if (!payloadBytes || !signature) return { ok: false, code: 'malformed', reason: 'malformed token' };
   const valid = await crypto.subtle.verify({ name: 'Ed25519' }, publicKey, signature, utf8(`${parts[0]}.${parts[1]}`));
-  if (!valid) return { ok: false, reason: 'signature does not verify' };
+  if (!valid) return { ok: false, code: 'bad_signature', reason: 'signature does not verify' };
   let claims: LicenseClaims;
   try {
     claims = JSON.parse(fromUtf8(payloadBytes)) as LicenseClaims;
   } catch {
-    return { ok: false, reason: 'malformed token claims' };
+    return { ok: false, code: 'malformed', reason: 'malformed token claims' };
   }
-  if (claims?.v !== 1 || claims.plan !== 'pro' || !Array.isArray(claims.features)) return { ok: false, reason: 'unsupported token' };
-  if (!isActiveStatus(claims.status)) return { ok: false, reason: 'subscription not active' };
-  if (typeof claims.exp !== 'number' || claims.exp <= nowSeconds) return { ok: false, reason: 'token expired' };
-  if (typeof claims.iat !== 'number' || claims.iat > nowSeconds + clockSkewSeconds) return { ok: false, reason: 'token issued in the future' };
+  if (claims?.v !== 1 || claims.plan !== 'pro' || !Array.isArray(claims.features)) return { ok: false, code: 'unsupported', reason: 'unsupported token' };
+  if (!isActiveStatus(claims.status)) return { ok: false, code: 'inactive', reason: 'subscription not active' };
+  if (typeof claims.exp !== 'number' || claims.exp <= nowSeconds) return { ok: false, code: 'expired', reason: 'token expired' };
+  if (typeof claims.iat !== 'number' || claims.iat > nowSeconds + clockSkewSeconds) return { ok: false, code: 'future', reason: 'token issued in the future' };
   return { ok: true, claims };
 }
 

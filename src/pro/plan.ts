@@ -33,6 +33,14 @@ export function isActiveStatus(status: string | null | undefined): boolean {
   return typeof status === 'string' && ACTIVE_STATUSES.has(status);
 }
 
+/** A subscription in one of these states is over; anything else (past_due, unpaid, paused) can still charge or resume. */
+const ENDED_STATUSES: ReadonlySet<string> = new Set(['canceled', 'incomplete_expired']);
+
+/** Stripe's status says the subscription is over for good: it will never charge again. Unknown or missing is not over. */
+export function isEndedSubscriptionStatus(status: string | null | undefined): boolean {
+  return ENDED_STATUSES.has(status ?? '');
+}
+
 /** A card that keeps failing keeps Pro for at most this long, whatever Stripe's retry settings are. */
 export const PAST_DUE_GRACE_SECONDS = 14 * 86_400;
 
