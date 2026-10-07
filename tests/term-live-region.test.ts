@@ -122,7 +122,8 @@ describe('Spinner', () => {
     expect(err.writes.length).toBe(count + 1);
     expect(err.writes.at(-1)).toBe(`${SYNC_START}\r\x1b[J${SYNC_END}`);
   });
-  it('switches to a 20-cell bar with percent and ETA past 10 seconds when the total is known', () => {
+  // Third order, checkpoint 2: progress comes only from real counts, and no time left is ever estimated.
+  it('switches to a 20-cell bar past 10 seconds when a step reports real counts, with no estimated time left', () => {
     const { err, region } = make();
     const spinner = new Spinner(region, { frames, label: 'Rendering' });
     spinner.start();
@@ -130,7 +131,8 @@ describe('Spinner', () => {
     vi.advanceTimersByTime(12_000);
     spinner.progress(10, 20);
     vi.advanceTimersByTime(80);
-    expect(err.writes.at(-1)).toContain('Rendering ██████████░░░░░░░░░░ 50% 12.1s, about 12s left');
+    expect(err.writes.at(-1)).toContain('Rendering ██████████░░░░░░░░░░ 10 of 20 12.1s');
+    expect(err.writes.at(-1)).not.toMatch(/left|ETA|%/);
   });
   it('prints one static line instead of animating when the region is not live', () => {
     const { out, err, region } = make(false);

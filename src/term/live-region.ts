@@ -116,7 +116,10 @@ export interface SpinnerOptions {
 
 const BAR_CELLS = 20;
 
-/** A spinner with elapsed time after 1s, and a bar with percent and ETA past 10s when the total is known. */
+/**
+ * A spinner with elapsed time after 1s, and past 10s a bar when a step reports real counts ("N of M").
+ * Nothing is estimated: no percent from a guess and no time left (third order, checkpoint 2).
+ */
 export class Spinner {
   private timer: ReturnType<typeof setInterval> | null = null;
   private frame = 0;
@@ -155,9 +158,7 @@ export class Spinner {
       const ratio = Math.min(1, this.done / this.total);
       const [full, empty] = this.opts.bar ?? ['█', '░'];
       const filled = Math.round(ratio * BAR_CELLS);
-      const eta = this.done > 0 ? Math.round((seconds * (this.total - this.done)) / this.done) : null;
-      const tail = eta === null ? '' : `, about ${eta}s left`;
-      return `${head} ${full.repeat(filled)}${empty.repeat(BAR_CELLS - filled)} ${Math.round(ratio * 100)}% ${seconds.toFixed(1)}s${tail}`;
+      return `${head} ${full.repeat(filled)}${empty.repeat(BAR_CELLS - filled)} ${this.done} of ${this.total} ${seconds.toFixed(1)}s`;
     }
     return seconds >= 1 ? `${head} ${seconds.toFixed(1)}s` : head;
   }

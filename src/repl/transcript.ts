@@ -390,8 +390,9 @@ export class Transcript {
     const failed = steps.some((s) => s.state === 'failed');
     const glyph = failed ? g.fail : label.risk === 'network' ? g.ai : g.bullet;
     const role: Role = failed ? 'failure' : RISK_ROLE[label.risk];
-    const stopped = steps.some((s) => s.state === 'stopped');
-    const head = `${glyph} ${stopped ? label.present : label.verb}`;
+    // While a step runs (or was stopped by a cancel) the head says what it is doing, never that it is done.
+    const live = steps.some((s) => s.state === 'running' || s.state === 'stopped');
+    const head = `${glyph} ${live ? label.present : label.verb}`;
     const subject = steps.length === 1 ? label.arg : `${steps.length} ${plural(label.noun, steps.length)}`;
     const room = this.opts.columns - visibleWidth(head) - 1;
     const shownSubject = this.cut(subject, room);

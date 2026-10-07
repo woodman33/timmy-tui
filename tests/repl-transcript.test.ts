@@ -220,3 +220,19 @@ describe('a cancel that does not land at once', () => {
     expect(out.text).toContain('Cancelled.');
   });
 });
+
+// Third order, checkpoint 2: the active tool. While a step runs, its row says what it is doing; once it
+// ends, what it did. A row never claims a step is done while it still runs.
+describe('a running step', () => {
+  it('reads as running while it runs, and as done once it ends', () => {
+    const out = new Sink(false), err = new Sink(true);
+    const caps = detectCapabilities({ env: { LANG: 'C' }, stdin: { isTTY: false }, stdout: { isTTY: false }, stderr: { isTTY: true } });
+    const t = new Transcript(buildTheme(caps), new LiveRegion({ out, err }, { live: true }), { columns: 60 });
+    t.handle({ type: 'tool-start', id: 't1', tool: 'shell', args: { command: 'npm run render' } });
+    expect(err.text).toContain('Running npm run render');
+    expect(err.text).not.toContain('Ran npm run render');
+    t.handle({ type: 'tool-end', id: 't1', ok: true, preview: 'done' });
+    t.endTurn();
+    expect(out.text).toContain('Ran npm run render');
+  });
+});
