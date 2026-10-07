@@ -63,4 +63,17 @@ describe('keys in the block input', () => {
     expect(seen).toEqual(['draft']);
     expect(raw.slice(-3)).toEqual([false, true, false]);
   });
+  // Third order, checkpoint 2: an editor such as vim turns bracketed paste off when it exits; the
+  // input turns it back on, or the next multi-line paste would send its first line (found in a PTY).
+  it('Ctrl+G turns bracketed paste back on after the editor', async () => {
+    const calls: string[] = [];
+    const session = { setRaw: (on: boolean) => void calls.push(`raw ${on}`), enableBracketedPaste: () => void calls.push('paste on'), showCursor: () => {} };
+    const { stdin, result } = prompt({ session, openEditor: () => { calls.push('editor'); return 'x'; } } as unknown as Partial<PromptDeps>);
+    stdin.write('\x07');
+    await tick();
+    stdin.write('\r');
+    await result;
+    const at = calls.indexOf('editor');
+    expect(calls.slice(at, at + 3)).toEqual(['editor', 'raw true', 'paste on']);
+  });
 });

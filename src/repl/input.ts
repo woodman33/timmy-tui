@@ -149,6 +149,8 @@ export function readBlockPrompt(d: PromptDeps): Promise<PromptResult> {
         session.setRaw(false);
         const next = d.openEditor(editor.text);
         session.setRaw(true);
+        // An editor such as vim turns bracketed paste off as it exits; turn it back on.
+        session.enableBracketedPaste();
         if (next !== null) {
           editor.clear();
           editor.insert(next);
