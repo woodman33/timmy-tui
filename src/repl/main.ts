@@ -34,7 +34,7 @@ import { runTurn, type TurnAbandon, type TurnAgent } from './turn.js';
 import { Transcript } from './transcript.js';
 import { onPath, packageRoot, realOnPath } from './center.js';
 import { planWeb, RECEIPT_ID, receiptUrl, resolveWebTarget } from './web.js';
-import { createCanvasTools } from '../agent/canvas-tools.js';
+import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt } from '../agent/canvas-tools.js';
 import { STUDIO_PORT } from '../studio/config.js';
 import { ensureStudioServer } from '../studio/server.js';
 
@@ -127,9 +127,12 @@ const tildify = (path: string): string => {
   return home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path;
 };
 
-/** The agent's tools in the REPL: the defaults and Timmy Canvas (F-4), each under a NEEDS YOU rule. */
-export function replTools(): typeof defaultTools {
-  return [...defaultTools, ...createCanvasTools()];
+/**
+ * The agent's tools in the REPL: the defaults and Timmy Canvas (F-4), each under a NEEDS YOU rule. The
+ * canvas calls of one turn share that turn's canvas job (fourth order, step 5).
+ */
+export function replTools(job?: CanvasTurnJob): typeof defaultTools {
+  return [...defaultTools, ...createCanvasTools({ job })];
 }
 
 export async function runRepl(argv: string[]): Promise<number> {
@@ -173,9 +176,10 @@ export async function runRepl(argv: string[]): Promise<number> {
     { multiplexer: 'none' },
   );
   const approval = { active: false };
+  const canvasJob = new CanvasTurnJob();
   // NEEDS YOU: risky calls wait for the operator; with no terminal to ask, they are denied (§17.8).
   agent.setTools(
-    gateTools(replTools(), async (req) => {
+    gateTools(replTools(canvasJob), async (req) => {
       if (!interactive) {
         transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision: 'no-terminal' });
         return 'deny';
@@ -262,8 +266,12 @@ export async function runRepl(argv: string[]): Promise<number> {
     setup, noKey: !config.apiKey, firstRun: readChain('runs').length === 0, lanes: listLanes, openCenter,
     // C-13: the receipt line links to its page; the local server that shows it starts with the first seal.
     seal: (facts) => {
-      const sealed = sealTurn({ ...facts, model: agent.getModel() });
+      // Fourth order, step 5: a turn that used the canvas names its job and the saved canvas it left,
+      // and the canvas server learns which receipt sealed that job.
+      const canvas = canvasJob.close();
+      const sealed = sealTurn({ ...facts, model: agent.getModel(), ...(canvas ? { canvas } : {}) });
       studio ??= ensureStudioServer(STUDIO_PORT, { env: process.env });
+      if (canvas) void linkCanvasReceipt(canvas.job, sealed.id);
       return { ...sealed, url: receiptUrl(sealed.id) };
     },
   });

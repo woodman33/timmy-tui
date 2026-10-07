@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { WebSocket } from 'ws';
-import { createCanvasTools } from '../src/agent/canvas-tools.js';
+import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt } from '../src/agent/canvas-tools.js';
 import { approvalNeeded } from '../src/repl/approvals.js';
 import { startStudioServer } from '../src/studio/server.js';
 
@@ -76,5 +79,56 @@ describe('the canvas tools under NEEDS YOU', () => {
       reason: 'runs code in the canvas page, which can reach the network',
       summary: 'editor.createShape({ type: "geo" })',
     });
+  });
+});
+
+// Fourth order, step 5: one job identity from the terminal to the canvas and the receipt. The canvas
+// calls of one REPL turn share the turn's job ID (unless the model names its own), and the turn keeps
+// the revision and source revision they produced, for its receipt.
+describe('the canvas job of a REPL turn', () => {
+  const SOURCE = 'cd'.repeat(32);
+  async function savingPage(): Promise<string[]> {
+    const jobs: string[] = [];
+    const ws = new WebSocket(`${base().replace('http', 'ws')}/bridge`, { origin: base() });
+    sockets.push(ws);
+    await new Promise<void>((resolve, reject) => { ws.once('open', () => resolve()); ws.once('error', reject); });
+    ws.on('message', (data) => {
+      const m = JSON.parse(String(data));
+      jobs.push(m.jobId);
+      ws.send(JSON.stringify({ id: m.id, ok: true, result: 1, revision: 9, sourceRevision: SOURCE }));
+    });
+    return jobs;
+  }
+  it("calls without a job ID take the turn's; the turn keeps what they produced, then starts afresh", async () => {
+    server = await startStudioServer(0, { env: {} });
+    const jobs = await savingPage();
+    let n = 0;
+    const job = new CanvasTurnJob(() => `turn-${++n}`);
+    const tools = createCanvasTools({ baseUrl: base(), job });
+    await run(tools, 'canvas_exec', { code: 'return 1' });
+    await run(tools, 'canvas_read', {});
+    await run(tools, 'canvas_exec', { code: 'return 1', jobId: 'named-by-the-model' });
+    expect(jobs).toEqual(['turn-1', 'turn-1', 'named-by-the-model']);
+    expect(job.close()).toEqual({ job: 'turn-1', revision: 9, sourceRevision: SOURCE });
+    expect(job.close()).toBeNull(); // a turn with no canvas call names no job
+    await run(tools, 'canvas_read', {});
+    expect(jobs.at(-1)).toBe('turn-2');
+  });
+  it("links the turn's receipt to its canvas job on the canvas server; an unknown job is not linked", async () => {
+    const home = mkdtempSync(join(tmpdir(), 'timmy-canvas-home-'));
+    try {
+      server = await startStudioServer(0, { env: { TIMMY_HOME: home } });
+      await savingPage();
+      await run(createCanvasTools({ baseUrl: base() }), 'canvas_exec', { code: 'return 1', jobId: 'turn-abc' });
+      expect(await linkCanvasReceipt('turn-abc', '0f3c9a12', base())).toBe(true);
+      expect(await linkCanvasReceipt('turn-none', '0f3c9a12', base())).toBe(false);
+      const listed = await fetch(`${base()}/api/canvas/jobs`).then((r) => r.json()) as Array<Record<string, unknown>>;
+      expect(listed).toEqual([expect.objectContaining({ id: 'turn-abc', receipt: '0f3c9a12', sourceRevision: SOURCE })]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+  it('linking says false, not an error, when no canvas server is running', async () => {
+    expect(await linkCanvasReceipt('turn-abc', '0f3c9a12', 'http://127.0.0.1:9')).toBe(false);
   });
 });

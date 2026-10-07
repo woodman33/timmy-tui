@@ -26,6 +26,17 @@ describe('sealTurn', () => {
     expect(readFileSync(receiptsPath('runs', dir), 'utf8')).not.toContain('secret');
     expect({ id: s.id, hash: s.hash, verified: s.verified }).toEqual({ id: chain[0].hash.slice(7, 15), hash: chain[0].hash, verified: true });
   });
+  // Fourth order, step 5: a turn that drew on Timmy Canvas names its canvas job, the revision and the
+  // source revision (the sha256 of the saved canvas) in the receipt, so the receipt, the canvas file and
+  // the terminal agree on what the turn produced.
+  it('a turn that used the canvas names its job, revision and source revision in the receipt, verified', () => {
+    const dir = store();
+    const s = sealTurn({ ...facts, canvas: { job: 'turn-1a2b3c4d', revision: 12, sourceRevision: 'ab'.repeat(32) } }, dir);
+    const [rec] = readChain('runs', dir);
+    expect(rec.sources).toEqual([{ kind: 'timmy-canvas', job: 'turn-1a2b3c4d', revision: 12, source_revision: 'ab'.repeat(32) }]);
+    expect(s.verified).toBe(true);
+    expect(sealTurn(facts, dir) && readChain('runs', dir)[1].sources).toBeUndefined();
+  });
   it('a chain broken before the turn makes the receipt broken, never verified', () => {
     const dir = store();
     sealTurn(facts, dir);

@@ -89,6 +89,22 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   app.get('/api/canvas/jobs', (_req, res) => {
     res.set('Cache-Control', 'no-store').json(documents.jobs());
   });
+  // The REPL links the receipt it sealed for a turn to that turn's canvas job.
+  app.post('/api/canvas/jobs/:job/receipt', jsonOnly('Send JSON: {"receipt": "<its short hash>"}.'), express.json({ limit: '1kb' }), (req, res) => {
+    const job = String(req.params.job);
+    const { receipt } = (req.body ?? {}) as { receipt?: unknown };
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!documents.linkReceipt(job, String(receipt))) {
+        res.status(404).json({ ok: false, error: `No canvas job ${JOB_ID.test(job) ? job : 'like that'}.` });
+        return;
+      }
+    } catch (error) {
+      res.status(400).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    res.json({ ok: true, job, receipt });
+  });
   // The agent's canvas tools: Editor API code in, the page's answer out. JSON only, so a form on
   // another site cannot post here without a CORS preflight that this server never grants.
   app.post('/api/canvas/exec', (req, res, next) => {

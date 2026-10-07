@@ -4,6 +4,7 @@
  * canvas revision. canvas_read and canvas_api send fixed code; the model's words reach the page
  * only as a JSON string literal.
  */
+import { randomUUID } from 'node:crypto';
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { z } from 'zod/v4';
 import { STUDIO_PORT } from '../studio/config.js';
@@ -11,6 +12,66 @@ import { STUDIO_PORT } from '../studio/config.js';
 export interface CanvasToolOptions {
   /** The studio server; default TIMMY_STUDIO_URL, else http://127.0.0.1:4337. */
   baseUrl?: string;
+  /** The REPL turn's canvas job: calls with no job ID of their own take its ID, and it keeps what they produced. */
+  job?: CanvasTurnJob;
+}
+
+/** What a turn's canvas job left: the canvas revision and source revision (the sha256 of the saved canvas). */
+export interface CanvasJobResult {
+  job: string;
+  revision: number;
+  sourceRevision: string;
+}
+
+/**
+ * One canvas job per REPL turn (fourth order, step 5): the turn's canvas calls share one job ID, made
+ * on the first call, and the turn keeps the revision and source revision the last of them produced,
+ * so its receipt names the same job and the same saved canvas as the canvas file and its ledger.
+ */
+export class CanvasTurnJob {
+  private id: string | null = null;
+  private last: Omit<CanvasJobResult, 'job'> | null = null;
+
+  constructor(private readonly newId: () => string = () => `turn-${randomUUID().slice(0, 8)}`) {}
+
+  /** This turn's job ID, made on first use. */
+  current(): string {
+    this.id ??= this.newId();
+    return this.id;
+  }
+
+  /** A canvas answer: kept when it is this turn's job and the page saved what it produced. */
+  saw(answer: Record<string, unknown>): void {
+    if (answer.jobId === this.id && typeof answer.revision === 'number' && typeof answer.sourceRevision === 'string') {
+      this.last = { revision: answer.revision, sourceRevision: answer.sourceRevision };
+    }
+  }
+
+  /** The turn ended: what its canvas job produced (null when it saved nothing), and a fresh job next turn. */
+  close(): CanvasJobResult | null {
+    const result = this.id && this.last ? { job: this.id, ...this.last } : null;
+    this.id = null;
+    this.last = null;
+    return result;
+  }
+}
+
+const studioUrl = (baseUrl?: string): string =>
+  (baseUrl ?? process.env.TIMMY_STUDIO_URL ?? `http://127.0.0.1:${process.env.TIMMY_STUDIO_PORT ?? STUDIO_PORT}`).replace(/\/+$/, '');
+
+/** Tell the canvas server which receipt sealed a canvas job; false when it is not running or knows no such job. */
+export async function linkCanvasReceipt(job: string, receipt: string, baseUrl?: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${studioUrl(baseUrl)}/api/canvas/jobs/${encodeURIComponent(job)}/receipt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ receipt }),
+      signal: AbortSignal.timeout(2000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 const NOT_RUNNING = 'Timmy Canvas is not running. Open it with /web studio in the REPL, or run `timmy studio`.';
@@ -57,8 +118,14 @@ return { query, total: names.length, members, docs: 'https://tldraw.dev/referenc
 type Answer = Record<string, unknown>;
 
 export function createCanvasTools(options: CanvasToolOptions = {}) {
-  const baseUrl = (options.baseUrl ?? process.env.TIMMY_STUDIO_URL ?? `http://127.0.0.1:${process.env.TIMMY_STUDIO_PORT ?? STUDIO_PORT}`).replace(/\/+$/, '');
-  const exec = async (code: string, jobId?: string): Promise<Answer> => {
+  const baseUrl = studioUrl(options.baseUrl);
+  const exec = async (code: string, ownJobId?: string): Promise<Answer> => {
+    const jobId = ownJobId ?? options.job?.current();
+    const answer = await send(code, jobId);
+    options.job?.saw(answer);
+    return answer;
+  };
+  const send = async (code: string, jobId?: string): Promise<Answer> => {
     let res: Response;
     try {
       res = await fetch(`${baseUrl}/api/canvas/exec`, {

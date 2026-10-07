@@ -152,6 +152,17 @@ describe('the canvas file through the server', () => {
     expect(stale.body).toMatchObject({ ok: false, conflict: true, revision: 5 });
     expect((await call('PUT', '/api/canvas/document', { snapshot: 'x', revision: -1 })).status).toBe(400);
   });
+  it("links a sealed receipt to a canvas job: JSON only, an unknown job 404, a malformed receipt ID 400", async () => {
+    await start();
+    // A job exists only once a page has answered a call with a source revision; write the ledger directly.
+    const { CanvasDocuments } = await import('../src/studio/document.js');
+    new CanvasDocuments(join(home, 'canvas')).recordJob('turn-1', { ok: true, revision: 2, sourceRevision: sha(SNAP) });
+    expect((await call('POST', '/api/canvas/jobs/turn-1/receipt', 'r', 'text/plain')).status).toBe(415);
+    expect((await call('POST', '/api/canvas/jobs/turn-9/receipt', { receipt: '0f3c9a12' }))).toMatchObject({ status: 404, body: { ok: false, error: 'No canvas job turn-9.' } });
+    expect((await call('POST', '/api/canvas/jobs/turn-1/receipt', { receipt: '<b>' })).status).toBe(400);
+    expect(await call('POST', '/api/canvas/jobs/turn-1/receipt', { receipt: '0f3c9a12' })).toEqual({ status: 200, cache: 'no-store', body: { ok: true, job: 'turn-1', receipt: '0f3c9a12' } });
+    expect((await call('GET', '/api/canvas/jobs')).body).toEqual([expect.objectContaining({ id: 'turn-1', receipt: '0f3c9a12' })]);
+  });
   it('a canvas too large to save gets 413 and says so', async () => {
     await start({ maxCanvasBytes: 300 });
     const big = await call('PUT', '/api/canvas/document', { snapshot: { ...SNAP, big: 'x'.repeat(1000) }, revision: 1, baseRevision: 0 });

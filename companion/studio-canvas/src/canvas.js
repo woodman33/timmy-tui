@@ -92,10 +92,15 @@ const saveSoon = (editor) => {
 
 // The agent bridge (F-4, slice 2): Timmy sends Editor API code; it runs here against the live editor
 // and the answer goes back only after the canvas is saved, with the revision and the source revision
-// of what was saved, so the terminal and the file agree on what the call produced.
+// of what was saved, so the terminal and the file agree on what the call produced. Calls run one at a
+// time, and every shape created while a job's code runs carries that job's ID in meta.timmyJob.
 const AsyncFunction = (async () => {}).constructor;
 const MAX_ANSWER = 256 * 1024;
+let runningJob = null;
+let calls = Promise.resolve();
 function connectBridge(editor) {
+  editor.sideEffects.registerBeforeCreateHandler('shape', (shape) =>
+    runningJob ? { ...shape, meta: { ...shape.meta, timmyJob: runningJob } } : shape);
   const bump = () => {
     canvas.revision += 1;
     saveSoon(editor);
@@ -111,11 +116,9 @@ function connectBridge(editor) {
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/bridge`);
     ws.onopen = () => { canvas.linked = true; showStatus(editor); };
     ws.onclose = () => { canvas.linked = false; showStatus(editor); setTimeout(open, 2000); };
-    ws.onmessage = async (event) => {
-      let message;
-      try { message = JSON.parse(event.data); } catch { return; }
-      if (message.type !== 'exec') return;
+    const run = async (message) => {
       let answer;
+      runningJob = typeof message.jobId === 'string' ? message.jobId : null;
       try {
         const result = await new AsyncFunction('editor', 'helpers', message.code)(editor, helpers);
         const json = JSON.stringify(result === undefined ? null : result);
@@ -124,10 +127,18 @@ function connectBridge(editor) {
           : { ok: true, result: JSON.parse(json) };
       } catch (error) {
         answer = { ok: false, error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) };
+      } finally {
+        runningJob = null;
       }
       const saved = await save(editor);
       const document = saved.ok ? { sourceRevision: saved.sourceRevision ?? undefined } : { saveError: saved.error };
       ws.send(JSON.stringify({ id: message.id, ...answer, revision: canvas.revision, ...document }));
+    };
+    ws.onmessage = (event) => {
+      let message;
+      try { message = JSON.parse(event.data); } catch { return; }
+      if (message.type !== 'exec') return;
+      calls = calls.then(() => run(message)).catch(() => undefined);
     };
   };
   open();
