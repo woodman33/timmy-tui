@@ -41,3 +41,12 @@ describe('keyboard contract (tui-redesign-p6a3 spec §02)', () => {
     expect(footerHintsShell('CHAT', 'RUN')).toContain('[Enter] send');
   });
 });
+
+// Fourth order, step 2 (action guidance): the keys overlay and the footer name the tab keys from the tab
+// list itself. The overlay said "1-4 tab" while the monitor has six tabs and the footer said [1-6].
+describe('the tab keys the monitor names', () => {
+  it('match its six tabs, in the overlay and in the footer', () => {
+    const navigate = whichKeyGroupsShell('NORMAL', 'HOME').find((g) => g.group === 'NAVIGATE')?.entries ?? [];
+    expect({ overlay: navigate.find((e) => e.label === 'tab')?.key, footer: footerHintsShell('NORMAL', 'HOME').includes('[1-6] tab') }).toEqual({ overlay: '1-6', footer: true });
+  });
+});

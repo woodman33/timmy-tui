@@ -53,6 +53,10 @@ describe('the key a click lands on', () => {
     const l = FRAME[7];
     expect([keyAt(FRAME, col(l, 'Begin'), 8), keyAt(FRAME, col(l, '·'), 8), keyAt(FRAME, col(l, 'Quit'), 8)]).toEqual(['Enter', null, 'q']);
   });
+  it('hints one space apart stay apart: a label ends at the next bracket', () => {
+    const l = ' NORMAL  COMMAND   [w] swarm [h] hands [l] launch';
+    expect([keyAt([l], col(l, 'swarm'), 1), keyAt([l], col(l, '[h]'), 1), keyAt([l], col(l, 'hands'), 1), keyAt([l], col(l, 'launch'), 1)]).toEqual(['w', 'h', 'h', 'l']);
+  });
   it('a click off the frame, or before any frame, is nothing', () => {
     expect([keyAt(FRAME, 5, 40), keyAt([], 5, 1)]).toEqual([null, null]);
   });

@@ -45,8 +45,9 @@ function targets(line: string, row: number): Target[] {
   const add = (index: number, text: string, key: string | null): void => {
     out.push({ from: cells(index) + 1, to: cells(index) + visibleWidth(text), key });
   };
-  // A hint: the bracket, then its label, word by word, up to two spaces, a middle dot or a box line.
-  for (const m of line.matchAll(/\[([^\]\s]{1,12})\]((?: (?!·)[^\s│·]+)*)/g)) add(m.index ?? 0, m[0], keyOf(m[1]));
+  // A hint: the bracket, then its label, word by word, up to two spaces, a middle dot, a box line or the
+  // next hint's bracket ("[w] swarm [h] hands" is two hints).
+  for (const m of line.matchAll(/\[([^\]\s]{1,12})\]((?: (?![·[])[^\s│·]+)*)/g)) add(m.index ?? 0, m[0], keyOf(m[1]));
   // The header's tabs, on the first row: " 1 HOME", then the folded ones, " 2", " 3", ...
   if (row === 1 && line.startsWith('TIMMY')) {
     const end = line.indexOf('  chain');

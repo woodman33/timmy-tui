@@ -140,7 +140,8 @@ export function planCenter(i: CenterInputs): CenterPlan {
       command: 'zellij',
       // The name goes through options: `--session` and `attach --create` both drop simplified-ui and
       // the theme. simplified-ui: no Powerline arrows, which most fonts lack (they draw as boxes).
-      args: ['--layout', i.layoutPath, 'options', '--session-name', SESSION, '--attach-to-session', 'true', '--theme-dir', i.themeDir, '--theme', theme, ...follow, '--simplified-ui', 'true'],
+      // Fourth order, step 2: the tabs take clicks (zellij's own mouse mode, on explicitly).
+      args: ['--layout', i.layoutPath, 'options', '--session-name', SESSION, '--attach-to-session', 'true', '--theme-dir', i.themeDir, '--theme', theme, ...follow, '--simplified-ui', 'true', '--mouse-mode', 'true'],
       layout: zellijLayout(i.self),
       note: 'Opening the cockpit in zellij.',
     };
@@ -154,6 +155,13 @@ export function planCenter(i: CenterInputs): CenterPlan {
       ...keep,
       // The status line follows the terminal's own colors (Night or Day).
       'set-option', 'status-style', 'bg=default,fg=default', ';',
+      // Fourth order, step 2: in this session a click on a tab switches to it, and the status line says
+      // the keys that do the same, in the session's own prefix. A session you are already in keeps its own.
+      'set-option', 'mouse', 'on', ';',
+      'set-option', 'status-right', ' click a tab · #{prefix} n next · #{prefix} p prev ', ';',
+      'set-option', 'status-right-length', '60', ';',
+      // The default left side, "[session name]" cut at 10 cells, ran into the first tab ("[timmy-cen0:Timmy").
+      'set-option', 'status-left', '[cockpit] ', ';',
       ...rest.flatMap((t) => ['new-window', '-n', t.name, ...pass, ...run(t.name, t.verb), ';', ...keep]),
       'select-window', '-t', `=${SESSION}:${first.name}`,
     ];

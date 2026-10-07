@@ -1,4 +1,4 @@
-import { shellKeys, type ShellMode, type ShellTab } from './keymap.js';
+import { SHELL_TABS, shellKeys, type ShellMode, type ShellTab } from './keymap.js';
 
 // TUI REDESIGN (spec §02) — the mode OWNS the keymap. One key, one meaning per
 // mode; the mode is always on screen (footer badge). Pure reducer so the
@@ -21,7 +21,7 @@ export interface ShellState {
 }
 export const initialShell = (): ShellState => ({ mode: 'NORMAL', tab: 'HOME', input: '', overlay: null, filter: '', selected: 0, pick: 0, demoArmed: false, handsOn: false, handsRow: 0, handsCol: 0, handsPrompt: false });
 
-export const TABS: ShellTab[] = ['HOME', 'RUN', 'CHAIN', 'LIBRARY', 'CHAT', 'COMMAND'];
+export const TABS: ShellTab[] = [...SHELL_TABS];
 
 export interface ShellStep { state: ShellState; handled: boolean; actions: string[] }
 

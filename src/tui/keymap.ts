@@ -92,6 +92,9 @@ export function submenuLines(mode: Mode): [string, string] {
 // which-key overlay render FROM this object; a key absent here does not exist.
 export type ShellMode = 'NORMAL' | 'INSERT' | 'CHAT';
 export type ShellTab = 'HOME' | 'RUN' | 'CHAIN' | 'LIBRARY' | 'CHAT' | 'COMMAND';
+/** The monitor's tabs in order: their digits are 1 to SHELL_TABS.length (the header, footer and overlay). */
+export const SHELL_TABS: readonly ShellTab[] = ['HOME', 'RUN', 'CHAIN', 'LIBRARY', 'CHAT', 'COMMAND'];
+const TAB_KEYS = `1-${SHELL_TABS.length}`;
 export type KeyGroup = 'NAVIGATE' | 'ACT' | 'MODES' | 'SEAL';
 export interface ShellKey { key: string; label: string; group: KeyGroup }
 
@@ -100,7 +103,7 @@ const act = (key: string, label: string): ShellKey => ({ key, label, group: 'ACT
 const mod = (key: string, label: string): ShellKey => ({ key, label, group: 'MODES' });
 const seal = (key: string, label: string): ShellKey => ({ key, label, group: 'SEAL' });
 
-const NAV: ShellKey[] = [nav('1-4', 'tab'), nav('j/k', 'move'), nav('Enter', 'open'), nav('Tab', 'next pane'), nav('/', 'filter')];
+const NAV: ShellKey[] = [nav(TAB_KEYS, 'tab'), nav('j/k', 'move'), nav('Enter', 'open'), nav('Tab', 'next pane'), nav('/', 'filter')];
 const MODES: ShellKey[] = [mod('i', 'insert (cmd line)'), mod(':', 'command'), mod('c', 'chat (sovereign)'), mod('Esc', 'back / leave mode'), mod('?', 'which-key')];
 const SEAL: ShellKey[] = [seal('s', 'seal…'), seal('S', 'seal review note')];
 
@@ -143,8 +146,8 @@ export const footerHintsShellShort = (mode: ShellMode, tab: ShellTab): string =>
   mode === 'NORMAL'
     ? tab === 'CHAT'
       // FIX 3: on CHAT, Enter means send — one hint, from the keymap
-      ? `[1-6] tab  [Enter] send  ${FOOTER_ACTS[tab]}  [?] keys`
-      : `[1-6] tab  [Enter] open  ${FOOTER_ACTS[tab]}  [c] chat  [?] keys`
+      ? `[${TAB_KEYS}] tab  [Enter] send  ${FOOTER_ACTS[tab]}  [?] keys`
+      : `[${TAB_KEYS}] tab  [Enter] open  ${FOOTER_ACTS[tab]}  [c] chat  [?] keys`
     : footerHintsShell(mode, tab);
 export const whichKeyGroupsShell = (mode: ShellMode, tab: ShellTab): { group: KeyGroup; entries: ShellKey[] }[] => {
   const order: KeyGroup[] = ['NAVIGATE', 'ACT', 'MODES', 'SEAL'];
