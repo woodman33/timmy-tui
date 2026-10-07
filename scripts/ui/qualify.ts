@@ -1,21 +1,29 @@
 /**
- * C-15, the frozen qualification (AGENTS.md §5): the UI playbook's CLI (§19.5) and Agent TUI (§19.6)
- * checklists against the real Timmy in real PTYs (tmux), captures at 60, 80 and 120 columns in Timmy
- * Night and Day through the contrast gate, the shared receipt store and the frozen tree preserved,
- * the related suites, and a replay in a fresh clone.
+ * C-15, the frozen qualification (AGENTS.md §5), and C-16, the final acceptance of a new revision: the
+ * UI playbook's CLI (§19.5) and Agent TUI (§19.6) checklists against the real Timmy in real PTYs (tmux),
+ * captures at 60, 80 and 120 columns in Timmy Night and Day through the contrast gate, the shared
+ * receipt store and the frozen tree preserved, the related suites, Timmy Canvas in a real browser, a
+ * replay in a fresh clone, and the evidence of the two checks that run elsewhere.
  *
  *   npx tsx scripts/ui/qualify.ts --out DIR --monitor-home DIR [--repo DIR] [--dev] [--only ID,ID] [--controls]
+ *     [--skip ID,ID --skip-why TEXT] [--freeze]
  *
  * Every check is binary and its expectation is written here before the run. Without --dev the run
  * stops at the first genuine failure (AGENTS.md §5) and reports the rest as not run; --dev runs every
  * check (development only, never a qualification). --controls first runs the negative controls of the
  * check primitives: each must fail on input known to be wrong (DOCTRINE §12). Evidence (raw PTY bytes,
  * screens, captures, verdicts) goes to DIR, which stays private: it can show paths.
+ *
+ * --skip reports the named checks as not run, with the reason given. It exists for the isolated sandbox
+ * replay (scripts/ui/replay-sandbox.sh), where REPLAY-02 and LIVE-01 cannot run. Those two read evidence
+ * taken elsewhere (docs/ui-cockpit/c16/: the sandbox's own frozen run, and the live turns on the
+ * operator's Mac), each bound to the commit it ran at: the frozen tree may differ from that commit only
+ * under docs/ui-cockpit/, where the ledger and the evidence live.
  */
 import { createHash } from 'node:crypto';
 import { builtinModules } from 'node:module';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { visibleWidth } from '../../src/term/width.js';
@@ -28,8 +36,12 @@ const REPO = resolve(opt('--repo') ?? '.');
 const MONITOR_HOME = opt('--monitor-home') ? resolve(opt('--monitor-home') as string) : '';
 const DEV = argv.includes('--dev');
 const ONLY = opt('--only')?.split(',');
-if (!opt('--out') || !MONITOR_HOME) {
-  console.error('usage: qualify.ts --out DIR --monitor-home DIR [--repo DIR] [--dev] [--only ID,ID] [--controls]');
+const SKIP = opt('--skip')?.split(',').filter(Boolean) ?? [];
+const SKIP_WHY = opt('--skip-why') ?? '';
+const USAGE = 'usage: qualify.ts --out DIR --monitor-home DIR [--repo DIR] [--dev] [--only ID,ID] [--controls] [--skip ID,ID --skip-why TEXT] [--freeze]';
+if (!opt('--out') || !MONITOR_HOME || (SKIP.length > 0 && !SKIP_WHY)) {
+  console.error(USAGE);
+  if (SKIP.length > 0 && !SKIP_WHY) console.error('--skip needs --skip-why TEXT: a skipped check is reported as not run, with its reason');
   process.exit(2);
 }
 const EVID = join(OUT, 'evidence');
@@ -206,6 +218,73 @@ type Status = 'pass' | 'fail' | 'deferred' | 'not run';
 interface Check { id: string; line: string; ref: string; run?: () => Promise<string>; deferred?: string; notRun?: string; }
 class Fail extends Error {}
 const must = (ok: boolean, why: string): void => { if (!ok) throw new Fail(why); };
+
+// ── evidence taken elsewhere: REPLAY-02 (an isolated sandbox) and LIVE-01 (the operator's Mac) ────────
+// Each record names the commit it ran at. It holds for the frozen tree only when nothing has changed
+// since that commit outside docs/ui-cockpit/, where the ledger and the evidence itself live.
+const EVIDENCE = join(REPO, 'docs/ui-cockpit/c16');
+const LEDGER_DIR = 'docs/ui-cockpit/';
+/** The changed paths that break the binding: everything outside the ledger and evidence folder. */
+export function outsideEvidence(changed: string[]): string[] { return changed.filter((p) => !p.startsWith(LEDGER_DIR)); }
+/** Every path of the working tree (tracked, or untracked and not ignored) that differs from `commit`. */
+function changedSince(commit: string): string[] {
+  must(/^[0-9a-f]{40}$/.test(commit), `not a full commit hash: "${commit}"`);
+  must(spawnSync('git', ['cat-file', '-e', `${commit}^{commit}`], { cwd: REPO }).status === 0, `commit ${commit.slice(0, 7)} is not in this repository`);
+  const git = (...a: string[]): string[] => execFileSync('git', a, { cwd: REPO, encoding: 'utf8' }).split('\n').filter(Boolean);
+  return [...new Set([...git('diff', '--name-only', commit), ...git('ls-files', '-o', '--exclude-standard')])].sort();
+}
+/** The tree manifest's hash for `commit` as committed: a clean checkout of it, hashed the way the freeze hashes. */
+function manifestHash(commit: string): string {
+  const tmp = mkdtempSync(join(TMUXDIR, 'm-'));
+  try {
+    execFileSync('git', ['clone', '--quiet', '--shared', '--no-checkout', REPO, tmp]);
+    execFileSync('git', ['-C', tmp, 'checkout', '--quiet', commit]);
+    return createHash('sha256').update(treeManifest(tmp)).digest('hex');
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+}
+/** Checks that cannot run inside the sandbox replay (they are the evidence it feeds), and one that may not. */
+const REMOTE_MUST_SKIP = ['REPLAY-02', 'LIVE-01'];
+const REMOTE_MAY_SKIP = ['CANVAS-01']; // only where no Chromium could be installed and started, saying so
+interface RunRecord { dev: boolean; stopped: string | null; results: Array<{ id: string; status: string; detail: string }>; }
+/** What is wrong with a remote frozen run of `checks`: [] when every check that can run there passed there. */
+export function remoteVerdict(run: RunRecord, checks: Array<Pick<Check, 'id' | 'deferred' | 'notRun'>>): string[] {
+  const bad: string[] = [];
+  if (run.dev) bad.push('a development run (--dev), not a frozen one');
+  if (run.stopped) bad.push(`it stopped at ${run.stopped}`);
+  const got = new Map(run.results.map((r) => [r.id, r]));
+  const skipped = (id: string): boolean => got.get(id)?.status === 'not run' && /^Skipped in this run/.test(got.get(id)?.detail ?? '');
+  for (const c of checks) {
+    const r = got.get(c.id);
+    if (!r) { bad.push(`${c.id}: absent`); continue; }
+    if (c.deferred) { if (r.status !== 'deferred') bad.push(`${c.id}: ${r.status}, not deferred`); continue; }
+    if (c.notRun) { if (r.status !== 'not run') bad.push(`${c.id}: ${r.status}, not "not run"`); continue; }
+    if (REMOTE_MUST_SKIP.includes(c.id)) { if (!skipped(c.id)) bad.push(`${c.id}: ${r.status}, not skipped`); continue; }
+    if (r.status === 'pass' || (REMOTE_MAY_SKIP.includes(c.id) && skipped(c.id))) continue;
+    bad.push(`${c.id}: ${r.status}`);
+  }
+  for (const r of run.results) if (!checks.some((c) => c.id === r.id)) bad.push(`${r.id}: not a check of this runner`);
+  return bad;
+}
+/** The LIVE-01 steps, in order: a turn with a tool call, its interruption, the prompt usable after it, another turn. */
+const LIVE_STEPS = ['tool-turn', 'interrupt', 'prompt-after', 'second-turn'];
+interface LiveStep { id: string; ok: boolean; tools?: string[]; receipt?: string; outcome?: string; screens?: string[] }
+interface LiveRecord { commit: string; model: string; steps: LiveStep[]; spend: { run_usd: number; total_usd: number; cap_usd: number } }
+/** What is missing from a LIVE-01 record: [] when it holds every step, ok, within its spending cap. */
+export function liveVerdict(rec: LiveRecord): string[] {
+  const bad: string[] = [];
+  if (!/^[0-9a-f]{40}$/.test(rec?.commit ?? '')) bad.push('no full commit hash');
+  if (typeof rec?.model !== 'string' || rec.model.length === 0) bad.push('no model');
+  const steps: LiveStep[] = Array.isArray(rec?.steps) ? rec.steps : [];
+  const step = (id: string): LiveStep | undefined => steps.find((x) => x?.id === id);
+  for (const id of LIVE_STEPS) { const x = step(id); if (!x) bad.push(`no ${id} step`); else if (x.ok !== true) bad.push(`${id} not ok`); }
+  if (step('tool-turn') && !((step('tool-turn')?.tools?.length ?? 0) > 0)) bad.push('the tool turn names no tool call');
+  for (const id of ['tool-turn', 'second-turn']) if (step(id) && !step(id)?.receipt) bad.push(`${id} has no sealed receipt`);
+  if (step('interrupt') && step('interrupt')?.outcome !== 'cancelled') bad.push('the interruption did not end the turn as cancelled');
+  const sp = rec?.spend;
+  if (!sp || ![sp.run_usd, sp.total_usd, sp.cap_usd].every((n) => typeof n === 'number' && Number.isFinite(n) && n >= 0)) bad.push('spend not recorded');
+  else if (sp.total_usd > sp.cap_usd) bad.push(`spend $${sp.total_usd} over the $${sp.cap_usd} cap`);
+  return bad;
+}
 
 const CHECKS: Check[] = [
   // §18 Process and Copy ([cli] and [agent-tui] run only these two groups of §18)
@@ -743,7 +822,7 @@ const CHECKS: Check[] = [
 
   // Preservation, suites and replays.
   { id: 'SUITE-01', ref: 'dev', line: 'The related suites pass at the frozen tree', run: async () => {
-    const files = ['tests/repl-', 'tests/term-', 'tests/ui-', 'tests/studio-receipts', 'tests/evidence', 'tests/keyboard-contract'];
+    const files = ['tests/repl-', 'tests/term-', 'tests/ui-', 'tests/studio-', 'tests/evidence', 'tests/keyboard-contract', 'tests/bin-verbs'];
     const r = spawnSync(join(REPO, 'node_modules/.bin/vitest'), ['run', ...files], { cwd: REPO, encoding: 'utf8', timeout: 600_000 });
     const log = (r.stdout ?? '') + (r.stderr ?? '');
     writeFileSync(join(EVID, 'suite.log'), log);
@@ -763,9 +842,48 @@ const CHECKS: Check[] = [
     must(pv.status === 0 && j && j.gated === 0, `privacy gate exit ${pv.status}, gated ${j?.gated}`);
     return `tsc 0, tsgo 0; privacy gate: ${j.gated} gated, ${j.total} review-level matches in ${j.files} files`;
   } },
+  { id: 'CANVAS-01', ref: 'fourth order, step 5', line: 'Timmy Canvas in a real browser at desktop, tablet and phone sizes: its checks run, none skipped, and pass', run: async () => {
+    const r = spawnSync(join(REPO, 'node_modules/.bin/vitest'), ['run', 'tests/studio-canvas-browser.test.ts'], { cwd: REPO, encoding: 'utf8', timeout: 300_000 });
+    const log = ((r.stdout ?? '') + (r.stderr ?? '')).replace(/\x1b\[[0-9;]*m/g, '');
+    writeFileSync(join(EVID, 'canvas.log'), log);
+    const tests = log.split('\n').find((l) => /^\s*Tests\s/.test(l))?.trim() ?? '';
+    must(r.status === 0, `vitest exit ${r.status}: ${tests}`);
+    must(/\d+ passed/.test(tests) && !/skipped|todo/.test(tests), `the browser checks did not all run (no Chromium or Chrome?): "${tests}"`);
+    return `${tests.replace(/\s+/g, ' ')}, in a real Chromium`;
+  } },
   { id: 'REPLAY-01', ref: 'AGENTS §10 (local part)', line: 'A fresh clone with the frozen changes applied runs the REPL demo and passes the gate', run: async () => replay() },
-  { id: 'REPLAY-02', ref: 'AGENTS §10', line: 'Replay in isolated Vercel or Cloudflare sandboxes', notRun: 'Remote execution needs your explicit approval (AGENTS.md §3 and §10); not requested in this run.' },
-  { id: 'LIVE-01', ref: 'B1', line: 'A real model turn with a tool, a cancel and a usable prompt after it', notRun: 'No model key in this workspace; it is the B1 check on your Mac.' },
+  { id: 'REPLAY-02', ref: 'AGENTS §10', line: 'This frozen run, repeated in an isolated Vercel sandbox on a fresh clone at a commit the frozen tree differs from only in docs/ui-cockpit/: every check that can run there passed there', run: async () => {
+    const dir = join(EVIDENCE, 'replay-02');
+    for (const f of ['freeze.json', 'results.json', 'controls.txt', 'replay.json']) must(existsSync(join(dir, f)), `no ${f} in docs/ui-cockpit/c16/replay-02/`);
+    const fz = JSON.parse(readFileSync(join(dir, 'freeze.json'), 'utf8')) as { head: string; manifest: string; node: string; tmux: string; runner: string };
+    const run = JSON.parse(readFileSync(join(dir, 'results.json'), 'utf8')) as RunRecord;
+    const env = JSON.parse(readFileSync(join(dir, 'replay.json'), 'utf8')) as { platform: string; os: string };
+    const off = outsideEvidence(changedSince(fz.head));
+    must(off.length === 0, `changed since ${fz.head.slice(0, 7)} outside docs/ui-cockpit/: ${off.slice(0, 8).join(', ')}`);
+    must(fz.manifest === manifestHash(fz.head), `the sandbox's tree was not commit ${fz.head.slice(0, 7)} as committed`);
+    const runner = createHash('sha256').update(readFileSync(join(REPO, 'scripts/ui/qualify.ts'))).digest('hex');
+    must(fz.runner === runner, 'the sandbox ran another runner');
+    const bad = remoteVerdict(run, CHECKS);
+    must(bad.length === 0, `the sandbox run: ${bad.join('; ')}`);
+    const here = join(OUT, 'controls.txt');
+    must(existsSync(here), 'run with --controls: the sandbox negative controls are compared with this run\'s');
+    must(readFileSync(join(dir, 'controls.txt'), 'utf8') === readFileSync(here, 'utf8'), 'the sandbox negative controls differ from this run\'s');
+    must(env.platform === 'vercel-sandbox' && typeof env.os === 'string' && env.os.length > 0, 'replay.json names no isolated platform');
+    const n = (s: string) => run.results.filter((r) => r.status === s).length;
+    const skipped = run.results.filter((r) => r.status === 'not run').map((r) => r.id);
+    return `Vercel Sandbox (${env.os}; Node ${fz.node}, ${fz.tmux}) on a clean clone at ${fz.head.slice(0, 7)}: ${n('pass')} passed, 0 failed, ${n('deferred')} deferred, not run there: ${skipped.join(', ')}; the same ${readFileSync(here, 'utf8').trim().split('\n').length} negative controls; only docs/ui-cockpit/ changed since`;
+  } },
+  { id: 'LIVE-01', ref: 'B1; fourth order, step 6', line: 'On the operator\'s Mac, at a commit the frozen tree differs from only in docs/ui-cockpit/: a real model turn with a tool, its interruption, a usable prompt after it, and another turn (the record and its binding are checked here; the turns were watched there)', run: async () => {
+    const f = join(EVIDENCE, 'live-01', 'live-01.json');
+    must(existsSync(f), 'no docs/ui-cockpit/c16/live-01/live-01.json');
+    const rec = JSON.parse(readFileSync(f, 'utf8')) as LiveRecord;
+    const bad = liveVerdict(rec);
+    must(bad.length === 0, `the LIVE-01 record: ${bad.join('; ')}`);
+    for (const st of rec.steps) for (const sc of st.screens ?? []) must(existsSync(join(EVIDENCE, 'live-01', sc)), `the screen ${sc} is missing`);
+    const off = outsideEvidence(changedSince(rec.commit));
+    must(off.length === 0, `changed since ${rec.commit.slice(0, 7)} outside docs/ui-cockpit/: ${off.slice(0, 8).join(', ')}`);
+    return `at ${rec.commit.slice(0, 7)} with ${rec.model}: ${rec.steps.map((x) => x.id).join(', ')}, each ok; tools: ${rec.steps.find((x) => x.id === 'tool-turn')?.tools?.join(', ')}; $${rec.spend.run_usd} this run, $${rec.spend.total_usd} of the $${rec.spend.cap_usd} cap; only docs/ui-cockpit/ changed since`;
+  } },
   // Last: protected state compared after everything else ran, suites and replay included (AGENTS.md §2, step 8).
   { id: 'PRES-01', ref: 'AGENTS §6', line: 'The shared receipt store is byte for byte its preimage', run: async () => {
     const pre = join(OUT, 'freeze', 'runs.jsonl.pre');
@@ -896,8 +1014,14 @@ async function replay(): Promise<string> {
   };
   const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim();
   sh(`git clone --quiet --no-local ${q(REPO)} ${q(clone)} && git -C ${q(clone)} checkout --quiet ${base}`);
-  sh(`git -C ${q(REPO)} diff --binary ${base} > ${q(join(dir, 'tracked.patch'))} && git -C ${q(clone)} apply ${q(join(dir, 'tracked.patch'))}`);
-  sh(`git -C ${q(REPO)} ls-files -o --exclude-standard -z | xargs -0 tar -C ${q(REPO)} -cf ${q(join(dir, 'untracked.tar'))} && tar -C ${q(clone)} -xf ${q(join(dir, 'untracked.tar'))}`);
+  // A clean frozen tree is the commit itself: no patch to apply and no untracked file are not failures.
+  const patch = join(dir, 'tracked.patch');
+  sh(`git -C ${q(REPO)} diff --binary ${base} > ${q(patch)}`);
+  const patched = statSync(patch).size > 0;
+  if (patched) sh(`git -C ${q(clone)} apply ${q(patch)}`);
+  const untracked = execFileSync('git', ['ls-files', '-o', '--exclude-standard', '-z'], { cwd: REPO, encoding: 'utf8' }).split('\0').filter(Boolean);
+  if (untracked.length > 0) sh(`git -C ${q(REPO)} ls-files -o --exclude-standard -z | xargs -0 tar -C ${q(REPO)} -cf ${q(join(dir, 'untracked.tar'))} && tar -C ${q(clone)} -xf ${q(join(dir, 'untracked.tar'))}`);
+  log(`applied: ${patched ? 'the uncommitted changes' : 'no uncommitted change'}, ${untracked.length} untracked file(s)`);
   must(treeManifest(clone) === treeManifest(), 'the clone with the changes applied is not the frozen tree');
   const t0 = Date.now();
   sh('npm ci --ignore-scripts --no-audit --no-fund --prefer-offline --loglevel=error', clone, 1_200_000);
@@ -913,7 +1037,8 @@ async function replay(): Promise<string> {
   const g = gate(file, 'night');
   must(g.code === 0, `clone demo capture: gate exit ${g.code}`);
   sh(`${q(join(clone, 'node_modules/.bin/vitest'))} run tests/repl-turn.test.ts tests/repl-seal.test.ts tests/term-law-palette.test.ts tests/studio-receipts.test.ts`, clone, 600_000);
-  return `clone of ${base.slice(0, 7)} plus the frozen changes = the frozen tree (manifest identical); npm ci in ${installS}s; repl --help; the demo turn in a PTY (exit 0, stty unchanged, gate PASS); 4 suites pass in the clone`;
+  const what = patched || untracked.length > 0 ? `clone of ${base.slice(0, 7)} plus the frozen changes` : `clean clone of ${base.slice(0, 7)} (the frozen tree is that commit)`;
+  return `${what} = the frozen tree (manifest identical); npm ci in ${installS}s; repl --help; the demo turn in a PTY (exit 0, stty unchanged, gate PASS); 4 suites pass in the clone`;
 }
 
 // ── negative controls for the primitives (DOCTRINE §12) ─────────────────────────────────────────
@@ -934,6 +1059,18 @@ async function controls(): Promise<string[]> {
   expectFail('an undeclared import', () => { must(undeclaredImports(['imp', 'ort x fr', 'om ', "'left", "-pad';"].join(''), new Set(['react'])).length === 0, 'undeclared'); });
   expectFail('an em dash in copy', () => { must(!'read-only \u2014 posture'.includes(EM_DASH), 'em dash'); });
   expectFail('unbalanced sync', () => { const s = '\x1b[?2026hx'; must(count(s, '\x1b[?2026h') === count(s, '\x1b[?2026l'), 'sync'); });
+  // Evidence taken elsewhere (REPLAY-02, LIVE-01): each primitive on a record known to be wrong.
+  expectFail('evidence older than a source change', () => { must(outsideEvidence(['docs/ui-cockpit/CHECKPOINTS.md', 'src/repl/main.ts']).length === 0, 'bound'); });
+  expectFail('a remote run with a failed check', () => { must(remoteVerdict({ dev: false, stopped: 'CLI-01', results: [{ id: 'CLI-01', status: 'fail', detail: 'x' }] }, [{ id: 'CLI-01' }]).length === 0, 'remote'); });
+  expectFail('a remote development run', () => { must(remoteVerdict({ dev: true, stopped: null, results: [{ id: 'CLI-01', status: 'pass', detail: 'x' }] }, [{ id: 'CLI-01' }]).length === 0, 'dev'); });
+  expectFail('a remote run that skipped a check it can run', () => { must(remoteVerdict({ dev: false, stopped: null, results: [{ id: 'CLI-01', status: 'not run', detail: 'Skipped in this run (--skip): x' }] }, [{ id: 'CLI-01' }]).length === 0, 'skip'); });
+  const live: LiveRecord = { commit: 'a'.repeat(40), model: 'm', steps: [{ id: 'tool-turn', ok: true, tools: ['t'], receipt: 'r' }, { id: 'interrupt', ok: true, outcome: 'cancelled' }, { id: 'prompt-after', ok: true }, { id: 'second-turn', ok: true, receipt: 'r' }], spend: { run_usd: 0.1, total_usd: 0.5, cap_usd: 2 } };
+  expectFail('a LIVE-01 record without its interruption', () => { must(liveVerdict({ ...live, steps: live.steps.filter((x) => x.id !== 'interrupt') }).length === 0, 'live'); });
+  expectFail('a LIVE-01 record over its cap', () => { must(liveVerdict({ ...live, spend: { run_usd: 0.1, total_usd: 2.5, cap_usd: 2 } }).length === 0, 'cap'); });
+  // And their positive controls: a gate that refused everything would also pass the negative ones.
+  const expectPass = (name: string, bad: string[]) => { if (bad.length > 0) throw new Error(`positive control ${name} failed: ${bad.join('; ')}`); out.push(`${name}: passes as it should`); };
+  expectPass('a good LIVE-01 record', liveVerdict(live));
+  expectPass('a good remote run', remoteVerdict({ dev: false, stopped: null, results: [{ id: 'CLI-01', status: 'pass', detail: 'x' }, { id: 'CLI-18', status: 'deferred', detail: 'x' }, { id: 'LIVE-01', status: 'not run', detail: 'Skipped in this run (--skip): x' }] }, [{ id: 'CLI-01' }, { id: 'CLI-18', deferred: 'x' }, { id: 'LIVE-01' }]));
   // The contrast gate on a capture known to fail: grey-2 text on the Night ground.
   const bad = join(EVID, 'control-low-contrast.ansi');
   writeFileSync(bad, '\x1b[38;2;64;64;64mthis text is too dim to read\x1b[39m\n');
@@ -960,6 +1097,7 @@ if (argv.includes('--freeze')) {
     runner: sha('scripts/ui/qualify.ts'), fixture: sha('tests/fixtures/repl-qualify-fixture.ts'), gate: sha('scripts/ui/gate.ts'), lockfile: sha('package-lock.json'),
     monitorHome: MONITOR_HOME ? execFileSync('bash', ['-c', 'find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum'], { cwd: MONITOR_HOME, encoding: 'utf8' }).trim().split(' ')[0] : null,
     checks: CHECKS.map((c) => ({ id: c.id, line: c.line, ...(c.deferred ? { deferred: c.deferred } : {}), ...(c.notRun ? { notRun: c.notRun } : {}) })),
+    ...(SKIP.length > 0 ? { skip: SKIP, skipWhy: SKIP_WHY } : {}),
   };
   writeFileSync(join(dir, 'freeze.json'), JSON.stringify(info, null, 2));
   console.log(`frozen: ${info.files} files, manifest ${info.manifest.slice(0, 12)}, runner ${info.runner.slice(0, 12)}, store ${info.store.bytes} bytes`);
@@ -974,13 +1112,15 @@ let stopped: string | null = null;
 if (argv.includes('--controls')) {
   const c = await controls();
   writeFileSync(join(OUT, 'controls.txt'), `${c.join('\n')}\n`);
-  console.log(`controls: ${c.length} negative controls fail as they should`);
+  const positive = c.filter((l) => l.endsWith('passes as it should')).length;
+  console.log(`controls: ${c.length - positive} negative controls fail as they should, ${positive} positive controls pass`);
 }
 for (const c of CHECKS) {
   if (ONLY && !ONLY.includes(c.id)) continue;
   const t0 = Date.now();
   if (c.deferred) { results.push({ id: c.id, ref: c.ref, line: c.line, status: 'deferred', detail: c.deferred, ms: 0 }); continue; }
   if (c.notRun) { results.push({ id: c.id, ref: c.ref, line: c.line, status: 'not run', detail: c.notRun, ms: 0 }); continue; }
+  if (SKIP.includes(c.id)) { results.push({ id: c.id, ref: c.ref, line: c.line, status: 'not run', detail: `Skipped in this run (--skip): ${SKIP_WHY}`, ms: 0 }); continue; }
   if (stopped) { results.push({ id: c.id, ref: c.ref, line: c.line, status: 'not run', detail: `Not run: the qualification stopped at ${stopped} (AGENTS.md §5).`, ms: 0 }); continue; }
   try {
     const detail = await (c.run as () => Promise<string>)();
