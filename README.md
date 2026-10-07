@@ -95,6 +95,29 @@ every call receipted.
 }
 ```
 
+## Terminal colors
+
+Timmy draws in your terminal's own 16 colors and never paints its background.
+When it starts, it asks the terminal for its background and palette (OSC 11
+and OSC 4: macOS Terminal answers, as do iTerm2, Ghostty, kitty, WezTerm and
+Alacritty, and recent tmux and zellij pass the answer on) and measures a color
+before it uses one:
+
+- A meaning takes its color only when that color reads on your background:
+  4.5:1 for text, 3:1 for rules, 7:1 for secondary text. A color that misses
+  gives way to its bright twin (on macOS Terminal's "Clear Dark", red is 3.1:1
+  and bright red 4.6:1); when both miss, the meaning goes without color.
+- Every meaning also has a mark and a word, so no color carries a meaning
+  alone: `✓ RECEIPT … signed and verified`, `✖ Denied`, `NEEDS YOU`, and `◉`
+  for what a model made (`[OK]` and `[FAIL]` without Unicode).
+- **When the terminal does not say its background** (some multiplexers, older
+  terminals, a slow link), Timmy cannot measure, so meanings have no color and
+  everything is in your terminal's own text color, which reads on your
+  background. For color there, install Timmy's palette in your terminal
+  (`timmy theme install`) and set `TIMMY_PALETTE=night` or `day`.
+- `/theme` in the REPL shows what was measured and the color each meaning
+  takes. `NO_COLOR` turns color off.
+
 ## Docs
 
 - [ROADMAP.md](ROADMAP.md) — public now/next

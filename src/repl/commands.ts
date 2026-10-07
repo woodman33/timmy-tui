@@ -7,12 +7,44 @@ import type { Segment } from '../term/theme.js';
 import { plural } from './steps.js';
 import { nearest } from './suggest.js';
 
+/** The four meanings with a color of their own (DESIGN.md §10 B2, B4). */
+export type MeaningRole = 'verified' | 'estimate' | 'failure' | 'ai';
+
 export interface ThemeInfo {
   source: string;
   background: string | null;
   secondary: string;
   tint: string | null;
   files: string;
+  /** Whether Timmy emits color here at all (not under NO_COLOR or without color support). */
+  color: boolean;
+  /** The palette slot each meaning is drawn in here, or null: no color, its mark and word carry it. */
+  meanings: Record<MeaningRole, number | null>;
+}
+
+const MEANING_WORDS: Record<MeaningRole, string> = { verified: 'verified', estimate: 'estimate', failure: 'failure', ai: 'model' };
+const SLOT_WORDS = ['black', 'red', 'green', 'yellow', 'blue', 'violet', 'cyan', 'white'];
+const slotWord = (slot: number): string => (slot < 8 ? SLOT_WORDS[slot] : `bright ${SLOT_WORDS[slot - 8]}`);
+
+/**
+ * Fourth order, step 2 (readability): the color each meaning takes on this terminal, or the fallback and
+ * why. A meaning without color still has its mark and its word (README, "Terminal colors").
+ */
+function meaningLines(info: ThemeInfo, sep: string): Segment[][] {
+  const label = { text: '  Meanings   ', role: 'secondary' as const };
+  if (!info.color) return [[label, { text: 'no color: color is off here (NO_COLOR, or no color support), so marks and words carry them' }]];
+  if (!info.background) {
+    return [
+      [label, { text: 'no color: the terminal did not say its background, so marks and words carry them' }],
+      [{ text: '  For color  ', role: 'secondary' }, { text: 'timmy theme install', role: 'strong' }, { text: ', then TIMMY_PALETTE=night or day' }],
+    ];
+  }
+  const entries = Object.entries(info.meanings) as Array<[MeaningRole, number | null]>;
+  const lines: Segment[][] = [[label, { text: entries.map(([role, slot]) => `${MEANING_WORDS[role]} ${slot === null ? 'no color' : slotWord(slot)}`).join(sep) }]];
+  if (entries.some(([, slot]) => slot === null)) {
+    lines.push([{ text: '             ' }, { text: 'no color: under 4.5:1 on this ground, so the mark and the word carry it', role: 'secondary' }]);
+  }
+  return lines;
 }
 
 export interface ReceiptsView {
@@ -88,6 +120,7 @@ export const COMMANDS: SlashCommand[] = [
       const s = ` ${ctx.glyphs.sep} `;
       ctx.print([{ text: '  Palette    ', role: 'secondary' }, { text: info.source, role: 'strong' }]);
       ctx.print([{ text: '  Measured   ', role: 'secondary' }, { text: `ground ${info.background ?? 'unknown'}${s}secondary ${info.secondary}${s}input tint ${info.tint ?? 'none'}` }]);
+      for (const line of meaningLines(info, s)) ctx.print(line);
       ctx.print([{ text: '  Themes     ', role: 'secondary' }, { text: info.files }, { text: ' (Ghostty, iTerm2, WezTerm, kitty, Alacritty, zellij)', role: 'secondary' }]);
     },
   },

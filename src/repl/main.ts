@@ -22,7 +22,7 @@ import { LiveRegion } from '../term/live-region.js';
 import { measuredFromPalette, namedPalette, TIMMY_DAY, TIMMY_NIGHT, type MeasuredColors } from '../term/palettes.js';
 import { measureTerminal } from '../term/probe.js';
 import { EXIT, TerminalSession } from '../term/session.js';
-import { buildTheme, fitSegments, serialize, type Segment, type Theme } from '../term/theme.js';
+import { buildTheme, fitSegments, roleSlots, serialize, type Segment, type Theme } from '../term/theme.js';
 import { DEMO_LOADER, DEMO_TURN, type DemoStep } from './demo.js';
 import { hyperlink, OSC133 } from '../term/marks.js';
 import { gateTools, readDecision } from './approvals.js';
@@ -196,6 +196,8 @@ export async function runRepl(argv: string[]): Promise<number> {
       secondary: secondary === '\x1b[37m' ? 'white (37)' : secondary === '\x1b[90m' ? 'gray (90)' : 'your text color',
       tint: theme.tint,
       files: join(packageRoot(), 'assets', 'themes'),
+      color: caps.color > 0,
+      meanings: (({ verified, estimate, failure, ai }) => ({ verified, estimate, failure, ai }))(roleSlots(caps, measured)),
     };
   };
   const receipts = (): ReceiptsView => {

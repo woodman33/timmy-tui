@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { detectCapabilities } from '../src/term/capabilities.js';
-import { measuredFromPalette, TERMINAL_BASIC, TIMMY_DAY, TIMMY_NIGHT } from '../src/term/palettes.js';
+import { measuredFromPalette, TERMINAL_BASIC, TERMINAL_CLEAR_DARK, TIMMY_DAY, TIMMY_NIGHT } from '../src/term/palettes.js';
 import { buildTheme, fitSegments, serialize, type Role } from '../src/term/theme.js';
 
 // The semantic map (DESIGN.md §10 B2–B5): Timmy emits only the 16 theme colors plus one computed
@@ -41,9 +41,34 @@ describe('roles', () => {
     const basic = buildTheme(TRUECOLOR, measuredFromPalette(TERMINAL_BASIC));
     expect(opens(basic, ['verified', 'estimate', 'failure', 'ai', 'rule'])).toEqual(['\x1b[1m', '', '\x1b[1;31m', '\x1b[35m', '\x1b[90m']);
   });
-  it("drops Night's violet on the operator's audited #191919 ground (4.15:1) and keeps the glyph and word", () => {
+  // Fourth order, step 2 (readability): a normal slot that misses its floor gives way to its bright twin
+  // (the same meaning in the same theme) when the twin clears; only when both miss is the color dropped.
+  it("takes Night's bright violet on the operator's audited #191919 ground: violet is 4.15:1 there, bright violet 6.46:1", () => {
     const audited = buildTheme(TRUECOLOR, { ...measuredFromPalette(TIMMY_NIGHT), background: '#191919' });
-    expect(opens(audited, ['ai', 'verified', 'failure', 'secondary'])).toEqual(['', '\x1b[1;32m', '\x1b[1;31m', '\x1b[37m']);
+    expect(opens(audited, ['ai', 'verified', 'failure', 'secondary'])).toEqual(['\x1b[95m', '\x1b[1;32m', '\x1b[1;31m', '\x1b[37m']);
+    expect(audited.close('ai')).toBe('\x1b[39m');
+  });
+  it('keeps failure red on macOS Terminal "Clear Dark" as measured on the Mac: red is 3.09:1 there, bright red 4.61:1', () => {
+    const clearDark = buildTheme(TRUECOLOR, measuredFromPalette(TERMINAL_CLEAR_DARK));
+    expect(opens(clearDark, ['verified', 'estimate', 'failure', 'ai', 'rule', 'secondary', 'diffAdd', 'diffRemove']))
+      .toEqual(['\x1b[1;32m', '\x1b[33m', '\x1b[1;91m', '\x1b[35m', '', '\x1b[37m', '\x1b[32m', '\x1b[91m']);
+  });
+  it('drops a color only when its bright twin misses too (Basic: green 3.25:1, bright green 1.92:1)', () => {
+    const basic = buildTheme(TRUECOLOR, measuredFromPalette(TERMINAL_BASIC));
+    expect(opens(basic, ['verified', 'estimate', 'diffAdd', 'diffRemove'])).toEqual(['\x1b[1m', '', '', '\x1b[31m']);
+  });
+  // The fallback for an unknown ground (README, "Terminal colors"): a color Timmy has not measured on your
+  // ground cannot be shown readable there, so meanings go without color and the glyph and word carry them.
+  it('gives meanings no color when the ground was not measured, keeping the bold word', () => {
+    expect(opens(unknown, ['verified', 'estimate', 'failure', 'ai', 'rule', 'diffAdd', 'diffRemove', 'strong']))
+      .toEqual(['\x1b[1m', '', '\x1b[1m', '', '', '', '', '\x1b[1m']);
+  });
+  it('gives a meaning no color when its own slot was not measured, though the ground was', () => {
+    const groundOnly = buildTheme(TRUECOLOR, { background: '#000000', slots: {} });
+    expect(opens(groundOnly, ['verified', 'failure', 'ai', 'rule', 'secondary'])).toEqual(['\x1b[1m', '\x1b[1m', '', '', '']);
+    const { 3: _yellow, 11: _brightYellow, ...rest } = measuredFromPalette(TIMMY_NIGHT).slots;
+    const noYellow = buildTheme(TRUECOLOR, { background: '#000000', slots: rest });
+    expect(opens(noYellow, ['estimate', 'verified'])).toEqual(['', '\x1b[1;32m']);
   });
   it('keeps bold but no color under NO_COLOR, and emits nothing at all into a pipe', () => {
     const noColor = buildTheme(capsFor({ TERM: 'xterm-256color', NO_COLOR: '1' }), measuredFromPalette(TIMMY_NIGHT));

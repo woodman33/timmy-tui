@@ -1,16 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { glyphSet } from '../src/term/glyphs.js';
-import { COMMANDS, runSlash, type ReplContext } from '../src/repl/commands.js';
+import { COMMANDS, runSlash, type ReplContext, type ThemeInfo } from '../src/repl/commands.js';
 
 // Slash commands come from one registry, run locally, and never reach the model (playbook §17.7).
-const ctx = () => {
+const NIGHT_INFO: ThemeInfo = {
+  source: 'TIMMY_PALETTE=night', background: '#000000', secondary: 'white (37)', tint: '48;2;31;31;31', files: '/pkg/assets/themes',
+  color: true, meanings: { verified: 2, estimate: 3, failure: 1, ai: 5 },
+};
+const ctx = (info: ThemeInfo = NIGHT_INFO) => {
   const printed: string[] = [];
   const state = { model: 'anthropic/claude-sonnet-4.5', sessions: 0, watched: 0 };
   const c: ReplContext = {
     agent: { getModel: () => state.model, setModel: (m) => { state.model = m; }, startSession: () => `s${++state.sessions}` },
     print: (segments) => printed.push(segments.map((s) => s.text).join('')),
     glyphs: glyphSet(false),
-    themeInfo: () => ({ source: 'TIMMY_PALETTE=night', background: '#000000', secondary: 'white (37)', tint: '48;2;31;31;31', files: '/pkg/assets/themes' }),
+    themeInfo: () => ({ ...info }),
     receipts: () => ({ verify: { ok: true, count: 12 }, recent: [{ hash: 'sha256_1fb6eb93aa00', kind: 'model.policy', when: '2026-10-06 23:41' }] }),
     openWatch: () => { state.watched++; return 'in a tmux pane'; },
     setup: () => [[{ text: '  SETUP CHECK' }], [{ text: '  ✓ RECEIPT 3f9a2c1d' }, { text: '  setup check sealed and verified' }]],
@@ -65,14 +69,38 @@ describe('slash commands', () => {
 });
 
 describe('cockpit commands', () => {
-  it('/theme says what Timmy measured and where the palettes are', () => {
+  it('/theme says what Timmy measured, the color each meaning takes here, and where the palettes are', () => {
     const { c, printed } = ctx();
     runSlash('/theme', c);
     expect(printed).toEqual([
       '  Palette    TIMMY_PALETTE=night',
       '  Measured   ground #000000 - secondary white (37) - input tint 48;2;31;31;31',
+      '  Meanings   verified green - estimate yellow - failure red - model violet',
       '  Themes     /pkg/assets/themes (Ghostty, iTerm2, WezTerm, kitty, Alacritty, zellij)',
     ]);
+  });
+  // Fourth order, step 2 (readability): a meaning with no color here is named, with why, and the fallback
+  // for an unknown ground is said where it applies, with what to do for color (README, "Terminal colors").
+  it('/theme names a meaning that has no color on this ground, and a bright twin by its name', () => {
+    const { c, printed } = ctx({ ...NIGHT_INFO, source: 'measured (OSC 11)', background: '#FFFFFF', meanings: { verified: null, estimate: null, failure: 9, ai: 5 } });
+    runSlash('/theme', c);
+    expect(printed.slice(2, 4)).toEqual([
+      '  Meanings   verified no color - estimate no color - failure bright red - model violet',
+      '             no color: under 4.5:1 on this ground, so the mark and the word carry it',
+    ]);
+  });
+  it('/theme says the fallback when the terminal did not say its background, and how to get color', () => {
+    const { c, printed } = ctx({ ...NIGHT_INFO, source: 'unknown (the terminal did not answer)', background: null, secondary: 'your text color', tint: null, meanings: { verified: null, estimate: null, failure: null, ai: null } });
+    runSlash('/theme', c);
+    expect(printed.slice(2, 4)).toEqual([
+      '  Meanings   no color: the terminal did not say its background, so marks and words carry them',
+      '  For color  timmy theme install, then TIMMY_PALETTE=night or day',
+    ]);
+  });
+  it('/theme says when color is off altogether', () => {
+    const { c, printed } = ctx({ ...NIGHT_INFO, color: false, meanings: { verified: null, estimate: null, failure: null, ai: null } });
+    runSlash('/theme', c);
+    expect(printed[2]).toBe('  Meanings   no color: color is off here (NO_COLOR, or no color support), so marks and words carry them');
   });
   it('/receipts verifies the chain before it shows anything as verified', () => {
     const { c, printed } = ctx();

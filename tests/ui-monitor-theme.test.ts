@@ -10,7 +10,7 @@ import { render } from 'ink-testing-library';
 import { parseAnsiFrame, TIMMY_DAY } from '../src/tui/qa/ansi-frame.js';
 import visualLaw from '../lanes/visual/tokens.json' with { type: 'json' };
 import { lawPalette } from '../src/term/law-palette.js';
-import { measuredFromPalette, TERMINAL_BASIC, TIMMY_NIGHT, type MeasuredColors, type TerminalPalette } from '../src/term/palettes.js';
+import { measuredFromPalette, TERMINAL_BASIC, TERMINAL_CLEAR_DARK, TIMMY_NIGHT, type MeasuredColors, type TerminalPalette } from '../src/term/palettes.js';
 import { roleSlots } from '../src/term/theme.js';
 import { BootFrame } from '../src/tui/ui/BootFrame.js';
 
@@ -21,7 +21,8 @@ import { BootFrame } from '../src/tui/ui/BootFrame.js';
 // the audited terminal, whose palette the monitor could not measure. Floors: neutral text 7:1,
 // colored text 4.5:1, lines 3:1.
 const AUDITED = { ...TIMMY_NIGHT, name: 'audited', background: '#191919' };
-const MEASURED: Array<[TerminalPalette, MeasuredColors]> = [TIMMY_NIGHT, TIMMY_DAY, TERMINAL_BASIC].map((p) => [p, measuredFromPalette(p)]);
+// Fourth order, step 2: with the stock light and dark themes of the operator's Mac as Terminal answered them.
+const MEASURED: Array<[TerminalPalette, MeasuredColors]> = [TIMMY_NIGHT, TIMMY_DAY, TERMINAL_BASIC, TERMINAL_CLEAR_DARK].map((p) => [p, measuredFromPalette(p)]);
 const CASES: Array<[TerminalPalette, MeasuredColors]> = [...MEASURED, [AUDITED, { background: null, slots: {} }]];
 const LAW: Record<string, string> = Object.fromEntries(Object.entries(visualLaw.color).map(([k, v]) => [k, v.value]));
 /** The color `palette` shows for a token after the monitor's output map, and the ground under it. */

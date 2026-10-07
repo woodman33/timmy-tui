@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import visualLaw from '../lanes/visual/tokens.json' with { type: 'json' };
 import { lawPalette } from '../src/term/law-palette.js';
-import { measuredFromPalette, TERMINAL_BASIC, TIMMY_DAY, TIMMY_NIGHT, type MeasuredColors } from '../src/term/palettes.js';
+import { measuredFromPalette, TERMINAL_BASIC, TERMINAL_CLEAR_DARK, TIMMY_DAY, TIMMY_NIGHT, type MeasuredColors } from '../src/term/palettes.js';
 import { roleSlots } from '../src/term/theme.js';
 
 // C-11 under B2 (row 28): the monitor is written in the law's colors and reaches the terminal as the
@@ -30,6 +30,16 @@ describe('law colors to the palette', () => {
   it('a slot that misses its floor on the measured ground is dropped; the glyph and word keep the meaning', () => {
     const basic = mapper(measuredFromPalette(TERMINAL_BASIC));
     expect([basic(fg('seal')), basic(fg('refuse'))]).toEqual(['\x1b[39m', '\x1b[31m']);
+  });
+  // Fourth order, step 2: before it is dropped, a meaning's slot gives way to its bright twin when that one
+  // clears; and with nothing measured no meaning takes a color (README, "Terminal colors").
+  it('on macOS Terminal "Clear Dark" as measured, refuse takes bright red: red is 3.09:1 there, bright red 4.61:1', () => {
+    const clearDark = mapper(measuredFromPalette(TERMINAL_CLEAR_DARK));
+    expect(['seal', 'refuse', 'predict', 'generated', 'grey-2'].map((n) => clearDark(fg(n))))
+      .toEqual(['\x1b[32m', '\x1b[91m', '\x1b[33m', '\x1b[35m', '\x1b[39m']);
+  });
+  it('with nothing measured, the four meanings and the rules take the terminal\'s own text color', () => {
+    expect(['seal', 'refuse', 'predict', 'generated', 'grey-2'].map((n) => mapper(UNKNOWN)(fg(n)))).toEqual(Array(5).fill('\x1b[39m'));
   });
   it('other attributes in the same sequence stay; a color that is not the law passes unchanged', () => {
     expect(night(`\x1b[1;${fg('seal').slice(2, -1)};${bg('black').slice(2, -1)}mok`)).toBe('\x1b[1;32;49mok');

@@ -43,15 +43,17 @@ describe('block input', () => {
 });
 
 describe('bordered input', () => {
-  it('uses rules around `› text` when the ground is not measured', () => {
+  // Fourth order, step 2: on an unmeasured ground slot 8 is not measured either, so the rules take the
+  // terminal's own text color, which reads on its own ground (README, "Terminal colors").
+  it('uses rules around `› text` when the ground is not measured, in the terminal\'s own text color', () => {
     const v = renderInput(editor('hi'), UNMEASURED, 10);
-    expect(v.lines.slice(0, 3)).toEqual(['\x1b[90m──────────\x1b[39m', '› hi', '\x1b[90m──────────\x1b[39m']);
+    expect(v.lines.slice(0, 3)).toEqual(['──────────', '› hi', '──────────']);
     expect(v.cursor).toEqual({ row: 1, col: 4 });
   });
   it('uses > and - without Unicode, including where the hint is cut', () => {
     const v = renderInput(editor('hi'), ASCII, 10);
     expect([...v.lines.join('')].filter((ch) => ch > '~')).toEqual([]);
-    expect(v.lines.slice(0, 3)).toEqual(['\x1b[90m----------\x1b[39m', '> hi', '\x1b[90m----------\x1b[39m']);
+    expect(v.lines.slice(0, 3)).toEqual(['----------', '> hi', '----------']);
   });
 });
 
