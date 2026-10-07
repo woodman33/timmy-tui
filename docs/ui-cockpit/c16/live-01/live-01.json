@@ -1,0 +1,88 @@
+{
+  "check": "LIVE-01",
+  "commit": "b979527c00e26df8a9a5bbf372376bef3efd70ad",
+  "where": "the operator's Mac: a Terminal window showing a tmux 3.6b session; keys were sent to tmux, never to Terminal",
+  "command": "bare timmy: node --import tsx timmy.ts, the installed command's bin from source, which starts `src/cli.ts repl` as its child process (seen in the process tree)",
+  "isolation": "a clean clone at the commit, in /tmp; a fresh home, Timmy home and receipt store under /tmp; a minimal environment; the model key read from Timmy's own config into the process's environment, never printed",
+  "model": "anthropic/claude-opus-4.7",
+  "steps": [
+    {
+      "id": "setup",
+      "ok": true,
+      "observed": "the first-run prompt held /setup; Enter ran the setup check and sealed it",
+      "receipt": "rc_muyoz746_lny9",
+      "screens": [
+        "00-setup.txt"
+      ]
+    },
+    {
+      "id": "tool-turn",
+      "ok": true,
+      "prompt": "What is 48271 times 3917? Use the calculator tool, then answer in one sentence.",
+      "tools": [
+        "calculate"
+      ],
+      "answer": "48271 times 3917 is 189,077,507.",
+      "receipt": "rc_muyozlyw_tnuu",
+      "cost_usd": 0.054525,
+      "cost_measured": true,
+      "screens": [
+        "01-tool-turn.txt"
+      ]
+    },
+    {
+      "id": "interrupt",
+      "ok": true,
+      "prompt": "Use the calculator three times, one call per step and waiting for each result: 1234*5678, then 2345*6789, then 3456*7890. Then add the three results.",
+      "key": "Ctrl+C, sent to tmux as soon as the first calculator call showed; the REPL reads it as a key in raw mode",
+      "outcome": "cancelled",
+      "said": "Cancelled. 1 tool finished; no answer yet. Nothing was rolled back.",
+      "receipt": "rc_muyozu95_nh8o",
+      "cost_usd": 0.028445,
+      "cost_measured": false,
+      "screens": [
+        "02-interrupt.txt"
+      ]
+    },
+    {
+      "id": "prompt-after",
+      "ok": true,
+      "observed": "the prompt came back at once; the next request was typed into it and shown there before Enter",
+      "screens": [
+        "03-prompt-after.txt"
+      ]
+    },
+    {
+      "id": "second-turn",
+      "ok": true,
+      "prompt": "What is 1001 times 999? Use the calculator tool, then answer in one sentence.",
+      "tools": [
+        "calculate"
+      ],
+      "answer": "1001 times 999 is 999,999.",
+      "receipt": "rc_muyp06qe_sfpc",
+      "cost_usd": 0.0554,
+      "cost_measured": true,
+      "screens": [
+        "04-second-turn.txt"
+      ]
+    },
+    {
+      "id": "exit",
+      "ok": true,
+      "observed": "/exit, then the run script's line EXIT=0 TTY=same (stty compared before and after)",
+      "screens": [
+        "05-exit.txt"
+      ]
+    }
+  ],
+  "chain": "timmy receipts --json on the run's own store: 4 receipts, verified true (their fields are in receipts.json)",
+  "spend": {
+    "run_usd": 0.13837,
+    "total_usd": 0.516285,
+    "cap_usd": 2,
+    "source": "OpenRouter's counters for the key, read without printing the key, at 2026-10-07T22:40:38Z and 22:57:44Z: byok_usage_daily 0.377915 then 0.516285 (all of LIVE-01 today). Timmy's three sealed turn costs add to the same 0.13837."
+  },
+  "screens_note": "tmux capture-pane text, each line's trailing whitespace and the trailing blank lines removed; byte-identical to the copies made on the Mac (SHA-256 compared)",
+  "screenshot_note": "a screenshot of the real Terminal window was taken and given to the operator; it shows the account name and host, so it is not kept here"
+}
