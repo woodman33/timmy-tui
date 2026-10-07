@@ -217,6 +217,8 @@ const spawn = (args: string[], env: Record<string, string | undefined>, input = 
 type Status = 'pass' | 'fail' | 'deferred' | 'not run';
 interface Check { id: string; line: string; ref: string; run?: () => Promise<string>; deferred?: string; notRun?: string; }
 class Fail extends Error {}
+/** A check that could not run here, for a reason recorded as data: reported as not run, never as a pass. */
+class NotRun extends Error {}
 const must = (ok: boolean, why: string): void => { if (!ok) throw new Fail(why); };
 
 // ── evidence taken elsewhere: REPLAY-02 (an isolated sandbox) and LIVE-01 (the operator's Mac) ────────
@@ -241,6 +243,22 @@ function manifestHash(commit: string): string {
     execFileSync('git', ['-C', tmp, 'checkout', '--quiet', commit]);
     return createHash('sha256').update(treeManifest(tmp)).digest('hex');
   } finally { rmSync(tmp, { recursive: true, force: true }); }
+}
+/** The reason a recorded blocker (BLOCKED.json) gives for a check that runs elsewhere, with its time. */
+export function blockerOf(rec: { reason?: unknown; at?: unknown }): string {
+  must(typeof rec?.reason === 'string' && rec.reason.trim().length >= 20, 'the blocker gives no reason');
+  must(typeof rec?.at === 'string' && !Number.isNaN(Date.parse(rec.at)), 'the blocker gives no time');
+  return `${rec.reason} (recorded ${rec.at})`;
+}
+/** `dir` must hold the evidence or a recorded blocker, never both and never neither; a blocker ends the check as not run. */
+function evidenceOrBlocker(dir: string, evidence: string): void {
+  const where = `${dir.slice(REPO.length + 1)}/`;
+  const has = existsSync(join(dir, evidence));
+  if (existsSync(join(dir, 'BLOCKED.json'))) {
+    must(!has, `both ${evidence} and a blocker are recorded in ${where}`);
+    throw new NotRun(`Blocked: ${blockerOf(JSON.parse(readFileSync(join(dir, 'BLOCKED.json'), 'utf8')))}`);
+  }
+  must(has, `neither ${evidence} nor a recorded blocker in ${where}`);
 }
 /** Checks that cannot run inside the sandbox replay (they are the evidence it feeds), and one that may not. */
 const REMOTE_MUST_SKIP = ['REPLAY-02', 'LIVE-01'];
@@ -859,7 +877,8 @@ const CHECKS: Check[] = [
   { id: 'REPLAY-01', ref: 'AGENTS §10 (local part)', line: 'A fresh clone with the frozen changes applied runs the REPL demo and passes the gate', run: async () => replay() },
   { id: 'REPLAY-02', ref: 'AGENTS §10', line: 'This frozen run, repeated in an isolated Vercel sandbox on a fresh clone at a commit the frozen tree differs from only in docs/ui-cockpit/: every check that can run there passed there', run: async () => {
     const dir = join(EVIDENCE, 'replay-02');
-    for (const f of ['freeze.json', 'results.json', 'controls.txt', 'replay.json']) must(existsSync(join(dir, f)), `no ${f} in docs/ui-cockpit/c16/replay-02/`);
+    evidenceOrBlocker(dir, 'freeze.json');
+    for (const f of ['results.json', 'controls.txt', 'replay.json']) must(existsSync(join(dir, f)), `no ${f} in docs/ui-cockpit/c16/replay-02/`);
     const fz = JSON.parse(readFileSync(join(dir, 'freeze.json'), 'utf8')) as { head: string; manifest: string; node: string; tmux: string; runner: string };
     const run = JSON.parse(readFileSync(join(dir, 'results.json'), 'utf8')) as RunRecord;
     const env = JSON.parse(readFileSync(join(dir, 'replay.json'), 'utf8')) as { platform: string; os: string };
@@ -880,7 +899,7 @@ const CHECKS: Check[] = [
   } },
   { id: 'LIVE-01', ref: 'B1; fourth order, step 6', line: 'On the operator\'s Mac, at a commit the frozen tree differs from only in docs/ui-cockpit/: a real model turn with a tool, its interruption, a usable prompt after it, and another turn (the record and its binding are checked here; the turns were watched there)', run: async () => {
     const f = join(EVIDENCE, 'live-01', 'live-01.json');
-    must(existsSync(f), 'no docs/ui-cockpit/c16/live-01/live-01.json');
+    evidenceOrBlocker(join(EVIDENCE, 'live-01'), 'live-01.json');
     const rec = JSON.parse(readFileSync(f, 'utf8')) as LiveRecord;
     const bad = liveVerdict(rec);
     must(bad.length === 0, `the LIVE-01 record: ${bad.join('; ')}`);
@@ -1072,9 +1091,12 @@ async function controls(): Promise<string[]> {
   const live: LiveRecord = { commit: 'a'.repeat(40), model: 'm', steps: [{ id: 'tool-turn', ok: true, tools: ['t'], receipt: 'r' }, { id: 'interrupt', ok: true, outcome: 'cancelled' }, { id: 'prompt-after', ok: true }, { id: 'second-turn', ok: true, receipt: 'r' }], spend: { run_usd: 0.1, total_usd: 0.5, cap_usd: 2 } };
   expectFail('a LIVE-01 record without its interruption', () => { must(liveVerdict({ ...live, steps: live.steps.filter((x) => x.id !== 'interrupt') }).length === 0, 'live'); });
   expectFail('a LIVE-01 record over its cap', () => { must(liveVerdict({ ...live, spend: { run_usd: 0.1, total_usd: 2.5, cap_usd: 2 } }).length === 0, 'cap'); });
+  expectFail('a blocker without a reason', () => { blockerOf({ at: '2026-10-07T22:30:40Z' }); });
+  expectFail('a blocker without a time', () => { blockerOf({ reason: 'the sandbox could not be created from here' }); });
   // And their positive controls: a gate that refused everything would also pass the negative ones.
   const expectPass = (name: string, bad: string[]) => { if (bad.length > 0) throw new Error(`positive control ${name} failed: ${bad.join('; ')}`); out.push(`${name}: passes as it should`); };
   expectPass('a good LIVE-01 record', liveVerdict(live));
+  expectPass('a recorded blocker', ((): string[] => { try { blockerOf({ reason: 'the sandbox could not be created from here', at: '2026-10-07T22:30:40Z' }); return []; } catch (e) { return [String(e)]; } })());
   expectPass('a good remote run', remoteVerdict({ dev: false, stopped: null, results: [{ id: 'CLI-01', status: 'pass', detail: 'x' }, { id: 'CLI-18', status: 'deferred', detail: 'x' }, { id: 'LIVE-01', status: 'not run', detail: 'Skipped in this run (--skip): x' }] }, [{ id: 'CLI-01' }, { id: 'CLI-18', deferred: 'x' }, { id: 'LIVE-01' }]));
   // The contrast gate on a capture known to fail: grey-2 text on the Night ground.
   const bad = join(EVID, 'control-low-contrast.ansi');
@@ -1133,9 +1155,14 @@ for (const c of CHECKS) {
     console.log(`PASS ${c.id} ${detail}`);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
-    results.push({ id: c.id, ref: c.ref, line: c.line, status: 'fail', detail, ms: Date.now() - t0 });
-    console.log(`FAIL ${c.id} ${detail}`);
-    if (!DEV) stopped = c.id;
+    if (e instanceof NotRun) {
+      results.push({ id: c.id, ref: c.ref, line: c.line, status: 'not run', detail, ms: Date.now() - t0 });
+      console.log(`NOT RUN ${c.id} ${detail}`);
+    } else {
+      results.push({ id: c.id, ref: c.ref, line: c.line, status: 'fail', detail, ms: Date.now() - t0 });
+      console.log(`FAIL ${c.id} ${detail}`);
+      if (!DEV) stopped = c.id;
+    }
   }
   writeFileSync(join(OUT, 'results.json'), JSON.stringify({ started: started.toISOString(), dev: DEV, stopped, results }, null, 2));
 }
