@@ -1,13 +1,19 @@
 // tui-redesign-p6a3 STEP 7 — LIBRARY per spec §06: MODELS picker (role
 // groups, / fuzzy, pinned float, real spend), FLEET routes from
 // harness.policy (● connected / ○ not configured dim), BOARDS + PROJECTS.
-// Picker writes hit owner files (model-policy.json, models/notes.json) —
-// snapshot + restore around the suite.
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+// Picker writes go to owner files: the policy (model-policy.json) and the notes (notes.json).
+// Fourth order, step 4: here they go to temporary ones, the policy to the per-test TIMMY_POLICY_DIR
+// the setup file gives every test, the notes to a copy named by TIMMY_MODEL_NOTES, and the test
+// checks that the repo's src/models/notes.json and .timmy/model-policy.json are untouched. It used
+// to write the repo's files and put them back after the suite, so a file running beside it could
+// read or snapshot the written copy (the stray notes.json diffs the ledger recorded).
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render } from 'ink-testing-library';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { dirname } from 'path';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import { ShellV2 } from '../src/tui/components/ShellV2.js';
 import { policyPath, readPolicy } from '../src/harness/policy.js';
 import { notesPath } from '../src/models/registry.js';
@@ -27,20 +33,30 @@ async function until(view: ReturnType<typeof render>, pred: (f: string) => boole
   }
 }
 
-let policyBackup: string | null = null;
-let notesBackup: string | null = null;
-beforeAll(() => {
-  policyBackup = existsSync(policyPath()) ? readFileSync(policyPath(), 'utf8') : null;
-  notesBackup = existsSync(notesPath()) ? readFileSync(notesPath(), 'utf8') : null;
+const repoNotes = fileURLToPath(new URL('../src/models/notes.json', import.meta.url));
+const repoPolicy = policyPath(process.cwd());
+const bytes = (p: string): string | null => (existsSync(p) ? readFileSync(p, 'utf8') : null);
+let notesDir = '';
+let notesCopy = '';
+let previousNotes: string | undefined;
+beforeEach(() => {
+  notesDir = mkdtempSync(join(tmpdir(), 'timmy-notes-'));
+  notesCopy = join(notesDir, 'notes.json');
+  copyFileSync(repoNotes, notesCopy);
+  previousNotes = process.env.TIMMY_MODEL_NOTES;
+  process.env.TIMMY_MODEL_NOTES = notesCopy;
 });
-afterAll(() => {
-  if (policyBackup !== null) writeFileSync(policyPath(), policyBackup);
-  else if (existsSync(policyPath())) writeFileSync(policyPath(), '{}');
-  if (notesBackup !== null) writeFileSync(notesPath(), notesBackup);
+afterEach(() => {
+  if (previousNotes === undefined) delete process.env.TIMMY_MODEL_NOTES;
+  else process.env.TIMMY_MODEL_NOTES = previousNotes;
+  rmSync(notesDir, { recursive: true, force: true });
 });
 
 describe('LIBRARY tab (spec §06)', { timeout: 60000 }, () => {
   it('models picker + fleet routes + boards; Enter/h/p/n write policy + notes', async () => {
+    const repoNotesBefore = bytes(repoNotes);
+    const repoPolicyBefore = bytes(repoPolicy);
+    expect(notesPath()).toBe(notesCopy);
     const view = render(React.createElement(ShellV2, { width: 120 }));
     await until(view, x => x.includes('YOUR JOURNEY'));
     view.stdin.write('4');
@@ -73,7 +89,7 @@ describe('LIBRARY tab (spec §06)', { timeout: 60000 }, () => {
     f = await until(view, x => /(?:un)?pinned/.test(x));
     const pinId = (f.match(/(\S+) (?:un)?pinned/) ?? [])[1];
     expect(pinId).toBeTruthy();
-    const notes = JSON.parse(readFileSync(notesPath(), 'utf8')) as Record<string, { pinned?: boolean }>;
+    const notes = JSON.parse(readFileSync(notesCopy, 'utf8')) as Record<string, { pinned?: boolean }>;
     expect(notes[pinId]).toBeDefined();
 
     // [n] note saves free text against the (possibly re-sorted) selected model
@@ -84,7 +100,7 @@ describe('LIBRARY tab (spec §06)', { timeout: 60000 }, () => {
     f = await until(view, x => x.includes('note saved for'));
     const noteId = (f.match(/note saved for (\S+)/) ?? [])[1];
     expect(noteId).toBeTruthy();
-    const notes2 = JSON.parse(readFileSync(notesPath(), 'utf8')) as Record<string, { notes?: string }>;
+    const notes2 = JSON.parse(readFileSync(notesCopy, 'utf8')) as Record<string, { notes?: string }>;
     expect(notes2[noteId]?.notes).toBe('judge tier 1');
 
     // / fuzzy filter narrows the picker (last: leaving INSERT needs no clear).
@@ -97,5 +113,7 @@ describe('LIBRARY tab (spec §06)', { timeout: 60000 }, () => {
     expect(picker).toContain('nemotron');
     expect(picker).not.toContain('grok');
     view.unmount();
+    expect(bytes(repoNotes)).toBe(repoNotesBefore);
+    expect(bytes(repoPolicy)).toBe(repoPolicyBefore);
   });
 });
