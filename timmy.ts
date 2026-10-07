@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // timmy — the shipped bin (package.json "bin": dist/timmy.js).
 //
-// It answers three things itself: a bare `timmy` boots the Command Post, `version` prints the
-// package version, and `demo` writes the legacy demo receipt (README + tests/receipt.test.ts).
+// It answers two things itself: `version` prints the package version, and `demo` writes the legacy
+// demo receipt (README + tests/receipt.test.ts). A bare `timmy` is `timmy repl`, the inline REPL
+// (fourth order, step 6: it moved there once LIVE-01 passed on the operator's Mac, ledger row 71);
+// the full-screen monitor, the old Command Post, is `timmy watch`.
 // EVERY other verb is forwarded to src/cli.ts, the modern CLI surface — there is no verb
 // whitelist here any more (ui-v3-t9r2 C0 audit: `timmy cockpit|privacy|engine|clip|status|swarm`
 // never reached the installed command; Will, 2026-09-14). A verb the CLI learns is reachable
@@ -84,18 +86,9 @@ function decide(decision: Record<string, unknown>): void {
   process.exit(0);
 }
 
-// zero-config (v1.0.0-rc1): bare `timmy` boots the Tokyo Night Command Post
-if (args.length === 0) {
-  decide({ native: 'boot', argv: args });
-  const jsEntry = fileURLToPath(new URL('./cli.js', import.meta.url));      // packaged (dist siblings)
-  const tsEntry = fileURLToPath(new URL('./cli.tsx', import.meta.url));    // repo run
-  const r = fs.existsSync(jsEntry)
-    ? spawnSync(process.execPath, [jsEntry], { stdio: 'inherit' })
-    : spawnSync('npx', ['tsx', tsEntry], { stdio: 'inherit' });
-  process.exit(r.status ?? 0);
-}
-
-const command = cleanArgs[0];
+// Bare `timmy` opens the REPL: it goes on to the CLI as `timmy repl`.
+const forwarded = args.length === 0 ? ['repl'] : args;
+const command = args.length === 0 ? 'repl' : cleanArgs[0];
 
 if (command === 'version' || args.includes('--version') || args.includes('-v')) {
   decide({ native: 'version', argv: args });
@@ -109,9 +102,9 @@ if (command !== 'demo') {
   // linked bin runs from dist/; dev runs from source — resolve accordingly
   const compiled = import.meta.url.endsWith('.js');
   const cliPath = fileURLToPath(new URL(compiled ? './src/cli.js' : './src/cli.ts', import.meta.url));
-  decide({ forward: 'src/cli', cli: path.relative(process.cwd(), cliPath), argv: args });
+  decide({ forward: 'src/cli', cli: path.relative(process.cwd(), cliPath), argv: forwarded });
   const loader = compiled ? [] : ['--import', (await import('node:module')).createRequire(import.meta.url).resolve('tsx')];
-  const r = spawnSync(process.execPath, [...loader, cliPath, ...args], { stdio: 'inherit' });
+  const r = spawnSync(process.execPath, [...loader, cliPath, ...forwarded], { stdio: 'inherit' });
   process.exit(r.status ?? 1);
 }
 

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Bare `timmy` opens the inline REPL (`timmy repl`); the full-screen monitor,
+  the old Command Post, is `timmy watch`. The switch waited for LIVE-01, a
+  real model turn with a tool, a cancel and the next turn on the operator's
+  Mac, to pass.
+
+### Fixed
+- A turn's cost is what OpenRouter charged for every response of the turn
+  (with the provider's own charge on a BYOK key); a cancelled turn says
+  "at least" and its receipt marks the figure as not measured. It was a flat
+  per-token estimate of the last response only.
+
 ## [2.0.0-rc.1] - 2026-10-06
 
 First release candidate for v2, published to npm's `next` channel. Everything

@@ -43,10 +43,11 @@ function printHelp() {
   console.log(`TIMMY AgentOps
 
 Usage: timmy <command> [options]
+       timmy            with no command, opens the REPL
 
 Commands:
-  repl            The inline REPL: chat in your scrollback (timmy repl --demo needs no key)
-  watch           The full-screen monitor (today's Command Post)
+  repl            The inline REPL, also plain timmy: chat in your scrollback (timmy repl --demo needs no key)
+  watch           The full-screen monitor (the Command Post)
   receipts        The receipt chain: verify, then the latest (--follow)
   theme           Timmy Night and Day for your terminal (theme install)
   center          The cockpit: REPL, monitor and events as tabs (zellij, tmux, or the REPL here)
@@ -413,7 +414,8 @@ if (command === 'forge') {
 }
 
 if (command === 'repl') {
-  // DESIGN.md §10 B1: the inline REPL (one turn, one column). Bare `timmy` moves to it once it is the default.
+  // DESIGN.md §10 B1: the inline REPL (one turn, one column). Bare `timmy` opens it (the bin forwards
+  // it as `repl`) since LIVE-01 passed on the operator's Mac (ledger row 71).
   const { runRepl } = await import('./repl/main.js');
   process.exit(await runRepl(cleanArgs.slice(1)));
 }
