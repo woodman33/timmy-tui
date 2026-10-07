@@ -27,16 +27,19 @@ export interface ReceiptsOptions {
 interface CanvasSource { job: string; revision: number; source_revision: string }
 
 /** The Timmy Canvas job a turn's receipt names (fourth order, step 5), if it used the canvas. */
-function canvasOf(r: Receipt): CanvasSource | null {
-  const source = (r.sources ?? []).find((s): s is Record<string, unknown> => typeof s === 'object' && s !== null && (s as Record<string, unknown>).kind === 'timmy-canvas');
-  if (!source || typeof source.job !== 'string' || typeof source.revision !== 'number' || typeof source.source_revision !== 'string') return null;
-  return { job: source.job, revision: source.revision, source_revision: source.source_revision };
+/** Every Timmy Canvas job the receipt names (a turn can use more than one: LIVE-01, ledger row 65). */
+function canvasOf(r: Receipt): CanvasSource[] {
+  return (r.sources ?? []).flatMap((s) => {
+    const source = typeof s === 'object' && s !== null ? (s as Record<string, unknown>) : null;
+    if (!source || source.kind !== 'timmy-canvas' || typeof source.job !== 'string' || typeof source.revision !== 'number' || typeof source.source_revision !== 'string') return [];
+    return [{ job: source.job, revision: source.revision, source_revision: source.source_revision }];
+  });
 }
 
-/** A receipt as `--json` gives it: stable keys, the full hash, and its canvas job when it has one. */
-const asJson = (r: Receipt): { hash: string; kind: string; subject: string; at: string; canvas?: CanvasSource } => {
+/** A receipt as `--json` gives it: stable keys, the full hash, and its canvas jobs when it has any. */
+const asJson = (r: Receipt): { hash: string; kind: string; subject: string; at: string; canvas?: CanvasSource[] } => {
   const canvas = canvasOf(r);
-  return { hash: r.hash, kind: r.kind, subject: r.subject, at: r.ts, ...(canvas ? { canvas } : {}) };
+  return { hash: r.hash, kind: r.kind, subject: r.subject, at: r.ts, ...(canvas.length ? { canvas } : {}) };
 };
 
 const hhmm = (iso: string): string => {
@@ -59,7 +62,7 @@ export async function showReceipts(o: ReceiptsOptions): Promise<number> {
   const line = (r: Receipt, first: boolean): void => {
     if (!first) say([{ text: `  ${g.rail}`, role: 'rule' }]);
     const canvas = canvasOf(r);
-    const where = canvas ? `  canvas ${canvas.job} at revision ${canvas.revision}` : '';
+    const where = canvas.length ? `  canvas ${canvas.map((c) => `${c.job} at revision ${c.revision}`).join(', ')}` : '';
     say([{ text: `  ${g.bullet} ` }, { text: r.hash.slice(7, 15), role: 'strong' }, { text: `  ${r.kind}  ${r.subject}  ${hhmm(r.ts)}${where}`, role: 'secondary' }]);
   };
   const format = o.format ?? 'human';

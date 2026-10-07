@@ -32,8 +32,8 @@ export interface TurnFacts {
   status: 'ok' | 'failed' | 'cancelled';
   tools?: ToolOutcome[];
   cancelledAt?: CancelStage;
-  /** Fourth order, step 5: the turn's Timmy Canvas job, and the revision and source revision it left. */
-  canvas?: { job: string; revision: number; sourceRevision: string };
+  /** Fourth order, step 5: the turn's Timmy Canvas jobs, each with the revision and source revision it left. */
+  canvas?: Array<{ job: string; revision: number; sourceRevision: string }>;
 }
 
 export interface SealedTurn {
@@ -61,7 +61,7 @@ export function sealTurn(
     ...(facts.tools?.length ? { tool_outcomes: facts.tools.map((t) => ({ name: t.tool, outcome: t.outcome })) } : {}),
     // Third order, checkpoint 1: a cancel stops what is left; it never undoes what already ran.
     ...(cancelled ? { cancelled_at: facts.cancelledAt ?? 'before-tools', rollback: 'none' as const } : {}),
-    ...(facts.canvas ? { sources: [{ kind: 'timmy-canvas', job: facts.canvas.job, revision: facts.canvas.revision, source_revision: facts.canvas.sourceRevision }] } : {}),
+    ...(facts.canvas?.length ? { sources: facts.canvas.map((c) => ({ kind: 'timmy-canvas', job: c.job, revision: c.revision, source_revision: c.sourceRevision })) } : {}),
     prompt_hash: sha256(facts.prompt),
     response_hash: sha256(facts.answer),
     model_requested: facts.model,

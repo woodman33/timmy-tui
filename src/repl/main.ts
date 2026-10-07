@@ -266,12 +266,12 @@ export async function runRepl(argv: string[]): Promise<number> {
     setup, noKey: !config.apiKey, firstRun: readChain('runs').length === 0, lanes: listLanes, openCenter,
     // C-13: the receipt line links to its page; the local server that shows it starts with the first seal.
     seal: (facts) => {
-      // Fourth order, step 5: a turn that used the canvas names its job and the saved canvas it left,
-      // and the canvas server learns which receipt sealed that job.
+      // Fourth order, step 5: a turn that used the canvas names each job and the saved canvas it left,
+      // and the canvas server learns which receipt sealed each job.
       const canvas = canvasJob.close();
-      const sealed = sealTurn({ ...facts, model: agent.getModel(), ...(canvas ? { canvas } : {}) });
+      const sealed = sealTurn({ ...facts, model: agent.getModel(), ...(canvas.length ? { canvas } : {}) });
       studio ??= ensureStudioServer(STUDIO_PORT, { env: process.env });
-      if (canvas) void linkCanvasReceipt(canvas.job, sealed.id);
+      for (const c of canvas) void linkCanvasReceipt(c.job, sealed.id);
       return { ...sealed, url: receiptUrl(sealed.id) };
     },
   });

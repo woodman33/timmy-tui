@@ -106,16 +106,16 @@ describe('timmy receipts for scripts', () => {
     const { detectCapabilities } = await import('../src/term/capabilities.js');
     const tty = { isTTY: false, columns: 100, rows: 24 };
     const theme = buildTheme(detectCapabilities({ env: {}, stdin: tty, stdout: tty, stderr: tty }));
-    const canvasTurn = { ...chain[0], sources: [{ kind: 'timmy-canvas', job: 'turn-3c0f18b0', revision: 12, source_revision: 'ab'.repeat(32) }] };
+    const canvasTurn = { ...chain[0], sources: [{ kind: 'timmy-canvas', job: 'turn-3c0f18b0', revision: 12, source_revision: 'ab'.repeat(32) }, { kind: 'timmy-canvas', job: 'draw-live-01', revision: 13, source_revision: 'cd'.repeat(32) }] };
     for (const format of ['human', 'json'] as const) {
       const out: string[] = [];
       await showReceipts({ follow: false, last: 10, format, write: (l) => out.push(l), theme, read: () => [canvasTurn, chain[1]] as never, verify: () => ({ ok: true, count: 2 }) });
       if (format === 'human') {
-        expect(out.find((l) => l.includes('aaaaaaaa'))).toContain('canvas turn-3c0f18b0 at revision 12');
+        expect(out.find((l) => l.includes('aaaaaaaa'))).toContain('canvas turn-3c0f18b0 at revision 12, draw-live-01 at revision 13');
         expect(out.find((l) => l.includes('bbbbbbbb'))).not.toContain('canvas');
       } else {
         expect(JSON.parse(out[0]).receipts).toEqual([
-          { hash: 'sha256:aaaaaaaa11111111', kind: 'turn', subject: 'repl · 1 step', at: '2026-10-07T07:00:00.000Z', canvas: { job: 'turn-3c0f18b0', revision: 12, source_revision: 'ab'.repeat(32) } },
+          { hash: 'sha256:aaaaaaaa11111111', kind: 'turn', subject: 'repl · 1 step', at: '2026-10-07T07:00:00.000Z', canvas: [{ job: 'turn-3c0f18b0', revision: 12, source_revision: 'ab'.repeat(32) }, { job: 'draw-live-01', revision: 13, source_revision: 'cd'.repeat(32) }] },
           { hash: 'sha256:bbbbbbbb22222222', kind: 'check', subject: 'setup check', at: '2026-10-07T07:01:00.000Z' },
         ]);
       }

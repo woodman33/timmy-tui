@@ -83,8 +83,10 @@ describe('the canvas tools under NEEDS YOU', () => {
 });
 
 // Fourth order, step 5: one job identity from the terminal to the canvas and the receipt. The canvas
-// calls of one REPL turn share the turn's job ID (unless the model names its own), and the turn keeps
-// the revision and source revision they produced, for its receipt.
+// calls of one REPL turn share the turn's job ID unless the model names its own, and the turn keeps the
+// revision and source revision each job produced, for its receipt. LIVE-01 (ledger row 65): a model
+// named its job \`draw-live-01\`, and the turn kept nothing, so the receipt named no job and the job
+// never got its receipt.
 describe('the canvas job of a REPL turn', () => {
   const SOURCE = 'cd'.repeat(32);
   async function savingPage(): Promise<string[]> {
@@ -109,8 +111,11 @@ describe('the canvas job of a REPL turn', () => {
     await run(tools, 'canvas_read', {});
     await run(tools, 'canvas_exec', { code: 'return 1', jobId: 'named-by-the-model' });
     expect(jobs).toEqual(['turn-1', 'turn-1', 'named-by-the-model']);
-    expect(job.close()).toEqual({ job: 'turn-1', revision: 9, sourceRevision: SOURCE });
-    expect(job.close()).toBeNull(); // a turn with no canvas call names no job
+    expect(job.close()).toEqual([
+      { job: 'turn-1', revision: 9, sourceRevision: SOURCE },
+      { job: 'named-by-the-model', revision: 9, sourceRevision: SOURCE },
+    ]);
+    expect(job.close()).toEqual([]); // a turn with no canvas call names no job
     await run(tools, 'canvas_read', {});
     expect(jobs.at(-1)).toBe('turn-2');
   });
@@ -127,6 +132,14 @@ describe('the canvas job of a REPL turn', () => {
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
+  });
+  it('a turn whose only canvas job the model named keeps that job, with the last revision it saved', () => {
+    const job = new CanvasTurnJob(() => 'turn-unused');
+    job.saw({ ok: true, jobId: 'draw-live-01', revision: 1, sourceRevision: SOURCE });
+    job.saw({ ok: true, jobId: 'draw-live-01', revision: 2, sourceRevision: 'ef'.repeat(32) });
+    job.saw({ ok: false, jobId: 'draw-live-01', error: 'no canvas open' });
+    job.saw({ ok: true, jobId: 'bad id with spaces', revision: 3, sourceRevision: SOURCE });
+    expect(job.close()).toEqual([{ job: 'draw-live-01', revision: 2, sourceRevision: 'ef'.repeat(32) }]);
   });
   it('linking says false, not an error, when no canvas server is running', async () => {
     expect(await linkCanvasReceipt('turn-abc', '0f3c9a12', 'http://127.0.0.1:9')).toBe(false);

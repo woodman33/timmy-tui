@@ -23,14 +23,20 @@ export interface CanvasJobResult {
   sourceRevision: string;
 }
 
+const JOB_ID = /^[\w.:-]{1,100}$/;
+const SOURCE_REVISION = /^[0-9a-f]{64}$/;
+
 /**
- * One canvas job per REPL turn (fourth order, step 5): the turn's canvas calls share one job ID, made
- * on the first call, and the turn keeps the revision and source revision the last of them produced,
- * so its receipt names the same job and the same saved canvas as the canvas file and its ledger.
+ * The canvas jobs of one REPL turn (fourth order, step 5): calls with no job ID of their own share the
+ * turn's, made on the first such call, and the turn keeps the revision and source revision the last
+ * call of each job saved, so its receipt names the same jobs and the same saved canvas as the canvas
+ * file and its ledger. A job the model names itself counts too (LIVE-01, ledger row 65: the model
+ * named its job `draw-live-01` and the turn kept nothing, so the receipt named no job).
  */
 export class CanvasTurnJob {
   private id: string | null = null;
-  private last: Omit<CanvasJobResult, 'job'> | null = null;
+  /** Each job the turn's calls saved under, in the order first seen. */
+  private jobs = new Map<string, Omit<CanvasJobResult, 'job'>>();
 
   constructor(private readonly newId: () => string = () => `turn-${randomUUID().slice(0, 8)}`) {}
 
@@ -40,18 +46,19 @@ export class CanvasTurnJob {
     return this.id;
   }
 
-  /** A canvas answer: kept when it is this turn's job and the page saved what it produced. */
+  /** A canvas answer: kept for its job when the page saved what it produced. */
   saw(answer: Record<string, unknown>): void {
-    if (answer.jobId === this.id && typeof answer.revision === 'number' && typeof answer.sourceRevision === 'string') {
-      this.last = { revision: answer.revision, sourceRevision: answer.sourceRevision };
+    const { jobId, revision, sourceRevision } = answer;
+    if (typeof jobId === 'string' && JOB_ID.test(jobId) && typeof revision === 'number' && typeof sourceRevision === 'string' && SOURCE_REVISION.test(sourceRevision)) {
+      this.jobs.set(jobId, { revision, sourceRevision });
     }
   }
 
-  /** The turn ended: what its canvas job produced (null when it saved nothing), and a fresh job next turn. */
-  close(): CanvasJobResult | null {
-    const result = this.id && this.last ? { job: this.id, ...this.last } : null;
+  /** The turn ended: what each of its canvas jobs saved (none when it saved nothing), and fresh jobs next turn. */
+  close(): CanvasJobResult[] {
+    const result = [...this.jobs].map(([job, saved]) => ({ job, ...saved }));
     this.id = null;
-    this.last = null;
+    this.jobs = new Map();
     return result;
   }
 }

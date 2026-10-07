@@ -31,11 +31,16 @@ describe('sealTurn', () => {
   // the terminal agree on what the turn produced.
   it('a turn that used the canvas names its job, revision and source revision in the receipt, verified', () => {
     const dir = store();
-    const s = sealTurn({ ...facts, canvas: { job: 'turn-1a2b3c4d', revision: 12, sourceRevision: 'ab'.repeat(32) } }, dir);
+    const s = sealTurn({ ...facts, canvas: [{ job: 'turn-1a2b3c4d', revision: 12, sourceRevision: 'ab'.repeat(32) }, { job: 'draw-live-01', revision: 13, sourceRevision: 'cd'.repeat(32) }] }, dir);
     const [rec] = readChain('runs', dir);
-    expect(rec.sources).toEqual([{ kind: 'timmy-canvas', job: 'turn-1a2b3c4d', revision: 12, source_revision: 'ab'.repeat(32) }]);
+    // One source per job the turn's calls used, the model's own names included (LIVE-01, row 65).
+    expect(rec.sources).toEqual([
+      { kind: 'timmy-canvas', job: 'turn-1a2b3c4d', revision: 12, source_revision: 'ab'.repeat(32) },
+      { kind: 'timmy-canvas', job: 'draw-live-01', revision: 13, source_revision: 'cd'.repeat(32) },
+    ]);
     expect(s.verified).toBe(true);
     expect(sealTurn(facts, dir) && readChain('runs', dir)[1].sources).toBeUndefined();
+    expect(sealTurn({ ...facts, canvas: [] }, dir) && readChain('runs', dir)[2].sources).toBeUndefined();
   });
   // LIVE-01 (row 65): the cost on a receipt is what OpenRouter charged, and the receipt says whether
   // that is the whole cost or a lower bound (a cancel, or a response with no charge reported).
