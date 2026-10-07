@@ -49,7 +49,7 @@ export type TurnEvent =
   | { type: 'footer'; steps: number; spend: string; seconds: number }
   | { type: 'cancelling' }
   | { type: 'cancelled'; at?: CancelStage; tools?: ToolOutcome[] }
-  | { type: 'needs-you'; tool: string; reason: string; summary: string }
+  | { type: 'needs-you'; tool: string; reason: string; summary: string; detail?: string }
   | { type: 'needs-you-answered'; tool: string; decision: 'once' | 'session' | 'deny' | 'no-terminal' };
 
 interface Step {
@@ -91,7 +91,7 @@ export class Transcript {
   constructor(
     private readonly theme: Theme,
     private readonly region: LiveRegion,
-    private readonly opts: { columns: number; err?: { write(s: string): unknown }; log?: LiveRegion },
+    private readonly opts: { columns: number; rows?: number; err?: { write(s: string): unknown }; log?: LiveRegion },
   ) {}
 
   private get g() {
@@ -460,9 +460,13 @@ export class Transcript {
 
   // ── NEEDS YOU ─────────────────────────────────────────────────────────────
   /** The box shows below the open step only while it waits; the answer is kept under the step. */
-  private needsYou(req: { tool: string; reason: string; summary: string }): void {
-    const box = renderApproval(req, this.theme, this.opts.columns);
-    this.show([...(this.group.length ? this.groupLines().lines : []), '', ...box]);
+  private needsYou(req: { tool: string; reason: string; summary: string; detail?: string }): void {
+    const group = this.group.length ? this.groupLines().lines : [];
+    // The whole box stays on screen: the region holds rows minus one lines, and the step above it, a
+    // blank and the box's six fixed rows come first; the code gets what is left (at least three rows).
+    const room = Math.max(3, (this.opts.rows ?? 24) - 1 - group.length - 1 - 6);
+    const box = renderApproval(req, this.theme, this.opts.columns, room);
+    this.show([...group, '', ...box]);
   }
 
   private answered(tool: string, decision: NonNullable<Step['approval']>): void {

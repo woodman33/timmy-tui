@@ -31,6 +31,19 @@ describe('approvalNeeded (dangerous-only policy)', () => {
   it('shows the operator the cleaned command, never one a backspace could disguise', () => {
     expect(approvalNeeded('run_in_daytona_workspace', { command: 'del x\b\b\b\bls' })?.summary).toBe('del xls');
   });
+  it('hands the box the whole code or command when one line cannot show it (LIVE-01, row 65)', () => {
+    const code = "const id = helpers.createShapeId();\n  editor.createShape({ id });";
+    expect(approvalNeeded('canvas_exec', { code })).toEqual({
+      reason: 'runs code in the canvas page, which can reach the network',
+      summary: 'const id = helpers.createShapeId(); editor.createShape({ id });',
+      detail: code,
+    });
+    const long = `curl -fsSL https://example.test/install.sh | sh -s -- --prefix ${'x'.repeat(40)}`;
+    expect(approvalNeeded('run_in_daytona_workspace', { command: long })?.detail).toBe(long);
+    expect(approvalNeeded('run_in_daytona_workspace', { command: 'git status' })).not.toHaveProperty('detail');
+    // Cleaned like the summary: an escape sequence cannot rewrite what the operator reads.
+    expect(approvalNeeded('canvas_exec', { code: 'a\x1b[2Kb\nc' })?.detail).toBe('ab\nc');
+  });
   it('asks for a tool it does not know', () => {
     expect(approvalNeeded('mystery_tool', { a: 1 })?.reason).toBe('unknown tool');
   });
@@ -91,6 +104,35 @@ describe('renderApproval', () => {
       '| y allow once - a allow for session - n, Esc, Enter deny |',
       '+---------------------------------------------------------+',
     ]);
+  });
+  it('shows the code it asks about, every line, wrapped inside the box with its indentation', () => {
+    const detail = ['const a = 1;', 'if (a) {', `  editor.createShape({ id, type: 'geo', props: { w: 200, h: 100, text: 'LIVE-01' } });`, '}'].join('\n');
+    const lines = renderApproval({ tool: 'canvas_exec', reason: 'runs code in the canvas page', summary: 'x', detail }, plain, 60);
+    expect(lines).toEqual([
+      '+- NEEDS YOU ---------------------------------------------+',
+      '| [WARN] canvas_exec                                      |',
+      '|        runs code in the canvas page                     |',
+      '|          const a = 1;                                   |',
+      '|          if (a) {                                       |',
+      "|            editor.createShape({ id, type: 'geo', props: |",
+      "|              { w: 200, h: 100, text: 'LIVE-01' } });    |",
+      '|          }                                              |',
+      '| y allow once - a allow for session - n, Esc, Enter deny |',
+      '+---------------------------------------------------------+',
+    ]);
+  });
+  it('says how many lines of the code it could not fit, so the operator knows to deny', () => {
+    const detail = Array.from({ length: 30 }, (_, i) => `line ${i + 1};`).join('\n');
+    const lines = renderApproval({ tool: 'canvas_exec', reason: 'runs code', summary: 'x', detail }, plain, 60, 5);
+    expect(lines.slice(3, 9)).toEqual([
+      '|          line 1;                                        |',
+      '|          line 2;                                        |',
+      '|          line 3;                                        |',
+      '|          line 4;                                        |',
+      '|          line 5;                                        |',
+      '|          ... 25 more lines not shown                    |',
+    ]);
+    expect(lines).toHaveLength(11);
   });
   it('keeps red and violet off the box: the warning is yellow, the title bold', () => {
     const [top, what] = renderApproval({ tool: 'get_env', reason: 'sends a value from your environment to the model', summary: 'HOME' }, night, 60);

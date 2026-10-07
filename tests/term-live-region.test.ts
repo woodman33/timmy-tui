@@ -101,6 +101,15 @@ describe('LiveRegion bounds (review finding: rows wider or taller than the termi
     region.set(['x']);
     expect(err.writes[1].startsWith(`${SYNC_START}\r\x1b[4A`)).toBe(true);
   });
+  it('draws a line with a newline in it as separate rows, so the next frame starts at the region top', () => {
+    // LIVE-01 (row 65): a tool argument with newlines (canvas code) left stale copies of the step in
+    // the scrollback, because the region counted one row where the terminal drew three.
+    const { err, region } = make();
+    region.set(['● canvas_exec', 'const a = 1;\nconst b = 2;']);
+    region.set(['⠋ Working']);
+    expect(err.writes[0]).toBe(`${SYNC_START}\r\x1b[K● canvas_exec\n\x1b[Kconst a = 1;\n\x1b[Kconst b = 2;\x1b[J${SYNC_END}`);
+    expect(err.writes[1].startsWith(`${SYNC_START}\r\x1b[2A`)).toBe(true);
+  });
 });
 
 describe('Spinner', () => {

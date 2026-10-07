@@ -37,9 +37,12 @@ function firstString(args: Record<string, unknown>, keys: string[]): string {
 
 export function labelFor(tool: string, args: Record<string, unknown> = {}): StepLabel {
   const row = ROWS.find(([re]) => re.test(tool))?.[1];
+  // A step's argument is one line, whatever the tool: code with newlines (LIVE-01, row 65) once ran
+  // down the screen unindented and broke the live region's count of its rows.
+  const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
   // Playbook §17.5: the tool name always prints beside the marker.
-  if (!row) return { verb: tool, present: tool, noun: 'call', arg: firstString(args, []), risk: 'read' };
-  return { verb: row.verb, present: row.present, noun: row.noun, arg: firstString(args, row.keys).replace(/\s+/g, ' ').trim(), risk: row.risk };
+  if (!row) return { verb: tool, present: tool, noun: 'call', arg: oneLine(firstString(args, [])), risk: 'read' };
+  return { verb: row.verb, present: row.present, noun: row.noun, arg: oneLine(firstString(args, row.keys)), risk: row.risk };
 }
 
 /** Playbook §17.5: consonant + y becomes ies; s, sh, ch, x add es; else add s. */

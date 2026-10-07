@@ -81,6 +81,19 @@ describe('tool steps', () => {
       expect(text).toContain('…');
     }
   });
+  it('draws a call whose argument spans lines (canvas code) on one line, cut to the width', () => {
+    // LIVE-01 (row 65): an unknown tool's argument kept its newlines, so the code ran down the screen
+    // unindented and the live region lost count of its rows.
+    const code = "const id = helpers.createShapeId();\neditor.createShape({\n  id,\n  type: 'geo',\n});";
+    const text = render([
+      { type: 'tool-start', id: 't1', tool: 'canvas_exec', args: { code } },
+      { type: 'tool-end', id: 't1', ok: true, preview: '{"ok":true}' },
+    ], { columns: 60 });
+    const lines = text.split('\n');
+    expect(lines[0]).toBe('● canvas_exec const id = helpers.createShapeId(); editor.cr…');
+    expect(lines[1]).toBe('  └ {"ok":true}');
+    for (const line of lines) expect(visibleWidth(line), line).toBeLessThanOrEqual(60);
+  });
   it('shows edits as a unified diff, + green and - red (B5)', () => {
     const diff = '@@ -1,2 +1,2 @@\n title\n-old line\n+new line';
     const text = render([
@@ -177,6 +190,26 @@ describe('NEEDS YOU in the turn', () => {
     t.endTurn();
     expect(out.text.replaceAll('\x1b[K', '')).toBe(['[FAIL] Ran rm -rf dist', '  | [FAIL] Denied by you', '  ` The operator denied run_in_daytona_workspace; it did ...', ''].join('\n'));
     expect(out.text).not.toContain('NEEDS YOU');
+  });
+  it('fits the code it asks about to the terminal, and says how much it left out', () => {
+    // LIVE-01 (row 65): the operator saw one line of the canvas code before approving it.
+    const out = new Sink(false), err = Object.assign(new Sink(true), { rows: 24 });
+    const caps = detectCapabilities({ env: { LANG: 'C' }, stdin: { isTTY: false }, stdout: { isTTY: false }, stderr: { isTTY: true } });
+    const region = new LiveRegion({ out, err }, { live: true });
+    const t = new Transcript(buildTheme(caps), region, { columns: 60, rows: 24 });
+    const detail = Array.from({ length: 40 }, (_, i) => `step(${i + 1});`).join('\n');
+    t.handle({ type: 'tool-start', id: 'c1', tool: 'canvas_exec', args: { code: detail } });
+    t.handle({ type: 'needs-you', tool: 'canvas_exec', reason: 'runs code in the canvas page', summary: 'step(1); ...', detail });
+    const frame = err.writes.at(-1) ?? '';
+    const rows = frame.split('\n');
+    expect(rows.length).toBeLessThanOrEqual(23);
+    // The whole box, top to bottom: the region drops its oldest rows when it overflows the terminal.
+    expect(frame).toContain('NEEDS YOU');
+    expect(frame).toContain('runs code in the canvas page');
+    expect(frame).toContain('step(1);');
+    expect(frame).toContain('more lines not shown');
+    expect(frame).not.toContain('step(40);');
+    expect(frame).toContain('y allow once');
   });
   it('records approvals in words, never with the green check (green is proof only)', () => {
     const text = render([

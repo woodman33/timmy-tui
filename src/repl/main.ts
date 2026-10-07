@@ -153,7 +153,7 @@ export async function runRepl(argv: string[]): Promise<number> {
   const region = new LiveRegion({ out: process.stdout, err: process.stderr }, { live: caps.animate });
   // Into a pipe, stdout carries only the answer; steps, footers and errors go to stderr (§16.7).
   const log = process.stdout.isTTY ? undefined : new LiveRegion({ out: process.stderr, err: process.stderr }, { live: false });
-  const transcript = new Transcript(theme, region, { columns: caps.columns, err: process.stderr, log });
+  const transcript = new Transcript(theme, region, { columns: caps.columns, rows: caps.rows, err: process.stderr, log });
   if (flags.demo || flags.demoLoader) {
     if (caps.animate) session.hideCursor();
     await play(transcript, flags.demoLoader ? DEMO_LOADER : DEMO_TURN);

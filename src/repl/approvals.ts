@@ -10,12 +10,17 @@ import type { TerminalSession } from '../term/session.js';
 import { serialize, type Role, type Segment, type Theme } from '../term/theme.js';
 import { truncate, visibleWidth } from '../term/width.js';
 
+/** Past this many characters, or with a newline in it, the box shows the whole argument, not one line of it. */
+const DETAIL_OVER = 60;
+
 export type Decision = 'once' | 'session' | 'deny';
 
 export interface ApprovalRequest {
   tool: string;
   reason: string;
   summary: string;
+  /** The whole code or command, cleaned, when one line cannot show it (LIVE-01, row 65). */
+  detail?: string;
 }
 
 const READ_ONLY = new Set([
@@ -47,19 +52,72 @@ function summarize(args: Record<string, unknown>, keys: string[]): string {
   return json === '{}' ? '' : sanitize(json);
 }
 
+/**
+ * The operator approves what they can read: code or a command that one line cannot show goes to the
+ * box whole (cleaned, newlines and indentation kept). LIVE-01 (row 65) asked about canvas code with
+ * only its first line on screen.
+ */
+function withDetail(args: Record<string, unknown>, keys: string[], need: { reason: string; summary: string }): Omit<ApprovalRequest, 'tool'> {
+  const raw = keys.map((k) => args[k]).find((v): v is string => typeof v === 'string' && v.length > 0);
+  if (raw === undefined) return need;
+  const detail = sanitize(raw).replace(/\s+$/, '');
+  return detail.includes('\n') || detail.length > DETAIL_OVER ? { ...need, detail } : need;
+}
+
 /** Why this call must wait for the operator, or null when it may run. */
-export function approvalNeeded(tool: string, args: Record<string, unknown> = {}): { reason: string; summary: string } | null {
+export function approvalNeeded(tool: string, args: Record<string, unknown> = {}): Omit<ApprovalRequest, 'tool'> | null {
   if (READ_ONLY.has(tool)) return null;
   const always = ALWAYS[tool];
-  if (always) return { reason: always.reason, summary: summarize(args, always.keys) };
+  if (always) return withDetail(args, always.keys, { reason: always.reason, summary: summarize(args, always.keys) });
   // Every workspace command asks: without a Daytona key it runs on this machine, and no pattern can
   // tell a safe command from a harmful one (review finding).
   const shell = SHELL[tool];
   if (shell) {
     const command = summarize(args, shell);
-    return { reason: DESTRUCTIVE.test(command) ? 'destructive shell command' : 'runs a shell command', summary: command };
+    return withDetail(args, shell, { reason: DESTRUCTIVE.test(command) ? 'destructive shell command' : 'runs a shell command', summary: command });
   }
   return { reason: 'unknown tool', summary: summarize(args, []) };
+}
+
+/** Words greedily into rows of `first` cells, then `rest` cells; a word longer than a row is cut across rows. */
+function wrapRows(text: string, first: number, rest: number): string[] {
+  const rows: string[] = [];
+  let row = '';
+  const room = (): number => Math.max(1, rows.length === 0 ? first : rest);
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const joined = row ? `${row} ${word}` : word;
+    if (visibleWidth(joined) <= room()) {
+      row = joined;
+      continue;
+    }
+    if (row) {
+      rows.push(row);
+      row = '';
+    }
+    let left = word;
+    while (visibleWidth(left) > room()) {
+      let cut = '';
+      for (const ch of Array.from(left)) {
+        if (visibleWidth(cut + ch) > room()) break;
+        cut += ch;
+      }
+      rows.push(cut);
+      left = left.slice(cut.length);
+    }
+    row = left;
+  }
+  if (row || rows.length === 0) rows.push(row);
+  return rows;
+}
+
+/** The detail's rows at `width` cells: each line keeps its indentation, and wrapped rows indent two more. */
+function detailRows(detail: string, width: number): string[] {
+  return detail.split('\n').flatMap((line) => {
+    const lead = Math.min(visibleWidth(/^\s*/.exec(line)?.[0] ?? ''), Math.max(0, width - 12));
+    const body = line.trim();
+    if (!body) return [''];
+    return wrapRows(body, width - lead, width - lead - 2).map((r, i) => `${' '.repeat(lead + (i > 0 ? 2 : 0))}${r}`);
+  });
 }
 
 interface ToolLike {
@@ -96,8 +154,12 @@ export function gateTools<T>(tools: readonly T[], ask: (req: ApprovalRequest) =>
   });
 }
 
-/** The one box on screen: what, why, and the keys. Deny is the default. Yellow frame, never red or violet. */
-export function renderApproval(req: ApprovalRequest, theme: Theme, columns: number): string[] {
+/**
+ * The one box on screen: what, why, the code or command when one line cannot show it, and the keys.
+ * Deny is the default. Yellow frame, never red or violet. `maxDetail` caps the code's rows (the
+ * transcript fits it to the terminal); the box says how many rows it left out.
+ */
+export function renderApproval(req: ApprovalRequest, theme: Theme, columns: number, maxDetail = 20): string[] {
   const g = theme.glyphs;
   const width = Math.max(24, Math.min(columns - 1, 72));
   const inner = width - 4;
@@ -108,8 +170,16 @@ export function renderApproval(req: ApprovalRequest, theme: Theme, columns: numb
   };
   const title = ' NEEDS YOU ';
   const top: Segment[] = [frame(`${g.boxTopLeft}${g.boxHorizontal}`), { text: ' ' }, { text: 'NEEDS YOU', role: 'strong' }, { text: ' ' }, frame(`${g.boxHorizontal.repeat(width - 3 - visibleWidth(title))}${g.boxTopRight}`)];
-  const what = truncate(`${req.tool}${req.summary ? `: ${req.summary}` : ''}`, inner - visibleWidth(g.warn) - 1, g.ellipsis);
+  const what = truncate(req.detail ? req.tool : `${req.tool}${req.summary ? `: ${req.summary}` : ''}`, inner - visibleWidth(g.warn) - 1, g.ellipsis);
   const indent = ' '.repeat(visibleWidth(g.warn) + 1);
+  const codeIndent = `${indent}  `;
+  const rows = req.detail ? detailRows(req.detail, inner - codeIndent.length) : [];
+  const shown = rows.length > maxDetail ? rows.slice(0, Math.max(1, maxDetail)) : rows;
+  const code = shown.map((r) => serialize(pad([{ text: `${codeIndent}${r}` }]), theme));
+  if (shown.length < rows.length) {
+    const more = rows.length - shown.length;
+    code.push(serialize(pad([{ text: `${codeIndent}${g.ellipsis} ${more} more ${more === 1 ? 'line' : 'lines'} not shown`, role: 'secondary' }]), theme));
+  }
   const key = (text: string, role?: Role): Segment => ({ text, role });
   const keys: Segment[] = [
     key('y', 'strong'), key(' allow once ', 'secondary'), key(g.sep, 'secondary'), key(' '),
@@ -120,6 +190,7 @@ export function renderApproval(req: ApprovalRequest, theme: Theme, columns: numb
     serialize(top, theme),
     serialize(pad([{ text: g.warn, role: 'estimate' }, { text: ` ${what}` }]), theme),
     serialize(pad([{ text: truncate(`${indent}${req.reason}`, inner, g.ellipsis), role: 'secondary' }]), theme),
+    ...code,
     serialize(pad(keys), theme),
     serialize([frame(`${g.boxBottomLeft}${g.boxHorizontal.repeat(width - 2)}${g.boxBottomRight}`)], theme),
   ];

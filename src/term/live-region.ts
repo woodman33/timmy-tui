@@ -59,12 +59,17 @@ export class LiveRegion {
    * Rows are cut to the width minus one (a soft-wrapped row would break the redraw math) and the
    * region keeps at most rows minus one lines, the newest, so it can always be redrawn in place.
    */
-  set(lines: string[], caret?: { row: number; col: number }): void {
+  set(given: string[], caret?: { row: number; col: number }): void {
     const columns = this.streams.err.columns && this.streams.err.columns > 0 ? this.streams.err.columns : 80;
     const rows = this.streams.err.rows && this.streams.err.rows > 0 ? this.streams.err.rows : 24;
+    // A line with a newline in it draws as several rows, so it counts as several (LIVE-01, row 65);
+    // a parked caret stays on the first row of its line.
+    const parts = given.map((l) => l.split('\n'));
+    const lines = parts.flat();
+    const caretRow = caret ? parts.slice(0, caret.row).reduce((n, p) => n + p.length, 0) : 0;
     const drop = Math.max(0, lines.length - Math.max(1, rows - 1));
     this.lines = lines.slice(drop).map((l) => cutAnsi(l, columns - 1));
-    this.caret = caret && { row: Math.max(0, caret.row - drop), col: Math.min(caret.col, columns - 1) };
+    this.caret = caret && { row: Math.max(0, caretRow - drop), col: Math.min(caret.col, columns - 1) };
     if (!this.live) return;
     const start = this.toStart();
     this.height = this.lines.length;
@@ -72,7 +77,8 @@ export class LiveRegion {
   }
 
   /** Write finished lines to scrollback above the region, then redraw the region below them. */
-  commit(lines: string[]): void {
+  commit(given: string[]): void {
+    const lines = given.flatMap((l) => l.split('\n'));
     if (lines.length === 0) return;
     if (!this.live) {
       this.streams.out.write(lines.map((l) => l + '\n').join(''));
