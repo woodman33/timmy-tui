@@ -226,7 +226,9 @@ async function offerBoards(editor) {
   document.getElementById('board-open').addEventListener('click', () => openBoard(editor, templates.find((t) => t.id === pick.value)));
 }
 function connectPanel(editor) {
-  document.getElementById('side').hidden = false;
+  document.getElementById('side-ready').hidden = false;
+  // On a narrow screen the jobs start folded, so the panel leaves the canvas room.
+  if (window.innerWidth < 600) document.getElementById('jobs').open = false;
   let queued = false;
   editor.store.listen(() => {
     if (queued) return;
