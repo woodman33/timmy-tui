@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CanvasBridge } from './bridge.js';
 import { STUDIO_PORT, studioConfig } from './config.js';
+import { CanvasDocuments, MAX_CANVAS_BYTES, canvasDir } from './document.js';
 
 export { STUDIO_PORT };
 
@@ -22,6 +23,10 @@ export interface StudioOptions {
   execTimeoutMs?: number;
   /** Where the receipt pages read the chain (C-13); defaults to this folder's store. */
   receipts?: ReceiptSource;
+  /** Where the canvas is saved; defaults to `<TIMMY_HOME>/canvas` from `env`. */
+  canvasDir?: string;
+  /** The largest canvas document Timmy saves (default 25 MB). */
+  maxCanvasBytes?: number;
 }
 
 /** companion/studio-canvas, found from the source (src/studio) or the build (dist/src/studio). */
@@ -55,6 +60,8 @@ const NOT_BUILT = `<!doctype html><html lang="en"><head><meta charset="utf-8"><t
 
 export function createStudioApp(options: StudioOptions = {}, bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs)): express.Express {
   const env = options.env ?? process.env;
+  const maxCanvasBytes = options.maxCanvasBytes ?? MAX_CANVAS_BYTES;
+  const documents = new CanvasDocuments(options.canvasDir ?? canvasDir(env), { maxBytes: maxCanvasBytes });
   const app = express();
   app.disable('x-powered-by');
   app.use((req, res, next) => {
@@ -63,6 +70,24 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   });
   app.get('/studio-config.json', (_req, res) => {
     res.set('Cache-Control', 'no-store').json(studioConfig(env));
+  });
+  // Fourth order, step 5: the canvas, saved by Timmy in its home and opened from there, so it reopens
+  // where it was and every surface reads the same document, revision and source revision.
+  const jsonOnly = (message: string): express.RequestHandler => (req, res, next) => {
+    if (req.is('application/json')) return next();
+    res.status(415).json({ ok: false, error: message });
+  };
+  app.get('/api/canvas/document', (_req, res) => {
+    res.set('Cache-Control', 'no-store').json(documents.load());
+  });
+  app.put('/api/canvas/document', jsonOnly('Send JSON: {"snapshot": {...}, "revision": N, "baseRevision": N}.'),
+    express.json({ limit: Math.max(2 * maxCanvasBytes, 1024 * 1024) }), (req, res) => {
+      const saved = documents.save((req.body ?? {}) as Record<string, unknown>);
+      const status = saved.ok ? 200 : 'conflict' in saved ? 409 : 'tooLarge' in saved ? 413 : 400;
+      res.status(status).set('Cache-Control', 'no-store').json(saved);
+    });
+  app.get('/api/canvas/jobs', (_req, res) => {
+    res.set('Cache-Control', 'no-store').json(documents.jobs());
   });
   // The agent's canvas tools: Editor API code in, the page's answer out. JSON only, so a form on
   // another site cannot post here without a CORS preflight that this server never grants.
@@ -80,6 +105,15 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     }
     const id = typeof jobId === 'string' && JOB_ID.test(jobId) ? jobId : `canvas-${randomUUID()}`;
     const outcome = await bridge.exec(code, id);
+    // The page answers after saving: a call with the source revision it produced joins the jobs ledger.
+    const { ok, revision, sourceRevision } = outcome.body;
+    if (outcome.status === 200 && sourceRevision) {
+      try {
+        documents.recordJob(id, { ok, revision: revision ?? 0, sourceRevision });
+      } catch {
+        // The call's own answer stands; the ledger is a record of it, not a condition for it.
+      }
+    }
     res.status(outcome.status).set('Cache-Control', 'no-store').json(outcome.body);
   });
   // C-13: the receipt pages, served by the same local server, with a text fallback.
@@ -91,9 +125,10 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     res.status(503).set('Cache-Control', 'no-store').type('html').send(NOT_BUILT);
   });
   app.use(express.static(root, { etag: true }));
-  app.use((err: { type?: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  app.use((err: { type?: string }, req: express.Request, res: express.Response, _next: express.NextFunction) => {
     const tooLarge = err?.type === 'entity.too.large';
-    res.status(tooLarge ? 413 : 400).json({ ok: false, error: tooLarge ? 'That code is too long for one call (32 KB).' : 'Send valid JSON.' });
+    const what = req.path === '/api/canvas/document' ? `This canvas is too large to save (over ${maxCanvasBytes} bytes).` : 'That code is too long for one call (32 KB).';
+    res.status(tooLarge ? 413 : 400).json({ ok: false, error: tooLarge ? what : 'Send valid JSON.' });
   });
   return app;
 }

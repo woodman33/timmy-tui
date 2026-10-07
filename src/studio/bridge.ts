@@ -17,6 +17,10 @@ export interface CanvasAnswer {
   jobId: string;
   /** The canvas store's revision after the call (the page counts its changes). */
   revision?: number;
+  /** The sha256 of the canvas document the page saved after the call (fourth order, step 5). */
+  sourceRevision?: string;
+  /** Why the page could not save after the call (another window saved a newer canvas, say). */
+  saveError?: string;
 }
 
 /** An HTTP-shaped outcome: 200 the page answered, 503 no canvas open, 504 no answer in time. */
@@ -93,7 +97,7 @@ export class CanvasBridge {
   }
 
   private answer(text: string): void {
-    let m: { id?: unknown; ok?: unknown; result?: unknown; error?: unknown; revision?: unknown };
+    let m: { id?: unknown; ok?: unknown; result?: unknown; error?: unknown; revision?: unknown; sourceRevision?: unknown; saveError?: unknown };
     try {
       m = JSON.parse(text);
     } catch {
@@ -105,6 +109,8 @@ export class CanvasBridge {
       ? { ok: true, result: m.result ?? null, jobId: p.jobId }
       : { ok: false, error: typeof m.error === 'string' && m.error ? m.error : 'The canvas reported an error.', jobId: p.jobId };
     if (typeof m.revision === 'number') body.revision = m.revision;
+    if (typeof m.sourceRevision === 'string' && /^[0-9a-f]{64}$/.test(m.sourceRevision)) body.sourceRevision = m.sourceRevision;
+    if (typeof m.saveError === 'string' && m.saveError) body.saveError = m.saveError.slice(0, 300);
     this.settle(m.id as number, p, { status: 200, body });
   }
 

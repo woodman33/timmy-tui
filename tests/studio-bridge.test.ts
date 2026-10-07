@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { startStudioServer } from '../src/studio/server.js';
 
@@ -87,5 +90,31 @@ describe('the canvas bridge', () => {
     expect((await exec('code=return 1', 'text/plain')).status).toBe(415);
     expect((await exec({ jobId: 'x' })).status).toBe(400);
     expect((await exec({ code: 'x'.repeat(40_000) })).status).toBe(413);
+  });
+  // Fourth order, step 5: the page answers a call only after saving the canvas, with the source
+  // revision of what it saved (the sha256 of the saved document), or with why the save failed.
+  it("passes the page's source revision on, and a save that failed; a malformed one is dropped", async () => {
+    server = await startStudioServer(0, { env: {} });
+    const answers = [
+      { ok: true, result: 1, revision: 4, sourceRevision: 'ab'.repeat(32) },
+      { ok: true, result: 1, revision: 4, sourceRevision: 'not-a-hash', saveError: 'Another window saved this canvas at revision 5 after this one opened it.' },
+    ];
+    await page(() => answers.shift());
+    expect((await exec({ code: 'return 1', jobId: 'j1' })).body).toEqual({ ok: true, result: 1, jobId: 'j1', revision: 4, sourceRevision: 'ab'.repeat(32) });
+    expect((await exec({ code: 'return 1', jobId: 'j1' })).body).toEqual({ ok: true, result: 1, jobId: 'j1', revision: 4, saveError: 'Another window saved this canvas at revision 5 after this one opened it.' });
+  });
+  it('records each call the page answered with a source revision in the canvas jobs ledger, in Timmy\'s home', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'timmy-canvas-home-'));
+    try {
+      server = await startStudioServer(0, { env: { TIMMY_HOME: home } });
+      const answers = [{ ok: true, result: 1, revision: 4, sourceRevision: 'ab'.repeat(32) }, { ok: true, result: 2, revision: 4 }];
+      await page(() => answers.shift());
+      await exec({ code: 'return 1', jobId: 'turn-9' });
+      await exec({ code: 'return 2', jobId: 'turn-10' }); // no source revision: nothing was saved, so no job is recorded
+      const jobs = await fetch(`http://127.0.0.1:${port()}/api/canvas/jobs`).then((r) => r.json());
+      expect(jobs).toEqual([{ id: 'turn-9', ok: true, calls: 1, revision: 4, sourceRevision: 'ab'.repeat(32), at: expect.any(String) }]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

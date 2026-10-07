@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -105,6 +106,56 @@ describe('the studio server', () => {
   it('shows tldraw\'s own license verdict, never "licensed" just because a key is set', () => {
     expect(pageCode).toContain('editor.licenseManager?.state.get()');
     expect(pageCode).not.toMatch(/licenseKey \? ['"`][^'"`]*licensed/); // the old page did exactly this
+  });
+});
+
+// Fourth order, step 5: the canvas is saved by Timmy in its home (canvas/canvas.json) and opened
+// from there, so it reopens where it was and every surface reads the same document and revision.
+describe('the canvas file through the server', () => {
+  let server: Server | undefined;
+  let home = '';
+  afterEach(async () => {
+    await new Promise<void>((done) => (server ? server.close(() => done()) : done()));
+    server = undefined;
+    rmSync(home, { recursive: true, force: true });
+  });
+  const start = async (options: { maxCanvasBytes?: number } = {}) => {
+    home = mkdtempSync(join(tmpdir(), 'timmy-canvas-home-'));
+    server = await startStudioServer(0, { env: { TIMMY_HOME: home }, ...options });
+  };
+  const call = async (method: string, path: string, body?: unknown, contentType = 'application/json') => {
+    const r = await fetch(`http://127.0.0.1:${(server!.address() as AddressInfo).port}${path}`, {
+      method, headers: body === undefined ? {} : { 'Content-Type': contentType }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
+    });
+    return { status: r.status, cache: r.headers.get('cache-control'), body: await r.json() as Record<string, unknown> };
+  };
+  const SNAP = { store: { 'page:page': { id: 'page:page', typeName: 'page', name: 'Page 1', index: 'a1', meta: {} } }, schema: { schemaVersion: 2, sequences: {} } };
+  const sha = (o: unknown): string => createHash('sha256').update(JSON.stringify(o)).digest('hex');
+
+  it('a new home opens a blank canvas, never cached', async () => {
+    await start();
+    expect(await call('GET', '/api/canvas/document')).toEqual({ status: 200, cache: 'no-store', body: { revision: 0, sourceRevision: null, savedAt: null, snapshot: null } });
+  });
+  it('saves what the page sends (JSON only) and opens it again from the file in Timmy\'s home', async () => {
+    await start();
+    expect((await call('PUT', '/api/canvas/document', 'snapshot', 'text/plain')).status).toBe(415);
+    const saved = await call('PUT', '/api/canvas/document', { snapshot: SNAP, revision: 2, baseRevision: 0 });
+    expect(saved).toEqual({ status: 200, cache: 'no-store', body: { ok: true, revision: 2, sourceRevision: sha(SNAP), savedAt: expect.any(String) } });
+    expect((await call('GET', '/api/canvas/document')).body).toEqual({ revision: 2, sourceRevision: sha(SNAP), savedAt: saved.body.savedAt, snapshot: SNAP });
+    expect(JSON.parse(readFileSync(join(home, 'canvas', 'canvas.json'), 'utf8'))).toMatchObject({ revision: 2, snapshot: SNAP });
+  });
+  it('a save from an older revision gets 409 with the revision that won; a malformed save gets 400', async () => {
+    await start();
+    await call('PUT', '/api/canvas/document', { snapshot: SNAP, revision: 5, baseRevision: 0 });
+    const stale = await call('PUT', '/api/canvas/document', { snapshot: SNAP, revision: 3, baseRevision: 0 });
+    expect(stale.status).toBe(409);
+    expect(stale.body).toMatchObject({ ok: false, conflict: true, revision: 5 });
+    expect((await call('PUT', '/api/canvas/document', { snapshot: 'x', revision: -1 })).status).toBe(400);
+  });
+  it('a canvas too large to save gets 413 and says so', async () => {
+    await start({ maxCanvasBytes: 300 });
+    const big = await call('PUT', '/api/canvas/document', { snapshot: { ...SNAP, big: 'x'.repeat(1000) }, revision: 1, baseRevision: 0 });
+    expect(big).toMatchObject({ status: 413, body: { ok: false, error: 'This canvas is too large to save (over 300 bytes).' } });
   });
 });
 
