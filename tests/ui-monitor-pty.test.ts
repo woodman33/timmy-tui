@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { withoutCI } from './fixtures/repl-pty-env.js';
 import { parseAnsiFrame, TIMMY_DAY, TIMMY_NIGHT } from '../src/tui/qa/ansi-frame.js';
 import { gateFrame } from '../src/tui/qa/contrast-gate.js';
 import { visibleWidth } from '../src/term/width.js';
@@ -24,7 +25,7 @@ beforeAll(() => {
   mkdirSync(join(home, '.config', 'timmy-tui-nodejs'), { recursive: true });
   mkdirSync(repo);
   execFileSync('git', ['init', '-q'], { cwd: repo });
-  env = { ...process.env, HOME: home, TIMMY_HOME: join(home, 'timmy'), TIMMY_REPO_ROOT: repo, TIMMY_STORE: join(box, 'store'), OPENROUTER_API_KEY: '', COLORTERM: 'truecolor', TMUX: '', TMUX_TMPDIR: box };
+  env = { ...withoutCI(process.env), HOME: home, TIMMY_HOME: join(home, 'timmy'), TIMMY_REPO_ROOT: repo, TIMMY_STORE: join(box, 'store'), OPENROUTER_API_KEY: '', COLORTERM: 'truecolor', TMUX: '', TMUX_TMPDIR: box };
   execFileSync(process.execPath, ['--import', LOADER, CLI, 'init', '--yes', '--operator', 'Sample', '--seed', 'generate', '--project', 'demo'], { cwd: repo, env, stdio: 'ignore' });
   writeFileSync(join(home, '.config', 'timmy-tui-nodejs', 'config.json'), '{"onboarded": true}');
 }, 60_000);

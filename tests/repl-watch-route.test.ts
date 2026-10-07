@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { withoutCI } from './fixtures/repl-pty-env.js';
 
 // `timmy watch` in a real PTY (C-15): a SIGTERM sent to the `timmy` process itself (as `timeout` or a
 // process manager sends it) reaches the monitor, which restores the terminal; `timmy watch` exits 143
@@ -20,7 +21,7 @@ beforeAll(() => {
   const repo = join(box, 'repo');
   mkdirSync(join(home, '.config', 'timmy-tui-nodejs'), { recursive: true });
   mkdirSync(repo);
-  env = { ...process.env, HOME: home, TIMMY_HOME: join(home, 'timmy'), TIMMY_REPO_ROOT: repo, TIMMY_STORE: join(box, 'store'), OPENROUTER_API_KEY: '', TIMMY_PALETTE: 'night', COLORTERM: 'truecolor', TMUX: '', TMUX_TMPDIR: box };
+  env = { ...withoutCI(process.env), HOME: home, TIMMY_HOME: join(home, 'timmy'), TIMMY_REPO_ROOT: repo, TIMMY_STORE: join(box, 'store'), OPENROUTER_API_KEY: '', TIMMY_PALETTE: 'night', COLORTERM: 'truecolor', TMUX: '', TMUX_TMPDIR: box };
   execFileSync(process.execPath, ['--import', LOADER, CLI, 'init', '--yes', '--operator', 'Sample', '--seed', 'generate', '--project', 'demo'], { cwd: repo, env, stdio: 'ignore' });
   writeFileSync(join(home, '.config', 'timmy-tui-nodejs', 'config.json'), '{"onboarded": true}');
 }, 60_000);

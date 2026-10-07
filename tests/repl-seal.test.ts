@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { withoutCI } from './fixtures/repl-pty-env.js';
 import { sealTurn } from '../src/repl/seal.js';
 import { readChain, receiptsPath } from '../src/utils/receipts.js';
 
@@ -39,7 +40,7 @@ describe('sealTurn', () => {
 describe('a turn in the REPL', () => {
   it('closes with ✓ RECEIPT, signed and verified, and the store holds it', async () => {
     const dir = store();
-    const env = { ...process.env, HOME: dir, TIMMY_HOME: join(dir, 'timmy'), TIMMY_REPO_ROOT: dir, TIMMY_STORE: join(dir, 'store'), TIMMY_PALETTE: 'night', TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', COLORTERM: 'truecolor', NODE_ENV: '' };
+    const env = { ...withoutCI(process.env), HOME: dir, TIMMY_HOME: join(dir, 'timmy'), TIMMY_REPO_ROOT: dir, TIMMY_STORE: join(dir, 'store'), TIMMY_PALETTE: 'night', TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', COLORTERM: 'truecolor', NODE_ENV: '' };
     const tmux = (...args: string[]) => execFileSync('tmux', ['-L', 'seal', ...args], { env, encoding: 'utf8' });
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     try {
@@ -91,7 +92,7 @@ describe('a cancelled turn in the REPL', () => {
   const LOADER = `file://${resolve('node_modules/tsx/dist/loader.mjs')}`;
   const run = async (stuck: boolean) => {
     const dir = store();
-    const env = { ...process.env, HOME: dir, TIMMY_HOME: join(dir, 'timmy'), TIMMY_REPO_ROOT: dir, TIMMY_STORE: join(dir, 'store'), TIMMY_PALETTE: 'night', TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', COLORTERM: 'truecolor', NODE_ENV: '', TIMMY_Q_SCRIPT: 'slowtool', TIMMY_Q_SEAL: '1', TIMMY_Q_STUCK: stuck ? '1' : '' };
+    const env = { ...withoutCI(process.env), HOME: dir, TIMMY_HOME: join(dir, 'timmy'), TIMMY_REPO_ROOT: dir, TIMMY_STORE: join(dir, 'store'), TIMMY_PALETTE: 'night', TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', COLORTERM: 'truecolor', NODE_ENV: '', TIMMY_Q_SCRIPT: 'slowtool', TIMMY_Q_SEAL: '1', TIMMY_Q_STUCK: stuck ? '1' : '' };
     const sock = stuck ? 'cstuck' : 'cancel';
     const tmux = (...args: string[]) => execFileSync('tmux', ['-L', sock, ...args], { env, encoding: 'utf8' });
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

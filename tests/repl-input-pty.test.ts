@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { withoutCI } from './fixtures/repl-pty-env.js';
 
 // The block input in a real PTY (tmux): typing, Ctrl+J, bracketed paste, CJK with backspace, and the
 // piped case (`echo hi | timmy`): plain input, no raw mode, no terminal queries (playbook §17.2, §17.9).
@@ -12,7 +13,7 @@ let lastScreen = '';
 
 async function typeInto(keys: Array<string[] | { paste: string }>) {
   const dir = mkdtempSync('/tmp/ti-');
-  const env = { ...process.env, TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', TIMMY_PALETTE: 'night', COLORTERM: 'truecolor' };
+  const env = { ...withoutCI(process.env), TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', TIMMY_PALETTE: 'night', COLORTERM: 'truecolor' };
   const tmux = (...args: string[]) => execFileSync('tmux', ['-L', 'in', ...args], { env, encoding: 'utf8' });
   try {
     tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '80', '-y', '24', 'bash', '--norc', '-c', `${TSX} ${FIXTURE}; sleep 60`);

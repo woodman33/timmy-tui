@@ -54,7 +54,7 @@ type Env = CapabilityInput['env'];
 const isSet = (v: string | undefined): v is string => v !== undefined && v !== '';
 const truthy = (v: string | undefined): boolean => isSet(v) && v !== '0' && v.toLowerCase() !== 'false';
 
-const CI_VARS = ['CI', 'CONTINUOUS_INTEGRATION', 'GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL'];
+export const CI_VARS = ['CI', 'CONTINUOUS_INTEGRATION', 'GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL'];
 export const isCI = (env: Env): boolean => CI_VARS.some((k) => truthy(env[k]));
 
 /** Terminals that render UTF-8 themselves. Trusted only when no locale variable is set at all. */

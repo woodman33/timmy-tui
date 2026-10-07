@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { withoutCI } from './fixtures/repl-pty-env.js';
 
 // `timmy repl` end to end, sandboxed (scratch HOME, TIMMY_HOME and working folder): a missing key is a
 // config error (exit 78) with cause and fix; in a real PTY the banner, /help from the registry, an
@@ -11,7 +12,7 @@ const CLI = resolve('src/cli.ts');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const sandbox = () => {
   const dir = mkdtempSync('/tmp/tr-');
-  return { dir, env: { ...process.env, HOME: dir, TIMMY_HOME: `${dir}/timmy`, TIMMY_REPO_ROOT: dir, TIMMY_STORE: `${dir}/store`, OPENROUTER_API_KEY: '', TIMMY_PALETTE: 'night' } };
+  return { dir, env: { ...withoutCI(process.env), HOME: dir, TIMMY_HOME: `${dir}/timmy`, TIMMY_REPO_ROOT: dir, TIMMY_STORE: `${dir}/store`, OPENROUTER_API_KEY: '', TIMMY_PALETTE: 'night' } };
 };
 
 describe('timmy repl', () => {
