@@ -23,6 +23,8 @@ export interface WebPlan {
 export interface WebInputs {
   url: string;
   has: (bin: string) => boolean;
+  /** Where a program really is (links followed), or null: carbonyl runs from there (fourth order, step 3). */
+  locate?: (bin: string) => string | null;
   env: Record<string, string | undefined>;
   allowRemote: boolean;
 }
@@ -69,6 +71,15 @@ export function hostOf(url: string): { local: boolean; host: string; scheme: boo
 /** tmux reads an argument ending in `;` as the end of a command; `\\;` keeps it literal. */
 const tmuxArg = (a: string): string => (a.endsWith(';') ? `${a.slice(0, -1)}\\;` : a);
 
+/**
+ * Fourth order, step 3, found on the Mac: run through a link to it (~/.local/bin/carbonyl), carbonyl cannot
+ * find icudtl.dat beside itself and exits at once, so the pane vanished while the REPL said it had opened.
+ * The pane runs carbonyl ("$0", from where it really is) on the page ("$1": an argument, never shell text);
+ * when it stops with an error, the pane says so and waits for Enter.
+ */
+export const WEB_VIEW_SCRIPT = '"$0" "$1" || { s=$?; echo; echo "  The web view stopped (exit $s). Press Enter to close."; read -r _; }';
+const webView = (i: WebInputs, url: string): string[] => ['sh', '-c', WEB_VIEW_SCRIPT, i.locate?.('carbonyl') ?? 'carbonyl', url];
+
 export function planWeb(i: WebInputs): WebPlan {
   const { local, host, scheme } = hostOf(i.url);
   if (!scheme) return { route: 'refused', args: [], url: i.url, note: 'Refused: only http, https and file pages open here.' };
@@ -80,7 +91,7 @@ export function planWeb(i: WebInputs): WebPlan {
       route: 'zellij',
       command: 'zellij',
       // As big as the tmux popup, centred.
-      args: ['run', '--floating', '--close-on-exit', '--name', 'Web', '--width', '90%', '--height', '85%', '--x', '5%', '--y', '8%', '--', 'carbonyl', i.url],
+      args: ['run', '--floating', '--close-on-exit', '--name', 'Web', '--width', '90%', '--height', '85%', '--x', '5%', '--y', '8%', '--', ...webView(i, i.url)],
       url: i.url,
       note: 'Opened in a floating zellij pane. Ctrl+C there closes it.',
     };
@@ -89,8 +100,9 @@ export function planWeb(i: WebInputs): WebPlan {
     return {
       route: 'tmux',
       command: 'tmux',
-      // Separate arguments: tmux runs carbonyl with no shell in between, whatever the page's address holds.
-      args: ['display-popup', '-E', '-w', '90%', '-h', '85%', '-T', ' Web ', 'carbonyl', tmuxArg(i.url)],
+      // Separate arguments: tmux runs the pane's sh with no shell of its own in between, and the page's
+      // address reaches carbonyl as an argument, whatever it holds.
+      args: ['display-popup', '-E', '-w', '90%', '-h', '85%', '-T', ' Web ', ...webView(i, tmuxArg(i.url))],
       url: i.url,
       note: 'Opened in a tmux popup. Ctrl+C there closes it.',
     };

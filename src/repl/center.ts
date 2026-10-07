@@ -7,7 +7,7 @@
  * Each tab's program runs under a small supervisor (SUPERVISE), so no tab ever ends on its own.
  */
 import { spawnSync } from 'node:child_process';
-import { accessSync, constants, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -168,6 +168,20 @@ export function planCenter(i: CenterInputs): CenterPlan {
     return { route: 'tmux', command: 'tmux', args, note: 'Opening the cockpit in tmux.' };
   }
   return { route: 'repl', command: i.self[0], args: [...i.self.slice(1), 'repl'], note: 'No zellij or tmux found: running the REPL here.' };
+}
+
+/** Where a program on the PATH really is, links followed, or null when it is not on the PATH (step 3). */
+export function realOnPath(bin: string, env: Record<string, string | undefined>): string | null {
+  for (const dir of (env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue;
+    try {
+      accessSync(join(dir, bin), constants.X_OK);
+      return realpathSync(join(dir, bin));
+    } catch {
+      /* not here */
+    }
+  }
+  return null;
 }
 
 export function onPath(bin: string, env: Record<string, string | undefined>): boolean {

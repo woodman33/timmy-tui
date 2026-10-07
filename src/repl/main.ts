@@ -32,7 +32,7 @@ import { readPrompt } from './input.js';
 import { nearest } from './suggest.js';
 import { runTurn, type TurnAbandon, type TurnAgent } from './turn.js';
 import { Transcript } from './transcript.js';
-import { onPath, packageRoot } from './center.js';
+import { onPath, packageRoot, realOnPath } from './center.js';
 import { planWeb, RECEIPT_ID, receiptUrl, resolveWebTarget } from './web.js';
 import { createCanvasTools } from '../agent/canvas-tools.js';
 import { STUDIO_PORT } from '../studio/config.js';
@@ -237,7 +237,7 @@ export async function runRepl(argv: string[]): Promise<number> {
   const openWeb = (target: string, allowRemote: boolean): string => {
     // Timmy Canvas and the receipt pages (C-13) are served by this REPL unless another Timmy already does.
     if (target.trim() === 'studio' || RECEIPT_ID.test(target.trim())) studio ??= ensureStudioServer(STUDIO_PORT, { env: process.env });
-    const plan = planWeb({ url: resolveWebTarget(target), has: (bin) => onPath(bin, process.env), env: process.env, allowRemote });
+    const plan = planWeb({ url: resolveWebTarget(target), has: (bin) => onPath(bin, process.env), locate: (bin) => realOnPath(bin, process.env), env: process.env, allowRemote });
     if (plan.route === 'link') return `Open ${caps.cursor ? hyperlink(plan.url, plan.url, true) : plan.url} in your browser.`;
     if (plan.route === 'refused' || !plan.command) return plan.note;
     if (plan.route === 'tmux') {

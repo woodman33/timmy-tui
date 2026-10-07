@@ -2,7 +2,11 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { planWeb, receiptUrl, resolveWebTarget, type WebInputs } from '../src/repl/web.js';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { planWeb, receiptUrl, resolveWebTarget, WEB_VIEW_SCRIPT, type WebInputs } from '../src/repl/web.js';
+import { realOnPath } from '../src/repl/center.js';
 import { runSlash, type ReplContext } from '../src/repl/commands.js';
 import { glyphSet } from '../src/term/glyphs.js';
 
@@ -35,14 +39,50 @@ describe('web view routes', () => {
     const p = planWeb(inputs());
     expect(p.route).toBe('zellij');
     // As big as the tmux popup (90% by 85%), centred, so a page is readable.
-    expect([p.command, ...p.args]).toEqual(['zellij', 'run', '--floating', '--close-on-exit', '--name', 'Web', '--width', '90%', '--height', '85%', '--x', '5%', '--y', '8%', '--', 'carbonyl', 'http://127.0.0.1:4336/']);
+    expect([p.command, ...p.args]).toEqual(['zellij', 'run', '--floating', '--close-on-exit', '--name', 'Web', '--width', '90%', '--height', '85%', '--x', '5%', '--y', '8%', '--', 'sh', '-c', WEB_VIEW_SCRIPT, 'carbonyl', 'http://127.0.0.1:4336/']);
   });
   it('opens carbonyl in a tmux popup inside tmux', () => {
     const p = planWeb(inputs({ env: { TMUX: '/tmp/s,1,0' } }));
     expect(p.route).toBe('tmux');
-    // carbonyl and the page are separate arguments: tmux runs them with no shell in between.
-    expect([p.command, ...p.args]).toEqual(['tmux', 'display-popup', '-E', '-w', '90%', '-h', '85%', '-T', ' Web ', 'carbonyl', 'http://127.0.0.1:4336/']);
+    // The pane's sh, carbonyl and the page are separate arguments: tmux runs them with no shell of its own,
+    // and the page reaches carbonyl as an argument ("$1").
+    expect([p.command, ...p.args]).toEqual(['tmux', 'display-popup', '-E', '-w', '90%', '-h', '85%', '-T', ' Web ', 'sh', '-c', WEB_VIEW_SCRIPT, 'carbonyl', 'http://127.0.0.1:4336/']);
     expect(planWeb(inputs({ env: { TMUX: '/tmp/s,1,0' }, url: "http://localhost/#A\\';id;" })).args.at(-1)).toBe("http://localhost/#A\\';id\\;");
+  });
+  // Fourth order, step 3, found on the Mac: carbonyl on the PATH there is a link (~/.local/bin/carbonyl); run
+  // through it, carbonyl cannot find icudtl.dat beside itself and exits at once (127), so the popup flashed
+  // closed while the REPL said it had opened. It now runs from where it really is, inside a small sh that,
+  // when it stops with an error, says so and waits for Enter. The page's address stays an argument ("$1").
+  it('runs carbonyl from where it really is, inside a pane that says when it stops with an error', () => {
+    const locate = (bin: string) => (bin === 'carbonyl' ? '/opt/carbonyl/carbonyl' : null);
+    const z = planWeb(inputs({ locate }));
+    expect(z.args.slice(z.args.indexOf('--'))).toEqual(['--', 'sh', '-c', WEB_VIEW_SCRIPT, '/opt/carbonyl/carbonyl', 'http://127.0.0.1:4336/']);
+    const t = planWeb(inputs({ locate, env: { TMUX: '/tmp/s,1,0' } }));
+    expect(t.args.slice(t.args.indexOf(' Web ') + 1)).toEqual(['sh', '-c', WEB_VIEW_SCRIPT, '/opt/carbonyl/carbonyl', 'http://127.0.0.1:4336/']);
+    expect(planWeb(inputs({ env: { TMUX: '/tmp/s,1,0' } })).args.at(-2)).toBe('carbonyl');
+  });
+  it('finds where a program on the PATH really is, following links', () => {
+    const box = mkdtempSync(join(tmpdir(), 'tw-'));
+    try {
+      mkdirSync(join(box, 'carbonyl'));
+      mkdirSync(join(box, 'bin'));
+      writeFileSync(join(box, 'carbonyl', 'carbonyl'), '#!/bin/sh\n');
+      chmodSync(join(box, 'carbonyl', 'carbonyl'), 0o755);
+      symlinkSync(join(box, 'carbonyl', 'carbonyl'), join(box, 'bin', 'carbonyl'));
+      expect(realOnPath('carbonyl', { PATH: `/nonexistent:${join(box, 'bin')}` })).toBe(join(box, 'carbonyl', 'carbonyl'));
+      expect(realOnPath('carbonyl', { PATH: '/nonexistent' })).toBeNull();
+    } finally {
+      rmSync(box, { recursive: true, force: true });
+    }
+  });
+  it('the pane\'s sh says when the web view stops with an error, waits for Enter, and never reads the address as shell text', () => {
+    const failed = spawnSync('sh', ['-c', WEB_VIEW_SCRIPT, '/bin/false', 'http://127.0.0.1/'], { input: '\n', encoding: 'utf8' });
+    expect({ status: failed.status, out: failed.stdout.trim() }).toEqual({ status: 0, out: 'The web view stopped (exit 1). Press Enter to close.' });
+    const quiet = spawnSync('sh', ['-c', WEB_VIEW_SCRIPT, '/bin/true', 'http://127.0.0.1/'], { input: '', encoding: 'utf8' });
+    expect({ status: quiet.status, out: quiet.stdout }).toEqual({ status: 0, out: '' });
+    const address = "http://localhost/#a;b $(id) `id` 'q'";
+    const echoed = spawnSync('sh', ['-c', WEB_VIEW_SCRIPT, '/bin/echo', address], { encoding: 'utf8' });
+    expect(echoed.stdout).toBe(`${address}\n`);
   });
   it('gives a link when there is no carbonyl or no multiplexer to draw it in', () => {
     expect(planWeb(inputs({ bins: [] })).route).toBe('link');
