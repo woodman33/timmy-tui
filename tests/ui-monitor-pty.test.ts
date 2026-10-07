@@ -167,3 +167,54 @@ describe('the monitor\'s fixtures', () => {
     ]);
   }, 120_000);
 });
+
+// Fourth order, step 2: in a real PTY the monitor asks for mouse reports in its own screen, a click on a
+// tab presses that tab's digit (the keyboard's key), and Ctrl+C gives the setting back.
+async function clicks() {
+  const h = monitorHome('initialized', { git: true });
+  const raw = join(h.box, 'raw-click.log');
+  try {
+    h.tmux('-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '100', '-y', '30', '-c', h.repo, 'bash', '--norc', '-c', `sleep 0.5; ${process.execPath} --import ${LOADER} ${MONITOR} --no-companion; echo EXIT=$?; sleep 60`);
+    h.tmux('pipe-pane', '-o', '-t', 't', `cat >> ${raw}`);
+    await h.waitFor(/YOUR JOURNEY/);
+    const header = () => h.tmux('capture-pane', '-p', '-t', 't').split('\n')[0];
+    const cellOf = (line: string, needle: string) => visibleWidth(line.slice(0, line.indexOf(needle))) + 1;
+    const click = (x: number, y: number) => h.tmux('send-keys', '-t', 't', '-l', `\x1b[<0;${x};${y}M\x1b[<0;${x};${y}m`);
+    click(cellOf(header(), ' 2') + 1, 1);
+    await h.waitFor(/^TIMMY .*2 RUN/m, 5_000);
+    const afterTab = header();
+    click(cellOf(afterTab, ' 1') + 1, 1);
+    await h.waitFor(/^TIMMY .*1 HOME/m, 5_000);
+    const back = header();
+    // A hint presses its key: "[c] chat" in the footer opens chat; there, "[Esc] leave" leaves it
+    // (while typing, a click on a one-letter hint would type it, so only Enter, Esc and Tab count).
+    const rowOf = (needle: string) => {
+      const lines = h.tmux('capture-pane', '-p', '-t', 't').split('\n');
+      const y = lines.findIndex((l) => l.includes(needle));
+      return { x: cellOf(lines[y], needle) + 1, y: y + 1 };
+    };
+    const chat = rowOf('[c] chat');
+    click(chat.x, chat.y);
+    await h.waitFor(/\[Esc\] leave/, 5_000);
+    const leave = rowOf('[Esc] leave');
+    click(leave.x, leave.y);
+    await h.waitFor(/\[c\] chat/, 5_000);
+    const left = !h.tmux('capture-pane', '-p', '-t', 't').includes('[Esc] leave');
+    h.tmux('send-keys', '-t', 't', 'C-c');
+    const [, exit] = await h.waitFor(/EXIT=(\d+)/, 15_000);
+    const bytes = readFileSync(raw, 'utf8');
+    return {
+      clickedRun: /2 RUN/.test(afterTab), clickedHome: /1 HOME/.test(back), chatOpenedAndLeft: left, exit,
+      askedForMouse: bytes.includes('\x1b[?1000h') && bytes.includes('\x1b[?1006h'),
+      gaveItBack: bytes.lastIndexOf('\x1b[?1000l') > bytes.lastIndexOf('\x1b[?1000h') && bytes.lastIndexOf('\x1b[?1006l') > bytes.lastIndexOf('\x1b[?1006h'),
+    };
+  } finally {
+    await h.dispose();
+  }
+}
+
+describe('the monitor and the mouse', () => {
+  it('a click on a tab presses its digit, a click on a hint presses its key; mouse reports are asked for in its screen and given back on exit', async () => {
+    expect(await clicks()).toEqual({ clickedRun: true, clickedHome: true, chatOpenedAndLeft: true, exit: '130', askedForMouse: true, gaveItBack: true });
+  }, 90_000);
+});

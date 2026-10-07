@@ -72,7 +72,8 @@ export function WhichKeyOverlay({ mode, tab, width = 100 }: { mode: ShellMode; t
           </Box>
         ))}
       </Box>
-      <Text color={theme.textMuted}>press a key, or Esc to close · keys shown are exactly the active keymap</Text>
+      <Text color={theme.textMuted}>press a key, or click a tab or a [key] · Esc closes · keys shown are exactly the active keymap</Text>
+      <Text color={theme.textMuted}>to select text while the mouse is on: hold Shift and drag (Option in iTerm2)</Text>
     </Box>
   );
 }

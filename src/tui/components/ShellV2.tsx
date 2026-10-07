@@ -34,6 +34,7 @@ import { integrationCatalog } from '../../vision/integrations/registry.js';
 import { VisualToolsPanel, type VisualToolRunState } from './VisualToolsPanel.js';
 import { runVisualTool, visualToolsAvailability, visualToolExamples, visualToolsSetup, type VisualOperation } from '../../utils/visual-tools.js';
 import { probeDockerServerVersion } from '../../utils/docker-server.js';
+import { keyAt, lastFrame, parseMouse } from '../mouse.js';
 
 // TUI REDESIGN (spec §01/§02/§03) — IA collapse: nine tabs become four.
 // HOME · RUN · CHAIN · LIBRARY. HOME is the journey ladder: seven steps read
@@ -311,14 +312,25 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
     if (visualToolsOpen) return;
     // Arrow events navigate HANDS; they are never printable text in a buffer.
     const state = sRef.current;
+    const typing = state.mode === 'INSERT' || state.mode === 'CHAT' || state.overlay === 'refuse' || state.overlay === 'note';
+    // Fourth order, step 2: a click presses the key it lands on (a tab's digit, a hint's key); the wheel
+    // moves like the arrows. While text is being typed, only Enter, Esc and Tab clicks count: a click on
+    // a one-letter hint must not type that letter.
+    const mouse = parseMouse(input);
+    let clicked: string | null = null;
+    if (mouse) {
+      if (!mouse.press) return;
+      clicked = mouse.button === 64 ? 'up' : mouse.button === 65 ? 'down' : mouse.button === 0 ? keyAt(lastFrame(), mouse.x, mouse.y) : null;
+      if (!clicked || (typing && (clicked === 'up' || clicked === 'down' || clicked.length === 1))) return;
+    }
     const arrow = key.upArrow || key.downArrow || key.leftArrow || key.rightArrow;
-    if (arrow && (state.mode === 'INSERT' || state.mode === 'CHAT' || state.overlay === 'refuse' || state.overlay === 'note')) return;
+    if (arrow && typing) return;
     // ui-cockpit-k7m3: arrows reach the reducer as names so the HANDS grid
     // cursor can use them; everything else keeps its raw input char
-    const k = key.return ? 'Enter' : key.escape ? 'Esc' : key.tab ? 'Tab'
+    const k = clicked ?? (key.return ? 'Enter' : key.escape ? 'Esc' : key.tab ? 'Tab'
       : key.backspace || key.delete ? 'backspace'
         : key.upArrow ? 'up' : key.downArrow ? 'down' : key.leftArrow ? 'left' : key.rightArrow ? 'right'
-        : input;
+        : input);
     // CHAT Enter ships the buffer: capture before the reducer clears it
     const chatText = sRef.current.mode === 'CHAT' ? sRef.current.input : '';
     // a ref advanced synchronously: pasted/programmatic chunks can arrive in

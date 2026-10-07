@@ -4,6 +4,7 @@ import { render } from 'ink';
 import { ShellV2 } from './components/ShellV2.js';
 import { MonitorScreen } from './ui/MonitorScreen.js';
 import { screenStream } from '../term/screen-stream.js';
+import { MOUSE_OFF, MOUSE_ON, recordFrame } from './mouse.js';
 import { visibleWidth } from '../term/width.js';
 import { TerminalSession } from '../term/session.js';
 import { currentCapabilities, type TerminalCapabilities } from '../term/capabilities.js';
@@ -71,9 +72,23 @@ export function startShellV2(config: unknown, graphics: string, screen?: Termina
   process.stdout.prependListener('resize', clearOnResize);
   owner.beforeRestore(() => { process.stdout.off('resize', clearOnResize); });
   const palette = toPalette(colors);
+  // Fourth order, step 2: in its own screen the monitor takes button reports, so a click presses the key
+  // it lands on (src/tui/mouse.ts); every way out gives the setting back. TIMMY_MOUSE=0 leaves it off.
+  const mouse = process.stdout.isTTY === true && process.env.TIMMY_MOUSE !== '0';
+  if (mouse) {
+    process.stdout.write(MOUSE_ON);
+    owner.beforeRestore(() => { process.stdout.write(MOUSE_OFF); });
+  }
   const app = render(
     React.createElement(MonitorScreen, { children: (columns: number) => React.createElement(ShellV2, { width: columns, config }) }),
-    { exitOnCtrlC: false, stdout: screenStream(process.stdout, (text) => (fitsTerminal(text) ? palette(text) : '')) },
+    {
+      exitOnCtrlC: false,
+      stdout: screenStream(process.stdout, (text) => {
+        if (!fitsTerminal(text)) return '';
+        recordFrame(text); // the text clicks are read against
+        return palette(text);
+      }),
+    },
   );
   owner.beforeRestore(() => app.unmount());
 }
