@@ -124,3 +124,45 @@ describe("the turn's cost", () => {
     expect(costs[0][2]).toEqual({ complete: false });
   });
 });
+
+// LIVE-01 (ledger row 65) measured on the operator's key: Anthropic runs on his own provider key through
+// OpenRouter (BYOK), so `usage.cost` is only OpenRouter's fee and the provider's charge comes as
+// `costDetails.upstreamInferenceCost`. Without BYOK that figure is already inside `cost`.
+function withUsage(responses: Array<{ id: string; usage: Record<string, unknown> }>) {
+  const agent = createAgent({ apiKey: 'x', model: 'm', instructions: '', maxSteps: 3, maxCost: 1 }, { multiplexer: 'none' });
+  (agent as any).client = {
+    callModel: () => ({
+      async *getItemsStream() { yield msg('done'); },
+      async *getFullResponsesStream() {
+        for (const r of responses) yield { type: 'response.completed', response: { id: r.id, usage: { inputTokens: 4000, outputTokens: 150, ...r.usage } } };
+      },
+      getResponse: async () => ({ id: responses.at(-1)!.id, usage: { inputTokens: 4000, outputTokens: 150, ...responses.at(-1)!.usage } }),
+      cancel: async () => {},
+    }),
+  };
+  const costs: unknown[][] = [];
+  agent.on('cost:update', (...a: unknown[]) => costs.push(a));
+  return { agent, costs };
+}
+const upstream = (total: number | null) => ({ upstreamInferenceCost: total, upstreamInferenceInputCost: 0.02, upstreamInferenceOutputCost: 0.0031 });
+
+describe("the turn's cost on the operator's own provider key (BYOK)", () => {
+  it("adds the provider's charge to OpenRouter's fee", async () => {
+    const { agent, costs } = withUsage([{ id: 'r1', usage: { cost: 0.0004, isByok: true, costDetails: upstream(0.0231) } }]);
+    await agent.send('x');
+    expect(costs[0][0]).toBeCloseTo(0.0235, 10);
+    expect(costs[0][2]).toEqual({ complete: true });
+  });
+  it("never adds the provider's charge twice when OpenRouter billed it (no BYOK)", async () => {
+    const { agent, costs } = withUsage([{ id: 'r1', usage: { cost: 0.0123, isByok: false, costDetails: upstream(0.0119) } }]);
+    await agent.send('x');
+    expect(costs[0][0]).toBeCloseTo(0.0123, 10);
+    expect(costs[0][2]).toEqual({ complete: true });
+  });
+  it("is a lower bound when a BYOK response does not say what the provider charged", async () => {
+    const { agent, costs } = withUsage([{ id: 'r1', usage: { cost: 0.0004, isByok: true, costDetails: upstream(null) } }]);
+    await agent.send('x');
+    expect(costs[0][0]).toBeCloseTo(0.0004, 10);
+    expect(costs[0][2]).toEqual({ complete: false });
+  });
+});

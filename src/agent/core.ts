@@ -765,14 +765,24 @@ export class Agent extends EventEmitter<AgentEvents> {
         // on the full stream as they complete, so a cancel still knows what was charged before it.
         const charged = new Map<string, number>();
         const unreported = new Set<string>();
+        const money = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
         const price = (response: any): void => {
           if (!response || typeof response !== 'object') return;
           const key = typeof response.id === 'string' && response.id ? response.id : `response-${charged.size + unreported.size}`;
-          const cost = response.usage?.cost;
-          if (typeof cost === 'number' && Number.isFinite(cost) && cost >= 0) {
+          const usage = response.usage ?? {};
+          // On the operator's own provider key (BYOK), `cost` is only OpenRouter's fee and the provider
+          // bills its own charge, `upstreamInferenceCost`; without BYOK that charge is inside `cost`.
+          const byok = usage.isByok ?? usage.is_byok;
+          const upstream = usage.costDetails?.upstreamInferenceCost ?? usage.cost_details?.upstream_inference_cost;
+          const cost = money(usage.cost) && (byok !== true || money(upstream)) ? usage.cost + (byok === true ? upstream : 0) : undefined;
+          if (cost !== undefined) {
             charged.set(key, cost);
             unreported.delete(key);
-          } else if (!charged.has(key)) unreported.add(key);
+          } else if (!charged.has(key)) {
+            // What is known still counts, as a lower bound.
+            if (money(usage.cost)) charged.set(key, usage.cost);
+            unreported.add(key);
+          }
         };
         const collector: Promise<void> = typeof (result as any).getFullResponsesStream === 'function'
           ? (async () => {
