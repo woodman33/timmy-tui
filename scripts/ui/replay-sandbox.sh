@@ -49,12 +49,13 @@ if ! npx --no-install playwright install chromium >> "$out/setup.log" 2>&1 \
 fi
 say "Chromium: $canvas"
 
-# A synthetic monitor home, made the way tests/fixtures/ui-monitor-home.ts makes an initialized one.
+# A synthetic monitor home, made the way tests/fixtures/ui-monitor-home.ts makes an initialized one
+# (env -i: no model key or anything else comes from this shell).
 mh="$out/monitor-home"; box=$(mktemp -d /tmp/rmh-XXXXXX)
 mkdir -p "$mh/.config/timmy-tui-nodejs" "$box/repo"
 (cd "$box/repo" && env -i PATH="$PATH" HOME="$mh" XDG_CONFIG_HOME="$mh/.config" XDG_DATA_HOME="$mh/.local/share" \
   XDG_STATE_HOME="$mh/.local/state" XDG_CACHE_HOME="$mh/.cache" TIMMY_HOME="$mh/timmy" TIMMY_REPO_ROOT="$box/repo" \
-  TIMMY_STORE="$box/store" OPENROUTER_API_KEY= LANG=C.UTF-8 \
+  TIMMY_STORE="$box/store" LANG=C.UTF-8 \
   node --import "$root/node_modules/tsx/dist/loader.mjs" "$root/src/cli.ts" init --yes --operator Sample --seed generate --project demo) \
   >> "$out/setup.log" 2>&1 || die "timmy init failed"
 printf '{"onboarded": true}' > "$mh/.config/timmy-tui-nodejs/config.json"
