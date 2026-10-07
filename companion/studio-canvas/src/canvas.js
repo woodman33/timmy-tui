@@ -89,6 +89,17 @@ const saveSoon = (editor) => {
   clearTimeout(canvas.timer);
   canvas.timer = setTimeout(() => save(editor), 400);
 };
+/**
+ * Leaving the page (closing the tab, reloading, going elsewhere) saves what the 400 ms wait has not.
+ * A closing page can still send one small request (keepalive, up to 64 KB); a larger canvas sends
+ * an ordinary one, which the browser may cut off: then the last 400 ms of changes can be lost.
+ */
+function saveOnLeave(editor) {
+  if (canvas.conflict || canvas.revision === canvas.savedRevision) return;
+  clearTimeout(canvas.timer);
+  const body = JSON.stringify({ snapshot: getSnapshot(editor.store).document, revision: canvas.revision, baseRevision: canvas.savedRevision });
+  fetch('/api/canvas/document', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body, keepalive: body.length < 60_000 }).catch(() => undefined);
+}
 
 // The agent bridge (F-4, slice 2): Timmy sends Editor API code; it runs here against the live editor
 // and the answer goes back only after the canvas is saved, with the revision and the source revision
@@ -174,6 +185,7 @@ async function start() {
         window.timmyCanvas = { editor, tldrawVersion: BUILT_WITH, licenseState: 'pending', document: canvas };
         showStatus(editor);
         connectBridge(editor);
+        window.addEventListener('pagehide', () => saveOnLeave(editor));
       },
     }),
   );

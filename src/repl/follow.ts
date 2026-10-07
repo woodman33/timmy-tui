@@ -24,8 +24,20 @@ export interface ReceiptsOptions {
   format?: 'human' | 'json' | 'quiet';
 }
 
-/** A receipt as `--json` gives it: stable keys, the full hash. */
-const asJson = (r: Receipt): { hash: string; kind: string; subject: string; at: string } => ({ hash: r.hash, kind: r.kind, subject: r.subject, at: r.ts });
+interface CanvasSource { job: string; revision: number; source_revision: string }
+
+/** The Timmy Canvas job a turn's receipt names (fourth order, step 5), if it used the canvas. */
+function canvasOf(r: Receipt): CanvasSource | null {
+  const source = (r.sources ?? []).find((s): s is Record<string, unknown> => typeof s === 'object' && s !== null && (s as Record<string, unknown>).kind === 'timmy-canvas');
+  if (!source || typeof source.job !== 'string' || typeof source.revision !== 'number' || typeof source.source_revision !== 'string') return null;
+  return { job: source.job, revision: source.revision, source_revision: source.source_revision };
+}
+
+/** A receipt as `--json` gives it: stable keys, the full hash, and its canvas job when it has one. */
+const asJson = (r: Receipt): { hash: string; kind: string; subject: string; at: string; canvas?: CanvasSource } => {
+  const canvas = canvasOf(r);
+  return { hash: r.hash, kind: r.kind, subject: r.subject, at: r.ts, ...(canvas ? { canvas } : {}) };
+};
 
 const hhmm = (iso: string): string => {
   const d = new Date(iso);
@@ -46,7 +58,9 @@ export async function showReceipts(o: ReceiptsOptions): Promise<number> {
   };
   const line = (r: Receipt, first: boolean): void => {
     if (!first) say([{ text: `  ${g.rail}`, role: 'rule' }]);
-    say([{ text: `  ${g.bullet} ` }, { text: r.hash.slice(7, 15), role: 'strong' }, { text: `  ${r.kind}  ${r.subject}  ${hhmm(r.ts)}`, role: 'secondary' }]);
+    const canvas = canvasOf(r);
+    const where = canvas ? `  canvas ${canvas.job} at revision ${canvas.revision}` : '';
+    say([{ text: `  ${g.bullet} ` }, { text: r.hash.slice(7, 15), role: 'strong' }, { text: `  ${r.kind}  ${r.subject}  ${hhmm(r.ts)}${where}`, role: 'secondary' }]);
   };
   const format = o.format ?? 'human';
   if (format !== 'human') {

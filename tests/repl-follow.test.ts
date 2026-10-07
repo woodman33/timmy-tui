@@ -98,6 +98,29 @@ describe('timmy receipts for scripts', () => {
     expect(code).toBe(65);
     expect(JSON.parse(out[0])).toMatchObject({ ok: false, verified: false, error: 'hash mismatch at 2' });
   });
+  // Fourth order, step 5: a turn that drew on Timmy Canvas names its canvas job and revision here too,
+  // so the terminal shows the same job identity as the canvas and its ledger.
+  it("names a turn's canvas job and revision, in the line and in --json", async () => {
+    const { showReceipts } = await import('../src/repl/follow.js');
+    const { buildTheme } = await import('../src/term/theme.js');
+    const { detectCapabilities } = await import('../src/term/capabilities.js');
+    const tty = { isTTY: false, columns: 100, rows: 24 };
+    const theme = buildTheme(detectCapabilities({ env: {}, stdin: tty, stdout: tty, stderr: tty }));
+    const canvasTurn = { ...chain[0], sources: [{ kind: 'timmy-canvas', job: 'turn-3c0f18b0', revision: 12, source_revision: 'ab'.repeat(32) }] };
+    for (const format of ['human', 'json'] as const) {
+      const out: string[] = [];
+      await showReceipts({ follow: false, last: 10, format, write: (l) => out.push(l), theme, read: () => [canvasTurn, chain[1]] as never, verify: () => ({ ok: true, count: 2 }) });
+      if (format === 'human') {
+        expect(out.find((l) => l.includes('aaaaaaaa'))).toContain('canvas turn-3c0f18b0 at revision 12');
+        expect(out.find((l) => l.includes('bbbbbbbb'))).not.toContain('canvas');
+      } else {
+        expect(JSON.parse(out[0]).receipts).toEqual([
+          { hash: 'sha256:aaaaaaaa11111111', kind: 'turn', subject: 'repl · 1 step', at: '2026-10-07T07:00:00.000Z', canvas: { job: 'turn-3c0f18b0', revision: 12, source_revision: 'ab'.repeat(32) } },
+          { hash: 'sha256:bbbbbbbb22222222', kind: 'check', subject: 'setup check', at: '2026-10-07T07:01:00.000Z' },
+        ]);
+      }
+    }
+  });
   it('--quiet prints the hashes alone, one a line', async () => {
     const { code, out } = await run('quiet');
     expect(code).toBe(0);
