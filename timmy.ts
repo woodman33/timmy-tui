@@ -5,18 +5,20 @@
 // demo receipt (README + tests/receipt.test.ts). A bare `timmy` is `timmy repl`, the inline REPL
 // (fourth order, step 6: it moved there once LIVE-01 passed on the operator's Mac, ledger row 71);
 // the full-screen monitor, the old Command Post, is `timmy watch`.
-// EVERY other verb is forwarded to src/cli.ts, the modern CLI surface — there is no verb
-// whitelist here any more (ui-v3-t9r2 C0 audit: `timmy cockpit|privacy|engine|clip|status|swarm`
-// never reached the installed command; Will, 2026-09-14). A verb the CLI learns is reachable
-// from the installed command the moment it exists; tests/bin-verbs.test.ts enumerates the CLI's
-// verbs and asserts each one reaches it through this bin. TIMMY_BIN_DRY_RUN=1 prints the routing
-// decision as one JSON line instead of booting or spawning.
-import { spawnSync } from 'node:child_process';
+// EVERY other verb is forwarded to src/cli.ts, the modern CLI surface, run as a child process that
+// signals sent to `timmy` reach — there is no verb whitelist here any more (ui-v3-t9r2 C0 audit:
+// `timmy cockpit|privacy|engine|clip|status|swarm` never reached the installed command; Will,
+// 2026-09-14). A verb the CLI learns is reachable from the installed command the moment it exists;
+// tests/bin-verbs.test.ts enumerates the CLI's verbs and asserts each one reaches it through this bin,
+// and tests/bin-signals.test.ts that a signal sent to the bin reaches the CLI. TIMMY_BIN_DRY_RUN=1
+// prints the routing decision as one JSON line instead of booting or spawning.
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 import { computeReceiptHash, Receipt } from './src/receipt/schema.js';
 import { VERSION } from './src/version.js';
+import { exitStatus } from './src/repl/watch-launch.js';
 
 function getPackageMetadata() {
   const possiblePaths = [
@@ -97,15 +99,26 @@ if (command === 'version' || args.includes('--version') || args.includes('-v')) 
   process.exit(0);
 }
 
-// Every verb the bin does not answer itself — help included — goes to the CLI untouched.
+// Every verb the bin does not answer itself — help included — goes to the CLI untouched. The CLI runs as
+// a child process, and the bin waits for it without blocking, so a SIGTERM or SIGHUP sent to `timmy`
+// reaches it: in spawnSync the bin died at once and left the REPL running, orphaned. SIGINT is not passed
+// on: the terminal sends it to both already (and in raw mode Ctrl+C is a key the REPL reads), so passing
+// it would deliver it twice. The bin exits with the CLI's status, or 128 plus the signal that ended it.
 if (command !== 'demo') {
   // linked bin runs from dist/; dev runs from source — resolve accordingly
   const compiled = import.meta.url.endsWith('.js');
   const cliPath = fileURLToPath(new URL(compiled ? './src/cli.js' : './src/cli.ts', import.meta.url));
   decide({ forward: 'src/cli', cli: path.relative(process.cwd(), cliPath), argv: forwarded });
   const loader = compiled ? [] : ['--import', (await import('node:module')).createRequire(import.meta.url).resolve('tsx')];
-  const r = spawnSync(process.execPath, [...loader, cliPath, ...forwarded], { stdio: 'inherit' });
-  process.exit(r.status ?? 1);
+  const child = spawn(process.execPath, [...loader, cliPath, ...forwarded], { stdio: 'inherit' });
+  process.on('SIGTERM', () => child.kill('SIGTERM'));
+  process.on('SIGHUP', () => child.kill('SIGHUP'));
+  process.on('SIGINT', () => {});
+  const status = await new Promise<number>((resolve) => {
+    child.on('error', (err) => { process.stderr.write(`timmy: could not start the CLI (${err.message}).\n`); resolve(69); });
+    child.on('exit', (code, signal) => resolve(exitStatus({ status: code, signal })));
+  });
+  process.exit(status);
 }
 
 // `timmy demo` — the legacy local demo receipt (kept native: README documents it and

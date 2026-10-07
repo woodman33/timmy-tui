@@ -57,6 +57,8 @@ const APPROVAL = join(REPO, 'tests/fixtures/repl-approval-fixture.ts');
 const GATE = join(REPO, 'scripts/ui/gate.ts');
 const q = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
 const TIMMY = (args: string): string => `${q(NODE)} --import ${q(LOADER)} ${q(CLI)} ${args}`;
+/** Through the installed command's bin (timmy.ts, from source), which starts the CLI as a child process. */
+const TIMMY_BIN = (args: string): string => `${q(NODE)} --import ${q(LOADER)} ${q(join(REPO, 'timmy.ts'))} ${args}`;
 const NODE_TS = (file: string): string => `${q(NODE)} --import ${q(LOADER)} ${q(file)}`;
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const ALLOWED_EXITS = new Set([0, 1, 2, ...Array.from({ length: 15 }, (_, i) => 64 + i), 130, 143]);
@@ -679,6 +681,29 @@ const CHECKS: Check[] = [
     must(redraws === 0, `${redraws} redraws in --plain`);
     must(/The storyboard and the voiceover are ready/.test(d.history), 'the answer is missing in --plain');
     return '--plain: no cursor-up, no sync, no carriage-return redraw; the answer printed';
+  } },
+  { id: 'BIN-01', ref: '19.5; fourth order, step 6', line: 'Through the installed command\'s bin: bare `timmy` opens the REPL, and a SIGTERM to `timmy` mid-turn reaches the REPL it started (143, the terminal restored, nothing left running)', run: async () => {
+    const sb1 = sandbox('bin-bare', {});
+    const bare = new Pty('bin-bare', { cols: 80, rows: 24, env: sb1.env, cwd: sb1.work, script: TIMMY_BIN('') }).start();
+    try { await bare.waitFor(/Tab completes \/setup/, 20_000); } finally { bare.save(); bare.kill(); }
+    const sb2 = sandbox('bin-sigterm', {});
+    const p = new Pty('bin-sigterm', { cols: 80, rows: 20, env: sb2.env, cwd: sb2.work, script: TIMMY_BIN('repl --demo-loader') }).start();
+    try {
+      await p.waitFor(/Working/, 20_000);
+      await sleep(800);
+      const kid = (pid: string | number): number => Number(execFileSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' }).trim().split('\n')[0]);
+      const bin = kid(p.tmux('display', '-p', '-t', 'q', '#{pane_pid}').trim());
+      const repl = kid(bin);
+      process.kill(bin, 'SIGTERM');
+      const ex = await p.exited(8000);
+      await sleep(200);
+      const left = ((): boolean => { try { process.kill(repl, 0); return true; } catch { return false; } })();
+      if (left) process.kill(repl, 'SIGKILL');
+      must(!left, 'the REPL kept running after timmy ended');
+      must(ex.code === 143 && ex.tty === 'same', `timmy: exit ${ex.code}, tty ${ex.tty}`);
+      must(p.cursor() === '1', 'the cursor was left hidden');
+      return 'bare timmy: the REPL at its first-run prompt; SIGTERM to timmy mid-turn: 143, stty unchanged, cursor on, no REPL left';
+    } finally { p.save(); p.kill(); }
   } },
 
   // §19.6 Agent TUI

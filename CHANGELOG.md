@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (with the provider's own charge on a BYOK key); a cancelled turn says
   "at least" and its receipt marks the figure as not measured. It was a flat
   per-token estimate of the last response only.
+- A SIGTERM or SIGHUP sent to `timmy` reaches the command it started: the
+  REPL restores the terminal and exits 143 (or 129), and `timmy` reports
+  that status. The bin used to die at once and leave the REPL running.
 
 ## [2.0.0-rc.1] - 2026-10-06
 
