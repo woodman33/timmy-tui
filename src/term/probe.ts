@@ -1,9 +1,10 @@
 /**
  * Ask the terminal for its real colors (playbook §17.3): OSC 11 for the background, OSC 4 for
- * palette slots 7 and 8 (the gray, B3) and 1, 2, 3 and 5 (the meanings, so one that misses its floor
- * is dropped: row 28), then DA1 as a sentinel every terminal answers, so a terminal that ignores
- * OSC queries ends the wait early. Only on an interactive terminal; 200ms at most; raw mode and the
- * paused stdin are restored on every outcome.
+ * palette slots 7 and 8 (the gray, B3), 1, 2, 3 and 5 (the meanings, so one that misses its floor
+ * is dropped: row 28) and their bright twins 9, 10, 11 and 13 (one of which a meaning takes when its
+ * own slot misses: fourth order, step 2), then DA1 as a sentinel every terminal answers, so a terminal
+ * that ignores OSC queries ends the wait early. Only on an interactive terminal; 200ms at most; raw
+ * mode and the paused stdin are restored on every outcome.
  */
 import type { TerminalCapabilities } from './capabilities.js';
 import { rgbToHex } from './color.js';
@@ -14,7 +15,8 @@ export interface ProbeStreams {
   stdout: Pick<NodeJS.WriteStream, 'write'> & { isTTY?: boolean };
 }
 
-export const COLOR_QUERY = '\x1b]11;?\x07\x1b]4;7;?\x07\x1b]4;8;?\x07\x1b]4;1;?\x07\x1b]4;2;?\x07\x1b]4;3;?\x07\x1b]4;5;?\x07\x1b[c';
+const SLOTS = [7, 8, 1, 2, 3, 5, 9, 10, 11, 13];
+export const COLOR_QUERY = `\x1b]11;?\x07${SLOTS.map((n) => `\x1b]4;${n};?\x07`).join('')}\x1b[c`;
 const REPLY = /\x1b\](11|4;(\d{1,3}));rgb:([0-9a-f]{1,4})\/([0-9a-f]{1,4})\/([0-9a-f]{1,4})(?:\x07|\x1b\\)/gi;
 const DA1 = /\x1b\[\?[\d;]*c/;
 
