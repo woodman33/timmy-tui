@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { studioConfig, TLDRAW_VERSION } from '../src/studio/config.js';
 import { ensureStudioServer, startStudioServer } from '../src/studio/server.js';
 
@@ -55,19 +57,54 @@ describe('the studio server', () => {
     expect(evil.status).toBe(403);
     expect(evil.body).not.toContain(KEY);
   });
-  it('serves the canvas page: the pinned tldraw, the license passed to <Tldraw>, and the editor handed to Timmy', async () => {
-    server = await startStudioServer(0, { env: {} });
-    const html = (await get('/')).body;
-    expect(html).toContain(`tldraw@${TLDRAW_VERSION}`);
-    expect(html).toContain('/studio-config.json');
-    expect(html).toMatch(/licenseKey: config\.licenseKey/);
-    expect(html).toContain('window.timmyCanvas');
+  // Fourth order, step 5: the page's code is bundled on this machine (scripts/canvas/build.mjs) from
+  // companion/studio-canvas/src/canvas.js; the page loads dist/canvas.js beside it.
+  const pageCode = readFileSync('companion/studio-canvas/src/canvas.js', 'utf8');
+  const canvasRoot = (built: boolean): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'timmy-studio-root-'));
+    writeFileSync(join(dir, 'index.html'), readFileSync('companion/studio-canvas/index.html'));
+    if (built) {
+      mkdirSync(join(dir, 'dist'));
+      writeFileSync(join(dir, 'dist', 'canvas.js'), '// built');
+    }
+    return dir;
+  };
+  it('serves the canvas page, which loads the bundle built beside it', async () => {
+    const root = canvasRoot(true);
+    try {
+      server = await startStudioServer(0, { env: {}, root });
+      const page = await get('/');
+      expect(page.status).toBe(200);
+      expect(page.body).toContain('src="dist/canvas.js"');
+      expect((await get('/dist/canvas.js')).body).toBe('// built');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
-  it('shows tldraw\'s own license verdict, never "licensed" just because a key is set', async () => {
-    server = await startStudioServer(0, { env: {} });
-    const html = (await get('/')).body;
-    expect(html).toContain('editor.licenseManager?.state.get()');
-    expect(html).not.toMatch(/licenseKey \? ['"`][^'"`]*licensed/); // the old page did exactly this
+  it('a canvas not built yet gets a page that says so and how to build it, not a blank page', async () => {
+    const root = canvasRoot(false);
+    try {
+      server = await startStudioServer(0, { env: {}, root });
+      for (const path of ['/', '/index.html']) {
+        const page = await get(path);
+        expect(page.status).toBe(503);
+        expect(page.headers['content-type']).toMatch(/^text\/html/);
+        expect(page.body).toContain('Timmy Canvas is not built yet');
+        expect(page.body).toContain('npm run build:canvas');
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it("the page's code: the license passed to <Tldraw>, the editor handed to Timmy, and the bundle's tldraw checked against the pin", () => {
+    expect(pageCode).toContain("fetch('/studio-config.json'");
+    expect(pageCode).toMatch(/licenseKey: config\.licenseKey/);
+    expect(pageCode).toContain('window.timmyCanvas');
+    expect(pageCode).toContain('config.tldrawVersion !== BUILT_WITH');
+  });
+  it('shows tldraw\'s own license verdict, never "licensed" just because a key is set', () => {
+    expect(pageCode).toContain('editor.licenseManager?.state.get()');
+    expect(pageCode).not.toMatch(/licenseKey \? ['"`][^'"`]*licensed/); // the old page did exactly this
   });
 });
 

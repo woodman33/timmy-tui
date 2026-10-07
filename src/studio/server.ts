@@ -7,6 +7,7 @@ import { mountReceiptPages, type ReceiptSource } from './receipt-page.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CanvasBridge } from './bridge.js';
 import { STUDIO_PORT, studioConfig } from './config.js';
@@ -42,6 +43,16 @@ export function isLocalRequest(req: IncomingMessage): boolean {
 
 const JOB_ID = /^[\w.:-]{1,100}$/;
 
+/**
+ * What a canvas that is not built yet shows (fourth order, step 5): tldraw is bundled on this machine
+ * by scripts/canvas/build.mjs, which `npm run build` runs and a fresh checkout has not run yet.
+ */
+const NOT_BUILT = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Timmy Canvas</title>
+<style>body{margin:0;padding:24px;background:#0a0e12;color:#e6edf3;font:14px/1.5 ui-monospace,Menlo,monospace}code{color:#ffffff}</style></head>
+<body><h1 style="font-size:16px">Timmy Canvas is not built yet</h1>
+<p>Its tldraw bundle (dist/canvas.js) is missing. In the Timmy checkout, run:</p>
+<p><code>npm run build:canvas</code></p><p>then reload this page.</p></body></html>`;
+
 export function createStudioApp(options: StudioOptions = {}, bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs)): express.Express {
   const env = options.env ?? process.env;
   const app = express();
@@ -73,7 +84,13 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   });
   // C-13: the receipt pages, served by the same local server, with a text fallback.
   mountReceiptPages(app, options.receipts);
-  app.use(express.static(options.root ?? studioRoot(), { etag: true }));
+  const root = options.root ?? studioRoot();
+  // Checked on every request, so building while Timmy runs needs only a reload.
+  app.get(['/', '/index.html'], (_req, res, next) => {
+    if (existsSync(join(root, 'dist', 'canvas.js'))) return next();
+    res.status(503).set('Cache-Control', 'no-store').type('html').send(NOT_BUILT);
+  });
+  app.use(express.static(root, { etag: true }));
   app.use((err: { type?: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     const tooLarge = err?.type === 'entity.too.large';
     res.status(tooLarge ? 413 : 400).json({ ok: false, error: tooLarge ? 'That code is too long for one call (32 KB).' : 'Send valid JSON.' });
