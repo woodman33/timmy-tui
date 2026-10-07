@@ -155,12 +155,20 @@ describe('after payment', () => {
     expect(await res.json()).toMatchObject({ status: 'ready', key: expect.stringMatching(/^tpro_/) });
   });
 
-  it('never calls a checkout expired while the subscription it started is still being paid for', async () => {
-    const sessionId = await paidSession();
-    markExpired(sessionId, 'unpaid');
+  it('never calls a checkout expired while the subscription it started can still be paid', async () => {
+    const sessionId = await newSession();
+    stripe.abandon(sessionId, 'incomplete');
     const res = await call('POST', '/license/claim', { session_id: sessionId });
     expect(res.status).toBe(202);
     expect(await res.json()).toEqual({ status: 'pending' });
+  });
+
+  it('calls a checkout expired once the subscription it left behind ended unpaid', async () => {
+    const sessionId = await newSession();
+    stripe.abandon(sessionId);
+    const res = await call('POST', '/license/claim', { session_id: sessionId });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'expired' });
   });
 
   it('never calls a checkout expired when Stripe reports it paid, even with no subscription to show', async () => {

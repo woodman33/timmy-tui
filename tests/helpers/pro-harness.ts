@@ -63,7 +63,17 @@ export function fakeStripe() {
   const expire = (sessionId: string) => {
     sessions.set(sessionId, { ...sessions.get(sessionId)!, status: 'expired' });
   };
-  return { client, sessions, subs, calls, slowReads, pay, expire };
+  /**
+   * The buyer confirmed but never finished paying (say, an abandoned 3D Secure check): Stripe left an unpaid
+   * subscription behind (`incomplete`, which ends as `incomplete_expired` after 23 hours) and closed the checkout.
+   */
+  const abandon = (sessionId: string, status: 'incomplete' | 'incomplete_expired' = 'incomplete_expired') => {
+    const sub = proSub(`sub_${sessionId.slice(-8)}`, status);
+    subs.set(sub.id, sub);
+    sessions.set(sessionId, { ...sessions.get(sessionId)!, status: 'expired', paymentStatus: 'unpaid', subId: sub.id });
+    return sub;
+  };
+  return { client, sessions, subs, calls, slowReads, pay, expire, abandon };
 }
 
 /**

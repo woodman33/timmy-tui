@@ -254,6 +254,15 @@ describe('timmy pro upgrade after an earlier one stopped', () => {
     expect(existsSync(checkoutFile())).toBe(false);
   });
 
+  it('opens a new checkout once the earlier one expired with only an abandoned subscription', async () => {
+    const first = await interruptedUpgrade();
+    world.stripe.abandon(first);
+    const io = recordingIO((count) => { if (count === 1) world.stripe.pay(latestSession()); });
+    expect(await runProCli(['upgrade', '--no-open'], context(io))).toBe(0);
+    expect(checkoutsCreated()).toBe(2);
+    expect(latestSession()).not.toBe(first);
+  });
+
   it('saves a paid checkout Stripe calls expired instead of opening a second one', async () => {
     const first = await interruptedUpgrade();
     world.stripe.pay(first);

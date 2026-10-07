@@ -23,7 +23,7 @@
 //   - A key is revealed by checkout session only once, within 24 hours; after a
 //     rotation it is shown only to whoever rotated it.
 
-import { PAST_DUE_GRACE_SECONDS, PRO_FEATURE_LABELS, PRO_FEATURES, PRO_PLAN, isProActive } from './plan.js';
+import { PAST_DUE_GRACE_SECONDS, PRO_FEATURE_LABELS, PRO_FEATURES, PRO_PLAN, isEndedSubscriptionStatus, isProActive } from './plan.js';
 import { sha256Hex } from './encoding.js';
 import { CHECKOUT_SESSION_ID, type ProErrorCode } from './protocol.js';
 import { deriveLicenseKey, importSigningKey, licenseKeyHash, normalizeLicenseKey, proClaims, signLicenseToken, type LicenseClaims } from './license.js';
@@ -214,7 +214,7 @@ async function webhook(request: Request, deps: ProDeps): Promise<Response> {
 
 // ── core ──────────────────────────────────────────────────────────────────
 
-/** `expired`: Stripe closed the checkout and nothing was bought through it, so another may be opened. */
+/** `expired`: Stripe closed the checkout and nothing bought through it can charge, so another may be opened. */
 type Settled = { state: 'ready'; record: SubscriptionRecord } | { state: 'pending' } | { state: 'expired' } | { state: 'invalid' };
 
 const unknownSessions = new Map<string, number>();
@@ -241,9 +241,12 @@ async function settleCheckout(sessionId: string, deps: ProDeps, opts: { refresh?
   }
   if (info.mode !== 'subscription') return { state: 'invalid' };
   // What a checkout bought decides it, not the status Stripe reports for the session. `expired` lets the CLI open
-  // another payable checkout, so it is only for one Stripe closed with no subscription and no payment.
-  if (!info.subscription) return { state: info.status === 'expired' && info.paymentStatus !== 'paid' ? 'expired' : 'pending' };
-  if (!PAID.has(info.paymentStatus ?? '')) return { state: 'pending' };
+  // another payable checkout, so it is only for one Stripe closed where nothing bought can charge: no payment, and no
+  // subscription or only one that ended unpaid (what an abandoned 3D Secure check leaves behind).
+  const paid = info.paymentStatus === 'paid';
+  const liveSubscription = info.subscription !== null && !isEndedSubscriptionStatus(info.subscription.status);
+  if (info.status === 'expired' && !paid && !liveSubscription) return { state: 'expired' };
+  if (!info.subscription || !PAID.has(info.paymentStatus ?? '')) return { state: 'pending' };
   if (!isProSubscription(info.subscription, deps.env)) return { state: 'invalid' };
   const record = await syncSubscription(info.subscription.id, { customerId: info.customerId, email: info.email, checkoutSessionId: info.id }, deps);
   return record ? { state: 'ready', record } : { state: 'invalid' };

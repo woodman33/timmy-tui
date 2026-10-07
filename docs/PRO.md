@@ -67,9 +67,10 @@ next `upgrade` asks the service what became of that checkout; this computer's cl
 - Still unpaid: `upgrade` resumes the same checkout ("still open") instead of opening another, for as
   long as Stripe keeps it open.
 - Paid meanwhile: `upgrade` saves its key at once, without reopening anything.
-- Expired unpaid (Stripe closed it, by default 24 hours after it opened, and nothing was bought through
-  it: no subscription, no payment): it is forgotten and a new checkout opens. One Stripe calls expired
-  that did start a subscription is settled like any paid one, never replaced. An `upgrade` still waiting
+- Expired unpaid (Stripe closed it, by default 24 hours after it opened, and nothing bought through it
+  can charge: no payment, and no subscription or only one that ended unpaid, as an abandoned 3D Secure
+  check leaves behind): it is forgotten and a new checkout opens. One Stripe calls expired whose
+  subscription can still charge is settled like any other, never replaced. An `upgrade` still waiting
   when the checkout expires stops and says so.
 - Paid, its key can no longer be shown here (the 24-hour window closed, or the key was replaced), and
   the subscription it started has not ended: no new checkout opens, since it would charge you twice.

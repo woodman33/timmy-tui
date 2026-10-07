@@ -20,7 +20,8 @@
 // whichever command heard it, and an automatic refresh that should not be
 // repeated soon leaves the time it may be tried again.
 
-import { entitlementFromToken, evaluateLicense, isEndedSubscriptionStatus, nextStep, problemFromRefusal, type Entitlement } from './entitlement.js';
+import { entitlementFromToken, evaluateLicense, nextStep, problemFromRefusal, type Entitlement } from './entitlement.js';
+import { isEndedSubscriptionStatus } from './plan.js';
 import { normalizeLicenseKey } from './license.js';
 import { LicenseStorageError, PERSISTED_PROBLEMS, ProServiceError, type CheckoutStore, type ClaimResult, type LicenseVault, type PersistedProblem, type ProService, type StoredLicense } from './ports.js';
 
