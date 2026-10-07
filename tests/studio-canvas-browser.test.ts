@@ -146,6 +146,44 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     await context.close();
   }, 60_000);
 
+  // LIVE-01 (ledger row 65): the model drew a rectangle at (100, 100) and it sat hidden under Timmy's
+  // panel. What a call draws now comes into view beside the panel (or below it on a phone), clear of
+  // tldraw's toolbar; a call that draws inside the view leaves the camera where it is.
+  it('brings what the agent draws into view beside its panel, never under it, and leaves the camera alone when it already shows', async () => {
+    const exec = async (code: string, jobId: string) => (await fetch(`${base}/api/canvas/exec`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, jobId }) })).json() as Promise<{ ok: boolean; result: string; error?: string }>;
+    const rect = (x: number, y: number, label: string) => `const id = helpers.createShapeId(); editor.createShape({ id, type: 'geo', x: ${x}, y: ${y}, props: { w: 200, h: 100, richText: helpers.toRichText('${label}') } }); return id;`;
+    type Cam = { x: number; y: number; z: number };
+    const view = (page: Page, id: string) => page.evaluate((shapeId) => {
+      const e = (window as never as { timmyCanvas: { editor: { getShapePageBounds: (i: string) => { minX: number; minY: number; maxX: number; maxY: number }; pageToScreen: (p: { x: number; y: number }) => { x: number; y: number }; getCamera: () => Cam } } }).timmyCanvas.editor;
+      const b = e.getShapePageBounds(shapeId);
+      const a = e.pageToScreen({ x: b.minX, y: b.minY });
+      const z = e.pageToScreen({ x: b.maxX, y: b.maxY });
+      const c = e.getCamera();
+      return { box: { x: a.x, y: a.y, width: z.x - a.x, height: z.y - a.y }, camera: { x: c.x, y: c.y, z: c.z } };
+    }, id);
+    for (const size of [{ width: 1280, height: 800 }, { width: 390, height: 740 }]) {
+      const { page, context } = await open(size);
+      const drawn = await exec(rect(100, 100, 'LIVE-01'), `reveal-${size.width}`);
+      expect(drawn.ok, drawn.error).toBe(true);
+      await page.waitForTimeout(700); // the camera's move
+      const { box, camera } = await view(page, drawn.result);
+      const side = (await (await page.$('#side'))!.boundingBox())!;
+      const toolbar = await (await page.$('.tlui-main-toolbar'))?.boundingBox();
+      expect(overlaps(box, side), `under the panel at ${size.width}x${size.height}: ${JSON.stringify(box)}`).toBe(false);
+      if (toolbar) expect(overlaps(box, toolbar), `under the toolbar at ${size.width}x${size.height}`).toBe(false);
+      expect(box.x >= 0 && box.y >= 0 && box.x + box.width <= size.width && box.y + box.height <= size.height, `in view at ${size.width}x${size.height}: ${JSON.stringify(box)}`).toBe(true);
+      if (size.width === 1280) {
+        // Drawn where the view already shows it: the camera stays.
+        const near = await page.evaluate((c: Cam) => ({ x: Math.round(700 / c.z - c.x), y: Math.round(400 / c.z - c.y) }), camera);
+        const second = await exec(rect(near.x, near.y, 'beside'), 'reveal-stays');
+        expect(second.ok, second.error).toBe(true);
+        await page.waitForTimeout(700);
+        expect((await view(page, second.result)).camera).toEqual(camera);
+      }
+      await context.close();
+    }
+  }, 120_000);
+
   it('says it is loading while it loads, and why it cannot start when it cannot', async () => {
     const context = await browser!.newContext();
     const page = await context.newPage();

@@ -109,9 +109,50 @@ const AsyncFunction = (async () => {}).constructor;
 const MAX_ANSWER = 256 * 1024;
 let runningJob = null;
 let calls = Promise.resolve();
+/** The shapes the running call has created, so they can be brought into view when it ends. */
+let drawnInCall = null;
+
+// What a call draws comes into view beside Timmy's panel, or below it when that leaves more room (a
+// phone), above tldraw's toolbar (LIVE-01, ledger row 65: a rectangle drawn at (100, 100) sat hidden
+// under the panel). A call that draws inside that area leaves the camera where it is.
+function freeArea() {
+  const margin = 16;
+  const top = 56;
+  const side = document.getElementById('side')?.getBoundingClientRect();
+  const bar = document.querySelector('.tlui-main-toolbar')?.getBoundingClientRect();
+  const bottom = (bar && bar.height > 0 ? bar.top : innerHeight - 72) - margin;
+  if (!side || side.width === 0) return { x: margin, y: top, w: innerWidth - 2 * margin, h: bottom - top };
+  const right = { x: side.right + margin, y: top, w: innerWidth - side.right - 2 * margin, h: bottom - top };
+  const below = { x: margin, y: side.bottom + margin, w: innerWidth - 2 * margin, h: bottom - side.bottom - margin };
+  return right.w * right.h >= below.w * below.h ? right : below;
+}
+function reveal(editor, ids) {
+  const page = editor.getCurrentPageId();
+  const shown = ids.filter((id) => editor.getShape(id) && editor.getAncestorPageId(id) === page);
+  const boxes = shown.map((id) => editor.getShapePageBounds(id)).filter(Boolean);
+  if (boxes.length === 0) return;
+  const bounds = Box.Common(boxes);
+  const area = freeArea();
+  if (area.w <= 0 || area.h <= 0) return;
+  const from = editor.pageToScreen({ x: bounds.minX, y: bounds.minY });
+  const to = editor.pageToScreen({ x: bounds.maxX, y: bounds.maxY });
+  if (from.x >= area.x && from.y >= area.y && to.x <= area.x + area.w && to.y <= area.y + area.h) return;
+  // Never closer than now; farther only as much as the drawing needs to fit, with a little room.
+  const fit = Math.min(area.w / Math.max(1, bounds.w), area.h / Math.max(1, bounds.h)) * 0.9;
+  const z = Math.max(0.05, Math.min(editor.getCamera().z, fit));
+  const view = editor.getViewportScreenBounds();
+  const center = bounds.center;
+  editor.setCamera(
+    { x: (area.x + area.w / 2 - view.x) / z - center.x, y: (area.y + area.h / 2 - view.y) / z - center.y, z },
+    { animation: { duration: 220 } },
+  );
+}
+
 function connectBridge(editor) {
-  editor.sideEffects.registerBeforeCreateHandler('shape', (shape) =>
-    runningJob ? { ...shape, meta: { ...shape.meta, timmyJob: runningJob } } : shape);
+  editor.sideEffects.registerBeforeCreateHandler('shape', (shape) => {
+    drawnInCall?.add(shape.id);
+    return runningJob ? { ...shape, meta: { ...shape.meta, timmyJob: runningJob } } : shape;
+  });
   const bump = () => {
     canvas.revision += 1;
     saveSoon(editor);
@@ -130,6 +171,7 @@ function connectBridge(editor) {
     const run = async (message) => {
       let answer;
       runningJob = typeof message.jobId === 'string' ? message.jobId : null;
+      drawnInCall = new Set();
       try {
         const result = await new AsyncFunction('editor', 'helpers', message.code)(editor, helpers);
         const json = JSON.stringify(result === undefined ? null : result);
@@ -140,6 +182,13 @@ function connectBridge(editor) {
         answer = { ok: false, error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) };
       } finally {
         runningJob = null;
+      }
+      const drawn = [...drawnInCall];
+      drawnInCall = null;
+      try {
+        reveal(editor, drawn);
+      } catch {
+        // Showing the drawing is a courtesy; the call's answer never depends on it.
       }
       const saved = await save(editor);
       const savedAs = saved.ok ? { sourceRevision: saved.sourceRevision ?? undefined } : { saveError: saved.error };
