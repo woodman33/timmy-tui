@@ -59,6 +59,8 @@ interface Step {
   approval?: 'once' | 'session' | 'deny' | 'no-terminal';
   // stopped: still running when the turn was cancelled; its outcome is unknown.
   state: 'running' | 'done' | 'failed' | 'stopped';
+  /** When the step started (ms), for the elapsed time under the cancel note. */
+  startedAt: number;
   preview?: string;
   diff?: string;
 }
@@ -80,6 +82,8 @@ export class Transcript {
   private laneStates: Map<string, Lane['state']> | null = null;
   /** Set between Ctrl+C and the end of the turn: a row under everything saying how to quit. */
   private cancelNote: string | null = null;
+  /** Refreshes the cancel note's elapsed time once a second while the cancel is pending. */
+  private cancelTimer: ReturnType<typeof setInterval> | null = null;
   /** What the region shows, without the cancel note. */
   private shown: string[] = [];
 
@@ -105,6 +109,18 @@ export class Transcript {
 
   private line(segments: Segment[]): string {
     return serialize(segments, this.theme);
+  }
+
+  /** The cancel note: how to quit, and how long the running step has run (third order, checkpoint 2). */
+  private cancelLine(): string {
+    const step = [...this.group].reverse().find((s) => s.state === 'running');
+    const ran = step ? ` The step has run ${Math.floor((Date.now() - step.startedAt) / 1000)}s.` : '';
+    return this.line([{ text: `  Cancelling.${ran} Press Ctrl+C again to quit.`, role: 'secondary' }]);
+  }
+
+  private stopCancelTimer(): void {
+    if (this.cancelTimer) clearInterval(this.cancelTimer);
+    this.cancelTimer = null;
   }
 
   /** Every region frame goes through here, so the cancel note stays under whatever is showing. */
@@ -154,9 +170,16 @@ export class Transcript {
         return this.footer(e.steps, e.spend, e.seconds);
       case 'cancelling':
         // A stream that ignores the cancel keeps drawing; the note keeps the way out visible.
-        this.cancelNote = this.line([{ text: '  Cancelling. Press Ctrl+C again to quit.', role: 'secondary' }]);
+        this.cancelNote = this.cancelLine();
+        this.stopCancelTimer();
+        this.cancelTimer = setInterval(() => {
+          this.cancelNote = this.cancelLine();
+          this.show(this.shown);
+        }, 1000);
+        this.cancelTimer.unref?.();
         return this.show(this.shown);
       case 'cancelled': {
+        this.stopCancelTimer();
         this.cancelNote = null;
         this.flushText();
         // A step still running when the cancel came is shown as running, never as done.
@@ -180,6 +203,7 @@ export class Transcript {
     this.stopSpinner();
     this.flushText();
     this.flushGroup();
+    this.stopCancelTimer();
     this.cancelNote = null;
     this.show([]);
   }
@@ -357,7 +381,7 @@ export class Transcript {
       this.flushGroup();
       this.blank();
     }
-    this.group.push({ id, tool, label, state: 'running' });
+    this.group.push({ id, tool, label, state: 'running', startedAt: Date.now() });
     this.showGroup();
     this.startSpinner(`${label.present} ${label.arg}`);
   }

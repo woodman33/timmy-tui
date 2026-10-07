@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { detectCapabilities } from '../src/term/capabilities.js';
 import { LiveRegion } from '../src/term/live-region.js';
 import { measuredFromPalette, TIMMY_NIGHT } from '../src/term/palettes.js';
@@ -234,5 +234,30 @@ describe('a running step', () => {
     t.handle({ type: 'tool-end', id: 't1', ok: true, preview: 'done' });
     t.endTurn();
     expect(out.text).toContain('Ran npm run render');
+  });
+});
+
+// Third order, checkpoint 2: the elapsed time stays visible under the cancel note.
+describe('the cancel note', () => {
+  it('keeps the running step\'s elapsed time under the note, second by second', () => {
+    vi.useFakeTimers();
+    try {
+      const out = new Sink(false), err = new Sink(true);
+      const caps = detectCapabilities({ env: { LANG: 'C' }, stdin: { isTTY: false }, stdout: { isTTY: false }, stderr: { isTTY: true } });
+      const t = new Transcript(buildTheme(caps), new LiveRegion({ out, err }, { live: true }), { columns: 80 });
+      t.handle({ type: 'tool-start', id: 't1', tool: 'shell', args: { command: 'npm run render' } });
+      vi.advanceTimersByTime(3000);
+      t.handle({ type: 'cancelling' });
+      expect(err.writes.at(-1)).toContain('Cancelling. The step has run 3s. Press Ctrl+C again to quit.');
+      vi.advanceTimersByTime(2000);
+      expect(err.writes.at(-1)).toContain('Cancelling. The step has run 5s.');
+      t.handle({ type: 'cancelled' });
+      t.endTurn();
+      const n = err.writes.length;
+      vi.advanceTimersByTime(3000);
+      expect(err.writes.length).toBe(n);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
