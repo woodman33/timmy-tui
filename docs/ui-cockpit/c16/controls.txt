@@ -1,0 +1,23 @@
+color in NO_COLOR: fails as it should
+truecolor under TERM=xterm: fails as it should
+256 under TERM=xterm: fails as it should
+a wrapped line: fails as it should
+a CJK line that wraps: fails as it should
+ESC[2J in a frame: fails as it should
+a byte above 0x7F: fails as it should
+an exit code of 127: fails as it should
+an undeclared import: fails as it should
+an em dash in copy: fails as it should
+unbalanced sync: fails as it should
+evidence older than a source change: fails as it should
+a remote run with a failed check: fails as it should
+a remote development run: fails as it should
+a remote run that skipped a check it can run: fails as it should
+a LIVE-01 record without its interruption: fails as it should
+a LIVE-01 record over its cap: fails as it should
+a blocker without a reason: fails as it should
+a blocker without a time: fails as it should
+a good LIVE-01 record: passes as it should
+a recorded blocker: passes as it should
+a good remote run: passes as it should
+contrast gate on dim text: exit 1 as it should
