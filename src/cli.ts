@@ -448,8 +448,9 @@ if (command === 'watch') {
   // Source checkouts run cli.tsx through tsx; the installed package runs dist/cli.js with node.
   // It waits without blocking, so a SIGTERM or SIGHUP for `timmy watch` reaches the monitor (C-15);
   // a monitor that cannot start is 69, never 0.
+  // Its own arguments go on to the monitor (`timmy watch --no-companion`; row 52).
   const { monitorLaunch, runMonitor } = await import('./repl/watch-launch.js');
-  process.exit(await runMonitor(monitorLaunch(import.meta.url)));
+  process.exit(await runMonitor(monitorLaunch(import.meta.url, undefined, undefined, cleanArgs.slice(1))));
 }
 
 if (command === 'chat') {

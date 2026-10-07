@@ -8,20 +8,22 @@ import { existsSync } from 'node:fs';
 import { constants } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+/** `pass`: the arguments given to `timmy watch`, passed on to the monitor (`--no-companion`, row 52). */
 export function monitorLaunch(
   cliModuleUrl: string,
   exists: (path: string) => boolean = existsSync,
   node: string = process.execPath,
+  pass: string[] = [],
 ): { command: string; args: string[] } {
   const tsx = fileURLToPath(new URL('../cli.tsx', cliModuleUrl));
   if (exists(tsx)) {
     // This checkout's own tsx, with no npx between (C-15): npx could pick another tsx (or fetch one),
     // and its npm, shell and tsx processes kept a SIGTERM from reaching the monitor.
     const loader = fileURLToPath(new URL('../node_modules/tsx/dist/loader.mjs', cliModuleUrl));
-    if (exists(loader)) return { command: node, args: ['--import', pathToFileURL(loader).href, tsx] };
-    return { command: 'npx', args: ['tsx', tsx] };
+    if (exists(loader)) return { command: node, args: ['--import', pathToFileURL(loader).href, tsx, ...pass] };
+    return { command: 'npx', args: ['tsx', tsx, ...pass] };
   }
-  return { command: node, args: [fileURLToPath(new URL('../cli.js', cliModuleUrl))] };
+  return { command: node, args: [fileURLToPath(new URL('../cli.js', cliModuleUrl)), ...pass] };
 }
 
 /** The monitor's exit as a status: its own code, or 128 plus the signal number; never 0 for a kill. */

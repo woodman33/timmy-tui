@@ -21,6 +21,16 @@ describe('where timmy watch finds the monitor', () => {
     const exists = (p: string) => p === '/pkg/dist/cli.js';
     expect(monitorLaunch('file:///pkg/dist/src/cli.js', exists, '/usr/bin/node')).toEqual({ command: '/usr/bin/node', args: ['/pkg/dist/cli.js'] });
   });
+  // Fourth order, step 2 (row 52): `timmy watch --no-companion` started the companion anyway; the
+  // arguments given to `timmy watch` now reach the monitor, however it is started.
+  it('passes the arguments given to timmy watch on to the monitor', () => {
+    const tsx = (p: string) => p === '/repo/cli.tsx' || p === '/repo/node_modules/tsx/dist/loader.mjs';
+    expect(monitorLaunch('file:///repo/src/cli.ts', tsx, '/usr/bin/node', ['--no-companion']).args.slice(-2)).toEqual(['/repo/cli.tsx', '--no-companion']);
+    expect(monitorLaunch('file:///repo/src/cli.ts', (p) => p === '/repo/cli.tsx', '/usr/bin/node', ['--no-companion']))
+      .toEqual({ command: 'npx', args: ['tsx', '/repo/cli.tsx', '--no-companion'] });
+    expect(monitorLaunch('file:///pkg/dist/src/cli.js', (p) => p === '/pkg/dist/cli.js', '/usr/bin/node', ['--no-companion']).args)
+      .toEqual(['/pkg/dist/cli.js', '--no-companion']);
+  });
 });
 
 describe('how timmy watch reports the monitor ending', () => {

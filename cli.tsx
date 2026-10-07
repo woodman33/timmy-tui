@@ -4,7 +4,7 @@ if (!isHeadless) {
   process.env.TIMMY_TUI_ACTIVE = 'true';
 }
 import './src/utils/blank-slate-guard.js'; // blank-slate-v1k9: must stay the FIRST import (imports are hoisted)
-import './src/utils/logger.js';
+import { writeLog } from './src/utils/logger.js';
 import { program } from 'commander';
 import chalk from 'chalk';
 import { colors } from './src/tui/theme.js';
@@ -178,6 +178,12 @@ if (opts.headless) {
   Object.assign(agentConfig, { onboarded: (config as any).onboarded === true });
 
   // Start companion server after first paint to avoid EADDRINUSE conflicts
+  // Fourth order, step 2 (row 52): its notes go where its URL and QR code go, the companion's log, while
+  // the monitor owns the screen; a note on stderr was drawn over the monitor's header, in dim (B3 bans dim).
+  const companionNote = (level: 'info' | 'warn', text: string): void => {
+    if (process.env.TIMMY_TUI_ACTIVE === 'true') writeLog('companion.log', level, text);
+    else console.error(text);
+  };
   if (opts.companion !== false) {
     const preferredPort = parseInt(opts.companionPort, 10) || 3001;
     const candidatePorts = [preferredPort, preferredPort + 1, preferredPort + 2, preferredPort + 3];
@@ -188,21 +194,19 @@ if (opts.headless) {
         const server = await (await import('./src/companion/server.js')).startCompanionServer(port);
         (global as any).companionServer = server;
         const url = `http://localhost:${server.port}`;
-        if (port !== preferredPort) {
-          console.error(chalk.dim(`Companion port ${preferredPort} busy; using ${server.port}.`));
-        }
+        if (port !== preferredPort) companionNote('info', `Companion port ${preferredPort} busy; using ${server.port}.`);
         (await import('./src/companion/qr.js')).showCompanionQR(url);
         companionStarted = true;
         break;
       } catch (err: any) {
         if (err?.code !== 'EADDRINUSE' || port === candidatePorts[candidatePorts.length - 1]) {
-          console.error(chalk.dim(`Companion server failed to start (${err?.message || 'port unavailable'})`));
+          companionNote('warn', `Companion server failed to start (${err?.message || 'port unavailable'})`);
         }
       }
     }
 
     if (!companionStarted) {
-      console.error(chalk.dim('TIMMY TUI will continue without the browser companion.'));
+      companionNote('warn', 'TIMMY TUI will continue without the browser companion.');
     }
   }
 
