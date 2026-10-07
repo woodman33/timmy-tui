@@ -58,6 +58,18 @@ describe('the canvas file', () => {
   });
 });
 
+describe('peeking at the canvas', () => {
+  it('reads the revision, source revision and save time without the document, and moves nothing', () => {
+    const docs = new CanvasDocuments(dir);
+    expect(docs.peek()).toEqual({ revision: 0, sourceRevision: null, savedAt: null });
+    const saved = docs.save({ snapshot: SNAP, revision: 4, baseRevision: 0 }) as { savedAt: string };
+    expect(docs.peek()).toEqual({ revision: 4, sourceRevision: sha(SNAP), savedAt: saved.savedAt });
+    writeFileSync(join(dir, 'canvas.json'), '{ not json');
+    expect(docs.peek()).toEqual({ revision: null, sourceRevision: null, savedAt: null, unreadable: true });
+    expect(readdirSync(dir).sort()).toEqual(['canvas.json']); // still there: only the canvas page moves it aside
+  });
+});
+
 describe('the jobs ledger', () => {
   it('records each job with the revision and source revision it produced, and links its receipt', () => {
     const docs = new CanvasDocuments(dir);

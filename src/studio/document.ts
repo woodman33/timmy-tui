@@ -81,6 +81,21 @@ export class CanvasDocuments {
     }
   }
 
+  /**
+   * The saved canvas's revision, source revision and save time, read without opening it for use:
+   * nothing is moved, even a file that cannot be read (only the canvas page keeps such a file aside).
+   */
+  peek(): { revision: number | null; sourceRevision: string | null; savedAt: string | null; unreadable?: true } {
+    if (!existsSync(this.file)) return { revision: 0, sourceRevision: null, savedAt: null };
+    try {
+      const saved = JSON.parse(readFileSync(this.file, 'utf8')) as Record<string, unknown>;
+      if (saved.format !== 'timmy-canvas' || !isRevision(saved.revision) || typeof saved.snapshot !== 'object' || saved.snapshot === null) throw new Error('not a Timmy canvas');
+      return { revision: saved.revision, sourceRevision: sha256(JSON.stringify(saved.snapshot)), savedAt: typeof saved.savedAt === 'string' ? saved.savedAt : null };
+    } catch {
+      return { revision: null, sourceRevision: null, savedAt: null, unreadable: true };
+    }
+  }
+
   /** The revision on disk, without opening the document for use. */
   private savedRevision(): number {
     try {
