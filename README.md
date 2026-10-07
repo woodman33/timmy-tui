@@ -115,6 +115,9 @@ before it uses one:
   everything is in your terminal's own text color, which reads on your
   background. For color there, install Timmy's palette in your terminal
   (`timmy theme install`) and set `TIMMY_PALETTE=night` or `day`.
+- Inside tmux, the background tmux reports is the one it read when your
+  terminal attached. After you change your terminal's profile, detach and
+  attach again so Timmy measures the new one.
 - `/theme` in the REPL shows what was measured and the color each meaning
   takes. `NO_COLOR` turns color off.
 

@@ -57,6 +57,19 @@ export function ShellFooter({ mode, tab, chainOk, chainEvidence, chainCount, bus
 // ui-cockpit-k7m3 C5: the overlay is as wide as the shell (it was a fixed 100
 // columns, wider than an 80-column terminal) and the caller positions it over
 // the body so it never adds rows below the fold.
+// Fourth order, step 2 (semantic color plus text labels): every status mark named in words, in its own
+// color, so no mark or color carries a meaning alone (found in Terminal on the Mac, row 52).
+const MARKS: Array<{ glyph: string; word: string; color: string }> = [
+  ...(['declared', 'constructed', 'checked', 'inferred', 'stale'] as const).map((s) => ({
+    glyph: evidenceLook(s).glyph,
+    word: { declared: 'declared', constructed: 'built', checked: 'checked', inferred: 'made by a model', stale: 'stale' }[s],
+    color: evidenceLook(s).color,
+  })),
+  { glyph: '×', word: 'refused', color: theme.refuse },
+  { glyph: LIVE.on, word: 'on', color: theme.textPrimary },
+  { glyph: LIVE.off, word: 'off', color: theme.textPrimary },
+];
+
 export function WhichKeyOverlay({ mode, tab, width = 100 }: { mode: ShellMode; tab: ShellTab; width?: number }) {
   const groups = whichKeyGroupsShell(mode, tab);
   return (
@@ -74,6 +87,11 @@ export function WhichKeyOverlay({ mode, tab, width = 100 }: { mode: ShellMode; t
       </Box>
       <Text color={theme.textMuted}>press a key, or click a tab or a [key] · Esc closes · keys shown are exactly the active keymap</Text>
       <Text color={theme.textMuted}>to select text while the mouse is on: hold Shift and drag (Option in iTerm2)</Text>
+      <Text>
+        <Text color={theme.textMuted}>marks</Text>
+        {MARKS.map((m) => <Text key={m.word}>  <Text color={m.color}>{m.glyph}</Text><Text color={theme.textMuted}> {m.word}</Text></Text>)}
+      </Text>
+      {tab === 'LIBRARY' ? <Text color={theme.textMuted}>models  caps: T tools · V vision · R reasoning  fit: ◉ a forecast, not a measurement</Text> : null}
     </Box>
   );
 }

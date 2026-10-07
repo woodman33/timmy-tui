@@ -1369,6 +1369,8 @@ function EscrowPane({ escrow, requester, compact }: { escrow: Escrow; requester:
     </Card>
   );
 }
+/** The MODELS table's column names, in the row's own widths: marker, model 20, ctx 5, $in/$out 10, caps 9, spend 6, node 6, the ◉ mark, fit. */
+const MODELS_HEADER = `  ${'model'.padEnd(20)} ${'ctx'.padEnd(5)} ${'$in/$out'.padEnd(10)} ${'caps'.padEnd(9)} ${'spend'.padEnd(6)} ${'node'.padEnd(6)} fit`;
 // SPEC §06 — LIBRARY: MODELS picker (role-grouped, fuzzy /, pinned float,
 // real spend from receipts), FLEET (● connected / ○ not configured dim, with
 // the harness→model route from harness.policy), BOARDS + PROJECTS.
@@ -1382,7 +1384,8 @@ export function ModelsPane(props: {
   // C5: the cap counts ROWS — models plus the role headers of models in view
   // (a role whose models are all out of the window is not drawn) — and the
   // window shrinks until models + headers fit; the overflow line counts the rest
-  const maxRows = Math.max(4, props.maxRows ?? 22);
+  // Fourth order, step 2: the column header (below) takes one row of the budget.
+  const maxRows = Math.max(4, (props.maxRows ?? 22) - 1);
   const modelIdx = props.view.map((r, i) => (r.m ? i : -1)).filter(i => i >= 0);
   // The shell cursor indexes selectable models, not the interleaved role rows.
   const pos = Math.max(0, Math.min(props.selected, modelIdx.length - 1));
@@ -1405,6 +1408,8 @@ export function ModelsPane(props: {
   return (
     <Box flexDirection="column">
       <Card title="MODELS" purpose={props.compact ? undefined : `from models.registry · ${props.filter ? `/ ${props.filter}` : '[/] fuzzy filter'} · ${modelIdx.length} models`} flexGrow={1} overflow={moreLine(hiddenModels, 'models', '↑↓ scroll')}>
+        {/* Fourth order, step 2 (labels): the columns are named, so no cell, the ◉ fit among them, is a bare mark */}
+        {shown.length > 0 ? <Text color={PAL.textMuted} wrap="truncate">{MODELS_HEADER}</Text> : null}
         {shown.length === 0 ? <Text color={PAL.textMuted}>no models match</Text> : shown.map(({ row, g }, i) => {
           if (row.role) return <Text key={`r${i}`} bold color={PAL.textMuted}>{`role: ${row.role} ▾`}</Text>;
           const m = row.m as ModelEntry;
