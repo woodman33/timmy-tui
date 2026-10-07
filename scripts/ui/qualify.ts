@@ -291,13 +291,18 @@ const CHECKS: Check[] = [
   { id: 'PROC-01', ref: '18 Process', line: 'Every third-party import (in the files this branch added or changed) exists in the manifest', run: async () => {
     const pkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8'));
     const declared = new Set(Object.keys({ ...pkg.dependencies, ...pkg.devDependencies, ...pkg.optionalDependencies, ...pkg.peerDependencies }));
-    const changed = execFileSync('git', ['diff', '--name-only', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).split('\n');
+    // The branch's files: everything changed since it left main (committed or not), and untracked files.
+    const mb = spawnSync('git', ['merge-base', 'HEAD', 'origin/main'], { cwd: REPO, encoding: 'utf8' });
+    const base = (mb.stdout ?? '').trim();
+    must(mb.status === 0 && /^[0-9a-f]{40}$/.test(base), 'no merge base with origin/main, so the branch\'s files cannot be named (a full clone with origin/main is needed)');
+    const changed = execFileSync('git', ['diff', '--name-only', base], { cwd: REPO, encoding: 'utf8' }).split('\n');
     const added = execFileSync('git', ['ls-files', '-o', '--exclude-standard'], { cwd: REPO, encoding: 'utf8' }).split('\n');
-    const files = [...changed, ...added].filter((f) => /\.(ts|tsx|mts|mjs|js)$/.test(f) && existsSync(join(REPO, f)));
+    const files = [...new Set([...changed, ...added])].filter((f) => /\.(ts|tsx|mts|mjs|js)$/.test(f) && existsSync(join(REPO, f)));
+    must(files.length > 0, `no source file changed since ${base.slice(0, 7)}: nothing was checked`);
     const missing: string[] = [];
     for (const f of files) for (const spec of undeclaredImports(readFileSync(join(REPO, f), 'utf8'), declared)) missing.push(`${f}: ${spec}`);
     must(missing.length === 0, `imports not in package.json: ${[...new Set(missing)].join(', ')}`);
-    return `${files.length} files checked; every bare import is declared in package.json`;
+    return `${files.length} files changed since the branch left main at ${base.slice(0, 7)}; every bare import is declared in package.json`;
   } },
 
   // §19.5 CLI

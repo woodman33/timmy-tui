@@ -3,9 +3,10 @@
 #
 #   bash scripts/ui/replay-sandbox.sh EXPECTED_COMMIT OUT_DIR PLATFORM
 #
-# Run it from the clone's root, with tmux, pgrep, tar and a UTF-8 locale installed. OUT_DIR must be
-# outside the clone: the run compares the clone's tree before and after, and nothing is written inside
-# it except ignored paths (node_modules, .timmy). PLATFORM names where it runs (vercel-sandbox).
+# Run it from the root of a full clone (with origin/main), with tmux, pgrep, tar and a UTF-8 locale
+# installed. OUT_DIR must be outside the clone: the run compares the clone's tree before and after, and
+# nothing is written inside it except ignored paths (node_modules, .timmy). PLATFORM names where it
+# runs (vercel-sandbox).
 #
 # Synthetic fixtures only: no model key; a monitor home made by `timmy init` for a sample operator; an
 # empty shared receipt store, so the preservation check has a preimage. Chromium is fetched for the
@@ -27,6 +28,8 @@ die() { say "STOP: $*"; exit 1; }
 head=$(git rev-parse HEAD)
 [ "$head" = "$expect" ] || die "the clone is at $head, not $expect"
 [ -z "$(git status --porcelain)" ] || die "the clone is not clean"
+[ ! -f "$(git rev-parse --git-dir)/shallow" ] || die "a full clone is needed, not a shallow one"
+git merge-base HEAD origin/main >/dev/null 2>&1 || die "origin/main is needed: PROC-01 names the branch's files from where it left main"
 for tool in tmux pgrep tar sha256sum; do command -v "$tool" >/dev/null || die "$tool is not installed"; done
 locale -a 2>/dev/null | grep -qix 'c.utf-\?8' || die "no C.UTF-8 locale"
 say "clone at $head, clean; $(tmux -V); node $(node --version)"
