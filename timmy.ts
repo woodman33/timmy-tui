@@ -16,9 +16,9 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
+import { constants as osConstants } from 'node:os';
 import { computeReceiptHash, Receipt } from './src/receipt/schema.js';
 import { VERSION } from './src/version.js';
-import { exitStatus } from './src/repl/watch-launch.js';
 
 function getPackageMetadata() {
   const possiblePaths = [
@@ -116,7 +116,11 @@ if (command !== 'demo') {
   process.on('SIGINT', () => {});
   const status = await new Promise<number>((resolve) => {
     child.on('error', (err) => { process.stderr.write(`timmy: could not start the CLI (${err.message}).\n`); resolve(69); });
-    child.on('exit', (code, signal) => resolve(exitStatus({ status: code, signal })));
+    // The bin's only modules are schema and version (tests/runtime-package.test.ts), so the status is computed here.
+    child.on('exit', (code, signal) => {
+      const n = signal ? (osConstants.signals as Record<string, number>)[signal] : undefined;
+      resolve(code ?? (n ? 128 + n : 1));
+    });
   });
   process.exit(status);
 }

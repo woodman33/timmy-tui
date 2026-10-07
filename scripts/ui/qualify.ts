@@ -870,7 +870,7 @@ const CHECKS: Check[] = [
 
   // Preservation, suites and replays.
   { id: 'SUITE-01', ref: 'dev', line: 'The related suites pass at the frozen tree', run: async () => {
-    const files = ['tests/repl-', 'tests/term-', 'tests/ui-', 'tests/studio-', 'tests/evidence', 'tests/keyboard-contract', 'tests/bin-verbs'];
+    const files = ['tests/repl-', 'tests/term-', 'tests/ui-', 'tests/studio-', 'tests/evidence', 'tests/keyboard-contract', 'tests/bin-', 'tests/runtime-package'];
     const r = spawnSync(join(REPO, 'node_modules/.bin/vitest'), ['run', ...files], { cwd: REPO, encoding: 'utf8', timeout: 600_000 });
     const log = (r.stdout ?? '') + (r.stderr ?? '');
     writeFileSync(join(EVID, 'suite.log'), log);
