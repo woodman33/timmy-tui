@@ -62,7 +62,7 @@ describe('the turn\'s receipt', () => {
     t = 0;
     const r = await runTurn(timeAgent(), transcript, 'what time is it', clock, undefined, undefined, (f) => { seen.push(f); return { id: '1fb6eb93', hash: 'sha256_1fb6eb93', verified: true }; });
     expect(r).toBe('ok');
-    expect(seen).toEqual([{ prompt: 'what time is it', answer: 'ok', steps: 1, spend: 0.0042, ms: 1500, status: 'ok', tools: [{ tool: 'get_current_time', outcome: 'completed' }] }]);
+    expect(seen).toEqual([{ prompt: 'what time is it', answer: 'ok', steps: 1, spend: 0.0042, costMeasured: true, ms: 1500, status: 'ok', tools: [{ tool: 'get_current_time', outcome: 'completed' }] }]);
     expect(out.text).toBe(['● get_current_time', '  └ 23:55', '', 'It is 23:55.', '', '✓ RECEIPT 1fb6eb93 signed and verified', '  1 step · $0.004 · 1.5s', ''].join('\n'));
   });
   it('seals a failed turn as failed, and a broken chain shows ✖, never green', async () => {
@@ -110,14 +110,27 @@ describe('a cancelled turn\'s receipt', () => {
   it('before any tool started: sealed as cancelled, no tool outcomes', async () => {
     const { r, seen, text } = await cancelAfter(() => {});
     expect(r).toBe('cancelled');
-    expect(seen).toEqual([{ prompt: 'go', answer: '', steps: 0, spend: 0, ms: 1500, status: 'cancelled', tools: [], cancelledAt: 'before-tools' }]);
-    expect(text).toBe(['  Cancelled. No tool had started.', '', '✓ RECEIPT c4ace1ed signed and verified', '  0 steps · $0.000 · 1.5s · cancelled', ''].join('\n'));
+    // LIVE-01 (row 65): a cancelled request may still be charged, so a cancel never claims \$0.
+    expect(seen).toEqual([{ prompt: 'go', answer: '', steps: 0, spend: 0, costMeasured: false, ms: 1500, status: 'cancelled', tools: [], cancelledAt: 'before-tools' }]);
+    expect(text).toBe(['  Cancelled. No tool had started.', '', '✓ RECEIPT c4ace1ed signed and verified', '  0 steps · cost unknown · 1.5s · cancelled', ''].join('\n'));
   });
   it('during a tool: that tool\'s outcome is unknown, and nothing is rolled back', async () => {
     const { seen, text } = await cancelAfter((a) => call(a, 'c1', 'shell'));
     expect(seen).toMatchObject([{ status: 'cancelled', steps: 1, tools: [{ tool: 'shell', outcome: 'unknown' }], cancelledAt: 'during-tool' }]);
     expect(text).toContain('  Cancelled. shell was running: outcome unknown. Nothing was rolled back.\n');
-    expect(text).toContain('  1 step · $0.000 · 1.5s · cancelled\n');
+    expect(text).toContain('  1 step · cost unknown · 1.5s · cancelled\n');
+  });
+  it('says a cancelled turn cost at least what was already charged (LIVE-01: it said $0.000)', async () => {
+    const { seen, text } = await cancelAfter((a) => { call(a, 'c1', 'calculate'); output(a, 'c1'); a.emit('cost:update', 0.024, 0.024, { complete: false }); });
+    expect(seen).toMatchObject([{ status: 'cancelled', spend: 0.024, costMeasured: false }]);
+    expect(text).toContain('  1 step · at least $0.024 · 1.5s · cancelled\n');
+  });
+  it('says a finished turn cost at least its figure when a response reported no charge', async () => {
+    const { out, transcript } = setup();
+    t = 0;
+    const agent = new FakeAgent((a) => a.emit('cost:update', 0.012, 0.012, { complete: false }));
+    await runTurn(agent, transcript, 'hi', clock);
+    expect(out.text).toContain('  0 steps · at least $0.012 · 1.5s');
   });
   it('after its tools finished, before the answer: they stand as completed', async () => {
     const { seen, text } = await cancelAfter((a) => { call(a, 'c1', 'get_current_time'); output(a, 'c1'); call(a, 'c2', 'file_read'); output(a, 'c2'); });

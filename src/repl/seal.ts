@@ -20,7 +20,14 @@ export interface TurnFacts {
   prompt: string;
   answer: string;
   steps: number;
+  /** What OpenRouter charged for the turn, in dollars (LIVE-01, ledger row 65). */
   spend: number;
+  /**
+   * True when `spend` is the whole charge OpenRouter reported; false when it is a lower bound (a cancel,
+   * or a response with no charge reported). Sealed as `cost_measured`: aggregators never sum a lower
+   * bound as measured dollars.
+   */
+  costMeasured?: boolean;
   ms: number;
   status: 'ok' | 'failed' | 'cancelled';
   tools?: ToolOutcome[];
@@ -59,6 +66,7 @@ export function sealTurn(
     response_hash: sha256(facts.answer),
     model_requested: facts.model,
     cost_usd: facts.spend,
+    cost_measured: facts.costMeasured === true,
     ms: Math.round(facts.ms),
   }, dir);
   const verified = verify('runs', dir).ok && verifySignature(rec) ? true : 'broken';

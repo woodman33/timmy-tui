@@ -759,6 +759,40 @@ export class Agent extends EventEmitter<AgentEvents> {
           ...(this.config.maxOutputTokens ? { maxOutputTokens: Math.max(16, this.config.maxOutputTokens) } : {}),
         }, requestOptions);
 
+        // What this request cost is what OpenRouter charged: the `cost` its usage reports on every
+        // response of the tool loop, each counted once by its id (LIVE-01, ledger row 65: a flat
+        // $0.00001 a token on the last response only, and nothing for a cancel). The responses arrive
+        // on the full stream as they complete, so a cancel still knows what was charged before it.
+        const charged = new Map<string, number>();
+        const unreported = new Set<string>();
+        const price = (response: any): void => {
+          if (!response || typeof response !== 'object') return;
+          const key = typeof response.id === 'string' && response.id ? response.id : `response-${charged.size + unreported.size}`;
+          const cost = response.usage?.cost;
+          if (typeof cost === 'number' && Number.isFinite(cost) && cost >= 0) {
+            charged.set(key, cost);
+            unreported.delete(key);
+          } else if (!charged.has(key)) unreported.add(key);
+        };
+        const collector: Promise<void> = typeof (result as any).getFullResponsesStream === 'function'
+          ? (async () => {
+              try {
+                for await (const event of (result as any).getFullResponsesStream() as AsyncIterable<any>) {
+                  if (event?.type === 'response.completed' || event?.type === 'response.incomplete') price(event.response);
+                }
+              } catch {
+                // The items stream reports the failure; the charges seen so far still count.
+              }
+            })()
+          : Promise.resolve();
+        let costSent = false;
+        const sendCost = (complete: boolean): void => {
+          if (costSent) return;
+          costSent = true;
+          const total = [...charged.values()].reduce((sum, c) => sum + c, 0);
+          this.emit('cost:update', total, total, { complete: complete && unreported.size === 0 && charged.size > 0 });
+        };
+
         this.emit('stream:start');
         let fullText = '';
         const textByItem = new Map<string, number>();
@@ -810,28 +844,29 @@ export class Agent extends EventEmitter<AgentEvents> {
           }
         }
         } catch (err) {
+          // What was charged before a cancel or a failure still counts, as a lower bound.
+          sendCost(false);
           if (aborted()) throw cancelled();
           throw err;
         } finally {
           opts.signal?.removeEventListener('abort', onAbort);
         }
-        if (aborted()) throw cancelled();
-
-        let usage: any = undefined;
-        try {
-          const response = await result.getResponse();
-          usage = (response as any).usage;
-          if (!fullText && (response as any).outputText) {
-            fullText = (response as any).outputText;
-          }
-        } catch { }
-
-        if (usage) {
-          const inTokens = usage.inputTokens ?? usage.promptTokens ?? 0;
-          const outTokens = usage.outputTokens ?? usage.completionTokens ?? 0;
-          const cost = (inTokens + outTokens) * 0.00001;
-          this.emit('cost:update', cost, cost);
+        if (aborted()) {
+          sendCost(false);
+          throw cancelled();
         }
+
+        let final: any;
+        try {
+          final = await result.getResponse();
+        } catch { }
+        if (final) {
+          price(final);
+          if (!fullText && final.outputText) fullText = final.outputText;
+        }
+        // The full stream ends with the items stream; never wait on it for long.
+        await Promise.race([collector, new Promise<void>((done) => { setTimeout(done, 1000).unref?.(); })]);
+        sendCost(final !== undefined);
 
         this.modelHealthStatus = isFallback ? 'FALLBACK READY' : 'READY';
         this.activeProvider = 'openrouter';

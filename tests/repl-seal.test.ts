@@ -37,6 +37,15 @@ describe('sealTurn', () => {
     expect(s.verified).toBe(true);
     expect(sealTurn(facts, dir) && readChain('runs', dir)[1].sources).toBeUndefined();
   });
+  // LIVE-01 (row 65): the cost on a receipt is what OpenRouter charged, and the receipt says whether
+  // that is the whole cost or a lower bound (a cancel, or a response with no charge reported).
+  it('says whether its cost is the whole charge or a lower bound', () => {
+    const dir = store();
+    sealTurn({ ...facts, spend: 0.0168, costMeasured: true }, dir);
+    sealTurn({ ...facts, spend: 0.024, costMeasured: false, status: 'cancelled', cancelledAt: 'after-tools' }, dir);
+    // `cost_measured` false: aggregators count it as declared-unknown, never as measured dollars.
+    expect(readChain('runs', dir).map((r) => [r.cost_usd, r.cost_measured])).toEqual([[0.0168, true], [0.024, false]]);
+  });
   it('a chain broken before the turn makes the receipt broken, never verified', () => {
     const dir = store();
     sealTurn(facts, dir);

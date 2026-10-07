@@ -42,6 +42,9 @@ export async function runTurn(
   marks?.start();
   let steps = 0;
   let spend = 0;
+  // LIVE-01 (ledger row 65): the spend is what OpenRouter charged; a cancel, or a response with no
+  // charge reported, leaves it a lower bound, and the line says so instead of a flat $0.000.
+  let costMeasured = true;
   let failed = false;
   let cancelled = false;
   // Each tool as it actually ends (third order, checkpoint 1): unknown until its result arrives.
@@ -58,22 +61,26 @@ export async function runTurn(
     if (e.type === 'error') failed = true;
     transcript.handle(e);
   });
-  const onCost = (cost: number): void => {
+  const onCost = (cost: number, _total?: number, info?: { complete?: boolean }): void => {
     if (Number.isFinite(cost)) spend += cost;
+    if (info?.complete === false) costMeasured = false;
   };
+  const spendText = (): string => (costMeasured ? `$${spend.toFixed(3)}` : spend > 0 ? `at least $${spend.toFixed(3)}` : 'cost unknown');
   agent.on('cost:update', onCost);
   let answer = '';
   let ended = false;
   const outcomesNow = (): ToolOutcome[] => [...tools.values()].map((t) => ({ ...t }));
   const stageOf = (o: ToolOutcome[]): CancelStage => (o.length === 0 ? 'before-tools' : o.some((t) => t.outcome === 'unknown') ? 'during-tool' : 'after-tools');
   const receipt = (r: SealedTurn, ms: number, isCancelled: boolean): void =>
-    transcript.handle({ type: 'receipt', id: r.id, verified: r.verified, lanes: 0, steps, spend: `$${spend.toFixed(3)}`, seconds: Math.round(ms / 100) / 10, url: r.url, ...(isCancelled ? { cancelled: true } : {}) });
+    transcript.handle({ type: 'receipt', id: r.id, verified: r.verified, lanes: 0, steps, spend: spendText(), seconds: Math.round(ms / 100) / 10, url: r.url, ...(isCancelled ? { cancelled: true } : {}) });
   const sealCancelled = (ms: number): void => {
     const o = outcomesNow();
     const at = stageOf(o);
+    // A cancelled request may still be charged: a cancel is never the whole cost.
+    costMeasured = false;
     // A cancelled turn is sealed too, with what its tools actually did; nothing is rolled back.
     transcript.handle({ type: 'cancelled', at, tools: o });
-    if (seal) receipt(seal({ prompt: text, answer: '', steps, spend, ms, status: 'cancelled', tools: o, cancelledAt: at }), ms, true);
+    if (seal) receipt(seal({ prompt: text, answer: '', steps, spend, costMeasured, ms, status: 'cancelled', tools: o, cancelledAt: at }), ms, true);
   };
   if (abandon) abandon.now = () => {
     if (ended) return;
@@ -95,8 +102,8 @@ export async function runTurn(
   const ms = clock() - started;
   if (cancelled) sealCancelled(ms);
   else if (seal) {
-    receipt(seal({ prompt: text, answer: typeof answer === 'string' ? answer : '', steps, spend, ms, status: failed ? 'failed' : 'ok', tools: outcomesNow() }), ms, false);
-  } else if (!failed) transcript.handle({ type: 'footer', steps, spend: `$${spend.toFixed(3)}`, seconds: ms / 1000 });
+    receipt(seal({ prompt: text, answer: typeof answer === 'string' ? answer : '', steps, spend, costMeasured, ms, status: failed ? 'failed' : 'ok', tools: outcomesNow() }), ms, false);
+  } else if (!failed) transcript.handle({ type: 'footer', steps, spend: spendText(), seconds: ms / 1000 });
   transcript.endTurn();
   marks?.end(cancelled ? 130 : failed ? 1 : 0);
   return cancelled ? 'cancelled' : failed ? 'failed' : 'ok';
