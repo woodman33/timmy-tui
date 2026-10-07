@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { withoutCI } from './fixtures/repl-pty-env.js';
+import { ptyEnv } from './fixtures/repl-pty-env.js';
 
 // Each NEEDS YOU key in a real PTY (tmux): y once, a session, n, Esc and Enter deny. A piped run
 // never asks and denies (playbook §17.8).
@@ -12,7 +12,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function press(key: string): Promise<{ decision: string; screen: string }> {
   const dir = mkdtempSync('/tmp/ta-');
-  const env = { ...withoutCI(process.env), TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', TIMMY_PALETTE: 'night', COLORTERM: 'truecolor' };
+  const env = { ...ptyEnv(dir), TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', TIMMY_PALETTE: 'night', COLORTERM: 'truecolor' };
   const tmux = (...args: string[]) => execFileSync('tmux', ['-L', 'ap', ...args], { env, encoding: 'utf8' });
   try {
     tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '80', '-y', '24', 'bash', '--norc', '-c', `${TSX} ${FIXTURE}; sleep 60`);

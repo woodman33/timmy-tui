@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { withoutCI } from './fixtures/repl-pty-env.js';
+import { ptyEnv } from './fixtures/repl-pty-env.js';
 
 // The playbook's Ctrl+C cases in a real PTY (§16.2, §17.8): mid-turn it cancels and returns to the
 // prompt; at an idle prompt it exits 130 with the terminal restored; pressed twice within 2s while a
@@ -18,7 +18,7 @@ async function withRepl(extraEnv: Record<string, string>, body: (io: {
   waitFor: (re: RegExp, from?: number) => Promise<void>;
 }) => Promise<void>): Promise<void> {
   const dir = mkdtempSync('/tmp/tc-');
-  const env = { ...withoutCI(process.env), ...extraEnv, TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', TIMMY_PALETTE: 'night', COLORTERM: 'truecolor' };
+  const env = { ...ptyEnv(dir), ...extraEnv, TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', TIMMY_PALETTE: 'night', COLORTERM: 'truecolor' };
   const tmux = (...args: string[]) => execFileSync('tmux', ['-L', 'cc', ...args], { env, encoding: 'utf8' });
   try {
     tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '80', '-y', '30', 'bash', '--norc', '-c', `S0=$(stty -g); ${TSX} ${FIXTURE}; echo EXIT=$?; [ "$(stty -g)" = "$S0" ] && echo TTY=same; sleep 60`);
