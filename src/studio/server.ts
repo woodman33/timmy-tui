@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { CanvasBridge } from './bridge.js';
 import { STUDIO_PORT, studioConfig } from './config.js';
 import { CanvasDocuments, MAX_CANVAS_BYTES, canvasDir } from './document.js';
+import { publicTemplates } from './templates.js';
 
 export { STUDIO_PORT };
 
@@ -88,6 +89,10 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     });
   app.get('/api/canvas/jobs', (_req, res) => {
     res.set('Cache-Control', 'no-store').json(documents.jobs());
+  });
+  // Public templates start blank: the seeds' four fields only; the page opens one as an empty board.
+  app.get('/api/canvas/templates', (_req, res) => {
+    res.set('Cache-Control', 'no-store').json({ templates: publicTemplates() });
   });
   // The REPL links the receipt it sealed for a turn to that turn's canvas job.
   app.post('/api/canvas/jobs/:job/receipt', jsonOnly('Send JSON: {"receipt": "<its short hash>"}.'), express.json({ limit: '1kb' }), (req, res) => {

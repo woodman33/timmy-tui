@@ -142,8 +142,10 @@ function connectBridge(editor) {
         runningJob = null;
       }
       const saved = await save(editor);
-      const document = saved.ok ? { sourceRevision: saved.sourceRevision ?? undefined } : { saveError: saved.error };
-      ws.send(JSON.stringify({ id: message.id, ...answer, revision: canvas.revision, ...document }));
+      const savedAs = saved.ok ? { sourceRevision: saved.sourceRevision ?? undefined } : { saveError: saved.error };
+      ws.send(JSON.stringify({ id: message.id, ...answer, revision: canvas.revision, ...savedAs }));
+      // The server records the job when it reads this answer; show it a moment later.
+      setTimeout(() => void refreshJobs(editor), 200);
     };
     ws.onmessage = (event) => {
       let message;
@@ -153,6 +155,92 @@ function connectBridge(editor) {
     };
   };
   open();
+}
+
+// The left panel (fourth order, step 5): Timmy's canvas jobs, newest first, each linked to the receipt
+// page of the turn that ran it once sealed, and the job of a selected shape marked; and "New board":
+// a blank board, or a public template opened blank (its title, and an empty frame per capability).
+const el = (tag, text, props = {}) => Object.assign(document.createElement(tag), text === undefined ? {} : { textContent: text }, props);
+let jobs = [];
+function selectedJobs(editor) {
+  return new Set(editor.getSelectedShapes().map((shape) => shape.meta?.timmyJob).filter(Boolean));
+}
+function showJobs(editor) {
+  const list = document.getElementById('job-list');
+  const marked = selectedJobs(editor);
+  const rows = jobs.slice(0, 12).map((job) => {
+    const li = el('li');
+    li.dataset.job = job.id;
+    li.setAttribute('aria-current', String(marked.has(job.id)));
+    li.append(el('span', job.ok ? '✓ done' : '✖ failed', { className: job.ok ? 'ok' : 'bad' }), ` ${job.id} · revision ${job.revision} · `);
+    li.append(job.receipt ? el('a', `receipt ${job.receipt}`, { href: `/receipts/${encodeURIComponent(job.receipt)}`, target: '_blank', rel: 'noopener' }) : 'no receipt yet');
+    return li;
+  });
+  list.replaceChildren(...(rows.length ? rows : [el('li', 'No jobs yet. Ask Timmy in the REPL to draw something.')]));
+}
+async function refreshJobs(editor) {
+  try {
+    const response = await fetch('/api/canvas/jobs', { cache: 'no-store' });
+    if (response.ok) jobs = await response.json();
+  } catch {
+    // The status line already says when Timmy cannot be reached.
+  }
+  showJobs(editor);
+}
+function showGuide(editor) {
+  document.getElementById('guide').hidden = editor.getCurrentPageShapes().length > 0;
+}
+
+/** A new page: blank, or a public template as an empty board (a frame named for it, an empty frame per capability). */
+function openBoard(editor, template) {
+  const names = new Set(editor.getPages().map((p) => p.name));
+  let name = template ? template.title : 'Blank board';
+  for (let n = 2; names.has(name); n += 1) name = `${template ? template.title : 'Blank board'} ${n}`;
+  const page = editor.createPage({ name }).getPages().find((p) => p.name === name);
+  editor.setCurrentPage(page.id);
+  if (template) {
+    const frame = createShapeId();
+    const slot = { w: 320, h: 220, gap: 24 };
+    const across = Math.min(3, template.caps.length);
+    const down = Math.ceil(template.caps.length / across);
+    editor.createShape({ id: frame, type: 'frame', x: 0, y: 0, props: { name: template.title, w: across * (slot.w + slot.gap) + slot.gap, h: down * (slot.h + slot.gap) + slot.gap } });
+    editor.createShapes(template.caps.map((cap, i) => ({
+      id: createShapeId(), type: 'frame', parentId: frame,
+      x: slot.gap + (i % across) * (slot.w + slot.gap), y: slot.gap + Math.floor(i / across) * (slot.h + slot.gap),
+      props: { name: cap, w: slot.w, h: slot.h },
+    })));
+    editor.zoomToFit();
+  }
+  showGuide(editor);
+}
+async function offerBoards(editor) {
+  const pick = document.getElementById('board-pick');
+  let templates = [];
+  try {
+    const response = await fetch('/api/canvas/templates', { cache: 'no-store' });
+    if (response.ok) templates = (await response.json()).templates ?? [];
+  } catch {
+    // Without the list, New board still opens a blank board.
+  }
+  pick.append(...templates.map((t) => el('option', `${t.title} (${t.domain})`, { value: t.id })));
+  document.getElementById('board-open').addEventListener('click', () => openBoard(editor, templates.find((t) => t.id === pick.value)));
+}
+function connectPanel(editor) {
+  document.getElementById('side').hidden = false;
+  let queued = false;
+  editor.store.listen(() => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      showGuide(editor);
+      showJobs(editor);
+    });
+  });
+  showGuide(editor);
+  void offerBoards(editor);
+  void refreshJobs(editor);
+  setInterval(() => { if (document.visibilityState === 'visible') void refreshJobs(editor); }, 5000);
 }
 
 async function start() {
@@ -185,6 +273,7 @@ async function start() {
         window.timmyCanvas = { editor, tldrawVersion: BUILT_WITH, licenseState: 'pending', document: canvas };
         showStatus(editor);
         connectBridge(editor);
+        connectPanel(editor);
         window.addEventListener('pagehide', () => saveOnLeave(editor));
       },
     }),

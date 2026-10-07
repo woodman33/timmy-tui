@@ -13,6 +13,7 @@
     "dist",
     "assets/themes",
     "companion/studio-canvas",
+    "templates/boards",
     "README.md",
     "LICENSE",
     "CHANGELOG.md",

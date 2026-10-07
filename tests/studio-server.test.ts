@@ -163,6 +163,15 @@ describe('the canvas file through the server', () => {
     expect(await call('POST', '/api/canvas/jobs/turn-1/receipt', { receipt: '0f3c9a12' })).toEqual({ status: 200, cache: 'no-store', body: { ok: true, job: 'turn-1', receipt: '0f3c9a12' } });
     expect((await call('GET', '/api/canvas/jobs')).body).toEqual([expect.objectContaining({ id: 'turn-1', receipt: '0f3c9a12' })]);
   });
+  it('lists the public board templates, never cached, as their four fields only', async () => {
+    await start();
+    const r = await call('GET', '/api/canvas/templates');
+    expect(r.status).toBe(200);
+    expect(r.cache).toBe('no-store');
+    const templates = r.body.templates as Array<Record<string, unknown>>;
+    expect(templates).toHaveLength(8);
+    expect(templates[0]).toEqual({ id: 'P63', title: 'Prompt Lab', domain: 'media generation', caps: ['prompt.draft', 'prompt.variant', 'prompt.score'] });
+  });
   it('a canvas too large to save gets 413 and says so', async () => {
     await start({ maxCanvasBytes: 300 });
     const big = await call('PUT', '/api/canvas/document', { snapshot: { ...SNAP, big: 'x'.repeat(1000) }, revision: 1, baseRevision: 0 });
