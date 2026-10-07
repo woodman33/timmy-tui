@@ -140,6 +140,17 @@ describe('after payment', () => {
     expect(await welcome.text()).toContain('This checkout expired before it was paid.');
   });
 
+  it('says when an expired unpaid checkout left behind an incomplete subscription', async () => {
+    const sessionId = await newSession();
+    const sub = proSub(`sub_${sessionId.slice(-8)}`, 'incomplete_expired');
+    stripe.subs.set(sub.id, sub);
+    stripe.sessions.set(sessionId, { ...stripe.sessions.get(sessionId)!, subId: sub.id });
+    stripe.expire(sessionId);
+    const res = await call('POST', '/license/claim', { session_id: sessionId });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'expired' });
+  });
+
   // Stripe documents that only unpaid, open checkouts expire. `expired` still lets the CLI open another payable
   // checkout, so it is only said of one that bought nothing, whatever status Stripe reports for the session.
   const markExpired = (sessionId: string, paymentStatus?: string) => {

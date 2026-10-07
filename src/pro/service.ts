@@ -241,8 +241,10 @@ async function settleCheckout(sessionId: string, deps: ProDeps, opts: { refresh?
   }
   if (info.mode !== 'subscription') return { state: 'invalid' };
   // What a checkout bought decides it, not the status Stripe reports for the session. `expired` lets the CLI open
-  // another payable checkout, so it is only for one Stripe closed with no subscription and no payment.
-  if (!info.subscription) return { state: info.status === 'expired' && info.paymentStatus !== 'paid' ? 'expired' : 'pending' };
+  // another payable checkout, so it is only for one Stripe closed without a paid subscription.
+  const expiredUnpaid = info.status === 'expired' && !PAID.has(info.paymentStatus ?? '');
+  if (!info.subscription) return { state: expiredUnpaid ? 'expired' : 'pending' };
+  if (expiredUnpaid && info.subscription.status === 'incomplete_expired') return { state: 'expired' };
   if (!PAID.has(info.paymentStatus ?? '')) return { state: 'pending' };
   if (!isProSubscription(info.subscription, deps.env)) return { state: 'invalid' };
   const record = await syncSubscription(info.subscription.id, { customerId: info.customerId, email: info.email, checkoutSessionId: info.id }, deps);
