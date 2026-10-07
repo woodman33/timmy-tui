@@ -7,12 +7,31 @@ import { LiveRegion, Spinner } from '../term/live-region.js';
 import { serialize, type Role, type Segment, type Theme } from '../term/theme.js';
 import { hyperlink } from '../term/marks.js';
 import { renderApproval } from './approvals.js';
-import { truncate as cutTo, visibleWidth } from '../term/width.js';
+import { truncate as cutTo, visibleWidth, wrap } from '../term/width.js';
+import type { CancelStage, ToolOutcome } from './seal.js';
 import { labelFor, plural, type StepLabel } from './steps.js';
 
 export interface Lane {
   label: string;
   state: 'done' | 'running' | 'waiting';
+}
+
+/**
+ * What a cancelled turn's tools did, in one sentence: none had started; or which finished, which
+ * failed, and which were still running (their outcome unknown); and that nothing was rolled back.
+ */
+export function cancelOutcome(at: CancelStage, tools: ToolOutcome[]): string {
+  if (at === 'before-tools' || tools.length === 0) return 'No tool had started.';
+  const done = tools.filter((t) => t.outcome === 'completed').length;
+  const failed = tools.filter((t) => t.outcome === 'failed').length;
+  const running = tools.filter((t) => t.outcome === 'unknown').map((t) => t.tool);
+  const parts = [
+    ...(done ? [`${done} ${done === 1 ? 'tool' : 'tools'} finished`] : []),
+    ...(failed ? [`${failed} failed`] : []),
+    ...(running.length ? [`${running.join(', ')} ${running.length === 1 ? 'was' : 'were'} running: outcome unknown`] : []),
+    ...(at === 'after-tools' ? ['no answer yet'] : []),
+  ];
+  return `${parts.join('; ')}. Nothing was rolled back.`;
 }
 
 /** Where to get help, under every error (playbook §16.5). */
@@ -25,11 +44,11 @@ export type TurnEvent =
   | { type: 'lanes'; lanes: Lane[] }
   | { type: 'tool-start'; id: string; tool: string; args: Record<string, unknown> }
   | { type: 'tool-end'; id: string; ok: boolean; preview?: string; diff?: string }
-  | { type: 'receipt'; id: string; verified: boolean | 'broken'; lanes: number; steps: number; spend: string; seconds: number; url?: string }
+  | { type: 'receipt'; id: string; verified: boolean | 'broken'; lanes: number; steps: number; spend: string; seconds: number; url?: string; cancelled?: boolean }
   | { type: 'error'; message: string; cause?: string; fix?: string }
   | { type: 'footer'; steps: number; spend: string; seconds: number }
   | { type: 'cancelling' }
-  | { type: 'cancelled' }
+  | { type: 'cancelled'; at?: CancelStage; tools?: ToolOutcome[] }
   | { type: 'needs-you'; tool: string; reason: string; summary: string }
   | { type: 'needs-you-answered'; tool: string; decision: 'once' | 'session' | 'deny' | 'no-terminal' };
 
@@ -38,7 +57,8 @@ interface Step {
   tool: string;
   label: StepLabel;
   approval?: 'once' | 'session' | 'deny' | 'no-terminal';
-  state: 'running' | 'done' | 'failed';
+  // stopped: still running when the turn was cancelled; its outcome is unknown.
+  state: 'running' | 'done' | 'failed' | 'stopped';
   preview?: string;
   diff?: string;
 }
@@ -136,12 +156,18 @@ export class Transcript {
         // A stream that ignores the cancel keeps drawing; the note keeps the way out visible.
         this.cancelNote = this.line([{ text: '  Cancelling. Press Ctrl+C again to quit.', role: 'secondary' }]);
         return this.show(this.shown);
-      case 'cancelled':
+      case 'cancelled': {
         this.cancelNote = null;
         this.flushText();
+        // A step still running when the cancel came is shown as running, never as done.
+        for (const s of this.group) if (s.state === 'running') s.state = 'stopped';
         this.flushGroup();
         this.blank();
-        return this.commit([this.line([{ text: '  Cancelled.', role: 'secondary' }])], ['  Cancelled.']);
+        // What the tools did, said with the cancel (third order, checkpoint 1): a cancel never undoes.
+        const said = e.at ? `Cancelled. ${cancelOutcome(e.at, e.tools ?? [])}` : 'Cancelled.';
+        const rows = wrap(said, Math.max(20, this.opts.columns - 2)).map((l) => `  ${l}`);
+        return this.commit(rows.map((r) => this.line([{ text: r, role: 'secondary' }])), rows);
+      }
       case 'needs-you':
         return this.needsYou(e);
       case 'needs-you-answered':
@@ -364,7 +390,8 @@ export class Transcript {
     const failed = steps.some((s) => s.state === 'failed');
     const glyph = failed ? g.fail : label.risk === 'network' ? g.ai : g.bullet;
     const role: Role = failed ? 'failure' : RISK_ROLE[label.risk];
-    const head = `${glyph} ${label.verb}`;
+    const stopped = steps.some((s) => s.state === 'stopped');
+    const head = `${glyph} ${stopped ? label.present : label.verb}`;
     const subject = steps.length === 1 ? label.arg : `${steps.length} ${plural(label.noun, steps.length)}`;
     const room = this.opts.columns - visibleWidth(head) - 1;
     const shownSubject = this.cut(subject, room);
@@ -401,7 +428,7 @@ export class Transcript {
         push(fit(`  ${g.branchEnd} `, s.preview));
       }
     } else {
-      steps.forEach((s, i) => push(fit(`  ${i === steps.length - 1 ? g.branchEnd : g.branch} `, s.label.arg, s.preview)));
+      steps.forEach((s, i) => push(fit(`  ${i === steps.length - 1 ? g.branchEnd : g.branch} `, s.label.arg, s.state === 'stopped' ? 'outcome unknown' : s.preview)));
     }
     return { lines, plain };
   }
@@ -453,7 +480,7 @@ export class Transcript {
           ? [{ text: name(g.fail), role: 'failure' }, { text: ' chain broken' }]
           : [{ text: name(g.bullet), role: 'strong' }, { text: ' signed, not verified yet', role: 'secondary' }];
     // A REPL turn has no lanes (C-8): a lane count of 0 is left out rather than printed.
-    const facts = [...(e.lanes ? [`${e.lanes} ${plural('lane', e.lanes)}`] : []), `${e.steps} ${plural('step', e.steps)}`, e.spend, `${e.seconds}s`].join(` ${g.sep} `);
+    const facts = [...(e.lanes ? [`${e.lanes} ${plural('lane', e.lanes)}`] : []), `${e.steps} ${plural('step', e.steps)}`, e.spend, `${e.seconds}s`, ...(e.cancelled ? ['cancelled'] : [])].join(` ${g.sep} `);
     this.commit([this.line(head), this.line([{ text: `  ${this.cut(facts, this.opts.columns - 2)}`, role: 'secondary' }])], [
       head.map((s) => s.text).join(''),
       facts,

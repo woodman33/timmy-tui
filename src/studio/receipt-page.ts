@@ -28,11 +28,21 @@ export function findReceipt(chain: Receipt[], key: string): Receipt | undefined 
 }
 
 /** What the page lists, in order: label and value, nothing raw (the prompt and answer are hashes). */
+const CANCEL_AT: Record<NonNullable<Receipt['cancelled_at']>, string> = {
+  'before-tools': 'before any tool started',
+  'during-tool': 'while a tool ran',
+  'after-tools': 'after its tools, before the answer',
+};
+
 export function receiptFacts(r: Receipt): Array<[string, string]> {
   const facts: Array<[string, string | undefined]> = [
     ['kind', r.kind],
     ['subject', r.subject],
     ['status', r.status],
+    // A cancelled turn (third order, checkpoint 1): where the cancel came, each tool as it ended.
+    ['cancelled', r.cancelled_at ? CANCEL_AT[r.cancelled_at] : undefined],
+    ['tools', r.tool_outcomes?.length ? r.tool_outcomes.map((t) => `${t.name} ${t.outcome}${t.outcome === 'unknown' ? ' (it may have run in part or in full)' : ''}`).join(', ') : undefined],
+    ['rollback', r.rollback === 'none' ? 'none: a cancel stops what is left; it never undoes' : undefined],
     ['sealed', r.ts],
     ['model', r.model_requested],
     ['spend', typeof r.cost_usd === 'number' ? `$${r.cost_usd.toFixed(3)}` : undefined],

@@ -7,13 +7,24 @@
 import { createHash } from 'node:crypto';
 import { appendReceipt, verifyChain, verifySignature, type VerifyResult } from '../utils/receipts.js';
 
+/** How a tool in the turn actually ended; `unknown` = still running when the turn ended. */
+export interface ToolOutcome {
+  tool: string;
+  outcome: 'completed' | 'failed' | 'unknown';
+}
+
+/** Where a cancel came: before any tool started, while one ran, or after the tools, before the answer. */
+export type CancelStage = 'before-tools' | 'during-tool' | 'after-tools';
+
 export interface TurnFacts {
   prompt: string;
   answer: string;
   steps: number;
   spend: number;
   ms: number;
-  status: 'ok' | 'failed';
+  status: 'ok' | 'failed' | 'cancelled';
+  tools?: ToolOutcome[];
+  cancelledAt?: CancelStage;
 }
 
 export interface SealedTurn {
@@ -32,11 +43,15 @@ export function sealTurn(
   dir?: string,
   verify: (stream: string, dir?: string) => Pick<VerifyResult, 'ok'> = verifyChain,
 ): SealedTurn {
+  const cancelled = facts.status === 'cancelled';
   const rec = appendReceipt('runs', {
     kind: 'turn',
-    subject: `repl · ${facts.steps} ${facts.steps === 1 ? 'step' : 'steps'}`,
+    subject: `repl · ${cancelled ? 'cancelled · ' : ''}${facts.steps} ${facts.steps === 1 ? 'step' : 'steps'}`,
     policy: 'human-gated',
     status: facts.status,
+    ...(facts.tools?.length ? { tool_outcomes: facts.tools.map((t) => ({ name: t.tool, outcome: t.outcome })) } : {}),
+    // Third order, checkpoint 1: a cancel stops what is left; it never undoes what already ran.
+    ...(cancelled ? { cancelled_at: facts.cancelledAt ?? 'before-tools', rollback: 'none' as const } : {}),
     prompt_hash: sha256(facts.prompt),
     response_hash: sha256(facts.answer),
     model_requested: facts.model,

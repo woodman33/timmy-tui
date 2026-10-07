@@ -30,7 +30,7 @@ import { COMMANDS, runSlash, type ReceiptsView, type ReplContext, type ThemeInfo
 import { LineEditor } from './editor.js';
 import { readPrompt } from './input.js';
 import { nearest } from './suggest.js';
-import { runTurn, type TurnAgent } from './turn.js';
+import { runTurn, type TurnAbandon, type TurnAgent } from './turn.js';
 import { Transcript } from './transcript.js';
 import { onPath, packageRoot } from './center.js';
 import { planWeb, RECEIPT_ID, receiptUrl, resolveWebTarget } from './web.js';
@@ -385,11 +385,14 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     }
     if (interactive) transcript.handle({ type: 'prompt', text, cwd: tildify(process.cwd()), echoed: true });
     const controller = new AbortController();
+    const abandon: TurnAbandon = {};
     // First Ctrl+C cancels the turn; a second, while that cancel has not landed, quits (exit 130),
     // as the note on screen says. Ctrl+C while NEEDS YOU waits belongs to the approval (it denies).
+    // Before quitting, the turn is sealed as it stands: a cancel that never landed is still a cancel.
     const onCtrlC = (): void => {
       if (d.approval?.active) return;
       if (controller.signal.aborted) {
+        abandon.now?.();
         region.close();
         turnMarks?.end(EXIT.cancelled);
         return session.exit(EXIT.cancelled);
@@ -399,7 +402,7 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     };
     const stopWatching = interactive ? watchCtrlC(d.stdin, session, onCtrlC) : () => {};
     if (caps.animate) session.hideCursor();
-    const result = await runTurn(agent, transcript, text, Date.now, turnMarks, controller.signal, d.seal);
+    const result = await runTurn(agent, transcript, text, Date.now, turnMarks, controller.signal, d.seal, abandon);
     stopWatching();
     if (!interactive && result === 'failed') status = EXIT.failure;
     if (interactive) region.commit(['']);

@@ -1,6 +1,7 @@
 // PTY fixture for the C-15 qualification (scripts/ui/qualify.ts): the real REPL loop, the real
 // terminal session, theme, live region and transcript, with a scripted agent chosen by TIMMY_Q_SCRIPT.
-// No network and no model. TIMMY_Q_SEAL=1 also seals each turn into TIMMY_STORE through appendReceipt.
+// No network and no model. TIMMY_Q_SEAL=1 also seals each turn into TIMMY_STORE through appendReceipt;
+// TIMMY_Q_STUCK=1 makes the agent ignore a cancel.
 //   text      one streamed answer
 //   long      a paragraph longer than 80 columns (prose wraps at min(columns, 80))
 //   ttt       text, two tools, then a second message (the whole second message must show)
@@ -27,6 +28,8 @@ class QualifyAgent extends EventEmitter {
   private wait(ms: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
       const t = setTimeout(resolve, ms);
+      // TIMMY_Q_STUCK=1: a stream that ignores the cancel (the second Ctrl+C then quits).
+      if (process.env.TIMMY_Q_STUCK === '1') return;
       signal?.addEventListener('abort', () => { clearTimeout(t); reject(Object.assign(new Error('Cancelled.'), { name: 'AbortError' })); }, { once: true });
     });
   }

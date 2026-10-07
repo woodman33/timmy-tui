@@ -73,3 +73,19 @@ describe('the receipt page', () => {
     expect(status).toBe(403);
   });
 });
+
+// Third order, checkpoint 1: a cancelled turn's page says where the cancel came, what each tool did,
+// and that nothing was rolled back.
+describe('a cancelled turn\'s receipt page', () => {
+  it('lists the cancel, each tool\'s outcome, and no rollback', async () => {
+    const { receiptFacts } = await import('../src/studio/receipt-page.js');
+    const r = { v: 1, id: 'rc_x', stream: 'runs', ts: '2026-10-07T16:00:00.000Z', kind: 'turn', subject: 'repl · cancelled · 2 steps', policy: 'human-gated', status: 'cancelled', cancelled_at: 'during-tool', rollback: 'none', tool_outcomes: [{ name: 'file_read', outcome: 'completed' }, { name: 'shell', outcome: 'unknown' }], prev_hash: 'genesis', hash: 'sha256:0123456789abcdef' } as never;
+    const facts = Object.fromEntries(receiptFacts(r));
+    expect({ status: facts.status, cancelled: facts.cancelled, tools: facts.tools, rollback: facts.rollback }).toEqual({
+      status: 'cancelled',
+      cancelled: 'while a tool ran',
+      tools: 'file_read completed, shell unknown (it may have run in part or in full)',
+      rollback: 'none: a cancel stops what is left; it never undoes',
+    });
+  });
+});
