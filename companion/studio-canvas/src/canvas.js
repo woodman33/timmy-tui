@@ -273,17 +273,63 @@ let jobs = [];
 function selectedJobs(editor) {
   return new Set(editor.getSelectedShapes().map((shape) => shape.meta?.timmyJob).filter(Boolean));
 }
+/** A job's time: the clock time when it is today's, the date and time when it is older. The full time is the tooltip. */
+function jobTime(at) {
+  const when = new Date(at);
+  if (Number.isNaN(when.getTime())) return { text: String(at), iso: String(at) };
+  const today = new Date().toDateString() === when.toDateString();
+  const text = today
+    ? when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : when.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return { text, iso: at };
+}
+/** What the Canvas row said the last time it could not show a job (no shapes of it on this page), by job. */
+const jobNotes = new Map();
+/**
+ * The Canvas row of a job: its shapes, selected and brought into view. A job that left no shape on this
+ * page (it drew nothing, or the shapes were deleted, or they are on another page) says so.
+ */
+function showJob(editor, id) {
+  const shapes = editor.getCurrentPageShapes().filter((shape) => shape.meta?.timmyJob === id).map((shape) => shape.id);
+  if (shapes.length === 0) {
+    jobNotes.set(id, 'no shapes of this job on this page');
+  } else {
+    jobNotes.delete(id);
+    editor.select(...shapes);
+    reveal(editor, shapes);
+  }
+  showJobs(editor);
+}
+// The panel names each job in the words the REPL uses after a turn: its outcome and time, then Canvas
+// (the job and the revision it left) and Receipt (its page, or "not linked yet").
 function showJobs(editor) {
   const list = document.getElementById('job-list');
   const marked = selectedJobs(editor);
   const rows = jobs.slice(0, 12).map((job) => {
-    const li = el('li');
+    const li = el('li', undefined, { className: 'job' });
     li.dataset.job = job.id;
     li.setAttribute('aria-current', String(marked.has(job.id)));
+    const when = jobTime(job.at);
+    const head = el('div', undefined, { className: 'job-head' });
+    head.append(el('span', job.ok ? '✓ done' : '✖ failed', { className: `job-state ${job.ok ? 'ok' : 'bad'}` }));
+    if (when.text) head.append(el('time', when.text, { dateTime: when.iso, title: when.iso }));
     // Round R1: a job's mark is its last call's; the calls that failed before it kept nothing, and say so.
-    const failed = typeof job.failed === 'number' && job.failed > 0 ? ` · ${job.failed} failed ${job.failed === 1 ? 'call' : 'calls'}, nothing kept` : '';
-    li.append(el('span', job.ok ? '✓ done' : '✖ failed', { className: job.ok ? 'ok' : 'bad' }), ` ${job.id} · revision ${job.revision}${failed} · `);
-    li.append(job.receipt ? el('a', `receipt ${job.receipt}`, { href: `/receipts/${encodeURIComponent(job.receipt)}`, target: '_blank', rel: 'noopener' }) : 'no receipt yet');
+    if (typeof job.failed === 'number' && job.failed > 0) head.append(el('span', `${job.failed} failed ${job.failed === 1 ? 'call' : 'calls'}, nothing kept`, { className: 'job-failed' }));
+    const canvasRow = el('div', undefined, { className: 'job-row' });
+    canvasRow.dataset.row = 'Canvas';
+    const show = el('button', `job ${job.id}, rev ${job.revision}`, { type: 'button', className: 'job-show', title: 'Select what this job drew' });
+    show.addEventListener('click', () => showJob(editor, job.id));
+    canvasRow.append(el('span', 'Canvas', { className: 'k' }), ' ', show);
+    const note = jobNotes.get(job.id);
+    if (note) canvasRow.append(el('span', note, { className: 'job-note' }));
+    const receiptRow = el('div', undefined, { className: 'job-row' });
+    receiptRow.dataset.row = 'Receipt';
+    receiptRow.append(
+      el('span', 'Receipt', { className: 'k' }),
+      ' ',
+      job.receipt ? el('a', job.receipt, { href: `/receipts/${encodeURIComponent(job.receipt)}`, target: '_blank', rel: 'noopener' }) : el('span', 'not linked yet'),
+    );
+    li.append(head, canvasRow, receiptRow);
     return li;
   });
   list.replaceChildren(...(rows.length ? rows : [el('li', 'No jobs yet. Ask Timmy in the REPL to draw something.')]));

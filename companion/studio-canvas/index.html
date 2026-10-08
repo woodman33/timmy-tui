@@ -26,6 +26,16 @@
   #side ol { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; max-height: 40vh; overflow-y: auto; }
   #side li { overflow-wrap: anywhere; }
   #side li[aria-current="true"] { outline: 1px solid var(--timmy-accent, #28fe14); outline-offset: 2px; }
+  /* A job, in the REPL's words: outcome and time, then Canvas (job and revision) and Receipt. */
+  #side li.job { display: grid; gap: 1px; padding: 4px 0; }
+  #side li.job + li.job { border-top: 1px solid var(--timmy-line, #333333); }
+  #side .job-head { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; }
+  #side .job-head time { color: var(--timmy-text-secondary, #bdbdb8); }
+  #side .job-head .job-failed { color: var(--timmy-attention, #e5b550); }
+  #side .job-row { display: grid; grid-template-columns: 8ch minmax(0, 1fr); gap: 0 6px; align-items: baseline; }
+  #side .job-row .k { color: var(--timmy-text-secondary, #bdbdb8); }
+  #side .job-row .job-note { grid-column: 2; color: var(--timmy-attention, #e5b550); }
+  #side button.job-show { justify-self: start; text-align: left; padding: 0; border: 0; background: none; color: var(--timmy-link, #6ca8ff); text-decoration: underline; overflow-wrap: anywhere; min-width: 0; }
   #side a { color: var(--timmy-link, #6ca8ff); }
   #side .ok { color: var(--timmy-accent, #28fe14); font-weight: var(--timmy-weight-heading, 700); }
   #side .bad { color: var(--timmy-failure, #ff5f56); font-weight: var(--timmy-weight-heading, 700); }
@@ -49,7 +59,7 @@
 <aside id="side" aria-label="Timmy">
   <div id="status" role="status" data-kind="loading">Loading the canvas</div>
   <div id="side-ready" hidden>
-    <details id="jobs" open><summary>Jobs</summary><ol id="job-list"><li>No jobs yet.</li></ol></details>
+    <details id="jobs" open><summary>Canvas jobs</summary><ol id="job-list"><li>No jobs yet.</li></ol></details>
     <div id="boards"><label for="board-pick">New board</label><select id="board-pick"><option value="">Blank board</option></select><button id="board-open" type="button">Open</button></div>
   </div>
 </aside>

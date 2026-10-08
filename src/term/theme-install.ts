@@ -88,7 +88,7 @@ export function planThemeInstall(app: TerminalApp, home: string, assets: string)
         ['Add to ~/.config/wezterm/wezterm.lua:', "  config.color_scheme = 'Timmy Homebrew'", "  (Timmy Night and Timmy Day are there too)"]);
     case 'zellij':
       return plan([{ from: join(assets, 'zellij', 'timmy.kdl'), to: cfg('zellij', 'themes', 'timmy.kdl') }],
-        ['Add to ~/.config/zellij/config.kdl:', '  theme "timmy-night"', '  (zellij\'s Timmy themes are Night and Day; Night suits Homebrew)']);
+        ['Add to ~/.config/zellij/config.kdl:', '  theme "timmy-homebrew"', '  (timmy-night and timmy-day are in the same file; timmy center picks the theme itself)']);
     case 'iterm2':
       return plan([],
         ['iTerm2 imports a theme when you open it:', `  open "${join(assets, 'iterm2', 'Timmy Homebrew.itermcolors')}"`, 'then choose Timmy Homebrew in Settings > Profiles > Colors > Color Presets.', `  (Timmy Night and Day: ${join(assets, 'iterm2')})`]);

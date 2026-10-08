@@ -60,14 +60,48 @@ export function receiptFacts(r: Receipt): Array<[string, string]> {
 
 const verdict = (verified: boolean): string => (verified ? 'signed and verified' : 'chain broken');
 
+/** One row of "where to inspect", in the words the REPL prints after a turn (src/repl/main.ts). */
+export interface InspectRow {
+  label: 'Receipt' | 'Canvas';
+  text: string;
+  /** Where the row leads, on this server. */
+  href?: string;
+  hint?: string;
+}
+
+/**
+ * Round R1: the receipt page's "where to inspect", read from the receipt alone. Receipt: this page's
+ * address (and the command that lists them). Canvas: each Timmy Canvas job the turn sealed, with the
+ * revision it left, and where the canvas is. A receipt without canvas jobs has no Canvas row; nothing
+ * here is a guess.
+ */
+export function receiptInspect(r: Receipt): InspectRow[] {
+  const path = `/receipts/${short(r.hash)}`;
+  const rows: InspectRow[] = [{ label: 'Receipt', text: path, href: path, hint: 'or timmy receipts' }];
+  for (const s of Array.isArray(r.sources) ? r.sources : []) {
+    const c = s as { kind?: unknown; job?: unknown; revision?: unknown } | null;
+    if (!c || typeof c !== 'object' || c.kind !== 'timmy-canvas') continue;
+    if (typeof c.job !== 'string' || !c.job || !Number.isInteger(c.revision) || (c.revision as number) < 0) continue;
+    rows.push({ label: 'Canvas', text: `job ${c.job}, rev ${c.revision}`, href: '/', hint: 'open the canvas' });
+  }
+  return rows;
+}
+
 export function receiptText(r: Receipt, verified: boolean): string {
-  return [`${verified ? '✓' : '✖'} RECEIPT ${short(r.hash)} ${verdict(verified)}`, '', ...receiptFacts(r).map(([k, v]) => `${k.padEnd(9)} ${v}`), ''].join('\n');
+  const where = receiptInspect(r).map((row) => `${row.label.padEnd(9)} ${row.text}${row.label === 'Canvas' ? ` · ${row.hint}: ${row.href}` : row.hint ? ` · ${row.hint}` : ''}`);
+  return [`${verified ? '✓' : '✖'} RECEIPT ${short(r.hash)} ${verdict(verified)}`, '', ...where, '', ...receiptFacts(r).map(([k, v]) => `${k.padEnd(9)} ${v}`), ''].join('\n');
 }
 
 export function receiptHtml(r: Receipt, verified: boolean): string {
   const id = short(r.hash);
   const prev = r.prev_hash.startsWith('genesis') ? '' : `<a href="/receipts/${esc(short(r.prev_hash))}">previous receipt</a> · `;
   const rows = receiptFacts(r).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+  const where = receiptInspect(r).map((row) => {
+    const link = row.href ? `<a href="${esc(row.href)}">${esc(row.label === 'Receipt' ? row.text : row.hint ?? row.href)}</a>` : '';
+    // Receipt: the address is the link, and the command is the hint. Canvas: the words, then the link.
+    const value = row.label === 'Receipt' ? `${link}${row.hint ? ` · ${esc(row.hint)}` : ''}` : `${esc(row.text)} · ${link}`;
+    return `<dt>${esc(row.label)}</dt><dd>${value}</dd>`;
+  }).join('');
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Receipt ${esc(id)}</title>
@@ -78,13 +112,19 @@ main{max-width:72ch}
 h1{margin:0 0 16px;font:var(--timmy-weight-heading) var(--timmy-size-h2)/1.2 var(--timmy-font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--timmy-accent)}
 .verdict{margin:0 0 24px;font-weight:var(--timmy-weight-heading)}
 .ok{color:${law('seal')}}.bad{color:var(--timmy-failure)}
+h2{margin:0 0 8px;font:var(--timmy-weight-heading) var(--timmy-size-body)/1.2 var(--timmy-font-mono);color:var(--timmy-text)}
 dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 24px;margin:0 0 24px}
 dt{font-weight:var(--timmy-weight-strong);color:var(--timmy-text-secondary)}dd{margin:0;overflow-wrap:anywhere}
 a{color:var(--timmy-link)}
+/* Phone width: a label sits above its value, so the value gets the whole line. */
+@media (max-width:520px){dl{grid-template-columns:minmax(0,1fr);gap:0}dt{margin-top:10px}dt:first-child{margin-top:0}}
 </style></head>
 <body><main>
 <h1>Receipt</h1>
 <p class="verdict ${verified ? 'ok' : 'bad'}">${verified ? '✓' : '✖'} RECEIPT ${esc(id)} ${verdict(verified)}</p>
+<h2>Inspect</h2>
+<dl>${where}</dl>
+<h2>Details</h2>
 <dl>${rows}</dl>
 <p>${prev}<a href="?format=text">text version</a></p>
 </main></body></html>

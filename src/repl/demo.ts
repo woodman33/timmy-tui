@@ -10,12 +10,36 @@ export interface DemoStep {
 }
 
 const step = (delayMs: number, event: TurnEvent): DemoStep => ({ delayMs, event });
+
+/**
+ * Round R1: the demonstration says what it is, first and last, in words (never by color alone). Nothing
+ * below it is real: no model answered, no tool ran, and the receipt line is a drawing of the renderer's
+ * receipt, not a receipt that was written, signed or checked.
+ */
+const opening = (): TurnEvent => ({
+  type: 'inspect',
+  rows: [
+    { label: 'Demo', text: 'Scripted demonstration', hint: 'timmy repl runs for real' },
+    { label: 'Model', text: 'no model answered' },
+    { label: 'Tools', text: 'no tool ran' },
+  ],
+});
+const closing = (): TurnEvent => ({
+  type: 'inspect',
+  rows: [
+    { label: 'Demo', text: 'Scripted, over', hint: 'timmy repl runs for real' },
+    { label: 'Receipt', text: 'not written or signed' },
+    { label: 'Spend', text: 'none; $0.42 is scripted' },
+  ],
+});
+
 const lanes = (states: Array<'done' | 'running' | 'waiting'>): TurnEvent => ({
   type: 'lanes',
   lanes: ['Write the script', 'Draw the storyboard', 'Record the voiceover'].map((label, i) => ({ label, state: states[i] })),
 });
 
 export const DEMO_TURN: DemoStep[] = [
+  step(0, opening()),
   step(0, { type: 'prompt', text: 'Make a 20-second storyboard for the launch video', cwd: '~/timmy/launch-video' }),
   step(150, { type: 'thinking' }),
   step(600, { type: 'text', id: 'm1', text: "I'll plan this as three lanes" }),
@@ -43,10 +67,12 @@ export const DEMO_TURN: DemoStep[] = [
   step(150, lanes(['done', 'done', 'done'])),
   step(150, { type: 'text', id: 'm2', text: 'The storyboard and the voiceover are ready in ~/timmy/launch-video.' }),
   step(150, { type: 'receipt', id: '0142', verified: true, lanes: 3, steps: 6, spend: '$0.42', seconds: 41 }),
+  step(0, closing()),
 ];
 
 /** Holds the loader for about 10 seconds, so its frames and the elapsed time can be captured. */
 export const DEMO_LOADER: DemoStep[] = [
+  step(0, opening()),
   step(0, { type: 'prompt', text: 'Render the storyboard at 4K', cwd: '~/timmy/launch-video' }),
   step(100, { type: 'thinking' }),
   step(10_000, { type: 'text', id: 'm1', text: 'Done waiting.' }),

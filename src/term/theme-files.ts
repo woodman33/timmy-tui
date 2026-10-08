@@ -1,11 +1,11 @@
 /**
- * Timmy Night and Day as terminal theme files (DESIGN.md §10 B2: the brand lives in the palette).
+ * Timmy Homebrew, Night and Day as terminal theme files (DESIGN.md §10 B2: the brand lives in the palette).
  * scripts/ui/themes.ts writes these to assets/themes; tests/ui-themes.test.ts checks for drift.
  */
 import { blend, hexToRgb, isLight, rgbToHex } from './color.js';
 import { keyedArchive, Real, Uid } from './bplist.js';
 import { SLOT_NAMES, TIMMY_DAY, TIMMY_HOMEBREW, TIMMY_NIGHT, type TerminalPalette } from './palettes.js';
-import { TYPE } from '../theme/tokens.js';
+import { HOMEBREW, HOMEBREW_GREEN, TYPE } from '../theme/tokens.js';
 
 const HEADER = 'generated from src/term/palettes.ts by scripts/ui/themes.ts; do not edit';
 const lower = (hex: string): string => hex.toLowerCase();
@@ -166,8 +166,10 @@ function terminalApp(p: TerminalPalette): string {
 }
 
 // zellij themes in the component format (zellij 0.42 or later): every part of zellij's own UI is set
-// explicitly, so the selected tab stands out (ink on the tinted ribbon vs. ground on ink) and green,
-// which means proof in Timmy, is never used. Text parts read at 7:1 or better; frames at 3:1.
+// explicitly, so the selected tab stands out (ink on the tinted ribbon vs. ground on ink). Night and
+// Day never use green, which means proof there. Timmy Homebrew (round R1, DESIGN.md §10 B9) uses
+// Homebrew green for selection only: the selected tab, row, cell and frame. Text parts read at 7:1 or
+// better; frames at 3:1.
 function zellij(): string {
   const rgb = (hex: string): string => hexToRgb(hex).join(' ');
   const theme = (p: TerminalPalette): string[] => {
@@ -214,10 +216,56 @@ function zellij(): string {
       '    }',
     ];
   };
+  // Timmy Homebrew: black ground, off-white text, Homebrew green for selection and nothing else. A pill
+  // that gives a black label 7:1 is only 2.18:1 from #28FE14, and off-white text at 7:1 needs a darker
+  // one, so the unselected tabs are charcoal (text 7.3:1, 6.7:1 from the green) and the swap-layout label
+  // (BASE, shown with floating panes) is 7:1 on the green tab and 2.3:1 on a charcoal one (tests/ui-zellij-theme.test.ts).
+  const homebrew = (p: TerminalPalette): string[] => {
+    const rgb = (hex: string): string => hexToRgb(hex).join(' ');
+    const ink = HOMEBREW.text.toUpperCase();
+    const ground = HOMEBREW.ground.toUpperCase();
+    const green = HOMEBREW_GREEN.toUpperCase();
+    const pill = '#484848';
+    const altPill = '#3F3F3F';
+    const border = rgbToHex(blend(hexToRgb(ink), hexToRgb(ground), 0.5));
+    const part = (name: string, base: string, background: string, emphasis1 = base): string[] => [
+      `        ${name} {`,
+      `            base ${rgb(base)}`,
+      `            background ${rgb(background)}`,
+      ...[0, 1, 2, 3].map((n) => `            emphasis_${n} ${rgb(n === 1 ? emphasis1 : base)}`),
+      '        }',
+    ];
+    // The first player is you, in the interaction color; the rest take the palette's accents.
+    const players = [green, p.blue, p.magenta, p.yellow, p.red, p.cyan, ink, p.blue, p.magenta, p.yellow];
+    return [
+      `    ${fileStem(p)} {`,
+      ...part('text_unselected', ink, ground),
+      ...part('text_selected', ground, green),
+      ...part('ribbon_unselected', ink, pill, altPill),
+      ...part('ribbon_selected', ground, green),
+      ...part('table_title', ink, ground),
+      ...part('table_cell_unselected', ink, ground),
+      ...part('table_cell_selected', ground, green),
+      ...part('list_unselected', ink, ground),
+      ...part('list_selected', ground, green),
+      ...part('frame_unselected', border, ground),
+      ...part('frame_selected', green, ground),
+      ...part('frame_highlight', p.yellow, ground),
+      // Neutral: a zellij exit code is a number, not a verdict. The outcome keeps its word.
+      ...part('exit_code_success', ink, ground),
+      ...part('exit_code_error', p.red, ground),
+      '        multiplayer_user_colors {',
+      ...players.map((c, i) => `            player_${i + 1} ${rgb(c)}`),
+      '        }',
+      '    }',
+    ];
+  };
   return [
-    `// Timmy Night and Day for zellij (${HEADER})`,
-    '// Component format (zellij 0.42 or later). Green is never used: in Timmy, green means proof.',
+    `// Timmy Homebrew, Night and Day for zellij (${HEADER})`,
+    '// Component format (zellij 0.42 or later). Night and Day never use green (there it means proof);',
+    '// Homebrew uses Homebrew green for selection only, and every outcome keeps its word.',
     'themes {',
+    ...homebrew(TIMMY_HOMEBREW),
     ...theme(TIMMY_NIGHT),
     ...theme(TIMMY_DAY),
     '}',
