@@ -1,0 +1,14 @@
+# Timmy Day for WezTerm (generated from src/term/palettes.ts by scripts/ui/themes.ts; do not edit)
+[colors]
+foreground = "#111111"
+background = "#ffffff"
+cursor_bg = "#111111"
+cursor_fg = "#ffffff"
+cursor_border = "#111111"
+selection_bg = "#d9d9d9"
+selection_fg = "#111111"
+ansi = ["#111111", "#c8102e", "#0b7a3b", "#8a5a00", "#1f4fbf", "#6d28d9", "#0e6e86", "#e5e5e5"]
+brights = ["#595959", "#a50e25", "#08602e", "#6e4800", "#183e96", "#5b21b6", "#0b5567", "#ffffff"]
+
+[metadata]
+name = "Timmy Day"

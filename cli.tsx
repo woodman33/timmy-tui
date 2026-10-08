@@ -4,22 +4,38 @@ if (!isHeadless) {
   process.env.TIMMY_TUI_ACTIVE = 'true';
 }
 import './src/utils/blank-slate-guard.js'; // blank-slate-v1k9: must stay the FIRST import (imports are hoisted)
-import './src/utils/logger.js';
+import { writeLog } from './src/utils/logger.js';
 import { program } from 'commander';
 import chalk from 'chalk';
 import { colors } from './src/tui/theme.js';
 import React from 'react';
-import { render, Box, Text } from 'ink';
+import { render } from 'ink';
 import { loadConfig } from './src/utils/config.js';
 import type { Mode } from './src/tui/attic/router.js';
 import type { AgentConfig } from './src/types/index.js';
 import { VERSION } from './src/version.js';
+import { TerminalSession } from './src/term/session.js';
+import { BootFrame } from './src/tui/ui/BootFrame.js';
+import { screenStream } from './src/term/screen-stream.js';
+import { currentCapabilities } from './src/term/capabilities.js';
+import { measureTerminal } from './src/term/probe.js';
 
 import { existsSync, readFileSync } from 'fs';
 
 // BOOT (opentui-u4e9): paint the header frame at MODULE scope for the default
 // TUI invocation — before commander/chalk/config do their work.
-let bootRender: { unmount: () => void } | null = null;
+let bootRender: { unmount: () => void; clear?: () => void } | null = null;
+// C-11: the monitor owns its own screen (the alternate buffer) and gives the terminal back on every
+// exit path (return, Ctrl+C 130, SIGTERM 143, uncaught 1). It used to send ESC c, a full reset that
+// wiped the operator's scrollback, and drew in the main screen.
+let monitorScreen: TerminalSession | null = null;
+const enterMonitorScreen = (): TerminalSession => {
+  if (monitorScreen) return monitorScreen;
+  monitorScreen = new TerminalSession({ stdin: process.stdin, stdout: process.stdout, stderr: process.stderr });
+  monitorScreen.enterAltScreen();
+  monitorScreen.install();
+  return monitorScreen;
+};
 const bootHead8 = (): string => {
   try {
     const p = '.timmy/receipts/runs.jsonl';
@@ -33,12 +49,9 @@ const bootHead8 = (): string => {
 const bootIsDefaultTui = (!process.argv[2] || process.argv[2] === 'tui')
   && !process.argv.includes('--headless') && !process.argv.includes('-h');
 if (bootIsDefaultTui) {
-  process.stdout.write('\x1Bc');
-  bootRender = render(React.createElement(Box, { flexDirection: 'column' },
-    React.createElement(Box, null,
-      React.createElement(Text, { bold: true }, 'TIMMY'),
-      React.createElement(Text, null, `   chain · ${bootHead8()}`)),
-    React.createElement(Text, { dimColor: true }, 'assembling…')));
+  // The boot frame tears down before the screen is restored, like the shell after it (row 27).
+  enterMonitorScreen().beforeRestore(() => bootRender?.unmount());
+  bootRender = render(React.createElement(BootFrame, { head: bootHead8() }), { stdout: screenStream(process.stdout) });
 }
 
 // Load .env variables into process.env before anything else to connect Daytona, Composio, etc.
@@ -155,12 +168,8 @@ if (opts.headless) {
 } else {
   // BOOT: header already painted at module scope.
   if (!bootRender) {
-    process.stdout.write('\x1Bc');
-    bootRender = render(React.createElement(Box, { flexDirection: 'column' },
-      React.createElement(Box, null,
-        React.createElement(Text, { bold: true }, 'TIMMY'),
-        React.createElement(Text, null, `   chain · ${bootHead8()}`)),
-      React.createElement(Text, { dimColor: true }, 'assembling…')));
+    enterMonitorScreen().beforeRestore(() => bootRender?.unmount());
+    bootRender = render(React.createElement(BootFrame, { head: bootHead8() }), { stdout: screenStream(process.stdout) });
   }
 
   const mode = hasKey ? ((opts.mode as Mode) || 'brief') : 'brief';
@@ -169,6 +178,12 @@ if (opts.headless) {
   Object.assign(agentConfig, { onboarded: (config as any).onboarded === true });
 
   // Start companion server after first paint to avoid EADDRINUSE conflicts
+  // Fourth order, step 2 (row 52): its notes go where its URL and QR code go, the companion's log, while
+  // the monitor owns the screen; a note on stderr was drawn over the monitor's header, in dim (B3 bans dim).
+  const companionNote = (level: 'info' | 'warn', text: string): void => {
+    if (process.env.TIMMY_TUI_ACTIVE === 'true') writeLog('companion.log', level, text);
+    else console.error(text);
+  };
   if (opts.companion !== false) {
     const preferredPort = parseInt(opts.companionPort, 10) || 3001;
     const candidatePorts = [preferredPort, preferredPort + 1, preferredPort + 2, preferredPort + 3];
@@ -179,29 +194,34 @@ if (opts.headless) {
         const server = await (await import('./src/companion/server.js')).startCompanionServer(port);
         (global as any).companionServer = server;
         const url = `http://localhost:${server.port}`;
-        if (port !== preferredPort) {
-          console.error(chalk.dim(`Companion port ${preferredPort} busy; using ${server.port}.`));
-        }
+        if (port !== preferredPort) companionNote('info', `Companion port ${preferredPort} busy; using ${server.port}.`);
         (await import('./src/companion/qr.js')).showCompanionQR(url);
         companionStarted = true;
         break;
       } catch (err: any) {
         if (err?.code !== 'EADDRINUSE' || port === candidatePorts[candidatePorts.length - 1]) {
-          console.error(chalk.dim(`Companion server failed to start (${err?.message || 'port unavailable'})`));
+          companionNote('warn', `Companion server failed to start (${err?.message || 'port unavailable'})`);
         }
       }
     }
 
     if (!companionStarted) {
-      console.error(chalk.dim('TIMMY TUI will continue without the browser companion.'));
+      companionNote('warn', 'TIMMY TUI will continue without the browser companion.');
     }
   }
 
+  // B2 (row 28): measure the terminal's colors (TIMMY_PALETTE, else OSC 11 and OSC 4, 200ms) while the
+  // boot frame is up; the shell draws the law in the palette's slots chosen from this.
+  const monitorCaps = currentCapabilities();
+  const measured = await measureTerminal(monitorCaps, process.env, { stdin: process.stdin, stdout: process.stdout });
+
+  // The boot frame is erased, not left above the shell (it stayed on screen: C-0c, C-11).
+  bootRender.clear?.();
   bootRender.unmount();
   bootRender = null;
   if (process.env.TIMMY_SHELL !== 'v1') {
     const { startShellV2 } = await import('./src/tui/shell-entry.js');
-    startShellV2(agentConfig, opts.companion === false ? 'ansi' : 'auto');
+    startShellV2(agentConfig, opts.companion === false ? 'ansi' : 'auto', enterMonitorScreen(), { color: monitorCaps.color, measured });
   } else {
     const { startTUI } = await import('./src/tui/app.js');
     startTUI(agentConfig, mode, opts.companion === false ? 'ansi' : 'auto');

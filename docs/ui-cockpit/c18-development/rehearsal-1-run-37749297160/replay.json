@@ -1,0 +1,30 @@
+{
+  "platform": "github-actions",
+  "mode": "development",
+  "sha": "8319f8fce293df1b706bcb802c739f77093fe92a",
+  "runner_environment": "github-hosted",
+  "image_os": "ubuntu24",
+  "image_version": "20260927.320.1",
+  "run_id": "37749297160",
+  "run_attempt": "1",
+  "repository": "woodman33/timmy-tui",
+  "workflow_sha": "2daad38c050484b1cac27ba22cd3dfe540acfec5",
+  "run_url": "https://github.com/woodman33/timmy-tui/actions/runs/37749297160/attempts/1",
+  "os": "Ubuntu 24.04.5 LTS",
+  "kernel": "6.17.0-1022-azure",
+  "arch": "x64",
+  "cpus": 4,
+  "memory_mb": 15990,
+  "node": "v24.21.0",
+  "tmux": "tmux 3.7c",
+  "git": "git version 2.55.0",
+  "started": "2026-10-08T08:22:00Z",
+  "finished": "2026-10-08T08:31:34Z",
+  "npm_ci_s": 13,
+  "chromium": "started",
+  "skipped": [
+    "REPLAY-02",
+    "LIVE-01"
+  ],
+  "exit": 0
+}

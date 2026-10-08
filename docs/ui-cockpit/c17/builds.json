@@ -1,0 +1,18 @@
+{
+  "check": "the candidate's builds (the 20:14 order, part 7: if the two builds match, record both hashes and their inputs)",
+  "commit": "bd7ec9b5d058fd90181e84e9a8f0a5f30747d4a8",
+  "steps": "a clean clone at the commit; npm ci --include=dev with NODE_ENV and NODE_PATH unset for those commands only; npm run build; node scripts/canvas/build.mjs --check; npm pack --ignore-scripts; node scripts/release/validate-tarball.mjs --expect-version 2.0.0-rc.2; the clone still clean after",
+  "match": true,
+  "builds": [
+    { "where": "this Linux workspace", "node": "v24.21.0", "npm": "11.19.0", "os": "Linux x86_64", "file": "timmy-tui-2.0.0-rc.2.tgz", "files": 1070, "sha256": "212704590691bf6cbb65aec0489a3327b99a0640351a0ab730a5cb4008d0a43a", "release_check": "ok", "tree_after": "clean" },
+    { "where": "the operator's Mac", "node": "v24.14.1", "npm": "11.11.0", "os": "macOS 26.6.2 arm64", "file": "timmy-tui-2.0.0-rc.2.tgz", "files": 1070, "sha256": "212704590691bf6cbb65aec0489a3327b99a0640351a0ab730a5cb4008d0a43a", "release_check": "ok", "tree_after": "clean", "helper": "the Mac's packing helper exits nonzero when the release check fails or the clone is not clean after (the 22:30 order); its four negative controls (another version, a damaged tarball, a changed tracked file, an added file) each ended nonzero, and its two positive controls passed" },
+    { "where": "the sixth development rehearsal's INSTALL-01 on a GitHub-hosted runner (run 37739446456)", "node": "v24.21.0", "npm": "11.19.0", "os": "Ubuntu 24.04.5 LTS, image ubuntu24 20260927.320.1", "file": "timmy-tui-2.0.0-rc.2.tgz", "files": 1070, "sha256": "212704590691bf6cbb65aec0489a3327b99a0640351a0ab730a5cb4008d0a43a", "release_check": "ok" }
+  ],
+  "installed_on_the_mac": {
+    "how": "npm install --global --prefix into an empty prefix (Node v24.14.1, the shell's NODE_ENV=production kept); each step run with a home of its own and a minimal environment, no model key",
+    "version": "timmy -v printed \"timmy-tui v2.0.0-rc.2\", exit 0",
+    "init": "timmy init --yes named \"Next: `timmy doctor`, then `timmy` to open the REPL.\"",
+    "doctor": "exit 78, as it documents for no model key: \"! REPL: opens, but has no model key to answer with (Node 24.14.1)\"; \"✗ Lanes (optional): blocked until docker daemon, comfy-cli, comfy venv (filelock+sqlalchemy) and cue CLI pass; the REPL does not need them\"; its next step names `timmy`",
+    "studio": "timmy studio --port 0 with TIMMY_HOME outside HOME: /studio-config.json named <TIMMY_HOME>/canvas; the page 200; its bundle 200, 1985968 bytes; it stopped on SIGTERM"
+  }
+}

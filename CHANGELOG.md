@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.2]
+
+Second release candidate for v2, for npm's `next` channel: the cockpit (the
+inline REPL, `timmy watch`, the canvas) on top of 2.0.0-rc.1.
+
+### Added
+- The canvas package carries the two license texts it needs, verbatim:
+  tldraw's license (`companion/studio-canvas/LICENSE-tldraw.md`) and
+  react-remove-scroll-bar's (`licenses/react-remove-scroll-bar.LICENSE`).
+  The privacy scanner exempts only those exact bytes at those paths from its
+  email rule; every other check still reads them.
+
+### Changed
+- Bare `timmy` opens the inline REPL (`timmy repl`); the full-screen monitor,
+  the old Command Post, is `timmy watch`. The switch waited for LIVE-01, a
+  real model turn with a tool, a cancel and the next turn on the operator's
+  Mac, to pass.
+- The release workflow packs one tarball, validates it
+  (`scripts/release/validate-tarball.mjs`: the bins, the canvas bundle and its
+  licenses, the version, the paths that must never ship), records its full
+  SHA-256, npm integrity and qualification evidence, and publishes that exact
+  file. The canvas distribution check is its own step: `npm publish
+  --ignore-scripts` used to skip it.
+- The secret scan (gitleaks 8.24.3) covers a branch's whole history at its
+  real head, every commit since the merge base and each merge's own changes,
+  and keeps its evidence (the range, the commit count, the scanner version and
+  the result) with the run. It used to stop after 30 commits.
+- The cockpit's qualification checks the packed package as a user installs it
+  (INSTALL-01) and `-v` as the version everywhere (CLI-29). Its replay
+  (REPLAY-02) may run on a GitHub-hosted runner, named as such with the runner
+  image, the run and the commit: a narrow exception in AGENTS.md §10.
+
+### Fixed
+- A first run's prompt starts empty, with a line saying to type `/setup`. The
+  prompt used to hold `/setup` already, so a typed `/exit` became `/setup/exit`.
+- `timmy init` names `timmy doctor`, then `timmy`, as the next steps, and the
+  doctor's own next step is `timmy`: an installed package has no `npm start`.
+- `timmy doctor` no longer says "Ready for demo: YES" under a blocked
+  preflight. It says what works here: the REPL (ready; opens but has no model
+  key; or cannot start, below Node 24) apart from the optional lanes (Docker,
+  ComfyUI, CUE), whose checks are marked as the lanes' requirements. Its exit
+  code is the REPL's and is written in its output: 0 ready, 78 no model key,
+  1 cannot start; the lanes never change it, and `timmy doctor preflight`
+  still exits 1 while they are blocked. `--json` carries the same under
+  `readiness`. It looks for the model key where the REPL looks (a `.env` in
+  the working folder included) without printing it or writing the settings
+  file. Its receipt (`doctor.pass` or `doctor.fail`) still records the lanes'
+  preflight only.
+- The blank canvas names the folder Timmy actually saves it in (the `canvas`
+  folder of `TIMMY_HOME`, the home folder shown as `~`), not a fixed
+  `~/timmy/canvas`.
+- A signal that ends `timmy` mid-turn leaves the shell's next output on a clean
+  line: the live line (the spinner) is erased before the terminal is restored.
+  A SIGHUP now restores the terminal and exits 129, as a SIGTERM exits 143.
+- A turn's cost is what OpenRouter charged for every response of the turn
+  (with the provider's own charge on a BYOK key); a cancelled turn says
+  "at least" and its receipt marks the figure as not measured. It was a flat
+  per-token estimate of the last response only.
+- A SIGTERM or SIGHUP sent to `timmy` reaches the command it started: the
+  REPL restores the terminal and exits 143 (or 129), and `timmy` reports
+  that status. The bin used to die at once and leave the REPL running.
+- The model key from the environment (`OPENROUTER_API_KEY`) is used and no
+  longer written to the settings file, which used to take it as a default
+  and keep it in plain text, 0644. A key typed into setup is the one
+  deliberate save. The settings file is kept 0600 (an existing one is
+  narrowed when Timmy loads it, its contents unchanged), and so are the
+  private files `timmy init` rewrites (`providers.json`, `identity.seed`),
+  also when they already existed with wider permissions. Existing settings,
+  a key saved earlier included, are kept as they are.
+- A cancelled request stays in the conversation, closed by a note of the
+  cancel: what finished before it and while the cancel took hold, with
+  their results (quoted, secrets redacted), what started without a result,
+  and the text so far. A request left unanswered by a quit, a crash or a
+  failure is closed the same way before the next one. The next request,
+  about anything else, is no longer sent as a second pending request after
+  the cancelled one, which a model then finished too; asking to continue
+  still sends it everything that had finished.
+
 ## [2.0.0-rc.1] - 2026-10-06
 
 First release candidate for v2, published to npm's `next` channel. Everything

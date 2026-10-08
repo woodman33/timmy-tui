@@ -1,0 +1,32 @@
+# Timmy Day for Alacritty (generated from src/term/palettes.ts by scripts/ui/themes.ts; do not edit)
+[colors.primary]
+background = "#ffffff"
+foreground = "#111111"
+
+[colors.cursor]
+cursor = "#111111"
+text = "#ffffff"
+
+[colors.selection]
+background = "#d9d9d9"
+text = "CellForeground"
+
+[colors.normal]
+black = "#111111"
+red = "#c8102e"
+green = "#0b7a3b"
+yellow = "#8a5a00"
+blue = "#1f4fbf"
+magenta = "#6d28d9"
+cyan = "#0e6e86"
+white = "#e5e5e5"
+
+[colors.bright]
+black = "#595959"
+red = "#a50e25"
+green = "#08602e"
+yellow = "#6e4800"
+blue = "#183e96"
+magenta = "#5b21b6"
+cyan = "#0b5567"
+white = "#ffffff"

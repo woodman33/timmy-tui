@@ -55,7 +55,13 @@ export interface Receipt {
   tier?: string;
   signer?: string;   // ed25519 public key (SPKI PEM)
   signature?: string; // base64 over canonical body (minus hash/prev_hash/signature)
-  status?: 'ok' | 'failed' | 'denied' | 'surfaced'; // surfaced = gate exercised, nothing minted (forge.approve)
+  status?: 'ok' | 'failed' | 'denied' | 'surfaced' | 'cancelled'; // surfaced = gate exercised, nothing minted (forge.approve); cancelled = stopped by the operator (REPL)
+  // A turn's tools, each as it actually ended: completed, failed, or unknown (still running when the
+  // turn ended, so it may have run in part or in full). A cancelled turn also says where the cancel
+  // came and that nothing was rolled back: a cancel stops what is left, it never undoes.
+  tool_outcomes?: { name: string; outcome: 'completed' | 'failed' | 'unknown' }[];
+  cancelled_at?: 'before-tools' | 'during-tool' | 'after-tools';
+  rollback?: 'none';
   error_class?: string; // exec|missing_source|schema|env|replay_drift|http_4xx|http_5xx|network|approval|unresolved_model|no_key|…
   exit_code?: number;
   partial_artifacts?: string[];

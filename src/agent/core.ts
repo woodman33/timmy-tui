@@ -6,6 +6,7 @@ import { EventEmitter } from 'eventemitter3';
 import type { AgentEvents } from './events.js';
 import type { Message, AgentConfig } from '../types/index.js';
 import { ConversationManager } from './conversation.js';
+import { redactString } from '../utils/redact.js';
 import { defaultTools } from './tools.js';
 import { publish as appendEvent } from '../bus/index.js';
 import { execSync, execFileSync } from 'child_process';
@@ -18,6 +19,30 @@ import { RmuxManager } from './rmux.js';
 import { DEFAULT_LANE_BINDINGS, LANE_RUNNERS, laneStartupScript } from './lanes.js';
 import { writeLog, tuiLogger } from '../utils/logger.js';
 import { probeOllama, pickOllamaModel, ollamaChatCompletion } from './providers.js';
+
+export interface SendOptions {
+  /** Cancels the turn: the stream is cancelled and no fallback model is tried. */
+  signal?: AbortSignal;
+  /** Retry 429, 5xx and connection errors with exponential backoff from 1s (1s, 2s, 4s), giving up after 7.5s (playbook §17.8). */
+  retry?: boolean;
+}
+
+export interface AgentOptions {
+  /** Which multiplexer runs background lanes; 'none' starts no sessions (the inline REPL). */
+  multiplexer?: 'tmux' | 'zellij' | 'rmux' | 'none';
+}
+
+/** No background lanes: every call is a no-op. */
+class NoMultiplexer implements MultiplexerManager {
+  init(): void {}
+  spawnSession(): void {}
+  killSession(): void {}
+  getCwd(): string { return process.cwd(); }
+  capturePane(): string[] { return []; }
+  async sendCommand(): Promise<void> {}
+  poll(): void {}
+  destroy(): void {}
+}
 
 class TmuxManager implements MultiplexerManager {
   private pollInterval: NodeJS.Timeout | null = null;
@@ -337,16 +362,19 @@ export class Agent extends EventEmitter<AgentEvents> {
   ];
   public showTmuxDropdown = false;
 
-  constructor(config: AgentConfig) {
+  constructor(config: AgentConfig, options: AgentOptions = {}) {
     super();
     this.client = new OpenRouter({ apiKey: config.apiKey });
     this.conversation = new ConversationManager();
     this.config = config;
     this.tools = [...defaultTools];
 
-    // Initialize multiplexer background manager (tmux, zellij, or rmux)
-    const mux = process.env.TIMMY_MULTIPLEXER || 'tmux';
-    if (mux === 'zellij') {
+    // Initialize multiplexer background manager (tmux, zellij, or rmux). 'none' (the inline REPL)
+    // starts no lane sessions.
+    const mux = options.multiplexer || process.env.TIMMY_MULTIPLEXER || 'tmux';
+    if (mux === 'none') {
+      this.tmuxMgr = new NoMultiplexer();
+    } else if (mux === 'zellij') {
       this.tmuxMgr = new ZellijManager(this);
     } else if (mux === 'rmux') {
       this.tmuxMgr = new RmuxManager(this);
@@ -681,12 +709,36 @@ export class Agent extends EventEmitter<AgentEvents> {
     return this.running;
   }
 
-  async send(content: string): Promise<string> {
+  async send(content: string, opts: SendOptions = {}): Promise<string> {
     if (this.running) throw new Error('Agent is already processing a message');
     this.running = true;
+    // Additive options (inline REPL): a signal cancels the turn; retry asks the SDK to retry 429/5xx.
+    const requestOptions = opts.signal || opts.retry
+      ? {
+          ...(opts.signal ? { signal: opts.signal } : {}),
+          ...(opts.retry
+            ? {
+                retries: { strategy: 'backoff' as const, backoff: { initialInterval: 1000, maxInterval: 30000, exponent: 2, maxElapsedTime: 7500 }, retryConnectionErrors: true },
+                retryCodes: ['429', '5XX'],
+              }
+            : {}),
+        }
+      : undefined;
+    const aborted = (): boolean => opts.signal?.aborted === true;
+    const cancelled = (): Error => Object.assign(new Error('Cancelled.'), { name: 'AbortError' });
 
     const userMessage: Message = { role: 'user', content, timestamp: Date.now() };
-    this.conversation.appendMessage(userMessage);
+    try {
+      // A request the conversation holds without an answer (a quit mid-turn, a crash, a failed request) is
+      // closed before the next one, so the model never reads two pending requests and finishes the first.
+      if (this.conversation.getHistory().at(-1)?.role === 'user') {
+        this.conversation.appendMessage({ role: 'assistant', content: UNANSWERED, timestamp: Date.now() });
+      }
+      this.conversation.appendMessage(userMessage);
+    } catch (err) {
+      this.running = false;
+      throw err;
+    }
     this.emit('message:user', userMessage);
     this.emit('thinking:start');
 
@@ -696,6 +748,12 @@ export class Agent extends EventEmitter<AgentEvents> {
       'openai/gpt-5.5',
       'minimax/minimax-m3'
     ];
+
+    // What this request did, as the user saw it: each tool call with its result once that arrived, and
+    // the text streamed so far. A cancel closes the request in the conversation with this record, so an
+    // unrelated next turn does not resume it, and an explicit request to continue still can.
+    const calls = new Map<string, ToolCallRecord>();
+    let streamed = '';
 
     try {
       const history = this.conversation.getHistory().map(m => ({
@@ -716,14 +774,82 @@ export class Agent extends EventEmitter<AgentEvents> {
           ...(this.config.temperature !== undefined ? { temperature: this.config.temperature } : {}),
           // clamp: some providers (Meta) reject maxOutputTokens < 16
           ...(this.config.maxOutputTokens ? { maxOutputTokens: Math.max(16, this.config.maxOutputTokens) } : {}),
-        });
+        }, requestOptions);
+
+        // What this request cost is what OpenRouter charged: the `cost` its usage reports on every
+        // response of the tool loop, each counted once by its id (LIVE-01, ledger row 65: a flat
+        // $0.00001 a token on the last response only, and nothing for a cancel). The responses arrive
+        // on the full stream as they complete, so a cancel still knows what was charged before it.
+        const charged = new Map<string, number>();
+        const unreported = new Set<string>();
+        const money = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+        const price = (response: any): void => {
+          if (!response || typeof response !== 'object') return;
+          const key = typeof response.id === 'string' && response.id ? response.id : `response-${charged.size + unreported.size}`;
+          const usage = response.usage ?? {};
+          // On the operator's own provider key (BYOK), `cost` is only OpenRouter's fee and the provider
+          // bills its own charge, `upstreamInferenceCost`; without BYOK that charge is inside `cost`.
+          const byok = usage.isByok ?? usage.is_byok;
+          const upstream = usage.costDetails?.upstreamInferenceCost ?? usage.cost_details?.upstream_inference_cost;
+          const cost = money(usage.cost) && (byok !== true || money(upstream)) ? usage.cost + (byok === true ? upstream : 0) : undefined;
+          if (cost !== undefined) {
+            charged.set(key, cost);
+            unreported.delete(key);
+          } else if (!charged.has(key)) {
+            // What is known still counts, as a lower bound.
+            if (money(usage.cost)) charged.set(key, usage.cost);
+            unreported.add(key);
+          }
+        };
+        const collector: Promise<void> = typeof (result as any).getFullResponsesStream === 'function'
+          ? (async () => {
+              try {
+                for await (const event of (result as any).getFullResponsesStream() as AsyncIterable<any>) {
+                  if (event?.type === 'response.completed' || event?.type === 'response.incomplete') price(event.response);
+                }
+              } catch {
+                // The items stream reports the failure; the charges seen so far still count.
+              }
+            })()
+          : Promise.resolve();
+        let costSent = false;
+        const sendCost = (complete: boolean): void => {
+          if (costSent) return;
+          costSent = true;
+          const total = [...charged.values()].reduce((sum, c) => sum + c, 0);
+          this.emit('cost:update', total, total, { complete: complete && unreported.size === 0 && charged.size > 0 });
+        };
 
         this.emit('stream:start');
         let fullText = '';
         const textByItem = new Map<string, number>();
         const callNames = new Map<string, string>();
 
+        // On cancel, stop the stream and keep draining the SDK's generator to its end: leaving it early
+        // would strand its background execution promise, which then rejects unhandled.
+        let draining = false;
+        const onAbort = (): void => {
+          draining = true;
+          void Promise.resolve(result.cancel?.()).catch(() => {});
+        };
+        if (opts.signal) opts.signal.addEventListener('abort', onAbort, { once: true });
+        // A tool's result, kept for the record a cancel leaves. `late`: it arrived while the cancel took hold
+        // (the SDK finishes a round of tool calls it has started); it is a real effect, never shown.
+        const noteOutput = (item: any, late: boolean): string => {
+          const out = typeof item.output === 'string' ? item.output : JSON.stringify(item.output);
+          const name = callNames.get(item.callId || '') || 'unknown';
+          const seen = calls.get(item.callId || '');
+          if (seen) Object.assign(seen, { output: out, late });
+          else calls.set(item.callId || `call-${calls.size}`, { name, args: '', output: out, late });
+          return out;
+        };
+        try {
         for await (const item of result.getItemsStream() as AsyncIterable<StreamableOutputItem>) {
+          if (draining || aborted()) {
+            if (!draining) onAbort();
+            if (item.type === 'function_call_output') noteOutput(item, true);
+            continue;
+          }
           this.emit('item:update', item);
 
           if (item.type === 'message') {
@@ -735,6 +861,7 @@ export class Agent extends EventEmitter<AgentEvents> {
             if (text.length > prev) {
               const delta = text.slice(prev);
               fullText += delta;
+              streamed = fullText;
               this.emit('stream:delta', delta, fullText);
               textByItem.set((item as any).id || '', text.length);
             }
@@ -745,32 +872,41 @@ export class Agent extends EventEmitter<AgentEvents> {
               try {
                 args = JSON.parse((item as any).arguments || '{}');
               } catch { }
+              calls.set((item as any).callId || `call-${calls.size}`, { name: (item as any).name || '', args: (item as any).arguments || '{}' });
               this.emit('tool:call', (item as any).name || '', args);
             }
           } else if (item.type === 'function_call_output') {
-            const out = typeof (item as any).output === 'string' ? (item as any).output : JSON.stringify((item as any).output);
+            const out = noteOutput(item, false);
             this.emit('tool:result', callNames.get((item as any).callId || '') || 'unknown', out);
           } else if (item.type === 'reasoning') {
             const text = (item as any).summary?.map((s: any) => s.text).join('') ?? '';
             if (text) this.emit('reasoning:update', text);
           }
         }
-
-        let usage: any = undefined;
-        try {
-          const response = await result.getResponse();
-          usage = (response as any).usage;
-          if (!fullText && (response as any).outputText) {
-            fullText = (response as any).outputText;
-          }
-        } catch { }
-
-        if (usage) {
-          const inTokens = usage.inputTokens ?? usage.promptTokens ?? 0;
-          const outTokens = usage.outputTokens ?? usage.completionTokens ?? 0;
-          const cost = (inTokens + outTokens) * 0.00001;
-          this.emit('cost:update', cost, cost);
+        } catch (err) {
+          // What was charged before a cancel or a failure still counts, as a lower bound.
+          sendCost(false);
+          if (aborted()) throw cancelled();
+          throw err;
+        } finally {
+          opts.signal?.removeEventListener('abort', onAbort);
         }
+        if (aborted()) {
+          sendCost(false);
+          throw cancelled();
+        }
+
+        let final: any;
+        try {
+          final = await result.getResponse();
+        } catch { }
+        if (final) {
+          price(final);
+          if (!fullText && final.outputText) fullText = final.outputText;
+        }
+        // The full stream ends with the items stream; never wait on it for long.
+        await Promise.race([collector, new Promise<void>((done) => { setTimeout(done, 1000).unref?.(); })]);
+        sendCost(final !== undefined);
 
         this.modelHealthStatus = isFallback ? 'FALLBACK READY' : 'READY';
         this.activeProvider = 'openrouter';
@@ -783,7 +919,10 @@ export class Agent extends EventEmitter<AgentEvents> {
 
       try {
         executionResult = await runCompletionWithModel(activeModel, false);
+        if (aborted()) throw cancelled();
       } catch (err: any) {
+        // A cancelled turn tries no fallback model.
+        if (aborted() || err?.name === 'AbortError') throw cancelled();
         this.modelHealthStatus = 'ERROR';
         this.emit('model:health', 'ERROR');
         const sanitizedErr = err.message || 'Unknown provider error';
@@ -812,6 +951,7 @@ export class Agent extends EventEmitter<AgentEvents> {
             this.config.model = fallbackModel;
             this.emit('model:switch', fallbackModel);
           } catch (fallbackErr: any) {
+            if (aborted() || fallbackErr?.name === 'AbortError') throw cancelled();
             const ollamaResult = await this.tryOllamaLastResort(history, `${sanitizedErr} / ${fallbackErr.message}`);
             if (ollamaResult) {
               executionResult = ollamaResult;
@@ -854,7 +994,8 @@ export class Agent extends EventEmitter<AgentEvents> {
       return executionResult.fullText;
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      this.emit('error', error);
+      if (error.name !== 'AbortError') this.emit('error', error);
+      else this.conversation.appendMessage({ role: 'assistant', content: cancelRecord([...calls.values()], streamed), timestamp: Date.now() });
       throw error;
     } finally {
       this.emit('thinking:end');
@@ -863,6 +1004,48 @@ export class Agent extends EventEmitter<AgentEvents> {
   }
 }
 
-export function createAgent(config: AgentConfig): Agent {
-  return new Agent(config);
+/** One tool call of a request, as the record of a cancel keeps it. */
+interface ToolCallRecord { name: string; args: string; output?: string; late?: boolean }
+
+/** What closes a request that was left without an answer: a quit mid-turn, a crash or a failed request. */
+export const UNANSWERED = '[I did not answer this request: it was interrupted before I could (the program ended, or the request failed). I will not continue it unless the user asks me to.]';
+
+const clip = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max)}…` : text);
+/** Tool data or streamed text as a quoted string, secrets redacted: it can neither speak as the assistant nor leave a key in the saved session. */
+const quote = (text: string, max = 400): string => JSON.stringify(clip(redactString(text), max));
+/** A call's arguments as compact JSON when they are JSON, else quoted like any other tool data. */
+const argsText = (raw: string): string => {
+  try {
+    const compact = JSON.stringify(JSON.parse(redactString(raw)));
+    if (compact.length <= 400) return compact;
+  } catch { /* not JSON */ }
+  return quote(raw);
+};
+
+/**
+ * The record that closes a cancelled request in the conversation, in the assistant's voice: what finished
+ * before the cancel, with its result; what finished while the cancel took hold; what started with no result,
+ * whose effect is unknown; the text streamed so far; and that the request continues only if the user asks.
+ * Tool data and text are quoted and redacted. Without the record the conversation ended in the cancelled
+ * request, and the next turn, about anything, finished it too (LIVE-01 at C-17).
+ */
+export function cancelRecord(calls: ToolCallRecord[], streamed: string): string {
+  const parts = ['[Cancelled by the user before I answered.'];
+  const label = (c: ToolCallRecord): string => (c.args ? `${c.name} ${argsText(c.args)}` : c.name);
+  const returned = (c: ToolCallRecord): string => `${label(c)}, which returned ${quote(c.output ?? '')}`;
+  const finished = calls.filter((c) => c.output !== undefined && !c.late);
+  const late = calls.filter((c) => c.output !== undefined && c.late);
+  const started = calls.filter((c) => c.output === undefined);
+  if (calls.length === 0) parts.push('No tool had run.');
+  if (finished.length) parts.push(`Finished before the cancel: ${finished.map(returned).join('; ')}.`);
+  if (late.length) parts.push(`Finished after the cancel was requested: ${late.map(returned).join('; ')}.`);
+  if (started.length) parts.push(`Started, with no result, so its effect is unknown: ${started.map(label).join('; ')}.`);
+  if (streamed.trim()) parts.push(`What I had written so far: ${quote(streamed.trim(), 1200)}.`);
+  if (calls.length) parts.push('Nothing was rolled back.');
+  parts.push('I stopped here and will not continue this request unless the user asks me to.]');
+  return parts.join(' ');
+}
+
+export function createAgent(config: AgentConfig, options: AgentOptions = {}): Agent {
+  return new Agent(config, options);
 }

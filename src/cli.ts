@@ -43,8 +43,15 @@ function printHelp() {
   console.log(`TIMMY AgentOps
 
 Usage: timmy <command> [options]
+       timmy            with no command, opens the REPL
 
 Commands:
+  repl            The inline REPL, also plain timmy: chat in your scrollback (timmy repl --demo needs no key)
+  watch           The full-screen monitor (the Command Post)
+  receipts        The receipt chain: verify, then the latest (--follow)
+  theme           Timmy Night and Day for your terminal (theme install)
+  center          The cockpit: REPL, monitor and events as tabs (zellij, tmux, or the REPL here)
+  studio          Timmy Canvas: the tldraw canvas the agent draws on (127.0.0.1:4337; /web studio)
   demo            Run a local demo and generate a verifiable receipt
   proof <task>    Record a proof receipt for a simulated task
   version         Print package name and version
@@ -52,7 +59,7 @@ Commands:
   init            First run: operator, seed identity, providers, first project (writes only ~/timmy/ and .timmy/private/)
   init --tui      Edit private operator, connection and model settings interactively
   release check   Release gate: fresh clone in a clean container, zero personal matches, wizard shown, §12 control
-  doctor          Check optional local capabilities without running workloads
+  doctor          What works here: the REPL, then the optional lanes (exit 0 ready, 78 no model key, 1 cannot start)
   cockpit up      One tmux pane per local hand (cd worktree, launch its CLI, pipe-pane log); attach|status|down|hands
   cockpit shot    Capture a labeled read-only HANDS view (--rounds file, --out dir)
   docs verify     Verify GitBook docs structure, CLI, and safe env setup
@@ -138,7 +145,7 @@ if (cleanArgs.length === 0 && !args.includes('--help') && !args.includes('-h')) 
   const { isBlankSlate, runInit } = await import('./utils/init.js');
   if (isBlankSlate()) process.exit(await runInit(args));
 }
-if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && cleanArgs[0] !== 'vision') || cleanArgs[0] === 'help') {
+if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
   printHelp();
   process.exit(0);
 }
@@ -404,6 +411,48 @@ if (command === 'forge') {
   const tuiEntry = fileURLToPath(new URL('../cli.tsx', import.meta.url));
   const r = spawnSync('npx', ['tsx', tuiEntry], { stdio: 'inherit', env: { ...process.env, TIMMY_FORGE: '1' } });
   process.exit(r.status ?? 0);
+}
+
+if (command === 'repl') {
+  // DESIGN.md §10 B1: the inline REPL (one turn, one column). Bare `timmy` opens it (the bin forwards
+  // it as `repl`) since LIVE-01 passed on the operator's Mac (ledger row 71).
+  const { runRepl } = await import('./repl/main.js');
+  process.exit(await runRepl(cleanArgs.slice(1)));
+}
+
+if (command === 'center') {
+  // Plan C-12: the cockpit layout (zellij, then tmux, then the REPL here).
+  const { runCenter } = await import('./repl/center.js');
+  process.exit(runCenter(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : [])));
+}
+
+if (command === 'theme') {
+  // C-10: Timmy Night and Day into the terminal's theme folder (new files only; it prints the line to add).
+  const { themeMain } = await import('./term/theme-install.js');
+  // --json is taken out of cleanArgs for every verb; this one prints its own envelope (C-15).
+  process.exit(themeMain(cleanArgs.slice(1).concat(isJson ? ['--json'] : [])));
+}
+
+if (command === 'receipts') {
+  // C-8: the receipt chain, verified, then the latest; --follow prints each new receipt as it is sealed.
+  const { receiptsMain } = await import('./repl/follow.js');
+  process.exit(await receiptsMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : [], isJson ? ['--json'] : [])));
+}
+
+if (command === 'studio') {
+  // Plan F-4: Timmy Canvas, the tldraw canvas the agent drives through the bridge.
+  const { runStudio } = await import('./studio/cli.js');
+  process.exit(await runStudio(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : [])));
+}
+
+if (command === 'watch') {
+  // DESIGN.md §10 B1: today's full-screen shell becomes `timmy watch`, the monitor.
+  // Source checkouts run cli.tsx through tsx; the installed package runs dist/cli.js with node.
+  // It waits without blocking, so a SIGTERM or SIGHUP for `timmy watch` reaches the monitor (C-15);
+  // a monitor that cannot start is 69, never 0.
+  // Its own arguments go on to the monitor (`timmy watch --no-companion`; row 52).
+  const { monitorLaunch, runMonitor } = await import('./repl/watch-launch.js');
+  process.exit(await runMonitor(monitorLaunch(import.meta.url, undefined, undefined, cleanArgs.slice(1))));
 }
 
 if (command === 'chat') {
@@ -929,6 +978,8 @@ if (command === 'events') {
   dump();
   if (follow) {
     setInterval(dump, 1000);
+    // Keep following: falling through reached the unknown-command check (help, exit 2).
+    await new Promise<never>(() => {});
   } else {
     process.exit(0);
   }

@@ -6,7 +6,7 @@ import { useFocus } from './hooks/useKeyDispatcher.js';
 import { appendFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { Agent } from '../agent/core.js';
-import { saveConfig } from '../utils/config.js';
+import { saveApiKey, saveConfig } from '../utils/config.js';
 import { probeOllama } from '../agent/providers.js';
 import { saveOrgConfig } from '../utils/sessionstore.js';
 import { theme } from './theme.js';
@@ -26,8 +26,8 @@ const WORDMARK = [
   '   ██    ██ ██  ██  ██ ██  ██  ██    ██   ',
   '   ██    ██ ██      ██ ██      ██   ██    '
 ];
-// C1c: the wordmark's five-step ramp is weight and dimness over the law's two greys
-// (bold white · bold white · white · grey-3 · dim grey-3) — accent and textPrimary are one white now
+// C-11: the wordmark's ramp is weight only (bold, bold, then regular): B3 bans dim, and grey-3
+// read 5.09:1 on an audited #191919 ground
 const MARK_COLORS = [theme.accent, theme.accent, theme.textPrimary, theme.textSecondary, theme.textMuted];
 
 /**
@@ -113,7 +113,7 @@ export function Onboarding({ agent, onDone }: OnboardingProps) {
       if (key.return) {
         const k = keyInput.trim();
         if (k) {
-          saveConfig({ apiKey: k } as any);
+          saveApiKey(k);
           try { agent.updateApiKey(k); } catch { /* client refresh best-effort */ }
         }
         setStep('cloud');
@@ -176,7 +176,7 @@ export function Onboarding({ agent, onDone }: OnboardingProps) {
       >
         {step === 'splash' && (
           <Box flexDirection="column">
-            {WORDMARK.map((l, i) => <Text key={i} bold={i < 2} dimColor={i === 4} color={MARK_COLORS[i]}>{l}</Text>)}
+            {WORDMARK.map((l, i) => <Text key={i} bold={i < 2} color={MARK_COLORS[i]}>{l}</Text>)}
             <Text bold color={theme.accent}>Terminal-first Agent Trust OS — Flight Recorder for AI Agent Runs</Text>
             <Text color={theme.textSecondary}>Every action seals a cryptographic receipt. Targets are not receipts.</Text>
             {envNote && <Text color={theme.warn}>{envNote}</Text>}

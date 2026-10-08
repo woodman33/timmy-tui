@@ -1,0 +1,138 @@
+{
+  "check": "LIVE-01",
+  "commit": "8319f8fce293df1b706bcb802c739f77093fe92a",
+  "package": {
+    "file": "timmy-tui-2.0.0-rc.2.tgz",
+    "sha256": "eae8efb1e75ea002d0ab19a8278099489e330fa7ec621327b3ae62befa5c0eb5",
+    "built": "on the operator's Mac from a clean clone at the commit: Node v24.14.1, npm 11.11.0, macOS 26.6.2 arm64; npm ci --include=dev, the build, the canvas check, npm pack --ignore-scripts, the release check passed and the clone stayed clean. Byte-identical to the Linux build of the same commit (Node v24.21.0, npm 11.19.0) and to the tarball the GitHub rehearsal's INSTALL-01 packed.",
+    "installed": "npm install --global --prefix into an empty prefix, with the shell's NODE_ENV=production kept"
+  },
+  "where": "the operator's Mac: a Terminal window showing a tmux 3.6b session; keys were sent to tmux, never to Terminal",
+  "command": "bare timmy: the installed package's own bin, from the prefix",
+  "isolation": "a fresh home, Timmy home and receipt store under /tmp; a minimal environment; the model key read from Timmy's own config inside the child's shell and exported there only, never printed and never on a command line",
+  "model": "anthropic/claude-opus-4.7",
+  "clock": "times are the Mac's",
+  "started": "2026-10-08T08:26:10Z",
+  "finished": "2026-10-08T08:26:37Z",
+  "steps": [
+    {
+      "id": "first-run",
+      "ok": true,
+      "observed": "the first-run prompt was empty, under the line \"First run: type /setup to check what Timmy needs.\"",
+      "screens": [
+        "00-first-run.txt"
+      ]
+    },
+    {
+      "id": "setup",
+      "ok": true,
+      "observed": "/setup typed at that prompt ran the setup check and sealed it",
+      "receipt": "rc_muz9v9kp_pfy2",
+      "screens": [
+        "00-setup.txt"
+      ]
+    },
+    {
+      "id": "tool-turn",
+      "ok": true,
+      "prompt": "What is 48271 times 3917? Use the calculator tool, then answer in one sentence.",
+      "tools": [
+        "calculate"
+      ],
+      "answer": "48271 × 3917 = 189,077,507.",
+      "receipt": "rc_muz9vchv_py1o",
+      "cost_usd": 0.050335,
+      "cost_measured": true,
+      "screens": [
+        "01-tool-turn.txt"
+      ]
+    },
+    {
+      "id": "interrupt",
+      "ok": true,
+      "prompt": "Use the calculator three times, one call per step and waiting for each result: 1234*5678, then 2345*6789, then 3456*7890. Then add the three results.",
+      "key": "Ctrl+C, sent to tmux as soon as the turn's first calculator call showed; the REPL reads it as a key in raw mode",
+      "outcome": "cancelled",
+      "said": "Cancelled. 1 tool finished; no answer yet. Nothing was rolled back.",
+      "receipt": "rc_muz9vejv_5up0",
+      "cost_usd": 0.025875,
+      "cost_measured": false,
+      "screens": [
+        "02-interrupt.txt"
+      ]
+    },
+    {
+      "id": "prompt-after",
+      "ok": true,
+      "observed": "the prompt came back at once; the next request was typed into it and shown there before Enter",
+      "screens": [
+        "03-prompt-after.txt"
+      ]
+    },
+    {
+      "id": "second-turn",
+      "ok": true,
+      "prompt": "Use the calculator tool to compute 987654 * 123457, then answer in one sentence.",
+      "tools": [
+        "calculate"
+      ],
+      "calls": [
+        "987654 * 123457"
+      ],
+      "answer": "987654 × 123457 = 121,932,799,878.",
+      "resumed": false,
+      "observed": "about something else, the turn made the one call it was asked for and none of the cancelled request's: not 1234*5678, 2345*6789 or 3456*7890, and no sum of their products (judge.json, read from the screen)",
+      "receipt": "rc_muz9vjeb_w3l1",
+      "cost_usd": 0.05258,
+      "cost_measured": true,
+      "screens": [
+        "04-second-turn.txt"
+      ]
+    },
+    {
+      "id": "resume",
+      "ok": true,
+      "prompt": "Please continue the calculation I cancelled, from where it stopped.",
+      "tools": [
+        "calculate",
+        "calculate",
+        "calculate"
+      ],
+      "calls": [
+        "2345*6789",
+        "3456*7890",
+        "7006652 + 15920205 + 27267840"
+      ],
+      "answer": "the four results, the first marked as from the earlier cancelled run, and Sum = 50,194,697",
+      "resumed": true,
+      "redid_finished": false,
+      "observed": "asked to continue, the turn made the two calls the cancel had left undone and the sum, and took 1234*5678 = 7,006,652 from the cancelled request's record instead of calling it again (judge.json)",
+      "receipt": "rc_muz9vsnm_di2h",
+      "cost_usd": 0.112605,
+      "cost_measured": true,
+      "screens": [
+        "05-resume.txt"
+      ]
+    },
+    {
+      "id": "exit",
+      "ok": true,
+      "observed": "/exit, then the run script's line EXIT=0 TTY=same (stty compared before and after)",
+      "screens": [
+        "06-exit.txt"
+      ]
+    }
+  ],
+  "judgment": "judge.json: made from the screen with the whole history (05-resume.txt) by a script that splits it at each turn's receipt and reads the calculator calls from the tool results, never from the model's own words. On C-17's screens, where the turn after the cancel finished the cancelled request, the same script says resumed: true.",
+  "chain": "the run's own store: 5 receipts (the setup check and four turns), verified true by timmy receipts --json; their fields are in receipts.json",
+  "conversation": "the REPL's saved conversation for the run (.sessions/ in its work folder) holds, after the cancelled request, the record that closed it: \"[Cancelled by the user before I answered. Finished before the cancel: calculate {\\\"expression\\\":\\\"1234*5678\\\"}, which returned ... Nothing was rolled back. I stopped here and will not continue this request unless the user asks me to.]\"",
+  "key_hygiene": "after the run, compared without printing the key: the fresh home's settings file exists, is 0600 and does not hold the key; no file under the run's home and work folder holds it (the saved conversation included). At C-17 the same run wrote the key into that settings file.",
+  "spend": {
+    "run_usd": 0.241395,
+    "total_usd": 1.16903,
+    "cap_usd": 2,
+    "source": "OpenRouter's counters for the key, read without printing the key or its label, at 08:26:04Z and 08:31:24Z: byok_usage 344.3288086 then 344.5702036, so 0.241395; Timmy's four sealed turn costs add to the same 0.241395 (the counter lagged: a reading at 08:28:25Z showed 0.07621). LIVE-01's total is C-17's 0.927635 plus this run's. This session made no other model call through the key."
+  },
+  "earlier": "C-16's LIVE-01 ran at 79529e5 and C-17's at bd7ec9b; their records stay unchanged in docs/ui-cockpit/c16/live-01/ and docs/ui-cockpit/c17/live-01/",
+  "screens_note": "tmux capture-pane text with history (-J -S -), each line's trailing whitespace and the trailing blank lines removed; byte-identical to the copies made on the Mac (SHA-256 compared)"
+}

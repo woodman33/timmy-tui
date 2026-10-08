@@ -1,0 +1,22 @@
+# Timmy Day for Ghostty (generated from src/term/palettes.ts by scripts/ui/themes.ts; do not edit)
+background = #ffffff
+foreground = #111111
+background-opacity = 1
+cursor-color = #111111
+selection-background = #d9d9d9
+palette = 0=#111111
+palette = 1=#c8102e
+palette = 2=#0b7a3b
+palette = 3=#8a5a00
+palette = 4=#1f4fbf
+palette = 5=#6d28d9
+palette = 6=#0e6e86
+palette = 7=#e5e5e5
+palette = 8=#595959
+palette = 9=#a50e25
+palette = 10=#08602e
+palette = 11=#6e4800
+palette = 12=#183e96
+palette = 13=#5b21b6
+palette = 14=#0b5567
+palette = 15=#ffffff

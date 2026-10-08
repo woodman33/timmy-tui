@@ -1,0 +1,690 @@
+{
+  "started": "2026-10-08T04:51:14.225Z",
+  "finished": "2026-10-08T05:00:26.110Z",
+  "dev": true,
+  "stopped": null,
+  "exits": [
+    {
+      "scenario": "demo-80-night",
+      "code": 0
+    },
+    {
+      "scenario": "monitor-C-c",
+      "code": 130
+    },
+    {
+      "scenario": "loader-80-night",
+      "code": 0
+    },
+    {
+      "scenario": "ctrlc-idle",
+      "code": 130
+    },
+    {
+      "scenario": "ctrlc-twice",
+      "code": 130
+    },
+    {
+      "scenario": "esc-approval",
+      "code": 0
+    },
+    {
+      "scenario": "demo-60-night",
+      "code": 0
+    },
+    {
+      "scenario": "demo-80-night-ascii",
+      "code": 0
+    },
+    {
+      "scenario": "enter-approval",
+      "code": 0
+    },
+    {
+      "scenario": "loader-elapsed",
+      "code": 0
+    },
+    {
+      "scenario": "demo-80-night-nocolor",
+      "code": 0
+    },
+    {
+      "scenario": "demo-80-dumb",
+      "code": 0
+    },
+    {
+      "scenario": "ci-no-prompt",
+      "code": 78
+    },
+    {
+      "scenario": "stdout-split",
+      "code": 0
+    },
+    {
+      "scenario": "sigterm-repl",
+      "code": 143
+    },
+    {
+      "scenario": "monitor-SIGTERM",
+      "code": 143
+    },
+    {
+      "scenario": "demo-80-night-16",
+      "code": 0
+    },
+    {
+      "scenario": "demo-80-xterm16",
+      "code": 0
+    },
+    {
+      "scenario": "demo-80-plain",
+      "code": 0
+    },
+    {
+      "scenario": "bin-bare",
+      "code": 0
+    },
+    {
+      "scenario": "bin-sigterm",
+      "code": 143
+    },
+    {
+      "scenario": "demo-120-night",
+      "code": 0
+    },
+    {
+      "scenario": "demo-60-day",
+      "code": 0
+    },
+    {
+      "scenario": "demo-80-day",
+      "code": 0
+    },
+    {
+      "scenario": "demo-120-day",
+      "code": 0
+    },
+    {
+      "scenario": "replay-demo",
+      "code": 0
+    },
+    {
+      "scenario": "install-bare",
+      "code": 0
+    },
+    {
+      "scenario": "install-sigterm",
+      "code": 143
+    }
+  ],
+  "results": [
+    {
+      "id": "PROC-01",
+      "ref": "18 Process",
+      "line": "Every third-party import (in the files this branch added or changed) exists in the manifest",
+      "status": "pass",
+      "detail": "163 files changed since the branch left main at 08006fb; every bare import is declared in package.json",
+      "ms": 31
+    },
+    {
+      "id": "CLI-01",
+      "ref": "19.5",
+      "line": "One synced write per frame, lines overwritten with ESC[K, no ESC[2J in update loops",
+      "status": "pass",
+      "detail": "REPL --demo: 93 synced writes, 0 ESC[2J, 145 ESC[K; monitor: 3 synced writes, 0 ESC[2J",
+      "ms": 15118
+    },
+    {
+      "id": "CLI-02",
+      "ref": "19.5",
+      "line": "Spinner about 80ms per frame",
+      "status": "pass",
+      "detail": "125 frames over the 10s hold (about 80ms each)",
+      "ms": 11953
+    },
+    {
+      "id": "CLI-03",
+      "ref": "19.5",
+      "line": "Parsed keys with explicit modifiers; no Cmd shortcuts",
+      "status": "pass",
+      "detail": "keypress events with key.ctrl/key.meta; the hint names Enter, Ctrl+J and /",
+      "ms": 2054
+    },
+    {
+      "id": "CLI-04",
+      "ref": "19.5",
+      "line": "Keystrokes echo within 100ms",
+      "status": "pass",
+      "detail": "10 keys, median 7ms, slowest 7ms (tmux round trips included)",
+      "ms": 2667
+    },
+    {
+      "id": "CLI-05",
+      "ref": "19.5",
+      "line": "Ctrl+C at an idle prompt exits 130 with the terminal restored",
+      "status": "pass",
+      "detail": "exit 130, stty unchanged, cursor visible",
+      "ms": 2059
+    },
+    {
+      "id": "CLI-06",
+      "ref": "19.5",
+      "line": "Ctrl+C mid-turn cancels the turn and returns to the prompt",
+      "status": "pass",
+      "detail": "\"Cancelled.\" then the prompt; the REPL kept running",
+      "ms": 3363
+    },
+    {
+      "id": "CLI-07",
+      "ref": "19.5",
+      "line": "Ctrl+C twice within 2s mid-turn exits 130 with the terminal restored",
+      "status": "pass",
+      "detail": "exit 130, stty unchanged, cursor visible",
+      "ms": 3352
+    },
+    {
+      "id": "CLI-08",
+      "ref": "19.5",
+      "line": "Esc backs out: of the slash menu, and of NEEDS YOU (deny)",
+      "status": "pass",
+      "detail": "Esc closed the slash menu (after readline's 500ms hold on a lone ESC); Esc at NEEDS YOU denied",
+      "ms": 5627
+    },
+    {
+      "id": "CLI-09",
+      "ref": "19.5",
+      "line": "q types into the input; it never quits from a text field; the exit hint is shown",
+      "status": "pass",
+      "detail": "\"q\" typed into the input; the banner says \"/exit to quit\"",
+      "ms": 2423
+    },
+    {
+      "id": "CLI-10",
+      "ref": "19.5",
+      "line": "Re-measured on resize (REPL input and monitor frame)",
+      "status": "pass",
+      "detail": "REPL input redrawn at 60 with its text; monitor frame within 70 after 100",
+      "ms": 7646
+    },
+    {
+      "id": "CLI-11",
+      "ref": "19.5",
+      "line": "Display-width truncation: previews never wrap at 60 or 80 columns",
+      "status": "pass",
+      "detail": "the demo turn at 60 and 80: no joined line wider than the terminal",
+      "ms": 8029
+    },
+    {
+      "id": "CLI-12",
+      "ref": "19.5",
+      "line": "ASCII fallback (LC_ALL=C): no byte above 0x7F",
+      "status": "pass",
+      "detail": "0 bytes above 0x7F; ASCII glyphs in the transcript",
+      "ms": 8029
+    },
+    {
+      "id": "CLI-13",
+      "ref": "19.5",
+      "line": "Write-once scrollback under a small live region; the alternate screen only for the full-screen monitor, left on exit",
+      "status": "pass",
+      "detail": "REPL: no ESC[?1049h, the turn stays in scrollback; monitor: ESC[?1049h then ESC[?1049l, the earlier shell text intact",
+      "ms": 1
+    },
+    {
+      "id": "CLI-14",
+      "ref": "19.5",
+      "line": "Enter accepts the shown default (NEEDS YOU: deny)",
+      "status": "pass",
+      "detail": "Enter at NEEDS YOU denied, the default it shows",
+      "ms": 2095
+    },
+    {
+      "id": "CLI-15",
+      "ref": "19.5",
+      "line": "One specific message per validation failure",
+      "status": "pass",
+      "detail": "repl --bogus → 2: Unknown option: --bogus. Try timmy repl --help.; receipts --last x → 2: timmy receipts: --last needs a whole number of 1 or more.; theme install --terminal nope → 2: timmy theme: no theme for \"nope\". Terminals: ghostty, kitty, alacritty, wezterm, iterm2, zellij.",
+      "ms": 1387
+    },
+    {
+      "id": "CLI-16",
+      "ref": "19.5",
+      "line": "A slow step shows its start line within 100ms",
+      "status": "pass",
+      "detail": "\"Working\" after 6ms (tmux round trips included)",
+      "ms": 1998
+    },
+    {
+      "id": "CLI-17",
+      "ref": "19.5",
+      "line": "The spinner shows elapsed time from 1s",
+      "status": "pass",
+      "detail": "at about 3.5s: \"Working 3.5s\"",
+      "ms": 11779
+    },
+    {
+      "id": "CLI-18",
+      "ref": "19.5",
+      "line": "Percent and ETA beyond 10s",
+      "status": "deferred",
+      "detail": "No step in this branch reports a known total: Spinner.progress() has no caller, so the bar never shows. A thinking wait and a tool run show elapsed time only.",
+      "ms": 0
+    },
+    {
+      "id": "CLI-19",
+      "ref": "19.5",
+      "line": "A stop line states the outcome",
+      "status": "pass",
+      "detail": "the demo turn ends on \"✓ RECEIPT …\"",
+      "ms": 0
+    },
+    {
+      "id": "CLI-20",
+      "ref": "19.5",
+      "line": "Colors always paired with a glyph or text (NO_COLOR keeps every glyph)",
+      "status": "pass",
+      "detail": "with NO_COLOR=1 the turn keeps ✓, ● and └ and its words",
+      "ms": 8022
+    },
+    {
+      "id": "CLI-21",
+      "ref": "19.5",
+      "line": "Errors give what, why, the fix, and where to get help",
+      "status": "pass",
+      "detail": "in the flow and at startup: Error, Cause, Try and Help",
+      "ms": 3187
+    },
+    {
+      "id": "CLI-22",
+      "ref": "19.5",
+      "line": "NO_COLOR honored",
+      "status": "pass",
+      "detail": "no color parameter in the raw bytes with NO_COLOR=1",
+      "ms": 0
+    },
+    {
+      "id": "CLI-23",
+      "ref": "19.5",
+      "line": "FORCE_COLOR honored (0 off, 1-3 on through a pipe)",
+      "status": "pass",
+      "detail": "color parameters through a pipe by FORCE_COLOR value: 0: 0, 1: 23, 2: 26, 3: 26",
+      "ms": 28810
+    },
+    {
+      "id": "CLI-24",
+      "ref": "19.5",
+      "line": "TERM=dumb honored",
+      "status": "pass",
+      "detail": "no cursor movement, erase, sync or color with TERM=dumb",
+      "ms": 8019
+    },
+    {
+      "id": "CLI-25",
+      "ref": "19.5",
+      "line": "Non-TTY output honored",
+      "status": "pass",
+      "detail": "piped stdout: the answer and no escape byte",
+      "ms": 7217
+    },
+    {
+      "id": "CLI-26",
+      "ref": "19.5",
+      "line": "Never prompts in CI",
+      "status": "pass",
+      "detail": "CI=true in a PTY: no input drawn, exit 78 with the fix",
+      "ms": 1834
+    },
+    {
+      "id": "CLI-27",
+      "ref": "19.5",
+      "line": "-h/--help and --version",
+      "status": "pass",
+      "detail": "timmy repl --help → 0, timmy repl -h → 0, timmy receipts --help → 0, timmy theme --help → 0; --version → 2.0.0-rc.2",
+      "ms": 2429
+    },
+    {
+      "id": "CLI-28",
+      "ref": "19.5",
+      "line": "A stable --json envelope and --quiet bare values (on the verbs this branch added: receipts, theme)",
+      "status": "pass",
+      "detail": "receipts --json and --quiet, theme --json",
+      "ms": 540
+    },
+    {
+      "id": "CLI-29",
+      "ref": "19.5; the 20:14 order",
+      "line": "-v never overloaded: through the bin, `-v`, `--version`, `version` and `repl -v` each print the version line and nothing else (exit 0), and no help row gives -v another meaning",
+      "status": "pass",
+      "detail": "timmy -v, --version, version and repl -v: \"timmy-tui v2.0.0-rc.2\" and nothing else, exit 0; no -v row with another meaning in timmy --help or timmy repl --help",
+      "ms": 1816
+    },
+    {
+      "id": "CLI-30",
+      "ref": "19.5",
+      "line": "No prompt without TTYs on stdin and stdout: fail fast, naming the fix",
+      "status": "pass",
+      "detail": "piped with no key: exit 78 after 995ms naming \"timmy init\"; no terminal query",
+      "ms": 995
+    },
+    {
+      "id": "CLI-31",
+      "ref": "19.5",
+      "line": "Data on stdout; errors, spinners and diagnostics on stderr",
+      "status": "pass",
+      "detail": "the answer on stdout with no spinner frame; the error on stderr only",
+      "ms": 8850
+    },
+    {
+      "id": "CLI-32",
+      "ref": "19.5",
+      "line": "Exit codes 0, 1, 2, 64-78, 130, 143; never 126 or 127",
+      "status": "pass",
+      "detail": "an unknown verb exits 2; 14 PTY exits so far, all in the set: 0, 78, 130",
+      "ms": 111
+    },
+    {
+      "id": "CLI-33",
+      "ref": "19.5",
+      "line": "SIGTERM: bounded shutdown, exit 143, cursor, raw mode and screen restored (REPL mid-turn and monitor)",
+      "status": "pass",
+      "detail": "REPL mid-turn: 143 after 54ms, stty unchanged, cursor on, bracketed paste off; monitor: 143, screen restored",
+      "ms": 9651
+    },
+    {
+      "id": "CLI-34",
+      "ref": "19.5",
+      "line": "SIGINT on the monitor: exit 130, screen restored",
+      "status": "pass",
+      "detail": "monitor Ctrl+C: 130, stty unchanged, cursor on, alternate screen left",
+      "ms": 0
+    },
+    {
+      "id": "CLI-35",
+      "ref": "19.5",
+      "line": "Capability fallback to 16 colors (TERM=xterm, no COLORTERM)",
+      "status": "pass",
+      "detail": "TERM=xterm: 45 basic color parameters, no 256 or truecolor",
+      "ms": 16090
+    },
+    {
+      "id": "CLI-36",
+      "ref": "19.5",
+      "line": "Prose clamped to 80 columns on a wide terminal",
+      "status": "pass",
+      "detail": "the answer wrapped to 3 lines, the widest 77 columns, at 120",
+      "ms": 2791
+    },
+    {
+      "id": "CLI-37",
+      "ref": "19.5",
+      "line": "An explicit opt-in plain mode (--plain): no redraws",
+      "status": "pass",
+      "detail": "--plain: no cursor-up, no sync, no carriage-return redraw; the answer printed",
+      "ms": 8030
+    },
+    {
+      "id": "BIN-01",
+      "ref": "19.5; fourth order, step 6; the 20:14 order",
+      "line": "Through the installed command's bin: bare `timmy` opens the REPL at an empty first-run prompt where /exit exits 0, and a SIGTERM to `timmy` mid-turn reaches the REPL it started (143, the terminal restored, the next output on a clean line, nothing left running)",
+      "status": "pass",
+      "detail": "bare timmy: an empty first-run prompt, where /exit exits 0; SIGTERM to timmy mid-turn: 143, stty unchanged, cursor on and at column 0, no REPL left",
+      "ms": 4662
+    },
+    {
+      "id": "TUI-01",
+      "ref": "19.6",
+      "line": "Per-call display: ▸ name and argument, then ✓ name and timing",
+      "status": "deferred",
+      "detail": "Not built: Timmy offers the grouped display only (the plan's choice for the REPL); there is no --tool-display.",
+      "ms": 0
+    },
+    {
+      "id": "TUI-02",
+      "ref": "19.6",
+      "line": "Grouped display: bold past verbs over └ branch lines",
+      "status": "pass",
+      "detail": "bold \"Read\" over └ preview lines in the demo turn",
+      "ms": 0
+    },
+    {
+      "id": "TUI-03",
+      "ref": "19.6",
+      "line": "Minimal display: one gray summary line",
+      "status": "deferred",
+      "detail": "Not built: no minimal display mode (grouped only).",
+      "ms": 0
+    },
+    {
+      "id": "TUI-04",
+      "ref": "19.6",
+      "line": "A tool running 30s or more shows a live indicator",
+      "status": "pass",
+      "detail": "at about 30s: \"⠹ Running npm run render:storyboard 29.9s\", still moving; then the result",
+      "ms": 33128
+    },
+    {
+      "id": "TUI-05",
+      "ref": "19.6",
+      "line": "Block input: a three-row full-width tint, the › prompt, unchanged while typing",
+      "status": "pass",
+      "detail": "three tinted rows before and after typing, › prompt",
+      "ms": 2003
+    },
+    {
+      "id": "TUI-06",
+      "ref": "19.6",
+      "line": "Without a tint the input falls back (bordered ─ rules, or a plain >)",
+      "status": "pass",
+      "detail": "NO_COLOR: bordered, ─ rules above and below the › prompt",
+      "ms": 1996
+    },
+    {
+      "id": "TUI-07",
+      "ref": "19.6",
+      "line": "Backspace leaves no artifacts; arrows, paste, CJK and emoji work",
+      "status": "pass",
+      "detail": "the input reads \"› aXb世界 pasted\": insert with Left, CJK, one backspace removed the emoji whole, bracketed paste",
+      "ms": 2801
+    },
+    {
+      "id": "TUI-08",
+      "ref": "19.6",
+      "line": "The submitted prompt stays in scrollback; the reply streams; the next prompt renders clean",
+      "status": "pass",
+      "detail": "prompt above the reply in scrollback; the next input empty",
+      "ms": 2327
+    },
+    {
+      "id": "TUI-09",
+      "ref": "19.6",
+      "line": "Input text and tint readable on light and dark themes (truecolor and 256)",
+      "status": "pass",
+      "detail": "contrast gate PASS: night/tc, night/256, day/tc, day/256",
+      "ms": 8883
+    },
+    {
+      "id": "TUI-10",
+      "ref": "19.6",
+      "line": "Piped stdin works: plain input, no raw mode, no OSC 11 query",
+      "status": "pass",
+      "detail": "echo hi | REPL: the answer, exit 0, no OSC 11 or DA1 query, no bracketed paste",
+      "ms": 1277
+    },
+    {
+      "id": "TUI-11",
+      "ref": "19.6",
+      "line": "Tool blocks stay in order with streamed text; a text, tool, text turn shows the whole second message",
+      "status": "pass",
+      "detail": "text, then the tool group, then the whole second message",
+      "ms": 2915
+    },
+    {
+      "id": "TUI-12",
+      "ref": "19.6",
+      "line": "No style bleed after a turn; one blank line between phases",
+      "status": "pass",
+      "detail": "SGR reset after the last line; never two blank lines in a row",
+      "ms": 0
+    },
+    {
+      "id": "TUI-13",
+      "ref": "19.6",
+      "line": "Ctrl+C mid-turn returns to the prompt; idle or second Ctrl+C exits 130 restored",
+      "status": "pass",
+      "detail": "see CLI-05, CLI-06 and CLI-07 (same runs)",
+      "ms": 0
+    },
+    {
+      "id": "TUI-14",
+      "ref": "19.6",
+      "line": "Turn errors print in the flow and return to the prompt",
+      "status": "pass",
+      "detail": "\"✖ Error:\" with its cause and fix in the flow, then the prompt",
+      "ms": 2179
+    },
+    {
+      "id": "TUI-15",
+      "ref": "19.6",
+      "line": "429 and 5xx retry with backoff before surfacing",
+      "status": "pass",
+      "detail": "tests/repl-agent-send.test.ts passes (unit level: retries 429, 5xx and connection errors with backoff; not a PTY run)",
+      "ms": 1882
+    },
+    {
+      "id": "CAP-night-60",
+      "ref": "C-15",
+      "line": "Captures at 60 columns in Timmy Night: REPL turn, first run, setup, slash menu, monitor, receipts --follow",
+      "status": "pass",
+      "detail": "gate PASS: repl-turn, first-run, setup, menu, monitor, follow",
+      "ms": 16585
+    },
+    {
+      "id": "CAP-night-80",
+      "ref": "C-15",
+      "line": "Captures at 80 columns in Timmy Night: REPL turn, first run, setup, slash menu, monitor, receipts --follow",
+      "status": "pass",
+      "detail": "gate PASS: repl-turn, first-run, setup, menu, monitor, follow",
+      "ms": 16543
+    },
+    {
+      "id": "CAP-night-120",
+      "ref": "C-15",
+      "line": "Captures at 120 columns in Timmy Night: REPL turn, first run, setup, slash menu, monitor, receipts --follow",
+      "status": "pass",
+      "detail": "gate PASS: repl-turn, first-run, setup, menu, monitor, follow",
+      "ms": 24645
+    },
+    {
+      "id": "CAP-day-60",
+      "ref": "C-15",
+      "line": "Captures at 60 columns in Timmy Day: REPL turn, first run, setup, slash menu, monitor, receipts --follow",
+      "status": "pass",
+      "detail": "gate PASS: repl-turn, first-run, setup, menu, monitor, follow",
+      "ms": 24633
+    },
+    {
+      "id": "CAP-day-80",
+      "ref": "C-15",
+      "line": "Captures at 80 columns in Timmy Day: REPL turn, first run, setup, slash menu, monitor, receipts --follow",
+      "status": "pass",
+      "detail": "gate PASS: repl-turn, first-run, setup, menu, monitor, follow",
+      "ms": 24543
+    },
+    {
+      "id": "CAP-day-120",
+      "ref": "C-15",
+      "line": "Captures at 120 columns in Timmy Day: REPL turn, first run, setup, slash menu, monitor, receipts --follow",
+      "status": "pass",
+      "detail": "gate PASS: repl-turn, first-run, setup, menu, monitor, follow",
+      "ms": 24559
+    },
+    {
+      "id": "COPY-01",
+      "ref": "18 Copy",
+      "line": "Zero U+2014 in the copy of the surfaces this branch built (REPL, setup, receipts, theme, receipt page)",
+      "status": "pass",
+      "detail": "none in the 30 captures, the three help texts, or the strings of 35 source files",
+      "ms": 1256
+    },
+    {
+      "id": "COPY-02",
+      "ref": "18 Copy",
+      "line": "Zero U+2014 in the monitor's copy",
+      "status": "deferred",
+      "detail": "The monitor shows the Command Post's text from before this branch, with U+2014 in it (for example \"timmy doctor — read-only posture\"). C-11 restyled its colors and layout only; rewriting its copy is outside the plan.",
+      "ms": 0
+    },
+    {
+      "id": "SUITE-01",
+      "ref": "dev",
+      "line": "The related suites pass at the frozen tree",
+      "status": "fail",
+      "detail": "vitest exit 1: \u001b[2m Test Files \u001b[22m \u001b[1m\u001b[31m1 failed\u001b[39m\u001b[22m\u001b[2m | \u001b[22m\u001b[1m\u001b[32m65 passed\u001b[39m\u001b[22m\u001b[2m | \u001b[22m\u001b[33m1 skipped\u001b[39m\u001b[90m (67)\u001b[39m / \u001b[2m      Tests \u001b[22m \u001b[1m\u001b[31m1 failed\u001b[39m\u001b[22m\u001b[2m | \u001b[22m\u001b[1m\u001b[32m483 passed\u001b[39m\u001b[22m\u001b[2m | \u001b[22m\u001b[33m2 skipped\u001b[39m\u001b[90m (486)\u001b[39m / \u001b[31m⎯⎯⎯⎯⎯⎯⎯\u001b[39m\u001b[1m\u001b[41m Failed Tests 1 \u001b[49m\u001b[22m\u001b[31m⎯⎯⎯⎯⎯⎯⎯\u001b[39m",
+      "ms": 63254
+    },
+    {
+      "id": "SUITE-02",
+      "ref": "dev",
+      "line": "Types: tsc and tsgo report 0 errors; privacy gate 0 gated",
+      "status": "pass",
+      "detail": "tsc 0, tsgo 0; privacy gate: 0 gated, 385 review-level matches in 110 files",
+      "ms": 6569
+    },
+    {
+      "id": "CANVAS-01",
+      "ref": "fourth order, step 5",
+      "line": "Timmy Canvas in a real browser at desktop, tablet and phone sizes: its checks run, none skipped, and pass",
+      "status": "pass",
+      "detail": "Tests 7 passed (7), in a real Chromium",
+      "ms": 12346
+    },
+    {
+      "id": "REPLAY-01",
+      "ref": "AGENTS §10 (local part)",
+      "line": "A fresh clone with the frozen changes applied runs the REPL demo and passes the gate",
+      "status": "pass",
+      "detail": "clean clone of 70acf49 (the frozen tree is that commit) = the frozen tree (manifest identical); npm ci in 10s; repl --help; the demo turn in a PTY (exit 0, stty unchanged, gate PASS); 4 suites pass in the clone",
+      "ms": 29915
+    },
+    {
+      "id": "INSTALL-01",
+      "ref": "the 20:14 order, parts 4, 5 and 7",
+      "line": "The frozen tree packed as the release job packs it and validated, then installed by npm into an empty prefix and used as an installed user meets it: -v; init and the doctor name next steps that work installed; bare timmy opens an empty first-run prompt where /exit exits 0; SIGTERM mid-turn leaves 143, the terminal restored and the next output on a clean line; timmy studio serves the canvas and names TIMMY_HOME's canvas folder",
+      "status": "pass",
+      "detail": "timmy-tui-2.0.0-rc.2.tgz from a clean clone of 70acf49: 1066 files, sha256 4fa62ecba0dc84e9b5ef7e57601f12aadc6b947c173a4a75c57ec6e04b86e63f, release check passed; installed by npm 11.19.0 into an empty prefix and run with Node v24.21.0: -v prints \"timmy-tui v2.0.0-rc.2\"; init and the doctor name timmy, never npm start (the doctor's preflight: 3 ok, 4 missing, 1 warnings, BLOCKED; its text kept); bare timmy opens an empty first-run prompt, where /exit exits 0; SIGTERM mid-turn: 143, stty unchanged, cursor on at column 0, no REPL left; timmy studio serves the page and its bundle (1985968 bytes) and names <TIMMY_HOME>/canvas",
+      "ms": 44609
+    },
+    {
+      "id": "REPLAY-02",
+      "ref": "AGENTS §10",
+      "line": "This frozen run, repeated in an isolated sandbox (a Vercel Sandbox, or a GitHub-hosted runner under the cockpit exception in AGENTS.md §10) on a fresh clone at a commit the frozen tree differs from only in docs/ui-cockpit/: every check that can run there passed there, and its record names where it ran",
+      "status": "not run",
+      "detail": "Skipped in this run (--skip): REPLAY-02 and LIVE-01 cannot run inside the sandbox replay: the first is the evidence it feeds, the second a real model turn on the operator's Mac",
+      "ms": 0
+    },
+    {
+      "id": "LIVE-01",
+      "ref": "B1; fourth order, step 6",
+      "line": "On the operator's Mac, at a commit the frozen tree differs from only in docs/ui-cockpit/: a real model turn with a tool, its interruption, a usable prompt after it, and another turn (the record and its binding are checked here; the turns were watched there)",
+      "status": "not run",
+      "detail": "Skipped in this run (--skip): REPLAY-02 and LIVE-01 cannot run inside the sandbox replay: the first is the evidence it feeds, the second a real model turn on the operator's Mac",
+      "ms": 0
+    },
+    {
+      "id": "PRES-01",
+      "ref": "AGENTS §6",
+      "line": "The shared receipt store is byte for byte its preimage",
+      "status": "pass",
+      "detail": ".timmy/receipts/runs.jsonl: 0 bytes, identical to the preimage",
+      "ms": 0
+    },
+    {
+      "id": "PRES-02",
+      "ref": "AGENTS §5",
+      "line": "The frozen tree is unchanged by the run",
+      "status": "pass",
+      "detail": "2150 files, manifest identical to the freeze",
+      "ms": 136
+    }
+  ]
+}

@@ -1,3 +1,7 @@
 # merge train (2026-09-12): vendored OpenRouter OpenAPI example key in #37 shelf-w6d3 — not a secret
 lanes/wire/snips/openrouter.snip.yaml:generic-api-key:2731
 lanes/wire/snips/openrouter.snip.yaml:generic-api-key:7725
+# 2026-10-07, approved by the operator (20:14 order): the empty `OPENROUTER_API_KEY=` assignment in
+# c9a4755 (gone from the tree since 30f2942), which gitleaks read together with the next word as a
+# value. This fingerprint matches that one finding only: its commit, file, rule and line.
+c9a475548f74f13da16c0f0cdf795bf6a6678afe:scripts/ui/replay-sandbox.sh:generic-api-key:54

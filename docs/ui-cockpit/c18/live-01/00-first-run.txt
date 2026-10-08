@@ -1,0 +1,9 @@
+head 8319f8f  package eae8efb1  model anthropic/claude-opus-4.7  store /tmp/tc-home/c18/u/live/store
+TIMMY  anthropic/claude-opus-4.7
+Type a message to start. /help for commands, /exit to quit.
+First run: type /setup to check what Timmy needs.
+
+
+ ›
+
+  Enter to send · Ctrl+J newline · / commands

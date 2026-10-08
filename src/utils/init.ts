@@ -7,7 +7,7 @@
 // Nothing in the public tree changes. `isBlankSlate()` is what the CLI and the TUI ask
 // before showing anything else; without a TTY (or --yes) the wizard prints what it would
 // ask and writes nothing, so a first launch in a container still shows the wizard.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -22,21 +22,28 @@ export const identityPath = (): string => join(timmyHome(), 'identity.json');
 export const isBlankSlate = (): boolean => !existsSync(identityPath());
 
 export const BANNER = 'TIMMY · first run — blank slate';
+// C-14: the first run fits 60 columns, the questions included (they ran to 120).
 export const QUESTIONS: ReadonlyArray<readonly [string, string]> = [
-  ['operator', 'Operator name (how the ship addresses you; goes into receipts as operator_label)'],
-  ['seed', 'Seed identity: [g]enerate an ed25519 seed, or a path to a PEM / 64-hex seed to import'],
-  ['providers', 'Providers: OpenRouter API key (blank = skip), Anthropic API key (blank = skip), Ollama host (default http://127.0.0.1:11434)'],
-  ['project', 'First project name (created under ~/timmy/projects/<name>)'],
+  ['operator', 'Operator name (your receipts show it)'],
+  ['seed', 'Identity: [g]enerate, or a PEM or hex path'],
+  ['providers', 'Model keys (OpenRouter, Anthropic), Ollama'],
+  ['project', 'First project name (under ~/timmy/projects/)'],
 ];
 
+/** The first-run banner, within 60 columns (C-14): what is missing, where init writes, how to skip the questions. */
 export function printBlankSlateBanner(log: (s: string) => void = console.log): void {
   log(`\n  ${BANNER}\n`);
-  log('  No operator, identity, providers or project yet. Nothing in this tree is personal,');
-  log('  and nothing will be written to it. `timmy init` asks four things and writes only to');
-  log(`  ${relPretty(timmyHome())}/ and ${relPretty(privateDir())}/ (plus the gitignored receipts store pin, <repo>/.timmy/store-pin):`);
+  log('  No operator, identity or project yet, and nothing');
+  log('  personal in this tree. `timmy init` asks four things');
+  log('  and writes only to:');
+  log(`    ${relPretty(timmyHome())}/`);
+  log(`    ${relPretty(privateDir())}/`);
+  log('    <repo>/.timmy/store-pin (the receipts store)\n');
   for (const [k, q] of QUESTIONS) log(`    ${k.padEnd(10)} ${q}`);
-  log('\n  Non-interactive: timmy init --yes [--operator <name>] [--seed generate|<pem|hex>] [--openrouter <key>]');
-  log('                   [--anthropic <key>] [--ollama <host>] [--project <name>] [--edge-host <host>] [--json]\n');
+  log('\n  Without questions: timmy init --yes, and any of');
+  log('    --operator <name>  --seed generate|<pem|hex>');
+  log('    --openrouter <key>  --anthropic <key>  --ollama <host>');
+  log('    --project <name>  --edge-host <host>  --json\n');
 }
 const relPretty = (p: string): string => (p.startsWith(homedir()) ? '~' + p.slice(homedir().length) : p.startsWith(workspaceRoot()) ? '<repo>' + p.slice(workspaceRoot().length) : p);
 
@@ -78,7 +85,13 @@ function guardPath(p: string, extraAllowed: string[] = [], workspace = workspace
   if (!ok) throw new Error(`refusing to write outside TIMMY_HOME / TIMMY_PRIVATE_DIR: ${abs}`);
   return abs;
 }
-function writeJson(p: string, data: unknown, mode = 0o644, workspace = workspaceRoot()): string { const abs = guardPath(p, [], workspace); mkdirSync(join(abs, '..'), { recursive: true }); writeFileSync(abs, JSON.stringify(data, null, 1) + '\n', { mode }); return abs; }
+/** Writes a file at `mode`. writeFileSync's mode only applies to a file it creates, so a private file that
+ *  already existed (an older version's, or one made by hand) is narrowed first, before the secret goes in. */
+function writeAt(abs: string, data: string, mode: number): void {
+  if ((mode & 0o077) === 0 && existsSync(abs)) chmodSync(abs, mode);
+  writeFileSync(abs, data, { mode });
+}
+function writeJson(p: string, data: unknown, mode = 0o644, workspace = workspaceRoot()): string { const abs = guardPath(p, [], workspace); mkdirSync(join(abs, '..'), { recursive: true }); writeAt(abs, JSON.stringify(data, null, 1) + '\n', mode); return abs; }
 function mergeJson(p: string, patch: Record<string, unknown>, mode = 0o600, workspace = workspaceRoot()): string {
   const abs = guardPath(p, [], workspace);
   let cur: Record<string, unknown> = {};
@@ -98,7 +111,7 @@ export function applyInit(a: Required<Pick<InitOptions, 'operator' | 'project'>>
   const pin = join(repoRoot, '.timmy', 'store-pin');
   if (!existsSync(pin)) { guardPath(pin, [pin]); mkdirSync(join(repoRoot, '.timmy'), { recursive: true }); writeFileSync(pin, join(repoRoot, '.timmy', 'receipts')); written.push(pin); }
   written.push(writeJson(join(home, 'identity.json'), { version: 1, operator: a.operator, operator_id: id.operatorId, public_key_hex: id.publicKeyHex, seed_source: id.source, created: new Date().toISOString() }));
-  const seedPath = guardPath(join(home, 'identity.seed')); writeFileSync(seedPath, id.privatePem, { mode: 0o600 }); written.push(seedPath);
+  const seedPath = guardPath(join(home, 'identity.seed')); writeAt(seedPath, id.privatePem, 0o600); written.push(seedPath);
   const providers: Record<string, string> = { ollama_host: a.ollama || 'http://127.0.0.1:11434' };
   if (a.openrouter) providers.openrouter_api_key = a.openrouter;
   if (a.anthropic) providers.anthropic_api_key = a.anthropic;
@@ -138,7 +151,7 @@ export async function runInit(args: string[], io: { isTTY: boolean; log: (s: str
   else {
     io.log(`\n  ✓ ${r.operator} (${r.operator_id}) · identity ${r.identity_source} · project ${r.project}`);
     for (const w of r.written) io.log(`    wrote ${relPretty(w)}`);
-    io.log('\n  Next: `timmy doctor`, then `npm start`.\n');
+    io.log('\n  Next: `timmy doctor`, then `timmy` to open the REPL.\n');
   }
   return 0;
 }

@@ -78,11 +78,14 @@ describe('the shipped bin forwards every verb', { timeout: 180_000 }, () => {
     expect(collisions).toEqual(BIN_NATIVE.filter(v => cliVerbs().includes(v)));
   });
 
-  it('help and flags forward too; bare `timmy` boots the Command Post', async () => {
+  // Fourth order, step 6: bare `timmy` opens the REPL once LIVE-01 passes on the operator's Mac (it
+  // did: ledger row 71). The full-screen monitor, the old Command Post, stays `timmy watch`.
+  it('help and flags forward too; bare `timmy` opens the REPL, and the monitor is `timmy watch`', async () => {
     expect((await route(['help'])).forward).toBe('src/cli');
     expect((await route(['--help'])).forward).toBe('src/cli');
     expect((await route(['cockpit', 'up', '--json'])).argv).toEqual(['cockpit', 'up', '--json']);
-    expect((await route([])).native).toBe('boot');
+    expect(await route([])).toMatchObject({ forward: 'src/cli', argv: ['repl'] });
+    expect(await route(['watch'])).toMatchObject({ forward: 'src/cli', argv: ['watch'] });
     expect((await route(['--version'])).native).toBe('version');
   });
 

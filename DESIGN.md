@@ -252,3 +252,17 @@ drift — panels have no visual vocabulary of their own.
    anti-slop law 6.
 5. Every view walk shows: correct card anatomy, one signature, empty states
    where data is absent, no clipped content without an overflow line.
+
+## 10. Amendments B1–B8 (approved by the operator, 2026-10-06)
+
+Approved in conversation on 2026-10-06 at 21:30 PT from the Timmy Cockpit plan. These add to the
+sections above; where they disagree, this section wins.
+
+- **B1** `timmy` opens the inline REPL. The current full-screen shell is kept and becomes `timmy watch`. *(Changes the default command; the nine views of §4 and §7 live on inside `timmy watch`.)*
+- **B2** The brand lives in the terminal palette (Timmy Night and Timmy Day). Timmy emits only the 16 theme colors plus one computed input tint and never paints the ground. *(Supersedes §2.1's painted ground and surfaces.)*
+- **B3** Secondary text uses the measured color: white on dark, gray on light, your default text color when unknown. Dim text is banned. *(Supersedes §2.2 and the dimness clause of §2.4. Measured by `src/tui/qa/contrast-gate.ts`: text 4.5:1, non-text UI 3:1, neutral text 7:1.)*
+- **B4** Violet means outside your machine's guarantees: made by a model, or sent over the network. *(Widens §2.3's `ident`.)*
+- **B5** Diff markers keep + green and - red. It is the only green that is not proof. *(The one exception to §1 and §8.)*
+- **B6** `/` opens commands. Ctrl+K keeps its line-editing meaning. *(Supersedes the `^K` palette in §5.1 and §5.3.)*
+- **B7** Overlays are multiplexer panes: zellij floating panes and tmux popups. carbonyl is the web view, limited to local Timmy pages and URLs you allow. *(Extends §4's carbonyl frame.)*
+- **B8** Receipts carry OSC 8 links and turns carry OSC 133 marks, so your terminal and zellij can jump between turns.

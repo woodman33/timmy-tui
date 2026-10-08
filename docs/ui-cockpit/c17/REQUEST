@@ -1,0 +1,4 @@
+# REPLAY-02 request (.github/workflows/replay-02.yml): the commit to replay on a GitHub-hosted runner.
+# C-17's REPLAY-02: the frozen run of the candidate's code, the evidence the frozen acceptance reads (ledger row 101).
+commit bd7ec9b5d058fd90181e84e9a8f0a5f30747d4a8
+mode frozen

@@ -4,7 +4,7 @@ import { useFocus, panelMayAct } from '../hooks/useKeyDispatcher.js';
 import type { Agent } from '../../agent/core.js';
 import { PaneFocusContext } from '../components/PanelFrame.js';
 import { Card, SectionRule } from '../ui/index.js';
-import { saveConfig } from '../../utils/config.js';
+import { saveApiKey } from '../../utils/config.js';
 import { terminalLink } from '../../utils/hyperlink.js';
 import { getResponsiveLayout } from '../utils/responsive.js';
 import { theme } from '../theme.js';
@@ -43,8 +43,8 @@ export function SetupPanel({ agent }: SetupPanelProps) {
       }
 
       try {
-        // Save the key permanently in Conf store
-        saveConfig({ apiKey: trimmedKey });
+        // Save the key the user typed, on purpose, in the settings file (0600)
+        saveApiKey(trimmedKey);
 
         // Dynamically update the active agent client
         agent.updateApiKey(trimmedKey);

@@ -26,7 +26,12 @@ export interface ModelEntry {
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
-export const notesPath = (): string => join(here, 'notes.json');
+/**
+ * The model notes the LIBRARY picker reads and writes (role, notes, pinned). TIMMY_MODEL_NOTES names
+ * another file, as TIMMY_POLICY_DIR moves the policy: a test points it at a temporary copy, so the
+ * picker's pin and note never write this file in the repo (fourth order, step 4).
+ */
+export const notesPath = (): string => process.env.TIMMY_MODEL_NOTES || join(here, 'notes.json');
 
 export function readNotes(): Record<string, { role?: string; notes?: string; pinned?: boolean; throughput_tps?: number }> {
   try { return JSON.parse(readFileSync(notesPath(), 'utf8')); } catch { return {}; }

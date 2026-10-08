@@ -1,0 +1,13 @@
+{
+  "check": "REPLAY-02, C-17's evidence: the frozen run of the candidate's code on a GitHub-hosted runner (AGENTS.md §10's cockpit exception), never a Vercel run",
+  "platform": "GitHub Actions, a GitHub-hosted runner",
+  "run": { "id": 37741148748, "attempt": 1, "url": "https://github.com/woodman33/timmy-tui/actions/runs/37741148748/attempts/1", "workflow": ".github/workflows/replay-02.yml", "workflow_revision": "8dbfcd2acf30621b90e93963cc056cb5385cad6b", "started_utc": "2026-10-08T07:03:46Z", "finished_utc": "2026-10-08T07:14:15Z", "conclusion": "success" },
+  "replayed_commit": "bd7ec9b5d058fd90181e84e9a8f0a5f30747d4a8",
+  "mode": "frozen",
+  "runner_image": "ubuntu24 20261004.327.1 (Ubuntu 24.04.5 LTS)",
+  "toolchain": "Node v24.21.0; tmux 3.7c from Homebrew; Chromium started (Playwright's)",
+  "artifact": { "name": "replay-02-37741148748-1", "id": 11534043655, "digest": "sha256:5d4ec43a079928f1396b89454566daf54fadcd905af9b0bc300ee6ef8ca0e959", "expires_utc": "2027-01-06T07:03:47Z" },
+  "result": "exit 0: 65 passed, 0 failed, 4 deferred (CLI-18, TUI-01, TUI-03, COPY-02), 2 not run there (REPLAY-02, LIVE-01); 35 negative and 9 positive controls behaved",
+  "files": "every file here is the artifact's, unpacked and unchanged; SHA256SUMS lists them",
+  "binding": "its freeze names bd7ec9b and the tree manifest bc86658c10ec858dddbb58790e7c170908f743888d77814d5bc221b13cf15490, which a clean local checkout of bd7ec9b reproduces"
+}

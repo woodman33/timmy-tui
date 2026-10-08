@@ -40,11 +40,16 @@ export const BINDINGS = {
   ground: 'black',
   surface: 'black',
   surfaceRaised: 'grey-1',
+  // C-11 under B2 (row 28): rules are grey-2, which the monitor's output draws in the palette's
+  // rule slot (8). (Row 25 bound grey-3 here while the hex itself reached the terminal.)
   line: 'grey-2',
   lineFocus: 'white',
   // text ramp — white reads; grey-3 is every label, hint, timestamp and
   // off-state; hierarchy comes from case, weight and spacing (C1c)
   textPrimary: 'white',
+  // B3 (DESIGN.md §10): secondary text uses the measured color. Under B2 (row 28) grey-3 reaches the
+  // terminal as the measured secondary slot: white (37) on Night, gray (90) on Day, the terminal's own
+  // text color when it could not be measured. The grey-3 hex itself (5.09:1 on #191919) is never sent.
   textSecondary: 'grey-3',
   textMuted: 'grey-3',
   // semantic accents. `warn` is ATTENTION (running, next, needs you, blocked,

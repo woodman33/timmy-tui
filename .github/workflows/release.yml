@@ -54,13 +54,78 @@ jobs:
     needs: preflight
     uses: ./.github/workflows/ci.yml
 
-  publish:
+  # One artifact, built and checked once. The canvas build can succeed while it reports "Not
+  # distributable" (a license text missing), and `npm publish --ignore-scripts` used to skip the
+  # prepack check that refuses such a build. Here the check is an explicit step, the tarball is
+  # packed once and validated (scripts/release/validate-tarball.mjs), its full SHA-256 and the
+  # qualification evidence it was built from are recorded, and publish uses that same file.
+  package:
     needs: gate
+    runs-on: ubuntu-latest
+    outputs:
+      file: ${{ steps.pack.outputs.file }}
+      sha256: ${{ steps.validate.outputs.sha256 }}
+      integrity: ${{ steps.validate.outputs.integrity }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      # --include=dev: the build tools are devDependencies, which NODE_ENV=production would omit.
+      - name: Install Dependencies (with the build tools)
+        run: npm ci --include=dev
+
+      - name: Compile Code
+        run: npm run build
+
+      - name: Canvas distribution check (the licenses the package must carry)
+        run: node scripts/canvas/build.mjs --check
+
+      # --ignore-scripts: built and checked just above; prepack would only rebuild it.
+      - name: Pack one artifact
+        id: pack
+        run: |
+          mkdir -p "$RUNNER_TEMP/artifact"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/artifact" --json > "$RUNNER_TEMP/pack.json"
+          file="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))[0].filename)' "$RUNNER_TEMP/pack.json")"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+
+      - name: Validate that artifact
+        id: validate
+        env:
+          FILE: ${{ steps.pack.outputs.file }}
+        run: |
+          expect=()
+          if [ "$GITHUB_EVENT_NAME" = push ]; then expect=(--expect-version "${GITHUB_REF_NAME#v}"); fi
+          # --github: a passing artifact's sha256 and integrity become this step's outputs, and the run
+          # summary records it (or the failures). A failing artifact fails the job and outputs nothing.
+          node scripts/release/validate-tarball.mjs "$RUNNER_TEMP/artifact/$FILE" "${expect[@]}" \
+            --out "$RUNNER_TEMP/artifact/release-artifact.json" --github
+
+      # Named per run and attempt, so a re-run uploads its own artifact instead of failing on the name.
+      - name: Keep the artifact and its manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifact-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/artifact
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    needs: package
     runs-on: ubuntu-latest
     # GitHub environment "npm" (created on the first run if it does not exist). Add the
     # owner as a required reviewer under Settings → Environments → npm, and keep the npm
     # token there as an environment secret: then no workflow, branch or collaborator can
-    # publish or read it without the owner's click.
+    # publish or read it without the owner's click. Commercial tldraw coverage for what the
+    # canvas distributes is the owner's call before that click (docs/ui-cockpit/TLDRAW.md).
     environment: npm
     permissions:
       contents: read
@@ -77,7 +142,6 @@ jobs:
         with:
           node-version: 24
           registry-url: 'https://registry.npmjs.org'
-          cache: 'npm'
 
       # Re-checked on the checkout that actually publishes.
       - name: Verify release candidate identity and source
@@ -95,19 +159,23 @@ jobs:
             echo "npm $(npm --version) (upgraded from $v)"
           fi
 
-      - name: Install Dependencies
-        run: npm ci
+      - name: Fetch the validated artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifact-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/artifact
 
-      - name: Compile Code
-        run: npm run build
+      - name: The artifact is the one that was validated
+        env:
+          FILE: ${{ needs.package.outputs.file }}
+          SHA256: ${{ needs.package.outputs.sha256 }}
+        run: echo "$SHA256  $RUNNER_TEMP/artifact/$FILE" | sha256sum -c -
 
-      # --ignore-scripts: the gate already ran the suite on this commit with the tools it
-      # needs. prepublishOnly would re-run it here without them (no cue), and prepack
-      # would only rebuild what the step above just built.
+      # The tarball itself is published: no lifecycle script runs, nothing is rebuilt or repacked.
       - name: Publish to npm (next)
         if: github.event_name == 'push'
-        run: npm publish --provenance --access public --tag next --ignore-scripts
         env:
+          FILE: ${{ needs.package.outputs.file }}
           # `npm publish` (11.5.1+) runs its OIDC token exchange before it reads any
           # credentials, whatever setup-node wrote to .npmrc. When a trusted publisher is
           # configured for release.yml the exchanged token replaces this one for the
@@ -116,7 +184,24 @@ jobs:
           # npm secrets can be deleted: an empty value here no longer matters.
           # NPM_ACCESS_TOKEN (granular, bypass-2FA) is preferred; NPM_TOKEN is the fallback.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_ACCESS_TOKEN || secrets.NPM_TOKEN }}
+        run: npm publish "$RUNNER_TEMP/artifact/$FILE" --provenance --access public --tag next --ignore-scripts
+
+      - name: The registry holds those exact bytes
+        if: github.event_name == 'push'
+        env:
+          INTEGRITY: ${{ needs.package.outputs.integrity }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          for _ in 1 2 3 4 5 6; do
+            got="$(npm view "timmy-tui@$v" dist.integrity 2>/dev/null || true)"
+            if [ "$got" = "$INTEGRITY" ]; then echo "timmy-tui@$v on npm is the validated artifact ($got)"; exit 0; fi
+            sleep 10
+          done
+          echo "timmy-tui@$v on npm has integrity '$got', not the validated '$INTEGRITY'" >&2
+          exit 1
 
       - name: Rehearsal publish (dry run, nothing is published)
         if: github.event_name == 'workflow_dispatch'
-        run: npm publish --dry-run --access public --tag next --ignore-scripts
+        env:
+          FILE: ${{ needs.package.outputs.file }}
+        run: npm publish "$RUNNER_TEMP/artifact/$FILE" --dry-run --access public --tag next --ignore-scripts

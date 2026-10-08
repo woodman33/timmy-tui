@@ -37,6 +37,9 @@ const sha = (s) => createHash('sha256').update(s).digest('hex');
 /** The sealed rule text (privacy.rule). Change the version when the semantics change. */
 export const BASE_RULE = 'privacy.rule base-identical v1: a staged or history blob that is byte-identical to the blob at the same path on the base ref (default origin/main; a --ref A..B history scan uses A) is not a new leak and is skipped by the staged and history scans, counted as base_identical. The tree scan never applies this rule. Decided by the operator on 2026-09-11 (ORDER privacy-d5n9, option 1: no force-push, no history rewrite).';
 
+/** The sealed rule text for exempt blobs (patterns.json exempt_blobs). Change the version when the semantics change. */
+export const EXEMPT_RULE = 'privacy.rule exempt-blob v1: the tree, staged and history scans drop the findings of the patterns an exempt_blobs entry names for a file whose path is the entry\'s path and whose bytes have the entry\'s sha256, and count them as exempted. Any other bytes at that path, the same bytes at any other path, and every pattern the entry does not name are scanned in full. A malformed entry stops the gate. For third-party texts that must ship verbatim (license texts naming their authors).';
+
 /** The base ref for the base-identical rule, or null when disabled / unresolvable. */
 export function resolveBase(dir, refs = []) {
   if (has('--no-base')) return null;
@@ -58,11 +61,21 @@ export function loadPatterns(file = flag('--patterns', join(HERE, 'patterns.json
   // hashed identity terms (blank-slate-v1k9): sha256(lowercased term) → { id, severity }
   const hashed = new Map();
   for (const t of p.hashed_terms ?? []) if (typeof t.sha256 === 'string' && /^[0-9a-f]{64}$/.test(t.sha256)) hashed.set(t.sha256, { id: t.id, severity: t.severity });
+  // exempt blobs (EXEMPT_RULE): path → { sha256, patterns }; a malformed entry throws, so the gate fails closed
+  const ids = new Set(p.patterns.map((x) => x.id));
+  const exempt = new Map();
+  for (const e of p.exempt_blobs ?? []) {
+    const ok = e && typeof e.path === 'string' && e.path && !e.path.includes('*') && typeof e.sha256 === 'string' && /^[0-9a-f]{64}$/.test(e.sha256)
+      && Array.isArray(e.patterns) && e.patterns.length > 0 && e.patterns.every((id) => ids.has(id)) && typeof e.why === 'string' && e.why.trim();
+    if (!ok || exempt.has(e.path)) throw new Error(`patterns.json exempt_blobs: malformed or repeated entry ${JSON.stringify(e?.path ?? e)}`);
+    exempt.set(e.path, { sha256: e.sha256, patterns: new Set(e.patterns) });
+  }
   return {
     patterns: p.patterns.map((x) => ({ ...x, rx: new RegExp(x.re, (x.flags ?? '') + 'g') })),
     allow: p.allow.map((a) => new RegExp(a)),
     ignore: p.ignore_paths.map((a) => new RegExp(a)),
     hashed,
+    exempt,
     sha256: sha(readFileSync(file, 'utf8')),
     file
   };
@@ -105,6 +118,14 @@ export function scanText(text, file, P, where, extra = {}) {
   return out;
 }
 
+/** EXEMPT_RULE: the findings left after an exempt entry for this exact path and these exact bytes; `dropped` counts the rest. */
+export function exemptFilter(P, path, bytes, found) {
+  const e = P.exempt?.get(path);
+  if (!e || sha(bytes) !== e.sha256) return { kept: found, dropped: 0 };
+  const kept = found.filter((f) => !e.patterns.has(f.pattern));
+  return { kept, dropped: found.length - kept.length };
+}
+
 const isBinary = (buf) => { const n = Math.min(buf.length, 8000); for (let i = 0; i < n; i++) if (buf[i] === 0) return true; return false; };
 
 function git(dir, argv, big = false) {
@@ -121,7 +142,7 @@ export function treeFiles(dir) {
 export function scanTree(dir, P, where = 'tree') {
   const findings = [];
   const files = treeFiles(dir);
-  let scanned = 0;
+  let scanned = 0, exempted = 0;
   for (const f of files) {
     if (P.ignore.some((rx) => rx.test(f))) continue;
     const abs = join(dir, f);
@@ -130,15 +151,17 @@ export function scanTree(dir, P, where = 'tree') {
     const buf = readFileSync(abs);
     if (isBinary(buf)) continue;
     scanned++;
-    findings.push(...scanText(buf.toString('utf8'), f, P, where, { tree: relative(ROOT, dir) || '.' }));
+    const { kept, dropped } = exemptFilter(P, f, buf, scanText(buf.toString('utf8'), f, P, where, { tree: relative(ROOT, dir) || '.' }));
+    exempted += dropped;
+    findings.push(...kept);
   }
-  return { findings, files: files.length, scanned };
+  return { findings, files: files.length, scanned, exempted };
 }
 
 export function scanStaged(dir, P, base = resolveBase(dir)) {
   const names = git(dir, ['diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z']).out.split('\0').filter(Boolean);
   const findings = [];
-  let baseIdentical = 0;
+  let baseIdentical = 0, exempted = 0;
   for (const f of names) {
     if (P.ignore.some((rx) => rx.test(f))) continue;
     if (base) {
@@ -147,20 +170,22 @@ export function scanStaged(dir, P, base = resolveBase(dir)) {
     }
     const blob = spawnSync('git', ['show', `:${f}`], { cwd: dir, maxBuffer: 64 * 1024 * 1024 });
     if (blob.status !== 0 || isBinary(blob.stdout)) continue;
-    findings.push(...scanText(blob.stdout.toString('utf8'), f, P, 'staged'));
+    const { kept, dropped } = exemptFilter(P, f, blob.stdout, scanText(blob.stdout.toString('utf8'), f, P, 'staged'));
+    exempted += dropped;
+    findings.push(...kept);
   }
-  return { findings, files: names.length, base, base_identical: baseIdentical };
+  return { findings, files: names.length, base, base_identical: baseIdentical, exempted };
 }
 
 /**
- * Every blob ever reachable from the given refs (default: --all), scanned once per blob and
+ * Every blob ever reachable from the given refs (default: --all), scanned once per blob and path, and
  * attributed to the first commit that introduced it (oldest first), with the paths it lived at.
  */
 export function scanHistory(dir, P, refs = ['--all'], base = resolveBase(dir, refs)) {
   const log = git(dir, ['log', ...refs, '--reverse', '--format=%H %ct %s', '--name-status', '--diff-filter=AM', '--no-renames'], true).out;
-  const seen = new Map(); // blob sha → finding count (skip repeats)
+  const seen = new Map(); // "blob path" → finding count (each blob once per path, so an exemption at one path never covers a copy at another)
   const findings = [];
-  let commit = null, when = null, subject = null, blobs = 0, commits = 0, baseIdentical = 0;
+  let commit = null, when = null, subject = null, blobs = 0, commits = 0, baseIdentical = 0, exempted = 0;
   const lines = log.split('\n');
   for (const l of lines) {
     const mc = l.match(/^([0-9a-f]{40}) (\d+) (.*)$/);
@@ -172,17 +197,18 @@ export function scanHistory(dir, P, refs = ['--all'], base = resolveBase(dir, re
     const rev = git(dir, ['rev-parse', `${commit}:${path}`]);
     if (!rev.ok) continue;
     const blob = rev.out.trim();
-    if (seen.has(blob)) continue;
-    seen.set(blob, 0);
+    if (seen.has(`${blob} ${path}`)) continue;
+    seen.set(`${blob} ${path}`, 0);
     if (base && blob === baseBlob(dir, base, path)) { baseIdentical++; continue; } // BASE_RULE
     const content = spawnSync('git', ['cat-file', '-p', blob], { cwd: dir, maxBuffer: 64 * 1024 * 1024 });
     if (content.status !== 0 || content.stdout.length > 8 * 1024 * 1024 || isBinary(content.stdout)) continue;
     blobs++;
-    const f = scanText(content.stdout.toString('utf8'), path, P, 'history', { commit: commit.slice(0, 12), when, subject: subject.slice(0, 80), blob: blob.slice(0, 12) });
-    seen.set(blob, f.length);
+    const { kept: f, dropped } = exemptFilter(P, path, content.stdout, scanText(content.stdout.toString('utf8'), path, P, 'history', { commit: commit.slice(0, 12), when, subject: subject.slice(0, 80), blob: blob.slice(0, 12) }));
+    exempted += dropped;
+    seen.set(`${blob} ${path}`, f.length);
     findings.push(...f);
   }
-  return { findings, commits, blobs, base, base_identical: baseIdentical };
+  return { findings, commits, blobs, base, base_identical: baseIdentical, exempted };
 }
 
 /** Which findings are still in the current tree vs only in history (the same file+pattern). */
@@ -304,7 +330,7 @@ if (import.meta.url === new URL(`file://${process.argv[1]}`).href || process.arg
     else if (has('--history')) result = scanHistory(ROOT, P, flag('--ref') ? [flag('--ref')] : ['--all']);
     else result = scanTree(resolve(flag('--tree', ROOT)), P);
     const g = gate(result.findings);
-    const out = { ok: g.length === 0, ...summarize(result.findings), gated: g.length, fail_on: flag('--fail-on', 'medium'), base: result.base ?? undefined, base_identical: result.base_identical ?? undefined, patterns_sha256: P.sha256, findings: has('--quiet') ? undefined : result.findings.slice(0, 2000) };
+    const out = { ok: g.length === 0, ...summarize(result.findings), gated: g.length, fail_on: flag('--fail-on', 'medium'), base: result.base ?? undefined, base_identical: result.base_identical ?? undefined, exempted: result.exempted ?? undefined, patterns_sha256: P.sha256, findings: has('--quiet') ? undefined : result.findings.slice(0, 2000) };
     if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ ...out, findings: result.findings }, null, 1));
     if (mdOut) writeFileSync(mdOut, markdown('privacy.scan', [{ title: 'Findings', findings: result.findings }]));
     if (!has('--quiet') && !jsonOut) console.log(JSON.stringify(out, null, 1)); else console.log(JSON.stringify({ ...out, findings: undefined }));

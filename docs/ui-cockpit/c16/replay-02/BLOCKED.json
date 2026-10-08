@@ -1,0 +1,8 @@
+{
+  "check": "REPLAY-02",
+  "at": "2026-10-07T22:30:40Z",
+  "reason": "No isolated sandbox could be created from this session. The Vercel connector was refused sandbox creation, 403 forbidden (\"You don't have permission to create the vercel sandbox\"), on POST /v4/sandboxes at 22:29:41Z and on POST /v3/sandboxes at 22:30:40Z, both for an existing project of the operator's team with persistent false. No signed-in Vercel CLI was available to this session, and the Cloudflare connector did not connect. Nothing was created and nothing was spent.",
+  "unblock": "Any one of: grant the Vercel connector permission to create sandboxes; sign in the Vercel CLI where this session can use it; reconnect the Cloudflare connector. Then run scripts/ui/replay-sandbox.sh on a full clone at the frozen code's commit, put its freeze.json, results.json, controls.txt and replay.json in this folder, remove this file, and freeze again: the frozen tree may differ from that commit only under docs/ui-cockpit/.",
+  "cap_usd": 3,
+  "spent_usd": 0
+}

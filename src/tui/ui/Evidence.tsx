@@ -9,7 +9,7 @@ import { evidenceLook, type EvidenceState } from '../evidence.js';
 export function Evidence({ state, label }: { state: EvidenceState | 'refused'; label?: string }) {
   if (state === 'refused') return <Text color={theme.refuse}>{`×${label ? ` ${label}` : ''}`}</Text>;
   const look = evidenceLook(state);
-  return <Text color={look.color} bold={look.bold} dimColor={look.dim}>{`${look.glyph}${label ? ` ${label}` : ''}`}</Text>;
+  return <Text color={look.color} bold={look.bold}>{`${look.glyph}${label ? ` ${label}` : ''}`}</Text>;
 }
 
 /** The glyph alone, for fixed-width cells. */

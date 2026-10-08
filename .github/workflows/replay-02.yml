@@ -1,0 +1,101 @@
+name: REPLAY-02
+
+# The UI cockpit's frozen replay (REPLAY-02 in scripts/ui/qualify.ts) on a GitHub-hosted runner: a fresh
+# virtual machine provisioned for this one job, allowed for this replay only by the cockpit exception in
+# AGENTS.md §10. It runs when docs/ui-cockpit/c18/REQUEST changes on feat/ui-cockpit. The request names
+# the commit to replay, and the job replays that commit, not the one that carried the request. The record
+# it keeps names the platform as GitHub Actions, with the runner image, the run and the commit. A request
+# may also say `mode development`: a rehearsal that runs every check and can never serve as evidence.
+on:
+  push:
+    branches: [feat/ui-cockpit]
+    paths: ['docs/ui-cockpit/c18/REQUEST']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: replay-02
+  cancel-in-progress: false
+
+jobs:
+  replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Read the request
+        uses: actions/checkout@v4
+        with:
+          path: request
+
+      - name: The commit to replay
+        id: request
+        run: |
+          commit="$(sed -n 's/^commit \([0-9a-f]\{40\}\)$/\1/p' request/docs/ui-cockpit/c18/REQUEST | head -1)"
+          if [ -z "$commit" ]; then echo "REQUEST names no full commit (a line: commit <40 hex digits>)" >&2; exit 1; fi
+          mode="$(sed -n 's/^mode \(frozen\|development\)$/\1/p' request/docs/ui-cockpit/c18/REQUEST | head -1)"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "mode=${mode:-frozen}" >> "$GITHUB_OUTPUT"
+
+      # A full clone: the replay needs origin/main, from which PROC-01 names the branch's files.
+      - name: A full clone at that commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.request.outputs.commit }}
+          fetch-depth: 0
+          path: clone
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # The image has no tmux. Homebrew is on it, under its linuxbrew home and not on the PATH, and needs
+      # no elevated rights; only tmux itself goes on the PATH. Chromium's system libraries come with the
+      # image's own browsers. (Found by a glob: the privacy gate rightly flags literal home paths.)
+      - name: tmux
+        run: |
+          set -- /home/*/.linuxbrew/bin/brew
+          if [ ! -x "$1" ]; then echo "no Homebrew on this image" >&2; exit 1; fi
+          eval "$("$1" shellenv)"
+          brew install --quiet tmux
+          mkdir -p "$RUNNER_TEMP/bin"
+          ln -s "$(brew --prefix)/bin/tmux" "$RUNNER_TEMP/bin/tmux"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/bin/tmux" -V
+
+      - name: The replay
+        working-directory: clone
+        env:
+          COMMIT: ${{ steps.request.outputs.commit }}
+          MODE: ${{ steps.request.outputs.mode }}
+        run: bash scripts/ui/replay-sandbox.sh "$COMMIT" "$RUNNER_TEMP/replay-02" github-actions "$MODE"
+
+      # The evidence's own hashes, on the run's page: what is later committed can be tied to this run.
+      - name: The record's hashes
+        if: always()
+        working-directory: ${{ runner.temp }}/replay-02
+        run: |
+          {
+            echo '### REPLAY-02 record'
+            echo
+            echo '```'
+            sha256sum freeze.json results.json controls.txt replay.json replay.log 2>&1 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: replay-02-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/replay-02/freeze.json
+            ${{ runner.temp }}/replay-02/results.json
+            ${{ runner.temp }}/replay-02/controls.txt
+            ${{ runner.temp }}/replay-02/replay.json
+            ${{ runner.temp }}/replay-02/replay.log
+            ${{ runner.temp }}/replay-02/setup.log
+            ${{ runner.temp }}/replay-02/q/evidence/*.log
+          if-no-files-found: warn
+          retention-days: 90

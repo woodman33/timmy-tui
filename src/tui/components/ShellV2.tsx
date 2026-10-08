@@ -34,6 +34,7 @@ import { integrationCatalog } from '../../vision/integrations/registry.js';
 import { VisualToolsPanel, type VisualToolRunState } from './VisualToolsPanel.js';
 import { runVisualTool, visualToolsAvailability, visualToolExamples, visualToolsSetup, type VisualOperation } from '../../utils/visual-tools.js';
 import { probeDockerServerVersion } from '../../utils/docker-server.js';
+import { keyAt, lastFrame, parseMouse } from '../mouse.js';
 
 // TUI REDESIGN (spec §01/§02/§03) — IA collapse: nine tabs become four.
 // HOME · RUN · CHAIN · LIBRARY. HOME is the journey ladder: seven steps read
@@ -305,17 +306,31 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
   }, []);
 
   useInput((input, key) => {
+    // C-11: Ctrl+C ends the monitor with 130 (cancelled), in every mode and overlay; the terminal
+    // session (cli.tsx) gives the screen back on exit.
+    if (key.ctrl && input === 'c') process.exit(130);
     if (visualToolsOpen) return;
     // Arrow events navigate HANDS; they are never printable text in a buffer.
     const state = sRef.current;
+    const typing = state.mode === 'INSERT' || state.mode === 'CHAT' || state.overlay === 'refuse' || state.overlay === 'note';
+    // Fourth order, step 2: a click presses the key it lands on (a tab's digit, a hint's key); the wheel
+    // moves like the arrows. While text is being typed, only Enter, Esc and Tab clicks count: a click on
+    // a one-letter hint must not type that letter.
+    const mouse = parseMouse(input);
+    let clicked: string | null = null;
+    if (mouse) {
+      if (!mouse.press) return;
+      clicked = mouse.button === 64 ? 'up' : mouse.button === 65 ? 'down' : mouse.button === 0 ? keyAt(lastFrame(), mouse.x, mouse.y) : null;
+      if (!clicked || (typing && (clicked === 'up' || clicked === 'down' || clicked.length === 1))) return;
+    }
     const arrow = key.upArrow || key.downArrow || key.leftArrow || key.rightArrow;
-    if (arrow && (state.mode === 'INSERT' || state.mode === 'CHAT' || state.overlay === 'refuse' || state.overlay === 'note')) return;
+    if (arrow && typing) return;
     // ui-cockpit-k7m3: arrows reach the reducer as names so the HANDS grid
     // cursor can use them; everything else keeps its raw input char
-    const k = key.return ? 'Enter' : key.escape ? 'Esc' : key.tab ? 'Tab'
+    const k = clicked ?? (key.return ? 'Enter' : key.escape ? 'Esc' : key.tab ? 'Tab'
       : key.backspace || key.delete ? 'backspace'
         : key.upArrow ? 'up' : key.downArrow ? 'down' : key.leftArrow ? 'left' : key.rightArrow ? 'right'
-        : input;
+        : input);
     // CHAT Enter ships the buffer: capture before the reducer clears it
     const chatText = sRef.current.mode === 'CHAT' ? sRef.current.input : '';
     // a ref advanced synchronously: pasted/programmatic chunks can arrive in
@@ -837,7 +852,7 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
                 <Text key={TABS[i]} bold={s.tab === TABS[i]} color={s.tab === TABS[i] ? theme.textPrimary : theme.textMuted}>{t}</Text>
               ))}
               {segs.map((sg, i) => (
-                <Text key={i} color={i === 0 ? evColor(chainEv, theme) : theme.textMuted} bold={i === 0 && chainEv === 'checked'} dimColor={i === 0 && chainEv === 'stale'}>{sg}</Text>
+                <Text key={i} color={i === 0 ? evColor(chainEv, theme) : theme.textMuted} bold={i === 0 && chainEv === 'checked'}>{sg}</Text>
               ))}
             </>
           );
@@ -957,7 +972,7 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
                 activity.slice(0, plans.activityRows).map((row, i) => (
                   <Text key={i} wrap="truncate">
                     <Text color={row.refused ? theme.refuse : row.sealed ? theme.structure : theme.textMuted}>{row.refused ? '× ' : row.sealed ? '● ' : '· '}</Text>
-                    <Text dimColor={!row.refused && !row.sealed} color={row.refused ? theme.danger : theme.textMuted}>{row.line}</Text>
+                    <Text color={row.refused ? theme.danger : theme.textMuted}>{row.line}</Text>
                   </Text>
                 ))
               )}
@@ -1111,7 +1126,7 @@ function HomePane(props: {
             <Text key={r.step.id} wrap="truncate">
               <Text bold color={PAL.seal}>{`✓ ${r.step.verb.padEnd(10)}`}</Text>
               <Text color={PAL.textSecondary}>{r.hash.padEnd(12)}</Text>
-              <Text dimColor color={PAL.textMuted}> {r.fact}</Text>
+              <Text color={PAL.textMuted}> {r.fact}</Text>
             </Text>
           ) : r.state === 'next' && !escrowOrange ? (
             <Text key={r.step.id} bold color={PAL.warn} wrap="truncate">{`▶ ${r.step.verb.padEnd(10)} ${r.fact}`}</Text>
@@ -1125,7 +1140,7 @@ function HomePane(props: {
         {done === rows.length && <Text color={PAL.seal}>journey complete · {done}/{rows.length} sealed</Text>}
       </Card>
       <Box height={1} />
-      <Card title="STATUS" purpose={props.compact ? undefined : 'one line · off is dim, never red'} flexGrow={1}>
+      <Card title="STATUS" purpose={props.compact ? undefined : 'one line · off is hollow (□ ○), never red'} flexGrow={1}>
         <Text wrap="truncate">
           <Text color={PAL.textSecondary}>{`${props.fleet > 0 ? LIVE.on : LIVE.off} fleet · ${props.fleet} available`}</Text>
           <Text color={PAL.textMuted}>{`  bus ${props.busLive ? 'activity seen' : 'quiet'}`}</Text>
@@ -1182,19 +1197,19 @@ function ChainPane(props: {
         const lockCell = (r.env_lock ? hashOf(r.env_lock as unknown as Record<string, unknown>).slice(7, 15) : '').padEnd(14);
         return (
           <Text key={r.id} wrap="truncate">
-            <Text bold={look?.bold} dimColor={look?.dim} color={col}>{statusCell}</Text>
+            <Text bold={look?.bold} color={col}>{statusCell}</Text>
             <Text color={sel ? PAL.textPrimary : PAL.textSecondary}>{` ${hashCell} ${subjectCell}`}</Text>
-            <Text dimColor={!sel && ev !== 'refused'} color={PAL.textMuted}>{lockCell}</Text>
+            <Text color={PAL.textMuted}>{lockCell}</Text>
           </Text>
         );
       })}
       {filtered.length > windowRows.length && (
-        <Text dimColor color={PAL.textMuted} wrap="truncate">{moreLine(filtered.length - windowRows.length, 'receipts', '↑↓ scroll')}</Text>
+        <Text color={PAL.textMuted} wrap="truncate">{moreLine(filtered.length - windowRows.length, 'receipts', '↑↓ scroll')}</Text>
       )}
       <Box height={1} />
       {props.verified ? (
         <>
-          <Text bold={props.chainEv === 'checked'} dimColor={props.chainEv === 'stale'} color={evColor(props.chainEv)} wrap="truncate">
+          <Text bold={props.chainEv === 'checked'} color={evColor(props.chainEv)} wrap="truncate">
             {`${evidenceGlyph(props.chainEv)} chain ${props.chainEv === 'refused' ? 'BROKEN' : 'ok'} · ${props.verified.count} receipts · ${props.verified.epochs} epochs · head ${props.verified.head}${props.chainEv === 'stale' ? ` · ${props.sinceVerify} appended since` : ''}`}
           </Text>
           <Text color={PAL.textMuted} wrap="truncate">
@@ -1224,7 +1239,7 @@ function DetailPane({ rec, covered }: { rec: Receipt | null; covered: (r: Receip
   const look = ev === 'refused' ? null : evidenceLook(ev);
   return (
     <Card title="DETAIL" purpose="fixed fields · schema names" flexGrow={1}>
-      <Text bold={look?.bold} dimColor={look?.dim} color={evColor(ev)} wrap="truncate">{`${evidenceGlyph(ev)} prev_hash ${prevLabel8(String(rec.prev_hash))} → hash ${rec.hash.slice(7, 15)}`}</Text>
+      <Text bold={look?.bold} color={evColor(ev)} wrap="truncate">{`${evidenceGlyph(ev)} prev_hash ${prevLabel8(String(rec.prev_hash))} → hash ${rec.hash.slice(7, 15)}`}</Text>
       <Text color={PAL.textSecondary} wrap="truncate">kind     {rec.kind}</Text>
       <Text color={PAL.textSecondary} wrap="truncate">policy   {rec.policy}</Text>
       <Text color={PAL.textSecondary} wrap="truncate">ts       {stamp(rec.ts)}</Text>
@@ -1272,7 +1287,7 @@ function RunsPane(props: {
             return (
               <Text key={r.id} wrap="truncate">
                 <Text color={sel ? PAL.textPrimary : col}>{`${sel ? '▶' : ' '} ${r.lane.slice(0, 13).padEnd(14)}`}</Text>
-                <Text bold={look?.bold} dimColor={look?.dim} color={col}>{`${evidenceGlyph(ev)} ${r.state}`.padEnd(10)}</Text>
+                <Text bold={look?.bold} color={col}>{`${evidenceGlyph(ev)} ${r.state}`.padEnd(10)}</Text>
                 <Text color={PAL.textMuted}>{r.dur.padEnd(7)}</Text>
                 <Text color={col}>{r.state === 'running' ? bar : r.hash}</Text>
               </Text>
@@ -1331,7 +1346,7 @@ function LivePane(props: { row: RunRow | undefined; recs: Receipt[]; covered: (r
         const look = ev === 'refused' ? null : evidenceLook(ev);
         return (
           <Text key={i} wrap="truncate">
-            <Text bold={look?.bold} dimColor={look?.dim} color={evColor(ev)}>{evidenceGlyph(ev)}</Text>
+            <Text bold={look?.bold} color={evColor(ev)}>{evidenceGlyph(ev)}</Text>
             <Text color={ev === 'refused' ? PAL.danger : PAL.textSecondary}>
               {` ${stamp(r.ts)} ${ev === 'refused' ? `${r.status === 'denied' ? 'DEN' : 'FAIL'} ${String(r.subject).slice(0, 22)}` : String(r.subject).slice(0, 27)}`}
             </Text>
@@ -1354,6 +1369,8 @@ function EscrowPane({ escrow, requester, compact }: { escrow: Escrow; requester:
     </Card>
   );
 }
+/** The MODELS table's column names, in the row's own widths: marker, model 20, ctx 5, $in/$out 10, caps 9, spend 6, node 6, the ◉ mark, fit. */
+const MODELS_HEADER = `  ${'model'.padEnd(20)} ${'ctx'.padEnd(5)} ${'$in/$out'.padEnd(10)} ${'caps'.padEnd(9)} ${'spend'.padEnd(6)} ${'node'.padEnd(6)} fit`;
 // SPEC §06 — LIBRARY: MODELS picker (role-grouped, fuzzy /, pinned float,
 // real spend from receipts), FLEET (● connected / ○ not configured dim, with
 // the harness→model route from harness.policy), BOARDS + PROJECTS.
@@ -1367,7 +1384,8 @@ export function ModelsPane(props: {
   // C5: the cap counts ROWS — models plus the role headers of models in view
   // (a role whose models are all out of the window is not drawn) — and the
   // window shrinks until models + headers fit; the overflow line counts the rest
-  const maxRows = Math.max(4, props.maxRows ?? 22);
+  // Fourth order, step 2: the column header (below) takes one row of the budget.
+  const maxRows = Math.max(4, (props.maxRows ?? 22) - 1);
   const modelIdx = props.view.map((r, i) => (r.m ? i : -1)).filter(i => i >= 0);
   // The shell cursor indexes selectable models, not the interleaved role rows.
   const pos = Math.max(0, Math.min(props.selected, modelIdx.length - 1));
@@ -1390,6 +1408,8 @@ export function ModelsPane(props: {
   return (
     <Box flexDirection="column">
       <Card title="MODELS" purpose={props.compact ? undefined : `from models.registry · ${props.filter ? `/ ${props.filter}` : '[/] fuzzy filter'} · ${modelIdx.length} models`} flexGrow={1} overflow={moreLine(hiddenModels, 'models', '↑↓ scroll')}>
+        {/* Fourth order, step 2 (labels): the columns are named, so no cell, the ◉ fit among them, is a bare mark */}
+        {shown.length > 0 ? <Text color={PAL.textMuted} wrap="truncate">{MODELS_HEADER}</Text> : null}
         {shown.length === 0 ? <Text color={PAL.textMuted}>no models match</Text> : shown.map(({ row, g }, i) => {
           if (row.role) return <Text key={`r${i}`} bold color={PAL.textMuted}>{`role: ${row.role} ▾`}</Text>;
           const m = row.m as ModelEntry;
@@ -1518,8 +1538,8 @@ function LogRain({ events, maxRows, compact }: { events: { line: string; refused
     <Card title="LOG RAIN" purpose={compact ? undefined : 'bus events enter at the top, falling, dimming'} flexGrow={1}>
       {events.length === 0 ? <Text color={PAL.textMuted}>quiet</Text> : events.slice(0, Math.max(1, Math.min(14, maxRows ?? 14))).map((e, i) => (
         <Text key={i} wrap="truncate">
-          <Text color={e.refused ? PAL.refuse : e.sealed ? PAL.structure : PAL.textMuted} dimColor={i > 8}>{e.refused ? '× ' : e.sealed ? '● ' : '· '}</Text>
-          <Text color={e.refused ? PAL.danger : i < 3 ? PAL.textSecondary : PAL.textMuted} dimColor={!e.refused && i >= 3}>{e.line.slice(0, 38)}</Text>
+          <Text color={e.refused ? PAL.refuse : e.sealed ? PAL.structure : PAL.textMuted}>{e.refused ? '× ' : e.sealed ? '● ' : '· '}</Text>
+          <Text color={e.refused ? PAL.danger : i < 3 ? PAL.textSecondary : PAL.textMuted}>{e.line.slice(0, 38)}</Text>
         </Text>
       ))}
     </Card>
@@ -1818,7 +1838,7 @@ function HandsPane(props: { board: ck.Board; recs: Receipt[]; covered: (r: Recei
                 const ev: EvidenceState | 'refused' | null = !h8 ? null : rec ? receiptEvidence(rec, { verified: props.covered(rec) }) : 'declared';
                 const look = ev && ev !== 'refused' ? evidenceLook(ev) : null;
                 return ev
-                  ? <Text bold={look?.bold} dimColor={look?.dim} color={evColor(ev)}>{`${evidenceGlyph(ev)}${h8}`.padEnd(9)}</Text>
+                  ? <Text bold={look?.bold} color={evColor(ev)}>{`${evidenceGlyph(ev)}${h8}`.padEnd(9)}</Text>
                   : <Text color={PAL.textMuted}>{'· —'.padEnd(9)}</Text>;
               })()}
               {ck.ROUNDS.map((r, c) => {

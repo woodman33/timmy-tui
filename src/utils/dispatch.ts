@@ -2,8 +2,8 @@
 // Equip riders; don't ride: this PREPARES, ARMS and LAUNCHES work into
 // existing harness lanes (LANE_RUNNERS + tmux vocabulary). It is not a second
 // scheduler; the later tldraw Mission Map compiles into these same calls.
-import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, readdirSync } from 'fs';
-import { join, dirname, resolve } from 'path';
+import { accessSync, constants, existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, readdirSync, statSync } from 'fs';
+import { delimiter, join, dirname, resolve } from 'path';
 import { spawnSync } from 'child_process';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
@@ -85,9 +85,16 @@ export function validatePlanCue(plan: unknown, dir?: string): { ok: boolean; not
   return { ok: true };
 }
 
+/** Whether `cmd` is an executable on PATH. No shell: Node 24 warns (DEP0190) on a shell with arguments. */
+function onPath(cmd: string): boolean {
+  return (process.env.PATH ?? '').split(delimiter).filter(Boolean).some((dir) => {
+    try { accessSync(join(dir, cmd), constants.X_OK); return statSync(join(dir, cmd)).isFile(); } catch { return false; }
+  });
+}
+
 export function listLanes(): { id: string; label: string; available: boolean; install?: string; model?: string }[] {
   return Object.entries(LANE_RUNNERS).map(([id, r]) => ({
-    id, label: r.label, available: spawnSync('command', ['-v', r.cmd], { encoding: 'utf8', shell: true }).status === 0,
+    id, label: r.label, available: onPath(r.cmd),
     install: r.install, model: r.model
   }));
 }

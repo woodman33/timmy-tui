@@ -1,0 +1,62 @@
+name: tldraw license
+
+# Plan F-4: checks the operator's tldraw license, stored as the Actions secret TLDRAW_LICENSE_KEY,
+# with tldraw's own LicenseManager (offline). Runs only when started by hand:
+#   gh workflow run tldraw-license.yml && gh run watch
+# The §12 controls run first (licenses signed by the test's own key pair, a wrong host, an expired
+# license, a forged key, garbage, no key); only if they all behave does the secret get checked.
+# The log and the commit status show only the verdict: never the key, never the licensed domains.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install tldraw's license code (the pinned versions)
+        run: |
+          # 5.5.2: Timmy Canvas (src/studio/config.ts). 3.15.0: the Mission Map.
+          for v in 5.5.2 3.15.0; do
+            npm install --prefix "$RUNNER_TEMP/tldraw-$v" --ignore-scripts --no-audit --no-fund "@tldraw/editor@$v"
+          done
+
+      - name: Controls first (§12)
+        env:
+          TLDRAW_EDITORS: 5.5.2=${{ runner.temp }}/tldraw-5.5.2/node_modules/@tldraw/editor,3.15.0=${{ runner.temp }}/tldraw-3.15.0/node_modules/@tldraw/editor
+        run: node --test scripts/tldraw/license-check.test.mjs
+
+      - name: Check the license secret
+        id: verdict
+        env:
+          TLDRAW_LICENSE_KEY: ${{ secrets.TLDRAW_LICENSE_KEY }}
+          EDITOR: ${{ runner.temp }}/tldraw-5.5.2/node_modules/@tldraw/editor
+        run: |
+          set +e
+          node scripts/tldraw/license-check.mjs --editor "$EDITOR"
+          status=$?
+          summary=$(node scripts/tldraw/license-check.mjs --editor "$EDITOR" --summary)
+          echo "summary=${summary:0:140}" >> "$GITHUB_OUTPUT"
+          echo "state=$([ $status -eq 0 ] && echo success || echo failure)" >> "$GITHUB_OUTPUT"
+          exit $status
+
+      - name: Post the verdict on the commit
+        if: always() && steps.verdict.outputs.state != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE: ${{ steps.verdict.outputs.state }}
+          SUMMARY: ${{ steps.verdict.outputs.summary }}
+        run: |
+          gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state="$STATE" -f context="tldraw-license" -f description="$SUMMARY"

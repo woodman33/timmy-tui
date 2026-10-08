@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import { computeReceiptHash, Receipt } from '../receipt/schema.js';
 import { VERSION } from '../version.js';
+import { canvasSummary } from './canvas.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -191,6 +192,11 @@ export async function startCompanionServer(port = 3001): Promise<CompanionServer
   });
 
   // Serve Clerk publishable key dynamically
+  // Fourth order, step 5: the CANVAS tab reads Timmy Canvas's revision, source revision and jobs,
+  // read-only, never the drawing (this server can be reached from a phone on the network).
+  app.get('/api/canvas', (_req, res) => {
+    res.set('Cache-Control', 'no-store').json(canvasSummary(process.env));
+  });
   app.get('/api/clerk-config', (_req, res) => {
     res.json({
       publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || ""

@@ -1,0 +1,73 @@
+05:21:25 clone at 874a4d397d2dc0941e78dc93aa0f6954e4c5fefc, clean; tmux 3.7c; node v24.21.0
+05:21:38 npm ci in 13s
+05:21:52 Chromium: started
+frozen: 2150 files, manifest 942033d2de86, runner 7f88413410d9, store 0 bytes
+05:21:53 frozen; the run starts (development)
+controls: 31 negative controls fail as they should, 8 positive controls pass
+PASS PROC-01 164 files changed since the branch left main at 08006fb; every bare import is declared in package.json
+PASS CLI-01 REPL --demo: 93 synced writes, 0 ESC[2J, 145 ESC[K; monitor: 3 synced writes, 0 ESC[2J
+PASS CLI-02 125 frames over the 10s hold (about 80ms each)
+PASS CLI-03 keypress events with key.ctrl/key.meta; the hint names Enter, Ctrl+J and /
+PASS CLI-04 10 keys, median 8ms, slowest 8ms (tmux round trips included)
+PASS CLI-05 exit 130, stty unchanged, cursor visible
+PASS CLI-06 "Cancelled." then the prompt; the REPL kept running
+PASS CLI-07 exit 130, stty unchanged, cursor visible
+PASS CLI-08 Esc closed the slash menu (after readline's 500ms hold on a lone ESC); Esc at NEEDS YOU denied
+PASS CLI-09 "q" typed into the input; the banner says "/exit to quit"
+PASS CLI-10 REPL input redrawn at 60 with its text; monitor frame within 70 after 100
+PASS CLI-11 the demo turn at 60 and 80: no joined line wider than the terminal
+PASS CLI-12 0 bytes above 0x7F; ASCII glyphs in the transcript
+PASS CLI-13 REPL: no ESC[?1049h, the turn stays in scrollback; monitor: ESC[?1049h then ESC[?1049l, the earlier shell text intact
+PASS CLI-14 Enter at NEEDS YOU denied, the default it shows
+PASS CLI-15 repl --bogus → 2: Unknown option: --bogus. Try timmy repl --help.; receipts --last x → 2: timmy receipts: --last needs a whole number of 1 or more.; theme install --terminal nope → 2: timmy theme: no theme for "nope". Terminals: ghostty, kitty, alacritty, wezterm, iterm2, zellij.
+PASS CLI-16 "Working" after 7ms (tmux round trips included)
+PASS CLI-17 at about 3.5s: "Working 3.5s"
+PASS CLI-19 the demo turn ends on "✓ RECEIPT …"
+PASS CLI-20 with NO_COLOR=1 the turn keeps ✓, ● and └ and its words
+PASS CLI-21 in the flow and at startup: Error, Cause, Try and Help
+PASS CLI-22 no color parameter in the raw bytes with NO_COLOR=1
+PASS CLI-23 color parameters through a pipe by FORCE_COLOR value: 0: 0, 1: 23, 2: 26, 3: 26
+PASS CLI-24 no cursor movement, erase, sync or color with TERM=dumb
+PASS CLI-25 piped stdout: the answer and no escape byte
+PASS CLI-26 CI=true in a PTY: no input drawn, exit 78 with the fix
+PASS CLI-27 timmy repl --help → 0, timmy repl -h → 0, timmy receipts --help → 0, timmy theme --help → 0; --version → 2.0.0-rc.2
+PASS CLI-28 receipts --json and --quiet, theme --json
+PASS CLI-29 timmy -v, --version, version and repl -v: "timmy-tui v2.0.0-rc.2" and nothing else, exit 0; no -v row with another meaning in timmy --help or timmy repl --help
+PASS CLI-30 piped with no key: exit 78 after 1091ms naming "timmy init"; no terminal query
+PASS CLI-31 the answer on stdout with no spinner frame; the error on stderr only
+PASS CLI-32 an unknown verb exits 2; 14 PTY exits so far, all in the set: 0, 78, 130
+PASS CLI-33 REPL mid-turn: 143 after 57ms, stty unchanged, cursor on, bracketed paste off; monitor: 143, screen restored
+PASS CLI-34 monitor Ctrl+C: 130, stty unchanged, cursor on, alternate screen left
+PASS CLI-35 TERM=xterm: 45 basic color parameters, no 256 or truecolor
+PASS CLI-36 the answer wrapped to 3 lines, the widest 77 columns, at 120
+PASS CLI-37 --plain: no cursor-up, no sync, no carriage-return redraw; the answer printed
+PASS BIN-01 bare timmy: an empty first-run prompt, where /exit exits 0; SIGTERM to timmy mid-turn: 143, stty unchanged, cursor on and at column 0, no REPL left
+PASS TUI-02 bold "Read" over └ preview lines in the demo turn
+PASS TUI-04 at about 30s: "⠹ Running npm run render:storyboard 29.9s", still moving; then the result
+PASS TUI-05 three tinted rows before and after typing, › prompt
+PASS TUI-06 NO_COLOR: bordered, ─ rules above and below the › prompt
+PASS TUI-07 the input reads "› aXb世界 pasted": insert with Left, CJK, one backspace removed the emoji whole, bracketed paste
+PASS TUI-08 prompt above the reply in scrollback; the next input empty
+PASS TUI-09 contrast gate PASS: night/tc, night/256, day/tc, day/256
+PASS TUI-10 echo hi | REPL: the answer, exit 0, no OSC 11 or DA1 query, no bracketed paste
+PASS TUI-11 text, then the tool group, then the whole second message
+PASS TUI-12 SGR reset after the last line; never two blank lines in a row
+PASS TUI-13 see CLI-05, CLI-06 and CLI-07 (same runs)
+PASS TUI-14 "✖ Error:" with its cause and fix in the flow, then the prompt
+PASS TUI-15 tests/repl-agent-send.test.ts passes (unit level: retries 429, 5xx and connection errors with backoff; not a PTY run)
+PASS CAP-night-60 gate PASS: repl-turn, first-run, setup, menu, monitor, follow
+PASS CAP-night-80 gate PASS: repl-turn, first-run, setup, menu, monitor, follow
+PASS CAP-night-120 gate PASS: repl-turn, first-run, setup, menu, monitor, follow
+PASS CAP-day-60 gate PASS: repl-turn, first-run, setup, menu, monitor, follow
+PASS CAP-day-80 gate PASS: repl-turn, first-run, setup, menu, monitor, follow
+PASS CAP-day-120 gate PASS: repl-turn, first-run, setup, menu, monitor, follow
+PASS COPY-01 none in the 30 captures, the three help texts, or the strings of 35 source files
+PASS SUITE-01 Test Files  66 passed | 1 skipped (67); Tests  484 passed | 2 skipped (486)
+PASS SUITE-02 tsc 0, tsgo 0; privacy gate: 0 gated, 385 review-level matches in 110 files
+PASS CANVAS-01 Tests 7 passed (7), in a real Chromium
+PASS REPLAY-01 clean clone of 874a4d3 (the frozen tree is that commit) = the frozen tree (manifest identical); npm ci in 10s; repl --help; the demo turn in a PTY (exit 0, stty unchanged, gate PASS); 4 suites pass in the clone
+PASS INSTALL-01 timmy-tui-2.0.0-rc.2.tgz from a clean clone of 874a4d3: 1066 files, sha256 4fa62ecba0dc84e9b5ef7e57601f12aadc6b947c173a4a75c57ec6e04b86e63f, release check passed; installed by npm 11.19.0 into an empty prefix and run with Node v24.21.0: -v prints "timmy-tui v2.0.0-rc.2"; init and the doctor name timmy, never npm start (the doctor's preflight: 3 ok, 4 missing, 1 warnings, BLOCKED; its text kept); bare timmy opens an empty first-run prompt, where /exit exits 0; SIGTERM mid-turn: 143, stty unchanged, cursor on at column 0, no REPL left; timmy studio serves the page and its bundle (1985968 bytes) and names <TIMMY_HOME>/canvas
+PASS PRES-01 .timmy/receipts/runs.jsonl: 0 bytes, identical to the preimage
+PASS PRES-02 2150 files, manifest identical to the freeze
+DEV RUN: 65 passed, 0 failed, 4 deferred, 2 not run
+05:31:22 done: runner exit 0

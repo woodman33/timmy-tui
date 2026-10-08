@@ -1,0 +1,22 @@
+# Timmy Night for Ghostty (generated from src/term/palettes.ts by scripts/ui/themes.ts; do not edit)
+background = #000000
+foreground = #ffffff
+background-opacity = 1
+cursor-color = #ffffff
+selection-background = #3a3a3a
+palette = 0=#1a1a1a
+palette = 1=#ff3b3b
+palette = 2=#33ff66
+palette = 3=#ffb020
+palette = 4=#6ca0ff
+palette = 5=#8b5cf6
+palette = 6=#5fd7ff
+palette = 7=#d0d0d0
+palette = 8=#6c6c6c
+palette = 9=#ff6b6b
+palette = 10=#5fff87
+palette = 11=#ffc857
+palette = 12=#9cc2ff
+palette = 13=#a78bfa
+palette = 14=#8be9ff
+palette = 15=#ffffff

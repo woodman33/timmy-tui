@@ -1,0 +1,14 @@
+23c0a6eae683588ca325b090281dc9bc2463b19953a637ff294a5d08352e437d  docs/ui-cockpit/c16/README.md
+7e2b78861782233d3b19225b972712ec1bab5d8384a01761904aa0ef1f002cd7  docs/ui-cockpit/c16/controls.txt
+b2248f5fe1ff41a1f6a46d6256ed9fb891b41dd94d91853aa08adcb5c2f8b4f5  docs/ui-cockpit/c16/freeze.json
+cc65818f0e9786515adf3ba9df33e0f5921cc3b771a50273cf9be393ef5ae447  docs/ui-cockpit/c16/live-01/00-setup.txt
+d7bc45e4bbbf7730deaad33e66c136108e758936076d0cb6cecdf5971cc3f299  docs/ui-cockpit/c16/live-01/01-tool-turn.txt
+ccce86220c82786b19b6c243cba8403d6834f472b6fddf9e4241aafe2871a948  docs/ui-cockpit/c16/live-01/02-interrupt.txt
+f66fc4261ea1f91d5ef4f91ed9eac168d793b4d01820645054945d5da6e63c60  docs/ui-cockpit/c16/live-01/03-prompt-after.txt
+d80b817945599990760595eef0d2543cc72fbd1ae98521271095cef97fa7dc17  docs/ui-cockpit/c16/live-01/04-second-turn.txt
+a86c20bbf01f19976fe85ae57d22c34edd158a966bdd38554d2050fc4626cf34  docs/ui-cockpit/c16/live-01/05-third-turn.txt
+83de31eb686f89eefc0203afc67cd4624a58e354bed505894e6877214df1a892  docs/ui-cockpit/c16/live-01/06-exit.txt
+8c57938eac335807a0aa5daa36829fea35de6ba7df84d75f114874b2fc6f4fa1  docs/ui-cockpit/c16/live-01/live-01.json
+f24b38f53a6e91713e0874ab1b6786bacaf1e988901382249b72121f88d1ebba  docs/ui-cockpit/c16/live-01/receipts.json
+4ede564350a5d82b1e8e6928097c1774264f50f2626d410a89857ebbd78c87b3  docs/ui-cockpit/c16/replay-02/BLOCKED.json
+f9f01b27d4f75e72c61e5b27afc4c184bea5f363f47818d5f4b08eb0de3f1dd8  docs/ui-cockpit/c16/results.json
