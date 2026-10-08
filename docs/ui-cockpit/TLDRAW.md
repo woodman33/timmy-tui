@@ -60,6 +60,9 @@ MIT, ISC, BSD, Apache-2.0, 0BSD and tldraw's.
    license texts (for example an ignore path for `companion/studio-canvas/LICENSE-tldraw.md` and
    `companion/studio-canvas/licenses/`), or keep them in the private overlay for package builds on
    your machine, or keep the canvas out of the package. Until then a package cannot be built.
+   On 2026-10-07 at 17:06 the operator asked for the exception, prepared for review. Its exact form,
+   pinned to each file's path and bytes, is in `LICENSE-EXCEPTION.md` with `license-exception.patch`.
+   It is not applied.
 
 The Mission Map (`studio/tldraw-mission-map`, tldraw 3.15.0 from a CDN) is another hand's lab and is
 left as it is.

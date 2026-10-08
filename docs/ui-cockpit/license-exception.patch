@@ -1,0 +1,327 @@
+diff --git a/lanes/privacy/patterns.json b/lanes/privacy/patterns.json
+index 18790c9..4ae04d8 100644
+--- a/lanes/privacy/patterns.json
++++ b/lanes/privacy/patterns.json
+@@ -304,5 +304,19 @@
+    "sha256": null,
+    "note": "family names: the operator adds each with `timmy privacy hash-term <name> --add --id identity.family --severity high` (one entry per name; this null entry is inert)"
+   }
++ ],
++ "exempt_blobs": [
++  {
++   "path": "companion/studio-canvas/LICENSE-tldraw.md",
++   "sha256": "9578fcddc20e404b6a29f44b6fea81d8b331698c0e7e9be34132d6f4394fa533",
++   "patterns": ["pii.email"],
++   "why": "the tldraw license, verbatim from the v5.5.2 tag (commit c58cfd57); it requires a verbatim copy in any distribution. Its one match is tldraw's published sales address (line 5). The canvas build pins the same sha256."
++  },
++  {
++   "path": "companion/studio-canvas/licenses/react-remove-scroll-bar.LICENSE",
++   "sha256": "a79aae0c0f21990d9d963bb3c5a79cdcea9a46f8523ba55c58d7fe776b6ebc84",
++   "patterns": ["pii.email"],
++   "why": "the MIT license of react-remove-scroll-bar (bundled with tldraw; its 2.3.8 package ships none), verbatim from its repository at commit 8ca9ba5e; MIT requires the notice in copies. Its one match is the author's address in the copyright line (line 3)."
++  }
+  ]
+ }
+diff --git a/lanes/privacy/scan.d.mts b/lanes/privacy/scan.d.mts
+index 6d39ae5..0ff1242 100644
+--- a/lanes/privacy/scan.d.mts
++++ b/lanes/privacy/scan.d.mts
+@@ -19,6 +19,8 @@ export interface PatternSet {
+   ignore: RegExp[];
+   /** sha256(lowercased identity term) → id/severity (blank-slate-v1k9) */
+   hashed: Map<string, { id: string; severity: Severity }>;
++  /** exempt blobs (EXEMPT_RULE): path → the pinned sha256 of its bytes and the pattern ids it drops */
++  exempt: Map<string, { sha256: string; patterns: Set<string> }>;
+   sha256: string;
+   file: string;
+ }
+@@ -46,6 +48,10 @@ export interface Summary {
+ 
+ /** The sealed base-identical rule text (privacy.rule). */
+ export const BASE_RULE: string;
++/** The sealed exempt-blob rule text (privacy.rule). */
++export const EXEMPT_RULE: string;
++/** EXEMPT_RULE: the findings left for this exact path and these exact bytes; `dropped` counts the rest. */
++export function exemptFilter(P: PatternSet, path: string, bytes: string | Uint8Array, found: Finding[]): { kept: Finding[]; dropped: number };
+ /** The base ref for the base-identical rule (default origin/main; a `A..B` ref uses A), or null. */
+ export function resolveBase(dir: string, refs?: string[]): string | null;
+ export const TOKEN_RX: RegExp;
+@@ -53,9 +59,9 @@ export function hashTerm(term: string): string;
+ export function loadPatterns(file?: string): PatternSet;
+ export function scanText(text: string, file: string, P: PatternSet, where: string, extra?: Record<string, unknown>): Finding[];
+ export function treeFiles(dir: string): string[];
+-export function scanTree(dir: string, P: PatternSet, where?: string): { findings: Finding[]; files: number; scanned: number };
+-export function scanStaged(dir: string, P: PatternSet, base?: string | null): { findings: Finding[]; files: number; base: string | null; base_identical: number };
+-export function scanHistory(dir: string, P: PatternSet, refs?: string[], base?: string | null): { findings: Finding[]; commits: number; blobs: number; base: string | null; base_identical: number };
++export function scanTree(dir: string, P: PatternSet, where?: string): { findings: Finding[]; files: number; scanned: number; exempted: number };
++export function scanStaged(dir: string, P: PatternSet, base?: string | null): { findings: Finding[]; files: number; base: string | null; base_identical: number; exempted: number };
++export function scanHistory(dir: string, P: PatternSet, refs?: string[], base?: string | null): { findings: Finding[]; commits: number; blobs: number; base: string | null; base_identical: number; exempted: number };
+ export function classify(findings: Finding[], treeSet: Set<string>): Array<Finding & { in_tree: boolean }>;
+ export function summarize(findings: Finding[]): Summary;
+ export function markdown(title: string, sections: Array<{ title: string; note?: string; findings?: Finding[]; limit?: number }>): string;
+diff --git a/lanes/privacy/scan.mjs b/lanes/privacy/scan.mjs
+index 6cd1161..d585198 100644
+--- a/lanes/privacy/scan.mjs
++++ b/lanes/privacy/scan.mjs
+@@ -37,6 +37,9 @@ const sha = (s) => createHash('sha256').update(s).digest('hex');
+ /** The sealed rule text (privacy.rule). Change the version when the semantics change. */
+ export const BASE_RULE = 'privacy.rule base-identical v1: a staged or history blob that is byte-identical to the blob at the same path on the base ref (default origin/main; a --ref A..B history scan uses A) is not a new leak and is skipped by the staged and history scans, counted as base_identical. The tree scan never applies this rule. Decided by the operator on 2026-09-11 (ORDER privacy-d5n9, option 1: no force-push, no history rewrite).';
+ 
++/** The sealed rule text for exempt blobs (patterns.json exempt_blobs). Change the version when the semantics change. */
++export const EXEMPT_RULE = 'privacy.rule exempt-blob v1: the tree, staged and history scans drop the findings of the patterns an exempt_blobs entry names for a file whose path is the entry\'s path and whose bytes have the entry\'s sha256, and count them as exempted. Any other bytes at that path, the same bytes at any other path, and every pattern the entry does not name are scanned in full. A malformed entry stops the gate. For third-party texts that must ship verbatim (license texts naming their authors).';
++
+ /** The base ref for the base-identical rule, or null when disabled / unresolvable. */
+ export function resolveBase(dir, refs = []) {
+   if (has('--no-base')) return null;
+@@ -58,11 +61,21 @@ export function loadPatterns(file = flag('--patterns', join(HERE, 'patterns.json
+   // hashed identity terms (blank-slate-v1k9): sha256(lowercased term) → { id, severity }
+   const hashed = new Map();
+   for (const t of p.hashed_terms ?? []) if (typeof t.sha256 === 'string' && /^[0-9a-f]{64}$/.test(t.sha256)) hashed.set(t.sha256, { id: t.id, severity: t.severity });
++  // exempt blobs (EXEMPT_RULE): path → { sha256, patterns }; a malformed entry throws, so the gate fails closed
++  const ids = new Set(p.patterns.map((x) => x.id));
++  const exempt = new Map();
++  for (const e of p.exempt_blobs ?? []) {
++    const ok = e && typeof e.path === 'string' && e.path && !e.path.includes('*') && typeof e.sha256 === 'string' && /^[0-9a-f]{64}$/.test(e.sha256)
++      && Array.isArray(e.patterns) && e.patterns.length > 0 && e.patterns.every((id) => ids.has(id)) && typeof e.why === 'string' && e.why.trim();
++    if (!ok || exempt.has(e.path)) throw new Error(`patterns.json exempt_blobs: malformed or repeated entry ${JSON.stringify(e?.path ?? e)}`);
++    exempt.set(e.path, { sha256: e.sha256, patterns: new Set(e.patterns) });
++  }
+   return {
+     patterns: p.patterns.map((x) => ({ ...x, rx: new RegExp(x.re, (x.flags ?? '') + 'g') })),
+     allow: p.allow.map((a) => new RegExp(a)),
+     ignore: p.ignore_paths.map((a) => new RegExp(a)),
+     hashed,
++    exempt,
+     sha256: sha(readFileSync(file, 'utf8')),
+     file
+   };
+@@ -105,6 +118,14 @@ export function scanText(text, file, P, where, extra = {}) {
+   return out;
+ }
+ 
++/** EXEMPT_RULE: the findings left after an exempt entry for this exact path and these exact bytes; `dropped` counts the rest. */
++export function exemptFilter(P, path, bytes, found) {
++  const e = P.exempt?.get(path);
++  if (!e || sha(bytes) !== e.sha256) return { kept: found, dropped: 0 };
++  const kept = found.filter((f) => !e.patterns.has(f.pattern));
++  return { kept, dropped: found.length - kept.length };
++}
++
+ const isBinary = (buf) => { const n = Math.min(buf.length, 8000); for (let i = 0; i < n; i++) if (buf[i] === 0) return true; return false; };
+ 
+ function git(dir, argv, big = false) {
+@@ -121,7 +142,7 @@ export function treeFiles(dir) {
+ export function scanTree(dir, P, where = 'tree') {
+   const findings = [];
+   const files = treeFiles(dir);
+-  let scanned = 0;
++  let scanned = 0, exempted = 0;
+   for (const f of files) {
+     if (P.ignore.some((rx) => rx.test(f))) continue;
+     const abs = join(dir, f);
+@@ -130,15 +151,17 @@ export function scanTree(dir, P, where = 'tree') {
+     const buf = readFileSync(abs);
+     if (isBinary(buf)) continue;
+     scanned++;
+-    findings.push(...scanText(buf.toString('utf8'), f, P, where, { tree: relative(ROOT, dir) || '.' }));
++    const { kept, dropped } = exemptFilter(P, f, buf, scanText(buf.toString('utf8'), f, P, where, { tree: relative(ROOT, dir) || '.' }));
++    exempted += dropped;
++    findings.push(...kept);
+   }
+-  return { findings, files: files.length, scanned };
++  return { findings, files: files.length, scanned, exempted };
+ }
+ 
+ export function scanStaged(dir, P, base = resolveBase(dir)) {
+   const names = git(dir, ['diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z']).out.split('\0').filter(Boolean);
+   const findings = [];
+-  let baseIdentical = 0;
++  let baseIdentical = 0, exempted = 0;
+   for (const f of names) {
+     if (P.ignore.some((rx) => rx.test(f))) continue;
+     if (base) {
+@@ -147,20 +170,22 @@ export function scanStaged(dir, P, base = resolveBase(dir)) {
+     }
+     const blob = spawnSync('git', ['show', `:${f}`], { cwd: dir, maxBuffer: 64 * 1024 * 1024 });
+     if (blob.status !== 0 || isBinary(blob.stdout)) continue;
+-    findings.push(...scanText(blob.stdout.toString('utf8'), f, P, 'staged'));
++    const { kept, dropped } = exemptFilter(P, f, blob.stdout, scanText(blob.stdout.toString('utf8'), f, P, 'staged'));
++    exempted += dropped;
++    findings.push(...kept);
+   }
+-  return { findings, files: names.length, base, base_identical: baseIdentical };
++  return { findings, files: names.length, base, base_identical: baseIdentical, exempted };
+ }
+ 
+ /**
+- * Every blob ever reachable from the given refs (default: --all), scanned once per blob and
++ * Every blob ever reachable from the given refs (default: --all), scanned once per blob and path, and
+  * attributed to the first commit that introduced it (oldest first), with the paths it lived at.
+  */
+ export function scanHistory(dir, P, refs = ['--all'], base = resolveBase(dir, refs)) {
+   const log = git(dir, ['log', ...refs, '--reverse', '--format=%H %ct %s', '--name-status', '--diff-filter=AM', '--no-renames'], true).out;
+-  const seen = new Map(); // blob sha → finding count (skip repeats)
++  const seen = new Map(); // "blob path" → finding count (each blob once per path, so an exemption at one path never covers a copy at another)
+   const findings = [];
+-  let commit = null, when = null, subject = null, blobs = 0, commits = 0, baseIdentical = 0;
++  let commit = null, when = null, subject = null, blobs = 0, commits = 0, baseIdentical = 0, exempted = 0;
+   const lines = log.split('\n');
+   for (const l of lines) {
+     const mc = l.match(/^([0-9a-f]{40}) (\d+) (.*)$/);
+@@ -172,17 +197,18 @@ export function scanHistory(dir, P, refs = ['--all'], base = resolveBase(dir, re
+     const rev = git(dir, ['rev-parse', `${commit}:${path}`]);
+     if (!rev.ok) continue;
+     const blob = rev.out.trim();
+-    if (seen.has(blob)) continue;
+-    seen.set(blob, 0);
++    if (seen.has(`${blob} ${path}`)) continue;
++    seen.set(`${blob} ${path}`, 0);
+     if (base && blob === baseBlob(dir, base, path)) { baseIdentical++; continue; } // BASE_RULE
+     const content = spawnSync('git', ['cat-file', '-p', blob], { cwd: dir, maxBuffer: 64 * 1024 * 1024 });
+     if (content.status !== 0 || content.stdout.length > 8 * 1024 * 1024 || isBinary(content.stdout)) continue;
+     blobs++;
+-    const f = scanText(content.stdout.toString('utf8'), path, P, 'history', { commit: commit.slice(0, 12), when, subject: subject.slice(0, 80), blob: blob.slice(0, 12) });
+-    seen.set(blob, f.length);
++    const { kept: f, dropped } = exemptFilter(P, path, content.stdout, scanText(content.stdout.toString('utf8'), path, P, 'history', { commit: commit.slice(0, 12), when, subject: subject.slice(0, 80), blob: blob.slice(0, 12) }));
++    exempted += dropped;
++    seen.set(`${blob} ${path}`, f.length);
+     findings.push(...f);
+   }
+-  return { findings, commits, blobs, base, base_identical: baseIdentical };
++  return { findings, commits, blobs, base, base_identical: baseIdentical, exempted };
+ }
+ 
+ /** Which findings are still in the current tree vs only in history (the same file+pattern). */
+@@ -304,7 +330,7 @@ if (import.meta.url === new URL(`file://${process.argv[1]}`).href || process.arg
+     else if (has('--history')) result = scanHistory(ROOT, P, flag('--ref') ? [flag('--ref')] : ['--all']);
+     else result = scanTree(resolve(flag('--tree', ROOT)), P);
+     const g = gate(result.findings);
+-    const out = { ok: g.length === 0, ...summarize(result.findings), gated: g.length, fail_on: flag('--fail-on', 'medium'), base: result.base ?? undefined, base_identical: result.base_identical ?? undefined, patterns_sha256: P.sha256, findings: has('--quiet') ? undefined : result.findings.slice(0, 2000) };
++    const out = { ok: g.length === 0, ...summarize(result.findings), gated: g.length, fail_on: flag('--fail-on', 'medium'), base: result.base ?? undefined, base_identical: result.base_identical ?? undefined, exempted: result.exempted ?? undefined, patterns_sha256: P.sha256, findings: has('--quiet') ? undefined : result.findings.slice(0, 2000) };
+     if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ ...out, findings: result.findings }, null, 1));
+     if (mdOut) writeFileSync(mdOut, markdown('privacy.scan', [{ title: 'Findings', findings: result.findings }]));
+     if (!has('--quiet') && !jsonOut) console.log(JSON.stringify(out, null, 1)); else console.log(JSON.stringify({ ...out, findings: undefined }));
+diff --git a/tests/privacy-exempt-blobs.test.ts b/tests/privacy-exempt-blobs.test.ts
+new file mode 100644
+index 0000000..f3bd1b6
+--- /dev/null
++++ b/tests/privacy-exempt-blobs.test.ts
+@@ -0,0 +1,118 @@
++// The exempt-blob rule of the privacy gate (lanes/privacy/scan.mjs, EXEMPT_RULE): a file is let
++// through for the patterns an entry names only when its path AND its exact bytes match the entry.
++// Every other case is scanned in full, which the negative controls below assert first.
++import { describe, expect, it } from 'vitest';
++import { createHash } from 'node:crypto';
++import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { dirname, join } from 'node:path';
++import { spawnSync } from 'node:child_process';
++
++// Assembled at run time so this file carries no literal the gate blocks.
++const addr = ['licensor', 'vendor-mail.test'].join('@');
++const home = ['', 'Users', 'someone', 'x'].join('/');
++const text = `Copyright (c) 2026 Licensor <${addr}>\nPermission is hereby granted, free of charge.\n`;
++const sha = (s: string | Buffer) => createHash('sha256').update(s).digest('hex');
++const PIN = 'third_party/LICENSE-x.md';
++
++function repo(files: Record<string, string>, commit = false): string {
++  const d = mkdtempSync(join(tmpdir(), 'exempt-'));
++  const g = (...a: string[]) => spawnSync('git', a, { cwd: d, encoding: 'utf8' });
++  g('init', '-q');
++  g('config', 'user.email', 'test@example.com');
++  g('config', 'user.name', 'test');
++  for (const [p, c] of Object.entries(files)) {
++    mkdirSync(dirname(join(d, p)), { recursive: true });
++    writeFileSync(join(d, p), c);
++  }
++  g('add', '-A');
++  if (commit) g('commit', '-qm', 'add');
++  return d;
++}
++
++/** The real pattern set with `exempt_blobs` replaced, written to a scratch file. */
++function patternsWith(exempt: unknown[]): string {
++  const p = JSON.parse(readFileSync('lanes/privacy/patterns.json', 'utf8'));
++  p.exempt_blobs = exempt;
++  const f = join(mkdtempSync(join(tmpdir(), 'patterns-')), 'patterns.json');
++  writeFileSync(f, JSON.stringify(p));
++  return f;
++}
++
++const entry = (body: string, path = PIN, patterns = ['pii.email']) => ({ path, sha256: sha(body), patterns, why: 'a third-party license text, verbatim' });
++const pats = (r: { findings: { file: string; pattern: string }[] }, file: string) => r.findings.filter((f) => f.file === file).map((f) => f.pattern);
++
++describe('privacy gate: exempt blobs (path and exact bytes)', () => {
++  it('negative control: one changed byte at the pinned path is scanned in full', async () => {
++    const { loadPatterns, scanTree } = await import('../lanes/privacy/scan.mjs');
++    const P = loadPatterns(patternsWith([entry(text)]));
++    const changed = text.replace('free', 'Free');
++    expect(pats(scanTree(repo({ [PIN]: changed }), P), PIN)).toContain('pii.email');
++  });
++
++  it('negative control: the pinned bytes at any other path are scanned in full', async () => {
++    const { loadPatterns, scanTree } = await import('../lanes/privacy/scan.mjs');
++    const P = loadPatterns(patternsWith([entry(text)]));
++    expect(pats(scanTree(repo({ 'docs/LICENSE-x.md': text }), P), 'docs/LICENSE-x.md')).toContain('pii.email');
++  });
++
++  it('negative control: a pattern the entry does not name still blocks the pinned file', async () => {
++    const { loadPatterns, scanTree } = await import('../lanes/privacy/scan.mjs');
++    const body = `${text}See ${home}/notes.\n`;
++    const P = loadPatterns(patternsWith([entry(body)]));
++    const found = pats(scanTree(repo({ [PIN]: body }), P), PIN);
++    expect(found).toContain('pii.home_path');
++    expect(found).not.toContain('pii.email');
++  });
++
++  it('the pinned path with the pinned bytes drops only the named pattern, and says how many it dropped', async () => {
++    const { loadPatterns, scanTree } = await import('../lanes/privacy/scan.mjs');
++    const P = loadPatterns(patternsWith([entry(text)]));
++    const r = scanTree(repo({ [PIN]: text }), P);
++    expect(pats(r, PIN)).toEqual([]);
++    expect(r.exempted).toBe(1);
++  });
++
++  it('the staged and history scans hold to the same pin', async () => {
++    const { loadPatterns, scanStaged, scanHistory } = await import('../lanes/privacy/scan.mjs');
++    const P = loadPatterns(patternsWith([entry(text)]));
++    const staged = repo({ [PIN]: text, 'other.md': text });
++    const s = scanStaged(staged, P, null);
++    expect(pats(s, PIN)).toEqual([]);
++    expect(pats(s, 'other.md')).toContain('pii.email');
++    const h = scanHistory(repo({ [PIN]: text.replace('free', 'Free') }, true), P, ['--all'], null);
++    expect(pats(h, PIN)).toContain('pii.email');
++    const ok = scanHistory(repo({ [PIN]: text }, true), P, ['--all'], null);
++    expect(pats(ok, PIN)).toEqual([]);
++  });
++
++  it('negative control: in history, the pinned bytes at a second path in the same commit are still scanned', async () => {
++    const { loadPatterns, scanHistory } = await import('../lanes/privacy/scan.mjs');
++    const P = loadPatterns(patternsWith([entry(text)]));
++    // the exempt path sorts first, so a per-blob dedupe would skip the copy after the exemption let the first through
++    const h = scanHistory(repo({ [PIN]: text, 'zz/copy.md': text }, true), P, ['--all'], null);
++    expect(pats(h, PIN)).toEqual([]);
++    expect(pats(h, 'zz/copy.md')).toContain('pii.email');
++  });
++
++  it('a malformed entry stops the gate instead of exempting anything', async () => {
++    const { loadPatterns } = await import('../lanes/privacy/scan.mjs');
++    expect(() => loadPatterns(patternsWith([{ path: PIN, sha256: 'not-a-hash', patterns: ['pii.email'], why: 'x' }]))).toThrow(/exempt_blobs/);
++    expect(() => loadPatterns(patternsWith([{ ...entry(text), patterns: ['no.such.pattern'] }]))).toThrow(/exempt_blobs/);
++    expect(() => loadPatterns(patternsWith([{ ...entry(text), patterns: [] }]))).toThrow(/exempt_blobs/);
++    expect(() => loadPatterns(patternsWith([{ ...entry(text), why: '' }]))).toThrow(/exempt_blobs/);
++  });
++
++  it('the repository\'s own exemptions are the two license texts, pinned to the bytes on disk', () => {
++    const p = JSON.parse(readFileSync('lanes/privacy/patterns.json', 'utf8'));
++    const ex = p.exempt_blobs as { path: string; sha256: string; patterns: string[] }[];
++    expect(ex.map((e) => e.path).sort()).toEqual(['companion/studio-canvas/LICENSE-tldraw.md', 'companion/studio-canvas/licenses/react-remove-scroll-bar.LICENSE']);
++    for (const e of ex) {
++      expect(e.patterns).toEqual(['pii.email']);
++      expect(existsSync(e.path)).toBe(true);
++      expect(sha(readFileSync(e.path))).toBe(e.sha256);
++    }
++    const build = readFileSync('scripts/canvas/build.mjs', 'utf8');
++    expect(build).toContain(ex.find((e) => e.path.endsWith('LICENSE-tldraw.md'))!.sha256);
++  });
++});
