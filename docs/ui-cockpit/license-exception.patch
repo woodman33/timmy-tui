@@ -1,5 +1,5 @@
 diff --git a/lanes/privacy/patterns.json b/lanes/privacy/patterns.json
-index 18790c9..4ae04d8 100644
+index 18790c9..2102597 100644
 --- a/lanes/privacy/patterns.json
 +++ b/lanes/privacy/patterns.json
 @@ -304,5 +304,19 @@
@@ -12,7 +12,7 @@ index 18790c9..4ae04d8 100644
 +   "path": "companion/studio-canvas/LICENSE-tldraw.md",
 +   "sha256": "9578fcddc20e404b6a29f44b6fea81d8b331698c0e7e9be34132d6f4394fa533",
 +   "patterns": ["pii.email"],
-+   "why": "the tldraw license, verbatim from the v5.5.2 tag (commit c58cfd57); it requires a verbatim copy in any distribution. Its one match is tldraw's published sales address (line 5). The canvas build pins the same sha256."
++   "why": "the tldraw license, verbatim from the v5.5.2 tag (commit be4d5b30); it requires a verbatim copy in any distribution. Its one match is tldraw's published sales address (line 5). The canvas build pins the same sha256."
 +  },
 +  {
 +   "path": "companion/studio-canvas/licenses/react-remove-scroll-bar.LICENSE",

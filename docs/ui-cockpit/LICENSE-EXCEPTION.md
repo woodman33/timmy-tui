@@ -8,13 +8,14 @@ unchanged, and the two license texts are not in the repository.
 
 | Path in the repository | Size | SHA-256 | Source | What the gate finds |
 | --- | --- | --- | --- | --- |
-| `companion/studio-canvas/LICENSE-tldraw.md` | 4,609 bytes, 70 lines | `9578fcddc20e404b6a29f44b6fea81d8b331698c0e7e9be34132d6f4394fa533` | `LICENSE.md` of tldraw/tldraw at tag `v5.5.2` (commit `c58cfd57d6579c16521d0328bbb16ffbb0f6e9fc`) | `pii.email` (high), line 5, column 171: tldraw's published sales address |
+| `companion/studio-canvas/LICENSE-tldraw.md` | 4,609 bytes, 70 lines | `9578fcddc20e404b6a29f44b6fea81d8b331698c0e7e9be34132d6f4394fa533` | `LICENSE.md` of tldraw/tldraw at tag `v5.5.2` (commit `be4d5b30cbf896c92436d634e59843a920705cef`; the tag object is `c58cfd57`) | `pii.email` (high), line 5, column 171: tldraw's published sales address |
 | `companion/studio-canvas/licenses/react-remove-scroll-bar.LICENSE` | 1,093 bytes, 21 lines | `a79aae0c0f21990d9d963bb3c5a79cdcea9a46f8523ba55c58d7fe776b6ebc84` | `LICENSE` of theKashey/react-remove-scroll-bar at commit `8ca9ba5ea52de03308fe8ced94f7b159a44d28ff` (the 2.3.8 package and its tags ship none) | `pii.email` (high), line 3, column 36: the author's address in the MIT copyright line |
 
 Those two findings are all the Timmy scan finds in either file. gitleaks 8.24.3, the version the
 privacy workflow runs, finds nothing in either (a fake secret planted in the same scratch
 repository did trip it). Both texts were fetched again at 17:15 PT and are byte-identical to the
-copies the canvas build was checked with at 12:21.
+copies the canvas build was checked with at 12:21. The operator's Mac fetched both once more from
+the commit addresses above for its own build, with the same hashes.
 
 They have to ship as they are. tldraw's license requires a verbatim copy in any distribution, and
 MIT requires its notice, copyright line included, in all copies. The canvas build already pins the
@@ -31,7 +32,7 @@ Add a list, `exempt_blobs`, to `lanes/privacy/patterns.json` with exactly these 
     "path": "companion/studio-canvas/LICENSE-tldraw.md",
     "sha256": "9578fcddc20e404b6a29f44b6fea81d8b331698c0e7e9be34132d6f4394fa533",
     "patterns": ["pii.email"],
-    "why": "the tldraw license, verbatim from the v5.5.2 tag (commit c58cfd57); it requires a verbatim copy in any distribution. Its one match is tldraw's published sales address (line 5). The canvas build pins the same sha256."
+    "why": "the tldraw license, verbatim from the v5.5.2 tag (commit be4d5b30); it requires a verbatim copy in any distribution. Its one match is tldraw's published sales address (line 5). The canvas build pins the same sha256."
   },
   {
     "path": "companion/studio-canvas/licenses/react-remove-scroll-bar.LICENSE",
