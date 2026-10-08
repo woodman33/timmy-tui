@@ -738,6 +738,12 @@ export class Agent extends EventEmitter<AgentEvents> {
       'minimax/minimax-m3'
     ];
 
+    // What this request did, as the user saw it: each tool call with its result once that arrived, and
+    // the text streamed so far. A cancel closes the request in the conversation with this record, so an
+    // unrelated next turn does not resume it, and an explicit request to continue still can.
+    const calls = new Map<string, { name: string; args: string; output?: string }>();
+    let streamed = '';
+
     try {
       const history = this.conversation.getHistory().map(m => ({
         role: m.role as 'user' | 'assistant' | 'system',
@@ -833,6 +839,7 @@ export class Agent extends EventEmitter<AgentEvents> {
             if (text.length > prev) {
               const delta = text.slice(prev);
               fullText += delta;
+              streamed = fullText;
               this.emit('stream:delta', delta, fullText);
               textByItem.set((item as any).id || '', text.length);
             }
@@ -843,11 +850,16 @@ export class Agent extends EventEmitter<AgentEvents> {
               try {
                 args = JSON.parse((item as any).arguments || '{}');
               } catch { }
+              calls.set((item as any).callId || `call-${calls.size}`, { name: (item as any).name || '', args: (item as any).arguments || '{}' });
               this.emit('tool:call', (item as any).name || '', args);
             }
           } else if (item.type === 'function_call_output') {
             const out = typeof (item as any).output === 'string' ? (item as any).output : JSON.stringify((item as any).output);
-            this.emit('tool:result', callNames.get((item as any).callId || '') || 'unknown', out);
+            const name = callNames.get((item as any).callId || '') || 'unknown';
+            const seen = calls.get((item as any).callId || '');
+            if (seen) seen.output = out;
+            else calls.set((item as any).callId || `call-${calls.size}`, { name, args: '', output: out });
+            this.emit('tool:result', name, out);
           } else if (item.type === 'reasoning') {
             const text = (item as any).summary?.map((s: any) => s.text).join('') ?? '';
             if (text) this.emit('reasoning:update', text);
@@ -965,12 +977,36 @@ export class Agent extends EventEmitter<AgentEvents> {
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       if (error.name !== 'AbortError') this.emit('error', error);
+      else this.conversation.appendMessage({ role: 'assistant', content: cancelRecord([...calls.values()], streamed), timestamp: Date.now() });
       throw error;
     } finally {
       this.emit('thinking:end');
       this.running = false;
     }
   }
+}
+
+/** A tool's arguments or result, cut to a length a conversation can carry. */
+const clip = (text: string, max = 400): string => (text.length > max ? `${text.slice(0, max)}…` : text);
+
+/**
+ * The record that closes a cancelled request in the conversation, in the assistant's voice: what
+ * finished before the cancel, with its result; what started with no result, whose effect is unknown;
+ * the text streamed so far; and that the request continues only if the user asks. Without it the
+ * conversation ended in the cancelled request, and the next turn, about anything, finished it too
+ * (LIVE-01 at C-17).
+ */
+export function cancelRecord(calls: Array<{ name: string; args: string; output?: string }>, streamed: string): string {
+  const parts = ['[Cancelled by the user before I answered.'];
+  const finished = calls.filter((c) => c.output !== undefined);
+  const started = calls.filter((c) => c.output === undefined);
+  if (calls.length === 0) parts.push('No tool had run.');
+  if (finished.length) parts.push(`Finished before the cancel: ${finished.map((c) => `${c.name} ${clip(c.args)} returned ${clip(c.output ?? '')}`).join('; ')}.`);
+  if (started.length) parts.push(`Started, with no result before the cancel, so its effect is unknown: ${started.map((c) => `${c.name} ${clip(c.args)}`).join('; ')}.`);
+  if (streamed.trim()) parts.push(`What I had written so far: "${clip(streamed.trim(), 1200)}"`);
+  if (calls.length) parts.push('Nothing was rolled back.');
+  parts.push('I stopped here and will not continue this request unless the user asks me to.]');
+  return parts.join(' ');
 }
 
 export function createAgent(config: AgentConfig, options: AgentOptions = {}): Agent {
