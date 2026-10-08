@@ -1,8 +1,11 @@
-# The license-file privacy exception (proposal, not applied)
+# The license-file privacy exception (applied)
 
-Prepared for the operator's review on 2026-10-07 (his 17:06 PT order). Nothing here is applied:
-on this branch the privacy gate's code and patterns, `.gitleaksignore` and `.gitleaks.toml` are
-unchanged, and the two license texts are not in the repository.
+Prepared for the operator's review on 2026-10-07 (his 17:06 PT order). He approved it at 20:14 PT,
+limited to these two files, their hashes and `pii.email`. It was applied at 20:20 PT exactly as
+reviewed: `license-exception.patch` (sha256 `71aca38a0e4592610a6751158252299252b42cd17c45dce3c4b1cc8649cf5195`)
+plus the two texts, fetched again from the pinned commits with the hashes below. The approval covers
+keeping the license texts and the scanner exception. It does not establish a commercial tldraw
+license, which stays a publication gate (decision 1 in `TLDRAW.md`).
 
 ## What is blocked
 

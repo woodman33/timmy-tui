@@ -304,5 +304,19 @@
    "sha256": null,
    "note": "family names: the operator adds each with `timmy privacy hash-term <name> --add --id identity.family --severity high` (one entry per name; this null entry is inert)"
   }
+ ],
+ "exempt_blobs": [
+  {
+   "path": "companion/studio-canvas/LICENSE-tldraw.md",
+   "sha256": "9578fcddc20e404b6a29f44b6fea81d8b331698c0e7e9be34132d6f4394fa533",
+   "patterns": ["pii.email"],
+   "why": "the tldraw license, verbatim from the v5.5.2 tag (commit be4d5b30); it requires a verbatim copy in any distribution. Its one match is tldraw's published sales address (line 5). The canvas build pins the same sha256."
+  },
+  {
+   "path": "companion/studio-canvas/licenses/react-remove-scroll-bar.LICENSE",
+   "sha256": "a79aae0c0f21990d9d963bb3c5a79cdcea9a46f8523ba55c58d7fe776b6ebc84",
+   "patterns": ["pii.email"],
+   "why": "the MIT license of react-remove-scroll-bar (bundled with tldraw; its 2.3.8 package ships none), verbatim from its repository at commit 8ca9ba5e; MIT requires the notice in copies. Its one match is the author's address in the copyright line (line 3)."
+  }
  ]
 }

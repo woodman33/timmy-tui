@@ -34,7 +34,7 @@ send changes to tldraw, on these conditions:
   and limit of liability (both are in the copy). The build copies it beside the bundle as
   `dist/LICENSE-tldraw.md` when `companion/studio-canvas/LICENSE-tldraw.md` is present and matches
   the hash; otherwise it marks the build not distributable, and `npm pack` refuses it (`prepack`
-  runs `node scripts/canvas/build.mjs --check`). The text is not in the repo yet: decision 3.
+  runs `node scripts/canvas/build.mjs --check`). The text is in the repository (decision 3).
 - Follow tldraw's trademark policy.
 - The license ends on a breach, or on a copyright, trade secret or patent claim against tldraw or
   its users.
@@ -43,7 +43,7 @@ The other packages in the bundle (130 in all: MIT 125, ISC 1, 0BSD 1, and tldraw
 tldraw license) are listed with their own license files in `dist/THIRD-PARTY-NOTICES.md`, written
 by each build. One, react-remove-scroll-bar 2.3.8, ships no license file; its repository's MIT
 license belongs at `companion/studio-canvas/licenses/react-remove-scroll-bar.LICENSE`, and until it
-is there the build is not distributable either (decision 3). A test fails on any license outside
+is there the build is not distributable either (decision 3; it is there now). A test fails on any license outside
 MIT, ISC, BSD, Apache-2.0, 0BSD and tldraw's.
 
 ## Decisions for the operator
@@ -60,9 +60,9 @@ MIT, ISC, BSD, Apache-2.0, 0BSD and tldraw's.
    license texts (for example an ignore path for `companion/studio-canvas/LICENSE-tldraw.md` and
    `companion/studio-canvas/licenses/`), or keep them in the private overlay for package builds on
    your machine, or keep the canvas out of the package. Until then a package cannot be built.
-   On 2026-10-07 at 17:06 the operator asked for the exception, prepared for review. Its exact form,
-   pinned to each file's path and bytes, is in `LICENSE-EXCEPTION.md` with `license-exception.patch`.
-   It is not applied.
+   On 2026-10-07 at 17:06 the operator asked for the exception, prepared for review; at 20:14 he
+   approved it, and it is applied (`LICENSE-EXCEPTION.md`). Both texts are in the repository, the
+   build is distributable and `npm pack` passes its check. Decision 1 still stands.
 
 The Mission Map (`studio/tldraw-mission-map`, tldraw 3.15.0 from a CDN) is another hand's lab and is
 left as it is.

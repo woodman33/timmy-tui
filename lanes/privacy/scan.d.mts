@@ -19,6 +19,8 @@ export interface PatternSet {
   ignore: RegExp[];
   /** sha256(lowercased identity term) → id/severity (blank-slate-v1k9) */
   hashed: Map<string, { id: string; severity: Severity }>;
+  /** exempt blobs (EXEMPT_RULE): path → the pinned sha256 of its bytes and the pattern ids it drops */
+  exempt: Map<string, { sha256: string; patterns: Set<string> }>;
   sha256: string;
   file: string;
 }
@@ -46,6 +48,10 @@ export interface Summary {
 
 /** The sealed base-identical rule text (privacy.rule). */
 export const BASE_RULE: string;
+/** The sealed exempt-blob rule text (privacy.rule). */
+export const EXEMPT_RULE: string;
+/** EXEMPT_RULE: the findings left for this exact path and these exact bytes; `dropped` counts the rest. */
+export function exemptFilter(P: PatternSet, path: string, bytes: string | Uint8Array, found: Finding[]): { kept: Finding[]; dropped: number };
 /** The base ref for the base-identical rule (default origin/main; a `A..B` ref uses A), or null. */
 export function resolveBase(dir: string, refs?: string[]): string | null;
 export const TOKEN_RX: RegExp;
@@ -53,9 +59,9 @@ export function hashTerm(term: string): string;
 export function loadPatterns(file?: string): PatternSet;
 export function scanText(text: string, file: string, P: PatternSet, where: string, extra?: Record<string, unknown>): Finding[];
 export function treeFiles(dir: string): string[];
-export function scanTree(dir: string, P: PatternSet, where?: string): { findings: Finding[]; files: number; scanned: number };
-export function scanStaged(dir: string, P: PatternSet, base?: string | null): { findings: Finding[]; files: number; base: string | null; base_identical: number };
-export function scanHistory(dir: string, P: PatternSet, refs?: string[], base?: string | null): { findings: Finding[]; commits: number; blobs: number; base: string | null; base_identical: number };
+export function scanTree(dir: string, P: PatternSet, where?: string): { findings: Finding[]; files: number; scanned: number; exempted: number };
+export function scanStaged(dir: string, P: PatternSet, base?: string | null): { findings: Finding[]; files: number; base: string | null; base_identical: number; exempted: number };
+export function scanHistory(dir: string, P: PatternSet, refs?: string[], base?: string | null): { findings: Finding[]; commits: number; blobs: number; base: string | null; base_identical: number; exempted: number };
 export function classify(findings: Finding[], treeSet: Set<string>): Array<Finding & { in_tree: boolean }>;
 export function summarize(findings: Finding[]): Summary;
 export function markdown(title: string, sections: Array<{ title: string; note?: string; findings?: Finding[]; limit?: number }>): string;
