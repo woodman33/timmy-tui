@@ -1,7 +1,7 @@
 name: privacy gate
 
 # ORDER privacy-d5n9: the public-repo privacy gate. Every push and pull request is
-# scanned twice — gitleaks (secrets) and the Timmy pattern set (emails, tailnet
+# scanned twice — gitleaks (secrets, over the branch's complete history) and the Timmy pattern set (emails, tailnet
 # and LAN addresses, MACs, hostnames, login names, home paths, phone numbers,
 # policy text, card serials, brand material). Any match at medium or above fails
 # the job. The §12 negative control runs first: if the must-fail fixture does not
@@ -10,6 +10,9 @@ on:
   push:
     branches: ['**']
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   privacy:
@@ -35,8 +38,39 @@ jobs:
         if: github.event_name == 'pull_request'
         run: node lanes/privacy/scan.mjs scan --history --ref "origin/${{ github.base_ref }}..HEAD" --fail-on medium --quiet
 
-      - name: gitleaks — secrets in the tree and the pushed history
-        uses: gitleaks/gitleaks-action@v2
+      # gitleaks-action scanned only the first 30 commits of a pull request (one page of GitHub's
+      # commit list), and only the newest commits of a push. The scan below covers a branch's
+      # complete history at its actual head: every commit since the merge-base, through every
+      # parent, plus each merge's own diff (scripts/privacy/gitleaks-range.sh).
+      - name: gitleaks 8.24.3 (pinned, checksum checked)
+        run: |
+          v=8.24.3
+          want=9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c
+          d="$RUNNER_TEMP/gitleaks-bin" && mkdir -p "$d"
+          curl -sSfL -o "$d/gitleaks.tgz" "https://github.com/gitleaks/gitleaks/releases/download/v$v/gitleaks_${v}_linux_x64.tar.gz"
+          echo "$want  $d/gitleaks.tgz" | sha256sum -c -
+          tar -xzf "$d/gitleaks.tgz" -C "$d" gitleaks
+          echo "$d" >> "$GITHUB_PATH"
+
+      - name: gitleaks controls (§12) — a planted secret, a merged branch and a merge must trip it first
+        run: scripts/privacy/gitleaks-range.sh controls "$RUNNER_TEMP/gitleaks-evidence"
+
+      - name: gitleaks — the complete range at the actual head
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_SUMMARY: 'true'
+          EVENT: ${{ github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BASE_REF: ${{ github.base_ref || github.event.repository.default_branch }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PUSH_REF: ${{ github.ref }}
+        run: scripts/privacy/gitleaks-range.sh scan "$RUNNER_TEMP/gitleaks-evidence"
+
+      # The base, the head, the range, the number of commits, the scanner's version and the
+      # result, kept with the run.
+      - name: Keep the gitleaks evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gitleaks-evidence
+          retention-days: 90
