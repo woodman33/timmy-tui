@@ -7,11 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The canvas package carries the two license texts it needs, verbatim:
+  tldraw's license (`companion/studio-canvas/LICENSE-tldraw.md`) and
+  react-remove-scroll-bar's (`licenses/react-remove-scroll-bar.LICENSE`).
+  The privacy scanner exempts only those exact bytes at those paths from its
+  email rule; every other check still reads them.
+
 ### Changed
 - Bare `timmy` opens the inline REPL (`timmy repl`); the full-screen monitor,
   the old Command Post, is `timmy watch`. The switch waited for LIVE-01, a
   real model turn with a tool, a cancel and the next turn on the operator's
   Mac, to pass.
+- The release workflow packs one tarball, validates it
+  (`scripts/release/validate-tarball.mjs`: the bins, the canvas bundle and its
+  licenses, the version, the paths that must never ship), records its full
+  SHA-256, npm integrity and qualification evidence, and publishes that exact
+  file. The canvas distribution check is its own step: `npm publish
+  --ignore-scripts` used to skip it.
+- The secret scan (gitleaks 8.24.3) covers a branch's whole history at its
+  real head, every commit since the merge base and each merge's own changes,
+  and keeps its evidence (the range, the commit count, the scanner version and
+  the result) with the run. It used to stop after 30 commits.
 
 ### Fixed
 - A turn's cost is what OpenRouter charged for every response of the turn
