@@ -92,12 +92,7 @@ class TmuxManager implements MultiplexerManager {
 
       const runnerKey = DEFAULT_LANE_BINDINGS[id];
 
-      // Generate dynamic AgentPass credentials
-      const jti = `ap_${Math.random().toString(36).substring(2, 8)}${Math.random().toString(36).substring(2, 8)}`;
-      const visa = `visa_${Math.random().toString(36).substring(2, 8)}`;
-      const hash = `hash_${Math.random().toString(36).substring(2, 8)}`;
-
-      const startup = laneStartupScript(runnerKey, jti, visa, hash);
+      const startup = laneStartupScript(runnerKey);
       execFileSync('tmux', ['send-keys', '-t', sName, startup, 'C-m'], { stdio: 'ignore' });
     } catch {
       // Ignore errors
@@ -319,37 +314,12 @@ export class Agent extends EventEmitter<AgentEvents> {
   /** Human-readable reason for the last health-check failure, shown in the UI. */
   public lastHealthError: string | undefined;
 
-  // Persistent workspace chamber contexts (logs)
-  public workspaceContexts: Record<string, string[]> = {
-    'opencode': [
-      '📡 [VM TUNNEL] Established secure link to Daytona Sandbox container...',
-      '⚙️ [opencode] tsx cli.tsx build -> verified 0 compile errors.'
-    ],
-    'hermes': [
-      '📡 [VM TUNNEL] Established secure link to Daytona Sandbox container...',
-      '🧠 [hermes] literature search -> mapped 14 active ontology records.'
-    ],
-    'pi': [
-      '📡 [VM TUNNEL] Established secure link to Daytona Sandbox container...',
-      '👑 [pi-swarm] AgentPass passport claim verified: jti_auth_91a783'
-    ],
-    'openrouter': [
-      '📡 [VM TUNNEL] Established secure link to Daytona Sandbox container...',
-      '⚡ [openrouter] anthropic/claude-3-5-sonnet -> 1.5k context tokens synced.'
-    ]
-  };
+  // Persistent workspace chamber contexts (logs). Round R1: they start empty and hold only what a
+  // pane actually printed; the seeded "verified" lines, which no run wrote, are gone (AGENTS.md §4).
+  public workspaceContexts: Record<string, string[]> = { opencode: [], hermes: [], pi: [], openrouter: [] };
 
-  // Unified active workspace VM thread logs relayed to Proof page
-  public relayedVmLogs: string[] = [
-    '📡 [VM TUNNEL] Established secure link to Daytona Sandbox container...',
-    '⚙️ [opencode] tsx cli.tsx build -> verified 0 compile errors.',
-    '🧠 [hermes] literature search -> mapped 14 active ontology records.',
-    '👑 [pi-swarm] AgentPass passport claim verified: jti_auth_91a783',
-    '⚡ [openrouter] anthropic/claude-3-5-sonnet -> 1.5k context tokens synced.',
-    '☁️ [sqlite-d1] Push evidence transaction completed -> CF Durable Object database.',
-    '🔐 [EMBASSY] Tamper-evident manifest seal armed: sha256_82f1a8c9b20d3f82',
-    '✓ ALL AGENT CHECKS PASSED. CONFORMANCE: 100%'
-  ];
+  // Unified active workspace VM thread logs relayed to Proof page: lines the panes actually printed.
+  public relayedVmLogs: string[] = [];
 
   // TMUX Cluster & Background Workspace Session Tracker
   public tmuxSessions = [
