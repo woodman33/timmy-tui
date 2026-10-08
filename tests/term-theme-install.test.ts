@@ -53,6 +53,14 @@ describe('timmy theme install', () => {
     expect(r.conflicts).toEqual([join(h, '.config/kitty/themes/timmy-night.conf')]);
     expect(readFileSync(join(h, '.config/kitty/themes/timmy-night.conf'), 'utf8')).toBe('# mine\n');
   });
+  it('zellij: one file holds Homebrew, Night and Day, and the line to add names Homebrew', () => {
+    const h = home();
+    const plan = planThemeInstall('zellij', h, ASSETS);
+    expect(plan.then).toContain('  theme "timmy-homebrew"');
+    expect(plan.then.join('\n')).toContain('timmy-night');
+    expect(installTheme(plan).written).toEqual([join(h, '.config/zellij/themes/timmy.kdl')]);
+    expect(readFileSync(join(h, '.config/zellij/themes/timmy.kdl'), 'utf8')).toContain('timmy-homebrew {');
+  });
   it('iTerm2 imports by opening the file, so nothing is copied', () => {
     const plan = planThemeInstall('iterm2', home(), ASSETS);
     expect(plan.files).toEqual([]);
