@@ -195,6 +195,50 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     }
   }, 120_000);
 
+  // Round R1, found on the operator's Mac: a call tldraw refused (props.text on a text shape) crashed
+  // the page into "Something went wrong" for good, kept the shapes drawn before the refusal, and later
+  // calls answered done to a page nobody could see. A failed call now keeps nothing, and a crashed page
+  // starts again from the canvas as it was before the call.
+  it('keeps nothing from a call that fails, and starts a crashed page again from the canvas before it', async () => {
+    type Answer = { ok: boolean; result?: unknown; error?: string; rolledBack?: boolean; restarted?: boolean; changed?: boolean };
+    const exec = async (code: string, jobId: string) => (await fetch(`${base}/api/canvas/exec`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, jobId }) })).json() as Promise<Answer>;
+    const box = (x: number) => `editor.createShape({ id: helpers.createShapeId(), type: 'geo', x: ${x}, y: 40, props: { w: 60, h: 60 } });`;
+    const { page, context } = await open();
+    const count = () => page.evaluate(() => (window as never as { timmyCanvas: { editor: { getCurrentPageShapes: () => unknown[] } } }).timmyCanvas.editor.getCurrentPageShapes().length);
+    const mounts = () => page.evaluate(() => (window as never as { timmyCanvas: { mounts: number } }).timmyCanvas.mounts);
+    const start = await count();
+
+    // Its own error after drawing: undone, and the page carries on.
+    const thrown = await exec(`${box(0)} throw new Error('stop here');`, 'rollback-throw');
+    expect(thrown).toMatchObject({ ok: false, rolledBack: true, changed: false, error: 'Error: stop here' });
+    expect(thrown.restarted).toBeUndefined();
+    expect(await count()).toBe(start);
+
+    // A shape tldraw refuses, after one it took: the page crashed, so it starts again without either.
+    const before = await mounts();
+    const refused = await exec(`${box(100)} editor.createShape({ id: helpers.createShapeId(), type: 'text', x: 0, y: 160, props: { text: 'the old API' } });`, 'rollback-crash');
+    expect(refused).toMatchObject({ ok: false, rolledBack: true, restarted: true, changed: false });
+    expect(refused.error).toMatch(/ValidationError/);
+    await page.waitForFunction((m) => (window as never as { timmyCanvas: { mounts: number } }).timmyCanvas.mounts > m, before);
+    expect(await page.getByText('Something went wrong').count()).toBe(0);
+    expect(await count()).toBe(start);
+
+    // The next call draws on the page as it started again, and the saved canvas holds it.
+    const drawn = await exec(`${box(200)} return 'drawn';`, 'after-restart');
+    expect(drawn).toMatchObject({ ok: true, result: 'drawn', changed: true });
+    expect(await count()).toBe(start + 1);
+    // Every page's shapes (earlier tests opened boards of their own): the file and the page agree.
+    const total = await page.evaluate(() => (window as never as { timmyCanvas: { editor: { store: { allRecords: () => Array<{ typeName: string }> } } } }).timmyCanvas.editor.store.allRecords().filter((r) => r.typeName === 'shape').length);
+    const saved = (await (await fetch(`${base}/api/canvas/document`)).json()) as { snapshot: { store: Record<string, { typeName: string }> } };
+    expect(Object.values(saved.snapshot.store).filter((r) => r.typeName === 'shape')).toHaveLength(total);
+
+    // The jobs say what happened: each failed call is marked, and nothing it drew was kept.
+    const jobs = (await (await fetch(`${base}/api/canvas/jobs`)).json()) as Array<{ id: string; ok: boolean; failed?: number }>;
+    expect(jobs.find((j) => j.id === 'rollback-crash')).toMatchObject({ ok: false, failed: 1 });
+    expect(jobs.find((j) => j.id === 'after-restart')).toMatchObject({ ok: true, failed: 0 });
+    await context.close();
+  }, 120_000);
+
   it('says it is loading while it loads, and why it cannot start when it cannot', async () => {
     const context = await browser!.newContext();
     const page = await context.newPage();

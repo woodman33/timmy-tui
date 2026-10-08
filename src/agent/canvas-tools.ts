@@ -21,6 +21,10 @@ export interface CanvasJobResult {
   job: string;
   revision: number;
   sourceRevision: string;
+  /** Whether the job's last call succeeded (round R1); a failed call kept nothing on the canvas. */
+  ok?: boolean;
+  /** Whether any of its calls changed the canvas (round R1); a job of lookups only has nothing to inspect. */
+  changed?: boolean;
 }
 
 const JOB_ID = /^[\w.:-]{1,100}$/;
@@ -48,9 +52,11 @@ export class CanvasTurnJob {
 
   /** A canvas answer: kept for its job when the page saved what it produced. */
   saw(answer: Record<string, unknown>): void {
-    const { jobId, revision, sourceRevision } = answer;
+    const { jobId, revision, sourceRevision, ok, changed } = answer;
     if (typeof jobId === 'string' && JOB_ID.test(jobId) && typeof revision === 'number' && typeof sourceRevision === 'string' && SOURCE_REVISION.test(sourceRevision)) {
-      this.jobs.set(jobId, { revision, sourceRevision });
+      const before = this.jobs.get(jobId);
+      const anyChange = before?.changed === true || changed === true ? true : typeof changed === 'boolean' || before?.changed === false ? false : undefined;
+      this.jobs.set(jobId, { revision, sourceRevision, ...(typeof ok === 'boolean' ? { ok } : {}), ...(anyChange === undefined ? {} : { changed: anyChange }) });
     }
   }
 
@@ -157,7 +163,8 @@ export function createCanvasTools(options: CanvasToolOptions = {}) {
         'Run JavaScript on Timmy Canvas, the live tldraw canvas (full Editor API). The code is the body of an async ' +
         'function of `editor` (the tldraw Editor) and `helpers` (createShapeId, toRichText, createBindingId, Box, Vec); ' +
         'return a JSON-serializable value to read results back. Text goes in props.richText via helpers.toRichText. ' +
-        'Answers carry the result or the error, the job ID and the canvas revision (document changes so far).',
+        'Answers carry the result or the error, the job ID and the canvas revision (document changes so far). ' +
+        'A call that fails keeps nothing: the canvas goes back to how it was before the call (rolledBack), so retry the whole drawing.',
       inputSchema: z.object({
         code: z.string().min(1).max(30_000).describe('Body of an async function of (editor, helpers)'),
         jobId: z.string().regex(/^[\w.:-]{1,100}$/).optional().describe('The job this call belongs to'),

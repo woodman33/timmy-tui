@@ -112,8 +112,8 @@ describe('the canvas job of a REPL turn', () => {
     await run(tools, 'canvas_exec', { code: 'return 1', jobId: 'named-by-the-model' });
     expect(jobs).toEqual(['turn-1', 'turn-1', 'named-by-the-model']);
     expect(job.close()).toEqual([
-      { job: 'turn-1', revision: 9, sourceRevision: SOURCE },
-      { job: 'named-by-the-model', revision: 9, sourceRevision: SOURCE },
+      { job: 'turn-1', revision: 9, sourceRevision: SOURCE, ok: true },
+      { job: 'named-by-the-model', revision: 9, sourceRevision: SOURCE, ok: true },
     ]);
     expect(job.close()).toEqual([]); // a turn with no canvas call names no job
     await run(tools, 'canvas_read', {});
@@ -139,7 +139,18 @@ describe('the canvas job of a REPL turn', () => {
     job.saw({ ok: true, jobId: 'draw-live-01', revision: 2, sourceRevision: 'ef'.repeat(32) });
     job.saw({ ok: false, jobId: 'draw-live-01', error: 'no canvas open' });
     job.saw({ ok: true, jobId: 'bad id with spaces', revision: 3, sourceRevision: SOURCE });
-    expect(job.close()).toEqual([{ job: 'draw-live-01', revision: 2, sourceRevision: 'ef'.repeat(32) }]);
+    expect(job.close()).toEqual([{ job: 'draw-live-01', revision: 2, sourceRevision: 'ef'.repeat(32), ok: true }]);
+  });
+  it('keeps whether each job last succeeded and whether any call changed the canvas (round R1)', () => {
+    const job = new CanvasTurnJob(() => 'turn-unused');
+    // A lookup changes nothing; a drawing does; a failed call after it keeps nothing, and the job says so.
+    job.saw({ ok: true, jobId: 'turn-a', revision: 3, sourceRevision: SOURCE, changed: false });
+    job.saw({ ok: true, jobId: 'draw', revision: 5, sourceRevision: SOURCE, changed: true });
+    job.saw({ ok: false, jobId: 'draw', revision: 7, sourceRevision: SOURCE, changed: false, rolledBack: true });
+    expect(job.close()).toEqual([
+      { job: 'turn-a', revision: 3, sourceRevision: SOURCE, ok: true, changed: false },
+      { job: 'draw', revision: 7, sourceRevision: SOURCE, ok: false, changed: true },
+    ]);
   });
   it('linking says false, not an error, when no canvas server is running', async () => {
     expect(await linkCanvasReceipt('turn-abc', '0f3c9a12', 'http://127.0.0.1:9')).toBe(false);

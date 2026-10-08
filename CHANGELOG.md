@@ -51,6 +51,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that verifies.
 - The receipt link after a turn is shown only when the canvas here serves
   that receipt.
+- Timmy Canvas: a canvas call that fails keeps nothing. What it drew is
+  undone, and when tldraw refused a shape and crashed the page ("Something
+  went wrong"), the page starts again from the canvas as it was before the
+  call, instead of staying crashed while later calls report done. The step
+  says "nothing kept" (and "page restarted"); a job is marked by its last
+  call, with its failed calls counted; the turn's inspect rows skip jobs
+  that only looked, and say when a job's last call failed.
 - The lane list no longer shows memory or cost figures (nothing measured
   them), and the feature-flag tool has no built-in app ID.
 

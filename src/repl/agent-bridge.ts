@@ -48,7 +48,9 @@ function preview(output: unknown): string {
   const words = o && typeof o.message === 'string' && o.message ? o.message : o && typeof o.error === 'string' && o.error ? o.error : null;
   // A Timmy Canvas answer names its job and revision, then the page's result or its error (round R1).
   if (o && typeof o.jobId === 'string' && o.jobId && typeof o.ok === 'boolean') {
-    const where = `Timmy Canvas job ${o.jobId}${typeof o.revision === 'number' ? `, revision ${o.revision}` : ''}`;
+    // Round R1: a failed call says whether the page undid it, so nobody looks for half a drawing.
+    const undone = o.ok === false && o.rolledBack === true ? (o.restarted === true ? ', nothing kept, page restarted' : ', nothing kept') : '';
+    const where = `Timmy Canvas job ${o.jobId}${typeof o.revision === 'number' ? `, revision ${o.revision}` : ''}${undone}`;
     const said = words ?? (o.ok === true && 'result' in o ? (typeof o.result === 'string' ? o.result : JSON.stringify(o.result) ?? '') : '');
     const text = sanitize(said ? `${where}: ${said}` : where);
     return text.length > PREVIEW_CAP ? `${text.slice(0, PREVIEW_CAP)}...` : text;

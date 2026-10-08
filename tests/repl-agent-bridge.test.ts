@@ -57,6 +57,22 @@ describe('bridgeAgent', () => {
     expect(events.map((e) => (e as { preview?: string }).preview).slice(0, 4)).toEqual(['Not triggered', 'no', 'No canvas is open.', 'The operator denied get_env; it did not run.']);
     expect((events[6] as { preview?: string }).preview).toBe('{"time":"23:48"}');
   });
+  it('says when a failed canvas call kept nothing, and when the page had to start again (round R1)', () => {
+    const agent = new EventEmitter();
+    const events: TurnEvent[] = [];
+    bridgeAgent(agent, (e) => events.push(e));
+    const outputs = [
+      { ok: false, jobId: 'draw', revision: 3, rolledBack: true, error: 'Error: stop here' },
+      { ok: false, jobId: 'draw', revision: 5, rolledBack: true, restarted: true, error: 'ValidationError: At shape(type = text).props.text: Unexpected property' },
+      { ok: false, jobId: 'draw', error: 'Timmy Canvas is not running.' },
+    ];
+    outputs.forEach((output, i) => agent.emit('item:update', { type: 'function_call_output', callId: `k${i}`, output: JSON.stringify(output) }));
+    expect(events.map((e) => (e as { preview?: string }).preview)).toEqual([
+      'Timmy Canvas job draw, revision 3, nothing kept: Error: stop here',
+      'Timmy Canvas job draw, revision 5, nothing kept, page restarted: ValidationError: At shape(type = text).props.text: Unexpected property',
+      'Timmy Canvas job draw: Timmy Canvas is not running.',
+    ]);
+  });
   it('shows an error once even when the agent emits it twice, and keeps model-fallback notices', () => {
     const agent = new EventEmitter();
     const events: TurnEvent[] = [];

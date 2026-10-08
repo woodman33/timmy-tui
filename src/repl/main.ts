@@ -305,9 +305,12 @@ export async function runRepl(argv: string[]): Promise<number> {
     lastLinks = [];
     const rows: InspectRow[] = [];
     for (const c of jobs) {
+      // A job of lookups only changed nothing, so there is nothing of it to inspect (round R1).
+      if (c.changed === false && c.ok !== false) continue;
       const linked = links.find((l) => l.job === c.job)?.ok;
       const page = serving && health.pageConnected ? 'open in your browser' : '/canvas open';
-      rows.push({ label: 'Canvas', text: `job ${c.job}, rev ${c.revision}`, url: `${base}/`, hint: linked === false ? 'not linked to its receipt on the board' : page });
+      const failed = c.ok === false ? ', failed: nothing kept' : '';
+      rows.push({ label: 'Canvas', text: `job ${c.job}, rev ${c.revision}${failed}`, url: `${base}/`, hint: linked === false ? 'not linked to its receipt on the board' : page });
     }
     if (sealed) {
       const url = receiptUrl(sealed.id);

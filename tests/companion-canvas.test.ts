@@ -15,6 +15,15 @@ const home = (): string => { const h = mkdtempSync(join(tmpdir(), 'timmy-compani
 const SNAP = { store: {}, schema: { schemaVersion: 2, sequences: {} } };
 const SOURCE = 'ab'.repeat(32);
 
+describe('the jobs ledger (round R1)', () => {
+  it("marks a job by its last call, and counts the failed calls, which kept nothing", () => {
+    const docs = new CanvasDocuments(join(home(), 'canvas'));
+    docs.recordJob('draw', { ok: false, revision: 2, sourceRevision: SOURCE });
+    expect(docs.recordJob('draw', { ok: false, revision: 4, sourceRevision: SOURCE })).toMatchObject({ ok: false, calls: 2, failed: 2 });
+    expect(docs.recordJob('draw', { ok: true, revision: 5, sourceRevision: SOURCE })).toMatchObject({ ok: true, calls: 3, failed: 2 });
+  });
+});
+
 describe('canvasSummary', () => {
   it('a new home: revision 0, no source revision, no jobs, and where to open the canvas', () => {
     expect(canvasSummary({ TIMMY_HOME: home() })).toEqual({ revision: 0, sourceRevision: null, savedAt: null, jobs: [], open: 'http://127.0.0.1:4337/' });

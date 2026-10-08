@@ -21,6 +21,14 @@ export interface CanvasAnswer {
   sourceRevision?: string;
   /** Why the page could not save after the call (another window saved a newer canvas, say). */
   saveError?: string;
+  /** Round R1: whether the call left the canvas changed (a lookup, or a call that was undone, did not). */
+  changed?: boolean;
+  /** Round R1: the call failed and the page undid what it drew; the canvas is as it was before the call. */
+  rolledBack?: boolean;
+  /** The call crashed tldraw, so the page started a fresh editor from the canvas as it was before it. */
+  restarted?: boolean;
+  /** The call failed and its changes could not be undone: why (the canvas may hold part of it). */
+  rollbackError?: string;
 }
 
 /** An HTTP-shaped outcome: 200 the page answered, 503 no canvas open, 504 no answer in time. */
@@ -97,7 +105,7 @@ export class CanvasBridge {
   }
 
   private answer(text: string): void {
-    let m: { id?: unknown; ok?: unknown; result?: unknown; error?: unknown; revision?: unknown; sourceRevision?: unknown; saveError?: unknown };
+    let m: { id?: unknown; ok?: unknown; result?: unknown; error?: unknown; revision?: unknown; sourceRevision?: unknown; saveError?: unknown; changed?: unknown; rolledBack?: unknown; restarted?: unknown; rollbackError?: unknown };
     try {
       m = JSON.parse(text);
     } catch {
@@ -111,6 +119,10 @@ export class CanvasBridge {
     if (typeof m.revision === 'number') body.revision = m.revision;
     if (typeof m.sourceRevision === 'string' && /^[0-9a-f]{64}$/.test(m.sourceRevision)) body.sourceRevision = m.sourceRevision;
     if (typeof m.saveError === 'string' && m.saveError) body.saveError = m.saveError.slice(0, 300);
+    if (typeof m.changed === 'boolean') body.changed = m.changed;
+    if (m.ok !== true && m.rolledBack === true) body.rolledBack = true;
+    if (m.ok !== true && m.restarted === true) body.restarted = true;
+    if (m.ok !== true && typeof m.rollbackError === 'string' && m.rollbackError) body.rollbackError = m.rollbackError.slice(0, 300);
     this.settle(m.id as number, p, { status: 200, body });
   }
 

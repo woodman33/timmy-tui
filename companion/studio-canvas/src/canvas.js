@@ -37,6 +37,13 @@ const LICENSE = {
  */
 const canvas = { revision: 0, savedRevision: 0, sourceRevision: null, conflict: null, notice: null, linked: false, timer: null };
 
+/**
+ * The live editor. A canvas call that crashes tldraw gets a fresh editor (round R1: see `restore`), so
+ * everything that reaches the editor later (saves, the panel, the next call) goes through `current`,
+ * never an editor kept from the first mount.
+ */
+let current = null;
+
 function showStatus(editor) {
   const state = editor.licenseManager?.state.get() ?? 'unknown';
   window.timmyCanvas.licenseState = state;
@@ -47,12 +54,13 @@ function showStatus(editor) {
   const saved = canvas.revision === canvas.savedRevision ? `revision ${canvas.revision}, saved` : `revision ${canvas.revision}, saving`;
   const text = `Canvas ready · tldraw ${BUILT_WITH} · ${LICENSE[state] ?? `license state: ${state}`} · ${canvas.linked ? 'Timmy connected' : 'Timmy not connected'} · ${saved}`;
   say(canvas.notice ? `${canvas.notice} ${text}` : text, canvas.linked ? 'ready' : 'waiting');
-  if (state === 'pending') setTimeout(() => showStatus(editor), 250);
+  if (state === 'pending') setTimeout(() => current && showStatus(current), 250);
 }
 
 // Saves go one at a time, each from the revision the last one left on disk.
 let queue = Promise.resolve();
-async function saveNow(editor) {
+async function saveNow() {
+  const editor = current;
   if (canvas.conflict) return { ok: false, error: canvas.conflict };
   if (canvas.revision === canvas.savedRevision) return { ok: true, revision: canvas.revision, sourceRevision: canvas.sourceRevision };
   const revision = canvas.revision;
@@ -79,25 +87,25 @@ async function saveNow(editor) {
   showStatus(editor);
   return saved;
 }
-function save(editor) {
+function save() {
   clearTimeout(canvas.timer);
-  const run = queue.then(() => saveNow(editor));
+  const run = queue.then(() => saveNow());
   queue = run.catch(() => undefined);
   return run;
 }
-const saveSoon = (editor) => {
+const saveSoon = () => {
   clearTimeout(canvas.timer);
-  canvas.timer = setTimeout(() => save(editor), 400);
+  canvas.timer = setTimeout(() => save(), 400);
 };
 /**
  * Leaving the page (closing the tab, reloading, going elsewhere) saves what the 400 ms wait has not.
  * A closing page can still send one small request (keepalive, up to 64 KB); a larger canvas sends
  * an ordinary one, which the browser may cut off: then the last 400 ms of changes can be lost.
  */
-function saveOnLeave(editor) {
-  if (canvas.conflict || canvas.revision === canvas.savedRevision) return;
+function saveOnLeave() {
+  if (!current || canvas.conflict || canvas.revision === canvas.savedRevision) return;
   clearTimeout(canvas.timer);
-  const body = JSON.stringify({ snapshot: getSnapshot(editor.store).document, revision: canvas.revision, baseRevision: canvas.savedRevision });
+  const body = JSON.stringify({ snapshot: getSnapshot(current.store).document, revision: canvas.revision, baseRevision: canvas.savedRevision });
   fetch('/api/canvas/document', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body, keepalive: body.length < 60_000 }).catch(() => undefined);
 }
 
@@ -148,27 +156,61 @@ function reveal(editor, ids) {
   );
 }
 
-function connectBridge(editor) {
+/** What every editor needs from Timmy: each shape a call creates carries the call's job, and every change counts and saves. */
+function attachEditor(editor) {
   editor.sideEffects.registerBeforeCreateHandler('shape', (shape) => {
     drawnInCall?.add(shape.id);
     return runningJob ? { ...shape, meta: { ...shape.meta, timmyJob: runningJob } } : shape;
   });
   const bump = () => {
     canvas.revision += 1;
-    saveSoon(editor);
-    showStatus(editor);
+    saveSoon();
+    if (current) showStatus(current);
   };
   for (const type of ['shape', 'binding', 'page', 'asset']) {
     editor.sideEffects.registerAfterCreateHandler(type, bump);
     editor.sideEffects.registerAfterChangeHandler(type, bump);
     editor.sideEffects.registerAfterDeleteHandler(type, bump);
   }
+}
+
+const describe = (error) => (error instanceof Error ? `${error.name}: ${error.message}` : String(error));
+
+/** Whether two documents hold the same records (the canvas before a call, and after its undo). */
+function sameDocument(a, b) {
+  const ka = Object.keys(a.store);
+  if (ka.length !== Object.keys(b.store).length) return false;
+  return ka.every((k) => k in b.store && JSON.stringify(a.store[k]) === JSON.stringify(b.store[k]));
+}
+
+/**
+ * Round R1 (the Mac run): a call that fails keeps nothing. Its changes are undone to the mark set
+ * before it ran; and when it crashed tldraw (a shape tldraw refuses throws inside the editor, and
+ * tldraw then shows "Something went wrong" for good), the page starts a fresh editor from the canvas
+ * as it was before the call, so the board stays usable and later calls draw where you can see them.
+ */
+async function restore(editor, before, mark, crashed) {
+  if (crashed) {
+    await mount(before);
+    return;
+  }
+  editor.bailToMark(mark);
+  // Changes made outside the undo history are not undone by the mark: load the earlier canvas instead.
+  const now = getSnapshot(editor.store);
+  if (!sameDocument(now.document, before.document)) editor.loadSnapshot(before);
+}
+
+function connectBridge() {
   const helpers = { Box, Vec, createBindingId, createShapeId, toRichText };
   const open = () => {
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/bridge`);
-    ws.onopen = () => { canvas.linked = true; showStatus(editor); };
-    ws.onclose = () => { canvas.linked = false; showStatus(editor); setTimeout(open, 2000); };
+    ws.onopen = () => { canvas.linked = true; if (current) showStatus(current); };
+    ws.onclose = () => { canvas.linked = false; if (current) showStatus(current); setTimeout(open, 2000); };
     const run = async (message) => {
+      const editor = current;
+      const before = getSnapshot(editor.store);
+      const revisionBefore = canvas.revision;
+      const mark = editor.markHistoryStoppingPoint(`timmy ${typeof message.jobId === 'string' ? message.jobId : 'call'}`);
       let answer;
       runningJob = typeof message.jobId === 'string' ? message.jobId : null;
       drawnInCall = new Set();
@@ -179,22 +221,39 @@ function connectBridge(editor) {
           ? { ok: false, error: `The result is too large to send back (${Math.round(json.length / 1024)} KB); return less.` }
           : { ok: true, result: JSON.parse(json) };
       } catch (error) {
-        answer = { ok: false, error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) };
+        answer = { ok: false, error: describe(error) };
       } finally {
         runningJob = null;
       }
       const drawn = [...drawnInCall];
       drawnInCall = null;
-      try {
-        reveal(editor, drawn);
-      } catch {
-        // Showing the drawing is a courtesy; the call's answer never depends on it.
+      const crash = typeof editor.getCrashingError === 'function' ? editor.getCrashingError() : null;
+      if (!answer.ok || crash) {
+        // Nothing a failed call drew is kept, and a crashed page is started again (see restore).
+        if (answer.ok) answer = { ok: false, error: `The canvas page crashed during this call (${describe(crash)}).` };
+        try {
+          await restore(editor, before, mark, Boolean(crash));
+          answer.rolledBack = true;
+          if (crash) answer.restarted = true;
+          // The canvas changed and changed back: one more revision, so the saved file follows.
+          if (canvas.revision !== revisionBefore) canvas.revision += 1;
+        } catch (error) {
+          answer.rollbackError = describe(error);
+        }
+      } else {
+        try {
+          reveal(editor, drawn);
+        } catch {
+          // Showing the drawing is a courtesy; the call's answer never depends on it.
+        }
       }
-      const saved = await save(editor);
+      const saved = await save();
       const savedAs = saved.ok ? { sourceRevision: saved.sourceRevision ?? undefined } : { saveError: saved.error };
-      ws.send(JSON.stringify({ id: message.id, ...answer, revision: canvas.revision, ...savedAs }));
+      // Whether the call left the canvas changed: a lookup, or a call that was undone, did not.
+      const changed = answer.ok === true && canvas.revision !== revisionBefore;
+      ws.send(JSON.stringify({ id: message.id, ...answer, changed, revision: canvas.revision, ...savedAs }));
       // The server records the job when it reads this answer; show it a moment later.
-      setTimeout(() => void refreshJobs(editor), 200);
+      setTimeout(() => void refreshJobs(), 200);
     };
     ws.onmessage = (event) => {
       let message;
@@ -221,20 +280,22 @@ function showJobs(editor) {
     const li = el('li');
     li.dataset.job = job.id;
     li.setAttribute('aria-current', String(marked.has(job.id)));
-    li.append(el('span', job.ok ? '✓ done' : '✖ failed', { className: job.ok ? 'ok' : 'bad' }), ` ${job.id} · revision ${job.revision} · `);
+    // Round R1: a job's mark is its last call's; the calls that failed before it kept nothing, and say so.
+    const failed = typeof job.failed === 'number' && job.failed > 0 ? ` · ${job.failed} failed ${job.failed === 1 ? 'call' : 'calls'}, nothing kept` : '';
+    li.append(el('span', job.ok ? '✓ done' : '✖ failed', { className: job.ok ? 'ok' : 'bad' }), ` ${job.id} · revision ${job.revision}${failed} · `);
     li.append(job.receipt ? el('a', `receipt ${job.receipt}`, { href: `/receipts/${encodeURIComponent(job.receipt)}`, target: '_blank', rel: 'noopener' }) : 'no receipt yet');
     return li;
   });
   list.replaceChildren(...(rows.length ? rows : [el('li', 'No jobs yet. Ask Timmy in the REPL to draw something.')]));
 }
-async function refreshJobs(editor) {
+async function refreshJobs() {
   try {
     const response = await fetch('/api/canvas/jobs', { cache: 'no-store' });
     if (response.ok) jobs = await response.json();
   } catch {
     // The status line already says when Timmy cannot be reached.
   }
-  showJobs(editor);
+  if (current) showJobs(current);
 }
 function showGuide(editor) {
   document.getElementById('guide').hidden = editor.getCurrentPageShapes().length > 0;
@@ -262,7 +323,7 @@ function openBoard(editor, template) {
   }
   showGuide(editor);
 }
-async function offerBoards(editor) {
+async function offerBoards() {
   const pick = document.getElementById('board-pick');
   let templates = [];
   try {
@@ -272,26 +333,60 @@ async function offerBoards(editor) {
     // Without the list, New board still opens a blank board.
   }
   pick.append(...templates.map((t) => el('option', `${t.title} (${t.domain})`, { value: t.id })));
-  document.getElementById('board-open').addEventListener('click', () => openBoard(editor, templates.find((t) => t.id === pick.value)));
+  document.getElementById('board-open').addEventListener('click', () => current && openBoard(current, templates.find((t) => t.id === pick.value)));
 }
-function connectPanel(editor) {
+/** The panel's own parts, once per page: the jobs list, New board, and the jobs' refresh. */
+function connectPanel() {
   document.getElementById('side-ready').hidden = false;
   // On a narrow screen the jobs start folded, so the panel leaves the canvas room.
   if (window.innerWidth < 600) document.getElementById('jobs').open = false;
+  void offerBoards();
+  void refreshJobs();
+  setInterval(() => { if (document.visibilityState === 'visible') void refreshJobs(); }, 5000);
+}
+/** What the panel follows in each editor: the blank-board guide and the selected shapes' jobs. */
+function followEditor(editor) {
   let queued = false;
   editor.store.listen(() => {
     if (queued) return;
     queued = true;
     requestAnimationFrame(() => {
       queued = false;
+      if (current !== editor) return;
       showGuide(editor);
       showJobs(editor);
     });
   });
   showGuide(editor);
-  void offerBoards(editor);
-  void refreshJobs(editor);
-  setInterval(() => { if (document.visibilityState === 'visible') void refreshJobs(editor); }, 5000);
+  showJobs(editor);
+}
+
+/** Props every mount of tldraw shares; set once the server's settings are read. */
+let tldrawProps = null;
+let reactRoot = null;
+let mounts = 0;
+/** Start tldraw on `snapshot` (a fresh editor each time); resolves once it has mounted and Timmy is attached. */
+function mount(snapshot) {
+  mounts += 1;
+  return new Promise((resolve) => {
+    reactRoot.render(
+      React.createElement(Tldraw, {
+        ...tldrawProps,
+        key: `timmy-canvas-${mounts}`,
+        snapshot,
+        onMount: (editor) => {
+          current = editor;
+          editor.user.updateUserPreferences({ colorScheme: 'dark' });
+          // Timmy's agent bridge (F-4, slice 2) drives the canvas through this handle.
+          window.timmyCanvas = { editor, tldrawVersion: BUILT_WITH, licenseState: window.timmyCanvas?.licenseState ?? 'pending', document: canvas, mounts };
+          attachEditor(editor);
+          followEditor(editor);
+          showStatus(editor);
+          resolve(editor);
+        },
+      }),
+    );
+  });
 }
 
 async function start() {
@@ -313,24 +408,17 @@ async function start() {
   canvas.sourceRevision = saved.sourceRevision;
   canvas.notice = saved.notice ?? null;
   say('Loading the canvas: starting tldraw', 'loading');
-  createRoot(document.getElementById('root')).render(
-    React.createElement(Tldraw, {
-      licenseKey: config.licenseKey ?? undefined,
-      // tldraw's fonts, icons, translations and embed icons, served by Timmy beside this bundle.
-      assetUrls: getAssetUrls({ baseUrl: new URL('assets/', import.meta.url).href }),
-      // The saved canvas from Timmy's home; none means a blank one.
-      snapshot: saved.snapshot ? { document: saved.snapshot } : undefined,
-      onMount: (editor) => {
-        editor.user.updateUserPreferences({ colorScheme: 'dark' });
-        // Timmy's agent bridge (F-4, slice 2) drives the canvas through this handle.
-        window.timmyCanvas = { editor, tldrawVersion: BUILT_WITH, licenseState: 'pending', document: canvas };
-        showStatus(editor);
-        connectBridge(editor);
-        connectPanel(editor);
-        window.addEventListener('pagehide', () => saveOnLeave(editor));
-      },
-    }),
-  );
+  tldrawProps = {
+    licenseKey: config.licenseKey ?? undefined,
+    // tldraw's fonts, icons, translations and embed icons, served by Timmy beside this bundle.
+    assetUrls: getAssetUrls({ baseUrl: new URL('assets/', import.meta.url).href }),
+  };
+  reactRoot = createRoot(document.getElementById('root'));
+  // The saved canvas from Timmy's home; none means a blank one.
+  await mount(saved.snapshot ? { document: saved.snapshot } : undefined);
+  connectBridge();
+  connectPanel();
+  window.addEventListener('pagehide', () => saveOnLeave());
 }
 
 start().catch((error) => {
