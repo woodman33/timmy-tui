@@ -1,6 +1,6 @@
 # Round R1: shared brief for the lead and the two workers
 
-Updated 2026-10-08 16:00 PT by the lead (Opus). After the first hand-off, the Haiku worker keeps this file current; anyone may add a line under "For the lead".
+Updated 2026-10-08 16:35 PT by the lead (Opus). After the first hand-off, the Haiku worker keeps this file current; anyone may add a line under "For the lead".
 
 ## Where the work is
 
@@ -23,7 +23,10 @@ A functional, organized Timmy whose capabilities are easy to find and use: the R
 | `66b6e7c` | No invented AgentPass passport, "VERIFIED" visa, storage or proof in lane panes; no random credentials or seeded "verified" log lines. |
 | `13ac799` | An independent review's findings (ledger row 118): `get_env` checks names and values; the workspace command and `get_env` ask every time; "Outcome unknown" when a request may have run remotely; failed steps read "Run failed:" or "Not run:"; API lanes need their key in `timmy tools`; "used" dates count only turns sealed with `outcome_rule: 2`; no invented lane figures. |
 
-Checks at `13ac799`: full suite 258 files passed, 7 skipped, 0 failed (2,276 tests, with `NODE_PATH` unset); `tsc` and `tsgo` clean.
+| `458a015` | From the live run on the Mac: a canvas call that fails keeps nothing (undone to a history mark), and a call that crashed tldraw's page restarts it from the canvas as it was before the call; answers say `rolledBack`, `restarted`, `changed`; jobs are marked by their last call with failed calls counted. |
+| `af536cb` | `canvas_exec` carries a drawing that works in this tldraw (tested in a real browser); a turn that ends at its step or spend limit with a call open says so; `~/…` for a home reached through a link. |
+
+Checks at `af536cb`: full suite 258 files passed, 7 skipped, 0 failed (2,283 tests, with `NODE_PATH` unset); `tsc` and `tsgo` clean. The real workflow ran on the operator's Mac three times (ledger row 119): the last run drew the task in one call for $0.012.
 
 ## Who owns what
 
@@ -32,7 +35,7 @@ Work on your own branch from `origin/feat/ui-workflow-r1`. Commit only the files
 | Owner | Branch | Files |
 |---|---|---|
 | Lead (Opus) | `feat/ui-workflow-r1` | `src/agent/**`, `src/repl/` (main, turn, transcript, agent-bridge, approvals, seal, commands, canvas-view, web), `src/capabilities/**`, `src/studio/` (server, health, config, bridge, document), `src/term/theme.ts`, `src/utils/receipts.ts`, `package.json` and the lock, `DESIGN.md`, `CHANGELOG.md`, `docs/ui-cockpit/CHECKPOINTS.md` |
-| Sonnet 5.5 | `r1/ui-sonnet` | `src/theme/**`, `src/term/palettes.ts`, `src/term/theme-files.ts`, `src/term/theme-install.ts`, `assets/themes/**`, `src/repl/demo.ts`, `src/repl/input-view.ts`, `src/repl/center.ts`, `companion/studio-canvas/**`, `src/studio/receipt-page.ts`, `scripts/ui/render.ts`, `scripts/ui/themes.ts`, the README section "Timmy Homebrew and the font", and their tests |
+| Sonnet 5.5 | `r1/ui-sonnet` | `src/theme/**`, `src/term/palettes.ts`, `src/term/theme-files.ts`, `src/term/theme-install.ts`, `assets/themes/**`, `src/repl/demo.ts`, `src/repl/input-view.ts`, `src/repl/center.ts`, `companion/studio-canvas/**` (except the bridge in `src/canvas.js`: `attachEditor`, `restore`, `connectBridge`, `mount`, which the lead keeps since `458a015`), `src/studio/receipt-page.ts`, `scripts/ui/render.ts`, `scripts/ui/themes.ts`, the README section "Timmy Homebrew and the font", and their tests |
 | Haiku 5.5 | `r1/tools-haiku` | `docs/ui-cockpit/R1-BRIEF.md` (this file), `docs/TOOLS-SETUP.md` (new), `src/utils/dispatch.ts`, `tests/dispatch-lanes.test.ts` |
 
 Never touch: `studio/` (another hand's lab), `lanes/visual/tokens.json` (the visual law), `docs/ui-cockpit/c15/` to `c19/`, `c18-development/`, `PRIVATE-EVIDENCE.md`, `C16-ACCEPTED.sha256`, `main`, `feat/ui-cockpit`; on the operator's Mac: the global `timmy`, the operator's own checkout and Terminal windows and profiles, and `~/timmy/evidence`.
@@ -77,7 +80,8 @@ Never touch: `studio/` (another hand's lab), `lanes/visual/tokens.json` (the vis
 
 ## Open items and blockers
 
-- The Mac run and captures (lead, in progress at `13ac799`).
+- Done: the Mac run and captures (ledger row 119). The monitor seals a `model.policy` receipt when it opens, and its header names the policy's model rather than the REPL's: both predate R1, and both are open.
+- The jobs ledger records a call only once the canvas has been saved, so a call that fails before the first save is not counted in a job's failed calls.
 - AgentPass and TaskForge: their services live outside this repository, and `timmy tools` shows them as needs setup. The spatial roadmap stays in its own records (COMMAND-CENTER-PLAN's next milestone and the private register). Neither is part of R1.
 - In a workspace with `NODE_PATH` set, `tests/recipe-package` and `tests/inspect-package` resolve `tsx` globally and fail. Run the suite with `env -u NODE_PATH`.
 
