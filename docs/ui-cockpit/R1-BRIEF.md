@@ -1,6 +1,6 @@
 # Round R1: shared brief for the lead and the two workers
 
-Updated 2026-10-08 15:20 PT by the lead (Opus). After the first hand-off, the Haiku worker keeps this file current; anyone may add a line under "For the lead".
+Updated 2026-10-08 16:00 PT by the lead (Opus). After the first hand-off, the Haiku worker keeps this file current; anyone may add a line under "For the lead".
 
 ## Where the work is
 
@@ -20,8 +20,10 @@ A functional, organized Timmy whose capabilities are easy to find and use: the R
 |---|---|
 | `216392d` | Tools say when their service is missing or failed, with the setup step; nothing is invented; failed steps show and seal as `failed`. Each turn names its folder and model and ends with where to inspect the canvas job and the receipt page. `/tools` and `timmy tools` (the ladder: reachable, installed, needs setup, not built). `/canvas`, `GET /api/canvas/health`, one canvas address. |
 | `f8f3564` | Timmy Homebrew, the default look, from `src/theme/tokens.ts`: terminal palette, theme files, a macOS Terminal profile with Monaspace Argon, `timmy theme install` defaults, the canvas panel and receipt page. |
+| `66b6e7c` | No invented AgentPass passport, "VERIFIED" visa, storage or proof in lane panes; no random credentials or seeded "verified" log lines. |
+| `13ac799` | An independent review's findings (ledger row 118): `get_env` checks names and values; the workspace command and `get_env` ask every time; "Outcome unknown" when a request may have run remotely; failed steps read "Run failed:" or "Not run:"; API lanes need their key in `timmy tools`; "used" dates count only turns sealed with `outcome_rule: 2`; no invented lane figures. |
 
-Checks at `f8f3564`: full suite 257 files passed, 7 skipped, 0 failed (with `NODE_PATH` unset); `tsc` and `tsgo` clean.
+Checks at `13ac799`: full suite 258 files passed, 7 skipped, 0 failed (2,276 tests, with `NODE_PATH` unset); `tsc` and `tsgo` clean.
 
 ## Who owns what
 
@@ -46,13 +48,13 @@ Never touch: `studio/` (another hand's lab), `lanes/visual/tokens.json` (the vis
 
 **Haiku 5.5: inventory, setup documentation, checks, this brief**
 1. Check every setup step `timmy tools` prints (`src/capabilities/index.ts`) against each tool's own documentation: agent-browser, oha, Ollama, Claude Code, Codex, Qwen Code, Trigger.dev, Composio, carbonyl, zellij, the Monaspace cask, and AgentPass and TaskForge's variables. List corrections under "For the lead"; the lead applies them.
-2. Lanes honesty: `listLanes()` calls an API lane ready when only `curl` exists, and hyperframes when only `npx` does. Write the failing tests, then fix: a lane that needs a key needs its key set. Never print a key.
+2. Lanes honesty: `listLanes()` calls an API lane ready when only `curl` exists, and hyperframes when only `npx` does. Write the failing tests, then fix: a lane that needs a key needs its key set. Never print a key. (`timmy tools` already reads each lane's key from `LANE_RUNNERS` since `13ac799`; when `listLanes()` returns `key`, `src/capabilities/live.ts` uses it, so `/lanes` and `/tools` agree.)
 3. `docs/TOOLS-SETUP.md`: each `timmy tools` row, what it needs, the exact setup step, and how to check it. Add the MCP servers in `config/mcporter.json` as a table, with no secrets and no hostnames.
 4. Run the named suites, `tsc` and the privacy gate on the workers' branch heads, and record the results here.
 5. Keep this file current: branch heads, PR states, CI, what merged, and open items.
 
 **Lead (Opus): core behavior, outcomes and receipts, integration**
-- Remove the remaining invented signals in the agent: the `[AgentPass] … VERIFIED` banners and random credentials in `src/agent/core.ts` and `src/agent/lanes.ts`.
+- Done: the invented AgentPass signals (`66b6e7c`) and the independent review's findings (`13ac799`).
 - Apply Haiku's setup corrections. Review and merge the worker PRs into `feat/ui-workflow-r1`. Keep the ledger.
 - Run the real workflow on the Mac (REPL, a canvas job, the receipt, `/tools`, the monitor), with captures, spending at most $0.50 of LIVE-01's remaining authorization.
 
@@ -71,11 +73,11 @@ Never touch: `studio/` (another hand's lab), `lanes/visual/tokens.json` (the vis
 - Green is interaction (prompt, selection, primary action), not proof. Every outcome keeps its words (B9).
 - The font is `@fontsource/monaspace-argon` 5.3.0 (OFL-1.1, with the Reserved Font Name "Monaspace"). Timmy serves it unmodified from 127.0.0.1, and it is never copied into the repository. Terminals get the font through a profile or printed lines, because a terminal draws in its own font.
 - The monitor keeps the visual law's bindings this round. It picks up Timmy Homebrew's colors through the palette.
-- The workspace command still runs on this machine when no Daytona key is set, and asks first each time. When Daytona fails, nothing runs locally.
+- The workspace command still runs on this machine when no Daytona key is set, and asks every time (its box has no "allow for session"; nor does `get_env`'s). When Daytona fails, nothing runs locally; when the connection broke after sending, the outcome is unknown and the tool says so.
 
 ## Open items and blockers
 
-- The Mac run and captures (lead, next).
+- The Mac run and captures (lead, in progress at `13ac799`).
 - AgentPass and TaskForge: their services live outside this repository, and `timmy tools` shows them as needs setup. The spatial roadmap stays in its own records (COMMAND-CENTER-PLAN's next milestone and the private register). Neither is part of R1.
 - In a workspace with `NODE_PATH` set, `tests/recipe-package` and `tests/inspect-package` resolve `tsx` globally and fail. Run the suite with `env -u NODE_PATH`.
 
