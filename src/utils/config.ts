@@ -39,7 +39,10 @@ export interface TuiConfig {
 }
 
 const DEFAULT_CONFIG: TuiConfig = {
-  apiKey: process.env.OPENROUTER_API_KEY || '',
+  // Never the environment's key: the store writes its defaults to the settings file on first use, and
+  // a key written there outlives the shell that exported it. loadConfig() applies the environment's key
+  // when it reads the config; saveApiKey() is the one way a key reaches the file.
+  apiKey: '',
   model: 'anthropic/claude-opus-4.7',
   theme: 'dark',
   graphics: 'auto',
@@ -57,9 +60,12 @@ const DEFAULT_CONFIG: TuiConfig = {
   },
 };
 
+// The settings file can hold a key saved on purpose, so every write of it is private (0600), also over
+// a file an older version left 0644.
 const store = new Conf<TuiConfig>({
   projectName: 'timmy-tui',
   defaults: DEFAULT_CONFIG,
+  configFileMode: 0o600,
 });
 
 export function loadConfig(): TuiConfig {
@@ -93,8 +99,15 @@ export function loadConfig(): TuiConfig {
   return config;
 }
 
-export function saveConfig(config: Partial<TuiConfig>): void {
-  store.set(config);
+/** Saves settings. Never a model key: a config read back from loadConfig() carries the environment's key. */
+export function saveConfig(config: Partial<Omit<TuiConfig, 'apiKey'>>): void {
+  const { apiKey: _transient, ...settings } = config as Partial<TuiConfig>;
+  store.set(settings);
+}
+
+/** Saves a model key the user gave on purpose (setup, onboarding) in the settings file, which is 0600. */
+export function saveApiKey(apiKey: string): void {
+  store.set('apiKey', apiKey);
 }
 
 export function getConfig(): Conf<TuiConfig> {

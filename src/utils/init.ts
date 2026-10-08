@@ -7,7 +7,7 @@
 // Nothing in the public tree changes. `isBlankSlate()` is what the CLI and the TUI ask
 // before showing anything else; without a TTY (or --yes) the wizard prints what it would
 // ask and writes nothing, so a first launch in a container still shows the wizard.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -85,7 +85,13 @@ function guardPath(p: string, extraAllowed: string[] = [], workspace = workspace
   if (!ok) throw new Error(`refusing to write outside TIMMY_HOME / TIMMY_PRIVATE_DIR: ${abs}`);
   return abs;
 }
-function writeJson(p: string, data: unknown, mode = 0o644, workspace = workspaceRoot()): string { const abs = guardPath(p, [], workspace); mkdirSync(join(abs, '..'), { recursive: true }); writeFileSync(abs, JSON.stringify(data, null, 1) + '\n', { mode }); return abs; }
+/** Writes a file at `mode`. writeFileSync's mode only applies to a file it creates, so a private file that
+ *  already existed (an older version's, or one made by hand) is narrowed first, before the secret goes in. */
+function writeAt(abs: string, data: string, mode: number): void {
+  if ((mode & 0o077) === 0 && existsSync(abs)) chmodSync(abs, mode);
+  writeFileSync(abs, data, { mode });
+}
+function writeJson(p: string, data: unknown, mode = 0o644, workspace = workspaceRoot()): string { const abs = guardPath(p, [], workspace); mkdirSync(join(abs, '..'), { recursive: true }); writeAt(abs, JSON.stringify(data, null, 1) + '\n', mode); return abs; }
 function mergeJson(p: string, patch: Record<string, unknown>, mode = 0o600, workspace = workspaceRoot()): string {
   const abs = guardPath(p, [], workspace);
   let cur: Record<string, unknown> = {};
@@ -105,7 +111,7 @@ export function applyInit(a: Required<Pick<InitOptions, 'operator' | 'project'>>
   const pin = join(repoRoot, '.timmy', 'store-pin');
   if (!existsSync(pin)) { guardPath(pin, [pin]); mkdirSync(join(repoRoot, '.timmy'), { recursive: true }); writeFileSync(pin, join(repoRoot, '.timmy', 'receipts')); written.push(pin); }
   written.push(writeJson(join(home, 'identity.json'), { version: 1, operator: a.operator, operator_id: id.operatorId, public_key_hex: id.publicKeyHex, seed_source: id.source, created: new Date().toISOString() }));
-  const seedPath = guardPath(join(home, 'identity.seed')); writeFileSync(seedPath, id.privatePem, { mode: 0o600 }); written.push(seedPath);
+  const seedPath = guardPath(join(home, 'identity.seed')); writeAt(seedPath, id.privatePem, 0o600); written.push(seedPath);
   const providers: Record<string, string> = { ollama_host: a.ollama || 'http://127.0.0.1:11434' };
   if (a.openrouter) providers.openrouter_api_key = a.openrouter;
   if (a.anthropic) providers.anthropic_api_key = a.anthropic;

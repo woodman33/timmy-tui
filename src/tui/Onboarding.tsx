@@ -6,7 +6,7 @@ import { useFocus } from './hooks/useKeyDispatcher.js';
 import { appendFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { Agent } from '../agent/core.js';
-import { saveConfig } from '../utils/config.js';
+import { saveApiKey, saveConfig } from '../utils/config.js';
 import { probeOllama } from '../agent/providers.js';
 import { saveOrgConfig } from '../utils/sessionstore.js';
 import { theme } from './theme.js';
@@ -113,7 +113,7 @@ export function Onboarding({ agent, onDone }: OnboardingProps) {
       if (key.return) {
         const k = keyInput.trim();
         if (k) {
-          saveConfig({ apiKey: k } as any);
+          saveApiKey(k);
           try { agent.updateApiKey(k); } catch { /* client refresh best-effort */ }
         }
         setStep('cloud');
