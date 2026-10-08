@@ -1,0 +1,17 @@
+
+ RUN  v3.2.6 /home/runner/work/timmy-tui/timmy-tui/clone
+
+ ✓ tests/studio-canvas-browser.test.ts (7 tests) 11207ms
+   ✓ Timmy Canvas in a real browser > loads nothing from any host but 127.0.0.1, and says it is ready, saved  735ms
+   ✓ Timmy Canvas in a real browser > the blank board says where Timmy saves it: the folder this server writes, from TIMMY_HOME (the 20:14 order)  656ms
+   ✓ Timmy Canvas in a real browser > keeps its panel on screen and clear of tldraw's menu, style panel and toolbar at desktop, tablet and phone sizes, its text unclipped  2841ms
+   ✓ Timmy Canvas in a real browser > works from the keyboard: the jobs fold, a template opens, and tldraw takes its own keys  1172ms
+   ✓ Timmy Canvas in a real browser > its own text clears 4.5:1 on what is behind it: the panel, the job marks, links, controls, the guide  634ms
+   ✓ Timmy Canvas in a real browser > brings what the agent draws into view beside its panel, never under it, and leaves the camera alone when it already shows  3540ms
+   ✓ Timmy Canvas in a real browser > says it is loading while it loads, and why it cannot start when it cannot  1060ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  05:11:48
+   Duration  11.93s (transform 130ms, setup 12ms, collect 472ms, tests 11.21s, environment 0ms, prepare 57ms)
+
