@@ -1,0 +1,4 @@
+# REPLAY-02 request (.github/workflows/replay-02.yml): the commit to replay on a GitHub-hosted runner.
+# C-18's first development rehearsal: the candidate's code after the review's fix pass. Development only; never C-18's evidence.
+commit 8319f8fce293df1b706bcb802c739f77093fe92a
+mode development
