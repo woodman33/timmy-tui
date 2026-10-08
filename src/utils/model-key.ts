@@ -5,6 +5,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { readDotEnv } from './dotenv.js';
 
 export type KeySource = 'environment' | 'timmy-tui.config.json' | 'settings' | 'providers.json';
 type Env = Record<string, string | undefined>;
@@ -17,35 +18,27 @@ export function settingsFile(env: Env = process.env, home: string = homedir(), p
   return join(dir, 'config.json');
 }
 
-const readJson = (file: string): Record<string, unknown> | null => {
-  try { return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown> : null; } catch { return null; }
+const readJson = (file: string): unknown => {
+  try { return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) as unknown : undefined; } catch { return undefined; }
 };
-/** OPENROUTER_API_KEY from a `.env` in `cwd`, which ./config.ts loads into the environment when it is unset there. */
-function dotEnvKey(cwd: string): string {
-  try {
-    const file = resolve(cwd, '.env');
-    if (!existsSync(file)) return '';
-    for (const raw of readFileSync(file, 'utf8').split('\n')) {
-      const line = raw.trim().replace(/^export\s+/, '');
-      const m = /^OPENROUTER_API_KEY\s*=\s*(.*)$/.exec(line);
-      if (m) return m[1].trim().replace(/^(["'])(.*)\1$/, '$2');
-    }
-  } catch { /* unreadable: no key from it */ }
-  return '';
-}
+/** A JSON object: not a primitive, an array or null, which loadConfig's spread ignores (the review of row 99). */
+const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /** Where the REPL would find its model key, or null when it would find none. */
 export function modelKeySource(env: Env = process.env, cwd: string = process.cwd(), home: string = homedir(), platform: string = process.platform): KeySource | null {
-  const envKey = env.OPENROUTER_API_KEY !== undefined ? env.OPENROUTER_API_KEY : dotEnvKey(cwd);
+  // config.ts first loads the working folder's .env into the environment, never over a variable already set:
+  // its TIMMY_HOME and settings folders steer the lookup below as they steer the REPL's.
+  const e: Env = { ...env };
+  for (const [key, value] of Object.entries(readDotEnv(cwd))) if (e[key] === undefined) e[key] = value;
   // loadConfig: the settings store, then a local timmy-tui.config.json over it, then the environment over both;
   // the providers file `timmy init` writes only when all of those are empty.
   let source: KeySource | null = null;
-  const settings = readJson(settingsFile(env, home, platform));
-  if (typeof settings?.apiKey === 'string' && settings.apiKey) source = 'settings';
+  const settings = readJson(settingsFile(e, home, platform));
+  if (isObject(settings) && typeof settings.apiKey === 'string' && settings.apiKey) source = 'settings';
   const local = readJson(resolve(cwd, 'timmy-tui.config.json'));
-  if (local && 'apiKey' in local) source = typeof local.apiKey === 'string' && local.apiKey ? 'timmy-tui.config.json' : null;
-  if (envKey) source = 'environment';
+  if (isObject(local) && 'apiKey' in local) source = typeof local.apiKey === 'string' && local.apiKey ? 'timmy-tui.config.json' : null;
+  if (e.OPENROUTER_API_KEY) source = 'environment';
   if (source) return source;
-  const providers = readJson(join(env.TIMMY_HOME || join(home, 'timmy'), 'providers.json'));
-  return typeof providers?.openrouter_api_key === 'string' && providers.openrouter_api_key ? 'providers.json' : null;
+  const providers = readJson(join(e.TIMMY_HOME || join(home, 'timmy'), 'providers.json'));
+  return isObject(providers) && typeof providers.openrouter_api_key === 'string' && providers.openrouter_api_key ? 'providers.json' : null;
 }

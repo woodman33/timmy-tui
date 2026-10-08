@@ -88,6 +88,36 @@ describe('the model key: found where the REPL finds it, read only', () => {
     } finally { rmSync(b.dir, { recursive: true, force: true }); }
   });
 
+  it('ignores a timmy-tui.config.json that holds no object, as loadConfig does, instead of throwing (the review, row 99)', () => {
+    const b = box();
+    try {
+      for (const body of ['"abc"', '123', 'true', 'null', '[]']) {
+        writeFileSync(join(b.work, 'timmy-tui.config.json'), body);
+        expect(modelKeySource({ ...b.env }, b.work, b.home, 'linux'), body).toBeNull();
+        expect(modelKeySource({ ...b.env, OPENROUTER_API_KEY: 'sk-or-v1-test' }, b.work, b.home, 'linux'), body).toBe('environment');
+      }
+    } finally { rmSync(b.dir, { recursive: true, force: true }); }
+  });
+
+  it("lets a .env in the working folder steer the lookup as it steers the REPL's: TIMMY_HOME there, not the default", () => {
+    const b = box();
+    try {
+      const env = { PATH: b.env.PATH, HOME: b.home };
+      mkdirSync(join(b.home, 'timmy'));
+      writeFileSync(join(b.home, 'timmy', 'providers.json'), JSON.stringify({ openrouter_api_key: 'sk-or-v1-test' }));
+      expect(modelKeySource(env, b.work, b.home, 'linux')).toBe('providers.json');
+      // A .env that moves TIMMY_HOME to a folder with no providers file: the REPL then finds no key, nor may the doctor.
+      writeFileSync(join(b.work, '.env'), `TIMMY_HOME=${join(b.dir, 'elsewhere')}\n`);
+      expect(modelKeySource(env, b.work, b.home, 'linux')).toBeNull();
+      // And one that moves it to a folder that has one.
+      mkdirSync(join(b.dir, 'elsewhere'));
+      writeFileSync(join(b.dir, 'elsewhere', 'providers.json'), JSON.stringify({ openrouter_api_key: 'sk-or-v1-test' }));
+      expect(modelKeySource(env, b.work, b.home, 'linux')).toBe('providers.json');
+      // The real environment wins over the .env, as it does in the REPL.
+      expect(modelKeySource({ ...env, TIMMY_HOME: join(b.dir, 'none') }, b.work, b.home, 'linux')).toBeNull();
+    } finally { rmSync(b.dir, { recursive: true, force: true }); }
+  });
+
   it('writes nothing while it looks', () => {
     const b = box();
     try {

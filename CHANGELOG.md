@@ -51,8 +51,10 @@ inline REPL, `timmy watch`, the canvas) on top of 2.0.0-rc.1.
   code is the REPL's and is written in its output: 0 ready, 78 no model key,
   1 cannot start; the lanes never change it, and `timmy doctor preflight`
   still exits 1 while they are blocked. `--json` carries the same under
-  `readiness`. It looks for the model key without printing it or writing the
-  settings file.
+  `readiness`. It looks for the model key where the REPL looks (a `.env` in
+  the working folder included) without printing it or writing the settings
+  file. Its receipt (`doctor.pass` or `doctor.fail`) still records the lanes'
+  preflight only.
 - The blank canvas names the folder Timmy actually saves it in (the `canvas`
   folder of `TIMMY_HOME`, the home folder shown as `~`), not a fixed
   `~/timmy/canvas`.

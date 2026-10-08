@@ -382,6 +382,7 @@ export function doctorProblems(out: string, code: number | null): string[] {
   if (said === undefined || Number(said) !== code) bad.push(`its "Exit" line says ${said ?? 'nothing'}, the exit was ${code}`);
   const lanes = /^ {2}([✓✗]) Lanes \(optional\): /m.exec(out)?.[1];
   const pre = /^Preflight READY/m.test(out) ? '✓' : /^Preflight BLOCKED/m.test(out) ? '✗' : undefined;
+  if (!pre) bad.push('no preflight verdict (READY or BLOCKED)');
   if (!lanes) bad.push('no lanes line');
   else if (pre && lanes !== pre) bad.push(`its lanes line (${lanes}) disagrees with its preflight (${pre === '✓' ? 'READY' : 'BLOCKED'})`);
   return bad;
@@ -980,7 +981,10 @@ const CHECKS: Check[] = [
 
   // Preservation, suites and replays.
   { id: 'SUITE-01', ref: 'dev', line: 'The related suites pass at the frozen tree', run: async () => {
-    const files = ['tests/repl-', 'tests/term-', 'tests/ui-', 'tests/studio-', 'tests/evidence', 'tests/keyboard-contract', 'tests/bin-', 'tests/runtime-package'];
+    // And the suites of the 20:14 continuation's changes (the release check, the license exception, the
+    // installed next steps) and of the 22:23 order's doctor, which this list missed until the review of row 99.
+    const files = ['tests/repl-', 'tests/term-', 'tests/ui-', 'tests/studio-', 'tests/evidence', 'tests/keyboard-contract', 'tests/bin-', 'tests/runtime-package',
+      'tests/release-validate-tarball', 'tests/privacy-exempt-blobs', 'tests/installed-next-steps', 'tests/doctor-readiness', 'tests/env-loader'];
     const r = spawnSync(join(REPO, 'node_modules/.bin/vitest'), ['run', ...files], { cwd: REPO, encoding: 'utf8', timeout: 600_000 });
     const log = (r.stdout ?? '') + (r.stderr ?? '');
     writeFileSync(join(EVID, 'suite.log'), log);
@@ -1394,6 +1398,7 @@ async function controls(): Promise<string[]> {
     `Preflight ${preflight}: x\n\nWhat works here:\n  ${repl} REPL: x\n  ${lanes} Lanes (optional): x\nExit ${exit}: x\nNext step: \`timmy\` opens the REPL.\n`;
   expectFail('a doctor ready for a demo beside a blocked preflight', () => { must(doctorProblems('Preflight BLOCKED — required checks missing\n\nReady for demo: YES\nNext step: `timmy` opens the REPL.\n', 0).length === 0, 'doctor'); });
   expectFail('a doctor whose exit is not the one its REPL line documents', () => { must(doctorProblems(doctorSaid('!', '✗', 0, 'BLOCKED'), 0).length === 0, 'doctor'); });
+  expectFail('a doctor with no preflight verdict', () => { must(doctorProblems(doctorSaid('!', '✗', 78, 'BLOCKED').replace(/^Preflight BLOCKED: x\n/m, ''), 78).length === 0, 'doctor'); });
   expectFail("a doctor whose lanes line contradicts its preflight", () => { must(doctorProblems(doctorSaid('✓', '✓', 0, 'BLOCKED'), 0).length === 0, 'doctor'); });
   expectFail('a blocker without a reason', () => { blockerOf({ at: '2026-10-07T22:30:40Z' }); });
   expectFail('a blocker without a time', () => { blockerOf({ reason: 'the sandbox could not be created from here' }); });

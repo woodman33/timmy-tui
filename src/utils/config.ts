@@ -2,26 +2,15 @@ import Conf from 'conf';
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join, resolve } from 'path';
+import { readDotEnv } from './dotenv.js';
 
 // Zero-dependency .env loader: the repo ships a .env but nothing ever loaded
 // it, so OPENROUTER_API_KEY (and friends) never reached process.env and the
 // provider health check died on "API key is missing". Real env vars win.
 export function loadEnvFile(dir: string = process.cwd()): void {
   try {
-    const envPath = resolve(dir, '.env');
-    if (!existsSync(envPath)) return;
-    for (const raw of readFileSync(envPath, 'utf-8').split('\n')) {
-      let line = raw.trim();
-      if (!line || line.startsWith('#')) continue;
-      if (line.startsWith('export ')) line = line.slice(7).trim();
-      const eq = line.indexOf('=');
-      if (eq <= 0) continue;
-      const key = line.slice(0, eq).trim();
-      if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(key)) continue;
-      let value = line.slice(eq + 1).trim();
-      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-        value = value.slice(1, -1);
-      }
+    // The parser lives in ./dotenv.ts, without side effects, so the doctor can read the same variables.
+    for (const [key, value] of Object.entries(readDotEnv(dir))) {
       if (process.env[key] === undefined) process.env[key] = value;
     }
   } catch {
