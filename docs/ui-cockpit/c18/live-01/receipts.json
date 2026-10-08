@@ -1,0 +1,92 @@
+[
+  {
+    "id": "rc_muz9v9kp_pfy2",
+    "ts": "2026-10-08T08:26:11.641Z",
+    "kind": "check",
+    "subject": "setup \u00b7 missing identity, palette",
+    "status": "ok",
+    "hash": "sha256_5615f5b6f5364a70dfd5dc38b7fa958e557e22542e60c785a7acf741511b6c97"
+  },
+  {
+    "id": "rc_muz9vchv_py1o",
+    "ts": "2026-10-08T08:26:15.427Z",
+    "kind": "turn",
+    "subject": "repl \u00b7 1 step",
+    "status": "ok",
+    "tool_outcomes": [
+      {
+        "name": "calculate",
+        "outcome": "completed"
+      }
+    ],
+    "model_requested": "anthropic/claude-opus-4.7",
+    "cost_usd": 0.050335,
+    "cost_measured": true,
+    "ms": 3065,
+    "hash": "sha256_73d6044ea6e80db6d60ab301a47c000d2481f4fad7d72fd7853027ad4215401d"
+  },
+  {
+    "id": "rc_muz9vejv_5up0",
+    "ts": "2026-10-08T08:26:18.091Z",
+    "kind": "turn",
+    "subject": "repl \u00b7 cancelled \u00b7 1 step",
+    "status": "cancelled",
+    "tool_outcomes": [
+      {
+        "name": "calculate",
+        "outcome": "completed"
+      }
+    ],
+    "cancelled_at": "after-tools",
+    "rollback": "none",
+    "model_requested": "anthropic/claude-opus-4.7",
+    "cost_usd": 0.025875,
+    "cost_measured": false,
+    "ms": 1969,
+    "hash": "sha256_34a4a04f781739560f96f07eda369f10056e35629062d2fe5b2f9c23af74d60e"
+  },
+  {
+    "id": "rc_muz9vjeb_w3l1",
+    "ts": "2026-10-08T08:26:24.371Z",
+    "kind": "turn",
+    "subject": "repl \u00b7 1 step",
+    "status": "ok",
+    "tool_outcomes": [
+      {
+        "name": "calculate",
+        "outcome": "completed"
+      }
+    ],
+    "model_requested": "anthropic/claude-opus-4.7",
+    "cost_usd": 0.05258,
+    "cost_measured": true,
+    "ms": 3504,
+    "hash": "sha256_e7f3f28210dbdb79bf19c18b858b55831ee199fbe3f7ccb4b211881a8fc1d477"
+  },
+  {
+    "id": "rc_muz9vsnm_di2h",
+    "ts": "2026-10-08T08:26:36.370Z",
+    "kind": "turn",
+    "subject": "repl \u00b7 3 steps",
+    "status": "ok",
+    "tool_outcomes": [
+      {
+        "name": "calculate",
+        "outcome": "completed"
+      },
+      {
+        "name": "calculate",
+        "outcome": "completed"
+      },
+      {
+        "name": "calculate",
+        "outcome": "completed"
+      }
+    ],
+    "model_requested": "anthropic/claude-opus-4.7",
+    "cost_usd": 0.11260500000000001,
+    "cost_measured": true,
+    "ms": 11295,
+    "hash": "sha256_1076c889839ba5152da46dcf47a50332ec7dd3046519a789c30d195054a5ae49"
+  }
+]

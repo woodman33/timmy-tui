@@ -1,0 +1,27 @@
+{
+ "screen": "05-resume.txt",
+ "receipts": [
+  "73d6044e",
+  "34a4a04f",
+  "e7f3f282",
+  "1076c889"
+ ],
+ "interrupt_said": "Cancelled. 1 tool finished; no answer yet. Nothing was rolled back.",
+ "second_turn": {
+  "calls": [
+   "987654*123457"
+  ],
+  "cancelled_calls_made": [],
+  "resumed": false
+ },
+ "resume": {
+  "calls": [
+   "2345*6789",
+   "3456*7890",
+   "7006652+15920205+27267840"
+  ],
+  "resumed": true,
+  "redid_finished": false,
+  "sum_50194697_shown": true
+ }
+}

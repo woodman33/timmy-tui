@@ -1,0 +1,169 @@
+
+[1m[46m RUN [49m[22m [36mv3.2.6 [39m[90m/home/runner/work/timmy-tui/timmy-tui/clone[39m
+
+ [32m✓[39m tests/repl-transcript.test.ts [2m([22m[2m24 tests[22m[2m)[22m[32m 56[2mms[22m[39m
+ [32m✓[39m tests/studio-server.test.ts [2m([22m[2m20 tests[22m[2m)[22m[32m 220[2mms[22m[39m
+ [32m✓[39m tests/studio-composition.test.ts [2m([22m[2m12 tests[22m[2m)[22m[33m 875[2mms[22m[39m
+   [33m[2m✓[22m[39m matches static frame oracles after the HyperFrames CSS adapter applies its clock [33m 849[2mms[22m[39m
+ [2m[90m↓[39m[22m tests/keyboard-contract.pty.test.ts [2m([22m[2m2 tests[22m[2m | [22m[33m2 skipped[39m[2m)[22m
+ [32m✓[39m tests/repl-cancel-history.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 207[2mms[22m[39m
+ [32m✓[39m tests/repl-turn.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 144[2mms[22m[39m
+ [32m✓[39m tests/repl-approvals.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 65[2mms[22m[39m
+ [32m✓[39m tests/repl-center.test.ts [2m([22m[2m24 tests[22m[2m)[22m[33m 12900[2mms[22m[39m
+   [33m[2m✓[22m[39m the tab supervisor under sh[2m > [22mkeeps the tab when Ctrl+C stops the program (the whole pane gets SIGINT); the same test fails without the trap [33m 6216[2mms[22m[39m
+   [33m[2m✓[22m[39m the tab supervisor under bash[2m > [22mkeeps the tab when Ctrl+C stops the program (the whole pane gets SIGINT); the same test fails without the trap [33m 6196[2mms[22m[39m
+ [32m✓[39m tests/repl-seal.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 7469[2mms[22m[39m
+   [33m[2m✓[22m[39m a turn in the REPL[2m > [22mcloses with ✓ RECEIPT, signed and verified, and the store holds it [33m 1977[2mms[22m[39m
+   [33m[2m✓[22m[39m a cancelled turn in the REPL[2m > [22mCtrl+C while the tool runs: the receipt has the tool's outcome unknown, and says nothing was rolled back [33m 2796[2mms[22m[39m
+   [33m[2m✓[22m[39m a cancelled turn in the REPL[2m > [22ma stream that ignores the cancel: the second Ctrl+C seals the turn, then quits with 130 [33m 2496[2mms[22m[39m
+ [32m✓[39m tests/studio-canvas-bundle.test.ts [2m([22m[2m11 tests[22m[2m)[22m[33m 2239[2mms[22m[39m
+   [33m[2m✓[22m[39m the canvas build[2m > [22ma tldraw license file that is not the verbatim v5.5.2 text does not count [33m 666[2mms[22m[39m
+   [33m[2m✓[22m[39m the npm package[2m > [22mships the canvas page with its build beside it (npm keeps a nested dist/ that .gitignore names) [33m 629[2mms[22m[39m
+ [32m✓[39m tests/studio-canvas-browser.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 15385[2mms[22m[39m
+   [33m[2m✓[22m[39m Timmy Canvas in a real browser[2m > [22mloads nothing from any host but 127.0.0.1, and says it is ready, saved [33m 1108[2mms[22m[39m
+   [33m[2m✓[22m[39m Timmy Canvas in a real browser[2m > [22mthe blank board says where Timmy saves it: the folder this server writes, from TIMMY_HOME (the 20:14 order) [33m 1173[2mms[22m[39m
+   [33m[2m✓[22m[39m Timmy Canvas in a real browser[2m > [22mkeeps its panel on screen and clear of tldraw's menu, style panel and toolbar at desktop, tablet and phone sizes, its text unclipped [33m 3662[2mms[22m[39m
+   [33m[2m✓[22m[39m Timmy Canvas in a real browser[2m > [22mworks from the keyboard: the jobs fold, a template opens, and tldraw takes its own keys [33m 1724[2mms[22m[39m
+   [33m[2m✓[22m[39m Timmy Canvas in a real browser[2m > [22mits own text clears 4.5:1 on what is behind it: the panel, the job marks, links, controls, the guide [33m 704[2mms[22m[39m
+   [33m[2m✓[22m[39m Timmy Canvas in a real browser[2m > [22mbrings what the agent draws into view beside its panel, never under it, and leaves the camera alone when it already shows [33m 3721[2mms[22m[39m
+   [33m[2m✓[22m[39m Timmy Canvas in a real browser[2m > [22msays it is loading while it loads, and why it cannot start when it cannot [33m 2278[2mms[22m[39m
+ [32m✓[39m tests/key-transient.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 1500[2mms[22m[39m
+ [32m✓[39m tests/doctor-readiness.test.ts [2m([22m[2m10 tests[22m[2m)[22m[33m 2177[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy doctor, run[2m > [22mwithout a model key: the REPL line says so, the exit is 78 as documented, and no line claims readiness the checks deny [33m 1140[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy doctor, run[2m > [22mwith a model key in the environment: exit 0, the key never printed, nothing written to the settings folder [33m 1014[2mms[22m[39m
+ [32m✓[39m tests/repl-web.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 35[2mms[22m[39m
+ [32m✓[39m tests/studio-tools.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 113[2mms[22m[39m
+ [32m✓[39m tests/evidence-admission.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 35[2mms[22m[39m
+ [32m✓[39m tests/repl-agent-send.test.ts [2m([22m[2m11 tests[22m[2m)[22m[33m 417[2mms[22m[39m
+ [32m✓[39m tests/release-validate-tarball.test.ts [2m([22m[2m10 tests[22m[2m)[22m[33m 704[2mms[22m[39m
+ [32m✓[39m tests/repl-follow.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 3197[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy receipts[2m > [22mverifies the chain, then lists the latest receipts, and exits 0 [33m 717[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy receipts[2m > [22msays a broken chain plainly and exits 65 [33m 566[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy receipts[2m > [22m--follow prints each new receipt as it is sealed, and Ctrl+C ends it with 130 [33m 1148[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy receipts --json from the command line[2m > [22mprints the envelope [33m 708[2mms[22m[39m
+ [32m✓[39m tests/term-theme.test.ts [2m([22m[2m16 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m tests/term-live-region.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+ [32m✓[39m tests/ui-rebase-panels.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 11002[2mms[22m[39m
+   [33m[2m✓[22m[39m ui-next + bounded rows rebase[2m > [22m80x24: lane cards preserve their data or disclose folding/overflow [33m 2968[2mms[22m[39m
+   [33m[2m✓[22m[39m ui-next + bounded rows rebase[2m > [22m120x40: lane cards preserve their data or disclose folding/overflow [33m 2876[2mms[22m[39m
+   [33m[2m✓[22m[39m ui-next + bounded rows rebase[2m > [22m120x24: lane cards preserve their data or disclose folding/overflow [33m 2881[2mms[22m[39m
+   [33m[2m✓[22m[39m ui-next + bounded rows rebase[2m > [22marrow escape events never become buffer text; literal direction words remain text [33m 2275[2mms[22m[39m
+ [32m✓[39m tests/repl-commands.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m tests/studio-bridge.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 297[2mms[22m[39m
+ [32m✓[39m tests/ui-monitor-pty.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 26263[2mms[22m[39m
+   [33m[2m✓[22m[39m the monitor in a real PTY[2m > [22mctrl-c: draws in its own screen, exits 130, and the terminal comes back as it was [33m 3143[2mms[22m[39m
+   [33m[2m✓[22m[39m the monitor in a real PTY[2m > [22msigterm: draws in its own screen, exits 143, and the terminal comes back as it was [33m 2994[2mms[22m[39m
+   [33m[2m✓[22m[39m the monitor's frame[2m > [22mfollows a resize to the new width and never paints the void [33m 3356[2mms[22m[39m
+   [33m[2m✓[22m[39m the monitor's frame[2m > [22mleaves nothing of the old frame after a narrowing resize [33m 2993[2mms[22m[39m
+   [33m[2m✓[22m[39m the monitor on Timmy Day and Night (B2)[2m > [22mpasses the contrast gate on both and emits only the 16 palette colors, painting no background [33m 3799[2mms[22m[39m
+   [33m[2m✓[22m[39m the monitor's fixtures[2m > [22man initialized home opens on the home screen; a first-run home opens on the setup screen [33m 7318[2mms[22m[39m
+   [33m[2m✓[22m[39m the monitor and the mouse[2m > [22ma click on a tab presses its digit, a click on a hint presses its key; mouse reports are asked for in its screen and given back on exit [33m 2655[2mms[22m[39m
+ [32m✓[39m tests/ui-next.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 3072[2mms[22m[39m
+   [33m[2m✓[22m[39m ui-next panes render[2m > [22mRUN shows the SIGNAL panel while the game is held; LIBRARY shows Ollama rows; ENGINE ROOM shows houdini [33m 3060[2mms[22m[39m
+ [32m✓[39m tests/term-theme-install.test.ts [2m([22m[2m10 tests[22m[2m)[22m[33m 1254[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy theme install[2m > [22mthe command installs for the named terminal and exits 0; an unknown one is a usage error [33m 800[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy theme --json from the command line[2m > [22mprints the envelope (the CLI must pass --json on) [33m 436[2mms[22m[39m
+ [32m✓[39m tests/term-capabilities.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 41[2mms[22m[39m
+ [32m✓[39m tests/ui-monitor-theme.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 164[2mms[22m[39m
+ [32m✓[39m tests/privacy-exempt-blobs.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 401[2mms[22m[39m
+ [32m✓[39m tests/studio-document.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 275[2mms[22m[39m
+ [32m✓[39m tests/runtime-package.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 1283[2mms[22m[39m
+   [33m[2m✓[22m[39m installed runtime package[2m > [22mcopies only reviewed runtime assets, retaining their exact bytes [33m 574[2mms[22m[39m
+   [33m[2m✓[22m[39m installed runtime package[2m > [22msupplies the exact schema bytes at the paths requested by compiled validators [33m 550[2mms[22m[39m
+ [32m✓[39m tests/repl-pty.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 11451[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy repl[2m > [22mexits 78 with a cause and a fix when there is no model key [33m 1685[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy repl[2m > [22mprints its own help from the registries for --help and -h, and exits 0 [33m 4023[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy repl[2m > [22mruns in a real PTY: banner, /help, an unknown command, /exit [33m 1612[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy repl[2m > [22ma first run opens with an empty prompt and says to type /setup, which seals the first receipt [33m 1966[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy repl[2m > [22mon a first run, /exit typed at the empty prompt exits 0 [33m 2165[2mms[22m[39m
+ [32m✓[39m tests/term-probe.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 239[2mms[22m[39m
+ [32m✓[39m tests/studio-receipts.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 488[2mms[22m[39m
+ [32m✓[39m tests/ui-contrast-gate.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 37[2mms[22m[39m
+ [32m✓[39m tests/evidence.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 92[2mms[22m[39m
+ [32m✓[39m tests/repl-input-view.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 57[2mms[22m[39m
+ [32m✓[39m tests/ui-zellij-theme.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 75[2mms[22m[39m
+ [32m✓[39m tests/ui-mouse.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 35[2mms[22m[39m
+ [32m✓[39m tests/repl-watch-launch.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 691[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy watch runs the monitor[2m > [22mpasses SIGTERM on to the monitor and exits as it does [33m 438[2mms[22m[39m
+ [32m✓[39m tests/repl-input-keys.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 1263[2mms[22m[39m
+   [33m[2m✓[22m[39m keys in the block input[2m > [22mEsc backs out of the slash menu and keeps ordinary text [33m 1209[2mms[22m[39m
+ [32m✓[39m tests/term-session.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 73[2mms[22m[39m
+ [32m✓[39m tests/repl-agent-bridge.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 12637[2mms[22m[39m
+   [33m[2m✓[22m[39m createAgent(config, { multiplexer: 'none' })[2m > [22mstarts no tmux sessions (negative control: the default starts them) [33m 12622[2mms[22m[39m
+ [32m✓[39m tests/term-law-palette.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m tests/bin-verbs.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 9732[2mms[22m[39m
+   [33m[2m✓[22m[39m the shipped bin forwards every verb[2m > [22mevery CLI verb reaches src/cli.ts through the bin, argv untouched (bin-native verbs excepted) [33m 6607[2mms[22m[39m
+   [33m[2m✓[22m[39m the shipped bin forwards every verb[2m > [22mthe bin-native verbs are exactly the named ones [33m 692[2mms[22m[39m
+   [33m[2m✓[22m[39m the shipped bin forwards every verb[2m > [22mhelp and flags forward too; bare `timmy` opens the REPL, and the monitor is `timmy watch` [33m 1610[2mms[22m[39m
+   [33m[2m✓[22m[39m the shipped bin forwards every verb[2m > [22ma real forward: `timmy help` prints the CLI usage [33m 817[2mms[22m[39m
+ [32m✓[39m tests/repl-setup.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 92[2mms[22m[39m
+ [32m✓[39m tests/studio-cli.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 2456[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy studio[2m > [22mserves Timmy Canvas on 127.0.0.1, says where and whether a license is set (never the key), and stops on SIGTERM with 143 [33m 860[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy studio[2m > [22mwithout a key says it runs in development mode, which needs none on this machine [33m 899[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy studio[2m > [22mexplains a port already in use (69) instead of a stack trace [33m 677[2mms[22m[39m
+ [32m✓[39m tests/ui-monitor-companion-pty.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 2742[2mms[22m[39m
+   [33m[2m✓[22m[39m the monitor and a companion port that is taken[2m > [22mkeeps the note off the screen and writes it to the companion's log [33m 2738[2mms[22m[39m
+ [32m✓[39m tests/repl-ci-mode-pty.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 2940[2mms[22m[39m
+   [33m[2m✓[22m[39m the REPL in CI mode, in a real PTY[2m > [22mdraws no live input row and no spinner, answers, and exits 0 on /exit [33m 2937[2mms[22m[39m
+ [32m✓[39m tests/repl-cancel-pty.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 5716[2mms[22m[39m
+   [33m[2m✓[22m[39m Ctrl+C in a real PTY[2m > [22mcancels the turn, returns to the prompt, then exits 130 from the idle prompt [33m 2987[2mms[22m[39m
+   [33m[2m✓[22m[39m Ctrl+C in a real PTY[2m > [22mquits on a second Ctrl+C within 2s when the agent ignores the cancel (exit 130, terminal restored) [33m 2726[2mms[22m[39m
+ [32m✓[39m tests/installed-next-steps.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 1257[2mms[22m[39m
+   [33m[2m✓[22m[39m the next steps an installed user is given[2m > [22mtimmy doctor ends with a next step that works from an installed package, never npm start [33m 1121[2mms[22m[39m
+ [32m✓[39m tests/studio-templates.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m tests/term-session-pty.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 2189[2mms[22m[39m
+   [33m[2m✓[22m[39m terminal restore in a real PTY[2m > [22mreturn: exits 0, cursor shown, main screen, tty settings as before [33m 656[2mms[22m[39m
+   [33m[2m✓[22m[39m terminal restore in a real PTY[2m > [22mctrl-c: exits 130, cursor shown, main screen, tty settings as before [33m 426[2mms[22m[39m
+   [33m[2m✓[22m[39m terminal restore in a real PTY[2m > [22msigterm: exits 143, cursor shown, main screen, tty settings as before [33m 369[2mms[22m[39m
+   [33m[2m✓[22m[39m terminal restore in a real PTY[2m > [22mthrow: exits 1, cursor shown, main screen, tty settings as before [33m 737[2mms[22m[39m
+ [32m✓[39m tests/bin-signals.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 3461[2mms[22m[39m
+   [33m[2m✓[22m[39m the bin passes signals on to the command it started[2m > [22mSIGTERM to `timmy` ends the REPL it started, which exits 143, and nothing is left running [33m 1731[2mms[22m[39m
+   [33m[2m✓[22m[39m the bin passes signals on to the command it started[2m > [22mSIGHUP to `timmy` ends the REPL it started, which exits 129, and nothing is left running [33m 1727[2mms[22m[39m
+ [32m✓[39m tests/repl-signal-pty.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 6811[2mms[22m[39m
+   [33m[2m✓[22m[39m a signal mid-turn leaves the shell on a clean line[2m > [22mSIGTERM to `timmy` mid-turn: the REPL exits 143, the terminal restored, and the next output starts its own line [33m 3330[2mms[22m[39m
+   [33m[2m✓[22m[39m a signal mid-turn leaves the shell on a clean line[2m > [22mSIGHUP to `timmy` mid-turn: the REPL exits 129, the terminal restored, and the next output starts its own line [33m 3480[2mms[22m[39m
+ [32m✓[39m tests/ui-labels.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 997[2mms[22m[39m
+   [33m[2m✓[22m[39m labels beside colors and marks[2m > [22mthe MODELS table names its columns, fit among them [33m 431[2mms[22m[39m
+   [33m[2m✓[22m[39m labels beside colors and marks[2m > [22mthe keys overlay names each status mark in words, and on LIBRARY what caps and fit mean [33m 564[2mms[22m[39m
+ [32m✓[39m tests/repl-input-pty.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 14884[2mms[22m[39m
+   [33m[2m✓[22m[39m block input in a real PTY[2m > [22msubmits typed text on Enter [33m 3131[2mms[22m[39m
+   [33m[2m✓[22m[39m block input in a real PTY[2m > [22madds a line with Ctrl+J and with a trailing backslash [33m 3167[2mms[22m[39m
+   [33m[2m✓[22m[39m block input in a real PTY[2m > [22mkeeps a bracketed paste literal: its newlines never submit [33m 2217[2mms[22m[39m
+   [33m[2m✓[22m[39m block input in a real PTY[2m > [22medits CJK by grapheme [33m 2139[2mms[22m[39m
+   [33m[2m✓[22m[39m block input in a real PTY[2m > [22mclears typed text on the first Ctrl+C and cancels on an empty prompt [33m 2456[2mms[22m[39m
+   [33m[2m✓[22m[39m piped input (echo hi | timmy)[2m > [22mreads plain input with no raw mode and no terminal queries [33m 1769[2mms[22m[39m
+ [32m✓[39m tests/repl-editor.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m tests/repl-main.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m tests/term-screen-stream.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m tests/repl-input-paste.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 24[2mms[22m[39m
+ [32m✓[39m tests/ui-rebase-regressions.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m tests/repl-agent-abort.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 1137[2mms[22m[39m
+   [33m[2m✓[22m[39m agent.send cancel with the real SDK[2m > [22mrejects with AbortError and leaves no unhandled rejection, no error event, a free agent [33m 1136[2mms[22m[39m
+ [32m✓[39m tests/repl-external-editor.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 40[2mms[22m[39m
+ [32m✓[39m tests/env-loader.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m tests/term-sanitize.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m tests/repl-watch-route.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 2723[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy watch and a SIGTERM to it[2m > [22mpasses the signal to the monitor: exit 143, the terminal back, no monitor left [33m 2721[2mms[22m[39m
+ [32m✓[39m tests/ui-themes.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m tests/ui-monitor-first-run.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 567[2mms[22m[39m
+   [33m[2m✓[22m[39m first run[2m > [22mon a blank home the monitor shows the banner and exits 78 (needs setup) [33m 563[2mms[22m[39m
+ [32m✓[39m tests/term-glyphs.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m tests/term-marks.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m tests/repl-approvals-pty.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 10898[2mms[22m[39m
+   [33m[2m✓[22m[39m NEEDS YOU keys in a real PTY[2m > [22my → once [33m 2401[2mms[22m[39m
+   [33m[2m✓[22m[39m NEEDS YOU keys in a real PTY[2m > [22ma → session [33m 2327[2mms[22m[39m
+   [33m[2m✓[22m[39m NEEDS YOU keys in a real PTY[2m > [22mn → deny [33m 1649[2mms[22m[39m
+   [33m[2m✓[22m[39m NEEDS YOU keys in a real PTY[2m > [22mEscape → deny [33m 1983[2mms[22m[39m
+   [33m[2m✓[22m[39m NEEDS YOU keys in a real PTY[2m > [22mEnter → deny [33m 1506[2mms[22m[39m
+   [33m[2m✓[22m[39m NEEDS YOU keys in a real PTY[2m > [22ma piped run never asks and denies [33m 1030[2mms[22m[39m
+ [32m✓[39m tests/repl-events-follow.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 3009[2mms[22m[39m
+   [33m[2m✓[22m[39m timmy events --follow[2m > [22mis still following after 3 seconds, and never prints the help [33m 3008[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m73 passed[39m[22m[2m | [22m[33m1 skipped[39m[90m (74)[39m
+[2m      Tests [22m [1m[32m533 passed[39m[22m[2m | [22m[33m2 skipped[39m[90m (535)[39m
+[2m   Start at [22m 08:28:59
+[2m   Duration [22m 65.22s[2m (transform 3.41s, setup 1.03s, collect 15.67s, tests 190.75s, environment 26ms, prepare 8.62s)[22m
+
+(node:12420) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:12420) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 SIGINT listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
