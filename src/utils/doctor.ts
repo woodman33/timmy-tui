@@ -88,6 +88,44 @@ export async function runDoctor(): Promise<DoctorReport> {
   return { ok: checks.filter(c => c.required).every(c => c.state === 'ok'), checks };
 }
 
+/** The oldest Node major Timmy runs on (package.json `engines`: >=24). */
+export const NODE_MAJOR = 24;
+/** The REPL here: it answers; it opens but has no model key to answer with; or it cannot start. */
+export type ReplState = 'ready' | 'no-key' | 'unsupported';
+export interface Readiness {
+  repl: { state: ReplState; node: string };
+  /** The lanes are optional: their required checks gate the lanes only, never the REPL. */
+  lanes: { state: 'ready' | 'blocked'; missing: string[] };
+  /** The doctor's exit code, the REPL's alone: 0 ready, 78 no model key (EX_CONFIG, as the REPL's own), 1 cannot start. */
+  exit: 0 | 1 | 78;
+}
+
+/**
+ * What works here, from the preflight and the REPL's own facts (the operator's 22:23 order): the doctor
+ * said "Preflight BLOCKED" and then "Ready for demo: YES". The REPL and the optional lanes are now judged
+ * apart, and the exit code says only whether the REPL is ready.
+ */
+export function readiness(pre: DoctorReport, facts: { node: string; key: boolean }): Readiness {
+  const node = facts.node.replace(/^v/, '');
+  const state: ReplState = !(Number(node.split('.')[0]) >= NODE_MAJOR) ? 'unsupported' : facts.key ? 'ready' : 'no-key';
+  const missing = pre.checks.filter((c) => c.required && c.state !== 'ok').map((c) => c.name);
+  return { repl: { state, node }, lanes: { state: missing.length ? 'blocked' : 'ready', missing }, exit: state === 'ready' ? 0 : state === 'no-key' ? 78 : 1 };
+}
+
+const inWords = (names: string[]): string => names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+
+/** The doctor's "What works here" block: a line per capability, then its exit code and what each code means. */
+export function readinessLines(r: Readiness): string[] {
+  const repl = r.repl.state === 'ready' ? `  ✓ REPL: ready (Node ${r.repl.node}, a model key is set): \`timmy\` opens it and answers`
+    : r.repl.state === 'no-key' ? `  ! REPL: opens, but has no model key to answer with (Node ${r.repl.node}); /setup says how to add one: timmy init, or OPENROUTER_API_KEY`
+      : `  ✗ REPL: cannot start here: Node ${r.repl.node}, Timmy needs ${NODE_MAJOR} or later`;
+  const lanes = r.lanes.state === 'ready' ? '  ✓ Lanes (optional): ready: their Docker, ComfyUI and CUE checks pass'
+    : `  ✗ Lanes (optional): blocked until ${inWords(r.lanes.missing)} pass; the REPL does not need them`;
+  const meaning = r.exit === 0 ? 'the REPL is ready.' : r.exit === 78 ? 'the REPL opens, but cannot answer until a model key is set.' : 'the REPL cannot start here.';
+  return ['What works here:', repl, lanes,
+    `Exit ${r.exit}: ${meaning} The codes: 0 ready, 78 no model key, 1 cannot start. The lanes never change them; \`timmy doctor preflight\` exits 1 while they are blocked.`];
+}
+
 // CLI shim: `npx tsx src/utils/doctor.ts preflight` (mission-grade entry)
 if (process.argv[1]?.endsWith('doctor.ts') && process.argv[2] === 'preflight') {
   runDoctor().then(r => {

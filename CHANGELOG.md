@@ -44,6 +44,15 @@ inline REPL, `timmy watch`, the canvas) on top of 2.0.0-rc.1.
   prompt used to hold `/setup` already, so a typed `/exit` became `/setup/exit`.
 - `timmy init` names `timmy doctor`, then `timmy`, as the next steps, and the
   doctor's own next step is `timmy`: an installed package has no `npm start`.
+- `timmy doctor` no longer says "Ready for demo: YES" under a blocked
+  preflight. It says what works here: the REPL (ready; opens but has no model
+  key; or cannot start, below Node 24) apart from the optional lanes (Docker,
+  ComfyUI, CUE), whose checks are marked as the lanes' requirements. Its exit
+  code is the REPL's and is written in its output: 0 ready, 78 no model key,
+  1 cannot start; the lanes never change it, and `timmy doctor preflight`
+  still exits 1 while they are blocked. `--json` carries the same under
+  `readiness`. It looks for the model key without printing it or writing the
+  settings file.
 - The blank canvas names the folder Timmy actually saves it in (the `canvas`
   folder of `TIMMY_HOME`, the home folder shown as `~`), not a fixed
   `~/timmy/canvas`.

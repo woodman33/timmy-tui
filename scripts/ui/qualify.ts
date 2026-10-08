@@ -365,6 +365,27 @@ export function nextStepProblems(out: string, want: RegExp): string[] {
   if (!want.test(out)) bad.push(`no line matching ${want}`);
   return bad;
 }
+/**
+ * INSTALL-01, the operator's 22:23 order: what is wrong with what `timmy doctor` said and how it exited.
+ * [] when it says what works here, it exits with the code its REPL line documents (0 ready, 78 no model
+ * key, 1 cannot start), its "Exit" line names that code, and its lanes line agrees with its preflight.
+ */
+export function doctorProblems(out: string, code: number | null): string[] {
+  const bad: string[] = [];
+  if (/Ready for demo/.test(out)) bad.push('it still says "Ready for demo"');
+  if (!/^What works here:$/m.test(out)) bad.push('no "What works here" block');
+  const repl = /^ {2}([✓!✗]) REPL: /m.exec(out)?.[1];
+  const want = repl === '✓' ? 0 : repl === '!' ? 78 : repl === '✗' ? 1 : null;
+  if (want === null) bad.push('no REPL line');
+  else if (code !== want) bad.push(`exit ${code}, but its REPL line (${repl}) documents ${want}`);
+  const said = /^Exit (\d+): /m.exec(out)?.[1];
+  if (said === undefined || Number(said) !== code) bad.push(`its "Exit" line says ${said ?? 'nothing'}, the exit was ${code}`);
+  const lanes = /^ {2}([✓✗]) Lanes \(optional\): /m.exec(out)?.[1];
+  const pre = /^Preflight READY/m.test(out) ? '✓' : /^Preflight BLOCKED/m.test(out) ? '✗' : undefined;
+  if (!lanes) bad.push('no lanes line');
+  else if (pre && lanes !== pre) bad.push(`its lanes line (${lanes}) disagrees with its preflight (${pre === '✓' ? 'READY' : 'BLOCKED'})`);
+  return bad;
+}
 /** The cursor at column 0 once a program ends, so whatever the shell prints next starts its own line. */
 export const atLineStart = (cursorX: string): boolean => cursorX.trim() === '0';
 
@@ -1249,12 +1270,17 @@ async function installedPackage(): Promise<string> {
   must(initBad.length === 0, `installed timmy init: ${initBad.join('; ')}`);
   const doc = run(sbi, ['doctor']);
   writeFileSync(join(dir, 'doctor.txt'), doc.stdout + doc.stderr);
-  must(doc.code === 0, `installed timmy doctor: exit ${doc.code}`);
-  const docBad = nextStepProblems(doc.stdout, /^Next step: `timmy` opens the REPL/m);
-  must(docBad.length === 0, `installed timmy doctor: ${docBad.join('; ')}`);
-  const pre = doc.stdout.split('\n').filter((l) => /^\s+[✓✗!] /.test(l));
+  // This user has no model key: the doctor documents exit 78 for that, and says what works here (the operator's
+  // 22:23 order): the REPL apart from the optional lanes, which agree with the preflight above them.
+  const docBad = [...nextStepProblems(doc.stdout, /^Next step: `timmy` opens the REPL/m), ...doctorProblems(doc.stdout, doc.code)];
+  must(doc.code === 78 && docBad.length === 0, `installed timmy doctor: exit ${doc.code}${docBad.length ? `; ${docBad.join('; ')}` : ', not the 78 it documents for no model key'}`);
+  const lines = doc.stdout.split('\n');
+  const preStart = lines.findIndex((l) => /^Preflight \(/.test(l));
+  const preEnd = lines.findIndex((l) => /^Preflight (READY|BLOCKED)/.test(l));
+  const pre = lines.slice(preStart + 1, preEnd).filter((l) => /^\s+[✓✗!] /.test(l));
   const tally = (glyph: string) => pre.filter((l) => l.trim().startsWith(glyph)).length;
   const verdict = /Preflight READY/.test(doc.stdout) ? 'READY' : /Preflight BLOCKED/.test(doc.stdout) ? 'BLOCKED' : 'unstated';
+  const lanesSaid = /^ {2}✓ Lanes/m.test(doc.stdout) ? 'ready' : 'blocked';
   // Bare timmy: the first-run prompt starts empty, and /exit typed there exits 0.
   const sbb = user('bare');
   const bare = new Pty('install-bare', { cols: 80, rows: 24, env: sbb.env, cwd: sbb.work, script: q(timmy) }).start();
@@ -1315,7 +1341,7 @@ async function installedPackage(): Promise<string> {
   const studioExit = await ended;
   must(studioExit === 143, `installed timmy studio, SIGTERM: exit ${studioExit}`);
   const from = patched || untracked > 0 ? `${base.slice(0, 7)} plus the frozen changes` : `a clean clone of ${base.slice(0, 7)}`;
-  return `${name} from ${from}: ${artifact.entries} files, sha256 ${artifact.sha256}, release check passed; installed by npm ${npmVersion} into an empty prefix and run with Node ${process.version}: -v prints "timmy-tui v${version}"; init and the doctor name timmy, never npm start (the doctor's preflight: ${tally('✓')} ok, ${tally('✗')} missing, ${tally('!')} warnings, ${verdict}; its text kept); bare timmy opens an empty first-run prompt, where /exit exits 0; SIGTERM mid-turn: 143, stty unchanged, cursor on at column 0, no REPL left; timmy studio serves the page and its bundle (${bundleBytes} bytes) and names <TIMMY_HOME>/canvas`;
+  return `${name} from ${from}: ${artifact.entries} files, sha256 ${artifact.sha256}, release check passed; installed by npm ${npmVersion} into an empty prefix and run with Node ${process.version}: -v prints "timmy-tui v${version}"; init and the doctor name timmy, never npm start (the doctor's preflight: ${tally('✓')} ok, ${tally('✗')} missing, ${tally('!')} warnings, ${verdict}; what works here: the REPL opens but has no model key, exit 78 as documented, the lanes ${lanesSaid}; its text kept); bare timmy opens an empty first-run prompt, where /exit exits 0; SIGTERM mid-turn: 143, stty unchanged, cursor on at column 0, no REPL left; timmy studio serves the page and its bundle (${bundleBytes} bytes) and names <TIMMY_HOME>/canvas`;
 }
 
 // ── negative controls for the primitives (DOCTRINE §12) ─────────────────────────────────────────
@@ -1362,6 +1388,13 @@ async function controls(): Promise<string[]> {
   expectFail('a help that gives -v another meaning', () => { must(helpVProblems('  -v, --verbose    More output\n').length === 0, 'help'); });
   expectFail('a next step that needs a checkout', () => { must(nextStepProblems('  Next: `timmy doctor`, then `npm start`.\n', /Next: `timmy doctor`, then `timmy`/).length === 0, 'next'); });
   expectFail("the shell's next output mid-line", () => { must(atLineStart('14'), 'column'); });
+  // The doctor (the operator's 22:23 order): its old ending, an exit its REPL line does not document, and a
+  // lanes line that contradicts its preflight.
+  const doctorSaid = (repl: string, lanes: string, exit: number, preflight: string): string =>
+    `Preflight ${preflight}: x\n\nWhat works here:\n  ${repl} REPL: x\n  ${lanes} Lanes (optional): x\nExit ${exit}: x\nNext step: \`timmy\` opens the REPL.\n`;
+  expectFail('a doctor ready for a demo beside a blocked preflight', () => { must(doctorProblems('Preflight BLOCKED — required checks missing\n\nReady for demo: YES\nNext step: `timmy` opens the REPL.\n', 0).length === 0, 'doctor'); });
+  expectFail('a doctor whose exit is not the one its REPL line documents', () => { must(doctorProblems(doctorSaid('!', '✗', 0, 'BLOCKED'), 0).length === 0, 'doctor'); });
+  expectFail("a doctor whose lanes line contradicts its preflight", () => { must(doctorProblems(doctorSaid('✓', '✓', 0, 'BLOCKED'), 0).length === 0, 'doctor'); });
   expectFail('a blocker without a reason', () => { blockerOf({ at: '2026-10-07T22:30:40Z' }); });
   expectFail('a blocker without a time', () => { blockerOf({ reason: 'the sandbox could not be created from here' }); });
   // And their positive controls: a gate that refused everything would also pass the negative ones.
@@ -1372,6 +1405,7 @@ async function controls(): Promise<string[]> {
   expectPass('a Vercel Sandbox run', platformVerdict(vercel, head).bad);
   expectPass('the version line', versionProblems('timmy-tui v1.2.3\n', '1.2.3'));
   expectPass('a help where -v is the version', helpVProblems('  -v, --version    Print the version\n'));
+  expectPass('a doctor that says what works here', doctorProblems(doctorSaid('!', '✗', 78, 'BLOCKED'), 78));
   expectPass('a next step that works installed', nextStepProblems('  Next: `timmy doctor`, then `timmy` to open the REPL.\n', /Next: `timmy doctor`, then `timmy`/));
   expectPass('a good remote run', remoteVerdict({ dev: false, stopped: null, results: [{ id: 'CLI-01', status: 'pass', detail: 'x' }, { id: 'CLI-18', status: 'deferred', detail: 'x' }, { id: 'LIVE-01', status: 'not run', detail: 'Skipped in this run (--skip): x' }] }, [{ id: 'CLI-01' }, { id: 'CLI-18', deferred: 'x' }, { id: 'LIVE-01' }]));
   // The contrast gate on a capture known to fail: grey-2 text on the Night ground.

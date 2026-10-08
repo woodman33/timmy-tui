@@ -59,7 +59,7 @@ Commands:
   init            First run: operator, seed identity, providers, first project (writes only ~/timmy/ and .timmy/private/)
   init --tui      Edit private operator, connection and model settings interactively
   release check   Release gate: fresh clone in a clean container, zero personal matches, wizard shown, §12 control
-  doctor          Check optional local capabilities without running workloads
+  doctor          What works here: the REPL, then the optional lanes (exit 0 ready, 78 no model key, 1 cannot start)
   cockpit up      One tmux pane per local hand (cd worktree, launch its CLI, pipe-pane log); attach|status|down|hands
   cockpit shot    Capture a labeled read-only HANDS view (--rounds file, --out dir)
   docs verify     Verify GitBook docs structure, CLI, and safe env setup

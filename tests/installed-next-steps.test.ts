@@ -40,8 +40,11 @@ describe('the next steps an installed user is given', () => {
     const b = box();
     try {
       const r = spawnSync(process.execPath, ['--import', LOADER, DOCTOR, 'doctor'], { cwd: b.work, env: b.env, encoding: 'utf8', timeout: 60_000 });
-      expect(r.status, r.stderr).toBe(0);
-      expect(r.stdout).toMatch(/^Next step: `timmy` opens the REPL/m);
+      // No model key in this box: exit 78 as the doctor documents (the operator's 22:23 order), or 1 on a Node
+      // older than Timmy's 24, where its next step is to install one.
+      const supported = Number(process.versions.node.split('.')[0]) >= 24;
+      expect(r.status, r.stderr).toBe(supported ? 78 : 1);
+      expect(r.stdout).toMatch(supported ? /^Next step: `timmy` opens the REPL/m : /^Next step: install Node 24 or later/m);
       expect(r.stdout).not.toContain('npm start');
     } finally {
       rmSync(b.dir, { recursive: true, force: true });
