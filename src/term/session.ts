@@ -1,6 +1,6 @@
 /**
  * Terminal state and exit paths (playbook §16.7): documented exit codes, and the terminal restored
- * on every way out (return, exit, SIGINT, SIGTERM, uncaught errors), exactly once.
+ * on every way out (return, exit, SIGINT, SIGTERM, SIGHUP, uncaught errors), exactly once.
  */
 export const EXIT = {
   ok: 0,
@@ -10,6 +10,7 @@ export const EXIT = {
   noInput: 66,
   noPerm: 77,
   config: 78,
+  hangup: 129,
   cancelled: 130,
   terminated: 143,
 } as const;
@@ -105,11 +106,12 @@ export class TerminalSession {
     this.exit(code);
   }
 
-  /** Wire exit paths: exit restores; SIGINT 130; SIGTERM 143; uncaught errors print and exit 1. */
+  /** Wire exit paths: exit restores; SIGINT 130; SIGTERM 143; SIGHUP 129; uncaught errors print and exit 1. */
   install(proc: ProcessLike = process, hooks: { drain?: () => Promise<unknown> } = {}): () => void {
     const onExit = (): void => this.restore();
     const onSigint = (): void => void this.shutdown(EXIT.cancelled, hooks.drain);
     const onSigterm = (): void => void this.shutdown(EXIT.terminated, hooks.drain);
+    const onSighup = (): void => void this.shutdown(EXIT.hangup, hooks.drain);
     const onError = (e: unknown): void => {
       this.restore();
       this.io.stderr?.write(`${e instanceof Error ? (e.stack ?? e.message) : String(e)}\n`);
@@ -118,12 +120,14 @@ export class TerminalSession {
     proc.on('exit', onExit);
     proc.on('SIGINT', onSigint);
     proc.on('SIGTERM', onSigterm);
+    proc.on('SIGHUP', onSighup);
     proc.on('uncaughtException', onError);
     proc.on('unhandledRejection', onError);
     return () => {
       proc.off('exit', onExit);
       proc.off('SIGINT', onSigint);
       proc.off('SIGTERM', onSigterm);
+      proc.off('SIGHUP', onSighup);
       proc.off('uncaughtException', onError);
       proc.off('unhandledRejection', onError);
     };

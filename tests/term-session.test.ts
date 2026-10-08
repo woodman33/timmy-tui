@@ -7,8 +7,8 @@ class FakeIn { isTTY = true; isRaw = false; setRawMode(v: boolean) { this.isRaw 
 class FakeOut { isTTY = true; writes: string[] = []; write(s: string) { this.writes.push(s); return true; } }
 
 describe('exit codes', () => {
-  it('uses 0, 1, 2, sysexits, 130 and 143, never 126 or 127', () => {
-    expect(EXIT).toEqual({ ok: 0, failure: 1, usage: 2, dataErr: 65, noInput: 66, noPerm: 77, config: 78, cancelled: 130, terminated: 143 });
+  it('uses 0, 1, 2, sysexits, 129, 130 and 143, never 126 or 127', () => {
+    expect(EXIT).toEqual({ ok: 0, failure: 1, usage: 2, dataErr: 65, noInput: 66, noPerm: 77, config: 78, hangup: 129, cancelled: 130, terminated: 143 });
   });
 });
 
@@ -54,8 +54,8 @@ describe('TerminalSession', () => {
     session.restore();
     expect(stdout.writes).toEqual([]);
   });
-  it('exits 130 on SIGINT, 143 on SIGTERM and 1 on an uncaught exception, restoring first', async () => {
-    for (const [event, code] of [['SIGINT', 130], ['SIGTERM', 143], ['uncaughtException', 1]] as const) {
+  it('exits 130 on SIGINT, 143 on SIGTERM, 129 on SIGHUP and 1 on an uncaught exception, restoring first', async () => {
+    for (const [event, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129], ['uncaughtException', 1]] as const) {
       const { stdout, exits, session } = make();
       const proc = new EventEmitter();
       session.hideCursor();

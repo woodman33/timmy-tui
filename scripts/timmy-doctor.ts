@@ -68,7 +68,8 @@ async function printDoctor(json = false): Promise<void> {
   console.log(pre.ok ? 'Preflight READY — lanes may arm' : 'Preflight BLOCKED — required checks missing');
   console.log('');
   console.log('Ready for demo: YES');
-  console.log('Next step: npm start');
+  // Works from an installed package (the 20:14 order): there is no `npm start` outside a checkout.
+  console.log(pre.ok ? 'Next step: `timmy` opens the REPL.' : 'Next step: `timmy` opens the REPL; the lanes wait for the required checks above.');
 }
 
 const { command, json } = parseArgs(process.argv.slice(2));

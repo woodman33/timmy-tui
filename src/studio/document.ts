@@ -9,10 +9,14 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 /** Where Timmy keeps the canvas: `<TIMMY_HOME>/canvas`, TIMMY_HOME being ~/timmy unless set. */
 export const canvasDir = (env: Record<string, string | undefined>): string => join(env.TIMMY_HOME || join(homedir(), 'timmy'), 'canvas');
+
+/** A folder as the page shows it: under the home folder as `~/...`, anywhere else in full. */
+export const shownPath = (path: string, home: string = homedir()): string =>
+  home && (path === home || path.startsWith(`${home}${sep}`)) ? `~${path.slice(home.length)}` : path;
 
 /** Larger than any canvas drawn by hand; a document past it is refused with a message. */
 export const MAX_CANVAS_BYTES = 25 * 1024 * 1024;

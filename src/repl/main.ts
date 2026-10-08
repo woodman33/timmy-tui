@@ -151,6 +151,9 @@ export async function runRepl(argv: string[]): Promise<number> {
   const measured = await measureTerminal(caps, process.env, { stdin: process.stdin, stdout: process.stdout });
   const theme = buildTheme(caps, measured);
   const region = new LiveRegion({ out: process.stdout, err: process.stderr }, { live: caps.animate });
+  // However the REPL ends (a signal mid-turn included), its live line goes first, so whatever the shell
+  // prints next starts a clean line, not the spinner's (the 20:14 order).
+  session.beforeRestore(() => region.close());
   // Into a pipe, stdout carries only the answer; steps, footers and errors go to stderr (§16.7).
   const log = process.stdout.isTTY ? undefined : new LiveRegion({ out: process.stderr, err: process.stderr }, { live: false });
   const transcript = new Transcript(theme, region, { columns: caps.columns, rows: caps.rows, err: process.stderr, log });
@@ -360,6 +363,9 @@ export async function replLoop(d: ReplDeps): Promise<number> {
   if (interactive) {
     say([{ text: 'TIMMY', role: 'strong' }, { text: `  ${agent.getModel()}`, role: 'secondary' }]);
     say([{ text: 'Type a message to start. /help for commands, /exit to quit.', role: 'secondary' }]);
+    // A first run offers the setup check and leaves the prompt empty: a prefilled /setup turned a typed
+    // /exit into /setup/exit (the 20:14 order).
+    if (d.firstRun && d.setup) say([{ text: 'First run: type ', role: 'secondary' }, { text: '/setup', role: 'strong' }, { text: ' to check what Timmy needs, and seal it.', role: 'secondary' }]);
     region.commit(['']);
   }
   const marks = d.stdout.isTTY === true;
@@ -367,7 +373,6 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     ? { start: () => void d.stdout.write(OSC133.outputStart), end: (status: number) => void d.stdout.write(OSC133.end(status)) }
     : undefined;
   const editor = new LineEditor();
-  if (interactive && d.firstRun && d.setup) editor.insert('/setup');
   let status: number = EXIT.ok;
   for (;;) {
     const r = await readPrompt({ stdin: d.stdin, stdout: d.stdout, caps, theme, region, session, editor, marks, commands: MENU, openEditor: (text) => editExternally(text) });

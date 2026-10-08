@@ -36,6 +36,16 @@ inline REPL, `timmy watch`, the canvas) on top of 2.0.0-rc.1.
   the result) with the run. It used to stop after 30 commits.
 
 ### Fixed
+- A first run's prompt starts empty, with a line saying to type `/setup`. The
+  prompt used to hold `/setup` already, so a typed `/exit` became `/setup/exit`.
+- `timmy init` names `timmy doctor`, then `timmy`, as the next steps, and the
+  doctor's own next step is `timmy`: an installed package has no `npm start`.
+- The blank canvas names the folder Timmy actually saves it in (the `canvas`
+  folder of `TIMMY_HOME`, the home folder shown as `~`), not a fixed
+  `~/timmy/canvas`.
+- A signal that ends `timmy` mid-turn leaves the shell's next output on a clean
+  line: the live line (the spinner) is erased before the terminal is restored.
+  A SIGHUP now restores the terminal and exits 129, as a SIGTERM exits 143.
 - A turn's cost is what OpenRouter charged for every response of the turn
   (with the provider's own charge on a BYOK key); a cancelled turn says
   "at least" and its receipt marks the figure as not measured. It was a flat

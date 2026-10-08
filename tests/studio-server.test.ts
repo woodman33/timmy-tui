@@ -44,12 +44,12 @@ describe('the studio server', () => {
     server = await startStudioServer(0, { env: {} });
     expect((server.address() as AddressInfo).address).toBe('127.0.0.1');
   });
-  it('hands the page its license and tldraw version, never cached', async () => {
+  it('hands the page its license, its tldraw version and where it saves the canvas, never cached', async () => {
     server = await startStudioServer(0, { env: { TLDRAW_LICENSE_KEY: KEY } });
     const r = await get('/studio-config.json');
     expect(r.status).toBe(200);
     expect(r.headers['cache-control']).toBe('no-store');
-    expect(JSON.parse(r.body)).toEqual({ licenseKey: KEY, tldrawVersion: TLDRAW_VERSION });
+    expect(JSON.parse(r.body)).toEqual({ licenseKey: KEY, tldrawVersion: TLDRAW_VERSION, canvasDir: '~/timmy/canvas' });
   });
   it('answers only requests addressed to this machine (a rebound DNS name gets 403, not the key)', async () => {
     server = await startStudioServer(0, { env: { TLDRAW_LICENSE_KEY: KEY } });
@@ -103,6 +103,12 @@ describe('the studio server', () => {
     expect(pageCode).toContain('window.timmyCanvas');
     expect(pageCode).toContain('config.tldrawVersion !== BUILT_WITH');
   });
+  it('the blank-board guide names the folder the server reports, not a fixed one (the 20:14 order)', () => {
+    const html = readFileSync('companion/studio-canvas/index.html', 'utf8');
+    expect(html).not.toContain('~/timmy/canvas');
+    expect(html).toContain('id="guide-dir"');
+    expect(pageCode).toMatch(/getElementById\('guide-dir'\)\.textContent = config\.canvasDir/);
+  });
   it('shows tldraw\'s own license verdict, never "licensed" just because a key is set', () => {
     expect(pageCode).toContain('editor.licenseManager?.state.get()');
     expect(pageCode).not.toMatch(/licenseKey \? ['"`][^'"`]*licensed/); // the old page did exactly this
@@ -132,6 +138,20 @@ describe('the canvas file through the server', () => {
   const SNAP = { store: { 'page:page': { id: 'page:page', typeName: 'page', name: 'Page 1', index: 'a1', meta: {} } }, schema: { schemaVersion: 2, sequences: {} } };
   const sha = (o: unknown): string => createHash('sha256').update(JSON.stringify(o)).digest('hex');
 
+  it("tells the page where it saves the canvas: TIMMY_HOME's canvas folder", async () => {
+    await start();
+    const r = await call('GET', '/studio-config.json');
+    expect(r.status).toBe(200);
+    expect(r.body.canvasDir).toBe(join(home, 'canvas'));
+  });
+  it('shows a folder under the home folder as ~/..., and any other folder in full', async () => {
+    const { shownPath } = await import('../src/studio/document.js');
+    // A made-up home folder (the privacy gate rightly refuses real-looking ones in the repository).
+    expect(shownPath('/srv/op/timmy/canvas', '/srv/op')).toBe('~/timmy/canvas');
+    expect(shownPath('/srv/op', '/srv/op')).toBe('~');
+    expect(shownPath('/srv/op2/timmy/canvas', '/srv/op')).toBe('/srv/op2/timmy/canvas');
+    expect(shownPath('/tmp/x/canvas', '/srv/op')).toBe('/tmp/x/canvas');
+  });
   it('a new home opens a blank canvas, never cached', async () => {
     await start();
     expect(await call('GET', '/api/canvas/document')).toEqual({ status: 200, cache: 'no-store', body: { revision: 0, sourceRevision: null, savedAt: null, snapshot: null } });

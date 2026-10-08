@@ -74,6 +74,17 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     await context.close();
   }, 60_000);
 
+  it('the blank board says where Timmy saves it: the folder this server writes, from TIMMY_HOME (the 20:14 order)', async () => {
+    const { page, context } = await open();
+    try {
+      await page.waitForSelector('#guide:not([hidden])');
+      expect(await page.locator('#guide-dir').textContent()).toBe(join(home, 'canvas'));
+      expect(await page.locator('#guide').textContent()).not.toContain('~/timmy/canvas');
+    } finally {
+      await context.close();
+    }
+  });
+
   it("keeps its panel on screen and clear of tldraw's menu, style panel and toolbar at desktop, tablet and phone sizes, its text unclipped", async () => {
     for (const size of [{ width: 1280, height: 800 }, { width: 768, height: 600 }, { width: 390, height: 740 }]) {
       const { page, context } = await open(size);

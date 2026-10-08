@@ -302,6 +302,8 @@ async function start() {
   if (config.tldrawVersion !== BUILT_WITH) {
     throw new Error(`this canvas was built with tldraw ${BUILT_WITH}, but Timmy pins ${config.tldrawVersion}. Rebuild it: npm run build:canvas`);
   }
+  // The folder this server saves the canvas in, TIMMY_HOME included; the blank board names it.
+  if (typeof config.canvasDir === 'string' && config.canvasDir) document.getElementById('guide-dir').textContent = config.canvasDir;
   say('Loading the canvas: opening the saved canvas', 'loading');
   const opened = await fetch('/api/canvas/document', { cache: 'no-store' });
   if (!opened.ok) throw new Error(`Timmy answered ${opened.status} for the saved canvas`);

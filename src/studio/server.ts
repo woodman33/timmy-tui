@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CanvasBridge } from './bridge.js';
 import { STUDIO_PORT, studioConfig } from './config.js';
-import { CanvasDocuments, MAX_CANVAS_BYTES, canvasDir } from './document.js';
+import { CanvasDocuments, MAX_CANVAS_BYTES, canvasDir, shownPath } from './document.js';
 import { publicTemplates } from './templates.js';
 
 export { STUDIO_PORT };
@@ -62,7 +62,8 @@ const NOT_BUILT = `<!doctype html><html lang="en"><head><meta charset="utf-8"><t
 export function createStudioApp(options: StudioOptions = {}, bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs)): express.Express {
   const env = options.env ?? process.env;
   const maxCanvasBytes = options.maxCanvasBytes ?? MAX_CANVAS_BYTES;
-  const documents = new CanvasDocuments(options.canvasDir ?? canvasDir(env), { maxBytes: maxCanvasBytes });
+  const savedIn = options.canvasDir ?? canvasDir(env);
+  const documents = new CanvasDocuments(savedIn, { maxBytes: maxCanvasBytes });
   const app = express();
   app.disable('x-powered-by');
   app.use((req, res, next) => {
@@ -70,7 +71,8 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     res.status(403).type('text/plain').send('Timmy Canvas answers 127.0.0.1 and localhost only.');
   });
   app.get('/studio-config.json', (_req, res) => {
-    res.set('Cache-Control', 'no-store').json(studioConfig(env));
+    // canvasDir: the folder this server saves the canvas in, which the blank board names (the 20:14 order).
+    res.set('Cache-Control', 'no-store').json({ ...studioConfig(env), canvasDir: shownPath(savedIn) });
   });
   // Fourth order, step 5: the canvas, saved by Timmy in its home and opened from there, so it reopens
   // where it was and every surface reads the same document, revision and source revision.

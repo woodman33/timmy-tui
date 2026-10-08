@@ -145,7 +145,7 @@ export async function runInit(args: string[], io: { isTTY: boolean; log: (s: str
   else {
     io.log(`\n  ✓ ${r.operator} (${r.operator_id}) · identity ${r.identity_source} · project ${r.project}`);
     for (const w of r.written) io.log(`    wrote ${relPretty(w)}`);
-    io.log('\n  Next: `timmy doctor`, then `npm start`.\n');
+    io.log('\n  Next: `timmy doctor`, then `timmy` to open the REPL.\n');
   }
   return 0;
 }

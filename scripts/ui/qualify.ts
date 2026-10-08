@@ -682,10 +682,18 @@ const CHECKS: Check[] = [
     must(/The storyboard and the voiceover are ready/.test(d.history), 'the answer is missing in --plain');
     return '--plain: no cursor-up, no sync, no carriage-return redraw; the answer printed';
   } },
-  { id: 'BIN-01', ref: '19.5; fourth order, step 6', line: 'Through the installed command\'s bin: bare `timmy` opens the REPL, and a SIGTERM to `timmy` mid-turn reaches the REPL it started (143, the terminal restored, nothing left running)', run: async () => {
+  { id: 'BIN-01', ref: '19.5; fourth order, step 6; the 20:14 order', line: 'Through the installed command\'s bin: bare `timmy` opens the REPL at an empty first-run prompt where /exit exits 0, and a SIGTERM to `timmy` mid-turn reaches the REPL it started (143, the terminal restored, the next output on a clean line, nothing left running)', run: async () => {
     const sb1 = sandbox('bin-bare', {});
     const bare = new Pty('bin-bare', { cols: 80, rows: 24, env: sb1.env, cwd: sb1.work, script: TIMMY_BIN('') }).start();
-    try { await bare.waitFor(/Tab completes \/setup/, 20_000); } finally { bare.save(); bare.kill(); }
+    try {
+      await bare.waitFor(/First run: type \/setup/, 20_000);
+      await bare.waitFor(/Enter to send/);
+      must(!/Tab completes/.test(bare.screen()), 'the first-run prompt is not empty');
+      bare.text('/exit'); bare.keys('Enter');
+      const out = await bare.exited(8000);
+      must(out.code === 0 && out.tty === 'same', `/exit at the first-run prompt: exit ${out.code}, tty ${out.tty}`);
+      must(!/\/setup\/exit|Unknown command/.test(bare.screen()), 'the typed /exit did not reach the REPL as /exit');
+    } finally { bare.save(); bare.kill(); }
     const sb2 = sandbox('bin-sigterm', {});
     const p = new Pty('bin-sigterm', { cols: 80, rows: 20, env: sb2.env, cwd: sb2.work, script: TIMMY_BIN('repl --demo-loader') }).start();
     try {
@@ -702,7 +710,9 @@ const CHECKS: Check[] = [
       must(!left, 'the REPL kept running after timmy ended');
       must(ex.code === 143 && ex.tty === 'same', `timmy: exit ${ex.code}, tty ${ex.tty}`);
       must(p.cursor() === '1', 'the cursor was left hidden');
-      return 'bare timmy: the REPL at its first-run prompt; SIGTERM to timmy mid-turn: 143, stty unchanged, cursor on, no REPL left';
+      const column = p.tmux('display', '-p', '-t', 'q', '#{cursor_x}').trim();
+      must(column === '0', `the shell's next output would start at column ${column}, after the live line`);
+      return 'bare timmy: an empty first-run prompt, where /exit exits 0; SIGTERM to timmy mid-turn: 143, stty unchanged, cursor on and at column 0, no REPL left';
     } finally { p.save(); p.kill(); }
   } },
 
@@ -997,9 +1007,9 @@ async function captureSet(palette: Palette, cols: number): Promise<string> {
       const name = `first-${palette}-${cols}`; const sb = sandbox(name, { palette });
       const p = new Pty(name, { cols, rows: 24, env: sb.env, cwd: sb.work, script: TIMMY('repl') }).start();
       try {
-        await p.waitFor(/Tab completes \/setup/); await sleep(300);
+        await p.waitFor(/First run: type \/setup/); await p.waitFor(/Enter to send/); await sleep(300);
         const first = p.ansi();
-        await sleep(100); p.keys('Enter');
+        p.text('/setup'); await sleep(100); p.keys('Enter');
         await p.waitFor(/RECEIPT/, 15_000); await sleep(300);
         writeFileSync(join(dir, `setup-${palette}-${cols}.ansi`), p.ansi());
         return first;

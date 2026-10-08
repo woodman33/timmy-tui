@@ -49,11 +49,11 @@ describe('timmy repl', () => {
         for (let i = 0; i < 300; i++) { if (re.test(screen())) return; await sleep(50); }
         throw new Error(`timed out waiting for ${re}:\n${screen()}`);
       };
-      // No receipts yet, so the setup check waits in the prompt (C-14), and the slash menu shows it (C-10).
-      await waitFor(/Tab completes \/setup/);
-      expect(screen()).toMatch(/TIMMY\s+\S+/);
-      tmux('send-keys', '-t', 't', 'C-u');
+      // No receipts yet: a first run says how to run the setup check, and the prompt starts empty.
+      await waitFor(/First run: type \/setup/);
       await waitFor(/Enter to send/);
+      expect(screen()).toMatch(/TIMMY\s+\S+/);
+      expect(screen()).not.toContain('Tab completes');
       tmux('send-keys', '-t', 't', '-l', '/help');
       tmux('send-keys', '-t', 't', 'Enter');
       await waitFor(/Show the model, or switch/);
@@ -72,10 +72,11 @@ describe('timmy repl', () => {
     }
   });
 
-  // C-14: a first run in a terminal: no model key and no receipts yet. The REPL opens anyway (only a
-  // pipe still exits 78) with the setup check typed into the prompt; Enter runs it and seals the first
-  // receipt, verified. A message without a key gets the cause and the fix, and the REPL stays.
-  it('a first run opens with /setup ready; Enter seals the first receipt', async () => {
+  // C-14, and the 20:14 order: a first run in a terminal, with no model key and no receipts yet. The
+  // REPL opens anyway (only a pipe still exits 78), its prompt empty and a line saying to type /setup;
+  // /setup runs the check and seals the first receipt, verified. A message without a key gets the cause
+  // and the fix, and the REPL stays.
+  it('a first run opens with an empty prompt and says to type /setup, which seals the first receipt', async () => {
     const { dir, env } = sandbox();
     const tenv = { ...env, TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', COLORTERM: 'truecolor' };
     const tmux = (...args: string[]) => execFileSync('tmux', ['-L', 'first', ...args], { env: tenv, encoding: 'utf8' });
@@ -86,8 +87,11 @@ describe('timmy repl', () => {
         for (let i = 0; i < 300; i++) { if (re.test(screen())) return; await sleep(50); }
         throw new Error(`timed out waiting for ${re}:\n${screen()}`);
       };
-      await waitFor(/Tab completes \/setup/);
-      expect(screen()).toMatch(/\/setup\s+Check what Timmy needs, and seal it/);
+      await waitFor(/First run: type \/setup to check what Timmy needs, and seal it\./);
+      await waitFor(/Enter to send/);
+      expect(screen()).not.toContain('Tab completes');
+      tmux('send-keys', '-t', 't', '-l', '/setup');
+      await waitFor(/\/setup\s+Check what Timmy needs, and seal it/);
       tmux('send-keys', '-t', 't', 'Enter');
       await waitFor(/RECEIPT [0-9a-f]{8}/);
       const shown = screen();
@@ -103,6 +107,35 @@ describe('timmy repl', () => {
       tmux('send-keys', '-t', 't', 'Enter');
       await waitFor(/EXIT=\d+/);
       expect(screen()).toMatch(/EXIT=0/);
+    } finally {
+      try { tmux('kill-server'); } catch { /* gone */ }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The 20:14 order: /exit typed at a first run's prompt exits. With /setup prefilled it became
+  // /setup/exit, an unknown command, and the REPL stayed.
+  it('on a first run, /exit typed at the empty prompt exits 0', async () => {
+    const { dir, env } = sandbox();
+    const tenv = { ...env, TMUX_TMPDIR: dir, TMUX: '', LC_ALL: 'C.UTF-8', COLORTERM: 'truecolor' };
+    const tmux = (...args: string[]) => execFileSync('tmux', ['-L', 'firstexit', ...args], { env: tenv, encoding: 'utf8' });
+    try {
+      tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '80', '-y', '30', '-c', dir, 'bash', '--norc', '-c', `S0=$(stty -g); ${TSX} ${CLI} repl; echo EXIT=$?; [ "$(stty -g)" = "$S0" ] && echo TTY=same; sleep 60`);
+      const screen = () => tmux('capture-pane', '-p', '-t', 't');
+      const waitFor = async (re: RegExp) => {
+        for (let i = 0; i < 300; i++) { if (re.test(screen())) return; await sleep(50); }
+        throw new Error(`timed out waiting for ${re}:\n${screen()}`);
+      };
+      await waitFor(/First run: type \/setup/);
+      await waitFor(/Enter to send/);
+      tmux('send-keys', '-t', 't', '-l', '/exit');
+      tmux('send-keys', '-t', 't', 'Enter');
+      await waitFor(/EXIT=\d+/);
+      const shown = screen();
+      expect(shown).toMatch(/EXIT=0/);
+      expect(shown).toContain('TTY=same');
+      expect(shown).not.toContain('/setup/exit');
+      expect(shown).not.toContain('Unknown command');
     } finally {
       try { tmux('kill-server'); } catch { /* gone */ }
       rmSync(dir, { recursive: true, force: true });

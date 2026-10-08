@@ -36,6 +36,7 @@
   #guide { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 300; pointer-events: none; max-width: min(520px, calc(100vw - 32px));
     text-align: center; color: #e6edf3; font: 14px/1.6 ui-monospace, Menlo, monospace; }
   #guide strong { display: block; font-size: 16px; margin-bottom: 6px; }
+  #guide code { font-size: 0.95em; overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -47,7 +48,7 @@
     <div id="boards"><label for="board-pick">New board</label><select id="board-pick"><option value="">Blank board</option></select><button id="board-open" type="button">Open</button></div>
   </div>
 </aside>
-<div id="guide" hidden><strong>This board is blank.</strong>Draw with the tools below, or ask Timmy in the REPL, for example: "draw the plan on the canvas". Timmy saves it in ~/timmy/canvas, so it reopens where you left it. A template from New board starts blank too.</div>
+<div id="guide" hidden><strong>This board is blank.</strong>Draw with the tools below, or ask Timmy in the REPL, for example: "draw the plan on the canvas". Timmy saves it in <code id="guide-dir">its canvas folder</code>, so it reopens where you left it. A template from New board starts blank too.</div>
 <script type="module" src="dist/canvas.js" onerror="var s=document.getElementById('status');s.dataset.kind='error';s.textContent='The canvas code did not load (dist/canvas.js). In the Timmy checkout run: npm run build:canvas, then reload.'"></script>
 </body>
 </html>
