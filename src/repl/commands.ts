@@ -36,7 +36,7 @@ function meaningLines(info: ThemeInfo, sep: string): Segment[][] {
   if (!info.background) {
     return [
       [label, { text: 'no color: the terminal did not say its background, so marks and words carry them' }],
-      [{ text: '  For color  ', role: 'secondary' }, { text: 'timmy theme install', role: 'strong' }, { text: ', then TIMMY_PALETTE=night or day' }],
+      [{ text: '  For color  ', role: 'secondary' }, { text: 'timmy theme install', role: 'strong' }, { text: ', then TIMMY_PALETTE=homebrew (or night, day)' }],
     ];
   }
   const entries = Object.entries(info.meanings) as Array<[MeaningRole, number | null]>;
@@ -134,7 +134,7 @@ export const COMMANDS: SlashCommand[] = [
       ctx.print([{ text: '  Palette    ', role: 'secondary' }, { text: info.source, role: 'strong' }]);
       ctx.print([{ text: '  Measured   ', role: 'secondary' }, { text: `ground ${info.background ?? 'unknown'}${s}secondary ${info.secondary}${s}input tint ${info.tint ?? 'none'}` }]);
       for (const line of meaningLines(info, s)) ctx.print(line);
-      ctx.print([{ text: '  Themes     ', role: 'secondary' }, { text: info.files }, { text: ' (Ghostty, iTerm2, WezTerm, kitty, Alacritty, zellij)', role: 'secondary' }]);
+      ctx.print([{ text: '  Themes     ', role: 'secondary' }, { text: info.files }, { text: ' (Homebrew, Night, Day: timmy theme install)', role: 'secondary' }]);
     },
   },
   {

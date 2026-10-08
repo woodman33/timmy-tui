@@ -5,6 +5,7 @@
  * escaped; the page loads nothing from anywhere (a `default-src 'none'` policy) and links only to
  * itself; colors come from the law file (lanes/visual/tokens.json).
  */
+import { themeCss } from '../theme/tokens.js';
 import { createHash } from 'node:crypto';
 import type express from 'express';
 import visualLaw from '../../lanes/visual/tokens.json' with { type: 'json' };
@@ -71,14 +72,15 @@ export function receiptHtml(r: Receipt, verified: boolean): string {
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Receipt ${esc(id)}</title>
 <style>
-body{margin:0;padding:24px 16px;background:${law('black')};color:${law('white')};font:16px/1.6 ui-monospace,"SF Mono",Menlo,monospace}
+${themeCss()}
+body{margin:0;padding:24px 16px;background:var(--timmy-ground);color:var(--timmy-text);font:var(--timmy-weight-body) var(--timmy-size-body)/var(--timmy-line-height) var(--timmy-font-mono)}
 main{max-width:72ch}
-h1{margin:0 0 16px;font:700 13px/1.2 ui-sans-serif,system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase}
-.verdict{margin:0 0 24px;font-weight:700}
-.ok{color:${law('seal')}}.bad{color:${law('refuse')}}
+h1{margin:0 0 16px;font:var(--timmy-weight-heading) var(--timmy-size-h2)/1.2 var(--timmy-font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--timmy-accent)}
+.verdict{margin:0 0 24px;font-weight:var(--timmy-weight-heading)}
+.ok{color:${law('seal')}}.bad{color:var(--timmy-failure)}
 dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 24px;margin:0 0 24px}
-dt{font-weight:700}dd{margin:0;overflow-wrap:anywhere}
-a{color:${law('white')}}
+dt{font-weight:var(--timmy-weight-strong);color:var(--timmy-text-secondary)}dd{margin:0;overflow-wrap:anywhere}
+a{color:var(--timmy-link)}
 </style></head>
 <body><main>
 <h1>Receipt</h1>
@@ -103,7 +105,8 @@ export function mountReceiptPages(app: express.Express, source: ReceiptSource = 
       res.type('text/plain').send(receiptText(rec, verified));
       return;
     }
-    res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+    // Round R1: fonts from this server only (Monaspace Argon's files, when it is not installed).
+    res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
     res.type('html').send(receiptHtml(rec, verified));
   });
 }

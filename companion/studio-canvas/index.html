@@ -7,35 +7,40 @@
 <link rel="icon" href="data:," />
 <!-- tldraw, React and tldraw's fonts and icons, bundled on this machine by scripts/canvas/build.mjs. -->
 <link rel="stylesheet" href="dist/canvas.css" />
+<!-- Timmy's shared look (src/theme/tokens.ts): colors, Monaspace Argon and its fallbacks, as variables. -->
+<link rel="stylesheet" href="/timmy-theme.css" />
 <style>
+  /* Timmy's own panel only, in the shared look (DESIGN.md §10 B9). tldraw's chrome, its fonts and the
+     colors you choose for your drawing stay tldraw's: nothing here touches them. */
   html, body, #root { margin: 0; height: 100%; }
-  body { background: #0a0e12; color: #e6edf3; font: 12px ui-monospace, Menlo, monospace; }
+  body { background: var(--timmy-ground, #000000); color: var(--timmy-text, #e8e6e1); font: var(--timmy-weight-body, 400) var(--timmy-size-small, 12.5px)/1.45 var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
   /* Left edge, under tldraw's own menu (tldraw holds the corners and the bottom edge): Timmy's status,
      jobs and new-board picker, in one panel, so a long page name in tldraw's menu never runs under it. */
   #side { position: fixed; left: 8px; top: 52px; z-index: 400; width: 280px; max-width: calc(100vw - 16px); box-sizing: border-box;
-    display: grid; gap: 6px; padding: 8px 10px; border-radius: 6px; background: #101418; border: 1px solid #2d333b; color: #e6edf3; }
-  #status { overflow-wrap: anywhere; padding-left: 8px; border-left: 3px solid #6e7681; }
-  #status[data-kind="ready"] { border-left-color: #3fb950; }
-  #status[data-kind="error"] { border-left-color: #f85149; }
+    display: grid; gap: 6px; padding: 8px 10px; border-radius: 6px; background: var(--timmy-surface, #121212); border: 1px solid var(--timmy-line, #333333); color: var(--timmy-text, #e8e6e1); }
+  #status { overflow-wrap: anywhere; padding-left: 8px; border-left: 3px solid var(--timmy-line-strong, #6b6b6b); }
+  #status[data-kind="ready"] { border-left-color: var(--timmy-accent, #28fe14); }
+  #status[data-kind="error"] { border-left-color: var(--timmy-failure, #ff5f56); }
   #side-ready { display: grid; gap: 6px; }
-  #side summary { cursor: pointer; font-weight: 700; }
+  #side summary { cursor: pointer; font-weight: var(--timmy-weight-heading, 700); }
   #side ol { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; max-height: 40vh; overflow-y: auto; }
   #side li { overflow-wrap: anywhere; }
-  #side li[aria-current="true"] { outline: 1px solid #e6edf3; outline-offset: 2px; }
-  #side a { color: #79c0ff; }
-  #side .ok { color: #3fb950; font-weight: 700; }
-  #side .bad { color: #f85149; font-weight: 700; }
-  #side label { font-weight: 700; }
-  #side select, #side button { font: inherit; color: #e6edf3; background: #0a0e12; border: 1px solid #6e7681; border-radius: 4px; padding: 2px 6px; }
+  #side li[aria-current="true"] { outline: 1px solid var(--timmy-accent, #28fe14); outline-offset: 2px; }
+  #side a { color: var(--timmy-link, #6ca8ff); }
+  #side .ok { color: var(--timmy-accent, #28fe14); font-weight: var(--timmy-weight-heading, 700); }
+  #side .bad { color: var(--timmy-failure, #ff5f56); font-weight: var(--timmy-weight-heading, 700); }
+  #side label { font-weight: var(--timmy-weight-heading, 700); }
+  #side select, #side button { font: inherit; color: var(--timmy-text, #e8e6e1); background: var(--timmy-raised, #1c1c1c); border: 1px solid var(--timmy-line-strong, #6b6b6b); border-radius: 4px; padding: 2px 6px; }
   #boards { display: grid; gap: 4px; }
   #side select { width: 100%; min-width: 0; }
-  #side button { justify-self: start; }
-  #side button { cursor: pointer; }
-  #side :focus-visible { outline: 2px solid #79c0ff; outline-offset: 2px; }
+  #side button { justify-self: start; cursor: pointer; }
+  /* The primary action is Homebrew green, with black ink on it. */
+  #side #board-open { background: var(--timmy-accent, #28fe14); color: var(--timmy-accent-ink, #000000); border-color: var(--timmy-accent, #28fe14); font-weight: var(--timmy-weight-strong, 600); }
+  #side :focus-visible { outline: 2px solid var(--timmy-accent, #28fe14); outline-offset: 2px; }
   /* While the board is blank: what to do first. Never in the way of the canvas. */
   #guide { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 300; pointer-events: none; max-width: min(520px, calc(100vw - 32px));
-    text-align: center; color: #e6edf3; font: 14px/1.6 ui-monospace, Menlo, monospace; }
-  #guide strong { display: block; font-size: 16px; margin-bottom: 6px; }
+    text-align: center; color: var(--timmy-text, #e8e6e1); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
+  #guide strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-accent, #28fe14); margin-bottom: 6px; }
   #guide code { font-size: 0.95em; overflow-wrap: anywhere; }
 </style>
 </head>

@@ -23,7 +23,8 @@ describe('which terminal', () => {
       detectTerminal({ ALACRITTY_WINDOW_ID: '1' }),
       detectTerminal({ ZELLIJ: '0', TERM_PROGRAM: 'ghostty' }),
       detectTerminal({ TERM_PROGRAM: 'Apple_Terminal' }),
-    ]).toEqual(['ghostty', 'iterm2', 'wezterm', 'kitty', 'alacritty', 'zellij', null]);
+      detectTerminal({ TERM_PROGRAM: 'vscode' }),
+    ]).toEqual(['ghostty', 'iterm2', 'wezterm', 'kitty', 'alacritty', 'zellij', 'terminal', null]);
   });
 });
 
@@ -32,7 +33,10 @@ describe('timmy theme install', () => {
     const h = home();
     const plan = planThemeInstall('ghostty', h, ASSETS);
     const r = installTheme(plan);
-    expect(r.written.sort()).toEqual([join(h, '.config/ghostty/themes/timmy-day'), join(h, '.config/ghostty/themes/timmy-night')]);
+    expect(r.written.sort()).toEqual([join(h, '.config/ghostty/themes/timmy-day'), join(h, '.config/ghostty/themes/timmy-homebrew'), join(h, '.config/ghostty/themes/timmy-night')]);
+    // Round R1: Timmy Homebrew is the default; the font is Monaspace Argon at 14.
+    expect(plan.then).toContain('  theme = timmy-homebrew');
+    expect(plan.then).toContain('  font-family = "Monaspace Argon"');
     expect(readFileSync(join(h, '.config/ghostty/themes/timmy-night'), 'utf8')).toBe(readFileSync(join(ASSETS, 'ghostty/timmy-night'), 'utf8'));
     expect(plan.then.join('\n')).toContain('theme = light:timmy-day,dark:timmy-night');
     const again = installTheme(plan);
@@ -43,7 +47,7 @@ describe('timmy theme install', () => {
     mkdirSync(join(h, '.config/kitty/themes'), { recursive: true });
     writeFileSync(join(h, '.config/kitty/themes/timmy-night.conf'), '# mine\n');
     const plan = planThemeInstall('kitty', h, ASSETS);
-    expect(installTheme(plan, { dryRun: true }).written).toEqual([join(h, '.config/kitty/themes/timmy-day.conf')]);
+    expect(installTheme(plan, { dryRun: true }).written).toEqual([join(h, '.config/kitty/themes/timmy-homebrew.conf'), join(h, '.config/kitty/themes/timmy-day.conf')]);
     expect(existsSync(join(h, '.config/kitty/themes/timmy-day.conf'))).toBe(false);
     const r = installTheme(plan);
     expect(r.conflicts).toEqual([join(h, '.config/kitty/themes/timmy-night.conf')]);
@@ -52,7 +56,14 @@ describe('timmy theme install', () => {
   it('iTerm2 imports by opening the file, so nothing is copied', () => {
     const plan = planThemeInstall('iterm2', home(), ASSETS);
     expect(plan.files).toEqual([]);
-    expect(plan.then.join('\n')).toContain('Timmy Night.itermcolors');
+    expect(plan.then.join('\n')).toContain('Timmy Homebrew.itermcolors');
+  });
+  it('macOS Terminal imports the profile, font included, by opening it; nothing is copied', () => {
+    const plan = planThemeInstall('terminal', home(), ASSETS);
+    expect(plan.files).toEqual([]);
+    expect(plan.then.join('\n')).toContain(`open "${join(ASSETS, 'terminal', 'Timmy Homebrew.terminal')}"`);
+    expect(plan.then.join('\n')).toContain('brew install --cask font-monaspace');
+    expect(existsSync(join(ASSETS, 'terminal', 'Timmy Homebrew.terminal'))).toBe(true);
   });
   it('the command installs for the named terminal and exits 0; an unknown one is a usage error', () => {
     const h = home();
@@ -62,7 +73,8 @@ describe('timmy theme install', () => {
     const tsx = resolve('node_modules/.bin/tsx');
     const ok = spawnSync(tsx, [resolve('src/cli.ts'), 'theme', 'install', '--terminal', 'wezterm'], { cwd: h, env, encoding: 'utf8' });
     expect(ok.status).toBe(0);
-    expect(ok.stdout).toContain("config.color_scheme = 'Timmy Night'");
+    expect(ok.stdout).toContain("config.color_scheme = 'Timmy Homebrew'");
+    expect(ok.stdout).toContain("config.font = wezterm.font('Monaspace Argon')");
     expect(existsSync(join(h, '.config/wezterm/colors/Timmy Night.toml'))).toBe(true);
     const bad = spawnSync(tsx, [resolve('src/cli.ts'), 'theme', 'install', '--terminal', 'nope'], { cwd: h, env, encoding: 'utf8' });
     expect(bad.status).toBe(2);
@@ -88,7 +100,7 @@ describe('timmy theme for scripts', () => {
     expect(r.out).toHaveLength(1);
     const j = JSON.parse(r.out[0]);
     expect({ ok: j.ok, terminal: j.terminal, dryRun: j.dryRun, written: j.written.length, same: j.same, conflicts: j.conflicts, then: j.then.length > 0 })
-      .toEqual({ ok: true, terminal: 'ghostty', dryRun: true, written: 2, same: [], conflicts: [], then: true });
+      .toEqual({ ok: true, terminal: 'ghostty', dryRun: true, written: 3, same: [], conflicts: [], then: true });
     const d = run(['--json'], { TERM_PROGRAM: undefined, TERM: 'xterm-256color' });
     expect(JSON.parse(d.out[0])).toMatchObject({ ok: true, terminal: null });
     const bad = run(['install', '--terminal', 'nope', '--json']);
@@ -97,8 +109,8 @@ describe('timmy theme for scripts', () => {
   it('--quiet prints the paths it wrote (or would), one a line', () => {
     const r = run(['install', '--terminal', 'ghostty', '--dry-run', '--quiet']);
     expect(r.code).toBe(0);
-    expect(r.out).toHaveLength(2);
-    expect(r.out.every((l) => l.endsWith('timmy-night') || l.endsWith('timmy-day'))).toBe(true);
+    expect(r.out).toHaveLength(3);
+    expect(r.out.every((l) => l.endsWith('timmy-homebrew') || l.endsWith('timmy-night') || l.endsWith('timmy-day'))).toBe(true);
   });
 });
 

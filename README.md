@@ -114,12 +114,35 @@ before it uses one:
   terminals, a slow link), Timmy cannot measure, so meanings have no color and
   everything is in your terminal's own text color, which reads on your
   background. For color there, install Timmy's palette in your terminal
-  (`timmy theme install`) and set `TIMMY_PALETTE=night` or `day`.
+  (`timmy theme install`) and set `TIMMY_PALETTE=homebrew` (or `night`, `day`).
 - Inside tmux, the background tmux reports is the one it read when your
   terminal attached. After you change your terminal's profile, detach and
   attach again so Timmy measures the new one.
 - `/theme` in the REPL shows what was measured and the color each meaning
   takes. `NO_COLOR` turns color off.
+
+### Timmy Homebrew and the font
+
+Timmy's default look is Timmy Homebrew: a black ground, off-white text,
+Homebrew green for the prompt, the selection and primary actions, and a few
+quiet accents for status. Green is not proof: every outcome keeps its word
+(`signed and verified`, `failed`, `needs setup`). Timmy Night and Timmy Day
+are still there.
+
+- **Your terminal.** `timmy theme install` copies the palettes where your
+  terminal looks for them and prints the lines that pick Timmy Homebrew. On
+  macOS Terminal it gives you a profile to open,
+  `assets/themes/terminal/Timmy Homebrew.terminal`, which also sets the font.
+  Then make it the default in Terminal > Settings > Profiles.
+- **The font.** Monaspace Argon is preferred
+  (`brew install --cask font-monaspace`). A terminal draws Timmy in its own
+  font, so the profile or the printed lines set it, at 14 points. Any
+  monospace font works if you skip it.
+- **The browser pages** (Timmy Canvas, the receipt pages) read the same
+  colors and type from `/timmy-theme.css`. They use Monaspace Argon when it
+  is installed, else the copy Timmy serves from your own machine, else your
+  system's monospace font. The colors you give your drawings on the canvas
+  stay yours.
 
 ## Docs
 

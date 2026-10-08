@@ -76,7 +76,7 @@ describe('cockpit commands', () => {
       '  Palette    TIMMY_PALETTE=night',
       '  Measured   ground #000000 - secondary white (37) - input tint 48;2;31;31;31',
       '  Meanings   verified green - estimate yellow - failure red - model violet',
-      '  Themes     /pkg/assets/themes (Ghostty, iTerm2, WezTerm, kitty, Alacritty, zellij)',
+      '  Themes     /pkg/assets/themes (Homebrew, Night, Day: timmy theme install)',
     ]);
   });
   // Fourth order, step 2 (readability): a meaning with no color here is named, with why, and the fallback
@@ -94,7 +94,7 @@ describe('cockpit commands', () => {
     runSlash('/theme', c);
     expect(printed.slice(2, 4)).toEqual([
       '  Meanings   no color: the terminal did not say its background, so marks and words carry them',
-      '  For color  timmy theme install, then TIMMY_PALETTE=night or day',
+      '  For color  timmy theme install, then TIMMY_PALETTE=homebrew (or night, day)',
     ]);
   });
   it('/theme says when color is off altogether', () => {

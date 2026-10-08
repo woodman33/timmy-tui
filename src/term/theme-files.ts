@@ -3,7 +3,9 @@
  * scripts/ui/themes.ts writes these to assets/themes; tests/ui-themes.test.ts checks for drift.
  */
 import { blend, hexToRgb, isLight, rgbToHex } from './color.js';
-import { SLOT_NAMES, TIMMY_DAY, TIMMY_NIGHT, type TerminalPalette } from './palettes.js';
+import { keyedArchive, Real, Uid } from './bplist.js';
+import { SLOT_NAMES, TIMMY_DAY, TIMMY_HOMEBREW, TIMMY_NIGHT, type TerminalPalette } from './palettes.js';
+import { TYPE } from '../theme/tokens.js';
 
 const HEADER = 'generated from src/term/palettes.ts by scripts/ui/themes.ts; do not edit';
 const lower = (hex: string): string => hex.toLowerCase();
@@ -119,6 +121,50 @@ function iterm2(p: TerminalPalette): string {
   ].join('\n');
 }
 
+/**
+ * macOS Terminal (round R1): a profile, not only colors. Its colors and its font are NSKeyedArchiver
+ * archives inside the plist, as Terminal writes them; the font is Monaspace Argon at a comfortable
+ * size (Terminal falls back to its default face when the font is not installed). Bold stays bold, not
+ * brighter, so a slot keeps its measured color.
+ */
+function terminalApp(p: TerminalPalette): string {
+  const color = (hex: string): Uint8Array => {
+    const rgb = hexToRgb(hex).map((c) => String(Number((c / 255).toFixed(10)))).join(' ');
+    return keyedArchive([{ NSColorSpace: 1, NSRGB: new TextEncoder().encode(`${rgb}\0`), $class: new Uid(2) }, { $classname: 'NSColor', $classes: ['NSColor', 'NSObject'] }]);
+  };
+  const font = keyedArchive([{ NSName: new Uid(2), NSSize: new Real(TYPE.terminalSize), NSfFlags: 16, $class: new Uid(3) }, TYPE.postscript, { $classname: 'NSFont', $classes: ['NSFont', 'NSObject'] }]);
+  const ansi = ['Black', 'Red', 'Green', 'Yellow', 'Blue', 'Magenta', 'Cyan', 'White'];
+  const keys: Array<[string, string]> = [
+    ...ansi.map((n, i): [string, string] => [`ANSI${n}Color`, p[SLOT_NAMES[i]]]),
+    ...ansi.map((n, i): [string, string] => [`ANSIBright${n}Color`, p[SLOT_NAMES[i + 8]]]),
+    ['BackgroundColor', p.background],
+    ['TextColor', p.foreground],
+    ['TextBoldColor', p.brightWhite],
+    ['CursorColor', cursor(p)],
+    ['SelectionColor', selection(p)],
+  ];
+  const data = (bytes: Uint8Array): string[] => ['\t<data>', ...(Buffer.from(bytes).toString('base64').match(/.{1,68}/g) ?? []).map((l) => `\t${l}`), '\t</data>'];
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    `<!-- ${p.name} for macOS Terminal (${HEADER}) -->`,
+    '<plist version="1.0">',
+    '<dict>',
+    ...keys.flatMap(([key, hex]) => [`\t<key>${key}</key>`, ...data(color(hex))]),
+    '\t<key>Font</key>', ...data(font),
+    '\t<key>FontAntialias</key>', '\t<true/>',
+    '\t<key>ProfileCurrentVersion</key>', '\t<real>2.09</real>',
+    '\t<key>UseBrightBold</key>', '\t<false/>',
+    '\t<key>columnCount</key>', '\t<integer>120</integer>',
+    '\t<key>name</key>', `\t<string>${p.name}</string>`,
+    '\t<key>rowCount</key>', '\t<integer>32</integer>',
+    '\t<key>type</key>', '\t<string>Window Settings</string>',
+    '</dict>',
+    '</plist>',
+    '',
+  ].join('\n');
+}
+
 // zellij themes in the component format (zellij 0.42 or later): every part of zellij's own UI is set
 // explicitly, so the selected tab stands out (ink on the tinted ribbon vs. ground on ink) and green,
 // which means proof in Timmy, is never used. Text parts read at 7:1 or better; frames at 3:1.
@@ -181,7 +227,9 @@ function zellij(): string {
 
 export function themeFiles(): Record<string, string> {
   const files: Record<string, string> = { 'zellij/timmy.kdl': zellij() };
-  for (const p of [TIMMY_NIGHT, TIMMY_DAY]) {
+  // Round R1: Timmy Homebrew, the default, beside Night and Day; macOS Terminal gets it as a profile.
+  files[`terminal/${TIMMY_HOMEBREW.name}.terminal`] = terminalApp(TIMMY_HOMEBREW);
+  for (const p of [TIMMY_HOMEBREW, TIMMY_NIGHT, TIMMY_DAY]) {
     const stem = fileStem(p);
     files[`ghostty/${stem}`] = ghostty(p);
     files[`kitty/${stem}.conf`] = kitty(p);

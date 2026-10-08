@@ -14,7 +14,7 @@ export interface SetupFacts {
   /** A model key is set. */
   key: boolean;
   /** Timmy's palette in use (TIMMY_PALETTE or measured), or null when it is not or is unknown. */
-  palette: 'night' | 'day' | null;
+  palette: 'homebrew' | 'night' | 'day' | null;
   /** Where the theme files are; the palette offer points there. */
   themes: string;
 }
@@ -26,7 +26,7 @@ export interface SetupResult {
 
 type Verify = (stream: string, dir?: string) => Pick<VerifyResult, 'ok' | 'count' | 'reason'>;
 
-const PALETTES = { night: 'Timmy Night', day: 'Timmy Day' } as const;
+const PALETTES = { homebrew: 'Timmy Homebrew', night: 'Timmy Night', day: 'Timmy Day' } as const;
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export function setupCheck(facts: SetupFacts, g: GlyphSet, dir?: string, verify: Verify = verifyChain): SetupResult {
@@ -49,7 +49,7 @@ export function setupCheck(facts: SetupFacts, g: GlyphSet, dir?: string, verify:
   if (facts.palette) lines.push(ok('palette', PALETTES[facts.palette]));
   else {
     missing.push('palette');
-    lines.push([{ text: '  ' }, { text: `${g.warn} ${'palette'.padEnd(10)}`, role: 'estimate' }, { text: ' not Timmy Night or Day' }]);
+    lines.push([{ text: '  ' }, { text: `${g.warn} ${'palette'.padEnd(10)}`, role: 'estimate' }, { text: ' not Timmy Homebrew, Night or Day' }]);
     lines.push([{ text: `    ${'install'.padEnd(9)}`, role: 'secondary' }, { text: 'timmy theme install', role: 'strong' }]);
   }
   const subject = `setup · ${missing.length ? `missing ${missing.join(', ')}` : 'ready'}`;

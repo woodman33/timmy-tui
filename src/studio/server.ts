@@ -7,13 +7,15 @@ import { mountReceiptPages, type ReceiptSource } from './receipt-page.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
-import { join } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CanvasBridge } from './bridge.js';
 import { STUDIO_PORT, TLDRAW_VERSION, studioConfig } from './config.js';
 import { studioHealth } from './health.js';
 import { CanvasDocuments, MAX_CANVAS_BYTES, canvasDir, shownPath } from './document.js';
 import { publicTemplates } from './templates.js';
+import { FONT_FILES, HOMEBREW, TYPE, themeCss } from '../theme/tokens.js';
 
 export { STUDIO_PORT };
 
@@ -50,12 +52,25 @@ export function isLocalRequest(req: IncomingMessage): boolean {
 
 const JOB_ID = /^[\w.:-]{1,100}$/;
 
+/** Monaspace Argon's files, from its package (OFL-1.1, served unmodified); null when it is not installed. */
+export function fontDir(): string | null {
+  try {
+    return join(dirname(createRequire(import.meta.url).resolve('@fontsource/monaspace-argon/package.json')), 'files');
+  } catch {
+    return null;
+  }
+}
+
+/** The only font files this server hands out, by exact name. */
+const SERVED_FONTS: ReadonlySet<string> = new Set(FONT_FILES.map((f) => f.file));
+
 /**
  * What a canvas that is not built yet shows (fourth order, step 5): tldraw is bundled on this machine
  * by scripts/canvas/build.mjs, which `npm run build` runs and a fresh checkout has not run yet.
  */
 const NOT_BUILT = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Timmy Canvas</title>
-<style>body{margin:0;padding:24px;background:#0a0e12;color:#e6edf3;font:14px/1.5 ui-monospace,Menlo,monospace}code{color:#ffffff}</style></head>
+<link rel="stylesheet" href="/timmy-theme.css">
+<style>body{margin:0;padding:24px;background:${HOMEBREW.ground};color:${HOMEBREW.text};font:${TYPE.size.body}px/${TYPE.lineHeight} var(--timmy-font-mono)}code{color:${HOMEBREW.accent}}</style></head>
 <body><h1 style="font-size:16px">Timmy Canvas is not built yet</h1>
 <p>Its tldraw bundle (dist/canvas.js) is missing. In the Timmy checkout, run:</p>
 <p><code>npm run build:canvas</code></p><p>then reload this page.</p></body></html>`;
@@ -72,6 +87,20 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     res.status(403).type('text/plain').send('Timmy Canvas answers 127.0.0.1 and localhost only.');
   });
   const root = options.root ?? studioRoot();
+  // Round R1 (DESIGN.md §10 B9): the shared look, as CSS variables and font faces, for every page this
+  // server shows; and Monaspace Argon's files, by name only, for a machine without the font installed.
+  app.get('/timmy-theme.css', (_req, res) => {
+    res.set('Cache-Control', 'no-store').type('text/css').send(themeCss());
+  });
+  app.get('/fonts/:file', (req, res) => {
+    const file = String(req.params.file);
+    const dir = fontDir();
+    if (!SERVED_FONTS.has(file) || !dir || !existsSync(join(dir, file))) {
+      res.status(404).type('text/plain').send('No such font here.');
+      return;
+    }
+    res.set('Cache-Control', 'public, max-age=86400').type('font/woff2').sendFile(join(dir, file));
+  });
   // Round R1: what this server is and what state the canvas is in, for the REPL and `timmy tools`.
   // It runs nothing in the page and never carries the license key.
   app.get('/api/canvas/health', (_req, res) => {

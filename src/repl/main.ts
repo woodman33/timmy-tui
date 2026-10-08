@@ -19,7 +19,7 @@ import { editExternally } from './external-editor.js';
 import { listLanes } from '../utils/dispatch.js';
 import { currentCapabilities, type TerminalCapabilities } from '../term/capabilities.js';
 import { LiveRegion } from '../term/live-region.js';
-import { measuredFromPalette, namedPalette, TIMMY_DAY, TIMMY_NIGHT, type MeasuredColors } from '../term/palettes.js';
+import { measuredFromPalette, namedPalette, TIMMY_DAY, TIMMY_HOMEBREW, TIMMY_NIGHT, type MeasuredColors } from '../term/palettes.js';
 import { measureTerminal } from '../term/probe.js';
 import { EXIT, TerminalSession } from '../term/session.js';
 import { buildTheme, fitSegments, roleSlots, serialize, type Segment, type Theme } from '../term/theme.js';
@@ -361,11 +361,11 @@ function readOperator(): string | null {
   }
 }
 
-/** Timmy Night or Day when TIMMY_PALETTE names it or the terminal's answers match it; otherwise null. */
-export function timmyPalette(measured: MeasuredColors, env: Record<string, string | undefined>): 'night' | 'day' | null {
+/** Timmy Homebrew, Night or Day when TIMMY_PALETTE names it or the terminal's answers match it; otherwise null. */
+export function timmyPalette(measured: MeasuredColors, env: Record<string, string | undefined>): 'homebrew' | 'night' | 'day' | null {
   const named = (env.TIMMY_PALETTE ?? '').toLowerCase();
-  if (namedPalette(named)) return named as 'night' | 'day';
-  for (const [name, p] of [['night', TIMMY_NIGHT], ['day', TIMMY_DAY]] as const) {
+  if (namedPalette(named)) return named as 'homebrew' | 'night' | 'day';
+  for (const [name, p] of [['homebrew', TIMMY_HOMEBREW], ['night', TIMMY_NIGHT], ['day', TIMMY_DAY]] as const) {
     const ref = measuredFromPalette(p);
     const same = (a: string | null | undefined, b: string | null | undefined): boolean => Boolean(a) && a?.toUpperCase() === b?.toUpperCase();
     if (same(measured.background, ref.background) && [7, 8].every((n) => same(measured.slots[n], ref.slots[n]))) return name;
@@ -438,7 +438,7 @@ export async function replLoop(d: ReplDeps): Promise<number> {
   const interactive = caps.interactive && region.live && !caps.plain;
   const say = (segments: Segment[]): void => void region.commit([serialize(fitSegments(segments, caps.columns, theme.glyphs.ellipsis), theme)]);
   if (interactive) {
-    say([{ text: 'TIMMY', role: 'strong' }, { text: `  ${agent.getModel()}`, role: 'secondary' }]);
+    say([{ text: 'TIMMY', role: 'accent' }, { text: `  ${agent.getModel()}`, role: 'secondary' }]);
     // Round R1: where this REPL works: the folder, where receipts go, and Timmy Canvas's state.
     if (d.where) {
       const line = await Promise.race([d.where(), sleep(1500).then(() => null)]).catch(() => null);

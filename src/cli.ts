@@ -49,7 +49,7 @@ Commands:
   repl            The inline REPL, also plain timmy: chat in your scrollback (timmy repl --demo needs no key)
   watch           The full-screen monitor (the Command Post)
   receipts        The receipt chain: verify, then the latest (--follow)
-  theme           Timmy Night and Day for your terminal (theme install)
+  theme           Timmy Homebrew (default), Night and Day, and the font, for your terminal (theme install)
   center          The cockpit: REPL, monitor and events as tabs (zellij, tmux, or the REPL here)
   studio          Timmy Canvas: the tldraw canvas the agent draws on (127.0.0.1:4337; /canvas)
   tools           What works here, checked live: surfaces, models, agent tools, other agents (tools all; --json)
@@ -428,7 +428,8 @@ if (command === 'center') {
 }
 
 if (command === 'theme') {
-  // C-10: Timmy Night and Day into the terminal's theme folder (new files only; it prints the line to add).
+  // C-10: Timmy's palettes into the terminal's theme folder (new files only; it prints the lines to add);
+  // round R1: Timmy Homebrew by default, a macOS Terminal profile, and the font.
   const { themeMain } = await import('./term/theme-install.js');
   // --json is taken out of cleanArgs for every verb; this one prints its own envelope (C-15).
   process.exit(themeMain(cleanArgs.slice(1).concat(isJson ? ['--json'] : [])));

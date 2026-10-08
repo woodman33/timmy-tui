@@ -230,9 +230,9 @@ export class Transcript {
     }
     if (this.theme.tint) {
       const row = (s: string): string => `\x1b[${this.theme.tint}m\x1b[K${s}\x1b[49m`;
-      this.commit([row(''), row(` ${this.g.prompt} ${shown}`), row('')], ['', shown, '']);
+      this.commit([row(''), row(` ${this.line([{ text: this.g.prompt, role: 'accent' }])} ${shown}`), row('')], ['', shown, '']);
     } else {
-      this.commit([this.line([{ text: `${this.g.prompt} ${shown}`, role: 'strong' }])], [shown]);
+      this.commit([this.line([{ text: this.g.prompt, role: 'accent' }, { text: ` ${shown}`, role: 'strong' }])], [shown]);
     }
     this.commit([this.line([{ text: `  ${this.cut(cwd, this.opts.columns - 2)}`, role: 'secondary' }])], [cwd]);
   }

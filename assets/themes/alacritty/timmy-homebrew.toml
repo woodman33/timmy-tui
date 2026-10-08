@@ -1,0 +1,32 @@
+# Timmy Homebrew for Alacritty (generated from src/term/palettes.ts by scripts/ui/themes.ts; do not edit)
+[colors.primary]
+background = "#000000"
+foreground = "#e8e6e1"
+
+[colors.cursor]
+cursor = "#38fe27"
+text = "#000000"
+
+[colors.selection]
+background = "#14451b"
+text = "CellForeground"
+
+[colors.normal]
+black = "#1c1c1c"
+red = "#ff5f56"
+green = "#28fe14"
+yellow = "#e5b550"
+blue = "#6ca8ff"
+magenta = "#b58cff"
+cyan = "#5cc8d6"
+white = "#bdbdb8"
+
+[colors.bright]
+black = "#6b6b6b"
+red = "#ff8a80"
+green = "#7dff6e"
+yellow = "#ffd479"
+blue = "#9cc3ff"
+magenta = "#d0b3ff"
+cyan = "#8ee3ec"
+white = "#ffffff"

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `/tools` and `timmy tools`: what works here, checked live and placed on the
+  ladder (reachable, installed, needs setup, not built), with the exact setup
+  step. The checks write nothing and print no key.
+- `/canvas`: where Timmy Canvas is, who serves it, whether a page is open,
+  its saved revision and latest job; `/canvas open` opens it. The canvas
+  server answers `GET /api/canvas/health`.
+- Each REPL turn names its folder and model, and ends with where to inspect
+  it: the canvas job and the receipt page, as plain text and as a link.
+- Timmy Homebrew, the new default look: a palette for macOS Terminal (a
+  profile with Monaspace Argon at 14 points), Ghostty, iTerm2, WezTerm, kitty
+  and Alacritty, and the same colors and type for the browser pages, from one
+  set of shared settings (`src/theme/tokens.ts`). `TIMMY_PALETTE=homebrew`.
+
+### Changed
+- The agent's tools say when their service is missing or failed, with the
+  step that sets it up, instead of reporting success: no mock jobs, page
+  snapshots, screenshots or connections. A step whose result says it failed
+  is shown and sealed as failed.
+- The workspace command never runs on this machine after a Daytona call
+  fails; without a Daytona key it says it runs here, and asks first.
+- `stress_test_endpoint` and the browser tools pass their arguments to the
+  program directly, never through a shell; screenshots go to Timmy's home
+  (`screenshots/`), never the Desktop.
+- `get_env` hides any variable whose name looks like it holds a secret.
+- One address for Timmy Canvas everywhere (`TIMMY_STUDIO_URL`, else
+  `TIMMY_STUDIO_PORT`, else 4337); a port held by another program is
+  reported, never taken for Timmy.
+
 ## [2.0.0-rc.2]
 
 Second release candidate for v2, for npm's `next` channel: the cockpit (the
