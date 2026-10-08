@@ -108,6 +108,89 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     }
   }, 120_000);
 
+  // Round R1, assignment 3: the panel names each job in the REPL's words: Canvas (job, revision), Receipt, and the time.
+  it("lists each job in the REPL's words: its state, its time, Canvas (job and revision), Receipt (linked, or not yet), readable at phone width", async () => {
+    const post = async (path: string, body: unknown) => (await fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json() as Promise<{ ok: boolean; error?: string }>;
+    for (const size of [{ width: 1280, height: 800 }, { width: 390, height: 740 }]) {
+      const { page, context } = await open(size);
+      try {
+        const tag = `words-${size.width}`;
+        const good = await post('/api/canvas/exec', { code: `const id = helpers.createShapeId(); editor.createShape({ id, type: 'geo', x: 300, y: 200, props: { w: 120, h: 60 } }); return id;`, jobId: `${tag}-a` });
+        const bad = await post('/api/canvas/exec', { code: "throw new Error('on purpose');", jobId: `${tag}-b` });
+        expect(good.ok, good.error).toBe(true);
+        expect(bad.ok).toBe(false);
+        expect(await post(`/api/canvas/jobs/${tag}-a/receipt`, { receipt: 'a1b2c3d4' })).toEqual({ ok: true, job: `${tag}-a`, receipt: 'a1b2c3d4' });
+        // On a phone the jobs start folded: they are in the page before they are on screen.
+        await page.waitForSelector(`#job-list li[data-job="${tag}-a"]`, { state: 'attached', timeout: 10_000 });
+        await page.waitForSelector(`#job-list li[data-job="${tag}-b"]`, { state: 'attached', timeout: 10_000 });
+        if (!(await page.$eval('#jobs', (d) => (d as HTMLDetailsElement).open))) await page.click('#jobs > summary');
+        const api = (await (await fetch(`${base}/api/canvas/jobs`)).json()) as Array<{ id: string; revision: number; at: string; ok: boolean }>;
+        const read = (id: string) => page.$eval(`#job-list li[data-job="${id}"]`, (li) => ({
+          state: li.querySelector('.job-state')?.textContent,
+          time: { text: li.querySelector('time')?.textContent, datetime: li.querySelector('time')?.getAttribute('datetime') },
+          canvas: li.querySelector('.job-row[data-row="Canvas"]')?.textContent,
+          receipt: li.querySelector('.job-row[data-row="Receipt"]')?.textContent,
+          receiptHref: li.querySelector('.job-row[data-row="Receipt"] a')?.getAttribute('href') ?? null,
+        }));
+        const a = api.find((j) => j.id === `${tag}-a`)!;
+        const b = api.find((j) => j.id === `${tag}-b`)!;
+        const ra = await read(`${tag}-a`);
+        const rb = await read(`${tag}-b`);
+        expect(ra.state).toBe('✓ done');
+        expect(rb.state).toBe('✖ failed');
+        expect(ra.time.datetime).toBe(a.at);
+        expect(ra.time.text).toMatch(/^(\d{1,2}:\d{2}(:\d{2})?\s?(AM|PM)?|.+ \d{1,2}:\d{2})/i);
+        expect(ra.canvas).toBe(`Canvas job ${tag}-a, rev ${a.revision}`);
+        expect(rb.canvas).toBe(`Canvas job ${tag}-b, rev ${b.revision}`);
+        expect(ra.receipt).toBe('Receipt a1b2c3d4');
+        expect(ra.receiptHref).toBe('/receipts/a1b2c3d4');
+        expect(rb.receipt).toBe('Receipt not linked yet');
+        expect(rb.receiptHref).toBeNull();
+        // Readable: nothing clipped or sideways, the panel inside the screen and clear of tldraw's toolbar, text at 12px or more.
+        const fit = await page.evaluate(() => {
+          const side = document.getElementById('side')!;
+          const sideBox = side.getBoundingClientRect();
+          const toolbar = document.querySelector('.tlui-main-toolbar')?.getBoundingClientRect();
+          const rows = [...document.querySelectorAll('#job-list li *')].filter((el) => el.children.length === 0 && el.textContent);
+          return {
+            sideway: side.scrollWidth > side.clientWidth + 1,
+            clipped: rows.filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent),
+            smallest: Math.min(...rows.map((el) => parseFloat(getComputedStyle(el).fontSize))),
+            inside: sideBox.left >= 0 && sideBox.right <= innerWidth && sideBox.bottom <= innerHeight,
+            overToolbar: toolbar ? sideBox.bottom > toolbar.top && sideBox.top < toolbar.bottom && sideBox.right > toolbar.left && sideBox.left < toolbar.right : false,
+          };
+        });
+        expect(fit, `${size.width}px`).toEqual({ sideway: false, clipped: [], smallest: expect.any(Number), inside: true, overToolbar: false });
+        expect(fit.smallest).toBeGreaterThanOrEqual(12);
+      } finally {
+        await context.close();
+      }
+    }
+  }, 120_000);
+
+  it("shows a job's drawing on its Canvas row: the click selects the shapes that job made and marks the job", async () => {
+    const { page, context } = await open();
+    try {
+      const made = (await (await fetch(`${base}/api/canvas/exec`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: `const id = helpers.createShapeId(); editor.createShape({ id, type: 'geo', x: 350, y: 250, props: { w: 100, h: 50 } }); return id;`, jobId: 'pick-me' }) })).json()) as { ok: boolean; result: string };
+      expect(made.ok).toBe(true);
+      await page.waitForSelector('#job-list li[data-job="pick-me"]', { timeout: 10_000 });
+      // (A block, so the page does not try to send the editor itself back: selectNone returns it.)
+      await page.evaluate(() => { (window as never as { timmyCanvas: { editor: { selectNone: () => void } } }).timmyCanvas.editor.selectNone(); });
+      await page.click('#job-list li[data-job="pick-me"] .job-row[data-row="Canvas"] button');
+      const selected = await page.evaluate(() => (window as never as { timmyCanvas: { editor: { getSelectedShapeIds: () => string[] } } }).timmyCanvas.editor.getSelectedShapeIds());
+      expect(selected).toEqual([made.result]);
+      await page.waitForFunction(() => document.querySelector('#job-list li[data-job="pick-me"]')?.getAttribute('aria-current') === 'true');
+      // A job that drew nothing (or whose shapes are gone) says so instead of selecting nothing silently.
+      const none = await fetch(`${base}/api/canvas/exec`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: 'return 1;', jobId: 'draws-nothing' }) });
+      expect((await none.json() as { ok: boolean }).ok).toBe(true);
+      await page.waitForSelector('#job-list li[data-job="draws-nothing"]', { timeout: 10_000 });
+      await page.click('#job-list li[data-job="draws-nothing"] .job-row[data-row="Canvas"] button');
+      await page.waitForFunction(() => /draws-nothing[\s\S]*no shapes of this job on this page/i.test(document.getElementById('job-list')!.textContent ?? ''));
+    } finally {
+      await context.close();
+    }
+  }, 60_000);
+
   it('works from the keyboard: the jobs fold, a template opens, and tldraw takes its own keys', async () => {
     const { page, context } = await open();
     await page.focus('#jobs > summary');
