@@ -4,7 +4,8 @@ name: REPLAY-02
 # virtual machine provisioned for this one job, allowed for this replay only by the cockpit exception in
 # AGENTS.md §10. It runs when docs/ui-cockpit/c17/REQUEST changes on feat/ui-cockpit. The request names
 # the commit to replay, and the job replays that commit, not the one that carried the request. The record
-# it keeps names the platform as GitHub Actions, with the runner image, the run and the commit.
+# it keeps names the platform as GitHub Actions, with the runner image, the run and the commit. A request
+# may also say `mode development`: a rehearsal that runs every check and can never serve as evidence.
 on:
   push:
     branches: [feat/ui-cockpit]
@@ -32,7 +33,9 @@ jobs:
         run: |
           commit="$(sed -n 's/^commit \([0-9a-f]\{40\}\)$/\1/p' request/docs/ui-cockpit/c17/REQUEST | head -1)"
           if [ -z "$commit" ]; then echo "REQUEST names no full commit (a line: commit <40 hex digits>)" >&2; exit 1; fi
+          mode="$(sed -n 's/^mode \(frozen\|development\)$/\1/p' request/docs/ui-cockpit/c17/REQUEST | head -1)"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "mode=${mode:-frozen}" >> "$GITHUB_OUTPUT"
 
       # A full clone: the replay needs origin/main, from which PROC-01 names the branch's files.
       - name: A full clone at that commit
@@ -65,7 +68,21 @@ jobs:
         working-directory: clone
         env:
           COMMIT: ${{ steps.request.outputs.commit }}
-        run: bash scripts/ui/replay-sandbox.sh "$COMMIT" "$RUNNER_TEMP/replay-02" github-actions
+          MODE: ${{ steps.request.outputs.mode }}
+        run: bash scripts/ui/replay-sandbox.sh "$COMMIT" "$RUNNER_TEMP/replay-02" github-actions "$MODE"
+
+      # The evidence's own hashes, on the run's page: what is later committed can be tied to this run.
+      - name: The record's hashes
+        if: always()
+        working-directory: ${{ runner.temp }}/replay-02
+        run: |
+          {
+            echo '### REPLAY-02 record'
+            echo
+            echo '```'
+            sha256sum freeze.json results.json controls.txt replay.json replay.log 2>&1 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the evidence
         if: always()

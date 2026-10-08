@@ -365,7 +365,7 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     say([{ text: 'Type a message to start. /help for commands, /exit to quit.', role: 'secondary' }]);
     // A first run offers the setup check and leaves the prompt empty: a prefilled /setup turned a typed
     // /exit into /setup/exit (the 20:14 order).
-    if (d.firstRun && d.setup) say([{ text: 'First run: type ', role: 'secondary' }, { text: '/setup', role: 'strong' }, { text: ' to check what Timmy needs, and seal it.', role: 'secondary' }]);
+    if (d.firstRun && d.setup) say([{ text: 'First run: type ', role: 'secondary' }, { text: '/setup', role: 'strong' }, { text: ' to check what Timmy needs.', role: 'secondary' }]);
     region.commit(['']);
   }
   const marks = d.stdout.isTTY === true;

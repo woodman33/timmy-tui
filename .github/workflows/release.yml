@@ -109,10 +109,11 @@ jobs:
           node scripts/release/validate-tarball.mjs "$RUNNER_TEMP/artifact/$FILE" "${expect[@]}" \
             --out "$RUNNER_TEMP/artifact/release-artifact.json" --github
 
+      # Named per run and attempt, so a re-run uploads its own artifact instead of failing on the name.
       - name: Keep the artifact and its manifest
         uses: actions/upload-artifact@v4
         with:
-          name: release-artifact
+          name: release-artifact-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/artifact
           if-no-files-found: error
           retention-days: 90
@@ -161,7 +162,7 @@ jobs:
       - name: Fetch the validated artifact
         uses: actions/download-artifact@v4
         with:
-          name: release-artifact
+          name: release-artifact-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/artifact
 
       - name: The artifact is the one that was validated

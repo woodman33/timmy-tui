@@ -51,6 +51,13 @@ mkdirSync(EVID, { recursive: true });
 const TMUXDIR = mkdtempSync('/tmp/tq-');
 process.on('exit', () => rmSync(TMUXDIR, { recursive: true, force: true }));
 const NODE = process.execPath;
+/** tmux, found once on this run's PATH: the PTYs are driven with it, whatever PATH a scenario gives its own programs. */
+const TMUX = ((): string => {
+  const r = spawnSync('bash', ['-c', 'command -v tmux'], { encoding: 'utf8' });
+  const found = (r.stdout ?? '').trim();
+  if (r.status !== 0 || !found.startsWith('/')) { console.error('qualify: tmux is not on the PATH'); process.exit(2); }
+  return found;
+})();
 const LOADER = pathToFileURL(join(REPO, 'node_modules/tsx/dist/loader.mjs')).href;
 const CLI = join(REPO, 'src/cli.ts');
 const FIXTURE = join(REPO, 'tests/fixtures/repl-qualify-fixture.ts');
@@ -108,7 +115,7 @@ class Pty {
     this.raw = join(EVID, `${name}.raw`);
     this.marks = join(o.cwd, '..', 'exit.txt');
   }
-  tmux(...args: string[]): string { return execFileSync('tmux', ['-L', this.sock, ...args], { env: this.o.env, encoding: 'utf8' }); }
+  tmux(...args: string[]): string { return execFileSync(TMUX, ['-L', this.sock, ...args], { env: this.o.env, encoding: 'utf8' }); }
   start(): this {
     const wrapped = `sleep 0.6; ${this.o.pre ?? ''} S0=$(stty -g); ${this.o.script}; C=$?; [ "$(stty -g)" = "$S0" ] && T=same || T=changed; echo "EXIT=$C TTY=$T" > ${q(this.marks)}; sleep 900`;
     this.tmux('-f', join(REPO, 'scripts/ui/tmux-capture.conf'), 'new-session', '-d', '-s', 'q', '-x', String(this.o.cols), '-y', String(this.o.rows), '-c', this.o.cwd, 'bash', '--norc', '--noprofile', '-c', wrapped);
@@ -310,10 +317,10 @@ export function liveVerdict(rec: LiveRecord): string[] {
 /** Where a replay ran, as scripts/ui/replay-sandbox.sh records it in replay.json. */
 interface ReplayEnv {
   platform: string; os?: string; sha?: string;
-  runner_environment?: string; image_os?: string; image_version?: string; run_id?: string; run_attempt?: string; repository?: string; workflow_sha?: string;
+  runner_environment?: string; image_os?: string; image_version?: string; run_id?: string; run_attempt?: string; repository?: string; workflow_sha?: string; run_url?: string;
 }
 /** The fields a run on GitHub Actions records (the runner sets them; the replay script copies them). */
-const GITHUB_FIELDS = ['runner_environment', 'image_os', 'image_version', 'run_id', 'run_attempt', 'repository', 'workflow_sha'] as const;
+const GITHUB_FIELDS = ['runner_environment', 'image_os', 'image_version', 'run_id', 'run_attempt', 'repository', 'workflow_sha', 'run_url'] as const;
 /**
  * Where a replay of the frozen commit `head` ran, as its own record proves it: `bad` is [] when that is a
  * platform AGENTS.md §10 allows for this replay, and `label` names it as it was. A Vercel Sandbox; or, under
@@ -326,6 +333,7 @@ export function platformVerdict(env: ReplayEnv, head: string): { bad: string[]; 
   if (typeof env?.os !== 'string' || env.os.length === 0) bad.push('no OS');
   if (env?.platform === 'vercel-sandbox') {
     if (fromGitHub) bad.push('a run with GitHub Actions provenance labeled as a Vercel Sandbox');
+    if (env.sha !== head) bad.push(`it ran ${env.sha ? env.sha.slice(0, 7) : 'no named commit'}, not ${head.slice(0, 7)}`);
     return { bad, label: `Vercel Sandbox (${env.os})` };
   }
   if (env?.platform === 'github-actions') {
@@ -727,7 +735,9 @@ const CHECKS: Check[] = [
   } },
   { id: 'CLI-35', ref: '19.5', line: 'Capability fallback to 16 colors (TERM=xterm, no COLORTERM)', run: async () => {
     const d = await demo(80, 'night', { COLORTERM: undefined }, '-16', '');
-    const d2 = await runToEnd('demo-80-xterm16', TIMMY('repl --demo'), { cols: 80, palette: 'night', env: { COLORTERM: undefined }, pre: 'export TERM=xterm;' });
+    // tmux 3.6 and later set COLORTERM in a pane when the terminal has RGB ("Set and check COLORTERM as a
+    // hint for RGB colour"), so the pane unsets it: the condition is TERM=xterm with no COLORTERM.
+    const d2 = await runToEnd('demo-80-xterm16', TIMMY('repl --demo'), { cols: 80, palette: 'night', env: { COLORTERM: undefined }, pre: 'export TERM=xterm; unset COLORTERM;' });
     const c = colorsIn(d2.raw);
     must(c.c256 === 0 && c.truecolor === 0 && c.basic > 0, `TERM=xterm: ${JSON.stringify(c)}`);
     void d;
@@ -862,7 +872,7 @@ const CHECKS: Check[] = [
   { id: 'TUI-09', ref: '19.6', line: 'Input text and tint readable on light and dark themes (truecolor and 256)', run: async () => {
     const out: string[] = [];
     for (const palette of ['night', 'day'] as const) {
-      for (const [tag, env, pre] of [['tc', {}, ''], ['256', { COLORTERM: undefined }, 'export TERM=xterm-256color;']] as const) {
+      for (const [tag, env, pre] of [['tc', {}, ''], ['256', { COLORTERM: undefined }, 'export TERM=xterm-256color; unset COLORTERM;']] as const) {
         const name = `tint-${palette}-${tag}`;
         const sb = sandbox(name, { palette, env: { TIMMY_Q_SCRIPT: 'text', ...env } });
         const p = new Pty(name, { cols: 80, rows: 12, env: sb.env, cwd: sb.work, script: NODE_TS(FIXTURE), pre }).start();
@@ -1138,7 +1148,8 @@ function stepper(dir: string, logName: string, env?: NodeJS.ProcessEnv) {
   const sh = (cmd: string, cwd = dir, ms = 900_000) => {
     const r = spawnSync('bash', ['-c', cmd], { cwd, encoding: 'utf8', timeout: ms, maxBuffer: 1 << 28, ...(env ? { env } : {}) });
     log(`$ ${cmd}\n${(r.stdout ?? '').slice(-4000)}${(r.stderr ?? '').slice(-4000)}exit ${r.status}`);
-    must(r.status === 0, `${logName.replace(/\.log$/, '')} step failed (exit ${r.status}): ${cmd}`);
+    const shown = cmd.split(OUT).join('<out>').split(REPO).join('<repo>').split(dirname(NODE)).join('<node>');
+    must(r.status === 0, `${logName.replace(/\.log$/, '')} step failed (exit ${r.status}): ${shown}`);
     return r.stdout ?? '';
   };
   return { log, sh };
@@ -1277,7 +1288,7 @@ async function installedPackage(): Promise<string> {
   // set outside HOME so the page shows it in full.
   const sbc = user('studio');
   const home = join(sbc.dir, 'elsewhere', 'timmy');
-  const studio = spawnChild(timmy, ['studio', '--port', '0'], { cwd: sbc.work, env: { ...sbc.env, TIMMY_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const studio = spawnChild(timmy, ['studio', '--port', '0'], { cwd: sbc.work, env: { ...sbc.env, TIMMY_HOME: home }, stdio: ['ignore', 'pipe', 'ignore'] });
   const ended = new Promise<number>((resolve) => studio.on('exit', (code, signal) => resolve(code ?? (signal === 'SIGTERM' ? 143 : -1))));
   let said = '';
   studio.stdout?.on('data', (c) => { said += String(c); });
@@ -1334,11 +1345,12 @@ async function controls(): Promise<string[]> {
   // AGENTS.md §10's cockpit exception only on a GitHub-hosted runner, for the frozen commit, named as such.
   const head = 'b'.repeat(40);
   const gh: ReplayEnv = { platform: 'github-actions', os: 'Ubuntu 24.04.3 LTS', sha: head, runner_environment: 'github-hosted', image_os: 'ubuntu24', image_version: '20251005.1', run_id: '18300000000', run_attempt: '1', repository: 'owner/repo' };
-  const vercel: ReplayEnv = { platform: 'vercel-sandbox', os: 'Amazon Linux 2023' };
+  const vercel: ReplayEnv = { platform: 'vercel-sandbox', os: 'Amazon Linux 2023', sha: head };
   expectFail('a GitHub run labeled as Vercel', () => { must(platformVerdict({ ...gh, platform: 'vercel-sandbox' }, head).bad.length === 0, 'label'); });
   expectFail('a GitHub run on a self-hosted runner', () => { must(platformVerdict({ ...gh, runner_environment: 'self-hosted' }, head).bad.length === 0, 'hosted'); });
   expectFail('a GitHub run without its run ID', () => { must(platformVerdict({ ...gh, run_id: undefined }, head).bad.length === 0, 'run'); });
   expectFail('a GitHub run of another commit', () => { must(platformVerdict({ ...gh, sha: 'c'.repeat(40) }, head).bad.length === 0, 'sha'); });
+  expectFail('a Vercel run of another commit', () => { must(platformVerdict({ ...vercel, sha: 'c'.repeat(40) }, head).bad.length === 0, 'sha'); });
   expectFail('a replay on an unnamed platform', () => { must(platformVerdict({ platform: 'laptop', os: 'macOS' }, head).bad.length === 0, 'platform'); });
   // CLI-29 and INSTALL-01: -v is the version and nothing else; the next steps work from an installed package;
   // the shell's next output starts its own line.

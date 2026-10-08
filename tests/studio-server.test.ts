@@ -151,6 +151,10 @@ describe('the canvas file through the server', () => {
     expect(shownPath('/srv/op', '/srv/op')).toBe('~');
     expect(shownPath('/srv/op2/timmy/canvas', '/srv/op')).toBe('/srv/op2/timmy/canvas');
     expect(shownPath('/tmp/x/canvas', '/srv/op')).toBe('/tmp/x/canvas');
+    // As resolved (the review): a relative TIMMY_HOME is shown from the server's folder, and a home
+    // folder written with a trailing slash still becomes ~.
+    expect(shownPath('x/canvas', '/srv/op')).toBe(join(process.cwd(), 'x', 'canvas'));
+    expect(shownPath('/srv/op/timmy/canvas', '/srv/op/')).toBe('~/timmy/canvas');
   });
   it('a new home opens a blank canvas, never cached', async () => {
     await start();

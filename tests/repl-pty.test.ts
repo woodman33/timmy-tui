@@ -46,7 +46,7 @@ describe('timmy repl', () => {
       tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '80', '-y', '30', '-c', dir, 'bash', '--norc', '-c', `S0=$(stty -g); ${TSX} ${CLI} repl; echo EXIT=$?; [ "$(stty -g)" = "$S0" ] && echo TTY=same; sleep 60`);
       const screen = () => tmux('capture-pane', '-p', '-t', 't');
       const waitFor = async (re: RegExp) => {
-        for (let i = 0; i < 300; i++) { if (re.test(screen())) return; await sleep(50); }
+        for (let i = 0; i < 600; i++) { if (re.test(screen())) return; await sleep(50); }
         throw new Error(`timed out waiting for ${re}:\n${screen()}`);
       };
       // No receipts yet: a first run says how to run the setup check, and the prompt starts empty.
@@ -56,10 +56,12 @@ describe('timmy repl', () => {
       expect(screen()).not.toContain('Tab completes');
       tmux('send-keys', '-t', 't', '-l', '/help');
       tmux('send-keys', '-t', 't', 'Enter');
-      await waitFor(/Show the model, or switch/);
+      // Each command is typed at a prompt that is back and ready, as a person would (SUITE-01 once lost
+      // the next one on a loaded machine).
+      await waitFor(/Show the model, or switch[\s\S]*Enter to send/);
       tmux('send-keys', '-t', 't', '-l', '/nope');
       tmux('send-keys', '-t', 't', 'Enter');
-      await waitFor(/Unknown command: \/nope\./);
+      await waitFor(/Unknown command: \/nope\.[\s\S]*Enter to send/);
       tmux('send-keys', '-t', 't', '-l', '/exit');
       tmux('send-keys', '-t', 't', 'Enter');
       await waitFor(/EXIT=\d+/);
@@ -84,10 +86,11 @@ describe('timmy repl', () => {
       tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '80', '-y', '40', '-c', dir, 'bash', '--norc', '-c', `${TSX} ${CLI} repl; echo EXIT=$?; sleep 60`);
       const screen = () => tmux('capture-pane', '-p', '-t', 't');
       const waitFor = async (re: RegExp) => {
-        for (let i = 0; i < 300; i++) { if (re.test(screen())) return; await sleep(50); }
+        for (let i = 0; i < 600; i++) { if (re.test(screen())) return; await sleep(50); }
         throw new Error(`timed out waiting for ${re}:\n${screen()}`);
       };
-      await waitFor(/First run: type \/setup to check what Timmy needs, and seal it\./);
+      // Short enough for a 60-column terminal (the review: the longer line was cut at 60).
+      await waitFor(/First run: type \/setup to check what Timmy needs\.$/m);
       await waitFor(/Enter to send/);
       expect(screen()).not.toContain('Tab completes');
       tmux('send-keys', '-t', 't', '-l', '/setup');
@@ -123,7 +126,7 @@ describe('timmy repl', () => {
       tmux('-u', '-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '80', '-y', '30', '-c', dir, 'bash', '--norc', '-c', `S0=$(stty -g); ${TSX} ${CLI} repl; echo EXIT=$?; [ "$(stty -g)" = "$S0" ] && echo TTY=same; sleep 60`);
       const screen = () => tmux('capture-pane', '-p', '-t', 't');
       const waitFor = async (re: RegExp) => {
-        for (let i = 0; i < 300; i++) { if (re.test(screen())) return; await sleep(50); }
+        for (let i = 0; i < 600; i++) { if (re.test(screen())) return; await sleep(50); }
         throw new Error(`timed out waiting for ${re}:\n${screen()}`);
       };
       await waitFor(/First run: type \/setup/);

@@ -2,7 +2,7 @@
 // this check validates it, and publication uses that same file. Negative controls first (§12).
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -88,6 +88,16 @@ describe('release artifact check', () => {
     const r = validateTarball(tarball(without(good(), 'package/dist/timmy.js')));
     expect(r.ok).toBe(false);
     expect(r.failures.join('\n')).toMatch(/dist\/timmy\.js/);
+  });
+
+  it('pins the react-remove-scroll-bar license by its hash, as the privacy exception does, and leaves no extraction behind', async () => {
+    const { RRSB_LICENSE_SHA256, validateTarball } = await import('../scripts/release/validate-tarball.mjs');
+    expect(createHash('sha256').update(rrsb).digest('hex')).toBe(RRSB_LICENSE_SHA256);
+    const patterns = JSON.parse(readFileSync('lanes/privacy/patterns.json', 'utf8')) as { exempt_blobs: Array<{ path: string; sha256: string }> };
+    expect(patterns.exempt_blobs.find((b) => b.path.endsWith('react-remove-scroll-bar.LICENSE'))?.sha256).toBe(RRSB_LICENSE_SHA256);
+    const before = new Set(readdirSync(tmpdir()).filter((n) => n.startsWith('timmy-release-')));
+    validateTarball(tarball(good()));
+    expect(readdirSync(tmpdir()).filter((n) => n.startsWith('timmy-release-') && !before.has(n))).toEqual([]);
   });
 
   it('pins the same tldraw license hash as the canvas build', async () => {

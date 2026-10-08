@@ -15,7 +15,7 @@
 // source commit, and the qualification evidence the repository holds for it. Exit 0 when every
 // check passes, 1 otherwise (each failure named).
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -24,6 +24,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 /** The tldraw license at its v5.5.2 tag (scripts/canvas/build.mjs pins the same hash). */
 export const TLDRAW_LICENSE_SHA256 = '9578fcddc20e404b6a29f44b6fea81d8b331698c0e7e9be34132d6f4394fa533';
+/** react-remove-scroll-bar's MIT license at 8ca9ba5e (lanes/privacy/patterns.json pins the same bytes). */
+export const RRSB_LICENSE_SHA256 = 'a79aae0c0f21990d9d963bb3c5a79cdcea9a46f8523ba55c58d7fe776b6ebc84';
 const CANVAS = 'companion/studio-canvas';
 /** Files every release must carry, besides the bins its package.json names. */
 export const REQUIRED = ['package.json', 'dist/src/cli.js', `${CANVAS}/dist/canvas.js`, `${CANVAS}/dist/canvas.css`,
@@ -47,10 +49,18 @@ function filesUnder(dir) {
 }
 
 /** Validate one tarball. Returns { ok, failures, manifest }. */
-export function validateTarball(tarball, { expectVersion } = {}) {
+export function validateTarball(tarball, options = {}) {
+  const at = mkdtempSync(join(tmpdir(), 'timmy-release-'));
+  try {
+    return check(tarball, at, options);
+  } finally {
+    rmSync(at, { recursive: true, force: true });
+  }
+}
+
+function check(tarball, at, { expectVersion } = {}) {
   const failures = [];
   const bytes = readFileSync(tarball);
-  const at = mkdtempSync(join(tmpdir(), 'timmy-release-'));
   const x = spawnSync('tar', ['-xzf', resolve(tarball), '-C', at], { encoding: 'utf8' });
   if (x.status !== 0) failures.push(`the tarball does not unpack: ${x.stderr.trim()}`);
   const root = join(at, 'package');
@@ -75,6 +85,8 @@ export function validateTarball(tarball, { expectVersion } = {}) {
   }
   if (has(`${CANVAS}/dist/LICENSE-tldraw.md`) && sha256(read(`${CANVAS}/dist/LICENSE-tldraw.md`)) !== TLDRAW_LICENSE_SHA256)
     failures.push(`${CANVAS}/dist/LICENSE-tldraw.md is not the tldraw license (sha256 must be ${TLDRAW_LICENSE_SHA256})`);
+  const pinned = { [`${CANVAS}/LICENSE-tldraw.md`]: TLDRAW_LICENSE_SHA256, [`${CANVAS}/licenses/react-remove-scroll-bar.LICENSE`]: RRSB_LICENSE_SHA256 };
+  for (const [p, want] of Object.entries(pinned)) if (has(p) && sha256(read(p)) !== want) failures.push(`${p} is not the pinned license text (sha256 must be ${want})`);
   for (const p of VERBATIM) {
     if (!has(p)) continue;
     const committed = join(REPO, p);
