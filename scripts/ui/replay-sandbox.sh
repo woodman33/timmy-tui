@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# REPLAY-02 (AGENTS.md §10): C-16's frozen run, repeated in an isolated sandbox on a fresh clone.
+# REPLAY-02 (AGENTS.md §10): the frozen run (C-17), repeated in an isolated sandbox on a fresh clone.
 #
 #   bash scripts/ui/replay-sandbox.sh EXPECTED_COMMIT OUT_DIR PLATFORM
 #
 # Run it from the root of a full clone (with origin/main), with tmux, pgrep, tar and a UTF-8 locale
 # installed. OUT_DIR must be outside the clone: the run compares the clone's tree before and after, and
 # nothing is written inside it except ignored paths (node_modules, .timmy). PLATFORM names where it
-# runs (vercel-sandbox).
+# runs: vercel-sandbox, or github-actions (a GitHub-hosted runner, under the cockpit exception in
+# AGENTS.md §10; .github/workflows/replay-02.yml). On GitHub Actions the runner's own provenance (image,
+# run, repository) is recorded whatever PLATFORM says, so a GitHub run can never pass as another platform.
 #
 # Synthetic fixtures only: no model key; a monitor home made by `timmy init` for a sample operator; an
 # empty shared receipt store, so the preservation check has a preimage. Chromium is fetched for the
@@ -21,6 +23,7 @@ root=$(git rev-parse --show-toplevel) || exit 2
 mkdir -p "$out" && out=$(cd "$out" && pwd)
 case "$out/" in "$root"/*) echo "OUT_DIR must be outside the clone" >&2; exit 2 ;; esac
 cd "$root" || exit 2
+case "$platform" in vercel-sandbox|github-actions) ;; *) echo "PLATFORM must be vercel-sandbox or github-actions" >&2; exit 2 ;; esac
 started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 say() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*" | tee -a "$out/replay.log"; }
 die() { say "STOP: $*"; exit 1; }
@@ -35,7 +38,8 @@ locale -a 2>/dev/null | grep -qix 'c.utf-\?8' || die "no C.UTF-8 locale"
 say "clone at $head, clean; $(tmux -V); node $(node --version)"
 
 t0=$SECONDS
-npm ci --ignore-scripts --no-audit --no-fund --loglevel=error >> "$out/setup.log" 2>&1 || die "npm ci failed"
+# --include=dev: the build and test tools are devDependencies, which NODE_ENV=production would omit.
+npm ci --include=dev --ignore-scripts --no-audit --no-fund --loglevel=error >> "$out/setup.log" 2>&1 || die "npm ci failed"
 install_s=$((SECONDS - t0))
 say "npm ci in ${install_s}s"
 
@@ -78,10 +82,13 @@ cp "$out/q/freeze/freeze.json" "$out/q/results.json" "$out/q/controls.txt" "$out
 
 . /etc/os-release 2>/dev/null
 OS="${PRETTY_NAME:-$(uname -s)}" PLATFORM="$platform" STARTED="$started" CODE="$code" INSTALL_S="$install_s" CANVAS="$canvas" \
-  SKIP="$skip" CPUS="$(nproc)" MEM_KB="$(awk '/MemTotal/ {print $2}' /proc/meminfo)" TMUXV="$(tmux -V)" GITV="$(git --version)" \
+  SKIP="$skip" CPUS="$(nproc)" MEM_KB="$(awk '/MemTotal/ {print $2}' /proc/meminfo)" TMUXV="$(tmux -V)" GITV="$(git --version)" HEAD_SHA="$head" \
   node -e '
     const e = process.env;
-    const out = { platform: e.PLATFORM, os: e.OS, kernel: require("os").release(), arch: process.arch, cpus: Number(e.CPUS),
+    // The runner says what it is: on GitHub Actions these come from GitHub, not from this script.
+    const github = e.GITHUB_ACTIONS === "true" ? { runner_environment: e.RUNNER_ENVIRONMENT, image_os: e.ImageOS, image_version: e.ImageVersion,
+      run_id: e.GITHUB_RUN_ID, run_attempt: e.GITHUB_RUN_ATTEMPT, repository: e.GITHUB_REPOSITORY, workflow_sha: e.GITHUB_SHA } : {};
+    const out = { platform: e.PLATFORM, sha: e.HEAD_SHA, ...github, os: e.OS, kernel: require("os").release(), arch: process.arch, cpus: Number(e.CPUS),
       memory_mb: Math.round(Number(e.MEM_KB) / 1024), node: process.version, tmux: e.TMUXV, git: e.GITV,
       started: e.STARTED, finished: new Date().toISOString().replace(/\.\d+Z$/, "Z"), npm_ci_s: Number(e.INSTALL_S),
       chromium: e.CANVAS, skipped: e.SKIP.split(","), exit: Number(e.CODE) };

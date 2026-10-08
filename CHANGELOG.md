@@ -34,6 +34,10 @@ inline REPL, `timmy watch`, the canvas) on top of 2.0.0-rc.1.
   real head, every commit since the merge base and each merge's own changes,
   and keeps its evidence (the range, the commit count, the scanner version and
   the result) with the run. It used to stop after 30 commits.
+- The cockpit's qualification checks the packed package as a user installs it
+  (INSTALL-01) and `-v` as the version everywhere (CLI-29). Its replay
+  (REPLAY-02) may run on a GitHub-hosted runner, named as such with the runner
+  image, the run and the commit: a narrow exception in AGENTS.md §10.
 
 ### Fixed
 - A first run's prompt starts empty, with a line saying to type `/setup`. The

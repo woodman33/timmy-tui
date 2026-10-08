@@ -1,9 +1,10 @@
 /**
- * C-15, the frozen qualification (AGENTS.md §5), and C-16, the final acceptance of a new revision: the
- * UI playbook's CLI (§19.5) and Agent TUI (§19.6) checklists against the real Timmy in real PTYs (tmux),
- * captures at 60, 80 and 120 columns in Timmy Night and Day through the contrast gate, the shared
- * receipt store and the frozen tree preserved, the related suites, Timmy Canvas in a real browser, a
- * replay in a fresh clone, and the evidence of the two checks that run elsewhere.
+ * C-15, the frozen qualification (AGENTS.md §5), C-16, the final acceptance of a new revision, and C-17,
+ * the release candidate's: the UI playbook's CLI (§19.5) and Agent TUI (§19.6) checklists against the
+ * real Timmy in real PTYs (tmux), captures at 60, 80 and 120 columns in Timmy Night and Day through the
+ * contrast gate, the shared receipt store and the frozen tree preserved, the related suites, Timmy Canvas
+ * in a real browser, a replay in a fresh clone, the packed package installed and used as a user meets it
+ * (INSTALL-01), and the evidence of the two checks that run elsewhere.
  *
  *   npx tsx scripts/ui/qualify.ts --out DIR --monitor-home DIR [--repo DIR] [--dev] [--only ID,ID] [--controls]
  *     [--skip ID,ID --skip-why TEXT] [--freeze]
@@ -16,15 +17,15 @@
  *
  * --skip reports the named checks as not run, with the reason given. It exists for the isolated sandbox
  * replay (scripts/ui/replay-sandbox.sh), where REPLAY-02 and LIVE-01 cannot run. Those two read evidence
- * taken elsewhere (docs/ui-cockpit/c16/: the sandbox's own frozen run, and the live turns on the
+ * taken elsewhere (docs/ui-cockpit/c17/: the sandbox's own frozen run, and the live turns on the
  * operator's Mac), each bound to the commit it ran at: the frozen tree may differ from that commit only
- * under docs/ui-cockpit/, where the ledger and the evidence live.
+ * under docs/ui-cockpit/, where the ledger and the evidence live. C-16's evidence stays in c16/.
  */
 import { createHash } from 'node:crypto';
 import { builtinModules } from 'node:module';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn as spawnChild, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { visibleWidth } from '../../src/term/width.js';
 import { parseAnsiFrame, TIMMY_NIGHT } from '../../src/tui/qa/ansi-frame.js';
@@ -226,7 +227,7 @@ const must = (ok: boolean, why: string): void => { if (!ok) throw new Fail(why);
 // ── evidence taken elsewhere: REPLAY-02 (an isolated sandbox) and LIVE-01 (the operator's Mac) ────────
 // Each record names the commit it ran at. It holds for the frozen tree only when nothing has changed
 // since that commit outside docs/ui-cockpit/, where the ledger and the evidence itself live.
-const EVIDENCE = join(REPO, 'docs/ui-cockpit/c16');
+const EVIDENCE = join(REPO, 'docs/ui-cockpit/c17');
 const LEDGER_DIR = 'docs/ui-cockpit/';
 /** The changed paths that break the binding: everything outside the ledger and evidence folder. */
 export function outsideEvidence(changed: string[]): string[] { return changed.filter((p) => !p.startsWith(LEDGER_DIR)); }
@@ -305,6 +306,59 @@ export function liveVerdict(rec: LiveRecord): string[] {
   else if (sp.total_usd > sp.cap_usd) bad.push(`spend $${sp.total_usd} over the $${sp.cap_usd} cap`);
   return bad;
 }
+
+/** Where a replay ran, as scripts/ui/replay-sandbox.sh records it in replay.json. */
+interface ReplayEnv {
+  platform: string; os?: string; sha?: string;
+  runner_environment?: string; image_os?: string; image_version?: string; run_id?: string; run_attempt?: string; repository?: string; workflow_sha?: string;
+}
+/** The fields a run on GitHub Actions records (the runner sets them; the replay script copies them). */
+const GITHUB_FIELDS = ['runner_environment', 'image_os', 'image_version', 'run_id', 'run_attempt', 'repository', 'workflow_sha'] as const;
+/**
+ * Where a replay of the frozen commit `head` ran, as its own record proves it: `bad` is [] when that is a
+ * platform AGENTS.md §10 allows for this replay, and `label` names it as it was. A Vercel Sandbox; or, under
+ * §10's cockpit exception (C-17), a GitHub-hosted runner, with its image, its run and the commit it ran. A
+ * record that carries GitHub's provenance is never a Vercel run.
+ */
+export function platformVerdict(env: ReplayEnv, head: string): { bad: string[]; label: string } {
+  const bad: string[] = [];
+  const fromGitHub = GITHUB_FIELDS.some((k) => env?.[k] !== undefined);
+  if (typeof env?.os !== 'string' || env.os.length === 0) bad.push('no OS');
+  if (env?.platform === 'vercel-sandbox') {
+    if (fromGitHub) bad.push('a run with GitHub Actions provenance labeled as a Vercel Sandbox');
+    return { bad, label: `Vercel Sandbox (${env.os})` };
+  }
+  if (env?.platform === 'github-actions') {
+    if (env.runner_environment !== 'github-hosted') bad.push(`runner environment ${JSON.stringify(env.runner_environment ?? null)}, not github-hosted (an isolated machine for the job)`);
+    if (!/^[a-z]+\d+$/.test(env.image_os ?? '')) bad.push('no runner image');
+    if (!env.image_version) bad.push('no runner image version');
+    if (!/^\d+$/.test(env.run_id ?? '')) bad.push('no run ID');
+    if (!/^\d+$/.test(env.run_attempt ?? '')) bad.push('no run attempt');
+    if (!/^[\w.-]+\/[\w.-]+$/.test(env.repository ?? '')) bad.push('no repository');
+    if (env.sha !== head) bad.push(`it ran ${env.sha ? env.sha.slice(0, 7) : 'no named commit'}, not ${head.slice(0, 7)}`);
+    return { bad, label: `GitHub Actions, a GitHub-hosted runner (${env.os}; image ${env.image_os} ${env.image_version}; run ${env.run_id}, attempt ${env.run_attempt}, in ${env.repository})` };
+  }
+  bad.push(`platform ${JSON.stringify(env?.platform ?? null)} is not one AGENTS.md §10 allows for this replay`);
+  return { bad, label: String(env?.platform) };
+}
+/** CLI-29: what is wrong with what a version flag printed: [] when it is the version line and nothing else. */
+export function versionProblems(out: string, version: string): string[] {
+  const want = `timmy-tui v${version}\n`;
+  return out === want ? [] : [`printed ${JSON.stringify(out.slice(0, 120))}, not ${JSON.stringify(want)}`];
+}
+/** CLI-29: the help rows that give -v a meaning other than the version. */
+export function helpVProblems(help: string): string[] {
+  return help.split('\n').filter((l) => /(^|[\s,])-v(?=[\s,]|$)/.test(l) && !/version/i.test(l)).map((l) => `-v is not the version here: "${l.trim()}"`);
+}
+/** INSTALL-01: what is wrong with a next step an installed user is given: npm start needs a checkout. */
+export function nextStepProblems(out: string, want: RegExp): string[] {
+  const bad: string[] = [];
+  if (/npm start\b/.test(out)) bad.push('it names npm start, which an installed package does not have');
+  if (!want.test(out)) bad.push(`no line matching ${want}`);
+  return bad;
+}
+/** The cursor at column 0 once a program ends, so whatever the shell prints next starts its own line. */
+export const atLineStart = (cursorX: string): boolean => cursorX.trim() === '0';
 
 const CHECKS: Check[] = [
   // §18 Process and Copy ([cli] and [agent-tui] run only these two groups of §18)
@@ -605,7 +659,22 @@ const CHECKS: Check[] = [
     must(t.status === 0 && tj !== null, `timmy theme --json: exit ${t.status}, not JSON`);
     return 'receipts --json and --quiet, theme --json';
   } },
-  { id: 'CLI-29', ref: '19.5', line: '-v never overloaded', deferred: '`-v` prints the version, as on main. Leaving it unassigned changes an existing flag, which is the operator\'s decision (ledger row 32).' },
+  { id: 'CLI-29', ref: '19.5; the 20:14 order', line: '-v never overloaded: through the bin, `-v`, `--version`, `version` and `repl -v` each print the version line and nothing else (exit 0), and no help row gives -v another meaning', run: async () => {
+    const version = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')).version as string;
+    const BIN = join(REPO, 'timmy.ts');
+    for (const args of [['-v'], ['--version'], ['version'], ['repl', '-v']]) {
+      const r = spawn([BIN, ...args], {});
+      must(r.code === 0 && r.stderr === '', `timmy ${args.join(' ')}: exit ${r.code}, stderr ${JSON.stringify(r.stderr.slice(0, 120))}`);
+      const bad = versionProblems(r.stdout, version);
+      must(bad.length === 0, `timmy ${args.join(' ')}: ${bad.join('; ')}`);
+    }
+    for (const args of [[BIN, '--help'], [CLI, 'repl', '--help']]) {
+      const r = spawn(args, {});
+      const bad = helpVProblems(r.stdout + r.stderr);
+      must(bad.length === 0, `${args.slice(1).join(' ')}: ${bad.join('; ')}`);
+    }
+    return `timmy -v, --version, version and repl -v: "timmy-tui v${version}" and nothing else, exit 0; no -v row with another meaning in timmy --help or timmy repl --help`;
+  } },
   { id: 'CLI-30', ref: '19.5', line: 'No prompt without TTYs on stdin and stdout: fail fast, naming the fix', run: async () => {
     const t0 = Date.now();
     const r = spawn([CLI, 'repl'], {}, 'hi\n');
@@ -711,7 +780,7 @@ const CHECKS: Check[] = [
       must(ex.code === 143 && ex.tty === 'same', `timmy: exit ${ex.code}, tty ${ex.tty}`);
       must(p.cursor() === '1', 'the cursor was left hidden');
       const column = p.tmux('display', '-p', '-t', 'q', '#{cursor_x}').trim();
-      must(column === '0', `the shell's next output would start at column ${column}, after the live line`);
+      must(atLineStart(column), `the shell's next output would start at column ${column}, after the live line`);
       return 'bare timmy: an empty first-run prompt, where /exit exits 0; SIGTERM to timmy mid-turn: 143, stty unchanged, cursor on and at column 0, no REPL left';
     } finally { p.save(); p.kill(); }
   } },
@@ -910,13 +979,15 @@ const CHECKS: Check[] = [
     return `${tests.replace(/\s+/g, ' ')}, in a real Chromium`;
   } },
   { id: 'REPLAY-01', ref: 'AGENTS §10 (local part)', line: 'A fresh clone with the frozen changes applied runs the REPL demo and passes the gate', run: async () => replay() },
-  { id: 'REPLAY-02', ref: 'AGENTS §10', line: 'This frozen run, repeated in an isolated Vercel sandbox on a fresh clone at a commit the frozen tree differs from only in docs/ui-cockpit/: every check that can run there passed there', run: async () => {
+  { id: 'INSTALL-01', ref: 'the 20:14 order, parts 4, 5 and 7', line: 'The frozen tree packed as the release job packs it and validated, then installed by npm into an empty prefix and used as an installed user meets it: -v; init and the doctor name next steps that work installed; bare timmy opens an empty first-run prompt where /exit exits 0; SIGTERM mid-turn leaves 143, the terminal restored and the next output on a clean line; timmy studio serves the canvas and names TIMMY_HOME\'s canvas folder', run: async () => installedPackage() },
+  { id: 'REPLAY-02', ref: 'AGENTS §10', line: 'This frozen run, repeated in an isolated sandbox (a Vercel Sandbox, or a GitHub-hosted runner under the cockpit exception in AGENTS.md §10) on a fresh clone at a commit the frozen tree differs from only in docs/ui-cockpit/: every check that can run there passed there, and its record names where it ran', run: async () => {
     const dir = join(EVIDENCE, 'replay-02');
+    const where = `${dir.slice(REPO.length + 1)}/`;
     evidenceOrBlocker(dir, 'freeze.json');
-    for (const f of ['results.json', 'controls.txt', 'replay.json']) must(existsSync(join(dir, f)), `no ${f} in docs/ui-cockpit/c16/replay-02/`);
+    for (const f of ['results.json', 'controls.txt', 'replay.json']) must(existsSync(join(dir, f)), `no ${f} in ${where}`);
     const fz = JSON.parse(readFileSync(join(dir, 'freeze.json'), 'utf8')) as { head: string; manifest: string; node: string; tmux: string; runner: string };
     const run = JSON.parse(readFileSync(join(dir, 'results.json'), 'utf8')) as RunRecord;
-    const env = JSON.parse(readFileSync(join(dir, 'replay.json'), 'utf8')) as { platform: string; os: string };
+    const env = JSON.parse(readFileSync(join(dir, 'replay.json'), 'utf8')) as ReplayEnv;
     const off = outsideEvidence(changedSince(fz.head));
     must(off.length === 0, `changed since ${fz.head.slice(0, 7)} outside docs/ui-cockpit/: ${off.slice(0, 8).join(', ')}`);
     must(fz.manifest === manifestHash(fz.head), `the sandbox's tree was not commit ${fz.head.slice(0, 7)} as committed`);
@@ -927,10 +998,11 @@ const CHECKS: Check[] = [
     const here = join(OUT, 'controls.txt');
     must(existsSync(here), 'run with --controls: the sandbox negative controls are compared with this run\'s');
     must(readFileSync(join(dir, 'controls.txt'), 'utf8') === readFileSync(here, 'utf8'), 'the sandbox negative controls differ from this run\'s');
-    must(env.platform === 'vercel-sandbox' && typeof env.os === 'string' && env.os.length > 0, 'replay.json names no isolated platform');
+    const platform = platformVerdict(env, fz.head);
+    must(platform.bad.length === 0, `replay.json: ${platform.bad.join('; ')}`);
     const n = (s: string) => run.results.filter((r) => r.status === s).length;
     const skipped = run.results.filter((r) => r.status === 'not run').map((r) => r.id);
-    return `Vercel Sandbox (${env.os}; Node ${fz.node}, ${fz.tmux}) on a clean clone at ${fz.head.slice(0, 7)}: ${n('pass')} passed, 0 failed, ${n('deferred')} deferred, not run there: ${skipped.join(', ')}; the same ${readFileSync(here, 'utf8').trim().split('\n').length} negative controls; only docs/ui-cockpit/ changed since`;
+    return `${platform.label}; Node ${fz.node}, ${fz.tmux}; a clean clone at ${fz.head.slice(0, 7)}: ${n('pass')} passed, 0 failed, ${n('deferred')} deferred, not run there: ${skipped.join(', ')}; the same ${readFileSync(here, 'utf8').trim().split('\n').length} controls; only docs/ui-cockpit/ changed since`;
   } },
   { id: 'LIVE-01', ref: 'B1; fourth order, step 6', line: 'On the operator\'s Mac, at a commit the frozen tree differs from only in docs/ui-cockpit/: a real model turn with a tool, its interruption, a usable prompt after it, and another turn (the record and its binding are checked here; the turns were watched there)', run: async () => {
     const f = join(EVIDENCE, 'live-01', 'live-01.json');
@@ -1060,17 +1132,20 @@ function treeManifest(dir = REPO): string {
   return out.stdout;
 }
 
-async function replay(): Promise<string> {
-  const dir = join(OUT, 'replay');
-  const clone = join(dir, 'timmy-tui');
-  const log = (s: string) => writeFileSync(join(dir, 'replay.log'), `${s}\n`, { flag: 'a' });
-  mkdirSync(dir, { recursive: true });
+/** A shell step for a check that works in its own folder: logged there, and a failure is the check's. */
+function stepper(dir: string, logName: string, env?: NodeJS.ProcessEnv) {
+  const log = (s: string) => writeFileSync(join(dir, logName), `${s}\n`, { flag: 'a' });
   const sh = (cmd: string, cwd = dir, ms = 900_000) => {
-    const r = spawnSync('bash', ['-c', cmd], { cwd, encoding: 'utf8', timeout: ms, maxBuffer: 1 << 28 });
+    const r = spawnSync('bash', ['-c', cmd], { cwd, encoding: 'utf8', timeout: ms, maxBuffer: 1 << 28, ...(env ? { env } : {}) });
     log(`$ ${cmd}\n${(r.stdout ?? '').slice(-4000)}${(r.stderr ?? '').slice(-4000)}exit ${r.status}`);
-    must(r.status === 0, `replay step failed (exit ${r.status}): ${cmd}`);
+    must(r.status === 0, `${logName.replace(/\.log$/, '')} step failed (exit ${r.status}): ${cmd}`);
     return r.stdout ?? '';
   };
+  return { log, sh };
+}
+/** A clone of the frozen tree in `dir`/timmy-tui: HEAD, plus the uncommitted changes and untracked files of a development run. */
+function cloneFrozen(dir: string, sh: (cmd: string, cwd?: string, ms?: number) => string, log: (s: string) => void): { clone: string; base: string; patched: boolean; untracked: number } {
+  const clone = join(dir, 'timmy-tui');
   const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim();
   sh(`git clone --quiet --no-local ${q(REPO)} ${q(clone)} && git -C ${q(clone)} checkout --quiet ${base}`);
   // A clean frozen tree is the commit itself: no patch to apply and no untracked file are not failures.
@@ -1082,6 +1157,14 @@ async function replay(): Promise<string> {
   if (untracked.length > 0) sh(`git -C ${q(REPO)} ls-files -o --exclude-standard -z | xargs -0 tar -C ${q(REPO)} -cf ${q(join(dir, 'untracked.tar'))} && tar -C ${q(clone)} -xf ${q(join(dir, 'untracked.tar'))}`);
   log(`applied: ${patched ? 'the uncommitted changes' : 'no uncommitted change'}, ${untracked.length} untracked file(s)`);
   must(treeManifest(clone) === treeManifest(), 'the clone with the changes applied is not the frozen tree');
+  return { clone, base, patched, untracked: untracked.length };
+}
+
+async function replay(): Promise<string> {
+  const dir = join(OUT, 'replay');
+  mkdirSync(dir, { recursive: true });
+  const { log, sh } = stepper(dir, 'replay.log');
+  const { clone, base, patched, untracked } = cloneFrozen(dir, sh, log);
   const t0 = Date.now();
   sh('npm ci --ignore-scripts --no-audit --no-fund --prefer-offline --loglevel=error', clone, 1_200_000);
   const installS = Math.round((Date.now() - t0) / 1000);
@@ -1096,8 +1179,129 @@ async function replay(): Promise<string> {
   const g = gate(file, 'night');
   must(g.code === 0, `clone demo capture: gate exit ${g.code}`);
   sh(`${q(join(clone, 'node_modules/.bin/vitest'))} run tests/repl-turn.test.ts tests/repl-seal.test.ts tests/term-law-palette.test.ts tests/studio-receipts.test.ts`, clone, 600_000);
-  const what = patched || untracked.length > 0 ? `clone of ${base.slice(0, 7)} plus the frozen changes` : `clean clone of ${base.slice(0, 7)} (the frozen tree is that commit)`;
+  const what = patched || untracked > 0 ? `clone of ${base.slice(0, 7)} plus the frozen changes` : `clean clone of ${base.slice(0, 7)} (the frozen tree is that commit)`;
   return `${what} = the frozen tree (manifest identical); npm ci in ${installS}s; repl --help; the demo turn in a PTY (exit 0, stty unchanged, gate PASS); 4 suites pass in the clone`;
+}
+
+/**
+ * INSTALL-01 (the 20:14 order): the frozen tree packed as the release job packs it (.github/workflows/
+ * release.yml: the build tools included, built, the canvas distribution check, one tarball, validated by
+ * scripts/release/validate-tarball.mjs), installed by npm into an empty prefix, and used through the
+ * installed `timmy` as a user meets it: this run's Node and the installed command on the PATH, nothing of
+ * the repository's, and a home of its own for each step. The doctor's own findings are kept with the evidence.
+ */
+async function installedPackage(): Promise<string> {
+  const dir = join(OUT, 'install');
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  const nodeDir = dirname(NODE);
+  const npm = existsSync(join(nodeDir, 'npm')) ? join(nodeDir, 'npm') : 'npm';
+  // Built with this Node, the build tools named explicitly, and no NODE_ENV (production would omit them) or NODE_PATH.
+  const buildEnv: NodeJS.ProcessEnv = { ...process.env, PATH: `${nodeDir}:${process.env.PATH ?? ''}` };
+  delete buildEnv.NODE_ENV;
+  delete buildEnv.NODE_PATH;
+  const { log, sh } = stepper(dir, 'install.log', buildEnv);
+  const { clone, base, patched, untracked } = cloneFrozen(dir, sh, log);
+  const npmVersion = sh(`${q(npm)} --version`).trim();
+  sh(`${q(npm)} ci --include=dev --no-audit --no-fund --prefer-offline --loglevel=error`, clone, 1_200_000);
+  sh(`${q(npm)} run build`, clone, 900_000);
+  sh(`${q(NODE)} scripts/canvas/build.mjs --check`, clone);
+  const packed = JSON.parse(sh(`${q(npm)} pack --ignore-scripts --pack-destination ${q(dir)} --json`, clone)) as Array<{ filename: string }>;
+  const name = packed[0].filename;
+  const version = JSON.parse(readFileSync(join(clone, 'package.json'), 'utf8')).version as string;
+  sh(`${q(NODE)} scripts/release/validate-tarball.mjs ${q(join(dir, name))} --expect-version ${q(version)} --out ${q(join(dir, 'release-artifact.json'))} > /dev/null`, clone);
+  const artifact = JSON.parse(readFileSync(join(dir, 'release-artifact.json'), 'utf8')) as { ok: boolean; sha256: string; entries: number };
+  must(artifact.ok === true, 'the packed artifact failed its release check');
+  const prefix = join(dir, 'prefix');
+  sh(`${q(npm)} install --global --prefix ${q(prefix)} ${q(join(dir, name))} --no-audit --no-fund --loglevel=error`, dir, 1_200_000);
+  const timmy = join(prefix, 'bin', 'timmy');
+  must(existsSync(timmy), 'the installed package has no timmy command');
+  const userPath = `${nodeDir}:${join(prefix, 'bin')}:/usr/local/bin:/usr/bin:/bin`;
+  const user = (step: string) => sandbox(`install-${step}`, { env: { PATH: userPath } });
+  const run = (sb: ReturnType<typeof sandbox>, args: string[]) => {
+    const r = spawnSync(timmy, args, { cwd: sb.work, env: sb.env, encoding: 'utf8', timeout: 60_000 });
+    return { code: r.status ?? -1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+  };
+  // -v: the version line and nothing else.
+  const v = run(user('version'), ['-v']);
+  const vBad = versionProblems(v.stdout, version);
+  must(v.code === 0 && vBad.length === 0, `installed timmy -v: exit ${v.code}; ${vBad.join('; ')}`);
+  // init, then the doctor it names: next steps that work installed. The doctor's findings are kept.
+  const sbi = user('init');
+  const init = run(sbi, ['init', '--yes', '--operator', 'Sample', '--project', 'demo']);
+  writeFileSync(join(dir, 'init.txt'), init.stdout + init.stderr);
+  must(init.code === 0, `installed timmy init --yes: exit ${init.code}`);
+  const initBad = nextStepProblems(init.stdout, /Next: `timmy doctor`, then `timmy` to open the REPL\./);
+  must(initBad.length === 0, `installed timmy init: ${initBad.join('; ')}`);
+  const doc = run(sbi, ['doctor']);
+  writeFileSync(join(dir, 'doctor.txt'), doc.stdout + doc.stderr);
+  must(doc.code === 0, `installed timmy doctor: exit ${doc.code}`);
+  const docBad = nextStepProblems(doc.stdout, /^Next step: `timmy` opens the REPL/m);
+  must(docBad.length === 0, `installed timmy doctor: ${docBad.join('; ')}`);
+  const pre = doc.stdout.split('\n').filter((l) => /^\s+[✓✗!] /.test(l));
+  const tally = (glyph: string) => pre.filter((l) => l.trim().startsWith(glyph)).length;
+  const verdict = /Preflight READY/.test(doc.stdout) ? 'READY' : /Preflight BLOCKED/.test(doc.stdout) ? 'BLOCKED' : 'unstated';
+  // Bare timmy: the first-run prompt starts empty, and /exit typed there exits 0.
+  const sbb = user('bare');
+  const bare = new Pty('install-bare', { cols: 80, rows: 24, env: sbb.env, cwd: sbb.work, script: q(timmy) }).start();
+  try {
+    await bare.waitFor(/First run: type \/setup/, 30_000);
+    await bare.waitFor(/Enter to send/);
+    must(!/Tab completes/.test(bare.screen()), 'the installed first-run prompt is not empty');
+    bare.text('/exit'); bare.keys('Enter');
+    const out = await bare.exited(10_000);
+    must(out.code === 0 && out.tty === 'same', `installed timmy, /exit at the first-run prompt: exit ${out.code}, tty ${out.tty}`);
+    must(bare.cursor() === '1', 'the installed REPL left the cursor hidden');
+  } finally { bare.save(); bare.kill(); }
+  // SIGTERM to the installed timmy mid-turn: 143, the terminal restored, the next output on a clean line.
+  const sbs = user('sigterm');
+  const p = new Pty('install-sigterm', { cols: 80, rows: 20, env: sbs.env, cwd: sbs.work, script: `${q(timmy)} repl --demo-loader` }).start();
+  try {
+    await p.waitFor(/Working/, 30_000);
+    await sleep(1200);
+    const kid = (pid: string | number): number => Number(execFileSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' }).trim().split('\n')[0]);
+    const bin = kid(p.tmux('display', '-p', '-t', 'q', '#{pane_pid}').trim());
+    const repl = kid(bin);
+    process.kill(bin, 'SIGTERM');
+    const ex = await p.exited(10_000);
+    await sleep(200);
+    const left = ((): boolean => { try { process.kill(repl, 0); return true; } catch { return false; } })();
+    if (left) process.kill(repl, 'SIGKILL');
+    must(!left, 'the installed REPL kept running after timmy ended');
+    must(ex.code === 143 && ex.tty === 'same', `installed timmy, SIGTERM mid-turn: exit ${ex.code}, tty ${ex.tty}`);
+    must(p.cursor() === '1', 'the installed REPL left the cursor hidden');
+    const column = p.tmux('display', '-p', '-t', 'q', '#{cursor_x}').trim();
+    must(atLineStart(column), `after the installed REPL, the shell's next output would start at column ${column}`);
+  } finally { p.save(); p.kill(); }
+  // timmy studio from the package: the page and its bundle served, and the canvas folder from TIMMY_HOME,
+  // set outside HOME so the page shows it in full.
+  const sbc = user('studio');
+  const home = join(sbc.dir, 'elsewhere', 'timmy');
+  const studio = spawnChild(timmy, ['studio', '--port', '0'], { cwd: sbc.work, env: { ...sbc.env, TIMMY_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const ended = new Promise<number>((resolve) => studio.on('exit', (code, signal) => resolve(code ?? (signal === 'SIGTERM' ? 143 : -1))));
+  let said = '';
+  studio.stdout?.on('data', (c) => { said += String(c); });
+  let bundleBytes = 0;
+  try {
+    let url = '';
+    for (const end = Date.now() + 30_000; !url; await sleep(50)) {
+      url = /Timmy Canvas: (http:\/\/127\.0\.0\.1:\d+\/)/.exec(said)?.[1] ?? '';
+      if (!url && Date.now() > end) throw new Fail(`installed timmy studio did not say where it serves: ${JSON.stringify(said.slice(0, 160))}`);
+    }
+    const config = await (await fetch(`${url}studio-config.json`)).json() as { canvasDir?: unknown };
+    const shown = typeof config.canvasDir === 'string' ? config.canvasDir.split(sbc.dir).join('<sandbox>') : JSON.stringify(config.canvasDir);
+    must(config.canvasDir === join(home, 'canvas'), `the installed canvas names ${shown}, not <sandbox>/elsewhere/timmy/canvas`);
+    const page = await fetch(url);
+    const html = await page.text();
+    must(page.status === 200 && html.includes('id="guide-dir"') && html.includes('src="dist/canvas.js"'), `the installed canvas page: HTTP ${page.status}`);
+    const bundle = await fetch(`${url}dist/canvas.js`);
+    bundleBytes = (await bundle.arrayBuffer()).byteLength;
+    must(bundle.status === 200 && bundleBytes > 100_000, `the installed canvas bundle: HTTP ${bundle.status}, ${bundleBytes} bytes`);
+  } finally { studio.kill('SIGTERM'); }
+  const studioExit = await ended;
+  must(studioExit === 143, `installed timmy studio, SIGTERM: exit ${studioExit}`);
+  const from = patched || untracked > 0 ? `${base.slice(0, 7)} plus the frozen changes` : `a clean clone of ${base.slice(0, 7)}`;
+  return `${name} from ${from}: ${artifact.entries} files, sha256 ${artifact.sha256}, release check passed; installed by npm ${npmVersion} into an empty prefix and run with Node ${process.version}: -v prints "timmy-tui v${version}"; init and the doctor name timmy, never npm start (the doctor's preflight: ${tally('✓')} ok, ${tally('✗')} missing, ${tally('!')} warnings, ${verdict}; its text kept); bare timmy opens an empty first-run prompt, where /exit exits 0; SIGTERM mid-turn: 143, stty unchanged, cursor on at column 0, no REPL left; timmy studio serves the page and its bundle (${bundleBytes} bytes) and names <TIMMY_HOME>/canvas`;
 }
 
 // ── negative controls for the primitives (DOCTRINE §12) ─────────────────────────────────────────
@@ -1126,12 +1330,34 @@ async function controls(): Promise<string[]> {
   const live: LiveRecord = { commit: 'a'.repeat(40), model: 'm', steps: [{ id: 'tool-turn', ok: true, tools: ['t'], receipt: 'r' }, { id: 'interrupt', ok: true, outcome: 'cancelled' }, { id: 'prompt-after', ok: true }, { id: 'second-turn', ok: true, receipt: 'r' }], spend: { run_usd: 0.1, total_usd: 0.5, cap_usd: 2 } };
   expectFail('a LIVE-01 record without its interruption', () => { must(liveVerdict({ ...live, steps: live.steps.filter((x) => x.id !== 'interrupt') }).length === 0, 'live'); });
   expectFail('a LIVE-01 record over its cap', () => { must(liveVerdict({ ...live, spend: { run_usd: 0.1, total_usd: 2.5, cap_usd: 2 } }).length === 0, 'cap'); });
+  // C-17 (the 20:14 order): where a replay ran, as its own record proves it. GitHub Actions is allowed by
+  // AGENTS.md §10's cockpit exception only on a GitHub-hosted runner, for the frozen commit, named as such.
+  const head = 'b'.repeat(40);
+  const gh: ReplayEnv = { platform: 'github-actions', os: 'Ubuntu 24.04.3 LTS', sha: head, runner_environment: 'github-hosted', image_os: 'ubuntu24', image_version: '20251005.1', run_id: '18300000000', run_attempt: '1', repository: 'owner/repo' };
+  const vercel: ReplayEnv = { platform: 'vercel-sandbox', os: 'Amazon Linux 2023' };
+  expectFail('a GitHub run labeled as Vercel', () => { must(platformVerdict({ ...gh, platform: 'vercel-sandbox' }, head).bad.length === 0, 'label'); });
+  expectFail('a GitHub run on a self-hosted runner', () => { must(platformVerdict({ ...gh, runner_environment: 'self-hosted' }, head).bad.length === 0, 'hosted'); });
+  expectFail('a GitHub run without its run ID', () => { must(platformVerdict({ ...gh, run_id: undefined }, head).bad.length === 0, 'run'); });
+  expectFail('a GitHub run of another commit', () => { must(platformVerdict({ ...gh, sha: 'c'.repeat(40) }, head).bad.length === 0, 'sha'); });
+  expectFail('a replay on an unnamed platform', () => { must(platformVerdict({ platform: 'laptop', os: 'macOS' }, head).bad.length === 0, 'platform'); });
+  // CLI-29 and INSTALL-01: -v is the version and nothing else; the next steps work from an installed package;
+  // the shell's next output starts its own line.
+  expectFail('a -v that prints more than the version', () => { must(versionProblems('timmy-tui v1.2.3\nverbose: on\n', '1.2.3').length === 0, 'v'); });
+  expectFail('a -v that prints another version', () => { must(versionProblems('timmy-tui v1.2.2\n', '1.2.3').length === 0, 'v'); });
+  expectFail('a help that gives -v another meaning', () => { must(helpVProblems('  -v, --verbose    More output\n').length === 0, 'help'); });
+  expectFail('a next step that needs a checkout', () => { must(nextStepProblems('  Next: `timmy doctor`, then `npm start`.\n', /Next: `timmy doctor`, then `timmy`/).length === 0, 'next'); });
+  expectFail("the shell's next output mid-line", () => { must(atLineStart('14'), 'column'); });
   expectFail('a blocker without a reason', () => { blockerOf({ at: '2026-10-07T22:30:40Z' }); });
   expectFail('a blocker without a time', () => { blockerOf({ reason: 'the sandbox could not be created from here' }); });
   // And their positive controls: a gate that refused everything would also pass the negative ones.
   const expectPass = (name: string, bad: string[]) => { if (bad.length > 0) throw new Error(`positive control ${name} failed: ${bad.join('; ')}`); out.push(`${name}: passes as it should`); };
   expectPass('a good LIVE-01 record', liveVerdict(live));
   expectPass('a recorded blocker', ((): string[] => { try { blockerOf({ reason: 'the sandbox could not be created from here', at: '2026-10-07T22:30:40Z' }); return []; } catch (e) { return [String(e)]; } })());
+  expectPass('a GitHub-hosted run of the frozen commit', platformVerdict(gh, head).bad);
+  expectPass('a Vercel Sandbox run', platformVerdict(vercel, head).bad);
+  expectPass('the version line', versionProblems('timmy-tui v1.2.3\n', '1.2.3'));
+  expectPass('a help where -v is the version', helpVProblems('  -v, --version    Print the version\n'));
+  expectPass('a next step that works installed', nextStepProblems('  Next: `timmy doctor`, then `timmy` to open the REPL.\n', /Next: `timmy doctor`, then `timmy`/));
   expectPass('a good remote run', remoteVerdict({ dev: false, stopped: null, results: [{ id: 'CLI-01', status: 'pass', detail: 'x' }, { id: 'CLI-18', status: 'deferred', detail: 'x' }, { id: 'LIVE-01', status: 'not run', detail: 'Skipped in this run (--skip): x' }] }, [{ id: 'CLI-01' }, { id: 'CLI-18', deferred: 'x' }, { id: 'LIVE-01' }]));
   // The contrast gate on a capture known to fail: grey-2 text on the Night ground.
   const bad = join(EVID, 'control-low-contrast.ansi');
