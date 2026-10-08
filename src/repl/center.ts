@@ -8,6 +8,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { onPath } from '../utils/on-path.js';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -184,18 +185,7 @@ export function realOnPath(bin: string, env: Record<string, string | undefined>)
   return null;
 }
 
-export function onPath(bin: string, env: Record<string, string | undefined>): boolean {
-  for (const dir of (env.PATH ?? '').split(delimiter)) {
-    if (!dir) continue;
-    try {
-      accessSync(join(dir, bin), constants.X_OK);
-      return true;
-    } catch {
-      /* not here */
-    }
-  }
-  return false;
-}
+export { onPath };
 
 export function centerHelp(): string {
   return [

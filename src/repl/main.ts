@@ -4,14 +4,14 @@
  */
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { emitKeypressEvents, type Key } from 'node:readline';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAgent } from '../agent/core.js';
 import { defaultTools } from '../agent/tools.js';
 import { loadConfig } from '../utils/config.js';
-import { readChain, verifyChain } from '../utils/receipts.js';
+import { readChain, receiptsDir, verifyChain } from '../utils/receipts.js';
 import { identityPath } from '../utils/init.js';
 import { setupCheck } from './setup.js';
 import { sealTurn, type SealedTurn, type TurnFacts } from './seal.js';
@@ -30,13 +30,18 @@ import { COMMANDS, runSlash, type ReceiptsView, type ReplContext, type ThemeInfo
 import { LineEditor } from './editor.js';
 import { readPrompt } from './input.js';
 import { nearest } from './suggest.js';
-import { runTurn, type TurnAbandon, type TurnAgent } from './turn.js';
-import { Transcript } from './transcript.js';
+import { runTurn, type TurnAbandon, type TurnAgent, type TurnInspect } from './turn.js';
+import { Transcript, type InspectRow } from './transcript.js';
 import { onPath, packageRoot, realOnPath } from './center.js';
 import { planWeb, RECEIPT_ID, receiptUrl, resolveWebTarget } from './web.js';
-import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt } from '../agent/canvas-tools.js';
-import { STUDIO_PORT } from '../studio/config.js';
-import { ensureStudioServer } from '../studio/server.js';
+import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt, type CanvasJobResult } from '../agent/canvas-tools.js';
+import { studioBaseUrl, studioPort } from '../studio/config.js';
+import { ensureStudioServer, type EnsureResult } from '../studio/server.js';
+import { studioHealth } from '../studio/health.js';
+import { canvasView } from './canvas-view.js';
+import { capabilities } from '../capabilities/index.js';
+import { liveDeps } from '../capabilities/live.js';
+import { capabilityLines } from '../capabilities/render.js';
 
 export interface ReplFlags {
   demo?: boolean;
@@ -240,10 +245,21 @@ export async function runRepl(argv: string[]): Promise<number> {
   };
   // /web studio: Timmy Canvas runs inside this REPL unless another Timmy already serves it. listen()
   // binds at once, so the viewer's first request waits in the socket's queue, never on a closed port.
-  let studio: Promise<unknown> | null = null;
+  // Round R1: one address (TIMMY_STUDIO_URL, else TIMMY_STUDIO_PORT, else 4337). An address set by
+  // TIMMY_STUDIO_URL is someone else's to serve; only a server this REPL started is kept for reuse.
+  const external = Boolean(process.env.TIMMY_STUDIO_URL?.trim());
+  let owned: Promise<EnsureResult> | null = null;
+  const ensureCanvas = (): Promise<EnsureResult> | null => {
+    if (external) return null;
+    owned ??= ensureStudioServer(studioPort(process.env), { env: process.env }).then((r) => {
+      if (r.state !== 'started') owned = null;
+      return r;
+    });
+    return owned;
+  };
   const openWeb = (target: string, allowRemote: boolean): string => {
     // Timmy Canvas and the receipt pages (C-13) are served by this REPL unless another Timmy already does.
-    if (target.trim() === 'studio' || RECEIPT_ID.test(target.trim())) studio ??= ensureStudioServer(STUDIO_PORT, { env: process.env });
+    if (target.trim() === 'studio' || RECEIPT_ID.test(target.trim())) void ensureCanvas();
     const plan = planWeb({ url: resolveWebTarget(target), has: (bin) => onPath(bin, process.env), locate: (bin) => realOnPath(bin, process.env), env: process.env, allowRemote });
     if (plan.route === 'link') return `Open ${caps.cursor ? hyperlink(plan.url, plan.url, true) : plan.url} in your browser.`;
     if (plan.route === 'refused' || !plan.command) return plan.note;
@@ -258,6 +274,59 @@ export async function runRepl(argv: string[]): Promise<number> {
     const why = r.error?.message ?? (r.status !== 0 ? (r.stderr?.split('\n').find((l) => l.trim()) ?? `exit ${r.status}`) : '');
     return why ? `Could not open the web view (${why}). Open ${plan.url} in your browser.` : plan.note;
   };
+  // Round R1: /canvas, and where to inspect each turn's result, preview and receipt.
+  const canvas = (args: string): Promise<Segment[][]> => canvasView(args, {
+    base: studioBaseUrl(process.env),
+    ensure: async () => {
+      const r = ensureCanvas();
+      if (!r) return null;
+      const done = await r;
+      return done.state === 'failed' ? { state: 'failed', error: done.error } : { state: done.state };
+    },
+    health: (base) => studioHealth(base),
+    open: () => openWeb('studio', false),
+    glyphs: theme.glyphs,
+  });
+  // Round R1: /tools, every capability on the ladder, from live checks that write nothing.
+  const tools = async (args: string): Promise<Segment[][]> => {
+    const rows = await capabilities(liveDeps({ env: process.env, key: () => config.apiKey ?? null, model: agent.getModel() }), { all: args.trim() === 'all' });
+    return capabilityLines(rows, theme.glyphs, caps.columns);
+  };
+  let lastCanvas: CanvasJobResult[] = [];
+  let lastLinks: Array<Promise<{ job: string; ok: boolean }>> = [];
+  const inspect: NonNullable<TurnInspect['inspect']> = async (sealed) => {
+    const base = studioBaseUrl(process.env);
+    const started = await (ensureCanvas() ?? Promise.resolve(null));
+    const health = await studioHealth(base, 800);
+    const serving = health.state === 'running';
+    const jobs = lastCanvas;
+    const links = await Promise.all(lastLinks);
+    lastCanvas = [];
+    lastLinks = [];
+    const rows: InspectRow[] = [];
+    for (const c of jobs) {
+      const linked = links.find((l) => l.job === c.job)?.ok;
+      const page = serving && health.pageConnected ? 'open in your browser' : '/canvas open';
+      rows.push({ label: 'Canvas', text: `job ${c.job}, rev ${c.revision}`, url: `${base}/`, hint: linked === false ? 'not linked to its receipt on the board' : page });
+    }
+    if (sealed) {
+      const url = receiptUrl(sealed.id);
+      rows.push(serving
+        ? { label: 'Receipt', text: url, url, hint: 'or timmy receipts' }
+        : { label: 'Receipt', text: 'timmy receipts', hint: started?.state === 'failed' ? `no receipt page: ${started.error}` : 'the receipt page is not served' });
+    }
+    return rows;
+  };
+  const where = async (): Promise<Segment[]> => {
+    const base = studioBaseUrl(process.env);
+    const h = await studioHealth(base, 500);
+    const store = receiptsDir();
+    const rel = relative(process.cwd(), store);
+    const shownStore = rel && !rel.startsWith('..') ? rel : tildify(store);
+    const sep = ` ${theme.glyphs.sep} `;
+    const canvasNow = h.state === 'running' ? `canvas ${base}/${h.pageConnected ? ' (page open)' : ''}` : 'canvas not running (/canvas)';
+    return [{ text: `  ${tildify(process.cwd())}${sep}receipts ${shownStore}${sep}${canvasNow}`, role: 'secondary' }];
+  };
   const setup = (): Segment[][] => setupCheck({
     operator: readOperator(),
     key: Boolean(config.apiKey),
@@ -266,15 +335,17 @@ export async function runRepl(argv: string[]): Promise<number> {
   }, theme.glyphs).lines;
   return replLoop({
     agent, caps, theme, region, transcript, session, stdin: process.stdin, stdout: process.stdout, approval, themeInfo, receipts, openWatch, openWeb,
-    setup, noKey: !config.apiKey, firstRun: readChain('runs').length === 0, lanes: listLanes, openCenter,
+    setup, noKey: !config.apiKey, firstRun: readChain('runs').length === 0, lanes: listLanes, openCenter, canvas, inspect, where, tools,
     // C-13: the receipt line links to its page; the local server that shows it starts with the first seal.
     seal: (facts) => {
       // Fourth order, step 5: a turn that used the canvas names each job and the saved canvas it left,
       // and the canvas server learns which receipt sealed each job.
-      const canvas = canvasJob.close();
-      const sealed = sealTurn({ ...facts, model: agent.getModel(), ...(canvas.length ? { canvas } : {}) });
-      studio ??= ensureStudioServer(STUDIO_PORT, { env: process.env });
-      for (const c of canvas) void linkCanvasReceipt(c.job, sealed.id);
+      const jobs = canvasJob.close();
+      const sealed = sealTurn({ ...facts, model: agent.getModel(), ...(jobs.length ? { canvas: jobs } : {}) });
+      void ensureCanvas();
+      // Round R1: the links' outcomes reach the turn's "where to inspect" rows; a failed link is said.
+      lastCanvas = jobs;
+      lastLinks = jobs.map((c) => linkCanvasReceipt(c.job, sealed.id).then((ok) => ({ job: c.job, ok })));
       return { ...sealed, url: receiptUrl(sealed.id) };
     },
   });
@@ -334,6 +405,12 @@ export interface ReplDeps {
   /** /lanes and /center (C-10). */
   lanes?: ReplContext['lanes'];
   openCenter?: () => string;
+  /** Round R1: /canvas; where each turn's result, preview and receipt are; where this REPL works. */
+  canvas?: ReplContext['canvas'];
+  inspect?: TurnInspect['inspect'];
+  where?: () => Promise<Segment[]>;
+  /** Round R1: /tools, what works here. */
+  tools?: ReplContext['tools'];
 }
 
 /** During a turn, Ctrl+C arrives as a key in raw mode; it cancels the turn (playbook §16.2). */
@@ -362,7 +439,12 @@ export async function replLoop(d: ReplDeps): Promise<number> {
   const say = (segments: Segment[]): void => void region.commit([serialize(fitSegments(segments, caps.columns, theme.glyphs.ellipsis), theme)]);
   if (interactive) {
     say([{ text: 'TIMMY', role: 'strong' }, { text: `  ${agent.getModel()}`, role: 'secondary' }]);
-    say([{ text: 'Type a message to start. /help for commands, /exit to quit.', role: 'secondary' }]);
+    // Round R1: where this REPL works: the folder, where receipts go, and Timmy Canvas's state.
+    if (d.where) {
+      const line = await Promise.race([d.where(), sleep(1500).then(() => null)]).catch(() => null);
+      if (line) say(line);
+    }
+    say([{ text: `Type a message to start. ${d.tools ? '/tools shows what works here, ' : ''}/help for commands, /exit to quit.`, role: 'secondary' }]);
     // A first run offers the setup check and leaves the prompt empty: a prefilled /setup turned a typed
     // /exit into /setup/exit (the 20:14 order).
     if (d.firstRun && d.setup) say([{ text: 'First run: type ', role: 'secondary' }, { text: '/setup', role: 'strong' }, { text: ' to check what Timmy needs.', role: 'secondary' }]);
@@ -385,8 +467,8 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     if (!text) continue;
     if (text === 'exit' || text === 'quit') break;
     if (text.startsWith('/')) {
-      const ctx = { agent, print: say, glyphs: theme.glyphs, themeInfo: d.themeInfo, receipts: d.receipts, openWatch: d.openWatch, openWeb: d.openWeb, setup: d.setup, lanes: d.lanes, openCenter: d.openCenter };
-      if (runSlash(text, ctx) === 'exit') break;
+      const ctx = { agent, print: say, glyphs: theme.glyphs, themeInfo: d.themeInfo, receipts: d.receipts, openWatch: d.openWatch, openWeb: d.openWeb, setup: d.setup, lanes: d.lanes, openCenter: d.openCenter, canvas: d.canvas, tools: d.tools };
+      if ((await runSlash(text, ctx)) === 'exit') break;
       region.commit(['']);
       continue;
     }
@@ -398,7 +480,7 @@ export async function replLoop(d: ReplDeps): Promise<number> {
       region.commit(['']);
       continue;
     }
-    if (interactive) transcript.handle({ type: 'prompt', text, cwd: tildify(process.cwd()), echoed: true });
+    if (interactive) transcript.handle({ type: 'prompt', text, cwd: tildify(process.cwd()), echoed: true, model: agent.getModel() });
     const controller = new AbortController();
     const abandon: TurnAbandon = {};
     // First Ctrl+C cancels the turn; a second, while that cancel has not landed, quits (exit 130),
@@ -417,7 +499,7 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     };
     const stopWatching = interactive ? watchCtrlC(d.stdin, session, onCtrlC) : () => {};
     if (caps.animate) session.hideCursor();
-    const result = await runTurn(agent, transcript, text, Date.now, turnMarks, controller.signal, d.seal, abandon);
+    const result = await runTurn(agent, transcript, text, Date.now, turnMarks, controller.signal, d.seal, abandon, { inspect: d.inspect });
     stopWatching();
     if (!interactive && result === 'failed') status = EXIT.failure;
     if (interactive) region.commit(['']);

@@ -5,7 +5,7 @@
  */
 import { bridgeAgent, type AgentEmitter } from './agent-bridge.js';
 import type { CancelStage, SealedTurn, ToolOutcome, TurnFacts } from './seal.js';
-import type { Transcript } from './transcript.js';
+import type { InspectRow, Transcript } from './transcript.js';
 
 export interface TurnAgent extends AgentEmitter {
   send(text: string, opts?: { signal?: AbortSignal; retry?: boolean }): Promise<string>;
@@ -28,6 +28,11 @@ export interface TurnAbandon {
   now?: () => void;
 }
 
+/** Round R1: after the receipt, where to inspect what the turn did (its canvas job, the receipt's page). */
+export interface TurnInspect {
+  inspect?: (sealed: SealedTurn | null, result: TurnResult) => Promise<InspectRow[]>;
+}
+
 export async function runTurn(
   agent: TurnAgent,
   transcript: Transcript,
@@ -37,8 +42,11 @@ export async function runTurn(
   signal?: AbortSignal,
   seal?: (facts: TurnFacts) => SealedTurn,
   abandon?: TurnAbandon,
+  more: TurnInspect = {},
 ): Promise<TurnResult> {
   const started = clock();
+  // Round R1: the model that answered, read after the turn (a fallback switches it for the session).
+  const modelNow = (): string | undefined => (agent as { getModel?: () => string }).getModel?.() || undefined;
   marks?.start();
   let steps = 0;
   let spend = 0;
@@ -71,8 +79,12 @@ export async function runTurn(
   let ended = false;
   const outcomesNow = (): ToolOutcome[] => [...tools.values()].map((t) => ({ ...t }));
   const stageOf = (o: ToolOutcome[]): CancelStage => (o.length === 0 ? 'before-tools' : o.some((t) => t.outcome === 'unknown') ? 'during-tool' : 'after-tools');
-  const receipt = (r: SealedTurn, ms: number, isCancelled: boolean): void =>
-    transcript.handle({ type: 'receipt', id: r.id, verified: r.verified, lanes: 0, steps, spend: spendText(), seconds: Math.round(ms / 100) / 10, url: r.url, ...(isCancelled ? { cancelled: true } : {}) });
+  let sealed: SealedTurn | null = null;
+  const receipt = (r: SealedTurn, ms: number, isCancelled: boolean): void => {
+    sealed = r;
+    const model = modelNow();
+    transcript.handle({ type: 'receipt', id: r.id, verified: r.verified, lanes: 0, steps, spend: spendText(), seconds: Math.round(ms / 100) / 10, url: r.url, ...(isCancelled ? { cancelled: true } : {}), ...(model ? { model } : {}) });
+  };
   const sealCancelled = (ms: number): void => {
     const o = outcomesNow();
     const at = stageOf(o);
@@ -103,8 +115,19 @@ export async function runTurn(
   if (cancelled) sealCancelled(ms);
   else if (seal) {
     receipt(seal({ prompt: text, answer: typeof answer === 'string' ? answer : '', steps, spend, costMeasured, ms, status: failed ? 'failed' : 'ok', tools: outcomesNow() }), ms, false);
-  } else if (!failed) transcript.handle({ type: 'footer', steps, spend: spendText(), seconds: ms / 1000 });
+  } else if (!failed) {
+    const model = modelNow();
+    transcript.handle({ type: 'footer', steps, spend: spendText(), seconds: ms / 1000, ...(model ? { model } : {}) });
+  }
+  const result: TurnResult = cancelled ? 'cancelled' : failed ? 'failed' : 'ok';
+  if (more.inspect) {
+    try {
+      transcript.handle({ type: 'inspect', rows: await more.inspect(sealed, result) });
+    } catch {
+      // Where to look is help, not the turn: a failed lookup never fails the turn.
+    }
+  }
   transcript.endTurn();
   marks?.end(cancelled ? 130 : failed ? 1 : 0);
-  return cancelled ? 'cancelled' : failed ? 'failed' : 'ok';
+  return result;
 }

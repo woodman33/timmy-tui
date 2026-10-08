@@ -7,7 +7,7 @@
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { STUDIO_PORT } from '../studio/config.js';
+import { STUDIO_PORT, studioBaseUrl } from '../studio/config.js';
 
 export type WebRoute = 'zellij' | 'tmux' | 'link' | 'refused';
 
@@ -35,15 +35,17 @@ export interface WebInputs {
  */
 export const NAMED_PAGES: Record<string, string> = { map: 'http://127.0.0.1:4336/', studio: `http://127.0.0.1:${STUDIO_PORT}/` };
 
-/** A receipt's page on Timmy's own server (C-13), by the short hash its line shows. */
-export const receiptUrl = (id: string): string => `http://127.0.0.1:${STUDIO_PORT}/receipts/${id}`;
+/** A receipt's page on Timmy's own server (C-13), by the short hash its line shows, at Timmy Canvas's address. */
+export const receiptUrl = (id: string, env: Record<string, string | undefined> = process.env): string => `${studioBaseUrl(env)}/receipts/${id}`;
 /** Eight hex digits, the short hash a receipt line shows. */
 export const RECEIPT_ID = /^[0-9a-f]{8}$/i;
 
-export function resolveWebTarget(target: string): string {
+export function resolveWebTarget(target: string, env: Record<string, string | undefined> = process.env): string {
   const t = target.trim();
+  // Timmy Canvas is wherever the one address says (round R1); the named default stays 4337.
+  if (t === 'studio') return `${studioBaseUrl(env)}/`;
   if (NAMED_PAGES[t]) return NAMED_PAGES[t];
-  if (RECEIPT_ID.test(t)) return receiptUrl(t.toLowerCase());
+  if (RECEIPT_ID.test(t)) return receiptUrl(t.toLowerCase(), env);
   // A path on this machine becomes a file URL.
   if (t.startsWith('/')) return pathToFileURL(t).href;
   if (t.startsWith('./') || t.startsWith('../')) return pathToFileURL(resolve(t)).href;

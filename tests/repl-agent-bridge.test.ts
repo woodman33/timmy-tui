@@ -36,6 +36,27 @@ describe('bridgeAgent', () => {
       { type: 'error', message: 'OpenRouter request failed for m.', cause: '429 Too Many Requests.', fix: 'choose another model: /model <id>' },
     ]);
   });
+  it('marks a step failed when its own result says so: success false, ok false, or the SDK\'s error shape (round R1)', () => {
+    const agent = new EventEmitter();
+    const events: TurnEvent[] = [];
+    bridgeAgent(agent, (e) => events.push(e));
+    const outputs: Array<[unknown, boolean]> = [
+      ['{"success":false,"jobId":"","message":"Not triggered"}', false],
+      [{ success: false, message: 'no' }, false],
+      ['{"ok":false,"error":"No canvas is open."}', false],
+      ['{"error":"The operator denied get_env; it did not run."}', false],
+      ['{"success":true,"error":"a warning only"}', true],
+      ['{"ok":true,"result":1}', true],
+      ['{"time":"23:48"}', true],
+      ['plain text answer', true],
+      ['[1,2]', true],
+    ];
+    outputs.forEach(([output], i) => agent.emit('item:update', { type: 'function_call_output', callId: `c${i}`, output }));
+    expect(events.map((e) => (e as { ok?: boolean }).ok)).toEqual(outputs.map(([, ok]) => ok));
+    // The step shows the tool's own words, not its JSON.
+    expect(events.map((e) => (e as { preview?: string }).preview).slice(0, 4)).toEqual(['Not triggered', 'no', 'No canvas is open.', 'The operator denied get_env; it did not run.']);
+    expect((events[6] as { preview?: string }).preview).toBe('{"time":"23:48"}');
+  });
   it('shows an error once even when the agent emits it twice, and keeps model-fallback notices', () => {
     const agent = new EventEmitter();
     const events: TurnEvent[] = [];

@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { z } from 'zod/v4';
-import { STUDIO_PORT } from '../studio/config.js';
+import { studioBaseUrl } from '../studio/config.js';
 
 export interface CanvasToolOptions {
   /** The studio server; default TIMMY_STUDIO_URL, else http://127.0.0.1:4337. */
@@ -63,8 +63,8 @@ export class CanvasTurnJob {
   }
 }
 
-const studioUrl = (baseUrl?: string): string =>
-  (baseUrl ?? process.env.TIMMY_STUDIO_URL ?? `http://127.0.0.1:${process.env.TIMMY_STUDIO_PORT ?? STUDIO_PORT}`).replace(/\/+$/, '');
+/** The canvas server: the caller's, else the one address every Timmy surface uses (round R1). */
+const studioUrl = (baseUrl?: string): string => (baseUrl ? baseUrl.replace(/\/+$/, '') : studioBaseUrl(process.env));
 
 /** Tell the canvas server which receipt sealed a canvas job; false when it is not running or knows no such job. */
 export async function linkCanvasReceipt(job: string, receipt: string, baseUrl?: string): Promise<boolean> {

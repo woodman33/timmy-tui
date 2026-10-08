@@ -68,12 +68,25 @@ export interface ReplContext {
   lanes?: () => Array<{ id: string; label: string; available: boolean; install?: string }>;
   /** Opens the cockpit (`timmy center`); returns one sentence: where, or why not. */
   openCenter?: () => string;
+  /** Round R1: Timmy Canvas's state (starting it when nothing serves it), or opens it (`/canvas open`). */
+  canvas?: (args: string) => Promise<Segment[][]>;
+  /** Round R1: what Timmy can do here, each on the ladder of AGENTS.md §8, from live checks. */
+  tools?: (args: string) => Promise<Segment[][]>;
 }
+
+type CommandResult = 'exit' | void;
 
 export interface SlashCommand {
   name: string;
   description: string;
-  run(args: string, ctx: ReplContext): 'exit' | void;
+  /** A command may wait (a live check); the REPL waits for it before the next prompt. */
+  run(args: string, ctx: ReplContext): CommandResult | Promise<CommandResult>;
+}
+
+/** Prints what an async view returns, or says it is not available here. */
+async function printView(view: ((args: string) => Promise<Segment[][]>) | undefined, args: string, ctx: ReplContext, missing: string): Promise<void> {
+  if (!view) return void ctx.print([{ text: `  ${missing}`, role: 'secondary' }]);
+  for (const line of await view(args)) ctx.print(line);
 }
 
 export const COMMANDS: SlashCommand[] = [
@@ -175,6 +188,16 @@ export const COMMANDS: SlashCommand[] = [
     },
   },
   {
+    name: 'tools',
+    description: 'What works here, checked live; /tools all',
+    run: (args, ctx) => printView(ctx.tools, args, ctx, 'The tool check is not available here.'),
+  },
+  {
+    name: 'canvas',
+    description: 'Timmy Canvas: where, its state; /canvas open',
+    run: (args, ctx) => printView(ctx.canvas, args, ctx, 'Timmy Canvas is not available here.'),
+  },
+  {
     name: 'center',
     description: 'Open the cockpit (timmy center)',
     run: (_args, ctx) => {
@@ -192,7 +215,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'exit', description: 'Quit Timmy', run: () => 'exit' },
 ];
 
-export function runSlash(input: string, ctx: ReplContext): 'exit' | 'handled' {
+/** Runs a command: at once for most, or a promise for one that waits on a live check (round R1). */
+export function runSlash(input: string, ctx: ReplContext): 'exit' | 'handled' | Promise<'exit' | 'handled'> {
   const [word, ...rest] = input.trim().slice(1).split(/\s+/);
   const command = COMMANDS.find((c) => c.name === word);
   if (!command) {
@@ -200,5 +224,7 @@ export function runSlash(input: string, ctx: ReplContext): 'exit' | 'handled' {
     ctx.print([{ text: `  Unknown command: /${word}.${near ? ` Did you mean /${near}?` : ''} Type /help for available commands.`, role: 'secondary' }]);
     return 'handled';
   }
-  return command.run(rest.join(' ').trim(), ctx) === 'exit' ? 'exit' : 'handled';
+  const ran = command.run(rest.join(' ').trim(), ctx);
+  const settle = (r: CommandResult): 'exit' | 'handled' => (r === 'exit' ? 'exit' : 'handled');
+  return ran instanceof Promise ? ran.then(settle) : settle(ran);
 }

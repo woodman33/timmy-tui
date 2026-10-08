@@ -51,7 +51,8 @@ Commands:
   receipts        The receipt chain: verify, then the latest (--follow)
   theme           Timmy Night and Day for your terminal (theme install)
   center          The cockpit: REPL, monitor and events as tabs (zellij, tmux, or the REPL here)
-  studio          Timmy Canvas: the tldraw canvas the agent draws on (127.0.0.1:4337; /web studio)
+  studio          Timmy Canvas: the tldraw canvas the agent draws on (127.0.0.1:4337; /canvas)
+  tools           What works here, checked live: surfaces, models, agent tools, other agents (tools all; --json)
   demo            Run a local demo and generate a verifiable receipt
   proof <task>    Record a proof receipt for a simulated task
   version         Print package name and version
@@ -145,7 +146,7 @@ if (cleanArgs.length === 0 && !args.includes('--help') && !args.includes('-h')) 
   const { isBlankSlate, runInit } = await import('./utils/init.js');
   if (isBlankSlate()) process.exit(await runInit(args));
 }
-if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
+if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
   printHelp();
   process.exit(0);
 }
@@ -437,6 +438,12 @@ if (command === 'receipts') {
   // C-8: the receipt chain, verified, then the latest; --follow prints each new receipt as it is sealed.
   const { receiptsMain } = await import('./repl/follow.js');
   process.exit(await receiptsMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : [], isJson ? ['--json'] : [])));
+}
+
+if (command === 'tools') {
+  // Round R1 (plan F-0): what works here, each on the ladder, from live checks that write nothing.
+  const { toolsMain } = await import('./capabilities/cli.js');
+  process.exit(await toolsMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : [], isJson ? ['--json'] : [])));
 }
 
 if (command === 'studio') {

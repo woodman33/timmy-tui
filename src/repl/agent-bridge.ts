@@ -34,10 +34,49 @@ function parseArgs(raw: unknown): Record<string, unknown> {
   }
 }
 
+/** A tool's result as one line: its own message or error when it has one, else the result itself. */
 function preview(output: unknown): string {
-  const text = sanitize(typeof output === 'string' ? output : JSON.stringify(output) ?? '');
+  let said: unknown = output;
+  if (typeof said === 'string') {
+    try {
+      said = JSON.parse(said);
+    } catch {
+      // plain text: shown as it is
+    }
+  }
+  const o = said && typeof said === 'object' && !Array.isArray(said) ? (said as Record<string, unknown>) : null;
+  const words = o && typeof o.message === 'string' && o.message ? o.message : o && typeof o.error === 'string' && o.error ? o.error : null;
+  // A Timmy Canvas answer names its job and revision, then the page's result or its error (round R1).
+  if (o && typeof o.jobId === 'string' && o.jobId && typeof o.ok === 'boolean') {
+    const where = `Timmy Canvas job ${o.jobId}${typeof o.revision === 'number' ? `, revision ${o.revision}` : ''}`;
+    const said = words ?? (o.ok === true && 'result' in o ? (typeof o.result === 'string' ? o.result : JSON.stringify(o.result) ?? '') : '');
+    const text = sanitize(said ? `${where}: ${said}` : where);
+    return text.length > PREVIEW_CAP ? `${text.slice(0, PREVIEW_CAP)}...` : text;
+  }
+  const text = sanitize(words ?? (typeof output === 'string' ? output : JSON.stringify(output) ?? ''));
   // ASCII on purpose: the bridge does not know the terminal, and `...` is safe everywhere.
   return text.length > PREVIEW_CAP ? `${text.slice(0, PREVIEW_CAP)}...` : text;
+}
+
+/**
+ * Round R1: whether a tool's own result says it failed. Timmy's tools answer `success: false` or
+ * `ok: false`; the SDK turns a thrown error (a denial included) into `{"error": "..."}`. A result that
+ * says it succeeded, or says nothing either way, counts as done.
+ */
+export function failedOutput(output: unknown): boolean {
+  let value = output;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return false;
+    }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const o = value as Record<string, unknown>;
+  if (o.success === false || o.ok === false) return true;
+  if (o.success === true || o.ok === true) return false;
+  return typeof o.error === 'string' && o.error.length > 0;
 }
 
 /** `OpenRouter request failed…\nReason: …\nNext: …` becomes message, cause and fix. */
@@ -72,7 +111,7 @@ export function bridgeAgent(agent: AgentEmitter, emit: (event: TurnEvent) => voi
         started.add(id);
         emit({ type: 'tool-start', id, tool: sanitize(String(item.name || 'tool')), args: cleanArgs(parseArgs(item.arguments)) });
       } else if (item?.type === 'function_call_output') {
-        emit({ type: 'tool-end', id: String(item.callId || ''), ok: true, preview: preview(item.output) });
+        emit({ type: 'tool-end', id: String(item.callId || ''), ok: !failedOutput(item.output), preview: preview(item.output) });
       }
     },
     // The agent emits the same error from an inner and an outer catch; show it once.

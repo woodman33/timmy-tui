@@ -10,7 +10,8 @@ import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CanvasBridge } from './bridge.js';
-import { STUDIO_PORT, studioConfig } from './config.js';
+import { STUDIO_PORT, TLDRAW_VERSION, studioConfig } from './config.js';
+import { studioHealth } from './health.js';
 import { CanvasDocuments, MAX_CANVAS_BYTES, canvasDir, shownPath } from './document.js';
 import { publicTemplates } from './templates.js';
 
@@ -69,6 +70,27 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   app.use((req, res, next) => {
     if (isLocalRequest(req)) return next();
     res.status(403).type('text/plain').send('Timmy Canvas answers 127.0.0.1 and localhost only.');
+  });
+  const root = options.root ?? studioRoot();
+  // Round R1: what this server is and what state the canvas is in, for the REPL and `timmy tools`.
+  // It runs nothing in the page and never carries the license key.
+  app.get('/api/canvas/health', (_req, res) => {
+    const saved = documents.peek();
+    const jobs = documents.jobs();
+    const latest = jobs[0];
+    res.set('Cache-Control', 'no-store').json({
+      ok: true,
+      app: 'timmy-canvas',
+      tldrawVersion: TLDRAW_VERSION,
+      built: existsSync(join(root, 'dist', 'canvas.js')),
+      pageConnected: bridge.open,
+      revision: saved.revision,
+      sourceRevision: saved.sourceRevision,
+      savedAt: saved.savedAt,
+      ...(saved.unreadable ? { unreadable: true } : {}),
+      jobs: jobs.length,
+      latestJob: latest ? { id: latest.id, ok: latest.ok, revision: latest.revision, at: latest.at, ...(latest.receipt ? { receipt: latest.receipt } : {}) } : null,
+    });
   });
   app.get('/studio-config.json', (_req, res) => {
     // canvasDir: the folder this server saves the canvas in, which the blank board names (the 20:14 order).
@@ -141,7 +163,6 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   });
   // C-13: the receipt pages, served by the same local server, with a text fallback.
   mountReceiptPages(app, options.receipts);
-  const root = options.root ?? studioRoot();
   // Checked on every request, so building while Timmy runs needs only a reload.
   app.get(['/', '/index.html'], (_req, res, next) => {
     if (existsSync(join(root, 'dist', 'canvas.js'))) return next();
@@ -188,6 +209,11 @@ export async function ensureStudioServer(port = STUDIO_PORT, options: StudioOpti
     return { state: 'started', server: await startStudioServer(port, options) };
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
-    return err.code === 'EADDRINUSE' ? { state: 'already-running' } : { state: 'failed', error: err.message };
+    if (err.code !== 'EADDRINUSE') return { state: 'failed', error: err.message };
+    // Round R1: whatever holds the port must answer as Timmy Canvas before Timmy relies on it.
+    const health = await studioHealth(`http://127.0.0.1:${port}`);
+    return health.state === 'running'
+      ? { state: 'already-running' }
+      : { state: 'failed', error: `Port ${port} is used by another program, not Timmy Canvas. Set TIMMY_STUDIO_PORT to a free port.` };
   }
 }

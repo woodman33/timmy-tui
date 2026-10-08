@@ -64,8 +64,14 @@ function withDetail(args: Record<string, unknown>, keys: string[], need: { reaso
   return detail.includes('\n') || detail.length > DETAIL_OVER ? { ...need, detail } : need;
 }
 
+/** A Daytona key that is set and is not a template's placeholder (the tool's own test, in src/agent/tools.ts). */
+const daytonaKeySet = (env: Record<string, string | undefined>): boolean => {
+  const key = env.DAYTONA_API_KEY;
+  return Boolean(key) && !/paste_your|<your|^your[_-]/i.test(key ?? '');
+};
+
 /** Why this call must wait for the operator, or null when it may run. */
-export function approvalNeeded(tool: string, args: Record<string, unknown> = {}): Omit<ApprovalRequest, 'tool'> | null {
+export function approvalNeeded(tool: string, args: Record<string, unknown> = {}, env: Record<string, string | undefined> = process.env): Omit<ApprovalRequest, 'tool'> | null {
   if (READ_ONLY.has(tool)) return null;
   const always = ALWAYS[tool];
   if (always) return withDetail(args, always.keys, { reason: always.reason, summary: summarize(args, always.keys) });
@@ -74,7 +80,9 @@ export function approvalNeeded(tool: string, args: Record<string, unknown> = {})
   const shell = SHELL[tool];
   if (shell) {
     const command = summarize(args, shell);
-    return withDetail(args, shell, { reason: DESTRUCTIVE.test(command) ? 'destructive shell command' : 'runs a shell command', summary: command });
+    // Round R1: the box says where it runs. Without a Daytona key the tool runs it on this machine.
+    const where = daytonaKeySet(env) ? 'in Daytona' : 'on this machine';
+    return withDetail(args, shell, { reason: DESTRUCTIVE.test(command) ? `destructive shell command ${where}` : `runs a shell command ${where}`, summary: command });
   }
   return { reason: 'unknown tool', summary: summarize(args, []) };
 }
