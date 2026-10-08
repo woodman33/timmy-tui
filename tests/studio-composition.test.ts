@@ -151,7 +151,10 @@ const browserPath = existsSync(chromium.executablePath()) ? chromium.executableP
   : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 it.skipIf(!existsSync(browserPath))('matches static frame oracles after the HyperFrames CSS adapter applies its clock', async () => {
-  const browser = await chromium.launch({ headless: true, executablePath: browserPath });
+  // Grayscale text everywhere: the animated text is drawn on its own compositing layer, which never
+  // takes subpixel (LCD) antialiasing, while the static oracle's text would take it on a host whose
+  // fontconfig asks for it (a GitHub runner does), so the oracle would measure the font settings.
+  const browser = await chromium.launch({ headless: true, executablePath: browserPath, args: ['--disable-lcd-text'] });
   try {
     const context = await browser.newContext({ viewport: { width: 640, height: 360 }, offline: true });
     await context.route('**/*', route => route.abort());

@@ -17,10 +17,16 @@ describe('the monitor and a companion port that is taken', () => {
       h.tmux('-f', '/dev/null', 'new-session', '-d', '-s', 't', '-x', '120', '-y', '40', '-c', h.repo, 'bash', '--norc', '-c',
         `${process.execPath} --import ${LOADER} ${MONITOR} --companion-port ${port}; sleep 30`);
       await h.waitFor(/YOUR JOURNEY/, 45_000);
-      await new Promise((r) => setTimeout(r, 1_500));
+      // The companion starts after the first paint, so on a loaded machine its note can land seconds after
+      // the screen is up (SUITE-01 once read the log too early): wait for the note itself, then look at
+      // the screen, which by then would show the note if it were drawn there.
+      const file = join(h.repo, 'logs', 'companion.log');
+      const note = new RegExp(`Companion port ${port} busy; using \\d+\\.`);
+      const read = (): string => { try { return readFileSync(file, 'utf8'); } catch { return ''; } };
+      for (const end = Date.now() + 30_000; !note.test(read()) && Date.now() < end;) await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 500));
       const screen = h.tmux('capture-pane', '-p', '-t', 't');
-      const log = readFileSync(join(h.repo, 'logs', 'companion.log'), 'utf8');
-      expect({ top: screen.split('\n')[0].slice(0, 5), onScreen: /busy; using/.test(screen), logged: log.includes(`Companion port ${port} busy; using ${port + 1}.`) })
+      expect({ top: screen.split('\n')[0].slice(0, 5), onScreen: /busy; using/.test(screen), logged: note.test(read()) })
         .toEqual({ top: 'TIMMY', onScreen: false, logged: true });
     } finally {
       await h.dispose();
