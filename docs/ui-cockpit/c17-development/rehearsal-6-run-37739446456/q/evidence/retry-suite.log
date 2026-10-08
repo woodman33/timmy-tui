@@ -1,0 +1,13 @@
+
+[1m[46m RUN [49m[22m [36mv3.2.6 [39m[90m/home/runner/work/timmy-tui/timmy-tui/clone[39m
+
+ [32m✓[39m tests/repl-agent-send.test.ts [2m([22m[2m11 tests[22m[2m)[22m[33m 413[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m11 passed[39m[22m[90m (11)[39m
+[2m   Start at [22m 06:51:23
+[2m   Duration [22m 1.47s[2m (transform 294ms, setup 13ms, collect 828ms, tests 413ms, environment 0ms, prepare 55ms)[22m
+
+(node:7454) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:7454) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 SIGINT listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit

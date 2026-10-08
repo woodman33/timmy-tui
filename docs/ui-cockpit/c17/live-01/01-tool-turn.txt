@@ -1,0 +1,33 @@
+head bd7ec9b  package 21270459  model anthropic/claude-opus-4.7  store /tmp/tc-home/c17/u/live/store
+TIMMY  anthropic/claude-opus-4.7
+Type a message to start. /help for commands, /exit to quit.
+First run: type /setup to check what Timmy needs.
+
+
+ › /setup
+
+  SETUP CHECK
+  ✖ identity   none yet · run timmy init
+  ● model key  set
+  ● receipts   none yet · this check is the first
+  ⚠ palette    not Timmy Night or Day
+    install  timmy theme install
+  ✓ RECEIPT bc292013  setup check sealed and verified
+
+
+ › What is 48271 times 3917? Use the calculator tool, then answer in one sentence.
+
+  /private/tmp/tc-home/c17/u/live/work
+
+● calculate 48271 * 3917
+  └ {"expression":"48271 * 3917","result":189077507}
+
+48271 × 3917 = 189,077,507.
+
+✓ RECEIPT a6723499 signed and verified
+  1 step · $0.050 · 13.6s
+
+
+ ›
+
+  Enter to send · Ctrl+J newline · / commands

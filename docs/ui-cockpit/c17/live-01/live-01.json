@@ -1,0 +1,111 @@
+{
+  "check": "LIVE-01",
+  "commit": "bd7ec9b5d058fd90181e84e9a8f0a5f30747d4a8",
+  "package": {
+    "file": "timmy-tui-2.0.0-rc.2.tgz",
+    "sha256": "212704590691bf6cbb65aec0489a3327b99a0640351a0ab730a5cb4008d0a43a",
+    "built": "on the operator's Mac from a clean clone at the commit: Node v24.14.1, npm 11.11.0, macOS 26.6.2 arm64; npm ci --include=dev, the build, the canvas check, npm pack --ignore-scripts, the release check passed and the clone stayed clean. Byte-identical to the Linux build of the same commit (Node v24.21.0, npm 11.19.0).",
+    "installed": "npm install --global --prefix into an empty prefix, with the shell's NODE_ENV=production kept"
+  },
+  "where": "the operator's Mac: a Terminal window showing a tmux 3.6b session; keys were sent to tmux, never to Terminal",
+  "command": "bare timmy: the installed package's own bin, from the prefix",
+  "isolation": "a fresh home, Timmy home and receipt store under /tmp; a minimal environment; the model key read from Timmy's own config inside the child's shell and exported there only, never printed and never on a command line",
+  "model": "anthropic/claude-opus-4.7",
+  "clock": "times are the Mac's",
+  "started": "2026-10-08T06:49:22Z",
+  "finished": "2026-10-08T06:50:18Z",
+  "steps": [
+    {
+      "id": "first-run",
+      "ok": true,
+      "observed": "the first-run prompt was empty, under the line \"First run: type /setup to check what Timmy needs.\"",
+      "screens": [
+        "00-first-run.txt"
+      ]
+    },
+    {
+      "id": "setup",
+      "ok": true,
+      "observed": "/setup typed at that prompt ran the setup check and sealed it",
+      "receipt": "rc_muz6esyh_vlfw",
+      "screens": [
+        "00-setup.txt"
+      ]
+    },
+    {
+      "id": "tool-turn",
+      "ok": true,
+      "prompt": "What is 48271 times 3917? Use the calculator tool, then answer in one sentence.",
+      "tools": [
+        "calculate"
+      ],
+      "answer": "48271 × 3917 = 189,077,507.",
+      "receipt": "rc_muz6f40d_qa45",
+      "cost_usd": 0.050335,
+      "cost_measured": true,
+      "screens": [
+        "01-tool-turn.txt"
+      ]
+    },
+    {
+      "id": "interrupt",
+      "ok": true,
+      "prompt": "Use the calculator three times, one call per step and waiting for each result: 1234*5678, then 2345*6789, then 3456*7890. Then add the three results.",
+      "key": "Ctrl+C, sent to tmux as soon as the turn's first calculator call showed; the REPL reads it as a key in raw mode",
+      "outcome": "cancelled",
+      "said": "Cancelled. 1 tool finished; no answer yet. Nothing was rolled back.",
+      "receipt": "rc_muz6f720_4ivo",
+      "cost_usd": 0.025875,
+      "cost_measured": false,
+      "screens": [
+        "02-interrupt.txt"
+      ]
+    },
+    {
+      "id": "prompt-after",
+      "ok": true,
+      "observed": "the prompt came back at once; the next request was typed into it and shown there before Enter",
+      "screens": [
+        "03-prompt-after.txt"
+      ]
+    },
+    {
+      "id": "second-turn",
+      "ok": true,
+      "prompt": "Use the calculator tool to compute 987654 * 123457, then answer in one sentence.",
+      "tools": [
+        "calculate",
+        "calculate",
+        "calculate",
+        "calculate",
+        "calculate"
+      ],
+      "answer": "The three products (7,006,652; 15,920,205; 27,267,840) sum to 50,194,697, and 987,654 × 123,457 = 121,932,799,878.",
+      "note": "the model also finished the cancelled request, whose message stays in the conversation: three of its five calculator calls redo the cancelled turn's products and one adds them, before the call it was asked for. Recorded as it happened.",
+      "receipt": "rc_muz6fxek_k0gj",
+      "cost_usd": 0.164845,
+      "cost_measured": true,
+      "screens": [
+        "04-second-turn.txt"
+      ]
+    },
+    {
+      "id": "exit",
+      "ok": true,
+      "observed": "/exit, then the run script's line EXIT=0 TTY=same (stty compared before and after)",
+      "screens": [
+        "05-exit.txt"
+      ]
+    }
+  ],
+  "chain": "timmy receipts --json on the run's own store: 4 receipts, verified true (their fields are in receipts.json)",
+  "spend": {
+    "run_usd": 0.241055,
+    "total_usd": 0.927635,
+    "cap_usd": 2,
+    "source": "OpenRouter's counters for the key, read without printing the key or its label, at 06:48:32Z and 06:51:18Z: byok_usage 344.0877536 then 344.3288086, so 0.241055; Timmy's three sealed turn costs add to the same 0.241055. LIVE-01's total is C-16's 0.68658 plus this run's. The key had already spent 0.8719115 on 2026-10-08 (UTC) before this run, outside LIVE-01; this session made no other model call through it."
+  },
+  "earlier": "C-16's LIVE-01 ran at 79529e5 from the source tree; its record stays unchanged in docs/ui-cockpit/c16/live-01/",
+  "screens_note": "tmux capture-pane text with history (-J -S -), each line's trailing whitespace and the trailing blank lines removed; byte-identical to the copies made on the Mac (SHA-256 compared)",
+  "hygiene": "the run wrote the model key into its fresh home's settings file: src/utils/config.ts builds its settings store with the environment's key as a default, a behavior older than this branch. That copy was deleted after the run, and so were four more that earlier LIVE-01 runs had left under /tmp."
+}
