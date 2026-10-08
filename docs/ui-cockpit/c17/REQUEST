@@ -1,4 +1,4 @@
 # REPLAY-02 request (.github/workflows/replay-02.yml): the commit to replay on a GitHub-hosted runner.
-# A second rehearsal on a development commit, every check run: not C-17's evidence (ledger row 95).
-commit 70acf49f736efc561bfa15749d9443c4d058e063
+# A third rehearsal on a development commit, every check run: not C-17's evidence (ledger row 96).
+commit 86c7d33d78f5f7abdeb323d42110b0b4a365e7b9
 mode development
