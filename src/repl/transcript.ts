@@ -59,6 +59,8 @@ export type TurnEvent =
   | { type: 'footer'; steps: number; spend: string; seconds: number; model?: string }
   | { type: 'inspect'; rows: InspectRow[] }
   | { type: 'cancelling' }
+  /** Round R1 (the Mac run): the turn ended, not cancelled, with calls that never answered (a step or spend limit). */
+  | { type: 'unfinished'; count: number }
   | { type: 'cancelled'; at?: CancelStage; tools?: ToolOutcome[] }
   | { type: 'needs-you'; tool: string; reason: string; summary: string; detail?: string; session?: false }
   | { type: 'needs-you-answered'; tool: string; decision: 'once' | 'session' | 'deny' | 'no-terminal' };
@@ -201,6 +203,16 @@ export class Transcript {
         this.blank();
         // What the tools did, said with the cancel (third order, checkpoint 1): a cancel never undoes.
         const said = e.at ? `Cancelled. ${cancelOutcome(e.at, e.tools ?? [])}` : 'Cancelled.';
+        const rows = wrap(said, Math.max(20, this.opts.columns - 2)).map((l) => `  ${l}`);
+        return this.commit(rows.map((r) => this.line([{ text: r, role: 'secondary' }])), rows);
+      }
+      case 'unfinished': {
+        this.flushText();
+        // A call the turn never heard back from is not done: it says so, like a cancelled one.
+        for (const s of this.group) if (s.state === 'running') s.state = 'stopped';
+        this.flushGroup();
+        const n = e.count === 1 ? '1 call' : `${e.count} calls`;
+        const said = `The turn ended at its step or spend limit before ${n} answered, so ${e.count === 1 ? 'it' : 'they'} may not have run. Send another message to go on.`;
         const rows = wrap(said, Math.max(20, this.opts.columns - 2)).map((l) => `  ${l}`);
         return this.commit(rows.map((r) => this.line([{ text: r, role: 'secondary' }])), rows);
       }
@@ -472,6 +484,9 @@ export class Transcript {
         if (diffLines.length > DIFF_LINES) push([{ text: `    ${g.ellipsis} ${diffLines.length - DIFF_LINES} more lines`, role: 'secondary' }]);
       } else if (s.preview) {
         push(fit(`  ${g.branchEnd} `, s.preview));
+      } else if (s.state === 'stopped') {
+        // It never answered: whether it ran is not known (round R1, the Mac run).
+        push(fit(`  ${g.branchEnd} `, 'outcome unknown'));
       }
     } else {
       steps.forEach((s, i) => push(fit(`  ${i === steps.length - 1 ? g.branchEnd : g.branch} `, s.label.arg,

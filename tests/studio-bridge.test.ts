@@ -112,7 +112,7 @@ describe('the canvas bridge', () => {
       await exec({ code: 'return 1', jobId: 'turn-9' });
       await exec({ code: 'return 2', jobId: 'turn-10' }); // no source revision: nothing was saved, so no job is recorded
       const jobs = await fetch(`http://127.0.0.1:${port()}/api/canvas/jobs`).then((r) => r.json());
-      expect(jobs).toEqual([{ id: 'turn-9', ok: true, calls: 1, revision: 4, sourceRevision: 'ab'.repeat(32), at: expect.any(String) }]);
+      expect(jobs).toEqual([{ id: 'turn-9', ok: true, calls: 1, failed: 0, revision: 4, sourceRevision: 'ab'.repeat(32), at: expect.any(String) }]);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

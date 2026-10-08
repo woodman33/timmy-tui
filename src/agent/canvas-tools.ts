@@ -130,6 +130,22 @@ return { query, total: names.length, members, docs: 'https://tldraw.dev/referenc
 
 type Answer = Record<string, unknown>;
 
+/**
+ * Round R1 (the Mac run): Haiku 4.5 spent six calls on props.text, a label prop and tldraw 1's arrow
+ * terminals before it gave up. The tool now shows a drawing that works in this tldraw, and a test runs
+ * this exact code in a real browser against the bundled tldraw (tests/studio-canvas-browser.test.ts).
+ */
+export const CANVAS_EXAMPLE = [
+  "const { createShapeId, toRichText } = helpers;",
+  "const box = (x, label) => ({ id: createShapeId(), type: 'geo', x, y: 0, props: { w: 160, h: 80, richText: toRichText(label) } });",
+  "const a = box(0, 'Prompt'), b = box(260, 'Agent');",
+  "editor.createShapes([a, b, { id: createShapeId(), type: 'text', x: 0, y: -60, props: { richText: toRichText('Title') } }]);",
+  "const arrow = createShapeId();",
+  "editor.createShape({ id: arrow, type: 'arrow', x: 0, y: 0, props: { start: { x: 160, y: 40 }, end: { x: 260, y: 40 } } });",
+  "editor.createBindings([{ type: 'arrow', fromId: arrow, toId: a.id, props: { terminal: 'start' } }, { type: 'arrow', fromId: arrow, toId: b.id, props: { terminal: 'end' } }]);",
+  "return [a.id, b.id, arrow];",
+].join(' ');
+
 export function createCanvasTools(options: CanvasToolOptions = {}) {
   const baseUrl = studioUrl(options.baseUrl);
   const exec = async (code: string, ownJobId?: string): Promise<Answer> => {
@@ -164,7 +180,9 @@ export function createCanvasTools(options: CanvasToolOptions = {}) {
         'function of `editor` (the tldraw Editor) and `helpers` (createShapeId, toRichText, createBindingId, Box, Vec); ' +
         'return a JSON-serializable value to read results back. Text goes in props.richText via helpers.toRichText. ' +
         'Answers carry the result or the error, the job ID and the canvas revision (document changes so far). ' +
-        'A call that fails keeps nothing: the canvas goes back to how it was before the call (rolledBack), so retry the whole drawing.',
+        'A call that fails keeps nothing: the canvas goes back to how it was before the call (rolledBack), so retry the whole drawing. ' +
+        'Shapes take text only as props.richText (never props.text or props.label); an arrow is joined to shapes by bindings. ' +
+        `A drawing that works in this tldraw: ${CANVAS_EXAMPLE}`,
       inputSchema: z.object({
         code: z.string().min(1).max(30_000).describe('Body of an async function of (editor, helpers)'),
         jobId: z.string().regex(/^[\w.:-]{1,100}$/).optional().describe('The job this call belongs to'),

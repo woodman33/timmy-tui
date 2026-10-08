@@ -239,6 +239,21 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     await context.close();
   }, 120_000);
 
+  // Round R1: the drawing canvas_exec shows the model runs as written in this tldraw: two labeled boxes,
+  // a title, and an arrow bound to both boxes.
+  it("the example drawing in canvas_exec's description works in this tldraw", async () => {
+    const { CANVAS_EXAMPLE } = await import('../src/agent/canvas-tools.js');
+    const { page, context } = await open();
+    const answer = (await (await fetch(`${base}/api/canvas/exec`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: CANVAS_EXAMPLE, jobId: 'example' }) })).json()) as { ok: boolean; result?: string[]; error?: string; changed?: boolean };
+    expect(answer.ok, answer.error).toBe(true);
+    expect(answer.changed).toBe(true);
+    const arrow = answer.result![2];
+    const bound = await page.evaluate((id) => (window as never as { timmyCanvas: { editor: { getBindingsFromShape: (s: string, t: string) => Array<{ toId: string; props: { terminal: string } }> } } }).timmyCanvas.editor.getBindingsFromShape(id, 'arrow').map((b) => `${b.props.terminal}:${b.toId}`).sort(), arrow);
+    expect(bound).toEqual([`end:${answer.result![1]}`, `start:${answer.result![0]}`]);
+    expect(await page.getByText('Something went wrong').count()).toBe(0);
+    await context.close();
+  }, 120_000);
+
   it('says it is loading while it loads, and why it cannot start when it cannot', async () => {
     const context = await browser!.newContext();
     const page = await context.newPage();

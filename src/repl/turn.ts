@@ -112,6 +112,10 @@ export async function runTurn(
   if (ended) return 'cancelled'; // sealed already, by the caller's abandon.now()
   ended = true;
   const ms = clock() - started;
+  // Round R1 (the Mac run): a turn that ended at its limit with calls still open says so, instead of a
+  // step that looks done; the receipt keeps their outcome unknown.
+  const open = cancelled ? 0 : outcomesNow().filter((t) => t.outcome === 'unknown').length;
+  if (open) transcript.handle({ type: 'unfinished', count: open });
   if (cancelled) sealCancelled(ms);
   else if (seal) {
     receipt(seal({ prompt: text, answer: typeof answer === 'string' ? answer : '', steps, spend, costMeasured, ms, status: failed ? 'failed' : 'ok', tools: outcomesNow() }), ms, false);

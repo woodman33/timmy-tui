@@ -73,6 +73,19 @@ describe('tool steps', () => {
       '',
     ].join('\n'));
   });
+  it('a turn that ends at its limit with a call still open says so, and never shows the call done (round R1)', () => {
+    const text = render([
+      { type: 'tool-start', id: '1', tool: 'canvas_exec', args: { code: 'draw()' } },
+      { type: 'unfinished', count: 1 },
+    ], { columns: 100 });
+    expect(text).toBe([
+      '● canvas_exec draw()',
+      '  └ outcome unknown',
+      '  The turn ended at its step or spend limit before 1 call answered, so it may not have run. Send',
+      '  another message to go on.',
+      '',
+    ].join('\n'));
+  });
   it('colors the marker and verb by risk: shell red, writes yellow, model or network violet', () => {
     const text = render([
       { type: 'tool-start', id: '1', tool: 'shell', args: { command: 'ls' } },

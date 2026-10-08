@@ -58,6 +58,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   says "nothing kept" (and "page restarted"); a job is marked by its last
   call, with its failed calls counted; the turn's inspect rows skip jobs
   that only looked, and say when a job's last call failed.
+- `canvas_exec` shows the model a drawing that works in this tldraw (boxes
+  with `richText`, a title, an arrow bound to both boxes), tested in a real
+  browser.
+- A turn that ends at its step or spend limit with a call still open says
+  so, and the call reads "outcome unknown" instead of looking done.
+- The working folder shows as `~/…` when the home folder is reached through
+  a link (macOS `/tmp`).
 - The lane list no longer shows memory or cost figures (nothing measured
   them), and the feature-flag tool has no built-in app ID.
 

@@ -2,7 +2,7 @@
  * `timmy repl`: the inline REPL (DESIGN.md §10 B1). One turn, one column: the block input, then the
  * agent's turn rendered inline, then the input again. `--demo` drives the same renderer with a script.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
 import { emitKeypressEvents, type Key } from 'node:readline';
@@ -129,7 +129,16 @@ export const REPL_INSTRUCTIONS = [
 
 const tildify = (path: string): string => {
   const home = homedir();
-  return home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path;
+  if (!home) return path;
+  // The working folder is a real path, so a home reached through a link (macOS /tmp) is matched by its real path too.
+  let real = home;
+  try {
+    real = realpathSync(home);
+  } catch {
+    // An unreadable home: compare with it as given.
+  }
+  const base = [home, real].find((h) => path === h || path.startsWith(`${h}/`));
+  return base ? `~${path.slice(base.length)}` : path;
 };
 
 /**

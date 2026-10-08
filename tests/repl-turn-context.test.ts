@@ -92,6 +92,29 @@ describe('runTurn with an inspector', () => {
   });
 });
 
+describe('a turn that ends with a call still open (round R1, the Mac run)', () => {
+  it('says the turn stopped before the call answered, and seals its outcome unknown', async () => {
+    class LimitedAgent extends EventEmitter {
+      getModel(): string { return 'anthropic/claude-haiku-4.5'; }
+      async send(): Promise<string> {
+        // The model asked for one more call, and the step limit ended the turn before it ran.
+        this.emit('item:update', { type: 'function_call', callId: 'c9', name: 'canvas_exec', arguments: '{"code":"draw()"}', status: 'completed' });
+        return '';
+      }
+    }
+    const out = new Sink();
+    const caps = detectCapabilities({ env: { LANG: 'en_US.UTF-8' }, stdin: { isTTY: false }, stdout: { isTTY: false }, stderr: { isTTY: false } });
+    const transcript = new Transcript(buildTheme(caps), new LiveRegion({ out, err: new Sink() }, { live: false }), { columns: 100 });
+    let sealedTools: unknown;
+    await runTurn(new LimitedAgent(), transcript, 'draw', () => 0, undefined, undefined,
+      (facts) => { sealedTools = facts.tools; return { id: '1a2b3c4d', hash: 'sha256:1a2b3c4d', verified: true }; });
+    expect(out.text).toContain('  └ outcome unknown');
+    expect(out.text).toContain('The turn ended at its step or spend limit before 1 call answered, so it may not have run.');
+    expect(out.text.indexOf('may not have run')).toBeLessThan(out.text.indexOf('RECEIPT 1a2b3c4d'));
+    expect(sealedTools).toEqual([{ tool: 'canvas_exec', outcome: 'unknown' }]);
+  });
+});
+
 describe('a canvas step says where it went', () => {
   it('names the canvas job and revision instead of raw JSON', () => {
     const agent = new EventEmitter();
