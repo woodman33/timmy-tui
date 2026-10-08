@@ -1,6 +1,6 @@
 # Round R1: shared brief for the lead and the two workers
 
-Updated 2026-10-08 16:35 PT by the lead (Opus). After the first hand-off, the Haiku worker keeps this file current; anyone may add a line under "For the lead".
+Updated 2026-10-08 16:46 PT by the lead (Opus). After the first hand-off, the Haiku worker keeps this file current; anyone may add a line under "For the lead".
 
 ## Where the work is
 
@@ -26,7 +26,9 @@ A functional, organized Timmy whose capabilities are easy to find and use: the R
 | `458a015` | From the live run on the Mac: a canvas call that fails keeps nothing (undone to a history mark), and a call that crashed tldraw's page restarts it from the canvas as it was before the call; answers say `rolledBack`, `restarted`, `changed`; jobs are marked by their last call with failed calls counted. |
 | `af536cb` | `canvas_exec` carries a drawing that works in this tldraw (tested in a real browser); a turn that ends at its step or spend limit with a call open says so; `~/…` for a home reached through a link. |
 
-Checks at `af536cb`: full suite 258 files passed, 7 skipped, 0 failed (2,283 tests, with `NODE_PATH` unset); `tsc` and `tsgo` clean. The real workflow ran on the operator's Mac three times (ledger row 119): the last run drew the task in one call for $0.012.
+| `8db45cd` | Merged PR #95 (Sonnet): the demo label, zellij Timmy Homebrew, the Canvas and Receipt words on the panel and receipt page, Monaspace Argon review pictures, and the B9 monitor proposal (ledger row 120). |
+
+Checks at `8db45cd`: full suite 261 files passed, 7 skipped, 0 failed (2,322 tests, with `NODE_PATH` unset); `tsc` and `tsgo` clean. The real workflow ran on the operator's Mac three times (ledger row 119): the last run drew the task in one call for $0.012.
 
 ## Who owns what
 
@@ -42,7 +44,7 @@ Never touch: `studio/` (another hand's lab), `lanes/visual/tokens.json` (the vis
 
 ## Assignments
 
-**Sonnet 5.5: organized UI and the theme**
+**Sonnet 5.5: organized UI and the theme** (round 1 done: PR #95, merged as `8db45cd`; branch again from `origin/feat/ui-workflow-r1` for anything next)
 1. `timmy repl --demo` says on screen that it is a scripted demonstration: no model, no tool ran.
 2. A zellij Timmy Homebrew theme whose selected tab is Homebrew green and passes `tests/ui-zellij-theme.test.ts` (text 7:1, frames 3:1, selected tab 2.5:1 from the others); `timmy center` picks it under `TIMMY_PALETTE=homebrew`.
 3. Timmy Canvas's panel and the receipt page use the REPL's words for where to inspect (Canvas, Receipt): each job's revision, receipt and time; readable at phone width; `tests/studio-canvas-browser.test.ts` stays green, and tldraw's chrome, fonts and the drawing's colors stay untouched.
