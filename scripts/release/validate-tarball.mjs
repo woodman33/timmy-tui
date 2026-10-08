@@ -36,7 +36,7 @@ export const VERBATIM = [`${CANVAS}/LICENSE-tldraw.md`, `${CANVAS}/licenses/reac
 /** Paths that must never ship. */
 export const FORBIDDEN = [/^tests\//, /^\.timmy\//, /^docs\/ui-cockpit\//, /(^|\/)node_modules\//, /(^|\/)\.git\//, /(^|\/)\.env($|\.)/, /(^|\/)\.dev\.vars$/];
 /** Where the repository keeps the qualification of a release candidate. */
-export const QUALIFICATION = ['docs/ui-cockpit/c17/freeze.json', 'docs/ui-cockpit/c17/results.json'];
+export const QUALIFICATION = ['docs/ui-cockpit/c18/freeze.json', 'docs/ui-cockpit/c18/results.json'];
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const git = (args) => spawnSync('git', args, { cwd: REPO, encoding: 'utf8' });

@@ -2,14 +2,14 @@ name: REPLAY-02
 
 # The UI cockpit's frozen replay (REPLAY-02 in scripts/ui/qualify.ts) on a GitHub-hosted runner: a fresh
 # virtual machine provisioned for this one job, allowed for this replay only by the cockpit exception in
-# AGENTS.md §10. It runs when docs/ui-cockpit/c17/REQUEST changes on feat/ui-cockpit. The request names
+# AGENTS.md §10. It runs when docs/ui-cockpit/c18/REQUEST changes on feat/ui-cockpit. The request names
 # the commit to replay, and the job replays that commit, not the one that carried the request. The record
 # it keeps names the platform as GitHub Actions, with the runner image, the run and the commit. A request
 # may also say `mode development`: a rehearsal that runs every check and can never serve as evidence.
 on:
   push:
     branches: [feat/ui-cockpit]
-    paths: ['docs/ui-cockpit/c17/REQUEST']
+    paths: ['docs/ui-cockpit/c18/REQUEST']
 
 permissions:
   contents: read
@@ -31,9 +31,9 @@ jobs:
       - name: The commit to replay
         id: request
         run: |
-          commit="$(sed -n 's/^commit \([0-9a-f]\{40\}\)$/\1/p' request/docs/ui-cockpit/c17/REQUEST | head -1)"
+          commit="$(sed -n 's/^commit \([0-9a-f]\{40\}\)$/\1/p' request/docs/ui-cockpit/c18/REQUEST | head -1)"
           if [ -z "$commit" ]; then echo "REQUEST names no full commit (a line: commit <40 hex digits>)" >&2; exit 1; fi
-          mode="$(sed -n 's/^mode \(frozen\|development\)$/\1/p' request/docs/ui-cockpit/c17/REQUEST | head -1)"
+          mode="$(sed -n 's/^mode \(frozen\|development\)$/\1/p' request/docs/ui-cockpit/c18/REQUEST | head -1)"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "mode=${mode:-frozen}" >> "$GITHUB_OUTPUT"
 

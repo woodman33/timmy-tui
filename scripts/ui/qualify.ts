@@ -17,9 +17,10 @@
  *
  * --skip reports the named checks as not run, with the reason given. It exists for the isolated sandbox
  * replay (scripts/ui/replay-sandbox.sh), where REPLAY-02 and LIVE-01 cannot run. Those two read evidence
- * taken elsewhere (docs/ui-cockpit/c17/: the sandbox's own frozen run, and the live turns on the
+ * taken elsewhere (docs/ui-cockpit/c18/: the sandbox's own frozen run, and the live turns on the
  * operator's Mac), each bound to the commit it ran at: the frozen tree may differ from that commit only
- * under docs/ui-cockpit/, where the ledger and the evidence live. C-16's evidence stays in c16/.
+ * under docs/ui-cockpit/, where the ledger and the evidence live. C-16's and C-17's evidence stay in
+ * c16/ and c17/.
  */
 import { createHash } from 'node:crypto';
 import { builtinModules } from 'node:module';
@@ -234,7 +235,7 @@ const must = (ok: boolean, why: string): void => { if (!ok) throw new Fail(why);
 // ── evidence taken elsewhere: REPLAY-02 (an isolated sandbox) and LIVE-01 (the operator's Mac) ────────
 // Each record names the commit it ran at. It holds for the frozen tree only when nothing has changed
 // since that commit outside docs/ui-cockpit/, where the ledger and the evidence itself live.
-const EVIDENCE = join(REPO, 'docs/ui-cockpit/c17');
+const EVIDENCE = join(REPO, 'docs/ui-cockpit/c18');
 const LEDGER_DIR = 'docs/ui-cockpit/';
 /** The changed paths that break the binding: everything outside the ledger and evidence folder. */
 export function outsideEvidence(changed: string[]): string[] { return changed.filter((p) => !p.startsWith(LEDGER_DIR)); }
@@ -293,9 +294,13 @@ export function remoteVerdict(run: RunRecord, checks: Array<Pick<Check, 'id' | '
   for (const r of run.results) if (!checks.some((c) => c.id === r.id)) bad.push(`${r.id}: not a check of this runner`);
   return bad;
 }
-/** The LIVE-01 steps, in order: a turn with a tool call, its interruption, the prompt usable after it, another turn. */
-const LIVE_STEPS = ['tool-turn', 'interrupt', 'prompt-after', 'second-turn'];
-interface LiveStep { id: string; ok: boolean; tools?: string[]; receipt?: string; outcome?: string; screens?: string[] }
+/**
+ * The LIVE-01 steps, in order: a turn with a tool call, its interruption, the prompt usable after it, another
+ * turn about something else, which must not finish the cancelled request, and an explicit request to continue
+ * it, which must (C-18, the 00:28 order).
+ */
+const LIVE_STEPS = ['tool-turn', 'interrupt', 'prompt-after', 'second-turn', 'resume'];
+interface LiveStep { id: string; ok: boolean; tools?: string[]; receipt?: string; outcome?: string; resumed?: boolean; screens?: string[] }
 interface LiveRecord { commit: string; model: string; steps: LiveStep[]; spend: { run_usd: number; total_usd: number; cap_usd: number } }
 /** What is missing from a LIVE-01 record: [] when it holds every step, ok, within its spending cap. */
 export function liveVerdict(rec: LiveRecord): string[] {
@@ -306,8 +311,10 @@ export function liveVerdict(rec: LiveRecord): string[] {
   const step = (id: string): LiveStep | undefined => steps.find((x) => x?.id === id);
   for (const id of LIVE_STEPS) { const x = step(id); if (!x) bad.push(`no ${id} step`); else if (x.ok !== true) bad.push(`${id} not ok`); }
   if (step('tool-turn') && !((step('tool-turn')?.tools?.length ?? 0) > 0)) bad.push('the tool turn names no tool call');
-  for (const id of ['tool-turn', 'second-turn']) if (step(id) && !step(id)?.receipt) bad.push(`${id} has no sealed receipt`);
+  for (const id of ['tool-turn', 'second-turn', 'resume']) if (step(id) && !step(id)?.receipt) bad.push(`${id} has no sealed receipt`);
   if (step('interrupt') && step('interrupt')?.outcome !== 'cancelled') bad.push('the interruption did not end the turn as cancelled');
+  if (step('second-turn') && step('second-turn')?.resumed !== false) bad.push('the turn after the cancel finished the cancelled request too, or the record does not say it did not');
+  if (step('resume') && step('resume')?.resumed !== true) bad.push('asked to continue, the turn did not continue the cancelled request');
   const sp = rec?.spend;
   if (!sp || ![sp.run_usd, sp.total_usd, sp.cap_usd].every((n) => typeof n === 'number' && Number.isFinite(n) && n >= 0)) bad.push('spend not recorded');
   else if (sp.total_usd > sp.cap_usd) bad.push(`spend $${sp.total_usd} over the $${sp.cap_usd} cap`);
@@ -984,7 +991,7 @@ const CHECKS: Check[] = [
     // And the suites of the 20:14 continuation's changes (the release check, the license exception, the
     // installed next steps) and of the 22:23 order's doctor, which this list missed until the review of row 99.
     const files = ['tests/repl-', 'tests/term-', 'tests/ui-', 'tests/studio-', 'tests/evidence', 'tests/keyboard-contract', 'tests/bin-', 'tests/runtime-package',
-      'tests/release-validate-tarball', 'tests/privacy-exempt-blobs', 'tests/installed-next-steps', 'tests/doctor-readiness', 'tests/env-loader'];
+      'tests/release-validate-tarball', 'tests/privacy-exempt-blobs', 'tests/installed-next-steps', 'tests/doctor-readiness', 'tests/env-loader', 'tests/key-transient', 'tests/repl-cancel-history'];
     const r = spawnSync(join(REPO, 'node_modules/.bin/vitest'), ['run', ...files], { cwd: REPO, encoding: 'utf8', timeout: 600_000 });
     const log = (r.stdout ?? '') + (r.stderr ?? '');
     writeFileSync(join(EVID, 'suite.log'), log);
@@ -1042,7 +1049,7 @@ const CHECKS: Check[] = [
     const skipped = run.results.filter((r) => r.status === 'not run').map((r) => r.id);
     return `${platform.label}; Node ${fz.node}, ${fz.tmux}; a clean clone at ${fz.head.slice(0, 7)}: ${n('pass')} passed, 0 failed, ${n('deferred')} deferred, not run there: ${skipped.join(', ')}; the same ${readFileSync(here, 'utf8').trim().split('\n').length} controls; only docs/ui-cockpit/ changed since`;
   } },
-  { id: 'LIVE-01', ref: 'B1; fourth order, step 6', line: 'On the operator\'s Mac, at a commit the frozen tree differs from only in docs/ui-cockpit/: a real model turn with a tool, its interruption, a usable prompt after it, and another turn (the record and its binding are checked here; the turns were watched there)', run: async () => {
+  { id: 'LIVE-01', ref: 'B1; fourth order, step 6', line: 'On the operator\'s Mac, at a commit the frozen tree differs from only in docs/ui-cockpit/: a real model turn with a tool, its interruption, a usable prompt after it, another turn about something else that does not finish the cancelled request, and an explicit request that continues it (the record and its binding are checked here; the turns were watched there)', run: async () => {
     const f = join(EVIDENCE, 'live-01', 'live-01.json');
     evidenceOrBlocker(join(EVIDENCE, 'live-01'), 'live-01.json');
     const rec = JSON.parse(readFileSync(f, 'utf8')) as LiveRecord;
@@ -1371,9 +1378,12 @@ async function controls(): Promise<string[]> {
   expectFail('a remote run with a failed check', () => { must(remoteVerdict({ dev: false, stopped: 'CLI-01', results: [{ id: 'CLI-01', status: 'fail', detail: 'x' }] }, [{ id: 'CLI-01' }]).length === 0, 'remote'); });
   expectFail('a remote development run', () => { must(remoteVerdict({ dev: true, stopped: null, results: [{ id: 'CLI-01', status: 'pass', detail: 'x' }] }, [{ id: 'CLI-01' }]).length === 0, 'dev'); });
   expectFail('a remote run that skipped a check it can run', () => { must(remoteVerdict({ dev: false, stopped: null, results: [{ id: 'CLI-01', status: 'not run', detail: 'Skipped in this run (--skip): x' }] }, [{ id: 'CLI-01' }]).length === 0, 'skip'); });
-  const live: LiveRecord = { commit: 'a'.repeat(40), model: 'm', steps: [{ id: 'tool-turn', ok: true, tools: ['t'], receipt: 'r' }, { id: 'interrupt', ok: true, outcome: 'cancelled' }, { id: 'prompt-after', ok: true }, { id: 'second-turn', ok: true, receipt: 'r' }], spend: { run_usd: 0.1, total_usd: 0.5, cap_usd: 2 } };
+  const live: LiveRecord = { commit: 'a'.repeat(40), model: 'm', steps: [{ id: 'tool-turn', ok: true, tools: ['t'], receipt: 'r' }, { id: 'interrupt', ok: true, outcome: 'cancelled' }, { id: 'prompt-after', ok: true }, { id: 'second-turn', ok: true, receipt: 'r', resumed: false }, { id: 'resume', ok: true, receipt: 'r', resumed: true }], spend: { run_usd: 0.1, total_usd: 0.5, cap_usd: 2 } };
   expectFail('a LIVE-01 record without its interruption', () => { must(liveVerdict({ ...live, steps: live.steps.filter((x) => x.id !== 'interrupt') }).length === 0, 'live'); });
   expectFail('a LIVE-01 record over its cap', () => { must(liveVerdict({ ...live, spend: { run_usd: 0.1, total_usd: 2.5, cap_usd: 2 } }).length === 0, 'cap'); });
+  // C-18 (the 00:28 order): the turn after a cancel must not finish the cancelled request, and asking for it must.
+  expectFail('a LIVE-01 record whose next turn resumed the cancelled request', () => { must(liveVerdict({ ...live, steps: live.steps.map((x) => (x.id === 'second-turn' ? { ...x, resumed: true } : x)) }).length === 0, 'resumed'); });
+  expectFail('a LIVE-01 record without an explicit resumption', () => { must(liveVerdict({ ...live, steps: live.steps.filter((x) => x.id !== 'resume') }).length === 0, 'no resume'); });
   // C-17 (the 20:14 order): where a replay ran, as its own record proves it. GitHub Actions is allowed by
   // AGENTS.md §10's cockpit exception only on a GitHub-hosted runner, for the frozen commit, named as such.
   const head = 'b'.repeat(40);
