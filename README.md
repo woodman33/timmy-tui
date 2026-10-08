@@ -138,6 +138,16 @@ are still there.
   (`brew install --cask font-monaspace`). A terminal draws Timmy in its own
   font, so the profile or the printed lines set it, at 14 points. Any
   monospace font works if you skip it.
+- **zellij.** `timmy center` draws in Timmy Night by default. Set
+  `TIMMY_PALETTE=homebrew` to pick the Timmy Homebrew theme (its selected tab
+  is Homebrew green); `timmy theme install` puts the theme file where zellij
+  reads it.
+- **Review pictures.** `scripts/ui/render.ts` draws a capture on Timmy
+  Homebrew in Monaspace Argon, read from your own machine and never copied
+  into the repository. It says which font it used, and when Monaspace Argon is
+  missing it draws in your system's monospace font and tells you.
+- **The demo.** `timmy repl --demo` is a scripted recording of the screen: it
+  says so, first and last, and no model answered and no tool ran.
 - **The browser pages** (Timmy Canvas, the receipt pages) read the same
   colors and type from `/timmy-theme.css`. They use Monaspace Argon when it
   is installed, else the copy Timmy serves from your own machine, else your
