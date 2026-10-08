@@ -24,6 +24,13 @@ describe('the monitor and a companion port that is taken', () => {
       const note = new RegExp(`Companion port ${port} busy; using \\d+\\.`);
       const read = (): string => { try { return readFileSync(file, 'utf8'); } catch { return ''; } };
       for (const end = Date.now() + 30_000; !note.test(read()) && Date.now() < end;) await new Promise((r) => setTimeout(r, 100));
+      // The operator's 22:23 order: the port the note names is one the companion may take (cli.tsx tries the
+      // port asked for, then the next three) and the companion answers there, on its read-only canvas route.
+      const used = Number(new RegExp(`Companion port ${port} busy; using (\\d+)\\.`).exec(read())?.[1]);
+      const answer = await fetch(`http://127.0.0.1:${used}/api/canvas`, { signal: AbortSignal.timeout(5000) })
+        .then(async (r) => ({ status: r.status, body: await r.json() as Record<string, unknown> }), (e: Error) => ({ status: 0, body: { error: e.message } as Record<string, unknown> }));
+      expect({ allowed: used > port && used <= port + 3, status: answer.status, jobs: Array.isArray(answer.body.jobs), open: typeof answer.body.open })
+        .toEqual({ allowed: true, status: 200, jobs: true, open: 'string' });
       await new Promise((r) => setTimeout(r, 500));
       const screen = h.tmux('capture-pane', '-p', '-t', 't');
       expect({ top: screen.split('\n')[0].slice(0, 5), onScreen: /busy; using/.test(screen), logged: note.test(read()) })
