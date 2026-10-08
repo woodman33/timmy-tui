@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.2]
+
+Second release candidate for v2, for npm's `next` channel: the cockpit (the
+inline REPL, `timmy watch`, the canvas) on top of 2.0.0-rc.1.
+
 ### Added
 - The canvas package carries the two license texts it needs, verbatim:
   tldraw's license (`companion/studio-canvas/LICENSE-tldraw.md`) and
