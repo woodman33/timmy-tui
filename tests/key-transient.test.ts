@@ -97,6 +97,31 @@ describe('the environment model key stays transient', () => {
     expect(JSON.parse(readFileSync(h.settings, 'utf8'))).toMatchObject({ model: 'x/y', apiKey: typed });
   });
 
+  // The review (row 104, finding 4): conf rewrites the file only when its contents change, and under SNAP or
+  // its EXDEV fallback it writes with fs.writeFileSync, which never narrows a file that exists.
+  const FULL = { model: 'x/y', theme: 'light', graphics: 'ansi', modes: ['chat'], rive: { enabled: true, fps: 20, width: 400, height: 300 }, companion: { enabled: true, port: 3001, autoOpen: true } };
+  it('narrows an existing settings file that needs no rewrite to 0600 on load, its bytes unchanged', () => {
+    const h = home();
+    const saved = synthetic();
+    mkdirSync(join(h.root, 'config', 'timmy-tui-nodejs'), { recursive: true });
+    const bytes = JSON.stringify({ apiKey: saved, ...FULL }, null, '\t');
+    writeFileSync(h.settings, bytes, { mode: 0o644 });
+    chmodSync(h.settings, 0o644);
+    const seen = probe(h, saved, ['load']);
+    expect(seen.map((s) => [s.step, s.holds, s.mode])).toEqual([['import', true, '600'], ['load', true, '600']]);
+    expect(readFileSync(h.settings, 'utf8')).toBe(bytes);
+  });
+
+  it('keeps a deliberate save 0600 when conf falls back to a plain write (SNAP)', () => {
+    const h = home();
+    const typed = synthetic();
+    mkdirSync(join(h.root, 'config', 'timmy-tui-nodejs'), { recursive: true });
+    writeFileSync(h.settings, JSON.stringify({ apiKey: '', ...FULL }, null, '\t'), { mode: 0o644 });
+    chmodSync(h.settings, 0o644);
+    const seen = probe(h, typed, ['save-api-key'], { SNAP: '/snap/node/1' });
+    expect(seen.at(-1)).toMatchObject({ step: 'save-api-key', holds: true, mode: '600' });
+  });
+
   it('writes a fresh settings file 0600 even with no key anywhere', () => {
     const h = home();
     const seen = probe(h, synthetic(), ['save-theme']);

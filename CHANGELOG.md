@@ -68,18 +68,22 @@ inline REPL, `timmy watch`, the canvas) on top of 2.0.0-rc.1.
 - A SIGTERM or SIGHUP sent to `timmy` reaches the command it started: the
   REPL restores the terminal and exits 143 (or 129), and `timmy` reports
   that status. The bin used to die at once and leave the REPL running.
-- The model key from the environment (`OPENROUTER_API_KEY`) is used and never
-  stored. The settings file used to take it as a default and keep it in
-  plain text, written 0644. A key typed into setup is the
-  one deliberate save; the settings file is now written 0600, and so are the
+- The model key from the environment (`OPENROUTER_API_KEY`) is used and no
+  longer written to the settings file, which used to take it as a default
+  and keep it in plain text, 0644. A key typed into setup is the one
+  deliberate save. The settings file is kept 0600 (an existing one is
+  narrowed when Timmy loads it, its contents unchanged), and so are the
   private files `timmy init` rewrites (`providers.json`, `identity.seed`),
   also when they already existed with wider permissions. Existing settings,
   a key saved earlier included, are kept as they are.
 - A cancelled request stays in the conversation, closed by a note of the
-  cancel: what finished before it, with its result, what started without a
-  result, and the text so far. The next request, about anything else, no
-  longer finishes the cancelled one too; asking to continue it still works,
-  from what had finished.
+  cancel: what finished before it and while the cancel took hold, with
+  their results (quoted, secrets redacted), what started without a result,
+  and the text so far. A request left unanswered by a quit, a crash or a
+  failure is closed the same way before the next one. The next request,
+  about anything else, is no longer sent as a second pending request after
+  the cancelled one, which a model then finished too; asking to continue
+  still sends it everything that had finished.
 
 ## [2.0.0-rc.1] - 2026-10-06
 

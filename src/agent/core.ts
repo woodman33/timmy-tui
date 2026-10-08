@@ -6,6 +6,7 @@ import { EventEmitter } from 'eventemitter3';
 import type { AgentEvents } from './events.js';
 import type { Message, AgentConfig } from '../types/index.js';
 import { ConversationManager } from './conversation.js';
+import { redactString } from '../utils/redact.js';
 import { defaultTools } from './tools.js';
 import { publish as appendEvent } from '../bus/index.js';
 import { execSync, execFileSync } from 'child_process';
@@ -727,7 +728,17 @@ export class Agent extends EventEmitter<AgentEvents> {
     const cancelled = (): Error => Object.assign(new Error('Cancelled.'), { name: 'AbortError' });
 
     const userMessage: Message = { role: 'user', content, timestamp: Date.now() };
-    this.conversation.appendMessage(userMessage);
+    try {
+      // A request the conversation holds without an answer (a quit mid-turn, a crash, a failed request) is
+      // closed before the next one, so the model never reads two pending requests and finishes the first.
+      if (this.conversation.getHistory().at(-1)?.role === 'user') {
+        this.conversation.appendMessage({ role: 'assistant', content: UNANSWERED, timestamp: Date.now() });
+      }
+      this.conversation.appendMessage(userMessage);
+    } catch (err) {
+      this.running = false;
+      throw err;
+    }
     this.emit('message:user', userMessage);
     this.emit('thinking:start');
 
@@ -741,7 +752,7 @@ export class Agent extends EventEmitter<AgentEvents> {
     // What this request did, as the user saw it: each tool call with its result once that arrived, and
     // the text streamed so far. A cancel closes the request in the conversation with this record, so an
     // unrelated next turn does not resume it, and an explicit request to continue still can.
-    const calls = new Map<string, { name: string; args: string; output?: string }>();
+    const calls = new Map<string, ToolCallRecord>();
     let streamed = '';
 
     try {
@@ -822,10 +833,21 @@ export class Agent extends EventEmitter<AgentEvents> {
           void Promise.resolve(result.cancel?.()).catch(() => {});
         };
         if (opts.signal) opts.signal.addEventListener('abort', onAbort, { once: true });
+        // A tool's result, kept for the record a cancel leaves. `late`: it arrived while the cancel took hold
+        // (the SDK finishes a round of tool calls it has started); it is a real effect, never shown.
+        const noteOutput = (item: any, late: boolean): string => {
+          const out = typeof item.output === 'string' ? item.output : JSON.stringify(item.output);
+          const name = callNames.get(item.callId || '') || 'unknown';
+          const seen = calls.get(item.callId || '');
+          if (seen) Object.assign(seen, { output: out, late });
+          else calls.set(item.callId || `call-${calls.size}`, { name, args: '', output: out, late });
+          return out;
+        };
         try {
         for await (const item of result.getItemsStream() as AsyncIterable<StreamableOutputItem>) {
           if (draining || aborted()) {
             if (!draining) onAbort();
+            if (item.type === 'function_call_output') noteOutput(item, true);
             continue;
           }
           this.emit('item:update', item);
@@ -854,12 +876,8 @@ export class Agent extends EventEmitter<AgentEvents> {
               this.emit('tool:call', (item as any).name || '', args);
             }
           } else if (item.type === 'function_call_output') {
-            const out = typeof (item as any).output === 'string' ? (item as any).output : JSON.stringify((item as any).output);
-            const name = callNames.get((item as any).callId || '') || 'unknown';
-            const seen = calls.get((item as any).callId || '');
-            if (seen) seen.output = out;
-            else calls.set((item as any).callId || `call-${calls.size}`, { name, args: '', output: out });
-            this.emit('tool:result', name, out);
+            const out = noteOutput(item, false);
+            this.emit('tool:result', callNames.get((item as any).callId || '') || 'unknown', out);
           } else if (item.type === 'reasoning') {
             const text = (item as any).summary?.map((s: any) => s.text).join('') ?? '';
             if (text) this.emit('reasoning:update', text);
@@ -986,24 +1004,43 @@ export class Agent extends EventEmitter<AgentEvents> {
   }
 }
 
-/** A tool's arguments or result, cut to a length a conversation can carry. */
-const clip = (text: string, max = 400): string => (text.length > max ? `${text.slice(0, max)}…` : text);
+/** One tool call of a request, as the record of a cancel keeps it. */
+interface ToolCallRecord { name: string; args: string; output?: string; late?: boolean }
+
+/** What closes a request that was left without an answer: a quit mid-turn, a crash or a failed request. */
+export const UNANSWERED = '[I did not answer this request: it was interrupted before I could (the program ended, or the request failed). I will not continue it unless the user asks me to.]';
+
+const clip = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max)}…` : text);
+/** Tool data or streamed text as a quoted string, secrets redacted: it can neither speak as the assistant nor leave a key in the saved session. */
+const quote = (text: string, max = 400): string => JSON.stringify(clip(redactString(text), max));
+/** A call's arguments as compact JSON when they are JSON, else quoted like any other tool data. */
+const argsText = (raw: string): string => {
+  try {
+    const compact = JSON.stringify(JSON.parse(redactString(raw)));
+    if (compact.length <= 400) return compact;
+  } catch { /* not JSON */ }
+  return quote(raw);
+};
 
 /**
- * The record that closes a cancelled request in the conversation, in the assistant's voice: what
- * finished before the cancel, with its result; what started with no result, whose effect is unknown;
- * the text streamed so far; and that the request continues only if the user asks. Without it the
- * conversation ended in the cancelled request, and the next turn, about anything, finished it too
- * (LIVE-01 at C-17).
+ * The record that closes a cancelled request in the conversation, in the assistant's voice: what finished
+ * before the cancel, with its result; what finished while the cancel took hold; what started with no result,
+ * whose effect is unknown; the text streamed so far; and that the request continues only if the user asks.
+ * Tool data and text are quoted and redacted. Without the record the conversation ended in the cancelled
+ * request, and the next turn, about anything, finished it too (LIVE-01 at C-17).
  */
-export function cancelRecord(calls: Array<{ name: string; args: string; output?: string }>, streamed: string): string {
+export function cancelRecord(calls: ToolCallRecord[], streamed: string): string {
   const parts = ['[Cancelled by the user before I answered.'];
-  const finished = calls.filter((c) => c.output !== undefined);
+  const label = (c: ToolCallRecord): string => (c.args ? `${c.name} ${argsText(c.args)}` : c.name);
+  const returned = (c: ToolCallRecord): string => `${label(c)}, which returned ${quote(c.output ?? '')}`;
+  const finished = calls.filter((c) => c.output !== undefined && !c.late);
+  const late = calls.filter((c) => c.output !== undefined && c.late);
   const started = calls.filter((c) => c.output === undefined);
   if (calls.length === 0) parts.push('No tool had run.');
-  if (finished.length) parts.push(`Finished before the cancel: ${finished.map((c) => `${c.name} ${clip(c.args)} returned ${clip(c.output ?? '')}`).join('; ')}.`);
-  if (started.length) parts.push(`Started, with no result before the cancel, so its effect is unknown: ${started.map((c) => `${c.name} ${clip(c.args)}`).join('; ')}.`);
-  if (streamed.trim()) parts.push(`What I had written so far: "${clip(streamed.trim(), 1200)}"`);
+  if (finished.length) parts.push(`Finished before the cancel: ${finished.map(returned).join('; ')}.`);
+  if (late.length) parts.push(`Finished after the cancel was requested: ${late.map(returned).join('; ')}.`);
+  if (started.length) parts.push(`Started, with no result, so its effect is unknown: ${started.map(label).join('; ')}.`);
+  if (streamed.trim()) parts.push(`What I had written so far: ${quote(streamed.trim(), 1200)}.`);
   if (calls.length) parts.push('Nothing was rolled back.');
   parts.push('I stopped here and will not continue this request unless the user asks me to.]');
   return parts.join(' ');

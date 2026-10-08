@@ -1,5 +1,5 @@
 import Conf from 'conf';
-import { existsSync, readFileSync } from 'fs';
+import { chmodSync, existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join, resolve } from 'path';
 import { readDotEnv } from './dotenv.js';
@@ -68,6 +68,20 @@ const store = new Conf<TuiConfig>({
   configFileMode: 0o600,
 });
 
+/**
+ * Narrows the settings file to 0600 if it exists. conf rewrites the file only when its contents change, and
+ * under SNAP, or its EXDEV fallback, it writes with fs.writeFileSync, which never narrows a file that exists.
+ * The contents are never touched.
+ */
+function keepPrivate(): void {
+  try {
+    if (existsSync(store.path)) chmodSync(store.path, 0o600);
+  } catch {
+    // A file Timmy cannot change (another owner, a read-only folder) stays as it is.
+  }
+}
+keepPrivate();
+
 export function loadConfig(): TuiConfig {
   let config = store.store;
 
@@ -107,7 +121,9 @@ export function saveConfig(config: Partial<Omit<TuiConfig, 'apiKey'>>): void {
 
 /** Saves a model key the user gave on purpose (setup, onboarding) in the settings file, which is 0600. */
 export function saveApiKey(apiKey: string): void {
+  keepPrivate();
   store.set('apiKey', apiKey);
+  keepPrivate();
 }
 
 export function getConfig(): Conf<TuiConfig> {
