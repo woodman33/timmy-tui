@@ -6,6 +6,7 @@ import { spatialModelCatalogTool, spatialModelContextTool, spatialModelReviewToo
 import { z } from 'zod/v4';
 import { edgeUrl, operatorLabel } from '../utils/edge-host.js';
 import { timmyHome } from '../utils/init.js';
+import { keyMissing, secretEnvName, secretEnvValue } from '../utils/keys.js';
 import { onPath } from '../utils/on-path.js';
 
 /*
@@ -15,9 +16,7 @@ import { onPath } from '../utils/on-path.js';
  * except the workspace command, whose whole job is a shell command (and NEEDS YOU asks for each one).
  */
 
-/** A key that is not set, or still a template's placeholder. */
-export const keyMissing = (value: string | undefined): boolean => !value || /paste_your|<your|^your[_-]/i.test(value);
-
+export { keyMissing };
 
 interface ProgramRun {
   ok: boolean;
@@ -42,7 +41,30 @@ function runProgram(program: string, args: string[], timeoutMs: number): Promise
   });
 }
 
-const reason = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+const reason = (err: unknown): string => {
+  const cause = (err as { cause?: { message?: unknown } })?.cause?.message;
+  const top = err instanceof Error ? err.message : String(err);
+  return typeof cause === 'string' && cause && !top.includes(cause) ? `${top}: ${cause}` : top;
+};
+
+/** Error codes that mean the request never left this machine: no connection, no address, no TLS. */
+const BEFORE_SEND = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH', 'EADDRNOTAVAIL', 'ERR_INVALID_URL', 'UND_ERR_CONNECT_TIMEOUT']);
+
+/**
+ * Whether a failed request certainly never reached the service, so nothing can have run there (round
+ * R1 review). A reset or a timeout after the request went out leaves the outcome unknown, and the tool
+ * says so instead of "not run".
+ */
+export function neverSent(err: unknown): boolean {
+  const codes: string[] = [];
+  let e = err as { code?: unknown; errors?: unknown; cause?: unknown } | undefined;
+  for (let depth = 0; e && depth < 4; depth++) {
+    if (typeof e.code === 'string') codes.push(e.code);
+    if (Array.isArray(e.errors)) for (const x of e.errors as Array<{ code?: unknown }>) if (typeof x?.code === 'string') codes.push(x.code);
+    e = e.cause as typeof e;
+  }
+  return codes.length > 0 && codes.every((c) => BEFORE_SEND.has(c) || /CERT|TLS|SSL/.test(c));
+}
 
 export const currentTimeTool = tool({
   name: 'get_current_time',
@@ -121,10 +143,12 @@ export const envTool = tool({
     value: z.string().nullable(),
   }),
   execute: async ({ name }: { name: string }) => {
-    // Any name that looks like it holds a secret is hidden, not only a fixed list (round R1).
-    const SECRET = /KEY|TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|PRIVATE|COOKIE|SESSION|AUTH|DSN|WEBHOOK/i;
-    if (SECRET.test(name)) return { name, value: '[REDACTED]' };
-    return { name, value: process.env[name] ?? null };
+    // A name that looks like it holds a secret is hidden, and so is a value that is one whatever its
+    // name (a password inside DATABASE_URL, a token in an oddly named variable): round R1 review.
+    if (secretEnvName(name)) return { name, value: '[REDACTED]' };
+    const value = process.env[name];
+    if (value !== undefined && secretEnvValue(value)) return { name, value: '[REDACTED]' };
+    return { name, value: value ?? null };
   },
 } as any);
 
@@ -177,7 +201,10 @@ export const daytonaWorkspaceTool = tool({
         body: JSON.stringify({ command })
       });
       if (!response.ok) return failed(`Daytona answered HTTP ${response.status} ${response.statusText}`.trim());
-      const data = await response.json() as any;
+      const data = await response.json().catch(() => null) as any;
+      if (!data || typeof data !== 'object') {
+        return { success: false, where: 'daytona', stdout: '', stderr: '', message: `Outcome unknown: Daytona answered HTTP ${response.status} but its reply could not be read; the command may have run there. Nothing ran on this machine.` };
+      }
       return {
         success: data.exitCode === 0,
         where: 'daytona',
@@ -186,7 +213,8 @@ export const daytonaWorkspaceTool = tool({
         message: `Ran in Daytona workspace "${targetWorkspace}" (exit ${data.exitCode ?? 'unknown'}).`,
       };
     } catch (err) {
-      return failed(`Daytona could not be reached (${reason(err)})`);
+      if (neverSent(err)) return failed(`Daytona could not be reached (${reason(err)})`);
+      return { success: false, where: 'daytona', stdout: '', stderr: '', message: `Outcome unknown: the connection to Daytona failed after the command was sent (${reason(err)}); it may have run there. Nothing ran on this machine.` };
     }
   }
 } as any);
@@ -233,7 +261,8 @@ export const triggerJobTool = tool({
         message: id ? `Triggered "${taskName}" on Trigger.dev (run ${id}).` : `Trigger.dev accepted "${taskName}" but returned no run ID to follow.`,
       };
     } catch (err) {
-      return notTriggered(`${reason(err)}.`);
+      if (neverSent(err)) return notTriggered(`Trigger.dev could not be reached (${reason(err)}).`);
+      return { success: false, jobId: '', message: `Outcome unknown: the connection to Trigger.dev failed after the request was sent (${reason(err)}); "${taskName}" may have started.` };
     }
   }
 } as any);
@@ -254,7 +283,7 @@ export const composioIntegrationTool = tool({
   execute: async ({ action, appName }: { action: 'list_connections' | 'check_updates' | 'trigger_action'; appName?: string }) => {
     const apiKey = process.env.COMPOSIO_API_KEY;
 
-    if (keyMissing(apiKey) || apiKey!.includes('your')) {
+    if (keyMissing(apiKey)) {
       return { success: false, status: 'NOT_CONFIGURED', connections: [], message: 'Not connected: COMPOSIO_API_KEY is not set. Set it to a Composio API key to list your connections.' };
     }
     if (action !== 'list_connections') {
@@ -354,7 +383,10 @@ export const browserClickTool = tool({
     message: z.string(),
   }),
   execute: async ({ refId }: { refId: string }) => {
-    const r = await browser(['click', refId]);
+    // Only a snapshot reference (12, e12 or @e12) reaches agent-browser: a value like --cdp=9222 would
+    // arrive as an option, not an element (round R1 review).
+    if (!/^@?e?\d+$/i.test(refId.trim())) return { success: false, message: `Not clicked: "${refId}" is not an element reference from browser_get_snapshot (like @e3).` };
+    const r = await browser(['click', refId.trim()]);
     if (r.missing) return { success: false, message: AGENT_BROWSER_MISSING };
     if (!r.ok) return { success: false, message: `agent-browser could not click [${refId}]: ${r.error}` };
     return { success: true, message: `Clicked element [${refId}].` };
@@ -400,7 +432,8 @@ export const cloudflareGetFeatureFlagTool = tool({
     message: z.string(),
   }),
   execute: async ({ flagKey, defaultValue = false }: { flagKey: string; defaultValue?: boolean }) => {
-    const appId = process.env.CLOUDFLARE_FLAGSHIP_APP_ID || '4a3b3431-cc30-43a7-b198-aac2e94888d1';
+    // No built-in app ID: a flag is read from the operator's own Flagship app or not at all.
+    const appId = process.env.CLOUDFLARE_FLAGSHIP_APP_ID?.trim() ?? '';
     const notEvaluated = (why: string) => ({
       success: false,
       flagKey,
@@ -408,6 +441,7 @@ export const cloudflareGetFeatureFlagTool = tool({
       appId,
       message: `Not evaluated: ${why}. ${defaultValue} is only the default you gave, not the flag's value.`,
     });
+    if (!appId) return notEvaluated('CLOUDFLARE_FLAGSHIP_APP_ID is not set');
     try {
       const { OpenFeature } = await import('@openfeature/server-sdk');
       const { FlagshipServerProvider } = await import('@cloudflare/flagship/server' as any);
@@ -461,7 +495,8 @@ export const cloudflareSendDurablePulseTool = tool({
         message: `Pulse [${metricName}: ${metricValue}] accepted by the Durable Object${id ? ` (ID ${id})` : ', which returned no ID'}.`,
       };
     } catch (err) {
-      return missed(reason(err));
+      if (neverSent(err)) return missed(`the Durable Object could not be reached (${reason(err)})`);
+      return { success: false, pulseId: '', workerUrl, message: `Outcome unknown: the connection failed after the pulse was sent (${reason(err)}); it may have arrived.` };
     }
   }
 } as any);

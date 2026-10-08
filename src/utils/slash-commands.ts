@@ -240,7 +240,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
         }
       } else if (sub === 'list') {
         if (agent && agent.tmuxSessions) {
-          return `Active CLI Sessions:\n` + agent.tmuxSessions.map((s: any) => `[${s.id}] ${s.name} (${s.model}) — Mem: ${s.memory}, Cost: $${s.cost.toFixed(4)}`).join('\n');
+          return `CLI sessions (memory and cost are not measured):\n` + agent.tmuxSessions.map((s: any) => `[${s.id}] ${s.name} (${s.model})`).join('\n');
         }
       } else if (sub === 'add') {
         const name = parts[1] || 'AgentPane';

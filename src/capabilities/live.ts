@@ -16,6 +16,8 @@ import { onPath } from '../utils/on-path.js';
 import { readChain, verifyChain } from '../utils/receipts.js';
 import { integrationCatalog } from '../vision/integrations/registry.js';
 import type { OpenRouterAnswer, ProbeDeps } from './index.js';
+import { LANE_RUNNERS } from '../agent/lanes.js';
+import { OUTCOME_RULE } from '../repl/seal.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -39,11 +41,16 @@ async function httpStatus(url: string, timeoutMs: number): Promise<number | null
   }
 }
 
-/** Tool name → the last time it completed in a sealed REPL turn. */
+/**
+ * Tool name → the last time it completed in a sealed REPL turn. Only turns sealed under outcome rule 2
+ * count: before round R1 every finished step was sealed completed, mock answers included, so an older
+ * receipt cannot say a tool worked (review finding).
+ */
 export function exercisedTools(chain: Array<Record<string, unknown>>): Map<string, string> {
   const last = new Map<string, string>();
   for (const r of chain) {
     if (r.kind !== 'turn' || !Array.isArray(r.tool_outcomes) || typeof r.ts !== 'string') continue;
+    if (typeof r.outcome_rule !== 'number' || r.outcome_rule < OUTCOME_RULE) continue;
     for (const t of r.tool_outcomes as Array<{ name?: unknown; outcome?: unknown }>) {
       if (t?.outcome !== 'completed' || typeof t.name !== 'string') continue;
       if (!last.has(t.name) || (last.get(t.name) ?? '') < r.ts) last.set(t.name, r.ts);
@@ -63,6 +70,8 @@ export function liveDeps(o: LiveOptions): ProbeDeps {
   const env = o.env ?? process.env;
   let chain: Array<Record<string, unknown>> | null = null;
   const receipts = (): Array<Record<string, unknown>> => (chain ??= readChain('runs') as unknown as Array<Record<string, unknown>>);
+  let verified: ReturnType<typeof verifyChain> | null = null;
+  const verify = (): ReturnType<typeof verifyChain> => (verified ??= verifyChain('runs'));
   return {
     env,
     onPath: (bin) => onPath(bin, env),
@@ -75,13 +84,14 @@ export function liveDeps(o: LiveOptions): ProbeDeps {
     modelKeySource: () => modelKeySource(env),
     model: o.model,
     http: httpStatus,
-    lanes: () => listLanes(),
+    lanes: () => listLanes().map((l) => ({ ...l, key: (l as { key?: string }).key ?? LANE_RUNNERS[l.id]?.key })),
     adapters: () => integrationCatalog(),
     receipts: () => {
-      const v = verifyChain('runs');
+      const v = verify();
       return { ok: v.ok, count: v.count, ...(v.reason ? { reason: v.reason } : {}) };
     },
-    exercised: () => exercisedTools(receipts()),
+    // A broken chain vouches for nothing: no "used" dates from it.
+    exercised: () => (verify().ok ? exercisedTools(receipts()) : new Map()),
     edgeSet: () => edgeUrlOrNull() !== null,
   };
 }

@@ -60,7 +60,7 @@ export type TurnEvent =
   | { type: 'inspect'; rows: InspectRow[] }
   | { type: 'cancelling' }
   | { type: 'cancelled'; at?: CancelStage; tools?: ToolOutcome[] }
-  | { type: 'needs-you'; tool: string; reason: string; summary: string; detail?: string }
+  | { type: 'needs-you'; tool: string; reason: string; summary: string; detail?: string; session?: false }
   | { type: 'needs-you-answered'; tool: string; decision: 'once' | 'session' | 'deny' | 'no-terminal' };
 
 interface Step {
@@ -424,13 +424,21 @@ export class Transcript {
     const g = this.g;
     const steps = this.group;
     const label = steps[0].label;
-    const failed = steps.some((s) => s.state === 'failed');
+    const failedCount = steps.filter((s) => s.state === 'failed').length;
+    const failed = failedCount > 0;
     const glyph = failed ? g.fail : label.risk === 'network' ? g.ai : g.bullet;
     const role: Role = failed ? 'failure' : RISK_ROLE[label.risk];
     // While a step runs (or was stopped by a cancel) the head says what it is doing, never that it is done.
     const live = steps.some((s) => s.state === 'running' || s.state === 'stopped');
-    const head = `${glyph} ${live ? label.present : label.verb}`;
-    const subject = steps.length === 1 ? label.arg : `${steps.length} ${plural(label.noun, steps.length)}`;
+    // A failed step's head says it failed in words, not only by the glyph, and never "Ran": a run that
+    // failed may not have started (round R1 review). The step's own answer below says which.
+    const ended = failed && !live;
+    // A step the operator denied never started: it says so plainly ("Not run"), not "failed".
+    const denied = steps.length === 1 && (steps[0].approval === 'deny' || steps[0].approval === 'no-terminal');
+    const head = ended ? `${glyph} ${denied ? 'Not run' : label.failed}:` : `${glyph} ${live ? label.present : label.verb}`;
+    const subject = steps.length === 1
+      ? label.arg
+      : ended ? `${failedCount} of ${steps.length} ${plural(label.noun, steps.length)}` : `${steps.length} ${plural(label.noun, steps.length)}`;
     const room = this.opts.columns - visibleWidth(head) - 1;
     const shownSubject = this.cut(subject, room);
     const tail = shownSubject ? ` ${shownSubject}` : '';
@@ -466,14 +474,15 @@ export class Transcript {
         push(fit(`  ${g.branchEnd} `, s.preview));
       }
     } else {
-      steps.forEach((s, i) => push(fit(`  ${i === steps.length - 1 ? g.branchEnd : g.branch} `, s.label.arg, s.state === 'stopped' ? 'outcome unknown' : s.preview)));
+      steps.forEach((s, i) => push(fit(`  ${i === steps.length - 1 ? g.branchEnd : g.branch} `, s.label.arg,
+        s.state === 'stopped' ? 'outcome unknown' : s.state === 'failed' ? `failed${s.preview ? `: ${s.preview}` : ''}` : s.preview)));
     }
     return { lines, plain };
   }
 
   // ── NEEDS YOU ─────────────────────────────────────────────────────────────
   /** The box shows below the open step only while it waits; the answer is kept under the step. */
-  private needsYou(req: { tool: string; reason: string; summary: string; detail?: string }): void {
+  private needsYou(req: { tool: string; reason: string; summary: string; detail?: string; session?: false }): void {
     const group = this.group.length ? this.groupLines().lines : [];
     // The whole box stays on screen: the region holds rows minus one lines, and the step above it, a
     // blank and the box's six fixed rows come first; the code gets what is left (at least three rows).

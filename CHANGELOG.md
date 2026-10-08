@@ -27,14 +27,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   snapshots, screenshots or connections. A step whose result says it failed
   is shown and sealed as failed.
 - The workspace command never runs on this machine after a Daytona call
-  fails; without a Daytona key it says it runs here, and asks first.
+  fails; without a Daytona key it says it runs here. It asks every time,
+  wherever it runs: its box, and `get_env`'s, has no "allow for session".
+- When a connection breaks after a request was sent (Daytona, Trigger.dev,
+  the Durable Object pulse), the tool says the outcome is unknown and that
+  it may have run there, instead of "not run".
+- A failed step reads "Run failed", "Read failed" (or "Not run" when you
+  denied it), never "Ran".
 - `stress_test_endpoint` and the browser tools pass their arguments to the
-  program directly, never through a shell; screenshots go to Timmy's home
-  (`screenshots/`), never the Desktop.
-- `get_env` hides any variable whose name looks like it holds a secret.
+  program directly, never through a shell; a click takes only a snapshot
+  reference (like `@e3`). Screenshots go to Timmy's home (`screenshots/`),
+  never the Desktop.
+- `get_env` hides any variable whose name looks like it holds a secret
+  (including PASS, PWD, PAT, SALT and connection strings), and any value
+  that is one whatever its name: a password inside a URL, a private key, or
+  a common token shape.
 - One address for Timmy Canvas everywhere (`TIMMY_STUDIO_URL`, else
-  `TIMMY_STUDIO_PORT`, else 4337); a port held by another program is
-  reported, never taken for Timmy.
+  `TIMMY_STUDIO_PORT`, else 4337); a port held by another program, web
+  server or not, is reported, never taken for Timmy.
+- `timmy tools`: an API lane needs its key, not only `curl`; canvas tools are
+  reachable only when a canvas page answered; "used" dates count only turns
+  sealed since this round (receipts now carry `outcome_rule: 2`) in a chain
+  that verifies.
+- The receipt link after a turn is shown only when the canvas here serves
+  that receipt.
+- The lane list no longer shows memory or cost figures (nothing measured
+  them), and the feature-flag tool has no built-in app ID.
 
 ## [2.0.0-rc.2]
 

@@ -1,11 +1,13 @@
 /**
  * NEEDS YOU (plan C-7, playbook §17.8). A dangerous-only policy decides which tool calls wait for the
  * operator: read-only tools never ask; calls that send data or actions off the machine always ask;
- * workspace shell commands ask when they look destructive; unknown tools ask. The box offers
- * y (once), a (this session), n, Esc or Enter (deny, the default). Without a terminal: deny.
+ * every workspace shell command asks; unknown tools ask. The box offers y (once), a (this session),
+ * n, Esc or Enter (deny, the default); a shell command and get_env ask every time, so their box has
+ * no a. Without a terminal: deny.
  */
 import { emitKeypressEvents, type Key } from 'node:readline';
 import { sanitize } from '../term/sanitize.js';
+import { keySet } from '../utils/keys.js';
 import type { TerminalSession } from '../term/session.js';
 import { serialize, type Role, type Segment, type Theme } from '../term/theme.js';
 import { truncate, visibleWidth } from '../term/width.js';
@@ -21,6 +23,11 @@ export interface ApprovalRequest {
   summary: string;
   /** The whole code or command, cleaned, when one line cannot show it (LIVE-01, row 65). */
   detail?: string;
+  /**
+   * false: this tool asks every time, so the box offers no `a` (round R1 review). A command that runs
+   * on this machine, or a value read from your environment, is judged one call at a time.
+   */
+  session?: false;
 }
 
 const READ_ONLY = new Set([
@@ -30,14 +37,14 @@ const READ_ONLY = new Set([
   'canvas_read', 'canvas_api',
 ]);
 
-const ALWAYS: Record<string, { reason: string; keys: string[] }> = {
-  get_env: { reason: 'sends a value from your environment to the model', keys: ['name'] },
+const ALWAYS: Record<string, { reason: string; keys: string[]; session?: false }> = {
+  get_env: { reason: 'sends a value from your environment to the model', keys: ['name'], session: false },
   stress_test_endpoint: { reason: 'sends load to a remote endpoint', keys: ['url', 'endpoint'] },
   cloudflare_send_durable_pulse: { reason: 'writes to a remote service', keys: ['message', 'payload'] },
   trigger_background_workflow: { reason: 'starts work on a remote service', keys: ['workflow', 'name', 'job'] },
   manage_composio_integrations: { reason: 'changes your connected integrations', keys: ['action', 'app'] },
   browser_launch_cdp: { reason: 'opens a browser', keys: ['url'] },
-  browser_click_element: { reason: 'acts on a web page', keys: ['selector', 'ref'] },
+  browser_click_element: { reason: 'acts on a web page', keys: ['refId'] },
   list_card: { reason: 'posts a listing to a marketplace', keys: ['title', 'name'] },
   canvas_exec: { reason: 'runs code in the canvas page, which can reach the network', keys: ['code'] },
 };
@@ -64,17 +71,17 @@ function withDetail(args: Record<string, unknown>, keys: string[], need: { reaso
   return detail.includes('\n') || detail.length > DETAIL_OVER ? { ...need, detail } : need;
 }
 
-/** A Daytona key that is set and is not a template's placeholder (the tool's own test, in src/agent/tools.ts). */
-const daytonaKeySet = (env: Record<string, string | undefined>): boolean => {
-  const key = env.DAYTONA_API_KEY;
-  return Boolean(key) && !/paste_your|<your|^your[_-]/i.test(key ?? '');
-};
+/** A Daytona key that is set and is not a template's placeholder (the tool's own test). */
+const daytonaKeySet = (env: Record<string, string | undefined>): boolean => keySet(env.DAYTONA_API_KEY);
 
 /** Why this call must wait for the operator, or null when it may run. */
 export function approvalNeeded(tool: string, args: Record<string, unknown> = {}, env: Record<string, string | undefined> = process.env): Omit<ApprovalRequest, 'tool'> | null {
   if (READ_ONLY.has(tool)) return null;
   const always = ALWAYS[tool];
-  if (always) return withDetail(args, always.keys, { reason: always.reason, summary: summarize(args, always.keys) });
+  if (always) {
+    const need = withDetail(args, always.keys, { reason: always.reason, summary: summarize(args, always.keys) });
+    return always.session === false ? { ...need, session: false } : need;
+  }
   // Every workspace command asks: without a Daytona key it runs on this machine, and no pattern can
   // tell a safe command from a harmful one (review finding).
   const shell = SHELL[tool];
@@ -82,7 +89,8 @@ export function approvalNeeded(tool: string, args: Record<string, unknown> = {},
     const command = summarize(args, shell);
     // Round R1: the box says where it runs. Without a Daytona key the tool runs it on this machine.
     const where = daytonaKeySet(env) ? 'in Daytona' : 'on this machine';
-    return withDetail(args, shell, { reason: DESTRUCTIVE.test(command) ? `destructive shell command ${where}` : `runs a shell command ${where}`, summary: command });
+    // Each command is its own decision: `a` would let every later command run unseen (review finding).
+    return { ...withDetail(args, shell, { reason: DESTRUCTIVE.test(command) ? `destructive shell command ${where}` : `runs a shell command ${where}`, summary: command }), session: false };
   }
   return { reason: 'unknown tool', summary: summarize(args, []) };
 }
@@ -154,7 +162,7 @@ export function gateTools<T>(tools: readonly T[], ask: (req: ApprovalRequest) =>
         // Re-check after waiting: an earlier box may have allowed this tool for the session.
         const decision = await inTurn(async () => (allowed.has(name) ? 'session' : ask({ tool: name, ...need })));
         if (decision === 'deny') throw new Error(`The operator denied ${name}; it did not run.`);
-        if (decision === 'session') allowed.add(name);
+        if (decision === 'session' && need.session !== false) allowed.add(name);
       }
       return (execute as (a: unknown, c: unknown) => unknown)(args, ctx);
     };
@@ -191,7 +199,7 @@ export function renderApproval(req: ApprovalRequest, theme: Theme, columns: numb
   const key = (text: string, role?: Role): Segment => ({ text, role });
   const keys: Segment[] = [
     key('y', 'strong'), key(' allow once ', 'secondary'), key(g.sep, 'secondary'), key(' '),
-    key('a', 'strong'), key(' allow for session ', 'secondary'), key(g.sep, 'secondary'), key(' '),
+    ...(req.session === false ? [] : [key('a', 'strong'), key(' allow for session ', 'secondary'), key(g.sep, 'secondary'), key(' ')]),
     key('n, Esc, Enter', 'strong'), key(' deny', 'secondary'),
   ];
   return [
@@ -210,6 +218,8 @@ export interface DecisionOptions {
   now?: () => number;
   /** Keys in this window after the box appears are ignored, so type-ahead never answers. Ctrl+C still denies. */
   guardMs?: number;
+  /** false: `a` is not an answer here (the box did not offer it); the tool asks every time. */
+  session?: boolean;
 }
 
 export function readDecision(stdin: NodeJS.ReadStream, session: TerminalSession, opts: DecisionOptions = {}): Promise<Decision> {
@@ -230,7 +240,7 @@ export function readDecision(stdin: NodeJS.ReadStream, session: TerminalSession,
       if (!ctrlC && !pasted && now() - opened < guardMs) return;
       const decision: Decision | null = pasted || ctrlC
         ? 'deny'
-        : k === 'y' ? 'once' : k === 'a' ? 'session' : k === 'n' || k === 'escape' || k === 'return' || k === 'enter' ? 'deny' : null;
+        : k === 'y' ? 'once' : k === 'a' && opts.session !== false ? 'session' : k === 'n' || k === 'escape' || k === 'return' || k === 'enter' ? 'deny' : null;
       if (!decision) return;
       stdin.off('keypress', onKey);
       session.setRaw(wasRaw);

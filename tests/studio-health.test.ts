@@ -5,7 +5,7 @@
  * taken for Timmy.
  */
 import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { createServer as netServer, type AddressInfo } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -73,6 +73,26 @@ describe('studioHealth', () => {
     const port = portOf(probe);
     await new Promise<void>((done) => probe.close(() => done()));
     expect(await studioHealth(`http://127.0.0.1:${port}`)).toEqual({ state: 'not-running' });
+  });
+  it('other: a program that is not a web server, holding the port, is never "not running" (round R1 review)', async () => {
+    const sockets = new Set<import('node:net').Socket>();
+    const listen = async (onSocket: (s: import('node:net').Socket) => void): Promise<{ port: number; stop: () => Promise<void> }> => {
+      const srv = netServer((socket) => { sockets.add(socket); onSocket(socket); });
+      await new Promise<void>((done) => srv.listen(0, '127.0.0.1', () => done()));
+      return {
+        port: (srv.address() as AddressInfo).port,
+        stop: () => new Promise<void>((done) => { for (const s of sockets) s.destroy(); srv.close(() => done()); }),
+      };
+    };
+    const banner = await listen((socket) => socket.end('SSH-2.0-not-timmy\r\n'));
+    const reset = await listen((socket) => socket.resetAndDestroy());
+    try {
+      expect((await studioHealth(`http://127.0.0.1:${banner.port}`)).state).toBe('other');
+      expect((await studioHealth(`http://127.0.0.1:${reset.port}`)).state).toBe('other');
+    } finally {
+      await banner.stop();
+      await reset.stop();
+    }
   });
   it('other: something else answers on that port', async () => {
     const other = createServer((_req, res) => res.writeHead(200, { 'Content-Type': 'text/html' }).end('<h1>not timmy</h1>'));

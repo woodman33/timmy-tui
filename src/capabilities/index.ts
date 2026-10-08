@@ -12,6 +12,7 @@
  * completed in a turn. A past use is not a present check, so it never raises the rung.
  */
 import type { StudioHealth } from '../studio/health.js';
+import { keySet } from '../utils/keys.js';
 
 export type Kind = 'surface' | 'model' | 'tool' | 'harness' | 'adapter';
 export type Rung = 'reachable' | 'installed' | 'needs setup' | 'not built';
@@ -51,10 +52,14 @@ export interface ProbeDeps {
   model: string;
   /** A GET's status, or null when nothing answered in time. */
   http: (url: string, timeoutMs: number) => Promise<number | null>;
-  lanes: () => Array<{ id: string; label: string; available: boolean; install?: string }>;
+  /** The lanes; `key` names the environment variable an API lane needs (its command alone is not enough). */
+  lanes: () => Array<{ id: string; label: string; available: boolean; install?: string; key?: string }>;
   adapters: () => Array<{ id: string; name: string; installedAdapter: boolean }>;
   receipts: () => { ok: boolean; count: number; reason?: string };
-  /** Tool name → the last time it completed in a sealed turn. */
+  /**
+   * Tool name → the last time it completed in a sealed turn whose outcomes came from the tool's own
+   * answer (outcome rule 2), in a chain that verifies. Older receipts sealed every step completed.
+   */
   exercised: () => Map<string, string>;
   /** Whether the edge host (TIMMY_EDGE_HOST or the private overlay) is set; never the host. */
   edgeSet: () => boolean;
@@ -68,7 +73,6 @@ export const KIND_TITLES: Record<Kind, string> = {
   adapter: 'SPATIAL AND VISION ADAPTERS',
 };
 
-const keySet = (v: string | undefined): boolean => Boolean(v) && !/paste_your|<your|^your[_-]/i.test(v ?? '');
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
 
 type Row = Omit<CapabilityRow, 'exercised'>;
@@ -132,13 +136,16 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   // ── agent tools (what the REPL's agent can call; NEEDS YOU asks before the risky ones)
   add({ id: 'builtin', kind: 'tool', name: 'Built-in tools', rung: 'installed', detail: 'time, math, system, env (asks), spatial files', tools: ['get_current_time', 'calculate', 'get_system_info', 'get_env', 'read_spatial_model_context'] });
   const canvasTools = ['canvas_exec', 'canvas_read', 'canvas_api'];
-  add(studio.state === 'running' && studio.pageConnected !== false
-    ? { id: 'canvas-tools', kind: 'tool', name: 'Canvas tools', rung: 'reachable', detail: studio.pageConnected ? 'drawing on the open canvas page' : 'canvas running; page state unknown', tools: canvasTools }
-    : studio.state === 'running'
-      ? { id: 'canvas-tools', kind: 'tool', name: 'Canvas tools', rung: 'needs setup', detail: 'no canvas page open', setup: '/canvas open', tools: canvasTools }
-      : { id: 'canvas-tools', kind: 'tool', name: 'Canvas tools', rung: 'needs setup', detail: 'Timmy Canvas is not running', setup: '/canvas, then /canvas open', tools: canvasTools });
+  // Reachable only when a page answered: the tools draw in the page, not in the server (review finding).
+  add(studio.state === 'running' && studio.pageConnected === true
+    ? { id: 'canvas-tools', kind: 'tool', name: 'Canvas tools', rung: 'reachable', detail: 'drawing on the open canvas page', tools: canvasTools }
+    : studio.state === 'running' && studio.pageConnected === null
+      ? { id: 'canvas-tools', kind: 'tool', name: 'Canvas tools', rung: 'installed', detail: 'canvas running; an older Timmy Canvas cannot say if a page is open', tools: canvasTools }
+      : studio.state === 'running'
+        ? { id: 'canvas-tools', kind: 'tool', name: 'Canvas tools', rung: 'needs setup', detail: 'no canvas page open', setup: '/canvas open', tools: canvasTools }
+        : { id: 'canvas-tools', kind: 'tool', name: 'Canvas tools', rung: 'needs setup', detail: 'Timmy Canvas is not running', setup: '/canvas, then /canvas open', tools: canvasTools });
   add({ id: 'workspace', kind: 'tool', name: 'Workspace command', rung: 'installed', tools: ['run_in_daytona_workspace'],
-    detail: keySet(env.DAYTONA_API_KEY) ? 'runs in Daytona (asks first)' : 'runs on this machine (asks first)' });
+    detail: keySet(env.DAYTONA_API_KEY) ? 'runs in Daytona (asks each time)' : 'runs on this machine (asks each time)' });
   program('browser', 'tool', 'Browser (agent-browser)', 'agent-browser', 'drives a Chrome session', 'install agent-browser', ['browser_launch_cdp', 'browser_get_snapshot', 'browser_click_element', 'browser_take_screenshot']);
   program('stress', 'tool', 'Load test (oha)', 'oha', 'oha is on PATH (asks first)', 'brew install oha', ['stress_test_endpoint']);
   add(keySet(env.TRIGGER_SECRET_KEY)
@@ -166,14 +173,17 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   add(d.onPath('qwen') || d.onPath('qwen-code')
     ? { id: 'qwen-code', kind: 'harness', name: 'Qwen Code', rung: 'installed', detail: hand }
     : { id: 'qwen-code', kind: 'harness', name: 'Qwen Code', rung: 'needs setup', detail: 'qwen is not on PATH', setup: 'install Qwen Code' });
-  const lanes = d.lanes();
-  const ready = lanes.filter((l) => l.available).length;
+  // An API lane runs curl with its key: curl on PATH is not enough (review finding).
+  const lanes = d.lanes().map((l) => ({ ...l, keyMissing: Boolean(l.key) && !keySet(env[l.key!]) }));
+  const ready = lanes.filter((l) => l.available && !l.keyMissing).length;
   add({ id: 'lanes', kind: 'harness', name: 'Lanes (/lanes)', rung: ready ? 'installed' : 'needs setup', detail: `${ready} of ${lanes.length} installed`, ...(ready ? {} : { setup: '/lanes lists how to install each' }) });
   if (opts.all) {
     for (const l of lanes) {
-      add(l.available
-        ? { id: `lane:${l.id}`, kind: 'harness', name: `  ${l.label}`, rung: 'installed', detail: 'its command is on PATH' }
-        : { id: `lane:${l.id}`, kind: 'harness', name: `  ${l.label}`, rung: 'needs setup', detail: 'not on PATH', setup: l.install ?? 'see /lanes' });
+      add(!l.available
+        ? { id: `lane:${l.id}`, kind: 'harness', name: `  ${l.label}`, rung: 'needs setup', detail: 'not on PATH', setup: l.install ?? 'see /lanes' }
+        : l.keyMissing
+          ? { id: `lane:${l.id}`, kind: 'harness', name: `  ${l.label}`, rung: 'needs setup', detail: 'no key', setup: `set ${l.key}` }
+          : { id: `lane:${l.id}`, kind: 'harness', name: `  ${l.label}`, rung: 'installed', detail: l.key ? 'key set; not contacted' : 'its command is on PATH' });
     }
   }
   add(keySet(env.AGENTPASS_REPO_PATH) && d.exists(env.AGENTPASS_REPO_PATH!)

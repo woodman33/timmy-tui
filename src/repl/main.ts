@@ -194,7 +194,7 @@ export async function runRepl(argv: string[]): Promise<number> {
       }
       transcript.handle({ type: 'needs-you', ...req });
       approval.active = true;
-      const decision = await readDecision(process.stdin, session).finally(() => { approval.active = false; });
+      const decision = await readDecision(process.stdin, session, { session: req.session !== false }).finally(() => { approval.active = false; });
       transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision });
       return decision;
     }),
@@ -311,9 +311,12 @@ export async function runRepl(argv: string[]): Promise<number> {
     }
     if (sealed) {
       const url = receiptUrl(sealed.id);
-      rows.push(serving
+      // The link must open this receipt: a Timmy Canvas serving another Timmy home answers, but has no
+      // such page (round R1 review). One local request with a short timeout.
+      const served = serving && (await pageAnswers(url, 800));
+      rows.push(served
         ? { label: 'Receipt', text: url, url, hint: 'or timmy receipts' }
-        : { label: 'Receipt', text: 'timmy receipts', hint: started?.state === 'failed' ? `no receipt page: ${started.error}` : 'the receipt page is not served' });
+        : { label: 'Receipt', text: 'timmy receipts', hint: serving ? 'the canvas here does not serve this receipt' : started?.state === 'failed' ? `no receipt page: ${started.error}` : 'the receipt page is not served' });
     }
     return rows;
   };
@@ -324,7 +327,9 @@ export async function runRepl(argv: string[]): Promise<number> {
     const rel = relative(process.cwd(), store);
     const shownStore = rel && !rel.startsWith('..') ? rel : tildify(store);
     const sep = ` ${theme.glyphs.sep} `;
-    const canvasNow = h.state === 'running' ? `canvas ${base}/${h.pageConnected ? ' (page open)' : ''}` : 'canvas not running (/canvas)';
+    const canvasNow = h.state === 'running'
+      ? `canvas ${base}/${h.pageConnected ? ' (page open)' : ''}`
+      : h.state === 'other' ? `canvas port in use by another program (/canvas)` : 'canvas not running (/canvas)';
     return [{ text: `  ${tildify(process.cwd())}${sep}receipts ${shownStore}${sep}${canvasNow}`, role: 'secondary' }];
   };
   const setup = (): Segment[][] => setupCheck({
@@ -349,6 +354,17 @@ export async function runRepl(argv: string[]): Promise<number> {
       return { ...sealed, url: receiptUrl(sealed.id) };
     },
   });
+}
+
+/** Whether a GET of `url` answers 2xx within `timeoutMs` (a local page, so the wait is short). */
+async function pageAnswers(url: string, timeoutMs: number): Promise<boolean> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    await res.body?.cancel();
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 /** The operator named in identity.json, or null on a blank slate (or an unreadable file). */

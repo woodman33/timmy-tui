@@ -49,9 +49,14 @@ export async function studioHealth(baseUrl: string, timeoutMs = 1000): Promise<S
   try {
     res = await get('/api/canvas/health');
   } catch (error) {
-    const err = error as { name?: string; cause?: { code?: string } };
+    const err = error as { name?: string; cause?: { code?: string; errors?: Array<{ code?: string }> } };
     if (err?.name === 'TimeoutError' || err?.name === 'AbortError') return { state: 'other', detail: `something holds the port but did not answer within ${timeoutMs} ms` };
-    return { state: 'not-running' };
+    // Only a refused connection means nothing listens. A program that answers and hangs up, or speaks
+    // something other than HTTP, holds the port all the same (round R1 review).
+    const codes = [err?.cause?.code, ...(err?.cause?.errors ?? []).map((e) => e?.code)].filter((c): c is string => typeof c === 'string');
+    if (codes.length && codes.every((c) => c === 'ECONNREFUSED')) return { state: 'not-running' };
+    if (codes.includes('ENOTFOUND') || codes.includes('EAI_AGAIN')) return { state: 'other', detail: 'the address does not resolve' };
+    return { state: 'other', detail: `something holds the port but is not Timmy Canvas (${codes[0] ?? 'no HTTP answer'})` };
   }
   let body: unknown = null;
   try {

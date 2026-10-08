@@ -56,7 +56,22 @@ describe('tool steps', () => {
       { type: 'tool-start', id: '3', tool: 'shell', args: { command: 'npm test' } },
       { type: 'tool-end', id: '3', ok: false, preview: 'exit 1: 3 tests failed' },
     ]);
-    expect(text).toBe(['● Read 2 files', '  ├ package.json', '  └ src/cli.ts', '', '✖ Ran npm test', '  └ exit 1: 3 tests failed', ''].join('\n'));
+    // Round R1 review: a failed step's head says it failed in words, and never "Ran".
+    expect(text).toBe(['● Read 2 files', '  ├ package.json', '  └ src/cli.ts', '', '✖ Run failed: npm test', '  └ exit 1: 3 tests failed', ''].join('\n'));
+  });
+  it('says how many of a group failed, and marks each failed one, never "Ran" (round R1 review)', () => {
+    const text = render([
+      { type: 'tool-start', id: '1', tool: 'run_in_daytona_workspace', args: { command: 'git status' } },
+      { type: 'tool-end', id: '1', ok: true, preview: 'Ran in Daytona workspace (exit 0).' },
+      { type: 'tool-start', id: '2', tool: 'run_in_daytona_workspace', args: { command: 'git log' } },
+      { type: 'tool-end', id: '2', ok: false, preview: 'Not run: Daytona could not be reached. Nothing ran on this machine.' },
+    ], { columns: 100 });
+    expect(text).toBe([
+      '✖ Run failed: 1 of 2 workspace commands',
+      '  ├ git status  Ran in Daytona workspace (exit 0).',
+      '  └ git log  failed: Not run: Daytona could not be reached. Nothing ran on this machine.',
+      '',
+    ].join('\n'));
   });
   it('colors the marker and verb by risk: shell red, writes yellow, model or network violet', () => {
     const text = render([
@@ -188,7 +203,7 @@ describe('NEEDS YOU in the turn', () => {
     t.handle({ type: 'needs-you-answered', tool: 'run_in_daytona_workspace', decision: 'deny' });
     t.handle({ type: 'tool-end', id: 'c1', ok: false, preview: 'The operator denied run_in_daytona_workspace; it did not run.' });
     t.endTurn();
-    expect(out.text.replaceAll('\x1b[K', '')).toBe(['[FAIL] Ran rm -rf dist', '  | [FAIL] Denied by you', '  ` The operator denied run_in_daytona_workspace; it did ...', ''].join('\n'));
+    expect(out.text.replaceAll('\x1b[K', '')).toBe(['[FAIL] Not run: rm -rf dist', '  | [FAIL] Denied by you', '  ` The operator denied run_in_daytona_workspace; it did ...', ''].join('\n'));
     expect(out.text).not.toContain('NEEDS YOU');
   });
   it('fits the code it asks about to the terminal, and says how much it left out', () => {

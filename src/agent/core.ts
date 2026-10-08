@@ -321,14 +321,15 @@ export class Agent extends EventEmitter<AgentEvents> {
   // Unified active workspace VM thread logs relayed to Proof page: lines the panes actually printed.
   public relayedVmLogs: string[] = [];
 
-  // TMUX Cluster & Background Workspace Session Tracker
-  public tmuxSessions = [
-    { id: '1', name: 'OpenCode CLI', model: 'qwen/qwen-2.5-coder-32b', memory: '14.8 MB', cost: 0.0020 },
-    { id: '2', name: 'Hermes CLI', model: 'nousresearch/hermes-3-llama-3.1-405b', memory: '12.1 MB', cost: 0.0034 },
-    { id: '3', name: 'Pi Daemon', model: 'inflection/pi-3', memory: '22.4 MB', cost: 0.0015 },
-    { id: '4', name: 'Systems MCP', model: 'meta/llama-3.3', memory: '8.2 MB', cost: 0.0015 },
-    { id: '5', name: 'jcode', model: 'jcode/default', memory: '0.0 MB', cost: 0.0000 },
-    { id: '6', name: 'Minds CLI', model: 'animoca/builder', memory: '0.0 MB', cost: 0.0000 }
+  // TMUX Cluster & Background Workspace Session Tracker. Round R1 review: no memory or cost figures;
+  // nothing measured them (the old fixed and random numbers were invented, AGENTS.md §4).
+  public tmuxSessions: Array<{ id: string; name: string; model: string }> = [
+    { id: '1', name: 'OpenCode CLI', model: 'qwen/qwen-2.5-coder-32b' },
+    { id: '2', name: 'Hermes CLI', model: 'nousresearch/hermes-3-llama-3.1-405b' },
+    { id: '3', name: 'Pi Daemon', model: 'inflection/pi-3' },
+    { id: '4', name: 'Systems MCP', model: 'meta/llama-3.3' },
+    { id: '5', name: 'jcode', model: 'jcode/default' },
+    { id: '6', name: 'Minds CLI', model: 'animoca/builder' }
   ];
   public showTmuxDropdown = false;
 
@@ -406,13 +407,7 @@ export class Agent extends EventEmitter<AgentEvents> {
 
   addTmuxSession(name: string, model: string): void {
     const id = (this.tmuxSessions.length + 1).toString();
-    this.tmuxSessions.push({
-      id,
-      name,
-      model,
-      memory: `${(Math.random() * 20 + 10).toFixed(1)} MB`,
-      cost: 0.0000
-    });
+    this.tmuxSessions.push({ id, name, model });
     this.tmuxMgr.spawnSession(id);
     if (this.logsEnabled !== false) tuiLogger.info(`[lane.spawned] ${JSON.stringify({ id, name, model })}`);
     this.emit('tmux:update');
@@ -425,13 +420,7 @@ export class Agent extends EventEmitter<AgentEvents> {
    */
   addBrowserPane(url: string = 'https://localhost:3001'): void {
     const id = (this.tmuxSessions.length + 1).toString();
-    this.tmuxSessions.push({
-      id,
-      name: `Browser: ${url}`,
-      model: 'carbonyl/chromium-109',
-      memory: '0.0 MB',
-      cost: 0.0000
-    });
+    this.tmuxSessions.push({ id, name: `Browser: ${url}`, model: 'carbonyl/chromium-109' });
     this.tmuxMgr.spawnSession(id);
     this.tmuxMgr.sendCommand(id, `if command -v carbonyl >/dev/null 2>&1; then carbonyl "${url}"; else printf '\\033[31m[Browser]\\033[0m carbonyl not found on PATH. Install from https://github.com/fathyb/carbonyl\\n'; fi`, true);
     if (this.logsEnabled !== false) tuiLogger.info(`[browser.spawned] ${JSON.stringify({ id, url })}`);

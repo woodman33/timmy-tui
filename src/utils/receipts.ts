@@ -60,6 +60,9 @@ export interface Receipt {
   // turn ended, so it may have run in part or in full). A cancelled turn also says where the cancel
   // came and that nothing was rolled back: a cancel stops what is left, it never undoes.
   tool_outcomes?: { name: string; outcome: 'completed' | 'failed' | 'unknown' }[];
+  // How those outcomes were decided (src/repl/seal.ts OUTCOME_RULE): 2 = the tool's own answer decides.
+  // Absent on turns sealed before round R1, which sealed every finished step completed.
+  outcome_rule?: number;
   cancelled_at?: 'before-tools' | 'during-tool' | 'after-tools';
   rollback?: 'none';
   error_class?: string; // exec|missing_source|schema|env|replay_drift|http_4xx|http_5xx|network|approval|unresolved_model|no_key|…

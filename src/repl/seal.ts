@@ -47,6 +47,13 @@ export interface SealedTurn {
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex');
 
+/**
+ * How this REPL decides a tool step's outcome, sealed into each turn as `outcome_rule`. 2 (round R1):
+ * the tool's own answer decides, so success:false, ok:false or an error is sealed failed. Turns with no
+ * rule were sealed before R1, when every finished step was sealed completed, mock answers included.
+ */
+export const OUTCOME_RULE = 2;
+
 export function sealTurn(
   facts: TurnFacts & { model: string },
   dir?: string,
@@ -58,7 +65,7 @@ export function sealTurn(
     subject: `repl · ${cancelled ? 'cancelled · ' : ''}${facts.steps} ${facts.steps === 1 ? 'step' : 'steps'}`,
     policy: 'human-gated',
     status: facts.status,
-    ...(facts.tools?.length ? { tool_outcomes: facts.tools.map((t) => ({ name: t.tool, outcome: t.outcome })) } : {}),
+    ...(facts.tools?.length ? { tool_outcomes: facts.tools.map((t) => ({ name: t.tool, outcome: t.outcome })), outcome_rule: OUTCOME_RULE } : {}),
     // Third order, checkpoint 1: a cancel stops what is left; it never undoes what already ran.
     ...(cancelled ? { cancelled_at: facts.cancelledAt ?? 'before-tools', rollback: 'none' as const } : {}),
     ...(facts.canvas?.length ? { sources: facts.canvas.map((c) => ({ kind: 'timmy-canvas', job: c.job, revision: c.revision, source_revision: c.sourceRevision })) } : {}),

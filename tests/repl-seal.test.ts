@@ -106,6 +106,9 @@ describe('sealTurn for a cancelled turn', () => {
       subject: 'repl · cancelled · 2 steps',
       verified: true,
     });
+    // Round R1 review: the receipt says its outcomes came from each tool's own answer (rule 2), so a
+    // reader can tell them from older receipts, which sealed every finished step completed.
+    expect(r.outcome_rule).toBe(2);
   });
 });
 

@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { capabilities, type CapabilityRow, type ProbeDeps } from '../src/capabilities/index.js';
 import { capabilityLines, capabilityJson } from '../src/capabilities/render.js';
-import { openRouterProbe } from '../src/capabilities/live.js';
+import { exercisedTools, openRouterProbe } from '../src/capabilities/live.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import { replTools } from '../src/repl/main.js';
 
@@ -89,10 +89,36 @@ describe('the ladder, from the checks', () => {
     expect(r['canvas-tools'].exercised).toBe('2026-10-08T21:04:00Z');
     expect(r.trigger.exercised).toBeUndefined();
   });
+  it('an API lane needs its key, not only curl on PATH (round R1 review)', async () => {
+    const lanes = () => [{ id: 'retool', label: 'Retool', available: true, key: 'RETOOL_API_KEY' }, { id: 'pi', label: 'pi', available: true }];
+    const without = await capabilities({ ...all, lanes }, { all: true });
+    expect(byId(without).lanes).toMatchObject({ rung: 'installed', detail: '1 of 2 installed' });
+    expect(byId(without)['lane:retool']).toMatchObject({ rung: 'needs setup', detail: 'no key', setup: 'set RETOOL_API_KEY' });
+    const withKey = byId(await capabilities({ ...all, env: { ...all.env, RETOOL_API_KEY: 'rt_synthetic' }, lanes }, { all: true }));
+    expect(withKey['lane:retool']).toMatchObject({ rung: 'installed', detail: 'key set; not contacted' });
+    expect(withKey.lanes.detail).toBe('2 of 2 installed');
+  });
+  it('canvas tools are reachable only when a page answered; an older canvas that cannot say is installed', async () => {
+    const r = byId(await capabilities({ ...all, studio: async () => ({ state: 'running', pageConnected: null, built: null, revision: null, jobs: 0, latestJob: null, tldrawVersion: null }) }));
+    expect(r['canvas-tools']).toMatchObject({ rung: 'installed', detail: expect.stringContaining('cannot say') });
+  });
+  it('a workspace command asks each time: the row says so', async () => {
+    expect(byId(await capabilities(none)).workspace.detail).toBe('runs on this machine (asks each time)');
+  });
   it('/tools all lists each lane and each adapter', async () => {
     const rows = await capabilities(all, { all: true });
     expect(rows.map((r) => r.id)).toEqual(expect.arrayContaining(['lane:pi', 'lane:hermes', 'adapter:viser']));
     expect(byId(rows)['lane:hermes'].rung).toBe('needs setup');
+  });
+});
+
+describe('when a tool was last used', () => {
+  it('counts only turns sealed under outcome rule 2: older receipts sealed every step completed (round R1 review)', () => {
+    const chain = [
+      { kind: 'turn', ts: '2026-10-05T10:00:00Z', tool_outcomes: [{ name: 'trigger_background_workflow', outcome: 'completed' }] },
+      { kind: 'turn', ts: '2026-10-08T21:00:00Z', outcome_rule: 2, tool_outcomes: [{ name: 'canvas_exec', outcome: 'completed' }, { name: 'get_env', outcome: 'failed' }] },
+    ];
+    expect([...exercisedTools(chain)]).toEqual([['canvas_exec', '2026-10-08T21:00:00Z']]);
   });
 });
 
