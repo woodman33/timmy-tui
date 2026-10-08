@@ -96,5 +96,6 @@ jobs:
             ${{ runner.temp }}/replay-02/replay.json
             ${{ runner.temp }}/replay-02/replay.log
             ${{ runner.temp }}/replay-02/setup.log
+            ${{ runner.temp }}/replay-02/q/evidence/*.log
           if-no-files-found: warn
           retention-days: 90

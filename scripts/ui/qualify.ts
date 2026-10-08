@@ -963,8 +963,11 @@ const CHECKS: Check[] = [
     const r = spawnSync(join(REPO, 'node_modules/.bin/vitest'), ['run', ...files], { cwd: REPO, encoding: 'utf8', timeout: 600_000 });
     const log = (r.stdout ?? '') + (r.stderr ?? '');
     writeFileSync(join(EVID, 'suite.log'), log);
-    must(r.status === 0, `vitest exit ${r.status}: ${log.split('\n').filter((l) => /Test Files|Tests /.test(l)).join(' / ')}`);
-    return log.split('\n').filter((l) => /Test Files|Tests /.test(l)).map((l) => l.replace(/\x1b\[[0-9;]*m/g, '').trim()).join('; ');
+    const plain = log.replace(/\x1b\[[0-9;]*m/g, '').split('\n');
+    // A failure names its tests (no paths), so a run elsewhere says what failed without its log.
+    const failed = [...new Set(plain.filter((l) => /^\s*FAIL\s+tests\//.test(l)).map((l) => l.trim().replace(/^FAIL\s+/, '')))].slice(0, 5);
+    must(r.status === 0, `vitest exit ${r.status}: ${plain.filter((l) => /Test Files|Tests /.test(l)).map((l) => l.trim()).join(' / ')}${failed.length ? `; failed: ${failed.join(' | ')}` : ''}`);
+    return plain.filter((l) => /Test Files|Tests /.test(l)).map((l) => l.trim()).join('; ');
   } },
   { id: 'SUITE-02', ref: 'dev', line: 'Types: tsc and tsgo report 0 errors; privacy gate 0 gated', run: async () => {
     const tsc = spawnSync(join(REPO, 'node_modules/.bin/tsc'), ['--noEmit', '-p', '.'], { cwd: REPO, encoding: 'utf8', timeout: 600_000 });
