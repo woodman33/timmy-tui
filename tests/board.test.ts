@@ -1,5 +1,6 @@
 // The project reference board (round R2): a read-only HTML snapshot of the active project whose cards
 // link to the real files (relative links) and show the Timmy command that acts on each.
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -7,9 +8,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { folderProject } from '../src/project/index.js';
 import { renderBoard, readObservationRecord, type BoardInput } from '../src/repl/board.js';
 import { COMMANDS } from '../src/repl/commands.js';
-import { Workspace } from '../src/repl/workspace.js';
+import { Workspace, type WorkspaceDeps } from '../src/repl/workspace.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import type { Receipt, ReceiptInput } from '../src/utils/receipts.js';
+import { resetLookChecks } from '../src/vision/look.js';
 
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 7)]);
 const SHA = 'ab'.repeat(32);
@@ -20,6 +22,7 @@ const put = (root: string, rel: string, body: string | Buffer): void => { mkdirS
 const text = (lines: { text: string }[][]): string => lines.map((l) => l.map((s) => s.text).join('')).join('\n');
 const section = (html: string, cls: string): string[] => [...html.matchAll(new RegExp(`<section class="${cls}"[^>]*>([\\s\\S]*?)</section>`, 'g'))].map((m) => m[1]);
 afterEach(async () => {
+  resetLookChecks();
   for (const w of spaces.splice(0)) await w.close();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
@@ -195,7 +198,7 @@ describe('readObservationRecord', () => {
   });
 });
 
-function make(root: string) {
+function make(root: string, extra: Partial<WorkspaceDeps> = {}) {
   const notes: string[] = [];
   const opened: string[] = [];
   const sealed: ReceiptInput[] = [];
@@ -210,6 +213,7 @@ function make(root: string) {
     jobsDir: join(temp('jobs-'), 'jobs'),
     chdir: () => {},
     receipts: () => sealed.map((r, i) => ({ ...r, hash: `sha256:${String(i).padStart(8, '0')}rest` })) as unknown as Receipt[],
+    ...extra,
   }, folderProject(root));
   spaces.push(ws);
   return { ws, notes, opened, sealed };
@@ -271,5 +275,51 @@ describe('/board in the workspace', () => {
     const board = COMMANDS.find((c) => c.name === 'board');
     expect(board?.group).toBe('look');
     expect(`  /${'board'.padEnd(11)} ${board?.description}`.length).toBeLessThanOrEqual(60);
+  });
+});
+
+const python = spawnSync('python3', ['-c', 'import cv2, numpy'], { encoding: 'utf8' }).status === 0 ? 'python3' : null;
+
+describe.skipIf(!python)('/board after a real /observe (OpenCV is importable here)', () => {
+  it('shows what the real Look worker measured, in plain words, under its label', async () => {
+    const root = temp('proj-');
+    const out = temp('outside-');
+    const gen = [
+      'import cv2, numpy as np, sys',
+      'img = np.full((400, 600, 3), 255, np.uint8)',
+      "qr = cv2.QRCodeEncoder.create().encode('timmy-board-test')",
+      'qr = cv2.resize(qr, (qr.shape[1] * 6, qr.shape[0] * 6), interpolation=cv2.INTER_NEAREST)',
+      'qr = cv2.cvtColor(qr, cv2.COLOR_GRAY2BGR) if qr.ndim == 2 else qr',
+      'h, w = qr.shape[:2]',
+      'img[20:20 + h, 20:20 + w] = qr',
+      "if hasattr(cv2, 'aruco'):",
+      '    m = cv2.aruco.generateImageMarker(cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50), 7, 160)',
+      '    img[60:220, 400:560] = cv2.cvtColor(m, cv2.COLOR_GRAY2BGR)',
+      'cv2.imwrite(sys.argv[1], img)',
+    ].join('\n');
+    expect(spawnSync(python!, ['-c', gen, join(out, 'card.png')], { encoding: 'utf8' }).status).toBe(0);
+    const which = spawnSync('sh', ['-c', 'command -v python3'], { encoding: 'utf8' }).stdout.trim() || null;
+    const { ws, opened } = make(root, { onPath: (c) => (c === 'python3' ? which : null) });
+    expect(text(ws.add(join(out, 'card.png')))).toMatch(/refs\/card\.png\s+image/);
+    const started = await ws.observeFile('refs/card.png');
+    if (!started.ok) throw new Error(started.error);
+    const outcome = await started.done;
+    if (!outcome.ok) throw new Error(outcome.error);
+
+    expect(text(ws.board(''))).toMatch(/Observations 1/);
+    expect(opened).toHaveLength(1);
+    const html = readFileSync(join(root, '.timmy/board/index.html'), 'utf8');
+    const measured = section(html, 'measured');
+    expect(measured).toHaveLength(1);
+    expect(measured[0]).toContain('600 × 400 px, 3 channels');
+    expect(measured[0]).toContain('timmy-board-test');
+    expect(measured[0]).toMatch(/<span class="swatch" style="background:#ffffff"><\/span>#ffffff \d+(\.\d+)?%/);
+    expect(measured[0]).toMatch(/Sharpness<\/dt><dd>\d/);
+    expect(measured[0]).toMatch(/Edge density<\/dt><dd>\d+(\.\d+)?% of pixels/);
+    if (!measured[0].includes('ArUco marker ids</dt><dd>not measured')) expect(measured[0]).toContain('ArUco marker ids</dt><dd>7</dd>');
+    // No question was asked: no model claim, and none is invented.
+    expect(section(html, 'claim')).toEqual([]);
+    expect(html).toContain(`data-cmd="/open ${outcome.file}"`);
+    for (const p of new Set([root, realpathSync(root), out, tmpdir(), homedir()])) expect(html).not.toContain(p);
   });
 });
