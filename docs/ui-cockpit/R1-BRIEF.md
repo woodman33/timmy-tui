@@ -1,6 +1,6 @@
 # Round R1: shared brief for the lead and the two workers
 
-Updated 2026-10-08 16:46 PT by the lead (Opus). After the first hand-off, the Haiku worker keeps this file current; anyone may add a line under "For the lead".
+Updated 2026-10-08 20:10 PT by the lead (Opus). The Haiku worker's thread stalled before its first hand-off, so the lead keeps this file current; anyone may add a line under "For the lead".
 
 ## Where the work is
 
@@ -27,6 +27,9 @@ A functional, organized Timmy whose capabilities are easy to find and use: the R
 | `af536cb` | `canvas_exec` carries a drawing that works in this tldraw (tested in a real browser); a turn that ends at its step or spend limit with a call open says so; `~/…` for a home reached through a link. |
 
 | `8db45cd` | Merged PR #95 (Sonnet): the demo label, zellij Timmy Homebrew, the Canvas and Receipt words on the panel and receipt page, Monaspace Argon review pictures, and the B9 monitor proposal (ledger row 120). |
+| `1bd8f6b` | The monitor only reads when it opens (no `model.policy` seal, no policy write) and its header names the model the REPL last ran; `listLanes()` needs an API lane's key and hyperframes' own command; CI runs its full gate on pull requests into `feat/**` (ledger row 121). |
+
+Checks at `1bd8f6b`: GitHub's full CI gate passed on PR #94 (the first full run for R1: `tsc`, `tsgo`, vitest except the named known-WIP, `workers/ai-proxy`, the PTY keyboard test); locally, shell suites 111 tests and lane suites 52 tests passed.
 
 Checks at `8db45cd`: full suite 261 files passed, 7 skipped, 0 failed (2,322 tests, with `NODE_PATH` unset); `tsc` and `tsgo` clean. The real workflow ran on the operator's Mac three times (ledger row 119): the last run drew the task in one call for $0.012.
 
@@ -82,7 +85,11 @@ Never touch: `studio/` (another hand's lab), `lanes/visual/tokens.json` (the vis
 
 ## Open items and blockers
 
-- Done: the Mac run and captures (ledger row 119). The monitor seals a `model.policy` receipt when it opens, and its header names the policy's model rather than the REPL's: both predate R1, and both are open.
+- Done: the Mac run and captures (ledger row 119); the monitor's `model.policy` seal on open and its header model (fixed in `1bd8f6b`).
+- Haiku's assignments, finished by the lead: item 2 (lanes) is in `1bd8f6b`; item 4's CI is green. Item 1 was checked by an internal helper against each tool's own docs from a clean clone at `4a1aec8`: the steps for agent-browser, Ollama, Claude Code, Codex and Qwen Code need correcting and carbonyl has none. Those corrections and item 3 (`docs/TOOLS-SETUP.md`, drafted) are the next increment.
+- Composio: the tool calls a Composio API version that Composio has removed, so a set key shows "installed" while every call fails. A defect, open; its fix is a separate decision.
+- `timmy tools` does not load the working folder's `.env`, while the REPL's `/tools` does, so a key kept only in `.env` reads differently in the two (found by reading the imports, not yet run).
+- Signatures: GitHub reports `unknown_key` for `8db45cd`, `4a1aec8` and `1bd8f6b` (ledger row 121). The commits stay as pushed, by the owner's instruction.
 - The jobs ledger records a call only once the canvas has been saved, so a call that fails before the first save is not counted in a job's failed calls.
 - AgentPass and TaskForge: their services live outside this repository, and `timmy tools` shows them as needs setup. The spatial roadmap stays in its own records (COMMAND-CENTER-PLAN's next milestone and the private register). Neither is part of R1.
 - In a workspace with `NODE_PATH` set, `tests/recipe-package` and `tests/inspect-package` resolve `tsx` globally and fail. Run the suite with `env -u NODE_PATH`.
