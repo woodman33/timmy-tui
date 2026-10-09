@@ -1,6 +1,6 @@
 # Round R1: shared brief for the lead and the two workers
 
-Updated 2026-10-08 20:10 PT by the lead (Opus). The Haiku worker's thread stalled before its first hand-off, so the lead keeps this file current; anyone may add a line under "For the lead".
+Updated 2026-10-08 23:45 PT by the lead (Opus). The Haiku worker's thread stalled before its first hand-off, so the lead keeps this file current; anyone may add a line under "For the lead".
 
 ## Where the work is
 
@@ -28,6 +28,13 @@ A functional, organized Timmy whose capabilities are easy to find and use: the R
 
 | `8db45cd` | Merged PR #95 (Sonnet): the demo label, zellij Timmy Homebrew, the Canvas and Receipt words on the panel and receipt page, Monaspace Argon review pictures, and the B9 monitor proposal (ledger row 120). |
 | `1bd8f6b` | The monitor only reads when it opens (no `model.policy` seal, no policy write) and its header names the model the REPL last ran; `listLanes()` needs an API lane's key and hyperframes' own command; CI runs its full gate on pull requests into `feat/**` (ledger row 121). |
+| `0c58025`, `c00374b` | Setup steps checked against each tool's own docs and corrected; `docs/TOOLS-SETUP.md` (ledger row 122). |
+| `4a012c1` to `b5f5f05` | One connected workspace in the REPL: `/project`, `/files`, `/open`, `/edit`, `/workflows` and `/run` (upmd, as background jobs with a sealed prediction), `/preview`, `/jobs`, `/stop`, `/results`; jobs in their own process groups; receipts name the project and the files a turn wrote (ledger row 123). |
+| `c747545` | A turn that throws says why; each project keeps its own conversation (a defect the Mac demo found, row 124). |
+| `108f7b6` | The workspace command runs with a time limit in its own process group; the remaining workspace connections recorded in COMMAND-CENTER-PLAN (row 124). |
+| `b1ede23` | The six findings of the independent review at `c7475458`: links to private files, redirected writes, jobs that outlive their first process, `/stop`'s ownership and wording, the preview server's read errors, Results by project identity (row 125). |
+
+Checks at `b1ede23`: GitHub's CI and both privacy gates passed; locally the full suite three times, 268 files passed and 7 skipped (2,388 tests), each run with 3 vitest worker RPC timeouts that are not test failures (row 125); `tsc` and `tsgo` clean. The workspace ran end to end on the operator's Mac at `b1ede23` (row 125).
 
 Checks at `1bd8f6b`: GitHub's full CI gate passed on PR #94 (the first full run for R1: `tsc`, `tsgo`, vitest except the named known-WIP, `workers/ai-proxy`, the PTY keyboard test); locally, shell suites 111 tests and lane suites 52 tests passed.
 
@@ -92,6 +99,7 @@ Never touch: `studio/` (another hand's lab), `lanes/visual/tokens.json` (the vis
 - Signatures: GitHub reports `unknown_key` for `8db45cd`, `4a1aec8` and `1bd8f6b` (ledger row 121). The commits stay as pushed, by the owner's instruction.
 - The jobs ledger records a call only once the canvas has been saved, so a call that fails before the first save is not counted in a job's failed calls.
 - AgentPass and TaskForge: their services live outside this repository, and `timmy tools` shows them as needs setup. The spatial roadmap stays in its own records (COMMAND-CENTER-PLAN's next milestone and the private register). Neither is part of R1.
+- Workspace (R1, 2026-10-08): what is connected and what is not, with the next bounded pass, is in COMMAND-CENTER-PLAN's "Workspace connections" section. Receipts sealed before `project_id` existed are not shown in `/results`.
 - In a workspace with `NODE_PATH` set, `tests/recipe-package` and `tests/inspect-package` resolve `tsx` globally and fail. Run the suite with `env -u NODE_PATH`.
 
 ## For the lead
