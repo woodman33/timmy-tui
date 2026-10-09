@@ -7,6 +7,7 @@
  * Everything here runs against TEST DOUBLES (tests/fixtures/fake-c4dpy.mjs, fake-aerender.mjs): no
  * Cinema 4D or After Effects runs, so a pass says the judgement rules hold, not that either app was driven.
  */
+import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -170,9 +171,18 @@ describe('finding 5c: aerender is judged by outputs this run wrote', () => {
     expect(verdict.outcome).toBe('ok');
   });
 
-  it('a second run on the same output while the first is unjudged is refused', () => {
-    ae('ok');
-    expect(() => ae('ok')).toThrow(/another run/);
+  it('a second run on the same output while the first is running and unjudged is refused', () => {
+    const first = ae('ok');
+    expect(() => ae('ok')).not.toThrow(); // made, never started: it writes nothing and blocks nothing
+    noteNativeStarted(first, { id: 'j000001', startedAt: new Date().toISOString(), pid: process.pid } as JobRecord);
+    expect(() => ae('ok')).toThrow(/another run .* is writing out\/title\.mov/);
+  });
+
+  it('a run whose process is gone (stopped, crashed) does not block its output', () => {
+    const first = ae('ok');
+    const gone = spawnSync(process.execPath, ['-e', '']).pid;
+    noteNativeStarted(first, { id: 'j000002', startedAt: new Date().toISOString(), pid: gone } as JobRecord);
+    expect(() => ae('ok')).not.toThrow();
   });
 
   it('a sequence needs every frame of the range it was given, each written by this run', async () => {
@@ -277,6 +287,14 @@ describe('finding 5d: a retained record per run, judged again after a restart', 
   it('reconcileNative refuses a run token that is not a run of this project', () => {
     expect(() => reconcileNative(root, '../../etc')).toThrow(/run/);
     expect(() => reconcileNative(root, '00000000-0000-4000-8000-000000000000')).toThrow(/no record/);
+  });
+
+  it('reconcileNative refuses a record edited to name a file outside the project', () => {
+    const s = c4d('ok-exit-1');
+    const at = path.join(root, '.timmy', 'native', s.native.run, 'job.json');
+    const job = JSON.parse(readFileSync(at, 'utf8'));
+    writeFileSync(at, JSON.stringify({ ...job, result: '../../outside.json' }));
+    expect(() => reconcileNative(root, s.native.run)).toThrow(/does not lead inside the project/);
   });
 });
 

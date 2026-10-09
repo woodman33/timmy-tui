@@ -448,8 +448,9 @@ export function readNativeRecord(root: string, run: string): { dir: string; job:
   const base = realRoot(root);
   const dir = runDir(base, run);
   const job = readJson(path.join(dir, 'job.json')) as NativeRunJob | undefined;
-  if (!job || job.record !== 'timmy-native-run' || job.run !== run || !(job.app in NATIVE_APPS)) return undefined;
-  const result = job.result ? readNativeResult(path.join(base, job.result)) : { state: 'missing' as const };
+  if (!job || job.record !== 'timmy-native-run' || job.run !== run || !Object.hasOwn(NATIVE_APPS, job.app)) return undefined;
+  const resultAt = job.result ? resolveInside(base, job.result) : undefined;
+  const result: NativeResultRead = !resultAt ? { state: 'missing' } : 'error' in resultAt ? { state: 'unreadable', error: resultAt.error } : readNativeResult(resultAt.path);
   const started = readJson(path.join(dir, 'started.json')) as NativeRunStart | undefined;
   return { dir, job, ...(started && typeof started.job === 'string' ? { started } : {}), verdicts: readVerdicts(dir), result };
 }
@@ -467,20 +468,30 @@ export function listNativeRuns(root: string): Array<{ app: NativeApp; run: strin
   return runs.sort((a, b) => b.started_at.localeCompare(a.started_at));
 }
 
+const pidAlive = (pid: unknown): boolean => {
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1) return false;
+  try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; }
+};
+
 /**
- * Refuses an output another run of this project will write and has not been judged yet, while its time
- * limit has not passed (aerender writes no result file, so two runs on one output cannot be told apart).
+ * Refuses an output another run of this project is writing: a run that started (its started.json), is not
+ * judged yet, whose process is still there (or whose pid is unknown) and whose time limit has not passed.
+ * aerender writes no result file, so two runs on one output could not be told apart. A run that never
+ * started, or whose process is gone (stopped, crashed), does not block.
  */
 function refuseBusy(root: string, names: string[], now: number): void {
   for (const r of listNativeRuns(root)) {
     if (r.verdicts.length) continue;
     const rec = readNativeRecord(root, r.run);
-    if (!rec) continue;
+    if (!rec?.started) continue;
+    if (rec.started.pid !== undefined && !pidAlive(rec.started.pid)) continue;
     const until = Date.parse(rec.job.started_at) + rec.job.timeout_ms + 60_000;
     if (!(until > now)) continue;
     const theirs = new Set([...(rec.job.expect ?? []), ...(rec.job.output ? [rec.job.output] : [])]);
     const clash = names.find((n) => theirs.has(n));
-    if (clash) throw new Error(`another run (${r.run.slice(0, 8)}, started ${rec.job.started_at}) writes ${clash} and has not been judged yet: wait for it, or write to another file`);
+    if (clash) {
+      throw new Error(`another run (${r.run.slice(0, 8)}, job ${rec.started.job}, started ${rec.job.started_at}) is writing ${clash} and has not been judged yet; its time limit ends ${new Date(until).toISOString()}: wait for it, stop it, or write to another file`);
+    }
   }
 }
 
@@ -1018,9 +1029,18 @@ export function reconcileNative(root: string, run: string, opts: { job?: JobReco
   const base = realRoot(root);
   const j = rec.job;
   const started = Date.parse(j.started_at);
+  // A record is a file in the project: every name in it must still lead inside the project.
+  const within = (rel: string): string => {
+    const at = resolveInside(base, rel);
+    if ('error' in at) throw new Error(`the record of run ${run} names ${rel}, which does not lead inside the project: ${at.error}`);
+    return at.path;
+  };
+  const expect = Array.isArray(j.expect) ? j.expect.filter((n): n is string => typeof n === 'string') : [];
+  for (const name of expect) within(name);
+  if (j.input) within(j.input.path);
   const meta: NativeMeta = {
-    app: j.app, root: base, run, record: rec.dir, expect: j.expect ?? [], pre: j.pre ?? {}, submittedMs: started,
-    ...(j.result ? { result: path.join(base, j.result) } : {}), ...(j.output ? { output: path.join(base, j.output) } : {}),
+    app: j.app, root: base, run, record: rec.dir, expect, pre: j.pre ?? {}, submittedMs: started,
+    ...(j.result ? { result: within(j.result) } : {}), ...(j.output ? { output: within(j.output) } : {}),
     ...(j.input ? { input: j.input } : {}), ...(j.frames ? { frames: j.frames } : {}),
   };
   const job = opts.job ?? (rec.started && opts.findJob ? opts.findJob(rec.started.job) : undefined);
