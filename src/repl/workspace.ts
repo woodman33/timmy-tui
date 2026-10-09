@@ -270,7 +270,7 @@ export class Workspace {
    * observation is written and sealed, or once it is known why there is none. With a question and a
    * current model that takes images, the model's interpretation is added (it spends: the operator asked).
    */
-  async observeFile(relArg: string, question?: string): Promise<{ ok: true; job: JobRecord; done: Promise<ObserveOutcome> } | { ok: false; error: string }> {
+  async observeFile(relArg: string, question?: string, model?: string): Promise<{ ok: true; job: JobRecord; done: Promise<ObserveOutcome> } | { ok: false; error: string }> {
     const at = resolveInside(this.root, relArg.trim());
     if ('error' in at) return { ok: false, error: at.error };
     try { if (!statSync(at.path).isFile()) return { ok: false, error: `${at.rel} is not a file` }; } catch { return { ok: false, error: `${at.rel} does not exist` }; }
@@ -286,7 +286,7 @@ export class Workspace {
     this.mine.add(job.id);
     this.looks.add(job.id);
     const q = question?.trim() || undefined;
-    const done = this.jobs.done(job.id).then((j) => this.observed(j, { root, project, imagePath: at.path, source, question: q }))
+    const done = this.jobs.done(job.id).then((j) => this.observed(j, { root, project, imagePath: at.path, source, question: q, ...(model ? { model } : {}) }))
       .catch((err: unknown): ObserveOutcome => ({ ok: false, error: `the observation could not be finished (${err instanceof Error ? err.message : 'error'})` }));
     return { ok: true, job, done };
   }
@@ -308,7 +308,7 @@ export class Workspace {
     ];
   }
 
-  private async observed(j: JobRecord, o: { root: string; project: string; imagePath: string; source: { path: string; sha256: string; bytes: number }; question?: string }): Promise<ObserveOutcome> {
+  private async observed(j: JobRecord, o: { root: string; project: string; imagePath: string; source: { path: string; sha256: string; bytes: number }; question?: string; model?: string }): Promise<ObserveOutcome> {
     const g = this.d.glyphs;
     const rel = o.source.path;
     const ms = j.endedAt ? Date.parse(j.endedAt) - Date.parse(j.startedAt) : undefined;
@@ -338,7 +338,7 @@ export class Workspace {
     if (look.source.sha256 !== o.source.sha256) return fail(`${rel} changed while Look read it`, 'failed');
     let interpretation: Record<string, unknown> | undefined;
     if (o.question) {
-      const model = this.d.model?.();
+      const model = o.model ?? this.d.model?.();
       if (!model) interpretation = { tier: INTERPRETATION, status: 'not asked', question: o.question, reason: 'no current model is known here' };
       else {
         const r = await describeImage({ model, imagePath: o.imagePath, question: o.question, apiKey: this.d.env.OPENROUTER_API_KEY, ...(this.d.fetch ? { fetch: this.d.fetch } : {}) });
