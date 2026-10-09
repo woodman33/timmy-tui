@@ -330,9 +330,15 @@ describe('a run (the FAKE agent): a job, its progress, its result and its receip
     await ws.jobs.done(jobIdOf(started));
     expect(readFileSync(join(root, AGENTS_DIR, resultOf(root).run, 'transcript.log'), 'utf8')).toContain(`home=${home}`);
   });
-  it('a task with an absolute path is shown without it', () => {
+  it('a task with an absolute path is shown without it, and so is the final message /agent last quotes', async () => {
     const root = project();
     expect(taskWords(`fix ${root}/src/a.txt and /etc/hosts`, root)).toBe('fix ./src/a.txt and <path>');
+    const { ws } = make(root, LOCAL_QWEN);
+    await ws.jobs.done(jobIdOf(text(await ws.agent('qwen say something'))));
+    writeFileSync(join(root, AGENTS_DIR, resultOf(root).run, 'final-message.md'), `Created ${root}/hello.txt`);
+    const last = text(await ws.agent('last'));
+    expect(last).toContain('Said       Created ./hello.txt');
+    expect(last).not.toContain(root);
   });
 });
 

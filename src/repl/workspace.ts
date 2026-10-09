@@ -1015,7 +1015,7 @@ export class Workspace {
     if (r.final_message) {
       let text = '';
       try { text = readFileSync(join(runDir(this.root, r.run), r.final_message.file), 'utf8'); } catch { /* gone */ }
-      const first = text.replace(/\s+/g, ' ').trim();
+      const first = scrubPaths(text, this.root).replace(/\s+/g, ' ').trim();
       lines.push([{ text: '  Said       ', role: 'secondary' }, { text: first.length > 300 ? `${first.slice(0, 299)}…` : first || '(empty)', role: 'ai' }]);
       if (first.length > 300 || r.final_message.truncated) lines.push(...this.say(`  the whole message: ${AGENTS_DIR}/${r.run}/${r.final_message.file}`));
     }
