@@ -66,12 +66,12 @@ export const NATIVE_APPS: Record<NativeApp, AppInfo> = {
   c4dpy: {
     envVar: 'TIMMY_C4DPY', prefix: 'Maxon Cinema 4D', inside: ['c4dpy.app/Contents/MacOS/c4dpy', 'c4dpy'], program: 'c4dpy',
     name: 'Cinema 4D (c4dpy)',
-    setup: 'install Cinema 4D (c4dpy comes with it), or set TIMMY_C4DPY to its c4dpy (…/c4dpy.app/Contents/MacOS/c4dpy)',
+    setup: 'install Cinema 4D; or set TIMMY_C4DPY to its c4dpy program',
   },
   aerender: {
     envVar: 'TIMMY_AERENDER', prefix: 'Adobe After Effects', inside: ['aerender'], program: 'aerender',
     name: 'After Effects (aerender)',
-    setup: 'install After Effects (aerender comes with it), or set TIMMY_AERENDER to its aerender',
+    setup: 'install After Effects; or set TIMMY_AERENDER to its aerender',
   },
 };
 

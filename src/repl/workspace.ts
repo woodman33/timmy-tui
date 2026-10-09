@@ -13,6 +13,8 @@ import { homedir } from 'node:os';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { JobManager, type JobRecord } from '../jobs/index.js';
+import { aerenderJob, c4dpyJob, judgeNativeJob, nativeReceiptFields, NativeNotFound, type NativeJobSpec } from '../native/index.js';
+import { mcpView, splitCommandLine } from '../connectors/mcp-cli.js';
 import {
   chooseProject, createProject, groupFiles, humanBytes, listProjectFiles, listProjects, projectId, projectsHome, readProjectFile,
   resolveInside, ROLE_LABEL, ROLE_ORDER, sameFolder, saveActiveProject, type ActiveProject, type FileRole, type ProjectFile,
@@ -103,6 +105,8 @@ export class Workspace {
   private upmdFound: { bin: string; version: string | null } | null = null;
   /** The jobs this REPL started: the only ones it may stop. */
   private readonly mine = new Set<string>();
+  /** R2: native jobs (Cinema 4D, After Effects) this REPL started, with what they must leave behind */
+  private readonly natives = new Map<string, NativeJobSpec>();
   /** Look jobs: their one receipt is the observation's, sealed when it is written (not the job's). */
   private readonly looks = new Set<string>();
 
@@ -515,6 +519,14 @@ export class Workspace {
       if (s) this.d.notify([{ text: `  ${g.bullet} ` }, { text: job.id, role: 'strong' }, { text: `  ${s.name} ${s.state === 'completed' ? 'completed' : `failed, exit ${s.code ?? '?'}`}${this.sep}${done} of ${total}`, role: s.state === 'failed' ? 'failure' : 'secondary' }]);
     }
     if (job.state === before.state) return;
+    const nat = this.natives.get(job.id);
+    if (nat && (job.state === 'completed' || job.state === 'failed')) {
+      // R2: judged by the app's own result file; an exit code alone decides nothing (c4dpy can exit 1 after a good run).
+      const j = judgeNativeJob(job, nat);
+      const mark = j.outcome === 'ok' ? g.ok : j.outcome === 'failed' ? g.fail : '?';
+      this.d.notify([{ text: `  ${mark} `, role: j.outcome === 'failed' ? 'failure' : undefined }, { text: `${job.id} ${j.outcome}`, role: j.outcome === 'failed' ? 'failure' : 'strong' }, { text: `  ${job.label}: ${this.scrub(j.why, job.root)}${job.receipt ? `${this.sep}receipt ${job.receipt}` : ''}${this.sep}/results`, role: 'secondary' }]);
+      return;
+    }
     if (job.state === 'ready') {
       this.d.notify([{ text: `  ${g.ok} ` }, { text: `${job.id} ready`, role: 'strong' }, { text: `  ${job.label} answers at ${job.url ?? ''}${this.sep}serving until /stop ${job.id}`, role: 'secondary' }]);
     } else if (job.state === 'completed') {
@@ -561,10 +573,15 @@ export class Workspace {
     const kind = job.kind === 'server' ? 'preview' : job.kind;
     const label = this.scrub(job.label, job.root);
     const error = job.error ? this.scrub(job.error, job.root) : undefined;
+    const nat = this.natives.get(job.id);
+    const judged = nat && job.state !== 'cancelled' ? nativeReceiptFields(nat.native.app, judgeNativeJob(job, nat)) : undefined;
+    if (judged) judged.native.why = this.scrub(judged.native.why, job.root);
+    const status = job.state === 'cancelled' ? 'cancelled' as const : judged ? judged.status : job.state === 'completed' ? 'ok' as const : 'failed' as const;
     try {
       return this.d.seal({
-        kind, subject: `${kind} · ${label} · ${job.state}`, policy: 'human-gated',
-        status: job.state === 'completed' ? 'ok' : job.state === 'cancelled' ? 'cancelled' : 'failed',
+        kind: judged ? 'native' : kind, subject: `${judged ? 'native' : kind} · ${label} · ${judged ? judged.native.outcome : job.state}`, policy: 'human-gated',
+        ...(status ? { status } : {}),
+        ...(judged ? { native: judged.native } : {}),
         project: job.project, project_id: projectId(job.root),
         job: {
           id: job.id, kind: job.kind, label, state: job.state, exit_code: job.exitCode ?? null,
@@ -647,6 +664,45 @@ export class Workspace {
       const j = this.jobs.get(id);
       if (j?.pid && !TERMINAL.has(j.state)) killProcessGroup(j.pid, 'SIGTERM');
     }
+  }
+
+  // ── R2: native apps and MCP ─────────────────────────────────────────────────
+
+  /** A native job this REPL started (by /c4d, /ae or the agent's run_native): /stop reaches it and its end is judged. */
+  adoptNative(id: string, spec: NativeJobSpec): void {
+    this.mine.add(id);
+    this.natives.set(id, spec);
+  }
+
+  private startNative(make: () => NativeJobSpec, what: string): Line[] {
+    let spec: NativeJobSpec;
+    try { spec = make(); } catch (e) {
+      if (e instanceof NativeNotFound) return [...this.say(e.message, 'estimate'), ...this.say(`Setup: ${e.setup}`)];
+      return this.say(this.scrub((e as Error).message, this.root), 'failure');
+    }
+    const job = this.jobs.start(spec);
+    this.adoptNative(job.id, spec);
+    return [[{ text: '  Running    ', role: 'secondary' }, { text: job.id, role: 'strong' }, { text: `  ${what}${this.sep}judged by its result file${this.sep}/jobs ${job.id}${this.sep}/stop ${job.id}`, role: 'secondary' }]];
+  }
+
+  /** /c4d <script.py> [args]: Cinema 4D's own Python (c4dpy), headless, as a job in the project. */
+  async c4d(args: string): Promise<Line[]> {
+    const w = splitCommandLine(args.trim());
+    if (!w.length) return this.say('Usage: /c4d <script.py> [args]   (Cinema 4D Python, headless, as a job)');
+    return this.startNative(() => c4dpyJob({ script: w[0], args: w.slice(1), root: this.root, project: this.project.name }), `Cinema 4D runs ${w[0]}`);
+  }
+
+  /** /ae <project.aep> <comp> <output>: After Effects renders an existing project's comp (aerender), as a job. */
+  async ae(args: string): Promise<Line[]> {
+    const w = splitCommandLine(args.trim());
+    if (w.length < 3) return this.say('Usage: /ae <project.aep> <comp> <output file>   (renders an existing project)');
+    return this.startNative(() => aerenderJob({ projectFile: w[0], comp: w[1], output: w[2], root: this.root, project: this.project.name }), `After Effects renders ${w[1]} from ${w[0]}`);
+  }
+
+  /** /mcp: MCP servers and their tools through the two command-line routes (MCPorter, Timmy's SDK command). */
+  async mcp(args: string): Promise<Line[]> {
+    const lines = await mcpView(splitCommandLine(args.trim()), { cwd: this.root });
+    return lines.map((l) => [{ text: `  ${l}` }]);
   }
 
   // ── /results ────────────────────────────────────────────────────────────────

@@ -38,6 +38,9 @@ const READ_ONLY = new Set([
   // The active project (R1 workspace direction): listing and reading stay inside it and never reach keys,
   // .env files or .timmy/private (src/project); writing asks (ALWAYS below).
   'list_project_files', 'read_project_file',
+  // Round R2: MCP routes and configured servers by name (never a command line); a fixed local OpenCV script
+  // that reads one project file and writes only its own observation file.
+  'list_mcp_tools', 'observe_image',
 ]);
 
 const ALWAYS: Record<string, { reason: string; keys: string[]; session?: false }> = {
@@ -51,6 +54,11 @@ const ALWAYS: Record<string, { reason: string; keys: string[]; session?: false }
   list_card: { reason: 'posts a listing to a marketplace', keys: ['title', 'name'] },
   canvas_exec: { reason: 'runs code in the canvas page, which can reach the network', keys: ['code'] },
   write_project_file: { reason: 'changes a file in your project', keys: ['path'] },
+  // Round R2
+  list_mcp_command_tools: { reason: 'starts a program on this machine to list its MCP tools', keys: [], session: false },
+  call_mcp_tool: { reason: 'runs an MCP server and calls one of its tools', keys: [], session: false },
+  run_native: { reason: 'starts Cinema 4D or After Effects on this machine', keys: ['app', 'script', 'project_file', 'comp'] },
+  describe_image: { reason: 'sends an image from your project to a model, and costs money', keys: ['path'], session: false },
 };
 
 const SHELL: Record<string, string[]> = { run_in_daytona_workspace: ['command'] };

@@ -35,7 +35,7 @@
   ],
   "scripts": {
     "start": "node boot.cjs",
-    "timmy": "tsx src/cli.ts",
+    "timmy": "node scripts/timmy-dev.mjs",
     "timmy:doctor": "tsx src/cli.ts doctor",
     "timmy:setup": "tsx src/cli.ts setup",
     "start:headless": "tsx headless.ts",

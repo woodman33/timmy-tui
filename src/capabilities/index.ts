@@ -11,6 +11,8 @@
  * "Exercised" is said beside the rung, from the sealed receipts: the last time one of the row's tools
  * completed in a turn. A past use is not a present check, so it never raises the rung.
  */
+import { mcpCapabilityRows } from '../connectors/mcp-cli.js';
+import { nativeCapabilityRows } from '../native/index.js';
 import type { StudioHealth } from '../studio/health.js';
 import { keySet } from '../utils/keys.js';
 
@@ -70,7 +72,7 @@ export const KIND_TITLES: Record<Kind, string> = {
   model: 'MODELS',
   tool: 'AGENT TOOLS',
   harness: 'OTHER AGENTS',
-  adapter: 'SPATIAL AND VISION ADAPTERS',
+  adapter: 'NATIVE APPS AND ADAPTERS',
 };
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
@@ -202,7 +204,14 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
       ? { id: 'taskforge', kind: 'harness', name: 'TaskForge', rung: 'reachable', detail: 'its health check answered' }
       : { id: 'taskforge', kind: 'harness', name: 'TaskForge', rung: 'installed', detail: taskforge === null ? 'address set; no answer' : `address set; health HTTP ${taskforge}` });
 
+  // Round R2: MCP servers through two command-line routes, and image observations.
+  for (const r of mcpCapabilityRows(d.env, { onPath: (p) => d.onPath(p) })) add(r);
+  add(d.onPath('python3')
+    ? { id: 'look', kind: 'tool', name: 'Image observations (/observe)', rung: 'installed', detail: 'OpenCV measurements (workers/look); OpenCV is checked when it runs', tools: ['observe_image', 'describe_image'] }
+    : { id: 'look', kind: 'tool', name: 'Image observations (/observe)', rung: 'needs setup', detail: 'python3 is not on PATH', setup: 'brew install python && pip3 install opencv-python-headless', tools: ['observe_image', 'describe_image'] });
+
   // ── adapters
+  for (const r of nativeCapabilityRows(d.env)) add(r);
   add(missionMap === 200
     ? { id: 'mission-map', kind: 'adapter', name: 'Mission Map (timmy map)', rung: 'reachable', detail: 'http://127.0.0.1:4336/' }
     : { id: 'mission-map', kind: 'adapter', name: 'Mission Map (timmy map)', rung: 'installed', detail: 'not running: timmy map' });

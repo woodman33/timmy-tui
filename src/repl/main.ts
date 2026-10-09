@@ -36,6 +36,9 @@ import { onPath, packageRoot, realOnPath } from './center.js';
 import { planWeb, RECEIPT_ID, receiptUrl, resolveWebTarget } from './web.js';
 import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt, type CanvasJobResult } from '../agent/canvas-tools.js';
 import { createProjectTools, ProjectTurnFiles, type ProjectToolOptions } from '../agent/project-tools.js';
+import { createVisionTools, type VisionToolOptions } from '../agent/vision-tools.js';
+import { createMcpTools, type McpToolOptions } from '../agent/mcp-tools.js';
+import { createNativeTools, type NativeToolOptions } from '../agent/native-tools.js';
 import { folderProject, projectId } from '../project/index.js';
 import { Workspace } from './workspace.js';
 import { studioBaseUrl, studioPort } from '../studio/config.js';
@@ -129,6 +132,9 @@ export const REPL_INSTRUCTIONS = [
   'Finish the task instead of asking whether to continue.',
   'Never claim a receipt, a signature or a verification that a tool did not return.',
   'Your working folder is the operator\'s active project: list_project_files, read_project_file and write_project_file work inside it. Read a file before you change it, and write whole files.',
+  'Images in the project (files the operator added with /add are under refs/): observe_image measures them with OpenCV (numbers, not what they show); describe_image asks an image-capable model, costs money and asks first; report its answer as the model\'s claim.',
+  'run_native starts Cinema 4D (c4dpy, a Python script) or After Effects (aerender, an existing project) as a background job and returns its id at once: it is not finished when you get the id.',
+  'MCP servers: list_mcp_tools shows the routes and configured servers; call_mcp_tool calls one tool and asks first.',
 ].join(' ');
 
 const tildify = (path: string): string => {
@@ -149,10 +155,15 @@ const tildify = (path: string): string => {
  * The agent's tools in the REPL: the defaults and Timmy Canvas (F-4), each under a NEEDS YOU rule. The
  * canvas calls of one turn share that turn's canvas job (fourth order, step 5).
  */
-export function replTools(job?: CanvasTurnJob, project?: ProjectToolOptions): typeof defaultTools {
+export function replTools(job?: CanvasTurnJob, project?: ProjectToolOptions, more: { vision?: VisionToolOptions; mcp?: McpToolOptions; native?: NativeToolOptions } = {}): typeof defaultTools {
   // The project tools' typed schemas are narrower than the shared tool list's element type.
   const files = createProjectTools(project ?? { root: () => process.cwd() }) as unknown as typeof defaultTools;
-  return [...defaultTools, ...createCanvasTools({ job }), ...files];
+  // Round R2: images (OpenCV measurements; an image-capable model), MCP servers through two command-line
+  // routes, and native apps (Cinema 4D, After Effects) as background jobs.
+  const looks = createVisionTools(more.vision ?? { root: project?.root ?? (() => process.cwd()) }) as unknown as typeof defaultTools;
+  const mcp = createMcpTools(more.mcp ?? { cwd: project?.root ?? (() => process.cwd()) }) as unknown as typeof defaultTools;
+  const native = more.native ? createNativeTools(more.native) as unknown as typeof defaultTools : [];
+  return [...defaultTools, ...createCanvasTools({ job }), ...files, ...looks, ...mcp, ...native];
 }
 
 export async function runRepl(argv: string[]): Promise<number> {
@@ -204,7 +215,14 @@ export async function runRepl(argv: string[]): Promise<number> {
   const projectFiles = new ProjectTurnFiles();
   // NEEDS YOU: risky calls wait for the operator; with no terminal to ask, they are denied (§17.8).
   agent.setTools(
-    gateTools(replTools(canvasJob, { root: () => workspace.root, touched: projectFiles }), async (req) => {
+    gateTools(replTools(canvasJob, { root: () => workspace.root, touched: projectFiles }, {
+      vision: {
+        root: () => workspace.root, model: () => agent.getModel(),
+        observe: async (rel, question, model) => { const s = await workspace.observeFile(rel, question, model); return s.ok ? s.done : s; },
+      },
+      mcp: { cwd: () => workspace.root },
+      native: { root: () => workspace.root, project: () => workspace.project.name, start: (s) => workspace.jobs.start(s), onStarted: (job, spec) => workspace.adoptNative(job.id, spec) },
+    }), async (req) => {
       if (!interactive) {
         transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision: 'no-terminal' });
         return 'deny';
@@ -308,6 +326,8 @@ export async function runRepl(argv: string[]): Promise<number> {
     link: (text, url) => (caps.cursor ? hyperlink(text, url, true) : text),
     seal: (input) => appendReceipt('runs', input).hash.slice(7, 15),
     jobsDir: join(timmyHome(), 'jobs'),
+    // Round R2: /observe asks the model the REPL is using whether it takes images, and uses it when it does.
+    model: () => agent.getModel(),
     edit: editFile,
     tildify,
     // Each project keeps its own conversation (.sessions in the project): switching resumes its latest.

@@ -68,11 +68,16 @@ works without them.
 ```sh
 git clone --branch feat/ui-workflow-r1 https://github.com/woodman33/timmy-tui.git
 cd timmy-tui
-npm ci
+npm ci --include=dev
 ```
 
-`npm run timmy -- <command>` runs Timmy from this checkout (`"timmy": "tsx src/cli.ts"`). Nothing is
-installed globally, and an existing global `timmy` is left alone.
+**`--include=dev` matters (checked on a Mac, 2026-10-09).** Timmy runs from a checkout through `tsx`, a
+development package. On a Mac whose shell sets `NODE_ENV=production` (or whose npm settings say
+`omit=dev`), a plain `npm ci` leaves development packages out and Timmy cannot start; `--include=dev`
+installs them whatever those settings say. If you skipped it, `npm run timmy` says so and prints this fix.
+
+`npm run timmy -- <command>` runs Timmy from this checkout (`scripts/timmy-dev.mjs`, which starts
+`src/cli.ts` through `tsx`). Nothing is installed globally, and an existing global `timmy` is left alone.
 
 ## 3. Try it without touching an existing setup (optional)
 

@@ -91,6 +91,10 @@ export interface WorkspaceViews {
   /** Round R2, look: files in (/add) and observations out (/observe). */
   add(args: string): Segment[][];
   observe(args: string): Promise<Segment[][]>;
+  /** Round R2: native apps as jobs, and MCP servers through command-line routes. */
+  c4d(args: string): Promise<Segment[][]>;
+  ae(args: string): Promise<Segment[][]>;
+  mcp(args: string): Promise<Segment[][]>;
 }
 
 /** /help's sections, in order: what you work on, what you look at, setup, the session. */
@@ -133,6 +137,9 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'results', group: 'work', description: 'Outputs, jobs and changes, linked to files', run: inWorkspace((w, a) => w.results(a)) },
   { name: 'add', group: 'work', description: 'Copy files into refs/: /add <file…>', run: inWorkspace((w, a) => w.add(a)) },
   { name: 'observe', group: 'look', description: 'Measure an image: /observe <file> [question]', run: inWorkspace((w, a) => w.observe(a)) },
+  { name: 'c4d', group: 'work', description: 'Cinema 4D Python as a job: /c4d <script.py>', run: inWorkspace((w, a) => w.c4d(a)) },
+  { name: 'ae', group: 'work', description: 'After Effects render: /ae <aep> <comp> <out>', run: inWorkspace((w, a) => w.ae(a)) },
+  { name: 'mcp', group: 'setup', description: 'MCP servers and tools: /mcp [tools|call]', run: inWorkspace((w, a) => w.mcp(a)) },
   {
     name: 'web',
     group: 'look',
