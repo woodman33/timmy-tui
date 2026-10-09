@@ -12,6 +12,12 @@ export interface SpawnProcessOptions {
   timeoutMs?: number;
   /** cap on captured characters per stream; exceeding it terminates the child (spawnSync's maxBuffer) */
   maxBuffer?: number;
+  /** start the child as the leader of its own process group, so killProcessGroup(child.pid, …) reaches
+   *  everything it starts; the timeout and maxBuffer stops above then signal that group */
+  detached?: boolean;
+  /** keep stdout and stderr in the outcome (the default); false only streams them to onStdout and
+   *  onStderr, so a long-lived child (a preview server) does not accumulate its output in memory */
+  capture?: boolean;
   onStdout?: (text: string) => void;
   onStderr?: (text: string) => void;
 }
@@ -33,7 +39,9 @@ export interface ProcessOutcome {
  * lane's steps (lanes/engines/step.mjs) both run through here.
  */
 export function spawnProcess(command: string, args: string[], options: SpawnProcessOptions = {}): { child: ChildProcessWithoutNullStreams; outcome: Promise<ProcessOutcome> } {
-  const child = spawn(command, args, { cwd: options.cwd, env: options.env ?? process.env, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+  const detached = options.detached === true;
+  const child = spawn(command, args, { cwd: options.cwd, env: options.env ?? process.env, shell: false, stdio: ['pipe', 'pipe', 'pipe'], detached });
+  const terminate = () => { if (detached && child.pid !== undefined) killProcessGroup(child.pid, 'SIGTERM'); else child.kill('SIGTERM'); };
   const outcome = new Promise<ProcessOutcome>((resolve) => {
     let stdout = '';
     let stderr = '';
@@ -42,6 +50,7 @@ export function spawnProcess(command: string, args: string[], options: SpawnProc
     let settled = false;
     let timeout: NodeJS.Timeout | undefined;
     const max = options.maxBuffer ?? Infinity;
+    const capture = options.capture !== false;
     const finish = (status: number | null, signal: NodeJS.Signals | null) => {
       if (settled) return;
       settled = true;
@@ -50,13 +59,27 @@ export function spawnProcess(command: string, args: string[], options: SpawnProc
     };
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (text: string) => { stdout += text; options.onStdout?.(text); if (stdout.length > max) { error ??= `ENOBUFS: stdout exceeded maxBuffer (${max})`; child.kill('SIGTERM'); } });
-    child.stderr.on('data', (text: string) => { stderr += text; options.onStderr?.(text); if (stderr.length > max) { error ??= `ENOBUFS: stderr exceeded maxBuffer (${max})`; child.kill('SIGTERM'); } });
+    child.stdout.on('data', (text: string) => { if (capture) stdout += text; options.onStdout?.(text); if (stdout.length > max) { error ??= `ENOBUFS: stdout exceeded maxBuffer (${max})`; terminate(); } });
+    child.stderr.on('data', (text: string) => { if (capture) stderr += text; options.onStderr?.(text); if (stderr.length > max) { error ??= `ENOBUFS: stderr exceeded maxBuffer (${max})`; terminate(); } });
     child.once('error', (e) => { error = e.message; finish(null, null); });
     child.once('close', (code, signal) => finish(code, signal));
-    if (options.timeoutMs && options.timeoutMs > 0) timeout = setTimeout(() => { timedOut = true; child.kill('SIGTERM'); }, options.timeoutMs);
+    if (options.timeoutMs && options.timeoutMs > 0) timeout = setTimeout(() => { timedOut = true; terminate(); }, options.timeoutMs);
   });
   return { child, outcome };
+}
+
+/**
+ * Signal a whole process group: the group a detached child leads (spawnProcess's `detached`), so the
+ * signal reaches every process that child started. Falls back to the single pid when there is no such
+ * group (a child spawned without `detached`, or Windows). Returns whether a signal was delivered.
+ */
+export function killProcessGroup(pid: number, signal: NodeJS.Signals): boolean {
+  // 0 and 1 are refused: process.kill(-0) is this process's own group and process.kill(-1) is every process
+  if (!Number.isInteger(pid) || pid <= 1) return false;
+  if (process.platform !== 'win32') {
+    try { process.kill(-pid, signal); return true; } catch { /* no such group, or not permitted: the pid alone */ }
+  }
+  try { process.kill(pid, signal); return true; } catch { return false; }
 }
 
 export interface SpawnRuntimeOptions {
