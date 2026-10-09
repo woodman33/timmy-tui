@@ -275,5 +275,6 @@ describe('/mcp', () => {
   it('calls a tool and shows its answer', async () => {
     const out = (await mcpView(['call', '--route', 'mcporter', 'echo', '{"text":"from the REPL"}', '--', process.execPath, FIXTURE])).join('\n');
     expect(out).toContain('echo: from the REPL');
+    expect(out).toMatch(/^echo on node mcp-echo-server\.mjs via mcporter · answered · \d+ ms · \d+ bytes/);
   }, LONG);
 });

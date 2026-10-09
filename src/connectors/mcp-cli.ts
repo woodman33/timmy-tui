@@ -550,7 +550,7 @@ export async function mcpView(args: string[], o: McpRunOptions = {}): Promise<st
     }
     const id = pick(named);
     const r = await callTool(id, ref, tool, callArgs, o);
-    const head1 = `${r.server}.${r.tool} via ${id} · ${r.ok ? 'answered' : r.timedOut ? 'stopped' : 'failed'} · ${r.ms} ms · ${r.outputBytes} bytes${r.truncated ? ' · cut' : ''}`;
+    const head1 = `${r.tool} on ${r.server} via ${id} · ${r.ok ? 'answered' : r.timedOut ? 'stopped' : 'failed'} · ${r.ms} ms · ${r.outputBytes} bytes${r.truncated ? ' · cut' : ''}`;
     return [head1, ...(r.ok ? (r.text ?? '').split('\n') : [`  ${r.error ?? 'failed'}`])];
   }
 
