@@ -6,7 +6,7 @@
  *
  * The Python is explicit configuration first, as for the vision integrations (registry.ts): an absolute
  * TIMMY_VISION_PYTHON, else an absolute TIMMY_VISUAL_PYTHON, else `python3` on the PATH. Whether it can
- * import cv2 is checked once per interpreter, by running it. An observation is written into the project
+ * import cv2 is checked by running it; a success is remembered. An observation is written into the project
  * as an editable file, results/observations/<stem>-<YYYYMMDD-HHMMSS>.json, with paths relative to the
  * project only.
  */
@@ -68,7 +68,7 @@ export function lookPython(env: NodeJS.ProcessEnv = process.env, onPath?: (cmd: 
 export const OPENCV_SETUP = 'python3 -m pip install opencv-python-headless numpy';
 const checks = new Map<string, Promise<{ ok: true; opencv: string } | { ok: false; error: string }>>();
 
-/** Whether this Python imports cv2 and numpy: checked once per interpreter, by running it. */
+/** Whether this Python imports cv2 and numpy, by running it: a success is remembered per interpreter. */
 export function checkOpenCv(python: string, env: NodeJS.ProcessEnv = process.env): Promise<{ ok: true; opencv: string } | { ok: false; error: string }> {
   const known = checks.get(python);
   if (known) return known;
@@ -78,6 +78,8 @@ export function checkOpenCv(python: string, env: NodeJS.ProcessEnv = process.env
       return version ? { ok: true as const, opencv: version } : { ok: false as const, error: 'the import check printed no OpenCV version' };
     }
     const why = o.error ? `it could not run (${o.error.replace(python, 'the interpreter')})` : o.timedOut ? 'the import check timed out' : 'cv2 or numpy is not importable';
+    // A failure is not remembered: once the operator installs OpenCV, the next /observe finds it.
+    checks.delete(python);
     return { ok: false as const, error: `OpenCV is not available to this Python: ${why}` };
   });
   checks.set(python, run);

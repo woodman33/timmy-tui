@@ -196,6 +196,26 @@ describe.skipIf(!python)('the real Look worker (OpenCV is importable here)', () 
     expect(JSON.stringify(o)).not.toContain(dir);
   });
 
+  it('through the workspace: /add, then /observe, as a job with the real worker; one intake and one observe receipt', async () => {
+    const root = temp('proj-');
+    const out = temp('outside-');
+    const gen = "import cv2, numpy as np, sys\nimg = np.zeros((120, 160, 3), np.uint8)\nimg[:, 80:] = (255, 255, 255)\ncv2.imwrite(sys.argv[1], img)";
+    expect(spawnSync(python!, ['-c', gen, join(out, 'half.png')], { encoding: 'utf8' }).status).toBe(0);
+    const { ws, sealed } = make(root, { env: {}, onPath: (c) => (c === 'python3' ? (spawnSync('sh', ['-c', 'command -v python3'], { encoding: 'utf8' }).stdout.trim() || null) : null) });
+    expect(text(ws.add(join(out, 'half.png')))).toMatch(/refs\/half\.png\s+image/);
+    const started = await ws.observeFile('refs/half.png');
+    if (!started.ok) throw new Error(started.error);
+    const outcome = await started.done;
+    if (!outcome.ok) throw new Error(outcome.error);
+    const written = JSON.parse(readFileSync(join(root, outcome.file), 'utf8'));
+    expect(written.look.image).toEqual({ width: 160, height: 120, channels: 3 });
+    const shares = Object.fromEntries((written.look.measurements.find((m: { name: string }) => m.name === 'dominant_colors').value as Array<{ hex: string; share: number }>).map((c) => [c.hex, c.share]));
+    expect(shares).toEqual({ '#000000': 0.5, '#ffffff': 0.5 });
+    expect(sealed.map((r) => r.kind)).toEqual(['intake', 'observe']);
+    expect(JSON.stringify(sealed)).not.toContain(root);
+    expect(JSON.stringify(sealed)).not.toContain(out);
+  });
+
   it('an unreadable image is a JSON error and a nonzero exit', async () => {
     const dir = temp('look-real-');
     const image = join(dir, 'not.png');
