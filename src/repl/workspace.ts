@@ -376,19 +376,32 @@ export class Workspace {
     if (!parsed.ok) return fail(parsed.error, 'failed');
     const look = parsed.observation;
     if (look.source.sha256 !== o.source.sha256) return fail(`${rel} changed while Look read it`, 'failed');
+    // An interpretation's cost_usd (round R3): absent when no request went out (nothing can have been charged);
+    // null when one went out and no cost was reported (unknown, never 0); the reported amount otherwise.
     let interpretation: Record<string, unknown> | undefined;
     if (o.question) {
       const model = o.model ?? this.d.model?.();
       if (!model) interpretation = { tier: INTERPRETATION, status: 'not asked', question: o.question, reason: 'no current model is known here' };
       else {
         const r = await describeImage({ model, imagePath: o.imagePath, question: o.question, apiKey: this.d.env.OPENROUTER_API_KEY, ...(this.d.fetch ? { fetch: this.d.fetch } : {}) });
-        // The claim is about the bytes the model saw: they must be the bytes Look measured.
-        if (r.ok && r.image_sha256 !== o.source.sha256) interpretation = { tier: INTERPRETATION, status: 'failed', model, question: o.question, reason: `${rel} changed between Look and the model, so the answer is not kept` };
-        else if (r.ok) { const { ok: _ok, ...rest } = r; interpretation = { status: 'answered', ...rest }; }
-        else interpretation = { tier: INTERPRETATION, status: r.refused ? 'refused' : 'failed', model, question: o.question, reason: r.error, ...(r.alternatives ? { alternatives: r.alternatives } : {}) };
+        if (r.ok && r.image_sha256 !== o.source.sha256) {
+          // The claim is about the bytes the model saw, and they are not the bytes Look measured. Round R3: the paid
+          // answer is kept as it came, with its charge and the hash of what the model saw, but rejected: not a claim
+          // about this observation's input.
+          const { ok: _ok, ...rest } = r;
+          interpretation = { status: 'rejected', ...rest, reason: `${rel} changed between Look and the model: the model saw other bytes (sha256 ${r.image_sha256.slice(0, 12)}, not the measured ${o.source.sha256.slice(0, 12)}), so its answer is kept as it came and is not a claim about what Look measured` };
+        } else if (r.ok) { const { ok: _ok, ...rest } = r; interpretation = { status: 'answered', ...rest }; }
+        else {
+          interpretation = {
+            tier: INTERPRETATION, status: r.refused ? 'refused' : 'failed', model, question: o.question, reason: r.error,
+            ...(r.alternatives ? { alternatives: r.alternatives } : {}),
+            ...(r.sent ? { cost_usd: r.cost_usd ?? null, ...(r.tokens !== undefined ? { tokens: r.tokens } : {}) } : {}),
+          };
+        }
       }
     }
     const answered = interpretation?.status === 'answered';
+    const rejected = interpretation?.status === 'rejected';
     const tiers = [DETERMINISTIC, ...(answered ? [INTERPRETATION] : [])];
     const now = new Date();
     const record = {
@@ -398,23 +411,29 @@ export class Workspace {
     };
     const w = writeObservation(o.root, rel, record, now);
     if (!w.ok) return fail(`the observation could not be written: ${w.error}`, 'failed');
-    const cost = answered && typeof interpretation?.cost_usd === 'number' ? interpretation.cost_usd as number : undefined;
+    // Round R3: a charge the response reported is sealed whatever became of the answer; a request that went out
+    // with no charge reported is sealed as an unknown cost (cost_measured: false), never as $0.
+    const charged = interpretation && 'cost_usd' in interpretation ? (typeof interpretation.cost_usd === 'number' ? interpretation.cost_usd : null) : undefined;
+    const cost = typeof charged === 'number' ? charged : undefined;
+    const costText = charged === null ? 'cost unknown (not reported)' : cost === undefined ? '' : `cost $${cost.toFixed(4)}`;
     let receipt: string | undefined;
     try {
       receipt = this.d.seal({
         ...base, subject: `observe · ${rel}`, status: 'ok', outputs: [{ path: w.path, sha256: w.sha256, bytes: w.bytes }],
         observation: {
           tiers, worker: `${look.worker.name} ${look.worker.version}`, opencv: look.opencv, measurements: look.measurements.length,
-          ...(interpretation ? { interpretation: { status: String(interpretation.status), ...(typeof interpretation.model === 'string' ? { model: interpretation.model } : {}), ...(answered ? { cost_usd: cost ?? null } : {}) } } : {}),
+          ...(interpretation ? { interpretation: { status: String(interpretation.status), ...(typeof interpretation.model === 'string' ? { model: interpretation.model } : {}), ...(charged !== undefined ? { cost_usd: charged } : {}) } } : {}),
         },
-        ...(answered ? { model_requested: String(interpretation?.model_requested), model_resolved: String(interpretation?.model) } : {}),
-        ...(cost !== undefined ? { cost_usd: cost } : {}),
+        ...(charged !== undefined ? { model_requested: String(interpretation?.model_requested ?? interpretation?.model) } : {}),
+        ...(answered || rejected ? { model_resolved: String(interpretation?.model) } : {}),
+        ...(cost !== undefined ? { cost_usd: cost } : charged === null ? { cost_measured: false } : {}),
       });
     } catch { receipt = undefined; }
     this.d.notify([{ text: `  ${g.ok} ` }, { text: `${j.id} observed`, role: 'strong' }, { text: `  ${rel} ${g.arrow} ${w.path}${this.sep}${tiers.join(', ')}${receipt ? `${this.sep}receipt ${receipt}` : ''}`, role: 'secondary' }]);
     if (interpretation && !answered) {
       const alt = Array.isArray(interpretation.alternatives) && interpretation.alternatives.length ? `; models that do: ${(interpretation.alternatives as string[]).join(', ')} (/model <id>)` : '';
-      this.d.notify([{ text: '  Model      ', role: 'secondary' }, { text: `${String(interpretation.reason)}${alt}`, role: 'estimate' }]);
+      const kept = rejected ? `${this.sep}${String(interpretation.model)}'s answer is in the file, not as a claim` : '';
+      this.d.notify([{ text: '  Model      ', role: 'secondary' }, { text: `${String(interpretation.reason)}${alt}${kept}${costText ? `${this.sep}${costText}` : ''}`, role: 'estimate' }]);
     } else if (answered) {
       this.d.notify([{ text: '  Model      ', role: 'secondary' }, { text: `${String(interpretation?.model)} answered (a claim, in the file)${this.sep}cost ${cost === undefined ? 'not reported' : `$${cost.toFixed(4)}`}`, role: 'ai' }]);
     }

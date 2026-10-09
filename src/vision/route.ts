@@ -17,7 +17,9 @@ export const OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completion
 export const MODEL_LIST_TTL_MS = 60 * 60 * 1000;
 /** The largest image sent to a model. */
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
-const MAX_ANSWER = 8000;
+/** Round R3: the most of a model's answer kept (UTF-8 bytes): a hard cap on the record, not a display size.
+ *  A longer answer is cut on a character and flagged (answer_truncated, answer_bytes); a view shortens it. */
+export const ANSWER_MAX_BYTES = 64 * 1024;
 /** Offered first when they are on the list and take images. */
 const PREFERRED = ['anthropic/claude-haiku-4.5', 'google/gemini-2.5-flash', 'openai/gpt-4o-mini', 'anthropic/claude-sonnet-4.5'];
 
@@ -104,14 +106,57 @@ export interface Interpretation {
   model: string;
   model_requested: string;
   question: string;
+  /** the answer as it came, whole up to ANSWER_MAX_BYTES; past that cut on a character, and flagged below */
   answer: string;
+  /** the answer was longer than ANSWER_MAX_BYTES: `answer` is its start, `answer_bytes` its whole length */
+  answer_truncated?: true;
+  answer_bytes?: number;
   /** what the response reports it cost, in USD; null: not reported, so unknown */
   cost_usd: number | null;
   /** sha256 of the exact bytes the model was sent: the claim is about these bytes */
   image_sha256: string;
   tokens?: number;
 }
-export type DescribeResult = Interpretation | { ok: false; refused?: true; error: string; alternatives?: string[] };
+export interface DescribeFailure {
+  ok: false;
+  /** refused before anything was sent: nothing can have been charged */
+  refused?: true;
+  error: string;
+  alternatives?: string[];
+  /** Round R3: the request went out, so it may have been charged though no answer is kept */
+  sent?: true;
+  /** with `sent`: what the response reported it cost, in USD; null when it reported none or none came (unknown) */
+  cost_usd?: number | null;
+  tokens?: number;
+  /** the model the response names, when a response came */
+  model?: string;
+}
+export type DescribeResult = Interpretation | DescribeFailure;
+
+const money = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+
+/**
+ * What a response's usage says the call cost, in USD; null when it does not say (unknown, never 0).
+ * R2 (the Mac run): on the operator's own provider key (BYOK) `cost` is only OpenRouter's fee and the
+ * provider's charge is upstream_inference_cost (as src/agent/core.ts counts a turn); missing means unknown.
+ */
+function reportedCost(usage: unknown): number | null {
+  const u = usage && typeof usage === 'object' ? usage as { cost?: unknown; is_byok?: unknown; cost_details?: { upstream_inference_cost?: unknown } } : undefined;
+  if (!u || !money(u.cost)) return null;
+  if (u.is_byok !== true) return u.cost;
+  const upstream = u.cost_details?.upstream_inference_cost;
+  return money(upstream) ? u.cost + upstream : null;
+}
+
+/** The answer as the record keeps it: whole up to ANSWER_MAX_BYTES; past that cut on a character boundary, and flagged. */
+function keptAnswer(text: string): { answer: string; answer_truncated?: true; answer_bytes?: number } {
+  const bytes = Buffer.byteLength(text, 'utf8');
+  if (bytes <= ANSWER_MAX_BYTES) return { answer: text };
+  const buf = Buffer.from(text, 'utf8');
+  let end = ANSWER_MAX_BYTES;
+  while (end > 0 && (buf[end] & 0xc0) === 0x80) end--; // buf[end] is the first byte left out: never inside a character
+  return { answer: buf.subarray(0, end).toString('utf8'), answer_truncated: true, answer_bytes: bytes };
+}
 
 /**
  * A model's interpretation of one image. It spends money: the caller asks first. Refused without a key,
@@ -129,9 +174,10 @@ export async function describeImage(o: { model: string; imagePath: string; quest
     return { ok: false, refused: true, error: support.accepts === false ? `${o.model} does not take images: ${support.reason}` : `whether ${o.model} takes images is unknown: ${support.reason}`, alternatives: await imageAlternatives(f) };
   }
   const question = o.question.trim() || 'Describe this image.';
+  let res: Response;
   let body: Record<string, unknown>;
   try {
-    const res = await f(OPENROUTER_CHAT_URL, {
+    res = await f(OPENROUTER_CHAT_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${o.apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -141,27 +187,30 @@ export async function describeImage(o: { model: string; imagePath: string; quest
       }),
       signal: AbortSignal.timeout(o.timeoutMs ?? 120_000),
     });
-    body = await res.json().catch(() => ({})) as Record<string, unknown>;
-    if (!res.ok) {
-      const msg = (body.error as { message?: unknown } | undefined)?.message;
-      return { ok: false, error: `OpenRouter answered ${res.status}${typeof msg === 'string' ? `: ${msg.slice(0, 300)}` : ''}` };
-    }
+    const parsed: unknown = await res.json().catch(() => ({}));
+    body = parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
   } catch (err) {
-    return { ok: false, error: `the request did not complete (${err instanceof Error ? err.message : 'error'})` };
+    // Round R3: the request went out; whether it was charged is unknown, so the cost is null, never 0.
+    return { ok: false, sent: true, cost_usd: null, error: `the request did not complete (${err instanceof Error ? err.message : 'error'})` };
+  }
+  // Round R3: what the response reported it cost is kept with any outcome, an answer or none.
+  const usage = body.usage as { total_tokens?: unknown } | undefined;
+  const reported = {
+    sent: true as const, cost_usd: reportedCost(body.usage),
+    ...(typeof usage?.total_tokens === 'number' ? { tokens: usage.total_tokens } : {}),
+    ...(typeof body.model === 'string' ? { model: body.model } : {}),
+  };
+  if (!res.ok) {
+    const msg = (body.error as { message?: unknown } | undefined)?.message;
+    return { ok: false, ...reported, error: `OpenRouter answered ${res.status}${typeof msg === 'string' ? `: ${msg.slice(0, 300)}` : ''}` };
   }
   const content = (body.choices as Array<{ message?: { content?: unknown } }> | undefined)?.[0]?.message?.content;
   const answer = typeof content === 'string' ? content : Array.isArray(content) ? content.map((p) => (p && typeof p === 'object' && typeof (p as { text?: unknown }).text === 'string' ? (p as { text: string }).text : '')).join('') : '';
-  if (!answer) return { ok: false, error: 'the model returned no answer' };
-  const usage = body.usage as { cost?: unknown; total_tokens?: unknown; is_byok?: unknown; cost_details?: { upstream_inference_cost?: unknown } } | undefined;
-  // R2 (the Mac run): on the operator's own provider key (BYOK) `cost` is only OpenRouter's fee and the
-  // provider's charge is upstream_inference_cost (as src/agent/core.ts counts a turn); missing means unknown.
-  const money = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
-  const upstream = usage?.cost_details?.upstream_inference_cost;
-  const cost = !money(usage?.cost) ? null : usage?.is_byok === true ? (money(upstream) ? usage.cost + upstream : null) : usage.cost;
+  if (!answer) return { ok: false, ...reported, error: 'the model returned no answer' };
   return {
     ok: true, tier: INTERPRETATION, model: typeof body.model === 'string' ? body.model : o.model, model_requested: o.model, question,
-    answer: answer.slice(0, MAX_ANSWER), cost_usd: cost,
+    ...keptAnswer(answer), cost_usd: reported.cost_usd,
     image_sha256: createHash('sha256').update(bytes).digest('hex'),
-    ...(typeof usage?.total_tokens === 'number' ? { tokens: usage.total_tokens } : {}),
+    ...(reported.tokens !== undefined ? { tokens: reported.tokens } : {}),
   };
 }
