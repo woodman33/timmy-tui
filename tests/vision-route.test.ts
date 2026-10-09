@@ -1,6 +1,7 @@
 // "References in, observations out" (round R2, look): which models take images, read from OpenRouter's
 // public models list, and a model's interpretation of an image — refused for a model that does not take
 // images. Every request here goes to a mocked fetch; nothing reaches the network.
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -91,6 +92,7 @@ describe('a model interpretation of an image', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r).toMatchObject({ tier: 'model interpretation', model: 'anthropic/claude-haiku-4.5', answer: 'A red square on white.', cost_usd: 0.00123 });
+    expect(r.image_sha256).toBe(createHash('sha256').update(PNG).digest('hex'));
     const post = calls.find((c) => c.url === 'https://openrouter.ai/api/v1/chat/completions');
     expect(post?.init?.method).toBe('POST');
     expect((post?.init?.headers as Record<string, string>).Authorization).toBe('Bearer test-key');

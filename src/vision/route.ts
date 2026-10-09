@@ -7,6 +7,7 @@
  * that answered and the cost the response reports (unknown, null, when it reports none). A model that
  * does not take images is refused before anything is sent, with the reason and a few that do.
  */
+import { createHash } from 'node:crypto';
 import { closeSync, openSync, readSync, statSync } from 'node:fs';
 import { INTERPRETATION } from './look.js';
 
@@ -106,6 +107,8 @@ export interface Interpretation {
   answer: string;
   /** what the response reports it cost, in USD; null: not reported, so unknown */
   cost_usd: number | null;
+  /** sha256 of the exact bytes the model was sent: the claim is about these bytes */
+  image_sha256: string;
   tokens?: number;
 }
 export type DescribeResult = Interpretation | { ok: false; refused?: true; error: string; alternatives?: string[] };
@@ -153,6 +156,7 @@ export async function describeImage(o: { model: string; imagePath: string; quest
   return {
     ok: true, tier: INTERPRETATION, model: typeof body.model === 'string' ? body.model : o.model, model_requested: o.model, question,
     answer: answer.slice(0, MAX_ANSWER), cost_usd: typeof usage?.cost === 'number' ? usage.cost : null,
+    image_sha256: createHash('sha256').update(bytes).digest('hex'),
     ...(typeof usage?.total_tokens === 'number' ? { tokens: usage.total_tokens } : {}),
   };
 }

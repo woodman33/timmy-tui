@@ -1,6 +1,6 @@
 // "References in, observations out" in the REPL workspace (round R2, look): /add, /observe with a question
 // (a model's interpretation, through a mocked fetch: no network, no spend), and Results.
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -162,5 +162,10 @@ describe('/observe with a question', () => {
     expect(lines).toMatch(/Observing\s+j[0-9a-f]{6}/);
     expect(text(await ws.observe('../x.png'))).toContain('outside the project');
     expect(text(await ws.observe(''))).toContain('Usage');
+    // A file larger than Look reads is refused before it is hashed or run (a sparse file: quick to make).
+    put(root, 'refs/huge.png', PNG);
+    truncateSync(join(root, 'refs/huge.png'), 65 * 1024 * 1024);
+    expect(text(await ws.observe('refs/huge.png'))).toContain('larger than 64 MB');
+    expect(ws.jobs.list()).toHaveLength(1);
   });
 });

@@ -22,6 +22,8 @@ export const OBSERVATIONS_DIR = 'results/observations';
 /** How long one Look may run, and how much it may print, unless told otherwise. */
 export const LOOK_TIMEOUT_MS = 60_000;
 export const LOOK_MAX_OUTPUT = 256 * 1024;
+/** The largest file Look reads (workers/look/look.py MAX_BYTES). */
+export const LOOK_MAX_IMAGE = 64 * 1024 * 1024;
 
 /** workers/look/look.py stays at the package root for both the src and the dist/src layouts. */
 function packaged(rel: string): string {

@@ -23,7 +23,7 @@ import { killProcessGroup } from '../runtime/spawn-runtime.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import { readChain, type Receipt, type ReceiptInput } from '../utils/receipts.js';
-import { checkOpenCv, DETERMINISTIC, INTERPRETATION, LOOK_MAX_OUTPUT, LOOK_TIMEOUT_MS, lookArgs, lookPython, OPENCV_SETUP, parseLookOutput, writeObservation } from '../vision/look.js';
+import { checkOpenCv, DETERMINISTIC, INTERPRETATION, LOOK_MAX_IMAGE, LOOK_MAX_OUTPUT, LOOK_TIMEOUT_MS, lookArgs, lookPython, OPENCV_SETUP, parseLookOutput, writeObservation } from '../vision/look.js';
 import { describeImage } from '../vision/route.js';
 import { findUpmd, findWorkflowDocs, parseUpmdLine, parseWorkflow, runOrder, stepsFromEvent, upmdRunArgs, upmdVersion } from '../workflows/upmd.js';
 
@@ -273,7 +273,11 @@ export class Workspace {
   async observeFile(relArg: string, question?: string, model?: string): Promise<{ ok: true; job: JobRecord; done: Promise<ObserveOutcome> } | { ok: false; error: string }> {
     const at = resolveInside(this.root, relArg.trim());
     if ('error' in at) return { ok: false, error: at.error };
-    try { if (!statSync(at.path).isFile()) return { ok: false, error: `${at.rel} is not a file` }; } catch { return { ok: false, error: `${at.rel} does not exist` }; }
+    try {
+      const st = statSync(at.path);
+      if (!st.isFile()) return { ok: false, error: `${at.rel} is not a file` };
+      if (st.size > LOOK_MAX_IMAGE) return { ok: false, error: `${at.rel} is larger than ${LOOK_MAX_IMAGE / 1024 / 1024} MB, more than Look reads` };
+    } catch { return { ok: false, error: `${at.rel} does not exist` }; }
     const py = lookPython(this.d.env, this.d.onPath);
     if ('error' in py) return { ok: false, error: `Look needs a Python with OpenCV: ${py.error}. Setup: ${OPENCV_SETUP}` };
     const cv = await checkOpenCv(py.python, this.d.env);
@@ -342,7 +346,9 @@ export class Workspace {
       if (!model) interpretation = { tier: INTERPRETATION, status: 'not asked', question: o.question, reason: 'no current model is known here' };
       else {
         const r = await describeImage({ model, imagePath: o.imagePath, question: o.question, apiKey: this.d.env.OPENROUTER_API_KEY, ...(this.d.fetch ? { fetch: this.d.fetch } : {}) });
-        if (r.ok) { const { ok: _ok, ...rest } = r; interpretation = { status: 'answered', ...rest }; }
+        // The claim is about the bytes the model saw: they must be the bytes Look measured.
+        if (r.ok && r.image_sha256 !== o.source.sha256) interpretation = { tier: INTERPRETATION, status: 'failed', model, question: o.question, reason: `${rel} changed between Look and the model, so the answer is not kept` };
+        else if (r.ok) { const { ok: _ok, ...rest } = r; interpretation = { status: 'answered', ...rest }; }
         else interpretation = { tier: INTERPRETATION, status: r.refused ? 'refused' : 'failed', model, question: o.question, reason: r.error, ...(r.alternatives ? { alternatives: r.alternatives } : {}) };
       }
     }
