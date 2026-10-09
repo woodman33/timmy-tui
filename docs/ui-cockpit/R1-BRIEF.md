@@ -1,6 +1,6 @@
 # Round R1: shared brief for the lead and the two workers
 
-Updated 2026-10-08 23:45 PT by the lead (Opus). The Haiku worker's thread stalled before its first hand-off, so the lead keeps this file current; anyone may add a line under "For the lead".
+Updated 2026-10-09 00:05 PT by the lead (Opus). The Haiku worker's thread stalled before its first hand-off, so the lead keeps this file current; anyone may add a line under "For the lead".
 
 ## Where the work is
 
@@ -32,7 +32,10 @@ A functional, organized Timmy whose capabilities are easy to find and use: the R
 | `4a012c1` to `b5f5f05` | One connected workspace in the REPL: `/project`, `/files`, `/open`, `/edit`, `/workflows` and `/run` (upmd, as background jobs with a sealed prediction), `/preview`, `/jobs`, `/stop`, `/results`; jobs in their own process groups; receipts name the project and the files a turn wrote (ledger row 123). |
 | `c747545` | A turn that throws says why; each project keeps its own conversation (a defect the Mac demo found, row 124). |
 | `108f7b6` | The workspace command runs with a time limit in its own process group; the remaining workspace connections recorded in COMMAND-CENTER-PLAN (row 124). |
+| `50b9ca8` | What an independent check of `b1ede23` found: private names compared without case (a real leak on macOS), only regular files served by the preview, no absolute paths in job receipts, errors instead of throws, and "its process group" where a stop covered no more (row 126). |
 | `b1ede23` | The six findings of the independent review at `c7475458`: links to private files, redirected writes, jobs that outlive their first process, `/stop`'s ownership and wording, the preview server's read errors, Results by project identity (row 125). |
+
+Checks at `50b9ca8`: GitHub's CI and both privacy gates passed; locally the full suite, 268 files passed and 7 skipped (2,392 tests), with the same 3 vitest worker RPC timeouts as before the fixes; `tsc` and `tsgo` clean (row 126).
 
 Checks at `b1ede23`: GitHub's CI and both privacy gates passed; locally the full suite three times, 268 files passed and 7 skipped (2,388 tests), each run with 3 vitest worker RPC timeouts that are not test failures (row 125); `tsc` and `tsgo` clean. The workspace ran end to end on the operator's Mac at `b1ede23` (row 125).
 
