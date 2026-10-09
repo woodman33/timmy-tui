@@ -287,6 +287,10 @@ describe('renderBoard', () => {
     expect(yes).not.toContain('not a deterministic value in this record');
     // In a file that is not verified, the admission is only as recorded.
     expect(withEvidence(admitted, { status: 'unverified', reasons: ['no observe receipt names this file'] })).toMatch(/as recorded in a file that is not verified/);
+    // A stale file was sealed: its admission is as sealed, about an image that has changed since.
+    const stale = withEvidence(admitted, { status: 'stale', reasons: ['refs/card.png changed since it was observed'] });
+    expect(stale).toMatch(/about an earlier version of the image/);
+    expect(stale).not.toMatch(/not verified/);
     // A reference to a value the record does not hold as deterministic is said to be so.
     const odd = withEvidence({ ...admitted, handles: [{ handle_id: 'ev:3333', measurement: 'depth_guess' }] });
     expect(odd).toContain('depth_guess [not a deterministic value in this record]');

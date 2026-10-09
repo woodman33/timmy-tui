@@ -305,15 +305,16 @@ function unverifiedRow(m: BoardMeasurement, cardVerified: boolean): string {
  * observed in that run and cited through the cite tool — or plainly none. An admission says where a claim
  * points, not that it is right; in a file that is not verified, it is only what the file records.
  */
-function evidenceLine(e: BoardEvidence | undefined, cardVerified: boolean, deterministicNames: ReadonlySet<string>): string {
+function evidenceLine(e: BoardEvidence | undefined, status: ObservationCheck['status'] | undefined, deterministicNames: ReadonlySet<string>): string {
   if (e?.admission === 'admitted_references') {
     const refs = e.handles.map((h) => {
       const id = h.handle_id.length > 14 ? `${h.handle_id.slice(0, 11)}…` : h.handle_id;
       const name = h.measurement ?? '(a measurement not named)';
       return `${name}${h.measurement && deterministicNames.has(h.measurement) ? '' : ' [not a deterministic value in this record]'} (${id})`;
     }).join(', ');
-    const how = 'each a handle observed in its run and cited; an admission says where the claim points, not that it is right';
-    return `<p class="evidence admitted">${esc(`admitted references: ${refs}. ${how}${cardVerified ? '' : '; as recorded in a file that is not verified'}`)}</p>`;
+    const how = 'Each is a handle observed in its run and cited; an admission says where the claim points, not that it is right';
+    const scope = status === 'verified' ? '' : status === 'stale' ? '; about an earlier version of the image' : '; as recorded in a file that is not verified';
+    return `<p class="evidence admitted">${esc(`admitted references: ${refs}. ${how}${scope}`)}</p>`;
   }
   const why = e?.admission === 'unknown' ? ` (its evidence was refused: ${e.reason ?? 'no reason recorded'})`
     : e?.admission === 'unreadable' ? ' (its evidence record could not be read)' : '';
@@ -326,7 +327,7 @@ function statusBlock(o: BoardObservation): string {
   if (c.status === 'verified') {
     return `<div class="status status-verified"><strong>verified</strong> ${esc(`${c.receipt ? `receipt ${c.receipt}` : 'its observe receipt'} sealed this file, and ${o.source?.path ?? 'its image'} is unchanged since`)}</div>`;
   }
-  const lead = c.status === 'stale' ? 'measured from an image that has changed since: not true of it now' : 'these values are not verified';
+  const lead = c.status === 'stale' ? 'measured from an earlier version of the image; not known to hold for it now' : 'these values are not verified';
   const reasons = c.reasons.length ? c.reasons : ['no reason was given'];
   return `<div class="status status-${c.status === 'stale' ? 'stale' : 'unverified'}"><strong>${c.status === 'stale' ? 'stale' : 'unverified'}</strong> ${esc(lead)}`
     + `<ul class="reasons">${reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></div>`;
@@ -349,8 +350,11 @@ function observationCard(o: BoardObservation, h: ReturnType<typeof render>): str
     ? `<section class="measured"><h4>measured (deterministic computation)</h4>${size || rows ? `<dl>${size}${rows}</dl>` : '<p class="empty">No measurements in this record.</p>'}</section>`
     : '';
   const recordedSize = sizeText && !verified ? `<dt>image size</dt><dd>${esc(sizeText)} <span class="tier">as recorded</span></dd>` : '';
+  const unverifiedHeading = o.check?.status === 'stale'
+    ? 'not verified for the image as it is now: values from an earlier version of it'
+    : 'not verified: values as the file records them, not measurements';
   const unverified = others.length || recordedSize
-    ? `<section class="unverified"><h4>not verified: values as the file records them, not measurements</h4><dl>${recordedSize}${others.map((m) => unverifiedRow(m, verified)).join('')}</dl></section>`
+    ? `<section class="unverified"><h4>${esc(unverifiedHeading)}</h4><dl>${recordedSize}${others.map((m) => unverifiedRow(m, verified)).join('')}</dl></section>`
     : '';
   const i = o.interpretation;
   let model = '';
@@ -358,7 +362,7 @@ function observationCard(o: BoardObservation, h: ReturnType<typeof render>): str
     const meta = [`model ${i.model ?? 'unknown'}`, i.cost_usd !== undefined ? `cost $${i.cost_usd.toFixed(4)}` : 'cost not reported'].join(' · ');
     model = `<section class="claim"><h4>${esc("the model's claim")}</h4><p class="meta">${esc(meta)}</p>`
       + `${i.question ? `<p class="asked">${esc(`Asked: ${i.question}`)}</p>` : ''}<p class="answer">${i.answer ? claimHtml(i.answer) : esc('(no answer text)')}</p>`
-      + `${evidenceLine(i.evidence, verified, new Set(o.measurements.filter((m) => !m.malformed && m.tier === DETERMINISTIC).map((m) => m.name)))}</section>`;
+      + `${evidenceLine(i.evidence, o.check?.status, new Set(o.measurements.filter((m) => !m.malformed && m.tier === DETERMINISTIC).map((m) => m.name)))}</section>`;
   } else if (i) {
     model = `<p class="nomodel">${esc(`No model claim: ${i.status}${i.model ? ` (${i.model})` : ''}${i.reason ? `: ${i.reason}` : ''}`)}</p>`;
   }
