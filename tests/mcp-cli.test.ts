@@ -214,12 +214,36 @@ const exec = (name: string) => {
 };
 
 describe('the agent tools', () => {
-  it('list_mcp_tools: the routes, then a server\'s tools', async () => {
+  it('three tools; only list_mcp_tools is read-only, and it never starts a program from a command line', async () => {
+    expect(createMcpTools().map((t) => t.function.name)).toEqual(['list_mcp_tools', 'list_mcp_command_tools', 'call_mcp_tool']);
+    const r = await exec('list_mcp_tools')({ command: [process.execPath, FIXTURE] });
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toMatch(/list_mcp_command_tools/);
+    expect(r.tools).toBeUndefined();
+  });
+
+  it('list_mcp_tools: the routes and the configured servers', async () => {
     const routes = await exec('list_mcp_tools')({});
     expect((routes.routes as Array<{ id: string; available: boolean }>).map((r) => r.id)).toEqual(['mcporter', 'sdk']);
-    const tools = await exec('list_mcp_tools')({ route: 'sdk', command: [process.execPath, FIXTURE] });
-    expect(tools.ok).toBe(true);
-    expect((tools.tools as Array<{ name: string }>).map((t) => t.name)).toContain('echo');
+    expect(Array.isArray(routes.servers) || typeof routes.servers_error === 'string').toBe(true);
+  }, LONG);
+
+  it('list_mcp_tools: a configured server\'s tools, by name', async () => {
+    const project = scratch();
+    mkdirSync(join(project, 'config'));
+    writeFileSync(join(project, 'config', 'mcporter.json'), JSON.stringify({ mcpServers: { fixture: { command: process.execPath, args: [FIXTURE] } } }));
+    const t = createMcpTools({ cwd: () => project, env: () => ({ PATH: process.env.PATH, HOME: scratch() }) }).find((x) => x.function.name === 'list_mcp_tools')!;
+    const r = await (t.function as unknown as { execute: Exec }).execute({ server: 'fixture' });
+    expect(r.error).toBeUndefined();
+    expect((r.tools as Array<{ name: string }>).map((x) => x.name)).toEqual(expect.arrayContaining(['echo', 'add']));
+  }, LONG);
+
+  it('list_mcp_command_tools: a command line\'s tools, through either route', async () => {
+    for (const route of ROUTES) {
+      const tools = await exec('list_mcp_command_tools')({ route, command: [process.execPath, FIXTURE] });
+      expect(tools.ok).toBe(true);
+      expect((tools.tools as Array<{ name: string }>).map((t) => t.name)).toContain('echo');
+    }
   }, LONG);
 
   it('call_mcp_tool: calls through either route', async () => {
