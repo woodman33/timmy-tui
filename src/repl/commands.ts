@@ -99,6 +99,8 @@ export interface WorkspaceViews {
   mcp(args: string): Promise<Segment[][]>;
   /** Round R2: a read-only board of the project (an HTML snapshot), opened in Timmy's Browser. */
   board(args: string): Segment[][];
+  /** Round R3: `/board live` serves the board with Stop, Run and Observe on 127.0.0.1; `/board off` stops it. */
+  boardLive?(args: string): Promise<Segment[][]>;
 }
 
 /** /help's sections, in order: what you work on, what you look at, setup, the session. */
@@ -141,7 +143,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'results', group: 'work', description: 'Outputs, jobs and changes, linked to files', run: inWorkspace((w, a) => w.results(a)) },
   { name: 'add', group: 'work', description: 'Copy files into refs/: /add <file…>', run: inWorkspace((w, a) => w.add(a)) },
   { name: 'observe', group: 'look', description: 'Measure an image: /observe <file> [question]', run: inWorkspace((w, a) => w.observe(a)) },
-  { name: 'board', group: 'look', description: 'A board of the project: files, jobs, results', run: inWorkspace((w, a) => w.board(a)) },
+  // Round R3: `/board live` and `/board off` go to the live board; `/board` alone stays the snapshot.
+  { name: 'board', group: 'look', description: 'A board of the project; /board live | off', run: inWorkspace((w, a) => (w.boardLive && /^(?:live|off)$/.test(a.trim()) ? w.boardLive(a) : w.board(a))) },
   { name: 'c4d', group: 'work', description: 'Cinema 4D Python as a job: /c4d <script.py>', run: inWorkspace((w, a) => w.c4d(a)) },
   { name: 'ae', group: 'work', description: 'After Effects render: /ae <aep> <comp> <out>', run: inWorkspace((w, a) => w.ae(a)) },
   { name: 'blender', group: 'work', description: 'Blender Python as a job: /blender <script.py>', run: inWorkspace((w, a) => w.blender(a)) },

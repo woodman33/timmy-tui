@@ -24,7 +24,11 @@ import { DETERMINISTIC } from '../vision/look.js';
 
 export interface BoardFile { rel: string; bytes: number; sha256?: string; kind?: string }
 export interface BoardWorkflow { rel: string; blocks: Array<{ name: string; deps: string[] }> }
-export interface BoardJob { id: string; state: string; label: string; seconds?: string; receipt?: string; kind?: string }
+export interface BoardJob {
+  id: string; state: string; label: string; seconds?: string; receipt?: string; kind?: string;
+  /** Round R3, live board: a running job this REPL started, which its Stop button may stop. */
+  stoppable?: boolean;
+}
 export interface BoardMeasurement {
   name: string;
   value: unknown;
@@ -73,6 +77,13 @@ export interface BoardInput {
   observations: BoardObservation[];
   /** How many of each were left off the board. */
   more?: Partial<Record<BoardPart, number>>;
+  /**
+   * Round R3: drawn for the live board (src/repl/board-live.ts), served on 127.0.0.1: Stop, Run and Observe
+   * buttons carry structured data-* attributes, file names are text (that page serves no files, so no
+   * links and no thumbnails), and colour swatches carry their colour as data for the page's script
+   * (its Content-Security-Policy allows no style attribute). Absent: the read-only snapshot, unchanged.
+   */
+  live?: boolean;
 }
 
 /** Where `/board` writes the page, relative to the project, and the way back from there. */
@@ -202,20 +213,25 @@ const kindLabel = (f: BoardFile): string => {
 };
 
 function render(input: BoardInput) {
+  const live = input.live === true;
   const base = /^(?:\.\.\/)*$/.test(input.base) ? input.base : '';
   const href = (rel: string): string => esc(base + rel.split('/').map(encodeURIComponent).join('/'));
-  const fileLink = (rel: string, cls = 'name'): string => `<a class="${cls}" href="${href(rel)}">${esc(rel)}</a>`;
+  const fileLink = (rel: string, cls = 'name'): string => (live ? `<span class="${cls}">${esc(rel)}</span>` : `<a class="${cls}" href="${href(rel)}">${esc(rel)}</a>`);
   const cmd = (c: string): string => `<button type="button" class="cmd" data-cmd="${esc(c)}" title="Copy this command"><code>${esc(c)}</code></button>`;
   const cmds = (list: string[]): string => `<div class="cmds">${list.map(cmd).join('')}</div>`;
   /** /observe takes a quoted path when it has spaces; /open and /run read the rest of the line. */
   const quoted = (rel: string): string => (/\s/.test(rel) ? `"${rel}"` : rel);
-  const thumb = (rel: string): string => `<a class="thumb" href="${href(rel)}"><img src="${href(rel)}" alt="${esc(rel)}" loading="lazy"></a>`;
+  const thumb = (rel: string): string => (live ? '' : `<a class="thumb" href="${href(rel)}"><img src="${href(rel)}" alt="${esc(rel)}" loading="lazy"></a>`);
+  /** A live board's action button: what it does as escaped data-* attributes, never as command text. */
+  const act = (label: string, data: Record<string, string>): string => (live
+    ? `<button type="button" class="act" ${Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')}>${esc(label)}</button>`
+    : '');
   const empty = (what: string): string => `<p class="empty">${esc(what)}</p>`;
   const more = (part: BoardPart, how: string): string => {
     const n = input.more?.[part] ?? 0;
     return n > 0 ? `<p class="more">${esc(`and ${n} more: ${how}`)}</p>` : '';
   };
-  return { href, fileLink, cmd, cmds, quoted, thumb, empty, more };
+  return { live, href, fileLink, cmd, cmds, quoted, thumb, act, empty, more };
 }
 
 function referenceCard(f: BoardFile, h: ReturnType<typeof render>): string {
@@ -224,31 +240,31 @@ function referenceCard(f: BoardFile, h: ReturnType<typeof render>): string {
   const meta = [humanBytes(f.bytes), ...(f.sha256 ? [`sha256 ${f.sha256.slice(0, 12)}`] : [])].join(' · ');
   return `<article class="card">${image && SHOWN_IMAGE.test(f.rel) ? h.thumb(f.rel) : ''}`
     + `${h.fileLink(f.rel)}<div class="meta"><span class="kind">${esc(kind)}</span> ${esc(meta)}</div>`
-    + `${h.cmds([...(image ? [`/observe ${h.quoted(f.rel)}`] : []), `/open ${f.rel}`])}</article>`;
+    + `${image ? h.act('Observe', { act: 'observe', file: f.rel }) : ''}${h.cmds([...(image ? [`/observe ${h.quoted(f.rel)}`] : []), `/open ${f.rel}`])}</article>`;
 }
 
 function workflowCard(w: BoardWorkflow, h: ReturnType<typeof render>): string {
-  const blocks = w.blocks.map((b) => `<li><span class="block">${esc(b.name)}</span>${b.deps.length ? ` <span class="deps">${esc(`needs ${b.deps.join(', ')}`)}</span>` : ''}${h.cmd(`/run ${w.rel} ${b.name}`)}</li>`).join('');
+  const blocks = w.blocks.map((b) => `<li><span class="block">${esc(b.name)}</span>${b.deps.length ? ` <span class="deps">${esc(`needs ${b.deps.join(', ')}`)}</span>` : ''}${h.act('Run', { act: 'run', doc: w.rel, block: b.name })}${h.cmd(`/run ${w.rel} ${b.name}`)}</li>`).join('');
   return `<article class="card wide">${h.fileLink(w.rel)}<div class="meta"><span class="kind">workflow</span> ${esc(`${w.blocks.length} named block${w.blocks.length === 1 ? '' : 's'}`)}</div>`
     + `<ol class="blocks">${blocks}</ol>${h.cmds([`/open ${w.rel}`])}</article>`;
 }
 
 function jobCard(j: BoardJob, h: ReturnType<typeof render>): string {
   const meta = [...(j.seconds ? [j.seconds] : []), ...(j.receipt ? [`receipt ${j.receipt}`] : [])].join(' · ');
-  return `<article class="card"><div class="jobhead"><strong>${esc(j.id)}</strong> <span class="state state-${esc(j.state.replace(/[^a-z]/gi, ''))}">${esc(j.state)}</span></div>`
-    + `<div class="label">${esc(j.label)}</div>${meta ? `<div class="meta">${esc(meta)}</div>` : ''}${h.cmds([`/jobs ${j.id}`])}</article>`;
+  return `<article class="card"${h.live ? ` data-job-card="${esc(j.id)}"` : ''}><div class="jobhead"><strong>${esc(j.id)}</strong> <span class="state state-${esc(j.state.replace(/[^a-z]/gi, ''))}">${esc(j.state)}</span></div>`
+    + `<div class="label">${esc(j.label)}</div>${meta ? `<div class="meta">${esc(meta)}</div>` : ''}${h.live && j.stoppable ? h.act('Stop', { act: 'stop', job: j.id }) : ''}${h.cmds([`/jobs ${j.id}`])}</article>`;
 }
 
 function outputCard(f: BoardFile, h: ReturnType<typeof render>): string {
   const kind = kindLabel(f);
   return `<article class="card">${kind === 'image' && SHOWN_IMAGE.test(f.rel) ? h.thumb(f.rel) : ''}`
     + `${h.fileLink(f.rel)}<div class="meta"><span class="kind">${esc(kind)}</span> ${esc(humanBytes(f.bytes))}${f.sha256 ? esc(` · sha256 ${f.sha256.slice(0, 12)}`) : ''}</div>`
-    + `${h.cmds([`/open ${f.rel}`])}</article>`;
+    + `${kind === 'image' ? h.act('Observe', { act: 'observe', file: f.rel }) : ''}${h.cmds([`/open ${f.rel}`])}</article>`;
 }
 
 const percent = (v: number): string => `${Number((v * 100).toFixed(2))}%`;
 const words = (name: string): string => name.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
-const swatch = (hex: string): string => `<span class="swatch" style="background:${hex}"></span>`;
+const swatch = (hex: string, live = false): string => (live ? `<span class="swatch" data-swatch="${esc(hex)}"></span>` : `<span class="swatch" style="background:${hex}"></span>`);
 const plain = (v: unknown): string => {
   if (v === null || v === undefined) return 'not measured';
   if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return String(v);
@@ -257,20 +273,20 @@ const plain = (v: unknown): string => {
 };
 
 /** One measurement in plain words: a row of the measured block. */
-function measurementRow(m: BoardMeasurement): string {
+function measurementRow(m: BoardMeasurement, live = false): string {
   const row = (label: string, value: string): string => `<dt>${esc(label)}</dt><dd>${value}</dd>`;
   const notMeasured = (label: string): string => row(label, esc(`not measured${m.note ? `: ${m.note}` : ''}`));
   switch (m.name) {
     case 'mean_color': {
       const hex = str(obj(m.value)?.hex);
-      return hex && HEX.test(hex) ? row('Mean colour', `${swatch(hex)}${esc(hex)}`) : notMeasured('Mean colour');
+      return hex && HEX.test(hex) ? row('Mean colour', `${swatch(hex, live)}${esc(hex)}`) : notMeasured('Mean colour');
     }
     case 'dominant_colors': {
       if (!Array.isArray(m.value)) return notMeasured('Dominant colours');
       const items = m.value.map((c) => {
         const hex = str(obj(c)?.hex);
         const share = num(obj(c)?.share);
-        return hex && HEX.test(hex) ? `<span class="color">${swatch(hex)}${esc(hex)}${share !== undefined ? ` ${esc(percent(share))}` : ''}</span>` : '<span class="color">(not a #rrggbb colour)</span>';
+        return hex && HEX.test(hex) ? `<span class="color">${swatch(hex, live)}${esc(hex)}${share !== undefined ? ` ${esc(percent(share))}` : ''}</span>` : '<span class="color">(not a #rrggbb colour)</span>';
       });
       return row('Dominant colours', items.length ? items.join(' ') : 'none');
     }
@@ -346,7 +362,7 @@ function observationCard(o: BoardObservation, h: ReturnType<typeof render>): str
   const isMeasured = (m: BoardMeasurement): boolean => verified && !m.malformed && m.tier === DETERMINISTIC;
   const sizeText = o.image ? `${o.image.width} × ${o.image.height} px${o.image.channels !== undefined ? `, ${o.image.channels} channel${o.image.channels === 1 ? '' : 's'}` : ''}` : '';
   const size = sizeText && verified ? `<dt>Image size</dt><dd>${esc(sizeText)}</dd>` : '';
-  const rows = o.measurements.filter(isMeasured).map(measurementRow).join('');
+  const rows = o.measurements.filter(isMeasured).map((m) => measurementRow(m, h.live)).join('');
   const others = o.measurements.filter((m) => !isMeasured(m));
   const measured = verified
     ? `<section class="measured"><h4>measured (deterministic computation)</h4>${size || rows ? `<dl>${size}${rows}</dl>` : '<p class="empty">No measurements in this record.</p>'}</section>`
@@ -368,7 +384,7 @@ function observationCard(o: BoardObservation, h: ReturnType<typeof render>): str
   } else if (i) {
     model = `<p class="nomodel">${esc(`No model claim: ${i.status}${i.model ? ` (${i.model})` : ''}${i.reason ? `: ${i.reason}` : ''}`)}</p>`;
   }
-  return `<article class="card obs">${head}${statusBlock(o)}${measured}${unverified}${model}${h.cmds([`/open ${o.file}`, ...(src ? [`/observe ${h.quoted(src)}`] : [])])}</article>`;
+  return `<article class="card obs">${head}${statusBlock(o)}${measured}${unverified}${model}${src && SHOWN_IMAGE.test(src) ? h.act('Observe again', { act: 'observe', file: src }) : ''}${h.cmds([`/open ${o.file}`, ...(src ? [`/observe ${h.quoted(src)}`] : [])])}</article>`;
 }
 
 const CSS = `
@@ -458,8 +474,8 @@ document.addEventListener('click', function (e) {
 });
 `;
 
-/** The board as one self-contained HTML page. */
-export function renderBoard(input: BoardInput): string {
+/** The board's table of contents and main sections: the snapshot's body, and what the live board's state carries. */
+export function renderBoardBody(input: BoardInput): { toc: string; main: string } {
   const h = render(input);
   const grid = (cards: string[], wide = false): string => `<div class="grid${wide ? ' wide' : ''}">${cards.join('')}</div>`;
   const heading = (id: string, label: string, n: number): string => `<h2 id="${id}">${esc(label)} <span class="count">${n}</span></h2>`;
@@ -472,6 +488,35 @@ export function renderBoard(input: BoardInput): string {
     ['observations', 'Observations', total('observations', input.observations.length)],
   ];
   const n = Object.fromEntries(counts.map(([k, , c]) => [k, c])) as Record<BoardPart, number>;
+  return {
+    toc: `<nav class="toc">${counts.map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}</nav>`,
+    main: [
+      heading('references', 'References', n.references),
+      input.references.length ? grid(input.references.map((f) => referenceCard(f, h))) : h.empty('No references yet: /add <file> copies a file into refs/.'),
+      h.more('references', '/files references'),
+      heading('workflows', 'Workflows', n.workflows),
+      input.workflows.length ? grid(input.workflows.map((w) => workflowCard(w, h)), true) : h.empty('No workflows yet: write Markdown with a named block (```bash [name:build]), then /workflows.'),
+      h.more('workflows', '/workflows'),
+      heading('jobs', 'Jobs', n.jobs),
+      input.jobs.length ? grid(input.jobs.map((j) => jobCard(j, h))) : h.empty('No jobs yet: /run <file> <block> starts a workflow; /preview serves the project.'),
+      h.more('jobs', '/jobs'),
+      '<h2 id="results">Results</h2>',
+      `<h3 id="outputs">Outputs <span class="count">${n.outputs}</span></h3>`,
+      input.outputs.length ? grid(input.outputs.map((f) => outputCard(f, h))) : h.empty('No outputs yet: a build writes them (dist/, build/, out/, outputs/).'),
+      h.more('outputs', '/files outputs'),
+      `<h3 id="observations">Observations <span class="count">${n.observations}</span></h3>`,
+      input.observations.length ? grid(input.observations.map((o) => observationCard(o, h)), true) : h.empty('No observations yet: /observe <image>'),
+      h.more('observations', '/results'),
+    ].join('\n'),
+  };
+}
+
+/** The board's stylesheet, shared by the snapshot and the live board's page. */
+export const BOARD_CSS = CSS;
+
+/** The board as one self-contained HTML page. */
+export function renderBoard(input: BoardInput): string {
+  const { toc, main } = renderBoardBody({ ...input, live: false });
   const title = `Board · ${input.project}`;
   return [
     '<!doctype html>',
@@ -487,25 +532,10 @@ export function renderBoard(input: BoardInput): string {
     `<h1>Board · <span class="project">${esc(input.project)}</span></h1>`,
     `<p class="sub">${esc(`read-only snapshot, made ${input.madeAt}; act with the commands shown`)}</p>`,
     `<p class="sub">${esc('A green command copies itself when clicked: paste it into Timmy. Links open the files themselves.')}</p>`,
-    `<nav class="toc">${counts.map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}</nav>`,
+    toc,
     '</header>',
     '<main>',
-    heading('references', 'References', n.references),
-    input.references.length ? grid(input.references.map((f) => referenceCard(f, h))) : h.empty('No references yet: /add <file> copies a file into refs/.'),
-    h.more('references', '/files references'),
-    heading('workflows', 'Workflows', n.workflows),
-    input.workflows.length ? grid(input.workflows.map((w) => workflowCard(w, h)), true) : h.empty('No workflows yet: write Markdown with a named block (```bash [name:build]), then /workflows.'),
-    h.more('workflows', '/workflows'),
-    heading('jobs', 'Jobs', n.jobs),
-    input.jobs.length ? grid(input.jobs.map((j) => jobCard(j, h))) : h.empty('No jobs yet: /run <file> <block> starts a workflow; /preview serves the project.'),
-    h.more('jobs', '/jobs'),
-    '<h2 id="results">Results</h2>',
-    `<h3 id="outputs">Outputs <span class="count">${n.outputs}</span></h3>`,
-    input.outputs.length ? grid(input.outputs.map((f) => outputCard(f, h))) : h.empty('No outputs yet: a build writes them (dist/, build/, out/, outputs/).'),
-    h.more('outputs', '/files outputs'),
-    `<h3 id="observations">Observations <span class="count">${n.observations}</span></h3>`,
-    input.observations.length ? grid(input.observations.map((o) => observationCard(o, h)), true) : h.empty('No observations yet: /observe <image>'),
-    h.more('observations', '/results'),
+    main,
     '</main>',
     `<footer>${esc(`Made by /board from ${input.project}: a snapshot, not a live view; /board again makes a new one. Measured values are deterministic computations on the pixels, shown as measured only when an observe receipt sealed the file and its image is unchanged; a model's claim is not a measurement.`)}</footer>`,
     `<script>${SCRIPT}</script>`,
