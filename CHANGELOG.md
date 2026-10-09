@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set of shared settings (`src/theme/tokens.ts`). `TIMMY_PALETTE=homebrew`.
 
 ### Changed
+- `timmy tools` names the exact install command for agent-browser, Ollama, Claude Code, Codex and Qwen Code, and gives carbonyl's; the Web views row says a page opens in a pane only when Timmy runs inside zellij or tmux. `docs/TOOLS-SETUP.md` lists every row: what it needs, the step and how to check it.
 - The monitor only reads when it opens: it no longer writes a model policy or seals a `model.policy` receipt. Its header names the model the REPL last ran, else the one the REPL is set to run; the status line names the model policy as the policy, or `unset`.
 - `listLanes()` (and so `/lanes`) calls an API lane ready only when its key is set, returns the key's name and never its value, and calls hyperframes ready only when its own command is on PATH, not npx alone.
 - CI runs its full gate on pull requests into `feat/**` integration branches.

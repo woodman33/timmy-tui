@@ -112,9 +112,12 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   add(mux
     ? { id: 'cockpit', kind: 'surface', name: 'Cockpit (timmy center)', rung: 'installed', detail: `tabs in ${mux}` }
     : { id: 'cockpit', kind: 'surface', name: 'Cockpit (timmy center)', rung: 'needs setup', detail: 'no zellij or tmux', setup: 'brew install zellij (or tmux)' });
-  add(d.onPath('carbonyl') && mux
-    ? { id: 'web', kind: 'surface', name: 'Web views (/web)', rung: 'installed', detail: `pages in a ${mux} pane (carbonyl)` }
-    : { id: 'web', kind: 'surface', name: 'Web views (/web)', rung: 'installed', detail: 'links only: carbonyl and zellij show pages here' });
+  // /web opens a pane only when Timmy itself runs inside zellij or tmux (src/repl/web.ts); otherwise a link.
+  const inMux = env.ZELLIJ !== undefined || Boolean(env.TMUX);
+  add(d.onPath('carbonyl')
+    ? { id: 'web', kind: 'surface', name: 'Web views (/web)', rung: 'installed',
+        detail: inMux ? 'pages in a pane here (carbonyl)' : mux ? `links here; pages when run inside ${mux}` : 'links only: pages need zellij or tmux' }
+    : { id: 'web', kind: 'surface', name: 'Web views (/web)', rung: 'installed', detail: 'links only: carbonyl shows pages here', setup: 'npm install --global carbonyl' });
   const chain = d.receipts();
   add({ id: 'receipts', kind: 'surface', name: 'Receipts (timmy receipts)', rung: 'installed', detail: !chain.ok ? `chain BROKEN: ${chain.reason ?? 'verification failed'}` : chain.count ? `${plural(chain.count, 'receipt')}, chain verified` : 'none yet' });
 
@@ -131,7 +134,7 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
     ? { id: 'ollama', kind: 'model', name: 'Ollama (local models)', rung: 'reachable', detail: plural(ollama.models.length, 'local model') }
     : d.onPath('ollama')
       ? { id: 'ollama', kind: 'model', name: 'Ollama (local models)', rung: 'installed', detail: 'no answer, or no local model: ollama serve' }
-      : { id: 'ollama', kind: 'model', name: 'Ollama (local models)', rung: 'needs setup', detail: 'not installed', setup: 'brew install ollama, then ollama pull <model>' });
+      : { id: 'ollama', kind: 'model', name: 'Ollama (local models)', rung: 'needs setup', detail: 'not installed', setup: 'brew install ollama; brew services start ollama; ollama pull <model>' });
 
   // ── agent tools (what the REPL's agent can call; NEEDS YOU asks before the risky ones)
   add({ id: 'builtin', kind: 'tool', name: 'Built-in tools', rung: 'installed', detail: 'time, math, system, env (asks), spatial files', tools: ['get_current_time', 'calculate', 'get_system_info', 'get_env', 'read_spatial_model_context'] });
@@ -146,7 +149,7 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
         : { id: 'canvas-tools', kind: 'tool', name: 'Canvas tools', rung: 'needs setup', detail: 'Timmy Canvas is not running', setup: '/canvas, then /canvas open', tools: canvasTools });
   add({ id: 'workspace', kind: 'tool', name: 'Workspace command', rung: 'installed', tools: ['run_in_daytona_workspace'],
     detail: keySet(env.DAYTONA_API_KEY) ? 'runs in Daytona (asks each time)' : 'runs on this machine (asks each time)' });
-  program('browser', 'tool', 'Browser (agent-browser)', 'agent-browser', 'drives a Chrome session', 'install agent-browser', ['browser_launch_cdp', 'browser_get_snapshot', 'browser_click_element', 'browser_take_screenshot']);
+  program('browser', 'tool', 'Browser (agent-browser)', 'agent-browser', 'drives a Chrome session', 'brew install agent-browser, then agent-browser install', ['browser_launch_cdp', 'browser_get_snapshot', 'browser_click_element', 'browser_take_screenshot']);
   program('stress', 'tool', 'Load test (oha)', 'oha', 'oha is on PATH (asks first)', 'brew install oha', ['stress_test_endpoint']);
   add(keySet(env.TRIGGER_SECRET_KEY)
     ? { id: 'trigger', kind: 'tool', name: 'Trigger.dev jobs', rung: 'installed', detail: 'key set; not contacted', tools: ['trigger_background_workflow'] }
@@ -168,11 +171,11 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
 
   // ── other agents
   const hand = 'in a cockpit pane; not from the REPL yet (F-1)';
-  program('claude-code', 'harness', 'Claude Code', 'claude', hand, 'install Claude Code');
-  program('codex', 'harness', 'Codex', 'codex', hand, 'install Codex');
+  program('claude-code', 'harness', 'Claude Code', 'claude', hand, 'brew install --cask claude-code');
+  program('codex', 'harness', 'Codex', 'codex', hand, 'brew install --cask codex (or npm install -g @openai/codex)');
   add(d.onPath('qwen') || d.onPath('qwen-code')
     ? { id: 'qwen-code', kind: 'harness', name: 'Qwen Code', rung: 'installed', detail: hand }
-    : { id: 'qwen-code', kind: 'harness', name: 'Qwen Code', rung: 'needs setup', detail: 'qwen is not on PATH', setup: 'install Qwen Code' });
+    : { id: 'qwen-code', kind: 'harness', name: 'Qwen Code', rung: 'needs setup', detail: 'qwen is not on PATH', setup: 'brew install qwen-code (or npm install -g @qwen-code/qwen-code)' });
   // An API lane runs curl with its key: curl on PATH is not enough (review finding).
   const lanes = d.lanes().map((l) => ({ ...l, keyMissing: Boolean(l.key) && !keySet(env[l.key!]) }));
   const ready = lanes.filter((l) => l.available && !l.keyMissing).length;

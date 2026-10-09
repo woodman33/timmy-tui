@@ -156,3 +156,24 @@ describe('the OpenRouter check', () => {
     expect(await openRouterProbe(null, fetcher as typeof fetch)).toBe('no-key');
   });
 });
+
+describe('setup steps are commands a person can run', () => {
+  it('names the exact install command for each missing program, within 80 columns', async () => {
+    const r = byId(await capabilities(none));
+    expect(r.browser.setup).toBe('brew install agent-browser, then agent-browser install');
+    expect(r['claude-code'].setup).toBe('brew install --cask claude-code');
+    expect(r.codex.setup).toBe('brew install --cask codex (or npm install -g @openai/codex)');
+    expect(r['qwen-code'].setup).toBe('brew install qwen-code (or npm install -g @qwen-code/qwen-code)');
+    expect(r.ollama.setup).toBe('brew install ollama; brew services start ollama; ollama pull <model>');
+    expect(r.web.setup).toBe('npm install --global carbonyl');
+    // `do: ` plus the step must print whole at 80 columns (the renderer indents it by six).
+    for (const row of Object.values(r)) if (row.setup) expect(row.setup.length, row.id).toBeLessThanOrEqual(69);
+  });
+
+  it('says a page opens in a pane only when Timmy runs inside zellij or tmux', async () => {
+    const outside = byId(await capabilities({ ...all, env: { ...all.env } }));
+    expect(outside.web.detail).toContain('inside');
+    const inside = byId(await capabilities({ ...all, env: { ...all.env, ZELLIJ: '0' } }));
+    expect(inside.web.detail).toContain('pane here');
+  });
+});
