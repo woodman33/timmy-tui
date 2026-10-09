@@ -10,7 +10,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { JobManager, type JobRecord } from '../src/jobs/index.js';
 import {
-  aerenderJob, c4dpyJob, findAerender, findC4dpy, judgeNativeJob, judgeNativeRun, locateNative, nativeCapabilityRows, readNativeResult,
+  aerenderJob, c4dpyJob, findAerender, findC4dpy, judgeNativeJob, judgeNativeRun, locateNative, nativeCapabilityRows, nativeReceiptFields, readNativeResult,
   type NativeJobSpec,
 } from '../src/native/index.js';
 import { createNativeTools } from '../src/agent/native-tools.js';
@@ -137,6 +137,23 @@ describe('c4dpy jobs: the result file decides, the exit is recorded beside it', 
     expect(verdict.exit).toMatchObject({ code: 1, state: 'failed' });
     expect(verdict.files.map((f) => [f.path, f.present, f.matches])).toEqual([['out/scene.c4d', true, true], ['out/still.png', true, true]]);
     expect(verdict.c4dVersion).toBe(2026000);
+    const sealed = nativeReceiptFields('c4dpy', verdict);
+    expect(sealed.status).toBe('ok');
+    expect(sealed.native).toMatchObject({ app: 'c4dpy', outcome: 'ok', exit_code: 1, c4d_version: 2026000 });
+    expect(JSON.stringify(sealed)).not.toContain(root);
+  });
+
+  it('finds c4dpy through this process\'s environment when the job is given extra variables', () => {
+    const bin = install('fake-c4dpy.mjs', path.join(tmp, 'tools', 'c4dpy'));
+    const before = process.env.TIMMY_C4DPY;
+    process.env.TIMMY_C4DPY = bin;
+    try {
+      const s = c4dpyJob({ script: 'scene.py', root, project: 'demo', env: { FAKE_C4DPY_MODE: 'no-result' } });
+      expect(s.command).toBe(bin);
+    } finally {
+      if (before === undefined) delete process.env.TIMMY_C4DPY;
+      else process.env.TIMMY_C4DPY = before;
+    }
   });
 
   it('says unknown when c4dpy exits 0 without writing a result file', async () => {
@@ -146,6 +163,7 @@ describe('c4dpy jobs: the result file decides, the exit is recorded beside it', 
     const verdict = judgeNativeJob(job, s);
     expect(verdict.outcome).toBe('unknown');
     expect(verdict.why).toMatch(/no result file/);
+    expect(nativeReceiptFields('c4dpy', verdict).status).toBeUndefined();
   });
 
   it('says failed when the result file says ok:false, with the script\'s error', async () => {

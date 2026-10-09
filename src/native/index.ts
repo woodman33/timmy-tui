@@ -240,7 +240,7 @@ export function c4dpyJob(input: C4dpyJobInput): NativeJobSpec {
   if (!/\.py$/i.test(script.rel)) throw new Error(`${script.rel} is not a Python file (.py)`);
   const result = inside(root, input.result ?? 'out/timmy-result.json');
   const expect = (input.expect ?? []).map((rel) => inside(root, rel).rel);
-  const bin = program('c4dpy', input.bin, input.env ?? process.env);
+  const bin = program('c4dpy', input.bin, { ...process.env, ...input.env });
   const run = randomUUID();
   const lib = input.env?.TIMMY_C4D_LIB ?? c4dHelperDir();
   return {
@@ -284,7 +284,7 @@ export function aerenderJob(input: AerenderJobInput): NativeJobSpec {
   if (!isProject) throw new Error(`no project file at ${project.rel}: aerender renders an existing project, it cannot make one`);
   if (typeof input.comp !== 'string' || !input.comp.trim()) throw new Error('name the composition to render');
   const output = inside(root, input.output);
-  const bin = program('aerender', input.bin, input.env ?? process.env);
+  const bin = program('aerender', input.bin, { ...process.env, ...input.env });
   mkdirSync(path.dirname(output.path), { recursive: true });
   return {
     kind: 'task', label: input.label ?? `After Effects · ${project.rel} › ${input.comp}`, project: input.project, root,
@@ -475,6 +475,24 @@ export function judgeNativeJob(job: JobRecord, spec: NativeJobSpec | NativeMeta)
   return judgeNativeRun(job, read.state === 'read' ? read.data : undefined, opts);
 }
 
+/**
+ * A judgement as a receipt can carry it: names as the result or the spec gave them (relative to the
+ * project), the outcome and why, the exit beside them. `status` is the receipt status the outcome allows:
+ * 'ok' or 'failed', and none for 'unknown' (a receipt must not call an unknown run either).
+ */
+export function nativeReceiptFields(app: NativeApp, j: NativeJudgement): {
+  status?: 'ok' | 'failed';
+  native: { app: NativeApp; outcome: NativeJudgement['outcome']; why: string; exit_code: number | null; signal: string | null; files: NativeFileCheck[]; c4d_version?: unknown };
+} {
+  return {
+    ...(j.outcome === 'unknown' ? {} : { status: j.outcome }),
+    native: {
+      app, outcome: j.outcome, why: j.why, exit_code: j.exit.code, signal: j.exit.signal, files: j.files.map((f) => ({ ...f })),
+      ...(j.c4dVersion === undefined ? {} : { c4d_version: j.c4dVersion }),
+    },
+  };
+}
+
 // ── /tools rows ───────────────────────────────────────────────────────────────
 
 /**
@@ -488,7 +506,7 @@ export function nativeCapabilityRows(env: Env = process.env, seams: FinderSeams 
   return (Object.keys(NATIVE_APPS) as NativeApp[]).map((app) => {
     const info = NATIVE_APPS[app];
     const { found, problem } = locateNative(app, env, seams);
-    const scope = app === 'aerender' ? '; renders existing .aep/.aepx projects only (making or editing one needs After Effects scripting in the app)' : '; runs Python scripts headless, saves editable .c4d';
+    const scope = app === 'aerender' ? '; renders existing .aep/.aepx projects only (making or editing one needs After Effects scripting in the app)' : '';
     const base = { id: app, kind: 'adapter' as const, name: info.name, tools: ['run_native'] };
     if (found) {
       const where = found.how === 'applications'
