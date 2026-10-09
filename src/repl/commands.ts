@@ -103,6 +103,8 @@ export interface WorkspaceViews {
   board(args: string): Segment[][];
   /** Round R3: `/board live` serves the board with Stop, Run and Observe on 127.0.0.1; `/board off` stops it. */
   boardLive?(args: string): Promise<Segment[][]>;
+  /** Round R3 (helper H13): a code agent (Qwen Code, Claude Code, Codex, OpenCode) as a job in the project. */
+  agent?(args: string): Promise<Segment[][]>;
 }
 
 /** /help's sections, in order: what you work on, what you look at, setup, the session. */
@@ -152,6 +154,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'blender', group: 'work', description: 'Blender Python as a job: /blender <script.py>', run: inWorkspace((w, a) => w.blender(a)) },
   { name: 'recipe', group: 'work', description: 'CadQuery tray recipe as a job: /recipe tray', run: inWorkspace((w, a) => w.recipe(a)) },
   { name: 'mcp', group: 'setup', description: 'MCP servers and tools: /mcp [tools|call]', run: inWorkspace((w, a) => w.mcp(a)) },
+  // Round R3 (helper H13): a code agent as a durable, cancellable job.
+  { name: 'agent', group: 'work', description: 'A code agent as a job: /agent qwen <task>', run: inWorkspace((w, a) => (w.agent ? w.agent(a) : [[{ text: '  Code agents are not available here.', role: 'secondary' }]])) },
   {
     name: 'web',
     group: 'look',

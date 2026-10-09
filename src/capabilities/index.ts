@@ -11,6 +11,7 @@
  * "Exercised" is said beside the rung, from the sealed receipts: the last time one of the row's tools
  * completed in a turn. A past use is not a present check, so it never raises the rung.
  */
+import { agentExercisedAt } from '../code-agents/index.js';
 import { mcpCapabilityRows } from '../connectors/mcp-cli.js';
 import { nativeCapabilityRows, nativeExercisedAt, type NativeRunIndex } from '../native/index.js';
 import { recipeCapabilityRow } from '../recipes/index.js';
@@ -79,6 +80,11 @@ export interface ProbeDeps {
    * signed result verified now (src/recipes recipeExercisedAt). Absent: the recipe row is never exercised.
    */
   recipeExercised?: () => string | undefined;
+  /**
+   * Round R3 (/agent): agent name → the newest sealed receipt of a completed run of that agent (src/code-agents
+   * agentExercisedIndex over the verified chain). Absent: the agent rows are never exercised.
+   */
+  agentRuns?: () => Map<string, string>;
   /** Whether the edge host (TIMMY_EDGE_HOST or the private overlay) is set; never the host. */
   edgeSet: () => boolean;
 }
@@ -192,12 +198,17 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
     : { id: 'spatial-review', kind: 'tool', name: 'Local spatial review', rung: 'needs setup', detail: 'needs a local Ollama model', setup: 'ollama serve, then ollama pull <model>', tools: spatial });
 
   // ── other agents
-  const hand = 'in a cockpit pane; not from the REPL yet (F-1)';
-  program('claude-code', 'harness', 'Claude Code', 'claude', hand, 'brew install --cask claude-code');
-  program('codex', 'harness', 'Codex', 'codex', hand, 'brew install --cask codex (or npm install -g @openai/codex)');
+  // Round R3 (helper H13): each runs from the REPL as a job (/agent); its row is exercised only by a sealed,
+  // completed run of that agent (exercisedBy agent:<name>, src/code-agents agentExercisedIndex), never another's.
+  const paidHand = (n: string): string => `/agent ${n} --paid <task>: a job, on your account (costs money)`;
+  program('claude-code', 'harness', 'Claude Code', 'claude', paidHand('claude'), 'brew install --cask claude-code');
+  program('codex', 'harness', 'Codex', 'codex', paidHand('codex'), 'brew install --cask codex (or npm install -g @openai/codex)');
   add(d.onPath('qwen') || d.onPath('qwen-code')
-    ? { id: 'qwen-code', kind: 'harness', name: 'Qwen Code', rung: 'installed', detail: hand }
+    ? { id: 'qwen-code', kind: 'harness', name: 'Qwen Code', rung: 'installed', detail: '/agent qwen <task>: a job; free on a local endpoint' }
     : { id: 'qwen-code', kind: 'harness', name: 'Qwen Code', rung: 'needs setup', detail: 'qwen is not on PATH', setup: 'brew install qwen-code (or npm install -g @qwen-code/qwen-code)' });
+  program('opencode', 'harness', 'OpenCode', 'opencode', paidHand('opencode'), 'brew install opencode (or npm install -g opencode-ai)');
+  const AGENT_ROWS: Record<string, string> = { 'claude-code': 'agent:claude', codex: 'agent:codex', 'qwen-code': 'agent:qwen', opencode: 'agent:opencode' };
+  for (const r of rows) if (AGENT_ROWS[r.id]) r.exercisedBy = AGENT_ROWS[r.id];
   // An API lane runs curl with its key: curl on PATH is not enough (review finding).
   const lanes = d.lanes().map((l) => ({ ...l, keyMissing: Boolean(l.key) && !keySet(env[l.key!]) }));
   const ready = lanes.filter((l) => l.available && !l.keyMissing).length;
@@ -247,10 +258,15 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   // Exercised: the last sealed, completed use of any of the row's tools; a row keyed by its own record
   // (exercisedBy) is decided by that record alone, never by a tool name it shares (R3, finding 6).
   const used = d.exercised();
+  const agentRuns = d.agentRuns?.();
   return rows.map((r) => {
     if (r.exercisedBy?.startsWith('recipe:')) {
       // Submission, failure and cancellation never count: only a verified, succeeded job's result.
       const at = d.recipeExercised?.();
+      return at ? { ...r, exercised: at } : r;
+    }
+    if (r.exercisedBy?.startsWith('agent:')) {
+      const at = agentExercisedAt(r.exercisedBy, agentRuns);
       return at ? { ...r, exercised: at } : r;
     }
     if (r.exercisedBy) {

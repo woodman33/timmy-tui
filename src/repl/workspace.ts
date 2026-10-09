@@ -32,6 +32,14 @@ import { readChain, type Receipt, type ReceiptInput } from '../utils/receipts.js
 import { checkOpenCv, DETERMINISTIC, INTERPRETATION, LOOK_MAX_IMAGE, LOOK_MAX_OUTPUT, LOOK_TIMEOUT_MS, lookArgs, lookPython, OBSERVATIONS_DIR, OPENCV_SETUP, parseLookOutput, writeObservation, lookEnv } from '../vision/look.js';
 import { describeImage } from '../vision/route.js';
 import { findUpmd, findWorkflowDocs, parseUpmdLine, parseWorkflow, runOrder, stepsFromEvent, upmdRunArgs, upmdVersion } from '../workflows/upmd.js';
+// Round R3 (/agent, helper H13): code agents as jobs; the code is in the "/agent" section below.
+import { spawnSync, execFile } from 'node:child_process';
+import { copyFileSync, writeFileSync } from 'node:fs';
+import {
+  AGENT_NAMES, AGENTS, AGENTS_DIR, agentBin, agentLabel, appendProgress, boundMessage, diffSnapshots, ensureDir, isGitDir, judgeAgentRun,
+  listAgentRuns, newProgress, newRunId, parseAgentLine, planAgent, progressLine, readProgressTail, runDir, scrubPaths, snapshotJson, snapshotProject,
+  taskWords, writeJson, type AgentPlan, type AgentProgress, type AgentRunRecord, type Snapshot,
+} from '../code-agents/index.js';
 
 type Line = Segment[];
 
@@ -114,6 +122,21 @@ export const freePort = (): Promise<number> => new Promise((resolve, reject) => 
   });
 });
 
+/** Round R3 (/agent): `<agent> --version`'s first line (5 s at most), or null when it does not say. */
+const agentVersion = (bin: string): Promise<string | null> => new Promise((resolve) => {
+  try {
+    execFile(bin, ['--version'], { timeout: 5000, encoding: 'utf8' }, (err, stdout) => {
+      const first = String(stdout ?? '').split('\n').map((l) => l.trim()).find(Boolean);
+      resolve(!err && first ? first.slice(0, 60) : null);
+    });
+  } catch { resolve(null); }
+});
+/** Round R3 (/agent): `git diff --stat --relative` in the project (paths relative to it), or '' when git says nothing. */
+const gitStat = (root: string): string => {
+  const r = spawnSync('git', ['diff', '--stat', '--relative'], { cwd: root, encoding: 'utf8', timeout: 10_000 });
+  return r.status === 0 ? String(r.stdout ?? '').trim().slice(0, 8000) : '';
+};
+
 interface Prediction { doc: string; block: string; order: string[]; receipt?: string }
 
 /**
@@ -126,6 +149,19 @@ interface Observing {
   done?: Promise<ObserveOutcome>;
   /** set while the model is asked, after the measurement: which model, since when, and whether the paid request is out */
   asking?: { model: string; since: number; sent: boolean };
+}
+
+/** Round R3 (/agent): a code agent's run while it is going: its plan, the project before it, its progress. */
+interface AgentRunState {
+  record: AgentRunRecord;
+  plan: AgentPlan;
+  root: string;
+  dir: string;
+  before: Snapshot;
+  beforeTruncated: boolean;
+  /** `git diff --stat --relative` before the run, when the project is in a git work tree */
+  gitBefore: string | null;
+  progress: AgentProgress;
 }
 
 /** How long /stop and the REPL's end wait for a stopped observation to be recorded. */
@@ -151,6 +187,8 @@ export class Workspace {
   private live?: LiveBoard;
   /** Round R3 (/recipe): each recipe watcher job's recipe job UUID (its operation ID). */
   private readonly recipes = new Map<string, string>();
+  /** Round R3 (/agent): code-agent runs this REPL started, by their job's id: sealed by sealAgent, not as a plain task. */
+  private readonly agentRuns = new Map<string, AgentRunState>();
 
   constructor(private readonly d: WorkspaceDeps, start: ActiveProject) {
     this.project = start;
@@ -632,6 +670,9 @@ export class Workspace {
     if (job.state === before.state) return;
     const recipe = this.recipes.get(job.id);
     if (recipe && TERMINAL.has(job.state)) { for (const l of recipeEnded({ ...this.recipeContext(), root: job.root }, job, recipe)) this.d.notify(l); return; }
+    // Round R3 (/agent): a code agent's end says its outcome and what it changed, from its sealed result.
+    const agentRun = this.agentRuns.get(job.id);
+    if (agentRun && TERMINAL.has(job.state)) return void this.d.notify(this.agentEndLine(job, agentRun));
     const nat = this.natives.get(job.id);
     if (nat && (job.state === 'completed' || job.state === 'failed')) {
       // R2: judged by the app's own result file; an exit code alone decides nothing (c4dpy can exit 1 after a good run).
@@ -678,6 +719,9 @@ export class Workspace {
   private sealJob(job: JobRecord): string | undefined {
     // A Look job's one receipt is its observation's (kind observe), sealed once the observation is written.
     if (this.looks.has(job.id)) return undefined;
+    // Round R3 (/agent): a code agent's run is sealed with its result (kind agent).
+    const agentRun = this.agentRuns.get(job.id);
+    if (agentRun) return this.sealAgent(job, agentRun);
     const p = this.predictions.get(job.id);
     const met = p ? job.state === 'completed' && job.steps.length === p.order.length && job.steps.every((s, i) => s.name === p.order[i] && s.state === 'completed') : undefined;
     const outputs = job.kind === 'server' ? [] : this.outputsSince(job);
@@ -738,6 +782,9 @@ export class Workspace {
       if (!j) return this.say(`No job ${id}. /jobs lists them.`);
       const lines: Line[] = [this.jobLine(j), ...this.askingLine(j)];
       for (const s of j.steps) lines.push([{ text: `      ${s.state === 'completed' ? this.d.glyphs.ok : s.state === 'failed' ? this.d.glyphs.fail : this.d.glyphs.bullet} ${s.name}`, role: s.state === 'failed' ? 'failure' : undefined }, { text: s.code === undefined ? '' : `  exit ${s.code}`, role: 'secondary' }]);
+      // Round R3 (/agent): a code agent's job shows its parsed progress, not its raw stream.
+      const progress = this.agentProgressLines(j);
+      if (progress) return [...lines, ...progress];
       lines.push([{ text: '  Output   ', role: 'secondary' }, { text: this.d.link('the full log', fileUrl(j.logPath)) }, { text: `${this.sep}${j.lines} lines; the last of them:`, role: 'secondary' }]);
       for (const l of this.jobs.tail(j.id, 12)) lines.push([{ text: `  ${this.d.glyphs.sep} `, role: 'secondary' }, { text: l }]);
       return lines;
@@ -900,6 +947,231 @@ export class Workspace {
     return lines.map((l) => [{ text: `  ${l}` }]);
   }
 
+  // ── /agent (round R3, helper H13): a code agent as a job; its result in .timmy/agents/<run>/ ──────────
+
+  /** `/agent` lists the agents; `/agent <name> [--paid] <task…>` runs one as a job; `/agent last` shows the last run. */
+  async agent(args: string): Promise<Line[]> {
+    const a = args.trim();
+    if (!a) return this.agentList();
+    if (a === 'last') return this.agentLast();
+    const p = parseAgentLine(a);
+    if (!p.name) return this.say(`No agent named ${p.word ?? ''}. Agents: ${AGENT_NAMES.join(', ')}; /agent lists them.`);
+    const info = AGENTS[p.name];
+    const bin = agentBin(p.name, this.d.env, this.d.onPath);
+    if (!bin) return this.say(`${info.title} is not on PATH (${info.bin}); /tools says how to install it. Nothing was started.`, 'estimate');
+    const run = newRunId();
+    const planned = planAgent(p.name, p.task, { env: this.d.env, paid: p.paid, run, bin });
+    if (!planned.ok) return this.say(planned.error, planned.refused === 'paid' ? 'estimate' : 'failure');
+    const plan = planned.plan;
+    const root = this.root;
+    const dir = runDir(root, run);
+    const version = await agentVersion(bin);
+    let before: { files: Snapshot; truncated: boolean };
+    try { ensureDir(dir); before = snapshotProject(root); } catch (e) { return this.say(`The run could not be prepared: ${this.scrub((e as Error).message, root)}`, 'failure'); }
+    const record: AgentRunRecord = {
+      agent_run: 1, run, agent: p.name, agent_version: version, model: plan.model, endpoint: plan.endpoint, where: plan.where,
+      task: p.task, job: '', started_at: new Date().toISOString(),
+    };
+    const progress = newProgress();
+    const state: AgentRunState = { record, plan, root, dir, before: before.files, beforeTruncated: before.truncated, gitBefore: isGitDir(root) ? gitStat(root) : null, progress };
+    try { writeJson(join(dir, 'snapshot-before.json'), { truncated: before.truncated, files: snapshotJson(before.files) }); } catch { /* kept in memory */ }
+    const job = this.jobs.start({
+      kind: 'task', label: agentLabel(p.name, run, p.task, root), project: this.project.name, root, command: plan.command, args: plan.args, timeoutMs: plan.timeoutMs,
+      ...(plan.env ? { env: plan.env } : {}),
+      parseLine: (line) => { const shown = progressLine(line, progress, root); if (shown) appendProgress(dir, shown); },
+    });
+    this.mine.add(job.id);
+    this.agentRuns.set(job.id, state);
+    record.job = job.id;
+    try { writeJson(join(dir, 'run.json'), { ...record, state: 'submitted' }); } catch { /* the job still runs; its result is written at its end */ }
+    const g = this.d.glyphs;
+    return [
+      [{ text: '  Agent      ', role: 'secondary' }, { text: job.id, role: 'strong' }, { text: `  ${job.label}`, role: 'secondary' }],
+      [{ text: '  Runs       ', role: 'secondary' }, { text: `${info.title}${version ? ` ${version}` : ''}${plan.model ? `${this.sep}model ${plan.model}` : ''}${plan.agent === 'qwen' ? ` at ${plan.where}` : ''}${this.sep}` },
+        { text: plan.endpoint === 'local' ? plan.charge : `${plan.charge}: it uses ${plan.agent === 'qwen' ? 'that endpoint' : 'your account'} and may cost money`, role: plan.endpoint === 'local' ? 'secondary' : 'estimate' },
+        { text: `${this.sep}up to ${plan.wallTime}${plan.env?.HOME ? `${this.sep}its own HOME (TIMMY_AGENT_HOME)` : ''}`, role: 'secondary' }],
+      [{ text: '  Follow     ', role: 'secondary' }, { text: `/jobs ${job.id}${this.sep}/stop ${job.id}${this.sep}then /agent last or /results ${g.arrow} ${AGENTS_DIR}/${run}/`, role: 'secondary' }],
+    ];
+  }
+
+  private agentList(): Line[] {
+    const env = this.d.env;
+    const lines: Line[] = [[{ text: '  Code agents', role: 'strong' }, { text: `  each runs in ${this.project.name} as a job: /agent <name> <task>`, role: 'secondary' }]];
+    for (const n of AGENT_NAMES) {
+      const info = AGENTS[n];
+      const bin = agentBin(n, env, this.d.onPath);
+      const found = bin ? (env[info.binEnv]?.trim() ? `set by ${info.binEnv}` : 'on PATH') : 'not on PATH';
+      const model = env[info.modelEnv]?.trim();
+      let how: Segment;
+      if (n === 'qwen') {
+        const plan = model ? planAgent('qwen', 'list', { env, paid: true, run: 'a00000000', bin: bin ?? info.bin }) : undefined;
+        how = !model
+          ? { text: `needs TIMMY_AGENT_MODEL (a model the endpoint serves)${this.sep}endpoint ${env.TIMMY_AGENT_BASE_URL?.trim() ? 'from TIMMY_AGENT_BASE_URL' : 'a local Ollama (127.0.0.1:11434)'}`, role: 'estimate' }
+          : plan?.ok
+            ? { text: `${plan.plan.endpoint === 'local' ? 'local endpoint, no charge' : 'remote endpoint: may cost money (--paid)'}${this.sep}model ${model} at ${plan.plan.where}`, role: plan.plan.endpoint === 'local' ? 'secondary' : 'estimate' }
+            : { text: plan ? plan.error : '', role: 'failure' };
+      } else {
+        how = { text: `your own account: costs money (--paid)${this.sep}model ${model ?? 'its default'}`, role: 'estimate' };
+      }
+      lines.push([{ text: `  ${bin ? this.d.glyphs.bullet : ' '} ` }, { text: n.padEnd(9), role: bin ? 'strong' : undefined }, { text: ` ${info.title.padEnd(12)} ${found.padEnd(12)}${this.sep}`, role: 'secondary' }, how]);
+    }
+    lines.push(...this.say(`Run one: /agent qwen <task>; a paid one: /agent claude --paid <task>; the last run: /agent last`));
+    return lines;
+  }
+
+  private agentLast(): Line[] {
+    const runs = listAgentRuns(this.root);
+    const r = runs[0];
+    if (!r) return this.say('No agent runs in this project yet: /agent qwen <task>');
+    const live = [...this.agentRuns.entries()].find(([, s]) => s.record.run === r.run);
+    const job = live ? this.jobs.get(live[0]) : r.job ? this.jobs.get(r.job) : undefined;
+    const lines: Line[] = [[{ text: '  Agent run  ', role: 'secondary' }, { text: r.run, role: 'strong' }, { text: `  ${r.agent}${r.agent_version ? ` ${r.agent_version}` : ''}${this.sep}`, role: 'secondary' },
+      r.outcome ? { text: r.outcome, role: r.outcome === 'completed' ? 'strong' : 'failure' } : { text: job && !TERMINAL.has(job.state) ? `running: /jobs ${job.id}` : 'not finished here: no result was written (its REPL ended first)', role: 'estimate' },
+      { text: r.why ? `${this.sep}${this.scrub(r.why, this.root)}` : '', role: 'secondary' }]];
+    lines.push([{ text: '  Task       ', role: 'secondary' }, { text: taskWords(r.task, this.root, 160) }]);
+    const cost = r.cost_usd === undefined ? '' : r.cost_usd === null ? `${this.sep}cost unknown (the agent reported none)` : `${this.sep}cost $${r.cost_usd.toFixed(4)} (${r.cost_basis ?? ''})`;
+    lines.push([{ text: '  Model      ', role: 'secondary' }, { text: `${r.model ?? 'its default'}${this.sep}${r.endpoint === 'local' ? `local endpoint ${r.where}` : r.where}${cost}`, role: r.endpoint === 'local' ? undefined : 'estimate' }]);
+    if (r.files) {
+      const f = r.files;
+      lines.push([{ text: '  Changed    ', role: 'secondary' }, { text: `${f.added.length} added, ${f.changed.length} changed, ${f.deleted.length} deleted${f.truncated ? ' (the project has more files than were compared)' : ''}` }]);
+      for (const [list, word] of [[f.added, 'added'], [f.changed, 'changed'], [f.deleted, 'deleted']] as const) {
+        for (const c of list.slice(0, 12)) lines.push([{ text: '    ' }, word === 'deleted' ? { text: c.path } : { text: this.fileLink(c.path) }, { text: `  ${word}`, role: word === 'deleted' ? 'failure' : 'secondary' }]);
+        if (list.length > 12) lines.push(...this.say(`  and ${list.length - 12} more ${word}: ${AGENTS_DIR}/${r.run}/result.json`));
+      }
+      if (r.git_diff_stat?.after) lines.push([{ text: '  Git        ', role: 'secondary' }, { text: r.git_diff_stat.after.split('\n').filter(Boolean).at(-1) ?? '' }]);
+    }
+    if (r.final_message) {
+      let text = '';
+      try { text = readFileSync(join(runDir(this.root, r.run), r.final_message.file), 'utf8'); } catch { /* gone */ }
+      const first = scrubPaths(text, this.root).replace(/\s+/g, ' ').trim();
+      lines.push([{ text: '  Said       ', role: 'secondary' }, { text: first.length > 300 ? `${first.slice(0, 299)}…` : first || '(empty)', role: 'ai' }]);
+      if (first.length > 300 || r.final_message.truncated) lines.push(...this.say(`  the whole message: ${AGENTS_DIR}/${r.run}/${r.final_message.file}`));
+    }
+    lines.push([{ text: '  Files      ', role: 'secondary' }, { text: this.fileLink(`${AGENTS_DIR}/${r.run}/${r.outcome ? 'result.json' : 'run.json'}`) }, { text: `${r.transcript ? `${this.sep}transcript.log` : ''}${r.receipt ? `${this.sep}receipt ${r.receipt}` : ''}`, role: 'secondary' }]);
+    return lines;
+  }
+
+  /** Under /jobs <id> for a code agent's job: its parsed progress (tool calls, files edited, what it said). */
+  private agentProgressLines(j: JobRecord): Line[] | undefined {
+    const st = this.agentRuns.get(j.id);
+    const rec = st?.record ?? listAgentRuns(j.root).find((r) => r.job === j.id);
+    if (!rec) return undefined;
+    const p = st?.progress;
+    const edited = p?.filesEdited ?? rec.progress?.files_edited ?? [];
+    const calls = p?.toolCalls ?? rec.progress?.tool_calls ?? 0;
+    const lines: Line[] = [[{ text: '  Progress ', role: 'secondary' }, { text: `${calls} tool call${calls === 1 ? '' : 's'}${edited.length ? `${this.sep}edited ${edited.slice(0, 6).join(', ')}${edited.length > 6 ? ` and ${edited.length - 6} more` : ''}` : ''}${this.sep}` },
+      { text: this.d.link('the transcript', fileUrl(rec.transcript ? join(runDir(j.root, rec.run), rec.transcript) : j.logPath)) }]];
+    for (const l of readProgressTail(j.root, rec.run, 12)) lines.push([{ text: `  ${this.d.glyphs.sep} `, role: 'secondary' }, { text: l }]);
+    return lines;
+  }
+
+  /** /results: each code agent's run in this project, newest first, with what it changed. */
+  private agentResultLines(): Line[] {
+    const runs = listAgentRuns(this.root).slice(0, 5);
+    const lines: Line[] = [[{ text: '  Agents', role: 'strong' }, { text: runs.length ? '  newest first; what each run changed' : '', role: 'secondary' }]];
+    if (!runs.length) return [...lines, ...this.say('  none yet: /agent qwen <task>')];
+    for (const r of runs) {
+      const f = r.files;
+      const counts = f ? `${f.added.length} added, ${f.changed.length} changed, ${f.deleted.length} deleted` : 'no result yet';
+      lines.push([{ text: `    ${r.run}  ` }, { text: `${r.agent}  `, role: 'strong' }, { text: r.outcome ?? 'not finished', role: r.outcome === 'completed' ? undefined : 'failure' },
+        { text: `${this.sep}${counts}${r.receipt ? `${this.sep}receipt ${r.receipt}` : ''}`, role: 'secondary' }]);
+      const named = f ? [...f.added.map((c) => `${c.path} added`), ...f.changed.map((c) => `${c.path} changed`), ...f.deleted.map((c) => `${c.path} deleted`)] : [];
+      if (named.length) lines.push([{ text: '      ' }, { text: `${named.slice(0, 6).join(this.sep)}${named.length > 6 ? `${this.sep}and ${named.length - 6} more` : ''}`, role: 'secondary' }]);
+    }
+    lines.push(...this.say('  the last run in full: /agent last'));
+    return lines;
+  }
+
+  /** A code agent's end, in one notice: its outcome, what it changed, its cost and receipt. */
+  private agentEndLine(job: JobRecord, st: AgentRunState): Line {
+    const g = this.d.glyphs;
+    const r = st.record;
+    const f = r.files;
+    const ok = r.outcome === 'completed';
+    const cost = r.cost_usd === null ? 'cost unknown' : r.cost_usd === undefined ? '' : `cost $${r.cost_usd.toFixed(4)}${r.cost_basis === 'local endpoint' ? ' (local endpoint)' : ''}`;
+    return [{ text: `  ${ok ? g.ok : r.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok ? undefined : 'failure' }, { text: `${job.id} ${r.outcome ?? job.state}`, role: ok ? 'strong' : 'failure' },
+      { text: `  agent ${r.agent} ${r.run}${f ? `: ${f.added.length} added, ${f.changed.length} changed, ${f.deleted.length} deleted` : ''}${cost ? `${this.sep}${cost}` : ''}${job.receipt ?? r.receipt ? `${this.sep}receipt ${job.receipt ?? r.receipt}` : ''}${this.sep}/agent last`, role: 'secondary' }];
+  }
+
+  /**
+   * Seals a code agent's run (from the job's seal callback, at its end): the project after it, compared with
+   * the snapshot before it; its final message, bounded; its transcript; its result.json; then one receipt
+   * (kind agent). Its cost is 0 only for a local endpoint; otherwise what the agent reported, or unknown.
+   */
+  private sealAgent(job: JobRecord, st: AgentRunState): string | undefined {
+    const root = st.root;
+    const rec = st.record;
+    const judged = judgeAgentRun(job, st.progress, rec.agent);
+    let after: { files: Snapshot; truncated: boolean };
+    try { after = snapshotProject(root); } catch { after = { files: new Map(), truncated: true }; }
+    const changes = diffSnapshots(st.before, after.files);
+    const gitAfter = st.gitBefore !== null ? gitStat(root) : null;
+    let final = st.progress.finalMessage;
+    if (final === undefined && st.plan.lastMessageFile) { try { final = readFileSync(join(root, st.plan.lastMessageFile), 'utf8'); } catch { /* none written */ } }
+    final ??= st.progress.lastText;
+    const outputs: Array<{ path: string; sha256?: string; bytes: number }> = [];
+    const keep = (name: string, write: () => void): void => {
+      try {
+        write();
+        const abs = join(st.dir, name);
+        const sha = sha256File(abs);
+        outputs.push({ path: `${AGENTS_DIR}/${rec.run}/${name}`, ...(sha ? { sha256: sha } : {}), bytes: statSync(abs).size });
+      } catch { /* not kept */ }
+    };
+    let finalInfo: AgentRunRecord['final_message'] = null;
+    if (final !== undefined) {
+      const b = boundMessage(final);
+      keep('final-message.md', () => writeFileSync(join(st.dir, 'final-message.md'), b.text));
+      finalInfo = { file: 'final-message.md', chars: final.length, truncated: b.truncated };
+    }
+    keep('transcript.log', () => copyFileSync(job.logPath, join(st.dir, 'transcript.log')));
+    const local = rec.agent === 'qwen' && st.plan.endpoint === 'local';
+    const cost: number | null = local ? 0 : st.progress.reportedCostUsd ?? null;
+    const costBasis = local ? 'local endpoint' : cost === null ? 'unknown: the agent reported no cost' : 'reported by the agent';
+    Object.assign(rec, {
+      ended_at: job.endedAt ?? new Date().toISOString(), exit_code: job.exitCode ?? null, signal: job.signal ?? null, outcome: judged.outcome, why: this.scrub(judged.why, root),
+      files: { ...changes, truncated: st.beforeTruncated || after.truncated },
+      git_diff_stat: st.gitBefore !== null ? { before: st.gitBefore, after: gitAfter ?? '' } : null,
+      final_message: finalInfo,
+      progress: { tool_calls: st.progress.toolCalls, files_edited: st.progress.filesEdited, tool_errors: st.progress.toolErrors, denied: st.progress.denied, structured_lines: st.progress.structured, raw_lines: st.progress.raw },
+      cost_usd: cost, cost_basis: costBasis, transcript: outputs.some((o) => o.path.endsWith('/transcript.log')) ? 'transcript.log' : undefined,
+    } satisfies Partial<AgentRunRecord>);
+    keep('result.json', () => writeJson(join(st.dir, 'result.json'), rec));
+    const ms = job.endedAt ? Date.parse(job.endedAt) - Date.parse(job.startedAt) : undefined;
+    const log = sha256File(job.logPath);
+    const finalSha = outputs.find((o) => o.path.endsWith('/final-message.md'))?.sha256;
+    const status = judged.outcome === 'completed' ? 'ok' as const : judged.outcome === 'cancelled' ? 'cancelled' as const : 'failed' as const;
+    const files = [
+      ...changes.added.map((c) => ({ path: c.path, ...(c.sha256 ? { sha256: c.sha256 } : {}), bytes: c.size, created: true })),
+      ...changes.changed.map((c) => ({ path: c.path, ...(c.sha256 ? { sha256: c.sha256 } : {}), ...(c.previous_sha256 ? { previous_sha256: c.previous_sha256 } : {}), bytes: c.size })),
+    ].slice(0, 200);
+    let receipt: string | undefined;
+    try {
+      receipt = this.d.seal({
+        kind: 'agent', subject: `agent · ${rec.agent} · ${rec.run} · ${judged.outcome}`, policy: 'human-gated', status,
+        project: job.project, project_id: projectId(root),
+        prompt_hash: `sha256:${createHash('sha256').update(rec.task).digest('hex')}`,
+        ...(rec.model ? { model_requested: rec.model } : {}),
+        ...(st.progress.model ? { model_resolved: st.progress.model } : {}),
+        agent: {
+          name: rec.agent, run: rec.run, version: rec.agent_version, model: rec.model, endpoint: rec.endpoint, outcome: judged.outcome, why: this.scrub(judged.why, root),
+          tool_calls: st.progress.toolCalls, added: changes.added.length, changed: changes.changed.length, deleted: changes.deleted.slice(0, 200).map((c) => c.path),
+          ...(finalSha ? { final_message_sha256: finalSha } : {}), cost_basis: costBasis,
+        },
+        job: {
+          id: job.id, kind: job.kind, label: this.scrub(job.label, root), state: job.state, exit_code: job.exitCode ?? null,
+          ...(log ? { log_sha256: log } : {}), ...(ms !== undefined ? { ms } : {}), ...(job.error ? { error: this.scrub(job.error, root) } : {}),
+        },
+        ...(files.length ? { files } : {}),
+        ...(outputs.length ? { outputs } : {}),
+        ...(cost === null ? { cost_measured: false } : { cost_usd: cost }),
+      });
+    } catch { receipt = undefined; }
+    if (receipt) rec.receipt = receipt;
+    try { writeJson(join(st.dir, 'run.json'), { ...rec, state: 'ended', ...(receipt ? { receipt } : {}) }); } catch { /* the result stands */ }
+    return receipt;
+  }
+
   // ── /results ────────────────────────────────────────────────────────────────
 
   results(_args: string): Line[] {
@@ -924,8 +1196,10 @@ export class Workspace {
       for (const f of rec.files) if (!changed.some((c) => c.path === f.path)) changed.push({ path: f.path, kind: rec.kind, id: String(rec.hash).slice(7, 15) });
     }
     lines.push([{ text: '  Changed', role: 'strong' }, { text: changed.length ? '  by Timmy turns, your edits and /add' : '', role: 'secondary' }]);
-    if (changed.length) for (const c of changed.slice(0, 10)) lines.push([{ text: '    ' }, { text: this.fileLink(c.path) }, { text: `  ${c.kind === 'turn' ? 'a Timmy turn' : c.kind === 'edit' ? 'your edit' : c.kind === 'intake' ? 'added (/add)' : c.kind}${this.sep}receipt ${c.id}`, role: 'secondary' }]);
+    if (changed.length) for (const c of changed.slice(0, 10)) lines.push([{ text: '    ' }, { text: this.fileLink(c.path) }, { text: `  ${c.kind === 'turn' ? 'a Timmy turn' : c.kind === 'edit' ? 'your edit' : c.kind === 'intake' ? 'added (/add)' : c.kind === 'agent' ? 'a code agent (/agent)' : c.kind}${this.sep}receipt ${c.id}`, role: 'secondary' }]);
     else lines.push(...this.say('  nothing yet'));
+    // Round R3 (/agent): each code agent's run, how it ended and what it changed (project-relative).
+    lines.push(...this.agentResultLines());
     // Round R2, look: what Look measured (and any model's claim beside it), newest first.
     const observed = [...chain].reverse().filter((r) => r.project_id === id && r.kind === 'observe').slice(0, 8);
     lines.push([{ text: '  Observations', role: 'strong' }, { text: observed.length ? '  newest first; measurements, and any model claim' : '', role: 'secondary' }]);
