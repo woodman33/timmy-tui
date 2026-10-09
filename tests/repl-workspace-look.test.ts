@@ -359,7 +359,7 @@ describe('/observe with a question', () => {
     put(root, 'refs/card.png', PNG);
     const { ws } = make(root);
     const lines = text(await ws.observe('refs/card.png'));
-    expect(lines).toMatch(/Observing\s+j[0-9a-f]{6}/);
+    expect(lines).toMatch(/Observing\s+j[0-9a-f]{6}\s+refs\/card\.png: measuring with Look/);
     expect(text(await ws.observe('../x.png'))).toContain('outside the project');
     expect(text(await ws.observe(''))).toContain('Usage');
     // A file larger than Look reads is refused before it is hashed or run (a sparse file: quick to make).

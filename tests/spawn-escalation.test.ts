@@ -6,7 +6,8 @@
  * records how far the stop went (killed: 'SIGTERM' | 'SIGKILL' | null).
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { killProcessGroup, spawnProcess, type ProcessOutcome } from '../src/runtime/spawn-runtime.js';
+import { approveRunPlan } from '../src/runtime/index.js';
+import { killProcessGroup, SpawnAgentRuntime, spawnProcess, type ProcessOutcome } from '../src/runtime/spawn-runtime.js';
 
 /** Process groups and processes a test started: killed after it, whatever happened. */
 const groups: number[] = [];
@@ -108,6 +109,33 @@ describe('output still open after the group is gone', () => {
     expect(performance.now() - t0).toBeLessThan(800 + 300 + 300 + 2500);
     // It really was still running, outside the group: the test, not the runner, ends it.
     expect(() => process.kill(grandchild, 0)).not.toThrow();
+  });
+});
+
+describe('an agent runtime\'s cancel escalates the same way', () => {
+  it('SpawnAgentRuntime.cancel: a run that ignores SIGTERM ends cancelled by SIGKILL after the grace period', async () => {
+    const runtime = new SpawnAgentRuntime({
+      descriptor: { id: 'test-stubborn', displayName: 'Test stubborn', command: 'sh', transport: 'spawn', maturity: 'mvp', risk: 'read_only', capabilities: ['analyze'] },
+      buildArgs: () => ['-c', `echo $$; ${STUBBORN}`],
+    });
+    const plan = approveRunPlan(await runtime.plan({ task: 'ignore SIGTERM', cwd: '.' }));
+    let ready: () => void = () => undefined;
+    const up = new Promise<void>((resolve) => { ready = resolve; });
+    let out = '';
+    const pending = runtime.execute(plan, (event) => {
+      if (event.type !== 'output.stdout') return;
+      out += String(event.data?.text ?? '');
+      const pid = Number(out.split('\n')[0]);
+      if (pid > 1 && !pids.includes(pid)) pids.push(pid);
+      if (out.includes('ready')) ready();
+    });
+    await within(up, 5000);
+    expect(await runtime.cancel(plan.runId)).toBe(true);
+    const result = await within(pending, 8000);
+    expect(result, 'the run never ended').not.toBe('pending');
+    if (result === 'pending') return;
+    expect(result.status).toBe('cancelled');
+    expect(result.error).toBe('Terminated by SIGKILL');
   });
 });
 

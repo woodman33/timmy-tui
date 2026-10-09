@@ -367,7 +367,7 @@ export class Workspace {
     const g = this.d.glyphs;
     const model = this.d.model?.();
     return [
-      [{ text: '  Observing  ', role: 'secondary' }, { text: started.job.id, role: 'strong' }, { text: `  ${started.job.label.slice(5)} with Look${this.sep}/jobs ${started.job.id}${this.sep}/stop ${started.job.id}`, role: 'secondary' }],
+      [{ text: '  Observing  ', role: 'secondary' }, { text: started.job.id, role: 'strong' }, { text: `  ${started.job.label.slice(5)}: measuring with Look${this.sep}/jobs ${started.job.id}${this.sep}/stop ${started.job.id}`, role: 'secondary' }],
       ...(question ? [[{ text: '  Then asks ', role: 'secondary' as const }, { text: model ?? 'no model known here', role: model ? 'ai' as const : 'estimate' as const }, { text: ` ${g.arrow} a model interpretation, a claim beside the measurements`, role: 'secondary' as const }]] : []),
     ];
   }
