@@ -82,14 +82,25 @@ describe('the command lines, from the agents\' own help texts', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.plan.args).toEqual([
-      '--bare', '--auth-type', 'openai', '--openai-base-url', 'http://127.0.0.1:11434/v1', '--openai-api-key', 'ollama', '-m', 'qwen3:4b',
+      '--bare', '--auth-type', 'openai', '--openai-base-url', 'http://127.0.0.1:11434/v1', '-m', 'qwen3:4b',
       '--approval-mode', 'auto-edit', '-o', 'stream-json', '--max-wall-time', '15m', '--chat-recording=false', 'add a test',
     ]);
+    // the key travels in the child's environment, never on the command line (round R3)
+    expect(r.plan.env).toEqual({ OPENAI_API_KEY: 'ollama' });
     expect(r.plan).toMatchObject({ endpoint: 'local', where: '127.0.0.1:11434', costBasis: 'local endpoint', timeoutMs: 15 * 60_000 + 30_000 });
     expect(flagsIn(r.plan.args, HELP('qwen-help.txt'))).toEqual([]);
     // the choices used are the help text's choices
     expect(HELP('qwen-help.txt')).toMatch(/--approval-mode[\s\S]*auto-edit \(Automatically approve file edits\)/);
     expect(HELP('qwen-help.txt')).toMatch(/--auth-type[^\n]*"openai"/);
+  });
+  it('a real key for a remote endpoint is in the child\'s environment only: not in its arguments, not in the saved job', () => {
+    const secret = 'sk-test-not-a-real-key-0001';
+    const r = planAgent('qwen', 'add a test', { env: { TIMMY_AGENT_MODEL: 'some-model', TIMMY_AGENT_BASE_URL: 'https://models.example.com/v1', TIMMY_AGENT_API_KEY: secret, TIMMY_AGENT_HOME: '/tmp/agent-home' }, paid: true, run: 'a00000009', bin: 'qwen' });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.plan.args.join(' ')).not.toContain(secret);
+    expect(r.plan.args).not.toContain('--openai-api-key');
+    expect(r.plan.env).toEqual({ HOME: '/tmp/agent-home', OPENAI_API_KEY: secret });
   });
   it('the account agents: headless, structured output, edits kept to the project, no bypass flag; each flag is in its help text', () => {
     const claude = planAgent('claude', 'fix it', { env: {}, paid: true, run: 'a00000002', bin: 'claude' });
@@ -403,7 +414,7 @@ function fakeOpenAi(target: string): Promise<{ server: Server; url: string; requ
     req.on('end', () => {
       let json: Record<string, unknown> = {};
       try { json = JSON.parse(body || '{}') as Record<string, unknown>; } catch { /* not JSON */ }
-      requests.push({ url: req.url, ...json });
+      requests.push({ url: req.url, auth: req.headers.authorization ?? null, ...json });
       if (!req.url?.includes('/chat/completions')) { res.writeHead(404); res.end('{}'); return; }
       const messages = Array.isArray(json.messages) ? json.messages as Array<{ role?: string }> : [];
       const done = messages.some((m) => m.role === 'tool');
@@ -458,6 +469,8 @@ describe('the real Qwen Code against a FAKE local OpenAI-compatible server', () 
       expect(r).toMatchObject({ cost_usd: 0, cost_basis: 'local endpoint', model: 'fake-model' });
       // what the endpoint was asked: the model named on the command line
       expect(fake.requests.some((q) => q.model === 'fake-model')).toBe(true);
+      // the key reached the endpoint from the child's environment (OPENAI_API_KEY), not from a command-line flag
+      expect(fake.requests.filter((q) => String(q.url).includes('/chat/completions')).every((q) => q.auth === 'Bearer ollama')).toBe(true);
       expect(existsSync(join(home, '.qwen'))).toBe(true);
     } finally {
       fake.server.close();

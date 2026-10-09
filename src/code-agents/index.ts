@@ -154,12 +154,15 @@ export function planAgent(name: AgentName, task: string, o: { env: Env; paid: bo
       return { ok: false, refused: 'paid', error: `Remote, so it may cost money: ${ep.why}. It would send the task, and the project files Qwen Code reads, to ${ep.where}. Nothing was started. To run it anyway: /agent qwen --paid <task>` };
     }
     if (!key) return { ok: false, refused: 'setup', error: `Set TIMMY_AGENT_API_KEY for ${ep.where} (a remote endpoint), then /agent qwen --paid again. Nothing was started.` };
-    // Every flag below is from qwen-help.txt (qwen 0.25.0):
+    // Every flag below is from qwen-help.txt (qwen 0.25.0). The key is NOT a flag: on the command line it would show
+    // in the process list and in the job's saved record. It goes in OPENAI_API_KEY, the child's environment only;
+    // round R3 checked that qwen 0.25.0 with --bare and --auth-type openai sends that variable as its bearer token
+    // when --openai-api-key is absent (against a local fake server). Set even for a local endpoint, so a real
+    // OPENAI_API_KEY in Timmy's own environment is never handed to the endpoint instead.
     const args = [
       '--bare',                              // "--bare  Minimal mode: skip implicit startup auto-discovery and only honor explicitly provided CLI inputs."
       '--auth-type', 'openai',               // "--auth-type  Authentication type  [choices: "openai", ...]"
       '--openai-base-url', baseUrl,          // "--openai-base-url  OpenAI base URL (for custom endpoints)"
-      '--openai-api-key', key,               // "--openai-api-key  OpenAI API key to use for authentication"
       '-m', model,                           // "-m, --model  Model"
       '--approval-mode', 'auto-edit',        // "auto-edit (Automatically approve file edits)": shell commands are not auto-approved
       '-o', 'stream-json',                   // "-o, --output-format  The format of the CLI output. [choices: "text", "json", "stream-json"]"
@@ -170,7 +173,8 @@ export function planAgent(name: AgentName, task: string, o: { env: Env; paid: bo
     return {
       ok: true,
       plan: {
-        agent: name, command: o.bin, args, model, endpoint: ep.local ? 'local' : 'remote', where: ep.where, wallTime, timeoutMs, ...home,
+        agent: name, command: o.bin, args, model, endpoint: ep.local ? 'local' : 'remote', where: ep.where, wallTime, timeoutMs,
+        env: { ...(home.env ?? {}), OPENAI_API_KEY: key },
         charge: ep.local ? 'local endpoint, no charge' : `remote endpoint ${ep.where}: may cost money (--paid)`,
         costBasis: ep.local ? 'local endpoint' : 'unknown',
       },

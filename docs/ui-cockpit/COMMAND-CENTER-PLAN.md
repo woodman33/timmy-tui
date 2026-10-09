@@ -262,5 +262,5 @@ Mac (rows 133 to 138). Every feature's planned / implemented / tested / demonstr
 | Cinema 4D | blocked by `c4dpy`'s own licence question, also with the app open | rows 128, 137 | the operator answers it once in Terminal; then the starter's first real run |
 | Code agents | `/agent qwen` on a local Ollama model, free; paid agents only with `--paid` | row 137 | which Qwen Code copy runs under the agent's own HOME (0.22.2 there, 0.25.0 under the operator's); a free second route (`codex exec --oss`) |
 | Board | `/board live` with Stop, Run and Observe on 127.0.0.1 | rows 137, 138 | a workflow node editor |
-| Evidence | `/observe --qualify` runs the observed-handle + cite protocol | tests only | one paid call (about $0.01) to show it on the Mac |
+| Evidence | `/observe --qualify` runs the observed-handle + cite protocol | row 139 (one real call, admitted with two citations) | a qualified answer in `/canvas` cards; the TUI board |
 | MCP | `/mcp servers` by name, `--check` | tests only | list the operator's own configured servers on the Mac |

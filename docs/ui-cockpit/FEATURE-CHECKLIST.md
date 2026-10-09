@@ -92,7 +92,7 @@ Merge, npm publish, tags and deployment are on HOLD. Shorthand: "row N" is a row
 | Cost accounting (the provider's charge on a provider key; unknown when missing; a cancelled paid interpretation keeps its cost) | ✓ CCP R2 area 5 | ✓ (`c70e3e9`, `7116a9b`) | ✓ fakes (mocked fetch) | partial: row 128 found the $0 defect; no row shows the fixed accounting | – | `src/vision/route.ts`; `tests/vision-route.test.ts`, `tests/repl-workspace-look.test.ts` |
 | Evidence protocol: observed handles, `cite(handle_id)`, admission | ✓ AGENTS.md §4 | ✓ called by `/observe --qualify` (`ad80912`) | ✓ fakes (mock model client; the SDK's own loop against a local fake server) | – | – | `src/vision/evidence.ts`, `src/evidence/admission.ts`; `tests/vision-evidence.test.ts`, `tests/evidence-admission.test.ts` |
 | Observation check: only sealed, unchanged deterministic values shown as measured | ✓ AGENTS.md §4 | ✓ (`afc3141`) | ✓ | – | – | `src/evidence/observation-check.ts`, `src/repl/board.ts`; `tests/observation-check.test.ts`, `tests/board.test.ts` |
-| `/observe <image> --qualify [question]`: an answer admitted only when it cites this run's measurements | ✓ AGENTS.md §4 | ✓ (`ad80912`) | ✓ fakes (fake model clients; the SDK against a local fake server) | – (needs one paid call; not made in R3) | a model key; one call is estimated at about $0.01 with `anthropic/claude-haiku-4.5` | `src/vision/qualify-route.ts`, `src/repl/workspace.ts`, `src/evidence/observation-check.ts`; `tests/observe-qualify.test.ts`, `tests/observe-qualify-sdk.test.ts` |
+| `/observe <image> --qualify [question]`: an answer admitted only when it cites this run's measurements | ✓ AGENTS.md §4 | ✓ (`ad80912`) | ✓ fakes (fake model clients; the SDK against a local fake server) | ✓ row 139 (one real call: `anthropic/claude-haiku-4.5` answered citing `qr_codes_decoded` and `aruco_markers`, admitted, $0.007897 as reported) | a model key; each call is paid | `src/vision/qualify-route.ts`, `src/repl/workspace.ts`, `src/evidence/observation-check.ts`; `tests/observe-qualify.test.ts`, `tests/observe-qualify-sdk.test.ts` |
 
 ## 7. Board and Canvas cards
 
@@ -150,7 +150,7 @@ Merge, npm publish, tags and deployment are on HOLD. Shorthand: "row N" is a row
 
 | Feature | Planned | Implemented | Tested | Demonstrated | Blocker / user action | Evidence |
 |---|---|---|---|---|---|---|
-| Houdini | ✓ CCP R2 area 6, milestone | partial: an engine-shelf lane (environment lock, templates); no workspace command | unknown | – | – | `lanes/engines/houdini/` |
+| Houdini | ✓ CCP R2 area 6, milestone | partial: an engine-shelf lane (environment lock, templates); no workspace command | unknown | – | **blocked:** Houdini 22.0.429's `hython` says "No licenses could be found to run this application" (row 139); a licence from the Houdini Launcher first | `lanes/engines/houdini/` |
 | Unreal | ✓ CCP R2 area 6, milestone | partial: an engine-shelf lane (environment lock, templates); no workspace command | unknown | – | – | `lanes/engines/unreal/` |
 | Spline, driven parametrically | ✓ AGENTS.md §8, CCP R2 area 6 | – in the workspace (not started); a factory lane outside it calls a Spline bridge | unknown | – | – | `lanes/factory/finish.mjs` |
 | TaskForge API | ✓ CCP R1 1, R2 area 3 | partial: a `/tools` row with a live health check; a `timmy engine` lane; no REPL tool | ✓ the row | – (row 128: `needs setup`) | set `TASKFORGE_API_URL` to its API | `src/capabilities/index.ts`, `lanes/engines/taskforge/`; `tests/capabilities.test.ts` |

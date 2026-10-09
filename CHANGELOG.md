@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Native results are bound to their own run: a result path per run, digests required, the input and its sha256 recorded, After Effects judged by its own frames (the full range for a sequence) rather than by file times.
   - `/tools` marks Cinema 4D, After Effects and Blender exercised only by that app's own completed runs, never by the shared tool name.
   - The package carries the starters and the Look, Cinema 4D and Blender workers, and an installed Timmy finds them from its own package root.
+- Round R3: `/agent qwen --paid` with a remote endpoint passed its key as `--openai-api-key`, visible in the process list and saved in the job's record; the key now reaches Qwen Code only through the child's `OPENAI_API_KEY`.
 - Round R3, found on the operator's Mac: the Blender starter's result listed 3 of the 7 objects (it read the master collection only); `.blend`, `.c4d`, `.hip`, `.abc`, `.step`, `.stp` and `.3mf` files show as 3D.
 - Round R2, found on the operator's Mac:
   - The board draws a model claim's **bold** and `code` (after escaping it) instead of showing the Markdown marks.
