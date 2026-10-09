@@ -183,6 +183,24 @@ Type these at the REPL prompt. Each was run on Linux as a single command in a pi
 Makes an empty folder `$TIMMY_HOME/projects/hello-site`, works there, and keeps this project's
 conversation in it. `/project list` lists projects; `/project <name>` switches.
 
+Or start from a working app instead of an empty folder **(checked on a Mac)**:
+
+```text
+/project new site --from web-starter
+/preview
+/open src/main.js
+/stop all
+/run BUILD.md build
+/preview
+/stop all
+```
+
+The starter is six ordinary files: a page, `src/main.js`, `src/style.css`, a development server with no
+dependencies (`npm run dev`), and a `BUILD.md` whose `build` block copies the page into `dist/`. The
+first `/preview` runs the development server; after the build, `/preview` serves `dist/`. Edit the
+files as your own. `/project new <name> --from c4d-starter` starts a Cinema 4D scene project instead
+(step 7).
+
 Make a workflow document, `BUILD.md`: ask Timmy for it (a model turn), or `/edit BUILD.md`, which opens
 `$VISUAL`, else `$EDITOR`, else `vi`, makes the file when you save, and seals the edit as a receipt
 **(to be checked on a Mac)**. Each runnable block is a fenced code block with a `name`, and `deps` names

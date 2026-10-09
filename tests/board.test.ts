@@ -133,6 +133,22 @@ describe('renderBoard', () => {
     expect(html.match(/<img src="\.\.\/\.\.\/refs\/card\.png"/g)?.length).toBe(2);
   });
 
+  // Round R2, from the Mac's board: a model's Markdown showed its marks (**QR Code**). Bold and code are
+  // drawn after the text is escaped, so a claim can carry no markup of its own.
+  it("a claim's **bold** and `code` are drawn; anything else in it stays text", () => {
+    const input = fixture();
+    const answer = 'This card shows:\n1. **QR Code** (top left)\n2. `CARD-0042` and **<b>x</b>** and <script>alert(1)</script>';
+    const obs = readObservationRecord('results/observations/x.json', { ...RECORD, interpretation: { ...RECORD.interpretation, answer } });
+    input.observations = obs ? [obs] : [];
+    const claim = section(renderBoard(input), 'claim')[0];
+    expect(claim).toContain('<strong>QR Code</strong>');
+    expect(claim).toContain('<code>CARD-0042</code>');
+    expect(claim).toContain('<strong>&lt;b&gt;x&lt;/b&gt;</strong>');
+    expect(claim).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(claim).not.toContain('**');
+    expect(claim).toContain('1. ');
+  });
+
   it('a model that did not answer is said so, and no claim is drawn', () => {
     const input = fixture();
     const obs = readObservationRecord('results/observations/x.json', { ...RECORD, interpretation: { status: 'refused', model: 'deepseek/deepseek-chat', question: 'What?', reason: 'it does not take images' } });

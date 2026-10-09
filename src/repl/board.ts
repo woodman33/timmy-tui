@@ -52,6 +52,14 @@ export const BOARD_BASE = '../../';
 
 const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (s: unknown): string => String(s).replace(/[&<>"']/g, (c) => ESC[c]);
+/**
+ * A model's answer as HTML (round R2): escaped first, then only **bold** and `code` are drawn, each within
+ * one line, so the claim reads as written without its Markdown marks and can carry no markup of its own.
+ * Line breaks and list numbers stay as text (the block keeps white-space: pre-wrap).
+ */
+const claimHtml = (s: string): string => esc(s)
+  .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+  .replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
 const SHOWN_IMAGE = /\.(png|jpe?g|webp|gif)$/i;
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -226,7 +234,7 @@ function observationCard(o: BoardObservation, h: ReturnType<typeof render>): str
   if (i && i.status === 'answered') {
     const meta = [`model ${i.model ?? 'unknown'}`, i.cost_usd !== undefined ? `cost $${i.cost_usd.toFixed(4)}` : 'cost not reported'].join(' · ');
     model = `<section class="claim"><h4>${esc("the model's claim")}</h4><p class="meta">${esc(meta)}</p>`
-      + `${i.question ? `<p class="asked">${esc(`Asked: ${i.question}`)}</p>` : ''}<p class="answer">${esc(i.answer ?? '(no answer text)')}</p></section>`;
+      + `${i.question ? `<p class="asked">${esc(`Asked: ${i.question}`)}</p>` : ''}<p class="answer">${i.answer ? claimHtml(i.answer) : esc('(no answer text)')}</p></section>`;
   } else if (i) {
     model = `<p class="nomodel">${esc(`No model claim: ${i.status}${i.model ? ` (${i.model})` : ''}${i.reason ? `: ${i.reason}` : ''}`)}</p>`;
   }
@@ -288,6 +296,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .qr { color: ${HOMEBREW.text}; }
 .asked { color: ${HOMEBREW.textSecondary}; margin: 0; font-size: ${TYPE.size.small}px; }
 .answer { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.answer code, .answer strong { font: inherit; font-weight: 600; }
 .claim .meta { margin: 0; }
 .nomodel { color: ${HOMEBREW.attention}; font-size: ${TYPE.size.small}px; margin: 0; }
 .empty, .more { color: ${HOMEBREW.textSecondary}; margin: 0; }
