@@ -12,7 +12,7 @@ import { capabilities, type ProbeDeps } from '../src/capabilities/index.js';
 import {
   agentExercisedIndex, AGENTS_DIR, endpointClass, listAgentRuns, newProgress, parseAgentLine, planAgent, progressLine, taskWords, type AgentRunRecord,
 } from '../src/code-agents/index.js';
-import { COMMANDS } from '../src/repl/commands.js';
+import { COMMANDS, runSlash, type ReplContext } from '../src/repl/commands.js';
 import { folderProject } from '../src/project/index.js';
 import { Workspace, type WorkspaceDeps } from '../src/repl/workspace.js';
 import { glyphSet } from '../src/term/glyphs.js';
@@ -162,6 +162,17 @@ describe('local, no charge: only a loopback endpoint and a model that is not :cl
       expect(out).toMatch(/runs on your own account and costs money\. Nothing was started\./);
       expect(out).toContain(`/agent ${n} --paid <task>`);
     }
+    expect(ws.jobs.list()).toEqual([]);
+  });
+  it('/agent reaches the workspace through the command registry, as the REPL dispatches it', async () => {
+    const root = project();
+    const { ws } = make(root, { ...LOCAL_QWEN, TIMMY_AGENT_CLAUDE_BIN: FAKE_AGENT });
+    const printed: string[] = [];
+    const ctx = { print: (s: { text: string }[]) => printed.push(s.map((x) => x.text).join('')), glyphs: glyphSet(true), workspace: ws } as unknown as ReplContext;
+    expect(await runSlash('/agent', ctx)).toBe('handled');
+    expect(printed.join('\n')).toContain('Code agents');
+    expect(await runSlash('/agent claude fix it', ctx)).toBe('handled');
+    expect(printed.join('\n')).toContain('runs on your own account and costs money');
     expect(ws.jobs.list()).toEqual([]);
   });
   it('/agent alone lists each agent: found or not, how it would run, its model and endpoint', async () => {
