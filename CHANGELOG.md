@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- One active project for the REPL: `/project` (switch by name or folder, `new`, `list`), `/files` grouped as Source, References, Scripts, Workflows, Outputs and History, `/open` and `/edit` (an edit is sealed with the file's hashes before and after). The agent can list, read and write project files (`list_project_files`, `read_project_file`, `write_project_file`, which asks first); each turn's receipt names the project and the files it wrote. Keys, `.env` files, git internals and `.timmy/private` stay out of reach.
+- Workflows: `/workflows` and `/run <file> <block>` run upmd's named Markdown blocks through the installed upmd (`--ci`) as background jobs. The prediction (the blocks in order, each exiting 0) is sealed before anything runs; each block's start and end show as they happen; `/stop` stops the run and everything it started; the outcome is sealed with the outputs it wrote and whether the prediction was met.
+- Jobs and Preview: `/preview` serves the project (a built folder such as `dist/`, or its dev script) as a job that is **ready** when its address answers, a different state from a build being **completed**, and opens it in Timmy's Browser. `/jobs`, `/stop` and `/results` (jobs, outputs and changes, linked to the files). The REPL stays usable while jobs run, and stops them when it exits.
+- `/help` lists commands in sections (Work, Look, Setup, Session); `/browser` opens a page like `/web`. `timmy tools` gains Workflows (upmd: `brew install rezigned/tap/upmd`) and Project files.
 - `/tools` and `timmy tools`: what works here, checked live and placed on the
   ladder (reachable, installed, needs setup, not built), with the exact setup
   step. The checks write nothing and print no key.
@@ -22,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set of shared settings (`src/theme/tokens.ts`). `TIMMY_PALETTE=homebrew`.
 
 ### Changed
+- `spawnProcess` can start a child as the leader of its own process group (`detached`), and `killProcessGroup` stops the whole group; existing callers are unchanged.
 - `timmy tools` names the exact install command for agent-browser, Ollama, Claude Code, Codex and Qwen Code, and gives carbonyl's; the Web views row says a page opens in a pane only when Timmy runs inside zellij or tmux. `docs/TOOLS-SETUP.md` lists every row: what it needs, the step and how to check it.
 - The monitor only reads when it opens: it no longer writes a model policy or seals a `model.policy` receipt. Its header names the model the REPL last ran, else the one the REPL is set to run; the status line names the model policy as the policy, or `unset`.
 - `listLanes()` (and so `/lanes`) calls an API lane ready only when its key is set, returns the key's name and never its value, and calls hyperframes ready only when its own command is on PATH, not npx alone.

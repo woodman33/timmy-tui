@@ -12,12 +12,14 @@
 | Monitor (timmy watch) | Nothing beyond Timmy. | None: `timmy watch` (or `/watch`) opens it. | `timmy watch` |
 | Cockpit (timmy center) | zellij or tmux on PATH. | `brew install zellij` (or `brew install tmux`) | `zellij --version` (or `tmux -V`) |
 | Web views (/web) | Nothing for links. To draw a page inside the terminal: carbonyl on PATH, with Timmy running inside a zellij or tmux session. Pages must be on this machine unless you use `/web --allow-remote`. | `npm install --global carbonyl`, then start Timmy inside zellij or tmux | `command -v carbonyl` |
+| Workflows (/workflows) | upmd on PATH: the REPL runs its non-interactive `--ci` mode as a job. | `brew install rezigned/tap/upmd` | `upmd --version` |
 | Receipts (timmy receipts) | Nothing beyond Timmy; the row shows the receipt count and whether the chain verified. | None | `timmy receipts` |
 | **MODELS** | | | |
 | OpenRouter | An OpenRouter key. Reachable only when OpenRouter's key endpoint accepted it just now (a free check, made only when `OPENROUTER_API_KEY` is set where `timmy tools` runs). | `timmy init`, or `export OPENROUTER_API_KEY`; if the key was refused, `timmy init` with a working key | `timmy tools` |
 | Ollama (local models) | `ollama` on PATH, its server answering, and at least one local model. | `brew install ollama; brew services start ollama; ollama pull <model>` | `ollama list` |
 | **AGENT TOOLS** | | | |
 | Built-in tools | Nothing beyond Timmy; `get_env` asks before each read. | None | `timmy tools` |
+| Project files | Nothing beyond Timmy. The agent lists and reads files in the active project; writing asks first. | None | `/files` in the REPL |
 | Canvas tools | Timmy Canvas running with its page open. Reachable only when the page answered. | `/canvas`, then `/canvas open` | `/canvas` in the REPL |
 | Workspace command | Nothing to run commands on this machine (it asks each time); `DAYTONA_API_KEY` to run them in Daytona instead. | None; for Daytona, set `DAYTONA_API_KEY` | `[ -n "$DAYTONA_API_KEY" ] && echo set` |
 | Browser (agent-browser) | `agent-browser` on PATH and the Chrome it downloads. | `brew install agent-browser, then agent-browser install` | `agent-browser --version` |

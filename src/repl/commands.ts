@@ -72,16 +72,44 @@ export interface ReplContext {
   canvas?: (args: string) => Promise<Segment[][]>;
   /** Round R1: what Timmy can do here, each on the ladder of AGENTS.md §8, from live checks. */
   tools?: (args: string) => Promise<Segment[][]>;
+  /** R1 workspace direction: the active project, its files, workflows, jobs, preview and results. */
+  workspace?: WorkspaceViews;
 }
+
+/** The workspace surfaces (src/repl/workspace.ts), one per command. */
+export interface WorkspaceViews {
+  project_(args: string): Segment[][];
+  files(args: string): Segment[][];
+  open(args: string): Segment[][];
+  edit(args: string): Segment[][];
+  workflows(args: string): Promise<Segment[][]>;
+  run(args: string): Promise<Segment[][]>;
+  preview(args: string): Promise<Segment[][]>;
+  jobsView(args: string): Segment[][];
+  stop(args: string): Promise<Segment[][]>;
+  results(args: string): Segment[][];
+}
+
+/** /help's sections, in order: what you work on, what you look at, setup, the session. */
+export type CommandGroup = 'work' | 'look' | 'setup' | 'session';
+export const GROUPS: readonly CommandGroup[] = ['work', 'look', 'setup', 'session'];
+export const GROUP_LABEL: Readonly<Record<CommandGroup, string>> = { work: 'WORK', look: 'LOOK', setup: 'SETUP', session: 'SESSION' };
 
 type CommandResult = 'exit' | void;
 
 export interface SlashCommand {
   name: string;
   description: string;
+  group: CommandGroup;
   /** A command may wait (a live check); the REPL waits for it before the next prompt. */
   run(args: string, ctx: ReplContext): CommandResult | Promise<CommandResult>;
 }
+
+/** A workspace command: prints what its view returns, or says the workspace is not here. */
+const inWorkspace = (pick: (w: WorkspaceViews, args: string) => Segment[][] | Promise<Segment[][]>) => async (args: string, ctx: ReplContext): Promise<void> => {
+  if (!ctx.workspace) return void ctx.print([{ text: '  The workspace is not available here.', role: 'secondary' }]);
+  for (const line of await pick(ctx.workspace, args)) ctx.print(line);
+};
 
 /** Prints what an async view returns, or says it is not available here. */
 async function printView(view: ((args: string) => Promise<Segment[][]>) | undefined, args: string, ctx: ReplContext, missing: string): Promise<void> {
@@ -90,55 +118,64 @@ async function printView(view: ((args: string) => Promise<Segment[][]>) | undefi
 }
 
 export const COMMANDS: SlashCommand[] = [
+  { name: 'project', group: 'work', description: 'The active project; /project new|list|<name>', run: inWorkspace((w, a) => w.project_(a)) },
+  { name: 'files', group: 'work', description: 'Project files by role; /files <role|folder>', run: inWorkspace((w, a) => w.files(a)) },
+  { name: 'open', group: 'work', description: 'Show a file: /open <file>', run: inWorkspace((w, a) => w.open(a)) },
+  { name: 'edit', group: 'work', description: 'Edit a file in your editor: /edit <file>', run: inWorkspace((w, a) => w.edit(a)) },
+  { name: 'workflows', group: 'work', description: 'Workflow documents (upmd) and their blocks', run: inWorkspace((w, a) => w.workflows(a)) },
+  { name: 'run', group: 'work', description: 'Run a workflow block: /run <file> <block>', run: inWorkspace((w, a) => w.run(a)) },
+  { name: 'preview', group: 'work', description: 'Serve the project; it opens in Browser', run: inWorkspace((w, a) => w.preview(a)) },
+  { name: 'jobs', group: 'work', description: 'Running and finished jobs; /jobs <id>', run: inWorkspace((w, a) => w.jobsView(a)) },
+  { name: 'stop', group: 'work', description: 'Stop a job: /stop <id>, or /stop all', run: inWorkspace((w, a) => w.stop(a)) },
+  { name: 'results', group: 'work', description: 'Outputs, jobs and changes, linked to files', run: inWorkspace((w, a) => w.results(a)) },
   {
-    name: 'help',
-    description: 'List these commands',
-    run: (_args, ctx) => {
-      for (const c of COMMANDS) ctx.print([{ text: `  /${c.name.padEnd(11)}`, role: 'strong' }, { text: ` ${c.description}`, role: 'secondary' }]);
-    },
-  },
-  {
-    name: 'model',
-    description: 'Show the model, or switch: /model <id>',
+    name: 'web',
+    group: 'look',
+    description: 'Open a local page here (map: Mission Map)',
     run: (args, ctx) => {
-      const current = ctx.agent.getModel();
-      if (!args) return void ctx.print([{ text: '  Model: ', role: 'secondary' }, { text: current, role: 'strong' }]);
-      ctx.agent.setModel(args);
-      ctx.print([{ text: '  Model: ', role: 'secondary' }, { text: `${current} ${ctx.glyphs.arrow} ` }, { text: args, role: 'strong' }]);
+      const parts = args.split(/\s+/).filter(Boolean);
+      const allow = parts.includes('--allow-remote');
+      const target = parts.filter((p) => p !== '--allow-remote').join(' ');
+      if (!target) {
+        ctx.print([{ text: '  Usage: /web map | studio | <receipt> | <local url>', role: 'secondary' }]);
+        return void ctx.print([{ text: '         /web --allow-remote <url> for any other page', role: 'secondary' }]);
+      }
+      if (!ctx.openWeb) return void ctx.print([{ text: '  Web views are not available here.', role: 'secondary' }]);
+      ctx.print([{ text: `  ${ctx.openWeb(target, allow)}` }]);
     },
   },
   {
-    name: 'new',
-    description: 'Start a new conversation',
+    name: 'browser',
+    group: 'look',
+    description: "Open a page in Timmy's Browser (as /web)",
+    run: (args, ctx) => COMMANDS.find((c) => c.name === 'web')!.run(args, ctx),
+  },
+  {
+    name: 'canvas',
+    group: 'look',
+    description: 'Timmy Canvas: where, its state; /canvas open',
+    run: (args, ctx) => printView(ctx.canvas, args, ctx, 'Timmy Canvas is not available here.'),
+  },
+  {
+    name: 'watch',
+    group: 'look',
+    description: 'Open the full-screen monitor (timmy watch)',
     run: (_args, ctx) => {
-      ctx.agent.startSession();
-      ctx.print([{ text: '  New conversation.', role: 'strong' }]);
+      const where = ctx.openWatch?.();
+      ctx.print([{ text: where ? `  Watch opened ${where}.` : '  Watch is not available here.', role: 'secondary' }]);
     },
   },
   {
-    name: 'setup',
-    description: 'Check what Timmy needs, and seal it',
+    name: 'center',
+    group: 'look',
+    description: 'Open the cockpit (timmy center)',
     run: (_args, ctx) => {
-      const lines = ctx.setup?.();
-      if (!lines) return void ctx.print([{ text: '  The setup check is not available here.', role: 'secondary' }]);
-      for (const line of lines) ctx.print(line);
-    },
-  },
-  {
-    name: 'theme',
-    description: 'Your terminal\'s colors, and the palettes',
-    run: (_args, ctx) => {
-      const info = ctx.themeInfo?.();
-      if (!info) return void ctx.print([{ text: '  Palette details are not available here.', role: 'secondary' }]);
-      const s = ` ${ctx.glyphs.sep} `;
-      ctx.print([{ text: '  Palette    ', role: 'secondary' }, { text: info.source, role: 'strong' }]);
-      ctx.print([{ text: '  Measured   ', role: 'secondary' }, { text: `ground ${info.background ?? 'unknown'}${s}secondary ${info.secondary}${s}input tint ${info.tint ?? 'none'}` }]);
-      for (const line of meaningLines(info, s)) ctx.print(line);
-      ctx.print([{ text: '  Themes     ', role: 'secondary' }, { text: info.files }, { text: ' (Homebrew, Night, Day: timmy theme install)', role: 'secondary' }]);
+      ctx.print([{ text: `  ${ctx.openCenter?.() ?? 'The cockpit is not available here.'}`, role: 'secondary' }]);
     },
   },
   {
     name: 'receipts',
+    group: 'look',
     description: 'Verify the chain, then the latest receipts',
     run: (_args, ctx) => {
       const view = ctx.receipts?.();
@@ -158,22 +195,14 @@ export const COMMANDS: SlashCommand[] = [
     },
   },
   {
-    name: 'web',
-    description: 'Open a local page here (map: Mission Map)',
-    run: (args, ctx) => {
-      const parts = args.split(/\s+/).filter(Boolean);
-      const allow = parts.includes('--allow-remote');
-      const target = parts.filter((p) => p !== '--allow-remote').join(' ');
-      if (!target) {
-        ctx.print([{ text: '  Usage: /web map | studio | <receipt> | <local url>', role: 'secondary' }]);
-        return void ctx.print([{ text: '         /web --allow-remote <url> for any other page', role: 'secondary' }]);
-      }
-      if (!ctx.openWeb) return void ctx.print([{ text: '  Web views are not available here.', role: 'secondary' }]);
-      ctx.print([{ text: `  ${ctx.openWeb(target, allow)}` }]);
-    },
+    name: 'tools',
+    group: 'setup',
+    description: 'What works here, checked live; /tools all',
+    run: (args, ctx) => printView(ctx.tools, args, ctx, 'The tool check is not available here.'),
   },
   {
     name: 'lanes',
+    group: 'setup',
     description: 'The lanes, ready or not',
     run: (_args, ctx) => {
       const lanes = ctx.lanes?.();
@@ -188,31 +217,61 @@ export const COMMANDS: SlashCommand[] = [
     },
   },
   {
-    name: 'tools',
-    description: 'What works here, checked live; /tools all',
-    run: (args, ctx) => printView(ctx.tools, args, ctx, 'The tool check is not available here.'),
-  },
-  {
-    name: 'canvas',
-    description: 'Timmy Canvas: where, its state; /canvas open',
-    run: (args, ctx) => printView(ctx.canvas, args, ctx, 'Timmy Canvas is not available here.'),
-  },
-  {
-    name: 'center',
-    description: 'Open the cockpit (timmy center)',
+    name: 'setup',
+    group: 'setup',
+    description: 'Check what Timmy needs, and seal it',
     run: (_args, ctx) => {
-      ctx.print([{ text: `  ${ctx.openCenter?.() ?? 'The cockpit is not available here.'}`, role: 'secondary' }]);
+      const lines = ctx.setup?.();
+      if (!lines) return void ctx.print([{ text: '  The setup check is not available here.', role: 'secondary' }]);
+      for (const line of lines) ctx.print(line);
     },
   },
   {
-    name: 'watch',
-    description: 'Open the full-screen monitor (timmy watch)',
+    name: 'theme',
+    group: 'setup',
+    description: 'Your terminal\'s colors, and the palettes',
     run: (_args, ctx) => {
-      const where = ctx.openWatch?.();
-      ctx.print([{ text: where ? `  Watch opened ${where}.` : '  Watch is not available here.', role: 'secondary' }]);
+      const info = ctx.themeInfo?.();
+      if (!info) return void ctx.print([{ text: '  Palette details are not available here.', role: 'secondary' }]);
+      const s = ` ${ctx.glyphs.sep} `;
+      ctx.print([{ text: '  Palette    ', role: 'secondary' }, { text: info.source, role: 'strong' }]);
+      ctx.print([{ text: '  Measured   ', role: 'secondary' }, { text: `ground ${info.background ?? 'unknown'}${s}secondary ${info.secondary}${s}input tint ${info.tint ?? 'none'}` }]);
+      for (const line of meaningLines(info, s)) ctx.print(line);
+      ctx.print([{ text: '  Themes     ', role: 'secondary' }, { text: info.files }, { text: ' (Homebrew, Night, Day: timmy theme install)', role: 'secondary' }]);
     },
   },
-  { name: 'exit', description: 'Quit Timmy', run: () => 'exit' },
+  {
+    name: 'model',
+    group: 'setup',
+    description: 'Show the model, or switch: /model <id>',
+    run: (args, ctx) => {
+      const current = ctx.agent.getModel();
+      if (!args) return void ctx.print([{ text: '  Model: ', role: 'secondary' }, { text: current, role: 'strong' }]);
+      ctx.agent.setModel(args);
+      ctx.print([{ text: '  Model: ', role: 'secondary' }, { text: `${current} ${ctx.glyphs.arrow} ` }, { text: args, role: 'strong' }]);
+    },
+  },
+  {
+    name: 'new',
+    group: 'session',
+    description: 'Start a new conversation',
+    run: (_args, ctx) => {
+      ctx.agent.startSession();
+      ctx.print([{ text: '  New conversation.', role: 'strong' }]);
+    },
+  },
+  {
+    name: 'help',
+    group: 'session',
+    description: 'List these commands',
+    run: (_args, ctx) => {
+      for (const group of GROUPS) {
+        ctx.print([{ text: `  ${GROUP_LABEL[group]}`, role: 'secondary' }]);
+        for (const c of COMMANDS.filter((x) => x.group === group)) ctx.print([{ text: `  /${c.name.padEnd(11)}`, role: 'strong' }, { text: ` ${c.description}`, role: 'secondary' }]);
+      }
+    },
+  },
+  { name: 'exit', group: 'session', description: 'Quit Timmy', run: () => 'exit' },
 ];
 
 /** Runs a command: at once for most, or a promise for one that waits on a live check (round R1). */

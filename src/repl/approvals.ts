@@ -35,6 +35,9 @@ const READ_ONLY = new Set([
   'review_spatial_with_local_model', 'browser_get_snapshot', 'browser_take_screenshot', 'cloudflare_get_feature_flag',
   // Timmy Canvas: fixed read-only code (the model's words arrive only as a JSON string).
   'canvas_read', 'canvas_api',
+  // The active project (R1 workspace direction): listing and reading stay inside it and never reach keys,
+  // .env files or .timmy/private (src/project); writing asks (ALWAYS below).
+  'list_project_files', 'read_project_file',
 ]);
 
 const ALWAYS: Record<string, { reason: string; keys: string[]; session?: false }> = {
@@ -47,6 +50,7 @@ const ALWAYS: Record<string, { reason: string; keys: string[]; session?: false }
   browser_click_element: { reason: 'acts on a web page', keys: ['refId'] },
   list_card: { reason: 'posts a listing to a marketplace', keys: ['title', 'name'] },
   canvas_exec: { reason: 'runs code in the canvas page, which can reach the network', keys: ['code'] },
+  write_project_file: { reason: 'changes a file in your project', keys: ['path'] },
 };
 
 const SHELL: Record<string, string[]> = { run_in_daytona_workspace: ['command'] };

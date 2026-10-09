@@ -11,8 +11,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAgent } from '../agent/core.js';
 import { defaultTools } from '../agent/tools.js';
 import { loadConfig } from '../utils/config.js';
-import { readChain, receiptsDir, verifyChain } from '../utils/receipts.js';
-import { identityPath } from '../utils/init.js';
+import { appendReceipt, readChain, receiptsDir, verifyChain } from '../utils/receipts.js';
+import { identityPath, timmyHome } from '../utils/init.js';
 import { setupCheck } from './setup.js';
 import { sealTurn, type SealedTurn, type TurnFacts } from './seal.js';
 import { editExternally } from './external-editor.js';
@@ -35,6 +35,9 @@ import { Transcript, type InspectRow } from './transcript.js';
 import { onPath, packageRoot, realOnPath } from './center.js';
 import { planWeb, RECEIPT_ID, receiptUrl, resolveWebTarget } from './web.js';
 import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt, type CanvasJobResult } from '../agent/canvas-tools.js';
+import { createProjectTools, ProjectTurnFiles, type ProjectToolOptions } from '../agent/project-tools.js';
+import { folderProject } from '../project/index.js';
+import { Workspace } from './workspace.js';
 import { studioBaseUrl, studioPort } from '../studio/config.js';
 import { ensureStudioServer, type EnsureResult } from '../studio/server.js';
 import { studioHealth } from '../studio/health.js';
@@ -125,6 +128,7 @@ export const REPL_INSTRUCTIONS = [
   'Verify with tools before you report a result, and say plainly what you could not verify.',
   'Finish the task instead of asking whether to continue.',
   'Never claim a receipt, a signature or a verification that a tool did not return.',
+  'Your working folder is the operator\'s active project: list_project_files, read_project_file and write_project_file work inside it. Read a file before you change it, and write whole files.',
 ].join(' ');
 
 const tildify = (path: string): string => {
@@ -145,8 +149,10 @@ const tildify = (path: string): string => {
  * The agent's tools in the REPL: the defaults and Timmy Canvas (F-4), each under a NEEDS YOU rule. The
  * canvas calls of one turn share that turn's canvas job (fourth order, step 5).
  */
-export function replTools(job?: CanvasTurnJob): typeof defaultTools {
-  return [...defaultTools, ...createCanvasTools({ job })];
+export function replTools(job?: CanvasTurnJob, project?: ProjectToolOptions): typeof defaultTools {
+  // The project tools' typed schemas are narrower than the shared tool list's element type.
+  const files = createProjectTools(project ?? { root: () => process.cwd() }) as unknown as typeof defaultTools;
+  return [...defaultTools, ...createCanvasTools({ job }), ...files];
 }
 
 export async function runRepl(argv: string[]): Promise<number> {
@@ -194,9 +200,11 @@ export async function runRepl(argv: string[]): Promise<number> {
   );
   const approval = { active: false };
   const canvasJob = new CanvasTurnJob();
+  // R1 workspace direction: the files each turn wrote in the project, for its receipt.
+  const projectFiles = new ProjectTurnFiles();
   // NEEDS YOU: risky calls wait for the operator; with no terminal to ask, they are denied (§17.8).
   agent.setTools(
-    gateTools(replTools(canvasJob), async (req) => {
+    gateTools(replTools(canvasJob, { root: () => workspace.root, touched: projectFiles }), async (req) => {
       if (!interactive) {
         transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision: 'no-terminal' });
         return 'deny';
@@ -283,6 +291,28 @@ export async function runRepl(argv: string[]): Promise<number> {
     const why = r.error?.message ?? (r.status !== 0 ? (r.stderr?.split('\n').find((l) => l.trim()) ?? `exit ${r.status}`) : '');
     return why ? `Could not open the web view (${why}). Open ${plan.url} in your browser.` : plan.note;
   };
+  // R1 workspace direction (2026-10-08): one active project — this folder until /project chooses another —
+  // for Files, the agent's file tools, Workflows, jobs, Preview and Results. Job notices print above the
+  // prompt (the live region redraws what is being typed below them).
+  const notify = (segments: Segment[]): void => void region.commit([serialize(fitSegments(segments, caps.columns, theme.glyphs.ellipsis), theme)]);
+  const editFile = (path: string): void => {
+    const command = (process.env.VISUAL || process.env.EDITOR || 'vi').trim();
+    spawnSync('sh', ['-c', `${command} "$1"`, 'timmy-editor', path], { stdio: 'inherit' });
+  };
+  const workspace = new Workspace({
+    glyphs: theme.glyphs,
+    env: process.env,
+    onPath: (cmd) => realOnPath(cmd, process.env),
+    notify,
+    openWeb: (url) => openWeb(url, false),
+    link: (text, url) => (caps.cursor ? hyperlink(text, url, true) : text),
+    seal: (input) => appendReceipt('runs', input).hash.slice(7, 15),
+    jobsDir: join(timmyHome(), 'jobs'),
+    edit: editFile,
+    tildify,
+  }, folderProject(process.cwd()));
+  // A second Ctrl+C exits at once: the jobs this REPL started stop with it.
+  session.beforeRestore(() => workspace.killNow());
   // Round R1: /canvas, and where to inspect each turn's result, preview and receipt.
   const canvas = (args: string): Promise<Segment[][]> => canvasView(args, {
     base: studioBaseUrl(process.env),
@@ -342,7 +372,7 @@ export async function runRepl(argv: string[]): Promise<number> {
     const canvasNow = h.state === 'running'
       ? `canvas ${base}/${h.pageConnected ? ' (page open)' : ''}`
       : h.state === 'other' ? `canvas port in use by another program (/canvas)` : 'canvas not running (/canvas)';
-    return [{ text: `  ${tildify(process.cwd())}${sep}receipts ${shownStore}${sep}${canvasNow}`, role: 'secondary' }];
+    return [{ text: `  project ${workspace.project.name}${sep}${tildify(process.cwd())}${sep}receipts ${shownStore}${sep}${canvasNow}`, role: 'secondary' }];
   };
   const setup = (): Segment[][] => setupCheck({
     operator: readOperator(),
@@ -350,15 +380,15 @@ export async function runRepl(argv: string[]): Promise<number> {
     palette: timmyPalette(measured, process.env),
     themes: join(packageRoot(), 'assets', 'themes'),
   }, theme.glyphs).lines;
-  return replLoop({
+  const code = await replLoop({
     agent, caps, theme, region, transcript, session, stdin: process.stdin, stdout: process.stdout, approval, themeInfo, receipts, openWatch, openWeb,
-    setup, noKey: !config.apiKey, firstRun: readChain('runs').length === 0, lanes: listLanes, openCenter, canvas, inspect, where, tools,
+    setup, noKey: !config.apiKey, firstRun: readChain('runs').length === 0, lanes: listLanes, openCenter, canvas, inspect, where, tools, workspace,
     // C-13: the receipt line links to its page; the local server that shows it starts with the first seal.
     seal: (facts) => {
       // Fourth order, step 5: a turn that used the canvas names each job and the saved canvas it left,
       // and the canvas server learns which receipt sealed each job.
       const jobs = canvasJob.close();
-      const sealed = sealTurn({ ...facts, model: agent.getModel(), ...(jobs.length ? { canvas: jobs } : {}) });
+      const sealed = sealTurn({ ...facts, model: agent.getModel(), project: workspace.project.name, files: projectFiles.close(), ...(jobs.length ? { canvas: jobs } : {}) });
       void ensureCanvas();
       // Round R1: the links' outcomes reach the turn's "where to inspect" rows; a failed link is said.
       lastCanvas = jobs;
@@ -366,6 +396,9 @@ export async function runRepl(argv: string[]): Promise<number> {
       return { ...sealed, url: receiptUrl(sealed.id) };
     },
   });
+  // The REPL is ending: the jobs it started (preview servers included) stop with it.
+  await workspace.close();
+  return code;
 }
 
 /** Whether a GET of `url` answers 2xx within `timeoutMs` (a local page, so the wait is short). */
@@ -439,6 +472,8 @@ export interface ReplDeps {
   where?: () => Promise<Segment[]>;
   /** Round R1: /tools, what works here. */
   tools?: ReplContext['tools'];
+  /** R1 workspace direction: the active project and its files, workflows, jobs, preview and results. */
+  workspace?: ReplContext['workspace'];
 }
 
 /** During a turn, Ctrl+C arrives as a key in raw mode; it cancels the turn (playbook §16.2). */
@@ -495,7 +530,7 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     if (!text) continue;
     if (text === 'exit' || text === 'quit') break;
     if (text.startsWith('/')) {
-      const ctx = { agent, print: say, glyphs: theme.glyphs, themeInfo: d.themeInfo, receipts: d.receipts, openWatch: d.openWatch, openWeb: d.openWeb, setup: d.setup, lanes: d.lanes, openCenter: d.openCenter, canvas: d.canvas, tools: d.tools };
+      const ctx = { agent, print: say, glyphs: theme.glyphs, themeInfo: d.themeInfo, receipts: d.receipts, openWatch: d.openWatch, openWeb: d.openWeb, setup: d.setup, lanes: d.lanes, openCenter: d.openCenter, canvas: d.canvas, tools: d.tools, workspace: d.workspace };
       if ((await runSlash(text, ctx)) === 'exit') break;
       region.commit(['']);
       continue;

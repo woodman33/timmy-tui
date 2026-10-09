@@ -118,6 +118,9 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
     ? { id: 'web', kind: 'surface', name: 'Web views (/web)', rung: 'installed',
         detail: inMux ? 'pages in a pane here (carbonyl)' : mux ? `links here; pages when run inside ${mux}` : 'links only: pages need zellij or tmux' }
     : { id: 'web', kind: 'surface', name: 'Web views (/web)', rung: 'installed', detail: 'links only: carbonyl shows pages here', setup: 'npm install --global carbonyl' });
+  add(d.onPath('upmd')
+    ? { id: 'workflows', kind: 'surface', name: 'Workflows (/workflows)', rung: 'installed', detail: 'upmd runs named Markdown blocks as jobs' }
+    : { id: 'workflows', kind: 'surface', name: 'Workflows (/workflows)', rung: 'needs setup', detail: 'upmd is not installed', setup: 'brew install rezigned/tap/upmd' });
   const chain = d.receipts();
   add({ id: 'receipts', kind: 'surface', name: 'Receipts (timmy receipts)', rung: 'installed', detail: !chain.ok ? `chain BROKEN: ${chain.reason ?? 'verification failed'}` : chain.count ? `${plural(chain.count, 'receipt')}, chain verified` : 'none yet' });
 
@@ -138,6 +141,7 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
 
   // ── agent tools (what the REPL's agent can call; NEEDS YOU asks before the risky ones)
   add({ id: 'builtin', kind: 'tool', name: 'Built-in tools', rung: 'installed', detail: 'time, math, system, env (asks), spatial files', tools: ['get_current_time', 'calculate', 'get_system_info', 'get_env', 'read_spatial_model_context'] });
+  add({ id: 'project-files', kind: 'tool', name: 'Project files', rung: 'installed', detail: 'list, read, write (asks) in the project', tools: ['list_project_files', 'read_project_file', 'write_project_file'] });
   const canvasTools = ['canvas_exec', 'canvas_read', 'canvas_api'];
   // Reachable only when a page answered: the tools draw in the page, not in the server (review finding).
   add(studio.state === 'running' && studio.pageConnected === true

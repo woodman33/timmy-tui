@@ -32,6 +32,9 @@ export interface TurnFacts {
   status: 'ok' | 'failed' | 'cancelled';
   tools?: ToolOutcome[];
   cancelledAt?: CancelStage;
+  /** R1 workspace direction: the active project, and the files the turn's tools wrote in it (hashes only). */
+  project?: string;
+  files?: Array<{ path: string; sha256: string; previous_sha256?: string; created: boolean; bytes: number }>;
   /** Fourth order, step 5: the turn's Timmy Canvas jobs, each with the revision and source revision it left. */
   canvas?: Array<{ job: string; revision: number; sourceRevision: string }>;
 }
@@ -69,6 +72,8 @@ export function sealTurn(
     // Third order, checkpoint 1: a cancel stops what is left; it never undoes what already ran.
     ...(cancelled ? { cancelled_at: facts.cancelledAt ?? 'before-tools', rollback: 'none' as const } : {}),
     ...(facts.canvas?.length ? { sources: facts.canvas.map((c) => ({ kind: 'timmy-canvas', job: c.job, revision: c.revision, source_revision: c.sourceRevision })) } : {}),
+    ...(facts.project ? { project: facts.project } : {}),
+    ...(facts.files?.length ? { files: facts.files } : {}),
     prompt_hash: sha256(facts.prompt),
     response_hash: sha256(facts.answer),
     model_requested: facts.model,

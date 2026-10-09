@@ -37,6 +37,13 @@ export interface Receipt {
   // ever sealing raw prompts/responses/secrets.
   response_hash?: string;
   model_requested?: string;
+  // R1 workspace direction (2026-10-08): the project a receipt belongs to, the files it wrote or read as
+  // input (hashes, never contents), a background job's lifecycle, and a workflow's prediction before it ran.
+  project?: string;
+  files?: Array<{ path: string; sha256?: string; previous_sha256?: string; created?: boolean; bytes?: number }>;
+  outputs?: Array<{ path: string; sha256?: string; bytes: number }>;
+  job?: { id: string; kind: string; label: string; state: string; exit_code?: number | null; steps?: Array<{ name: string; state: string; code?: number }>; log_sha256?: string; url?: string; ms?: number; error?: string };
+  prediction?: { doc: string; block: string; order: string[]; expect: string; met?: boolean; receipt?: string };
   model_resolved?: string;
   via?: string;
   ms?: number;
