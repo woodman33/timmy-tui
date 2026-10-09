@@ -1,5 +1,6 @@
 /**
- * Native creative apps as Timmy jobs (R2): Cinema 4D through c4dpy and After Effects through aerender.
+ * Native creative apps as Timmy jobs (R2): Cinema 4D through c4dpy and After Effects through aerender;
+ * R3: Blender through its own Python, headless.
  * Each run is an ordinary background job (src/jobs) in the project's folder, so it has a process group,
  * a time limit, a record, a private log, /stop and a receipt like any other job, and what it makes stays
  * where it was written: editable native files (.c4d) and renders, in the project.
@@ -11,6 +12,9 @@
  *             the run went: a retained run on the operator's machine wrote ok:true while c4dpy exited 1.
  *   aerender  renders an EXISTING .aep/.aepx headless. It does not make or edit a project; that needs
  *             After Effects' own scripting through the app, which these jobs do not do.
+ *   blender   Blender's own Python, headless (`blender -b --factory-startup --python <script> -- <args>`):
+ *             a script that can build or change a scene, save an editable .blend and render a still. Like
+ *             c4dpy, the script writes a result file (workers/blender/timmy_blender.py) that decides the run.
  *
  * R3 (an independent review of 40022d9, finding 5): every run has its own folder in the project,
  * .timmy/native/<run>/, holding job.json (written once, at submission: the app, the program, the input's
@@ -36,7 +40,7 @@ import type { CapabilityRow } from '../capabilities/index.js';
 import type { JobRecord, JobSpec, JobState } from '../jobs/index.js';
 import { resolveInside } from '../project/index.js';
 
-export type NativeApp = 'c4dpy' | 'aerender';
+export type NativeApp = 'c4dpy' | 'aerender' | 'blender';
 type Env = Record<string, string | undefined>;
 
 export interface NativeFound {
@@ -89,6 +93,13 @@ export const NATIVE_APPS: Record<NativeApp, AppInfo> = {
     name: 'After Effects (aerender)',
     setup: 'install After Effects; or set TIMMY_AERENDER to its aerender',
     resultFile: false,
+  },
+  blender: {
+    // macOS: /Applications/Blender.app (or a versioned "Blender 4.2.app") holds Contents/MacOS/Blender
+    envVar: 'TIMMY_BLENDER', prefix: 'Blender', inside: ['Contents/MacOS/Blender'], program: 'blender',
+    name: 'Blender (Python, headless)',
+    setup: 'install Blender; or set TIMMY_BLENDER to its blender program',
+    resultFile: true,
   },
 };
 
@@ -166,6 +177,7 @@ export function locateNative(app: NativeApp, env: Env = process.env, seams: Find
 
 export const findC4dpy = (env: Env = process.env, seams: FinderSeams = {}): NativeFound | null => locateNative('c4dpy', env, seams).found;
 export const findAerender = (env: Env = process.env, seams: FinderSeams = {}): NativeFound | null => locateNative('aerender', env, seams).found;
+export const findBlender = (env: Env = process.env, seams: FinderSeams = {}): NativeFound | null => locateNative('blender', env, seams).found;
 
 // ── job specs ─────────────────────────────────────────────────────────────────
 
@@ -222,6 +234,21 @@ export function c4dHelperDir(): string | undefined {
   for (const up of ['../..', '../../..']) {
     const dir = path.resolve(here, up, 'workers', 'c4d');
     try { if (statSync(path.join(dir, 'timmy_c4d.py')).isFile()) return dir; } catch { /* not here */ }
+  }
+  return undefined;
+}
+
+/**
+ * The folder holding timmy_blender.py (workers/blender), for TIMMY_BLENDER_LIB, found the way c4dHelperDir
+ * finds workers/c4d. Blender's Python ignores PYTHONPATH unless started with --python-use-system-env, so the
+ * scene script puts this folder on sys.path itself (templates/blender-starter/scene.py).
+ */
+export function blenderHelperDir(): string | undefined {
+  let here: string;
+  try { here = path.dirname(fileURLToPath(import.meta.url)); } catch { return undefined; }
+  for (const up of ['../..', '../../..']) {
+    const dir = path.resolve(here, up, 'workers', 'blender');
+    try { if (statSync(path.join(dir, 'timmy_blender.py')).isFile()) return dir; } catch { /* not here */ }
   }
   return undefined;
 }
@@ -511,6 +538,61 @@ export function c4dpyJob(input: C4dpyJobInput): NativeJobSpec {
   return spec;
 }
 
+// ── Blender ──────────────────────────────────────────────────────────────────
+
+export interface BlenderJobInput {
+  /** the Python file Blender runs, relative to root */
+  script: string;
+  /** the script's own arguments: after `--` on Blender's command line (timmy_blender.script_args() reads them) */
+  args?: string[];
+  root: string;
+  project: string;
+  timeoutMs?: number;
+  /** where the script writes its result file, relative to root (default .timmy/native/<run>/result.json) */
+  result?: string;
+  /** files the result must name, or this run must write, relative to root */
+  expect?: string[];
+  /** the blender to run (default: findBlender()) */
+  bin?: string;
+  /** added to the job's environment */
+  env?: NodeJS.ProcessEnv;
+  label?: string;
+}
+
+/**
+ * A task job running `blender -b --factory-startup --python-exit-code 1 --python <script.py> -- [args]` in
+ * the project folder: Blender headless, with its factory settings (no user preferences or add-ons), the
+ * script's arguments after `--`, and an uncaught Python error made a non-zero exit (recorded beside the
+ * outcome, never deciding it). The script learns where to write from TIMMY_RESULT, TIMMY_RUN, TIMMY_SCRIPT,
+ * TIMMY_SCRIPT_SHA256, TIMMY_ROOT, TIMMY_OUT and TIMMY_BLENDER_LIB (the folder with timmy_blender.py, when
+ * this checkout has it). Making the spec writes the run's job.json. It is judged like c4dpy: by this run's
+ * result file, bound to its token, the script's sha256 and a matching sha256 for every file it names.
+ */
+export function blenderJob(input: BlenderJobInput): NativeJobSpec {
+  const root = realRoot(input.root);
+  const script = inputFile(root, input.script, 'script');
+  if (!/\.py$/i.test(script.rel)) throw new Error(`${script.rel} is not a Python file (.py)`);
+  const run = randomUUID();
+  const record = runDir(root, run);
+  const result = inside(root, input.result ?? `${NATIVE_RUNS_DIR.split(path.sep).join('/')}/${run}/result.json`);
+  const expect = (input.expect ?? []).map((rel) => inside(root, rel).rel);
+  const bin = program('blender', input.bin, { ...process.env, ...input.env });
+  const lib = input.env?.TIMMY_BLENDER_LIB ?? blenderHelperDir();
+  const submittedMs = Date.now();
+  const spec: NativeJobSpec = {
+    kind: 'task', label: input.label ?? `Blender · ${script.rel}`, project: input.project, root,
+    command: bin, args: ['-b', '--factory-startup', '--python-exit-code', '1', '--python', script.path, '--', ...(input.args ?? [])],
+    env: {
+      ...input.env, ...nativeHome(input.env), TIMMY_RESULT: result.path, TIMMY_RUN: run, TIMMY_ROOT: root, TIMMY_OUT: path.join(root, 'out'),
+      TIMMY_SCRIPT: script.path, TIMMY_SCRIPT_SHA256: script.sha256, ...(lib ? { TIMMY_BLENDER_LIB: lib } : {}),
+    },
+    timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    native: { app: 'blender', root, run, record, result: result.path, expect, input: { path: script.rel, sha256: script.sha256 }, pre: preStates(root, expect), submittedMs },
+  };
+  writeSubmission(spec);
+  return spec;
+}
+
 // ── aerender ─────────────────────────────────────────────────────────────────
 
 export interface AerenderJobInput {
@@ -638,6 +720,8 @@ export interface NativeJudgement {
   files: NativeFileCheck[];
   /** c4dpy: what the script read from c4d.GetC4DVersion() */
   c4dVersion?: unknown;
+  /** blender: what the script read from bpy.app.version_string */
+  blenderVersion?: unknown;
   /** R3: the run judged, and the input it was bound to */
   run?: string;
   input?: { path: string; sha256: string };
@@ -827,8 +911,8 @@ function judgeExit(x: ExitInfo, result: unknown, opts: JudgeOptions): NativeJudg
   if (!result || typeof result !== 'object' || Array.isArray(result) || typeof (result as { ok?: unknown }).ok !== 'boolean') {
     return verdict('unknown', `the result file has no ok: true or false; ${recorded}`);
   }
-  const r = result as { ok: boolean; run?: unknown; error?: unknown; files?: unknown; c4d_version?: unknown; script_sha256?: unknown; script_sha256_read?: unknown };
-  const version = r.c4d_version === undefined ? {} : { c4dVersion: r.c4d_version };
+  const r = result as { ok: boolean; run?: unknown; error?: unknown; files?: unknown; c4d_version?: unknown; blender_version?: unknown; script_sha256?: unknown; script_sha256_read?: unknown };
+  const version = { ...(r.c4d_version === undefined ? {} : { c4dVersion: r.c4d_version }), ...(r.blender_version === undefined ? {} : { blenderVersion: r.blender_version }) };
   if (opts.run !== undefined && r.run !== opts.run) {
     return verdict('unknown', `the result file is from another run (its run token is not this job's); ${recorded}`, [], version);
   }
@@ -956,7 +1040,7 @@ export function nativeReceiptFields(app: NativeApp, j: NativeJudgement): {
   status?: 'ok' | 'failed';
   native: {
     app: NativeApp; outcome: NativeJudgement['outcome']; why: string; exit_code: number | null; signal: string | null; files: NativeFileCheck[]; c4d_version?: unknown;
-    run?: string; input?: { path: string; sha256: string }; checked?: SequenceCheck[];
+    blender_version?: unknown; run?: string; input?: { path: string; sha256: string }; checked?: SequenceCheck[];
   };
 } {
   return {
@@ -964,6 +1048,7 @@ export function nativeReceiptFields(app: NativeApp, j: NativeJudgement): {
     native: {
       app, outcome: j.outcome, why: j.why, exit_code: j.exit.code, signal: j.exit.signal, files: j.files.map((f) => ({ ...f })),
       ...(j.c4dVersion === undefined ? {} : { c4d_version: j.c4dVersion }),
+      ...(j.blenderVersion === undefined ? {} : { blender_version: j.blenderVersion }),
       ...(j.run ? { run: j.run } : {}), ...(j.input ? { input: { ...j.input } } : {}), ...(j.checked ? { checked: j.checked.map((c) => ({ ...c })) } : {}),
     },
   };

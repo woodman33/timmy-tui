@@ -18,6 +18,7 @@ import {
   type NativeJobSpec,
 } from '../src/native/index.js';
 import { capabilities, type CapabilityRow, type ProbeDeps } from '../src/capabilities/index.js';
+import { createNativeTools } from '../src/agent/native-tools.js';
 
 const FIXTURES = path.join(__dirname, 'fixtures');
 let tmp = '';
@@ -194,6 +195,24 @@ describe('finding 5c: aerender is judged by outputs this run wrote', () => {
     const verdict = judgeNativeJob(await runSpec(s), s);
     expect(verdict.outcome).not.toBe('ok');
     expect(verdict.why).toMatch(/one frame|range/);
+  });
+
+  it('run_native passes a frame range through, so the agent\'s sequence is judged against the whole range', async () => {
+    const m = manager();
+    const bin = install('fake-aerender.mjs', path.join(tmp, 'bin', 'aerender'));
+    writeFileSync(path.join(root, 'title.aep'), 'fake project bytes');
+    const started: NativeJobSpec[] = [];
+    const [run] = createNativeTools({
+      root: () => root, project: () => 'demo', start: (s) => m.start(s), find: { aerender: () => ({ app: 'aerender', path: bin, how: 'env' }) },
+      onStarted: (_job, s) => void started.push(s), env: { FAKE_AERENDER_MODE: 'gap' },
+    });
+    const call = (run.function as unknown as { execute: (a: Record<string, unknown>) => Promise<Record<string, unknown>> }).execute;
+    const answer = await call({ app: 'aerender', project_file: 'title.aep', comp: 'Main', output: 'out/f_[####].png', start_frame: 0, end_frame: 4 });
+    expect(answer).toMatchObject({ ok: true, output: 'out/f_[####].png' });
+    expect(started[0].args).toEqual(expect.arrayContaining(['-s', '0', '-e', '4']));
+    const verdict = judgeNativeJob(await m.done(answer.job as string), started[0]);
+    expect(verdict.outcome).toBe('unknown');
+    expect(verdict.checked?.[0]).toMatchObject({ range: [0, 4], range_from: 'arguments', missing: [2] });
   });
 
   it('a sequence with no range is ok when a contiguous run of frames was all written by this run', async () => {

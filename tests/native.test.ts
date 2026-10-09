@@ -269,11 +269,14 @@ describe('the /tools rows', () => {
     const apps = path.join(tmp, 'Applications');
     install('fake-c4dpy.mjs', path.join(apps, 'Maxon Cinema 4D 2026', 'c4dpy.app', 'Contents', 'MacOS', 'c4dpy'));
     install('fake-aerender.mjs', path.join(apps, 'Adobe After Effects 2026', 'aerender'));
+    install('fake-c4dpy.mjs', path.join(apps, 'Blender.app', 'Contents', 'MacOS', 'Blender')); // any executable stands in
     const rows = nativeCapabilityRows({}, { platform: 'darwin', applications: apps, onPath: () => null });
     expect(rows.map((r) => [r.id, r.kind, r.name, r.rung])).toEqual([
       ['c4dpy', 'adapter', 'Cinema 4D (c4dpy)', 'installed'],
       ['aerender', 'adapter', 'After Effects (aerender)', 'installed'],
+      ['blender', 'adapter', 'Blender (Python, headless)', 'installed'],
     ]);
+    expect(rows[2].detail).toMatch(/Blender\.app/);
     expect(rows[0].detail).toMatch(/Maxon Cinema 4D 2026/);
     expect(rows[0].detail).toMatch(/not run/);
     expect(rows[1].detail).toMatch(/existing/);
@@ -282,9 +285,10 @@ describe('the /tools rows', () => {
 
   it('says needs setup, with the step, when it is not found', () => {
     const rows = nativeCapabilityRows({}, { platform: 'darwin', applications: path.join(tmp, 'none'), onPath: () => null });
-    expect(rows.map((r) => r.rung)).toEqual(['needs setup', 'needs setup']);
+    expect(rows.map((r) => r.rung)).toEqual(['needs setup', 'needs setup', 'needs setup']);
     expect(rows[0].setup).toMatch(/TIMMY_C4DPY/);
     expect(rows[1].setup).toMatch(/TIMMY_AERENDER/);
+    expect(rows[2].setup).toMatch(/TIMMY_BLENDER/);
     const broken = nativeCapabilityRows({ TIMMY_AERENDER: path.join(tmp, 'gone') }, { platform: 'darwin', applications: path.join(tmp, 'none'), onPath: () => null });
     expect(broken[1].detail).toMatch(/TIMMY_AERENDER/);
   });
