@@ -221,7 +221,7 @@ jobs and Results built in R1, and is the first step toward the spatial-vision ph
 ## Workspace connections (R2, 2026-10-09)
 
 The owner's standing order of 00:43 PT (three hours, to 03:43): finish the command output limit and the
-fresh-Mac walkthrough, then the next connected workflows, in stages. Ledger rows 127 to 130 hold the
+fresh-Mac walkthrough, then the next connected workflows, in stages. Ledger rows 127 to 131 hold the
 checks. Four words keep the states apart: **planned** (in a plan or the private register, no code),
 **implemented** (code and tests on this branch), **configured** (the program or setting it needs was
 found on the operator's Mac) and **demonstrated** (run end to end on the operator's Mac, in a sandbox,

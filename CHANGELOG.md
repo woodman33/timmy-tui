@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Round R2, found on the operator's Mac:
   - The board draws a model claim's **bold** and `code` (after escaping it) instead of showing the Markdown marks.
+  - From an independent review of the newest R2 commits: the web starter's server reads a file before answering (a file it could not read stopped it) and judges a link by where it leads (a link to `/etc` or to `.env` was served); a Vite dev script gets `--port`, `--host` and `--strictPort`, since Vite reads no `PORT`; the board's bold needs its marks to hug the text and leaves code alone.
   - `/preview` runs an app's `dev`, `start` or `preview` script when no built folder exists; before, a page at the project's root beside such a script (a Vite app's unbuilt `index.html`) was served as a static file and the dev server never ran.
   - A job stops when its program waits for a person: `c4dpy` asking how to license Cinema 4D ends the job at once with what to do, instead of a job that never finishes.
   - `TIMMY_NATIVE_HOME`: when Timmy runs with a different `HOME` (a sandbox), native jobs and the Look worker use this home, where the app's license and Python's own packages are; before, OpenCV looked missing.
