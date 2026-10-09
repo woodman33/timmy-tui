@@ -3,6 +3,8 @@
 // 127.0.0.1. Workflow runs use tests/fixtures/fake-upmd.mjs, a labelled TEST DOUBLE of upmd 0.2.7's --ci
 // protocol (it is not upmd); the job it starts is a real process, stopped through /stop.
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { chromium, type Browser } from 'playwright';
@@ -93,6 +95,37 @@ describe.skipIf(!browserPath)('the live board in a real browser (headless Chromi
     expect(await page.evaluate(() => [localStorage.length, sessionStorage.length, document.cookie])).toEqual([0, 0, '']);
     expect(problems).toEqual([]);
     await context.close();
+  }, 30_000);
+
+  it('a page from another origin (127.0.0.1, another port) cannot read the state or act, even holding the token', async () => {
+    const { ws, notes } = make();
+    await ws.boardLive('live');
+    const { url, port } = ws.liveBoard!;
+    const token = url.split('#t=')[1];
+    // The other page: a plain server on 127.0.0.1 at another port (another origin).
+    const other = createServer((_req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html><title>other</title>'); });
+    await new Promise<void>((r) => other.listen(0, '127.0.0.1', () => r()));
+    const otherPort = (other.address() as AddressInfo).port;
+    const context = await browser.newContext();
+    try {
+      const page = await context.newPage();
+      await page.goto(`http://127.0.0.1:${otherPort}/`);
+      const tried = await page.evaluate(async ({ port: p, token: t }) => {
+        const out: string[] = [];
+        // A read with the token needs CORS: the board sends none (and refuses the Origin), so the page gets nothing.
+        try { const r = await fetch(`http://127.0.0.1:${p}/state`, { headers: { Authorization: `Bearer ${t}` } }); out.push(`state read ${r.status}`); } catch { out.push('state blocked'); }
+        // A "simple" cross-site POST (no preflight) still carries its Origin: refused before anything runs.
+        try { await fetch(`http://127.0.0.1:${p}/action`, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'run', doc: 'BUILD.md', block: 'wait' }) }); out.push('post sent'); } catch { out.push('post blocked'); }
+        return out;
+      }, { port, token });
+      expect(tried[0]).toBe('state blocked');
+      await new Promise((r) => setTimeout(r, 200));
+      expect(notes.filter((n) => n.includes('board  /'))).toEqual([]);
+      expect(ws.jobs.list()).toEqual([]);
+    } finally {
+      await context.close();
+      await new Promise<void>((r) => other.close(() => r()));
+    }
   }, 30_000);
 
   it('a reload, with the token gone from the address, asks nothing and says to open the printed address', async () => {
