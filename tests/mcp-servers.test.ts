@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { callTool, listServers, listTools, mcpView, shownConfigPath } from '../src/connectors/mcp-cli.js';
 import { createMcpTools } from '../src/agent/mcp-tools.js';
 import { approvalNeeded } from '../src/repl/approvals.js';
+import { convertZodToJsonSchema, validateToolInput } from '@openrouter/sdk/lib/tool-executor.js';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/mcp-echo-server.mjs', import.meta.url));
 const LONG = 60_000;
@@ -230,6 +231,18 @@ describe('the agent tools and the approval line', () => {
     expect(tools.error).toBeUndefined();
     expect((tools.tools as Array<{ name: string }>).map((t) => t.name)).toContain('echo');
     expect(existsSync(watchPid)).toBe(true);
+  }, LONG);
+
+  it('list_mcp_tools answers a server name with the asking tool\'s name, through the SDK\'s own input check too', async () => {
+    const t = createMcpTools({ cwd: () => project, env: () => env }).find((x) => x.function.name === 'list_mcp_tools')!;
+    const fn = t.function as unknown as { inputSchema: unknown; execute: Exec };
+    // A live turn parses the model's arguments against the schema before execute sees them.
+    const parsed = validateToolInput(fn.inputSchema as Parameters<typeof validateToolInput>[0], { server: 'watch-me' }) as Record<string, unknown>;
+    const r = await fn.execute(parsed);
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toMatch(/list_mcp_command_tools/);
+    // The advertised schema invites no argument.
+    expect(Object.keys((convertZodToJsonSchema(fn.inputSchema as Parameters<typeof convertZodToJsonSchema>[0]) as { properties?: object }).properties ?? {})).toEqual([]);
   }, LONG);
 
   it('call_mcp_tool calls an imported server by name', async () => {

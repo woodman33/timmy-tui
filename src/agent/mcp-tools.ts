@@ -47,7 +47,9 @@ export function createMcpTools(o: McpToolOptions = {}) {
   const list = tool({
     name: 'list_mcp_tools',
     description: "Find MCP servers through Timmy's command-line routes, read-only: the routes (MCPorter's CLI, Timmy's own SDK CLI) and whether each is installed, and every server MCPorter knows from the files: its config (./config/mcporter.json, ~/.mcporter/mcporter.json) and the editor configs it imports (Cursor, Claude Code, Claude Desktop, Codex, Windsurf, OpenCode, VS Code). Each with its name, transport (stdio or http), the file it came from, the sign-in its config names, and variable and header names only. Nothing is started or contacted. To see a server's tools, use list_mcp_command_tools with its name (that starts it, so the operator is asked).",
-    inputSchema: z.object({}),
+    // Loose: the SDK parses a live turn's arguments first, and a strict-or-stripping object would drop a server
+    // name silently; kept, it gets the pointer to the asking tool. The advertised schema still lists nothing.
+    inputSchema: z.looseObject({}),
     outputSchema: answer,
     execute: async (input: Record<string, unknown>) => {
       const raw = (input ?? {}) as Record<string, unknown>;
