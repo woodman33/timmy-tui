@@ -263,4 +263,4 @@ Mac (rows 133 to 138). Every feature's planned / implemented / tested / demonstr
 | Code agents | `/agent qwen` on a local Ollama model, free; paid agents only with `--paid` | row 137 | which Qwen Code copy runs under the agent's own HOME (0.22.2 there, 0.25.0 under the operator's); a free second route (`codex exec --oss`) |
 | Board | `/board live` with Stop, Run and Observe on 127.0.0.1 | rows 137, 138 | a workflow node editor |
 | Evidence | `/observe --qualify` runs the observed-handle + cite protocol | row 139 (one real call, admitted with two citations) | a qualified answer in `/canvas` cards; the TUI board |
-| MCP | `/mcp servers` by name, `--check` | tests only | list the operator's own configured servers on the Mac |
+| MCP | `/mcp servers` by name (`TIMMY_MCP_HOME` for a sandbox), `--check` | row 140 (46 configured servers listed, none contacted) | `--check` and one tool call on a server the operator picks |

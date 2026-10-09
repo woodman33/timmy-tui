@@ -146,7 +146,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'stop', group: 'work', description: 'Stop a job: /stop <id>, or /stop all', run: inWorkspace((w, a) => w.stop(a)) },
   { name: 'results', group: 'work', description: 'Outputs, jobs and changes, linked to files', run: inWorkspace((w, a) => w.results(a)) },
   { name: 'add', group: 'work', description: 'Copy files into refs/: /add <file…>', run: inWorkspace((w, a) => w.add(a)) },
-  { name: 'observe', group: 'look', description: 'Measure an image: /observe <file> [question]', run: inWorkspace((w, a) => w.observe(a)) },
+  { name: 'observe', group: 'look', description: 'Image: /observe <file> [--qualify] [question]', run: inWorkspace((w, a) => w.observe(a)) },
   // Round R3: `/board live` and `/board off` go to the live board; `/board` alone stays the snapshot.
   { name: 'board', group: 'look', description: 'A board of the project; /board live | off', run: inWorkspace((w, a) => (w.boardLive && /^(?:live|off)$/.test(a.trim()) ? w.boardLive(a) : w.board(a))) },
   { name: 'c4d', group: 'work', description: 'Cinema 4D Python as a job: /c4d <script.py>', run: inWorkspace((w, a) => w.c4d(a)) },
