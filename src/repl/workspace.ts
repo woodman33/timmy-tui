@@ -1030,10 +1030,14 @@ export class Workspace {
         const src = r.files?.[0]?.path ?? '?';
         const out = r.outputs?.[0]?.path;
         const tiers = r.observation?.tiers?.length ? r.observation.tiers.join(', ') : r.status === 'cancelled' ? 'stopped' : 'not observed';
+        // R3 (H14): a qualified answer's outcome, as its receipt sealed it.
+        const q = r.observation?.qualified;
+        const n = Array.isArray(q?.cites) ? q.cites.length : 0;
+        const qualified = q ? `${this.sep}${q.status === 'admitted' ? `cited answer admitted (${n} handle${n === 1 ? '' : 's'}; a claim)` : `no admitted answer: ${q.status}${q.refusal ? ` (${q.refusal})` : ''}`}` : '';
         lines.push([
           { text: '    ' }, { text: this.fileLink(src) }, { text: ` ${this.d.glyphs.arrow} ` },
           out ? { text: this.fileLink(out) } : { text: r.observation?.error ?? 'no observation', role: 'failure' },
-          { text: `  ${tiers}${this.sep}receipt ${String(r.hash).slice(7, 15)}`, role: 'secondary' },
+          { text: `  ${tiers}${qualified}${this.sep}receipt ${String(r.hash).slice(7, 15)}`, role: 'secondary' },
         ]);
       }
     } else lines.push(...this.say('  none yet: /observe <image>'));

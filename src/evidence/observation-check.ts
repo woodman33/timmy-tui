@@ -182,13 +182,16 @@ const sha256Text = (s: string): string => createHash('sha256').update(s, 'utf8')
 const handleIds = (cites: unknown): string[] => (Array.isArray(cites) ? cites.map((c) => text(obj(c)?.handle_id) ?? '') : []);
 const shortHandle = (id: string): string => (id.length > 14 ? `${id.slice(0, 11)}…` : id);
 
+/** What an observe receipt seals of a qualified section (Receipt.observation.qualified). */
+export interface QualifiedSeal { status: string; model?: string; run_id?: string; source_revision?: string; cites: string[]; refusal?: string; raw_output_sha256?: string; cost_usd?: number | null }
+
 /** What an observe receipt seals of a qualified section: enough to tell an edited one from what was written. */
-export function qualifiedSeal(q: Record<string, unknown>): Record<string, unknown> {
+export function qualifiedSeal(q: Record<string, unknown>): QualifiedSeal {
   return {
     status: String(q.status),
     ...(typeof q.model === 'string' ? { model: q.model } : {}),
     ...(typeof q.run_id === 'string' ? { run_id: q.run_id } : {}),
-    source_revision: q.source_revision,
+    ...(typeof q.source_revision === 'string' ? { source_revision: q.source_revision } : {}),
     cites: handleIds(q.cites),
     ...(typeof q.refusal === 'string' ? { refusal: q.refusal } : {}),
     ...(typeof q.raw_output === 'string' ? { raw_output_sha256: sha256Text(q.raw_output) } : {}),

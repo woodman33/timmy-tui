@@ -203,6 +203,8 @@ describe('/observe --qualify: admitted', () => {
 
     // observation-check: verified (the receipt sealed exactly this file, citations consistent, image unchanged).
     expect(check(root, outcome.file, chain())).toMatchObject({ status: 'verified', reasons: [] });
+    // /results says what the receipt sealed: a cited answer, admitted, still a claim.
+    expect(text(ws.results(''))).toMatch(/refs\/card\.png.*deterministic computation, model interpretation · cited answer admitted \(2 handles; a claim\)/);
   });
 
   it('/observe <file> --qualify [question] takes the qualified route; without --qualify the plain route is unchanged', async () => {
@@ -268,6 +270,7 @@ describe('/observe --qualify: refused answers keep their raw output', () => {
       expect(sealed.at(-1)!.cost_usd).toBe(record.qualified.cost_usd);
       // A refused answer is a faithful record: its measurements stay verified; the refusal is not a claim.
       expect(check(root, outcome.file, chain())).toMatchObject({ status: 'verified' });
+      expect(text(ws.results(''))).toContain(`no admitted answer: refused (${c.refusal})`);
     });
   }
 
