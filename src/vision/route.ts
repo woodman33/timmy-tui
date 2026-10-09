@@ -152,10 +152,15 @@ export async function describeImage(o: { model: string; imagePath: string; quest
   const content = (body.choices as Array<{ message?: { content?: unknown } }> | undefined)?.[0]?.message?.content;
   const answer = typeof content === 'string' ? content : Array.isArray(content) ? content.map((p) => (p && typeof p === 'object' && typeof (p as { text?: unknown }).text === 'string' ? (p as { text: string }).text : '')).join('') : '';
   if (!answer) return { ok: false, error: 'the model returned no answer' };
-  const usage = body.usage as { cost?: unknown; total_tokens?: unknown } | undefined;
+  const usage = body.usage as { cost?: unknown; total_tokens?: unknown; is_byok?: unknown; cost_details?: { upstream_inference_cost?: unknown } } | undefined;
+  // R2 (the Mac run): on the operator's own provider key (BYOK) `cost` is only OpenRouter's fee and the
+  // provider's charge is upstream_inference_cost (as src/agent/core.ts counts a turn); missing means unknown.
+  const money = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+  const upstream = usage?.cost_details?.upstream_inference_cost;
+  const cost = !money(usage?.cost) ? null : usage?.is_byok === true ? (money(upstream) ? usage.cost + upstream : null) : usage.cost;
   return {
     ok: true, tier: INTERPRETATION, model: typeof body.model === 'string' ? body.model : o.model, model_requested: o.model, question,
-    answer: answer.slice(0, MAX_ANSWER), cost_usd: typeof usage?.cost === 'number' ? usage.cost : null,
+    answer: answer.slice(0, MAX_ANSWER), cost_usd: cost,
     image_sha256: createHash('sha256').update(bytes).digest('hex'),
     ...(typeof usage?.total_tokens === 'number' ? { tokens: usage.total_tokens } : {}),
   };

@@ -98,6 +98,8 @@ describe('a model interpretation of an image', () => {
     expect((post?.init?.headers as Record<string, string>).Authorization).toBe('Bearer test-key');
     const body = JSON.parse(String(post?.init?.body)) as { model: string; messages: Array<{ content: Array<{ type: string; text?: string; image_url?: { url: string } }> }> };
     expect(body.model).toBe('anthropic/claude-haiku-4.5');
+    // R2 (the Mac run): without usage accounting OpenRouter reported cost 0 for a paid call; ask for it.
+    expect((body as unknown as { usage?: { include?: boolean } }).usage).toEqual({ include: true });
     const parts = body.messages[0].content;
     expect(parts.find((p) => p.type === 'text')?.text).toContain('What is it?');
     expect(parts.find((p) => p.type === 'image_url')?.image_url?.url).toBe(`data:image/png;base64,${PNG.toString('base64')}`);
@@ -122,5 +124,31 @@ describe('a model interpretation of an image', () => {
     const r = await describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: doc, question: 'q', apiKey: 'k', fetch: fn });
     expect(r.ok).toBe(false);
     expect(calls.some((c) => c.url.endsWith('/chat/completions'))).toBe(false);
+  });
+});
+
+// Round R2 (the Mac run): on the operator's own provider key (BYOK) OpenRouter reports cost 0 (its fee) and
+// the provider's charge as upstream_inference_cost; the first paid image call was recorded as costing 0.
+describe('the image call\'s cost on a provider key (BYOK)', () => {
+  const reply = (usage: Record<string, unknown>) => async (url: string | URL | Request) => {
+    const u = String(url);
+    if (u.endsWith('/models')) return new Response(JSON.stringify({ data: [{ id: 'anthropic/claude-haiku-4.5', architecture: { input_modalities: ['text', 'image'] } }] }));
+    return new Response(JSON.stringify({ model: 'anthropic/claude-haiku-4.5', choices: [{ message: { content: 'a card' } }], usage }));
+  };
+  it('adds the provider\'s charge to OpenRouter\'s fee, and says unknown when the charge is missing', async () => {
+    const { mkdtempSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { describeImage } = await import('../src/vision/route.js');
+    const dir = mkdtempSync(join(tmpdir(), 'byok-'));
+    const img = join(dir, 'card.png');
+    writeFileSync(img, PNG);
+    const base = { model: 'anthropic/claude-haiku-4.5', imagePath: img, question: 'what is it?', apiKey: 'test' };
+    const a = await describeImage({ ...base, fetch: reply({ cost: 0, is_byok: true, cost_details: { upstream_inference_cost: 0.0031 }, total_tokens: 900 }) as typeof fetch });
+    expect(a.ok && a.cost_usd).toBeCloseTo(0.0031, 6);
+    const b = await describeImage({ ...base, fetch: reply({ cost: 0, is_byok: true, total_tokens: 900 }) as typeof fetch });
+    expect(b.ok && b.cost_usd).toBeNull();
+    const c = await describeImage({ ...base, fetch: reply({ cost: 0.002, total_tokens: 900 }) as typeof fetch });
+    expect(c.ok && c.cost_usd).toBeCloseTo(0.002, 6);
   });
 });
