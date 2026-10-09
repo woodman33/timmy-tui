@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { execFile } from 'node:child_process';
-import { spawnProcess } from '../runtime/spawn-runtime.js';
+import { boundOutput, count, LOG_CAP_BYTES, runLocalCommand, VIEW_HEAD_BYTES, VIEW_TAIL_BYTES } from './command-output.js';
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { spatialModelCatalogTool, spatialModelContextTool, spatialModelReviewTool } from './spatial-model-tools.js';
 import { z } from 'zod/v4';
@@ -33,11 +33,12 @@ function runProgram(program: string, args: string[], timeoutMs: number): Promise
   if (!onPath(program)) return Promise.resolve({ ok: false, missing: true, stdout: '' });
   return new Promise((resolve) => {
     execFile(program, args, { timeout: timeoutMs, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (!error) return resolve({ ok: true, missing: false, stdout: stdout ?? '' });
+      // What reaches the model is bounded (R2 output limit): the start and the end, with a marker.
+      if (!error) return resolve({ ok: true, missing: false, stdout: boundOutput(stdout ?? '') });
       const err = error as NodeJS.ErrnoException & { killed?: boolean };
       if (err.code === 'ENOENT') return resolve({ ok: false, missing: true, stdout: '' });
       const why = err.killed ? `${program} did not finish within ${Math.round(timeoutMs / 1000)} s` : (String(stderr ?? '').trim() || err.message);
-      resolve({ ok: false, missing: false, stdout: stdout ?? '', error: why.slice(0, 500) });
+      resolve({ ok: false, missing: false, stdout: boundOutput(stdout ?? ''), error: why.slice(0, 500) });
     });
   });
 }
@@ -157,7 +158,8 @@ export const daytonaWorkspaceTool = tool({
   name: 'run_in_daytona_workspace',
   description:
     'Runs a shell command in a Daytona workspace when DAYTONA_API_KEY is set; without it, the command runs on this machine ' +
-    '(the operator approves each command). The answer says where it ran.',
+    '(the operator approves each command). The answer says where it ran. Long output comes back as its start and its end ' +
+    'with a marker; on this machine the full output is saved in a log under .timmy/runs/ in the working folder, named in the answer.',
   inputSchema: z.object({
     command: z.string().describe('The shell command to run in the workspace (e.g. "git status", "npm run build").'),
     workspaceId: z.string().optional().describe('Optional workspace ID to target. If not provided, targets default TUI sandbox.'),
@@ -168,6 +170,10 @@ export const daytonaWorkspaceTool = tool({
     stdout: z.string(),
     stderr: z.string(),
     message: z.string(),
+    /** On this machine: the log of the full output, relative to the working folder ('' when nothing was cut). */
+    log: z.string().optional(),
+    stdoutBytes: z.number().optional(),
+    stderrBytes: z.number().optional(),
   }),
   execute: async ({ command, workspaceId }: { command: string; workspaceId?: string }) => {
     const key = process.env.DAYTONA_API_KEY;
@@ -178,17 +184,29 @@ export const daytonaWorkspaceTool = tool({
       // R1 workspace direction: in its own process group with a time limit, so a command that keeps running
       // (a dev server) cannot hold the turn open, and a stop takes its process group with it.
       const limit = Number(process.env.TIMMY_WORKSPACE_TIMEOUT_MS) > 0 ? Number(process.env.TIMMY_WORKSPACE_TIMEOUT_MS) : 120_000;
-      const { outcome } = spawnProcess('sh', ['-c', command], { detached: true, timeoutMs: limit, maxBuffer: 10 * 1024 * 1024 });
-      const r = await outcome;
-      const exit = r.timedOut ? '' : r.error ? ` ${r.error}.` : r.status !== 0 ? ` Exit ${r.status ?? r.signal ?? 'error'}.` : '';
+      // R2 output limit: the model gets the start and the end of each stream; the full output goes to a log
+      // in the working folder. Large output alone no longer stops a command; the log's hard cap does.
+      const cap = Number(process.env.TIMMY_WORKSPACE_LOG_CAP_BYTES) > 0 ? Number(process.env.TIMMY_WORKSPACE_LOG_CAP_BYTES) : LOG_CAP_BYTES;
+      const r = await runLocalCommand(command, { cwd: process.cwd(), timeoutMs: limit, logCapBytes: cap });
+      const exit = r.timedOut || r.logFull ? '' : r.error ? ` ${r.error}.` : r.status !== 0 ? ` Exit ${r.status ?? r.signal ?? 'error'}.` : '';
+      const kept = r.logError !== null
+        ? ` The output was longer than the result shows (${count(r.stdoutBytes)} bytes of stdout, ${count(r.stderrBytes)} of stderr), and no full copy was kept: ${r.logError}.`
+        : r.log && !r.logFull
+          ? ` Output: ${count(r.stdoutBytes)} bytes of stdout and ${count(r.stderrBytes)} of stderr; the result shows the first ${count(VIEW_HEAD_BYTES)} and the last ${count(VIEW_TAIL_BYTES)} bytes of each, and the full output is in ${r.log}.`
+          : '';
       return {
-        success: r.status === 0 && !r.timedOut && !r.error,
+        success: r.status === 0 && !r.timedOut && !r.error && !r.logFull,
         where: 'this machine',
         stdout: r.stdout,
         stderr: r.stderr || r.error || '',
-        message: r.timedOut
-          ? `Stopped after ${Math.round(limit / 1000)} s on this machine, with its process group. A command that keeps running, such as a dev server, belongs in /preview, which runs it as a job.`
-          : `Ran on this machine, not in Daytona: DAYTONA_API_KEY is not set.${exit}`,
+        message: (r.logFull
+          ? `Stopped on this machine, with its process group: its output reached the ${count(r.logCapBytes)}-byte log limit. The log holds its first ${count(r.logCapBytes)} bytes, in ${r.log}.`
+          : r.timedOut
+            ? `Stopped after ${Math.round(limit / 1000)} s on this machine, with its process group. A command that keeps running, such as a dev server, belongs in /preview, which runs it as a job.`
+            : `Ran on this machine, not in Daytona: DAYTONA_API_KEY is not set.${exit}`) + kept,
+        log: r.log,
+        stdoutBytes: r.stdoutBytes,
+        stderrBytes: r.stderrBytes,
       };
     }
 
@@ -212,8 +230,8 @@ export const daytonaWorkspaceTool = tool({
       return {
         success: data.exitCode === 0,
         where: 'daytona',
-        stdout: data.stdout || '',
-        stderr: data.stderr || '',
+        stdout: boundOutput(String(data.stdout || '')),
+        stderr: boundOutput(String(data.stderr || '')),
         message: `Ran in Daytona workspace "${targetWorkspace}" (exit ${data.exitCode ?? 'unknown'}).`,
       };
     } catch (err) {
