@@ -178,7 +178,7 @@ background jobs (`/jobs`, `/stop`, stopped with everything they started); `/prev
 folder, ready when it answers and opened in the Browser as a link; `/results` linking jobs, outputs
 and changed files to their receipts; each project keeps its own conversation. Built and tested but not
 exercised on the Mac: `/preview` of a dev script (PORT) or a custom command (`--url`), the Browser's
-carbonyl pane (carbonyl is not installed there), and the workspace command's time limit.
+carbonyl pane (corrected in R2: carbonyl is installed there; R1's sandbox did not run it), and the workspace command's time limit.
 
 **Still to connect** (each its own bounded pass; none started in R1):
 
@@ -221,7 +221,7 @@ jobs and Results built in R1, and is the first step toward the spatial-vision ph
 ## Workspace connections (R2, 2026-10-09)
 
 The owner's standing order of 00:43 PT (three hours, to 03:43): finish the command output limit and the
-fresh-Mac walkthrough, then the next connected workflows, in stages. Ledger rows 127 and 128 hold the
+fresh-Mac walkthrough, then the next connected workflows, in stages. Ledger rows 127 to 129 hold the
 checks. Four words keep the states apart: **planned** (in a plan or the private register, no code),
 **implemented** (code and tests on this branch), **configured** (the program or setting it needs was
 found on the operator's Mac) and **demonstrated** (run end to end on the operator's Mac, in a sandbox,
@@ -229,10 +229,10 @@ with the REPL's own text kept). A configured app with no demonstrated run is not
 
 | Area | Demonstrated on the Mac | Implemented, not demonstrated | Planned or not connected |
 |---|---|---|---|
-| 1. Projects, files, coding | R1's `/project`, `/files`, `/open`, `/run`, `/preview` of a built folder, `/results`, one conversation per project; R2's `/add` into `refs/`; a 1.99 MB command output bounded to its first 4 KB and last 12 KB, the rest in `.timmy/runs/` | `/preview` of a dev script or `--url` command; the workspace command's time limit | an app scaffold from a template; coding agents (Claude Code, Codex, Qwen Code) on the project from the REPL (F-1); editor integration beyond `$EDITOR` |
+| 1. Projects, files, coding | R1's `/project`, `/files`, `/open`, `/run`, `/preview` of a built folder, `/results`, one conversation per project; R2's `/add` into `refs/`; an app's dev server through `/preview` (`npm run dev` with `PORT`), its source reopened and its process group stopped, after a fix the run found; a 1.99 MB command output bounded to its first 4 KB and last 12 KB, the rest in `.timmy/runs/` | `/preview <command> --url`; the workspace command's time limit | an app scaffold from a template; coding agents (Claude Code, Codex, Qwen Code) on the project from the REPL (F-1); editor integration beyond `$EDITOR` |
 | 2. Workflows and Canvas | upmd `/workflows` and `/run` (R1); `/board`, a read-only reference board whose cards link the project's files, jobs, outputs and observations and show the command that acts on each | | cards that start jobs (from the board or Canvas); a workflow node view; one receipt per upmd block, NEEDS YOU before a risky block, `timmy md` |
 | 3. Tools, connectors, agents | two MCP-to-CLI routes, each run against the test server: MCPorter's CLI (`mcporter` 0.12.4) and Timmy's own CLI on `@modelcontextprotocol/sdk` 1.30.0; `/tools` rows for both | the agent's `list_mcp_tools`, `list_mcp_command_tools` and `call_mcp_tool` (the last two ask each time) | AgentPass and TaskForge through their real interfaces (rows only; `/tools` says `needs setup`); mcpc, ApiSnip, bindPuppet, CLI-Anything wired as routes; servers from the operator's own MCP configuration contacted. cmcp was checked and is not a route: it forwards calls to tools its clients register and has no command line |
-| 4. Uploads, browser, terminal | an image through `/add`; the board's link fallback in the terminal | kind detection by bytes or name for images, documents (PDF, DOCX), video and 3D (glTF, PLY, FBX, USD, STL, OBJ) | `timmy drop` (reads the wrong argument); carbonyl on the Mac (not installed there); Kitty, iTerm2 and Ghostty images in the REPL; term.everything |
+| 4. Uploads, browser, terminal | an image through `/add`; the board's link fallback in the terminal | kind detection by bytes or name for images, documents (PDF, DOCX), video and 3D (glTF, PLY, FBX, USD, STL, OBJ) | `timmy drop` (reads the wrong argument); carbonyl's pane from a sandboxed REPL (carbonyl is installed on the Mac and `/tools` finds it; a REPL started with a cleared environment does not know it is inside tmux, so it prints links); Kitty, iTerm2 and Ghostty images in the REPL; term.everything |
 | 5. Vision and spatial | the OpenCV Look worker as a job (`/observe` and the agent's `observe_image`), labelled deterministic computation; a model's interpretation as a separate tier, sent only to a model OpenRouter lists as taking images (Haiku 4.5); observations bound to the image's sha256 in Results and on the board, with receipts | refusal of a text-only model with alternatives; the provider's charge counted on a BYOK key | Roboflow, Rerun, Viser, FiftyOne and the reconstruction and mapping stack (register only); uncertainty beyond the two tier labels |
 | 6. Native creative software | the stop when Cinema 4D waits for a person (its license question): the job fails at once with what to do | `c4dpy` and `aerender` as jobs judged by a result file, a run token and the files' sha256 (exit code recorded, not decisive); `run_native` (asks each time); `templates/c4d-starter` | a real Cinema 4D scene run (the operator chooses the license method first) and an After Effects render (needs an `.aep`); Houdini, Blender Python, Unreal, USD, Spline, Character Creator, iClone and D5 |
 

@@ -221,11 +221,13 @@ Then:
 - `/run BUILD.md site` shows what will run (`hello`, then `site`) and runs it with upmd as a background
   job; `/jobs` lists jobs and `/jobs <id>` shows one. Without upmd it says so and runs nothing
   (checked); the run itself **(to be checked on a Mac)**.
-- `/preview` serves `dist/` (or `build/`, `out/`, `public/`, or the project folder: the first with an
-  `index.html`) on a free port at 127.0.0.1 as a job, or runs the project's `dev`, `start` or `preview`
-  script with `PORT` set; `/preview <command> --url <address>` runs your own server. The address opens
-  in Timmy's Browser when the server answers: inside the terminal with carbonyl, otherwise as a link
-  (the job checked; the Browser **to be checked on a Mac**).
+- `/preview` serves a built folder (`dist/`, `build/` or `out/` with an `index.html`) on a free port at
+  127.0.0.1 as a job; with none, it runs the project's `dev`, `start` or `preview` script with `PORT`
+  set (a page at the root beside such a script is the app's unbuilt source, as in a Vite app); with
+  neither, it serves `public/` or the project folder. `/preview <folder>` serves a folder you name, and
+  `/preview <command> --url <address>` runs your own server. The address opens in Timmy's Browser when
+  the server answers: inside the terminal with carbonyl, otherwise as a link (a built folder checked on
+  a Mac in R1; a `dev` script checked on a Mac in R2, after the order above was fixed).
 - `/results` shows the project's jobs (each with its receipt), its outputs and what changed.
 - `/stop all` stops every job this REPL started; `/exit` quits, and the jobs this REPL started stop with
   it.

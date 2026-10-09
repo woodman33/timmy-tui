@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Round R2, found on the operator's Mac:
+  - `/preview` runs an app's `dev`, `start` or `preview` script when no built folder exists; before, a page at the project's root beside such a script (a Vite app's unbuilt `index.html`) was served as a static file and the dev server never ran.
   - A job stops when its program waits for a person: `c4dpy` asking how to license Cinema 4D ends the job at once with what to do, instead of a job that never finishes.
   - `TIMMY_NATIVE_HOME`: when Timmy runs with a different `HOME` (a sandbox), native jobs and the Look worker use this home, where the app's license and Python's own packages are; before, OpenCV looked missing.
   - An image interpretation on the operator's own provider key (BYOK) counts the provider's charge (`upstream_inference_cost`), not only OpenRouter's fee; when the response leaves it out, the cost is recorded as unknown.
