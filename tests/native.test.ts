@@ -116,6 +116,7 @@ describe('c4dpy jobs: the result file decides, the exit is recorded beside it', 
     expect(s.env?.TIMMY_RESULT).toBe(path.join(root, 'out', 'timmy-result.json'));
     expect(s.env?.TIMMY_ROOT).toBe(root);
     expect(s.env?.TIMMY_RUN).toMatch(/^[0-9a-f-]{16,}$/);
+    expect(existsSync(path.join(String(s.env?.TIMMY_C4D_LIB), 'timmy_c4d.py'))).toBe(true);
     expect(s.native).toMatchObject({ app: 'c4dpy', result: path.join(root, 'out', 'timmy-result.json'), run: s.env?.TIMMY_RUN });
   });
 

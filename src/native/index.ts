@@ -18,6 +18,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { accessSync, closeSync, constants, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { CapabilityRow } from '../capabilities/index.js';
 import type { JobRecord, JobSpec, JobState } from '../jobs/index.js';
 import { resolveInside } from '../project/index.js';
@@ -174,6 +175,20 @@ export class NativeNotFound extends Error {
   }
 }
 
+/**
+ * The folder holding timmy_c4d.py (workers/c4d), for TIMMY_C4D_LIB: found from this module's own place in
+ * a checkout (src/native) or a build (dist/src/native); undefined when neither has it.
+ */
+export function c4dHelperDir(): string | undefined {
+  let here: string;
+  try { here = path.dirname(fileURLToPath(import.meta.url)); } catch { return undefined; }
+  for (const up of ['../..', '../../..']) {
+    const dir = path.resolve(here, up, 'workers', 'c4d');
+    try { if (statSync(path.join(dir, 'timmy_c4d.py')).isFile()) return dir; } catch { /* not here */ }
+  }
+  return undefined;
+}
+
 /** The default limit: a 96-frame turntable on the Standard renderer is minutes, not hours. */
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 
@@ -213,7 +228,8 @@ export interface C4dpyJobInput {
 /**
  * A task job running `c4dpy <script.py> [args]` in the project folder. The script learns where to write
  * from its environment: TIMMY_RESULT (the result file), TIMMY_RUN (this run's token, written back into
- * the result), TIMMY_ROOT (the project folder) and TIMMY_OUT (its out/ folder).
+ * the result), TIMMY_ROOT (the project folder), TIMMY_OUT (its out/ folder) and TIMMY_C4D_LIB (the folder
+ * with timmy_c4d.py, when this checkout has it).
  */
 export function c4dpyJob(input: C4dpyJobInput): NativeJobSpec {
   const root = realRoot(input.root);
@@ -226,10 +242,11 @@ export function c4dpyJob(input: C4dpyJobInput): NativeJobSpec {
   const expect = (input.expect ?? []).map((rel) => inside(root, rel).rel);
   const bin = program('c4dpy', input.bin, input.env ?? process.env);
   const run = randomUUID();
+  const lib = input.env?.TIMMY_C4D_LIB ?? c4dHelperDir();
   return {
     kind: 'task', label: input.label ?? `Cinema 4D · ${script.rel}`, project: input.project, root,
     command: bin, args: [script.path, ...(input.args ?? [])],
-    env: { ...input.env, TIMMY_RESULT: result.path, TIMMY_RUN: run, TIMMY_ROOT: root, TIMMY_OUT: path.join(root, 'out') },
+    env: { ...input.env, TIMMY_RESULT: result.path, TIMMY_RUN: run, TIMMY_ROOT: root, TIMMY_OUT: path.join(root, 'out'), ...(lib ? { TIMMY_C4D_LIB: lib } : {}) },
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     native: { app: 'c4dpy', root, run, result: result.path, expect },
   };
