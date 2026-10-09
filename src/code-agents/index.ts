@@ -110,6 +110,8 @@ export interface AgentPlan {
   timeoutMs: number;
   /** Codex writes its last message here (project-relative), from its -o flag */
   lastMessageFile?: string;
+  /** added to the agent's environment: HOME from TIMMY_AGENT_HOME, so its settings and records stay out of the user's own */
+  env?: Record<string, string>;
 }
 
 export type PlanResult = { ok: true; plan: AgentPlan } | { ok: false; error: string; refused: 'setup' | 'paid' | 'usage' };
@@ -138,6 +140,9 @@ export function planAgent(name: AgentName, task: string, o: { env: Env; paid: bo
   const timeoutMs = wallMs + (Number.isFinite(grace) && grace >= 0 ? grace : DEFAULT_GRACE_MS);
   const model = set(env[info.modelEnv]) ? env[info.modelEnv]!.trim() : null;
   const prompt = taskArg(task);
+  // TIMMY_AGENT_HOME: the agent runs with this HOME (qwen 0.25.0 was seen writing ~/.qwen even with --bare and no
+  // chat recording). For an account agent it also hides its login, so it is for a sandboxed run.
+  const home = set(env.TIMMY_AGENT_HOME) ? { env: { HOME: env.TIMMY_AGENT_HOME.trim() } } : {};
   if (name === 'qwen') {
     if (!model) {
       return { ok: false, refused: 'setup', error: 'Set TIMMY_AGENT_MODEL to the model Qwen Code should use (for a local Ollama, a name from `ollama list`), then /agent qwen again. Nothing was started.' };
@@ -165,7 +170,7 @@ export function planAgent(name: AgentName, task: string, o: { env: Env; paid: bo
     return {
       ok: true,
       plan: {
-        agent: name, command: o.bin, args, model, endpoint: ep.local ? 'local' : 'remote', where: ep.where, wallTime, timeoutMs,
+        agent: name, command: o.bin, args, model, endpoint: ep.local ? 'local' : 'remote', where: ep.where, wallTime, timeoutMs, ...home,
         charge: ep.local ? 'local endpoint, no charge' : `remote endpoint ${ep.where}: may cost money (--paid)`,
         costBasis: ep.local ? 'local endpoint' : 'unknown',
       },
@@ -175,7 +180,7 @@ export function planAgent(name: AgentName, task: string, o: { env: Env; paid: bo
   if (!o.paid) {
     return { ok: false, refused: 'paid', error: `${info.title} runs on your own account and costs money. Nothing was started. To run it anyway: /agent ${name} --paid <task>` };
   }
-  const base = { agent: name, command: o.bin, model, endpoint: 'remote' as const, wallTime, timeoutMs, costBasis: 'unknown' as const, charge: `your ${info.title} account: costs money (--paid)` };
+  const base = { agent: name, command: o.bin, model, endpoint: 'remote' as const, wallTime, timeoutMs, costBasis: 'unknown' as const, charge: `your ${info.title} account: costs money (--paid)`, ...home };
   if (name === 'claude') {
     // Every flag below is from claude-help.txt (Claude Code 2.1.251):
     const args = [

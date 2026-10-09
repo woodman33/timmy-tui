@@ -309,6 +309,16 @@ describe('a run (the FAKE agent): a job, its progress, its result and its receip
     expect(sealed.at(-1)).toMatchObject({ cost_measured: false });
     expect(sealed.at(-1)).not.toHaveProperty('cost_usd');
   });
+  it('TIMMY_AGENT_HOME gives the agent its own HOME, and the operator is told so', async () => {
+    const root = project();
+    const home = temp('agent-sandbox-home-');
+    const { ws } = make(root, { ...LOCAL_QWEN, TIMMY_AGENT_HOME: home });
+    const started = text(await ws.agent('qwen HOME TEXT'));
+    expect(started).toContain('its own HOME (TIMMY_AGENT_HOME)');
+    expect(started).not.toContain(home);
+    await ws.jobs.done(jobIdOf(started));
+    expect(readFileSync(join(root, AGENTS_DIR, resultOf(root).run, 'transcript.log'), 'utf8')).toContain(`home=${home}`);
+  });
   it('a task with an absolute path is shown without it', () => {
     const root = project();
     expect(taskWords(`fix ${root}/src/a.txt and /etc/hosts`, root)).toBe('fix ./src/a.txt and <path>');
@@ -409,11 +419,10 @@ describe('the real Qwen Code against a FAKE local OpenAI-compatible server', () 
   realQwen('runs headless as a job: the endpoint is asked, the file is written, the stream is read, the result is sealed', async () => {
     const root = project();
     const home = temp('agent-home-');
-    const saved = { HOME: process.env.HOME };
-    process.env.HOME = home;
     const fake = await fakeOpenAi(join(root, 'hello.txt'));
     try {
-      const { ws, sealed } = make(root, { TIMMY_AGENT_QWEN_BIN: REAL_QWEN!, TIMMY_AGENT_MODEL: 'fake-model', TIMMY_AGENT_BASE_URL: fake.url, TIMMY_AGENT_WALL_TIME: '60s' });
+      // the real qwen runs with a throwaway HOME (TIMMY_AGENT_HOME), so no one's ~/.qwen is read or written
+      const { ws, sealed } = make(root, { TIMMY_AGENT_QWEN_BIN: REAL_QWEN!, TIMMY_AGENT_MODEL: 'fake-model', TIMMY_AGENT_BASE_URL: fake.url, TIMMY_AGENT_WALL_TIME: '60s', TIMMY_AGENT_HOME: home });
       const out = text(await ws.agent('qwen create hello.txt saying hello'));
       const job = await ws.jobs.done(jobIdOf(out));
       const r = resultOf(root);
@@ -432,8 +441,8 @@ describe('the real Qwen Code against a FAKE local OpenAI-compatible server', () 
       expect(r).toMatchObject({ cost_usd: 0, cost_basis: 'local endpoint', model: 'fake-model' });
       // what the endpoint was asked: the model named on the command line
       expect(fake.requests.some((q) => q.model === 'fake-model')).toBe(true);
+      expect(existsSync(join(home, '.qwen'))).toBe(true);
     } finally {
-      process.env.HOME = saved.HOME;
       fake.server.close();
     }
   }, 120_000);

@@ -949,6 +949,7 @@ export class Workspace {
     try { writeJson(join(dir, 'snapshot-before.json'), { truncated: before.truncated, files: snapshotJson(before.files) }); } catch { /* kept in memory */ }
     const job = this.jobs.start({
       kind: 'task', label: agentLabel(p.name, run, p.task, root), project: this.project.name, root, command: plan.command, args: plan.args, timeoutMs: plan.timeoutMs,
+      ...(plan.env ? { env: plan.env } : {}),
       parseLine: (line) => { const shown = progressLine(line, progress, root); if (shown) appendProgress(dir, shown); },
     });
     this.mine.add(job.id);
@@ -960,7 +961,7 @@ export class Workspace {
       [{ text: '  Agent      ', role: 'secondary' }, { text: job.id, role: 'strong' }, { text: `  ${job.label}`, role: 'secondary' }],
       [{ text: '  Runs       ', role: 'secondary' }, { text: `${info.title}${version ? ` ${version}` : ''}${plan.model ? `${this.sep}model ${plan.model}` : ''}${plan.agent === 'qwen' ? ` at ${plan.where}` : ''}${this.sep}` },
         { text: plan.endpoint === 'local' ? plan.charge : `${plan.charge}: it uses ${plan.agent === 'qwen' ? 'that endpoint' : 'your account'} and may cost money`, role: plan.endpoint === 'local' ? 'secondary' : 'estimate' },
-        { text: `${this.sep}up to ${plan.wallTime}`, role: 'secondary' }],
+        { text: `${this.sep}up to ${plan.wallTime}${plan.env?.HOME ? `${this.sep}its own HOME (TIMMY_AGENT_HOME)` : ''}`, role: 'secondary' }],
       [{ text: '  Follow     ', role: 'secondary' }, { text: `/jobs ${job.id}${this.sep}/stop ${job.id}${this.sep}then /agent last or /results ${g.arrow} ${AGENTS_DIR}/${run}/`, role: 'secondary' }],
     ];
   }

@@ -15,6 +15,7 @@
 //   LONG      its final message is 9,000 characters
 //   COST      its result event reports total_cost_usd 0.0123
 //   EXIT3     exits 3 after its start
+//   HOME      prints the HOME it was given, as plain text
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -26,6 +27,7 @@ const model = flag('-m') ?? flag('--model') ?? 'fake-model';
 const emit = (ev) => process.stdout.write(`${JSON.stringify(ev)}\n`);
 const cwd = process.cwd();
 
+if (task.includes('HOME')) console.log(`home=${process.env.HOME ?? ''}`);
 if (task.includes('TEXT')) {
   console.log('Working on it (plain text, a FAKE agent).');
   console.log('Done.');
