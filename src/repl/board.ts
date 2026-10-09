@@ -1,0 +1,366 @@
+/**
+ * The project reference board (round R2): a read-only HTML snapshot of the active project — its
+ * references, workflows, jobs and results — where every card links to the real file and shows the exact
+ * Timmy command that acts on it. `/board` (src/repl/workspace.ts) gathers the data and writes the page to
+ * <project>/.timmy/board/index.html; this module only turns plain data into HTML, so it is easy to test.
+ *
+ * The page is self-contained: every string is escaped, every link is relative to the board's folder, no
+ * absolute path is written, nothing is fetched from elsewhere (no CDN, no web font: an installed
+ * Monaspace Argon is used when there is one), and its one script copies a command when it is clicked.
+ * What Look measured and what a model claimed stay in separate, labelled blocks (AGENTS.md §4).
+ */
+import { humanBytes } from '../project/index.js';
+import { kindOf } from '../project/intake.js';
+import { HOMEBREW, TYPE } from '../theme/tokens.js';
+
+export interface BoardFile { rel: string; bytes: number; sha256?: string; kind?: string }
+export interface BoardWorkflow { rel: string; blocks: Array<{ name: string; deps: string[] }> }
+export interface BoardJob { id: string; state: string; label: string; seconds?: string; receipt?: string; kind?: string }
+export interface BoardMeasurement { name: string; value: unknown; unit?: string; note?: string }
+export interface BoardInterpretation { status: string; model?: string; question?: string; answer?: string; cost_usd?: number; reason?: string }
+export interface BoardObservation {
+  /** The observation file, relative to the project. */
+  file: string;
+  madeAt?: string;
+  /** The image Look read; absent when the record names no path inside the project. */
+  source?: { path: string; sha256?: string };
+  image?: { width: number; height: number; channels?: number };
+  measurements: BoardMeasurement[];
+  interpretation?: BoardInterpretation;
+  job?: string;
+}
+export type BoardPart = 'references' | 'workflows' | 'jobs' | 'outputs' | 'observations';
+export interface BoardInput {
+  project: string;
+  /** When the snapshot was made, as it is shown. */
+  madeAt: string;
+  /** From the board's folder to the project's, made of ../ only: '../../' for .timmy/board/. */
+  base: string;
+  references: BoardFile[];
+  workflows: BoardWorkflow[];
+  jobs: BoardJob[];
+  outputs: BoardFile[];
+  /** Newest first. */
+  observations: BoardObservation[];
+  /** How many of each were left off the board. */
+  more?: Partial<Record<BoardPart, number>>;
+}
+
+/** Where `/board` writes the page, relative to the project, and the way back from there. */
+export const BOARD_FILE = '.timmy/board/index.html';
+export const BOARD_BASE = '../../';
+
+const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const esc = (s: unknown): string => String(s).replace(/[&<>"']/g, (c) => ESC[c]);
+const SHOWN_IMAGE = /\.(png|jpe?g|webp|gif)$/i;
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/** A path inside the project as '/'-separated parts, or null: absolute, a URL, or one that climbs out. */
+export function projectRel(p: unknown): string | null {
+  if (typeof p !== 'string' || !p.trim() || p.includes('\0')) return null;
+  if (p.startsWith('/') || p.startsWith('\\') || /^[a-z][a-z0-9+.-]*:/i.test(p) || p.startsWith('~')) return null;
+  const parts = p.split('/').filter((x) => x && x !== '.');
+  if (!parts.length || parts.includes('..')) return null;
+  return parts.join('/');
+}
+
+const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
+const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+const obj = (v: unknown): Record<string, unknown> | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined);
+
+/**
+ * An observation file as /observe writes it (results/observations/*.json, src/vision/look.ts), read into
+ * the board's shape; null when it is not one. A source path that leaves the project is dropped.
+ */
+export function readObservationRecord(file: string, json: unknown): BoardObservation | null {
+  const r = obj(json);
+  const look = obj(r?.look);
+  if (!r || !look || !Array.isArray(look.measurements)) return null;
+  const src = obj(r.source);
+  const path = projectRel(src?.path);
+  const img = obj(look.image);
+  const width = num(img?.width);
+  const height = num(img?.height);
+  const it = obj(r.interpretation);
+  const status = str(it?.status);
+  const measurements: BoardMeasurement[] = [];
+  for (const m of look.measurements) {
+    const o = obj(m);
+    const name = str(o?.name);
+    if (o && name) measurements.push({ name, value: o.value, ...(str(o.unit) ? { unit: str(o.unit) } : {}), ...(str(o.note) ? { note: str(o.note) } : {}) });
+  }
+  const job = str(obj(r.job)?.id);
+  return {
+    file,
+    ...(str(r.made_at) ? { madeAt: str(r.made_at) } : {}),
+    ...(path ? { source: { path, ...(str(src?.sha256) ? { sha256: str(src?.sha256) } : {}) } } : {}),
+    ...(width !== undefined && height !== undefined ? { image: { width, height, ...(num(img?.channels) !== undefined ? { channels: num(img?.channels) } : {}) } } : {}),
+    measurements,
+    ...(it && status ? {
+      interpretation: {
+        status,
+        ...Object.fromEntries((['model', 'question', 'answer', 'reason'] as const).flatMap((k) => (str(it[k]) ? [[k, str(it[k])]] : []))),
+        ...(num(it.cost_usd) !== undefined ? { cost_usd: num(it.cost_usd) } : {}),
+      },
+    } : {}),
+    ...(job ? { job } : {}),
+  };
+}
+
+/** An ISO time as "YYYY-MM-DD HH:MM UTC"; anything else as it is. */
+export const utcStamp = (when: string | Date): string => {
+  const d = typeof when === 'string' ? new Date(when) : when;
+  return Number.isNaN(d.getTime()) ? String(when) : `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+};
+
+// ── HTML pieces ──────────────────────────────────────────────────────────────
+
+const kindLabel = (f: BoardFile): string => {
+  const k = f.kind ?? kindOf(f.rel, Buffer.alloc(0)).kind;
+  return k === '3d' ? '3D' : k;
+};
+
+function render(input: BoardInput) {
+  const base = /^(?:\.\.\/)*$/.test(input.base) ? input.base : '';
+  const href = (rel: string): string => esc(base + rel.split('/').map(encodeURIComponent).join('/'));
+  const fileLink = (rel: string, cls = 'name'): string => `<a class="${cls}" href="${href(rel)}">${esc(rel)}</a>`;
+  const cmd = (c: string): string => `<button type="button" class="cmd" data-cmd="${esc(c)}" title="Copy this command"><code>${esc(c)}</code></button>`;
+  const cmds = (list: string[]): string => `<div class="cmds">${list.map(cmd).join('')}</div>`;
+  /** /observe takes a quoted path when it has spaces; /open and /run read the rest of the line. */
+  const quoted = (rel: string): string => (/\s/.test(rel) ? `"${rel}"` : rel);
+  const thumb = (rel: string): string => `<a class="thumb" href="${href(rel)}"><img src="${href(rel)}" alt="${esc(rel)}" loading="lazy"></a>`;
+  const empty = (what: string): string => `<p class="empty">${esc(what)}</p>`;
+  const more = (part: BoardPart, how: string): string => {
+    const n = input.more?.[part] ?? 0;
+    return n > 0 ? `<p class="more">${esc(`and ${n} more: ${how}`)}</p>` : '';
+  };
+  return { href, fileLink, cmd, cmds, quoted, thumb, empty, more };
+}
+
+function referenceCard(f: BoardFile, h: ReturnType<typeof render>): string {
+  const kind = kindLabel(f);
+  const image = kind === 'image';
+  const meta = [humanBytes(f.bytes), ...(f.sha256 ? [`sha256 ${f.sha256.slice(0, 12)}`] : [])].join(' · ');
+  return `<article class="card">${image && SHOWN_IMAGE.test(f.rel) ? h.thumb(f.rel) : ''}`
+    + `${h.fileLink(f.rel)}<div class="meta"><span class="kind">${esc(kind)}</span> ${esc(meta)}</div>`
+    + `${h.cmds([...(image ? [`/observe ${h.quoted(f.rel)}`] : []), `/open ${f.rel}`])}</article>`;
+}
+
+function workflowCard(w: BoardWorkflow, h: ReturnType<typeof render>): string {
+  const blocks = w.blocks.map((b) => `<li><span class="block">${esc(b.name)}</span>${b.deps.length ? ` <span class="deps">${esc(`needs ${b.deps.join(', ')}`)}</span>` : ''}${h.cmd(`/run ${w.rel} ${b.name}`)}</li>`).join('');
+  return `<article class="card wide">${h.fileLink(w.rel)}<div class="meta"><span class="kind">workflow</span> ${esc(`${w.blocks.length} named block${w.blocks.length === 1 ? '' : 's'}`)}</div>`
+    + `<ol class="blocks">${blocks}</ol>${h.cmds([`/open ${w.rel}`])}</article>`;
+}
+
+function jobCard(j: BoardJob, h: ReturnType<typeof render>): string {
+  const meta = [...(j.seconds ? [j.seconds] : []), ...(j.receipt ? [`receipt ${j.receipt}`] : [])].join(' · ');
+  return `<article class="card"><div class="jobhead"><strong>${esc(j.id)}</strong> <span class="state state-${esc(j.state.replace(/[^a-z]/gi, ''))}">${esc(j.state)}</span></div>`
+    + `<div class="label">${esc(j.label)}</div>${meta ? `<div class="meta">${esc(meta)}</div>` : ''}${h.cmds([`/jobs ${j.id}`])}</article>`;
+}
+
+function outputCard(f: BoardFile, h: ReturnType<typeof render>): string {
+  const kind = kindLabel(f);
+  return `<article class="card">${kind === 'image' && SHOWN_IMAGE.test(f.rel) ? h.thumb(f.rel) : ''}`
+    + `${h.fileLink(f.rel)}<div class="meta"><span class="kind">${esc(kind)}</span> ${esc(humanBytes(f.bytes))}${f.sha256 ? esc(` · sha256 ${f.sha256.slice(0, 12)}`) : ''}</div>`
+    + `${h.cmds([`/open ${f.rel}`])}</article>`;
+}
+
+const percent = (v: number): string => `${Number((v * 100).toFixed(2))}%`;
+const words = (name: string): string => name.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+const swatch = (hex: string): string => `<span class="swatch" style="background:${hex}"></span>`;
+const plain = (v: unknown): string => {
+  if (v === null || v === undefined) return 'not measured';
+  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return String(v);
+  const s = JSON.stringify(v);
+  return s.length > 240 ? `${s.slice(0, 239)}…` : s;
+};
+
+/** One measurement in plain words: a row of the measured block. */
+function measurementRow(m: BoardMeasurement): string {
+  const row = (label: string, value: string): string => `<dt>${esc(label)}</dt><dd>${value}</dd>`;
+  const notMeasured = (label: string): string => row(label, esc(`not measured${m.note ? `: ${m.note}` : ''}`));
+  switch (m.name) {
+    case 'mean_color': {
+      const hex = str(obj(m.value)?.hex);
+      return hex && HEX.test(hex) ? row('Mean colour', `${swatch(hex)}${esc(hex)}`) : notMeasured('Mean colour');
+    }
+    case 'dominant_colors': {
+      if (!Array.isArray(m.value)) return notMeasured('Dominant colours');
+      const items = m.value.map((c) => {
+        const hex = str(obj(c)?.hex);
+        const share = num(obj(c)?.share);
+        return hex && HEX.test(hex) ? `<span class="color">${swatch(hex)}${esc(hex)}${share !== undefined ? ` ${esc(percent(share))}` : ''}</span>` : '<span class="color">(not a #rrggbb colour)</span>';
+      });
+      return row('Dominant colours', items.length ? items.join(' ') : 'none');
+    }
+    case 'qr_codes_decoded': {
+      if (!Array.isArray(m.value)) return notMeasured('QR codes decoded');
+      const texts = m.value.map((c) => str(obj(c)?.text)).filter((t): t is string => !!t);
+      return row('QR codes decoded', texts.length ? texts.map((t) => `<span class="qr">${esc(t)}</span>`).join(', ') : 'none decoded (a small, blurred or steep code can be missed)');
+    }
+    case 'aruco_markers': {
+      if (!Array.isArray(m.value)) return notMeasured('ArUco marker ids');
+      const ids = m.value.map((c) => num(obj(c)?.id)).filter((i): i is number => i !== undefined);
+      return row('ArUco marker ids', ids.length ? esc(ids.join(', ')) : 'none found (4x4_50 dictionary only)');
+    }
+    case 'sharpness':
+      return num(m.value) === undefined ? notMeasured('Sharpness') : row('Sharpness', esc(`${m.value}${m.unit ? ` · ${m.unit}` : ''}`));
+    case 'edge_density':
+      return num(m.value) === undefined ? notMeasured('Edge density') : row('Edge density', esc(`${percent(m.value as number)} of pixels`));
+    default:
+      return row(words(m.name), esc(`${plain(m.value)}${m.unit && m.value !== null && m.value !== undefined ? ` · ${m.unit}` : ''}`));
+  }
+}
+
+function observationCard(o: BoardObservation, h: ReturnType<typeof render>): string {
+  const src = o.source?.path;
+  const head = `<div class="obshead">${src && SHOWN_IMAGE.test(src) ? h.thumb(src) : ''}<div>`
+    + `${src ? h.fileLink(src) : '<span class="name">(an image outside the project)</span>'}`
+    + `<div class="meta">${esc([`observed ${o.madeAt ? utcStamp(o.madeAt) : 'at an unknown time'}`, ...(o.job ? [`job ${o.job}`] : [])].join(' · '))}</div>`
+    + `<div class="meta">file ${h.fileLink(o.file, 'file')}</div></div></div>`;
+  const size = o.image ? `<dt>Image size</dt><dd>${esc(`${o.image.width} × ${o.image.height} px${o.image.channels !== undefined ? `, ${o.image.channels} channel${o.image.channels === 1 ? '' : 's'}` : ''}`)}</dd>` : '';
+  const rows = o.measurements.map(measurementRow).join('');
+  const measured = `<section class="measured"><h4>measured (deterministic computation)</h4>${size || rows ? `<dl>${size}${rows}</dl>` : '<p class="empty">No measurements in this record.</p>'}</section>`;
+  const i = o.interpretation;
+  let model = '';
+  if (i && i.status === 'answered') {
+    const meta = [`model ${i.model ?? 'unknown'}`, i.cost_usd !== undefined ? `cost $${i.cost_usd.toFixed(4)}` : 'cost not reported'].join(' · ');
+    model = `<section class="claim"><h4>${esc("the model's claim")}</h4><p class="meta">${esc(meta)}</p>`
+      + `${i.question ? `<p class="asked">${esc(`Asked: ${i.question}`)}</p>` : ''}<p class="answer">${esc(i.answer ?? '(no answer text)')}</p></section>`;
+  } else if (i) {
+    model = `<p class="nomodel">${esc(`No model claim: ${i.status}${i.model ? ` (${i.model})` : ''}${i.reason ? `: ${i.reason}` : ''}`)}</p>`;
+  }
+  return `<article class="card obs">${head}${measured}${model}${h.cmds([`/open ${o.file}`, ...(src ? [`/observe ${h.quoted(src)}`] : [])])}</article>`;
+}
+
+const CSS = `
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: ${HOMEBREW.ground}; color: ${HOMEBREW.text}; font-family: ${TYPE.stack}; font-size: ${TYPE.size.body}px; line-height: ${TYPE.lineHeight}; }
+header, main, footer { max-width: 1280px; margin: 0 auto; padding: 0 16px; }
+header { padding-top: 24px; }
+h1 { font-size: 22px; font-weight: ${TYPE.weight.heading}; margin: 0 0 4px; }
+h1 .project { color: ${HOMEBREW.accent}; }
+.sub { color: ${HOMEBREW.textSecondary}; margin: 0 0 12px; }
+.toc { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 0 14px; border-bottom: 1px solid ${HOMEBREW.line}; }
+.toc a { color: ${HOMEBREW.text}; text-decoration: none; text-transform: uppercase; letter-spacing: .06em; font-size: ${TYPE.size.small}px; }
+.toc a:hover, .toc a:focus-visible { color: ${HOMEBREW.accent}; }
+.toc b { color: ${HOMEBREW.textSecondary}; font-weight: ${TYPE.weight.body}; }
+h2 { font-size: ${TYPE.size.h1}px; font-weight: ${TYPE.weight.heading}; margin: 28px 0 12px; text-transform: uppercase; letter-spacing: .08em; }
+h3 { font-size: ${TYPE.size.h2}px; font-weight: ${TYPE.weight.strong}; margin: 20px 0 10px; text-transform: uppercase; letter-spacing: .06em; color: ${HOMEBREW.textSecondary}; }
+.count { color: ${HOMEBREW.textSecondary}; font-weight: ${TYPE.weight.body}; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 12px; }
+.grid.wide { grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr)); }
+.card { background: ${HOMEBREW.surface}; border: 1px solid ${HOMEBREW.line}; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.name, .file, .label { overflow-wrap: anywhere; }
+a { color: ${HOMEBREW.link}; }
+a.name { font-weight: ${TYPE.weight.strong}; text-decoration: none; }
+a.name:hover, a.name:focus-visible { text-decoration: underline; }
+.thumb { display: block; background: ${HOMEBREW.raised}; border-radius: 6px; overflow: hidden; }
+.thumb img { display: block; width: 100%; height: 160px; object-fit: contain; }
+.obshead { display: grid; grid-template-columns: minmax(0, 120px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.obshead .thumb img { height: 96px; }
+.meta { color: ${HOMEBREW.textSecondary}; font-size: ${TYPE.size.small}px; overflow-wrap: anywhere; }
+.kind { display: inline-block; border: 1px solid ${HOMEBREW.lineStrong}; border-radius: 999px; padding: 0 7px; margin-right: 4px; text-transform: uppercase; letter-spacing: .05em; font-size: 11px; color: ${HOMEBREW.text}; }
+.cmds { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+.cmd { font: inherit; font-size: ${TYPE.size.small}px; color: ${HOMEBREW.accent}; background: ${HOMEBREW.raised}; border: 1px solid ${HOMEBREW.line}; border-radius: 6px; padding: 3px 8px; cursor: copy; text-align: left; max-width: 100%; overflow-wrap: anywhere; }
+.cmd code { font: inherit; }
+.cmd:hover, .cmd:focus-visible { border-color: ${HOMEBREW.accent}; outline: none; }
+.cmd[data-copied]::after { content: "  copied"; color: ${HOMEBREW.textSecondary}; }
+.blocks { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
+.blocks li::marker { color: ${HOMEBREW.textSecondary}; }
+.block { font-weight: ${TYPE.weight.strong}; margin-right: 8px; }
+.deps { color: ${HOMEBREW.textSecondary}; font-size: ${TYPE.size.small}px; margin-right: 8px; }
+.blocks .cmd { margin-left: 2px; }
+.jobhead { display: flex; justify-content: space-between; gap: 8px; }
+.state { text-transform: uppercase; letter-spacing: .05em; font-size: 11px; color: ${HOMEBREW.textSecondary}; }
+.state-failed { color: ${HOMEBREW.failure}; }
+.state-running, .state-queued { color: ${HOMEBREW.attention}; }
+section.measured, section.claim { border-left: 3px solid ${HOMEBREW.lineStrong}; padding: 2px 0 2px 10px; }
+section.claim { border-left-color: ${HOMEBREW.ai}; }
+h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: ${HOMEBREW.textSecondary}; }
+section.claim h4 { color: ${HOMEBREW.ai}; }
+dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 0; font-size: ${TYPE.size.small}px; }
+dt { color: ${HOMEBREW.textSecondary}; }
+dd { margin: 0; overflow-wrap: anywhere; }
+.color { display: inline-flex; align-items: center; gap: 4px; margin-right: 8px; white-space: nowrap; }
+.swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid ${HOMEBREW.lineStrong}; border-radius: 3px; vertical-align: -2px; margin-right: 4px; }
+.qr { color: ${HOMEBREW.text}; }
+.asked { color: ${HOMEBREW.textSecondary}; margin: 0; font-size: ${TYPE.size.small}px; }
+.answer { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.claim .meta { margin: 0; }
+.nomodel { color: ${HOMEBREW.attention}; font-size: ${TYPE.size.small}px; margin: 0; }
+.empty, .more { color: ${HOMEBREW.textSecondary}; margin: 0; }
+.more { margin-top: 10px; }
+footer { color: ${HOMEBREW.textSecondary}; font-size: ${TYPE.size.small}px; padding-top: 32px; padding-bottom: 32px; }
+@media (max-width: 520px) { .obshead { grid-template-columns: minmax(0, 1fr); } h1 { font-size: 19px; } }
+`;
+
+/** Copies a command when it is clicked; where the clipboard is refused, selects it to copy by hand. */
+const SCRIPT = `
+document.addEventListener('click', function (e) {
+  var b = e.target && e.target.closest ? e.target.closest('[data-cmd]') : null;
+  if (!b) return;
+  var c = b.getAttribute('data-cmd');
+  var shown = function () { b.setAttribute('data-copied', ''); setTimeout(function () { b.removeAttribute('data-copied'); }, 1400); };
+  var select = function () { var s = window.getSelection(); if (s) s.selectAllChildren(b); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(c).then(shown, select); else select();
+});
+`;
+
+/** The board as one self-contained HTML page. */
+export function renderBoard(input: BoardInput): string {
+  const h = render(input);
+  const grid = (cards: string[], wide = false): string => `<div class="grid${wide ? ' wide' : ''}">${cards.join('')}</div>`;
+  const heading = (id: string, label: string, n: number): string => `<h2 id="${id}">${esc(label)} <span class="count">${n}</span></h2>`;
+  const total = (part: BoardPart, shown: number): number => shown + (input.more?.[part] ?? 0);
+  const counts: Array<[BoardPart, string, number]> = [
+    ['references', 'References', total('references', input.references.length)],
+    ['workflows', 'Workflows', total('workflows', input.workflows.length)],
+    ['jobs', 'Jobs', total('jobs', input.jobs.length)],
+    ['outputs', 'Outputs', total('outputs', input.outputs.length)],
+    ['observations', 'Observations', total('observations', input.observations.length)],
+  ];
+  const n = Object.fromEntries(counts.map(([k, , c]) => [k, c])) as Record<BoardPart, number>;
+  const title = `Board · ${input.project}`;
+  return [
+    '<!doctype html>',
+    '<html lang="en">',
+    '<head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<title>${esc(title)}</title>`,
+    `<style>${CSS}</style>`,
+    '</head>',
+    '<body>',
+    '<header>',
+    `<h1>Board · <span class="project">${esc(input.project)}</span></h1>`,
+    `<p class="sub">${esc(`read-only snapshot, made ${input.madeAt}; act with the commands shown`)}</p>`,
+    `<p class="sub">${esc('A green command copies itself when clicked: paste it into Timmy. Links open the files themselves.')}</p>`,
+    `<nav class="toc">${counts.map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}</nav>`,
+    '</header>',
+    '<main>',
+    heading('references', 'References', n.references),
+    input.references.length ? grid(input.references.map((f) => referenceCard(f, h))) : h.empty('No references yet: /add <file> copies a file into refs/.'),
+    h.more('references', '/files references'),
+    heading('workflows', 'Workflows', n.workflows),
+    input.workflows.length ? grid(input.workflows.map((w) => workflowCard(w, h)), true) : h.empty('No workflows yet: write Markdown with a named block (```bash [name:build]), then /workflows.'),
+    h.more('workflows', '/workflows'),
+    heading('jobs', 'Jobs', n.jobs),
+    input.jobs.length ? grid(input.jobs.map((j) => jobCard(j, h))) : h.empty('No jobs yet: /run <file> <block> starts a workflow; /preview serves the project.'),
+    h.more('jobs', '/jobs'),
+    '<h2 id="results">Results</h2>',
+    `<h3 id="outputs">Outputs <span class="count">${n.outputs}</span></h3>`,
+    input.outputs.length ? grid(input.outputs.map((f) => outputCard(f, h))) : h.empty('No outputs yet: a build writes them (dist/, build/, out/, outputs/).'),
+    h.more('outputs', '/files outputs'),
+    `<h3 id="observations">Observations <span class="count">${n.observations}</span></h3>`,
+    input.observations.length ? grid(input.observations.map((o) => observationCard(o, h)), true) : h.empty('No observations yet: /observe <image>'),
+    h.more('observations', '/results'),
+    '</main>',
+    `<footer>${esc(`Made by /board from ${input.project}: a snapshot, not a live view; /board again makes a new one. Measured values are deterministic computations on the pixels; a model's claim is not a measurement.`)}</footer>`,
+    `<script>${SCRIPT}</script>`,
+    '</body>',
+    '</html>',
+    '',
+  ].join('\n');
+}

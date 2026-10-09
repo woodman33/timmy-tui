@@ -8,7 +8,7 @@
  * not the same as a build being "completed". A workflow run seals its prediction first, then its outcome.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
@@ -17,15 +17,16 @@ import { aerenderJob, c4dpyJob, judgeNativeJob, nativeReceiptFields, NativeNotFo
 import { mcpView, splitCommandLine } from '../connectors/mcp-cli.js';
 import {
   chooseProject, createProject, groupFiles, humanBytes, listProjectFiles, listProjects, projectId, projectsHome, readProjectFile,
-  resolveInside, ROLE_LABEL, ROLE_ORDER, sameFolder, saveActiveProject, type ActiveProject, type FileRole, type ProjectFile,
+  resolveInside, ROLE_LABEL, ROLE_ORDER, sameFolder, saveActiveProject, writeProjectFile, type ActiveProject, type FileRole, type ProjectFile,
 } from '../project/index.js';
 import { staticServerCommand } from '../preview/static-server.js';
-import { hashFile, intakeFiles, splitArgs } from '../project/intake.js';
+import { hashFile, intakeFiles, kindOf, splitArgs } from '../project/intake.js';
+import { BOARD_BASE, BOARD_FILE, readObservationRecord, renderBoard, utcStamp, type BoardFile, type BoardObservation } from './board.js';
 import { killProcessGroup } from '../runtime/spawn-runtime.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import { readChain, type Receipt, type ReceiptInput } from '../utils/receipts.js';
-import { checkOpenCv, DETERMINISTIC, INTERPRETATION, LOOK_MAX_IMAGE, LOOK_MAX_OUTPUT, LOOK_TIMEOUT_MS, lookArgs, lookPython, OPENCV_SETUP, parseLookOutput, writeObservation, lookEnv } from '../vision/look.js';
+import { checkOpenCv, DETERMINISTIC, INTERPRETATION, LOOK_MAX_IMAGE, LOOK_MAX_OUTPUT, LOOK_TIMEOUT_MS, lookArgs, lookPython, OBSERVATIONS_DIR, OPENCV_SETUP, parseLookOutput, writeObservation, lookEnv } from '../vision/look.js';
 import { describeImage } from '../vision/route.js';
 import { findUpmd, findWorkflowDocs, parseUpmdLine, parseWorkflow, runOrder, stepsFromEvent, upmdRunArgs, upmdVersion } from '../workflows/upmd.js';
 
@@ -67,12 +68,25 @@ export type ObserveOutcome =
   | { ok: false; error: string; receipt?: string };
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
-const sha256File = (path: string): string | undefined => {
+const sha256File = (path: string, limit = 16 * 1024 * 1024): string | undefined => {
   try {
-    if (statSync(path).size > 16 * 1024 * 1024) return undefined;
+    if (statSync(path).size > limit) return undefined;
     return createHash('sha256').update(readFileSync(path)).digest('hex');
   } catch { return undefined; }
 };
+/** A file's first bytes (what kindOf reads), or none when it cannot be read. */
+const headOf = (path: string, n = 32): Buffer => {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, 'r');
+    const buf = Buffer.alloc(n);
+    return buf.subarray(0, readSync(fd, buf, 0, n, 0));
+  } catch { return Buffer.alloc(0); } finally { if (fd !== undefined) closeSync(fd); }
+};
+/** How much of each part a board shows (round R2, board); the rest is counted and named. */
+const BOARD_MAX = { references: 60, outputs: 30, workflows: 20, jobs: 24, observations: 24 } as const;
+/** A board hashes a file up to this size to show its short sha256; a larger one shows none. */
+const BOARD_HASH_LIMIT = 8 * 1024 * 1024;
 const fileUrl = (abs: string): string => `file://${encodeURI(abs)}`;
 const ago = (ms: number): string => {
   const m = Math.round((Date.now() - ms) / 60000);
@@ -748,5 +762,80 @@ export class Workspace {
     } else lines.push(...this.say('  none yet: /observe <image>'));
     lines.push(...this.say('All receipts: /receipts; a receipt\'s page: /web <receipt id>; a job\'s output: /jobs <id>'));
     return lines;
+  }
+
+  // ── /board (round R2: a reference board linked to the actual files, jobs and results) ──
+
+  /**
+   * `/board`: writes a read-only HTML snapshot of the project to .timmy/board/index.html — references,
+   * workflows, this project's jobs, outputs and observations, each card linked to its file (relative
+   * links) with the command that acts on it — and opens it. Free text from jobs and observation files
+   * has the project's folder written as "." and the home folder as "~", so the page names no absolute path.
+   * Nothing is sealed: the board is a view of what the project and its receipts already hold.
+   */
+  board(_args: string): Line[] {
+    const root = this.root;
+    const { files, truncated } = listProjectFiles(root);
+    const card = (f: ProjectFile): BoardFile => {
+      const abs = join(root, f.rel);
+      const sha = sha256File(abs, BOARD_HASH_LIMIT);
+      return { rel: f.rel, bytes: f.bytes, kind: kindOf(f.rel, headOf(abs)).kind, ...(sha ? { sha256: sha } : {}) };
+    };
+    const inObservations = (f: ProjectFile): boolean => f.rel.startsWith(`${OBSERVATIONS_DIR}/`);
+    const references = files.filter((f) => f.role === 'reference');
+    // Observation files are shown as observations, not again as outputs.
+    const outputs = files.filter((f) => f.role === 'output' && !inObservations(f)).sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const docs = findWorkflowDocs(root);
+    const workflows = docs.slice(0, BOARD_MAX.workflows).map((doc) => {
+      const r = readProjectFile(root, doc.rel, 1024 * 1024);
+      const blocks = r.ok && r.text ? parseWorkflow(r.text).filter((b) => b.name).map((b) => ({ name: String(b.name), deps: b.deps })) : [];
+      return { rel: doc.rel, blocks };
+    });
+    const jobs = this.jobs.list().filter((j) => sameFolder(j.root, root));
+    const observed: Array<BoardObservation & { at: number }> = [];
+    for (const f of files.filter((x) => inObservations(x) && x.rel.endsWith('.json'))) {
+      const r = readProjectFile(root, f.rel, 1024 * 1024);
+      if (!r.ok || !r.text || r.truncated) continue;
+      let json: unknown;
+      try { json = JSON.parse(this.scrub(r.text, root)); } catch { continue; }
+      const o = readObservationRecord(f.rel, json);
+      if (!o) continue;
+      const at = o.madeAt ? Date.parse(o.madeAt) : Number.NaN;
+      observed.push({ ...o, at: Number.isNaN(at) ? f.mtimeMs : at });
+    }
+    observed.sort((a, b) => b.at - a.at);
+    const html = renderBoard({
+      project: this.project.name,
+      madeAt: utcStamp(new Date()),
+      base: BOARD_BASE,
+      references: references.slice(0, BOARD_MAX.references).map(card),
+      workflows,
+      jobs: jobs.slice(0, BOARD_MAX.jobs).map((j) => ({
+        id: j.id, state: j.stale ? `${j.state} (its process is gone)` : j.state, label: this.scrub(j.label, j.root), seconds: seconds(j), kind: j.kind,
+        ...(j.receipt ? { receipt: j.receipt } : {}),
+      })),
+      outputs: outputs.slice(0, BOARD_MAX.outputs).map(card),
+      observations: observed.slice(0, BOARD_MAX.observations).map(({ at: _at, ...o }) => o),
+      more: {
+        references: Math.max(0, references.length - BOARD_MAX.references),
+        outputs: Math.max(0, outputs.length - BOARD_MAX.outputs),
+        workflows: Math.max(0, docs.length - BOARD_MAX.workflows),
+        jobs: Math.max(0, jobs.length - BOARD_MAX.jobs),
+        observations: Math.max(0, observed.length - BOARD_MAX.observations),
+      },
+    });
+    const w = writeProjectFile(root, BOARD_FILE, html);
+    if (!w.ok) return this.say(`The board could not be written: ${w.error}`, 'failure');
+    const opened = this.d.openWeb(fileUrl(join(root, w.rel)));
+    const counts = [
+      `References ${references.length}`, `Workflows ${docs.length}`, `Jobs ${jobs.length}`,
+      `Outputs ${outputs.length}`, `Observations ${observed.length}`,
+    ].join(this.sep);
+    return [
+      [{ text: '  Board      ', role: 'secondary' }, { text: this.fileLink(w.rel), role: 'strong' }, { text: `  a read-only snapshot${this.sep}/board again makes a new one`, role: 'secondary' }],
+      [{ text: '  Holds      ', role: 'secondary' }, { text: counts }],
+      ...(truncated ? this.say('Only the first 2,000 files of the project were read.') : []),
+      [{ text: '  Browser    ', role: 'secondary' }, { text: opened }],
+    ];
   }
 }
