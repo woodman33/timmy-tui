@@ -52,6 +52,8 @@ export interface LiveBoardDeps {
   state: () => LiveState;
   /** Runs a checked action as its typed command; the lines it printed, as plain text (no ANSI). */
   execute: (command: BoardCommand) => Promise<string[]>;
+  /** Writes the project's folder as "." and the home folder as "~" (used on the error path too). */
+  scrub?: (text: string) => string;
 }
 
 /** The largest action body read; a larger one is refused before it is parsed. */
@@ -241,7 +243,7 @@ export class LiveBoard {
       }
       return this.send(res, 404, 'Not here: this board has /, /state and /action.');
     } catch (err) {
-      if (!res.headersSent) this.send(res, 500, `The board could not answer: ${err instanceof Error ? plainText(err.message) : 'error'}`);
+      if (!res.headersSent) this.send(res, 500, `The board could not answer: ${err instanceof Error ? plainText((this.d.scrub ?? ((t: string) => t))(err.message)) : 'error'}`);
       else res.destroy();
     }
   }

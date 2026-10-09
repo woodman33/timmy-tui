@@ -86,7 +86,9 @@ export function endpointClass(baseUrl: string, model: string | undefined): Endpo
   try { url = new URL(baseUrl); } catch { return { local: false, where: 'an address that does not parse', why: `${baseUrl.slice(0, 40)} is not a URL` }; }
   const where = url.host || url.hostname;
   if (!LOOPBACK.has(url.hostname.toLowerCase())) return { local: false, where, why: `${where} is not this machine` };
-  if (model && /:cloud$/i.test(model.trim())) return { local: false, where, why: `${model.trim()} is a cloud model (its tag ends in :cloud): the endpoint on this machine sends it to a cloud` };
+  // Ollama names its cloud models with a tag ending in "cloud": `glm-5.3:cloud`, and also `gpt-oss:120b-cloud`
+  // (the independent review of ee70b9e: only ":cloud" was caught). Any tag ending in cloud after a separator counts.
+  if (model && /(?:^|[:\-_.])cloud$/i.test(model.trim())) return { local: false, where, why: `${model.trim()} is a cloud model (its tag ends in cloud): the endpoint on this machine sends it to a cloud` };
   return { local: true, where };
 }
 
@@ -174,7 +176,8 @@ export function planAgent(name: AgentName, task: string, o: { env: Env; paid: bo
       ok: true,
       plan: {
         agent: name, command: o.bin, args, model, endpoint: ep.local ? 'local' : 'remote', where: ep.where, wallTime, timeoutMs,
-        env: { ...(home.env ?? {}), OPENAI_API_KEY: key },
+        // Timmy's own keys are not the agent's: blanked in its environment (the review of ee70b9e, M9).
+        env: { ...(home.env ?? {}), OPENAI_API_KEY: key, OPENROUTER_API_KEY: '', TIMMY_AGENT_API_KEY: '' },
         charge: ep.local ? 'local endpoint, no charge' : `remote endpoint ${ep.where}: may cost money (--paid)`,
         costBasis: ep.local ? 'local endpoint' : 'unknown',
       },
@@ -225,14 +228,19 @@ export function planAgent(name: AgentName, task: string, o: { env: Env; paid: bo
   return { ok: true, plan: { ...base, args, where: 'the account of its configured provider', costBasis: 'reported by the agent' } };
 }
 
-/** `/agent <name> [--paid] <task…>`: the agent, the task and whether the line says --paid. */
+/**
+ * `/agent <name> [--paid] <task…>`: the agent, the task and whether the line says --paid. Only a --paid right after
+ * the agent's name counts, and the task is the rest exactly as typed: "--paid" inside a task's own words neither
+ * authorizes spending nor disappears from the task (the review of ee70b9e).
+ */
 export function parseAgentLine(line: string): { name?: AgentName; word?: string; paid: boolean; task: string } {
   const words = line.trim().split(/\s+/).filter(Boolean);
   const word = words[0];
   const name = AGENT_NAMES.find((n) => n === word?.toLowerCase());
-  const rest = line.trim().slice(word ? word.length : 0);
-  const paid = /(?:^|\s)--paid(?=\s|$)/.test(rest);
-  const task = rest.replace(/(?:^|\s)--paid(?=\s|$)/g, ' ').trim();
+  const rest = line.trim().slice(word ? word.length : 0).trim();
+  const lead = /^--paid(?=\s|$)/.exec(rest);
+  const paid = Boolean(lead);
+  const task = lead ? rest.slice(lead[0].length).trim() : rest;
   return { ...(name ? { name } : {}), ...(word ? { word } : {}), paid, task };
 }
 
@@ -245,9 +253,12 @@ export function scrubPaths(text: string, root: string): string {
   let out = text;
   const roots = [root];
   try { roots.push(realpathSync(root)); } catch { /* gone */ }
-  for (const r of [...new Set(roots)].sort((a, b) => b.length - a.length)) if (r.length > 1) out = out.split(r).join('.');
+  // A folder is replaced only where it ends at a path boundary: with root /a/proj, /a/proj2/x stays as it is.
+  const boundary = '(?=$|[\\\\/\\s"\'`)\\]},:;])';
+  const at = (s: string, dir: string, as: string): string => s.replace(new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + boundary, 'g'), as);
+  for (const r of [...new Set(roots)].sort((a, b) => b.length - a.length)) if (r.length > 1) out = at(out, r, '.');
   const home = homedir();
-  if (home.length > 1) out = out.split(home).join('~');
+  if (home.length > 1) out = at(out, home, '~');
   return out;
 }
 
@@ -484,7 +495,8 @@ export function progressLine(line: string, state: AgentProgress, root: string): 
 
 // ── the result ───────────────────────────────────────────────────────────────
 
-export type AgentOutcome = 'completed' | 'failed' | 'cancelled' | 'timed out';
+/** `unknown`: it exited 0 but its output held nothing Timmy could read as the agent's report (the review of ee70b9e). */
+export type AgentOutcome = 'completed' | 'failed' | 'cancelled' | 'timed out' | 'unknown';
 
 export interface AgentRunRecord {
   agent_run: 1;
@@ -522,6 +534,9 @@ export function judgeAgentRun(job: { state: string; exitCode?: number | null; si
   if (agent === 'qwen' && job.exitCode === QWEN_BUDGET_EXIT) return { outcome: 'timed out', why: `its own wall-time budget ended it (exit ${QWEN_BUDGET_EXIT})` };
   if (job.state !== 'completed') return { outcome: 'failed', why: job.error ?? (progress.reportedError ? `it reported ${progress.reportedError}` : `it exited ${job.exitCode ?? job.signal ?? '?'}`) };
   if (progress.reportedError) return { outcome: 'failed', why: `it exited 0 but reported ${progress.reportedError}` };
+  // No structured event and no final message: an exit status is not a report, so success is not claimed and the
+  // run never marks the agent exercised (only a completed outcome does).
+  if (progress.structured === 0 && !progress.finalMessage) return { outcome: 'unknown', why: 'it exited 0 but reported nothing Timmy could read (no structured events, no final message): whether it did the task is not known; the files it changed are listed' };
   const denied = progress.denied.length ? `; ${progress.denied.length} of its tool calls ${progress.denied.length === 1 ? 'was' : 'were'} denied (${[...new Set(progress.denied)].join(', ')})` : '';
   return { outcome: 'completed', why: `it exited 0 and reported success${denied}` };
 }

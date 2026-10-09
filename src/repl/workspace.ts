@@ -1493,7 +1493,7 @@ export class Workspace {
         [{ text: '  Open       ', role: 'secondary' }, { text: this.d.link(this.live.url, this.live.url) }, { text: '  the token after # stays in your browser', role: 'secondary' }],
       ];
     }
-    const lb = new LiveBoard({ state: () => this.liveState(), execute: (c) => this.boardCommand(c) });
+    const lb = new LiveBoard({ state: () => this.liveState(), execute: (c) => this.boardCommand(c), scrub: (t) => this.scrub(t, this.root) });
     try { await lb.start(); } catch (err) { return this.say(`The live board could not start: ${err instanceof Error ? err.message : 'error'}`, 'failure'); }
     this.live = lb;
     const opened = this.d.openWeb(lb.url);

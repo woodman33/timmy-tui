@@ -243,8 +243,14 @@ export function deliver(root: string, id: string): { ok: true; dir: string; file
   const dirRel = outDir(id);
   const dest = path.join(root, dirRel);
   try {
-    fs.mkdirSync(dest, { recursive: true });
+    // Containment first, before any folder is made (the review of ee70b9e): the nearest folder that exists on the
+    // way to dest must resolve inside the project, so a linked out/ or out/recipes creates nothing elsewhere.
     const realRoot = fs.realpathSync(root);
+    let existing = dest;
+    while (!fs.existsSync(existing) && path.dirname(existing) !== existing) existing = path.dirname(existing);
+    const realExisting = fs.realpathSync(existing);
+    if (realExisting !== realRoot && !realExisting.startsWith(realRoot + path.sep)) return { ok: false, error: `nothing copied: ${dirRel} leads outside the project` };
+    fs.mkdirSync(dest, { recursive: true });
     const realDest = fs.realpathSync(dest);
     if (!realDest.startsWith(realRoot + path.sep)) return { ok: false, error: `nothing copied: ${dirRel} leads outside the project` };
     for (const f of got.v.files) {

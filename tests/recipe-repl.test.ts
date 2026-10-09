@@ -247,6 +247,21 @@ describe('/recipe tray as a durable job (FAKE executor)', () => {
     expect(fs.existsSync(dest)).toBe(false);
   }, 40000);
 
+  it('a linked out/ that leads outside the project: refused before any folder is made there (the review of ee70b9e)', async () => {
+    const { ws } = make({ mode: 'complete' });
+    const out = text(await ws.recipe('tray'));
+    const id = uuidIn(out);
+    const job = jobIdIn(out);
+    await until(() => TERMINAL.has(ws.jobs.get(job)?.state ?? ''));
+    fs.rmSync(path.join(root, 'out'), { recursive: true, force: true });
+    const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'recipe-elsewhere-'));
+    fs.symlinkSync(elsewhere, path.join(root, 'out'));
+    const refused = text(await ws.recipe(`copy ${id}`));
+    expect(refused).toContain('leads outside the project');
+    expect(fs.readdirSync(elsewhere)).toEqual([]);
+    fs.rmSync(elsewhere, { recursive: true, force: true });
+  }, 40000);
+
   it('keeps a failed job\'s raw failure and says where it is, project-relative; nothing is copied', async () => {
     const { ws, notes } = make({ mode: 'reported-failure' });
     const out = text(await ws.recipe('tray'));

@@ -10,7 +10,7 @@ import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { capabilities, type ProbeDeps } from '../src/capabilities/index.js';
 import {
-  agentExercisedIndex, AGENTS_DIR, endpointClass, listAgentRuns, newProgress, parseAgentLine, planAgent, progressLine, taskWords, type AgentRunRecord,
+  agentExercisedIndex, AGENTS_DIR, endpointClass, listAgentRuns, newProgress, parseAgentLine, planAgent, progressLine, taskWords, type AgentRunRecord, scrubPaths,
 } from '../src/code-agents/index.js';
 import { COMMANDS, runSlash, type ReplContext } from '../src/repl/commands.js';
 import { folderProject } from '../src/project/index.js';
@@ -86,7 +86,7 @@ describe('the command lines, from the agents\' own help texts', () => {
       '--approval-mode', 'auto-edit', '-o', 'stream-json', '--max-wall-time', '15m', '--chat-recording=false', 'add a test',
     ]);
     // the key travels in the child's environment, never on the command line (round R3)
-    expect(r.plan.env).toEqual({ OPENAI_API_KEY: 'ollama' });
+    expect(r.plan.env).toEqual({ OPENAI_API_KEY: 'ollama', OPENROUTER_API_KEY: '', TIMMY_AGENT_API_KEY: '' });
     expect(r.plan).toMatchObject({ endpoint: 'local', where: '127.0.0.1:11434', costBasis: 'local endpoint', timeoutMs: 15 * 60_000 + 30_000 });
     expect(flagsIn(r.plan.args, HELP('qwen-help.txt'))).toEqual([]);
     // the choices used are the help text's choices
@@ -100,7 +100,15 @@ describe('the command lines, from the agents\' own help texts', () => {
     if (!r.ok) return;
     expect(r.plan.args.join(' ')).not.toContain(secret);
     expect(r.plan.args).not.toContain('--openai-api-key');
-    expect(r.plan.env).toEqual({ HOME: '/tmp/agent-home', OPENAI_API_KEY: secret });
+    expect(r.plan.env).toEqual({ HOME: '/tmp/agent-home', OPENAI_API_KEY: secret, OPENROUTER_API_KEY: '', TIMMY_AGENT_API_KEY: '' });
+  });
+  it('the review of ee70b9e: a -cloud tag is cloud; --paid counts only right after the name; folders scrub at a boundary', () => {
+    expect(endpointClass('http://127.0.0.1:11434/v1', 'gpt-oss:120b-cloud').local).toBe(false);
+    expect(endpointClass('http://127.0.0.1:11434/v1', 'glm-5.3:cloud').local).toBe(false);
+    expect(endpointClass('http://127.0.0.1:11434/v1', 'qwen3.8:27b-mlx').local).toBe(true);
+    expect(parseAgentLine('claude explain what the --paid flag of our CLI does')).toMatchObject({ paid: false, task: 'explain what the --paid flag of our CLI does' });
+    expect(parseAgentLine('claude --paid fix the typo')).toMatchObject({ paid: true, task: 'fix the typo' });
+    expect(scrubPaths('/a/proj/x, /a/proj2/y and /a/proj', '/a/proj')).toBe('./x, /a/proj2/y and .');
   });
   it('the account agents: headless, structured output, edits kept to the project, no bypass flag; each flag is in its help text', () => {
     const claude = planAgent('claude', 'fix it', { env: {}, paid: true, run: 'a00000002', bin: 'claude' });
@@ -135,7 +143,8 @@ describe('local, no charge: only a loopback endpoint and a model that is not :cl
     expect(endpointClass('http://127.0.0.1:11434/v1', 'qwen3:4b')).toMatchObject({ local: true, where: '127.0.0.1:11434' });
     expect(endpointClass('http://localhost:11434/v1', 'qwen3:4b').local).toBe(true);
     expect(endpointClass('http://[::1]:11434/v1', 'qwen3:4b').local).toBe(true);
-    expect(endpointClass('http://127.0.0.1:11434/v1', 'gpt-oss:120b-cloud').local).toBe(true);
+    // a tag ending in -cloud is an Ollama cloud model too (the review of ee70b9e; the earlier rule caught only :cloud)
+    expect(endpointClass('http://127.0.0.1:11434/v1', 'gpt-oss:120b-cloud').local).toBe(false);
     expect(endpointClass('http://127.0.0.1:11434/v1', 'gpt-oss:120b:cloud')).toMatchObject({ local: false, why: expect.stringContaining(':cloud') });
     expect(endpointClass('https://api.example.com/v1', 'qwen3:4b')).toMatchObject({ local: false, where: 'api.example.com' });
     expect(endpointClass('not a url', 'm').local).toBe(false);
@@ -286,7 +295,8 @@ describe('a run (the FAKE agent): a job, its progress, its result and its receip
     const id = jobIdOf(text(await ws.agent('qwen TEXT only')));
     await ws.jobs.done(id);
     expect(text(ws.jobsView(id))).toContain('Working on it (plain text, a FAKE agent).');
-    expect(resultOf(root)).toMatchObject({ outcome: 'completed', progress: { raw_lines: 2, structured_lines: 0 } });
+    // plain text only: an exit status is not a report, so the outcome is unknown (the review of ee70b9e)
+    expect(resultOf(root)).toMatchObject({ outcome: 'unknown', progress: { raw_lines: 2, structured_lines: 0 } });
   });
   it('/stop cancels it: its process group is gone, the outcome is cancelled and the receipt says so', async () => {
     const root = project();
