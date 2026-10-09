@@ -247,3 +247,20 @@ built here, and it is the first creative-software integration that can be called
 it: cards that start jobs (area 2), and AgentPass and TaskForge through their own interfaces (area 3).
 
 
+
+## Workspace connections (R3, 2026-10-09)
+
+The independent review of `40022d9` was checked against the source (7 of 7 findings confirmed) and fixed (ledger
+row 132). Then four connected workflows were built in parallel, merged at `ad80912` and shown on the operator's
+Mac (rows 133 to 138). Every feature's planned / implemented / tested / demonstrated state is kept in
+`docs/ui-cockpit/FEATURE-CHECKLIST.md`.
+
+| Area | State after R3 | Evidence | Next |
+|---|---|---|---|
+| Native CAD | `/recipe tray`: a real CadQuery + Open3D build as a durable job, 30 of 30 checks, the STEP and STLs copied with matching sha256; cancelled from the live board | rows 136, 138 | the recipe's own qualification run (`lanes/recipes/qualify.ts`); more recipes; recipe workers on other machines |
+| Native 3D | `/blender` judged by its result file, read back independently | row 133 | Houdini and Unreal through their Python |
+| Cinema 4D | blocked by `c4dpy`'s own licence question, also with the app open | rows 128, 137 | the operator answers it once in Terminal; then the starter's first real run |
+| Code agents | `/agent qwen` on a local Ollama model, free; paid agents only with `--paid` | row 137 | which Qwen Code copy runs under the agent's own HOME (0.22.2 there, 0.25.0 under the operator's); a free second route (`codex exec --oss`) |
+| Board | `/board live` with Stop, Run and Observe on 127.0.0.1 | rows 137, 138 | a workflow node editor |
+| Evidence | `/observe --qualify` runs the observed-handle + cite protocol | tests only | one paid call (about $0.01) to show it on the Mac |
+| MCP | `/mcp servers` by name, `--check` | tests only | list the operator's own configured servers on the Mac |

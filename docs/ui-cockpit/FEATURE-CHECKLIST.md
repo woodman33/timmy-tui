@@ -1,7 +1,7 @@
 # Timmy feature checklist
 
-Date: 2026-10-09. Source revision described: `bbe4930`. Ledger: `docs/ui-cockpit/CHECKPOINTS.md`, rows 1 to 131
-(the ledger has no rows for round R3 at this revision, so nothing built only in R3 can read "demonstrated" here).
+Date: 2026-10-09. Drafted at `bbe4930` (ledger rows 1 to 131); updated by the lead after the round R3 merges
+(`ad80912`) and the Mac demonstrations in ledger rows 132 to 138. A row changed in that update cites R3 rows.
 
 One row per user-facing feature or integration. **Planned**: a plan or backlog document in this repository
 describes it (cited; – means none was found). **Implemented**: code for it exists at `bbe4930` (file cited).
@@ -10,8 +10,8 @@ the stand-in `bpy`, the fake Blender, `c4dpy` or `aerender`, the offline fake ex
 Python, or a mock model client. **Demonstrated**: shown running for real on the operator's Mac, or in CI with
 the real dependency, as recorded in a ledger row, cited with the revision that row names; scripted steps are
 labelled scripted. **Blocker / user action**: what a person must do before it can run (credentials, a
-licence, a file). Marks: ✓ yes, – no, partial, unknown (no file, test or ledger row settles it), and
-in progress (round R3) for the four features being built in parallel now, of which nothing is at `bbe4930`.
+licence, a file). Marks: ✓ yes, – no, partial, unknown (no file, test or ledger row settles it), . The four
+features built in parallel in round R3 (`/recipe`, `/board live`, `/agent`, `/observe --qualify`) are at `ad80912`.
 
 An installed executable, fixture demonstration or green CI run alone does not prove a complete integration.
 
@@ -25,8 +25,8 @@ Merge, npm publish, tags and deployment are on HOLD. Shorthand: "row N" is a row
 |---|---|---|---|---|---|---|
 | `/project` (switch, `list`, `new`) | ✓ CCP R1 | ✓ | ✓ | ✓ rows 124 (`c747545`), 125 (`b1ede23`) | – | `src/project/index.ts`, `src/repl/workspace.ts`; `tests/repl-workspace.test.ts` |
 | Starter `web-starter` (`/project new <name> --from web-starter`) | ✓ CCP R2 area 1 | ✓ | ✓ | ✓ rows 130 (`4d9cf52`), 131 (`0deb7b4`) | – | `src/project/starters.ts`, `templates/web-starter/`; `tests/project-starters.test.ts` |
-| Starter `c4d-starter` | ✓ CCP R2 area 6 | ✓ | ✓ fakes (stand-in `c4d` module) | – (its notes: "not yet exercised") | the Cinema 4D licence (section 5) | `templates/c4d-starter/`; `tests/native-python.test.ts` (`tests/fixtures/c4d-stub`) |
-| Starter `blender-starter` | ✓ CCP milestone | ✓ | ✓ fakes (stand-in `bpy`, fake Blender) | unknown | Blender installed, or `TIMMY_BLENDER` set | `templates/blender-starter/`; `tests/native-blender.test.ts`, `tests/fixtures/blender-stub/` |
+| Starter `c4d-starter` | ✓ CCP R2 area 6 | ✓ | ✓ fakes (stand-in `c4d` module) | – (rows 128 and 137: both runs stopped at `c4dpy`'s licence question) | the Cinema 4D licence (section 5) | `templates/c4d-starter/`; `tests/native-python.test.ts` (`tests/fixtures/c4d-stub`) |
+| Starter `blender-starter` | ✓ CCP milestone | ✓ | ✓ fakes (stand-in `bpy`, fake Blender) | ✓ row 133 (`ea5ef4d`, Blender 5.2.2 LTS; an independent readback of the `.blend`); the object-list fix (row 134) ran only on the stand-in | Blender installed, or `TIMMY_BLENDER` set | `templates/blender-starter/`; `tests/native-blender.test.ts`, `tests/fixtures/blender-stub/` |
 | `/files` by role | ✓ CCP R1 | ✓ | ✓ | ✓ rows 124, 125, 130 | – | `src/project/index.ts`; `tests/project-files.test.ts`, `tests/repl-workspace.test.ts` |
 | `/open <file>` (private files refused, by name and by link target) | ✓ CCP R1 | ✓ | ✓ | ✓ rows 124, 125 (a link to `.env` refused), 129, 130 | – | `src/project/index.ts`, `src/repl/workspace.ts`; `tests/project-files.test.ts`, `tests/repl-workspace.test.ts` |
 | `/edit <file>` (your editor; sealed with hashes before and after) | ✓ CCP R1 | ✓ | ✓ | – (no ledger row runs `/edit`) | – | `src/repl/workspace.ts`; `tests/repl-workspace.test.ts` |
@@ -74,13 +74,13 @@ Merge, npm publish, tags and deployment are on HOLD. Shorthand: "row N" is a row
 
 | Feature | Planned | Implemented | Tested | Demonstrated | Blocker / user action | Evidence |
 |---|---|---|---|---|---|---|
-| Cinema 4D: `/c4d <script.py>` through `c4dpy`, judged by its result file, run token and sha256s | ✓ CCP R2 area 6 | ✓ | ✓ fakes (fake `c4dpy`, stand-in `c4d`) | partial: row 128 shows only the stop at the licence question; a real scene run is unknown | the operator runs Cinema 4D or `c4dpy` once as their user and chooses the licence method; before that no `c4dpy` render can run | `src/native/index.ts`, `workers/c4d/timmy_c4d.py`; `tests/native.test.ts`, `tests/native-provenance.test.ts`, `tests/fixtures/fake-c4dpy.mjs` |
+| Cinema 4D: `/c4d <script.py>` through `c4dpy`, judged by its result file, run token and sha256s | ✓ CCP R2 area 6 | ✓ | ✓ fakes (fake `c4dpy`, stand-in `c4d`) | partial: rows 128 and 137 show only the stop at `c4dpy`'s licence question (row 137 with the Cinema 4D app open); no real scene run | **blocked:** in Terminal, run `c4dpy` once as your user (`"/Applications/Maxon Cinema 4D 2026/c4dpy.app/Contents/MacOS/c4dpy"`) and answer its question "Enter the license method" (1 Maxon App, 2 Maxon Account, 3 Maxon License Server, 4 RLM) with the method your licence uses; opening the Cinema 4D app does not answer it | `src/native/index.ts`, `workers/c4d/timmy_c4d.py`; `tests/native.test.ts`, `tests/native-provenance.test.ts`, `tests/fixtures/fake-c4dpy.mjs` |
 | After Effects: `/ae <aep> <comp> <out>` through `aerender` | ✓ CCP R2 area 6 | ✓ | ✓ fakes (fake `aerender`) | – (row 128: no `.aep`) | provide an After Effects project (`.aep`) | `src/native/index.ts`; `tests/native.test.ts`, `tests/native-provenance.test.ts`, `tests/fixtures/fake-aerender.mjs` |
-| Blender: `/blender <script.py>`, Blender's own Python, headless | ✓ CCP milestone | ✓ (`3565d96`, `ea5ef4d`) | ✓ fakes (fake Blender, stand-in `bpy`) | unknown | Blender installed, or `TIMMY_BLENDER` set to its program | `src/native/index.ts`, `src/repl/workspace.ts`, `workers/blender/timmy_blender.py`; `tests/native-blender.test.ts`, `tests/fixtures/fake-blender.mjs` |
+| Blender: `/blender <script.py>`, Blender's own Python, headless | ✓ CCP milestone | ✓ (`3565d96`, `ea5ef4d`) | ✓ fakes (fake Blender, stand-in `bpy`) | ✓ row 133 (`ea5ef4d`) | Blender installed, or `TIMMY_BLENDER` set to its program | `src/native/index.ts`, `src/repl/workspace.ts`, `workers/blender/timmy_blender.py`; `tests/native-blender.test.ts`, `tests/fixtures/fake-blender.mjs` |
 | `run_native` agent tool (asks each time) | ✓ CCP R2 area 6 | ✓ | ✓ fakes | – | a model key, and the app | `src/agent/native-tools.ts`; `tests/native.test.ts`, `tests/native-blender.test.ts` |
 | Native runs recorded per app; `/tools` "exercised" from each app's own judged runs | – | ✓ (`ea5ef4d`) | ✓ | – | – | `src/native/index.ts`, `src/capabilities/index.ts`; `tests/native-provenance.test.ts`, `tests/capabilities.test.ts` |
-| CadQuery recipe `enclosure.tray/1`: CLI `timmy recipe` (`list`, `plan`, `build`, `jobs`) | ✓ CCP F-7 | ✓ CLI only | ✓ fakes (offline fake executor); admission and package checks | unknown | set `TIMMY_CADQUERY_PYTHON` to a Python with CadQuery and Open3D (nothing is installed for you) | `lanes/recipes/cli.ts`, `lanes/recipes/tray.ts`, `lanes/recipes/jobs.ts` (route in `src/cli.ts`); `tests/tray-recipe.test.ts`, `tests/recipe-jobs.test.ts`, `tests/recipe-package.test.ts` |
-| `/recipe` in the REPL as a durable job | ✓ CCP F-7 | in progress (round R3) | – at `bbe4930` | – | as for `timmy recipe` | – |
+| CadQuery recipe `enclosure.tray/1`: CLI `timmy recipe` (`list`, `plan`, `build`, `jobs`) | ✓ CCP F-7 | ✓ | ✓ fakes (offline fake executor); admission and package checks | partial: its job system ran for real through `/recipe` (rows 136, 138); the CLI itself was not run | set `TIMMY_CADQUERY_PYTHON` to a Python with CadQuery and Open3D (nothing is installed for you) | `lanes/recipes/cli.ts`, `lanes/recipes/tray.ts`, `lanes/recipes/jobs.ts` (route in `src/cli.ts`); `tests/tray-recipe.test.ts`, `tests/recipe-jobs.test.ts`, `tests/recipe-package.test.ts` |
+| `/recipe` in the REPL as a durable job (prediction sealed first, watcher job, `/stop` through the recipe's cancel, verified exports copied, `run_recipe`, `/tools` row) | ✓ CCP F-7 | ✓ (`720cc37`) | ✓ fakes (offline fake executor) | ✓ rows 136 (a real CadQuery and Open3D build, 30 of 30 checks, an independent readback of the STEP and STLs), 138 (cancelled from the live board) | set `TIMMY_CADQUERY_PYTHON` to a Python with CadQuery and Open3D | `src/recipes/`, `src/repl/recipe.ts`, `src/agent/recipe-tools.ts`; `tests/recipe-repl.test.ts` |
 
 ## 6. Vision
 
@@ -90,16 +90,16 @@ Merge, npm publish, tags and deployment are on HOLD. Shorthand: "row N" is a row
 | A model's interpretation as a separate, labelled claim (`/observe <image> <question>`, `describe_image`) | ✓ CCP R1 3 | ✓ | ✓ fakes (mocked fetch) | ✓ row 128 (`anthropic/claude-haiku-4.5`; its claim kept beside the measurements) | a model key; an image-capable model | `src/vision/route.ts`, `src/agent/vision-tools.ts`; `tests/vision-route.test.ts` |
 | A text-only model refused, with image-capable alternatives | ✓ CCP R1 3 | ✓ | ✓ fakes (mocked fetch) | – (CCP R2 area 5) | – | `src/vision/route.ts`; `tests/vision-route.test.ts` |
 | Cost accounting (the provider's charge on a provider key; unknown when missing; a cancelled paid interpretation keeps its cost) | ✓ CCP R2 area 5 | ✓ (`c70e3e9`, `7116a9b`) | ✓ fakes (mocked fetch) | partial: row 128 found the $0 defect; no row shows the fixed accounting | – | `src/vision/route.ts`; `tests/vision-route.test.ts`, `tests/repl-workspace-look.test.ts` |
-| Evidence protocol: observed handles, `cite(handle_id)`, admission | ✓ AGENTS.md §4 | partial: the modules exist; `/observe` does not call them yet | ✓ fakes (mock model client) | – | – | `src/vision/evidence.ts`, `src/evidence/admission.ts`; `tests/vision-evidence.test.ts`, `tests/evidence-admission.test.ts` |
+| Evidence protocol: observed handles, `cite(handle_id)`, admission | ✓ AGENTS.md §4 | ✓ called by `/observe --qualify` (`ad80912`) | ✓ fakes (mock model client; the SDK's own loop against a local fake server) | – | – | `src/vision/evidence.ts`, `src/evidence/admission.ts`; `tests/vision-evidence.test.ts`, `tests/evidence-admission.test.ts` |
 | Observation check: only sealed, unchanged deterministic values shown as measured | ✓ AGENTS.md §4 | ✓ (`afc3141`) | ✓ | – | – | `src/evidence/observation-check.ts`, `src/repl/board.ts`; `tests/observation-check.test.ts`, `tests/board.test.ts` |
-| `/observe --qualify` | ✓ AGENTS.md §4 | in progress (round R3) | – at `bbe4930` | – | a model key | – |
+| `/observe <image> --qualify [question]`: an answer admitted only when it cites this run's measurements | ✓ AGENTS.md §4 | ✓ (`ad80912`) | ✓ fakes (fake model clients; the SDK against a local fake server) | – (needs one paid call; not made in R3) | a model key; one call is estimated at about $0.01 with `anthropic/claude-haiku-4.5` | `src/vision/qualify-route.ts`, `src/repl/workspace.ts`, `src/evidence/observation-check.ts`; `tests/observe-qualify.test.ts`, `tests/observe-qualify-sdk.test.ts` |
 
 ## 7. Board and Canvas cards
 
 | Feature | Planned | Implemented | Tested | Demonstrated | Blocker / user action | Evidence |
 |---|---|---|---|---|---|---|
 | `/board` snapshot: a read-only HTML board of references, workflow blocks, jobs, outputs and observations | ✓ CCP R2 area 2 | ✓ | ✓ (one real-Look test runs only where Python is present) | ✓ rows 128, 130 (`4d9cf52`), 131 (`0deb7b4`) | – | `src/repl/board.ts`; `tests/board.test.ts` |
-| `/board` live controls (cards that start jobs) | ✓ CCP R1 4, R2 area 2 | in progress (round R3) | – at `bbe4930` | – | – | – |
+| `/board live`: the board on 127.0.0.1 with Stop, Run and Observe (`/board off`) | ✓ CCP R1 4, R2 area 2 | ✓ (`6b370f4`) | ✓ (19 tests on 127.0.0.1; 3 in a real headless Chromium) | ✓ rows 137 (the page drawn, no console messages, the port closed after `/board off`), 138 (Stop pressed on a running recipe job) | – | `src/repl/board-live.ts`; `tests/board-live.test.ts`, `tests/board-live-browser.test.ts` |
 | Canvas workflow, parameter and result cards | ✓ CCP R1 4 | – | – | – | – | CCP R1 item 4 |
 
 ## 8. MCP
@@ -116,8 +116,8 @@ Merge, npm publish, tags and deployment are on HOLD. Shorthand: "row N" is a row
 
 | Feature | Planned | Implemented | Tested | Demonstrated | Blocker / user action | Evidence |
 |---|---|---|---|---|---|---|
-| Harness rows in `/tools` (Claude Code, Codex, Qwen Code: installed or needs setup, with the install step) | ✓ CCP F-1 | ✓ | ✓ | partial: `/tools` on the Mac (row 128); the programs were found there (CCP R2), never launched by Timmy | install each one (`/tools` prints the step) | `src/capabilities/index.ts`; `tests/capabilities.test.ts` |
-| Launch a code agent from the REPL (`/agent`) | ✓ CCP F-1, R1 6 | in progress (round R3) | – at `bbe4930` | – | the agent installed | `/tools` says "not from the REPL yet (F-1)" |
+| Harness rows in `/tools` (Claude Code, Codex, Qwen Code, OpenCode: installed or needs setup; exercised only by that agent's own completed run) | ✓ CCP F-1 | ✓ | ✓ | ✓ row 137 (Qwen Code "used 2026-10-09" after its run; the others never launched) | install each one (`/tools` prints the step) | `src/capabilities/index.ts`; `tests/capabilities.test.ts` |
+| Launch a code agent from the REPL (`/agent`): Qwen Code on a local endpoint free; Claude Code, Codex, OpenCode only with `--paid` | ✓ CCP F-1, R1 6 | ✓ (`3413cd6`) | ✓ fakes (a fake agent); one test ran the real Qwen Code 0.25.0 against a local fake model server | partial: row 137 (Qwen Code with a local Ollama model made two files; the paid agents refused without `--paid`); Claude Code, Codex and OpenCode not run (they cost money) | `TIMMY_AGENT_MODEL` (a model the local endpoint serves); `--paid` and your own account for the others | `src/code-agents/index.ts`; `tests/code-agent.test.ts` |
 
 ## 10. Capabilities (`/tools`)
 
@@ -162,15 +162,14 @@ Merge, npm publish, tags and deployment are on HOLD. Shorthand: "row N" is a row
 
 ## Unknowns to resolve
 
-- **Blender (`/blender`, `blender-starter`), Demonstrated.** `templates/blender-starter/BUILD.md` says the starter
-  ran once as a Timmy job on a Mac with Blender 5.2.2 LTS, and commit `bbe4930` cites that run, but no ledger row
-  records it; the object-list fix in `bbe4930` ran only against the stand-in `bpy`. A ledger row naming the run's
-  revision and evidence settles it.
+- **Blender**: settled by row 133 (`ea5ef4d`); the object-list fix in `bbe4930` (row 134) has run only against the
+  stand-in `bpy`.
 - **Cinema 4D, a real scene run.** Row 128 shows only the stop at the licence question. `templates/c4d-starter/BUILD.md`
   mentions "a retained real run" (`ok: true` while `c4dpy` exited 1) and also says the starter is "not yet
   exercised"; no ledger row records a real run.
-- **CadQuery recipe (`timmy recipe`), Demonstrated.** No ledger row; `lanes/recipes/README.md` keeps native
-  qualification as a separate gate.
+- **CadQuery recipe**: its job system ran for real through `/recipe` (rows 136 and 138); `lanes/recipes/README.md`
+  still keeps the recipe's native qualification (`qualify.ts`, both widths and the negative controls) as a separate
+  gate, not run in R3.
 - **Monaspace Argon, Demonstrated.** No ledger row shows the font rendered in the operator's terminal.
 - **`/workflows`, Demonstrated.** CCP's R1 section records `/workflows` as exercised on the Mac at `c747545`, but
   ledger rows 124 and 125 name only `/run`.
