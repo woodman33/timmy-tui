@@ -84,7 +84,7 @@ export const ROLE_LABEL: Readonly<Record<FileRole, string>> = {
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv', 'venv', '.cache', 'coverage', '.turbo', '.next']);
 const HISTORY_TOP = new Set(['.sessions', '.timmy', 'history', 'receipts']);
-const OUTPUT_TOP = new Set(['dist', 'build', 'out', 'outputs', 'output', 'renders', 'exports']);
+const OUTPUT_TOP = new Set(['dist', 'build', 'out', 'outputs', 'output', 'renders', 'exports', 'results']);
 const WORKFLOW_TOP = new Set(['workflows', 'recipes']);
 const SCRIPT_TOP = new Set(['scripts', 'bin', 'tools']);
 const REFERENCE_TOP = new Set(['refs', 'ref', 'references', 'reference', 'assets', 'inputs', 'docs', 'uploads', 'media']);

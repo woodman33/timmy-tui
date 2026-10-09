@@ -18,10 +18,13 @@ import {
   resolveInside, ROLE_LABEL, ROLE_ORDER, sameFolder, saveActiveProject, type ActiveProject, type FileRole, type ProjectFile,
 } from '../project/index.js';
 import { staticServerCommand } from '../preview/static-server.js';
+import { hashFile, intakeFiles, splitArgs } from '../project/intake.js';
 import { killProcessGroup } from '../runtime/spawn-runtime.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import { readChain, type Receipt, type ReceiptInput } from '../utils/receipts.js';
+import { checkOpenCv, DETERMINISTIC, INTERPRETATION, LOOK_MAX_OUTPUT, LOOK_TIMEOUT_MS, lookArgs, lookPython, OPENCV_SETUP, parseLookOutput, writeObservation } from '../vision/look.js';
+import { describeImage } from '../vision/route.js';
 import { findUpmd, findWorkflowDocs, parseUpmdLine, parseWorkflow, runOrder, stepsFromEvent, upmdRunArgs, upmdVersion } from '../workflows/upmd.js';
 
 type Line = Segment[];
@@ -50,7 +53,16 @@ export interface WorkspaceDeps {
   /** The project changed: the agent moves its conversation there; one line back to show. */
   onSwitch?: (p: ActiveProject) => string | undefined;
   receipts?: () => Receipt[];
+  /** The agent's current model, for /observe's question (round R2, look); without it no model is asked. */
+  model?: () => string;
+  /** The fetch a model interpretation uses; a test gives a mock. */
+  fetch?: typeof fetch;
 }
+
+/** How an observation ended (round R2, look): its file and receipt, or why there is none. */
+export type ObserveOutcome =
+  | { ok: true; file: string; receipt?: string; tiers: string[]; interpretation?: Record<string, unknown> }
+  | { ok: false; error: string; receipt?: string };
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const sha256File = (path: string): string | undefined => {
@@ -91,6 +103,8 @@ export class Workspace {
   private upmdFound: { bin: string; version: string | null } | null = null;
   /** The jobs this REPL started: the only ones it may stop. */
   private readonly mine = new Set<string>();
+  /** Look jobs: their one receipt is the observation's, sealed when it is written (not the job's). */
+  private readonly looks = new Set<string>();
 
   constructor(private readonly d: WorkspaceDeps, start: ActiveProject) {
     this.project = start;
@@ -221,6 +235,148 @@ export class Workspace {
       files: [{ path: at.rel, sha256: after, ...(before ? { previous_sha256: before } : {}), created: before === undefined, bytes: statSync(at.path).size }],
     });
     return [[{ text: `  Saved ${this.fileLink(at.rel)}`, role: 'strong' }, { text: `${id ? `${this.sep}receipt ${id}` : ''}${this.sep}/results`, role: 'secondary' }]];
+  }
+
+  // ── /add, /observe (round R2, look: references in, observations out) ────────
+
+  /** `/add <path…>`: copies files into refs/ (never moves them) and seals one intake receipt. */
+  add(args: string): Line[] {
+    const paths = splitArgs(args.trim());
+    if (!paths.length) return this.say('Usage: /add <file…>   copies into refs/; quote a name with spaces');
+    const r = intakeFiles(this.root, paths, { cwd: this.root });
+    const lines: Line[] = [];
+    if (r.added.length) {
+      const id = this.d.seal({
+        kind: 'intake', subject: `intake · ${r.added.length} file${r.added.length === 1 ? '' : 's'} into refs/`, policy: 'human-gated', status: 'ok',
+        project: this.project.name, project_id: projectId(this.root),
+        // The source is named by its base name only, and only when the copy's name differs (a clash).
+        files: r.added.map((f) => ({ path: f.path, sha256: f.sha256, bytes: f.bytes, kind: f.kind, kind_by: f.by, ...(f.path.endsWith(`/${f.source_name}`) ? {} : { source_name: f.source_name }) })),
+      });
+      lines.push([{ text: `  Added ${r.added.length} file${r.added.length === 1 ? '' : 's'} to refs/`, role: 'strong' }, { text: id ? `${this.sep}receipt ${id}` : '', role: 'secondary' }]);
+      for (const f of r.added) {
+        lines.push([{ text: '    ' }, { text: this.fileLink(f.path) }, { text: `  ${f.kind}${this.sep}${humanBytes(f.bytes)}${f.note ? `${this.sep}${f.note}` : ''}`, role: 'secondary' }]);
+      }
+    }
+    for (const x of r.refused) lines.push([{ text: `  Not added ${x.name}: `, role: 'failure' }, { text: x.reason, role: 'secondary' }]);
+    if (r.added.length) {
+      const image = r.added.find((f) => f.kind === 'image');
+      lines.push(...this.say(`The agent can read them now with read_project_file${image ? `; measure an image: /observe ${image.path}` : ''}`));
+    }
+    return lines;
+  }
+
+  /**
+   * Starts Look on a project file as a job (an id, progress, /stop, a log); `done` settles once the
+   * observation is written and sealed, or once it is known why there is none. With a question and a
+   * current model that takes images, the model's interpretation is added (it spends: the operator asked).
+   */
+  async observeFile(relArg: string, question?: string): Promise<{ ok: true; job: JobRecord; done: Promise<ObserveOutcome> } | { ok: false; error: string }> {
+    const at = resolveInside(this.root, relArg.trim());
+    if ('error' in at) return { ok: false, error: at.error };
+    try { if (!statSync(at.path).isFile()) return { ok: false, error: `${at.rel} is not a file` }; } catch { return { ok: false, error: `${at.rel} does not exist` }; }
+    const py = lookPython(this.d.env, this.d.onPath);
+    if ('error' in py) return { ok: false, error: `Look needs a Python with OpenCV: ${py.error}. Setup: ${OPENCV_SETUP}` };
+    const cv = await checkOpenCv(py.python, this.d.env);
+    if (!cv.ok) return { ok: false, error: `${cv.error}. Setup: ${OPENCV_SETUP}, or set TIMMY_VISION_PYTHON to a Python that has it` };
+    let source: { path: string; sha256: string; bytes: number };
+    try { source = { path: at.rel, sha256: hashFile(at.path), bytes: statSync(at.path).size }; } catch { return { ok: false, error: `${at.rel} cannot be read` }; }
+    const root = this.root;
+    const project = this.project.name;
+    const job = this.jobs.start({ kind: 'task', label: `look ${at.rel}`, project, root, command: py.python, args: lookArgs(at.path, at.rel), timeoutMs: LOOK_TIMEOUT_MS });
+    this.mine.add(job.id);
+    this.looks.add(job.id);
+    const q = question?.trim() || undefined;
+    const done = this.jobs.done(job.id).then((j) => this.observed(j, { root, project, imagePath: at.path, source, question: q }))
+      .catch((err: unknown): ObserveOutcome => ({ ok: false, error: `the observation could not be finished (${err instanceof Error ? err.message : 'error'})` }));
+    return { ok: true, job, done };
+  }
+
+  /** `/observe <file> [question]`: starts Look; the observation arrives as a notice and in /results. */
+  async observe(args: string): Promise<Line[]> {
+    const a = args.trim();
+    const m = a.match(/^(?:"([^"]+)"|'([^']+)'|(\S+))\s*([\s\S]*)$/);
+    if (!a || !m) return this.say('Usage: /observe <file> [question]   (a question asks the current model too)');
+    const rel = m[1] ?? m[2] ?? m[3];
+    const question = m[4].trim().replace(/^(["'])([\s\S]*)\1$/, '$2');
+    const started = await this.observeFile(rel, question);
+    if (!started.ok) return this.say(started.error, 'failure');
+    const g = this.d.glyphs;
+    const model = this.d.model?.();
+    return [
+      [{ text: '  Observing  ', role: 'secondary' }, { text: started.job.id, role: 'strong' }, { text: `  ${started.job.label.slice(5)} with Look${this.sep}/jobs ${started.job.id}${this.sep}/stop ${started.job.id}`, role: 'secondary' }],
+      ...(question ? [[{ text: '  Then asks ', role: 'secondary' as const }, { text: model ?? 'no model known here', role: model ? 'ai' as const : 'estimate' as const }, { text: ` ${g.arrow} a model interpretation, a claim beside the measurements`, role: 'secondary' as const }]] : []),
+    ];
+  }
+
+  private async observed(j: JobRecord, o: { root: string; project: string; imagePath: string; source: { path: string; sha256: string; bytes: number }; question?: string }): Promise<ObserveOutcome> {
+    const g = this.d.glyphs;
+    const rel = o.source.path;
+    const ms = j.endedAt ? Date.parse(j.endedAt) - Date.parse(j.startedAt) : undefined;
+    const log = sha256File(j.logPath);
+    const jobInfo = {
+      id: j.id, kind: j.kind, label: j.label, state: j.state, exit_code: j.exitCode ?? null,
+      ...(log ? { log_sha256: log } : {}), ...(ms !== undefined ? { ms } : {}), ...(j.error ? { error: this.scrub(j.error, o.root) } : {}),
+    };
+    const base = { kind: 'observe', policy: 'human-gated', project: o.project, project_id: projectId(o.root), files: [{ ...o.source }], job: jobInfo };
+    const fail = (why: string, status: 'failed' | 'cancelled'): ObserveOutcome => {
+      const error = this.scrub(why, o.root);
+      let receipt: string | undefined;
+      try { receipt = this.d.seal({ ...base, subject: `observe · ${rel} · ${status}`, status, observation: { tiers: [], error } }); } catch { receipt = undefined; }
+      this.d.notify([{ text: `  ${g.fail} ` }, { text: `${j.id} not observed`, role: 'failure' }, { text: `  ${rel}: ${error}${receipt ? `${this.sep}receipt ${receipt}` : ''}`, role: 'secondary' }]);
+      return { ok: false, error, ...(receipt ? { receipt } : {}) };
+    };
+    let output = '';
+    try {
+      if (statSync(j.logPath).size > LOOK_MAX_OUTPUT) return fail('Look printed more than it may', 'failed');
+      output = this.jobs.tail(j.id, 400).join('\n');
+    } catch { /* no log: read as no output */ }
+    const parsed = parseLookOutput(output, rel);
+    if (j.state === 'cancelled') return fail('stopped before it finished', 'cancelled');
+    if (j.state !== 'completed') return fail(!parsed.ok && output ? parsed.error : j.error ?? `Look exited ${j.exitCode ?? j.signal ?? '?'}`, 'failed');
+    if (!parsed.ok) return fail(parsed.error, 'failed');
+    const look = parsed.observation;
+    if (look.source.sha256 !== o.source.sha256) return fail(`${rel} changed while Look read it`, 'failed');
+    let interpretation: Record<string, unknown> | undefined;
+    if (o.question) {
+      const model = this.d.model?.();
+      if (!model) interpretation = { tier: INTERPRETATION, status: 'not asked', question: o.question, reason: 'no current model is known here' };
+      else {
+        const r = await describeImage({ model, imagePath: o.imagePath, question: o.question, apiKey: this.d.env.OPENROUTER_API_KEY, ...(this.d.fetch ? { fetch: this.d.fetch } : {}) });
+        if (r.ok) { const { ok: _ok, ...rest } = r; interpretation = { status: 'answered', ...rest }; }
+        else interpretation = { tier: INTERPRETATION, status: r.refused ? 'refused' : 'failed', model, question: o.question, reason: r.error, ...(r.alternatives ? { alternatives: r.alternatives } : {}) };
+      }
+    }
+    const answered = interpretation?.status === 'answered';
+    const tiers = [DETERMINISTIC, ...(answered ? [INTERPRETATION] : [])];
+    const now = new Date();
+    const record = {
+      observation: 1, made_at: now.toISOString(), project: o.project, source: o.source, tiers,
+      reading: 'Measurements are deterministic computations on the pixels. An interpretation is a model\'s claim about the image, not a measurement.',
+      look, ...(interpretation ? { interpretation } : {}), job: { id: j.id },
+    };
+    const w = writeObservation(o.root, rel, record, now);
+    if (!w.ok) return fail(`the observation could not be written: ${w.error}`, 'failed');
+    const cost = answered && typeof interpretation?.cost_usd === 'number' ? interpretation.cost_usd as number : undefined;
+    let receipt: string | undefined;
+    try {
+      receipt = this.d.seal({
+        ...base, subject: `observe · ${rel}`, status: 'ok', outputs: [{ path: w.path, sha256: w.sha256, bytes: w.bytes }],
+        observation: {
+          tiers, worker: `${look.worker.name} ${look.worker.version}`, opencv: look.opencv, measurements: look.measurements.length,
+          ...(interpretation ? { interpretation: { status: String(interpretation.status), ...(typeof interpretation.model === 'string' ? { model: interpretation.model } : {}), ...(answered ? { cost_usd: cost ?? null } : {}) } } : {}),
+        },
+        ...(answered ? { model_requested: String(interpretation?.model_requested), model_resolved: String(interpretation?.model) } : {}),
+        ...(cost !== undefined ? { cost_usd: cost } : {}),
+      });
+    } catch { receipt = undefined; }
+    this.d.notify([{ text: `  ${g.ok} ` }, { text: `${j.id} observed`, role: 'strong' }, { text: `  ${rel} ${g.arrow} ${w.path}${this.sep}${tiers.join(', ')}${receipt ? `${this.sep}receipt ${receipt}` : ''}`, role: 'secondary' }]);
+    if (interpretation && !answered) {
+      const alt = Array.isArray(interpretation.alternatives) && interpretation.alternatives.length ? `; models that do: ${(interpretation.alternatives as string[]).join(', ')} (/model <id>)` : '';
+      this.d.notify([{ text: '  Model      ', role: 'secondary' }, { text: `${String(interpretation.reason)}${alt}`, role: 'estimate' }]);
+    } else if (answered) {
+      this.d.notify([{ text: '  Model      ', role: 'secondary' }, { text: `${String(interpretation?.model)} answered (a claim, in the file)${this.sep}cost ${cost === undefined ? 'not reported' : `$${cost.toFixed(4)}`}`, role: 'ai' }]);
+    }
+    return { ok: true, file: w.path, tiers, ...(receipt ? { receipt } : {}), ...(interpretation ? { interpretation } : {}) };
   }
 
   // ── /workflows, /run ────────────────────────────────────────────────────────
@@ -389,6 +545,8 @@ export class Workspace {
   }
 
   private sealJob(job: JobRecord): string | undefined {
+    // A Look job's one receipt is its observation's (kind observe), sealed once the observation is written.
+    if (this.looks.has(job.id)) return undefined;
     const p = this.predictions.get(job.id);
     const met = p ? job.state === 'completed' && job.steps.length === p.order.length && job.steps.every((s, i) => s.name === p.order[i] && s.state === 'completed') : undefined;
     const outputs = job.kind === 'server' ? [] : this.outputsSince(job);
@@ -504,12 +662,28 @@ export class Workspace {
     try { chain = (this.d.receipts ?? (() => readChain('runs')))(); } catch { chain = []; }
     for (const rec of [...chain].reverse().slice(0, 60)) {
       // Receipts sealed before projects had an id cannot say which folder they came from: not shown here.
-      if (rec.project_id !== id || !rec.files?.length || rec.kind === 'predict') continue;
+      // A prediction's and an observation's files are what they read, not what they changed.
+      if (rec.project_id !== id || !rec.files?.length || rec.kind === 'predict' || rec.kind === 'observe') continue;
       for (const f of rec.files) if (!changed.some((c) => c.path === f.path)) changed.push({ path: f.path, kind: rec.kind, id: String(rec.hash).slice(7, 15) });
     }
-    lines.push([{ text: '  Changed', role: 'strong' }, { text: changed.length ? '  by Timmy turns and your edits' : '', role: 'secondary' }]);
-    if (changed.length) for (const c of changed.slice(0, 10)) lines.push([{ text: '    ' }, { text: this.fileLink(c.path) }, { text: `  ${c.kind === 'turn' ? 'a Timmy turn' : c.kind === 'edit' ? 'your edit' : c.kind}${this.sep}receipt ${c.id}`, role: 'secondary' }]);
+    lines.push([{ text: '  Changed', role: 'strong' }, { text: changed.length ? '  by Timmy turns, your edits and /add' : '', role: 'secondary' }]);
+    if (changed.length) for (const c of changed.slice(0, 10)) lines.push([{ text: '    ' }, { text: this.fileLink(c.path) }, { text: `  ${c.kind === 'turn' ? 'a Timmy turn' : c.kind === 'edit' ? 'your edit' : c.kind === 'intake' ? 'added (/add)' : c.kind}${this.sep}receipt ${c.id}`, role: 'secondary' }]);
     else lines.push(...this.say('  nothing yet'));
+    // Round R2, look: what Look measured (and any model's claim beside it), newest first.
+    const observed = [...chain].reverse().filter((r) => r.project_id === id && r.kind === 'observe').slice(0, 8);
+    lines.push([{ text: '  Observations', role: 'strong' }, { text: observed.length ? '  newest first; measurements, and any model claim' : '', role: 'secondary' }]);
+    if (observed.length) {
+      for (const r of observed) {
+        const src = r.files?.[0]?.path ?? '?';
+        const out = r.outputs?.[0]?.path;
+        const tiers = r.observation?.tiers?.length ? r.observation.tiers.join(', ') : r.status === 'cancelled' ? 'stopped' : 'not observed';
+        lines.push([
+          { text: '    ' }, { text: this.fileLink(src) }, { text: ` ${this.d.glyphs.arrow} ` },
+          out ? { text: this.fileLink(out) } : { text: r.observation?.error ?? 'no observation', role: 'failure' },
+          { text: `  ${tiers}${this.sep}receipt ${String(r.hash).slice(7, 15)}`, role: 'secondary' },
+        ]);
+      }
+    } else lines.push(...this.say('  none yet: /observe <image>'));
     lines.push(...this.say('All receipts: /receipts; a receipt\'s page: /web <receipt id>; a job\'s output: /jobs <id>'));
     return lines;
   }

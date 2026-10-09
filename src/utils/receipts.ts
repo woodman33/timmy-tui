@@ -42,10 +42,14 @@ export interface Receipt {
   project?: string;
   /** review at c7475458: the project's identity (a hash of its real folder), so two folders with one name stay apart */
   project_id?: string;
-  files?: Array<{ path: string; sha256?: string; previous_sha256?: string; created?: boolean; bytes?: number }>;
+  // Round R2, look: an intake (/add) records each copy's kind, how it was told (its bytes or its name) and,
+  // when the copy was renamed, its source's base name (never its folder).
+  files?: Array<{ path: string; sha256?: string; previous_sha256?: string; created?: boolean; bytes?: number; kind?: string; kind_by?: 'bytes' | 'name'; source_name?: string }>;
   outputs?: Array<{ path: string; sha256?: string; bytes: number }>;
   job?: { id: string; kind: string; label: string; state: string; exit_code?: number | null; steps?: Array<{ name: string; state: string; code?: number }>; log_sha256?: string; url?: string; ms?: number; error?: string };
   prediction?: { doc: string; block: string; order: string[]; expect: string; met?: boolean; receipt?: string };
+  /** round R2, look: an observation's evidence tiers (deterministic computation; model interpretation), never merged */
+  observation?: { tiers: string[]; worker?: string; opencv?: string; measurements?: number; error?: string; interpretation?: { status: string; model?: string; cost_usd?: number | null } };
   model_resolved?: string;
   via?: string;
   ms?: number;

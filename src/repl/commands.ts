@@ -88,6 +88,9 @@ export interface WorkspaceViews {
   jobsView(args: string): Segment[][];
   stop(args: string): Promise<Segment[][]>;
   results(args: string): Segment[][];
+  /** Round R2, look: files in (/add) and observations out (/observe). */
+  add(args: string): Segment[][];
+  observe(args: string): Promise<Segment[][]>;
 }
 
 /** /help's sections, in order: what you work on, what you look at, setup, the session. */
@@ -128,6 +131,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'jobs', group: 'work', description: 'Running and finished jobs; /jobs <id>', run: inWorkspace((w, a) => w.jobsView(a)) },
   { name: 'stop', group: 'work', description: 'Stop a job: /stop <id>, or /stop all', run: inWorkspace((w, a) => w.stop(a)) },
   { name: 'results', group: 'work', description: 'Outputs, jobs and changes, linked to files', run: inWorkspace((w, a) => w.results(a)) },
+  { name: 'add', group: 'work', description: 'Copy files into refs/: /add <file…>', run: inWorkspace((w, a) => w.add(a)) },
+  { name: 'observe', group: 'look', description: 'Measure an image: /observe <file> [question]', run: inWorkspace((w, a) => w.observe(a)) },
   {
     name: 'web',
     group: 'look',
