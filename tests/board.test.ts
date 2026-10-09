@@ -135,6 +135,7 @@ describe('renderBoard', () => {
     expect(claim[0]).toContain('anthropic/claude-haiku-4.5');
     expect(claim[0]).toContain('What is on the card?');
     expect(claim[0]).toContain('A grey test card.');
+    expect(claim[0]).toContain('no admitted evidence: a claim, not a measurement');
     expect(claim[0]).not.toContain('640 × 480');
     expect(claim[0]).not.toContain('#112233');
     // The source image is drawn beside the observation.
@@ -263,6 +264,43 @@ describe('renderBoard', () => {
     expect(section(html, 'measured')).toEqual([]);
     expect(html).toContain('status-unverified');
     expect(html).toContain('its provenance was not checked');
+  });
+
+  // AGENTS.md §4: a model's answer is qualified only by admitted references (src/vision/evidence.ts).
+  it("a claim shows its admitted references when the record carries them, and otherwise says it has none", () => {
+    const withEvidence = (evidence: unknown, check: BoardObservation['check'] = VERIFIED): string => {
+      const input = fixture();
+      input.observations = [read('results/observations/x.json', { ...RECORD, interpretation: { ...RECORD.interpretation, evidence } }, check)];
+      return section(renderBoard(input), 'claim')[0];
+    };
+    const admitted = {
+      admission: 'admitted_references', run_id: 'run-1', source_revision: SHA, semantic_correctness_verified: false, raw_output: '{}',
+      handles: [{ handle_id: 'ev:1111aaaa-0000-4000-8000-000000000000', measurement: 'qr_codes_decoded' }, { handle_id: 'ev:2222bbbb-0000-4000-8000-000000000000', measurement: 'mean_color' }],
+    };
+    const yes = withEvidence(admitted);
+    expect(yes).toContain('admitted references');
+    expect(yes).toContain('qr_codes_decoded');
+    expect(yes).toContain('mean_color');
+    expect(yes).toContain('ev:1111aaaa');
+    expect(yes).toMatch(/not that it is right/);
+    expect(yes).not.toContain('no admitted evidence');
+    expect(yes).not.toContain('not a deterministic value in this record');
+    // In a file that is not verified, the admission is only as recorded.
+    expect(withEvidence(admitted, { status: 'unverified', reasons: ['no observe receipt names this file'] })).toMatch(/as recorded in a file that is not verified/);
+    // A reference to a value the record does not hold as deterministic is said to be so.
+    const odd = withEvidence({ ...admitted, handles: [{ handle_id: 'ev:3333', measurement: 'depth_guess' }] });
+    expect(odd).toContain('depth_guess [not a deterministic value in this record]');
+
+    const refused = withEvidence({ admission: 'unknown', reason: 'uncited_handle', run_id: 'run-1', source_revision: SHA, raw_output: '{}' });
+    expect(refused).toContain('no admitted evidence: a claim, not a measurement');
+    expect(refused).toContain('uncited_handle');
+    expect(refused).not.toContain('admitted references');
+
+    for (const none of [undefined, { admission: 'admitted_references', handles: 'ev:1' }, { admission: 'admitted_references', handles: [] }, 'admitted']) {
+      const claim = withEvidence(none);
+      expect(claim).toContain('no admitted evidence: a claim, not a measurement');
+      expect(claim).not.toContain('admitted references');
+    }
   });
 
   it('a verified card says which receipt sealed it', () => {

@@ -35,7 +35,16 @@ export interface BoardMeasurement {
   /** Not an object with a name and a text tier: `value` is then the whole entry as recorded. */
   malformed?: boolean;
 }
-export interface BoardInterpretation { status: string; model?: string; question?: string; answer?: string; cost_usd?: number; reason?: string }
+/**
+ * An interpretation's evidence as the record gives it (`interpretation.evidence`, written from
+ * src/vision/evidence.ts's InterpretationEvidence): admitted references with the measurement each names,
+ * a refusal (`unknown`, with its reason), or a record that could not be read as either.
+ */
+export type BoardEvidence =
+  | { admission: 'admitted_references'; handles: Array<{ handle_id: string; measurement?: string }> }
+  | { admission: 'unknown'; reason?: string }
+  | { admission: 'unreadable' };
+export interface BoardInterpretation { status: string; model?: string; question?: string; answer?: string; cost_usd?: number; reason?: string; evidence?: BoardEvidence }
 export interface BoardObservation {
   /** The observation file, relative to the project. */
   file: string;
@@ -100,6 +109,20 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v 
 const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 const obj = (v: unknown): Record<string, unknown> | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined);
 
+/** `interpretation.evidence` read strictly: admitted only with at least one handle, each with a text id. */
+function readEvidence(v: unknown): BoardEvidence | undefined {
+  if (v === undefined) return undefined;
+  const e = obj(v);
+  if (e?.admission === 'admitted_references' && Array.isArray(e.handles) && e.handles.length) {
+    const handles = e.handles.map((h) => (typeof h === 'string' && h ? { handle_id: h } : str(obj(h)?.handle_id)
+      ? { handle_id: str(obj(h)?.handle_id)!, ...(str(obj(h)?.measurement) ? { measurement: str(obj(h)?.measurement) } : {}) } : null));
+    if (handles.every((h) => h !== null)) return { admission: 'admitted_references', handles: handles as Array<{ handle_id: string; measurement?: string }> };
+    return { admission: 'unreadable' };
+  }
+  if (e?.admission === 'unknown') return { admission: 'unknown', ...(str(e.reason) ? { reason: str(e.reason) } : {}) };
+  return { admission: 'unreadable' };
+}
+
 /** What /board knows about an observation file besides its JSON: what checkObservation needs. */
 export interface ObservationProvenance {
   /** The record as written (before any scrubbing for display); the `json` read when omitted. */
@@ -155,6 +178,7 @@ export function readObservationRecord(file: string, json: unknown, provenance?: 
         status,
         ...Object.fromEntries((['model', 'question', 'answer', 'reason'] as const).flatMap((k) => (str(it[k]) ? [[k, str(it[k])]] : []))),
         ...(num(it.cost_usd) !== undefined ? { cost_usd: num(it.cost_usd) } : {}),
+        ...(readEvidence(it.evidence) ? { evidence: readEvidence(it.evidence) } : {}),
       },
     } : {}),
     ...(job ? { job } : {}),
@@ -276,6 +300,26 @@ function unverifiedRow(m: BoardMeasurement, cardVerified: boolean): string {
   return `<dt>${esc(m.name)}</dt><dd>${esc(`${plain(m.value)}${unit}`)} <span class="tier">${esc(tier)}</span></dd>`;
 }
 
+/**
+ * What a model's claim rests on (AGENTS.md §4): the references the admission run admitted — each a handle
+ * observed in that run and cited through the cite tool — or plainly none. An admission says where a claim
+ * points, not that it is right; in a file that is not verified, it is only what the file records.
+ */
+function evidenceLine(e: BoardEvidence | undefined, cardVerified: boolean, deterministicNames: ReadonlySet<string>): string {
+  if (e?.admission === 'admitted_references') {
+    const refs = e.handles.map((h) => {
+      const id = h.handle_id.length > 14 ? `${h.handle_id.slice(0, 11)}…` : h.handle_id;
+      const name = h.measurement ?? '(a measurement not named)';
+      return `${name}${h.measurement && deterministicNames.has(h.measurement) ? '' : ' [not a deterministic value in this record]'} (${id})`;
+    }).join(', ');
+    const how = 'each a handle observed in its run and cited; an admission says where the claim points, not that it is right';
+    return `<p class="evidence admitted">${esc(`admitted references: ${refs}. ${how}${cardVerified ? '' : '; as recorded in a file that is not verified'}`)}</p>`;
+  }
+  const why = e?.admission === 'unknown' ? ` (its evidence was refused: ${e.reason ?? 'no reason recorded'})`
+    : e?.admission === 'unreadable' ? ' (its evidence record could not be read)' : '';
+  return `<p class="evidence none">${esc(`no admitted evidence: a claim, not a measurement${why}`)}</p>`;
+}
+
 /** The card's provenance, said plainly: verified (by which receipt), or why not. */
 function statusBlock(o: BoardObservation): string {
   const c: ObservationCheck = o.check ?? { status: 'unverified', reasons: ['its provenance was not checked'] };
@@ -313,7 +357,8 @@ function observationCard(o: BoardObservation, h: ReturnType<typeof render>): str
   if (i && i.status === 'answered') {
     const meta = [`model ${i.model ?? 'unknown'}`, i.cost_usd !== undefined ? `cost $${i.cost_usd.toFixed(4)}` : 'cost not reported'].join(' · ');
     model = `<section class="claim"><h4>${esc("the model's claim")}</h4><p class="meta">${esc(meta)}</p>`
-      + `${i.question ? `<p class="asked">${esc(`Asked: ${i.question}`)}</p>` : ''}<p class="answer">${i.answer ? claimHtml(i.answer) : esc('(no answer text)')}</p></section>`;
+      + `${i.question ? `<p class="asked">${esc(`Asked: ${i.question}`)}</p>` : ''}<p class="answer">${i.answer ? claimHtml(i.answer) : esc('(no answer text)')}</p>`
+      + `${evidenceLine(i.evidence, verified, new Set(o.measurements.filter((m) => !m.malformed && m.tier === DETERMINISTIC).map((m) => m.name)))}</section>`;
   } else if (i) {
     model = `<p class="nomodel">${esc(`No model claim: ${i.status}${i.model ? ` (${i.model})` : ''}${i.reason ? `: ${i.reason}` : ''}`)}</p>`;
   }
@@ -386,6 +431,8 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .answer { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .answer code, .answer strong { font: inherit; font-weight: 600; }
 .claim .meta { margin: 0; }
+.evidence { margin: 6px 0 0; font-size: ${TYPE.size.small}px; color: ${HOMEBREW.textSecondary}; overflow-wrap: anywhere; }
+.evidence.none { font-style: italic; }
 .nomodel { color: ${HOMEBREW.attention}; font-size: ${TYPE.size.small}px; margin: 0; }
 .empty, .more { color: ${HOMEBREW.textSecondary}; margin: 0; }
 .more { margin-top: 10px; }
