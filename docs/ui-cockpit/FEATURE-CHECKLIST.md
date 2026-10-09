@@ -99,7 +99,7 @@ Merge, npm publish, tags and deployment are on HOLD. Shorthand: "row N" is a row
 | Feature | Planned | Implemented | Tested | Demonstrated | Blocker / user action | Evidence |
 |---|---|---|---|---|---|---|
 | `/board` snapshot: a read-only HTML board of references, workflow blocks, jobs, outputs and observations | ✓ CCP R2 area 2 | ✓ | ✓ (one real-Look test runs only where Python is present) | ✓ rows 128, 130 (`4d9cf52`), 131 (`0deb7b4`) | – | `src/repl/board.ts`; `tests/board.test.ts` |
-| `/board live`: the board on 127.0.0.1 with Stop, Run and Observe (`/board off`) | ✓ CCP R1 4, R2 area 2 | ✓ (`6b370f4`) | ✓ (19 tests on 127.0.0.1; 3 in a real headless Chromium) | ✓ rows 137 (the page drawn, no console messages, the port closed after `/board off`), 138 (Stop pressed on a running recipe job) | – | `src/repl/board-live.ts`; `tests/board-live.test.ts`, `tests/board-live-browser.test.ts` |
+| `/board live`: the board on 127.0.0.1 with Stop, Run and Observe (`/board off`) | ✓ CCP R1 4, R2 area 2 | ✓ (`6b370f4`) | ✓ (19 tests on 127.0.0.1; 3 in a real headless Chromium) | ✓ rows 137 (the page drawn, no console messages, the port closed after `/board off`), 138 (Stop pressed on a running recipe job), 141 (Observe pressed) | – | `src/repl/board-live.ts`; `tests/board-live.test.ts`, `tests/board-live-browser.test.ts` |
 | Canvas workflow, parameter and result cards | ✓ CCP R1 4 | – | – | – | – | CCP R1 item 4 |
 
 ## 8. MCP
