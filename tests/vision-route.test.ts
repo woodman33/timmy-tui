@@ -238,6 +238,24 @@ describe('a model interpretation can be stopped', () => {
     expect(early).not.toHaveProperty('sent');
   }, 10_000);
 
+  it('a refusal whose models list must be read again for alternatives does not hold a stop either', async () => {
+    const image = join(dir, 'a.png');
+    writeFileSync(image, PNG);
+    let lists = 0;
+    // The first read of the list fails (whether the model takes images is unknown); the second never answers.
+    const fn = (async (input: string | URL | Request) => {
+      if (String(input).endsWith('/models')) { lists++; return lists === 1 ? new Response('down', { status: 503 }) : new Promise<Response>(() => undefined); }
+      return new Response('not here', { status: 404 });
+    }) as typeof fetch;
+    const stop = new AbortController();
+    const pending = describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: fn, signal: stop.signal });
+    while (lists < 2) await new Promise((resolve) => setTimeout(resolve, 5));
+    stop.abort();
+    const r = await pending;
+    expect(r).toMatchObject({ ok: false, refused: true, alternatives: [] });
+    expect(r).not.toHaveProperty('sent');
+  }, 10_000);
+
   it('its own time limit still applies beside the signal, and is a failure, not a stop', async () => {
     const image = join(dir, 'a.png');
     writeFileSync(image, PNG);

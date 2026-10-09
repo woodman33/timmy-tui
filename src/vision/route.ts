@@ -194,7 +194,9 @@ export async function describeImage(o: { model: string; imagePath: string; quest
   let support: ImageSupport;
   try { support = await unlessAborted(acceptsImages(o.model, f), o.signal); } catch { return notSent(); }
   if (support.accepts !== true) {
-    return { ok: false, refused: true, error: support.accepts === false ? `${o.model} does not take images: ${support.reason}` : `whether ${o.model} takes images is unknown: ${support.reason}`, alternatives: await imageAlternatives(f) };
+    // The alternatives may read the models list again (when it could not be read): a stop does not wait for that.
+    const alternatives = await unlessAborted(imageAlternatives(f), o.signal).catch(() => [] as string[]);
+    return { ok: false, refused: true, error: support.accepts === false ? `${o.model} does not take images: ${support.reason}` : `whether ${o.model} takes images is unknown: ${support.reason}`, alternatives };
   }
   if (o.signal?.aborted) return notSent();
   const question = o.question.trim() || 'Describe this image.';
