@@ -551,8 +551,9 @@ export async function callTool(route: McpRouteId, server: McpServerRef, tool: st
     // The name check happens inside listTools; nothing starts for a name the config does not hold exactly.
     const listed = await listTools('mcporter', server, { ...o, timeoutMs: Math.min(timeoutMs, 30_000) });
     if (!listed.ok) {
-      const why = listed.timedOut ? `no answer within ${Math.round(timeoutMs / 1000)} s while reading its tools; stopped the route and its server` : listed.error;
-      return { ok: false, ...base, ms: spent(), outputBytes: 0, error: listed.needsAuth ? listed.error : `${why}; nothing was called`, ...(listed.timedOut ? { timedOut: true } : {}), ...(listed.needsAuth ? { needsAuth: true, authCommand: listed.authCommand } : {}) };
+      const why = listed.timedOut ? `no answer within ${Math.round(timeoutMs / 1000)} s while reading its tools; stopped the route and its server` : listed.error ?? 'its tools could not be read';
+      const error = listed.needsAuth || /nothing was (started|called)/.test(why) ? why : `${why}; nothing was called`;
+      return { ok: false, ...base, ms: spent(), outputBytes: 0, error, ...(listed.timedOut ? { timedOut: true } : {}), ...(listed.needsAuth ? { needsAuth: true, authCommand: listed.authCommand } : {}) };
     }
     const names = listed.allNames ?? listed.tools.map((t) => t.name);
     if (!names.includes(tool)) {
