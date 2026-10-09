@@ -384,8 +384,9 @@ function evidenceLine(e: BoardEvidence | undefined, status: ObservationCheck['st
 }
 
 /**
- * R3 (H14): the qualified answer (/observe --qualify). Admitted: "model answer, cites …" with each cited value,
- * marked measured only on a verified card; the answer stays a claim. Otherwise: why there is no admitted answer,
+ * R3 (H14): the qualified answer (/observe --qualify). Admitted: "model answer (a claim), citing …" with each cited
+ * value, marked measured only on a verified card; the answer stays a claim. The heading puts "measured" on the cited
+ * values, never next to the answer (review M7), so it cannot be read as a measured answer. Otherwise: why there is no admitted answer,
  * and the raw output as it came, labelled as not a claim. Distinct from an uncited claim and from measured values.
  */
 function qualifiedBlock(q: BoardQualified, status: ObservationCheck['status'] | undefined): string {
@@ -400,7 +401,8 @@ function qualifiedBlock(q: BoardQualified, status: ObservationCheck['status'] | 
       const unit = c.unit && c.value !== null && c.value !== undefined ? ` · ${c.unit}` : '';
       return `<dt>${esc(c.measurement)}</dt><dd>${esc(`${plain(c.value)}${unit}`)} <span class="tier">${esc(`${as} · cited as ${id}`)}</span></dd>`;
     }).join('');
-    return `<section class="qualified"><h4>${esc(`model answer, cites ${names} (${verified ? 'measured' : 'not verified'})`)}</h4><p class="meta">${esc(meta)}</p>`
+    const heading = verified ? `model answer (a claim), citing measured values: ${names}` : `model answer (a claim), citing ${names} (not verified)`;
+    return `<section class="qualified"><h4>${esc(heading)}</h4><p class="meta">${esc(meta)}</p>`
       + `${q.question ? `<p class="asked">${esc(`Asked: ${q.question}`)}</p>` : ''}<p class="answer">${q.answer ? claimHtml(q.answer.length > BOARD_ANSWER_CHARS ? `${q.answer.slice(0, BOARD_ANSWER_CHARS)}…` : q.answer) : esc('(no answer text)')}</p>`
       + `${rows ? `<dl class="cited">${rows}</dl>` : ''}`
       + `<p class="evidence">${esc(verified

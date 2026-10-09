@@ -433,10 +433,11 @@ describe('/board and observation-check: admitted vs refused vs tampered', () => 
     return renderBoard({ project: 'p', madeAt: 'now', base: '../../', references: [], workflows: [], jobs: [], outputs: [], observations: [o!] });
   };
 
-  it('an admitted answer on a verified card: "model answer, cites …" with the cited values as measured, still a claim', async () => {
+  it('an admitted answer on a verified card: "model answer (a claim), citing measured values: …", the answer never called measured', async () => {
     const { root, chain, file, ws } = await admittedFile();
     const html = card(root, file, chain());
-    expect(html).toContain('model answer, cites mean_color, qr_codes_decoded (measured)');
+    expect(html).toContain('model answer (a claim), citing measured values: mean_color, qr_codes_decoded');
+    expect(html).not.toContain('(measured)');
     expect(html).toMatch(/class="qualified"/);
     expect(html).toMatch(/#070707.*measured · cited as ev:/s);
     expect(html).toContain('the answer itself is not a measurement');
@@ -445,7 +446,7 @@ describe('/board and observation-check: admitted vs refused vs tampered', () => 
     // The board the REPL writes shows the same.
     text(ws.board(''));
     const page = readFileSync(join(root, '.timmy/board/index.html'), 'utf8');
-    expect(page).toContain('model answer, cites mean_color, qr_codes_decoded (measured)');
+    expect(page).toContain('model answer (a claim), citing measured values: mean_color, qr_codes_decoded');
     expect(page).toContain('status-verified');
   });
 
@@ -458,7 +459,7 @@ describe('/board and observation-check: admitted vs refused vs tampered', () => 
     expect(html).toContain('no admitted model answer');
     expect(html).toContain('refused (uncited_handle)');
     expect(html).toContain('raw output, kept exactly as returned; not a claim');
-    expect(html).not.toContain('model answer, cites');
+    expect(html).not.toContain('model answer (a claim), citing');
     expect(html).not.toMatch(/class="claim"/);
   });
 
@@ -472,7 +473,8 @@ describe('/board and observation-check: admitted vs refused vs tampered', () => 
     expect(c.reasons.join('\n')).toMatch(/the file changed after it was sealed/);
     expect(c.reasons.join('\n')).toMatch(/cites mean_color with a value this record's measurement does not have/);
     const html = card(root, file, chain());
-    expect(html).toContain('model answer, cites mean_color, qr_codes_decoded (not verified)');
+    expect(html).toContain('model answer (a claim), citing mean_color, qr_codes_decoded (not verified)');
+    expect(html).not.toContain('citing measured values');
     expect(html).toContain('as recorded, not verified');
     expect(html).not.toContain('(measured)');
   });
