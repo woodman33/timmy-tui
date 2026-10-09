@@ -171,6 +171,84 @@ describe('what a response reported is kept, whatever became of the answer', () =
   });
 });
 
+// Round R3 (the independent review of 40022d9, finding 2): the paid request had no AbortSignal, so nothing
+// could stop it. describeImage takes one now, combined with its time limit.
+describe('a model interpretation can be stopped', () => {
+  /** OpenRouter whose chat request never answers: it ends only when its signal aborts (or never, with `deaf`). */
+  function silent(o: { deaf?: boolean; slowList?: boolean } = {}) {
+    const posts: string[] = [];
+    let posted: () => void = () => undefined;
+    const sent = new Promise<void>((resolve) => { posted = resolve; });
+    const never = (signal?: AbortSignal | null): Promise<Response> => new Promise((_resolve, reject) => {
+      if (signal && !o.deaf) signal.addEventListener('abort', () => reject(signal.reason ?? new Error('aborted')), { once: true });
+    });
+    const fn = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/models')) return o.slowList ? never(null) : new Response(JSON.stringify(MODELS), { status: 200 });
+      posts.push(String(init?.body));
+      posted();
+      return never(init?.signal);
+    }) as typeof fetch;
+    return { fn, posts, sent };
+  }
+
+  it('aborting while the model answers ends the call at once: cancelled, sent, cost unknown (null)', async () => {
+    const image = join(dir, 'a.png');
+    writeFileSync(image, PNG);
+    const api = silent();
+    const stop = new AbortController();
+    let requested = 0;
+    const pending = describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: api.fn, signal: stop.signal, onRequest: () => { requested++; } });
+    await api.sent;
+    expect(requested).toBe(1);
+    stop.abort();
+    const r = await pending;
+    expect(r).toMatchObject({ ok: false, cancelled: true, sent: true, cost_usd: null });
+    expect(r.ok === false && r.error).toMatch(/stopped while the model was answering/);
+  });
+
+  it('a fetch that ignores its signal cannot hold the stop', async () => {
+    const image = join(dir, 'a.png');
+    writeFileSync(image, PNG);
+    const api = silent({ deaf: true });
+    const stop = new AbortController();
+    const pending = describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: api.fn, signal: stop.signal });
+    await api.sent;
+    stop.abort();
+    expect(await pending).toMatchObject({ ok: false, cancelled: true, sent: true, cost_usd: null });
+  }, 10_000);
+
+  it('aborted before the request goes out (the models list is slow): nothing is sent, so no cost at all', async () => {
+    const image = join(dir, 'a.png');
+    writeFileSync(image, PNG);
+    const api = silent({ slowList: true });
+    const stop = new AbortController();
+    const pending = describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: api.fn, signal: stop.signal });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    stop.abort();
+    const r = await pending;
+    expect(r).toMatchObject({ ok: false, cancelled: true });
+    expect(r).not.toHaveProperty('sent');
+    expect(r).not.toHaveProperty('cost_usd');
+    expect(api.posts).toHaveLength(0);
+    const before = new AbortController();
+    before.abort();
+    const early = await describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: mockFetch().fn, signal: before.signal });
+    expect(early).toMatchObject({ ok: false, cancelled: true });
+    expect(early).not.toHaveProperty('sent');
+  }, 10_000);
+
+  it('its own time limit still applies beside the signal, and is a failure, not a stop', async () => {
+    const image = join(dir, 'a.png');
+    writeFileSync(image, PNG);
+    const api = silent();
+    const r = await describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: api.fn, signal: new AbortController().signal, timeoutMs: 50 });
+    expect(r).toMatchObject({ ok: false, sent: true, cost_usd: null });
+    expect(r).not.toHaveProperty('cancelled');
+    expect(r.ok === false && r.error).toMatch(/did not complete/);
+  });
+});
+
 // Round R2 (the Mac run): on the operator's own provider key (BYOK) OpenRouter reports cost 0 (its fee) and
 // the provider's charge as upstream_inference_cost; the first paid image call was recorded as costing 0.
 describe('the image call\'s cost on a provider key (BYOK)', () => {

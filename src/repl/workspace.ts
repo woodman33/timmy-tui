@@ -112,6 +112,23 @@ export const freePort = (): Promise<number> => new Promise((resolve, reject) => 
 
 interface Prediction { doc: string; block: string; order: string[]; receipt?: string }
 
+/**
+ * Round R3 (the independent review of 40022d9, finding 2): an observation in progress is one cancellable
+ * operation, from Look's measurement to the model's answer. /stop, /stop all and the REPL's end abort it.
+ */
+interface Observing {
+  abort: AbortController;
+  /** settles once the observation is written and sealed, or it is known why there is none */
+  done?: Promise<ObserveOutcome>;
+  /** set while the model is asked, after the measurement: which model, since when, and whether the paid request is out */
+  asking?: { model: string; since: number; sent: boolean };
+}
+
+/** How long /stop and the REPL's end wait for a stopped observation to be recorded. */
+const OBSERVE_SETTLE_MS = 10_000;
+const within = <T>(p: Promise<T>, ms = OBSERVE_SETTLE_MS): Promise<T | undefined> =>
+  Promise.race([p, new Promise<undefined>((resolve) => { setTimeout(() => resolve(undefined), ms).unref(); })]);
+
 export class Workspace {
   project: ActiveProject;
   readonly jobs: JobManager;
@@ -124,6 +141,8 @@ export class Workspace {
   private readonly natives = new Map<string, NativeJobSpec>();
   /** Look jobs: their one receipt is the observation's, sealed when it is written (not the job's). */
   private readonly looks = new Set<string>();
+  /** Round R3: observations still in progress, by their Look job's id (measuring, or asking the model). */
+  private readonly observing = new Map<string, Observing>();
 
   constructor(private readonly d: WorkspaceDeps, start: ActiveProject) {
     this.project = start;
@@ -326,8 +345,13 @@ export class Workspace {
     this.mine.add(job.id);
     this.looks.add(job.id);
     const q = question?.trim() || undefined;
-    const done = this.jobs.done(job.id).then((j) => this.observed(j, { root, project, imagePath: at.path, source, question: q, ...(model ? { model } : {}) }))
-      .catch((err: unknown): ObserveOutcome => ({ ok: false, error: `the observation could not be finished (${err instanceof Error ? err.message : 'error'})` }));
+    // Round R3: the measurement and the model's answer are one operation, with one stop: the entry's abort.
+    const entry: Observing = { abort: new AbortController() };
+    this.observing.set(job.id, entry);
+    const done = this.jobs.done(job.id).then((j) => this.observed(j, { root, project, imagePath: at.path, source, question: q, ...(model ? { model } : {}) }, entry))
+      .catch((err: unknown): ObserveOutcome => ({ ok: false, error: `the observation could not be finished (${err instanceof Error ? err.message : 'error'})` }))
+      .finally(() => { if (this.observing.get(job.id) === entry) this.observing.delete(job.id); });
+    entry.done = done;
     return { ok: true, job, done };
   }
 
@@ -348,7 +372,7 @@ export class Workspace {
     ];
   }
 
-  private async observed(j: JobRecord, o: { root: string; project: string; imagePath: string; source: { path: string; sha256: string; bytes: number }; question?: string; model?: string }): Promise<ObserveOutcome> {
+  private async observed(j: JobRecord, o: { root: string; project: string; imagePath: string; source: { path: string; sha256: string; bytes: number }; question?: string; model?: string }, entry?: Observing): Promise<ObserveOutcome> {
     const g = this.d.glyphs;
     const rel = o.source.path;
     const ms = j.endedAt ? Date.parse(j.endedAt) - Date.parse(j.startedAt) : undefined;
@@ -383,7 +407,17 @@ export class Workspace {
       const model = o.model ?? this.d.model?.();
       if (!model) interpretation = { tier: INTERPRETATION, status: 'not asked', question: o.question, reason: 'no current model is known here' };
       else {
-        const r = await describeImage({ model, imagePath: o.imagePath, question: o.question, apiKey: this.d.env.OPENROUTER_API_KEY, ...(this.d.fetch ? { fetch: this.d.fetch } : {}) });
+        // Round R3: the measurement has completed; the model is asked inside the same operation, so /stop reaches it.
+        if (entry) entry.asking = { model, since: Date.now(), sent: false };
+        const onRequest = (): void => {
+          if (entry?.asking) { entry.asking.sent = true; entry.asking.since = Date.now(); }
+          this.d.notify([{ text: `  ${g.bullet} ` }, { text: `${j.id} measured`, role: 'strong' }, { text: `  ${rel}${this.sep}interpreting with ${model}, a paid request${this.sep}/stop ${j.id} stops it`, role: 'secondary' }]);
+        };
+        const r = await describeImage({
+          model, imagePath: o.imagePath, question: o.question, apiKey: this.d.env.OPENROUTER_API_KEY, ...(this.d.fetch ? { fetch: this.d.fetch } : {}),
+          ...(entry ? { signal: entry.abort.signal } : {}), onRequest,
+        });
+        if (entry) entry.asking = undefined;
         if (r.ok && r.image_sha256 !== o.source.sha256) {
           // The claim is about the bytes the model saw, and they are not the bytes Look measured. Round R3: the paid
           // answer is kept as it came, with its charge and the hash of what the model saw, but rejected: not a claim
@@ -393,7 +427,7 @@ export class Workspace {
         } else if (r.ok) { const { ok: _ok, ...rest } = r; interpretation = { status: 'answered', ...rest }; }
         else {
           interpretation = {
-            tier: INTERPRETATION, status: r.refused ? 'refused' : 'failed', model, question: o.question, reason: r.error,
+            tier: INTERPRETATION, status: r.refused ? 'refused' : r.cancelled ? 'cancelled' : 'failed', model, question: o.question, reason: r.error,
             ...(r.alternatives ? { alternatives: r.alternatives } : {}),
             ...(r.sent ? { cost_usd: r.cost_usd ?? null, ...(r.tokens !== undefined ? { tokens: r.tokens } : {}) } : {}),
           };
@@ -415,7 +449,7 @@ export class Workspace {
     // with no charge reported is sealed as an unknown cost (cost_measured: false), never as $0.
     const charged = interpretation && 'cost_usd' in interpretation ? (typeof interpretation.cost_usd === 'number' ? interpretation.cost_usd : null) : undefined;
     const cost = typeof charged === 'number' ? charged : undefined;
-    const costText = charged === null ? 'cost unknown (not reported)' : cost === undefined ? '' : `cost $${cost.toFixed(4)}`;
+    const costText = charged === null ? 'cost unknown' : cost === undefined ? '' : `cost $${cost.toFixed(4)}`;
     let receipt: string | undefined;
     try {
       receipt = this.d.seal({
@@ -677,12 +711,22 @@ export class Workspace {
     ];
   }
 
+  /** Round R3: under a Look job whose measurement is done, the model still being asked (and whether it can charge yet). */
+  private askingLine(j: JobRecord): Line[] {
+    const a = this.observing.get(j.id)?.asking;
+    if (!a) return [];
+    const secs = Math.max(0, Math.round((Date.now() - a.since) / 1000));
+    return [[{ text: `      ${this.d.glyphs.arrow} `, role: 'secondary' }, a.sent
+      ? { text: `measured; interpreting with ${a.model}${this.sep}${secs} s${this.sep}a paid request${this.sep}/stop ${j.id} stops it`, role: 'ai' }
+      : { text: `measured; about to ask ${a.model}, nothing sent yet${this.sep}/stop ${j.id} stops it`, role: 'secondary' }]];
+  }
+
   jobsView(args: string): Line[] {
     const id = args.trim();
     if (id) {
       const j = this.jobs.get(id) ?? this.jobs.list().find((x) => x.id === id);
       if (!j) return this.say(`No job ${id}. /jobs lists them.`);
-      const lines: Line[] = [this.jobLine(j)];
+      const lines: Line[] = [this.jobLine(j), ...this.askingLine(j)];
       for (const s of j.steps) lines.push([{ text: `      ${s.state === 'completed' ? this.d.glyphs.ok : s.state === 'failed' ? this.d.glyphs.fail : this.d.glyphs.bullet} ${s.name}`, role: s.state === 'failed' ? 'failure' : undefined }, { text: s.code === undefined ? '' : `  exit ${s.code}`, role: 'secondary' }]);
       lines.push([{ text: '  Output   ', role: 'secondary' }, { text: this.d.link('the full log', fileUrl(j.logPath)) }, { text: `${this.sep}${j.lines} lines; the last of them:`, role: 'secondary' }]);
       for (const l of this.jobs.tail(j.id, 12)) lines.push([{ text: `  ${this.d.glyphs.sep} `, role: 'secondary' }, { text: l }]);
@@ -690,7 +734,7 @@ export class Workspace {
     }
     const all = this.jobs.list().slice(0, 12);
     if (!all.length) return this.say('No jobs yet: /run starts a workflow, /preview a preview server.');
-    return [...all.map((j) => this.jobLine(j)), ...this.say('Details: /jobs <id>; stop one: /stop <id>')];
+    return [...all.flatMap((j) => [this.jobLine(j), ...this.askingLine(j)]), ...this.say('Details: /jobs <id>; stop one: /stop <id>')];
   }
 
   /**
@@ -701,14 +745,31 @@ export class Workspace {
     const id = args.trim();
     if (!id) return this.say('Usage: /stop <job>, or /stop all');
     if (id === 'all') {
+      // Round R3: an observation's model interpretation belongs to its Look job: /stop all reaches it too.
+      const asking = [...this.observing.values()].filter((o) => o.asking);
+      for (const o of this.observing.values()) o.abort.abort();
       const live = [...this.mine].map((x) => this.jobs.get(x)).filter((j): j is JobRecord => !!j && !TERMINAL.has(j.state));
-      if (!live.length) return this.say('Nothing this REPL started is running.');
-      const ended = await Promise.all(live.map((j) => this.jobs.stop(j.id)));
-      const clean = ended.filter((j) => j && TERMINAL.has(j.state) && !j.error).length;
-      const left = live.length - clean;
-      return left
-        ? this.say(`Stopped ${clean} of ${live.length} jobs this REPL started; ${left} did not stop cleanly: /jobs`, 'failure')
-        : this.say(`Stopped ${clean} job${clean === 1 ? '' : 's'} this REPL started, with ${clean === 1 ? 'its process group' : 'their process groups'}.`);
+      if (!live.length && !asking.length) return this.say('Nothing this REPL started is running.');
+      const [ended, asked] = await Promise.all([
+        Promise.all(live.map((j) => this.jobs.stop(j.id))),
+        Promise.all(asking.map((o) => (o.done ? within(o.done) : Promise.resolve(undefined)))),
+      ]);
+      const lines: Line[] = [];
+      if (live.length) {
+        const clean = ended.filter((j) => j && TERMINAL.has(j.state) && !j.error).length;
+        const left = live.length - clean;
+        lines.push(...(left
+          ? this.say(`Stopped ${clean} of ${live.length} jobs this REPL started; ${left} did not stop cleanly: /jobs`, 'failure')
+          : this.say(`Stopped ${clean} job${clean === 1 ? '' : 's'} this REPL started, with ${clean === 1 ? 'its process group' : 'their process groups'}.`)));
+      }
+      if (asking.length) {
+        const n = asked.filter((x) => x?.ok && x.interpretation?.status === 'cancelled').length;
+        const rest = asking.length - n;
+        lines.push(...this.say(n
+          ? `Stopped ${n} model interpretation${n === 1 ? '; its measurement' : 's; their measurements'} had completed${rest ? `; ${rest} more had already ended` : ''}.`
+          : `${rest} model interpretation${rest === 1 ? ' had' : 's had'} already ended when the stop came.`));
+      }
+      return lines;
     }
     const j = this.jobs.get(id);
     if (!j) return this.say(`No job ${id}. /jobs lists them.`);
@@ -716,7 +777,11 @@ export class Workspace {
       const how = j.stale ? 'its process is gone' : TERMINAL.has(j.state) ? `it already ${j.state}` : `it is ${j.state} and was left as it is`;
       return this.say(`${id} was started by another Timmy session; ${how}. /stop stops only the jobs this REPL started.`);
     }
+    const obs = this.observing.get(id);
+    if (obs?.asking && TERMINAL.has(j.state)) return this.stopAsking(id, obs);
     if (TERMINAL.has(j.state)) return this.say(`${id} already ${j.state}.`);
+    // A measurement that completes while this stop lands goes no further: the model is not asked.
+    obs?.abort.abort();
     const done = await this.jobs.stop(id);
     if (!done || !TERMINAL.has(done.state) || done.error) {
       return [[{ text: `  ${id} ${done?.state ?? 'unknown'}`, role: 'failure' }, { text: `  ${j.label}: ${done?.error ?? 'it did not stop'}; /jobs ${id}`, role: 'secondary' }]];
@@ -724,11 +789,35 @@ export class Workspace {
     return [[{ text: `  ${id} ${done.state}`, role: 'strong' }, { text: `  ${j.label}: it and its process group have stopped`, role: 'secondary' }]];
   }
 
-  /** The REPL is ending: stop what this REPL started. */
-  async close(): Promise<void> { await this.jobs.stopAll(); }
+  /**
+   * Round R3: /stop on a Look job whose measurement has completed while its model is being asked: the request
+   * is aborted, and the observation is recorded with its interpretation cancelled (cost unknown once sent).
+   */
+  private async stopAsking(id: string, obs: Observing): Promise<Line[]> {
+    obs.abort.abort();
+    const out = obs.done ? await within(obs.done) : undefined;
+    if (!out) return this.say(`${id}: the model's request was stopped; its observation is not recorded yet: /jobs ${id}`, 'estimate');
+    if (!out.ok) return this.say(`${id}: the model's request was stopped, and the observation could not be recorded: ${out.error}`, 'failure');
+    const i = out.interpretation;
+    if (i?.status !== 'cancelled') return this.say(`${id}: the model had already ${i?.status === 'answered' ? 'answered' : 'finished'} when the stop came${this.sep}${out.file}`);
+    const sent = 'cost_usd' in i;
+    return [[
+      { text: `  ${id} stopped the model interpretation; the measurement had completed`, role: 'strong' },
+      { text: `${this.sep}${sent ? 'the request had been sent, so it may still be charged: cost unknown' : 'no request had been sent'}${this.sep}${out.file}${out.receipt ? `${this.sep}receipt ${out.receipt}` : ''}`, role: 'secondary' },
+    ]];
+  }
+
+  /** The REPL is ending: stop what this REPL started, a model's interpretation included, and let a stopped
+   *  observation be recorded (round R3). */
+  async close(): Promise<void> {
+    const pending = [...this.observing.values()].flatMap((o) => { o.abort.abort(); return o.done ? [o.done] : []; });
+    await this.jobs.stopAll();
+    await within(Promise.allSettled(pending));
+  }
 
   /** The process is exiting at once (a second Ctrl+C): signal this REPL's live jobs without waiting. */
   killNow(): void {
+    for (const o of this.observing.values()) o.abort.abort();
     for (const id of this.mine) {
       const j = this.jobs.get(id);
       if (j?.pid && !TERMINAL.has(j.state)) killProcessGroup(j.pid, 'SIGTERM');

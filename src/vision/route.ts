@@ -121,6 +121,8 @@ export interface DescribeFailure {
   ok: false;
   /** refused before anything was sent: nothing can have been charged */
   refused?: true;
+  /** Round R3: the caller's signal stopped it (with `sent` when the request had already gone out) */
+  cancelled?: true;
   error: string;
   alternatives?: string[];
   /** Round R3: the request went out, so it may have been charged though no answer is kept */
@@ -158,26 +160,51 @@ function keptAnswer(text: string): { answer: string; answer_truncated?: true; an
   return { answer: buf.subarray(0, end).toString('utf8'), answer_truncated: true, answer_bytes: bytes };
 }
 
+/** Settles as `p` does, or rejects once `signal` aborts: a fetch that does not honour its signal cannot hold a stop. */
+function unlessAborted<T>(p: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return p;
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'));
+    if (signal.aborted) { onAbort(); return; }
+    signal.addEventListener('abort', onAbort, { once: true });
+    p.then(
+      (v) => { signal.removeEventListener('abort', onAbort); resolve(v); },
+      (e: unknown) => { signal.removeEventListener('abort', onAbort); reject(e); },
+    );
+  });
+}
+
 /**
  * A model's interpretation of one image. It spends money: the caller asks first. Refused without a key,
  * for a file that is not a PNG, JPEG, WebP or GIF, and for a model that does not take images.
+ *
+ * Round R3: `signal` stops it at any point (combined with its own time limit): before the request goes out
+ * nothing is sent; after, the result is cancelled with `sent` and an unknown cost, since the request may
+ * still be charged. `onRequest` is called as the paid request goes out.
  */
-export async function describeImage(o: { model: string; imagePath: string; question: string; apiKey: string | undefined; fetch?: typeof fetch; maxBytes?: number; timeoutMs?: number }): Promise<DescribeResult> {
+export async function describeImage(o: { model: string; imagePath: string; question: string; apiKey: string | undefined; fetch?: typeof fetch; maxBytes?: number; timeoutMs?: number; signal?: AbortSignal; onRequest?: () => void }): Promise<DescribeResult> {
   const f = o.fetch ?? fetch;
+  const notSent = (): DescribeFailure => ({ ok: false, cancelled: true, error: 'stopped before the request was sent: nothing was asked, so nothing was charged' });
   if (!o.apiKey) return { ok: false, refused: true, error: 'no OPENROUTER_API_KEY: a model interpretation needs one' };
+  if (o.signal?.aborted) return notSent();
   const bytes = readBounded(o.imagePath, o.maxBytes ?? MAX_IMAGE_BYTES);
   if (!Buffer.isBuffer(bytes)) return { ok: false, refused: true, error: bytes.error };
   const mime = imageMime(bytes.subarray(0, 16));
   if (!mime) return { ok: false, refused: true, error: 'not a PNG, JPEG, WebP or GIF image, so it is not sent to a model' };
-  const support = await acceptsImages(o.model, f);
+  let support: ImageSupport;
+  try { support = await unlessAborted(acceptsImages(o.model, f), o.signal); } catch { return notSent(); }
   if (support.accepts !== true) {
     return { ok: false, refused: true, error: support.accepts === false ? `${o.model} does not take images: ${support.reason}` : `whether ${o.model} takes images is unknown: ${support.reason}`, alternatives: await imageAlternatives(f) };
   }
+  if (o.signal?.aborted) return notSent();
   const question = o.question.trim() || 'Describe this image.';
+  const limit = AbortSignal.timeout(o.timeoutMs ?? 120_000);
+  const signal = o.signal ? AbortSignal.any([o.signal, limit]) : limit;
   let res: Response;
   let body: Record<string, unknown>;
   try {
-    res = await f(OPENROUTER_CHAT_URL, {
+    try { o.onRequest?.(); } catch { /* the caller's notice is not the request's outcome */ }
+    res = await unlessAborted(f(OPENROUTER_CHAT_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${o.apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -185,12 +212,13 @@ export async function describeImage(o: { model: string; imagePath: string; quest
         messages: [{ role: 'user', content: [{ type: 'text', text: question }, { type: 'image_url', image_url: { url: `data:${mime};base64,${bytes.toString('base64')}` } }] }],
         usage: { include: true },
       }),
-      signal: AbortSignal.timeout(o.timeoutMs ?? 120_000),
-    });
-    const parsed: unknown = await res.json().catch(() => ({}));
+      signal,
+    }), signal);
+    const parsed: unknown = await unlessAborted(res.json().catch(() => ({})), signal);
     body = parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
   } catch (err) {
     // Round R3: the request went out; whether it was charged is unknown, so the cost is null, never 0.
+    if (o.signal?.aborted) return { ok: false, cancelled: true, sent: true, cost_usd: null, error: 'stopped while the model was answering: the request had been sent, so it may still be charged; its cost is unknown' };
     return { ok: false, sent: true, cost_usd: null, error: `the request did not complete (${err instanceof Error ? err.message : 'error'})` };
   }
   // Round R3: what the response reported it cost is kept with any outcome, an answer or none.

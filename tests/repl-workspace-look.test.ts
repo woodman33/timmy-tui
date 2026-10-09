@@ -75,6 +75,30 @@ function openRouterWith(o: { content?: string; usage?: Record<string, unknown>; 
   return { fn, posts };
 }
 
+/** OpenRouter whose chat request never answers until its signal aborts; with slowList its models list never does. */
+function silentOpenRouter(o: { slowList?: boolean } = {}) {
+  const posts: string[] = [];
+  let posted: () => void = () => undefined;
+  const sent = new Promise<void>((resolve) => { posted = resolve; });
+  let listed: () => void = () => undefined;
+  const asked = new Promise<void>((resolve) => { listed = resolve; });
+  const never = (signal?: AbortSignal | null): Promise<Response> => new Promise((_resolve, reject) => {
+    signal?.addEventListener('abort', () => reject(signal.reason ?? new Error('aborted')), { once: true });
+  });
+  const fn = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith('/models')) {
+      listed();
+      if (o.slowList) return never(null);
+      return new Response(JSON.stringify({ data: [{ id: 'anthropic/claude-haiku-4.5', architecture: { input_modalities: ['text', 'image'] } }] }), { status: 200 });
+    }
+    posts.push(String(init?.body));
+    posted();
+    return never(init?.signal);
+  }) as typeof fetch;
+  return { fn, posts, sent, asked };
+}
+
 function make(root: string, extra: Partial<WorkspaceDeps> = {}) {
   const notes: string[] = [];
   const sealed: ReceiptInput[] = [];
@@ -245,6 +269,89 @@ describe('/observe with a question', () => {
     expect(written.interpretation.status).toBe('answered');
     expect(written.interpretation.answer).toBe(long);
     expect(written.interpretation).not.toHaveProperty('answer_truncated');
+  });
+
+  // Round R3 (the independent review of 40022d9, finding 2): the paid interpretation ran outside the observation
+  // job's cancellation: /stop and /stop all could not reach it, and nothing told measuring from interpreting.
+  it('/jobs shows the measurement completed and the model interpreting; /stop <job> stops it, and the file and receipt say cancelled, cost unknown', async () => {
+    const root = temp('proj-');
+    put(root, 'refs/card.png', PNG);
+    const api = silentOpenRouter();
+    const { ws, sealed, notes } = make(root, { fetch: api.fn, model: () => 'anthropic/claude-haiku-4.5' });
+    const started = await ws.observeFile('refs/card.png', 'What is on the card?');
+    if (!started.ok) throw new Error(started.error);
+    const id = started.job.id;
+    await api.sent;
+    const jobs = text(ws.jobsView(''));
+    expect(jobs).toMatch(new RegExp(`${id}\\s+completed\\s+look refs/card\\.png`));
+    expect(jobs).toMatch(/measured; interpreting with anthropic\/claude-haiku-4\.5/);
+    expect(text(ws.jobsView(id))).toMatch(/measured; interpreting with anthropic\/claude-haiku-4\.5/);
+    expect(notes.join('\n')).toMatch(new RegExp(`${id} measured.*interpreting with anthropic/claude-haiku-4\\.5`));
+    const stopped = text(await ws.stop(id));
+    expect(stopped).toContain(`${id} stopped the model interpretation; the measurement had completed`);
+    expect(stopped).toMatch(/may still be charged/);
+    const outcome = await started.done;
+    if (!outcome.ok) throw new Error(outcome.error);
+    expect(api.posts).toHaveLength(1);
+    const written = JSON.parse(readFileSync(join(root, outcome.file), 'utf8'));
+    expect(written.tiers).toEqual(['deterministic computation']);
+    expect(written.look.measurements).toEqual([]);
+    expect(written.interpretation).toMatchObject({ status: 'cancelled', model: 'anthropic/claude-haiku-4.5', cost_usd: null, reason: expect.stringMatching(/may still be charged/) });
+    const receipt = sealed.at(-1)!;
+    expect(receipt).toMatchObject({ kind: 'observe', observation: { tiers: ['deterministic computation'], interpretation: { status: 'cancelled', cost_usd: null } }, cost_measured: false });
+    expect(receipt.cost_usd).toBeUndefined();
+    expect(text(ws.jobsView(''))).not.toMatch(/interpreting/);
+    expect(text(await ws.stop(id))).toContain('already completed');
+  });
+
+  it('/stop all reaches an interpretation in flight, and says it stopped one', async () => {
+    const root = temp('proj-');
+    put(root, 'refs/card.png', PNG);
+    const api = silentOpenRouter();
+    const { ws } = make(root, { fetch: api.fn, model: () => 'anthropic/claude-haiku-4.5' });
+    const started = await ws.observeFile('refs/card.png', 'What is it?');
+    if (!started.ok) throw new Error(started.error);
+    await api.sent;
+    const all = text(await ws.stop('all'));
+    expect(all).toMatch(/Stopped 1 model interpretation; its measurement had completed/);
+    expect(all).not.toMatch(/Nothing this REPL started is running/);
+    const outcome = await started.done;
+    expect(outcome.ok && outcome.interpretation).toMatchObject({ status: 'cancelled', cost_usd: null });
+  });
+
+  it('a stop before the request goes out: nothing was sent, and no cost is recorded at all', async () => {
+    const root = temp('proj-');
+    put(root, 'refs/card.png', PNG);
+    const api = silentOpenRouter({ slowList: true });
+    const { ws, sealed } = make(root, { fetch: api.fn, model: () => 'anthropic/claude-haiku-4.5' });
+    const started = await ws.observeFile('refs/card.png', 'What is it?');
+    if (!started.ok) throw new Error(started.error);
+    await api.asked;
+    expect(text(ws.jobsView(''))).toMatch(/measured; about to ask anthropic\/claude-haiku-4\.5, nothing sent yet/);
+    const stopped = text(await ws.stop(started.job.id));
+    expect(stopped).toContain('stopped the model interpretation; the measurement had completed');
+    expect(stopped).toContain('no request had been sent');
+    const outcome = await started.done;
+    if (!outcome.ok) throw new Error(outcome.error);
+    expect(api.posts).toEqual([]);
+    expect(outcome.interpretation).toMatchObject({ status: 'cancelled' });
+    expect(outcome.interpretation).not.toHaveProperty('cost_usd');
+    expect(sealed.at(-1)).not.toHaveProperty('cost_usd');
+    expect(sealed.at(-1)).not.toHaveProperty('cost_measured');
+  });
+
+  it('the REPL ending stops an interpretation in flight and still records the observation', async () => {
+    const root = temp('proj-');
+    put(root, 'refs/card.png', PNG);
+    const api = silentOpenRouter();
+    const { ws, sealed } = make(root, { fetch: api.fn, model: () => 'anthropic/claude-haiku-4.5' });
+    const started = await ws.observeFile('refs/card.png', 'What is it?');
+    if (!started.ok) throw new Error(started.error);
+    await api.sent;
+    await ws.close();
+    expect(sealed.at(-1)).toMatchObject({ kind: 'observe', observation: { interpretation: { status: 'cancelled' } }, cost_measured: false });
+    const outcome = await started.done;
+    expect(outcome.ok && outcome.interpretation).toMatchObject({ status: 'cancelled' });
   });
 
   it('/observe says what it started, and refuses a file outside the project', async () => {
