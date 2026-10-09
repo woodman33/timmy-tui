@@ -471,8 +471,16 @@ export class Workspace {
 
   // ── /preview ────────────────────────────────────────────────────────────────
 
-  private defaultPreviewFolder(): string | null {
-    for (const dir of ['dist', 'build', 'out', 'public']) if (existsSync(join(this.root, dir, 'index.html'))) return dir;
+  /**
+   * What `/preview` serves as files, in order: a built folder (dist/, build/, out/) first; then, only when
+   * the project has no dev, start or preview script, public/ or the project folder. A page at the root
+   * beside a dev script is an app's unbuilt source (a Vite app's index.html), so its server runs instead
+   * (round R2: found on the operator's Mac, where such a page was served as static files).
+   */
+  private defaultPreviewFolder(hasScript: boolean): string | null {
+    for (const dir of ['dist', 'build', 'out']) if (existsSync(join(this.root, dir, 'index.html'))) return dir;
+    if (hasScript) return null;
+    if (existsSync(join(this.root, 'public', 'index.html'))) return 'public';
     return existsSync(join(this.root, 'index.html')) ? '.' : null;
   }
 
@@ -493,8 +501,8 @@ export class Workspace {
       spec = { label: `preview ${cmd.join(' ')}`, command: cmd[0], args: cmd.slice(1), url: urlFlag[1] };
     } else {
       const port = await (this.d.freePort ?? freePort)();
-      const folder = a || this.defaultPreviewFolder();
       const script = a ? null : this.devScript();
+      const folder = a || this.defaultPreviewFolder(script !== null);
       if (folder) {
         const at = folder === '.' ? { path: this.root, rel: '.' } : resolveInside(this.root, folder);
         if ('error' in at) return this.say(at.error);

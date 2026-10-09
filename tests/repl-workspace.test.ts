@@ -145,6 +145,43 @@ describe('a preview', () => {
     await expect(fetch(ready.url!, { signal: AbortSignal.timeout(1000) })).rejects.toThrow();
   });
 
+  // Round R2, on the operator's Mac: an app with its page at the root and a dev script (as a Vite app has)
+  // was served as static files, unbuilt, instead of through its development server.
+  it('runs the dev script when the page is not built yet, with PORT set; a built folder still comes first', async () => {
+    const root = temp('app-');
+    put(root, 'package.json', JSON.stringify({ name: 'app', private: true, scripts: { dev: 'node server.mjs' } }));
+    put(root, 'index.html', '<h1>Source page</h1>\n');
+    put(root, 'server.mjs', [
+      "import { createServer } from 'node:http';",
+      "createServer((q, s) => { s.end('<h1>From the dev server on ' + process.env.PORT + '</h1>'); }).listen(Number(process.env.PORT), '127.0.0.1');",
+    ].join('\n'));
+    const { ws } = make(root, { env: { ...process.env, UPMD_BIN: FAKE_UPMD } });
+    expect(text(await ws.preview('')).join('\n')).toContain('preview npm run dev');
+    const id = ws.jobs.list()[0].id;
+    const ready = await ws.jobs.ready(id);
+    expect(ready.state).toBe('ready');
+    const port = new URL(ready.url!).port;
+    expect(await (await fetch(ready.url!)).text()).toBe(`<h1>From the dev server on ${port}</h1>`);
+    await ws.stop(id);
+    await tick();
+    await expect(fetch(ready.url!, { signal: AbortSignal.timeout(1000) })).rejects.toThrow();
+
+    put(root, 'dist/index.html', '<h1>Built</h1>\n');
+    const built = make(root, { env: { ...process.env, UPMD_BIN: FAKE_UPMD } });
+    expect(text(await built.ws.preview('')).join('\n')).toContain('preview dist/');
+  });
+
+  it('serves public/ or the project folder when there is no script to run', async () => {
+    const root = temp('static-');
+    put(root, 'public/index.html', '<h1>Public</h1>\n');
+    put(root, 'index.html', '<h1>Root</h1>\n');
+    const { ws } = make(root);
+    expect(text(await ws.preview('')).join('\n')).toContain('preview public/');
+    const id = ws.jobs.list()[0].id;
+    const ready = await ws.jobs.ready(id);
+    expect(await (await fetch(ready.url!)).text()).toContain('Public');
+  });
+
   it('says what to do when there is nothing to serve', async () => {
     const root = temp('empty-');
     const { ws } = make(root);
