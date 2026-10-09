@@ -4,14 +4,14 @@
  * shares nothing with MCPorter, so it still works when MCPorter is missing or broken.
  *
  *   mcp-sdk-cli tools [--json] [--timeout <ms>] -- <command> [args...]
- *   mcp-sdk-cli call <tool> [--args <json>] [--json] [--timeout <ms>] -- <command> [args...]
+ *   mcp-sdk-cli call <tool> [--args <json> | --args -] [--json] [--timeout <ms>] -- <command> [args...]
  *
  * The server runs with this process's environment and folder; whoever starts this decides what is in
  * them (src/connectors/mcp-cli.ts hands over a small base set plus the names asked for, never values on
  * the command line). With --json the answer is one JSON object on stdout: { ok, server, tools } or
  * { ok, server, result }, or { ok: false, error }. Exit 0 on success, 1 on a failed call, 2 on bad usage.
  */
-import { realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -27,7 +27,7 @@ export interface SdkCliRequest {
 }
 
 const USAGE = 'usage: mcp-sdk-cli tools [--json] [--timeout <ms>] -- <command> [args...]\n'
-  + '       mcp-sdk-cli call <tool> [--args <json>] [--json] [--timeout <ms>] -- <command> [args...]';
+  + '       mcp-sdk-cli call <tool> [--args <json> | --args -] [--json] [--timeout <ms>] -- <command> [args...]';
 
 export function parseSdkCliArgs(argv: string[]): SdkCliRequest | { error: string } {
   const split = argv.indexOf('--');
@@ -50,8 +50,10 @@ export function parseSdkCliArgs(argv: string[]): SdkCliRequest | { error: string
       if (!Number.isFinite(ms) || ms <= 0) return { error: '--timeout needs a number of milliseconds' };
       req.timeoutMs = ms;
     } else if (flag === '--args') {
+      // `--args -` reads the JSON from stdin, so the arguments stay off the process list.
       let parsed: unknown;
-      try { parsed = JSON.parse(head.shift() ?? ''); } catch { return { error: '--args needs a JSON object' }; }
+      const raw = head.shift();
+      try { parsed = JSON.parse(raw === '-' ? readFileSync(0, 'utf8') : raw ?? ''); } catch { return { error: '--args needs a JSON object' }; }
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { error: '--args needs a JSON object' };
       req.args = parsed as Record<string, unknown>;
     } else return { error: `unknown flag ${flag}\n${USAGE}` };

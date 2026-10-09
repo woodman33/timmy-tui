@@ -227,17 +227,18 @@ function childEnv(source: Env, passEnv: string[] = []): Record<string, string> {
 
 interface RunOutcome { code: number | null; stdout: string; stdoutBytes: number; readCut: boolean; stderrTail: string; timedOut: boolean; ms: number; spawnError?: string }
 
-function runProcess(argv: string[], o: { cwd?: string; env: Record<string, string>; timeoutMs: number }): Promise<RunOutcome> {
+function runProcess(argv: string[], o: { cwd?: string; env: Record<string, string>; timeoutMs: number; input?: string }): Promise<RunOutcome> {
   const started = performance.now();
   return new Promise((resolveRun) => {
     const group = process.platform !== 'win32';
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(argv[0], argv.slice(1), { cwd: o.cwd, env: o.env, stdio: ['ignore', 'pipe', 'pipe'], detached: group, windowsHide: true });
+      child = spawn(argv[0], argv.slice(1), { cwd: o.cwd, env: o.env, stdio: [o.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], detached: group, windowsHide: true });
     } catch (e) {
       resolveRun({ code: null, stdout: '', stdoutBytes: 0, readCut: false, stderrTail: '', timedOut: false, ms: performance.now() - started, spawnError: (e as Error).message });
       return;
     }
+    if (o.input !== undefined) { child.stdin?.on('error', () => { /* the route left early; its exit says why */ }); child.stdin?.end(o.input); }
     const chunks: Buffer[] = [];
     let kept = 0;
     let bytes = 0;
@@ -409,12 +410,13 @@ export async function callTool(route: McpRouteId, server: McpServerRef, tool: st
   if (!tool) return { ok: false, ...base, ms: 0, outputBytes: 0, error: 'no tool named' };
   const timeoutMs = o.timeoutMs ?? 60_000;
   const inner = String(timeoutMs + 2000);
+  // The arguments travel on stdin (`--args -`, which both routes read), never on the process list.
   const payload = JSON.stringify(args ?? {});
   const argv = route === 'mcporter'
-    ? [...r.argv, 'call', ...('name' in server ? ['--server', server.name] : mcporterServerArgs(server)), '--tool', tool, '--args', payload, '--output', 'json', '--timeout', inner]
-    : [...r.argv, 'call', tool, '--args', payload, '--json', '--timeout', inner, '--', ...(server as { command: string[] }).command];
+    ? [...r.argv, 'call', ...('name' in server ? ['--server', server.name] : mcporterServerArgs(server)), '--tool', tool, '--args', '-', '--output', 'json', '--timeout', inner]
+    : [...r.argv, 'call', tool, '--args', '-', '--json', '--timeout', inner, '--', ...(server as { command: string[] }).command];
   const cwd = 'command' in server && server.cwd && route === 'sdk' ? server.cwd : o.cwd;
-  const run = await runProcess(argv, { cwd, env: childEnv(o.env ?? process.env, o.passEnv), timeoutMs });
+  const run = await runProcess(argv, { cwd, env: childEnv(o.env ?? process.env, o.passEnv), timeoutMs, input: payload });
   const ms = Math.max(1, Math.round(run.ms));
   const outputBytes = run.stdoutBytes;
   if (run.timedOut || run.spawnError) return { ok: false, ...base, ms, outputBytes, ...failure(run, timeoutMs, 'the route failed') };
