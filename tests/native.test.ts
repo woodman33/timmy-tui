@@ -113,11 +113,14 @@ describe('c4dpy jobs: the result file decides, the exit is recorded beside it', 
     expect(s.args).toEqual([path.join(root, 'scene.py'), '--frames', '1']);
     expect(s.root).toBe(root);
     expect(s.label).toMatch(/Cinema 4D/);
-    expect(s.env?.TIMMY_RESULT).toBe(path.join(root, 'out', 'timmy-result.json'));
+    // R3 (finding 5a): each run writes its own result file, never a shared one
+    expect(s.env?.TIMMY_RESULT).toBe(path.join(root, '.timmy', 'native', String(s.env?.TIMMY_RUN), 'result.json'));
     expect(s.env?.TIMMY_ROOT).toBe(root);
     expect(s.env?.TIMMY_RUN).toMatch(/^[0-9a-f-]{16,}$/);
+    expect(s.env?.TIMMY_SCRIPT).toBe(path.join(root, 'scene.py'));
+    expect(s.env?.TIMMY_SCRIPT_SHA256).toMatch(/^[0-9a-f]{64}$/);
     expect(existsSync(path.join(String(s.env?.TIMMY_C4D_LIB), 'timmy_c4d.py'))).toBe(true);
-    expect(s.native).toMatchObject({ app: 'c4dpy', result: path.join(root, 'out', 'timmy-result.json'), run: s.env?.TIMMY_RUN });
+    expect(s.native).toMatchObject({ app: 'c4dpy', result: s.env?.TIMMY_RESULT, run: s.env?.TIMMY_RUN, input: { path: 'scene.py', sha256: s.env?.TIMMY_SCRIPT_SHA256 } });
   });
 
   it('a script outside the project folder is refused', () => {
@@ -311,12 +314,15 @@ describe('the run_native agent tool', () => {
     const t0 = performance.now();
     const answer = await call({ app: 'c4dpy', script: 'scene.py', timeout_minutes: 1 });
     expect(performance.now() - t0).toBeLessThan(1500);
-    expect(answer).toMatchObject({ ok: true, app: 'c4dpy', result_file: 'out/timmy-result.json' });
+    expect(answer).toMatchObject({ ok: true, app: 'c4dpy' });
+    expect(answer.result_file).toBe(`.timmy/native/${answer.run}/result.json`);
     const id = answer.job as string;
     expect(id).toMatch(/^j[0-9a-f]{6}$/);
     expect(['queued', 'running']).toContain(m.get(id)?.state);
     expect(started).toHaveLength(1);
     expect(started[0].spec.native.app).toBe('c4dpy');
+    // the run's folder knows its job, so a restart can find the job's record
+    expect(JSON.parse(readFileSync(path.join(root, '.timmy', 'native', String(answer.run), 'started.json'), 'utf8'))).toMatchObject({ job: id });
     const stopped = await m.stop(id, 200);
     expect(stopped?.state).toBe('cancelled');
   });

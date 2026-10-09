@@ -49,6 +49,9 @@ describe.skipIf(!python)('the Cinema 4D starter against a stand-in c4d (python3 
     expect(job.state, log).toBe('completed');
     expect(spec.env?.TIMMY_C4D_LIB).toBe(path.join(REPO, 'workers', 'c4d'));
     expect(result).toMatchObject({ ok: true, run: spec.native.run, c4d_version: 2026000, renderer: 'standard', resolution: [640, 360] });
+    // R3: the helper echoes the script's sha256 as submitted and as it read the script
+    expect(result).toMatchObject({ script_sha256: spec.native.input?.sha256, script_sha256_read: spec.native.input?.sha256 });
+    expect(spec.native.result).toBe(path.join(root, '.timmy', 'native', spec.native.run, 'result.json'));
     expect(Object.keys(result?.files as object).sort()).toEqual(['out/scene.c4d', 'out/still.png']);
     expect(result?.notes).toBeUndefined();
     expect(verdict.outcome).toBe('ok');

@@ -11,7 +11,8 @@ c4d.documents, c4d.bitmaps) and checked here only with Python 3 against a stand-
 What it writes (under TIMMY_OUT, default ./out):
   scene.c4d          the editable document (c4d.documents.SaveDocument)
   still.png          the render (c4d.documents.RenderDocument into a c4d.bitmaps.BaseBitmap)
-  timmy-result.json  the result file Timmy judges the run by (or where TIMMY_RESULT says)
+  timmy-result.json  the result file Timmy judges the run by, when run by hand; a Timmy job sets TIMMY_RESULT
+                     to the run's own file, .timmy/native/<run>/result.json
 
 Every step is inside timmy_c4d.run_script: an exception becomes ok: false with the error, never a silent
 success. The c4dpy exit status is not the outcome; the result file is.
@@ -38,7 +39,7 @@ except ImportError as missing:
     if not os.path.isdir(os.path.dirname(_result)):
         os.makedirs(os.path.dirname(_result))
     with open(_result, "w") as _f:
-        json.dump({"ok": False, "run": os.environ.get("TIMMY_RUN"), "files": {},
+        json.dump({"ok": False, "run": os.environ.get("TIMMY_RUN"), "script_sha256": os.environ.get("TIMMY_SCRIPT_SHA256"), "files": {},
                    "error": "ImportError: timmy_c4d.py was not found (%s): set TIMMY_C4D_LIB to Timmy's workers/c4d, or copy it next to scene.py" % missing}, _f)
     raise
 

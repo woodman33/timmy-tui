@@ -5,16 +5,23 @@ only with Python 3 against a stand-in `c4d` module (tests/native-python.test.ts)
 the operator's, on the Mac.
 
 Timmy's c4dpy job (src/native: c4dpyJob) sets, in the script's environment:
-  TIMMY_RESULT  where to write the result file (default <root>/out/timmy-result.json)
-  TIMMY_RUN     this run's token, written back so a result from an earlier run is never taken for this one
-  TIMMY_ROOT    the project folder; file names in the result are relative to it
-  TIMMY_OUT     the folder for outputs (default <root>/out)
+  TIMMY_RESULT         where to write the result file: the run's own, <root>/.timmy/native/<run>/result.json
+                       (without it, <root>/out/timmy-result.json, as a run by hand writes)
+  TIMMY_RUN            this run's token, written back so a result from an earlier run is never taken for this one
+  TIMMY_SCRIPT_SHA256  the script's sha256 when the job was submitted, written back as script_sha256 so the
+                       result is bound to the input submitted
+  TIMMY_SCRIPT         the script itself: its sha256 as this run reads it goes in as script_sha256_read, so
+                       a script changed after submission is seen
+  TIMMY_ROOT           the project folder; file names in the result are relative to it
+  TIMMY_OUT            the folder for outputs (default <root>/out)
 
 The result file is what Timmy judges a run by, not c4dpy's exit status (a retained run wrote ok: true while
 c4dpy exited 1):
   {
     "ok": true | false,
     "run": "<TIMMY_RUN>",
+    "script_sha256": "<TIMMY_SCRIPT_SHA256>",
+    "script_sha256_read": "<sha256 of TIMMY_SCRIPT as read>",   (when TIMMY_SCRIPT names a file)
     "error": "<type: message>"            (when ok is false; the project folder written as ".", home as "~")
     "files": {"out/scene.c4d": "<sha256>", ...},
     "c4d_version": 2026000,                (c4d.GetC4DVersion(), or null outside Cinema 4D)
@@ -71,6 +78,9 @@ class Run(object):
         self.out = os.path.abspath(out or os.environ.get("TIMMY_OUT") or os.path.join(self.root, "out"))
         self.result_path = os.path.abspath(result or os.environ.get("TIMMY_RESULT") or os.path.join(self.out, "timmy-result.json"))
         self.run = os.environ.get("TIMMY_RUN")
+        self.script_sha256 = os.environ.get("TIMMY_SCRIPT_SHA256")
+        script = os.environ.get("TIMMY_SCRIPT")
+        self.script_sha256_read = _sha256(script) if script and os.path.isfile(script) else None
         self.files = {}
         self.notes = []
 
@@ -122,10 +132,13 @@ class Run(object):
         body.update({
             "ok": bool(ok),
             "run": self.run,
+            "script_sha256": self.script_sha256,
             "files": dict(self.files),
             "c4d_version": c4d_version(),
             "timing": {"started": _iso(self.started), "ended": _iso(ended), "seconds": round(ended - self.started, 3)},
         })
+        if self.script_sha256_read is not None:
+            body["script_sha256_read"] = self.script_sha256_read
         if self.notes:
             body["notes"] = list(self.notes)
         if error is not None:

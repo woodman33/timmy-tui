@@ -9,7 +9,7 @@
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { z } from 'zod/v4';
 import type { JobRecord, JobSpec } from '../jobs/index.js';
-import { aerenderJob, c4dpyJob, locateNative, NATIVE_APPS, type NativeApp, type NativeFound, type NativeJobSpec } from '../native/index.js';
+import { aerenderJob, c4dpyJob, locateNative, NATIVE_APPS, noteNativeStarted, type NativeApp, type NativeFound, type NativeJobSpec } from '../native/index.js';
 
 export interface NativeToolOptions {
   /** the active project's folder */
@@ -34,7 +34,7 @@ export function createNativeTools(o: NativeToolOptions) {
     name: 'run_native',
     description: [
       "Start a native creative app as a background job in the operator's active project and get its job id back at once; the job keeps running after this call returns and is NOT finished when you get the id.",
-      "app 'c4dpy' runs a Python file with Cinema 4D's own Python, headless (script, relative to the project, plus args); the script can build or change a scene, save an editable .c4d and render, and writes its result file (out/timmy-result.json by default) through workers/c4d/timmy_c4d.py.",
+      "app 'c4dpy' runs a Python file with Cinema 4D's own Python, headless (script, relative to the project, plus args); the script can build or change a scene, save an editable .c4d and render, and writes this run's own result file (.timmy/native/<run>/result.json) through workers/c4d/timmy_c4d.py.",
       "app 'aerender' renders an EXISTING After Effects project (project_file .aep/.aepx, comp by name, output file); it cannot create or edit a project.",
       'The operator is asked first. Report the job id; the operator follows it with /jobs <id>. Do not claim the render or the scene is done.',
     ].join(' '),
@@ -86,10 +86,11 @@ export function createNativeTools(o: NativeToolOptions) {
       try { job = o.start(spec); } catch (e) {
         return { ok: false, error: `the job did not start: ${e instanceof Error ? e.message : String(e)}` };
       }
+      noteNativeStarted(spec, job);
       try { o.onStarted?.(job, spec); } catch { /* the owner's bookkeeping failing does not unstart the job */ }
       const rel = (abs: string | undefined): string | undefined => (abs && abs.startsWith(`${spec.root}/`) ? abs.slice(spec.root.length + 1) : undefined);
       return {
-        ok: true, job: job.id, state: job.state, app, label: job.label,
+        ok: true, job: job.id, run: spec.native.run, state: job.state, app, label: job.label,
         ...(app === 'c4dpy' ? { result_file: rel(spec.native.result) } : { output: rel(spec.native.output) }),
         timeout_minutes: timeoutMs / 60_000,
         note: `Started, not finished: the job runs in the background. /jobs ${job.id} follows it; its outcome is judged when it ends, from ${app === 'c4dpy' ? 'the script\'s result file' : 'the output file'}, with the exit recorded beside it.`,
