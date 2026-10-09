@@ -915,6 +915,7 @@ export class Workspace {
    * workflows, this project's jobs, outputs and observations, each card linked to its file (relative
    * links) with the command that acts on it — and opens it. Free text from jobs and observation files
    * has the project's folder written as "." and the home folder as "~", so the page names no absolute path.
+   * Each observation card says whether it is verified, unverified or stale, and why (checkObservation).
    * Nothing is sealed: the board is a view of what the project and its receipts already hold.
    */
   board(_args: string): Line[] {
@@ -936,18 +937,37 @@ export class Workspace {
       return { rel: doc.rel, blocks };
     });
     const jobs = this.jobs.list().filter((j) => sameFolder(j.root, root));
+    // The review of 40022d9: an observation file is editable. Each is checked against the runs chain (a
+    // sealed observe receipt for exactly its bytes) and against its image as it is now (checkObservation).
+    let chain: Receipt[] = [];
+    try { chain = (this.d.receipts ?? (() => readChain('runs')))(); } catch { chain = []; }
+    const pid = projectId(root);
+    const sources = new Map<string, string | null | undefined>();
+    /** The project image's sha256 now: null when it is not there, undefined when it cannot be read or hashed. */
+    const sourceNow = (rel: unknown): string | null | undefined => {
+      if (typeof rel !== 'string') return undefined;
+      if (!sources.has(rel)) {
+        const at = resolveInside(root, rel);
+        sources.set(rel, 'error' in at ? undefined : !existsSync(at.path) ? null : sha256File(at.path, LOOK_MAX_IMAGE));
+      }
+      return sources.get(rel);
+    };
     const observed: Array<BoardObservation & { at: number }> = [];
     for (const f of files.filter((x) => inObservations(x) && x.rel.endsWith('.json'))) {
       const r = readProjectFile(root, f.rel, 1024 * 1024);
       if (!r.ok || !r.text || r.truncated) continue;
+      let raw: unknown;
       let json: unknown;
-      try { json = JSON.parse(this.scrub(r.text, root)); } catch { continue; }
-      const o = readObservationRecord(f.rel, json);
+      // Checked as written; shown with the project's folder as "." and the home folder as "~".
+      try { raw = JSON.parse(r.text); json = JSON.parse(this.scrub(r.text, root)); } catch { continue; }
+      const source = raw && typeof raw === 'object' ? (raw as { source?: { path?: unknown } }).source : undefined;
+      const o = readObservationRecord(f.rel, json, { record: raw, fileSha256: r.sha256, currentSourceSha256: sourceNow(source?.path), receipts: chain, projectId: pid });
       if (!o) continue;
       const at = o.madeAt ? Date.parse(o.madeAt) : Number.NaN;
-      observed.push({ ...o, at: Number.isNaN(at) ? f.mtimeMs : at });
+      observed.push({ ...o, ...(o.check ? { check: { ...o.check, reasons: o.check.reasons.map((x) => this.scrub(x, root)) } } : {}), at: Number.isNaN(at) ? f.mtimeMs : at });
     }
     observed.sort((a, b) => b.at - a.at);
+    const verifiedCount = observed.filter((o) => o.check?.status === 'verified').length;
     const html = renderBoard({
       project: this.project.name,
       madeAt: utcStamp(new Date()),
@@ -973,7 +993,7 @@ export class Workspace {
     const opened = this.d.openWeb(fileUrl(join(root, w.rel)));
     const counts = [
       `References ${references.length}`, `Workflows ${docs.length}`, `Jobs ${jobs.length}`,
-      `Outputs ${outputs.length}`, `Observations ${observed.length}`,
+      `Outputs ${outputs.length}`, `Observations ${observed.length}${observed.length ? ` (${verifiedCount} verified)` : ''}`,
     ].join(this.sep);
     return [
       [{ text: '  Board      ', role: 'secondary' }, { text: this.fileLink(w.rel), role: 'strong' }, { text: `  a read-only snapshot${this.sep}/board again makes a new one`, role: 'secondary' }],
