@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { callTool, listServers, listTools, mcpCapabilityRows, mcpRoutes, mcpView, MCP_OUTPUT_LIMIT } from '../src/connectors/mcp-cli.js';
+import { callTool, listServers, listTools, mcpCapabilityRows, mcpRoutes, mcpView, MCP_OUTPUT_LIMIT, serverLabel, splitCommandLine } from '../src/connectors/mcp-cli.js';
 import { createMcpTools } from '../src/agent/mcp-tools.js';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/mcp-echo-server.mjs', import.meta.url));
@@ -139,6 +139,12 @@ describe('MCPorter\'s config: servers by name, never a secret', () => {
     for (const secret of ['abc123', 'sk-not-a-real-key', 'SOME_SECRET_VALUE', FIXTURE]) expect(text).not.toContain(secret);
   }, LONG);
 
+  it('lists a configured server\'s tools by its name', async () => {
+    const r = await listTools('mcporter', { name: 'echo-fixture' }, { cwd: project, env, timeoutMs: 30_000 });
+    expect(r.error).toBeUndefined();
+    expect(r.tools.map((t) => t.name)).toEqual(expect.arrayContaining(['echo', 'add']));
+  }, LONG);
+
   it('calls a configured server by its name', async () => {
     const r = await callTool('mcporter', { name: 'echo-fixture' }, 'echo', { text: 'by name' }, { cwd: project, env, timeoutMs: 30_000 });
     expect(r.error).toBeUndefined();
@@ -150,6 +156,20 @@ describe('MCPorter\'s config: servers by name, never a secret', () => {
     expect(r.ok).toBe(false);
     expect(r.servers).toEqual([]);
     expect(r.error).toMatch(/command line/);
+  });
+});
+
+describe('names and command lines', () => {
+  it('a server is shown by its program and script, never its other arguments', () => {
+    expect(serverLabel({ command: [process.execPath, FIXTURE] })).toBe(`${process.execPath.split(/[\\/]/).pop()} mcp-echo-server.mjs`);
+    expect(serverLabel({ command: ['node', '--import', 'file:///x/loader.mjs', '/x/src/mcp/server.ts', '--token', 'abc'] })).toBe('node server.ts');
+    expect(serverLabel({ command: ['npx', '-y', 'some-mcp-server'] })).toBe('npx some-mcp-server');
+    expect(serverLabel({ name: 'linear' })).toBe('linear');
+  });
+
+  it('/mcp splits a command line like a shell, quotes included', () => {
+    expect(splitCommandLine('tools -- node "my server.mjs" \'a b\' c')).toEqual(['tools', '--', 'node', 'my server.mjs', 'a b', 'c']);
+    expect(splitCommandLine('call echo \'{"text":"hi there"}\'')).toEqual(['call', 'echo', '{"text":"hi there"}']);
   });
 });
 

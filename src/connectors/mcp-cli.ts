@@ -267,7 +267,7 @@ function runProcess(argv: string[], o: { cwd?: string; env: Record<string, strin
     };
     child.on('error', (e) => { spawnError = e.message; finish(null); });
     // The route is done: anything it left in its group (a server it did not close) goes with it.
-    child.on('exit', () => stop('SIGTERM'));
+    child.on('exit', () => { stop('SIGTERM'); setTimeout(() => stop('SIGKILL'), 1500).unref(); });
     child.on('close', (code) => finish(code));
   });
 }
@@ -277,8 +277,12 @@ const routeFor = (id: McpRouteId, seams?: McpRouteSeams, env?: Env): McpRoute | 
 /** A short name for a server: its configured name, or its program and script names (no other arguments). */
 export function serverLabel(ref: McpServerRef): string {
   if ('name' in ref) return ref.name;
-  const [program, first] = ref.command;
-  return [basename(program ?? ''), first && !first.startsWith('-') ? basename(first) : ''].filter(Boolean).join(' ');
+  const [program, ...rest] = ref.command;
+  // The script it runs: the last argument that looks like one, else the first that is not a flag.
+  let script: string | undefined;
+  for (let i = rest.length - 1; i >= 0 && !script; i--) if (/\.(m?[jt]s|cjs|py)$/i.test(rest[i]) && !rest[i].includes('://')) script = rest[i];
+  script ??= rest.find((a) => !a.startsWith('-') && !a.includes('://'));
+  return [basename(program ?? ''), script ? basename(script) : ''].filter(Boolean).join(' ');
 }
 
 const slug = (ref: McpServerRef): string => serverLabel(ref).split(' ').pop()!.replace(/\.[a-z]+$/i, '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'adhoc';

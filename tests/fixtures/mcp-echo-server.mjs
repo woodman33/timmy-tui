@@ -1,5 +1,5 @@
 // A tiny real MCP server over stdio for tests/mcp-cli.test.ts: two plain tools (echo, add) and two
-// that exist to test limits (big: a long answer; hang: never answers). Built on the SDK's Server and
+// that exist to test limits (big: a long answer; hang: never answers, and will not stop on its own). Built on the SDK's Server and
 // StdioServerTransport, the same pieces any stdio MCP server uses.
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -24,7 +24,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   if (name === 'echo') return { content: [{ type: 'text', text: `echo: ${String(args.text)}` }] };
   if (name === 'add') return { content: [{ type: 'text', text: String(Number(args.a) + Number(args.b)) }] };
   if (name === 'big') return { content: [{ type: 'text', text: 'x'.repeat(Math.max(0, Number(args.size) || 0)) }] };
-  if (name === 'hang') return new Promise(() => {});
+  // A stubborn server: it never answers, outlives its closed stdin and shrugs off SIGTERM, so only a
+  // time limit that stops the whole process group (SIGKILL after a grace) ends it.
+  if (name === 'hang') { setInterval(() => {}, 60_000); process.on('SIGTERM', () => {}); return new Promise(() => {}); }
   throw new McpError(ErrorCode.InvalidParams, `echo-fixture has no tool named ${name}`);
 });
 
