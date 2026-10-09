@@ -183,7 +183,7 @@ const handleIds = (cites: unknown): string[] => (Array.isArray(cites) ? cites.ma
 const shortHandle = (id: string): string => (id.length > 14 ? `${id.slice(0, 11)}…` : id);
 
 /** What an observe receipt seals of a qualified section (Receipt.observation.qualified). */
-export interface QualifiedSeal { status: string; model?: string; run_id?: string; source_revision?: string; cites: string[]; refusal?: string; raw_output_sha256?: string; cost_usd?: number | null }
+export interface QualifiedSeal { status: string; model?: string; run_id?: string; source_revision?: string; cites: string[]; refusal?: string; raw_output_sha256?: string; answer_sha256?: string; cost_usd?: number | null }
 
 /** What an observe receipt seals of a qualified section: enough to tell an edited one from what was written. */
 export function qualifiedSeal(q: Record<string, unknown>): QualifiedSeal {
@@ -195,6 +195,9 @@ export function qualifiedSeal(q: Record<string, unknown>): QualifiedSeal {
     cites: handleIds(q.cites),
     ...(typeof q.refusal === 'string' ? { refusal: q.refusal } : {}),
     ...(typeof q.raw_output === 'string' ? { raw_output_sha256: sha256Text(q.raw_output) } : {}),
+    // The answer text itself (the review of ee70b9e, M6): with a cut raw output the answer cannot be compared with
+    // it, so the receipt carries the answer's own sha256. Seals written before this have none, and are not held to it.
+    ...(typeof q.answer === 'string' ? { answer_sha256: sha256Text(q.answer) } : {}),
     ...('cost_usd' in q ? { cost_usd: typeof q.cost_usd === 'number' ? q.cost_usd : null } : {}),
   };
 }
@@ -247,7 +250,8 @@ function qualifiedReasons(v: unknown, measurements: readonly unknown[], sourceSh
     const sealedIds = Array.isArray(sealed.cites) ? sealed.cites.map(String) : [];
     const ids = handleIds(q.cites);
     if (sealed.status !== q.status || sealed.run_id !== q.run_id || sealed.source_revision !== q.source_revision
-      || sealedIds.join('\n') !== ids.join('\n') || (raw !== undefined ? sealed.raw_output_sha256 !== sha256Text(raw) : sealed.raw_output_sha256 !== undefined)) {
+      || sealedIds.join('\n') !== ids.join('\n') || (raw !== undefined ? sealed.raw_output_sha256 !== sha256Text(raw) : sealed.raw_output_sha256 !== undefined)
+      || (sealed.answer_sha256 !== undefined && sealed.answer_sha256 !== (typeof q.answer === 'string' ? sha256Text(q.answer) : undefined))) {
       out.push(`the qualified model answer is not the one its receipt sealed (sealed: ${String(sealed.status)}${sealedIds.length ? `, citing ${sealedIds.map(shortHandle).join(', ')}` : ''})`);
     }
   }

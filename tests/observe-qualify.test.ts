@@ -197,7 +197,7 @@ describe('/observe --qualify: admitted', () => {
     expect(receipt).toMatchObject({ kind: 'observe', status: 'ok', cost_usd: 0.003, model_requested: MODEL, model_resolved: MODEL });
     expect((receipt.observation as Record<string, any>).qualified).toEqual({
       status: 'admitted', model: MODEL, run_id: q.run_id, source_revision: PNG_SHA, cites: q.cites.map((c: { handle_id: string }) => c.handle_id),
-      raw_output_sha256: sha(q.raw_output), cost_usd: 0.003,
+      raw_output_sha256: sha(q.raw_output), answer_sha256: sha(q.answer), cost_usd: 0.003,
     });
     expect(notes.join('\n')).toMatch(/answered, citing mean_color, qr_codes_decoded \(measured values; the answer is a claim/);
 
@@ -514,6 +514,15 @@ describe('/board and observation-check: admitted vs refused vs tampered', () => 
     it('a receipt that sealed different citations', async () => {
       const c = await resealed(() => undefined, (s) => { s.cites = [s.cites[0]]; });
       expect(c.reasons.join('\n')).toMatch(/is not the one its receipt sealed/);
+    });
+    it('an answer text changed where its raw output cannot show it (cut): the receipt\'s answer sha256 does (the review of ee70b9e, M6)', async () => {
+      const c = await resealed((q) => { q.answer_truncated = true; q.answer = 'The QR code says something else.'; });
+      expect(c.status).toBe('unverified');
+      expect(c.reasons.join('\n')).toMatch(/is not the one its receipt sealed/);
+    });
+    it('a seal written before the answer sha256 existed is not held to it', async () => {
+      const c = await resealed(() => undefined, (s) => { delete s.answer_sha256; });
+      expect(c).toMatchObject({ status: 'verified', reasons: [] });
     });
     it('a receipt that sealed no qualified answer', async () => {
       const c = await resealed(() => undefined, (_s, observation) => { delete observation.qualified; });
