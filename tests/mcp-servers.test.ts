@@ -107,6 +107,22 @@ describe('the servers MCPorter knows: its config and editor imports', () => {
     expectClean(routes);
   }, LONG);
 
+  it('TIMMY_MCP_HOME: a Timmy with a home of its own reads the servers configured in another home, shown under ~/', async () => {
+    const own = scratch();   // the sandbox's own, empty home
+    const r = await listServers('mcporter', { cwd: project, env: { PATH: process.env.PATH, HOME: own, USERPROFILE: own, TIMMY_MCP_HOME: home }, timeoutMs: 30_000 });
+    expect(r.ok).toBe(true);
+    const by = Object.fromEntries(r.servers.map((s) => [s.name, s]));
+    expect(by['home-echo']).toMatchObject({ origin: 'local', source: '~/.mcporter/mcporter.json' });
+    expect(by['home-remote']).toMatchObject({ origin: 'import', source: '~/.cursor/mcp.json' });
+    for (const s of r.servers) expect(s.status).toBeUndefined();
+    expectClean(JSON.stringify(r));
+    // without it, the sandbox's own home holds none of them; a relative TIMMY_MCP_HOME is ignored
+    for (const extra of [{}, { TIMMY_MCP_HOME: 'relative/home' }]) {
+      const mine = await listServers('mcporter', { cwd: project, env: { PATH: process.env.PATH, HOME: own, USERPROFILE: own, ...extra }, timeoutMs: 30_000 });
+      expect(mine.servers.map((s) => s.name)).not.toContain('home-echo');
+    }
+  }, LONG);
+
   it('a config file is shown inside the project, under ~/, or by its last two parts; never by an absolute home path', () => {
     const h = '/home/user';
     expect(shownConfigPath('/home/user/code/app/config/mcporter.json', { cwd: '/home/user/code/app', home: h })).toBe('config/mcporter.json');

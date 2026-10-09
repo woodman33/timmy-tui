@@ -248,6 +248,14 @@ function childEnv(source: Env, passEnv: string[] = []): Record<string, string> {
     const v = source[name];
     if (typeof v === 'string') out[name] = v;
   }
+  // Round R3: TIMMY_MCP_HOME is the home whose MCP configuration MCPorter reads (~/.mcporter and the editors'
+  // configs it imports), for a Timmy that runs with a home of its own (a sandbox) while the servers the person
+  // configured live in their real home. Only HOME (USERPROFILE on Windows) changes; nothing else is read from it.
+  const mcpHome = source.TIMMY_MCP_HOME?.trim();
+  if (mcpHome && isAbsolute(mcpHome)) {
+    out.HOME = mcpHome;
+    if (process.platform === 'win32' || 'USERPROFILE' in out) out.USERPROFILE = mcpHome;
+  }
   // No keep-alive daemon: every server stays a child of this call, inside its time limit.
   out.MCPORTER_DISABLE_KEEPALIVE = '*';
   out.MCPORTER_NO_SPINNER = '1';
