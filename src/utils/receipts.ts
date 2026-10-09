@@ -51,7 +51,11 @@ export interface Receipt {
   /** round R2, look: an observation's evidence tiers (deterministic computation; model interpretation), never merged */
   /** R2: a native app's run (Cinema 4D, After Effects), judged from its own result file; the exit code is recorded, not decisive */
   native?: { app: string; outcome: 'ok' | 'failed' | 'unknown'; why: string; exit_code: number | null; signal: string | null; files: Array<{ path: string; sha256?: string; present?: boolean; match?: boolean; matches?: boolean }>; c4d_version?: unknown; blender_version?: unknown; run?: string; input?: { path: string; sha256: string }; checked?: unknown[] };
-  observation?: { tiers: string[]; worker?: string; opencv?: string; measurements?: number; error?: string; interpretation?: { status: string; model?: string; cost_usd?: number | null } };
+  observation?: {
+    tiers: string[]; worker?: string; opencv?: string; measurements?: number; error?: string; interpretation?: { status: string; model?: string; cost_usd?: number | null };
+    /** R3 (H14): /observe --qualify's outcome as sealed (src/evidence/observation-check.ts qualifiedSeal). */
+    qualified?: { status: string; model?: string; run_id?: string; source_revision?: string; cites?: string[]; refusal?: string; raw_output_sha256?: string; cost_usd?: number | null };
+  };
   /** Round R3 (/agent): a code agent's run in the project: its run id (the operation ID), where its model ran, how it ended, what it changed (the files themselves are in `files`) */
   agent?: { name: string; run: string; version?: string | null; model?: string | null; endpoint: 'local' | 'remote'; outcome: string; why: string; tool_calls: number; added: number; changed: number; deleted: string[]; final_message_sha256?: string; cost_basis: string };
   model_resolved?: string;

@@ -17,7 +17,8 @@
  *
  * Admission establishes where a claim points, not that it is right: an admitted answer is still a model's
  * claim (semantic_correctness_verified: false). Nothing here sends a request by itself; a test gives a
- * mock client. /observe does not call this yet (the lead wires it).
+ * mock client. `/observe <file> --qualify` calls it (src/repl/workspace.ts, round R3), through the SDK client and
+ * cost meter of src/vision/qualify-route.ts.
  */
 import type { OpenRouter } from '@openrouter/sdk';
 import { stepCountIs } from '@openrouter/sdk/lib/stop-conditions.js';

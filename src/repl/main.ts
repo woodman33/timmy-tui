@@ -222,7 +222,7 @@ export async function runRepl(argv: string[]): Promise<number> {
     gateTools(replTools(canvasJob, { root: () => workspace.root, touched: projectFiles }, {
       vision: {
         root: () => workspace.root, model: () => agent.getModel(),
-        observe: async (rel, question, model) => { const s = await workspace.observeFile(rel, question, model); return s.ok ? s.done : s; },
+        observe: async (rel, question, model, opts) => { const s = await workspace.observeFile(rel, question, model, opts); return s.ok ? s.done : s; },
       },
       mcp: { cwd: () => workspace.root },
       native: { root: () => workspace.root, project: () => workspace.project.name, start: (s) => workspace.jobs.start(s), onStarted: (job, spec) => workspace.adoptNative(job.id, spec) },

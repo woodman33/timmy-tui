@@ -49,6 +49,28 @@ export type BoardEvidence =
   | { admission: 'unknown'; reason?: string }
   | { admission: 'unreadable' };
 export interface BoardInterpretation { status: string; model?: string; question?: string; answer?: string; cost_usd?: number; reason?: string; evidence?: BoardEvidence }
+/**
+ * R3 (H14): the qualified answer of /observe --qualify (the record's `qualified` section), as the record
+ * gives it: admitted with the handles it cites and their values, or why there is no admitted answer, with
+ * the model's raw output as it came. An admitted answer is a model's claim whose citations point at
+ * measured values; the board never draws it as a measurement.
+ */
+export interface BoardQualified {
+  status: string;
+  model?: string;
+  question?: string;
+  answer?: string;
+  /** with status admitted: what it cites, as recorded */
+  cites: Array<{ handle_id: string; measurement: string; value: unknown; unit?: string }>;
+  /** the refusal reason (the admission controller's code), when one was decided */
+  refusal?: string;
+  reason?: string;
+  raw_output?: string;
+  raw_output_truncated?: boolean;
+  /** absent: no request went out; null: one did and its cost is unknown */
+  cost_usd?: number | null;
+  run_id?: string;
+}
 export interface BoardObservation {
   /** The observation file, relative to the project. */
   file: string;
@@ -58,6 +80,8 @@ export interface BoardObservation {
   image?: { width: number; height: number; channels?: number };
   measurements: BoardMeasurement[];
   interpretation?: BoardInterpretation;
+  /** R3 (H14): the qualified answer, when the record has one. */
+  qualified?: BoardQualified;
   job?: string;
   /** Its provenance check (checkObservation); without one the card is shown as not verified. */
   check?: ObservationCheck;
@@ -136,6 +160,25 @@ function readEvidence(v: unknown): BoardEvidence | undefined {
   return { admission: 'unreadable' };
 }
 
+/** R3 (H14): a record's `qualified` section in the board's shape; null when it has none, or none readable as one. */
+function readQualified(v: unknown): BoardQualified | null {
+  const q = obj(v);
+  const status = str(q?.status);
+  if (!q || !status) return null;
+  const cites = Array.isArray(q.cites) ? q.cites.flatMap((c) => {
+    const o = obj(c);
+    return o && str(o.handle_id) && str(o.measurement)
+      ? [{ handle_id: str(o.handle_id)!, measurement: str(o.measurement)!, value: o.value, ...(str(o.unit) ? { unit: str(o.unit) } : {}) }]
+      : [];
+  }) : [];
+  return {
+    status, cites,
+    ...Object.fromEntries((['model', 'question', 'answer', 'refusal', 'reason', 'raw_output', 'run_id'] as const).flatMap((k) => (typeof q[k] === 'string' ? [[k, q[k]]] : []))),
+    ...(q.raw_output_truncated === true ? { raw_output_truncated: true } : {}),
+    ...(num(q.cost_usd) !== undefined ? { cost_usd: num(q.cost_usd) } : q.cost_usd === null ? { cost_usd: null } : {}),
+  };
+}
+
 /** What /board knows about an observation file besides its JSON: what checkObservation needs. */
 export interface ObservationProvenance {
   /** The record as written (before any scrubbing for display); the `json` read when omitted. */
@@ -194,6 +237,7 @@ export function readObservationRecord(file: string, json: unknown, provenance?: 
         ...(readEvidence(it.evidence) ? { evidence: readEvidence(it.evidence) } : {}),
       },
     } : {}),
+    ...(readQualified(r.qualified) ? { qualified: readQualified(r.qualified)! } : {}),
     ...(job ? { job } : {}),
     ...(provenance ? { check: checkObservation({ ...provenance, record: provenance.record ?? json, file }) } : {}),
   };
@@ -339,6 +383,37 @@ function evidenceLine(e: BoardEvidence | undefined, status: ObservationCheck['st
   return `<p class="evidence none">${esc(`no admitted evidence: a claim, not a measurement${why}`)}</p>`;
 }
 
+/**
+ * R3 (H14): the qualified answer (/observe --qualify). Admitted: "model answer, cites …" with each cited value,
+ * marked measured only on a verified card; the answer stays a claim. Otherwise: why there is no admitted answer,
+ * and the raw output as it came, labelled as not a claim. Distinct from an uncited claim and from measured values.
+ */
+function qualifiedBlock(q: BoardQualified, status: ObservationCheck['status'] | undefined): string {
+  const cost = q.cost_usd === undefined ? 'no request sent' : q.cost_usd === null ? 'cost unknown' : `cost $${q.cost_usd.toFixed(4)}`;
+  if (q.status === 'admitted') {
+    const verified = status === 'verified';
+    const names = q.cites.map((c) => c.measurement).join(', ') || '(nothing)';
+    const as = verified ? 'measured' : status === 'stale' ? 'measured from an earlier version of the image' : 'as recorded, not verified';
+    const meta = [`model ${q.model ?? 'unknown'}`, cost, ...(q.run_id ? [`run ${q.run_id.slice(0, 8)}`] : []), 'semantic correctness not verified'].join(' · ');
+    const rows = q.cites.map((c) => {
+      const id = c.handle_id.length > 14 ? `${c.handle_id.slice(0, 11)}…` : c.handle_id;
+      const unit = c.unit && c.value !== null && c.value !== undefined ? ` · ${c.unit}` : '';
+      return `<dt>${esc(c.measurement)}</dt><dd>${esc(`${plain(c.value)}${unit}`)} <span class="tier">${esc(`${as} · cited as ${id}`)}</span></dd>`;
+    }).join('');
+    return `<section class="qualified"><h4>${esc(`model answer, cites ${names} (${verified ? 'measured' : 'not verified'})`)}</h4><p class="meta">${esc(meta)}</p>`
+      + `${q.question ? `<p class="asked">${esc(`Asked: ${q.question}`)}</p>` : ''}<p class="answer">${q.answer ? claimHtml(q.answer.length > BOARD_ANSWER_CHARS ? `${q.answer.slice(0, BOARD_ANSWER_CHARS)}…` : q.answer) : esc('(no answer text)')}</p>`
+      + `${rows ? `<dl class="cited">${rows}</dl>` : ''}`
+      + `<p class="evidence">${esc(verified
+        ? "A model's claim: each citation is a handle observed in its run and cited through the cite tool, pointing at a measured value; the answer itself is not a measurement, and whether it is right is not verified."
+        : 'Not verified: this answer and its citations are shown as the file records them (see why above); not measurements.')}</p></section>`;
+  }
+  const why = `${q.status}${q.refusal ? ` (${q.refusal})` : ''}${q.reason ? `: ${q.reason}` : ''}`;
+  const raw = q.raw_output
+    ? `<p class="meta">${esc(`raw output, kept exactly as returned; not a claim${q.raw_output_truncated ? ' (cut at 64 KB in the file)' : ''}`)}</p><pre class="raw">${esc(q.raw_output.length > BOARD_ANSWER_CHARS ? `${q.raw_output.slice(0, BOARD_ANSWER_CHARS)}…` : q.raw_output)}</pre>`
+    : '';
+  return `<section class="qualified refused"><h4>${esc('no admitted model answer')}</h4><p class="meta">${esc([`model ${q.model ?? 'unknown'}`, cost].join(' · '))}</p><p class="nomodel">${esc(why)}</p>${raw}</section>`;
+}
+
 /** The card's provenance, said plainly: verified (by which receipt), or why not. */
 function statusBlock(o: BoardObservation): string {
   const c: ObservationCheck = o.check ?? { status: 'unverified', reasons: ['its provenance was not checked'] };
@@ -384,7 +459,8 @@ function observationCard(o: BoardObservation, h: ReturnType<typeof render>): str
   } else if (i) {
     model = `<p class="nomodel">${esc(`No model claim: ${i.status}${i.model ? ` (${i.model})` : ''}${i.reason ? `: ${i.reason}` : ''}`)}</p>`;
   }
-  return `<article class="card obs">${head}${statusBlock(o)}${measured}${unverified}${model}${src && SHOWN_IMAGE.test(src) ? h.act('Observe again', { act: 'observe', file: src }) : ''}${h.cmds([`/open ${o.file}`, ...(src ? [`/observe ${h.quoted(src)}`] : [])])}</article>`;
+  const qualified = o.qualified ? qualifiedBlock(o.qualified, o.check?.status) : '';
+  return `<article class="card obs">${head}${statusBlock(o)}${measured}${unverified}${model}${qualified}${src && SHOWN_IMAGE.test(src) ? h.act('Observe again', { act: 'observe', file: src }) : ''}${h.cmds([`/open ${o.file}`, ...(src ? [`/observe ${h.quoted(src)}`] : [])])}</article>`;
 }
 
 const CSS = `
@@ -430,7 +506,14 @@ a.name:hover, a.name:focus-visible { text-decoration: underline; }
 .state { text-transform: uppercase; letter-spacing: .05em; font-size: 11px; color: ${HOMEBREW.textSecondary}; }
 .state-failed { color: ${HOMEBREW.failure}; }
 .state-running, .state-queued { color: ${HOMEBREW.attention}; }
-section.measured, section.claim, section.unverified { border-left: 3px solid ${HOMEBREW.lineStrong}; padding: 2px 0 2px 10px; }
+section.measured, section.claim, section.unverified, section.qualified { border-left: 3px solid ${HOMEBREW.lineStrong}; padding: 2px 0 2px 10px; }
+section.qualified { border-left-color: ${HOMEBREW.ai}; border-left-style: double; }
+section.qualified h4 { color: ${HOMEBREW.ai}; }
+section.qualified.refused { border-left-color: ${HOMEBREW.attention}; }
+section.qualified.refused h4 { color: ${HOMEBREW.attention}; }
+.qualified .meta { margin: 0; }
+.qualified dl.cited { margin-top: 6px; }
+pre.raw { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: ${TYPE.size.small}px; color: ${HOMEBREW.textSecondary}; }
 section.claim { border-left-color: ${HOMEBREW.ai}; }
 section.unverified { border-left-style: dashed; border-left-color: ${HOMEBREW.attention}; }
 h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: ${HOMEBREW.textSecondary}; }
