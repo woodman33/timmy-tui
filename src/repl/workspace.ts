@@ -25,7 +25,7 @@ import { killProcessGroup } from '../runtime/spawn-runtime.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import { readChain, type Receipt, type ReceiptInput } from '../utils/receipts.js';
-import { checkOpenCv, DETERMINISTIC, INTERPRETATION, LOOK_MAX_IMAGE, LOOK_MAX_OUTPUT, LOOK_TIMEOUT_MS, lookArgs, lookPython, OPENCV_SETUP, parseLookOutput, writeObservation } from '../vision/look.js';
+import { checkOpenCv, DETERMINISTIC, INTERPRETATION, LOOK_MAX_IMAGE, LOOK_MAX_OUTPUT, LOOK_TIMEOUT_MS, lookArgs, lookPython, OPENCV_SETUP, parseLookOutput, writeObservation, lookEnv } from '../vision/look.js';
 import { describeImage } from '../vision/route.js';
 import { findUpmd, findWorkflowDocs, parseUpmdLine, parseWorkflow, runOrder, stepsFromEvent, upmdRunArgs, upmdVersion } from '../workflows/upmd.js';
 
@@ -284,13 +284,13 @@ export class Workspace {
     } catch { return { ok: false, error: `${at.rel} does not exist` }; }
     const py = lookPython(this.d.env, this.d.onPath);
     if ('error' in py) return { ok: false, error: `Look needs a Python with OpenCV: ${py.error}. Setup: ${OPENCV_SETUP}` };
-    const cv = await checkOpenCv(py.python, this.d.env);
+    const cv = await checkOpenCv(py.python, lookEnv(this.d.env));
     if (!cv.ok) return { ok: false, error: `${cv.error}. Setup: ${OPENCV_SETUP}, or set TIMMY_VISION_PYTHON to a Python that has it` };
     let source: { path: string; sha256: string; bytes: number };
     try { source = { path: at.rel, sha256: hashFile(at.path), bytes: statSync(at.path).size }; } catch { return { ok: false, error: `${at.rel} cannot be read` }; }
     const root = this.root;
     const project = this.project.name;
-    const job = this.jobs.start({ kind: 'task', label: `look ${at.rel}`, project, root, command: py.python, args: lookArgs(at.path, at.rel), timeoutMs: LOOK_TIMEOUT_MS });
+    const job = this.jobs.start({ kind: 'task', label: `look ${at.rel}`, project, root, command: py.python, args: lookArgs(at.path, at.rel), timeoutMs: LOOK_TIMEOUT_MS, env: lookEnv(this.d.env) });
     this.mine.add(job.id);
     this.looks.add(job.id);
     const q = question?.trim() || undefined;

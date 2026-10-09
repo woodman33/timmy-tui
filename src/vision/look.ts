@@ -68,6 +68,15 @@ export function lookPython(env: NodeJS.ProcessEnv = process.env, onPath?: (cmd: 
 }
 
 export const OPENCV_SETUP = 'python3 -m pip install opencv-python-headless numpy';
+
+/**
+ * R2 (the Mac run): Python finds packages a user installed with pip --user under HOME. A Timmy run with a
+ * separate HOME (a sandbox) hides them, so OpenCV looked missing; TIMMY_NATIVE_HOME, when set, is the home
+ * local runtimes use (the same setting native apps use for their licenses).
+ */
+export function lookEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return env.TIMMY_NATIVE_HOME ? { ...env, HOME: env.TIMMY_NATIVE_HOME } : env;
+}
 const checks = new Map<string, Promise<{ ok: true; opencv: string } | { ok: false; error: string }>>();
 
 /** Whether this Python imports cv2 and numpy, by running it: a success is remembered per interpreter. */

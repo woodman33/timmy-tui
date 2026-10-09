@@ -12,7 +12,7 @@
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { z } from 'zod/v4';
 import { readProjectFile, resolveInside } from '../project/index.js';
-import { checkOpenCv, DETERMINISTIC, lookPython, OPENCV_SETUP, runLook, type LookObservation } from '../vision/look.js';
+import { checkOpenCv, DETERMINISTIC, lookPython, OPENCV_SETUP, runLook, type LookObservation, lookEnv } from '../vision/look.js';
 import { describeImage } from '../vision/route.js';
 
 type Observed = { ok: true; file: string; receipt?: string; tiers: string[]; interpretation?: Record<string, unknown> } | { ok: false; error: string; receipt?: string };
@@ -61,9 +61,9 @@ export function createVisionTools(o: VisionToolOptions) {
       }
       const py = lookPython(env, o.onPath);
       if ('error' in py) return { ok: false, error: `Look needs a Python with OpenCV: ${py.error}. Setup: ${OPENCV_SETUP}` };
-      const cv = await checkOpenCv(py.python, env);
+      const cv = await checkOpenCv(py.python, lookEnv(env));
       if (!cv.ok) return { ok: false, error: `${cv.error}. Setup: ${OPENCV_SETUP}` };
-      const r = await runLook({ python: py.python, imagePath: at.path, rel: at.rel, env });
+      const r = await runLook({ python: py.python, imagePath: at.path, rel: at.rel, env: lookEnv(env) });
       if (!r.ok) return { ok: false, error: r.error };
       return { ok: true, path: at.rel, tier: DETERMINISTIC, recorded: false, sha256: r.observation.source.sha256, ...bounded(r.observation) };
     },

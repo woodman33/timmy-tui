@@ -227,3 +227,13 @@ describe.skipIf(!python)('the real Look worker (OpenCV is importable here)', () 
     expect(existsSync(LOOK_SCRIPT)).toBe(true);
   });
 });
+
+// Round R2 (the Mac run): a sandboxed HOME hid OpenCV installed with pip --user; TIMMY_NATIVE_HOME is the
+// home local runtimes use.
+describe('the Look worker on a sandboxed Timmy', () => {
+  it('runs Python with HOME from TIMMY_NATIVE_HOME when it is set, and leaves the rest as it is', async () => {
+    const { lookEnv } = await import('../src/vision/look.js');
+    expect(lookEnv({ HOME: '/tmp/sandbox', TIMMY_NATIVE_HOME: '/tmp/native', PATH: '/bin' })).toMatchObject({ HOME: '/tmp/native', PATH: '/bin' });
+    expect(lookEnv({ HOME: '/tmp/sandbox', PATH: '/bin' })).toEqual({ HOME: '/tmp/sandbox', PATH: '/bin' });
+  });
+});
