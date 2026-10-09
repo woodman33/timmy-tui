@@ -13,6 +13,7 @@
  */
 import { mcpCapabilityRows } from '../connectors/mcp-cli.js';
 import { nativeCapabilityRows, nativeExercisedAt, type NativeRunIndex } from '../native/index.js';
+import { recipeCapabilityRow } from '../recipes/index.js';
 import type { StudioHealth } from '../studio/health.js';
 import { keySet } from '../utils/keys.js';
 
@@ -73,6 +74,11 @@ export interface ProbeDeps {
    * submissions not judged yet. Absent: the native rows say nothing of runs and are never exercised.
    */
   nativeRuns?: () => NativeRunIndex;
+  /**
+   * R3 (/recipe): when a succeeded enclosure-tray job of the real worker last finished in this project, its
+   * signed result verified now (src/recipes recipeExercisedAt). Absent: the recipe row is never exercised.
+   */
+  recipeExercised?: () => string | undefined;
   /** Whether the edge host (TIMMY_EDGE_HOST or the private overlay) is set; never the host. */
   edgeSet: () => boolean;
 }
@@ -223,6 +229,7 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   // ── adapters
   const nativeRuns = d.nativeRuns?.();
   for (const r of nativeCapabilityRows(d.env, {}, nativeRuns)) add(r);
+  add(recipeCapabilityRow(env));
   add(missionMap === 200
     ? { id: 'mission-map', kind: 'adapter', name: 'Mission Map (timmy map)', rung: 'reachable', detail: 'http://127.0.0.1:4336/' }
     : { id: 'mission-map', kind: 'adapter', name: 'Mission Map (timmy map)', rung: 'installed', detail: 'not running: timmy map' });
@@ -241,6 +248,11 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   // (exercisedBy) is decided by that record alone, never by a tool name it shares (R3, finding 6).
   const used = d.exercised();
   return rows.map((r) => {
+    if (r.exercisedBy?.startsWith('recipe:')) {
+      // Submission, failure and cancellation never count: only a verified, succeeded job's result.
+      const at = d.recipeExercised?.();
+      return at ? { ...r, exercised: at } : r;
+    }
     if (r.exercisedBy) {
       const at = nativeExercisedAt(r.exercisedBy, nativeRuns);
       return at ? { ...r, exercised: at } : r;

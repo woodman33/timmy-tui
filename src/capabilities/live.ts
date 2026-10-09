@@ -19,6 +19,7 @@ import type { OpenRouterAnswer, ProbeDeps } from './index.js';
 import { LANE_RUNNERS } from '../agent/lanes.js';
 import { listNativeRuns, nativeRunIndex } from '../native/index.js';
 import { OUTCOME_RULE } from '../repl/seal.js';
+import { recipeExercisedAt } from '../recipes/index.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -101,5 +102,7 @@ export function liveDeps(o: LiveOptions): ProbeDeps {
       return nativeRunIndex(verify().ok ? receipts() : [], runs);
     },
     edgeSet: () => edgeUrlOrNull() !== null,
+    // R3 (/recipe): the project's own durable recipe jobs, each read back through its signed result.
+    recipeExercised: () => { try { return recipeExercisedAt(process.cwd()); } catch { return undefined; } },
   };
 }

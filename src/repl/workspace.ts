@@ -23,6 +23,7 @@ import { staticServerCommand } from '../preview/static-server.js';
 import { hashFile, intakeFiles, kindOf, splitArgs } from '../project/intake.js';
 import { copyStarter, listStarters } from '../project/starters.js';
 import { BOARD_BASE, BOARD_FILE, readObservationRecord, renderBoard, utcStamp, type BoardFile, type BoardObservation } from './board.js';
+import { recipeEnded, recipeView, startRecipeJob, type RecipeContext, type RecipeStarted, type RecipeTestSeams } from './recipe.js';
 import { killProcessGroup } from '../runtime/spawn-runtime.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
@@ -61,6 +62,8 @@ export interface WorkspaceDeps {
   model?: () => string;
   /** The fetch a model interpretation uses; a test gives a mock. */
   fetch?: typeof fetch;
+  /** Round R3 (/recipe), test seams only: a fake recipe executor, the recipe supervisor's process, the watcher's poll. */
+  recipeTest?: RecipeTestSeams;
 }
 
 /** How an observation ended (round R2, look): its file and receipt, or why there is none. */
@@ -143,6 +146,8 @@ export class Workspace {
   private readonly looks = new Set<string>();
   /** Round R3: observations still in progress, by their Look job's id (measuring, or asking the model). */
   private readonly observing = new Map<string, Observing>();
+  /** Round R3 (/recipe): each recipe watcher job's recipe job UUID (its operation ID). */
+  private readonly recipes = new Map<string, string>();
 
   constructor(private readonly d: WorkspaceDeps, start: ActiveProject) {
     this.project = start;
@@ -622,6 +627,8 @@ export class Workspace {
       if (s) this.d.notify([{ text: `  ${g.bullet} ` }, { text: job.id, role: 'strong' }, { text: `  ${s.name} ${s.state === 'completed' ? 'completed' : `failed, exit ${s.code ?? '?'}`}${this.sep}${done} of ${total}`, role: s.state === 'failed' ? 'failure' : 'secondary' }]);
     }
     if (job.state === before.state) return;
+    const recipe = this.recipes.get(job.id);
+    if (recipe && TERMINAL.has(job.state)) { for (const l of recipeEnded({ ...this.recipeContext(), root: job.root }, job, recipe)) this.d.notify(l); return; }
     const nat = this.natives.get(job.id);
     if (nat && (job.state === 'completed' || job.state === 'failed')) {
       // R2: judged by the app's own result file; an exit code alone decides nothing (c4dpy can exit 1 after a good run).
@@ -864,6 +871,21 @@ export class Workspace {
     const w = splitCommandLine(args.trim());
     if (w.length < 3) return this.say('Usage: /ae <project.aep> <comp> <output file>   (renders an existing project)');
     return this.startNative(() => aerenderJob({ projectFile: w[0], comp: w[1], output: w[2], root: this.root, project: this.project.name }), `After Effects renders ${w[1]} from ${w[0]}`);
+  }
+
+  // ── /recipe (round R3: the CadQuery enclosure-tray recipe as a durable job; src/repl/recipe.ts) ──
+
+  async recipe(args: string): Promise<Line[]> { return recipeView(this.recipeContext(), args); }
+
+  /** The agent's run_recipe: the same start as /recipe tray, answered as data. */
+  runRecipe(parameters: Record<string, unknown>): Promise<RecipeStarted> { return startRecipeJob(this.recipeContext(), parameters); }
+
+  private recipeContext(): RecipeContext {
+    return {
+      root: this.root, project: this.project.name, env: this.d.env, glyphs: this.d.glyphs, seal: this.d.seal,
+      startJob: (spec, uuid) => { const job = this.jobs.start(spec); this.mine.add(job.id); this.recipes.set(job.id, uuid); return job; },
+      ...(this.d.recipeTest ? { test: this.d.recipeTest } : {}),
+    };
   }
 
   /** /mcp: MCP servers and their tools through the two command-line routes (MCPorter, Timmy's SDK command). */

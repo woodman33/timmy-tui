@@ -39,6 +39,7 @@ import { createProjectTools, ProjectTurnFiles, type ProjectToolOptions } from '.
 import { createVisionTools, type VisionToolOptions } from '../agent/vision-tools.js';
 import { createMcpTools, type McpToolOptions } from '../agent/mcp-tools.js';
 import { createNativeTools, type NativeToolOptions } from '../agent/native-tools.js';
+import { createRecipeTools, type RecipeToolOptions } from '../agent/recipe-tools.js';
 import { folderProject, projectId } from '../project/index.js';
 import { Workspace } from './workspace.js';
 import { studioBaseUrl, studioPort } from '../studio/config.js';
@@ -134,6 +135,7 @@ export const REPL_INSTRUCTIONS = [
   'Your working folder is the operator\'s active project: list_project_files, read_project_file and write_project_file work inside it. Read a file before you change it, and write whole files.',
   'Images in the project (files the operator added with /add are under refs/): observe_image measures them with OpenCV (numbers, not what they show); describe_image asks an image-capable model, costs money and asks first; report its answer as the model\'s claim.',
   'run_native starts Cinema 4D (c4dpy, a Python script), After Effects (aerender, an existing project) or Blender (its own Python, headless: an editable .blend and a render) as a background job and returns its id at once: it is not finished when you get the id; it is judged by its own result file, never by its exit code alone.',
+  'run_recipe starts the CadQuery enclosure-tray recipe (enclosure.tray/1, millimetres) as a durable background job and returns its job id and UUID at once: it is not built when you get them; its exports reach out/recipes/ only after its signed result verifies.',
   'MCP servers: list_mcp_tools shows the routes and the servers configured on this machine without starting any; list_mcp_command_tools lists one server\'s tools (a configured one by its exact name, or a command) and asks first; call_mcp_tool calls one tool and asks first.',
 ].join(' ');
 
@@ -155,7 +157,7 @@ const tildify = (path: string): string => {
  * The agent's tools in the REPL: the defaults and Timmy Canvas (F-4), each under a NEEDS YOU rule. The
  * canvas calls of one turn share that turn's canvas job (fourth order, step 5).
  */
-export function replTools(job?: CanvasTurnJob, project?: ProjectToolOptions, more: { vision?: VisionToolOptions; mcp?: McpToolOptions; native?: NativeToolOptions } = {}): typeof defaultTools {
+export function replTools(job?: CanvasTurnJob, project?: ProjectToolOptions, more: { vision?: VisionToolOptions; mcp?: McpToolOptions; native?: NativeToolOptions; recipe?: RecipeToolOptions } = {}): typeof defaultTools {
   // The project tools' typed schemas are narrower than the shared tool list's element type.
   const files = createProjectTools(project ?? { root: () => process.cwd() }) as unknown as typeof defaultTools;
   // Round R2: images (OpenCV measurements; an image-capable model), MCP servers through two command-line
@@ -163,7 +165,9 @@ export function replTools(job?: CanvasTurnJob, project?: ProjectToolOptions, mor
   const looks = createVisionTools(more.vision ?? { root: project?.root ?? (() => process.cwd()) }) as unknown as typeof defaultTools;
   const mcp = createMcpTools(more.mcp ?? { cwd: project?.root ?? (() => process.cwd()) }) as unknown as typeof defaultTools;
   const native = more.native ? createNativeTools(more.native) as unknown as typeof defaultTools : [];
-  return [...defaultTools, ...createCanvasTools({ job }), ...files, ...looks, ...mcp, ...native];
+  // Round R3: the CadQuery enclosure-tray recipe as a durable job (run_recipe; the REPL's /recipe tray).
+  const recipe = more.recipe ? createRecipeTools(more.recipe) as unknown as typeof defaultTools : [];
+  return [...defaultTools, ...createCanvasTools({ job }), ...files, ...looks, ...mcp, ...native, ...recipe];
 }
 
 export async function runRepl(argv: string[]): Promise<number> {
@@ -222,6 +226,7 @@ export async function runRepl(argv: string[]): Promise<number> {
       },
       mcp: { cwd: () => workspace.root },
       native: { root: () => workspace.root, project: () => workspace.project.name, start: (s) => workspace.jobs.start(s), onStarted: (job, spec) => workspace.adoptNative(job.id, spec) },
+      recipe: { start: async (p) => ({ ...(await workspace.runRecipe(p)) }) },
     }), async (req) => {
       if (!interactive) {
         transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision: 'no-terminal' });

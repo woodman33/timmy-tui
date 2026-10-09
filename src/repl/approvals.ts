@@ -58,6 +58,8 @@ const ALWAYS: Record<string, { reason: string; keys: string[]; session?: false }
   list_mcp_command_tools: { reason: 'starts an MCP server to list its tools: a configured server by name, or a program you give, on this machine or at an address', keys: ['server'], session: false },
   call_mcp_tool: { reason: 'runs an MCP server and calls one of its tools', keys: ['server', 'tool'], session: false },
   run_native: { reason: 'starts Cinema 4D, After Effects or Blender on this machine', keys: ['app', 'script', 'project_file', 'comp'] },
+  // Round R3 (/recipe): the CadQuery enclosure-tray recipe as a durable background job (src/agent/recipe-tools.ts).
+  run_recipe: { reason: 'builds a CAD tray with CadQuery on this machine, as a background job', keys: ['recipe', 'parameters'] },
   describe_image: { reason: 'sends an image from your project to a model, and costs money', keys: ['path'], session: false },
 };
 
