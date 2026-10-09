@@ -18,6 +18,7 @@ import { integrationCatalog } from '../vision/integrations/registry.js';
 import type { OpenRouterAnswer, ProbeDeps } from './index.js';
 import { LANE_RUNNERS } from '../agent/lanes.js';
 import { listNativeRuns, nativeRunIndex } from '../native/index.js';
+import { agentExercisedIndex } from '../code-agents/index.js';
 import { OUTCOME_RULE } from '../repl/seal.js';
 
 type Env = Record<string, string | undefined>;
@@ -101,5 +102,7 @@ export function liveDeps(o: LiveOptions): ProbeDeps {
       return nativeRunIndex(verify().ok ? receipts() : [], runs);
     },
     edgeSet: () => edgeUrlOrNull() !== null,
+    // Round R3 (/agent): an agent's row is exercised by a sealed, completed run of that agent alone.
+    agentRuns: () => agentExercisedIndex(verify().ok ? receipts() : []),
   };
 }

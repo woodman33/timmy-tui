@@ -99,6 +99,8 @@ export interface WorkspaceViews {
   mcp(args: string): Promise<Segment[][]>;
   /** Round R2: a read-only board of the project (an HTML snapshot), opened in Timmy's Browser. */
   board(args: string): Segment[][];
+  /** Round R3 (helper H13): a code agent (Qwen Code, Claude Code, Codex, OpenCode) as a job in the project. */
+  agent?(args: string): Promise<Segment[][]>;
 }
 
 /** /help's sections, in order: what you work on, what you look at, setup, the session. */
@@ -146,6 +148,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'ae', group: 'work', description: 'After Effects render: /ae <aep> <comp> <out>', run: inWorkspace((w, a) => w.ae(a)) },
   { name: 'blender', group: 'work', description: 'Blender Python as a job: /blender <script.py>', run: inWorkspace((w, a) => w.blender(a)) },
   { name: 'mcp', group: 'setup', description: 'MCP servers and tools: /mcp [tools|call]', run: inWorkspace((w, a) => w.mcp(a)) },
+  // Round R3 (helper H13): a code agent as a durable, cancellable job.
+  { name: 'agent', group: 'work', description: 'A code agent as a job: /agent qwen <task>', run: inWorkspace((w, a) => (w.agent ? w.agent(a) : [[{ text: '  Code agents are not available here.', role: 'secondary' }]])) },
   {
     name: 'web',
     group: 'look',
