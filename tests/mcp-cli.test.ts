@@ -74,10 +74,12 @@ describe.each(ROUTES)('route %s, end to end against a real stdio MCP server', (r
     expect(add).toMatchObject({ ok: true, tool: 'add', text: '5' });
   }, LONG);
 
-  it('an unknown tool fails with the server\'s own error', async () => {
+  it('an unknown tool fails: MCPorter\'s route refuses it from the server\'s own list, the SDK\'s with the server\'s error', async () => {
     const r = await callTool(route, SERVER, 'no_such_tool', {}, { timeoutMs: 30_000 });
     expect(r.ok).toBe(false);
-    expect(r.error).toContain('echo-fixture has no tool named no_such_tool');
+    // R3: through MCPorter the tool must be on the server's list first (its call would correct a near miss).
+    if (route === 'mcporter') expect(r.error).toMatch(/no tool named "no_such_tool" on node mcp-echo-server\.mjs \(its tools: echo, add, big, hang\); nothing was called/);
+    else expect(r.error).toContain('echo-fixture has no tool named no_such_tool');
   }, LONG);
 
   it('a time limit stops a hanging server, the server process included', async () => {
@@ -224,17 +226,22 @@ describe('the agent tools', () => {
   });
 
   it('list_mcp_tools: the routes and the configured servers', async () => {
-    const routes = await exec('list_mcp_tools')({});
+    const t = createMcpTools({ cwd: () => scratch(), env: () => ({ PATH: process.env.PATH, HOME: scratch() }) }).find((x) => x.function.name === 'list_mcp_tools')!;
+    const routes = await (t.function as unknown as { execute: Exec }).execute({});
     expect((routes.routes as Array<{ id: string; available: boolean }>).map((r) => r.id)).toEqual(['mcporter', 'sdk']);
-    expect(Array.isArray(routes.servers) || typeof routes.servers_error === 'string').toBe(true);
+    expect(routes.servers).toEqual([]);
   }, LONG);
 
-  it('list_mcp_tools: a configured server\'s tools, by name', async () => {
+  it('a configured server\'s tools, by name: list_mcp_command_tools (it asks), never list_mcp_tools (R3)', async () => {
     const project = scratch();
     mkdirSync(join(project, 'config'));
     writeFileSync(join(project, 'config', 'mcporter.json'), JSON.stringify({ mcpServers: { fixture: { command: process.execPath, args: [FIXTURE] } } }));
-    const t = createMcpTools({ cwd: () => project, env: () => ({ PATH: process.env.PATH, HOME: scratch() }) }).find((x) => x.function.name === 'list_mcp_tools')!;
-    const r = await (t.function as unknown as { execute: Exec }).execute({ server: 'fixture' });
+    const tools = createMcpTools({ cwd: () => project, env: () => ({ PATH: process.env.PATH, HOME: scratch() }) });
+    const run = (name: string): Exec => (tools.find((x) => x.function.name === name)!.function as unknown as { execute: Exec }).execute;
+    const refused = await run('list_mcp_tools')({ server: 'fixture' });
+    expect(refused.ok).toBe(false);
+    expect(String(refused.error)).toMatch(/list_mcp_command_tools/);
+    const r = await run('list_mcp_command_tools')({ server: 'fixture' });
     expect(r.error).toBeUndefined();
     expect((r.tools as Array<{ name: string }>).map((x) => x.name)).toEqual(expect.arrayContaining(['echo', 'add']));
   }, LONG);
@@ -263,7 +270,8 @@ describe('the agent tools', () => {
 
 describe('/mcp', () => {
   it('shows the routes, then a server\'s tools', async () => {
-    const top = (await mcpView([])).join('\n');
+    const top = (await mcpView([], { cwd: scratch(), env: { PATH: process.env.PATH, HOME: scratch() } })).join('\n');
+    expect(top).toContain('SERVERS  none configured');
     expect(top).toContain('MCP to CLI · MCPorter');
     expect(top).toContain('MCP to CLI · SDK');
     expect(top).toContain('installed');
