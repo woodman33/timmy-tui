@@ -9,23 +9,20 @@
  * Only regular files are copied (a link in a starter is skipped), into a project folder that is new.
  */
 import { copyFileSync, lstatSync, mkdirSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, join, relative } from 'node:path';
+import { packagedPath } from '../utils/asset-dirs.js';
 
 export const STARTERS: Readonly<Record<string, string>> = {
   'web-starter': 'a page, a development server (npm run dev) and a build workflow',
   'c4d-starter': 'a Cinema 4D scene script (/c4d scene.py) and its build workflow',
 };
 
-/** templates/, found from this module's place in a checkout (src/project) or a build (dist/src/project). */
+/**
+ * templates/ at the package root, found from this module's place in a checkout (src/project), the TypeScript build
+ * (dist/src/project) or the bundled CLI (dist/<chunk>.js) by src/utils/asset-dirs.ts; undefined when it has none.
+ */
 export function startersDir(): string | undefined {
-  let here: string;
-  try { here = dirname(fileURLToPath(import.meta.url)); } catch { return undefined; }
-  for (const up of ['../..', '../../..']) {
-    const dir = resolve(here, up, 'templates');
-    try { if (statSync(join(dir, 'web-starter')).isDirectory()) return dir; } catch { /* not here */ }
-  }
-  return undefined;
+  return packagedPath('templates', import.meta.url, { kind: 'dir' });
 }
 
 /** The starters this Timmy has, with what each holds. */
