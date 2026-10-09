@@ -4,9 +4,10 @@ Workbench engine (the safest headless). Run with Blender's own Python, headless:
 
     blender -b --factory-startup --python scene.py
 
-NOT YET EXERCISED on a real Blender: written against the documented `bpy` API and checked here only with
-Python 3 against a stand-in `bpy` module (tests/native-blender.test.ts). Its first real run is the
-operator's, on the Mac.
+Exercised once on a real Blender (5.2.2 LTS on macOS, round R3, as a Timmy job): it saved the .blend and
+rendered the PNG, and a second, independent headless Blender read the .blend back with all 7 objects and
+3 materials. That run's result file listed only 3 objects (the master collection's own); the list now
+comes from scene.objects and that fix has run only against the stand-in `bpy` (tests/native-blender.test.ts).
 
 What it writes (under TIMMY_OUT, default ./out):
   scene.blend        the editable scene (bpy.ops.wm.save_as_mainfile): open it in Blender
@@ -126,7 +127,9 @@ def main(run):
 
     return {
         "engine": ENGINE, "resolution": [WIDTH, HEIGHT],
-        "objects": [o.name for o in scene.collection.objects], "materials": ["Timmy Green", "Off White"],
+        # scene.objects is every object in the scene; scene.collection.objects only the master collection's
+        # own, which misses the primitives (the operators link them to the active collection).
+        "objects": sorted(o.name for o in scene.objects), "materials": ["Timmy Green", "Off White"],
         "args": timmy_blender.script_args(),
     }
 

@@ -6,6 +6,11 @@ so a name the starter gets wrong fails here. Passing against it says the starter
 result file hold together, not that Blender accepts the calls.
 
 BPY_STUB_RENDER_FAIL=1 makes bpy.ops.render.render return {'CANCELLED'}; BPY_STUB_VERSION sets the version.
+
+As in Blender's factory startup, the scene's master collection has one child collection, "Collection", the
+active one: the primitive operators link their objects there (bpy.context.collection), not to
+scene.collection, so scene.collection.objects misses them and scene.objects (every object in the scene's
+collections) has them all. Round R3 found this on the Mac: the first real run listed 3 of 7 objects.
 """
 import json
 import os
@@ -156,9 +161,9 @@ class _Objects(_IDs):
 
     def remove(self, obj, do_unlink=True):
         self._items.remove(obj)
-        for coll in (context.scene.collection.objects,):
-            if obj in coll._linked:
-                coll._linked.remove(obj)
+        for coll in context.scene._collections():
+            if obj in coll.objects._linked:
+                coll.objects._linked.remove(obj)
 
 
 class _Materials(_IDs):
@@ -212,8 +217,10 @@ class _Linked(object):
 
 
 class _Collection(object):
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.objects = _Linked()
+        self.children = []
 
 
 class _ImageSettings(_Strict):
@@ -260,12 +267,31 @@ class _Scene(_Strict):
 
     def __init__(self):
         self.name = "Scene"
-        self.collection = _Collection()
+        self.collection = _Collection("Scene Collection")
+        self.collection.children.append(_Collection("Collection"))
         self.camera = None
         self.render = _Render()
         self.display = _Display()
         self.frame_start = 1
         self.frame_end = 250
+
+    def _collections(self):
+        out, todo = [], [self.collection]
+        while todo:
+            coll = todo.pop(0)
+            out.append(coll)
+            todo.extend(coll.children)
+        return out
+
+    @property
+    def objects(self):
+        """Every object in the scene's collections, each once (read-only, as in Blender)."""
+        seen = []
+        for coll in self._collections():
+            for obj in coll.objects:
+                if obj not in seen:
+                    seen.append(obj)
+        return seen
 
 
 class _ViewLayerObjects(object):
@@ -288,6 +314,11 @@ class _Context(object):
         return self.view_layer.objects.active
 
     @property
+    def collection(self):
+        """The active collection: the factory startup's "Collection"."""
+        return self.scene.collection.children[0]
+
+    @property
     def object(self):
         return self.view_layer.objects.active
 
@@ -307,11 +338,12 @@ app = _App()
 
 
 def _add_mesh(kind, location, **dims):
-    """A mesh object at `location`, linked to the scene and made active, as the primitive operators do."""
+    """A mesh object at `location`, linked to the active collection and made active, as the primitive
+    operators do."""
     mesh = data.meshes.new(kind)
     obj = data.objects.new(kind.capitalize(), mesh)
     obj.location = tuple(location)
-    context.scene.collection.objects.link(obj)
+    context.collection.objects.link(obj)
     context.view_layer.objects.active = obj
     return {"FINISHED"}
 
@@ -342,7 +374,7 @@ class _WmOps(object):
         with open(filepath, "w") as f:
             json.dump({
                 "stand-in blend": True,
-                "objects": [o.name for o in context.scene.collection.objects],
+                "objects": sorted(o.name for o in context.scene.objects),
                 "materials": [m.name for m in data.materials],
                 "camera": context.scene.camera.name if context.scene.camera else None,
             }, f, sort_keys=True)

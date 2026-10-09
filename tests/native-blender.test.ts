@@ -146,7 +146,9 @@ describe.skipIf(!python)('the Blender starter against a stand-in bpy (python3 in
       ok: true, run: s.native.run, script_sha256: s.native.input?.sha256, script_sha256_read: s.native.input?.sha256,
       engine: 'BLENDER_WORKBENCH', resolution: [640, 400], materials: ['Timmy Green', 'Off White'], blender_version: '4.2.0 (stand-in)',
     });
-    expect(result?.objects).toEqual(['Ground', 'Cube', 'Sphere', 'Cylinder', 'Aim', 'Camera', 'Sun']);
+    // Every object in the scene, from scene.objects: the primitives sit in the active collection (as on the Mac,
+    // round R3, where the result listed only the master collection's Aim, Camera and Sun).
+    expect(result?.objects).toEqual(['Aim', 'Camera', 'Cube', 'Cylinder', 'Ground', 'Sphere', 'Sun']);
     expect(Object.keys(result?.files as object).sort()).toEqual(['out/render.png', 'out/scene.blend']);
     expect(verdict.outcome, verdict.why).toBe('ok');
     const blend = JSON.parse(readFileSync(path.join(root, 'out', 'scene.blend'), 'utf8'));

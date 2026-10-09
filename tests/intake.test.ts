@@ -27,6 +27,11 @@ describe('the kind of a file', () => {
     expect(kindOf('m.glb', Buffer.from('glTF\x02\0\0\0'))).toEqual({ kind: '3d', by: 'bytes' });
     expect(kindOf('notes.md', Buffer.from('# hi'))).toEqual({ kind: 'document', by: 'name' });
     expect(kindOf('scene.usdz', Buffer.from('PK\x03\x04'))).toEqual({ kind: '3d', by: 'name' });
+    // Round R3: the native apps' own scenes and CAD exchange files are 3D, by their bytes where they say.
+    expect(kindOf('scene.blend', Buffer.from('BLENDER-v405RENDH'))).toEqual({ kind: '3d', by: 'bytes' });
+    expect(kindOf('scene.blend', Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0, 0]))).toEqual({ kind: '3d', by: 'name' });
+    expect(kindOf('tray.step', Buffer.from('ISO-10303-21;\nHEADER;'))).toEqual({ kind: '3d', by: 'bytes' });
+    for (const n of ['a.c4d', 'a.hip', 'a.hiplc', 'a.hipnc', 'a.stp', 'a.3mf', 'a.abc']) expect(kindOf(n, Buffer.from('\0\0\0\0')).kind, n).toBe('3d');
     expect(kindOf('part.stl', Buffer.from('solid x'))).toEqual({ kind: '3d', by: 'name' });
     expect(kindOf('data.bin', Buffer.from('????'))).toEqual({ kind: 'other', by: 'name' });
     // The bytes win, and the mismatch is said.

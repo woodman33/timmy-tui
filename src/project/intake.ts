@@ -26,7 +26,8 @@ const BY_NAME: Record<string, IntakeKind> = {};
 for (const e of ['png', 'jpg', 'jpeg', 'webp', 'gif', 'heic']) BY_NAME[`.${e}`] = 'image';
 for (const e of ['pdf', 'docx', 'md', 'txt']) BY_NAME[`.${e}`] = 'document';
 for (const e of ['mp4', 'mov', 'webm']) BY_NAME[`.${e}`] = 'video';
-for (const e of ['glb', 'gltf', 'obj', 'fbx', 'usd', 'usda', 'usdc', 'usdz', 'ply', 'stl']) BY_NAME[`.${e}`] = '3d';
+// Scenes and models, including the native apps' own files (Blender, Cinema 4D, Houdini) and CAD exchange (STEP, 3MF).
+for (const e of ['glb', 'gltf', 'obj', 'fbx', 'usd', 'usda', 'usdc', 'usdz', 'ply', 'stl', 'abc', 'blend', 'c4d', 'hip', 'hiplc', 'hipnc', 'step', 'stp', '3mf']) BY_NAME[`.${e}`] = '3d';
 
 const HEIF_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1', 'avif', 'avis']);
 const VIDEO_BRANDS = new Set(['isom', 'iso2', 'iso4', 'iso5', 'iso6', 'mp41', 'mp42', 'avc1', 'dash', 'm4v ', 'qt  ', 'mp71', '3gp4', '3gp5']);
@@ -42,7 +43,7 @@ function byBytes(head: Buffer): IntakeKind | undefined {
   }
   if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3) return 'video';
   if (at('%PDF-')) return 'document';
-  if (at('glTF') || at('ply\n') || at('ply\r\n') || at('Kaydara FBX Binary') || at('PXR-USDC') || at('#usda')) return '3d';
+  if (at('glTF') || at('ply\n') || at('ply\r\n') || at('Kaydara FBX Binary') || at('PXR-USDC') || at('#usda') || at('BLENDER') || at('ISO-10303-21;')) return '3d';
   return undefined;
 }
 

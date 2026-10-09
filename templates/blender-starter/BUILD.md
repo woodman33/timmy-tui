@@ -9,8 +9,11 @@ writes its own, `.timmy/native/<run>/result.json`, beside the run's record (`job
 verdicts on it; run by hand it is `out/timmy-result.json`. Timmy judges the run by that file, not by
 Blender's exit status.
 
-**Status: not yet exercised.** `scene.py` follows the documented `bpy` API and has run here only against a
-stand-in `bpy` module. Its first real run is on a Mac with Blender installed.
+**Status: exercised once** on a Mac with Blender 5.2.2 LTS, as a Timmy job (`/blender scene.py`): it
+saved `out/scene.blend` and rendered `out/render.png` (640x400), Timmy judged the run by its result file,
+and a second headless Blender read the `.blend` back independently (7 objects, 3 materials, Workbench,
+640x400). That run's result listed 3 of the 7 objects; the listing was fixed afterwards and the fix has
+run only against the stand-in `bpy` in Timmy's tests.
 
 ## Run it
 
