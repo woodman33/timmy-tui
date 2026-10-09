@@ -185,7 +185,8 @@ describe('the capability list rows', () => {
   it('installed when the route resolves, with its dependency and version', () => {
     const rows = mcpCapabilityRows(process.env);
     const summary = rows.find((r) => r.id === 'mcp-cli');
-    expect(summary).toMatchObject({ kind: 'tool', rung: 'installed', tools: ['list_mcp_tools', 'call_mcp_tool'] });
+    expect(summary).toMatchObject({ kind: 'tool', rung: 'installed', tools: ['list_mcp_tools', 'list_mcp_command_tools', 'call_mcp_tool'] });
+    expect(summary?.tools).toEqual(createMcpTools().map((t) => t.function.name));
     const mcporter = rows.find((r) => r.id === 'mcp-cli:mcporter');
     expect(mcporter?.rung).toBe('installed');
     expect(mcporter?.detail).toMatch(/mcporter \d+\.\d+\.\d+/);

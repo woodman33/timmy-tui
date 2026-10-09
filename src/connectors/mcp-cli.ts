@@ -203,7 +203,7 @@ export function mcpRoutes(env: Env = process.env, seams: McpRouteSeams = {}): Mc
 export function mcpCapabilityRows(env: Env = process.env, seams: McpRouteSeams = {}): Array<Omit<CapabilityRow, 'exercised'>> {
   const routes = mcpRoutes(env, seams);
   const ready = routes.filter((r) => r.available);
-  const tools = ['list_mcp_tools', 'call_mcp_tool'];
+  const tools = ['list_mcp_tools', 'list_mcp_command_tools', 'call_mcp_tool'];
   const summary: Omit<CapabilityRow, 'exercised'> = ready.length
     ? { id: 'mcp-cli', kind: 'tool', name: 'MCP servers (/mcp)', rung: 'installed', detail: `${ready.length} of ${routes.length} command-line routes installed; no server contacted`, tools }
     : { id: 'mcp-cli', kind: 'tool', name: 'MCP servers (/mcp)', rung: 'needs setup', detail: 'no command-line route installed', setup: routes.map((r) => r.setup).filter(Boolean).join('; '), tools };
