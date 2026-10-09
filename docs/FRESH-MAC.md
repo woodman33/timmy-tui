@@ -3,15 +3,23 @@
 The exact steps, from a Mac with nothing installed to a project you build, preview and stop from the
 Timmy REPL. What it says about Timmy was read from the code of `feat/ui-workflow-r1` at `2270269`
 (`package.json`, `src/cli.ts`, `src/utils/init.ts`, `src/utils/config.ts`, `src/repl/`, `src/project/`,
-`src/jobs/`); the install commands for Apple's tools, Homebrew, Node and nvm come from those projects.
+`src/jobs/`), and the round R2 additions (step 7) at `989d7d5`; the install commands for Apple's tools,
+Homebrew, Node and nvm come from those projects.
 
-Each step carries one of two labels:
+Each step carries one of three labels:
 
+- **(checked on a Mac)**: run on 2026-10-09 on a Mac (macOS, Node 24.14.1, npm 11.11.0, git 2.54.0)
+  in a throwaway home: `HOME`, `TIMMY_HOME` and `TIMMY_STORE` pointed at a new folder and the rest of
+  the environment cleared with `env -i`, so no existing Timmy setup was read or changed. The REPL ran in
+  a terminal (tmux) with a real model key; its screens were kept as the terminal's own text.
 - **(checked on Linux in CI-like container)**: run on 2026-10-09 in a Linux container, from a checkout
   whose `node_modules` came from an existing install, with Node 22.22.0 (the only Node there, below the
   required 24), a throwaway Timmy home, and, for the REPL steps, a placeholder key and no model turn.
 - **(to be checked on a Mac)**: not run yet; it needs macOS, Homebrew, the network, a terminal or a
   real model key.
+
+On that Mac, Xcode's tools, Homebrew, Node 24 and upmd were already installed, so step 1 was not run
+there; the steps from step 2 on were, except where a step says otherwise.
 
 ## 1. Prerequisites
 
@@ -63,7 +71,8 @@ works without them.
 
 ## 2. Get the code
 
-**(to be checked on a Mac)**: not run here; the container's `node_modules` came from an existing install.
+**(checked on a Mac)**: the clone took 300 s on that network; `npm ci --include=dev` installed 585
+packages in 24 s.
 
 ```sh
 git clone --branch feat/ui-workflow-r1 https://github.com/woodman33/timmy-tui.git
@@ -71,10 +80,12 @@ cd timmy-tui
 npm ci --include=dev
 ```
 
-**`--include=dev` matters (checked on a Mac, 2026-10-09).** Timmy runs from a checkout through `tsx`, a
-development package. On a Mac whose shell sets `NODE_ENV=production` (or whose npm settings say
-`omit=dev`), a plain `npm ci` leaves development packages out and Timmy cannot start; `--include=dev`
-installs them whatever those settings say. If you skipped it, `npm run timmy` says so and prints this fix.
+**`--include=dev` matters (checked on a Mac).** Timmy runs from a checkout through `tsx`, a development
+package. That Mac's shell sets `NODE_ENV=production`, so a plain `npm ci` installed 343 packages in 7 s,
+left the development packages out, and Timmy could not start (`sh: tsx: command not found`, exit 127).
+`--include=dev` installs them whatever `NODE_ENV` or npm's `omit=dev` setting says. If you skipped it,
+`npm run timmy` now says so, prints `Fix: npm ci --include=dev` and exits 127 (checked on Linux in
+CI-like container, with the packages absent).
 
 `npm run timmy -- <command>` runs Timmy from this checkout (`scripts/timmy-dev.mjs`, which starts
 `src/cli.ts` through `tsx`). Nothing is installed globally, and an existing global `timmy` is left alone.
@@ -137,8 +148,10 @@ The same without questions **(checked on Linux in CI-like container)**:
 npm run timmy -- init --yes --operator <your name> --project first-light
 ```
 
-What works on this machine, and the step for each thing that does not **(checked on Linux in CI-like
-container)**:
+What works on this machine, and the step for each thing that does not **(checked on a Mac, in the
+throwaway home with no key: it listed the REPL and OpenRouter as `needs setup  no model key`, Timmy
+Canvas as `needs setup  the page is not built`, and the monitor, cockpit, web views, workflows and
+receipts as installed)**:
 
 ```sh
 npm run timmy -- tools
@@ -146,7 +159,8 @@ npm run timmy -- tools
 
 Start the REPL. From a checkout, `npm run timmy` with no command prints the help once the wizard has
 run (the help's "with no command, opens the REPL" is the installed `timmy`), so name the command
-**(checked on Linux in CI-like container, in a pipe; the interactive REPL to be checked on a Mac)**:
+**(checked on Linux in CI-like container, in a pipe; the interactive REPL checked on a Mac, started
+from a clone of this branch through the same `tsx src/cli.ts repl` that `npm run timmy -- repl` runs)**:
 
 ```sh
 npm run timmy -- repl
@@ -216,7 +230,62 @@ Then:
 - `/stop all` stops every job this REPL started; `/exit` quits, and the jobs this REPL started stop with
   it.
 
-## 7. Where things live
+## 7. Images, native apps, MCP and the board (round R2)
+
+These work in a project too. Each says what it needs when that is missing; none installs anything.
+
+```text
+/add ~/Desktop/card.png
+/observe refs/card.png
+/observe refs/card.png What is printed on this card?
+/board
+/mcp
+/mcp tools -- node server.mjs
+/mcp call --route sdk add '{"a":2,"b":3}' -- node server.mjs
+/c4d scene.py
+/ae project.aep "Main Comp" out/main.mov
+```
+
+- `/add <file…>` copies files into the project's `refs/` (a name already there gets a number) and
+  seals the copy as a receipt **(checked on a Mac)**.
+- `/observe <image>` measures the image with Timmy's Look worker (OpenCV) as a job: its size, colours,
+  sharpness, edges, QR codes and ArUco markers, written to `results/observations/` and labelled
+  *deterministic computation* **(checked on a Mac: from a test card it read the QR text and ArUco
+  marker 7)**. It needs `python3` with OpenCV: `python3 -m pip install opencv-python-headless numpy`;
+  `/tools` says when it is missing.
+- `/observe <image> <question>` also asks the model you are using, and keeps the answer apart,
+  labelled *model interpretation*: a claim, not a measurement. The image goes only to a model that
+  OpenRouter lists as taking images; any other model is refused before anything is sent, with a few that
+  do. It costs what OpenRouter charges **(checked on a Mac with `anthropic/claude-haiku-4.5`)**. In a
+  conversation the model can run the same measurement itself (`observe_image`, which only reads) and,
+  with your approval each time, ask for an interpretation (`describe_image`).
+- `/board` writes `.timmy/board/index.html`, a read-only page of the project: its references, workflow
+  blocks, this project's jobs, outputs and observations, each card linked to its file and showing the
+  command that acts on it (click one to copy it). The page names no absolute path. Open the link it
+  prints; inside tmux or zellij with carbonyl Timmy shows the page itself **(checked on a Mac: one
+  reference, one workflow, four jobs and three observations, the page photographed with headless
+  Chrome; no absolute path in it)**.
+- `/mcp` lists Timmy's two ways to reach MCP servers from the command line, MCPorter's CLI (the
+  `mcporter` package) and Timmy's own small CLI on the MCP SDK, each usable without the other, then the
+  servers MCPorter's configuration names. `/mcp tools` lists a server's tools and `/mcp call` calls one;
+  after `--` give any stdio server's command line **(checked on a Mac, both ways, with the test server
+  `tests/fixtures/mcp-echo-server.mjs`)**. In a conversation the model can list a configured server's
+  tools by itself; listing tools from a command line, or calling any tool, asks your approval each
+  time.
+- `/c4d <script.py>` runs a Cinema 4D Python script with `c4dpy` as a background job; the script
+  writes its result through `workers/c4d/timmy_c4d.py`, and Timmy judges the job by that result and the
+  files it names, not by the exit code alone. `templates/c4d-starter/` has a starter scene. On the Mac it
+  was run on, Cinema 4D had not been licensed for that user, so `c4dpy` asked how to license it and
+  waited; Timmy stopped the job at once and said so **(checked on a Mac; a real Cinema 4D run is still to
+  be checked: run Cinema 4D once as that user and choose how to license it)**.
+- `/ae <project.aep> <comp> <output>` renders an After Effects composition with `aerender` the same way
+  **(to be checked on a Mac: it needs an `.aep` project)**.
+
+Set `TIMMY_C4DPY` or `TIMMY_AERENDER` when the app is not in `/Applications`. If you run Timmy with a
+different `HOME` (a throwaway home, as here), set `TIMMY_NATIVE_HOME` to your usual home: Cinema 4D's
+license and Python's own packages (OpenCV) live there, and native jobs and the Look worker use it.
+
+## 8. Where things live
 
 | What | Where |
 |---|---|
@@ -228,13 +297,14 @@ Then:
 | Receipts | `$TIMMY_STORE` when set; otherwise the store a `.timmy/store-pin` above the working folder names, then `.timmy/receipts` beside the nearest `package.json`, then `.timmy/receipts` in the working folder. The REPL's first lines name the one in use. |
 | Settings | macOS: `~/Library/Preferences/timmy-tui-nodejs/config.json` (0600) |
 | Private config | `.timmy/private/` in the checkout, or `$TIMMY_PRIVATE_DIR` |
-| In the working folder | `logs/` (Timmy's own logs), `.timmy/keys/` (a signing key), `.timmy/cache/`, the project's conversation, and, from branch `r2/output-limit`, `.timmy/runs/command-<time>-<random>.log`: the full output of a workspace command too long to show |
+| In the working folder | `logs/` (Timmy's own logs), `.timmy/keys/` (a signing key), `.timmy/cache/`, the project's conversation, and `.timmy/runs/command-<time>-<random>.log`: the full output of a command too long to show (the first 4 KB and last 12 KB of each stream are shown; checked on a Mac, a 1.99 MB output) |
+| In a project (round R2) | `refs/` (files from `/add`), `results/observations/` (what `/observe` measured), `.timmy/board/index.html` (the last `/board`) |
 
 The working-folder files were seen on Linux after the REPL ran in a project
 **(checked on Linux in CI-like container)**. Keep `logs/` and `.timmy/` out of a project's version
 control.
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 - **NODE_PATH.** If your shell sets `NODE_PATH`, Node may load packages from outside this checkout. Run
   the test suite with it unset, and try the same when Timmy fails to load a module:
@@ -269,3 +339,12 @@ control.
   Set `OPENROUTER_API_KEY` (step 4) and start it again.
 - **Timmy Canvas.** `npm run timmy -- tools` reports it needs setup until its page is built:
   `npm run build:canvas` **(to be checked on a Mac)**.
+- **`/observe` says OpenCV is not available** although `python3 -c "import cv2"` works in your shell:
+  Timmy is running with a different `HOME`, which hides Python's user packages. Set `TIMMY_NATIVE_HOME`
+  to your usual home, or `TIMMY_VISION_PYTHON` to a Python that has OpenCV (checked on a Mac).
+- **`/c4d` stops at once with "asked how to license it".** Cinema 4D has not been licensed for the user
+  (or the `HOME`) the job runs as. Run Cinema 4D once and choose how to license it, or set
+  `TIMMY_NATIVE_HOME` to the home that holds the license; Timmy does not answer the license question
+  for you (checked on a Mac).
+- **A slow machine.** On a Mac under very heavy load (a load average above 400) the REPL took more than
+  a minute and a half to start; it is ready when it prints `Type a message to start.`

@@ -1,6 +1,6 @@
 # Round R1: shared brief for the lead and the two workers
 
-Updated 2026-10-09 00:05 PT by the lead (Opus). The Haiku worker's thread stalled before its first hand-off, so the lead keeps this file current; anyone may add a line under "For the lead".
+Updated 2026-10-09 02:45 PT by the lead (Opus), after round R2 (ledger rows 127 and 128). The Haiku worker's thread stalled before its first hand-off, so the lead keeps this file current; anyone may add a line under "For the lead".
 
 ## Where the work is
 
@@ -34,6 +34,9 @@ A functional, organized Timmy whose capabilities are easy to find and use: the R
 | `108f7b6` | The workspace command runs with a time limit in its own process group; the remaining workspace connections recorded in COMMAND-CENTER-PLAN (row 124). |
 | `50b9ca8` | What an independent check of `b1ede23` found: private names compared without case (a real leak on macOS), only regular files served by the preview, no absolute paths in job receipts, errors instead of throws, and "its process group" where a stop covered no more (row 126). |
 | `b1ede23` | The six findings of the independent review at `c7475458`: links to private files, redirected writes, jobs that outlive their first process, `/stop`'s ownership and wording, the preview server's read errors, Results by project identity (row 125). |
+| `12eb92f` … `989d7d5` | Round R2 (the owner's 00:43 standing order; rows 127 and 128): a command's output bounded with the full output in a run log, `docs/FRESH-MAC.md` and the `tsx` launcher (H1); two MCP-to-CLI routes and `/mcp` (H2); `c4dpy` and `aerender` jobs (H3); `/add`, the OpenCV Look worker and `/observe` (H4); `/board` (H5); the lead's integration (`8f4c2f8`) and the Mac's findings fixed (`b28901e`, `7a81b30`, `c70e3e9`). |
+
+Checks at `989d7d5`: GitHub's CI gate and the privacy gate passed; locally the full suite, 278 files passed and 7 skipped (2,517 tests passed, 57 skipped), with 4 vitest worker notices that are not test failures; `tsc` and `tsgo` clean. Demonstrated on the operator's Mac in a sandbox (row 128).
 
 Checks at `50b9ca8`: GitHub's CI and both privacy gates passed; locally the full suite, 268 files passed and 7 skipped (2,392 tests), with the same 3 vitest worker RPC timeouts as before the fixes; `tsc` and `tsgo` clean (row 126).
 
@@ -104,6 +107,10 @@ Never touch: `studio/` (another hand's lab), `lanes/visual/tokens.json` (the vis
 - AgentPass and TaskForge: their services live outside this repository, and `timmy tools` shows them as needs setup. The spatial roadmap stays in its own records (COMMAND-CENTER-PLAN's next milestone and the private register). Neither is part of R1.
 - Workspace (R1, 2026-10-08): what is connected and what is not, with the next bounded pass, is in COMMAND-CENTER-PLAN's "Workspace connections" section. Receipts sealed before `project_id` existed are not shown in `/results`.
 - In a workspace with `NODE_PATH` set, `tests/recipe-package` and `tests/inspect-package` resolve `tsx` globally and fail. Run the suite with `env -u NODE_PATH`.
+- Workspace (R2, 2026-10-09): each area's state (demonstrated, implemented, configured, planned) and the next bounded stage are in COMMAND-CENTER-PLAN's "Workspace connections (R2)" section.
+- Waiting on the operator: Cinema 4D asks how to license it for the user `c4dpy` runs as. Run Cinema 4D (or `c4dpy`) once and choose the license method; Timmy will not answer that prompt. A real `/c4d` run, and the native round trip proposed as the next stage, wait on it.
+- On the Mac, idle Timmy processes from C-17 and C-18 (`studio`, `watch`, `receipts --follow`, a headless Chrome; started 2026-10-07 and 08) still run under those checkpoints' temp folders. R2 did not start them and left them alone; stopping them is the operator's call.
+- The board shows a model's answer as plain text, so its Markdown marks (`**`) show; and an interpretation sealed before `c70e3e9` shows $0.0000, which means unknown, not free.
 
 ## For the lead
 
