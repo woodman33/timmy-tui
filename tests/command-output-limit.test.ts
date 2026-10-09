@@ -192,7 +192,7 @@ describe('the hard cap on the log', () => {
 
   it('the time limit kills a command that ignores SIGTERM, with its process group', async () => {
     const pidFile = join(dir, 'leader.pid');
-    const pending = runLocalCommand('echo $$ > leader.pid; trap "" TERM; while :; do sleep 0.1; done', { cwd: dir, timeoutMs: 400, killGraceMs: 300 });
+    const pending = runLocalCommand('echo $$ > leader.pid; trap "" TERM; while :; do sleep 0.1; done', { cwd: dir, timeoutMs: 1000, killGraceMs: 300 });
     const r = await Promise.race([pending, new Promise<'pending'>((resolve) => { setTimeout(() => resolve('pending'), 8000).unref(); })]);
     try {
       expect(r, 'the run never settled').not.toBe('pending');

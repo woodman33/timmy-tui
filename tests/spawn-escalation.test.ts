@@ -32,21 +32,22 @@ const settled = (o: ProcessOutcome | 'pending'): ProcessOutcome => {
 describe('a stop escalates to SIGKILL when SIGTERM is ignored', () => {
   it('the time limit: a process group that ignores SIGTERM ends with SIGKILL after the grace period', async () => {
     const t0 = performance.now();
-    const { child, outcome } = spawnProcess('sh', ['-c', STUBBORN], { detached: true, timeoutMs: 500, killGraceMs: 300 });
+    // 1 s: time enough for the shell to set its trap first, even on a busy machine
+    const { child, outcome } = spawnProcess('sh', ['-c', STUBBORN], { detached: true, timeoutMs: 1000, killGraceMs: 300 });
     groups.push(child.pid!);
-    const o = settled(await within(outcome, 6000));
+    const o = settled(await within(outcome, 7000));
     expect(o.timedOut).toBe(true);
     expect(o.signal).toBe('SIGKILL');
     expect(o.killed).toBe('SIGKILL');
     expect(o.error).toBeNull();
     expect(o.stdout).toBe('ready\n');
-    expect(performance.now() - t0).toBeLessThan(500 + 300 + 2500);
+    expect(performance.now() - t0).toBeLessThan(1000 + 300 + 2500);
   });
 
   it('a child without a group of its own is killed with SIGKILL too', async () => {
-    const { child, outcome } = spawnProcess('sh', ['-c', STUBBORN], { timeoutMs: 500, killGraceMs: 300 });
+    const { child, outcome } = spawnProcess('sh', ['-c', STUBBORN], { timeoutMs: 1000, killGraceMs: 300 });
     groups.push(child.pid!);
-    const o = settled(await within(outcome, 6000));
+    const o = settled(await within(outcome, 7000));
     expect(o.timedOut).toBe(true);
     expect(o.signal).toBe('SIGKILL');
     expect(o.killed).toBe('SIGKILL');
@@ -90,23 +91,29 @@ describe('output still open after the group is gone', () => {
       'console.log(String(g.pid)); g.unref();',
       'setInterval(() => {}, 1000);',
     ].join('\n');
-    const t0 = performance.now();
     let grandchild = 0;
-    const { child, outcome } = spawnProcess(process.execPath, ['-e', script], {
-      detached: true, timeoutMs: 800, killGraceMs: 300, closeWaitMs: 300,
+    let started: () => void = () => undefined;
+    const up = new Promise<void>((resolve) => { started = resolve; });
+    const run = spawnProcess(process.execPath, ['-e', script], {
+      detached: true, killGraceMs: 300, closeWaitMs: 300,
       // read as it arrives, so the test can end the sleep even when the outcome never settles
-      onStdout: (t) => { const pid = Number(t.trim().split('\n')[0]); if (!grandchild && pid > 1) { grandchild = pid; pids.push(pid); } },
+      onStdout: (t) => { const pid = Number(t.trim().split('\n')[0]); if (!grandchild && pid > 1) { grandchild = pid; pids.push(pid); started(); } },
     });
-    groups.push(child.pid!);
-    const o = settled(await within(outcome, 8000));
+    groups.push(run.child.pid!);
+    await within(up, 5000);
     expect(grandchild).toBeGreaterThan(1);
+    // The stop comes once the sleep holds the pipe (the time limit takes the same path: the tests above).
+    const t0 = performance.now();
+    run.stop();
+    const o = settled(await within(run.outcome, 8000));
     expect(o.stdout.trim()).toBe(String(grandchild));
-    expect(o.timedOut).toBe(true);
+    expect(o.timedOut).toBe(false);
     // The child itself ended on SIGTERM; nothing in its group was left for SIGKILL.
     expect(o.signal).toBe('SIGTERM');
     expect(o.killed).toBe('SIGTERM');
     expect(o.error).toMatch(/output still open after the process group was stopped: a process it started outside its group may still run/);
-    expect(performance.now() - t0).toBeLessThan(800 + 300 + 300 + 2500);
+    expect(performance.now() - t0).toBeGreaterThanOrEqual(500);
+    expect(performance.now() - t0).toBeLessThan(300 + 300 + 2500);
     // It really was still running, outside the group: the test, not the runner, ends it.
     expect(() => process.kill(grandchild, 0)).not.toThrow();
   });
