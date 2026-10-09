@@ -15,6 +15,7 @@ import { delimiter, isAbsolute, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeProjectFile } from '../project/index.js';
 import { spawnProcess } from '../runtime/spawn-runtime.js';
+import { packageRoot, packagedPath } from '../utils/asset-dirs.js';
 
 export const DETERMINISTIC = 'deterministic computation';
 export const INTERPRETATION = 'model interpretation';
@@ -25,10 +26,13 @@ export const LOOK_MAX_OUTPUT = 256 * 1024;
 /** The largest file Look reads (workers/look/look.py MAX_BYTES). */
 export const LOOK_MAX_IMAGE = 64 * 1024 * 1024;
 
-/** workers/look/look.py stays at the package root for both the src and the dist/src layouts. */
+/**
+ * workers/look/look.py at the package root, found from this module's place in a checkout (src/vision), the TypeScript
+ * build (dist/src/vision) or the bundled CLI (dist/<chunk>.js) by src/utils/asset-dirs.ts. When it is missing, the
+ * place it belongs in this package, so a run fails on the missing file rather than running one from elsewhere.
+ */
 function packaged(rel: string): string {
-  const candidates = ['../../', '../../../'].map((prefix) => fileURLToPath(new URL(`${prefix}${rel}`, import.meta.url)));
-  return candidates.find((p) => existsSync(p)) ?? candidates[0];
+  return packagedPath(rel, import.meta.url, { kind: 'file' }) ?? join(packageRoot(import.meta.url) ?? fileURLToPath(new URL('.', import.meta.url)), rel);
 }
 export const LOOK_SCRIPT = packaged('workers/look/look.py');
 
