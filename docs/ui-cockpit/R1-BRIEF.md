@@ -36,6 +36,8 @@ A functional, organized Timmy whose capabilities are easy to find and use: the R
 | `b1ede23` | The six findings of the independent review at `c7475458`: links to private files, redirected writes, jobs that outlive their first process, `/stop`'s ownership and wording, the preview server's read errors, Results by project identity (row 125). |
 | `12eb92f` … `989d7d5` | Round R2 (the owner's 00:43 standing order; rows 127 and 128): a command's output bounded with the full output in a run log, `docs/FRESH-MAC.md` and the `tsx` launcher (H1); two MCP-to-CLI routes and `/mcp` (H2); `c4dpy` and `aerender` jobs (H3); `/add`, the OpenCV Look worker and `/observe` (H4); `/board` (H5); the lead's integration (`8f4c2f8`) and the Mac's findings fixed (`b28901e`, `7a81b30`, `c70e3e9`, `0ca1b06`); project starters (`4d9cf52`); an independent review's findings fixed (`2225869`). |
 
+Checks at `2225869` (and `0deb7b4`, docs only): GitHub's CI gate and the privacy gate passed at `0deb7b4`; locally the full suite, 279 files passed and 7 skipped (2,527 tests passed, 57 skipped), with 3 vitest worker notices and no failure; `tsc` clean. The starter path ran again on the Mac (row 131).
+
 Checks at `4d9cf52`: GitHub's CI gate and the privacy gate passed; locally the full suite, 279 files passed and 7 skipped (2,524 tests passed, 57 skipped), with 3 vitest worker notices that are not test failures; `tsc` and `tsgo` clean. Demonstrated on the operator's Mac (rows 129 and 130).
 
 Checks at `989d7d5`: GitHub's CI gate and the privacy gate passed; locally the full suite, 278 files passed and 7 skipped (2,517 tests passed, 57 skipped), with 4 vitest worker notices that are not test failures; `tsc` and `tsgo` clean. Demonstrated on the operator's Mac in a sandbox (row 128).
