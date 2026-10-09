@@ -127,6 +127,146 @@ describe('a model interpretation of an image', () => {
   });
 });
 
+// Round R3 (the independent review of 40022d9, finding 3): a known cost is never dropped, and the answer kept
+// is the answer given (up to a generous hard cap, flagged when cut), not a display-sized slice of it.
+describe('what a response reported is kept, whatever became of the answer', () => {
+  it('a 2xx response with usage but no answer text is a failure that still carries its reported cost', async () => {
+    const image = join(dir, 'a.png');
+    writeFileSync(image, PNG);
+    const { fn } = mockFetch({ completion: { model: 'anthropic/claude-haiku-4.5', choices: [{ message: { content: '' } }], usage: { cost: 0.0042, total_tokens: 800 } } });
+    const r = await describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: fn });
+    expect(r).toMatchObject({ ok: false, sent: true, cost_usd: 0.0042, tokens: 800, error: 'the model returned no answer' });
+  });
+
+  it('a request that went out and failed says its cost is unknown (null), never 0; a refusal sent nothing', async () => {
+    const image = join(dir, 'a.png');
+    writeFileSync(image, PNG);
+    const { fn } = mockFetch({ completion: { error: { message: 'upstream down' } }, completionStatus: 502 });
+    const r = await describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: fn });
+    expect(r).toMatchObject({ ok: false, sent: true, cost_usd: null });
+    expect(r.ok === false && r.error).toContain('502');
+    const refused = await describeImage({ model: 'deepseek/deepseek-chat', imagePath: image, question: 'q', apiKey: 'k', fetch: fn });
+    expect(refused.ok).toBe(false);
+    expect(refused).not.toHaveProperty('sent');
+    expect(refused).not.toHaveProperty('cost_usd');
+  });
+
+  it('keeps the whole answer up to 64 KB (no 8,000-character slice), and past that cuts on a character and says so', async () => {
+    const image = join(dir, 'a.png');
+    writeFileSync(image, PNG);
+    const long = 'é'.repeat(10_000); // 20,000 bytes: more than the old slice, less than the cap
+    const a = await describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: mockFetch({ completion: { model: 'anthropic/claude-haiku-4.5', choices: [{ message: { content: long } }] } }).fn });
+    expect(a.ok && a.answer).toBe(long);
+    expect(a).not.toHaveProperty('answer_truncated');
+    const huge = `a${'é'.repeat(40_000)}`; // 80,001 bytes
+    const b = await describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: mockFetch({ completion: { model: 'anthropic/claude-haiku-4.5', choices: [{ message: { content: huge } }], usage: { cost: 0.01 } } }).fn });
+    if (!b.ok) throw new Error(b.error);
+    expect(b.answer_truncated).toBe(true);
+    expect(b.answer_bytes).toBe(80_001);
+    expect(Buffer.byteLength(b.answer, 'utf8')).toBeLessThanOrEqual(64 * 1024);
+    expect(Buffer.byteLength(b.answer, 'utf8')).toBeGreaterThan(64 * 1024 - 4);
+    expect(huge.startsWith(b.answer)).toBe(true);
+    expect(b.answer).not.toContain('�');
+    expect(b.cost_usd).toBe(0.01);
+  });
+});
+
+// Round R3 (the independent review of 40022d9, finding 2): the paid request had no AbortSignal, so nothing
+// could stop it. describeImage takes one now, combined with its time limit.
+describe('a model interpretation can be stopped', () => {
+  /** OpenRouter whose chat request never answers: it ends only when its signal aborts (or never, with `deaf`). */
+  function silent(o: { deaf?: boolean; slowList?: boolean } = {}) {
+    const posts: string[] = [];
+    let posted: () => void = () => undefined;
+    const sent = new Promise<void>((resolve) => { posted = resolve; });
+    const never = (signal?: AbortSignal | null): Promise<Response> => new Promise((_resolve, reject) => {
+      if (signal && !o.deaf) signal.addEventListener('abort', () => reject(signal.reason ?? new Error('aborted')), { once: true });
+    });
+    const fn = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/models')) return o.slowList ? never(null) : new Response(JSON.stringify(MODELS), { status: 200 });
+      posts.push(String(init?.body));
+      posted();
+      return never(init?.signal);
+    }) as typeof fetch;
+    return { fn, posts, sent };
+  }
+
+  it('aborting while the model answers ends the call at once: cancelled, sent, cost unknown (null)', async () => {
+    const image = join(dir, 'a.png');
+    writeFileSync(image, PNG);
+    const api = silent();
+    const stop = new AbortController();
+    let requested = 0;
+    const pending = describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: api.fn, signal: stop.signal, onRequest: () => { requested++; } });
+    await api.sent;
+    expect(requested).toBe(1);
+    stop.abort();
+    const r = await pending;
+    expect(r).toMatchObject({ ok: false, cancelled: true, sent: true, cost_usd: null });
+    expect(r.ok === false && r.error).toMatch(/stopped while the model was answering/);
+  });
+
+  it('a fetch that ignores its signal cannot hold the stop', async () => {
+    const image = join(dir, 'a.png');
+    writeFileSync(image, PNG);
+    const api = silent({ deaf: true });
+    const stop = new AbortController();
+    const pending = describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: api.fn, signal: stop.signal });
+    await api.sent;
+    stop.abort();
+    expect(await pending).toMatchObject({ ok: false, cancelled: true, sent: true, cost_usd: null });
+  }, 10_000);
+
+  it('aborted before the request goes out (the models list is slow): nothing is sent, so no cost at all', async () => {
+    const image = join(dir, 'a.png');
+    writeFileSync(image, PNG);
+    const api = silent({ slowList: true });
+    const stop = new AbortController();
+    const pending = describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: api.fn, signal: stop.signal });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    stop.abort();
+    const r = await pending;
+    expect(r).toMatchObject({ ok: false, cancelled: true });
+    expect(r).not.toHaveProperty('sent');
+    expect(r).not.toHaveProperty('cost_usd');
+    expect(api.posts).toHaveLength(0);
+    const before = new AbortController();
+    before.abort();
+    const early = await describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: mockFetch().fn, signal: before.signal });
+    expect(early).toMatchObject({ ok: false, cancelled: true });
+    expect(early).not.toHaveProperty('sent');
+  }, 10_000);
+
+  it('a refusal whose models list must be read again for alternatives does not hold a stop either', async () => {
+    const image = join(dir, 'a.png');
+    writeFileSync(image, PNG);
+    let lists = 0;
+    // The first read of the list fails (whether the model takes images is unknown); the second never answers.
+    const fn = (async (input: string | URL | Request) => {
+      if (String(input).endsWith('/models')) { lists++; return lists === 1 ? new Response('down', { status: 503 }) : new Promise<Response>(() => undefined); }
+      return new Response('not here', { status: 404 });
+    }) as typeof fetch;
+    const stop = new AbortController();
+    const pending = describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: fn, signal: stop.signal });
+    while (lists < 2) await new Promise((resolve) => setTimeout(resolve, 5));
+    stop.abort();
+    const r = await pending;
+    expect(r).toMatchObject({ ok: false, refused: true, alternatives: [] });
+    expect(r).not.toHaveProperty('sent');
+  }, 10_000);
+
+  it('its own time limit still applies beside the signal, and is a failure, not a stop', async () => {
+    const image = join(dir, 'a.png');
+    writeFileSync(image, PNG);
+    const api = silent();
+    const r = await describeImage({ model: 'anthropic/claude-haiku-4.5', imagePath: image, question: 'q', apiKey: 'k', fetch: api.fn, signal: new AbortController().signal, timeoutMs: 50 });
+    expect(r).toMatchObject({ ok: false, sent: true, cost_usd: null });
+    expect(r).not.toHaveProperty('cancelled');
+    expect(r.ok === false && r.error).toMatch(/did not complete/);
+  });
+});
+
 // Round R2 (the Mac run): on the operator's own provider key (BYOK) OpenRouter reports cost 0 (its fee) and
 // the provider's charge as upstream_inference_cost; the first paid image call was recorded as costing 0.
 describe('the image call\'s cost on a provider key (BYOK)', () => {
