@@ -109,6 +109,10 @@ describe('the command lines, from the agents\' own help texts', () => {
     expect(parseAgentLine('claude explain what the --paid flag of our CLI does')).toMatchObject({ paid: false, task: 'explain what the --paid flag of our CLI does' });
     expect(parseAgentLine('claude --paid fix the typo')).toMatchObject({ paid: true, task: 'fix the typo' });
     expect(scrubPaths('/a/proj/x, /a/proj2/y and /a/proj', '/a/proj')).toBe('./x, /a/proj2/y and .');
+    // an address with a user name or password is refused, --paid or not (M10)
+    const creds = planAgent('qwen', 'x', { env: { TIMMY_AGENT_MODEL: 'm', TIMMY_AGENT_BASE_URL: 'http://user:pw@127.0.0.1:11434/v1' }, paid: true, run: 'a0000000a', bin: 'qwen' });
+    expect(creds).toMatchObject({ ok: false, refused: 'setup' });
+    expect(JSON.stringify(creds)).not.toContain('pw@');
   });
   it('the snapshot keeps a symbolic link as its link text, never following it (the review of ee70b9e, M1)', () => {
     const root = project();

@@ -72,6 +72,8 @@ export interface EndpointClass {
   local: boolean;
   /** host[:port] only: never the path, a user or a key */
   where: string;
+  /** the address carries a user name or password: refused whatever --paid says */
+  credentials?: true;
   /** why it is remote, in a sentence (absent when local) */
   why?: string;
 }
@@ -85,6 +87,9 @@ export function endpointClass(baseUrl: string, model: string | undefined): Endpo
   let url: URL;
   try { url = new URL(baseUrl); } catch { return { local: false, where: 'an address that does not parse', why: `${baseUrl.slice(0, 40)} is not a URL` }; }
   const where = url.host || url.hostname;
+  // A user name or password in the address would sit on the command line and in the saved job (the review of
+  // ee70b9e, M10): refused here, so neither a local nor a paid run takes it; a key belongs in TIMMY_AGENT_API_KEY.
+  if (url.username || url.password) return { local: false, where, why: 'the address carries a user name or password: put the key in TIMMY_AGENT_API_KEY instead', credentials: true };
   if (!LOOPBACK.has(url.hostname.toLowerCase())) return { local: false, where, why: `${where} is not this machine` };
   // Ollama names its cloud models with a tag ending in "cloud": `glm-5.3:cloud`, and also `gpt-oss:120b-cloud`
   // (the independent review of ee70b9e: only ":cloud" was caught). Any tag ending in cloud after a separator counts.
@@ -152,6 +157,7 @@ export function planAgent(name: AgentName, task: string, o: { env: Env; paid: bo
     const baseUrl = set(env.TIMMY_AGENT_BASE_URL) ? env.TIMMY_AGENT_BASE_URL.trim() : DEFAULT_BASE_URL;
     const ep = endpointClass(baseUrl, model);
     const key = set(env.TIMMY_AGENT_API_KEY) ? env.TIMMY_AGENT_API_KEY.trim() : ep.local ? LOCAL_KEY_PLACEHOLDER : null;
+    if (ep.credentials) return { ok: false, refused: 'setup', error: `TIMMY_AGENT_BASE_URL carries a user name or password; ${ep.why}. Nothing was started.` };
     if (!ep.local && !o.paid) {
       return { ok: false, refused: 'paid', error: `Remote, so it may cost money: ${ep.why}. It would send the task, and the project files Qwen Code reads, to ${ep.where}. Nothing was started. To run it anyway: /agent qwen --paid <task>` };
     }
