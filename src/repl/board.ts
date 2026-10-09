@@ -8,15 +8,33 @@
  * absolute path is written, nothing is fetched from elsewhere (no CDN, no web font: an installed
  * Monaspace Argon is used when there is one), and its one script copies a command when it is clicked.
  * What Look measured and what a model claimed stay in separate, labelled blocks (AGENTS.md §4).
+ *
+ * The independent review of 40022d9: an observation file is editable, so a value is drawn as measured only
+ * when its own tier is exactly "deterministic computation" AND the card's provenance check (src/evidence/
+ * observation-check.ts, made by /board) is `verified`. Every other value — another tier, no tier, a
+ * malformed entry, or any value of an unverified or stale record — goes to a separate "not verified" block,
+ * as recorded, never drawn or worded as a measurement. A card with no check is not verified.
  */
+import { checkObservation, type ObservationCheck } from '../evidence/observation-check.js';
 import { humanBytes } from '../project/index.js';
 import { kindOf } from '../project/intake.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
+import type { Receipt } from '../utils/receipts.js';
+import { DETERMINISTIC } from '../vision/look.js';
 
 export interface BoardFile { rel: string; bytes: number; sha256?: string; kind?: string }
 export interface BoardWorkflow { rel: string; blocks: Array<{ name: string; deps: string[] }> }
 export interface BoardJob { id: string; state: string; label: string; seconds?: string; receipt?: string; kind?: string }
-export interface BoardMeasurement { name: string; value: unknown; unit?: string; note?: string }
+export interface BoardMeasurement {
+  name: string;
+  value: unknown;
+  unit?: string;
+  note?: string;
+  /** The tier the record gives this value, verbatim; absent when it gives none (or not as text). */
+  tier?: string;
+  /** Not an object with a name and a text tier: `value` is then the whole entry as recorded. */
+  malformed?: boolean;
+}
 export interface BoardInterpretation { status: string; model?: string; question?: string; answer?: string; cost_usd?: number; reason?: string }
 export interface BoardObservation {
   /** The observation file, relative to the project. */
@@ -28,6 +46,8 @@ export interface BoardObservation {
   measurements: BoardMeasurement[];
   interpretation?: BoardInterpretation;
   job?: string;
+  /** Its provenance check (checkObservation); without one the card is shown as not verified. */
+  check?: ObservationCheck;
 }
 export type BoardPart = 'references' | 'workflows' | 'jobs' | 'outputs' | 'observations';
 export interface BoardInput {
@@ -80,11 +100,25 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v 
 const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 const obj = (v: unknown): Record<string, unknown> | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined);
 
+/** What /board knows about an observation file besides its JSON: what checkObservation needs. */
+export interface ObservationProvenance {
+  /** The record as written (before any scrubbing for display); the `json` read when omitted. */
+  record?: unknown;
+  /** The sha256 of the file's bytes now. */
+  fileSha256: string | undefined;
+  /** The project image's sha256 now: null when it is not there, undefined when it could not be hashed. */
+  currentSourceSha256: string | null | undefined;
+  receipts: readonly Receipt[];
+  projectId?: string;
+}
+
 /**
  * An observation file as /observe writes it (results/observations/*.json, src/vision/look.ts), read into
- * the board's shape; null when it is not one. A source path that leaves the project is dropped.
+ * the board's shape; null when it is not one. A source path that leaves the project is dropped. Each
+ * value keeps the tier the file gives it. With its provenance, the card carries checkObservation's result;
+ * without it, the card has no check and is shown as not verified.
  */
-export function readObservationRecord(file: string, json: unknown): BoardObservation | null {
+export function readObservationRecord(file: string, json: unknown, provenance?: ObservationProvenance): BoardObservation | null {
   const r = obj(json);
   const look = obj(r?.look);
   if (!r || !look || !Array.isArray(look.measurements)) return null;
@@ -99,7 +133,15 @@ export function readObservationRecord(file: string, json: unknown): BoardObserva
   for (const m of look.measurements) {
     const o = obj(m);
     const name = str(o?.name);
-    if (o && name) measurements.push({ name, value: o.value, ...(str(o.unit) ? { unit: str(o.unit) } : {}), ...(str(o.note) ? { note: str(o.note) } : {}) });
+    // An entry is kept even when it is malformed: dropping it would hide what the file says.
+    if (!o || !name || (o.tier !== undefined && typeof o.tier !== 'string')) {
+      measurements.push({ name: name ?? '(an entry with no name)', value: m, malformed: true });
+      continue;
+    }
+    measurements.push({
+      name, value: o.value, ...(str(o.unit) ? { unit: str(o.unit) } : {}), ...(str(o.note) ? { note: str(o.note) } : {}),
+      ...(str(o.tier) ? { tier: str(o.tier) } : {}),
+    });
   }
   const job = str(obj(r.job)?.id);
   return {
@@ -116,6 +158,7 @@ export function readObservationRecord(file: string, json: unknown): BoardObserva
       },
     } : {}),
     ...(job ? { job } : {}),
+    ...(provenance ? { check: checkObservation({ ...provenance, record: provenance.record ?? json, file }) } : {}),
   };
 }
 
@@ -224,15 +267,47 @@ function measurementRow(m: BoardMeasurement): string {
   }
 }
 
+/** One value of the "not verified" block: its name and value as recorded, and the tier it was given. */
+function unverifiedRow(m: BoardMeasurement, cardVerified: boolean): string {
+  const tier = m.malformed ? 'malformed entry'
+    : m.tier === DETERMINISTIC ? (cardVerified ? `tier: ${DETERMINISTIC}` : `recorded as ${DETERMINISTIC}`)
+      : m.tier ? `tier: ${m.tier}` : 'no tier recorded';
+  const unit = m.unit && m.value !== null && m.value !== undefined ? ` · ${m.unit}` : '';
+  return `<dt>${esc(m.name)}</dt><dd>${esc(`${plain(m.value)}${unit}`)} <span class="tier">${esc(tier)}</span></dd>`;
+}
+
+/** The card's provenance, said plainly: verified (by which receipt), or why not. */
+function statusBlock(o: BoardObservation): string {
+  const c: ObservationCheck = o.check ?? { status: 'unverified', reasons: ['its provenance was not checked'] };
+  if (c.status === 'verified') {
+    return `<div class="status status-verified"><strong>verified</strong> ${esc(`${c.receipt ? `receipt ${c.receipt}` : 'its observe receipt'} sealed this file, and ${o.source?.path ?? 'its image'} is unchanged since`)}</div>`;
+  }
+  const lead = c.status === 'stale' ? 'measured from an image that has changed since: not true of it now' : 'these values are not verified';
+  const reasons = c.reasons.length ? c.reasons : ['no reason was given'];
+  return `<div class="status status-${c.status === 'stale' ? 'stale' : 'unverified'}"><strong>${c.status === 'stale' ? 'stale' : 'unverified'}</strong> ${esc(lead)}`
+    + `<ul class="reasons">${reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></div>`;
+}
+
 function observationCard(o: BoardObservation, h: ReturnType<typeof render>): string {
   const src = o.source?.path;
   const head = `<div class="obshead">${src && SHOWN_IMAGE.test(src) ? h.thumb(src) : ''}<div>`
     + `${src ? h.fileLink(src) : '<span class="name">(an image outside the project)</span>'}`
     + `<div class="meta">${esc([`observed ${o.madeAt ? utcStamp(o.madeAt) : 'at an unknown time'}`, ...(o.job ? [`job ${o.job}`] : [])].join(' · '))}</div>`
     + `<div class="meta">file ${h.fileLink(o.file, 'file')}</div></div></div>`;
-  const size = o.image ? `<dt>Image size</dt><dd>${esc(`${o.image.width} × ${o.image.height} px${o.image.channels !== undefined ? `, ${o.image.channels} channel${o.image.channels === 1 ? '' : 's'}` : ''}`)}</dd>` : '';
-  const rows = o.measurements.map(measurementRow).join('');
-  const measured = `<section class="measured"><h4>measured (deterministic computation)</h4>${size || rows ? `<dl>${size}${rows}</dl>` : '<p class="empty">No measurements in this record.</p>'}</section>`;
+  // Measured: a deterministic value of a verified record. Everything else is shown as recorded, not verified.
+  const verified = o.check?.status === 'verified';
+  const isMeasured = (m: BoardMeasurement): boolean => verified && !m.malformed && m.tier === DETERMINISTIC;
+  const sizeText = o.image ? `${o.image.width} × ${o.image.height} px${o.image.channels !== undefined ? `, ${o.image.channels} channel${o.image.channels === 1 ? '' : 's'}` : ''}` : '';
+  const size = sizeText && verified ? `<dt>Image size</dt><dd>${esc(sizeText)}</dd>` : '';
+  const rows = o.measurements.filter(isMeasured).map(measurementRow).join('');
+  const others = o.measurements.filter((m) => !isMeasured(m));
+  const measured = verified
+    ? `<section class="measured"><h4>measured (deterministic computation)</h4>${size || rows ? `<dl>${size}${rows}</dl>` : '<p class="empty">No measurements in this record.</p>'}</section>`
+    : '';
+  const recordedSize = sizeText && !verified ? `<dt>image size</dt><dd>${esc(sizeText)} <span class="tier">as recorded</span></dd>` : '';
+  const unverified = others.length || recordedSize
+    ? `<section class="unverified"><h4>not verified: values as the file records them, not measurements</h4><dl>${recordedSize}${others.map((m) => unverifiedRow(m, verified)).join('')}</dl></section>`
+    : '';
   const i = o.interpretation;
   let model = '';
   if (i && i.status === 'answered') {
@@ -242,7 +317,7 @@ function observationCard(o: BoardObservation, h: ReturnType<typeof render>): str
   } else if (i) {
     model = `<p class="nomodel">${esc(`No model claim: ${i.status}${i.model ? ` (${i.model})` : ''}${i.reason ? `: ${i.reason}` : ''}`)}</p>`;
   }
-  return `<article class="card obs">${head}${measured}${model}${h.cmds([`/open ${o.file}`, ...(src ? [`/observe ${h.quoted(src)}`] : [])])}</article>`;
+  return `<article class="card obs">${head}${statusBlock(o)}${measured}${unverified}${model}${h.cmds([`/open ${o.file}`, ...(src ? [`/observe ${h.quoted(src)}`] : [])])}</article>`;
 }
 
 const CSS = `
@@ -288,10 +363,19 @@ a.name:hover, a.name:focus-visible { text-decoration: underline; }
 .state { text-transform: uppercase; letter-spacing: .05em; font-size: 11px; color: ${HOMEBREW.textSecondary}; }
 .state-failed { color: ${HOMEBREW.failure}; }
 .state-running, .state-queued { color: ${HOMEBREW.attention}; }
-section.measured, section.claim { border-left: 3px solid ${HOMEBREW.lineStrong}; padding: 2px 0 2px 10px; }
+section.measured, section.claim, section.unverified { border-left: 3px solid ${HOMEBREW.lineStrong}; padding: 2px 0 2px 10px; }
 section.claim { border-left-color: ${HOMEBREW.ai}; }
+section.unverified { border-left-style: dashed; border-left-color: ${HOMEBREW.attention}; }
 h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: ${HOMEBREW.textSecondary}; }
 section.claim h4 { color: ${HOMEBREW.ai}; }
+section.unverified h4 { color: ${HOMEBREW.attention}; }
+section.unverified dd { color: ${HOMEBREW.textSecondary}; }
+.tier { font-size: 11px; color: ${HOMEBREW.textSecondary}; font-style: italic; margin-left: 6px; }
+.status { font-size: ${TYPE.size.small}px; margin: 0; overflow-wrap: anywhere; }
+.status strong { text-transform: uppercase; letter-spacing: .06em; font-size: 11px; margin-right: 6px; }
+.status-verified strong { color: ${HOMEBREW.accent}; }
+.status-unverified strong, .status-stale strong { color: ${HOMEBREW.attention}; }
+.status .reasons { margin: 4px 0 0; padding-left: 18px; color: ${HOMEBREW.textSecondary}; }
 dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 0; font-size: ${TYPE.size.small}px; }
 dt { color: ${HOMEBREW.textSecondary}; }
 dd { margin: 0; overflow-wrap: anywhere; }
@@ -370,7 +454,7 @@ export function renderBoard(input: BoardInput): string {
     input.observations.length ? grid(input.observations.map((o) => observationCard(o, h)), true) : h.empty('No observations yet: /observe <image>'),
     h.more('observations', '/results'),
     '</main>',
-    `<footer>${esc(`Made by /board from ${input.project}: a snapshot, not a live view; /board again makes a new one. Measured values are deterministic computations on the pixels; a model's claim is not a measurement.`)}</footer>`,
+    `<footer>${esc(`Made by /board from ${input.project}: a snapshot, not a live view; /board again makes a new one. Measured values are deterministic computations on the pixels, shown as measured only when an observe receipt sealed the file and its image is unchanged; a model's claim is not a measurement.`)}</footer>`,
     `<script>${SCRIPT}</script>`,
     '</body>',
     '</html>',
