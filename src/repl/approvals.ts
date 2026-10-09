@@ -55,9 +55,9 @@ const ALWAYS: Record<string, { reason: string; keys: string[]; session?: false }
   canvas_exec: { reason: 'runs code in the canvas page, which can reach the network', keys: ['code'] },
   write_project_file: { reason: 'changes a file in your project', keys: ['path'] },
   // Round R2
-  list_mcp_command_tools: { reason: 'starts a program on this machine to list its MCP tools', keys: [], session: false },
-  call_mcp_tool: { reason: 'runs an MCP server and calls one of its tools', keys: [], session: false },
-  run_native: { reason: 'starts Cinema 4D or After Effects on this machine', keys: ['app', 'script', 'project_file', 'comp'] },
+  list_mcp_command_tools: { reason: 'starts an MCP server to list its tools: a configured server by name, or a program you give, on this machine or at an address', keys: ['server'], session: false },
+  call_mcp_tool: { reason: 'runs an MCP server and calls one of its tools', keys: ['server', 'tool'], session: false },
+  run_native: { reason: 'starts Cinema 4D, After Effects or Blender on this machine', keys: ['app', 'script', 'project_file', 'comp'] },
   describe_image: { reason: 'sends an image from your project to a model, and costs money', keys: ['path'], session: false },
 };
 

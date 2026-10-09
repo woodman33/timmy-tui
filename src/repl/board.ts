@@ -93,6 +93,8 @@ const claimHtml = (s: string): string => esc(s)
     // As in Markdown: the marks hug their text (`a ** b` is not bold), and code keeps its asterisks.
     : part.replace(/\*\*(?=\S)([^*\n]*?\S)\*\*/g, '<strong>$1</strong>')))
   .join('');
+/** Round R3: how much of a model's answer a card shows; the observation file keeps the whole of it. */
+const BOARD_ANSWER_CHARS = 4000;
 const SHOWN_IMAGE = /\.(png|jpe?g|webp|gif)$/i;
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -361,7 +363,7 @@ function observationCard(o: BoardObservation, h: ReturnType<typeof render>): str
   if (i && i.status === 'answered') {
     const meta = [`model ${i.model ?? 'unknown'}`, i.cost_usd !== undefined ? `cost $${i.cost_usd.toFixed(4)}` : 'cost not reported'].join(' · ');
     model = `<section class="claim"><h4>${esc("the model's claim")}</h4><p class="meta">${esc(meta)}</p>`
-      + `${i.question ? `<p class="asked">${esc(`Asked: ${i.question}`)}</p>` : ''}<p class="answer">${i.answer ? claimHtml(i.answer) : esc('(no answer text)')}</p>`
+      + `${i.question ? `<p class="asked">${esc(`Asked: ${i.question}`)}</p>` : ''}<p class="answer">${i.answer ? claimHtml(i.answer.length > BOARD_ANSWER_CHARS ? `${i.answer.slice(0, BOARD_ANSWER_CHARS)}…` : i.answer) : esc('(no answer text)')}</p>${i.answer && i.answer.length > BOARD_ANSWER_CHARS ? `<p class="meta">${esc(`${i.answer.length - BOARD_ANSWER_CHARS} more characters in the observation file`)}</p>` : ''}`
       + `${evidenceLine(i.evidence, o.check?.status, new Set(o.measurements.filter((m) => !m.malformed && m.tier === DETERMINISTIC).map((m) => m.name)))}</section>`;
   } else if (i) {
     model = `<p class="nomodel">${esc(`No model claim: ${i.status}${i.model ? ` (${i.model})` : ''}${i.reason ? `: ${i.reason}` : ''}`)}</p>`;

@@ -133,8 +133,8 @@ export const REPL_INSTRUCTIONS = [
   'Never claim a receipt, a signature or a verification that a tool did not return.',
   'Your working folder is the operator\'s active project: list_project_files, read_project_file and write_project_file work inside it. Read a file before you change it, and write whole files.',
   'Images in the project (files the operator added with /add are under refs/): observe_image measures them with OpenCV (numbers, not what they show); describe_image asks an image-capable model, costs money and asks first; report its answer as the model\'s claim.',
-  'run_native starts Cinema 4D (c4dpy, a Python script) or After Effects (aerender, an existing project) as a background job and returns its id at once: it is not finished when you get the id.',
-  'MCP servers: list_mcp_tools shows the routes and configured servers; call_mcp_tool calls one tool and asks first.',
+  'run_native starts Cinema 4D (c4dpy, a Python script), After Effects (aerender, an existing project) or Blender (its own Python, headless: an editable .blend and a render) as a background job and returns its id at once: it is not finished when you get the id; it is judged by its own result file, never by its exit code alone.',
+  'MCP servers: list_mcp_tools shows the routes and the servers configured on this machine without starting any; list_mcp_command_tools lists one server\'s tools (a configured one by its exact name, or a command) and asks first; call_mcp_tool calls one tool and asks first.',
 ].join(' ');
 
 const tildify = (path: string): string => {

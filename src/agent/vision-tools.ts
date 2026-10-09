@@ -29,6 +29,11 @@ export interface VisionToolOptions {
 }
 
 const answer = z.record(z.string(), z.unknown());
+/** Round R3: what the agent reads of a model's answer; the observation file keeps the whole of it. */
+const AGENT_ANSWER_CHARS = 8000;
+const agentText = (a: unknown): unknown => (typeof a === 'string' && a.length > AGENT_ANSWER_CHARS
+  ? `${a.slice(0, AGENT_ANSWER_CHARS)}… [${a.length - AGENT_ANSWER_CHARS} more characters in the observation file]`
+  : a);
 /** What a tool answer may carry, at most (characters of JSON). */
 const MAX_ANSWER = 16_000;
 
@@ -86,12 +91,14 @@ export function createVisionTools(o: VisionToolOptions) {
         const r = await o.observe(at.rel, question, chosen);
         if (!r.ok) return { ok: false, error: r.error, ...(r.receipt ? { receipt: r.receipt } : {}) };
         const i = r.interpretation ?? {};
-        if (i.status !== 'answered') return { ok: false, error: String(i.reason ?? 'the model did not answer'), ...(Array.isArray(i.alternatives) ? { alternatives: i.alternatives } : {}), observation_file: r.file, ...(r.receipt ? { receipt: r.receipt } : {}) };
-        return { ok: true, tier: i.tier, model: i.model, answer: i.answer, cost_usd: i.cost_usd ?? null, recorded: true, observation_file: r.file, ...(r.receipt ? { receipt: r.receipt } : {}) };
+        // Round R3: a request that went out reports its cost whatever its status (null: not reported, unknown).
+        const cost = 'cost_usd' in i ? { cost_usd: (i.cost_usd as number | null | undefined) ?? null } : {};
+        if (i.status !== 'answered') return { ok: false, status: i.status, error: String(i.reason ?? 'the model did not answer'), ...cost, ...(Array.isArray(i.alternatives) ? { alternatives: i.alternatives } : {}), observation_file: r.file, ...(r.receipt ? { receipt: r.receipt } : {}) };
+        return { ok: true, tier: i.tier, model: i.model, answer: agentText(i.answer), ...cost, recorded: true, observation_file: r.file, ...(r.receipt ? { receipt: r.receipt } : {}) };
       }
       const r = await describeImage({ model: chosen, imagePath: at.path, question, apiKey: env.OPENROUTER_API_KEY, ...(o.fetch ? { fetch: o.fetch } : {}) });
       if (!r.ok) return { ok: false, error: r.error, ...(r.alternatives ? { alternatives: r.alternatives } : {}) };
-      return { ok: true, tier: r.tier, model: r.model, answer: r.answer, cost_usd: r.cost_usd, recorded: false };
+      return { ok: true, tier: r.tier, model: r.model, answer: agentText(r.answer), cost_usd: r.cost_usd, recorded: false };
     },
   });
   return [observeImage, describe];

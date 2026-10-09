@@ -15,6 +15,7 @@ import { packagedPath } from '../utils/asset-dirs.js';
 export const STARTERS: Readonly<Record<string, string>> = {
   'web-starter': 'a page, a development server (npm run dev) and a build workflow',
   'c4d-starter': 'a Cinema 4D scene script (/c4d scene.py) and its build workflow',
+  'blender-starter': 'a Blender scene script (/blender scene.py): an editable .blend and a render',
 };
 
 /**

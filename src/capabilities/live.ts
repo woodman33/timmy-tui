@@ -17,6 +17,7 @@ import { readChain, verifyChain } from '../utils/receipts.js';
 import { integrationCatalog } from '../vision/integrations/registry.js';
 import type { OpenRouterAnswer, ProbeDeps } from './index.js';
 import { LANE_RUNNERS } from '../agent/lanes.js';
+import { listNativeRuns, nativeRunIndex } from '../native/index.js';
 import { OUTCOME_RULE } from '../repl/seal.js';
 
 type Env = Record<string, string | undefined>;
@@ -92,6 +93,13 @@ export function liveDeps(o: LiveOptions): ProbeDeps {
     },
     // A broken chain vouches for nothing: no "used" dates from it.
     exercised: () => (verify().ok ? exercisedTools(receipts()) : new Map()),
+    // Round R3: a native app's row says what its own runs did (judged receipts of that app, and the runs
+    // recorded in the project Timmy works in), never what another app or a shared tool name did.
+    nativeRuns: () => {
+      let runs: ReturnType<typeof listNativeRuns> = [];
+      try { runs = listNativeRuns(process.cwd()); } catch { /* no project runs here */ }
+      return nativeRunIndex(verify().ok ? receipts() : [], runs);
+    },
     edgeSet: () => edgeUrlOrNull() !== null,
   };
 }

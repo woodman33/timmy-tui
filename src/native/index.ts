@@ -35,7 +35,7 @@ import {
   accessSync, appendFileSync, closeSync, constants, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync, writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { packagedPath } from '../utils/asset-dirs.js';
 import type { CapabilityRow } from '../capabilities/index.js';
 import type { JobRecord, JobSpec, JobState } from '../jobs/index.js';
 import { resolveInside } from '../project/index.js';
@@ -229,13 +229,9 @@ export class NativeNotFound extends Error {
  * a checkout (src/native) or a build (dist/src/native); undefined when neither has it.
  */
 export function c4dHelperDir(): string | undefined {
-  let here: string;
-  try { here = path.dirname(fileURLToPath(import.meta.url)); } catch { return undefined; }
-  for (const up of ['../..', '../../..']) {
-    const dir = path.resolve(here, up, 'workers', 'c4d');
-    try { if (statSync(path.join(dir, 'timmy_c4d.py')).isFile()) return dir; } catch { /* not here */ }
-  }
-  return undefined;
+  // Round R3: one lookup for the checkout, the TypeScript build and the bundled CLI (src/utils/asset-dirs.ts).
+  const helper = packagedPath('workers/c4d/timmy_c4d.py', import.meta.url, { kind: 'file' });
+  return helper === undefined ? undefined : path.dirname(helper);
 }
 
 /**
@@ -244,13 +240,8 @@ export function c4dHelperDir(): string | undefined {
  * scene script puts this folder on sys.path itself (templates/blender-starter/scene.py).
  */
 export function blenderHelperDir(): string | undefined {
-  let here: string;
-  try { here = path.dirname(fileURLToPath(import.meta.url)); } catch { return undefined; }
-  for (const up of ['../..', '../../..']) {
-    const dir = path.resolve(here, up, 'workers', 'blender');
-    try { if (statSync(path.join(dir, 'timmy_blender.py')).isFile()) return dir; } catch { /* not here */ }
-  }
-  return undefined;
+  const helper = packagedPath('workers/blender/timmy_blender.py', import.meta.url, { kind: 'file' });
+  return helper === undefined ? undefined : path.dirname(helper);
 }
 
 /** The default limit: a 96-frame turntable on the Standard renderer is minutes, not hours. */

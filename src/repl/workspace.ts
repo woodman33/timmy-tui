@@ -13,7 +13,7 @@ import { homedir } from 'node:os';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { JobManager, type JobRecord } from '../jobs/index.js';
-import { aerenderJob, c4dpyJob, judgeNativeJob, nativeReceiptFields, NativeNotFound, type NativeJobSpec } from '../native/index.js';
+import { aerenderJob, blenderJob, c4dpyJob, judgeNativeJob, nativeReceiptFields, NativeNotFound, noteNativeStarted, type NativeJobSpec } from '../native/index.js';
 import { mcpView, splitCommandLine } from '../connectors/mcp-cli.js';
 import {
   chooseProject, createProject, groupFiles, humanBytes, listProjectFiles, listProjects, projectId, projectsHome, readProjectFile,
@@ -839,6 +839,8 @@ export class Workspace {
       return this.say(this.scrub((e as Error).message, this.root), 'failure');
     }
     const job = this.jobs.start(spec);
+    // Round R3: the run's own record (.timmy/native/<run>/) learns its job, so a restart can reconcile it.
+    try { noteNativeStarted(spec, job); } catch { /* the record says it was submitted; the job still runs */ }
     this.adoptNative(job.id, spec);
     return [[{ text: '  Running    ', role: 'secondary' }, { text: job.id, role: 'strong' }, { text: `  ${what}${this.sep}judged by its result file${this.sep}/jobs ${job.id}${this.sep}/stop ${job.id}`, role: 'secondary' }]];
   }
@@ -848,6 +850,13 @@ export class Workspace {
     const w = splitCommandLine(args.trim());
     if (!w.length) return this.say('Usage: /c4d <script.py> [args]   (Cinema 4D Python, headless, as a job)');
     return this.startNative(() => c4dpyJob({ script: w[0], args: w.slice(1), root: this.root, project: this.project.name }), `Cinema 4D runs ${w[0]}`);
+  }
+
+  /** /blender <script.py> [args]: Blender's own Python, headless, as a job in the project (round R3). */
+  async blender(args: string): Promise<Line[]> {
+    const w = splitCommandLine(args.trim());
+    if (!w.length) return this.say('Usage: /blender <script.py> [args]   (Blender Python, headless, as a job: an editable .blend and a render)');
+    return this.startNative(() => blenderJob({ script: w[0], args: w.slice(1), root: this.root, project: this.project.name }), `Blender runs ${w[0]}`);
   }
 
   /** /ae <project.aep> <comp> <output>: After Effects renders an existing project's comp (aerender), as a job. */
