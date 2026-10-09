@@ -19,6 +19,9 @@ const server = http.createServer((req, res) => {
     if (fs.statSync(file).isDirectory()) file = path.join(file, 'index.html');
     const real = fs.realpathSync(file);
     if (real !== root && !real.startsWith(root + path.sep)) throw new Error('outside');
+    // Only regular files (verification of b1ede23): opening a FIFO blocks one of Node's four file threads
+    // for good, so a few such requests stopped the server answering; a folder named index.html is not a page.
+    if (!fs.statSync(real).isFile()) throw new Error('not a file');
     // Review at c7475458: a read that fails (an unreadable file, or one a rebuild removed after the check)
     // answers 500 or ends that one response; it never takes the whole server down. The 200 goes out only
     // once the file is open, so a failed open is a 500, not a short 200.

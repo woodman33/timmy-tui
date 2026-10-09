@@ -58,7 +58,8 @@ export function createProjectTools(o: ProjectToolOptions) {
     inputSchema: z.object({ path: z.string().describe('Path relative to the project folder') }),
     outputSchema: answer,
     execute: async ({ path }: { path: string }) => {
-      const r = readProjectFile(o.root(), path);
+      let r: ReturnType<typeof readProjectFile>;
+      try { r = readProjectFile(o.root(), path); } catch (err) { return { ok: false, error: `${path} cannot be read (${(err as NodeJS.ErrnoException).code ?? 'error'})` }; }
       if (!r.ok) return { ok: false, error: r.error };
       return { ok: true, path: r.rel, bytes: r.bytes, ...(r.binary ? { binary: true } : { text: r.text ?? '' }), ...(r.truncated ? { truncated: true } : {}) };
     },
@@ -72,7 +73,8 @@ export function createProjectTools(o: ProjectToolOptions) {
     }),
     outputSchema: answer,
     execute: async ({ path, content }: { path: string; content: string }) => {
-      const r = writeProjectFile(o.root(), path, content);
+      let r: ReturnType<typeof writeProjectFile>;
+      try { r = writeProjectFile(o.root(), path, content); } catch (err) { return { ok: false, error: `${path} could not be written (${(err as NodeJS.ErrnoException).code ?? 'error'})` }; }
       if (!r.ok) return { ok: false, error: r.error };
       o.touched?.saw({ path: r.rel, sha256: r.sha256, bytes: r.bytes, created: r.created, ...(r.previousSha256 ? { previous_sha256: r.previousSha256 } : {}) });
       return { ok: true, path: r.rel, bytes: r.bytes, created: r.created };

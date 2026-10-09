@@ -1,8 +1,8 @@
 // The preview's static server (src/preview/static-server.ts). Independent source review at c7475458
 // (2026-10-08), finding 5: a file that cannot be read (unreadable, or removed while a build rewrites the
 // folder) must not take the whole server down.
-import { spawn, type ChildProcess } from 'node:child_process';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -66,5 +66,22 @@ describe('review: an unreadable file does not take the preview down', () => {
     const good = await fetch(s.url, { signal: AbortSignal.timeout(3000) });
     expect(good.status).toBe(200);
     expect(s.exited()).toBe(false);
+  });
+});
+
+// Independent verification of b1ede23: opening a FIFO blocks one of Node's four file threads for good,
+// so four requests for one stopped the server answering; a folder named index.html sent a 200 then broke.
+describe('review follow-up: only regular files are served', () => {
+  it.skipIf(process.platform === 'win32')('answers 404 for a FIFO and for a folder named like a page, and keeps serving', async () => {
+    const dir = site();
+    execFileSync('mkfifo', [join(dir, 'pipe.txt')]);
+    mkdirSync(join(dir, 'sub', 'index.html'), { recursive: true });
+    const s = await serve(dir);
+    const pipes = await Promise.all([1, 2, 3, 4, 5].map(() => fetch(`${s.url}pipe.txt`, { signal: AbortSignal.timeout(1500) }).then((r) => r.status, () => 'no answer')));
+    expect(pipes).toEqual([404, 404, 404, 404, 404]);
+    const sub = await fetch(`${s.url}sub/`, { signal: AbortSignal.timeout(1500) }).then((r) => r.status, () => 'no answer');
+    expect(sub).toBe(404);
+    const good = await fetch(s.url, { signal: AbortSignal.timeout(3000) });
+    expect(good.status).toBe(200);
   });
 });

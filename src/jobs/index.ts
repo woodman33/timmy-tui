@@ -10,6 +10,9 @@
  *
  * A detached group does not receive the terminal's Ctrl+C: whoever owns the manager (the REPL) calls
  * stopAll() before it exits.
+ *
+ * What a job covers is its process group. A process that leaves the group (setsid, a daemon that
+ * detaches itself) is not tracked, stopped or reported here (independent verification of b1ede23).
  */
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';

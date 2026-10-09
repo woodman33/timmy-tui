@@ -245,3 +245,20 @@ describe('review: two folders with the same name keep their own results', () => 
     }
   });
 });
+
+// Independent verification of b1ede23: a job's error ("spawn <absolute path> ENOENT", "no such folder: ...")
+// and a typed /preview command reached the receipt with the project's absolute path.
+describe('review follow-up: job receipts carry no absolute path', () => {
+  it('writes the project folder as "." in a failed job\'s receipt', async () => {
+    const root = site();
+    const { ws, sealed } = make(root);
+    await ws.preview(`${join(root, 'no-such-server')} --url http://127.0.0.1:9/`);
+    const id = ws.jobs.list()[0].id;
+    expect((await ws.jobs.done(id)).state).toBe('failed');
+    await tick();
+    const rec = sealed.at(-1);
+    expect(rec?.kind).toBe('preview');
+    expect(JSON.stringify(rec)).not.toContain(root);
+    expect(rec?.job?.error).toMatch(/\.\/no-such-server/);
+  });
+});

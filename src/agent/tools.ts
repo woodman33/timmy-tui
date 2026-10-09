@@ -176,7 +176,7 @@ export const daytonaWorkspaceTool = tool({
     if (keyMissing(key)) {
       // No Daytona: the command runs here, which is what the approval box said before the operator agreed.
       // R1 workspace direction: in its own process group with a time limit, so a command that keeps running
-      // (a dev server) cannot hold the turn open, and a stop takes everything it started with it.
+      // (a dev server) cannot hold the turn open, and a stop takes its process group with it.
       const limit = Number(process.env.TIMMY_WORKSPACE_TIMEOUT_MS) > 0 ? Number(process.env.TIMMY_WORKSPACE_TIMEOUT_MS) : 120_000;
       const { outcome } = spawnProcess('sh', ['-c', command], { detached: true, timeoutMs: limit, maxBuffer: 10 * 1024 * 1024 });
       const r = await outcome;
@@ -187,7 +187,7 @@ export const daytonaWorkspaceTool = tool({
         stdout: r.stdout,
         stderr: r.stderr || r.error || '',
         message: r.timedOut
-          ? `Stopped after ${Math.round(limit / 1000)} s on this machine, with everything it started. A command that keeps running, such as a dev server, belongs in /preview, which runs it as a job.`
+          ? `Stopped after ${Math.round(limit / 1000)} s on this machine, with its process group. A command that keeps running, such as a dev server, belongs in /preview, which runs it as a job.`
           : `Ran on this machine, not in Daytona: DAYTONA_API_KEY is not set.${exit}`,
       };
     }

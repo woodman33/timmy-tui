@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { chooseProject, classify, createProject, groupFiles, listProjectFiles, projectsHome, readActiveProject, readProjectFile, resolveInside, saveActiveProject, writeProjectFile } from '../src/project/index.js';
+import { chooseProject, classify, createProject, groupFiles, listProjectFiles, privatePath, projectsHome, readActiveProject, readProjectFile, resolveInside, saveActiveProject, writeProjectFile } from '../src/project/index.js';
 
 const dirs: string[] = [];
 const temp = (prefix = 'proj-'): string => { const d = mkdtempSync(join(tmpdir(), prefix)); dirs.push(d); return d; };
@@ -134,6 +134,31 @@ describe('review: a link cannot reach a private file, and a write cannot be redi
     const w2 = writeProjectFile(root, 'index.html', '<p>newer</p>');
     expect(w2.ok).toBe(true);
     expect(readFileSync(join(outside, 'victim.txt'), 'utf8')).toBe('untouched');
+  });
+});
+
+// Independent verification of b1ede23 (2026-10-08): reproduced on the operator's Mac, where APFS ignores
+// case, .GIT/config and .timmy/PRIVATE/k were readable; and a file in the way made a write throw.
+describe('review follow-up: private names without case, and errors instead of throws', () => {
+  it('compares private names without case, as macOS does, and covers .envrc and .git-credentials', () => {
+    for (const rel of ['.GIT/config', '.Git/HEAD', '.Timmy/private/k', '.timmy/PRIVATE/k', 'a/.TIMMY/Private/x', '.ENV', '.envrc', '.git-credentials']) {
+      expect(privatePath(rel), rel).toBe(true);
+    }
+    expect(privatePath('src/git.ts')).toBe(false);
+    expect(privatePath('deck/talk.key')).toBe(false); // a Keynote file is not a key
+    const root = temp();
+    put(root, '.GIT/config', 'x');
+    expect(readProjectFile(root, '.GIT/config').ok).toBe(false);
+    expect(writeProjectFile(root, '.Timmy/Private/new.txt', 'no').ok).toBe(false);
+  });
+
+  it('answers a file in the way with an error, not a throw, and without the absolute path', () => {
+    const root = temp();
+    put(root, 'README.md', 'x');
+    let w: ReturnType<typeof writeProjectFile> | undefined;
+    expect(() => { w = writeProjectFile(root, 'README.md/x.txt', 'x'); }).not.toThrow();
+    expect(w?.ok).toBe(false);
+    expect(w && !w.ok ? w.error : '').not.toContain(root);
   });
 });
 

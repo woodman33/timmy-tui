@@ -4,11 +4,12 @@
  * all on the same project folder, the same job identity and the same receipt chain.
  *
  * Jobs run in their own process groups (src/jobs), so the REPL stays usable while they run and /stop
- * stops a job with everything it started. A preview server is "ready" when its address answers, which is
+ * stops a job with its process group. A preview server is "ready" when its address answers, which is
  * not the same as a build being "completed". A workflow run seals its prediction first, then its outcome.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { JobManager, type JobRecord } from '../jobs/index.js';
@@ -375,6 +376,18 @@ export class Workspace {
       .map((f) => { const sha = sha256File(join(job.root, f.rel)); return { path: f.rel, ...(sha ? { sha256: sha } : {}), bytes: f.bytes }; });
   }
 
+  /** Free text bound for a receipt with the project's folder written as "." and the home folder as "~"
+   *  (verification of b1ede23: a job's error and a typed /preview command carried absolute paths). */
+  private scrub(text: string, root: string): string {
+    let out = text;
+    const roots = [root];
+    try { roots.push(realpathSync(root)); } catch { /* gone */ }
+    for (const r of [...new Set(roots)].sort((a, b) => b.length - a.length)) if (r.length > 1) out = out.split(r).join('.');
+    const home = homedir();
+    if (home.length > 1) out = out.split(home).join('~');
+    return out;
+  }
+
   private sealJob(job: JobRecord): string | undefined {
     const p = this.predictions.get(job.id);
     const met = p ? job.state === 'completed' && job.steps.length === p.order.length && job.steps.every((s, i) => s.name === p.order[i] && s.state === 'completed') : undefined;
@@ -382,15 +395,17 @@ export class Workspace {
     const ms = job.endedAt ? Date.parse(job.endedAt) - Date.parse(job.startedAt) : undefined;
     const log = sha256File(job.logPath);
     const kind = job.kind === 'server' ? 'preview' : job.kind;
+    const label = this.scrub(job.label, job.root);
+    const error = job.error ? this.scrub(job.error, job.root) : undefined;
     try {
       return this.d.seal({
-        kind, subject: `${kind} · ${job.label} · ${job.state}`, policy: 'human-gated',
+        kind, subject: `${kind} · ${label} · ${job.state}`, policy: 'human-gated',
         status: job.state === 'completed' ? 'ok' : job.state === 'cancelled' ? 'cancelled' : 'failed',
         project: job.project, project_id: projectId(job.root),
         job: {
-          id: job.id, kind: job.kind, label: job.label, state: job.state, exit_code: job.exitCode ?? null,
+          id: job.id, kind: job.kind, label, state: job.state, exit_code: job.exitCode ?? null,
           steps: job.steps.map(({ name, state, code }) => ({ name, state, ...(code === undefined ? {} : { code }) })),
-          ...(log ? { log_sha256: log } : {}), ...(job.url ? { url: job.url } : {}), ...(ms !== undefined ? { ms } : {}), ...(job.error ? { error: job.error } : {}),
+          ...(log ? { log_sha256: log } : {}), ...(job.url ? { url: job.url } : {}), ...(ms !== undefined ? { ms } : {}), ...(error ? { error } : {}),
         },
         ...(outputs.length ? { outputs } : {}),
         ...(p ? { prediction: { doc: p.doc, block: p.block, order: p.order, expect: 'each block exits 0', ...(met === undefined ? {} : { met }), ...(p.receipt ? { receipt: p.receipt } : {}) } } : {}),
@@ -443,7 +458,7 @@ export class Workspace {
       const left = live.length - clean;
       return left
         ? this.say(`Stopped ${clean} of ${live.length} jobs this REPL started; ${left} did not stop cleanly: /jobs`, 'failure')
-        : this.say(`Stopped ${clean} job${clean === 1 ? '' : 's'} this REPL started, with everything ${clean === 1 ? 'it' : 'they'} started.`);
+        : this.say(`Stopped ${clean} job${clean === 1 ? '' : 's'} this REPL started, with ${clean === 1 ? 'its process group' : 'their process groups'}.`);
     }
     const j = this.jobs.get(id);
     if (!j) return this.say(`No job ${id}. /jobs lists them.`);
@@ -456,7 +471,7 @@ export class Workspace {
     if (!done || !TERMINAL.has(done.state) || done.error) {
       return [[{ text: `  ${id} ${done?.state ?? 'unknown'}`, role: 'failure' }, { text: `  ${j.label}: ${done?.error ?? 'it did not stop'}; /jobs ${id}`, role: 'secondary' }]];
     }
-    return [[{ text: `  ${id} ${done.state}`, role: 'strong' }, { text: `  ${j.label}: it and everything it started have stopped`, role: 'secondary' }]];
+    return [[{ text: `  ${id} ${done.state}`, role: 'strong' }, { text: `  ${j.label}: it and its process group have stopped`, role: 'secondary' }]];
   }
 
   /** The REPL is ending: stop what this REPL started. */

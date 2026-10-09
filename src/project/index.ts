@@ -121,11 +121,12 @@ export function classify(rel: string, peek?: () => string): FileRole {
   return 'other';
 }
 
-const SECRET_NAME = /^(\.env(\..*)?|\.npmrc|\.netrc|\.pypirc|id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|.*\.(pem|p12|pfx)|credentials(\.json)?|secrets?\.(json|ya?ml|toml))$/i;
+const SECRET_NAME = /^(\.env(\..*)?|\.envrc|\.git-credentials|\.npmrc|\.netrc|\.pypirc|id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|.*\.(pem|p12|pfx)|credentials(\.json)?|secrets?\.(json|ya?ml|toml))$/i;
 
 /** Keys, .env files, git internals and .timmy/private never reach a listing, a read or a write. */
 export function privatePath(rel: string): boolean {
-  const parts = rel.split(/[\\/]/).filter(Boolean);
+  // Without case (verification of b1ede23): on macOS's usual file system .GIT/config opens .git/config.
+  const parts = rel.split(/[\\/]/).filter(Boolean).map((part) => part.toLowerCase());
   if (parts.includes('.git')) return true;
   for (let i = 0; i + 1 < parts.length; i++) if (parts[i] === '.timmy' && parts[i + 1] === 'private') return true;
   return SECRET_NAME.test(parts[parts.length - 1] ?? '');
@@ -244,7 +245,10 @@ export function readProjectFile(root: string, rel: string, maxBytes = 64 * 1024)
     size = st.size;
   } catch { return { ok: false, error: `${at.rel} does not exist` }; }
   const head = Buffer.from(peekText(at.path, Math.min(maxBytes + 1, Math.max(size, 1))), 'utf8');
-  const whole = size <= HASH_LIMIT ? readFileSync(at.path) : null;
+  let whole: Buffer | null;
+  try { whole = size <= HASH_LIMIT ? readFileSync(at.path) : null; } catch (err) {
+    return { ok: false, error: `${at.rel} cannot be read (${(err as NodeJS.ErrnoException).code ?? 'error'})` };
+  }
   const hash = whole ? sha256(whole) : undefined;
   const sniff = (whole ?? head).subarray(0, 8192);
   if (sniff.includes(0)) return { ok: true, rel: at.rel, bytes: size, ...(hash ? { sha256: hash } : {}), binary: true };
@@ -279,7 +283,10 @@ export function writeProjectFile(root: string, rel: string, content: string, opt
     mode = st.mode & 0o7777;
   } catch { /* a new file */ }
   const dir = dirname(at.path);
-  mkdirSync(dir, { recursive: true });
+  // A file in the way of a folder is an answer, not a throw (verification of b1ede23), and names no absolute path.
+  try { mkdirSync(dir, { recursive: true }); } catch (err) {
+    return { ok: false, error: `${at.rel} cannot be written: ${(err as NodeJS.ErrnoException).code === 'EEXIST' || (err as NodeJS.ErrnoException).code === 'ENOTDIR' ? 'a file is in the way of its folder' : (err as NodeJS.ErrnoException).code ?? 'error'}` };
+  }
   const nameOf = opts.tempName ?? ((): string => `.${basename(at.path)}.timmy-${randomBytes(8).toString('hex')}.tmp`);
   let tmp = '';
   let fd: number | undefined;
@@ -291,7 +298,7 @@ export function writeProjectFile(root: string, rel: string, content: string, opt
       // O_CREAT|O_EXCL: fails on anything already there, a link included, so nothing is written through it.
       fd = openSync(tmp, 'wx', mode ?? 0o644);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') return { ok: false, error: `${at.rel} could not be written: ${(err as Error).message}` };
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') return { ok: false, error: `${at.rel} could not be written: ${(err as NodeJS.ErrnoException).code ?? 'error'}` };
     }
   }
   if (fd === undefined) return { ok: false, error: `${at.rel} could not be written: no free temporary name` };
@@ -304,7 +311,7 @@ export function writeProjectFile(root: string, rel: string, content: string, opt
   } catch (err) {
     if (fd !== undefined) try { closeSync(fd); } catch { /* already closed */ }
     try { unlinkSync(tmp); } catch { /* gone already */ }
-    return { ok: false, error: `${at.rel} could not be written: ${(err as Error).message}` };
+    return { ok: false, error: `${at.rel} could not be written: ${(err as NodeJS.ErrnoException).code ?? 'error'}` };
   }
   return { ok: true, rel: at.rel, bytes: Buffer.byteLength(content), sha256: sha256(content), created: previousSha256 === undefined, ...(previousSha256 ? { previousSha256 } : {}) };
 }
