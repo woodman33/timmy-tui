@@ -96,6 +96,8 @@ export interface WorkspaceViews {
   ae(args: string): Promise<Segment[][]>;
   /** Round R3: Blender's own Python, headless, as a judged job. */
   blender(args: string): Promise<Segment[][]>;
+  /** Round R3: the CadQuery enclosure-tray recipe as a durable job (src/repl/recipe.ts). */
+  recipe(args: string): Promise<Segment[][]>;
   mcp(args: string): Promise<Segment[][]>;
   /** Round R2: a read-only board of the project (an HTML snapshot), opened in Timmy's Browser. */
   board(args: string): Segment[][];
@@ -148,6 +150,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'c4d', group: 'work', description: 'Cinema 4D Python as a job: /c4d <script.py>', run: inWorkspace((w, a) => w.c4d(a)) },
   { name: 'ae', group: 'work', description: 'After Effects render: /ae <aep> <comp> <out>', run: inWorkspace((w, a) => w.ae(a)) },
   { name: 'blender', group: 'work', description: 'Blender Python as a job: /blender <script.py>', run: inWorkspace((w, a) => w.blender(a)) },
+  { name: 'recipe', group: 'work', description: 'CadQuery tray recipe as a job: /recipe tray', run: inWorkspace((w, a) => w.recipe(a)) },
   { name: 'mcp', group: 'setup', description: 'MCP servers and tools: /mcp [tools|call]', run: inWorkspace((w, a) => w.mcp(a)) },
   {
     name: 'web',
