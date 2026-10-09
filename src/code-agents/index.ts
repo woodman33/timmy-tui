@@ -10,7 +10,7 @@
  * cost money and runs only when the operator's line says --paid. A cloud-backed model tag remains cloud.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { appendFileSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 
@@ -275,7 +275,11 @@ export const agentLabel = (name: AgentName, run: string, task: string, root: str
 
 // ── snapshots: what the project's files are, before and after ───────────────────
 
-export interface SnapFile { size: number; sha256: string | null; mtimeMs: number }
+/**
+ * A file, or a symbolic link (the review of ee70b9e, M1): a link is kept as its exact link text and that text's
+ * sha256 (AGENTS.md §6: compare link text, never the target it leads to). Its target is never read or followed.
+ */
+export interface SnapFile { size: number; sha256: string | null; mtimeMs: number; link?: string }
 export type Snapshot = Map<string, SnapFile>;
 /** Never looked into: version control, dependencies, Timmy's own records, build output. */
 export const SNAPSHOT_SKIP = new Set(['.git', 'node_modules', '.timmy', 'dist']);
@@ -308,7 +312,11 @@ export function snapshotProject(root: string): { files: Snapshot; truncated: boo
       let st;
       try { st = lstatSync(abs); } catch { continue; }
       if (st.isDirectory()) walk(abs, r);
-      else if (st.isFile()) {
+      else if (st.isSymbolicLink()) {
+        let link = '';
+        try { link = readlinkSync(abs); } catch { link = ''; }
+        files.set(r, { size: Buffer.byteLength(link), sha256: createHash('sha256').update(`symlink\0${link}`).digest('hex'), mtimeMs: st.mtimeMs, link });
+      } else if (st.isFile()) {
         let sha: string | null = null;
         if (st.size <= SNAPSHOT_HASH_LIMIT) { try { sha = hashFile(abs); } catch { sha = null; } }
         files.set(r, { size: st.size, sha256: sha, mtimeMs: st.mtimeMs });
@@ -319,18 +327,19 @@ export function snapshotProject(root: string): { files: Snapshot; truncated: boo
   return { files, truncated };
 }
 
-export interface FileChange { path: string; size: number; sha256: string | null; previous_sha256?: string | null; previous_size?: number }
+export interface FileChange { path: string; size: number; sha256: string | null; previous_sha256?: string | null; previous_size?: number; link?: string; previous_link?: string }
 export interface ChangeSet { added: FileChange[]; changed: FileChange[]; deleted: FileChange[] }
 
 export function diffSnapshots(before: Snapshot, after: Snapshot): ChangeSet {
   const out: ChangeSet = { added: [], changed: [], deleted: [] };
   for (const [path, a] of after) {
     const b = before.get(path);
-    if (!b) { out.added.push({ path, size: a.size, sha256: a.sha256 }); continue; }
-    const differs = a.sha256 && b.sha256 ? a.sha256 !== b.sha256 : a.size !== b.size || a.mtimeMs !== b.mtimeMs;
-    if (differs) out.changed.push({ path, size: a.size, sha256: a.sha256, previous_sha256: b.sha256, previous_size: b.size });
+    const links = { ...(a.link !== undefined ? { link: a.link } : {}) };
+    if (!b) { out.added.push({ path, size: a.size, sha256: a.sha256, ...links }); continue; }
+    const differs = a.link !== b.link || (a.sha256 && b.sha256 ? a.sha256 !== b.sha256 : a.size !== b.size || a.mtimeMs !== b.mtimeMs);
+    if (differs) out.changed.push({ path, size: a.size, sha256: a.sha256, previous_sha256: b.sha256, previous_size: b.size, ...links, ...(b.link !== undefined ? { previous_link: b.link } : {}) });
   }
-  for (const [path, b] of before) if (!after.has(path)) out.deleted.push({ path, size: 0, sha256: null, previous_sha256: b.sha256, previous_size: b.size });
+  for (const [path, b] of before) if (!after.has(path)) out.deleted.push({ path, size: 0, sha256: null, previous_sha256: b.sha256, previous_size: b.size, ...(b.link !== undefined ? { previous_link: b.link } : {}) });
   return out;
 }
 
@@ -339,7 +348,7 @@ export function snapshotFromJson(o: unknown): Snapshot {
   const out: Snapshot = new Map();
   if (!o || typeof o !== 'object') return out;
   for (const [k, v] of Object.entries(o as Record<string, Partial<SnapFile>>)) {
-    if (v && typeof v.size === 'number') out.set(k, { size: v.size, sha256: typeof v.sha256 === 'string' ? v.sha256 : null, mtimeMs: typeof v.mtimeMs === 'number' ? v.mtimeMs : 0 });
+    if (v && typeof v.size === 'number') out.set(k, { size: v.size, sha256: typeof v.sha256 === 'string' ? v.sha256 : null, mtimeMs: typeof v.mtimeMs === 'number' ? v.mtimeMs : 0, ...(typeof v.link === 'string' ? { link: v.link } : {}) });
   }
   return out;
 }

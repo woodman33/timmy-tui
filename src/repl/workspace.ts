@@ -1266,8 +1266,9 @@ export class Workspace {
     const finalSha = outputs.find((o) => o.path.endsWith('/final-message.md'))?.sha256;
     const status = judged.outcome === 'completed' ? 'ok' as const : judged.outcome === 'cancelled' ? 'cancelled' as const : 'failed' as const;
     const files = [
-      ...changes.added.map((c) => ({ path: c.path, ...(c.sha256 ? { sha256: c.sha256 } : {}), bytes: c.size, created: true })),
-      ...changes.changed.map((c) => ({ path: c.path, ...(c.sha256 ? { sha256: c.sha256 } : {}), ...(c.previous_sha256 ? { previous_sha256: c.previous_sha256 } : {}), bytes: c.size })),
+      // A link's sha256 is of its link text, not of file bytes: links stay in result.json (link text), out of the receipt's files.
+      ...changes.added.filter((c) => c.link === undefined).map((c) => ({ path: c.path, ...(c.sha256 ? { sha256: c.sha256 } : {}), bytes: c.size, created: true })),
+      ...changes.changed.filter((c) => c.link === undefined).map((c) => ({ path: c.path, ...(c.sha256 ? { sha256: c.sha256 } : {}), ...(c.previous_sha256 && c.previous_link === undefined ? { previous_sha256: c.previous_sha256 } : {}), bytes: c.size })),
     ].slice(0, 200);
     let receipt: string | undefined;
     try {

@@ -3,14 +3,14 @@
 // the command lines are checked against the real --help texts captured from the operator's machine
 // (tests/fixtures/agent-help). The one test that runs the real Qwen Code is skipped unless
 // TIMMY_TEST_QWEN_BIN names an installed qwen; it talks only to a fake OpenAI-compatible server on 127.0.0.1.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, symlinkSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { capabilities, type ProbeDeps } from '../src/capabilities/index.js';
 import {
-  agentExercisedIndex, AGENTS_DIR, endpointClass, listAgentRuns, newProgress, parseAgentLine, planAgent, progressLine, taskWords, type AgentRunRecord, scrubPaths,
+  agentExercisedIndex, AGENTS_DIR, endpointClass, listAgentRuns, newProgress, parseAgentLine, planAgent, progressLine, taskWords, type AgentRunRecord, scrubPaths, snapshotProject, diffSnapshots, snapshotJson, snapshotFromJson,
 } from '../src/code-agents/index.js';
 import { COMMANDS, runSlash, type ReplContext } from '../src/repl/commands.js';
 import { folderProject } from '../src/project/index.js';
@@ -109,6 +109,20 @@ describe('the command lines, from the agents\' own help texts', () => {
     expect(parseAgentLine('claude explain what the --paid flag of our CLI does')).toMatchObject({ paid: false, task: 'explain what the --paid flag of our CLI does' });
     expect(parseAgentLine('claude --paid fix the typo')).toMatchObject({ paid: true, task: 'fix the typo' });
     expect(scrubPaths('/a/proj/x, /a/proj2/y and /a/proj', '/a/proj')).toBe('./x, /a/proj2/y and .');
+  });
+  it('the snapshot keeps a symbolic link as its link text, never following it (the review of ee70b9e, M1)', () => {
+    const root = project();
+    writeFileSync(join(root, 'a.txt'), 'plain');
+    const before = snapshotProject(root).files;
+    rmSync(join(root, 'a.txt'));
+    symlinkSync('/etc', join(root, 'a.txt'));
+    symlinkSync('/etc/hosts', join(root, 'hosts-link'));
+    const after = snapshotProject(root).files;
+    const d = diffSnapshots(before, after);
+    expect(d.changed).toEqual([expect.objectContaining({ path: 'a.txt', link: '/etc' })]);
+    expect(d.added).toEqual([expect.objectContaining({ path: 'hosts-link', link: '/etc/hosts' })]);
+    expect(after.get('hosts-link')!.size).toBe('/etc/hosts'.length);
+    expect(snapshotFromJson(snapshotJson(after)).get('a.txt')).toMatchObject({ link: '/etc' });
   });
   it('the account agents: headless, structured output, edits kept to the project, no bypass flag; each flag is in its help text', () => {
     const claude = planAgent('claude', 'fix it', { env: {}, paid: true, run: 'a00000002', bin: 'claude' });
