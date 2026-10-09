@@ -127,7 +127,7 @@ async function printView(view: ((args: string) => Promise<Segment[][]>) | undefi
 }
 
 export const COMMANDS: SlashCommand[] = [
-  { name: 'project', group: 'work', description: 'The active project; /project new|list|<name>', run: inWorkspace((w, a) => w.project_(a)) },
+  { name: 'project', group: 'work', description: 'Projects: new [--from starter], list, <name>', run: inWorkspace((w, a) => w.project_(a)) },
   { name: 'files', group: 'work', description: 'Project files by role; /files <role|folder>', run: inWorkspace((w, a) => w.files(a)) },
   { name: 'open', group: 'work', description: 'Show a file: /open <file>', run: inWorkspace((w, a) => w.open(a)) },
   { name: 'edit', group: 'work', description: 'Edit a file in your editor: /edit <file>', run: inWorkspace((w, a) => w.edit(a)) },

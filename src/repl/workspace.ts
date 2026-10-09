@@ -21,6 +21,7 @@ import {
 } from '../project/index.js';
 import { staticServerCommand } from '../preview/static-server.js';
 import { hashFile, intakeFiles, kindOf, splitArgs } from '../project/intake.js';
+import { copyStarter, listStarters } from '../project/starters.js';
 import { BOARD_BASE, BOARD_FILE, readObservationRecord, renderBoard, utcStamp, type BoardFile, type BoardObservation } from './board.js';
 import { killProcessGroup } from '../runtime/spawn-runtime.js';
 import type { GlyphSet } from '../term/glyphs.js';
@@ -149,10 +150,27 @@ export class Workspace {
       ]);
     }
     if (a === 'new' || a.startsWith('new ')) {
-      const made = createProject(a.slice(3).trim());
+      // Round R2: `/project new <name> --from <starter>` fills the new project from templates/<starter>.
+      const from = a.match(/(?:^|\s)--from(?:\s+(\S+))?/);
+      const name = a.slice(3).replace(from?.[0] ?? '', ' ').trim();
+      if (from) {
+        const starters = listStarters();
+        const pick = starters.find((s) => s.name === from[1]);
+        if (!pick) {
+          const have = starters.map((s) => `${s.name} (${s.about})`).join('; ') || 'none in this Timmy';
+          return this.say(`${from[1] ? `No starter named ${from[1]}` : 'Name a starter'}. Starters: ${have}.`);
+        }
+      }
+      const made = createProject(name);
       if ('error' in made) return this.say(made.error);
+      let note = '';
+      if (from?.[1]) {
+        const copied = copyStarter(from[1], made.root);
+        if ('error' in copied) return this.say(`Made ${made.name}, but its starter was not copied: ${copied.error}`);
+        note = ` from ${from[1]}: ${copied.files.length} files, yours to edit`;
+      }
       this.use(made);
-      return [[{ text: `  Made ${made.name}.`, role: 'strong' }], ...this.summary()];
+      return [[{ text: `  Made ${made.name}${note}.`, role: 'strong' }], ...this.summary()];
     }
     if (a) {
       const chosen = chooseProject(a, this.root);
