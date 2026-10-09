@@ -65,7 +65,10 @@ export async function startRecipeJob(c: RecipeContext, given: Record<string, unk
     return { ok: false, stage: 'start', operation: id, error: `the job was written but did not start: ${e instanceof Error ? e.message : String(e)}` };
   }
   const label = `recipe ${RECIPE_ID} ${id} · request ${short(job.requestHash)} · source ${short(job.sourceHash)}`;
-  const watcher = c.startJob(watcherSpec({ root: c.root, id, label, project: c.project, ...(c.test?.pollMs ? { pollMs: c.test.pollMs } : {}) }), id);
+  let watcher: JobRecord;
+  try { watcher = c.startJob(watcherSpec({ root: c.root, id, label, project: c.project, ...(c.test?.pollMs ? { pollMs: c.test.pollMs } : {}) }), id); } catch (e) {
+    return { ok: false, stage: 'start', operation: id, error: `job ${id} runs, but its watcher did not start (${e instanceof Error ? e.message : String(e)}); /recipe status follows it` };
+  }
   return {
     ok: true, job: watcher.id, operation: id, request_sha256: job.requestHash, source_sha256: job.sourceHash,
     predicted: { bounds_mm: predicted.bounds, volume_mm3: predicted.volumeMm3 }, prediction_receipt: sealed,

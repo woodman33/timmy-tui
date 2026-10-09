@@ -23,6 +23,8 @@ import { sha } from '../lanes/recipes/tray.js';
 import { jobDirectory, status } from '../lanes/recipes/jobs.js';
 import { DOCTRINE_15, EXPORTS, recipeCapabilityRow, recipeExercisedAt } from '../src/recipes/index.js';
 import { capabilities, type ProbeDeps } from '../src/capabilities/index.js';
+import { listProjectFiles } from '../src/project/index.js';
+import { createRecipeTools } from '../src/agent/recipe-tools.js';
 
 let root: string;
 let fixtures: string;
@@ -151,6 +153,22 @@ describe('/recipe before any start', () => {
   });
 });
 
+describe('run_recipe (the agent\'s start, through the same workspace path)', () => {
+  it('answers refusals and a missing runtime as data, starting nothing; the tool passes only the given parameters', async () => {
+    const { ws } = make({ mode: 'complete' });
+    expect(await ws.runRecipe({ wall: 0 })).toMatchObject({ ok: false, stage: 'refused' });
+    const bare = make({ python: false, mode: 'complete' });
+    expect(await bare.ws.runRecipe({})).toMatchObject({ ok: false, stage: 'setup', setup: expect.stringContaining('CadQuery and Open3D') });
+    expect(recipeJobs()).toEqual([]);
+    const seen: Record<string, unknown>[] = [];
+    const [tool] = createRecipeTools({ start: async (p) => { seen.push(p); return { ok: true }; } });
+    const fn = (tool as unknown as { function: { name: string; execute: (i: unknown) => Promise<unknown> } }).function;
+    expect(fn.name).toBe('run_recipe');
+    await fn.execute({ recipe: 'enclosure.tray/1', parameters: { width: 150, wall: undefined } });
+    expect(seen).toEqual([{ width: 150 }]);
+  });
+});
+
 describe('/recipe tray with no sealed prediction', () => {
   it('writes the job but starts nothing when the prediction cannot be sealed', async () => {
     const { ws } = make({ mode: 'complete', sealFails: true });
@@ -196,6 +214,13 @@ describe('/recipe tray as a durable job (FAKE executor)', () => {
     expect(listed).toContain(`copied: out/recipes/${id.slice(0, 8)}/ (every sha256 matches)`);
     // A FAKE executor never counts as exercised, even when its job succeeded.
     expect(recipeExercisedAt(root)).toBeUndefined();
+    // The copies are project outputs (what /board and /results list).
+    const outputs = listProjectFiles(root).files.filter((f) => f.role === 'output').map((f) => f.rel);
+    expect(outputs).toContain(`out/recipes/${id.slice(0, 8)}/console-tray.step`);
+    // The run_recipe answer is the same start: a job id and the operation ID at once, never a finished build.
+    const started = await ws.runRecipe({ width: 160 });
+    expect(started).toMatchObject({ ok: true, operation: expect.stringMatching(/^[0-9a-f-]{36}$/), job: expect.stringMatching(/^j[0-9a-f]{6}$/), doctrine: DOCTRINE_15 });
+    if (started.ok) await until(() => TERMINAL.has(ws.jobs.get(started.job)?.state ?? ''));
   }, 40000);
 
   it('refuses to copy a tampered export, and a copy that would overwrite different bytes', async () => {
