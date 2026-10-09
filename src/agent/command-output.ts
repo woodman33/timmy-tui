@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, writeSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { killProcessGroup, spawnProcess } from '../runtime/spawn-runtime.js';
+import { spawnProcess } from '../runtime/spawn-runtime.js';
 
 /*
  * R2 output limit: what a command prints reaches the model as a bounded view, never whole. Each stream
@@ -89,14 +89,21 @@ export interface LocalCommandOptions {
   timeoutMs: number;
   /** The log's hard cap (default LOG_CAP_BYTES). */
   logCapBytes?: number;
+  /** Round R3: after a stop's SIGTERM (the time limit, the cap), SIGKILL follows this many ms later when the
+   *  group has not ended (default the runner's KILL_GRACE_MS, 2 s). */
+  killGraceMs?: number;
 }
 
 export interface LocalCommandRun {
   status: number | null;
   signal: NodeJS.Signals | null;
   timedOut: boolean;
-  /** The spawn error (ENOENT …); null when the command ran. */
+  /** The spawn error (ENOENT …), or why the run settled while its output was still open after a stop
+   *  (a process it started outside its group may still run); null when the command ran to its end. */
   error: string | null;
+  /** Round R3: how far a stop went: 'SIGTERM', or 'SIGKILL' when the group outlived the grace period; null
+   *  when nothing was stopped. */
+  killed: 'SIGTERM' | 'SIGKILL' | null;
   /** The bounded views the model gets. */
   stdout: string;
   stderr: string;
@@ -187,16 +194,18 @@ export async function runLocalCommand(command: string, o: LocalCommandOptions): 
     }
   };
 
-  const { child, outcome } = spawnProcess('sh', ['-c', command], {
+  const run = spawnProcess('sh', ['-c', command], {
     cwd: o.cwd,
     detached: true,
     timeoutMs: o.timeoutMs,
     capture: false,
+    ...(o.killGraceMs !== undefined ? { killGraceMs: o.killGraceMs } : {}),
     onStdout: (text) => take(out, text),
     onStderr: (text) => take(err, text),
   });
-  stop = () => { if (child.pid !== undefined) killProcessGroup(child.pid, 'SIGTERM'); };
-  const r = await outcome;
+  // The cap's stop is the time limit's: SIGTERM to the group, SIGKILL after the grace period (round R3).
+  stop = () => { run.stop(); };
+  const r = await run.outcome;
   if (fd !== null) {
     try { closeSync(fd); } catch { /* the bytes are written; a failed close loses nothing */ }
     fd = null;
@@ -214,6 +223,7 @@ export async function runLocalCommand(command: string, o: LocalCommandOptions): 
     signal: r.signal,
     timedOut: r.timedOut,
     error: r.error,
+    killed: r.killed,
     stdout: out.view(marker),
     stderr: err.view(marker),
     stdoutBytes: out.total,

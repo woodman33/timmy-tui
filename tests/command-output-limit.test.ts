@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browserSnapshotTool, daytonaWorkspaceTool, stressTestTool } from '../src/agent/tools.js';
 import { boundOutput, runLocalCommand } from '../src/agent/command-output.js';
+import { killProcessGroup } from '../src/runtime/spawn-runtime.js';
 
 type Exec = (args: Record<string, unknown>) => Promise<any>;
 const run = (t: unknown, args: Record<string, unknown> = {}): Promise<any> => (t as { function: { execute: Exec } }).function.execute(args);
@@ -165,6 +166,44 @@ describe('the hard cap on the log', () => {
   it('a command that ends by itself is never reported as stopped by the cap', async () => {
     const out = await run(daytonaWorkspaceTool, { command: BIG });
     expect(out.message).not.toMatch(/log limit/);
+  });
+
+  // Round R3 (the independent review of 40022d9, finding 1): the cap's stop sent only SIGTERM, so a command
+  // that ignores it kept the run pending for ever. Now SIGKILL follows the grace period, as for the time limit.
+  it('stops a command that ignores SIGTERM: SIGKILL follows the grace period, and the run says so', async () => {
+    const pidFile = join(dir, 'leader.pid');
+    const started = Date.now();
+    const pending = runLocalCommand(`echo $$ > leader.pid; trap "" TERM; yes 0123456789`, { cwd: dir, timeoutMs: 30_000, logCapBytes: 64 * 1024, killGraceMs: 300 });
+    const r = await Promise.race([pending, new Promise<'pending'>((resolve) => { setTimeout(() => resolve('pending'), 8000).unref(); })]);
+    try {
+      expect(r, 'the run never settled').not.toBe('pending');
+      if (r === 'pending') return;
+      expect(Date.now() - started).toBeLessThan(8000);
+      expect(r.logFull).toBe(true);
+      expect(r.timedOut).toBe(false);
+      expect(r.signal).toBe('SIGKILL');
+      expect(r.killed).toBe('SIGKILL');
+      expect(statSync(join(dir, r.log)).size).toBe(64 * 1024);
+    } finally {
+      const pid = Number(readFileSync(pidFile, 'utf8').trim());
+      if (pid > 1) killProcessGroup(pid, 'SIGKILL');
+    }
+  });
+
+  it('the time limit kills a command that ignores SIGTERM, with its process group', async () => {
+    const pidFile = join(dir, 'leader.pid');
+    const pending = runLocalCommand('echo $$ > leader.pid; trap "" TERM; while :; do sleep 0.1; done', { cwd: dir, timeoutMs: 400, killGraceMs: 300 });
+    const r = await Promise.race([pending, new Promise<'pending'>((resolve) => { setTimeout(() => resolve('pending'), 8000).unref(); })]);
+    try {
+      expect(r, 'the run never settled').not.toBe('pending');
+      if (r === 'pending') return;
+      expect(r.timedOut).toBe(true);
+      expect(r.signal).toBe('SIGKILL');
+      expect(r.killed).toBe('SIGKILL');
+    } finally {
+      const pid = Number(readFileSync(pidFile, 'utf8').trim());
+      if (pid > 1) killProcessGroup(pid, 'SIGKILL');
+    }
   });
 });
 
