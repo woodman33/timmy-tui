@@ -402,7 +402,7 @@ const textOf = (result: unknown): string => {
 
 function cutUtf8(s: string, limit: number): string {
   const b = Buffer.from(s, 'utf8');
-  return b.length <= limit ? s : b.subarray(0, limit).toString('utf8').replace(/�+$/, '');
+  return b.length <= limit ? s : b.subarray(0, limit).toString('utf8').replace(/\uFFFD+$/, '');
 }
 
 /** Call one tool on a server, through one route, with a time limit and a bounded answer. */
