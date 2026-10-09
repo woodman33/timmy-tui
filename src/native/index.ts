@@ -192,6 +192,15 @@ export function c4dHelperDir(): string | undefined {
 /** The default limit: a 96-frame turntable on the Standard renderer is minutes, not hours. */
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 
+/**
+ * R2: a native app finds its license and preferences in HOME. When Timmy itself runs with a separate HOME
+ * (a sandbox), TIMMY_NATIVE_HOME names the home that holds them; it becomes the native job's HOME.
+ */
+function nativeHome(extra?: NodeJS.ProcessEnv): { HOME?: string } {
+  const home = extra?.TIMMY_NATIVE_HOME ?? process.env.TIMMY_NATIVE_HOME;
+  return home ? { HOME: home } : {};
+}
+
 function realRoot(root: string): string {
   try { return realpathSync(root); } catch { throw new Error('the project folder is gone'); }
 }
@@ -246,8 +255,10 @@ export function c4dpyJob(input: C4dpyJobInput): NativeJobSpec {
   return {
     kind: 'task', label: input.label ?? `Cinema 4D · ${script.rel}`, project: input.project, root,
     command: bin, args: [script.path, ...(input.args ?? [])],
-    env: { ...input.env, TIMMY_RESULT: result.path, TIMMY_RUN: run, TIMMY_ROOT: root, TIMMY_OUT: path.join(root, 'out'), ...(lib ? { TIMMY_C4D_LIB: lib } : {}) },
+    env: { ...input.env, ...nativeHome(input.env), TIMMY_RESULT: result.path, TIMMY_RUN: run, TIMMY_ROOT: root, TIMMY_OUT: path.join(root, 'out'), ...(lib ? { TIMMY_C4D_LIB: lib } : {}) },
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    // R2 (the Mac run): without its license, c4dpy asks this and waits for a person, even with its input closed.
+    stopWhen: { pattern: /Enter the license method/i, error: 'Cinema 4D asked how to license it and waits for a person: run Cinema 4D once as this user, or set TIMMY_NATIVE_HOME to the home that holds its license' },
     native: { app: 'c4dpy', root, run, result: result.path, expect },
   };
 }
@@ -294,7 +305,7 @@ export function aerenderJob(input: AerenderJobInput): NativeJobSpec {
       ...(input.rsTemplate ? ['-RStemplate', input.rsTemplate] : []),
       ...(input.omTemplate ? ['-OMtemplate', input.omTemplate] : []),
     ],
-    ...(input.env ? { env: { ...input.env } } : {}),
+    ...(input.env || nativeHome().HOME ? { env: { ...input.env, ...nativeHome(input.env) } } : {}),
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     native: { app: 'aerender', root, run: randomUUID(), output: output.path, expect: [output.rel] },
   };
@@ -348,6 +359,7 @@ const LIVE: ReadonlySet<JobState> = new Set<JobState>(['queued', 'running', 'rea
 
 function exitText(job: JobRecord): string {
   if (job.error === 'timed out') return 'timed out (its time limit stopped it)';
+  if (job.error && job.state === 'failed') return `was stopped: ${job.error}`;
   if (job.state === 'cancelled') return 'was stopped';
   if (job.signal) return `ended by ${job.signal}`;
   if (typeof job.exitCode === 'number') return `exited ${job.exitCode}`;

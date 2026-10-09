@@ -401,3 +401,18 @@ describe('review: a job is not over while what it started still runs', () => {
     strays = strays.filter((pid) => pid !== child);
   });
 });
+
+// Round R2 (the Mac run): c4dpy without its license asks "Enter the license method" and waits for a person,
+// even with its input closed. A job whose output shows it is waiting for a person stops at once, saying why.
+describe('a job that waits for a person', () => {
+  it('stops when a line of its output matches stopWhen, and says why', async () => {
+    const m = manager();
+    const t0 = performance.now();
+    const job = m.start(script("console.log('Enter the license method:'); setInterval(() => {}, 1000);", {
+      stopWhen: { pattern: /Enter the license method/, error: 'it asked how to license it and waits for a person' },
+    }));
+    const done = await m.done(job.id);
+    expect(done).toMatchObject({ state: 'failed', error: 'it asked how to license it and waits for a person' });
+    expect(performance.now() - t0).toBeLessThan(5000);
+  });
+});

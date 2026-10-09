@@ -63,6 +63,8 @@ export interface JobSpec {
   ready?: { url: string; timeoutMs?: number };
   /** may push or update job.steps */
   parseLine?: (line: string, job: JobRecord) => void;
+  /** R2: stop the job, failed with this error, when a line of its output matches (an app waiting for a person) */
+  stopWhen?: { pattern: RegExp; error: string };
 }
 export interface JobManagerOptions { dir: string; onChange?: (job: JobRecord) => void; seal?: (job: JobRecord) => string | undefined; now?: () => Date }
 
@@ -377,6 +379,9 @@ export class JobManager {
     }
     entry.job.lines += lines.length;
     if (entry.spec.parseLine) for (const line of lines) this.parse(entry, entry.spec.parseLine, line);
+    // R2 (the Mac run): an app that asks a question and waits for a person would only end at the time limit.
+    const stop = entry.spec.stopWhen;
+    if (stop && !entry.ending && !entry.finished && lines.some((line) => stop.pattern.test(line))) void this.terminate(entry, { state: 'failed', error: stop.error });
   }
 
   private parse(entry: Entry, parseLine: NonNullable<JobSpec['parseLine']>, line: string): void {
