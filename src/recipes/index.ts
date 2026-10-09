@@ -258,12 +258,20 @@ export function deliver(root: string, id: string): { ok: true; dir: string; file
       if (fs.existsSync(to) && sha(fs.readFileSync(to)) !== f.sha256) return { ok: false, error: `nothing copied: ${dirRel}/${f.name} already holds different bytes; it was left as it is` };
     }
     const files: Array<{ path: string; sha256: string; bytes: number }> = [];
-    for (const f of got.v.files) {
-      const to = path.join(dest, f.name);
-      if (!fs.existsSync(to)) fs.writeFileSync(to, f.bytes, { flag: 'wx' });
-      const back = sha(fs.readFileSync(to));
-      if (back !== f.sha256) return { ok: false, error: `${dirRel}/${f.name} reads back with a different sha256 after copying` };
-      files.push({ path: `${dirRel}/${f.name}`, sha256: back, bytes: f.bytes.length });
+    // A copy that fails partway removes the files this call wrote (the review of ee70b9e, M2): the project holds
+    // the whole verified set or none of what this call added; files that were already there and matched stay.
+    const written: string[] = [];
+    try {
+      for (const f of got.v.files) {
+        const to = path.join(dest, f.name);
+        if (!fs.existsSync(to)) { fs.writeFileSync(to, f.bytes, { flag: 'wx' }); written.push(to); }
+        const back = sha(fs.readFileSync(to));
+        if (back !== f.sha256) throw new Error(`${dirRel}/${f.name} reads back with a different sha256 after copying`);
+        files.push({ path: `${dirRel}/${f.name}`, sha256: back, bytes: f.bytes.length });
+      }
+    } catch (e) {
+      for (const w of written) { try { fs.unlinkSync(w); } catch { /* already gone */ } }
+      return { ok: false, error: `nothing kept from this copy (${written.length} written, removed again): ${e instanceof Error ? e.message : String(e)}` };
     }
     return { ok: true, dir: dirRel, files, v: got.v };
   } catch (e) {

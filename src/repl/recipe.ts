@@ -13,7 +13,7 @@ import {
   checkCopy, deliver, DOCTRINE_15, failureFiles, isRecipeJobId, launchRecipe, listRecipeJobs, nativeRuntime, outcomeLines, outDir,
   PARAMETER_HELP, PARAMETER_NAMES, parseWords, prepareRecipe, PYTHON_SETUP, readCard, RECIPE_ID, short, watcherSpec,
 } from '../recipes/index.js';
-import { recover, status } from '../../lanes/recipes/jobs.js';
+import { cancel, recover, status } from '../../lanes/recipes/jobs.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import type { ReceiptInput } from '../utils/receipts.js';
@@ -90,7 +90,7 @@ function usage(c: RecipeContext): Line[] {
   lines.push(r.ok
     ? [{ text: '  Runtime    ', role: 'secondary' }, { text: 'TIMMY_CADQUERY_PYTHON is set', role: 'strong' }, { text: `${sep(c)}checked when a job runs, not now`, role: 'secondary' }]
     : [{ text: '  Runtime    ', role: 'secondary' }, { text: `${r.why}`, role: 'estimate' }, { text: `${sep(c)}${PYTHON_SETUP}`, role: 'secondary' }]);
-  lines.push(...say('Start: /recipe tray [width=140] [wall=3] [supportOffset=10] [bore=3]; jobs: /recipe status; /recipe recover <uuid>'));
+  lines.push(...say('Start: /recipe tray [width=140] [wall=3] [supportOffset=10] [bore=3]; jobs: /recipe status; /recipe recover <uuid>; /recipe cancel <uuid>'));
   lines.push(...doctrine());
   return lines;
 }
@@ -155,6 +155,21 @@ function recoverView(c: RecipeContext, id: string | undefined): Line[] {
     { text: `  ${changed ? `was ${before.state}; ` : ''}${plain}${why}`, role: 'secondary' }]];
 }
 
+/**
+ * `/recipe cancel <uuid>` (the review of ee70b9e, M12): the recipe's own cancel, for a job whose watcher is gone
+ * (its REPL ended, or the watcher could not start). It writes the job's cancel request; the job's supervisor stops
+ * its own process group. Nothing here signals a process or reads a PID from disk; partial artifacts are kept.
+ */
+function cancelView(c: RecipeContext, id: string | undefined): Line[] {
+  if (!id || !isRecipeJobId(id)) return say('Usage: /recipe cancel <uuid> (a queued or running job from /recipe status)');
+  let before: ReturnType<typeof status>;
+  let after: ReturnType<typeof status>;
+  try { before = status(c.root, id); after = cancel(c.root, id); } catch (e) { return say(`${id} could not be read: ${e instanceof Error ? e.message : String(e)}`, 'failure'); }
+  if (before.state !== 'queued' && before.state !== 'running') return [[{ text: `  ${id} ${after.state}`, role: 'strong' }, { text: '  it had already ended; nothing to cancel', role: 'secondary' }]];
+  return [[{ text: `  ${id} ${after.state}`, role: 'strong' },
+    { text: `  cancel requested through the recipe's own path: its supervisor stops its own process group; partial artifacts are kept and nothing is replayed${sep(c)}/recipe status`, role: 'secondary' }]];
+}
+
 function copyView(c: RecipeContext, id: string | undefined): Line[] {
   if (!id || !isRecipeJobId(id)) return say('Usage: /recipe copy <uuid> (a succeeded job from /recipe status)');
   const d = deliver(c.root, id);
@@ -169,6 +184,7 @@ export async function recipeView(c: RecipeContext, args: string): Promise<Line[]
   if (w[0] === 'status') return statusView(c);
   if (w[0] === 'recover') return recoverView(c, w[1]);
   if (w[0] === 'copy') return copyView(c, w[1]);
+  if (w[0] === 'cancel') return cancelView(c, w[1]);
   if (w[0] === 'tray' || w[0] === RECIPE_ID) return startView(c, w.slice(1));
   return say(`No recipe ${w[0]}: /recipe lists ${RECIPE_ID} (tray).`);
 }

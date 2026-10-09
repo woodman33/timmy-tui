@@ -298,9 +298,27 @@ describe('/recipe tray as a durable job (FAKE executor)', () => {
     const listed = text(await again.ws.recipe('status'));
     expect(listed).toContain(id);
     expect(listed).toContain('cancelled');
+    // /recipe cancel on a job that already ended changes nothing (the review of ee70b9e, M12)
+    expect(text(await again.ws.recipe(`cancel ${id}`))).toContain('nothing to cancel');
     const recovered = text(await again.ws.recipe(`recover ${id}`));
     expect(recovered).toContain(`${id} cancelled`);
     expect(recovered).toContain('nothing changed');
+  }, 40000);
+});
+
+describe('/recipe cancel (the review of ee70b9e, M12)', () => {
+  it('cancels a running job whose watcher is gone, through the recipe\'s own cancel path', async () => {
+    const { ws } = make({ mode: 'wait' });
+    const out = text(await ws.recipe('tray'));
+    const id = uuidIn(out);
+    const dir = jobDirectory(root, id);
+    await until(() => fs.existsSync(path.join(dir, 'executions.txt')));
+    expect(text(await ws.recipe('cancel'))).toContain('Usage: /recipe cancel <uuid>');
+    const said = text(await ws.recipe(`cancel ${id}`));
+    expect(said).toContain('cancel requested through the recipe\'s own path');
+    expect(fs.existsSync(path.join(dir, 'cancel.json'))).toBe(true);
+    await until(() => status(root, id).state === 'cancelled');
+    expect(fs.readFileSync(path.join(dir, 'executions.txt'), 'utf8').trim().split('\n')).toHaveLength(1);
   }, 40000);
 });
 
