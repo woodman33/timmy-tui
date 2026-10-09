@@ -36,7 +36,7 @@ import { onPath, packageRoot, realOnPath } from './center.js';
 import { planWeb, RECEIPT_ID, receiptUrl, resolveWebTarget } from './web.js';
 import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt, type CanvasJobResult } from '../agent/canvas-tools.js';
 import { createProjectTools, ProjectTurnFiles, type ProjectToolOptions } from '../agent/project-tools.js';
-import { folderProject } from '../project/index.js';
+import { folderProject, projectId } from '../project/index.js';
 import { Workspace } from './workspace.js';
 import { studioBaseUrl, studioPort } from '../studio/config.js';
 import { ensureStudioServer, type EnsureResult } from '../studio/server.js';
@@ -393,7 +393,7 @@ export async function runRepl(argv: string[]): Promise<number> {
       // Fourth order, step 5: a turn that used the canvas names each job and the saved canvas it left,
       // and the canvas server learns which receipt sealed each job.
       const jobs = canvasJob.close();
-      const sealed = sealTurn({ ...facts, model: agent.getModel(), project: workspace.project.name, files: projectFiles.close(), ...(jobs.length ? { canvas: jobs } : {}) });
+      const sealed = sealTurn({ ...facts, model: agent.getModel(), project: workspace.project.name, projectId: projectId(workspace.root), files: projectFiles.close(), ...(jobs.length ? { canvas: jobs } : {}) });
       void ensureCanvas();
       // Round R1: the links' outcomes reach the turn's "where to inspect" rows; a failed link is said.
       lastCanvas = jobs;

@@ -13,8 +13,8 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { JobManager, type JobRecord } from '../jobs/index.js';
 import {
-  chooseProject, createProject, groupFiles, humanBytes, listProjectFiles, listProjects, projectsHome, readProjectFile,
-  resolveInside, ROLE_LABEL, ROLE_ORDER, saveActiveProject, type ActiveProject, type FileRole, type ProjectFile,
+  chooseProject, createProject, groupFiles, humanBytes, listProjectFiles, listProjects, projectId, projectsHome, readProjectFile,
+  resolveInside, ROLE_LABEL, ROLE_ORDER, sameFolder, saveActiveProject, type ActiveProject, type FileRole, type ProjectFile,
 } from '../project/index.js';
 import { staticServerCommand } from '../preview/static-server.js';
 import { killProcessGroup } from '../runtime/spawn-runtime.js';
@@ -216,7 +216,7 @@ export class Workspace {
     if (after === undefined) return this.say(`${at.rel} was not saved.`);
     if (after === before) return this.say(`No change to ${at.rel}.`);
     const id = this.d.seal({
-      kind: 'edit', subject: `edit · ${at.rel}`, policy: 'human-gated', status: 'ok', project: this.project.name,
+      kind: 'edit', subject: `edit · ${at.rel}`, policy: 'human-gated', status: 'ok', project: this.project.name, project_id: projectId(this.root),
       files: [{ path: at.rel, sha256: after, ...(before ? { previous_sha256: before } : {}), created: before === undefined, bytes: statSync(at.path).size }],
     });
     return [[{ text: `  Saved ${this.fileLink(at.rel)}`, role: 'strong' }, { text: `${id ? `${this.sep}receipt ${id}` : ''}${this.sep}/results`, role: 'secondary' }]];
@@ -271,7 +271,7 @@ export class Workspace {
     if (!tool) return [...this.say(`upmd is not installed, so ${r.rel} › ${target} did not run.`, 'estimate'), ...this.say('Setup: brew install rezigned/tap/upmd, then /run again.')];
     // F-3: the prediction is sealed before anything runs, with the document's hash as its input identity.
     const predicted = this.d.seal({
-      kind: 'predict', subject: `workflow · predict · ${r.rel} › ${target}`, policy: 'human-gated', status: 'ok', project: this.project.name,
+      kind: 'predict', subject: `workflow · predict · ${r.rel} › ${target}`, policy: 'human-gated', status: 'ok', project: this.project.name, project_id: projectId(this.root),
       prediction: { doc: r.rel, block: target, order: plan.order, expect: 'each block exits 0' },
       files: [{ path: r.rel, ...(r.sha256 ? { sha256: r.sha256 } : {}) }],
     });
@@ -386,7 +386,7 @@ export class Workspace {
       return this.d.seal({
         kind, subject: `${kind} · ${job.label} · ${job.state}`, policy: 'human-gated',
         status: job.state === 'completed' ? 'ok' : job.state === 'cancelled' ? 'cancelled' : 'failed',
-        project: job.project,
+        project: job.project, project_id: projectId(job.root),
         job: {
           id: job.id, kind: job.kind, label: job.label, state: job.state, exit_code: job.exitCode ?? null,
           steps: job.steps.map(({ name, state, code }) => ({ name, state, ...(code === undefined ? {} : { code }) })),
@@ -404,10 +404,11 @@ export class Workspace {
     const steps = j.kind === 'workflow' ? `${this.sep}${j.steps.filter((s) => s.state !== 'running').length} of ${this.expected(j) ?? j.steps.length} steps` : '';
     const where = j.url && j.state === 'ready' ? `${this.sep}${j.url}` : '';
     const stale = j.stale ? `${this.sep}from an earlier session; its process is gone` : '';
+    const note = j.note ? `${this.sep}${j.note}` : '';
     return [
       { text: `  ${mark} `, role: j.state === 'failed' ? 'failure' : undefined },
       { text: j.id, role: 'strong' },
-      { text: `  ${j.state.padEnd(9)} ${j.label}${steps}${where}${this.sep}${seconds(j)}${j.receipt ? `${this.sep}receipt ${j.receipt}` : ''}${stale}`, role: 'secondary' },
+      { text: `  ${j.state.padEnd(9)} ${j.label}${steps}${where}${this.sep}${seconds(j)}${j.receipt ? `${this.sep}receipt ${j.receipt}` : ''}${stale}${note}`, role: 'secondary' },
     ];
   }
 
@@ -427,19 +428,35 @@ export class Workspace {
     return [...all.map((j) => this.jobLine(j)), ...this.say('Details: /jobs <id>; stop one: /stop <id>')];
   }
 
+  /**
+   * Stops this REPL's own jobs and reports what actually happened (review at c7475458: /stop claimed
+   * another session's job stopped when it was left untouched, and /stop all counted jobs it did not own).
+   */
   async stop(args: string): Promise<Line[]> {
     const id = args.trim();
     if (!id) return this.say('Usage: /stop <job>, or /stop all');
     if (id === 'all') {
-      const live = this.jobs.list().filter((j) => !j.stale && !TERMINAL.has(j.state)).length;
-      await this.jobs.stopAll();
-      return this.say(live ? `Stopped ${live} job${live === 1 ? '' : 's'}.` : 'Nothing was running.');
+      const live = [...this.mine].map((x) => this.jobs.get(x)).filter((j): j is JobRecord => !!j && !TERMINAL.has(j.state));
+      if (!live.length) return this.say('Nothing this REPL started is running.');
+      const ended = await Promise.all(live.map((j) => this.jobs.stop(j.id)));
+      const clean = ended.filter((j) => j && TERMINAL.has(j.state) && !j.error).length;
+      const left = live.length - clean;
+      return left
+        ? this.say(`Stopped ${clean} of ${live.length} jobs this REPL started; ${left} did not stop cleanly: /jobs`, 'failure')
+        : this.say(`Stopped ${clean} job${clean === 1 ? '' : 's'} this REPL started, with everything ${clean === 1 ? 'it' : 'they'} started.`);
     }
     const j = this.jobs.get(id);
-    if (!j) return this.say(`No job ${id} started in this REPL. /jobs lists them.`);
+    if (!j) return this.say(`No job ${id}. /jobs lists them.`);
+    if (!this.mine.has(id)) {
+      const how = j.stale ? 'its process is gone' : TERMINAL.has(j.state) ? `it already ${j.state}` : `it is ${j.state} and was left as it is`;
+      return this.say(`${id} was started by another Timmy session; ${how}. /stop stops only the jobs this REPL started.`);
+    }
     if (TERMINAL.has(j.state)) return this.say(`${id} already ${j.state}.`);
     const done = await this.jobs.stop(id);
-    return [[{ text: `  ${id} ${done?.state ?? 'cancelled'}`, role: 'strong' }, { text: `  ${j.label}: it and everything it started have stopped`, role: 'secondary' }]];
+    if (!done || !TERMINAL.has(done.state) || done.error) {
+      return [[{ text: `  ${id} ${done?.state ?? 'unknown'}`, role: 'failure' }, { text: `  ${j.label}: ${done?.error ?? 'it did not stop'}; /jobs ${id}`, role: 'secondary' }]];
+    }
+    return [[{ text: `  ${id} ${done.state}`, role: 'strong' }, { text: `  ${j.label}: it and everything it started have stopped`, role: 'secondary' }]];
   }
 
   /** The REPL is ending: stop what this REPL started. */
@@ -457,7 +474,9 @@ export class Workspace {
 
   results(_args: string): Line[] {
     const lines: Line[] = [[{ text: `  Results in ${this.project.name}`, role: 'strong' }, { text: `  ${this.tilde(this.root)}`, role: 'secondary' }]];
-    const jobs = this.jobs.list().filter((j) => j.project === this.project.name).slice(0, 6);
+    // Review at c7475458: by the project's folder, never its name, so two folders named app stay apart.
+    const id = projectId(this.root);
+    const jobs = this.jobs.list().filter((j) => sameFolder(j.root, this.root)).slice(0, 6);
     lines.push([{ text: '  Jobs', role: 'strong' }]);
     if (jobs.length) for (const j of jobs) lines.push(this.jobLine(j));
     else lines.push(...this.say('  none yet: /run, /preview'));
@@ -469,7 +488,8 @@ export class Workspace {
     let chain: Receipt[] = [];
     try { chain = (this.d.receipts ?? (() => readChain('runs')))(); } catch { chain = []; }
     for (const rec of [...chain].reverse().slice(0, 60)) {
-      if (rec.project !== this.project.name || !rec.files?.length || rec.kind === 'predict') continue;
+      // Receipts sealed before projects had an id cannot say which folder they came from: not shown here.
+      if (rec.project_id !== id || !rec.files?.length || rec.kind === 'predict') continue;
       for (const f of rec.files) if (!changed.some((c) => c.path === f.path)) changed.push({ path: f.path, kind: rec.kind, id: String(rec.hash).slice(7, 15) });
     }
     lines.push([{ text: '  Changed', role: 'strong' }, { text: changed.length ? '  by Timmy turns and your edits' : '', role: 'secondary' }]);

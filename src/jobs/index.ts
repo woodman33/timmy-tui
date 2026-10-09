@@ -46,6 +46,8 @@ export interface JobRecord {
   receipt?: string;
   /** a persisted record whose process is gone without a final state */
   stale?: boolean;
+  /** what happened beyond the state, in a sentence: its first process ended while what it started kept running */
+  note?: string;
 }
 export interface JobSpec {
   kind: JobKind; label: string; project: string; root: string;
@@ -75,6 +77,8 @@ const GRACE_MS = 2000;
 /** after SIGKILL, how long to wait for the group to go before giving up on it */
 const KILL_WAIT_MS = 3000;
 const WATCH_MS = 25;
+/** while the first process has ended and what it started still runs, how often the group is checked */
+const LINGER_POLL_MS = 250;
 /** setTimeout's ceiling; a longer limit is no limit */
 const MAX_TIMER_MS = 2 ** 31 - 1;
 /** a line longer than this is cut into pieces of this size, so one endless line cannot grow without bound */
@@ -239,6 +243,16 @@ export class JobManager {
     const exit = { exitCode: o.status, signal: o.signal };
     if (o.error !== null && job.pid === undefined) return this.finish(entry, 'failed', { ...exit, error: o.error });
     if (entry.ending) return this.finish(entry, entry.ending.state, { ...exit, error: entry.ending.error });
+    // Review at c7475458: the first process ending is not the job ending while what it started still runs.
+    // The job keeps its state (running, or ready) until the group is gone, so /stop and the exit reach it.
+    if (job.pid !== undefined && groupLive(job.pid)) {
+      if (job.note === undefined) {
+        job.note = `its first process ended (${o.signal ? `signal ${o.signal}` : `exit ${o.status}`}) while processes it started kept running`;
+        this.changed(entry);
+      }
+      this.timer(entry, LINGER_POLL_MS, () => { if (!entry.stopping) this.settle(entry); });
+      return;
+    }
     if (o.error !== null) return this.finish(entry, 'failed', { ...exit, error: o.error });
     if (spec.kind === 'server' && spec.ready && job.readyAt === undefined) return this.finish(entry, 'failed', { ...exit, error: 'exited before it was ready' });
     this.finish(entry, o.status === 0 ? 'completed' : 'failed', exit);
@@ -258,7 +272,7 @@ export class JobManager {
     const sequence = async (): Promise<void> => {
       const pid = child.pid;
       if (pid === undefined) { await waitFor(() => entry.outcome !== undefined, KILL_WAIT_MS); return; }  // a spawn error on its way
-      const gone = () => entry.outcome !== undefined && !groupAlive(pid);
+      const gone = () => entry.outcome !== undefined && !groupLive(pid);
       killProcessGroup(pid, 'SIGTERM');
       if (await waitFor(gone, graceMs)) return;
       killProcessGroup(pid, 'SIGKILL');
@@ -272,6 +286,9 @@ export class JobManager {
     };
     entry.stopping = sequence().finally(() => {
       entry.stopping = undefined;
+      // A stop that could not end every process of the group says so: the job is not reported as fully stopped.
+      const pid = child.pid;
+      if (pid !== undefined && entry.ending && groupLive(pid)) entry.ending = { ...entry.ending, error: entry.ending.error ?? 'some processes it started did not stop' };
       this.settle(entry);
     });
     return entry.stopping;
@@ -406,7 +423,7 @@ export class JobManager {
     let raw: unknown;
     try { raw = JSON.parse(readFileSync(this.recordFile(id), 'utf8')); } catch { return undefined; }
     const job = parseRecord(raw, id, this.logFile(id));
-    if (job && (job.state === 'running' || job.state === 'ready') && !pidAlive(job.pid)) job.stale = true;
+    if (job && (job.state === 'running' || job.state === 'ready') && !pidAlive(job.pid) && !(job.pid !== undefined && groupLive(job.pid))) job.stale = true;
     return job;
   }
 
@@ -495,13 +512,39 @@ function waitFor(condition: () => boolean, ms: number): Promise<boolean> {
   });
 }
 
-/** Whether any process of the group the pid leads still exists (a zombie not yet reaped counts). */
-function groupAlive(pid: number): boolean {
+/**
+ * Whether any process of the group the pid leads still runs. On Linux a zombie (ended, not yet reaped by
+ * its new parent) does not count: an init that reaps orphans late must not keep a finished job running.
+ */
+function groupLive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 1) return false;
-  try { process.kill(process.platform === 'win32' ? pid : -pid, 0); return true; } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  if (process.platform === 'win32') return pidAlive(pid);
+  try { process.kill(-pid, 0); } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EPERM') return false;
   }
+  if (process.platform !== 'linux') return true;
+  // The scan reads every process's stat: at most once per SCAN_MS per group, the cheap check above every time.
+  const now = performance.now();
+  const memo = scans.get(pid);
+  if (memo && now - memo.at < SCAN_MS) return memo.live;
+  let names: string[];
+  try { names = readdirSync('/proc'); } catch { return true; }
+  let live = false;
+  for (const name of names) {
+    if (!/^\d+$/.test(name)) continue;
+    let stat: string;
+    try { stat = readFileSync(`/proc/${name}/stat`, 'utf8'); } catch { continue; }
+    // pid (comm) state ppid pgrp ...: comm may hold spaces and parentheses, so read after the last ')'
+    const [state, , pgrp] = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    if (Number(pgrp) === pid && state !== 'Z' && state !== 'X') { live = true; break; }
+  }
+  if (scans.size > 256) scans.clear();
+  scans.set(pid, { at: now, live });
+  return live;
 }
+
+const SCAN_MS = 200;
+const scans = new Map<number, { at: number; live: boolean }>();
 
 function pidAlive(pid: unknown): boolean {
   if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1) return false;
@@ -574,6 +617,7 @@ function parseRecord(raw: unknown, id: string, logPath: string): JobRecord | und
   if (text(r.url)) job.url = r.url;
   if (text(r.error)) job.error = r.error;
   if (text(r.receipt)) job.receipt = r.receipt;
+  if (text(r.note)) job.note = r.note;
   return job;
 }
 

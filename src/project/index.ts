@@ -5,8 +5,8 @@
  * chosen by path. The choice is kept in <TIMMY_HOME>/state/active-project.json, never inside the project,
  * so choosing an existing project writes nothing into it.
  */
-import { createHash } from 'node:crypto';
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync, type Dirent } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { closeSync, existsSync, fchmodSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync, type Dirent } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { timmyHome } from '../utils/init.js';
@@ -178,7 +178,27 @@ export function groupFiles(files: ProjectFile[]): { role: FileRole; label: strin
 
 export const humanBytes = (n: number): string => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
 
-/** A path inside the project, after links resolve; private files refused. */
+/**
+ * A project's identity without its path (review at c7475458: two folders named app shared Results): a
+ * hash of its real folder, the same in every session, so receipts can name the project and never the path.
+ */
+export function projectId(root: string): string {
+  let real: string;
+  try { real = realpathSync(root); } catch { real = resolve(root); }
+  return createHash('sha256').update(`timmy-project\0${real}`).digest('hex').slice(0, 16);
+}
+
+/** Whether two folder paths are the same folder once links resolve (a folder that is gone compares by path). */
+export function sameFolder(a: string, b: string): boolean {
+  const real = (p: string): string => { try { return realpathSync(p); } catch { return resolve(p); } };
+  return real(a) === real(b);
+}
+
+/**
+ * A path inside the project, after links resolve; private files refused by the name asked for and by
+ * the file it actually leads to (review at c7475458: a public.txt link to .env read the key file).
+ * `path` is the resolved file, so a read or write acts on exactly what was checked.
+ */
 export function resolveInside(root: string, rel: string): { path: string; rel: string } | { error: string } {
   if (typeof rel !== 'string' || !rel.trim() || rel.includes('\0')) return { error: 'name a file inside the project' };
   let realRoot: string;
@@ -186,6 +206,9 @@ export function resolveInside(root: string, rel: string): { path: string; rel: s
   const inside = (p: string): boolean => p === realRoot || p.startsWith(realRoot + sep);
   const target = resolve(realRoot, rel.trim());
   if (!inside(target)) return { error: `${rel} is outside the project` };
+  const relOut = relative(realRoot, target).split(sep).join('/');
+  const refused = (name: string): { error: string } => ({ error: `${name} is private: keys, .env files and .timmy/private stay out of reach` });
+  if (privatePath(relOut)) return refused(relOut);
   let probe = target;
   for (;;) {
     let exists = false;
@@ -195,10 +218,12 @@ export function resolveInside(root: string, rel: string): { path: string; rel: s
   }
   let real: string;
   try { real = realpathSync(probe); } catch { return { error: `${rel} cannot be resolved (a broken link?)` }; }
-  if (!inside(real)) return { error: `${rel} leads outside the project` };
-  const relOut = relative(realRoot, target).split(sep).join('/');
-  if (privatePath(relOut)) return { error: `${relOut} is private: keys, .env files and .timmy/private stay out of reach` };
-  return { path: target, rel: relOut };
+  // The part that does not exist yet (a new file or folder) is appended to the resolved part.
+  const resolvedPath = probe === target ? real : join(real, relative(probe, target));
+  if (!inside(resolvedPath)) return { error: `${rel} leads outside the project` };
+  const relReal = relative(realRoot, resolvedPath).split(sep).join('/');
+  if (relReal !== relOut && privatePath(relReal)) return { error: `${relOut} leads to a private file (${relReal}): keys, .env files and .timmy/private stay out of reach` };
+  return { path: resolvedPath, rel: relOut };
 }
 
 const sha256 = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
@@ -231,19 +256,55 @@ export type WriteResult =
   | { ok: true; rel: string; bytes: number; sha256: string; created: boolean; previousSha256?: string }
   | { ok: false; error: string };
 
-/** Writes a project file (new or replaced) atomically and reports the hashes before and after. */
-export function writeProjectFile(root: string, rel: string, content: string): WriteResult {
+export interface WriteOptions {
+  /** The temporary file's name in the target folder; a test seam. Default: a random dotted name. */
+  tempName?: () => string;
+}
+
+/**
+ * Writes a project file (new or replaced) atomically and reports the hashes before and after. The
+ * temporary file has a random name and is created exclusively (review at c7475458: a link planted at
+ * the old predictable name sent an approved write outside the project); an existing file keeps its mode.
+ */
+export function writeProjectFile(root: string, rel: string, content: string, opts: WriteOptions = {}): WriteResult {
   const at = resolveInside(root, rel);
   if ('error' in at) return { ok: false, error: at.error };
   let previousSha256: string | undefined;
+  let mode: number | undefined;
   try {
     const st = lstatSync(at.path);
     if (st.isDirectory()) return { ok: false, error: `${at.rel} is a folder` };
+    if (!st.isFile()) return { ok: false, error: `${at.rel} is not a regular file` };
     previousSha256 = sha256(readFileSync(at.path));
+    mode = st.mode & 0o7777;
   } catch { /* a new file */ }
-  mkdirSync(dirname(at.path), { recursive: true });
-  const tmp = `${at.path}.timmy-${process.pid}.tmp`;
-  writeFileSync(tmp, content);
-  renameSync(tmp, at.path);
+  const dir = dirname(at.path);
+  mkdirSync(dir, { recursive: true });
+  const nameOf = opts.tempName ?? ((): string => `.${basename(at.path)}.timmy-${randomBytes(8).toString('hex')}.tmp`);
+  let tmp = '';
+  let fd: number | undefined;
+  for (let attempt = 0; attempt < 8 && fd === undefined; attempt++) {
+    const name = nameOf();
+    if (!name || name.includes('/') || name.includes(sep)) return { ok: false, error: 'the temporary name must be a plain file name' };
+    tmp = join(dir, name);
+    try {
+      // O_CREAT|O_EXCL: fails on anything already there, a link included, so nothing is written through it.
+      fd = openSync(tmp, 'wx', mode ?? 0o644);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') return { ok: false, error: `${at.rel} could not be written: ${(err as Error).message}` };
+    }
+  }
+  if (fd === undefined) return { ok: false, error: `${at.rel} could not be written: no free temporary name` };
+  try {
+    writeFileSync(fd, content);
+    if (mode !== undefined) fchmodSync(fd, mode);
+    closeSync(fd);
+    fd = undefined;
+    renameSync(tmp, at.path);
+  } catch (err) {
+    if (fd !== undefined) try { closeSync(fd); } catch { /* already closed */ }
+    try { unlinkSync(tmp); } catch { /* gone already */ }
+    return { ok: false, error: `${at.rel} could not be written: ${(err as Error).message}` };
+  }
   return { ok: true, rel: at.rel, bytes: Buffer.byteLength(content), sha256: sha256(content), created: previousSha256 === undefined, ...(previousSha256 ? { previousSha256 } : {}) };
 }

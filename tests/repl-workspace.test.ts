@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { JobManager } from '../src/jobs/index.js';
 import { folderProject } from '../src/project/index.js';
 import { Workspace, type WorkspaceDeps } from '../src/repl/workspace.js';
 import { glyphSet } from '../src/term/glyphs.js';
@@ -192,3 +193,55 @@ describe('switching projects', () => {
   });
 });
 
+
+// Independent source review at c7475458 (2026-10-08), findings 4 and 6.
+describe('review: /stop is about this REPL\'s jobs and says what actually happened', () => {
+  it('leaves another session\'s job alone and says so; /stop all counts only its own', async () => {
+    const root = site();
+    const jobsDir = join(temp('jobs-'), 'jobs');
+    const other = new JobManager({ dir: jobsDir });
+    const theirs = other.start({ kind: 'task', label: 'their job', project: 'site', root, command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'] });
+    try {
+      for (let i = 0; i < 100 && other.get(theirs.id)?.state !== 'running'; i++) await tick(20);
+      const { ws } = make(root, { jobsDir });
+      const one = text(await ws.stop(theirs.id)).join('');
+      expect(one).toMatch(/another Timmy session/);
+      expect(one).not.toMatch(/have stopped/);
+      expect(other.get(theirs.id)?.state).toBe('running');
+      const all = text(await ws.stop('all')).join('');
+      expect(all).toMatch(/Nothing this REPL started is running/);
+      expect(other.get(theirs.id)?.state).toBe('running');
+    } finally {
+      await other.stopAll();
+    }
+  });
+});
+
+describe('review: two folders with the same name keep their own results', () => {
+  it('matches jobs and receipts by the project folder, never by its name, and keeps paths out of receipts', async () => {
+    const a = join(temp('ws-a-'), 'app');
+    const b = join(temp('ws-b-'), 'app');
+    for (const r of [a, b]) { put(r, 'BUILD.md', WORKFLOW); put(r, 'src/index.html', '<h1>Hello</h1>\n'); }
+    const shared: ReceiptInput[] = [];
+    const seal = (input: ReceiptInput): string => { shared.push(input); return `id${shared.length}`; };
+    const receipts = (): Receipt[] => shared.map((r, i) => ({ ...r, hash: `sha256:${String(i).padStart(8, '0')}rest` })) as unknown as Receipt[];
+    const jobsDir = join(temp('jobs-'), 'jobs');
+    const A = make(a, { jobsDir, seal, receipts, edit: (path) => writeFileSync(path, '<h1>A</h1>\n') });
+    const B = make(b, { jobsDir, seal, receipts });
+    expect(text(A.ws.edit('src/index.html')).join('')).toContain('Saved src/index.html');
+    await A.ws.run('BUILD.md build');
+    await A.ws.jobs.done(A.ws.jobs.list()[0].id);
+    await tick();
+    const inA = text(A.ws.results('')).join('\n');
+    expect(inA).toContain('BUILD.md › build');
+    expect(inA).toMatch(/src\/index.html\s+your edit/);
+    const inB = text(B.ws.results('')).join('\n');
+    expect(inB).not.toContain('BUILD.md › build');
+    expect(inB).not.toMatch(/your edit/);
+    expect(shared.length).toBeGreaterThan(0);
+    for (const r of shared) {
+      expect(r.project_id).toMatch(/^[0-9a-f]{16}$/);
+      expect(JSON.stringify(r)).not.toContain(a);
+    }
+  });
+});

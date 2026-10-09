@@ -91,6 +91,52 @@ describe('reads and writes stay inside the project', () => {
   });
 });
 
+// Independent source review at c7475458 (2026-10-08), findings 1 and 2.
+describe('review: a link cannot reach a private file, and a write cannot be redirected', () => {
+  it('refuses a public-looking name whose link leads to .env or into .timmy/private', () => {
+    const root = temp();
+    put(root, '.env', 'OPENROUTER_API_KEY=sk-or-v1-not-a-real-key');
+    put(root, '.timmy/private/notes.txt', 'private');
+    put(root, 'src/a.txt', 'shared');
+    symlinkSync('.env', join(root, 'public.txt'));
+    symlinkSync('.timmy/private', join(root, 'open'));
+    symlinkSync('src/a.txt', join(root, 'alias.txt'));
+    const leak = readProjectFile(root, 'public.txt');
+    expect(leak.ok).toBe(false);
+    expect(!leak.ok && leak.error).toMatch(/private/);
+    expect(readProjectFile(root, 'open/notes.txt').ok).toBe(false);
+    expect(writeProjectFile(root, 'public.txt', 'overwrite').ok).toBe(false);
+    expect(writeProjectFile(root, 'open/new.txt', 'no').ok).toBe(false);
+    expect(readFileSync(join(root, '.env'), 'utf8')).toContain('not-a-real-key');
+    expect(existsSync(join(root, '.timmy/private/new.txt'))).toBe(false);
+    // A link to an ordinary project file still works, and a write through it edits that file.
+    const alias = readProjectFile(root, 'alias.txt');
+    expect(alias.ok && alias.text).toBe('shared');
+    expect(writeProjectFile(root, 'alias.txt', 'edited').ok).toBe(true);
+    expect(readFileSync(join(root, 'src/a.txt'), 'utf8')).toBe('edited');
+  });
+
+  it('never writes through a link planted at the temporary name, and leaves no temporary file', () => {
+    const root = temp(); const outside = temp('outside-');
+    put(outside, 'victim.txt', 'untouched');
+    put(root, 'index.html', '<p>old</p>');
+    // The name the first version used, predictable from the process id.
+    symlinkSync(join(outside, 'victim.txt'), join(root, `index.html.timmy-${process.pid}.tmp`));
+    // And a planted link at whatever name a write tries first: the write must create its file exclusively.
+    const planted = join(root, '.index.html.timmy-planted.tmp');
+    symlinkSync(join(outside, 'victim.txt'), planted);
+    const names = ['.index.html.timmy-planted.tmp', '.index.html.timmy-second.tmp'];
+    const w = writeProjectFile(root, 'index.html', '<p>new</p>', { tempName: () => names.shift() ?? '.index.html.timmy-third.tmp' });
+    expect(w.ok).toBe(true);
+    expect(readFileSync(join(outside, 'victim.txt'), 'utf8')).toBe('untouched');
+    expect(readFileSync(join(root, 'index.html'), 'utf8')).toBe('<p>new</p>');
+    expect(existsSync(join(root, '.index.html.timmy-second.tmp'))).toBe(false);
+    const w2 = writeProjectFile(root, 'index.html', '<p>newer</p>');
+    expect(w2.ok).toBe(true);
+    expect(readFileSync(join(outside, 'victim.txt'), 'utf8')).toBe('untouched');
+  });
+});
+
 describe('the active project', () => {
   it('is chosen by name or path, made under the Timmy home, and remembered outside the project', () => {
     const home = temp('home-');

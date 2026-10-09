@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set of shared settings (`src/theme/tokens.ts`). `TIMMY_PALETTE=homebrew`.
 
 ### Fixed
+- Independent source review at c7475458, six findings, each reproduced by a failing test before its fix:
+  - A project file is refused by what it leads to, not only by its name: a `public.txt` link to `.env` (or a folder link into `.timmy/private`) no longer reads or writes the private file. A link to an ordinary project file still works, and a write through it edits that file.
+  - A project write's temporary file has a random name and is created exclusively, so a link planted at the old predictable name can no longer send an approved write outside the project; a replaced file keeps its mode.
+  - A job whose first process exits while processes it started keep running stays running (with a note saying so) until they end; `/stop` and the REPL's exit still reach them. On Linux, ended processes an init has not yet reaped no longer count as running.
+  - `/stop` stops only the jobs this REPL started: another session's job is left as it is and the answer says so, `/stop all` counts only this REPL's jobs, and a stop that left processes running says so instead of claiming everything stopped.
+  - The preview server answers 500 for a file it cannot read (unreadable, or removed while a build rewrites the folder) and keeps serving; before, one such request ended the whole server. The 200 goes out only once the file is open.
+  - Results match jobs by the project's folder and receipts by a project id (a hash of the real folder; receipts never carry the path), so two folders named `app` no longer show each other's results. Receipts sealed before the id existed are not shown in Results; `/receipts` still lists them.
 - The workspace command, when it runs on this machine, runs in its own process group with a time limit (120 s, or `TIMMY_WORKSPACE_TIMEOUT_MS`): a command that keeps running, such as a dev server, no longer holds the turn open, a stop takes everything it started, and the answer points to `/preview`.
 - A turn whose request throws without an error event of its own now shows the error, its reason and its next step (keys redacted) instead of ending silently; it was sealed failed but looked finished. Found in the R1 workspace demo, where the cause was the next item.
 - The conversation log keeps writing where it was made after the working folder changes, and its folder is created by the first message, not on open. `/project` now carries each project's own conversation (its `.sessions`): switching resumes that project's latest conversation or starts one there, and says which.

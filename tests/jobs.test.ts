@@ -77,6 +77,13 @@ function exists(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
+/** Ended: gone, or a zombie its new parent has not reaped yet (this container's init reaps orphans late).
+ *  A zombie runs nothing; reaping it is its parent's work, not the job manager's. */
+function gone(pid: number): boolean {
+  if (!exists(pid)) return true;
+  try { return (readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ').pop() ?? '').startsWith('Z'); } catch { return false; }
+}
+
 const SH_WITH_CHILD = ['-c', 'sleep 30 & echo child=$!; wait'];
 
 describe('JobManager', () => {
@@ -231,7 +238,7 @@ describe('JobManager', () => {
     expect(exists(child)).toBe(true);
     const stopped = await m.stop(job.id);
     expect(stopped).toMatchObject({ state: 'cancelled', signal: 'SIGTERM' });
-    expect(() => process.kill(child, 0)).toThrow();
+    expect(gone(child)).toBe(true);
     expect(exists(stopped?.pid as number)).toBe(false);
     strays = strays.filter((pid) => pid !== child);
   });
@@ -256,7 +263,7 @@ describe('JobManager', () => {
     strays.push(child);
     const done = await m.done(job.id);
     expect(done).toMatchObject({ state: 'failed', error: 'timed out', exitCode: null, signal: 'SIGTERM' });
-    expect(() => process.kill(child, 0)).toThrow();
+    expect(gone(child)).toBe(true);
     strays = strays.filter((pid) => pid !== child);
   });
 
@@ -351,5 +358,46 @@ describe('JobManager', () => {
     expect(m.get(task.id)?.state).toBe('cancelled');
     expect(m.get(server.id)?.state).toBe('cancelled');
     expect(await m.ready(task.id)).toMatchObject({ state: 'cancelled' });
+  });
+});
+
+// Independent source review at c7475458 (2026-10-08), finding 3: the first process exiting is not the
+// job ending while processes it started still run, and a stop must still reach them.
+describe('review: a job is not over while what it started still runs', () => {
+  const LEAVES_CHILD = ['-c', 'sleep 30 >/dev/null 2>&1 & echo child=$!'];
+
+  it('stays running after its first process exits, and stop() still stops the rest', async () => {
+    const m = manager();
+    const job = m.start(spec({ command: 'sh', args: LEAVES_CHILD }));
+    const child = await until(() => childPid(m, job.id));
+    strays.push(child);
+    await until(() => (m.get(job.id)?.note ? true : undefined));
+    expect(m.get(job.id)?.state).toBe('running');
+    expect(gone(child)).toBe(false);
+    expect(await m.stop(job.id)).toMatchObject({ state: 'cancelled' });
+    await until(() => (gone(child) ? true : undefined));
+    strays = strays.filter((pid) => pid !== child);
+  });
+
+  it('ends by its first process once everything it started has ended on its own', async () => {
+    const m = manager();
+    const job = m.start(spec({ command: 'sh', args: ['-c', 'sleep 0.6 >/dev/null 2>&1 & echo child=$!; exit 0'] }));
+    const child = await until(() => childPid(m, job.id));
+    await until(() => (m.get(job.id)?.note ? true : undefined));
+    expect(m.get(job.id)?.state).toBe('running');
+    expect(await m.done(job.id)).toMatchObject({ state: 'completed', exitCode: 0 });
+    expect(gone(child)).toBe(true);
+  });
+
+  it('stopAll() at exit stops a job whose first process has already exited', async () => {
+    const m = manager();
+    const job = m.start(spec({ command: 'sh', args: LEAVES_CHILD }));
+    const child = await until(() => childPid(m, job.id));
+    strays.push(child);
+    await until(() => (m.get(job.id)?.note ? true : undefined));
+    await m.stopAll();
+    expect(m.get(job.id)?.state).toBe('cancelled');
+    await until(() => (gone(child) ? true : undefined));
+    strays = strays.filter((pid) => pid !== child);
   });
 });

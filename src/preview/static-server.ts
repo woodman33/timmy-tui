@@ -19,9 +19,22 @@ const server = http.createServer((req, res) => {
     if (fs.statSync(file).isDirectory()) file = path.join(file, 'index.html');
     const real = fs.realpathSync(file);
     if (real !== root && !real.startsWith(root + path.sep)) throw new Error('outside');
-    res.writeHead(200, { 'content-type': TYPES[path.extname(real).toLowerCase()] || 'application/octet-stream', 'cache-control': 'no-store' });
-    fs.createReadStream(real).pipe(res);
-    console.log(req.method + ' ' + rel + ' 200');
+    // Review at c7475458: a read that fails (an unreadable file, or one a rebuild removed after the check)
+    // answers 500 or ends that one response; it never takes the whole server down. The 200 goes out only
+    // once the file is open, so a failed open is a 500, not a short 200.
+    const stream = fs.createReadStream(real);
+    stream.on('open', () => {
+      res.writeHead(200, { 'content-type': TYPES[path.extname(real).toLowerCase()] || 'application/octet-stream', 'cache-control': 'no-store' });
+      stream.pipe(res);
+      console.log(req.method + ' ' + rel + ' 200');
+    });
+    stream.on('error', (err) => {
+      console.log(req.method + ' ' + rel + ' 500 ' + ((err && err.code) || 'read error'));
+      if (!res.headersSent) { res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' }); res.end('could not read this file\n'); }
+      else res.destroy();
+    });
+    res.on('close', () => stream.destroy());
+    res.on('error', () => stream.destroy());
   } catch (e) {
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
     res.end('not found\n');

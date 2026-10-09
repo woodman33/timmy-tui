@@ -40,6 +40,8 @@ export interface Receipt {
   // R1 workspace direction (2026-10-08): the project a receipt belongs to, the files it wrote or read as
   // input (hashes, never contents), a background job's lifecycle, and a workflow's prediction before it ran.
   project?: string;
+  /** review at c7475458: the project's identity (a hash of its real folder), so two folders with one name stay apart */
+  project_id?: string;
   files?: Array<{ path: string; sha256?: string; previous_sha256?: string; created?: boolean; bytes?: number }>;
   outputs?: Array<{ path: string; sha256?: string; bytes: number }>;
   job?: { id: string; kind: string; label: string; state: string; exit_code?: number | null; steps?: Array<{ name: string; state: string; code?: number }>; log_sha256?: string; url?: string; ms?: number; error?: string };
