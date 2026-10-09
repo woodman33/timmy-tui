@@ -149,6 +149,17 @@ describe('renderBoard', () => {
     expect(claim).toContain('1. ');
   });
 
+  // The independent review of 7f2505d: `**` as an operator vanished, and bold ran inside code.
+  it("a claim's ** used as an operator stays, and code keeps its asterisks", () => {
+    const input = fixture();
+    const answer = 'a ** b ** c, then `2 ** 3 ** 2`';
+    const obs = readObservationRecord('results/observations/x.json', { ...RECORD, interpretation: { ...RECORD.interpretation, answer } });
+    input.observations = obs ? [obs] : [];
+    const claim = section(renderBoard(input), 'claim')[0];
+    expect(claim).toContain('a ** b ** c, then <code>2 ** 3 ** 2</code>');
+    expect(claim).not.toContain('<strong>');
+  });
+
   it('a model that did not answer is said so, and no claim is drawn', () => {
     const input = fixture();
     const obs = readObservationRecord('results/observations/x.json', { ...RECORD, interpretation: { status: 'refused', model: 'deepseek/deepseek-chat', question: 'What?', reason: 'it does not take images' } });

@@ -52,6 +52,8 @@ describe('project starters', () => {
     const ws = workspace(temp('cwd-'));
     expect(text(ws.project_('new x --from nope'))).toContain('No starter named nope. Starters: web-starter');
     expect(text(ws.project_('new x --from'))).toContain('Name a starter.');
+    expect(text(ws.project_('new x --fromage'))).toContain('a project name uses');
+    expect(text(ws.project_('new y --from=nope'))).toContain('No starter named nope.');
     expect(existsSync(join(home, 'projects', 'x'))).toBe(false);
     await ws.close();
   });
@@ -74,6 +76,9 @@ describe('project starters', () => {
     const root = temp('web-');
     expect('files' in copyStarter('web-starter', root)).toBe(true);
     writeFileSync(join(root, '.env'), 'SECRET=1');
+    symlinkSync('/etc', join(root, 'outside'));
+    symlinkSync('.env', join(root, 'notes.txt'));
+    symlinkSync('index.html', join(root, 'page.html'));
     const port = await freePort();
     const child = spawn(process.execPath, ['server.mjs'], { cwd: root, env: { ...process.env, PORT: String(port) }, stdio: 'ignore' });
     try {
@@ -87,6 +92,10 @@ describe('project starters', () => {
       expect((await fetch(`${base}/.env`)).status).toBe(404);
       expect((await fetch(`${base}/%2e%2e/%2e%2e/etc/hosts`)).status).toBe(404);
       expect((await fetch(`${base}/%E0%A4%A`)).status).toBe(404);
+      // The independent review of 4d9cf52: links were judged by their own name, not where they lead.
+      expect((await fetch(`${base}/outside/hosts`)).status).toBe(404);
+      expect((await fetch(`${base}/notes.txt`)).status).toBe(404);
+      expect((await fetch(`${base}/page.html`)).status).toBe(200);
       expect((await fetch(`${base}/`)).status).toBe(200);
     } finally { child.kill(); }
   });

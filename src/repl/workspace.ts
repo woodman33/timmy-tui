@@ -151,7 +151,7 @@ export class Workspace {
     }
     if (a === 'new' || a.startsWith('new ')) {
       // Round R2: `/project new <name> --from <starter>` fills the new project from templates/<starter>.
-      const from = a.match(/(?:^|\s)--from(?:\s+(\S+))?/);
+      const from = a.match(/(?:^|\s)--from(?:(?:=|\s+)(\S+))?(?=\s|$)/);
       const name = a.slice(3).replace(from?.[0] ?? '', ' ').trim();
       if (from) {
         const starters = listStarters();
@@ -503,9 +503,14 @@ export class Workspace {
   }
 
   private devScript(): string | null {
+    return this.devScriptText()?.name ?? null;
+  }
+
+  private devScriptText(): { name: string; text: string } | null {
     try {
       const pkg = JSON.parse(readFileSync(join(this.root, 'package.json'), 'utf8')) as { scripts?: Record<string, string> };
-      return ['dev', 'start', 'preview'].find((s) => typeof pkg.scripts?.[s] === 'string') ?? null;
+      const name = ['dev', 'start', 'preview'].find((s) => typeof pkg.scripts?.[s] === 'string');
+      return name ? { name, text: pkg.scripts![name] } : null;
     } catch { return null; }
   }
 
@@ -527,7 +532,12 @@ export class Workspace {
         if (!existsSync(at.path) || !statSync(at.path).isDirectory()) return this.say(`${folder} is not a folder in this project.`);
         spec = { label: `preview ${at.rel === '.' ? 'the project' : `${at.rel}/`}`, ...(this.d.staticServer ?? staticServerCommand)(at.path, port), url: `http://127.0.0.1:${port}/` };
       } else if (script) {
-        spec = { label: `preview npm run ${script}`, command: 'npm', args: ['run', script], url: `http://127.0.0.1:${port}/`, env: { ...this.d.env, PORT: String(port), HOST: '127.0.0.1', BROWSER: 'none' } };
+        // Vite reads no PORT or HOST: it is given the port and address on its command line instead, and
+        // --strictPort makes it fail rather than answer on another port (round R2 review).
+        const text = this.devScriptText()?.text ?? '';
+        const vite = /(?:^|[\s;&|(])vite(?:\s|$)/.test(text) && !/--port\b/.test(text);
+        const extra = vite ? ['--', '--port', String(port), '--host', '127.0.0.1', '--strictPort'] : [];
+        spec = { label: `preview npm run ${script}`, command: 'npm', args: ['run', script, ...extra], url: `http://127.0.0.1:${port}/`, env: { ...this.d.env, PORT: String(port), HOST: '127.0.0.1', BROWSER: 'none' } };
       } else {
         return this.say('Nothing to preview: no index.html in dist, build, out, public or the project, and no dev or start script. Try /preview <folder>, or /preview <command> --url <address>.');
       }

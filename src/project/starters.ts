@@ -53,9 +53,13 @@ export function copyStarter(name: string, dest: string, dir = startersDir()): { 
   try { if (readdirSync(dest).length) return { error: 'the project folder is not empty; a starter only fills a new project' }; } catch { /* made below */ }
   const files: string[] = [];
   walk(from, from, files);
-  for (const rel of files) {
-    mkdirSync(dirname(join(dest, rel)), { recursive: true });
-    copyFileSync(join(from, rel), join(dest, rel));
+  try {
+    for (const rel of files) {
+      mkdirSync(dirname(join(dest, rel)), { recursive: true });
+      copyFileSync(join(from, rel), join(dest, rel));
+    }
+  } catch (err) {
+    return { error: `the copy stopped part way (${err instanceof Error ? err.message : 'error'}); the project holds what was copied` };
   }
   return { files };
 }

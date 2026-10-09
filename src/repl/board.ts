@@ -58,8 +58,12 @@ const esc = (s: unknown): string => String(s).replace(/[&<>"']/g, (c) => ESC[c])
  * Line breaks and list numbers stay as text (the block keeps white-space: pre-wrap).
  */
 const claimHtml = (s: string): string => esc(s)
-  .replace(/`([^`\n]+)`/g, '<code>$1</code>')
-  .replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
+  .split(/(`[^`\n]+`)/)
+  .map((part) => (part.length > 2 && part.startsWith('`') && part.endsWith('`') && !part.includes('\n')
+    ? `<code>${part.slice(1, -1)}</code>`
+    // As in Markdown: the marks hug their text (`a ** b` is not bold), and code keeps its asterisks.
+    : part.replace(/\*\*(?=\S)([^*\n]*?\S)\*\*/g, '<strong>$1</strong>')))
+  .join('');
 const SHOWN_IMAGE = /\.(png|jpe?g|webp|gif)$/i;
 const HEX = /^#[0-9a-f]{6}$/i;
 

@@ -1,7 +1,7 @@
 // R1 workspace direction (2026-10-08): one project through its files, a workflow run (upmd's real --ci
 // protocol, through the labelled test double), a preview server, an edit and the results — with real
 // processes, and the receipts each step seals.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -170,6 +170,25 @@ describe('a preview', () => {
     const built = make(root, { env: { ...process.env, UPMD_BIN: FAKE_UPMD } });
     expect(text(await built.ws.preview('')).join('\n')).toContain('preview dist/');
   });
+
+  // The independent review of 0ca1b06: Vite reads no PORT or HOST, so Timmy waited on the wrong port.
+  it('gives a Vite dev script its port and address on the command line, and Vite answers there', async () => {
+    const root = temp('vite-');
+    put(root, 'package.json', JSON.stringify({ name: 'v', private: true, type: 'module', scripts: { dev: 'vite' } }));
+    put(root, 'index.html', '<!doctype html><title>v</title><h1>Vite page</h1>\n');
+    symlinkSync(resolve('node_modules'), join(root, 'node_modules'));
+    const { ws } = make(root, { env: { ...process.env, UPMD_BIN: FAKE_UPMD } });
+    expect(text(await ws.preview('')).join('\n')).toContain('preview npm run dev');
+    const job = ws.jobs.list()[0] as unknown as { id: string; args?: string[] };
+    const ready = await ws.jobs.ready(job.id);
+    const port = new URL(ready.url!).port;
+    expect(job.args ?? []).toEqual(['run', 'dev', '--', '--port', port, '--host', '127.0.0.1', '--strictPort']);
+    expect(ready.state).toBe('ready');
+    const page = await (await fetch(ready.url!)).text();
+    expect(page).toContain('Vite page');
+    expect(page).toContain('/@vite/client');
+    await ws.stop(job.id);
+  }, 60_000);
 
   it('serves public/ or the project folder when there is no script to run', async () => {
     const root = temp('static-');
