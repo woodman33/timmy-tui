@@ -22,7 +22,8 @@ import {
 import { staticServerCommand } from '../preview/static-server.js';
 import { hashFile, intakeFiles, kindOf, splitArgs } from '../project/intake.js';
 import { copyStarter, listStarters } from '../project/starters.js';
-import { BOARD_BASE, BOARD_FILE, readObservationRecord, renderBoard, utcStamp, type BoardFile, type BoardObservation } from './board.js';
+import { BOARD_BASE, BOARD_FILE, readObservationRecord, renderBoard, renderBoardBody, utcStamp, type BoardFile, type BoardInput, type BoardObservation } from './board.js';
+import { LiveBoard, type BoardCommand, type LiveState } from './board-live.js';
 import { killProcessGroup } from '../runtime/spawn-runtime.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
@@ -143,6 +144,8 @@ export class Workspace {
   private readonly looks = new Set<string>();
   /** Round R3: observations still in progress, by their Look job's id (measuring, or asking the model). */
   private readonly observing = new Map<string, Observing>();
+  /** Round R3: the live board this REPL serves on 127.0.0.1 (/board live), until /board off or the REPL's end. */
+  private live?: LiveBoard;
 
   constructor(private readonly d: WorkspaceDeps, start: ActiveProject) {
     this.project = start;
@@ -810,6 +813,7 @@ export class Workspace {
   /** The REPL is ending: stop what this REPL started, a model's interpretation included, and let a stopped
    *  observation be recorded (round R3). */
   async close(): Promise<void> {
+    await this.closeLiveBoard();
     const pending = [...this.observing.values()].flatMap((o) => { o.abort.abort(); return o.done ? [o.done] : []; });
     await this.jobs.stopAll();
     await within(Promise.allSettled(pending));
@@ -817,6 +821,8 @@ export class Workspace {
 
   /** The process is exiting at once (a second Ctrl+C): signal this REPL's live jobs without waiting. */
   killNow(): void {
+    this.live?.closeNow();
+    this.live = undefined;
     for (const o of this.observing.values()) o.abort.abort();
     for (const id of this.mine) {
       const j = this.jobs.get(id);
@@ -928,6 +934,29 @@ export class Workspace {
    * Nothing is sealed: the board is a view of what the project and its receipts already hold.
    */
   board(_args: string): Line[] {
+    const { input, references, docs, jobs, outputs, observed, verifiedCount, truncated } = this.boardData();
+    const root = this.root;
+    const html = renderBoard(input);
+    const w = writeProjectFile(root, BOARD_FILE, html);
+    if (!w.ok) return this.say(`The board could not be written: ${w.error}`, 'failure');
+    const opened = this.d.openWeb(fileUrl(join(root, w.rel)));
+    const counts = [
+      `References ${references}`, `Workflows ${docs}`, `Jobs ${jobs}`,
+      `Outputs ${outputs}`, `Observations ${observed}${observed ? ` (${verifiedCount} verified)` : ''}`,
+    ].join(this.sep);
+    return [
+      [{ text: '  Board      ', role: 'secondary' }, { text: this.fileLink(w.rel), role: 'strong' }, { text: `  a read-only snapshot${this.sep}/board again makes a new one`, role: 'secondary' }],
+      [{ text: '  Holds      ', role: 'secondary' }, { text: counts }],
+      ...(truncated ? this.say('Only the first 2,000 files of the project were read.') : []),
+      [{ text: '  Browser    ', role: 'secondary' }, { text: opened }],
+    ];
+  }
+
+  /** What a board shows (the snapshot's and the live board's): gathered from the project, its jobs and its receipts. */
+  private boardData(live = false): {
+    input: BoardInput; references: number; docs: number; jobs: number; outputs: number; observed: number; verifiedCount: number; truncated: boolean;
+    images: Array<{ rel: string; kind: string; bytes: number }>;
+  } {
     const root = this.root;
     const { files, truncated } = listProjectFiles(root);
     const card = (f: ProjectFile): BoardFile => {
@@ -977,18 +1006,33 @@ export class Workspace {
     }
     observed.sort((a, b) => b.at - a.at);
     const verifiedCount = observed.filter((o) => o.check?.status === 'verified').length;
-    const html = renderBoard({
+    const shownRefs = references.slice(0, BOARD_MAX.references).map(card);
+    const shownOutputs = outputs.slice(0, BOARD_MAX.outputs).map(card);
+    const shownObs = observed.slice(0, BOARD_MAX.observations).map(({ at: _at, ...o }) => o);
+    // The live board's Observe acts only on an image the board shows: a card, or an observation's source.
+    const images = [...shownRefs, ...shownOutputs].map((f) => ({ rel: f.rel, kind: f.kind ?? kindOf(f.rel, Buffer.alloc(0)).kind, bytes: f.bytes }));
+    if (live) {
+      for (const o of shownObs) {
+        const rel = o.source?.path;
+        if (!rel || images.some((f) => f.rel === rel)) continue;
+        const at = resolveInside(root, rel);
+        if ('error' in at || !existsSync(at.path)) continue;
+        try { if (statSync(at.path).isFile()) images.push({ rel: at.rel, kind: kindOf(at.rel, headOf(at.path)).kind, bytes: statSync(at.path).size }); } catch { /* not readable: not offered */ }
+      }
+    }
+    const input: BoardInput = {
       project: this.project.name,
       madeAt: utcStamp(new Date()),
       base: BOARD_BASE,
-      references: references.slice(0, BOARD_MAX.references).map(card),
+      references: shownRefs,
       workflows,
       jobs: jobs.slice(0, BOARD_MAX.jobs).map((j) => ({
         id: j.id, state: j.stale ? `${j.state} (its process is gone)` : j.state, label: this.scrub(j.label, j.root), seconds: seconds(j), kind: j.kind,
         ...(j.receipt ? { receipt: j.receipt } : {}),
+        ...(live ? { stoppable: this.mine.has(j.id) && !j.stale && !TERMINAL.has(j.state) } : {}),
       })),
-      outputs: outputs.slice(0, BOARD_MAX.outputs).map(card),
-      observations: observed.slice(0, BOARD_MAX.observations).map(({ at: _at, ...o }) => o),
+      outputs: shownOutputs,
+      observations: shownObs,
       more: {
         references: Math.max(0, references.length - BOARD_MAX.references),
         outputs: Math.max(0, outputs.length - BOARD_MAX.outputs),
@@ -996,19 +1040,80 @@ export class Workspace {
         jobs: Math.max(0, jobs.length - BOARD_MAX.jobs),
         observations: Math.max(0, observed.length - BOARD_MAX.observations),
       },
-    });
-    const w = writeProjectFile(root, BOARD_FILE, html);
-    if (!w.ok) return this.say(`The board could not be written: ${w.error}`, 'failure');
-    const opened = this.d.openWeb(fileUrl(join(root, w.rel)));
-    const counts = [
-      `References ${references.length}`, `Workflows ${docs.length}`, `Jobs ${jobs.length}`,
-      `Outputs ${outputs.length}`, `Observations ${observed.length}${observed.length ? ` (${verifiedCount} verified)` : ''}`,
-    ].join(this.sep);
+      ...(live ? { live: true } : {}),
+    };
+    return {
+      input, references: references.length, docs: docs.length, jobs: jobs.length, outputs: outputs.length, observed: observed.length, verifiedCount, truncated, images,
+    };
+  }
+
+  // ── /board live (round R3: the board with Stop, Run and Observe, served on 127.0.0.1) ──
+
+  /**
+   * `/board live` serves the board with job controls on 127.0.0.1 (src/repl/board-live.ts) and opens it;
+   * again, it says where it runs; `/board off` stops it, as does the REPL's end. Each button runs the typed
+   * command it stands for through this Workspace's own method, echoed in the transcript as from the board.
+   */
+  async boardLive(args: string): Promise<Line[]> {
+    const a = args.trim();
+    if (a === 'off') {
+      if (!this.live) return this.say('No live board is running: /board live starts one.');
+      const was = this.live.address;
+      await this.closeLiveBoard();
+      return this.say(`The live board at ${was} is stopped; its address no longer answers.`);
+    }
+    if (a !== 'live') return this.say('Usage: /board (a read-only snapshot), /board live (with controls, on 127.0.0.1), /board off');
+    if (this.live) {
+      return [
+        [{ text: '  Live board ', role: 'secondary' }, { text: this.live.address, role: 'strong' }, { text: `  running for this REPL${this.sep}/board off stops it`, role: 'secondary' }],
+        [{ text: '  Open       ', role: 'secondary' }, { text: this.d.link(this.live.url, this.live.url) }, { text: '  the token after # stays in your browser', role: 'secondary' }],
+      ];
+    }
+    const lb = new LiveBoard({ state: () => this.liveState(), execute: (c) => this.boardCommand(c) });
+    try { await lb.start(); } catch (err) { return this.say(`The live board could not start: ${err instanceof Error ? err.message : 'error'}`, 'failure'); }
+    this.live = lb;
+    const opened = this.d.openWeb(lb.url);
     return [
-      [{ text: '  Board      ', role: 'secondary' }, { text: this.fileLink(w.rel), role: 'strong' }, { text: `  a read-only snapshot${this.sep}/board again makes a new one`, role: 'secondary' }],
-      [{ text: '  Holds      ', role: 'secondary' }, { text: counts }],
-      ...(truncated ? this.say('Only the first 2,000 files of the project were read.') : []),
+      [{ text: '  Live board ', role: 'secondary' }, { text: lb.address, role: 'strong' }, { text: `  on 127.0.0.1 only, for this REPL${this.sep}Stop, Run and Observe act as the typed command${this.sep}/board off stops it`, role: 'secondary' }],
       [{ text: '  Browser    ', role: 'secondary' }, { text: opened }],
     ];
+  }
+
+  /** The live board's address, while it runs (for tests and the REPL's status). */
+  get liveBoard(): { address: string; url: string; port: number; host?: string } | undefined {
+    return this.live ? { address: this.live.address, url: this.live.url, port: this.live.boundPort, host: this.live.boundHost } : undefined;
+  }
+
+  private async closeLiveBoard(): Promise<void> {
+    const lb = this.live;
+    this.live = undefined;
+    await lb?.close();
+  }
+
+  /** The live board's state: the board's sections with buttons, and what its actions are checked against. */
+  private liveState(): LiveState {
+    const { input, images } = this.boardData(true);
+    const { toc, main } = renderBoardBody(input);
+    // The sections are redrawn when this changes: everything but the jobs' states and times.
+    const shape = createHash('sha256').update(JSON.stringify({ ...input, madeAt: '', jobs: input.jobs.map((j) => ({ id: j.id, label: j.label, receipt: j.receipt })) })).digest('hex').slice(0, 16);
+    return {
+      project: input.project, madeAt: input.madeAt, toc, html: main, shape,
+      jobs: input.jobs.map((j) => ({ id: j.id, state: j.state, label: j.label, ...(j.seconds ? { seconds: j.seconds } : {}), stoppable: j.stoppable === true })),
+      workflows: input.workflows.map((w) => ({ rel: w.rel, blocks: w.blocks.map((b) => b.name) })),
+      files: images,
+    };
+  }
+
+  /**
+   * A board action, checked by the live board, run as its typed command: the same method and argument
+   * string as `/stop`, `/run` or `/observe` typed here. It is echoed in the transcript as from the board,
+   * with what it printed; the page gets that text with the project's folder as "." and the home folder as "~".
+   */
+  private async boardCommand(c: BoardCommand): Promise<string[]> {
+    const root = this.root;
+    this.d.notify([{ text: '  board  ', role: 'secondary' }, { text: c.line, role: 'strong' }]);
+    const lines = c.name === 'stop' ? await this.stop(c.args) : c.name === 'run' ? await this.run(c.args) : await this.observe(c.args);
+    for (const line of lines) this.d.notify(line);
+    return lines.map((l) => this.scrub(l.map((s) => s.text).join(''), root));
   }
 }
