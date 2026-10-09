@@ -170,3 +170,25 @@ describe('edits and results', () => {
     expect(results).toMatch(/src\/index.html\s+your edit/);
   });
 });
+
+describe('switching projects', () => {
+  it('moves into the project, remembers it, and says which conversation it carries', () => {
+    const home = temp('home-');
+    const prev = process.env.TIMMY_HOME;
+    process.env.TIMMY_HOME = home;
+    try {
+      const root = site();
+      const other = temp('other-');
+      const moved: string[] = [];
+      const { ws } = make(root, { chdir: (d) => moved.push(d), onSwitch: (p) => `a new conversation, kept in ${p.name}` });
+      const lines = text(ws.project_(other)).join('\n');
+      expect(moved).toEqual([other]);
+      expect(ws.root).toBe(other);
+      expect(lines).toMatch(/Context\s+a new conversation, kept in other-/);
+      expect(text(ws.project_('no-such-project-here')).join('')).toContain('no project named');
+    } finally {
+      if (prev === undefined) delete process.env.TIMMY_HOME; else process.env.TIMMY_HOME = prev;
+    }
+  });
+});
+

@@ -3,6 +3,7 @@
  * steps, spend and time; a failed turn prints its error in the flow and returns (playbook §17.8).
  * With a sealer (C-8), a finished turn, good or failed, closes with its receipt instead of the footer.
  */
+import type { TurnEvent } from './transcript.js';
 import { bridgeAgent, type AgentEmitter } from './agent-bridge.js';
 import type { CancelStage, SealedTurn, ToolOutcome, TurnFacts } from './seal.js';
 import type { InspectRow, Transcript } from './transcript.js';
@@ -54,6 +55,7 @@ export async function runTurn(
   // charge reported, leaves it a lower bound, and the line says so instead of a flat $0.000.
   let costMeasured = true;
   let failed = false;
+  let sawError = false;
   let cancelled = false;
   // Each tool as it actually ends (third order, checkpoint 1): unknown until its result arrives.
   const tools = new Map<string, ToolOutcome>();
@@ -66,7 +68,7 @@ export async function runTurn(
       const t = tools.get(e.id);
       if (t) t.outcome = e.ok ? 'completed' : 'failed';
     }
-    if (e.type === 'error') failed = true;
+    if (e.type === 'error') { failed = true; sawError = true; }
     transcript.handle(e);
   });
   const onCost = (cost: number, _total?: number, info?: { complete?: boolean }): void => {
@@ -104,7 +106,12 @@ export async function runTurn(
     answer = await agent.send(text, { signal, retry: true });
   } catch (err) {
     if ((err as Error)?.name === 'AbortError' || signal?.aborted) cancelled = true;
-    else failed = true;
+    else {
+      failed = true;
+      // A request that threw without an error event of its own still says why (R1 workspace demo: a
+      // conversation log that could not be written ended a turn in 0 ms with nothing on screen).
+      if (!sawError) transcript.handle(thrownError(err));
+    }
   } finally {
     stop();
     agent.off('cost:update', onCost);
@@ -134,4 +141,14 @@ export async function runTurn(
   transcript.endTurn();
   marks?.end(cancelled ? 130 : failed ? 1 : 0);
   return result;
+}
+
+/** A thrown error as the transcript's error line: its first line, its Reason and its Next; keys redacted. */
+export function thrownError(err: unknown): Extract<TurnEvent, { type: 'error' }> {
+  const raw = String((err as Error)?.message ?? err).replace(/\b(sk|pk|rk)-[A-Za-z0-9_-]{8,}/g, '[key]');
+  const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean);
+  const reason = lines.find((l) => /^Reason:/i.test(l))?.replace(/^Reason:\s*/i, '');
+  const next = lines.find((l) => /^Next:/i.test(l))?.replace(/^Next:\s*/i, '');
+  const other = lines.slice(1).find((l) => !/^(Reason|Next):/i.test(l));
+  return { type: 'error', message: lines[0] ?? 'The request failed.', ...(reason ?? other ? { cause: reason ?? other } : {}), ...(next ? { fix: next } : {}) };
 }

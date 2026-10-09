@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and Alacritty, and the same colors and type for the browser pages, from one
   set of shared settings (`src/theme/tokens.ts`). `TIMMY_PALETTE=homebrew`.
 
+### Fixed
+- A turn whose request throws without an error event of its own now shows the error, its reason and its next step (keys redacted) instead of ending silently; it was sealed failed but looked finished. Found in the R1 workspace demo, where the cause was the next item.
+- The conversation log keeps writing where it was made after the working folder changes, and its folder is created by the first message, not on open. `/project` now carries each project's own conversation (its `.sessions`): switching resumes that project's latest conversation or starts one there, and says which.
+
 ### Changed
 - `spawnProcess` can start a child as the leader of its own process group (`detached`), and `killProcessGroup` stops the whole group; existing callers are unchanged.
 - `timmy tools` names the exact install command for agent-browser, Ollama, Claude Code, Codex and Qwen Code, and gives carbonyl's; the Web views row says a page opens in a pane only when Timmy runs inside zellij or tmux. `docs/TOOLS-SETUP.md` lists every row: what it needs, the step and how to check it.

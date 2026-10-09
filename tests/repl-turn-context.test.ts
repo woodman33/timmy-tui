@@ -147,3 +147,26 @@ describe('slash commands may wait', () => {
     expect(printed).toEqual(['  Timmy Canvas is not available here.']);
   });
 });
+
+describe('a request that throws says why (R1 workspace demo)', () => {
+  class ThrowingAgent extends EventEmitter {
+    getModel(): string { return 'anthropic/claude-haiku-4.5'; }
+    async send(): Promise<string> {
+      throw new Error('OpenRouter request failed for anthropic/claude-haiku-4.5.\nReason: refused with key sk-or-v1-abcdefghijklmnop.\nNext: choose another model or run /model fallback.');
+    }
+  }
+  it('shows the error, its reason and next step, with the key redacted, and seals the turn failed', async () => {
+    const out = new Sink();
+    const caps = detectCapabilities({ env: { LANG: 'en_US.UTF-8' }, stdin: { isTTY: false }, stdout: { isTTY: false }, stderr: { isTTY: false } });
+    const transcript = new Transcript(buildTheme(caps), new LiveRegion({ out, err: out }, { live: false }), { columns: 100 });
+    let status: string | undefined;
+    const result = await runTurn(new ThrowingAgent(), transcript, 'hi', () => 0, undefined, undefined,
+      (facts) => { status = facts.status; return { id: '1a2b3c4d', hash: 'sha256:1a2b3c4d', verified: true }; });
+    expect(result).toBe('failed');
+    expect(status).toBe('failed');
+    expect(out.text).toContain('OpenRouter request failed for anthropic/claude-haiku-4.5.');
+    expect(out.text).toContain('refused with key [key]');
+    expect(out.text).not.toContain('sk-or-v1-abcdefghijklmnop');
+    expect(out.text).toContain('choose another model or run /model fallback.');
+  });
+});

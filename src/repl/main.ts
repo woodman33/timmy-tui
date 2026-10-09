@@ -310,6 +310,11 @@ export async function runRepl(argv: string[]): Promise<number> {
     jobsDir: join(timmyHome(), 'jobs'),
     edit: editFile,
     tildify,
+    // Each project keeps its own conversation (.sessions in the project): switching resumes its latest.
+    onSwitch: (p) => {
+      const c = agent.useSessions(join(p.root, '.sessions'));
+      return c.resumed ? `resumed this project's last conversation (${c.messages} messages)` : 'a new conversation, kept in this project';
+    },
   }, folderProject(process.cwd()));
   // A second Ctrl+C exits at once: the jobs this REPL started stop with it.
   session.beforeRestore(() => workspace.killNow());

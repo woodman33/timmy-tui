@@ -664,6 +664,22 @@ export class Agent extends EventEmitter<AgentEvents> {
     return this.conversation.startNew();
   }
 
+  /**
+   * R1 workspace direction: keep the conversation in another folder (the active project's .sessions), so
+   * each project carries its own context. Its latest conversation is resumed, else a new one starts.
+   */
+  useSessions(dir: string): { resumed: boolean; messages: number } {
+    this.conversation = new ConversationManager(dir);
+    const sessions = this.conversation.listSessions();
+    if (sessions.length > 0) {
+      try {
+        return { resumed: true, messages: this.conversation.load(sessions[0]).length };
+      } catch { /* an unreadable file: a new conversation instead */ }
+    }
+    this.conversation.startNew();
+    return { resumed: false, messages: 0 };
+  }
+
   isRunning(): boolean {
     return this.running;
   }

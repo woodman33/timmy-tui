@@ -46,6 +46,8 @@ export interface WorkspaceDeps {
   staticServer?: (dir: string, port: number) => { command: string; args: string[] };
   freePort?: () => Promise<number>;
   chdir?: (dir: string) => void;
+  /** The project changed: the agent moves its conversation there; one line back to show. */
+  onSwitch?: (p: ActiveProject) => string | undefined;
   receipts?: () => Receipt[];
 }
 
@@ -127,10 +129,13 @@ export class Workspace {
     return this.summary();
   }
 
+  private switched: string | undefined;
+
   private use(p: ActiveProject): void {
     (this.d.chdir ?? process.chdir)(p.root);
     this.project = p;
     saveActiveProject(p);
+    this.switched = this.d.onSwitch?.(p);
   }
 
   summary(): Line[] {
@@ -142,6 +147,7 @@ export class Workspace {
       [{ text: '  Folder   ', role: 'secondary' }, { text: this.d.link(this.tilde(this.root), fileUrl(this.root)) }],
       [{ text: '  Files    ', role: 'secondary' }, { text: `${files.length}${truncated ? '+' : ''}: ${counts}` }],
       [{ text: '  Jobs     ', role: 'secondary' }, { text: live.length ? live.map((j) => `${j.id} ${j.state}`).join(', ') : 'none running' }],
+      ...(this.switched ? [[{ text: '  Context  ', role: 'secondary' as const }, { text: this.switched }]] : []),
       [{ text: '  Next     ', role: 'secondary' }, { text: '/files, /workflows, /preview, /results', role: 'secondary' }],
     ];
   }
