@@ -163,3 +163,58 @@ version of a USD stage, opens as an editable file, and closes with a verified re
 CadQuery, FreeCAD, OpenSCAD, c4dpy, Houdini, Reallusion, D5, Unreal, Rerun and Viser stay in the
 inventory above. No tool joins the roster, and no monetization work starts, until the cockpit
 milestone is finished (third order, 2026-10-07).
+
+## Workspace connections (R1, 2026-10-08)
+
+The owner's direction of 2026-10-08: one connected creative and coding workspace, with the REPL as
+its main surface, Timmy names in front (Files, Browser, Canvas, Workflows, Tools, Results) and the
+stack's names in setup and details. Rungs follow AGENTS.md §8; ledger rows 122 to 124 hold the checks.
+
+**Connected in R1, exercised on the operator's Mac at `c747545`** (one sandboxed project, one paid
+turn of $0.016): one active project for every REPL surface (`/project`, `/files` by role, `/open`,
+`/edit`); the agent's project file tools (`write_project_file` asks first); Workflows through the
+installed upmd 0.2.7 (`/workflows`, `/run`, prediction sealed before the run, outcome after);
+background jobs (`/jobs`, `/stop`, stopped with everything they started); `/preview` of a built
+folder, ready when it answers and opened in the Browser as a link; `/results` linking jobs, outputs
+and changed files to their receipts; each project keeps its own conversation. Built and tested but not
+exercised on the Mac: `/preview` of a dev script (PORT) or a custom command (`--url`), the Browser's
+carbonyl pane (carbonyl is not installed there), and the workspace command's time limit.
+
+**Still to connect** (each its own bounded pass; none started in R1):
+
+1. Tools: MCP servers as `/tools` rows and a REPL MCP client, labelled "MCP to CLI" with mcporter and
+   cmcp (and the wire lab's routes) underneath; AgentPass and TaskForge as callable tools at their real
+   integration state (today they are rows run through `timmy engine`).
+2. Uploads and references: `timmy drop` reads the wrong argument and the drop processor is never
+   called; an import path into the project's References for images, documents and 3D assets, each a
+   visible file the conversation, the Canvas and the tools can name.
+3. Vision and spatial routing: read `architecture.input_modalities` (the V flag reads the wrong field
+   and never lights); send images only to models that take them, otherwise route through a capable
+   worker (Roboflow, the vision adapters, local spatial review) and return attributed observations
+   with their uncertainty. The point-cloud worker stays in its own phase and register.
+4. Canvas: reference boards, parameter cards, and workflow and result cards that say plainly whether
+   they are a diagram or executable; an executable card starts the same jobs as `/run` and `/preview`,
+   and its output returns to the project and the board.
+5. upmd beyond R1 (F-3): one receipt per block (today the prediction and one per run), NEEDS YOU before
+   a risky block, the md ledger with declared input hashes (DESIGN §12), `timmy md` on the CLI, and the
+   preserved U0 candidate (`timmy md doctor`) applied by its build owner.
+6. Coding agents from the REPL (F-1): Claude Code, Codex and Qwen Code started in a pane on the same
+   project and job identity; editor integration beyond `$EDITOR` (Neovim).
+7. Terminal presentation: Kitty and iTerm2 image display in the REPL (today only in the v1 shell),
+   Ghostty, carbonyl's install, term.everything where its host supports it, gotty.
+8. The monitor reads the same jobs (`<TIMMY_HOME>/jobs`) and the active project
+   (`<TIMMY_HOME>/state/active-project.json`).
+9. Found along the way: the event bus writes beside the working folder while receipts follow the store
+   pin; Composio calls a removed API version; `timmy tools` does not read a `.env` file that `/tools`
+   reads.
+
+The full catalog stays where it is, in the inventory above and the private register: c4dpy, aerender,
+Houdini, Unreal, USD, Blender, build123d, CadQuery, FreeCAD, OpenSCAD, Rerun, Viser, FiftyOne and the
+rest. None of it joins the roster in this pass.
+
+**The next bounded pass, recommended: References in, observations out.** Import an image or a 3D
+asset into the project's References, name it in the conversation, route it to a model that takes
+images or to a worker that can (Roboflow first), and return the observation attributed to its source
+and model, with its uncertainty, as a result file and a receipt. It joins items 2 and 3, reuses the
+jobs and Results built in R1, and is the first step toward the spatial-vision phase.
+

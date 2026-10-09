@@ -282,3 +282,28 @@ describe('get_env', () => {
     expect((await run(envTool, { name: 'PATH' })).value).toBe(process.env.PATH);
   });
 });
+
+describe('the workspace command on this machine has a time limit (R1 workspace direction)', () => {
+  it('stops a command that keeps running, with everything it started, and points to /preview', async () => {
+    vi.stubEnv('DAYTONA_API_KEY', '');
+    vi.stubEnv('TIMMY_WORKSPACE_TIMEOUT_MS', '400');
+    try {
+      const out = await run(daytonaWorkspaceTool, { command: 'sleep 30 & echo child=$!; wait' });
+      expect(out.success).toBe(false);
+      expect(out.where).toBe('this machine');
+      expect(out.message).toContain('Stopped after');
+      expect(out.message).toContain('/preview');
+      const pid = Number(/child=(\d+)/.exec(out.stdout)?.[1]);
+      expect(pid).toBeGreaterThan(0);
+      // Gone, or dead and waiting for this container's init to reap it (state Z).
+      const dead = (): boolean => {
+        try { process.kill(pid, 0); } catch { return true; }
+        try { return readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1]?.startsWith('Z') === true; } catch { return false; }
+      };
+      for (let i = 0; i < 30 && !dead(); i++) await new Promise((r) => setTimeout(r, 100));
+      expect(dead()).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

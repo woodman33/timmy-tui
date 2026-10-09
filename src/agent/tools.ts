@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { execFile } from 'node:child_process';
+import { spawnProcess } from '../runtime/spawn-runtime.js';
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { spatialModelCatalogTool, spatialModelContextTool, spatialModelReviewTool } from './spatial-model-tools.js';
 import { z } from 'zod/v4';
@@ -174,18 +175,21 @@ export const daytonaWorkspaceTool = tool({
 
     if (keyMissing(key)) {
       // No Daytona: the command runs here, which is what the approval box said before the operator agreed.
-      const { exec } = await import('node:child_process');
-      return new Promise((resolve) => {
-        exec(command, (error: any, stdout: string, stderr: string) => {
-          resolve({
-            success: !error,
-            where: 'this machine',
-            stdout: stdout || '',
-            stderr: stderr || (error ? error.message : ''),
-            message: `Ran on this machine, not in Daytona: DAYTONA_API_KEY is not set.${error ? ` Exit ${error.code ?? 'error'}.` : ''}`,
-          });
-        });
-      });
+      // R1 workspace direction: in its own process group with a time limit, so a command that keeps running
+      // (a dev server) cannot hold the turn open, and a stop takes everything it started with it.
+      const limit = Number(process.env.TIMMY_WORKSPACE_TIMEOUT_MS) > 0 ? Number(process.env.TIMMY_WORKSPACE_TIMEOUT_MS) : 120_000;
+      const { outcome } = spawnProcess('sh', ['-c', command], { detached: true, timeoutMs: limit, maxBuffer: 10 * 1024 * 1024 });
+      const r = await outcome;
+      const exit = r.timedOut ? '' : r.error ? ` ${r.error}.` : r.status !== 0 ? ` Exit ${r.status ?? r.signal ?? 'error'}.` : '';
+      return {
+        success: r.status === 0 && !r.timedOut && !r.error,
+        where: 'this machine',
+        stdout: r.stdout,
+        stderr: r.stderr || r.error || '',
+        message: r.timedOut
+          ? `Stopped after ${Math.round(limit / 1000)} s on this machine, with everything it started. A command that keeps running, such as a dev server, belongs in /preview, which runs it as a job.`
+          : `Ran on this machine, not in Daytona: DAYTONA_API_KEY is not set.${exit}`,
+      };
     }
 
     const targetWorkspace = workspaceId || 'timmy-tui-sandbox';

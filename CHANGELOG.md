@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set of shared settings (`src/theme/tokens.ts`). `TIMMY_PALETTE=homebrew`.
 
 ### Fixed
+- The workspace command, when it runs on this machine, runs in its own process group with a time limit (120 s, or `TIMMY_WORKSPACE_TIMEOUT_MS`): a command that keeps running, such as a dev server, no longer holds the turn open, a stop takes everything it started, and the answer points to `/preview`.
 - A turn whose request throws without an error event of its own now shows the error, its reason and its next step (keys redacted) instead of ending silently; it was sealed failed but looked finished. Found in the R1 workspace demo, where the cause was the next item.
 - The conversation log keeps writing where it was made after the working folder changes, and its folder is created by the first message, not on open. `/project` now carries each project's own conversation (its `.sessions`): switching resumes that project's latest conversation or starts one there, and says which.
 
