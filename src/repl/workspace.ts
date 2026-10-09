@@ -28,7 +28,11 @@ import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import { readChain, type Receipt, type ReceiptInput } from '../utils/receipts.js';
 import { checkOpenCv, DETERMINISTIC, INTERPRETATION, LOOK_MAX_IMAGE, LOOK_MAX_OUTPUT, LOOK_TIMEOUT_MS, lookArgs, lookPython, OBSERVATIONS_DIR, OPENCV_SETUP, parseLookOutput, writeObservation, lookEnv } from '../vision/look.js';
-import { describeImage } from '../vision/route.js';
+import { acceptsImages, describeImage, imageMime, MAX_IMAGE_BYTES } from '../vision/route.js';
+// R3 (H14): /observe --qualify, the observed-handle + cite protocol (AGENTS.md §4).
+import { qualifyInterpretation } from '../vision/evidence.js';
+import { keptText, meteredQualifyClient, sdkQualifyClient, unlessAborted, type QualifyClient } from '../vision/qualify-route.js';
+import { describeRefusal, QUALIFIED_PROTOCOL, qualifiedSeal } from '../evidence/observation-check.js';
 import { findUpmd, findWorkflowDocs, parseUpmdLine, parseWorkflow, runOrder, stepsFromEvent, upmdRunArgs, upmdVersion } from '../workflows/upmd.js';
 
 type Line = Segment[];
@@ -61,11 +65,13 @@ export interface WorkspaceDeps {
   model?: () => string;
   /** The fetch a model interpretation uses; a test gives a mock. */
   fetch?: typeof fetch;
+  /** R3 (H14): the model client /observe --qualify uses (src/vision/qualify-route.ts); a test gives a labelled fake. */
+  qualifyClient?: (apiKey: string) => QualifyClient;
 }
 
 /** How an observation ended (round R2, look): its file and receipt, or why there is none. */
 export type ObserveOutcome =
-  | { ok: true; file: string; receipt?: string; tiers: string[]; interpretation?: Record<string, unknown> }
+  | { ok: true; file: string; receipt?: string; tiers: string[]; interpretation?: Record<string, unknown>; qualified?: Record<string, unknown> }
   | { ok: false; error: string; receipt?: string };
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
@@ -124,6 +130,10 @@ interface Observing {
   asking?: { model: string; since: number; sent: boolean };
 }
 
+/** R3 (H14): what an observation with a qualified answer adds to its reading. */
+const QUALIFIED_READING = ' A qualified answer is admitted only when it cites, through the cite tool, measurements observed in its own run on these exact bytes; it is still a model\'s claim, and whether it is right is not verified.';
+/** R3 (H14): the question /observe --qualify asks when none is given. */
+const QUALIFY_DEFAULT_QUESTION = 'What do these measurements show about the image?';
 /** How long /stop and the REPL's end wait for a stopped observation to be recorded. */
 const OBSERVE_SETTLE_MS = 10_000;
 const within = <T>(p: Promise<T>, ms = OBSERVE_SETTLE_MS): Promise<T | undefined> =>
@@ -324,8 +334,10 @@ export class Workspace {
    * Starts Look on a project file as a job (an id, progress, /stop, a log); `done` settles once the
    * observation is written and sealed, or once it is known why there is none. With a question and a
    * current model that takes images, the model's interpretation is added (it spends: the operator asked).
+   * R3 (H14): with `opts.qualify`, the model is asked through the observed-handle + cite protocol instead
+   * (qualifyObserved); without a question it asks QUALIFY_DEFAULT_QUESTION.
    */
-  async observeFile(relArg: string, question?: string, model?: string): Promise<{ ok: true; job: JobRecord; done: Promise<ObserveOutcome> } | { ok: false; error: string }> {
+  async observeFile(relArg: string, question?: string, model?: string, opts?: { qualify?: boolean }): Promise<{ ok: true; job: JobRecord; done: Promise<ObserveOutcome> } | { ok: false; error: string }> {
     const at = resolveInside(this.root, relArg.trim());
     if ('error' in at) return { ok: false, error: at.error };
     try {
@@ -348,7 +360,10 @@ export class Workspace {
     // Round R3: the measurement and the model's answer are one operation, with one stop: the entry's abort.
     const entry: Observing = { abort: new AbortController() };
     this.observing.set(job.id, entry);
-    const done = this.jobs.done(job.id).then((j) => this.observed(j, { root, project, imagePath: at.path, source, question: q, ...(model ? { model } : {}) }, entry))
+    // R3 (H14): --qualify asks for an answer admitted only through cited Look measurements; it needs a question.
+    const qualify = opts?.qualify === true;
+    const asked = q ?? (qualify ? QUALIFY_DEFAULT_QUESTION : undefined);
+    const done = this.jobs.done(job.id).then((j) => this.observed(j, { root, project, imagePath: at.path, source, question: asked, ...(model ? { model } : {}), ...(qualify ? { qualify } : {}) }, entry))
       .catch((err: unknown): ObserveOutcome => ({ ok: false, error: `the observation could not be finished (${err instanceof Error ? err.message : 'error'})` }))
       .finally(() => { if (this.observing.get(job.id) === entry) this.observing.delete(job.id); });
     entry.done = done;
@@ -357,22 +372,30 @@ export class Workspace {
 
   /** `/observe <file> [question]`: starts Look; the observation arrives as a notice and in /results. */
   async observe(args: string): Promise<Line[]> {
-    const a = args.trim();
+    let a = args.trim();
+    // R3 (H14): `--qualify`, before or after the file.
+    const flag = /^--qualify(?:\s|$)/;
+    let qualify = flag.test(a);
+    if (qualify) a = a.slice('--qualify'.length).trim();
     const m = a.match(/^(?:"([^"]+)"|'([^']+)'|(\S+))\s*([\s\S]*)$/);
-    if (!a || !m) return this.say('Usage: /observe <file> [question]   (a question asks the current model too)');
+    if (!a || !m) return this.say('Usage: /observe <file> [--qualify] [question]   (a question asks the current model too; --qualify admits only an answer that cites the measurements)');
     const rel = m[1] ?? m[2] ?? m[3];
-    const question = m[4].trim().replace(/^(["'])([\s\S]*)\1$/, '$2');
-    const started = await this.observeFile(rel, question);
+    let rest = m[4].trim();
+    if (flag.test(rest)) { qualify = true; rest = rest.slice('--qualify'.length).trim(); }
+    const question = rest.replace(/^(["'])([\s\S]*)\1$/, '$2');
+    const started = await this.observeFile(rel, question, undefined, qualify ? { qualify } : undefined);
     if (!started.ok) return this.say(started.error, 'failure');
     const g = this.d.glyphs;
     const model = this.d.model?.();
     return [
       [{ text: '  Observing  ', role: 'secondary' }, { text: started.job.id, role: 'strong' }, { text: `  ${started.job.label.slice(5)}: measuring with Look${this.sep}/jobs ${started.job.id}${this.sep}/stop ${started.job.id}`, role: 'secondary' }],
-      ...(question ? [[{ text: '  Then asks ', role: 'secondary' as const }, { text: model ?? 'no model known here', role: model ? 'ai' as const : 'estimate' as const }, { text: ` ${g.arrow} a model interpretation, a claim beside the measurements`, role: 'secondary' as const }]] : []),
+      ...(question && !qualify ? [[{ text: '  Then asks ', role: 'secondary' as const }, { text: model ?? 'no model known here', role: model ? 'ai' as const : 'estimate' as const }, { text: ` ${g.arrow} a model interpretation, a claim beside the measurements`, role: 'secondary' as const }]] : []),
+      // R3 (H14): the qualified route says what it admits.
+      ...(qualify ? [[{ text: '  Then asks ', role: 'secondary' as const }, { text: model ?? 'no model known here', role: model ? 'ai' as const : 'estimate' as const }, { text: ` ${g.arrow} an answer admitted only if it cites Look's measurements (cite tool, this run, this image); still a claim`, role: 'secondary' as const }]] : []),
     ];
   }
 
-  private async observed(j: JobRecord, o: { root: string; project: string; imagePath: string; source: { path: string; sha256: string; bytes: number }; question?: string; model?: string }, entry?: Observing): Promise<ObserveOutcome> {
+  private async observed(j: JobRecord, o: { root: string; project: string; imagePath: string; source: { path: string; sha256: string; bytes: number }; question?: string; model?: string; qualify?: boolean }, entry?: Observing): Promise<ObserveOutcome> {
     const g = this.d.glyphs;
     const rel = o.source.path;
     const ms = j.endedAt ? Date.parse(j.endedAt) - Date.parse(j.startedAt) : undefined;
@@ -403,7 +426,10 @@ export class Workspace {
     // An interpretation's cost_usd (round R3): absent when no request went out (nothing can have been charged);
     // null when one went out and no cost was reported (unknown, never 0); the reported amount otherwise.
     let interpretation: Record<string, unknown> | undefined;
-    if (o.question) {
+    // R3 (H14): --qualify runs the observed-handle + cite protocol instead of the plain interpretation.
+    let qualified: Record<string, unknown> | undefined;
+    if (o.question && o.qualify) qualified = await this.qualifyObserved(j, o, look, entry);
+    else if (o.question) {
       const model = o.model ?? this.d.model?.();
       if (!model) interpretation = { tier: INTERPRETATION, status: 'not asked', question: o.question, reason: 'no current model is known here' };
       else {
@@ -436,18 +462,20 @@ export class Workspace {
     }
     const answered = interpretation?.status === 'answered';
     const rejected = interpretation?.status === 'rejected';
-    const tiers = [DETERMINISTIC, ...(answered ? [INTERPRETATION] : [])];
+    const admitted = qualified?.status === 'admitted';
+    const tiers = [DETERMINISTIC, ...(answered || admitted ? [INTERPRETATION] : [])];
     const now = new Date();
     const record = {
       observation: 1, made_at: now.toISOString(), project: o.project, source: o.source, tiers,
-      reading: 'Measurements are deterministic computations on the pixels. An interpretation is a model\'s claim about the image, not a measurement.',
-      look, ...(interpretation ? { interpretation } : {}), job: { id: j.id },
+      reading: `Measurements are deterministic computations on the pixels. An interpretation is a model's claim about the image, not a measurement.${qualified ? QUALIFIED_READING : ''}`,
+      look, ...(interpretation ? { interpretation } : {}), ...(qualified ? { qualified } : {}), job: { id: j.id },
     };
     const w = writeObservation(o.root, rel, record, now);
     if (!w.ok) return fail(`the observation could not be written: ${w.error}`, 'failed');
     // Round R3: a charge the response reported is sealed whatever became of the answer; a request that went out
     // with no charge reported is sealed as an unknown cost (cost_measured: false), never as $0.
-    const charged = interpretation && 'cost_usd' in interpretation ? (typeof interpretation.cost_usd === 'number' ? interpretation.cost_usd : null) : undefined;
+    const spent = interpretation ?? qualified;
+    const charged = spent && 'cost_usd' in spent ? (typeof spent.cost_usd === 'number' ? spent.cost_usd : null) : undefined;
     const cost = typeof charged === 'number' ? charged : undefined;
     const costText = charged === null ? 'cost unknown' : cost === undefined ? '' : `cost $${cost.toFixed(4)}`;
     let receipt: string | undefined;
@@ -457,9 +485,11 @@ export class Workspace {
         observation: {
           tiers, worker: `${look.worker.name} ${look.worker.version}`, opencv: look.opencv, measurements: look.measurements.length,
           ...(interpretation ? { interpretation: { status: String(interpretation.status), ...(typeof interpretation.model === 'string' ? { model: interpretation.model } : {}), ...(charged !== undefined ? { cost_usd: charged } : {}) } } : {}),
+          ...(qualified ? { qualified: qualifiedSeal(qualified) } : {}),
         },
-        ...(charged !== undefined ? { model_requested: String(interpretation?.model_requested ?? interpretation?.model) } : {}),
+        ...(charged !== undefined ? { model_requested: String(spent?.model_requested ?? spent?.model) } : {}),
         ...(answered || rejected ? { model_resolved: String(interpretation?.model) } : {}),
+        ...(qualified && typeof qualified.model_resolved === 'string' ? { model_resolved: qualified.model_resolved } : {}),
         ...(cost !== undefined ? { cost_usd: cost } : charged === null ? { cost_measured: false } : {}),
       });
     } catch { receipt = undefined; }
@@ -471,7 +501,101 @@ export class Workspace {
     } else if (answered) {
       this.d.notify([{ text: '  Model      ', role: 'secondary' }, { text: `${String(interpretation?.model)} answered (a claim, in the file)${this.sep}cost ${cost === undefined ? 'not reported' : `$${cost.toFixed(4)}`}`, role: 'ai' }]);
     }
-    return { ok: true, file: w.path, tiers, ...(receipt ? { receipt } : {}), ...(interpretation ? { interpretation } : {}) };
+    if (qualified) {
+      // R3 (H14): an admitted answer is a model's claim whose citations point at measured values; never a measurement.
+      const cites = Array.isArray(qualified.cites) ? (qualified.cites as Array<{ measurement?: unknown }>).map((c) => String(c.measurement)).join(', ') : '';
+      this.d.notify(admitted
+        ? [{ text: '  Model      ', role: 'secondary' }, { text: `${String(qualified.model)} answered, citing ${cites} (measured values; the answer is a claim, in the file)${costText ? `${this.sep}${costText}` : `${this.sep}cost not reported`}`, role: 'ai' }]
+        : [{ text: '  Model      ', role: 'secondary' }, { text: `no admitted answer: ${String(qualified.status)}${typeof qualified.refusal === 'string' ? ` (${qualified.refusal})` : ''}: ${String(qualified.reason)}${typeof qualified.raw_output === 'string' && qualified.raw_output ? `${this.sep}the raw output is in the file, not as a claim` : ''}${costText ? `${this.sep}${costText}` : ''}`, role: 'estimate' }]);
+    }
+    return { ok: true, file: w.path, tiers, ...(receipt ? { receipt } : {}), ...(interpretation ? { interpretation } : {}), ...(qualified ? { qualified } : {}) };
+  }
+
+  /**
+   * R3 (H14): `/observe <file> --qualify`: after Look succeeds, asks the current model through the
+   * observed-handle + cite protocol (src/vision/evidence.ts; AGENTS.md §4) instead of the plain interpretation.
+   * Every deterministic measurement is one handle of this run, bound to the image's sha256; the answer is
+   * admitted only as the exact envelope citing handles that were cited through the real cite tool. Inside the
+   * observation's own operation: /stop, /stop all and the REPL's end abort it (status cancelled, no admission).
+   * The record keeps the raw output on every outcome (bounded like the plain answer) and the cost by the
+   * absent / null / number rule. An admitted answer is still a claim: semantic_correctness_verified is false.
+   */
+  private async qualifyObserved(j: JobRecord, o: { root: string; imagePath: string; source: { path: string; sha256: string }; question?: string; model?: string }, look: Parameters<typeof qualifyInterpretation>[0]['observation'], entry?: Observing): Promise<Record<string, unknown>> {
+    const g = this.d.glyphs;
+    const rel = o.source.path;
+    const question = o.question ?? QUALIFY_DEFAULT_QUESTION;
+    const model = o.model ?? this.d.model?.();
+    const base = { tier: INTERPRETATION, protocol: QUALIFIED_PROTOCOL, question, source_revision: o.source.sha256 };
+    if (!model) return { ...base, status: 'not asked', reason: 'no current model is known here' };
+    const apiKey = this.d.env.OPENROUTER_API_KEY;
+    if (!apiKey) return { ...base, status: 'not asked', model_requested: model, reason: 'no OPENROUTER_API_KEY: a model answer needs one' };
+    const signal = entry?.abort.signal;
+    const stopped = (): Record<string, unknown> => ({ ...base, status: 'cancelled', model_requested: model, reason: 'stopped before the request was sent: nothing was asked, so nothing was charged' });
+    if (signal?.aborted) return stopped();
+    if (entry) entry.asking = { model, since: Date.now(), sent: false };
+    try {
+      // The image goes with the measurements only to a model that takes images, and only as exactly the bytes Look measured.
+      let imageDataUrl: string | undefined;
+      const support = await unlessAborted(acceptsImages(model, this.d.fetch ?? fetch), signal).catch(() => null);
+      if (signal?.aborted) return stopped();
+      if (support?.accepts === true) {
+        try {
+          const bytes = readFileSync(o.imagePath);
+          const mime = bytes.length <= MAX_IMAGE_BYTES ? imageMime(bytes.subarray(0, 16)) : null;
+          if (mime && createHash('sha256').update(bytes).digest('hex') === o.source.sha256) imageDataUrl = `data:${mime};base64,${bytes.toString('base64')}`;
+        } catch { imageDataUrl = undefined; }
+      }
+      const meter = meteredQualifyClient((this.d.qualifyClient ?? sdkQualifyClient)(apiKey), () => {
+        if (entry?.asking) { entry.asking.sent = true; entry.asking.since = Date.now(); }
+        this.d.notify([{ text: `  ${g.bullet} ` }, { text: `${j.id} measured`, role: 'strong' }, { text: `  ${rel}${this.sep}asking ${model} for an answer that cites the measurements, a paid request${this.sep}/stop ${j.id} stops it`, role: 'secondary' }]);
+      });
+      // Trusted, never model input: the project image's sha256 now (a read failure is a changed image).
+      const currentRevision = (): string => createHash('sha256').update(readFileSync(o.imagePath)).digest('hex');
+      let q: Awaited<ReturnType<typeof qualifyInterpretation>>;
+      try {
+        q = await qualifyInterpretation({ observation: look, question, model, client: meter.client, currentRevision, ...(imageDataUrl ? { imageDataUrl } : {}), ...(signal ? { signal } : {}) });
+      } catch (e) {
+        // qualifyInterpretation throws only on arguments it cannot ask with (a question over 2000 characters, say).
+        const spend = await meter.spend(signal);
+        const why = this.scrub(e instanceof Error ? e.message : 'the question could not be asked', o.root);
+        return spend.sent
+          ? { ...base, status: 'failed', model_requested: model, cost_usd: spend.cost_usd, reason: `the exchange did not complete (${why})` }
+          : { ...base, status: 'not asked', model_requested: model, reason: why };
+      }
+      const spend = await meter.spend(signal);
+      const cost = spend.sent ? { cost_usd: spend.cost_usd, ...(spend.tokens !== undefined ? { tokens: spend.tokens } : {}) } : {};
+      const raw = keptText(q.admission.raw_output);
+      const kept = { raw_output: raw.text, ...(raw.truncated ? { raw_output_truncated: true, raw_output_bytes: raw.bytes } : {}) };
+      const who = { model_requested: model, model: spend.model ?? model, ...(spend.model ? { model_resolved: spend.model } : {}), image_sent: imageDataUrl !== undefined };
+      const run = q.asked ? { run_id: q.snapshot.run_id } : {};
+      if (q.admission.ok && q.evidence.admission === 'admitted_references') {
+        const values = new Map(q.snapshot.observations.map((h) => [h.handle_id, h.value as { name?: unknown; value?: unknown; unit?: unknown; note?: unknown }]));
+        const answer = keptText(q.answer ?? '');
+        return {
+          ...base, status: 'admitted', ...who, run_id: q.evidence.run_id, source_revision: q.evidence.source_revision,
+          answer: answer.text, ...(answer.truncated ? { answer_truncated: true, answer_bytes: answer.bytes } : {}),
+          cites: q.evidence.handles.map((h) => {
+            const v = values.get(h.handle_id);
+            return { handle_id: h.handle_id, measurement: h.measurement, value: v?.value ?? null, ...(typeof v?.unit === 'string' ? { unit: v.unit } : {}) };
+          }),
+          semantic_correctness_verified: false, ...kept, ...cost,
+        };
+      }
+      const refusal = q.admission.ok ? 'invalid_output' : q.admission.reason;
+      if (signal?.aborted) {
+        return { ...base, status: 'cancelled', ...who, ...run, refusal, ...kept, ...cost, reason: spend.sent ? 'stopped while the model was answering: the request had been sent, so it may still be charged; its cost is unknown' : 'stopped before the request was sent: nothing was asked, so nothing was charged' };
+      }
+      if (refusal === 'stale_context') {
+        return { ...base, status: 'rejected', ...who, ...run, refusal, ...kept, ...cost, reason: `${rel} changed between Look and the ${q.asked ? 'answer' : 'question'}: ${q.asked ? 'the answer is kept as it came, not admitted and not a claim about what Look measured' : 'nothing was sent'}` };
+      }
+      if (q.error !== undefined && q.asked) {
+        return { ...base, status: 'failed', ...who, ...run, refusal, ...kept, ...cost, reason: `the exchange did not complete (${this.scrub(q.error, o.root)})` };
+      }
+      const unknown = refusal === 'invalid_output' && q.admission.raw_output.trim() === 'UNKNOWN';
+      return { ...base, status: q.asked ? 'refused' : 'not asked', ...who, ...run, refusal, ...kept, ...cost, reason: unknown ? 'the model replied UNKNOWN: no measurement bears on the question, so the evidence is unknown' : describeRefusal(refusal) };
+    } finally {
+      if (entry) entry.asking = undefined;
+    }
   }
 
   // ── /workflows, /run ────────────────────────────────────────────────────────
@@ -763,7 +887,7 @@ export class Workspace {
           : this.say(`Stopped ${clean} job${clean === 1 ? '' : 's'} this REPL started, with ${clean === 1 ? 'its process group' : 'their process groups'}.`)));
       }
       if (asking.length) {
-        const n = asked.filter((x) => x?.ok && x.interpretation?.status === 'cancelled').length;
+        const n = asked.filter((x) => x?.ok && (x.interpretation ?? x.qualified)?.status === 'cancelled').length;
         const rest = asking.length - n;
         lines.push(...this.say(n
           ? `Stopped ${n} model interpretation${n === 1 ? '; its measurement' : 's; their measurements'} had completed${rest ? `; ${rest} more had already ended` : ''}.`
@@ -798,8 +922,8 @@ export class Workspace {
     const out = obs.done ? await within(obs.done) : undefined;
     if (!out) return this.say(`${id}: the model's request was stopped; its observation is not recorded yet: /jobs ${id}`, 'estimate');
     if (!out.ok) return this.say(`${id}: the model's request was stopped, and the observation could not be recorded: ${out.error}`, 'failure');
-    const i = out.interpretation;
-    if (i?.status !== 'cancelled') return this.say(`${id}: the model had already ${i?.status === 'answered' ? 'answered' : 'finished'} when the stop came${this.sep}${out.file}`);
+    const i = out.interpretation ?? out.qualified;
+    if (i?.status !== 'cancelled') return this.say(`${id}: the model had already ${i?.status === 'answered' || i?.status === 'admitted' ? 'answered' : 'finished'} when the stop came${this.sep}${out.file}`);
     const sent = 'cost_usd' in i;
     return [[
       { text: `  ${id} stopped the model interpretation; the measurement had completed`, role: 'strong' },

@@ -15,12 +15,12 @@ import { readProjectFile, resolveInside } from '../project/index.js';
 import { checkOpenCv, DETERMINISTIC, lookPython, OPENCV_SETUP, runLook, type LookObservation, lookEnv } from '../vision/look.js';
 import { describeImage } from '../vision/route.js';
 
-type Observed = { ok: true; file: string; receipt?: string; tiers: string[]; interpretation?: Record<string, unknown> } | { ok: false; error: string; receipt?: string };
+type Observed = { ok: true; file: string; receipt?: string; tiers: string[]; interpretation?: Record<string, unknown>; qualified?: Record<string, unknown> } | { ok: false; error: string; receipt?: string };
 
 export interface VisionToolOptions {
   root: () => string;
   /** Runs Look (and, with a question, a model) through the REPL's workspace; the outcome once recorded. */
-  observe?: (rel: string, question?: string, model?: string) => Promise<Observed>;
+  observe?: (rel: string, question?: string, model?: string, opts?: { qualify?: boolean }) => Promise<Observed>;
   env?: NodeJS.ProcessEnv;
   onPath?: (cmd: string) => string | null;
   /** The REPL's current model: describe_image's default. */
@@ -80,13 +80,31 @@ export function createVisionTools(o: VisionToolOptions) {
       path: z.string().describe('Image path relative to the project folder'),
       question: z.string().describe('What to ask about the image'),
       model: z.string().optional().describe('An OpenRouter model id that takes images; default: the current model'),
+      // R3 (H14): the observed-handle + cite protocol (/observe <file> --qualify).
+      qualify: z.boolean().optional().describe("Admit the answer only if it cites Look's measurements of this image through the cite tool (recorded as a qualified answer; refused answers keep their raw output). Still a claim, not a measurement."),
     }),
     outputSchema: answer,
-    execute: async ({ path, question, model }: { path: string; question: string; model?: string }) => {
+    execute: async ({ path, question, model, qualify }: { path: string; question: string; model?: string; qualify?: boolean }) => {
       const at = resolveInside(o.root(), path);
       if ('error' in at) return { ok: false, error: at.error };
       const chosen = model ?? o.model?.();
       if (!chosen) return { ok: false, error: 'name a model that takes images' };
+      if (qualify) {
+        // R3 (H14): a qualified answer exists only as a recorded observation (its handles, run and receipt).
+        if (!o.observe) return { ok: false, error: "a qualified answer is recorded through the REPL's workspace: /observe <file> --qualify" };
+        const r = await o.observe(at.rel, question, chosen, { qualify: true });
+        if (!r.ok) return { ok: false, error: r.error, ...(r.receipt ? { receipt: r.receipt } : {}) };
+        const q = r.qualified ?? {};
+        const cost = 'cost_usd' in q ? { cost_usd: (q.cost_usd as number | null | undefined) ?? null } : {};
+        const where = { observation_file: r.file, ...(r.receipt ? { receipt: r.receipt } : {}) };
+        if (q.status !== 'admitted') {
+          return { ok: false, status: q.status, ...(typeof q.refusal === 'string' ? { refusal: q.refusal } : {}), error: String(q.reason ?? 'no admitted answer'), ...(typeof q.raw_output === 'string' && q.raw_output ? { raw_output: agentText(q.raw_output) } : {}), ...cost, ...where };
+        }
+        return {
+          ok: true, tier: q.tier, qualified: true, model: q.model, answer: agentText(q.answer), cites: q.cites, run_id: q.run_id, source_revision: q.source_revision,
+          semantic_correctness_verified: false, note: "A model's claim whose citations point at Look's measured values; not a measurement.", ...cost, recorded: true, ...where,
+        };
+      }
       if (o.observe) {
         const r = await o.observe(at.rel, question, chosen);
         if (!r.ok) return { ok: false, error: r.error, ...(r.receipt ? { receipt: r.receipt } : {}) };
