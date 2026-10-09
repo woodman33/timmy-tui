@@ -36,7 +36,15 @@ describe('the routes', () => {
       expect(r.label).toMatch(/^MCP to CLI · /);
     }
     expect(routes[0].details).toContain('mcporter');
+    expect(routes[0].details).toMatch(/MCP client: (the shared|its own) @modelcontextprotocol\/sdk/);
     expect(routes[1].details).toContain('@modelcontextprotocol/sdk');
+  });
+
+  it('the SDK route\'s program imports no MCPorter code', () => {
+    const source = readFileSync(fileURLToPath(new URL('../src/connectors/mcp-sdk-cli.ts', import.meta.url)), 'utf8');
+    const imports = source.split('\n').filter((l) => /^import\b/.test(l));
+    expect(imports.length).toBeGreaterThan(0);
+    for (const l of imports) expect(l).not.toMatch(/mcporter|mcp-cli/);
   });
 
   it('a missing route is not available and says why', () => {

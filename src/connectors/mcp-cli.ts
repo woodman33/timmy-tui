@@ -10,6 +10,11 @@
  * (@mcpc-tech/cmcp is not a route: it is a client-tool-execution layer, a server that forwards calls to
  * tools its clients register. It has no command line and cannot reach another server's tools by itself.)
  *
+ * Independence, exactly: the two are separate programs (neither imports the other), so a missing or broken
+ * MCPorter leaves the SDK route working. Underneath, both speak MCP through @modelcontextprotocol/sdk's
+ * stdio client, and MCPorter resolves the same installed copy unless it carries its own; a defect in that
+ * library would reach both. The route details say which.
+ *
  * Honesty rules: a route is `available` only when its program actually resolves here; that says it is
  * installed, not that any server works. Every call runs as a child process in its own process group with a
  * time limit, and the whole group is stopped when the limit passes. Servers get a small base environment
@@ -156,8 +161,9 @@ export function mcpRoutes(env: Env = process.env, seams: McpRouteSeams = {}): Mc
   const mPkg = mDir ? readPackage(mDir) : {};
   const mBin = typeof mPkg.bin === 'string' ? mPkg.bin : mPkg.bin?.mcporter ?? 'dist/cli.js';
   if (mDir && existsSync(join(mDir, mBin))) {
+    const ownSdk = existsSync(join(mDir, 'node_modules', '@modelcontextprotocol', 'sdk', 'package.json'));
     mcporter = { id: 'mcporter', label: 'MCP to CLI · MCPorter', available: true, ...(mPkg.version ? { version: mPkg.version } : {}), hasConfig: true,
-      details: `mcporter ${mPkg.version ?? '(version unknown)'}, Timmy's dependency; runs its CLI (list, call), ad-hoc stdio servers and its config`,
+      details: `mcporter ${mPkg.version ?? '(version unknown)'}, Timmy's dependency; runs its CLI (list, call), ad-hoc stdio servers and its config; MCP client: ${ownSdk ? 'its own @modelcontextprotocol/sdk copy' : 'the shared @modelcontextprotocol/sdk'}`,
       argv: [process.execPath, join(mDir, mBin)] };
   } else if (onPath('mcporter', env)) {
     mcporter = { id: 'mcporter', label: 'MCP to CLI · MCPorter', available: true, hasConfig: true,
