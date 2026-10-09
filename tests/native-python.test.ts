@@ -53,7 +53,7 @@ describe.skipIf(!python)('the Cinema 4D starter against a stand-in c4d (python3 
     expect(result?.notes).toBeUndefined();
     expect(verdict.outcome).toBe('ok');
     expect(verdict.files.every((f) => f.present && f.matches)).toBe(true);
-    expect(readFileSync(path.join(root, 'out', 'scene.c4d'), 'utf8')).toMatch(/Cube/);
+    expect(JSON.parse(readFileSync(path.join(root, 'out', 'scene.c4d'), 'utf8')).objects).toEqual(['Cube', 'Camera', 'Stage']);
   });
 
   it('a render that fails is ok: false with the error, the saved document still recorded', async () => {
@@ -67,10 +67,10 @@ describe.skipIf(!python)('the Cinema 4D starter against a stand-in c4d (python3 
     expect(verdict.why).toMatch(/RenderDocument returned 1/);
   });
 
-  it('with no active view headless, it says the render may come from the default camera', async () => {
+  it('with no active view headless, it notes that only the Stage object names the camera', async () => {
     const { verdict, result } = await run({ C4D_STUB_NO_VIEW: '1' });
     expect(verdict.outcome).toBe('ok');
-    expect(String((result?.notes as string[])[0])).toMatch(/default camera/);
+    expect(String((result?.notes as string[])[0])).toMatch(/Stage object/);
   });
 
   it('without the helper it still leaves a result that says what is missing', async () => {

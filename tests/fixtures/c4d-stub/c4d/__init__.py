@@ -7,7 +7,8 @@ result file hold together, not that Cinema 4D accepts the calls.
 import os
 
 # made-up values; only their identity matters here
-Mmaterial, Ocube, Ocamera, Ttexture, Ttargetexpression = 5703, 5159, 5103, 5616, 5676
+Mmaterial, Ocube, Ocamera, Ostage, Ttexture, Ttargetexpression = 5703, 5159, 5103, 5136, 5616, 5676
+STAGEOBJECT_CLINK = 1000
 MATERIAL_COLOR_COLOR, PRIM_CUBE_LEN, TEXTURETAG_MATERIAL, TARGETEXPRESSIONTAG_LINK = 2000, 1100, 1010, 1001
 RDATA_RENDERENGINE, RDATA_RENDERENGINE_STANDARD, RDATA_XRES, RDATA_YRES = 5300, 0, 5301, 5302
 BUILDFLAGS_NONE = 0

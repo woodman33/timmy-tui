@@ -1,4 +1,5 @@
-"""Timmy's Cinema 4D starter: a cube with a simple material and a camera, saved as an editable .c4d and
+"""Timmy's Cinema 4D starter: a cube with a simple material and a camera (named for the render by a Stage
+object), saved as an editable .c4d and
 rendered to a 640x360 PNG with the Standard renderer. Run with c4dpy (Cinema 4D's own Python, headless):
 
     c4dpy scene.py
@@ -73,12 +74,17 @@ def main(run):
     target[c4d.TARGETEXPRESSIONTAG_LINK] = cube
     doc.InsertObject(cam)
 
-    # Render from that camera when the document has a view to set it on; headless it may not.
+    # A Stage object names the camera to render from, with or without a view; the active view, when the
+    # document has one headless, is set to it as well.
+    stage = c4d.BaseObject(c4d.Ostage)
+    stage.SetName("Stage")
+    stage[c4d.STAGEOBJECT_CLINK] = cam
+    doc.InsertObject(stage)
     bd = doc.GetActiveBaseDraw()
     if bd is not None:
         bd.SetSceneCamera(cam)
     else:
-        run.note("the document has no active view, so the render may come from the default camera, not Camera")
+        run.note("the document has no active view headless: only the Stage object names Camera for the render; check the still")
 
     # Standard renderer, 640x360.
     rd = doc.GetActiveRenderData()
@@ -108,7 +114,7 @@ def main(run):
         raise RuntimeError("BaseBitmap.Save did not write still.png")
     run.add_file(still_path)
 
-    return {"renderer": "standard", "resolution": [WIDTH, HEIGHT], "objects": ["Cube", "Camera"], "material": "Timmy Green"}
+    return {"renderer": "standard", "resolution": [WIDTH, HEIGHT], "objects": ["Cube", "Camera", "Stage"], "material": "Timmy Green"}
 
 
 if __name__ == "__main__":

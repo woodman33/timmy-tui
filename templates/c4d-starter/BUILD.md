@@ -1,6 +1,6 @@
 # Cinema 4D starter
 
-A cube with a simple material and a camera, built by `scene.py` inside Cinema 4D's own Python (`c4dpy`,
+A cube with a simple material and a camera (named for the render by a Stage object), built by `scene.py` inside Cinema 4D's own Python (`c4dpy`,
 headless), saved as an editable `out/scene.c4d` and rendered to `out/still.png` (640x360, Standard
 renderer). The run's outcome is `out/timmy-result.json`, written by `workers/c4d/timmy_c4d.py`: `ok`, the
 sha256 of each file it made, `c4d_version` and timing. Timmy judges the run by that file, not by c4dpy's
@@ -37,5 +37,5 @@ c4dpy's status was. Read `ok` in it: a result that says `ok: false` still exits 
 | `out/still.png` | the render, 640x360, Standard renderer |
 | `out/timmy-result.json` | the result: `ok`, `files` (sha256 each), `c4d_version`, `timing`, `notes` |
 
-If the document has no active view headless, the render may come from the default camera instead of
-`Camera`; the result's `notes` say so when it happens.
+A Stage object names `Camera` for the render. If the document has no active view headless, that Stage
+object is the only thing naming it; the result's `notes` say so when it happens, so look at the still.
