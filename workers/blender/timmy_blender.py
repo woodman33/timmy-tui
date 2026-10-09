@@ -1,63 +1,72 @@
-"""timmy_c4d: the result file a Cinema 4D script writes when Timmy runs it with c4dpy.
+"""timmy_blender: the result file a Blender scene script writes when Timmy runs it with Blender's own Python.
 
-NOT YET EXERCISED on a real Cinema 4D: written against the documented `c4d` Python API and checked here
-only with Python 3 against a stand-in `c4d` module (tests/native-python.test.ts). The first real run is
-the operator's, on the Mac.
+NOT YET EXERCISED on a real Blender: written against the documented `bpy` API (bpy.ops.wm.save_as_mainfile,
+bpy.ops.render.render, bpy.app.version_string) and checked here only with Python 3 against a stand-in `bpy`
+module (tests/native-blender.test.ts). The first real run is the operator's, on the Mac.
 
-Timmy's c4dpy job (src/native: c4dpyJob) sets, in the script's environment:
+Timmy's Blender job (src/native: blenderJob) runs, headless:
+    blender -b --factory-startup --python-exit-code 1 --python <script.py> -- <args>
+and sets, in the script's environment:
   TIMMY_RESULT         where to write the result file: the run's own, <root>/.timmy/native/<run>/result.json
                        (without it, <root>/out/timmy-result.json, as a run by hand writes)
   TIMMY_RUN            this run's token, written back so a result from an earlier run is never taken for this one
-  TIMMY_SCRIPT_SHA256  the script's sha256 when the job was submitted, written back as script_sha256 so the
-                       result is bound to the input submitted
-  TIMMY_SCRIPT         the script itself: its sha256 as this run reads it goes in as script_sha256_read, so
-                       a script changed after submission is seen
+  TIMMY_SCRIPT_SHA256  the script's sha256 when the job was submitted, written back as script_sha256
+  TIMMY_SCRIPT         the script itself: its sha256 as this run reads it goes in as script_sha256_read
   TIMMY_ROOT           the project folder; file names in the result are relative to it
   TIMMY_OUT            the folder for outputs (default <root>/out)
+  TIMMY_BLENDER_LIB    the folder holding this file (workers/blender). Blender's Python ignores PYTHONPATH
+                       unless Blender is started with --python-use-system-env, so a scene script puts this
+                       folder on sys.path itself (templates/blender-starter/scene.py does).
 
-The result file is what Timmy judges a run by, not c4dpy's exit status (a retained run wrote ok: true while
-c4dpy exited 1):
+The result file is what Timmy judges a run by, not Blender's exit status:
   {
     "ok": true | false,
     "run": "<TIMMY_RUN>",
     "script_sha256": "<TIMMY_SCRIPT_SHA256>",
     "script_sha256_read": "<sha256 of TIMMY_SCRIPT as read>",   (when TIMMY_SCRIPT names a file)
     "error": "<type: message>"            (when ok is false; the project folder written as ".", home as "~")
-    "files": {"out/scene.c4d": "<sha256>", ...},
-    "c4d_version": 2026000,                (c4d.GetC4DVersion(), or null outside Cinema 4D)
+    "files": {"out/scene.blend": "<sha256>", "out/render.png": "<sha256>"},
+    "blender_version": "4.2.3",           (bpy.app.version_string, or null outside Blender)
     "timing": {"started": "...Z", "ended": "...Z", "seconds": 1.23},
     ...                                    (whatever the script's main returns, as extra fields)
   }
 
 Use:
-    import timmy_c4d
+    import timmy_blender
     def main(run):
-        path = run.out_path("scene.c4d")   # makes the out folder
-        ...save or render to path...
-        run.add_file(path)                 # its sha256 goes into the result
-        return {"frames": 1}               # extra fields for the result
-    timmy_c4d.run_script(main)
+        ...build the scene with bpy...
+        run.save_blend(run.out_path("scene.blend"))   # bpy.ops.wm.save_as_mainfile; its sha256 recorded
+        run.render_still(run.out_path("render.png"))   # bpy.ops.render.render(write_still=True); recorded
+        return {"objects": 6}                          # extra fields for the result
+    timmy_blender.run_script(main)
 """
 import datetime
 import hashlib
 import json
 import os
+import sys
 import traceback
 
-__all__ = ["Run", "run_script", "c4d_version"]
+__all__ = ["Run", "run_script", "blender_version", "script_args"]
 
 
 def _iso(t):
     return datetime.datetime.fromtimestamp(t, tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
-def c4d_version():
-    """c4d.GetC4DVersion() inside Cinema 4D (an int, e.g. 2026000); None anywhere else."""
+def blender_version():
+    """bpy.app.version_string inside Blender (e.g. '4.2.3 LTS'); None anywhere else."""
     try:
-        import c4d  # noqa: F401 (only present inside Cinema 4D)
-        return int(c4d.GetC4DVersion())
+        import bpy  # noqa: F401 (only present inside Blender)
+        return str(bpy.app.version_string)
     except Exception:
         return None
+
+
+def script_args(argv=None):
+    """The script's own arguments: what follows `--` on Blender's command line ([] when there is no `--`)."""
+    argv = list(sys.argv if argv is None else argv)
+    return argv[argv.index("--") + 1:] if "--" in argv else []
 
 
 def _sha256(path):
@@ -107,6 +116,28 @@ class Run(object):
         self.files[self.name(path)] = _sha256(path)
         return path
 
+    def save_blend(self, path):
+        """Save the open scene as an editable .blend with bpy.ops.wm.save_as_mainfile, and record it."""
+        import bpy
+        path = os.path.abspath(path)
+        done = bpy.ops.wm.save_as_mainfile(filepath=path)
+        if "FINISHED" not in done:
+            raise RuntimeError("save_as_mainfile returned %s for %s" % (sorted(done), self.name(path)))
+        return self.add_file(path)
+
+    def render_still(self, path, scene=None):
+        """Render the scene's camera to `path` with bpy.ops.render.render(write_still=True), and record it."""
+        import bpy
+        scene = scene or bpy.context.scene
+        if scene.camera is None:
+            raise RuntimeError("the scene has no camera to render from")
+        path = os.path.abspath(path)
+        scene.render.filepath = path
+        done = bpy.ops.render.render(write_still=True)
+        if "FINISHED" not in done:
+            raise RuntimeError("render.render returned %s" % sorted(done))
+        return self.add_file(path)
+
     def note(self, text):
         """A sentence for the result's notes (what was not established, a fallback taken)."""
         self.notes.append(self.scrub(str(text)))
@@ -134,7 +165,7 @@ class Run(object):
             "run": self.run,
             "script_sha256": self.script_sha256,
             "files": dict(self.files),
-            "c4d_version": c4d_version(),
+            "blender_version": blender_version(),
             "timing": {"started": _iso(self.started), "ended": _iso(ended), "seconds": round(ended - self.started, 3)},
         })
         if self.script_sha256_read is not None:
@@ -157,8 +188,8 @@ class Run(object):
 def run_script(main, root=None, result=None):
     """Run main(run) and write the result file: ok when main returns, ok: false with the error when it raises.
 
-    Returns the result written. It does not exit the process: the result file, not c4dpy's exit status, is
-    the run's outcome.
+    Returns the result written. It does not exit the process: the result file, not Blender's exit status,
+    is the run's outcome.
     """
     run = Run(root=root, result=result)
     try:

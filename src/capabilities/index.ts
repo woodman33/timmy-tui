@@ -12,7 +12,7 @@
  * completed in a turn. A past use is not a present check, so it never raises the rung.
  */
 import { mcpCapabilityRows } from '../connectors/mcp-cli.js';
-import { nativeCapabilityRows } from '../native/index.js';
+import { nativeCapabilityRows, nativeExercisedAt, type NativeRunIndex } from '../native/index.js';
 import type { StudioHealth } from '../studio/health.js';
 import { keySet } from '../utils/keys.js';
 
@@ -34,6 +34,11 @@ export interface CapabilityRow {
   tools?: string[];
   /** The last time one of its tools completed in a sealed turn (ISO time). */
   exercised?: string;
+  /**
+   * R3 (finding 6): what decides `exercised` when its tools are shared with other rows: `native:<app>`, a
+   * sealed receipt of that app judged ok (src/native nativeExercisedAt), never the shared tool's name.
+   */
+  exercisedBy?: string;
 }
 
 type Env = Record<string, string | undefined>;
@@ -63,6 +68,11 @@ export interface ProbeDeps {
    * answer (outcome rule 2), in a chain that verifies. Older receipts sealed every step completed.
    */
   exercised: () => Map<string, string>;
+  /**
+   * R3: each native app's sealed runs (src/native nativeRunIndex over the verified chain), and a project's
+   * submissions not judged yet. Absent: the native rows say nothing of runs and are never exercised.
+   */
+  nativeRuns?: () => NativeRunIndex;
   /** Whether the edge host (TIMMY_EDGE_HOST or the private overlay) is set; never the host. */
   edgeSet: () => boolean;
 }
@@ -211,7 +221,8 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
     : { id: 'look', kind: 'tool', name: 'Image observations (/observe)', rung: 'needs setup', detail: 'python3 is not on PATH', setup: 'brew install python && pip3 install opencv-python-headless', tools: ['observe_image', 'describe_image'] });
 
   // ── adapters
-  for (const r of nativeCapabilityRows(d.env)) add(r);
+  const nativeRuns = d.nativeRuns?.();
+  for (const r of nativeCapabilityRows(d.env, {}, nativeRuns)) add(r);
   add(missionMap === 200
     ? { id: 'mission-map', kind: 'adapter', name: 'Mission Map (timmy map)', rung: 'reachable', detail: 'http://127.0.0.1:4336/' }
     : { id: 'mission-map', kind: 'adapter', name: 'Mission Map (timmy map)', rung: 'installed', detail: 'not running: timmy map' });
@@ -226,9 +237,14 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
     }
   }
 
-  // Exercised: the last sealed, completed use of any of the row's tools.
+  // Exercised: the last sealed, completed use of any of the row's tools; a row keyed by its own record
+  // (exercisedBy) is decided by that record alone, never by a tool name it shares (R3, finding 6).
   const used = d.exercised();
   return rows.map((r) => {
+    if (r.exercisedBy) {
+      const at = nativeExercisedAt(r.exercisedBy, nativeRuns);
+      return at ? { ...r, exercised: at } : r;
+    }
     const last = (r.tools ?? []).map((t) => used.get(t)).filter((t): t is string => Boolean(t)).sort().at(-1);
     return last ? { ...r, exercised: last } : r;
   });
