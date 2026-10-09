@@ -4,7 +4,9 @@ on:
   push:
     branches: [ main, master, feature/hermes-gateway-mvp ]
   pull_request:
-    branches: [ main, master, feature/hermes-gateway-mvp ]
+    # R1 (2026-10-08): pull requests into the UI rounds' feat/** integration branches get this
+    # same full gate; before, they ran only the privacy gate.
+    branches: [ main, master, feature/hermes-gateway-mvp, 'feat/**' ]
   # release.yml calls this exact gate before it publishes, so a tag never ships on a
   # weaker test run than a pull request gets.
   workflow_call:

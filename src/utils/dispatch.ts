@@ -14,6 +14,7 @@ import { captureEnvLock, type EnvLock } from './envlock.js';
 import { harnessFields } from '../harness/policy.js';
 import { publish as appendEvent } from '../bus/index.js';
 import { LANE_RUNNERS } from '../agent/lanes.js';
+import { keySet } from './keys.js';
 import { selectFromCone, type ContextCone, type ConeSelection } from './context-cone.js';
 import { openHandsPreflight, runOpenHandsTask } from './openhands-adapter.js';
 import { dockerReady } from './doctor.js';
@@ -92,10 +93,18 @@ function onPath(cmd: string): boolean {
   });
 }
 
-export function listLanes(): { id: string; label: string; available: boolean; install?: string; model?: string }[] {
+// R1 lanes honesty: a lane is ready only when everything it runs on is here. An API lane runs on
+// curl AND its key (a placeholder counts as missing; the key's name is returned, never its value),
+// and hyperframes runs through npx, which alone only means the package could be fetched.
+const LANE_COMMAND: Record<string, string> = { hyperframes: 'hyperframes' };
+const LANE_INSTALL: Record<string, string> = { hyperframes: 'npm install -g hyperframes' };
+
+export function listLanes(env: NodeJS.ProcessEnv = process.env): { id: string; label: string; available: boolean; install?: string; model?: string; key?: string }[] {
   return Object.entries(LANE_RUNNERS).map(([id, r]) => ({
-    id, label: r.label, available: onPath(r.cmd),
-    install: r.install, model: r.model
+    id, label: r.label,
+    available: onPath(LANE_COMMAND[id] ?? r.cmd) && (!r.key || keySet(env[r.key])),
+    install: LANE_INSTALL[id] ?? r.install, model: r.model,
+    ...(r.key ? { key: r.key } : {}),
   }));
 }
 

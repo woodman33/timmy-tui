@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set of shared settings (`src/theme/tokens.ts`). `TIMMY_PALETTE=homebrew`.
 
 ### Changed
+- The monitor only reads when it opens: it no longer writes a model policy or seals a `model.policy` receipt. Its header names the model the REPL last ran, else the one the REPL is set to run; the status line names the model policy as the policy, or `unset`.
+- `listLanes()` (and so `/lanes`) calls an API lane ready only when its key is set, returns the key's name and never its value, and calls hyperframes ready only when its own command is on PATH, not npx alone.
+- CI runs its full gate on pull requests into `feat/**` integration branches.
 - The agent's tools say when their service is missing or failed, with the
   step that sets it up, instead of reporting success: no mock jobs, page
   snapshots, screenshots or connections. A step whose result says it failed
