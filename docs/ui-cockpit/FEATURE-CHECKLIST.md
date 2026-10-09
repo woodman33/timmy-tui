@@ -80,7 +80,7 @@ Merge, npm publish, tags and deployment are on HOLD. Shorthand: "row N" is a row
 | `run_native` agent tool (asks each time) | ✓ CCP R2 area 6 | ✓ | ✓ fakes | – | a model key, and the app | `src/agent/native-tools.ts`; `tests/native.test.ts`, `tests/native-blender.test.ts` |
 | Native runs recorded per app; `/tools` "exercised" from each app's own judged runs | – | ✓ (`ea5ef4d`) | ✓ | – | – | `src/native/index.ts`, `src/capabilities/index.ts`; `tests/native-provenance.test.ts`, `tests/capabilities.test.ts` |
 | CadQuery recipe `enclosure.tray/1`: CLI `timmy recipe` (`list`, `plan`, `build`, `jobs`) | ✓ CCP F-7 | ✓ | ✓ fakes (offline fake executor); admission and package checks | partial: its job system ran for real through `/recipe` (rows 136, 138); the CLI itself was not run | set `TIMMY_CADQUERY_PYTHON` to a Python with CadQuery and Open3D (nothing is installed for you) | `lanes/recipes/cli.ts`, `lanes/recipes/tray.ts`, `lanes/recipes/jobs.ts` (route in `src/cli.ts`); `tests/tray-recipe.test.ts`, `tests/recipe-jobs.test.ts`, `tests/recipe-package.test.ts` |
-| `/recipe` in the REPL as a durable job (prediction sealed first, watcher job, `/stop` through the recipe's cancel, verified exports copied, `run_recipe`, `/tools` row) | ✓ CCP F-7 | ✓ (`720cc37`) | ✓ fakes (offline fake executor) | ✓ rows 136 (a real CadQuery and Open3D build, 30 of 30 checks, an independent readback of the STEP and STLs), 138 (cancelled from the live board) | set `TIMMY_CADQUERY_PYTHON` to a Python with CadQuery and Open3D | `src/recipes/`, `src/repl/recipe.ts`, `src/agent/recipe-tools.ts`; `tests/recipe-repl.test.ts` |
+| `/recipe` in the REPL as a durable job (prediction sealed first, watcher job, `/stop` and `/recipe cancel` through the recipe's cancel, verified exports copied, `run_recipe`, `/tools` row) | ✓ CCP F-7 | ✓ (`720cc37`) | ✓ fakes (offline fake executor) | ✓ rows 136 (a real CadQuery and Open3D build, 30 of 30 checks, an independent readback of the STEP and STLs), 138 (cancelled from the live board) | set `TIMMY_CADQUERY_PYTHON` to a Python with CadQuery and Open3D | `src/recipes/`, `src/repl/recipe.ts`, `src/agent/recipe-tools.ts`; `tests/recipe-repl.test.ts` |
 
 ## 6. Vision
 
@@ -159,6 +159,23 @@ Merge, npm publish, tags and deployment are on HOLD. Shorthand: "row N" is a row
 | Rerun viewer | ✓ CCP F-6 | partial: a module in the forge pipeline; no viewer pane | ✓ the module | – | – | `src/forge/observe/rerun.ts`; `tests/forge-rerun.test.ts` |
 | Vision adapters (Viser, FiftyOne, Depth Anything, SAM) | ✓ CCP F-6 | partial: `/tools` counts the adapters found; "a probe run qualifies one" | ✓ the registry (adapter presence is not qualification) | – | – | `src/capabilities/index.ts` (`timmy vision integrations list`); `tests/vision-integrations.test.ts` |
 | Images in the REPL (Kitty, iTerm2, Ghostty); term.everything | ✓ CCP R1 7 | – in the REPL (the v1 shell only) | – | – | – | CCP R1 item 7 |
+
+## 14. On the operator's tool list, not yet rows above
+
+Named in the operator's own tool register (kept private), or stated by the operator, and not yet planned in this repository: nothing is
+implemented, tested or demonstrated for any of them here. Each needs an AI-operable route (API, MCP, CLI,
+scripting or computer use) before it can move up.
+
+| Feature | Planned | Implemented | Tested | Demonstrated | Blocker / user action | Evidence |
+|---|---|---|---|---|---|---|
+| Code CAD besides CadQuery: OpenSCAD, FreeCAD, build123d | partial: the operator's register | – | – | – | – | – |
+| Plasticity (direct-modeling CAD; STEP round trip) | partial: the operator's register | – | – | – | no public API: a computer-use or STEP route | – |
+| Unity, Godot, USD stages | partial: the operator's register | – | – | – | – | – |
+| Spline V2, Hana, Omma (design and first-draft 3D) | partial: the operator's register | – | – | – | – | – |
+| Video: Remotion, HyperFrames, Rive | partial: the operator's register | – | – | – | – | – |
+| NVIDIA Cosmos, Tripo | partial: the operator's register | – | – | – | – | – |
+| OpenHands SDK, JBang | partial: the operator's register | – | – | – | – | – |
+| Writing: Neovim, LaTeX, Fountain/FDX, Instatic | partial: the register (Neovim, Instatic); stated by the operator (LaTeX, Fountain/FDX) | – | – | – | – | – |
 
 ## Unknowns to resolve
 
