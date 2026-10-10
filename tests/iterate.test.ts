@@ -261,7 +261,8 @@ describe('/iterate refuses before anything is written', () => {
   it('a paid route, a cloud model, no model, no recipe runtime or an unusable parameter file: nothing written, nothing started', async () => {
     const cases: Array<[Record<string, string | undefined>, string, RegExp]> = [
       [{}, 'tray --paid widen it', /has no --paid/],
-      [{}, 'tray widen it --agent codex', /Codex runs on your own account and costs money/],
+      // (round R4, H25: --agent codex is Codex's local route now, tested in tests/codex-local.test.ts; a paid agent is still refused)
+      [{}, 'tray widen it --agent opencode', /OpenCode runs on your own account and costs money/],
       [{}, 'tray widen it --model qwen3-coder:480b:cloud', /cloud model[\s\S]*\/iterate runs only a local, free route, and has no --paid/],
       [{ TIMMY_AGENT_BASE_URL: 'https://models.example.com/v1' }, 'tray widen it', /is not this machine[\s\S]*only a local, free route/],
       [{ TIMMY_AGENT_MODEL: undefined }, 'tray widen it', /Name the local model/],

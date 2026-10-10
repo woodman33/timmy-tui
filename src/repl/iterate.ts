@@ -5,7 +5,8 @@
  *      card's defaults (and the operator is told); its sha256 and values are kept;
  *   2. a local code agent runs through /agent's own start (Workspace.startAgentRun: the endpoint rule, the
  *      snapshot before and after, its job, its sealed result), told to change only that file. Only a local,
- *      free route runs: Qwen Code on a loopback endpoint with a model that is not a cloud model; nothing else;
+ *      free route runs: Qwen Code on a loopback endpoint with a model that is not a cloud model, or (round R4,
+ *      H25, --agent codex) Codex's local route under the same rule (codex exec --oss); nothing else;
  *   3. after it: any other file changed stops the flow before the build (nothing is reverted); an invalid
  *      parameter file stops it (the file is left as the agent wrote it); no change stops it;
  *   4. the recipe rebuilds through /recipe's start (startRecipeJob: the prediction sealed first, the durable
@@ -25,6 +26,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'nod
 import { dirname, join } from 'node:path';
 import type { JobManager, JobRecord, JobSpec } from '../jobs/index.js';
 import { AGENTS, AGENTS_DIR, AGENT_NAMES, agentBin, planAgent, type AgentInfo, type AgentName, type AgentPlan, type AgentRunRecord } from '../code-agents/index.js';
+import { codexLocalPreflight } from '../code-agents/codex-local.js';
 import { checkCopy, failureFiles, nativeRuntime, PARAMETER_HELP, PARAMETER_NAMES, PYTHON_SETUP, readCard, RECIPE_ID, short } from '../recipes/index.js';
 import { paramsPath, parseParams, readParams, writeParams } from '../recipes/params-file.js';
 import { cancel, status } from '../../lanes/recipes/jobs.js';
@@ -66,8 +68,8 @@ export interface IterateDeps {
   jobs: JobManager;
   /** Starts a job as this REPL's own (so /stop and /stop all reach it); `selfSealed`: the flow seals its receipt. */
   startJob: (spec: JobSpec, o?: { selfSealed?: boolean }) => JobRecord;
-  /** /agent's own start, in the flow's project. */
-  startAgent: (name: AgentName, task: string, o: { paid: false; root: string; project: string; env: NodeJS.ProcessEnv }) => Promise<AgentStart>;
+  /** /agent's own start, in the flow's project; `local`: Codex's local route (round R4, H25). */
+  startAgent: (name: AgentName, task: string, o: { paid: false; local?: true; root: string; project: string; env: NodeJS.ProcessEnv }) => Promise<AgentStart>;
   /** /recipe's own start (startRecipeJob), in the flow's project. */
   startRecipe: (root: string, project: string, given: Record<string, unknown>) => Promise<RecipeStarted>;
   /** Writes the project's folder as "." and the home folder as "~". */
@@ -77,9 +79,11 @@ export interface IterateDeps {
 
 export interface IterateRequest { recipe: 'tray'; instruction: string; agent: AgentName; model?: string }
 
-const USAGE = '/iterate tray "<instruction>" [--agent qwen] [--model <local model>]';
+const USAGE = '/iterate tray "<instruction>" [--agent qwen|codex] [--model <local model>]';
+/** The agents /iterate runs, each on its local, free route (round R4: codex is Codex's local route, H25). */
+const LOCAL_AGENTS: readonly AgentName[] = ['qwen', 'codex'];
 
-/** `/iterate tray "<instruction>" [--agent qwen] [--model <m>]`: the request, or why it is refused (nothing started). */
+/** `/iterate tray "<instruction>" [--agent qwen|codex] [--model <m>]`: the request, or why it is refused (nothing started). */
 export function parseIterateLine(args: string): { ok: true; request: IterateRequest } | { ok: false; error: string } {
   const words = splitCommandLine(args.trim());
   const [what, ...rest] = words;
@@ -92,7 +96,7 @@ export function parseIterateLine(args: string): { ok: true; request: IterateRequ
   for (let i = 0; i < rest.length; i++) {
     const w = rest[i];
     const eq = w.match(/^(--agent|--model)=(.*)$/);
-    if (w === '--paid') return { ok: false, error: '/iterate runs only a local, free agent route (Qwen Code on this machine\'s endpoint); it has no --paid. Nothing was started.' };
+    if (w === '--paid') return { ok: false, error: '/iterate runs only a local, free agent route (Qwen Code, or Codex with a local model, on this machine\'s endpoint); it has no --paid. Nothing was started.' };
     if (eq) { if (eq[1] === '--agent') agent = eq[2]; else model = eq[2]; continue; }
     if (w === '--agent' || w === '--model') {
       const v = rest[i + 1];
@@ -101,15 +105,15 @@ export function parseIterateLine(args: string): { ok: true; request: IterateRequ
       i += 1;
       continue;
     }
-    if (/^--\S/.test(w)) return { ok: false, error: `No option ${w}: /iterate takes --agent qwen and --model <local model>. Nothing was started.` };
+    if (/^--\S/.test(w)) return { ok: false, error: `No option ${w}: /iterate takes --agent qwen|codex and --model <local model>. Nothing was started.` };
     text.push(w);
   }
   const instruction = text.join(' ').trim();
   if (!instruction) return { ok: false, error: `Say what to change: ${USAGE}` };
-  const name = (agent ?? 'qwen').toLowerCase();
-  if (!AGENT_NAMES.includes(name as AgentName)) return { ok: false, error: `No agent named ${agent}: /iterate runs qwen (Qwen Code on a local endpoint). Nothing was started.` };
-  if (name !== 'qwen') return { ok: false, error: `${AGENTS[name as AgentName].title} runs on your own account and costs money; /iterate runs only a local, free route (--agent qwen, on a local endpoint). Nothing was started.` };
-  return { ok: true, request: { recipe: 'tray', instruction, agent: 'qwen', ...(model?.trim() ? { model: model.trim() } : {}) } };
+  const name = (agent ?? 'qwen').toLowerCase() as AgentName;
+  if (!AGENT_NAMES.includes(name)) return { ok: false, error: `No agent named ${agent}: /iterate runs qwen (Qwen Code) or codex (Codex with a local model), on a local endpoint. Nothing was started.` };
+  if (!LOCAL_AGENTS.includes(name)) return { ok: false, error: `${AGENTS[name].title} runs on your own account and costs money; /iterate runs only a local, free route (--agent qwen or --agent codex, on a local endpoint). Nothing was started.` };
+  return { ok: true, request: { recipe: 'tray', instruction, agent: name, ...(model?.trim() ? { model: model.trim() } : {}) } };
 }
 
 interface FlowRun {
@@ -181,7 +185,7 @@ export class IterateFlows {
     const lines: Line[] = [
       [{ text: '  Iterate    ', role: 'secondary' }, { text: USAGE, role: 'strong' }],
       ...this.say(`           a local code agent changes ${paramsPath()}; the recipe rebuilds as a durable job; a separate worker reads the STEP back; each flow is kept in results/flows/`),
-      [{ text: '  Agent      ', role: 'secondary' }, { text: 'qwen (Qwen Code) on a local endpoint only: no charge; there is no --paid here' }],
+      [{ text: '  Agent      ', role: 'secondary' }, { text: 'qwen (Qwen Code), or codex (Codex with a local model: codex exec --oss), on a local endpoint only: no charge; there is no --paid here' }],
     ];
     const file = readParams(at.root);
     lines.push(file.ok && file.exists
@@ -229,7 +233,9 @@ export class IterateFlows {
     const bin = agentBin(req.agent, env, this.d.onPath);
     if (!bin) return refuse(`${info.title} is not on PATH (${info.bin}); /tools says how to install it. Nothing was started.`, 'estimate');
     if (!env.TIMMY_AGENT_MODEL?.trim()) return refuse(`Name the local model: ${USAGE.replace('[--model <local model>]', '--model <a model your local endpoint serves, from ollama list>')}, or set TIMMY_AGENT_MODEL. Nothing was started.`);
-    const route = planAgent(req.agent, req.instruction, { env, paid: false, run: 'a00000000', bin });
+    // R4 (H25): codex runs here only as Codex's local route (codex exec --oss), never on the user's account.
+    const local = req.agent === 'codex' ? { local: true as const } : {};
+    const route = planAgent(req.agent, req.instruction, { env, paid: false, run: 'a00000000', bin, ...local, root });
     if (!route.ok) {
       const why = route.error.replace(/\s*To run it anyway:.*$/, '');
       return route.refused === 'paid' ? refuse(`${why} /iterate runs only a local, free route, and has no --paid.`, 'estimate') : refuse(why);
@@ -241,6 +247,11 @@ export class IterateFlows {
     const rt = nativeRuntime(env);
     if (!rt.ok) return refuse(`Not started: ${rt.why}. /iterate rebuilds the recipe after the agent, so the runtime comes first.`, 'estimate', this.say(`Setup: ${PYTHON_SETUP}, then /iterate again.`));
     if (!this.d.test?.readback && !existsSync(READBACK_SCRIPT)) return refuse('Not started: the readback worker (workers/readback/step_readback.py) is missing from this Timmy.');
+    // R4 (H25): Codex's local route needs its model already in the local Ollama; asked before anything is written.
+    if (route.plan.oss) {
+      const ready = await codexLocalPreflight(route.plan.oss);
+      if (!ready.ok) return refuse(this.d.scrub(ready.error, root), 'estimate');
+    }
     // The parameter file: read and checked, or written from the recipe card's defaults (and said so).
     const rel = paramsPath();
     const file = readParams(root);
@@ -261,7 +272,7 @@ export class IterateFlows {
     // The agent, through /agent's own start: its job, its snapshot before, its sealed result at its end.
     const id = newFlowId();
     const task = iterateTask({ instruction: req.instruction, paramsRel: rel, fileText: text });
-    const s = await this.d.startAgent(req.agent, task, { paid: false, root, project, env });
+    const s = await this.d.startAgent(req.agent, task, { paid: false, ...local, root, project, env });
     if (!s.ok) {
       const wrote = created ? this.say(`${rel} did not exist: written from the recipe card's defaults (${values})`) : [];
       return refuse(`The agent did not start: ${this.d.scrub(s.error, root)}`, s.refused === 'paid' || s.refused === 'missing' ? 'estimate' : 'failure', [], wrote);
