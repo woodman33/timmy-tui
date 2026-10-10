@@ -138,11 +138,13 @@ if (pkg) {
     const { READBACK_SCRIPT } = await load('dist/src/flows/iterate.js');
     const { BLEND_READBACK_SCRIPT } = await load('dist/src/flows/iterate-blender.js');
     const { VIDEO_READBACK_SCRIPT } = await load('dist/src/flows/iterate-ae.js');
+    // R4 batch 6: the OpenHands worker /agent openhands mounts into its container (H52).
+    const { openHandsWorker } = await load('dist/src/code-agents/openhands-run.js');
     const dest = join(process.env.PROBE_WORK, 'site');
     const copied = copyStarter('web-starter', dest);
     // R4: each starter of this round copied into a new project of its own; the files the copy holds.
     const r4 = {};
-    for (const name of ['ae-starter', 'scad-starter', 'freecad-starter']) {
+    for (const name of ['ae-starter', 'scad-starter', 'freecad-starter', 'tray-workflow']) {
       const c = copyStarter(name, join(process.env.PROBE_WORK, name));
       r4[name] = 'files' in c ? c.files.sort() : c.error;
     }
@@ -156,6 +158,7 @@ if (pkg) {
       r4, scad: scadRunnerPath() ?? null, freecad: freecadHelperDir() ?? null,
       step: READBACK_SCRIPT, stepExists: existsSync(READBACK_SCRIPT), blend: BLEND_READBACK_SCRIPT, blendExists: existsSync(BLEND_READBACK_SCRIPT),
       video: VIDEO_READBACK_SCRIPT, videoExists: existsSync(VIDEO_READBACK_SCRIPT),
+      openhands: openHandsWorker() ?? null,
     }));`);
   const r = run(process.execPath, [probe], { cwd: work, env: { ...runEnv, PROBE_PKG: pkg, PROBE_WORK: work }, timeout: 120_000 });
   let p = null;
@@ -165,7 +168,7 @@ if (pkg) {
   } else {
     const inside = (path) => typeof path === 'string' && (path === pkg || path.startsWith(`${pkg}/`));
     check('assets', 'package root', p.root === pkg, short(p.root ?? 'none found'));
-    const starters = ['ae-starter', 'blender-starter', 'c4d-starter', 'freecad-starter', 'scad-starter', 'web-starter'];
+    const starters = ['ae-starter', 'blender-starter', 'c4d-starter', 'freecad-starter', 'scad-starter', 'tray-workflow', 'web-starter'];
     check('assets', 'starters (templates/)', p.starters === join(pkg, 'templates') && starters.every((n) => p.list.includes(n)), `${short(p.starters ?? 'none found')}: ${p.list.join(', ') || 'none'}`);
     check('assets', 'Look worker', p.look === join(pkg, 'workers/look/look.py') && p.lookExists, short(p.look));
     check('assets', 'Cinema 4D worker', p.c4d === join(pkg, 'workers/c4d'), short(p.c4d ?? 'none found'));
@@ -173,7 +176,7 @@ if (pkg) {
     check('assets', 'Timmy Canvas (built)', inside(p.canvas), short(p.canvas ?? 'none found'));
     check('assets', 'web-starter copied', typeof p.copied === 'number' && p.copied > 0 && p.same, typeof p.copied === 'number' ? `${p.copied} files into a new project; index.html is the packaged one` : String(p.copied));
     // R4 (H40): this round's starters, each copied as /project new --from copies it: the files "files" lists for it.
-    for (const name of ['ae-starter', 'scad-starter', 'freecad-starter']) {
+    for (const name of ['ae-starter', 'scad-starter', 'freecad-starter', 'tray-workflow']) {
       const want = (manifest.files ?? []).filter((f) => f.startsWith(`templates/${name}/`)).map((f) => f.slice(`templates/${name}/`.length)).sort();
       const got = p.r4?.[name];
       check('assets', `${name} copied`, Array.isArray(got) && want.length > 0 && got.join('\n') === want.join('\n'), Array.isArray(got) ? `${got.length} files into a new project (${got.join(', ')}); "files" lists ${want.length}` : String(got ?? 'not copied'));
@@ -185,6 +188,8 @@ if (pkg) {
     check('assets', '.blend readback worker', p.blend === join(pkg, 'workers/readback/blend_readback.py') && p.blendExists, `${short(p.blend)}${p.blendExists ? '' : ' (not there)'}`);
     // R4 (H46): the video readback worker /iterate ae runs (in package.json "files", needed by its readback step).
     check('assets', 'video readback worker', p.video === join(pkg, 'workers/readback/video_readback.py') && p.videoExists, `${short(p.video)}${p.videoExists ? '' : ' (not there)'}`);
+    // R4 batch 6 (H52): the OpenHands worker, found by the module that mounts it.
+    check('assets', 'OpenHands worker', p.openhands === join(pkg, 'workers/openhands/timmy_openhands.py'), short(p.openhands ?? 'none found'));
   }
 } else {
   check('assets', 'probe', false, 'not run: nothing installed');
