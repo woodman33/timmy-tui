@@ -757,7 +757,7 @@ export interface AgentRunRecovered {
   job: { id: string; state: string; error?: string };
   /** the process group recovery stopped, and with what */
   stopped?: { process_group: number; processes: number; signals: string[]; cleanup: 'complete' | 'unresolved' };
-  /** the OpenHands container recovery stopped */
+  /** the OpenHands container recovery stopped, or (R4, H62) found already gone with its docker client (process 'gone') */
   container?: string;
   /** the flow whose agent step it was */
   flow?: string;

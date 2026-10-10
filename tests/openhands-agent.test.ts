@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, join, resolve } from 'node:path';
+import { basename, delimiter, dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, onTestFinished } from 'vitest';
 import { capabilities, type ProbeDeps } from '../src/capabilities/index.js';
 import { capabilityLines } from '../src/capabilities/render.js';
@@ -947,6 +947,73 @@ describe('recovery: an orphaned container is found only by its labels plus its r
     const plain = make(project(), ohEnv(empty, 'http://127.0.0.1:11434/v1'), { recoverAtStart: false });
     await plain.ws.recover('');
     expect(empty.calls()).toEqual([]);
+  }, 60_000);
+
+  it('a stale job whose container is already gone is ended: its job cancelled with words, its run interrupted, one receipt each; nothing claimed about its result (H59\'s note)', async () => {
+    const dock = fakeDocker();
+    const root = project();
+    const pid = projectId(root);
+    const jobsDir = join(temp('oh-jobs-'), 'jobs');
+    const dead = await exitedPid();
+    // one whose container docker no longer lists (removed, --rm), one docker lists as exited
+    const runs = [{ run: 'a1d1d1d1d', job: 'j1d1d1d' }, { run: 'a2e2e2e2e', job: 'j2e2e2e' }];
+    for (const x of runs) { runRecord(root, x.run, x.job, `timmy-oh-${x.run}`, { 'timmy.run': x.run, 'timmy.project': pid }); jobRecord(jobsDir, x.job, root, dead); }
+    container(dock, `timmy-oh-${runs[1].run}`, { 'timmy.run': runs[1].run, 'timmy.project': pid }, dead);
+    const file = dock.containerFile(`timmy-oh-${runs[1].run}`);
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), state: 'exited' }));
+    // an earlier recovery ended this one's job record, but not its run's record
+    const earlier = { run: 'a3f3f3f3f', job: 'j3f3f3f' };
+    runRecord(root, earlier.run, earlier.job, `timmy-oh-${earlier.run}`, { 'timmy.run': earlier.run, 'timmy.project': pid });
+    writeFileSync(join(jobsDir, `${earlier.job}.json`), JSON.stringify({ id: earlier.job, kind: 'task', label: 'agent openhands', project: 'p', root, command: 'docker', args: ['run'], state: 'cancelled', pid: dead, startedAt: new Date(Date.now() - 120_000).toISOString(), endedAt: new Date(Date.now() - 60_000).toISOString(), exitCode: null, signal: null, error: 'its REPL ended; its container was already gone', steps: [], lines: 0 }));
+    writeFileSync(join(jobsDir, `${earlier.job}.log`), '');
+    // docker not on PATH: whether the containers are gone cannot be told, so nothing is ended
+    const blind = make(root, { PATH: temp('oh-nobin-'), TIMMY_AGENT_MODEL: 'qwen3:4b' }, { jobsDir, recoverAtStart: false });
+    const said = text(await blind.ws.recover(''));
+    expect(said).toContain(`OpenHands run ${runs[0].run} has no result, and docker is not on PATH, so whether its container timmy-oh-${runs[0].run} still runs cannot be checked`);
+    expect(blind.sealed).toEqual([]);
+    expect(blind.ws.jobs.get(runs[0].job)).toMatchObject({ state: 'running', stale: true });
+    await blind.ws.close();
+
+    const { ws, sealed } = make(root, ohEnv(dock, 'http://127.0.0.1:11434/v1'), { jobsDir, recoverAtStart: false });
+    const out = text(await ws.recover(''));
+    expect(out).toContain('3 agent runs left by a REPL that ended were recorded as interrupted');
+    for (const x of runs) {
+      const name = `timmy-oh-${x.run}`;
+      expect(out).toContain(`OpenHands run ${x.run} (job ${x.job}): its REPL ended, and its job's process and its container ${name} were already gone; its job record now says cancelled: its REPL ended; its container was already gone; its record ${AGENTS_DIR}/${x.run}/run.json now says interrupted (no result was written); nothing was written into the project; receipt id`);
+      expect(ws.jobs.get(x.job)).toMatchObject({ state: 'cancelled', error: 'its REPL ended; its container was already gone', exitCode: null, signal: null });
+      const bytes = readFileSync(join(root, AGENTS_DIR, x.run, 'run.json'));
+      expect(JSON.parse(bytes.toString('utf8'))).toMatchObject({
+        state: 'interrupted', job: x.job,
+        why: `its REPL ended while it ran; its docker client and its container ${name} were already gone when recovery looked (when they ended is not recorded); no result was written, and nothing was written into the project`,
+        recovered: { by: 'recovery', process: 'gone', container: name, result: 'not written', job: { id: x.job, state: 'cancelled', error: 'its REPL ended; its container was already gone' } },
+      });
+      const r = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+      for (const k of ['outcome', 'files', 'final_message', 'cost_usd', 'exit_code']) expect(r, k).not.toHaveProperty(k);
+      expect(existsSync(join(root, AGENTS_DIR, x.run, 'result.json'))).toBe(false);
+      const receipt = sealed.find((s) => s.subject === `recover · agent · openhands · ${x.run} · interrupted`)!;
+      expect(receipt).toMatchObject({ kind: 'recover', status: 'ok', project_id: pid, outputs: [{ path: `${AGENTS_DIR}/${x.run}/run.json`, sha256: sha(bytes), bytes: bytes.length }] });
+      expect((receipt.sources as Array<Record<string, unknown>>)[0]).toMatchObject({ operation: x.run, agent: 'openhands', job: x.job, container: name, action: 'found its job\'s process and its container gone' });
+      expect(JSON.stringify(receipt)).not.toMatch(/"outcome"|"cost_usd"/);
+    }
+    expect(out).toContain(`OpenHands run ${earlier.run} (job ${earlier.job}): an earlier recovery ended its job (its record says cancelled: its REPL ended; its container was already gone) but not its own record, and its container timmy-oh-${earlier.run} runs no more; its record ${AGENTS_DIR}/${earlier.run}/run.json now says interrupted`);
+    expect(JSON.parse(readFileSync(join(root, AGENTS_DIR, earlier.run, 'run.json'), 'utf8'))).toMatchObject({ state: 'interrupted', recovered: { process: 'ended before' } });
+    expect(sealed.map((s) => s.subject).sort()).toEqual([...runs, earlier].map((x) => `recover · agent · openhands · ${x.run} · interrupted`).sort());
+    // nothing was stopped (there was nothing to stop)
+    expect(dock.calls().filter((c) => c.argv[0] === 'stop' || c.argv[0] === 'kill')).toEqual([]);
+    // a second pass: nothing more, said with everything it looked for
+    expect(text(await ws.recover(''))).toBe(`  Recovery   nothing to pick up in ${basename(root)}: no recipe job, flow, native run, workflow run, code agent run or OpenHands container was left by a REPL that ended`);
+    expect(sealed).toHaveLength(3);
+    // a stale job whose container's name is taken by a container without Timmy's labels: never judged by a name, left as it is
+    const decoy = { run: 'a4a4a4a4a', job: 'j4a4a4a' };
+    runRecord(root, decoy.run, decoy.job, `timmy-oh-${decoy.run}`, { 'timmy.run': decoy.run, 'timmy.project': pid });
+    jobRecord(jobsDir, decoy.job, root, dead);
+    container(dock, `timmy-oh-${decoy.run}`, {}, dead);
+    expect(text(await ws.recover(''))).toContain(`OpenHands run ${decoy.run}: no container with its labels runs, but a container named timmy-oh-${decoy.run} without them is there (not Timmy's; never judged by its name alone): its records were left as they are`);
+    expect(JSON.parse(readFileSync(join(root, AGENTS_DIR, decoy.run, 'run.json'), 'utf8')).state).toBe('submitted');
+    expect(ws.jobs.get(decoy.job)).toMatchObject({ state: 'running', stale: true });
+    expect(sealed).toHaveLength(3);
+    // docker was asked by labels, and for its whole list; never by a name
+    expect(dock.calls().filter((c) => c.argv[0] === 'ps').flatMap((c) => c.argv).some((a) => a.startsWith('name='))).toBe(false);
   }, 60_000);
 });
 

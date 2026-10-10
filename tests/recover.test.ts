@@ -481,7 +481,8 @@ describe('/recover', () => {
     const { ws, notes, sealed } = make();
     expect(await ws.startRecovery).toEqual({ project: path.basename(root), items: [] });
     expect(notes).toEqual([]);
-    expect(text(await ws.recover(''))).toBe(`  Recovery   nothing to pick up in ${path.basename(root)}: no recipe job, flow or native run was left by a REPL that ended`);
+    // R4 (H62): it names everything it looked for
+    expect(text(await ws.recover(''))).toBe(`  Recovery   nothing to pick up in ${path.basename(root)}: no recipe job, flow, native run, workflow run, code agent run or OpenHands container was left by a REPL that ended`);
     expect(sealed).toEqual([]);
     expect(fs.existsSync(path.join(root, '.timmy'))).toBe(false);
     const c = COMMANDS.find((x) => x.name === 'recover');
