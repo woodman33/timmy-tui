@@ -256,7 +256,7 @@ export class IterateFlows {
     this.blender = new BlenderFlows(d, (root) => tray(root) ?? this.scad.runningIn(root) ?? this.freecad.runningIn(root) ?? this.ae.runningIn(root), this.lock);
     this.scad = new ScadFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.freecad.runningIn(root) ?? this.ae.runningIn(root), this.lock);
     this.freecad = new FreecadFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.scad.runningIn(root) ?? this.ae.runningIn(root), this.lock);
-    this.ae = new AeFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.scad.runningIn(root) ?? this.freecad.runningIn(root));
+    this.ae = new AeFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.scad.runningIn(root) ?? this.freecad.runningIn(root), this.lock);
   }
 
   /**

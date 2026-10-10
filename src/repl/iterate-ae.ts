@@ -33,7 +33,7 @@ import { accessSync, closeSync, constants, copyFileSync, existsSync, lstatSync, 
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { JobRecord } from '../jobs/index.js';
-import { AGENTS, AGENTS_DIR, agentBin, planAgent, type AgentName, type AgentPlan, type AgentRunRecord } from '../code-agents/index.js';
+import { AGENTS, AGENTS_DIR, agentBin, comparedOf, forJudging, notComparedText, planAgent, type AgentName, type AgentPlan, type AgentRunRecord } from '../code-agents/index.js';
 import { codexLocalPreflight } from '../code-agents/codex-local.js';
 import { aerenderJob, judgeNativeJob, locateNative, NATIVE_APPS, NativeNotFound, sha256File, type NativeJobSpec } from '../native/index.js';
 import { aeCompsLine, aeScriptJob, aeStem, judgeAeJob, type AeCompReport, type AeJobSpec } from '../native/ae-author.js';
@@ -46,6 +46,7 @@ import {
   type VideoReadback, type VideoReadbackFailure,
 } from '../flows/iterate-ae.js';
 import type { IterateDeps } from './iterate.js';
+import type { FlowLock } from './flow-lock.js';
 import type { Segment } from '../term/theme.js';
 
 type Line = Segment[];
@@ -140,8 +141,11 @@ export class AeFlows {
   /** a flow being started in a project (its agent is starting), by the project's folder: it holds the project already */
   private readonly starting = new Map<string, string>();
 
-  /** `busyElsewhere`: a flow of another kind running in a project (one flow at a time runs in a project, of any kind). */
-  constructor(private readonly d: IterateDeps, private readonly busyElsewhere: (root: string) => { id: string; step: string } | undefined) {}
+  /**
+   * `busyElsewhere`: a flow of another kind running in a project (one flow at a time runs in a project, of any kind).
+   * `lock` (R4, H46, as the other kinds' since R4-5): the projects a start holds; the start names its flow there.
+   */
+  constructor(private readonly d: IterateDeps, private readonly busyElsewhere: (root: string) => { id: string; step: string } | undefined, private readonly lock?: FlowLock) {}
 
   private get sep(): string { return ` ${this.d.glyphs.sep} `; }
   private say(text: string, role: Segment['role'] = 'secondary'): Line[] { return [[{ text: `  ${text}`, role }]]; }
@@ -250,6 +254,9 @@ export class AeFlows {
     if (!render.found) return this.refuse(`Not started: ${NATIVE_APPS.aerender.name} was not found on this machine${render.problem ? ` (${render.problem})` : ''}. /iterate ae renders with aerender after After Effects runs the script, so it comes first.`, 'estimate', this.say(`Setup: ${NATIVE_APPS.aerender.setup}, then /iterate again.`));
     if (!this.d.startNative) return this.refuse('Not started: this REPL cannot start a native job.');
     const id = newFlowId();
+    // R4 (H46): the project is held for this start (IterateFlows takes the lock around it); its flow is named there now,
+    // so a start refused meanwhile names it.
+    this.lock?.name(root, id);
     // Codex's local route needs its model already in the local Ollama: asked before anything is written, the project held
     // while it is asked, so no second flow starts meanwhile.
     if (route.plan.oss) {
@@ -268,7 +275,9 @@ export class AeFlows {
     // The project is held from here: the agent's start is awaited, and no second flow may start meanwhile.
     this.starting.set(root, id);
     let s: Awaited<ReturnType<IterateDeps['startAgent']>>;
-    try { s = await this.d.startAgent(req.agent, task, { paid: false, ...route.local, root, project, env }); } finally { this.starting.delete(root); }
+    // R4 (H46, the review's R4-2 as the other flows have it): judged by the whole project, .timmy and dist included; the
+    // flow's own folder is Timmy's write.
+    try { s = await this.d.startAgent(req.agent, task, { paid: false, ...route.local, root, project, env, judge: { own: [flowWorkDir(id)] } }); } finally { this.starting.delete(root); }
     if (!s.ok) return this.refuse(`The agent did not start: ${scrub(s.error)}`, s.refused === 'paid' || s.refused === 'missing' ? 'estimate' : 'failure');
     const keptAt = keepBytes(root, `${flowWorkDir(id)}/script.before${path.posix.extname(rel).toLowerCase() || '.jsx'}`, bytes);
     const record: AeFlowRecord = {
@@ -354,8 +363,11 @@ export class AeFlows {
   private async agentStep(f: AeRun): Promise<void> {
     const job = await this.d.jobs.done(f.agentJob!);
     // The agent's sealed result (sealAgent ran at the job's end): its outcome, what it changed, its cost and receipt.
-    const rec = f.agentRecord!;
+    // R4 (H46, R4-2): what it changed as the check's own snapshot saw it (the whole project, .timmy and dist included).
+    const rec = forJudging(f.agentRecord!);
+    f.agentRecord = rec;
     const a = f.record.agent!;
+    if (rec.judged) a.compared = comparedOf(rec.judged);
     a.outcome = rec.outcome ?? job.state;
     if (rec.why) a.why = this.d.scrub(rec.why, f.root);
     if (rec.transcript) a.transcript = `${AGENTS_DIR}/${rec.run}/${rec.transcript}`;
@@ -746,6 +758,9 @@ export class AeFlows {
     const tail = `${file ? `${this.sep}record ${file}` : `${this.sep}the record could not be written`}${receipt ? `${this.sep}receipt ${receipt}` : ''}`;
     const lines: Line[] = [[{ text: `  ${ok ? g.ok : rec.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok || rec.outcome === 'cancelled' ? undefined : 'failure' },
       { text: `${f.id} ${rec.outcome}`, role: ok || rec.outcome === 'cancelled' ? 'strong' : 'failure' }, { text: `: ${rec.why ?? ''}${tail}`, role: 'secondary' }]];
+    // R4 (H46): what the change check did not look into, as the other flows say it.
+    const unseen = notComparedText(rec.agent?.compared);
+    if (unseen) lines.push([{ text: `      not compared while the agent ran: ${unseen}`, role: 'secondary' }]);
     if (f.comp) lines.push([{ text: '      After Effects reported: ', role: 'secondary' }, { text: this.d.scrub(aeCompsLine([f.comp]).replace(/^1 comp: /, ''), f.root), role: 'strong' }, { text: `${this.sep}${AE_REPORTED_BY}`, role: 'secondary' }]);
     const ba = rec.before_after;
     if (ba?.changes) lines.push([{ text: `      before ${g.arrow} after: `, role: 'secondary' }, { text: ba.changes.length ? ba.changes.slice(0, 6).join('; ') : 'no change in what After Effects reported', role: 'strong' }, { text: `${this.sep}run ${ba.before?.run.slice(0, 8)} ${g.arrow} run ${ba.after?.run.slice(0, 8)}, as After Effects reported each`, role: 'secondary' }]);

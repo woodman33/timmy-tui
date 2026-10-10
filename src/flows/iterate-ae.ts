@@ -20,7 +20,7 @@
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
-import { SNAPSHOT_SKIP, type ChangeSet } from '../code-agents/index.js';
+import { SNAPSHOT_SKIP, type ChangeSet, type ComparedScope } from '../code-agents/index.js';
 import { aeSpecFromRecord, type AeCompReport, type AeKeyed, type AeLayerReport, type AeValue } from '../native/ae-author.js';
 import { listNativeRuns, readNativeRecord } from '../native/index.js';
 import { packagedPath, packageRoot } from '../utils/asset-dirs.js';
@@ -722,6 +722,8 @@ export interface AeFlowAgentPart {
   files_changed?: Array<{ path: string; how: 'added' | 'changed' | 'deleted'; sha256_before?: string | null; sha256_after?: string | null }>;
   /** files other than the script it changed (the flow stopped before After Effects ran; nothing was reverted) */
   others?: OtherChange[];
+  /** R4 (H46): what the change check compared (the whole project, .timmy and dist included), as the other flows keep it */
+  compared?: ComparedScope;
   result?: string; transcript?: string; progress?: string;
   cost_usd?: number | null; cost_basis?: string;
   receipt?: string;
