@@ -126,6 +126,12 @@ export interface SlashCommand {
   name: string;
   description: string;
   group: CommandGroup;
+  /**
+   * R4 (H40): true gives run() its arguments as typed: everything after the command's name and the spaces after it,
+   * the line's two ends trimmed, every space inside kept (/mcp call's JSON holds strings whose spaces are data).
+   * Without it a command gets its words joined by one space, as before.
+   */
+  raw?: true;
   /** A command may wait (a live check); the REPL waits for it before the next prompt. */
   run(args: string, ctx: ReplContext): CommandResult | Promise<CommandResult>;
 }
@@ -165,7 +171,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'scad', group: 'work', description: 'OpenSCAD to STL, read back: /scad <m.scad>', run: inWorkspace((w, a) => (w.scad ? w.scad(a) : [[{ text: '  /scad is not available here.', role: 'secondary' }]])) },
   { name: 'freecad', group: 'work', description: 'FreeCAD Python as a job: /freecad <script.py>', run: inWorkspace((w, a) => (w.freecad ? w.freecad(a) : [[{ text: '  FreeCAD is not available here.', role: 'secondary' }]])) },
   { name: 'recipe', group: 'work', description: 'CadQuery tray recipe as a job: /recipe tray', run: inWorkspace((w, a) => w.recipe(a)) },
-  { name: 'mcp', group: 'setup', description: 'MCP servers and tools: /mcp [tools|call]', run: inWorkspace((w, a) => w.mcp(a)) },
+  // R4 (H40): /mcp gets its line as typed, so a JSON string's runs of spaces reach the server as they were written.
+  { name: 'mcp', group: 'setup', description: 'MCP servers and tools: /mcp [tools|call]', raw: true, run: inWorkspace((w, a) => w.mcp(a)) },
   // Round R3 (helper H13): a code agent as a durable, cancellable job.
   { name: 'agent', group: 'work', description: 'A code agent as a job: /agent qwen <task>', run: inWorkspace((w, a) => (w.agent ? w.agent(a) : [[{ text: '  Code agents are not available here.', role: 'secondary' }]])) },
   // Round R4 (helper H24): the connected flow: agent, durable rebuild, independent readback, on the board.
@@ -318,14 +325,16 @@ export const COMMANDS: SlashCommand[] = [
 
 /** Runs a command: at once for most, or a promise for one that waits on a live check (round R1). */
 export function runSlash(input: string, ctx: ReplContext): 'exit' | 'handled' | Promise<'exit' | 'handled'> {
-  const [word, ...rest] = input.trim().slice(1).split(/\s+/);
+  const line = input.trim().slice(1);
+  const [word, ...rest] = line.split(/\s+/);
   const command = COMMANDS.find((c) => c.name === word);
   if (!command) {
     const near = nearest(word, COMMANDS.map((c) => c.name));
     ctx.print([{ text: `  Unknown command: /${word}.${near ? ` Did you mean /${near}?` : ''} Type /help for available commands.`, role: 'secondary' }]);
     return 'handled';
   }
-  const ran = command.run(rest.join(' ').trim(), ctx);
+  // R4 (H40): a raw command gets the line after its name as typed; the others, its words joined by one space.
+  const ran = command.run(command.raw ? line.slice(word.length).trim() : rest.join(' ').trim(), ctx);
   const settle = (r: CommandResult): 'exit' | 'handled' => (r === 'exit' ? 'exit' : 'handled');
   return ran instanceof Promise ? ran.then(settle) : settle(ran);
 }
