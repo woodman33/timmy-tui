@@ -18,6 +18,8 @@ import { publicTemplates } from './templates.js';
 import { FONT_FILES, HOMEBREW, TYPE, themeCss } from '../theme/tokens.js';
 // Round R4 (H55): the project the REPL names, and the read-only project API built from the board's readers.
 import { dropProjectToken, mountProjectRoutes, ProjectLink, writeProjectToken } from './project-link.js';
+// Round R4 (H75): the drawn cards' actions, carried to the REPL that holds the project (this server runs none of them).
+import { CardRelay, mountCardRoutes } from './card-relay.js';
 
 export { STUDIO_PORT };
 
@@ -41,6 +43,9 @@ export interface StudioOptions {
 
 /** R4 (H55): the server, with the token its REPL names the active project with. */
 export type StudioServer = Server & { projectToken: string };
+
+/** R4 (H75): the card relay a server uses, with the port its page routes check Host and Origin against. */
+export interface CardWiring { relay: CardRelay; port: () => number }
 
 /** companion/studio-canvas, found from the source (src/studio) or the build (dist/src/studio). */
 export function studioRoot(): string {
@@ -84,7 +89,7 @@ const NOT_BUILT = `<!doctype html><html lang="en"><head><meta charset="utf-8"><t
 <p>Its tldraw bundle (dist/canvas.js) is missing. In the Timmy checkout, run:</p>
 <p><code>npm run build:canvas</code></p><p>then reload this page.</p></body></html>`;
 
-export function createStudioApp(options: StudioOptions = {}, bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs), link = new ProjectLink(options.projectToken)): express.Express {
+export function createStudioApp(options: StudioOptions = {}, bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs), link = new ProjectLink(options.projectToken), cardWiring: CardWiring = { relay: new CardRelay(), port: () => STUDIO_PORT }): express.Express {
   const env = options.env ?? process.env;
   const maxCanvasBytes = options.maxCanvasBytes ?? MAX_CANVAS_BYTES;
   const savedIn = options.canvasDir ?? canvasDir(env);
@@ -199,8 +204,11 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     }
     res.status(outcome.status).set('Cache-Control', 'no-store').json(outcome.body);
   });
-  // R4 (H55): the active project, named by the REPL (token), and its cards, read-only.
-  mountProjectRoutes(app, { link, pageOpen: () => bridge.open });
+  // R4 (H55): the active project, named by the REPL (token), and its cards, read-only. R4 (H75): with whether a REPL takes
+  // the drawn cards' actions, and those actions carried to it.
+  const { relay } = cardWiring;
+  mountProjectRoutes(app, { link, pageOpen: () => bridge.open, holding: (p) => relay.listening(p.holder), named: (p) => relay.heldBy(p.holder) });
+  mountCardRoutes(app, { link, relay, port: cardWiring.port });
   // C-13: the receipt pages, served by the same local server, with a text fallback.
   mountReceiptPages(app, options.receipts);
   // Checked on every request, so building while Timmy runs needs only a reload.
@@ -220,7 +228,10 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
 export async function startStudioServer(port = STUDIO_PORT, options: StudioOptions = {}): Promise<StudioServer> {
   const bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs);
   const link = new ProjectLink(options.projectToken);
-  const server = Object.assign(createServer(createStudioApp(options, bridge, link)), { projectToken: link.token });
+  // R4 (H75): the page routes' Host and Origin rule needs the port this server is bound to.
+  const relay = new CardRelay();
+  let bound = 0;
+  const server = Object.assign(createServer(createStudioApp(options, bridge, link, { relay, port: () => bound })), { projectToken: link.token });
   bridge.attach(server);
   // R4 (H55): where the token is kept for other REPLs of this Timmy home, once the port is known.
   const tokenDir = options.canvasDir ?? canvasDir(options.env ?? process.env);
@@ -230,6 +241,7 @@ export async function startStudioServer(port = STUDIO_PORT, options: StudioOptio
   const closeServer = server.close.bind(server);
   server.close = ((done?: (err?: Error) => void) => {
     bridge.close();
+    relay.close();
     if (tokenPort) dropProjectToken(tokenDir, tokenPort, link.token);
     return closeServer(done);
   }) as StudioServer['close'];
@@ -237,6 +249,8 @@ export async function startStudioServer(port = STUDIO_PORT, options: StudioOptio
     server.once('error', reject);
     server.listen(port, '127.0.0.1', () => {
       server.removeListener('error', reject);
+      const at = server.address();
+      bound = typeof at === 'object' && at ? at.port : 0;
       resolve();
     });
   });

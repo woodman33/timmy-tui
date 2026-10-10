@@ -26,7 +26,7 @@ import { JobManager, type JobRecord } from '../jobs/index.js';
 import { paramsFileFor, readScadParams } from '../native/scad-params.js';
 import { listProjectFiles, projectId, readProjectFile, sameFolder, type ProjectFile, type ReadResult } from '../project/index.js';
 import { PARAMETER_NAMES } from '../recipes/index.js';
-import { paramsCard } from '../repl/board-cards.js';
+import { paramsCard, recipeResults } from '../repl/board-cards.js';
 import { readBoardFlows, type BoardFlow, type BoardFlows } from '../repl/board-flows.js';
 import { workflowForBoard } from '../repl/board-nodes.js';
 import { readBoardVox } from '../repl/board-vox.js';
@@ -34,6 +34,8 @@ import { connectWorkflow, mentions, TRAY_PARAMS } from '../repl/board-workflows.
 import { gatherRoom, type RoomRun } from '../room/index.js';
 import type { Receipt } from '../utils/receipts.js';
 import { findWorkflowDocs } from '../workflows/upmd.js';
+// R4 (H75): what Timmy Canvas's own drawn cards show, built from the same readers (GET /api/project?detail=1).
+import { flowResult, runResult, scadDetail, trayDetail, voxResult, workflowDetail, type CardDetail } from './card-detail.js';
 
 export type ProjectCardKind = 'workflow' | 'params' | 'flow' | 'vox' | 'run' | 'unreadable';
 
@@ -55,6 +57,8 @@ export interface ProjectCard {
   section: 'room' | 'workflows' | 'parameters' | 'flows' | 'voxvision';
   /** VoxVision: the highlight images its check shows, relative to the project */
   highlights?: string[];
+  /** R4 (H75): what the canvas's drawn card shows (src/studio/card-detail.ts); only when asked for (detail: true) */
+  detail?: CardDetail;
 }
 
 export interface ProjectCards {
@@ -143,6 +147,8 @@ function workflowCards(c: Ctx): ProjectCard[] {
     try {
       w = connectWorkflow(view, { root: c.root, jobs: c.jobs, chain: c.chain, files: c.rels, scrub: c.scrub, tray: () => paramsCard(c.root) });
     } catch { w = view; }
+    // R4 (H75): the OpenSCAD models whose parameter file this card shows: the live board's save path takes only these.
+    for (const v of w.connected?.scad ?? []) c.scadShown.add(v.model);
     const names = w.blocks.map((b) => b.name);
     const run = w.connected?.runs.find((x) => x.job === w.connected?.latest) ?? w.connected?.runs[0];
     const title = (r.ok && r.text ? /^#{1,6}[ \t]+(.+?)[ \t#]*$/m.exec(r.text)?.[1] : undefined) ?? doc.rel;
@@ -155,6 +161,7 @@ function workflowCards(c: Ctx): ProjectCard[] {
     return {
       id: `workflow:${doc.rel}`, kind: 'workflow', title: c.text(title, 160), state: c.text(state), record: doc.rel,
       receipt: run?.receipt ?? null, command: c.text(runCmd, 400), section: 'workflows',
+      ...(c.detail ? { detail: workflowDetail(w, c.text) } : {}),
     };
   });
 }
@@ -178,6 +185,8 @@ function paramsCards(c: Ctx): ProjectCard[] {
       id: `params:${tray.path}`, kind: 'params', title: c.text(`Tray recipe parameters (${tray.path})`, 160), state: c.text(state),
       record: tray.file.state === 'none' ? null : tray.path, receipt: tray.file.state === 'none' ? null : receiptNaming(c.chain, tray.path, c.pid),
       command: `/recipe ${tray.recipe}`, section: 'parameters',
+      // R4 (H75): with the newest build, as the board's own recipe result card says it.
+      ...(c.detail ? { detail: trayDetail(tray, recipeResults(c.root, 1)[0], c.text) } : {}),
     });
   }
   // OpenSCAD: every model in the project with its parameter file beside it, or named by a workflow.
@@ -193,6 +202,7 @@ function paramsCards(c: Ctx): ProjectCard[] {
       id: `params:${file}`, kind: 'params', title: c.text(`OpenSCAD parameters of ${model} (${file})`, 160), state: c.text(state),
       record: read.ok && !read.exists ? null : file, receipt: read.ok && !read.exists ? null : receiptNaming(c.chain, file, c.pid),
       command: c.text(word(model) ? `/scad ${model}` : `/open ${file}`, 400), section: 'workflows',
+      ...(c.detail ? { detail: scadDetail(model, file, read, c.scadShown.has(model), c.text) } : {}),
     });
   }
   return out;
@@ -211,6 +221,7 @@ function flowCard(f: BoardFlow, c: Ctx): ProjectCard {
     return {
       id: `flow:${id}`, kind: 'flow', title: c.text(title, 160), state: c.text(`running: ${step}, as its state file says (written ${f.live.written})`),
       record: f.file, receipt: null, command: `/stop ${id}`, section: 'flows',
+      ...(c.detail ? { detail: flowResult(f, c.root, c.text) } : {}),
     };
   }
   const readback = r.readback && typeof r.readback === 'object' ? r.readback as Record<string, unknown> : undefined;
@@ -221,6 +232,7 @@ function flowCard(f: BoardFlow, c: Ctx): ProjectCard {
     id: `flow:${id}`, kind: 'flow', title: c.text(title, 160), state: c.text(`${outcome}${verdict}${f.check.status === 'verified' ? '' : ' (as the file says)'} · ${check}`),
     record: f.file, receipt: f.check.status === 'verified' ? f.check.receipt ?? null : null,
     command: FLOW_ID.test(id) ? `/room ${id}` : '/iterate', section: 'flows',
+    ...(c.detail ? { detail: flowResult(f, c.root, c.text) } : {}),
   };
 }
 
@@ -248,6 +260,7 @@ function voxCards(c: Ctx): ProjectCard[] {
       state: c.text(`${v.status} · ${check} · ${shown.length} highlight${shown.length === 1 ? '' : 's'} shown${failures}`),
       record: v.file, receipt,
       command: c.text(v.command ?? `/inspect ${v.inputs[0]?.path ?? v.file}`, 400), section: 'voxvision', highlights: shown,
+      ...(c.detail ? { detail: voxResult(v, receipt, c.root, c.text) } : {}),
     };
   });
 }
@@ -269,6 +282,7 @@ function runCards(c: Ctx, flows: BoardFlows): ProjectCard[] {
     return [{
       id, kind: 'run', title: c.text(`${r.owner} · ${r.id}`, 160), state: c.text(`${r.state}${r.step ? ` · ${r.step}` : ''}${r.recordNote ? ` · ${r.recordNote}` : ''}`),
       record: r.record ?? null, receipt: r.receipt ?? null, command: c.text(command, 400), section: 'room',
+      ...(c.detail ? { detail: runResult(r, c.root, c.text) } : {}),
     }];
   });
 }
@@ -313,6 +327,10 @@ interface Ctx {
   notes: string[];
   scrub: (t: string) => string;
   text: (t: unknown, max?: number) => string;
+  /** R4 (H75): give each card its drawn card's detail */
+  detail: boolean;
+  /** R4 (H75): the OpenSCAD models a workflow card shows the parameter file of (filled by the workflow cards, read by the parameter cards) */
+  scadShown: Set<string>;
 }
 
 /**
@@ -320,7 +338,7 @@ interface Ctx {
  * read from the store and the jobs folder the REPL named. Each part is read inside its own guard: a part that throws
  * becomes a note, never a failed answer.
  */
-export function projectCards(src: CardSource, given: { chain?: Receipt[]; jobs?: JobRecord[] } = {}): ProjectCards {
+export function projectCards(src: CardSource, given: { chain?: Receipt[]; jobs?: JobRecord[] } = {}, o: { detail?: boolean } = {}): ProjectCards {
   const root = src.root;
   const notes: string[] = [];
   let listed: { files: ProjectFile[]; truncated: boolean };
@@ -339,6 +357,8 @@ export function projectCards(src: CardSource, given: { chain?: Receipt[]; jobs?:
     notes,
     scrub: (t) => scrubPaths(t, root),
     text: (t, max) => cardText(t, root, max),
+    detail: o.detail === true,
+    scadShown: new Set<string>(),
   };
   const part = <T>(what: string, read: () => T[]): T[] => {
     try { return read(); } catch (e) { notes.push(`The ${what} could not be read: ${cardText(e instanceof Error ? e.message : String(e), root)}`); return []; }

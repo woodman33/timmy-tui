@@ -32,10 +32,13 @@ describe('Timmy Canvas loads nothing from another host', () => {
     const code = readFileSync(join(page, 'src', 'canvas.js'), 'utf8');
     const imports = [...code.matchAll(/^import (?:[^'\n]+ from )?'([^']+)';$/gm)].map((m) => m[1]);
     // R4 (H55): and the page's own Project panel, a file beside it that imports nothing.
-    expect(imports).toEqual(['react', 'react-dom/client', 'tldraw', '@tldraw/assets/selfHosted', 'tldraw/tldraw.css', './project.js']);
-    const panel = readFileSync(join(page, 'src', 'project.js'), 'utf8');
-    expect([...panel.matchAll(/^import\b/gm)]).toEqual([]);
-    expect(panel).not.toMatch(/https?:\/\/(?!127\.0\.0\.1)/);
+    // R4 (H75): and the drawn cards, a file beside it that imports nothing either (canvas.js hands it React and tldraw).
+    expect(imports).toEqual(['react', 'react-dom/client', 'tldraw', '@tldraw/assets/selfHosted', 'tldraw/tldraw.css', './project.js', './cards.js']);
+    for (const file of ['project.js', 'cards.js']) {
+      const own = readFileSync(join(page, 'src', file), 'utf8');
+      expect([...own.matchAll(/^import\b/gm)], file).toEqual([]);
+      expect(own, file).not.toMatch(/https?:\/\/(?!127\.0\.0\.1)/);
+    }
   });
   it('pins tldraw and its assets at the version Timmy names, as build-time dependencies only', () => {
     const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as Record<string, Record<string, string>>;

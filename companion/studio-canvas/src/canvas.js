@@ -6,10 +6,19 @@
 // from there: it reopens where it was, and the terminal reads the same document.
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { Box, Tldraw, Vec, createBindingId, createShapeId, getSnapshot, toRichText } from 'tldraw';
+import { BaseBoxShapeUtil, Box, HTMLContainer, T, Tldraw, Vec, atom, createBindingId, createShapeId, getSnapshot, resizeBox, toRichText, useValue } from 'tldraw';
 import { getAssetUrls } from '@tldraw/assets/selfHosted';
 import 'tldraw/tldraw.css';
 import { createProjectPanel } from './project.js';
+import { createCards, drawnType } from './cards.js';
+
+// Round R4 (H75): the one-time grant /canvas open puts in this page's address (#code=…). It is taken out of the address at
+// once (a fragment is never sent to a server) and traded for a session before anything else runs (./cards.js).
+const GRANT_AT_LOAD = (() => {
+  const m = /^#code=([0-9a-f]{32})$/.exec(location.hash);
+  if (m) { try { history.replaceState(null, '', location.pathname + location.search); } catch { /* the grant is good once */ } }
+  return m ? m[1] : null;
+})();
 
 /* global __TLDRAW_VERSION__ */
 /** The tldraw version this bundle was built from (scripts/canvas/build.mjs). */
@@ -44,6 +53,12 @@ const canvas = { revision: 0, savedRevision: 0, sourceRevision: null, conflict: 
  * never an editor kept from the first mount.
  */
 let current = null;
+
+// Round R4 (H75): Timmy Canvas's own drawn cards (workflow, parameter and result), and the session their actions go with.
+const cards = createCards({
+  React, BaseBoxShapeUtil, HTMLContainer, T, atom, useValue, resizeBox, createShapeId, grant: GRANT_AT_LOAD,
+  editor: () => current, place: (editor) => placeAt(editor), reveal: (editor, ids) => reveal(editor, ids),
+});
 
 function showStatus(editor) {
   const state = editor.licenseManager?.state.get() ?? 'unknown';
@@ -390,8 +405,18 @@ function connectPanel() {
   void offerBoards();
   void refreshJobs();
   setInterval(() => { if (document.visibilityState === 'visible') void refreshJobs(); }, 5000);
-  // Round R4 (H55): the project the REPL named, as cards to place on the canvas (./project.js).
-  projectPanel = createProjectPanel({ editor: () => current, toRichText, createShapeId, place: placeAt, reveal });
+  // Round R4 (H55): the project the REPL named, as cards to place on the canvas (./project.js). R4 (H75): read with each card's
+  // drawn detail, which the drawn cards follow; Place card makes one; the reading comes faster while a card's job runs.
+  projectPanel = createProjectPanel({
+    editor: () => current, toRichText, createShapeId, place: placeAt, reveal,
+    detail: true, onAnswer: (now) => cards.onAnswer(now), fast: () => cards.wantsFast(),
+    drawable: (kind) => drawnType(kind) !== null, placeCard: (id, now) => cards.place(id, now),
+  });
+  cards.setPoll(() => projectPanel.poll());
+  const s = cards.session();
+  const acts = document.getElementById('project-acts');
+  acts.textContent = s.words;
+  acts.dataset.kind = s.state;
 }
 
 // Round R4 (H55): where a placed project card goes: the middle of the area beside Timmy's panel, each next one a step
@@ -453,6 +478,8 @@ function mount(snapshot) {
           window.timmyCanvas = {
             editor, tldrawVersion: BUILT_WITH, licenseState: window.timmyCanvas?.licenseState ?? 'pending', document: canvas, mounts,
             placeProjectCard, refreshProjectCards: () => (projectPanel ? projectPanel.refreshAll() : Promise.reject(new Error('The project panel is not ready yet.'))),
+            // R4 (H75): a drawn card of the project (it places a shape; acting needs a person's click on it)
+            placeDrawnCard: (id) => (projectPanel ? projectPanel.placeCard(String(id)) : Promise.reject(new Error('The project panel is not ready yet.'))),
           };
           attachEditor(editor);
           followEditor(editor);
@@ -483,7 +510,12 @@ async function start() {
   canvas.sourceRevision = saved.sourceRevision;
   canvas.notice = saved.notice ?? null;
   say('Loading the canvas: starting tldraw', 'loading');
+  // R4 (H75): this page's grant becomes its session before tldraw starts (and before the agent's bridge connects).
+  if (GRANT_AT_LOAD) say('Loading the canvas: opening this page\'s session with Timmy', 'loading');
+  await cards.startSession();
   tldrawProps = {
+    // R4 (H75): Timmy's drawn cards beside tldraw's own shapes
+    shapeUtils: cards.utils,
     licenseKey: config.licenseKey ?? undefined,
     // tldraw's fonts, icons, translations and embed icons, served by Timmy beside this bundle.
     assetUrls: getAssetUrls({ baseUrl: new URL('assets/', import.meta.url).href }),

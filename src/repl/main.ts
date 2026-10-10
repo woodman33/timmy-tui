@@ -320,6 +320,8 @@ export async function runRepl(argv: string[]): Promise<number> {
     project: () => workspace.project, projectId: (root) => projectId(root),
     jobsDir: join(timmyHome(), 'jobs'), receipts: () => receiptsDir(),
     board: () => workspace.liveBoard?.address ?? null, ownToken: () => ownToken,
+    // R4 (H75): the canvas's drawn cards act through this REPL, by the live board's own path.
+    act: (envelope) => workspace.canvasAct(envelope),
   });
   const ensureCanvas = (): Promise<EnsureResult> | null => {
     if (external) return null;
@@ -390,10 +392,11 @@ export async function runRepl(argv: string[]): Promise<number> {
       return done.state === 'failed' ? { state: 'failed', error: done.error } : { state: done.state };
     },
     health: (base) => studioHealth(base),
-    open: () => openWeb('studio', false),
+    // R4 (H75): the page opens with this REPL's one-time grant in its fragment (a secret: never on a command line), so its cards can act.
+    open: () => { const t = canvasProject.openTarget(); return openWeb(t.target, false, t.secret); },
     glyphs: theme.glyphs,
     // R4 (H55): /canvas names the project the canvas shows; /canvas open names this REPL's project to it first.
-    project: { handOff: () => canvasProject.handOff(), check: () => canvasProject.check(), mine: () => ({ name: workspace.project.name, id: projectId(workspace.root) }) },
+    project: { handOff: () => canvasProject.handOff({ grant: true }), check: () => canvasProject.check(), mine: () => ({ name: workspace.project.name, id: projectId(workspace.root) }) },
   });
   // Round R1: /tools, every capability on the ladder, from live checks that write nothing.
   const tools = async (args: string): Promise<Segment[][]> => {
