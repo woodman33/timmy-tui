@@ -15,10 +15,13 @@
  *   5. a second, separate Blender process opens the one .blend the run's result names
  *      (`blender -b <file> --factory-startup --python workers/readback/blend_readback.py`) and prints what it holds;
  *      Timmy hashes the file itself before and after; what was read is compared with what the run's result reported
- *      (objects, materials, camera, and the resolution and frames when reported): matches, differs or failed;
+ *      (objects, materials, camera, and the resolution and frames when reported; R4, H37: each object's world-space
+ *      bounding box, within 1e-6 Blender units): matches, differs or failed;
  *   6. the flow record (results/flows/<flow-id>.json) and a `flow` receipt binding its sha256 and the child receipts
  *      (the agent's, the Blender run's native receipt, the second pass's). Every raw failure stays where it was
- *      written, and the record names it.
+ *      written, and the record names it. R4 (H37): the record's `dimensions` sets the sizes Blender's run reported
+ *      against those of a judged-ok Blender run of the same script from before the flow (looked for when it starts),
+ *      and the end lines show the objects whose size changed and a count of the rest.
  *
  * /stop <flow-id> stops the step that runs: the agent's job, the Blender job, the second pass's job (and the syntax
  * check's python3, through the flow's abort). /stop all and the REPL's end stop every flow. The second pass is the
@@ -35,8 +38,9 @@ import { projectId, resolveInside } from '../project/index.js';
 import { DOCTRINE_15, FLOW_SCHEMA, flowRecordPath, flowWorkDir, newFlowId, writeProjectJson } from '../flows/iterate.js';
 import {
   BLEND_READBACK_MAX_OUTPUT, BLEND_READBACK_SCOPE, BLEND_READBACK_SCRIPT, BLEND_READBACK_TIMEOUT_MS, blenderIterateTask, changeText, compareBlendReadback,
-  differencesText, judgeScriptChanges, parseBlendReadback, parseSyntaxOutput, reportedByResult, SCRIPT_MAX_BYTES, scriptChange, SYNTAX_CHECK_CODE, SYNTAX_TIMEOUT_MS,
-  syntaxText, unseenFolder, type BlendReadback, type BlendReadbackFailure, type BlendVerdict, type BlenderFlowRecord, type BlenderFlowStep, type SyntaxCheck,
+  differencesText, DIMENSIONS_SCOPE, dimensionsSummary, dimensionsText, findBeforeRun, judgeScriptChanges, parseBlendReadback, parseSyntaxOutput, reportedByResult,
+  SCRIPT_MAX_BYTES, scriptChange, SYNTAX_CHECK_CODE, SYNTAX_TIMEOUT_MS, syntaxText, unseenFolder, type BlendReadback, type BlendReadbackFailure, type BlendVerdict,
+  type BlenderFlowRecord, type BlenderFlowStep, type DimensionsBefore, type SyntaxCheck,
 } from '../flows/iterate-blender.js';
 import type { IterateDeps } from './iterate.js';
 import type { Segment } from '../term/theme.js';
@@ -65,6 +69,8 @@ interface BlenderRun {
   done?: Promise<BlenderFlowRecord>;
   receipt?: string;
   recordFile?: string;
+  /** R4 (H37): a judged-ok Blender run of the script as it was, from before the flow started (its object sizes), or why none */
+  before?: { ok: true; before: DimensionsBefore } | { ok: false; why: string };
 }
 
 type Started = { ok: true; flow: BlenderRun; lines: Line[] } | { ok: false; error: string; lines: Line[] };
@@ -180,6 +186,10 @@ export class BlenderFlows {
       receipts: {}, child_receipts: [], doctrine: DOCTRINE_15,
     };
     const flow: BlenderRun = { id, root, project, record, abort: new AbortController(), step: 'agent', beforeText, agentJob: s.job.id, agentRecord: s.record };
+    // R4 (H37): the object sizes from before, as a judged-ok Blender run of these same bytes reported them (read only)
+    try { flow.before = findBeforeRun(root, { path: rel, sha256: record.script.before.sha256 }, record.started_at); } catch (e) {
+      flow.before = { ok: false, why: `the runs from before could not be read (${scrub(e instanceof Error ? e.message : String(e))})` };
+    }
     this.running.set(id, flow);
     this.saveState(flow);
     flow.done = this.run(flow).finally(() => { this.running.delete(id); });
@@ -530,7 +540,7 @@ export class BlenderFlows {
           {
             flow: f.id, worker: r.worker ? `${r.worker.name} ${r.worker.version}` : null, blender_version: r.blender_version ?? null,
             read: read ? { objects: read.objects_total, materials: read.materials.length, materials_used: read.materials_used, active_camera: read.active_camera, frame_range: read.frame_range, render_resolution: read.render_resolution } : null,
-            checks: (r.checks ?? []).map((c) => ({ name: c.name, passed: c.passed })), verdict: r.verdict ?? null, scope: BLEND_READBACK_SCOPE, units: 'Blender units',
+            checks: (r.checks ?? []).map((c) => ({ name: c.name, passed: c.passed, ...(c.tolerance !== undefined ? { tolerance: c.tolerance } : {}) })), verdict: r.verdict ?? null, scope: BLEND_READBACK_SCOPE, units: 'Blender units',
           },
         ],
         ...(f.record.receipts.blender ? { child_receipts: [f.record.receipts.blender] } : {}),
@@ -544,6 +554,16 @@ export class BlenderFlows {
     f.step = 'record';
     const rec = f.record;
     rec.ended_at = new Date().toISOString();
+    // R4 (H37): the objects' sizes before and after, when Blender's run was judged ok and reported them
+    const after = rec.blender?.outcome === 'ok' ? rec.blender.reported?.bounds : undefined;
+    if (after) {
+      const check = rec.readback?.checks?.find((c) => c.name === 'dimensions');
+      const before = f.before?.ok ? f.before.before : null;
+      rec.dimensions = dimensionsSummary({
+        after, before, ...(f.before && !f.before.ok ? { beforeWhy: f.before.why } : {}), ...(check ? { check } : {}),
+        notCompared: rec.readback?.reason ?? (rec.readback ? rec.why : 'the second pass did not run'),
+      });
+    }
     const r = rec.receipts;
     rec.child_receipts = [r.agent, r.blender, r.readback].filter((x): x is string => typeof x === 'string');
     const w = writeProjectJson(f.root, flowRecordPath(f.id), rec);
@@ -587,6 +607,13 @@ export class BlenderFlows {
         role: 'strong',
       }, { text: `${this.sep}${k.worker ? `${k.worker.name} ${k.worker.version}` : 'worker unknown'}${k.blender_version ? `${this.sep}Blender ${k.blender_version}` : ''}${this.sep}${k.verdict ?? 'no verdict'}`, role: 'secondary' }]);
       lines.push([{ text: `      ${BLEND_READBACK_SCOPE}`, role: 'secondary' }]);
+    }
+    // R4 (H37): only the objects whose size changed, and a count of the rest; where the sizes before come from
+    if (rec.dimensions) {
+      const t = dimensionsText(rec.dimensions, 6);
+      lines.push([{ text: '      sizes: ', role: 'secondary' }, { text: t.sizes, role: rec.dimensions.after.agrees === false ? 'failure' : 'strong' }]);
+      lines.push([{ text: `      ${t.detail}`, role: 'secondary' }]);
+      lines.push([{ text: `      ${DIMENSIONS_SCOPE} ${DOCTRINE_15}`, role: 'secondary' }]);
     }
     return lines;
   }

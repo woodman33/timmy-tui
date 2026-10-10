@@ -19,8 +19,26 @@ when it is imported (tests/fixtures/fake-blender.mjs sets it for /iterate's seco
 workers/readback/blend_readback.py). A file that is not a stand-in .blend leaves no file open (bpy.data.filepath
 ''), as Blender keeps its startup scene when it cannot read a file. Dimensions here come from the primitives'
 arguments (a plane has no depth), not from any geometry.
+
+Round R4 (H37, object dimensions): a mesh object's geometry is its primitive's local bounding box, from the
+operator's arguments (a cube of size s spans -s/2..s/2; a UV sphere of radius r, -r..r; a cylinder of radius r and
+depth d, -r..r and -d/2..d/2; a plane of size s, -s/2..s/2 with no depth), never measured from vertices. From it, as
+the Blender Python API documents them:
+  Object.bound_box      its 8 corners in object space, in Blender's corner order; all -1.0 for an object without
+                        geometry (an empty, a camera, a light), as Blender gives when no bounding box is available
+  Object.matrix_world   location, rotation_euler (XYZ) and scale as a 4x4 matrix (rows, indexed m[row][col]);
+                        constraints (the starter camera's Track To) and parents are NOT applied here
+  Object.dimensions     the bounding box's extent times the absolute scale; setting it sets the scale, as in Blender
+  Object.evaluated_get  the object itself: the stand-in has no modifiers, so the evaluated object is the original
+  Context.evaluated_depsgraph_get   a depsgraph that only names the scene and its view layer
+  Scene.unit_settings   system METRIC, scale_length 1.0, length_unit METERS (Blender's factory settings)
+The stand-in .blend keeps each object's local bounds, location, rotation and scale, and the unit settings, so the
+second pass rebuilds the same transforms. The stand-in render's bytes now depend on the scene (its objects' names,
+transforms and bounds, after the PNG signature), so a changed scene renders other bytes, as a real render would.
 """
+import hashlib
 import json
+import math
 import os
 import sys
 
@@ -94,6 +112,8 @@ class _Mesh(object):
     def __init__(self, name):
         self.name = name
         self.materials = []
+        # R4 (H37): its local bounding box, (min, max) in object space; None until a primitive operator gives it one
+        self.bounds_local = None
 
 
 class Camera(_Strict):
@@ -148,6 +168,18 @@ class _MaterialSlot(object):
         self.name = material.name if material is not None else ""
 
 
+def _euler_xyz(rx, ry, rz):
+    """Blender's eul_to_mat3 for the XYZ order (R = Rz Ry Rx), as rows."""
+    ci, cj, ch = math.cos(rx), math.cos(ry), math.cos(rz)
+    si, sj, sh = math.sin(rx), math.sin(ry), math.sin(rz)
+    cc, cs, sc, ss = ci * ch, ci * sh, si * ch, si * sh
+    return (
+        (cj * ch, sj * sc - cs, sj * cc + ss),
+        (cj * sh, sj * ss + cc, sj * cs - sc),
+        (-sj, cj * si, cj * ci),
+    )
+
+
 class Object(_Strict):
     _fields = ("name", "data", "location", "rotation_euler", "scale", "constraints", "dimensions")
 
@@ -158,7 +190,62 @@ class Object(_Strict):
         self.rotation_euler = (0.0, 0.0, 0.0)
         self.scale = (1.0, 1.0, 1.0)
         self.constraints = _Constraints()
-        self.dimensions = (0.0, 0.0, 0.0)
+
+    def _bounds(self):
+        """(min, max) in object space, or None: only a mesh with a primitive's bounds has geometry here."""
+        return self.data.bounds_local if isinstance(self.data, _Mesh) else None
+
+    @property
+    def bound_box(self):
+        """The 8 corners of its bounding box in object space, in Blender's order (BKE_boundbox_init_from_minmax);
+        all -1.0 when it has none (Blender's "not available"), as for an empty, a camera or a light."""
+        b = self._bounds()
+        if b is None:
+            return tuple((-1.0, -1.0, -1.0) for _ in range(8))
+        lo, hi = b
+        return (
+            (lo[0], lo[1], lo[2]), (lo[0], lo[1], hi[2]), (lo[0], hi[1], hi[2]), (lo[0], hi[1], lo[2]),
+            (hi[0], lo[1], lo[2]), (hi[0], lo[1], hi[2]), (hi[0], hi[1], hi[2]), (hi[0], hi[1], lo[2]),
+        )
+
+    @property
+    def matrix_world(self):
+        """Location, rotation (XYZ Euler) and scale as a 4x4 matrix, rows indexed m[row][col] as mathutils does.
+        No parent and no constraint is applied (the stand-in has neither in its world matrix)."""
+        r = _euler_xyz(*[float(a) for a in self.rotation_euler])
+        s = [float(a) for a in self.scale]
+        t = [float(a) for a in self.location]
+        # (+ 0.0: no negative zero, which -sin(0) would give)
+        return tuple(tuple(r[i][j] * s[j] + 0.0 for j in range(3)) + (t[i] + 0.0,) for i in range(3)) + ((0.0, 0.0, 0.0, 1.0),)
+
+    @property
+    def dimensions(self):
+        """The bounding box's extent times the absolute scale (Blender: BKE_object_dimensions_get); (0, 0, 0)
+        without geometry."""
+        b = self._bounds()
+        if b is None:
+            return (0.0, 0.0, 0.0)
+        return tuple(abs(float(self.scale[i])) * (b[1][i] - b[0][i]) for i in range(3))
+
+    @dimensions.setter
+    def dimensions(self, value):
+        """Sets the scale so the extent times the scale is `value`, keeping each scale's sign (Blender:
+        BKE_object_dimensions_set); nothing without geometry, nor on an axis of no extent."""
+        b = self._bounds()
+        if b is None:
+            return
+        scale = list(self.scale)
+        for i in range(3):
+            extent = b[1][i] - b[0][i]
+            if extent:
+                scale[i] = math.copysign(float(value[i]) / extent, scale[i] or 1.0)
+        self.scale = tuple(scale)
+
+    def evaluated_get(self, depsgraph):
+        """The evaluated object: the object itself (the stand-in has no modifiers to evaluate)."""
+        if not isinstance(depsgraph, _Depsgraph):
+            raise TypeError("evaluated_get expects a Depsgraph (stand-in bpy)")
+        return self
 
     @property
     def type(self):
@@ -306,8 +393,19 @@ class _Display(object):
         self.shading = _Shading()
 
 
+class _UnitSettings(_Strict):
+    """Scene.unit_settings, with Blender's factory values (R4, H37)."""
+    _fields = ("system", "scale_length", "length_unit")
+    _enums = {"system": {"NONE", "METRIC", "IMPERIAL"}}
+
+    def __init__(self):
+        self.system = "METRIC"
+        self.scale_length = 1.0
+        self.length_unit = "METERS"
+
+
 class _Scene(_Strict):
-    _fields = ("name", "collection", "camera", "render", "display", "frame_start", "frame_end")
+    _fields = ("name", "collection", "camera", "render", "display", "frame_start", "frame_end", "unit_settings")
 
     def __init__(self):
         self.name = "Scene"
@@ -318,6 +416,7 @@ class _Scene(_Strict):
         self.display = _Display()
         self.frame_start = 1
         self.frame_end = 250
+        self.unit_settings = _UnitSettings()
 
     def _collections(self):
         out, todo = [], [self.collection]
@@ -348,10 +447,23 @@ class _ViewLayer(object):
         self.objects = _ViewLayerObjects()
 
 
+class _Depsgraph(object):
+    """What Context.evaluated_depsgraph_get returns here: the scene and view layer it is for, nothing evaluated
+    (the stand-in has no modifiers or drivers to evaluate)."""
+
+    def __init__(self, scene, view_layer):
+        self.scene = scene
+        self.view_layer = view_layer
+
+
 class _Context(object):
     def __init__(self):
         self.scene = _Scene()
         self.view_layer = _ViewLayer()
+
+    def evaluated_depsgraph_get(self):
+        """R4 (H37): the depsgraph of the context's scene and view layer."""
+        return _Depsgraph(self.scene, self.view_layer)
 
     @property
     def active_object(self):
@@ -382,30 +494,32 @@ app = _App()
 data.scenes.append(context.scene)
 
 
-def _dimensions(kind, dims):
-    """A primitive's size from its operator's arguments (the stand-in has no geometry to measure)."""
+def _local_bounds(kind, dims):
+    """A primitive's local bounding box, (min, max), from its operator's arguments, centred on its origin as
+    Blender builds them (the stand-in has no vertices to measure)."""
     if kind == "plane":
-        s = float(dims.get("size", 2.0))
-        return (s, s, 0.0)
+        h = float(dims.get("size", 2.0)) / 2
+        return ((-h, -h, 0.0), (h, h, 0.0))
     if kind == "cube":
-        s = float(dims.get("size", 2.0))
-        return (s, s, s)
+        h = float(dims.get("size", 2.0)) / 2
+        return ((-h, -h, -h), (h, h, h))
     if kind == "sphere":
         r = float(dims.get("radius", 1.0))
-        return (2 * r, 2 * r, 2 * r)
+        return ((-r, -r, -r), (r, r, r))
     if kind == "cylinder":
         r = float(dims.get("radius", 1.0))
-        return (2 * r, 2 * r, float(dims.get("depth", 2.0)))
-    return (0.0, 0.0, 0.0)
+        h = float(dims.get("depth", 2.0)) / 2
+        return ((-r, -r, -h), (r, r, h))
+    return None
 
 
 def _add_mesh(kind, location, **dims):
     """A mesh object at `location`, linked to the active collection and made active, as the primitive
-    operators do."""
+    operators do; its mesh holds the primitive's local bounds (R4, H37)."""
     mesh = data.meshes.new(kind)
+    mesh.bounds_local = _local_bounds(kind, dims)
     obj = data.objects.new(kind.capitalize(), mesh)
     obj.location = tuple(location)
-    obj.dimensions = _dimensions(kind, dims)
     context.collection.objects.link(obj)
     context.view_layer.objects.active = obj
     return {"FINISHED"}
@@ -433,12 +547,27 @@ def _saved_object(o):
     entry = {
         "name": o.name, "type": o.type, "data": o.data.name if o.data is not None else None,
         "location": list(o.location), "dimensions": list(o.dimensions), "materials": [s.material.name for s in o.material_slots],
+        # R4 (H37): the transform and the geometry's local bounds, so the second pass rebuilds the same object
+        "rotation_euler": list(o.rotation_euler), "scale": list(o.scale),
     }
+    if isinstance(o.data, _Mesh) and o.data.bounds_local is not None:
+        entry["bounds_local"] = [list(o.data.bounds_local[0]), list(o.data.bounds_local[1])]
     if isinstance(o.data, Camera):
         entry["lens"] = o.data.lens
     if isinstance(o.data, Light):
         entry["light_type"] = o.data.type
     return entry
+
+
+def _scene_digest(scene):
+    """What the stand-in render depends on: the scene's objects (names, types, transforms, bounds, materials) and
+    its render settings, hashed. A real render changes when the scene does; so does this one."""
+    r = scene.render
+    objects = sorted(([o.name, o.type, list(o.location), list(o.rotation_euler), list(o.scale), list(o.dimensions),
+                       [s.material.name for s in o.material_slots]] for o in scene.objects), key=lambda x: x[0])
+    body = json.dumps({"objects": objects, "camera": scene.camera.name if scene.camera else None,
+                       "resolution": [r.resolution_x, r.resolution_y], "engine": r.engine}, sort_keys=True)
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
 class _WmOps(object):
@@ -460,6 +589,8 @@ class _WmOps(object):
                         "name": scene.name, "camera": scene.camera.name if scene.camera else None,
                         "frame_start": scene.frame_start, "frame_end": scene.frame_end,
                         "resolution": [r.resolution_x, r.resolution_y], "resolution_percentage": r.resolution_percentage, "engine": r.engine,
+                        # R4 (H37)
+                        "units": {"system": scene.unit_settings.system, "scale_length": scene.unit_settings.scale_length, "length_unit": scene.unit_settings.length_unit},
                     },
                     "materials": [m.name for m in data.materials],
                     "objects": [_saved_object(o) for o in scene.objects],
@@ -480,7 +611,8 @@ class _RenderOps(object):
         if write_still:
             r = scene.render
             with open(r.filepath, "wb") as f:
-                f.write(b"\x89PNG\r\n\x1a\n stand-in %dx%d %s" % (r.resolution_x, r.resolution_y, r.engine.encode()))
+                # R4 (H37): the scene's digest after the signature, so another scene renders other bytes
+                f.write(b"\x89PNG\r\n\x1a\n stand-in %dx%d %s %s" % (r.resolution_x, r.resolution_y, r.engine.encode(), _scene_digest(scene).encode()))
         return {"FINISHED"}
 
 
@@ -515,11 +647,22 @@ def _open(path):
     r.resolution_x, r.resolution_y = res[0], res[1]
     r.resolution_percentage = s.get("resolution_percentage", 100)
     r.engine = s.get("engine", r.engine)
+    units = s.get("units") or {}
+    for key in ("system", "scale_length", "length_unit"):
+        if key in units:
+            setattr(scene.unit_settings, key, units[key])
     for od in objects:
         kind = od.get("type")
         if kind == "MESH":
             obj_data = data.meshes.new(od.get("data") or od["name"])
             obj_data.materials.extend(mats[m] for m in od.get("materials", []) if m in mats)
+            # R4 (H37): its local bounds as saved; a stand-in .blend from before keeps only its dimensions (centred)
+            b = od.get("bounds_local")
+            if b:
+                obj_data.bounds_local = (tuple(b[0]), tuple(b[1]))
+            elif od.get("dimensions"):
+                d = [float(x) / 2 for x in od["dimensions"]]
+                obj_data.bounds_local = ((-d[0], -d[1], -d[2]), (d[0], d[1], d[2]))
         elif kind == "CAMERA":
             obj_data = data.cameras.new(od.get("data") or od["name"])
             obj_data.lens = od.get("lens", 50.0)
@@ -529,7 +672,8 @@ def _open(path):
             obj_data = None
         obj = data.objects.new(od["name"], obj_data)
         obj.location = tuple(od.get("location", (0.0, 0.0, 0.0)))
-        obj.dimensions = tuple(od.get("dimensions", (0.0, 0.0, 0.0)))
+        obj.rotation_euler = tuple(od.get("rotation_euler", (0.0, 0.0, 0.0)))
+        obj.scale = tuple(od.get("scale", (1.0, 1.0, 1.0)))
         context.collection.objects.link(obj)
     if s.get("camera"):
         scene.camera = data.objects.get(s["camera"])

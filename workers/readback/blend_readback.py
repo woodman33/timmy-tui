@@ -18,15 +18,24 @@ off by default). The script writes nothing: it reads, and prints its line.
 
 NOT YET EXERCISED on a real Blender: written against the documented bpy API (bpy.data.filepath, bpy.data.scenes,
 bpy.data.materials, bpy.context.scene, Object.type, Object.dimensions, Object.location, Object.material_slots,
-Scene.camera, Scene.frame_start, Scene.frame_end, RenderSettings.resolution_x and resolution_y) and run here
+Scene.camera, Scene.frame_start, Scene.frame_end, RenderSettings.resolution_x and resolution_y; R4, H37:
+Context.evaluated_depsgraph_get, ID.evaluated_get, Object.bound_box, Object.matrix_world, Scene.unit_settings) and run here
 only with Python 3 against the stand-in bpy (tests/fixtures/blender-stub), whose .blend is JSON. The first real
 run is the operator's, on the Mac.
 
 Values are as Blender reports them: lengths in Blender units (the scene's unit settings are reported, never
 applied), rounded to 1e-6. They describe the generated scene, never a physical object.
 
+Round R4 (H37, object dimensions): "bounds" reports each object of the scene that has a bounding box (a mesh, a
+curve, a text, anything Blender gives one; an empty, a camera or a light has none) by its world-space axis-aligned
+bounding box, min, max and size, and its location (the world matrix's translation): obj.bound_box's 8 corners
+through obj.matrix_world, of the evaluated object (obj.evaluated_get(bpy.context.evaluated_depsgraph_get())), with
+the scene's unit settings once. It is the same method, word for word, as the Blender run's own report
+(workers/blender/timmy_blender.py scene_bounds), so Timmy compares the two: a second pass by the same application,
+not an independent implementation. Run here only against the stand-in bpy; NOT YET EXERCISED on a real Blender.
+
 The line stays under 60,000 characters (Timmy's job log keeps lines up to 64 KiB): past that, fewer objects are
-listed in detail and objects_total says how many the scene has.
+listed in detail (in "objects" and in "bounds") and objects_total says how many the scene has.
 
 Exit 0 with {"ok": true, ...}; 2 with {"ok": false, "error": {...}} when there is no file, scene or bpy, or the
 read fails; 64 on a usage error. Python 3.7 or later (Blender's own Python).
@@ -36,13 +45,20 @@ import os
 import platform
 import sys
 
-WORKER = {"name": "timmy-blend-readback", "version": "0.1.0"}
+WORKER = {"name": "timmy-blend-readback", "version": "0.2.0"}
 TIER = "native readback: a second pass by the same application"
 SCOPE = ("Blender opened the saved .blend in a separate process and read it back: the same application reading "
          "its own file, a second pass, not an independent implementation. Lengths in Blender units, of the "
          "generated scene, never of a physical object.")
 MAX_LINE = 60000
 MAX_DETAILED = 2000
+# R4 (H37): as workers/blender/timmy_blender.py has them, word for word
+BOUNDS_METHOD = ("world-space axis-aligned bounding box: the 8 corners of obj.bound_box through obj.matrix_world, of "
+                 "the evaluated object (through the depsgraph); location is matrix_world's translation; Blender units, "
+                 "rounded to 1e-6")
+BOUNDS_METHOD_UNEVALUATED = BOUNDS_METHOD.replace("of the evaluated object (through the depsgraph)", "of the object as it is (no depsgraph)")
+BOUNDS_ROUNDING = 1e-6
+NO_GEOMETRY = frozenset(["EMPTY", "CAMERA", "LIGHT", "LIGHT_PROBE", "LIGHTPROBE", "SPEAKER"])
 
 
 def emit(obj, code=0):
@@ -128,11 +144,61 @@ def units_of(scene):
     return out or None
 
 
+def object_bounds(obj, depsgraph):
+    """One object's world-space axis-aligned bounding box, or None when it has no bounding box (as timmy_blender)."""
+    if str(obj.type) in NO_GEOMETRY:
+        return None
+    ob = obj.evaluated_get(depsgraph) if depsgraph is not None else obj
+    corners = [tuple(float(x) for x in c) for c in ob.bound_box]
+    # Blender gives every corner as -1.0 when an object has no bounding box
+    if len(corners) != 8 or all(x == -1.0 for c in corners for x in c):
+        return None
+    m = ob.matrix_world
+    world = [[m[i][0] * c[0] + m[i][1] * c[1] + m[i][2] * c[2] + m[i][3] for i in range(3)] for c in corners]
+    lo = [min(w[i] for w in world) for i in range(3)]
+    hi = [max(w[i] for w in world) for i in range(3)]
+    return {
+        "name": obj.name, "type": str(obj.type),
+        "min": [num(x) for x in lo], "max": [num(x) for x in hi], "size": [num(hi[i] - lo[i]) for i in range(3)],
+        "location": [num(m[i][3]) for i in range(3)],
+    }
+
+
+def scene_bounds(bpy, scene, objects):
+    """The scene's object sizes, as timmy_blender.scene_bounds reports them (objects sorted by name)."""
+    depsgraph, evaluated, why = None, False, None
+    try:
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        evaluated = True
+    except Exception as e:  # noqa: BLE001 (said in the line: the objects as they are, not evaluated)
+        why = "%s: %s" % (type(e).__name__, e)
+    listed, total, without = [], 0, 0
+    for o in objects:
+        entry = object_bounds(o, depsgraph)
+        if entry is None:
+            without += 1
+            continue
+        total += 1
+        if len(listed) < MAX_DETAILED:
+            listed.append(entry)
+    out = {
+        "method": BOUNDS_METHOD if evaluated else BOUNDS_METHOD_UNEVALUATED, "evaluated": evaluated, "units": units_of(scene),
+        "rounding": BOUNDS_ROUNDING, "objects": listed, "objects_total": total, "without_bounds": without,
+    }
+    if why:
+        out["not_evaluated"] = why[:300]
+    return out
+
+
 def fit(body):
-    """The line within MAX_LINE: fewer objects in detail (objects_total keeps the count) until it fits."""
+    """The line within MAX_LINE: fewer objects in detail, in "objects" and in "bounds" (each total keeps the count),
+    until it fits."""
     text = json.dumps(body, separators=(",", ":"))
-    while len(text) > MAX_LINE and body["objects"]:
+    bounds = body.get("bounds") if isinstance(body.get("bounds"), dict) else {}
+    while len(text) > MAX_LINE and (body["objects"] or bounds.get("objects")):
         body["objects"] = body["objects"][: len(body["objects"]) // 2]
+        if bounds.get("objects"):
+            bounds["objects"] = bounds["objects"][: len(bounds["objects"]) // 2]
         text = json.dumps(body, separators=(",", ":"))
     if len(text) > MAX_LINE:
         fail(2, "too-large", "the readback does not fit in one line of %d characters even without its objects" % MAX_LINE)
@@ -186,6 +252,8 @@ def main():
             "render_resolution": [int(r.resolution_x), int(r.resolution_y)],
             "resolution_percentage": int(r.resolution_percentage),
             "units": units_of(scene),
+            # R4 (H37): each object's world-space bounding box, as the Blender run's own report gives it
+            "bounds": scene_bounds(bpy, scene, objects),
             "tier": TIER,
             "scope": SCOPE,
         }

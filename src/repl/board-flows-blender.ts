@@ -9,9 +9,16 @@
  * as what it is: the same application reading its own file in a separate process, a second pass, not an independent
  * implementation; its lengths are Blender units of a generated scene, shown with DOCTRINE §15's sentence. Every string
  * is escaped; links come from the Flows section's own helpers (a link only inside the project; text on the live board).
+ *
+ * Round R4 (H37): the objects whose size changed between a judged-ok Blender run of the script from before the flow and
+ * Blender's run in it, with a count of the rest ("Cube 2 × 2 × 2 → 3 × 3 × 3 (Blender's report; the second pass
+ * agrees)"), and the second pass's `dimensions` check among its checks.
  */
 import { DOCTRINE_15 } from '../flows/iterate.js';
-import { BLEND_READBACK_SCOPE, changeText, isBlenderFlowRecord, syntaxText, type BlendCheck, type BlenderFlowRecord } from '../flows/iterate-blender.js';
+import {
+  BLEND_READBACK_SCOPE, changeText, DIMENSIONS_SCOPE, dimensionsText, isBlenderFlowRecord, isDimensionsSummary, syntaxText, toleranceText, type BlendCheck,
+  type BlenderFlowRecord,
+} from '../flows/iterate-blender.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { BoardFlow } from './board-flows.js';
 
@@ -89,10 +96,15 @@ function stepsBlock(r: BlenderFlowRecord, h: FlowCardHelpers): string {
 }
 
 /** A check's value in words, as read or as reported: names listed, a resolution as "640 x 400", frames as "1–250". */
-function valueText(name: BlendCheck['name'], v: unknown): string {
+function valueText(name: BlendCheck['name'], v: unknown, tolerance?: unknown): string {
   if (v === null || v === undefined) return 'none';
   if (name === 'resolution') return nums(v)?.join(' x ') ?? 'unknown';
   if (name === 'frame range') return nums(v)?.join('–') ?? 'unknown';
+  if (name === 'dimensions') {
+    const n = (v as { objects?: unknown }).objects;
+    if (!finite(n)) return 'unknown';
+    return `${n} object${n === 1 ? '' : 's'} with a size${finite(tolerance) ? `, each within ${toleranceText(tolerance)} (min, max and size per axis)` : ''}`;
+  }
   if (name === 'materials' && !Array.isArray(v) && typeof v === 'object') return `in use: ${capped(list((v as { used?: unknown }).used))}`;
   return Array.isArray(v) ? capped(list(v)) : String(v);
 }
@@ -100,7 +112,7 @@ function valueText(name: BlendCheck['name'], v: unknown): string {
 function checkRow(c: BlendCheck): string {
   if (c.passed === null) return `<dt>${esc(c.name)}</dt><dd>${esc('not compared')} <span class="tier">${esc(c.note ?? '')}</span></dd>`;
   const note = c.note ? ` <span class="tier">${esc(c.note)}</span>` : '';
-  if (c.passed) return `<dt>${esc(c.name)}</dt><dd>${esc(valueText(c.name, c.read))} <span class="tier">as the result reported</span>${note}</dd>`;
+  if (c.passed) return `<dt>${esc(c.name)}</dt><dd>${esc(valueText(c.name, c.read, c.tolerance))} <span class="tier">as the result reported</span>${note}</dd>`;
   return `<dt>${esc(c.name)}</dt><dd class="bad">${esc(c.differences.join('; '))} <span class="tier">${esc(`reported: ${valueText(c.name, c.reported)}`)}</span>${note}</dd>`;
 }
 
@@ -135,6 +147,24 @@ function readbackBlock(r: BlenderFlowRecord, verified: boolean): string {
   return `<section class="${verified ? 'measured' : 'unverified'} readback blend"><h4>${esc(heading)}</h4><p class="meta">${esc(BLEND_READBACK_SCOPE)}</p><dl>${rows}</dl>${table}<p class="doctrine">${esc(DOCTRINE_15)}</p></section>`;
 }
 
+/**
+ * R4 (H37): the objects whose size changed, a count of the rest, where the sizes before come from, the units and the
+ * tolerance; as measured when the record is verified, as recorded otherwise. DOCTRINE §15's sentence when the readback
+ * block (which carries it) is not drawn.
+ */
+function dimensionsBlock(r: BlenderFlowRecord, verified: boolean, doctrine: boolean): string {
+  const d = (r as { dimensions?: unknown }).dimensions;
+  if (d === undefined) return '';
+  const heading = verified ? 'object sizes, before → after' : 'object sizes, before → after, as the record says (not verified)';
+  const body = isDimensionsSummary(d)
+    ? (() => {
+      const t = dimensionsText(d);
+      return `<p class="sizes${d.after.agrees === false ? ' bad' : ''}">${esc(t.sizes)}</p><p class="meta">${esc(t.detail)}</p>`;
+    })()
+    : `<p class="meta">${esc('the record\'s dimensions are not in the form Timmy writes, so they are not shown')}</p>`;
+  return `<section class="${verified ? 'measured' : 'unverified'} dimensions"><h4>${esc(heading)}</h4>${body}<p class="meta">${esc(DIMENSIONS_SCOPE)}</p>${doctrine ? `<p class="doctrine">${esc(DOCTRINE_15)}</p>` : ''}</section>`;
+}
+
 /** The card: drawn for a record whose target is 'blender' (isBlenderFlowRecord); `status` is the Flows section's verified line. */
 export function blenderFlowCard(f: BoardFlow, h: FlowCardHelpers, status: string): string {
   const r = f.record as unknown as BlenderFlowRecord;
@@ -154,10 +184,12 @@ export function blenderFlowCard(f: BoardFlow, h: FlowCardHelpers, status: string
     `<li>${h.file(f.file)} <span class="tier">this record</span></li>`,
   ].join('');
   const picture = renders.length ? h.thumb(renders[0].path) : '';
+  const verified = f.check.status === 'verified';
+  const readback = readbackBlock(r, verified);
   return `<article class="card flow blender"><div class="jobhead"><strong>${esc(r.id)}</strong> <span class="state state-${esc(outcome.replace(/[^a-z]/gi, ''))}">${esc(outcome)}</span></div>`
     + `<div class="meta">${esc(`iterate blender · ${r.script?.path ?? ''} · started ${when(r.started_at)}${r.ended_at ? ` · ended ${when(r.ended_at)}` : ''}${r.ended_in ? ` · in the ${r.ended_in} step` : ''}`)}</div>`
     + `<p class="instruction">${esc(r.instruction ?? '')}</p>${status}`
-    + `${r.why ? `<p class="why">${esc(r.why)}</p>` : ''}${picture}${scriptBlock(r, h)}${stepsBlock(r, h)}${readbackBlock(r, f.check.status === 'verified')}`
+    + `${r.why ? `<p class="why">${esc(r.why)}</p>` : ''}${picture}${scriptBlock(r, h)}${stepsBlock(r, h)}${dimensionsBlock(r, verified, !readback)}${readback}`
     + `<section class="files"><h4>files</h4><ul>${files}</ul></section>`
     + `${receipts.length ? `<div class="meta">${esc(`receipts: ${receipts.join(' · ')}`)}</div>` : ''}`
     + `<div class="cmds">${[...(r.script?.path ? [h.cmd(`/open ${r.script.path}`)] : []), ...(b?.blend ? [h.cmd(`/open ${b.blend.path}`)] : []), h.cmd(`/open ${f.file}`), h.cmd('/iterate')].join('')}</div></article>`;
@@ -168,6 +200,8 @@ export const BLENDER_FLOW_CSS = `
 .flow pre.diff .removed { color: ${HOMEBREW.failure}; }
 .flow pre.diff .added { color: ${HOMEBREW.accent}; }
 .flow dd.bad { color: ${HOMEBREW.failure}; }
+.flow .dimensions p.sizes { margin: 4px 0 0; overflow-wrap: anywhere; }
+.flow .dimensions p.sizes.bad { color: ${HOMEBREW.failure}; }
 .flow table.objects { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: ${TYPE.size.small}px; }
 .flow table.objects th { text-align: left; color: ${HOMEBREW.textSecondary}; font-weight: ${TYPE.weight.body}; border-bottom: 1px solid ${HOMEBREW.line}; padding: 2px 6px 2px 0; }
 .flow table.objects td { padding: 2px 6px 2px 0; overflow-wrap: anywhere; border-bottom: 1px solid ${HOMEBREW.line}; }

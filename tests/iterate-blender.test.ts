@@ -12,10 +12,13 @@
  *   runs here: a pass says the flow, the readback worker, the comparison and the record agree with each other and with
  *   the stand-in, not that Blender saves or reads its files this way.
  * - the Python syntax check runs this machine's real python3 (these tests are skipped without one).
+ * Round R4 (H37, object dimensions): the stand-in bpy's primitives have bound_box, matrix_world and dimensions from their
+ * operator's arguments, location and scale (a FAKE geometry: no vertices); both workers' `bounds` reports run against it.
+ * A run "from before" is made the way /blender makes one (blenderJob, judged by judgeNativeJob), with the FAKE Blender.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -23,12 +26,16 @@ import { folderProject } from '../src/project/index.js';
 import { Workspace, type WorkspaceDeps } from '../src/repl/workspace.js';
 import { parseIterateLine } from '../src/repl/iterate.js';
 import { flowsSection } from '../src/repl/board-flows.js';
+import { blenderFlowCard } from '../src/repl/board-flows-blender.js';
+import { JobManager } from '../src/jobs/index.js';
+import { blenderJob, judgeNativeJob } from '../src/native/index.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import { hashOf, type Receipt, type ReceiptInput } from '../src/utils/receipts.js';
-import { DOCTRINE_15, FLOW_ID } from '../src/flows/iterate.js';
+import { DOCTRINE_15, FLOW_ID, type FlowRecord } from '../src/flows/iterate.js';
 import {
-  BLEND_READBACK_SCOPE, BLEND_READBACK_SCRIPT, blenderIterateTask, changeText, compareBlendReadback, judgeScriptChanges, parseBlendReadback, parseSyntaxOutput,
-  reportedByResult, scriptChange, syntaxText, unseenFolder, type BlendRead, type BlenderFlowRecord,
+  BLEND_READBACK_SCOPE, BLEND_READBACK_SCRIPT, blenderIterateTask, changeText, compareBlendReadback, compareDimensions, DIMENSIONS_SCOPE, DIMENSIONS_TOLERANCE,
+  dimensionsSummary, dimensionsText, findBeforeRun, isDimensionsSummary, judgeScriptChanges, parseBlendReadback, parseBounds, parseSyntaxOutput, reportedByResult,
+  scriptChange, sizeText, syntaxText, unseenFolder, type BlendBounds, type BlendObjectBounds, type BlendRead, type BlenderFlowRecord, type DimensionsBefore,
 } from '../src/flows/iterate-blender.js';
 
 const REPO = path.resolve(__dirname, '..');
@@ -49,6 +56,7 @@ let fakeBlender: string;
 const spaces: Workspace[] = [];
 const text = (lines: { text: string }[][]): string => lines.map((l) => l.map((s) => s.text).join('')).join('\n');
 const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
+const htmlEsc = (s: string): string => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 function make(o: { env?: Record<string, string | undefined>; python?: boolean; python3?: string } = {}) {
   const notes: string[] = [];
@@ -112,8 +120,20 @@ afterEach(async () => {
 const read = (o: Partial<BlendRead> = {}): BlendRead => ({
   scene: 'Scene', objects: ['Aim', 'Camera', 'Cube'].map((name) => ({ name, type: name === 'Camera' ? 'CAMERA' : name === 'Aim' ? 'EMPTY' : 'MESH', dimensions: [2, 2, 2], location: [0, 0, 1], materials: name === 'Cube' ? ['Green'] : [] })),
   objects_total: 3, materials: [{ name: 'Green', users: 1, fake_user: false }], materials_used: ['Green'], cameras: [{ name: 'Camera', data: 'Camera', lens: 50 }], active_camera: 'Camera',
-  scenes: [], frame_range: [1, 250], render_resolution: [640, 400], resolution_percentage: 100, units: null, ...o,
+  scenes: [], frame_range: [1, 250], render_resolution: [640, 400], resolution_percentage: 100, units: null, bounds: null, ...o,
 });
+/** A box of size s (each axis) centred at c, as both workers report it. */
+const box = (name: string, s: number[], c: number[], type = 'MESH'): BlendObjectBounds => ({
+  name, type, min: c.map((x, i) => x - s[i] / 2), max: c.map((x, i) => x + s[i] / 2), size: [...s], location: [...c],
+});
+const METRIC = { system: 'METRIC', scale_length: 1, length_unit: 'METERS' };
+const bounds = (objects: BlendObjectBounds[], o: Partial<BlendBounds> = {}): BlendBounds => ({
+  method: 'world-space axis-aligned bounding box', evaluated: true, units: METRIC, rounding: 1e-6, objects, objects_total: objects.length, without_bounds: 2, ...o,
+});
+/** The starter's four objects with a size (Cube as given), as the stand-in reports them. */
+const starterBoxes = (cube = 2): BlendObjectBounds[] => [
+  box('Cube', [cube, cube, cube], [-2.4, 0, 1]), box('Cylinder', [1.4, 1.4, 2.4], [2.4, -0.4, 1.2]), box('Ground', [12, 12, 0], [0, 0, 0]), box('Sphere', [2, 2, 2], [0, 0.6, 1]),
+];
 
 describe('/iterate blender: the parts that decide (no processes)', () => {
   it('the task: the instruction first, then the one script, what Timmy does with it, and the script whole', () => {
@@ -215,6 +235,176 @@ describe('/iterate blender: the parts that decide (no processes)', () => {
     const { objects: _o, ...noObjects } = good;
     expect(parseBlendReadback(JSON.stringify(noObjects))).toMatchObject({ ok: false, code: 'malformed', error: 'the result line has no objects' });
     expect(parseBlendReadback(JSON.stringify({ ...good, active_camera: 3 }))).toMatchObject({ ok: false, error: 'the result line has no active camera (a name or null)' });
+    // R4 (H37): a line from before bounds were reported reads with bounds null; a claimed but unreadable report fails
+    expect(parsed.ok && parsed.read.bounds).toBeNull();
+    const withBounds = parseBlendReadback(JSON.stringify({ ...good, bounds: bounds([box('Cube', [2, 2, 2], [0, 0, 1])]) }));
+    expect(withBounds).toMatchObject({ ok: true, read: { bounds: { objects: [{ name: 'Cube', size: [2, 2, 2], min: [-1, -1, 0], max: [1, 1, 2] }], objects_total: 1, units: METRIC } } });
+    expect(parseBlendReadback(JSON.stringify({ ...good, bounds: { objects: [{ name: 'Cube' }], objects_total: 1 } }))).toMatchObject({ ok: false, code: 'malformed', error: expect.stringContaining('the result line has no bounds in the form the worker writes') });
+    expect(parseBlendReadback(JSON.stringify({ ...good, bounds: { error: 'RuntimeError: no depsgraph' } }))).toMatchObject({ ok: true, read: { bounds: null, bounds_error: 'RuntimeError: no depsgraph' } });
+  });
+
+  it('R4 (H37) bounds as the workers write them: read whole, the worker\'s own failure kept as its reason, anything else refused', () => {
+    const good = { method: 'm', evaluated: true, not_evaluated: undefined, units: { system: 'METRIC', scale_length: 1.0, length_unit: 'METERS' }, rounding: 1e-6, objects: [box('Sphere', [2, 2, 2], [0, 0.6, 1]), box('Cube', [2, 2, 2], [-2.4, 0, 1])], objects_total: 2, without_bounds: 3 };
+    const p = parseBounds(JSON.parse(JSON.stringify(good)));
+    expect(p).toEqual({ ok: true, bounds: { method: 'm', evaluated: true, units: METRIC, rounding: 1e-6, objects: [good.objects[1], good.objects[0]], objects_total: 2, without_bounds: 3 } });
+    expect(parseBounds({ error: 'RuntimeError: no depsgraph' })).toEqual({ ok: false, failed: true, error: 'RuntimeError: no depsgraph' });
+    expect(parseBounds({ ...good, objects: [{ ...box('Cube', [1, 1, 1], [0, 0, 0]), min: [0, 0] }] })).toEqual({ ok: false, failed: false, error: 'bounds lists an object without its name, type, min, max, size and location' });
+    expect(parseBounds({ objects: [] })).toEqual({ ok: false, failed: false, error: 'bounds has no objects and objects_total' });
+    expect(parseBounds([1])).toEqual({ ok: false, failed: false, error: 'bounds is not an object' });
+    // in the run's result file, beside what its main returned
+    expect(reportedByResult({ ok: true, objects: ['Cube', 'Sphere'], bounds: good })).toEqual({ objects: ['Cube', 'Sphere'], bounds: p.ok ? p.bounds : undefined });
+    expect(reportedByResult({ ok: true, camera: null, bounds: { error: 'KeyError: x' } })).toEqual({ camera: null, bounds_error: 'KeyError: x' });
+    expect(reportedByResult({ ok: true, camera: null, bounds: 'big' })).toEqual({ camera: null, unreadable: ['bounds is not in the form timmy_blender writes (bounds is not an object)'] });
+    expect(sizeText([3, 1.4000000001, -0])).toBe('3 × 1.4 × 0');
+  });
+
+  it('R4 (H37) the dimensions check: each object\'s box within 1e-6 (stated in the check); a missing, extra or retyped object, or other units, a difference', () => {
+    const rep = { objects: ['Aim', 'Camera', 'Cube'], camera: 'Camera', bounds: bounds(starterBoxes(3)) };
+    const same = compareBlendReadback(rep, read({ bounds: bounds(starterBoxes(3)) }));
+    expect(same.verdict).toBe('matches');
+    expect(same.checks.find((c) => c.name === 'dimensions')).toEqual({ name: 'dimensions', reported: { objects: 4, units: METRIC }, read: { objects: 4, units: METRIC }, passed: true, differences: [], tolerance: 1e-6 });
+    expect(DIMENSIONS_TOLERANCE).toBe(1e-6);
+    // one rounding step (1e-6) apart still agrees; two do not
+    const nudged = (d: number) => bounds(starterBoxes(3).map((b) => (b.name === 'Sphere' ? { ...b, max: [b.max[0] + d, b.max[1], b.max[2]], size: [b.size[0] + d, b.size[1], b.size[2]] } : b)));
+    expect(compareDimensions(rep, read({ bounds: nudged(1e-6) })).passed).toBe(true);
+    // far from the origin too (float64's own error there is larger than 1e-12): one step apart agrees, two do not
+    const far = (m: number): BlendObjectBounds => ({ name: 'Far', type: 'MESH', min: [m, 0, 0], max: [m + 1, 1, 1], size: [1, 1, 1], location: [m + 0.5, 0.5, 0.5] });
+    expect(compareDimensions({ bounds: bounds([far(123456.000001)]) }, read({ bounds: bounds([far(123456.000002)]) })).passed).toBe(true);
+    expect(compareDimensions({ bounds: bounds([far(123456.000001)]) }, read({ bounds: bounds([far(123456.000003)]) })).passed).toBe(false);
+    // many differences: the first 24 listed, the rest counted
+    const row = (dx: number) => bounds(Array.from({ length: 30 }, (_, i) => box(`Box.${String(i).padStart(2, '0')}`, [1, 1, 1], [i + dx, 0, 0])));
+    const many = compareDimensions({ bounds: row(0) }, read({ bounds: row(0.5) }));
+    expect(many.differences).toHaveLength(25);
+    expect(many.differences.at(-1)).toBe('and 6 more differences');
+    const off = compareDimensions(rep, read({ bounds: nudged(2e-6) }));
+    expect(off.passed).toBe(false);
+    expect(off.differences).toEqual(['Sphere: the run reported 2 × 2 × 2 from (-1, -0.4, 0) to (1, 1.6, 2); the second pass read 2.000002 × 2 × 2 from (-1, -0.4, 0) to (1.000002, 1.6, 2)']);
+    // the cube the run reported at 3 and the .blend holds at 2: the verdict differs, the record's why says so
+    const cube = compareBlendReadback(rep, read({ bounds: bounds(starterBoxes(2)) }));
+    expect(cube.verdict).toBe('differs');
+    expect(cube.checks.find((c) => c.name === 'dimensions')!.differences).toEqual(['Cube: the run reported 3 × 3 × 3 from (-3.9, -1.5, -0.5) to (-0.9, 1.5, 2.5); the second pass read 2 × 2 × 2 from (-3.4, -1, 0) to (-1.4, 1, 2)']);
+    // missing and extra objects, another type, other units: each a difference
+    const other = bounds([...starterBoxes(3).filter((b) => b.name !== 'Ground').map((b) => (b.name === 'Sphere' ? { ...b, type: 'CURVE' } : b)), box('Extra', [1, 1, 1], [0, 0, 0])], { units: { system: 'IMPERIAL', scale_length: 1, length_unit: 'FEET' } });
+    expect(compareDimensions(rep, read({ bounds: other })).differences).toEqual([
+      'with a size in the run\'s report, none in the .blend: Ground', 'with a size in the .blend, none in the run\'s report: Extra',
+      'Sphere: the run reported a MESH; the second pass read a CURVE',
+      'units: the run reported system METRIC, scale_length 1, length_unit METERS; the second pass read system IMPERIAL, scale_length 1, length_unit FEET',
+    ]);
+    // not compared, with the reason: no sizes on either side, or only some of them listed
+    expect(compareDimensions(rep, read())).toMatchObject({ passed: null, note: 'the second pass reported no object sizes (a worker from before they were reported), so the dimensions were not compared' });
+    expect(compareDimensions(rep, read({ bounds_error: 'RuntimeError: x' }))).toMatchObject({ passed: null, note: expect.stringContaining('(RuntimeError: x)') });
+    expect(compareDimensions({ bounds_error: 'KeyError: y' }, read({ bounds: bounds(starterBoxes()) }))).toMatchObject({ passed: null, note: 'Blender\'s run reported no object sizes (KeyError: y), so the dimensions were not compared' });
+    expect(compareDimensions(rep, read({ bounds: bounds(starterBoxes(3), { objects_total: 900 }) }))).toMatchObject({ passed: null, note: 'Blender\'s run listed 4 of 4 objects with a size and the second pass 4 of 900, so the dimensions were not compared' });
+    // a check not made never decides: the rest still match
+    expect(compareBlendReadback(rep, read()).verdict).toBe('matches');
+    // a run that reported no sizes has no dimensions check at all
+    expect(compareBlendReadback({ objects: ['Aim', 'Camera', 'Cube'] }, read({ bounds: bounds(starterBoxes()) })).checks.map((c) => c.name)).toEqual(['objects']);
+  });
+
+  it('R4 (H37) before → after: only the objects whose size changed and a count of the rest; where "before" comes from, the units and the tolerance', () => {
+    const run = '1a2b3c4d-0000-4000-8000-000000000001';
+    const before: DimensionsBefore = {
+      run, started_at: '2026-10-09T21:00:00.000Z', judged_at: '2026-10-09T21:00:05.000Z', script: { path: 'scene.py', sha256: 'a'.repeat(64) },
+      result: `.timmy/native/${run}/result.json`, result_sha256: 'b'.repeat(64), bounds: bounds(starterBoxes(2)),
+    };
+    const agrees = compareDimensions({ bounds: bounds(starterBoxes(3)) }, read({ bounds: bounds(starterBoxes(3)) }));
+    const s = dimensionsSummary({ after: bounds(starterBoxes(3)), before, check: agrees });
+    expect(s).toEqual({
+      scope: DIMENSIONS_SCOPE, tolerance: 1e-6, units: METRIC, after: { from: 'Blender\'s run (the bounds in its result file)', objects: 4, agrees: true, agreement: 'the second pass agrees' },
+      before, changed: [{ name: 'Cube', before: [2, 2, 2], after: [3, 3, 3] }], unchanged: 3,
+    });
+    expect(dimensionsText(s)).toEqual({
+      sizes: 'Cube 2 × 2 × 2 → 3 × 3 × 3 (Blender\'s report; the second pass agrees) · 3 other objects unchanged in size',
+      detail: 'before: run 1a2b3c4d\'s report (judged ok 2026-10-09 21:00 UTC) · Blender units (system METRIC, scale_length 1, length_unit METERS); each within 1e-6',
+    });
+    expect(DIMENSIONS_SCOPE).toContain('a second pass by the same application, not an independent implementation');
+    expect(isDimensionsSummary(JSON.parse(JSON.stringify(s)))).toBe(true);
+    // an object only after (new) and one only before (gone); nothing changed at all
+    const changed = dimensionsSummary({ after: bounds([...starterBoxes(2).filter((b) => b.name !== 'Sphere'), box('Lamp', [0.5, 0.5, 1], [0, 0, 3])]), before, check: agrees });
+    expect(changed.changed).toEqual([{ name: 'Lamp', before: null, after: [0.5, 0.5, 1] }, { name: 'Sphere', before: [2, 2, 2], after: null }]);
+    expect(dimensionsText(changed).sizes).toBe('Lamp (new) → 0.5 × 0.5 × 1, Sphere 2 × 2 × 2 → (gone) (Blender\'s report; the second pass agrees) · 3 other objects unchanged in size');
+    expect(dimensionsText(dimensionsSummary({ after: bounds(starterBoxes(2)), before, check: agrees })).sizes).toBe('no object changed size: 4 objects with a size, each as before (Blender\'s report; the second pass agrees)');
+    // the second pass's word on the sizes after: differs, not compared (its note), or no check at all
+    const differs = compareDimensions({ bounds: bounds(starterBoxes(3)) }, read({ bounds: bounds(starterBoxes(2)) }));
+    expect(dimensionsSummary({ after: bounds(starterBoxes(3)), before, check: differs }).after).toMatchObject({ agrees: false, agreement: 'the second pass differs: see its dimensions check' });
+    expect(dimensionsSummary({ after: bounds(starterBoxes(3)), before, check: compareDimensions({ bounds: bounds(starterBoxes(3)) }, read()) }).after.agreement)
+      .toBe('not compared by the second pass: the second pass reported no object sizes (a worker from before they were reported), so the dimensions were not compared');
+    expect(dimensionsSummary({ after: bounds(starterBoxes(3)), before, notCompared: 'no-file: Blender has no .blend open' }).after).toMatchObject({ agrees: null, agreement: 'not compared by the second pass: no-file: Blender has no .blend open' });
+    // no run from before: the sizes before are unknown, and why; nothing is listed as changed
+    const none = dimensionsSummary({ after: bounds(starterBoxes(3)), before: null, beforeWhy: 'no judged-ok Blender run of scene.py as it was (sha256 aaaaaaaaaaaa) from before this flow', check: agrees });
+    expect(none).toMatchObject({ before: null, changed: [], unchanged: 0 });
+    expect(dimensionsText(none)).toEqual({
+      sizes: 'sizes before the change unknown: no judged-ok Blender run of scene.py as it was (sha256 aaaaaaaaaaaa) from before this flow; after: 4 objects with a size (Blender\'s report; the second pass agrees)',
+      detail: 'Blender units (system METRIC, scale_length 1, length_unit METERS); each within 1e-6',
+    });
+    // a report that listed only some of its objects is said so
+    expect(dimensionsSummary({ after: bounds(starterBoxes(3), { objects_total: 9 }), before, check: agrees }).listed_only).toContain('only the objects listed in both were set against each other');
+    // an edited record's dimensions in another shape are not put in words
+    for (const bad of [{ ...s, changed: [{ name: 'Cube', before: 'big', after: [3, 3, 3] }] }, { ...s, after: { objects: 4 } }, { ...s, before: { run: 7 } }, null, 'x']) expect(isDimensionsSummary(bad)).toBe(false);
+  });
+
+  it('R4 (H37) the card: the changed sizes escaped, DOCTRINE §15 with them when no readback is drawn; a malformed record\'s dimensions not shown', () => {
+    const evil = '<img src=x onerror=alert(1)>&"';
+    const run = '1a2b3c4d-0000-4000-8000-000000000002';
+    const before: DimensionsBefore = { run, started_at: '2026-10-09T21:00:00.000Z', judged_at: null, script: { path: 'scene.py', sha256: 'a'.repeat(64) }, result: `.timmy/native/${run}/result.json`, result_sha256: null, bounds: bounds([box(evil, [2, 2, 2], [0, 0, 1])]) };
+    const s = dimensionsSummary({ after: bounds([box(evil, [3, 3, 3], [0, 0, 1])]), before, check: compareDimensions({ bounds: bounds([box(evil, [3, 3, 3], [0, 0, 1])]) }, read({ bounds: bounds([box(evil, [3, 3, 3], [0, 0, 1])]) })) });
+    const record = {
+      flow: 1, schema: 'timmy.flow/1', id: 'f0000beef', kind: 'iterate', target: 'blender', instruction: 'make it bigger', project: 'demo', started_at: '2026-10-09T22:00:00.000Z', outcome: 'succeeded',
+      script: { path: 'scene.py', before: { sha256: 'a'.repeat(64), bytes: 1, lines: 1 } }, dimensions: s, receipts: {}, child_receipts: [], doctrine: DOCTRINE_15,
+    };
+    const card = (rec: Record<string, unknown>) => blenderFlowCard({ file: 'results/flows/f0000beef.json', record: rec as unknown as FlowRecord, check: { status: 'unverified', reasons: [] } }, { file: (p) => String(p).replace(/[<>&"']/g, ''), cmd: () => '', thumb: () => '' }, '');
+    const html = card(record);
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('<section class="unverified dimensions"><h4>object sizes, before → after, as the record says (not verified)</h4>');
+    expect(html).toContain('<p class="sizes">&lt;img src=x onerror=alert(1)&gt;&amp;&quot; 2 × 2 × 2 → 3 × 3 × 3 (Blender&#39;s report; the second pass agrees)</p>');
+    expect(html).toContain('before: run 1a2b3c4d&#39;s report (judged ok) · Blender units (system METRIC, scale_length 1, length_unit METERS); each within 1e-6');
+    expect(html).toContain('a second pass by the same application, not an independent implementation');
+    expect(html).toContain(`<p class="doctrine">${htmlEsc(DOCTRINE_15)}</p>`);
+    expect(html).toContain(htmlEsc(DIMENSIONS_SCOPE));
+    const bad = card({ ...record, dimensions: { after: '<script>' } });
+    expect(bad).toContain('the record&#39;s dimensions are not in the form Timmy writes, so they are not shown');
+    expect(bad).not.toContain('<script>');
+  });
+
+  it('R4 (H37) the run from before: the newest judged-ok Blender run of the same bytes, started before the flow; otherwise why there is none', () => {
+    // FAKE run records, written here as src/native writes them (job.json, verdicts.jsonl, result.json); no process ran
+    const sha256 = 'a'.repeat(64);
+    const fakeRun = (o: { started: string; sha?: string; path?: string; app?: string; outcome?: 'ok' | 'failed'; result?: (run: string) => unknown }): string => {
+      const run = randomUUID();
+      const dir = path.join(root, '.timmy', 'native', run);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'job.json'), JSON.stringify({
+        record: 'timmy-native-run', v: 1, app: o.app ?? 'blender', run, program: 'blender', label: 'Blender · scene.py (FAKE record)', project: 'demo', args: [],
+        input: { path: o.path ?? 'scene.py', sha256: o.sha ?? sha256 }, result: `.timmy/native/${run}/result.json`, expect: [], pre: {}, started_at: o.started, timeout_ms: 60000,
+      }));
+      if (o.outcome) fs.writeFileSync(path.join(dir, 'verdicts.jsonl'), `${JSON.stringify({ judged_at: o.started.replace(':00.000Z', ':09.000Z'), outcome: o.outcome, why: 'a FAKE verdict', exit: { state: 'completed', code: 0, signal: null }, files: [] })}\n`);
+      fs.writeFileSync(path.join(dir, 'result.json'), JSON.stringify(o.result ? o.result(run) : { ok: true, run, script_sha256: o.sha ?? sha256, bounds: bounds(starterBoxes(2)) }));
+      return run;
+    };
+    const flowStart = '2026-10-09T22:00:00.000Z';
+    const script = { path: 'scene.py', sha256 };
+    expect(findBeforeRun(root, script, flowStart)).toEqual({ ok: false, why: 'no judged-ok Blender run of scene.py as it was (sha256 aaaaaaaaaaaa) from before this flow' });
+    const ok = fakeRun({ started: '2026-10-09T20:00:00.000Z', outcome: 'ok' });
+    // not these: other bytes, another script, another app, judged failed, never judged, started after the flow
+    fakeRun({ started: '2026-10-09T21:00:00.000Z', outcome: 'ok', sha: 'c'.repeat(64) });
+    fakeRun({ started: '2026-10-09T21:01:00.000Z', outcome: 'ok', path: 'other.py' });
+    fakeRun({ started: '2026-10-09T21:02:00.000Z', outcome: 'ok', app: 'c4dpy' });
+    fakeRun({ started: '2026-10-09T21:03:00.000Z', outcome: 'failed' });
+    fakeRun({ started: '2026-10-09T21:04:00.000Z' });
+    fakeRun({ started: '2026-10-09T22:30:00.000Z', outcome: 'ok' });
+    const found = findBeforeRun(root, script, flowStart);
+    expect(found).toEqual({
+      ok: true,
+      before: {
+        run: ok, started_at: '2026-10-09T20:00:00.000Z', judged_at: '2026-10-09T20:00:09.000Z', script, result: `.timmy/native/${ok}/result.json`,
+        result_sha256: sha(fs.readFileSync(path.join(root, '.timmy', 'native', ok, 'result.json'))), bounds: bounds(starterBoxes(2)),
+      },
+    });
+    // the newest judged-ok run of those bytes decides: one from before sizes were reported, or whose result is another run's
+    const old = fakeRun({ started: '2026-10-09T21:10:00.000Z', outcome: 'ok', result: (run) => ({ ok: true, run, script_sha256: sha256 }) });
+    expect(findBeforeRun(root, script, flowStart)).toEqual({ ok: false, why: `run ${old.slice(0, 8)}, a judged-ok Blender run of scene.py as it was (sha256 aaaaaaaaaaaa), reported no object sizes (it ran before Timmy reported them)` });
+    const moved = fakeRun({ started: '2026-10-09T21:20:00.000Z', outcome: 'ok', result: () => ({ ok: true, run: 'another-run', script_sha256: sha256, bounds: bounds(starterBoxes(2)) }) });
+    expect(findBeforeRun(root, script, flowStart)).toMatchObject({ ok: false, why: `run ${moved.slice(0, 8)}, a judged-ok Blender run of scene.py as it was (sha256 aaaaaaaaaaaa), has a result file that no longer names that run and script` });
   });
 
   it('the command line: blender, the script, the instruction; the same options and refusals as the tray', () => {
@@ -256,12 +446,101 @@ describe.skipIf(!python)('workers/readback/blend_readback.py against the stand-i
     const parsed = parseBlendReadback(JSON.stringify(r.json));
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    expect(parsed).toMatchObject({ worker: { name: 'timmy-blend-readback', version: '0.1.0' }, blender_version: '4.2.0 (stand-in)', file: { name: 'out/scene.blend', opened: 'out/scene.blend' } });
+    expect(parsed).toMatchObject({ worker: { name: 'timmy-blend-readback', version: '0.2.0' }, blender_version: '4.2.0 (stand-in)', file: { name: 'out/scene.blend', opened: 'out/scene.blend' } });
     expect(parsed.read.objects.map((o) => [o.name, o.type])).toEqual([['Aim', 'EMPTY'], ['Camera', 'CAMERA'], ['Cube', 'MESH'], ['Cylinder', 'MESH'], ['Ground', 'MESH'], ['Sphere', 'MESH'], ['Sun', 'LIGHT']]);
     expect(parsed.read.objects.find((o) => o.name === 'Cylinder')).toEqual({ name: 'Cylinder', type: 'MESH', dimensions: [1.4, 1.4, 2.4], location: [2.4, -0.4, 1.2], materials: ['Timmy Green'] });
     expect(parsed.read).toMatchObject({ objects_total: 7, active_camera: 'Camera', cameras: [{ name: 'Camera', data: 'Camera', lens: 50 }], frame_range: [1, 250], render_resolution: [640, 400], materials_used: ['Off White', 'Timmy Green'] });
-    expect(compareBlendReadback(reportedByResult(result), parsed.read).verdict).toBe('matches');
+    // R4 (H37): both passes report the same sizes, by the same method word for word, with the unit settings once
+    const rb = r.json.bounds as Record<string, unknown>;
+    expect(rb).toMatchObject({ evaluated: true, rounding: 1e-6, objects_total: 4, without_bounds: 3, units: { system: 'METRIC', scale_length: 1, length_unit: 'METERS' } });
+    expect(rb.method).toBe('world-space axis-aligned bounding box: the 8 corners of obj.bound_box through obj.matrix_world, of the evaluated object (through the depsgraph); location is matrix_world\'s translation; Blender units, rounded to 1e-6');
+    expect(rb.objects).toEqual([
+      { name: 'Cube', type: 'MESH', min: [-3.4, -1, 0], max: [-1.4, 1, 2], size: [2, 2, 2], location: [-2.4, 0, 1] },
+      { name: 'Cylinder', type: 'MESH', min: [1.7, -1.1, 0], max: [3.1, 0.3, 2.4], size: [1.4, 1.4, 2.4], location: [2.4, -0.4, 1.2] },
+      { name: 'Ground', type: 'MESH', min: [-6, -6, 0], max: [6, 6, 0], size: [12, 12, 0], location: [0, 0, 0] },
+      { name: 'Sphere', type: 'MESH', min: [-1, -0.4, 0], max: [1, 1.6, 2], size: [2, 2, 2], location: [0, 0.6, 1] },
+    ]);
+    expect(result.bounds).toEqual(rb);
+    const cmp = compareBlendReadback(reportedByResult(result), parsed.read);
+    expect(cmp.verdict).toBe('matches');
+    expect(cmp.checks.find((c) => c.name === 'dimensions')).toMatchObject({ passed: true, tolerance: 1e-6, reported: { objects: 4 }, read: { objects: 4 } });
     expect(JSON.stringify(r.json)).not.toContain(root);
+  });
+
+  it('R4 (H37) the stand-in\'s primitives (FAKE geometry): bound_box, matrix_world and dimensions follow their size, location, rotation and scale', () => {
+    const code = [
+      'import json, math, bpy',
+      'bpy.ops.mesh.primitive_cube_add(size=2.0, location=(1.0, 2.0, 3.0))',
+      'c = bpy.context.active_object',
+      'c.scale = (1.0, 2.0, 3.0)',
+      'out = {"bb": [list(v) for v in c.bound_box], "m": [list(r) for r in c.matrix_world], "dims": list(c.dimensions)}',
+      'c.dimensions = (4.0, 4.0, 4.0)',
+      'out["scale_after"] = list(c.scale)',
+      'c.rotation_euler = (0.0, 0.0, math.pi / 2)',
+      'out["m_rot"] = [[round(x, 9) + 0.0 for x in r] for r in c.matrix_world]',
+      'e = bpy.data.objects.new("Empty", None)',
+      'out["empty"] = [[list(v) for v in e.bound_box], list(e.dimensions)]',
+      'dg = bpy.context.evaluated_depsgraph_get()',
+      'out["evaluated_is_self"] = c.evaluated_get(dg) is c',
+      'u = bpy.context.scene.unit_settings',
+      'out["units"] = [u.system, u.scale_length, u.length_unit]',
+      'print(json.dumps(out))',
+    ].join('\n');
+    const r = spawnSync(python, ['-c', code], { encoding: 'utf8', cwd: root, env: { PATH: process.env.PATH ?? '', PYTHONPATH: STUB, PYTHONDONTWRITEBYTECODE: '1' }, timeout: 60000 });
+    expect(r.status, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout.trim().split('\n').at(-1)!) as Record<string, unknown>;
+    // Blender's corner order (BKE_boundbox_init_from_minmax), in object space
+    expect(out.bb).toEqual([[-1, -1, -1], [-1, -1, 1], [-1, 1, 1], [-1, 1, -1], [1, -1, -1], [1, -1, 1], [1, 1, 1], [1, 1, -1]]);
+    expect(out.m).toEqual([[1, 0, 0, 1], [0, 2, 0, 2], [0, 0, 3, 3], [0, 0, 0, 1]]);
+    expect(out.dims).toEqual([2, 4, 6]);
+    // setting dimensions sets the scale, as Blender does
+    expect(out.scale_after).toEqual([2, 2, 2]);
+    expect(out.m_rot).toEqual([[0, -2, 0, 1], [2, 0, 0, 2], [0, 0, 2, 3], [0, 0, 0, 1]]);
+    // no geometry: every corner -1.0 (Blender's "not available") and no dimensions
+    expect(out.empty).toEqual([Array.from({ length: 8 }, () => [-1, -1, -1]), [0, 0, 0]]);
+    expect(out.evaluated_is_self).toBe(true);
+    expect(out.units).toEqual(['METRIC', 1, 'METERS']);
+  });
+
+  it('R4 (H37) timmy_blender reports the scene as the script left it: a rotated box as its world-space bounds; a script\'s own "bounds" replaced, and said so', () => {
+    const script = path.join(root, 'rotated.py');
+    fs.writeFileSync(script, [
+      'import math, os, sys',
+      'sys.path.insert(0, os.environ["TIMMY_BLENDER_LIB"])',
+      'import timmy_blender',
+      'def main(run):',
+      '    import bpy',
+      '    bpy.ops.mesh.primitive_cube_add(size=2.0, location=(0.0, 0.0, 1.0))',
+      '    bpy.context.active_object.rotation_euler = (0.0, 0.0, math.pi / 4)',
+      '    return {"bounds": "the script\'s own"}',
+      'timmy_blender.run_script(main)',
+    ].join('\n'));
+    const r = spawnSync(python, [script, '--'], { cwd: root, encoding: 'utf8', env: { PATH: process.env.PATH ?? '', PYTHONPATH: STUB, PYTHONDONTWRITEBYTECODE: '1', TIMMY_ROOT: root, TIMMY_BLENDER_LIB: path.join(REPO, 'workers', 'blender') }, timeout: 60000 });
+    expect(r.status, r.stderr).toBe(0);
+    const result = JSON.parse(fs.readFileSync(path.join(root, 'out', 'timmy-result.json'), 'utf8')) as Record<string, any>;
+    expect(result.ok).toBe(true);
+    expect(result.bounds.objects).toEqual([{ name: 'Cube', type: 'MESH', min: [-1.414214, -1.414214, 0], max: [1.414214, 1.414214, 2], size: [2.828427, 2.828427, 2], location: [0, 0, 1] }]);
+    expect(result.bounds).toMatchObject({ evaluated: true, objects_total: 1, without_bounds: 0 });
+    expect(result.notes).toEqual(['the script\'s own "bounds" was replaced by Timmy\'s report of the scene\'s object sizes']);
+    expect(reportedByResult(result).bounds!.objects[0].size).toEqual([2.828427, 2.828427, 2]);
+  });
+
+  it('R4 (H37) the readback line stays under 60,000 characters: fewer objects listed, in objects and in bounds, each total kept; the sizes then not compared', () => {
+    // FAKE: a stand-in .blend (JSON) of 600 cubes, written here
+    const objects = Array.from({ length: 600 }, (_, i) => ({ name: `Cube.${String(i).padStart(3, '0')}`, type: 'MESH', data: `Mesh.${i}`, location: [i, 0, 0], rotation_euler: [0, 0, 0], scale: [1, 1, 1], materials: [], bounds_local: [[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]] }));
+    fs.writeFileSync(path.join(root, 'many.blend'), JSON.stringify({ 'stand-in blend': true, data: { scene: { name: 'Scene', camera: null, frame_start: 1, frame_end: 250, resolution: [640, 400] }, materials: [], objects } }));
+    const r = runWorker({ PYTHONPATH: STUB, BPY_STUB_OPEN: path.join(root, 'many.blend') }, ['--as', 'many.blend']);
+    expect(r.status, r.stderr).toBe(0);
+    const line = JSON.stringify(r.json);
+    expect(line.length).toBeLessThan(60000);
+    expect(r.json.objects_total).toBe(600);
+    expect(r.json.objects.length).toBeLessThan(600);
+    expect(r.json.bounds.objects_total).toBe(600);
+    expect(r.json.bounds.objects.length).toBeLessThan(600);
+    const parsed = parseBlendReadback(line);
+    if (!parsed.ok) throw new Error(parsed.error);
+    const all = bounds(objects.map((o) => box(o.name, [1, 1, 1], o.location)));
+    expect(compareDimensions({ bounds: all }, parsed.read)).toMatchObject({ passed: null, note: `Blender's run listed 600 of 600 objects with a size and the second pass ${parsed.read.bounds!.objects.length} of 600, so the dimensions were not compared` });
   });
 
   it('says what is wrong in one JSON line: a usage error (64), no bpy (2), no file open (2), a file Blender could not read (2)', () => {
@@ -352,15 +631,24 @@ describe.skipIf(!python)('/iterate blender end to end (FAKE agent, FAKE Blender 
     ]));
     expect(b.blend).toEqual({ path: 'out/scene.blend', sha256: sha(fs.readFileSync(path.join(root, 'out', 'scene.blend'))) });
     expect(b.renders).toEqual([{ path: 'out/render.png', sha256: sha(fs.readFileSync(path.join(root, 'out', 'render.png'))) }]);
-    expect(b.reported).toEqual({ objects: ['Aim', 'Ball', 'Camera', 'Cube', 'Cylinder', 'Ground', 'Sun'], materials: ['Timmy Green', 'Off White'], camera: 'Camera', resolution: [640, 400] });
+    const { bounds: reportedBounds, ...reportedRest } = b.reported!;
+    expect(reportedRest).toEqual({ objects: ['Aim', 'Ball', 'Camera', 'Cube', 'Cylinder', 'Ground', 'Sun'], materials: ['Timmy Green', 'Off White'], camera: 'Camera', resolution: [640, 400] });
+    // R4 (H37): the sizes timmy_blender reported when the script's main returned
+    expect(reportedBounds!.objects.map((o) => [o.name, o.size])).toEqual([['Ball', [2, 2, 2]], ['Cube', [2, 2, 2]], ['Cylinder', [1.4, 1.4, 2.4]], ['Ground', [12, 12, 0]]]);
     expect(nativeRuns()).toEqual([b.run]);
     // the second pass: a separate process, the real readback worker on the stand-in bpy; Timmy's own sha256 before and after
     const k = rec.readback!;
-    expect(k).toMatchObject({ state: 'completed', verdict: 'matches', worker: { name: 'timmy-blend-readback', version: '0.1.0' }, blender_version: '4.2.0 (stand-in)', scope: BLEND_READBACK_SCOPE, blend: { path: 'out/scene.blend', sha256_before: b.blend!.sha256, sha256_after: b.blend!.sha256 } });
+    expect(k).toMatchObject({ state: 'completed', verdict: 'matches', worker: { name: 'timmy-blend-readback', version: '0.2.0' }, blender_version: '4.2.0 (stand-in)', scope: BLEND_READBACK_SCOPE, blend: { path: 'out/scene.blend', sha256_before: b.blend!.sha256, sha256_after: b.blend!.sha256 } });
     expect(k.read!.objects.map((o) => o.name)).toEqual(['Aim', 'Ball', 'Camera', 'Cube', 'Cylinder', 'Ground', 'Sun']);
     expect(k.read!.objects.find((o) => o.name === 'Ball')).toEqual({ name: 'Ball', type: 'MESH', dimensions: [2, 2, 2], location: [0, 0.6, 1], materials: ['Off White'] });
     expect(k.read).toMatchObject({ active_camera: 'Camera', frame_range: [1, 250], render_resolution: [640, 400], materials_used: ['Off White', 'Timmy Green'] });
-    expect(k.checks!.map((c) => [c.name, c.passed])).toEqual([['objects', true], ['materials', true], ['camera', true], ['resolution', true]]);
+    expect(k.checks!.map((c) => [c.name, c.passed])).toEqual([['objects', true], ['materials', true], ['camera', true], ['resolution', true], ['dimensions', true]]);
+    expect(k.checks!.find((c) => c.name === 'dimensions')).toMatchObject({ tolerance: 1e-6, reported: { objects: 4 }, read: { objects: 4 } });
+    // no Blender run of scene.py from before this flow: the sizes before are unknown, and said so
+    expect(rec.dimensions).toMatchObject({
+      tolerance: 1e-6, units: { system: 'METRIC', scale_length: 1, length_unit: 'METERS' }, after: { objects: 4, agrees: true, agreement: 'the second pass agrees' },
+      before: null, before_why: `no judged-ok Blender run of scene.py as it was (sha256 ${sha(starterBytes()).slice(0, 12)}) from before this flow`, changed: [], unchanged: 0,
+    });
     expect(fs.readFileSync(path.join(root, k.log!), 'utf8')).toContain('fake-blender: -b scene.blend --factory-startup --python-exit-code 1 --python blend_readback.py');
     expect(fs.readFileSync(path.join(root, b.log!), 'utf8')).toContain('fake-blender: -b --factory-startup --python-exit-code 1 --python scene.py');
     // the receipts: the agent's, the Blender run's (native, judged ok), the second pass's (readback), then the flow's
@@ -377,9 +665,11 @@ describe.skipIf(!python)('/iterate blender end to end (FAKE agent, FAKE Blender 
     expect(notice).toContain(`${id}  agent qwen ${rec.agent!.run} completed: changed scene.py (+1 −1 lines in 1 place) · parses as Python (an AST parse by python3`);
     expect(notice).toMatch(new RegExp(`${id} {2}Blender: j[0-9a-f]{6} runs scene\\.py as submitted \\(its copy: \\.timmy/native/${b.run}/source/scene\\.py\\) · judged by its result file`));
     expect(notice).toMatch(new RegExp(`${id} {2}second pass: j[0-9a-f]{6} opens out/scene\\.blend in a separate Blender process and reads it back`));
-    expect(notice).toContain(`${id} succeeded: the second pass over out/scene.blend matches what Blender's run reported (objects, materials, camera, resolution)`);
+    expect(notice).toContain(`${id} succeeded: the second pass over out/scene.blend matches what Blender's run reported (objects, materials, camera, resolution, dimensions)`);
     expect(notice).toContain('read back from out/scene.blend: 7 objects (Aim, Ball, Camera, Cube, Cylinder, Ground, Sun), 2 materials in use, camera Camera, frames 1–250, 640 x 400');
     expect(notice).toContain(BLEND_READBACK_SCOPE);
+    expect(notice).toContain(`sizes: sizes before the change unknown: no judged-ok Blender run of scene.py as it was (sha256 ${sha(starterBytes()).slice(0, 12)}) from before this flow; after: 4 objects with a size (Blender's report; the second pass agrees)`);
+    expect(notice).toContain(`${DIMENSIONS_SCOPE} ${DOCTRINE_15}`);
     noAbsolute(notice);
     noAbsolute(body.toString('utf8'));
     noAbsolute(JSON.stringify(sealed));
@@ -400,7 +690,9 @@ describe.skipIf(!python)('/iterate blender end to end (FAKE agent, FAKE Blender 
     expect(card).toContain('parses as Python');
     expect(card).toContain('read back from the .blend by a second Blender process');
     expect(card).toContain(BLEND_READBACK_SCOPE);
-    expect(card).toContain('<dd class="verdict verdict-matches">matches · compared: objects, materials, camera, resolution</dd>');
+    expect(card).toContain('<dd class="verdict verdict-matches">matches · compared: objects, materials, camera, resolution, dimensions</dd>');
+    expect(card).toContain('<dt>dimensions</dt><dd>4 objects with a size, each within 1e-6 (min, max and size per axis) <span class="tier">as the result reported</span></dd>');
+    expect(card).toContain('<section class="measured dimensions"><h4>object sizes, before → after</h4><p class="sizes">sizes before the change unknown: no judged-ok Blender run of scene.py as it was');
     expect(card).toContain('<dt>objects</dt><dd>Aim, Ball, Camera, Cube, Cylinder, Ground, Sun <span class="tier">as the result reported</span></dd>');
     expect(card).toContain('<dt>materials</dt><dd>in use: Off White, Timmy Green <span class="tier">as the result reported</span></dd>');
     expect(card).toContain('<dt>camera</dt><dd>Camera <span class="tier">as the result reported</span></dd>');
@@ -510,6 +802,76 @@ describe.skipIf(!python)('/iterate blender end to end (FAKE agent, FAKE Blender 
     const card = fs.readFileSync(path.join(root, '.timmy/board/index.html'), 'utf8').match(/<article class="card flow blender">([\s\S]*?)<\/article>/)![1];
     expect(card).toContain('<dd class="verdict verdict-differs">differs');
     expect(card).toContain('<dd class="bad">reported, not in the .blend: Gold <span class="tier">reported: Timmy Green, Off White, Gold</span></dd>');
+  }, 120000);
+
+  it('R4 (H37) "make the cube 1.5 times larger": a judged-ok run from before gives the sizes before; Cube 2 × 2 × 2 → 3 × 3 × 3, the second pass agrees', async () => {
+    // the run from before, as /blender makes one (blenderJob, judged by judgeNativeJob): the FAKE Blender with the stand-in bpy
+    const jobs = new JobManager({ dir: path.join(fixtures, 'before-jobs') });
+    const spec = blenderJob({
+      script: 'scene.py', root, project: 'demo', bin: fakeBlender, timeoutMs: 60_000,
+      env: { FAKE_BLENDER_MODE: 'python', FAKE_BLENDER_PYTHON: python, PYTHONPATH: STUB, PYTHONDONTWRITEBYTECODE: '1' },
+    });
+    const done = await jobs.done(jobs.start(spec).id);
+    const judged = judgeNativeJob(done, spec);
+    await jobs.stopAll();
+    expect(judged.outcome, judged.why).toBe('ok');
+    const beforeRun = spec.native.run;
+    const { ws, notes, sealed } = make();
+    const id = flowIdIn(text(await ws.iterate('blender scene.py "make the cube 1.5 times larger in every direction and leave everything else as it is PYREPLACE:size=2.0=>size=3.0"')));
+    await until(ended(sealed, id));
+    const rec = recordOf(id);
+    expect(rec).toMatchObject({ outcome: 'succeeded', ended_in: 'readback', readback: { verdict: 'matches' } });
+    expect(fs.readFileSync(path.join(root, 'scene.py'), 'utf8')).toContain('"Cube", size=3.0,');
+    expect(nativeRuns().sort()).toEqual([beforeRun, rec.blender!.run].sort());
+    // Blender's report after the change, and the second pass's check of it
+    expect(rec.blender!.reported!.bounds!.objects.find((o) => o.name === 'Cube')).toEqual({ name: 'Cube', type: 'MESH', min: [-3.9, -1.5, -0.5], max: [-0.9, 1.5, 2.5], size: [3, 3, 3], location: [-2.4, 0, 1] });
+    expect(rec.readback!.read!.bounds!.objects.find((o) => o.name === 'Cube')!.size).toEqual([3, 3, 3]);
+    expect(rec.readback!.checks!.find((c) => c.name === 'dimensions')).toMatchObject({ passed: true, differences: [], tolerance: 1e-6 });
+    // before → after: the run from before named, its own result's sizes kept in the record
+    const resultFile = `.timmy/native/${beforeRun}/result.json`;
+    expect(rec.dimensions).toMatchObject({
+      tolerance: 1e-6, after: { objects: 4, agrees: true, agreement: 'the second pass agrees' },
+      before: { run: beforeRun, script: { path: 'scene.py', sha256: sha(starterBytes()) }, result: resultFile, result_sha256: sha(fs.readFileSync(path.join(root, resultFile))) },
+      changed: [{ name: 'Cube', before: [2, 2, 2], after: [3, 3, 3] }], unchanged: 3,
+    });
+    expect(rec.dimensions!.before!.bounds.objects.find((o) => o.name === 'Cube')!.size).toEqual([2, 2, 2]);
+    expect(rec.dimensions!.before!.judged_at).toMatch(/^2\d{3}-\d\d-\d\dT/);
+    expect(rec.dimensions!.before_why).toBeUndefined();
+    // the REPL's end lines: only the changed object, a count of the rest, where "before" comes from, what a unit is
+    const notice = notes.join('\n');
+    expect(notice).toContain('sizes: Cube 2 × 2 × 2 → 3 × 3 × 3 (Blender\'s report; the second pass agrees) · 3 other objects unchanged in size');
+    expect(notice).toContain(`before: run ${beforeRun.slice(0, 8)}'s report (judged ok `);
+    expect(notice).toContain('Blender units (system METRIC, scale_length 1, length_unit METERS); each within 1e-6');
+    expect(notice).toContain('a second pass by the same application, not an independent implementation');
+    noAbsolute(notice);
+    // the card: the same, escaped
+    ws.board('');
+    const card = fs.readFileSync(path.join(root, '.timmy/board/index.html'), 'utf8').match(/<article class="card flow blender">([\s\S]*?)<\/article>/)![1];
+    expect(card).toContain('<p class="sizes">Cube 2 × 2 × 2 → 3 × 3 × 3 (Blender&#39;s report; the second pass agrees) · 3 other objects unchanged in size</p>');
+    expect(card).toContain(`before: run ${beforeRun.slice(0, 8)}&#39;s report (judged ok `);
+    expect(card).toContain(htmlEsc(DIMENSIONS_SCOPE));
+    expect(card).toContain('<tr><td>Cube</td><td>MESH</td><td>3 x 3 x 3</td><td>(-2.4, 0, 1)</td></tr>');
+  }, 120000);
+
+  it('R4 (H37) a script that changes a size after saving: the second pass reads other sizes than the run reported, so the verdict differs', async () => {
+    // FAKE agent edit: the cylinder (the active object) is scaled after the .blend is saved, before the render
+    const { ws, notes, sealed } = make();
+    const id = flowIdIn(text(await ws.iterate('blender scene.py "scale the cylinder for the render only PYREPLACE:run.render_still(=>bpy.context.active_object.scale=(2.0,2.0,2.0);run.render_still("')));
+    await until(ended(sealed, id));
+    const rec = recordOf(id);
+    expect(rec).toMatchObject({ outcome: 'differs', ended_in: 'readback', blender: { outcome: 'ok' }, readback: { verdict: 'differs' } });
+    const dims = rec.readback!.checks!.find((c) => c.name === 'dimensions')!;
+    expect(dims).toMatchObject({ passed: false, tolerance: 1e-6 });
+    expect(dims.differences).toEqual(['Cylinder: the run reported 2.8 × 2.8 × 4.8 from (1, -1.8, -1.2) to (3.8, 1, 3.6); the second pass read 1.4 × 1.4 × 2.4 from (1.7, -1.1, 0) to (3.1, 0.3, 2.4)']);
+    expect(rec.readback!.checks!.filter((c) => c.passed === false).map((c) => c.name)).toEqual(['dimensions']);
+    expect(rec.why).toBe('the second pass over out/scene.blend differs from what Blender\'s run reported: dimensions: Cylinder: the run reported 2.8 × 2.8 × 4.8 from (1, -1.8, -1.2) to (3.8, 1, 3.6); the second pass read 1.4 × 1.4 × 2.4 from (1.7, -1.1, 0) to (3.1, 0.3, 2.4)');
+    expect(rec.dimensions).toMatchObject({ before: null, after: { agrees: false, agreement: 'the second pass differs: see its dimensions check' } });
+    expect(sealed.find((r) => r.kind === 'readback')).toMatchObject({ status: 'failed', discrepancies: [`dimensions: ${dims.differences[0]}`] });
+    expect(notes.join('\n')).toContain('(Blender\'s report; the second pass differs: see its dimensions check)');
+    ws.board('');
+    const card = fs.readFileSync(path.join(root, '.timmy/board/index.html'), 'utf8').match(/<article class="card flow blender">([\s\S]*?)<\/article>/)![1];
+    expect(card).toContain('<p class="sizes bad">sizes before the change unknown');
+    expect(card).toContain('<dt>dimensions</dt><dd class="bad">Cylinder: the run reported 2.8 × 2.8 × 4.8');
   }, 120000);
 
   it('a second pass that cannot read the file: verdict failed with the worker\'s reason, its output kept', async () => {

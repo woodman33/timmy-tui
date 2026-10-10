@@ -33,8 +33,25 @@ The result file is what Timmy judges a run by, not Blender's exit status:
     "files": {"out/scene.blend": "<sha256>", "out/render.png": "<sha256>"},
     "blender_version": "4.2.3",           (bpy.app.version_string, or null outside Blender)
     "timing": {"started": "...Z", "ended": "...Z", "seconds": 1.23},
+    "bounds": {...},                       (round R4: the scene's object sizes after main returned; see below)
     ...                                    (whatever the script's main returns, as extra fields)
   }
+
+Round R4 (/iterate blender, helper H37): when main returns, run_script also reports the scene as the script left it,
+under "bounds" (Timmy's own field, like "files": a "bounds" the script's main returns is replaced, and a note says
+so). For each object of bpy.context.scene that has a bounding box (a mesh, a curve, a text, anything Blender gives
+one; an empty, a camera or a light has none): its world-space axis-aligned bounding box, min, max and size, and its
+location (the world matrix's translation). Taken as obj.bound_box's 8 corners through obj.matrix_world, of the
+evaluated object (obj.evaluated_get(bpy.context.evaluated_depsgraph_get()), so modifiers and constraints count), in
+Blender units rounded to 1e-6, with the scene's unit settings (unit_settings.system, scale_length, length_unit)
+recorded once, so a reader knows what a unit is:
+    "bounds": {"method": "...", "evaluated": true, "units": {"system": "METRIC", "scale_length": 1.0, ...},
+               "rounding": 1e-06, "objects": [{"name": "Cube", "type": "MESH", "min": [..], "max": [..],
+               "size": [2.0, 2.0, 2.0], "location": [..]}], "objects_total": 4, "without_bounds": 3}
+workers/readback/blend_readback.py reports the saved .blend the same way, so /iterate blender compares the two.
+Without bpy (outside Blender) there is no "bounds"; when the report itself fails, "bounds" is {"error": "..."} and
+the run's outcome is still what main decided. Run here only against the stand-in bpy (tests/fixtures/blender-stub);
+NOT YET EXERCISED on a real Blender.
 
 Use:
     import timmy_blender
@@ -52,11 +69,97 @@ import os
 import sys
 import traceback
 
-__all__ = ["Run", "run_script", "blender_version", "script_args"]
+__all__ = ["Run", "run_script", "blender_version", "script_args", "scene_bounds"]
+
+# R4 (H37): the object sizes report. The same method, word for word, as workers/readback/blend_readback.py.
+BOUNDS_METHOD = ("world-space axis-aligned bounding box: the 8 corners of obj.bound_box through obj.matrix_world, of "
+                 "the evaluated object (through the depsgraph); location is matrix_world's translation; Blender units, "
+                 "rounded to 1e-6")
+#: the same, when the depsgraph could not be had (the report then says why, in not_evaluated)
+BOUNDS_METHOD_UNEVALUATED = BOUNDS_METHOD.replace("of the evaluated object (through the depsgraph)", "of the object as it is (no depsgraph)")
+BOUNDS_ROUNDING = 1e-6
+#: the most objects listed with their bounds (objects_total counts them all)
+MAX_BOUNDS = 2000
+#: object types that carry no geometry of their own (Blender gives them no bounding box)
+NO_GEOMETRY = frozenset(["EMPTY", "CAMERA", "LIGHT", "LIGHT_PROBE", "LIGHTPROBE", "SPEAKER"])
 
 
 def _iso(t):
     return datetime.datetime.fromtimestamp(t, tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _num(v):
+    """A float rounded to 1e-6, without a negative zero."""
+    x = round(float(v), 6)
+    return 0.0 if x == 0 else x
+
+
+def _units(scene):
+    """The scene's unit settings (system, scale_length, length_unit), or None when it has none."""
+    u = getattr(scene, "unit_settings", None)
+    if u is None:
+        return None
+    out = {}
+    for key in ("system", "scale_length", "length_unit"):
+        value = getattr(u, key, None)
+        if value is not None:
+            out[key] = _num(value) if isinstance(value, float) else str(value)
+    return out or None
+
+
+def _object_bounds(obj, depsgraph):
+    """One object's world-space axis-aligned bounding box, or None when it has no bounding box."""
+    if str(obj.type) in NO_GEOMETRY:
+        return None
+    ob = obj.evaluated_get(depsgraph) if depsgraph is not None else obj
+    corners = [tuple(float(x) for x in c) for c in ob.bound_box]
+    # Blender gives every corner as -1.0 when an object has no bounding box
+    if len(corners) != 8 or all(x == -1.0 for c in corners for x in c):
+        return None
+    m = ob.matrix_world
+    world = [[m[i][0] * c[0] + m[i][1] * c[1] + m[i][2] * c[2] + m[i][3] for i in range(3)] for c in corners]
+    lo = [min(w[i] for w in world) for i in range(3)]
+    hi = [max(w[i] for w in world) for i in range(3)]
+    return {
+        "name": obj.name, "type": str(obj.type),
+        "min": [_num(x) for x in lo], "max": [_num(x) for x in hi], "size": [_num(hi[i] - lo[i]) for i in range(3)],
+        "location": [_num(m[i][3]) for i in range(3)],
+    }
+
+
+def scene_bounds(scene=None):
+    """The scene's object sizes as the result reports them under "bounds" (see the module's notes); None outside
+    Blender. Objects are sorted by name; at most MAX_BOUNDS are listed, objects_total counts every one with a
+    bounding box, without_bounds those without."""
+    try:
+        import bpy
+    except Exception:
+        return None
+    scene = scene or bpy.context.scene
+    if scene is None:
+        return {"error": "there is no active scene to report"}
+    depsgraph, evaluated, why = None, False, None
+    try:
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        evaluated = True
+    except Exception as e:  # noqa: BLE001 (said in the report: the objects as they are, not evaluated)
+        why = "%s: %s" % (type(e).__name__, e)
+    listed, total, without = [], 0, 0
+    for obj in sorted(scene.objects, key=lambda o: o.name):
+        entry = _object_bounds(obj, depsgraph)
+        if entry is None:
+            without += 1
+            continue
+        total += 1
+        if len(listed) < MAX_BOUNDS:
+            listed.append(entry)
+    out = {
+        "method": BOUNDS_METHOD if evaluated else BOUNDS_METHOD_UNEVALUATED, "evaluated": evaluated, "units": _units(scene),
+        "rounding": BOUNDS_ROUNDING, "objects": listed, "objects_total": total, "without_bounds": without,
+    }
+    if why:
+        out["not_evaluated"] = why[:300]
+    return out
 
 
 def blender_version():
@@ -97,6 +200,8 @@ class Run(object):
         self.script_sha256_read = _sha256(script) if script and os.path.isfile(script) else None
         self.files = {}
         self.notes = []
+        # R4 (H37): the scene's object sizes when main returned (scene_bounds), written as "bounds"
+        self.bounds = None
 
     def out_path(self, *parts):
         """A path in the out folder, its folder made."""
@@ -165,6 +270,10 @@ class Run(object):
         body = {}
         if isinstance(extra, dict):
             body.update(extra)
+            if self.bounds is not None and "bounds" in extra:
+                self.note("the script's own \"bounds\" was replaced by Timmy's report of the scene's object sizes")
+        if self.bounds is not None:
+            body["bounds"] = self.bounds
         body.update({
             "ok": bool(ok),
             "run": self.run,
@@ -202,4 +311,9 @@ def run_script(main, root=None, result=None):
     except Exception as e:  # noqa: BLE001 (every failure is written down, never lost)
         tb = traceback.format_exc()
         return run.write(False, error="%s: %s" % (type(e).__name__, e), extra={"traceback": run.scrub(tb)[-4000:]})
+    # R4 (H37): the scene as the script left it. A report that fails is said in "bounds"; main's outcome stands.
+    try:
+        run.bounds = scene_bounds()
+    except Exception as e:  # noqa: BLE001
+        run.bounds = {"error": run.scrub("%s: %s" % (type(e).__name__, e))[:300]}
     return run.write(True, extra=extra if isinstance(extra, dict) else None)

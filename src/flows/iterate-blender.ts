@@ -10,10 +10,18 @@
  * The readback is labelled as what it is: the same application reading its own file in a separate process, a second
  * pass, not an independent implementation. Its lengths are Blender units of a generated scene; DOCTRINE §15's sentence
  * goes with them wherever they are shown.
+ *
+ * Round R4 (helper H37, object dimensions): both Blender passes report each object's world-space axis-aligned bounding
+ * box (`bounds`: min, max, size and location, Blender units rounded to 1e-6, the scene's unit settings once); the
+ * comparison's `dimensions` check holds the run's report against the second pass's within DIMENSIONS_TOLERANCE, and the
+ * record's `dimensions` says which objects changed size against a judged-ok Blender run of the same script from before
+ * the flow (findBeforeRun), "Cube 2 × 2 × 2 → 3 × 3 × 3 (Blender's report; the second pass agrees)".
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SNAPSHOT_SKIP, type ChangeSet } from '../code-agents/index.js';
+import { listNativeRuns, readNativeRecord, sha256File } from '../native/index.js';
+import { resolveInside } from '../project/index.js';
 import { packagedPath, packageRoot } from '../utils/asset-dirs.js';
 import { DOCTRINE_15, FLOW_SCHEMA, judgeAgentChanges, type AgentChanges, type FlowOutcome, type OtherChange } from './iterate.js';
 
@@ -35,6 +43,10 @@ export const SCRIPT_MAX_BYTES = 256 * 1024;
 export const SYNTAX_TIMEOUT_MS = 15_000;
 /** The checks that make a comparison: at least one of them must be made for a verdict other than failed. */
 export const CORE_CHECKS: readonly BlendCheckName[] = ['objects', 'materials', 'camera'];
+/** R4 (H37): how far apart, in Blender units, two reports of an object's bounding box (each of min, max and size, per axis) may be. */
+export const DIMENSIONS_TOLERANCE = 1e-6;
+/** What the object sizes are and are not, said with them on the record, the card and the notices. */
+export const DIMENSIONS_SCOPE = 'Object sizes are world-space axis-aligned bounding boxes in Blender units, as Blender\'s run reported them; the comparison with the saved .blend is a second pass by the same application, not an independent implementation.';
 
 const objOf = (v: unknown): Record<string, unknown> | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined);
 const text = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
@@ -65,7 +77,7 @@ export function blenderIterateTask(o: { instruction: string; scriptRel: string; 
   return [
     o.instruction.trim(),
     '',
-    `Do this by changing the file ${o.scriptRel} in this project, and nothing else. It is a Python script for Blender's own Python (bpy): after you finish, Timmy runs it headless (blender -b --factory-startup --python ${o.scriptRel}), judges the run by the result file it writes, then opens the .blend it saved in a second Blender process and compares what that file holds with what the result reported (objects, materials, camera).`,
+    `Do this by changing the file ${o.scriptRel} in this project, and nothing else. It is a Python script for Blender's own Python (bpy): after you finish, Timmy runs it headless (blender -b --factory-startup --python ${o.scriptRel}), judges the run by the result file it writes, then opens the .blend it saved in a second Blender process and compares what that file holds with what the result reported (objects, materials, camera, and each object's size).`,
     '',
     'Rules:',
     `- Edit only ${o.scriptRel}. Do not create, change or delete any other file, and run no commands.`,
@@ -236,6 +248,75 @@ export function syntaxText(s: SyntaxCheck | undefined): string {
 
 export interface BlendObject { name: string; type: string; dimensions: number[] | null; location: number[] | null; materials: string[] }
 export interface BlendScene { name: string; objects: number | null; camera: string | null; frame_start: number | null; frame_end: number | null; resolution: number[] | null; resolution_percentage: number | null; engine: string | null }
+
+/** R4 (H37): the scene's unit settings as Blender reported them (what a Blender unit is shown as); never applied. */
+export interface BlendUnits { system?: string; scale_length?: number; length_unit?: string }
+/** One object's world-space axis-aligned bounding box and its location (matrix_world's translation), in Blender units. */
+export interface BlendObjectBounds { name: string; type: string; min: number[]; max: number[]; size: number[]; location: number[] }
+/**
+ * R4 (H37): the object sizes a Blender pass reported (`bounds`, from workers/blender/timmy_blender.py in the run's result
+ * and from workers/readback/blend_readback.py in the second pass's line): each object that has a bounding box, sorted
+ * by name, at most what the worker listed (objects_total: all of them).
+ */
+export interface BlendBounds {
+  method: string | null;
+  /** true: taken from the evaluated objects, through the depsgraph; false: the objects as they were (not_evaluated says why) */
+  evaluated: boolean | null;
+  not_evaluated?: string;
+  units: BlendUnits | null;
+  rounding: number | null;
+  objects: BlendObjectBounds[];
+  objects_total: number;
+  /** the objects without a bounding box (empties, cameras, lights) */
+  without_bounds: number | null;
+}
+
+/**
+ * A `bounds` report, read: the report, the reason the worker gave for having none (`failed`: its own report failed), or
+ * why it is not in the form the workers write (`malformed`). Nothing is filled in.
+ */
+export function parseBounds(v: unknown): { ok: true; bounds: BlendBounds } | { ok: false; failed: boolean; error: string } {
+  const b = objOf(v);
+  if (!b) return { ok: false, failed: false, error: 'bounds is not an object' };
+  if (text(b.error)) return { ok: false, failed: true, error: b.error.slice(0, 300) };
+  if (!Array.isArray(b.objects) || !finite(b.objects_total)) return { ok: false, failed: false, error: 'bounds has no objects and objects_total' };
+  const objects: BlendObjectBounds[] = [];
+  for (const x of b.objects) {
+    const o = objOf(x);
+    const min = numbers(o?.min, 3);
+    const max = numbers(o?.max, 3);
+    const size = numbers(o?.size, 3);
+    const location = numbers(o?.location, 3);
+    if (!o || !text(o.name) || !text(o.type) || !min || !max || !size || !location) return { ok: false, failed: false, error: 'bounds lists an object without its name, type, min, max, size and location' };
+    objects.push({ name: o.name, type: o.type, min, max, size, location });
+  }
+  const u = objOf(b.units);
+  const units: BlendUnits | null = u ? {
+    ...(text(u.system) ? { system: u.system } : {}), ...(finite(u.scale_length) ? { scale_length: u.scale_length } : {}), ...(text(u.length_unit) ? { length_unit: u.length_unit } : {}),
+  } : null;
+  return {
+    ok: true,
+    bounds: {
+      method: strOrNull(b.method), evaluated: typeof b.evaluated === 'boolean' ? b.evaluated : null, ...(text(b.not_evaluated) ? { not_evaluated: b.not_evaluated.slice(0, 300) } : {}),
+      units, rounding: numOrNull(b.rounding), objects: objects.sort((p, q) => (p.name < q.name ? -1 : p.name > q.name ? 1 : 0)),
+      objects_total: b.objects_total as number, without_bounds: numOrNull(b.without_bounds),
+    },
+  };
+}
+
+/** A number as the records show it: rounded to 1e-6, without a trailing zero or a negative zero ("3", "1.4", "-0.5"). */
+export const lengthText = (n: number): string => { const r = Math.round(n * 1e6) / 1e6; return String(r === 0 ? 0 : r); };
+/** A size as "2 × 2 × 2". */
+export const sizeText = (v: number[]): string => v.map(lengthText).join(' × ');
+/** A tolerance as the records say it: "1e-6". */
+export const toleranceText = (t: number): string => t.toExponential();
+const pointText = (v: number[]): string => `(${v.map(lengthText).join(', ')})`;
+/** The unit settings in words: "system METRIC, scale_length 1, length_unit METERS". */
+export const unitsText = (u: BlendUnits | null | undefined): string => {
+  if (!u) return 'not reported';
+  const parts = [...(u.system ? [`system ${u.system}`] : []), ...(u.scale_length !== undefined ? [`scale_length ${lengthText(u.scale_length)}`] : []), ...(u.length_unit ? [`length_unit ${u.length_unit}`] : [])];
+  return parts.join(', ') || 'not reported';
+};
 /** What the second pass read from the .blend (Blender units, rounded to 1e-6 by the worker). */
 export interface BlendRead {
   scene: string | null;
@@ -253,6 +334,9 @@ export interface BlendRead {
   render_resolution: number[] | null;
   resolution_percentage: number | null;
   units: Record<string, unknown> | null;
+  /** R4 (H37): each object's world-space bounding box; null when the worker reported none (bounds_error: why, when it said) */
+  bounds: BlendBounds | null;
+  bounds_error?: string;
 }
 export interface BlendReadback { ok: true; worker: { name: string; version: string }; blender_version: string | null; python?: string; file: { name: string; opened: string | null }; read: BlendRead }
 export interface BlendReadbackFailure { ok: false; worker?: { name: string; version: string }; code: string; error: string }
@@ -305,6 +389,15 @@ export function parseBlendReadback(output: string): BlendReadback | BlendReadbac
     name: s.name as string, objects: numOrNull(s.objects), camera: strOrNull(s.camera), frame_start: numOrNull(s.frame_start), frame_end: numOrNull(s.frame_end),
     resolution: numbers(s.resolution, 2), resolution_percentage: numOrNull(s.resolution_percentage), engine: strOrNull(s.engine),
   }));
+  // R4 (H37): the object sizes, when the worker reports them (0.2.0 on); claimed but unreadable is a failure, as above
+  let bounds: BlendBounds | null = null;
+  let boundsError: string | undefined;
+  if (found.bounds !== undefined && found.bounds !== null) {
+    const p = parseBounds(found.bounds);
+    if (p.ok) bounds = p.bounds;
+    else if (p.failed) boundsError = p.error;
+    else return bad(`bounds in the form the worker writes (${p.error})`);
+  }
   return {
     ok: true, worker, blender_version: strOrNull(found.blender_version), ...(text(found.python) ? { python: found.python } : {}),
     file: { name: file.name as string, opened: strOrNull(file.opened) },
@@ -312,15 +405,19 @@ export function parseBlendReadback(output: string): BlendReadback | BlendReadbac
       scene: strOrNull(found.scene), objects, objects_total: found.objects_total as number, materials, materials_used: found.materials_used as string[],
       cameras, active_camera: (found.active_camera as string | null), scenes,
       frame_range: numbers(found.frame_range, 2), render_resolution: numbers(found.render_resolution, 2), resolution_percentage: numOrNull(found.resolution_percentage),
-      units: objOf(found.units) ?? null,
+      units: objOf(found.units) ?? null, bounds, ...(boundsError ? { bounds_error: boundsError } : {}),
     },
   };
 }
 
 // ── what the run reported, and the comparison ──────────────────────────────────
 
-/** What the run's result file reported that the second pass can be compared with; `unreadable`: fields there in a form that cannot be. */
-export interface BlendReported { objects?: string[]; materials?: string[]; camera?: string | null; resolution?: number[]; frame_range?: number[]; unreadable?: string[] }
+/**
+ * What the run's result file reported that the second pass can be compared with; `unreadable`: fields there in a form
+ * that cannot be. R4 (H37): `bounds`, the scene's object sizes as timmy_blender reported them when the script's main
+ * returned (`bounds_error`: the reason it gave for having none).
+ */
+export interface BlendReported { objects?: string[]; materials?: string[]; camera?: string | null; resolution?: number[]; frame_range?: number[]; bounds?: BlendBounds; bounds_error?: string; unreadable?: string[] }
 
 /** From the run's result file (as timmy_blender writes it, with what the script's main returned in it). */
 export function reportedByResult(result: unknown): BlendReported {
@@ -349,11 +446,17 @@ export function reportedByResult(result: unknown): BlendReported {
     const got = numbers(r[key], 2);
     if (got && got.every(Number.isInteger)) out[name] = got; else unreadable.push(`${key} is not two whole numbers`);
   }
+  if ('bounds' in r && r.bounds !== null) {
+    const p = parseBounds(r.bounds);
+    if (p.ok) out.bounds = p.bounds;
+    else if (p.failed) out.bounds_error = p.error;
+    else unreadable.push(`bounds is not in the form timmy_blender writes (${p.error})`);
+  }
   if (unreadable.length) out.unreadable = unreadable;
   return out;
 }
 
-export type BlendCheckName = 'objects' | 'materials' | 'camera' | 'resolution' | 'frame range';
+export type BlendCheckName = 'objects' | 'materials' | 'camera' | 'resolution' | 'frame range' | 'dimensions';
 export interface BlendCheck {
   name: BlendCheckName;
   /** what the run's result file reported, and what the second pass read */
@@ -363,15 +466,65 @@ export interface BlendCheck {
   passed: boolean | null;
   differences: string[];
   note?: string;
+  /** R4 (H37), the dimensions check: how far apart two values may be, in Blender units */
+  tolerance?: number;
 }
 export type BlendVerdict = 'matches' | 'differs' | 'failed';
 
 const sameList = (a: number[], b: number[] | null): boolean => !!b && a.length === b.length && a.every((x, i) => x === b[i]);
+/**
+ * Two lengths the same within the tolerance. The slack above it is only float64's own error in the subtraction (a few
+ * units in the last place of the larger value, at least 1e-12), so two values rounded to 1e-6 one step apart still are.
+ */
+const near = (a: number[], b: number[], tol = DIMENSIONS_TOLERANCE): boolean =>
+  a.length === b.length && a.every((x, i) => Math.abs(x - b[i]) <= tol + Math.max(1e-12, 4 * Number.EPSILON * Math.max(Math.abs(x), Math.abs(b[i]))));
+/** The most differences a dimensions check lists (the rest are counted). */
+const MAX_DIFFERENCES = 24;
+const sameUnits = (a: BlendUnits | null, b: BlendUnits | null): boolean =>
+  !a || !b || (a.system === b.system && a.length_unit === b.length_unit && (a.scale_length === undefined || b.scale_length === undefined ? a.scale_length === b.scale_length : near([a.scale_length], [b.scale_length])));
+const boxText = (o: BlendObjectBounds): string => `${sizeText(o.size)} from ${pointText(o.min)} to ${pointText(o.max)}`;
+
+/**
+ * R4 (H37): the dimensions check. Each object the run's result reported with a bounding box against the one the second
+ * pass read from the saved .blend, by name: min, max and size, per axis, within DIMENSIONS_TOLERANCE; an object in one
+ * report and not the other is a difference, as is another type or other unit settings. Not compared (passed null, with
+ * the reason) when either side reported no sizes, or listed only some of them.
+ */
+export function compareDimensions(reported: BlendReported, read: BlendRead): BlendCheck {
+  const tolerance = DIMENSIONS_TOLERANCE;
+  const count = (b: BlendBounds | null | undefined): { objects: number; units: BlendUnits | null } | null => (b ? { objects: b.objects_total, units: b.units } : null);
+  const base = { name: 'dimensions' as const, reported: count(reported.bounds), read: count(read.bounds), differences: [] as string[], tolerance };
+  if (!reported.bounds) return { ...base, passed: null, note: `Blender's run reported no object sizes${reported.bounds_error ? ` (${reported.bounds_error})` : ''}, so the dimensions were not compared` };
+  if (!read.bounds) return { ...base, passed: null, note: `the second pass reported no object sizes${read.bounds_error ? ` (${read.bounds_error})` : ' (a worker from before they were reported)'}, so the dimensions were not compared` };
+  const rep = reported.bounds;
+  const got = read.bounds;
+  if (rep.objects_total > rep.objects.length || got.objects_total > got.objects.length) {
+    return { ...base, passed: null, note: `Blender's run listed ${rep.objects.length} of ${rep.objects_total} objects with a size and the second pass ${got.objects.length} of ${got.objects_total}, so the dimensions were not compared` };
+  }
+  const have = new Map(got.objects.map((o) => [o.name, o]));
+  const said = new Map(rep.objects.map((o) => [o.name, o]));
+  const missing = [...said.keys()].filter((n) => !have.has(n)).sort();
+  const extra = [...have.keys()].filter((n) => !said.has(n)).sort();
+  const differences = [
+    ...(missing.length ? [`with a size in the run's report, none in the .blend: ${names(missing)}`] : []),
+    ...(extra.length ? [`with a size in the .blend, none in the run's report: ${names(extra)}`] : []),
+  ];
+  for (const [name, r] of [...said].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    const k = have.get(name);
+    if (!k) continue;
+    if (r.type !== k.type) differences.push(`${name}: the run reported a ${r.type}; the second pass read a ${k.type}`);
+    else if (!near(r.min, k.min) || !near(r.max, k.max) || !near(r.size, k.size)) differences.push(`${name}: the run reported ${boxText(r)}; the second pass read ${boxText(k)}`);
+  }
+  if (!sameUnits(rep.units, got.units)) differences.push(`units: the run reported ${unitsText(rep.units)}; the second pass read ${unitsText(got.units)}`);
+  const listed = differences.length > MAX_DIFFERENCES ? [...differences.slice(0, MAX_DIFFERENCES), `and ${differences.length - MAX_DIFFERENCES} more differences`] : differences;
+  return { ...base, passed: !differences.length, differences: listed };
+}
 
 /**
  * What the run's result reported against what the second pass read, check by check, for each thing the result
  * reported: its objects (the active scene's, by name), its materials (each in the file, and every material the scene's
- * objects use reported), its active camera, and, when reported, the render resolution and the frame range. A
+ * objects use reported), its active camera, and, when reported, the render resolution, the frame range and (R4, H37)
+ * the objects' sizes (compareDimensions). A
  * material in the file that no object uses and the result did not report is noted, not counted. `matches` when every
  * check made passes and at least one of objects, materials and camera was compared; `differs` when one does not;
  * `failed` when none of those three could be compared.
@@ -422,6 +575,8 @@ export function compareBlendReadback(reported: BlendReported, read: BlendRead): 
     const same = sameList(reported.frame_range, read.frame_range);
     checks.push({ name: 'frame range', reported: reported.frame_range, read: read.frame_range, passed: same, differences: same ? [] : [`the .blend's frames are ${read.frame_range?.join('–') ?? 'unknown'}; the result reported ${reported.frame_range.join('–')}`] });
   }
+  // R4 (H37): the object sizes, when the run reported them (or said why it could not)
+  if (reported.bounds || reported.bounds_error) checks.push(compareDimensions(reported, read));
   const core = checks.filter((c) => CORE_CHECKS.includes(c.name) && c.passed !== null);
   if (checks.some((c) => c.passed === false)) return { verdict: 'differs', checks };
   if (!core.length) {
@@ -433,6 +588,156 @@ export function compareBlendReadback(reported: BlendReported, read: BlendRead): 
 
 /** The differences, one sentence (for the record's why, a notice, a receipt). */
 export const differencesText = (checks: BlendCheck[]): string => checks.filter((c) => c.passed === false).map((c) => `${c.name}: ${c.differences.join('; ')}`).join('; ');
+
+// ── the sizes before and after (R4, H37) ──────────────────────────────────────
+
+/** A judged-ok native Blender run of the same script, from before the flow started: the sizes its result reported. */
+export interface DimensionsBefore {
+  /** the run's token: its folder is .timmy/native/<run>/ */
+  run: string;
+  started_at: string;
+  /** when its last judgement (outcome ok) was made */
+  judged_at: string | null;
+  /** the script it ran, as submitted: the flow's script before the agent ran (the same path and sha256) */
+  script: { path: string; sha256: string };
+  /** its result file (project-relative), and that file's sha256 as read when the flow started */
+  result: string;
+  result_sha256: string | null;
+  bounds: BlendBounds;
+}
+
+/**
+ * The newest native Blender run (.timmy/native/<run>/) that ran this script's exact bytes (its submitted input: the
+ * same path and sha256), started before `startedAt` and was last judged ok, with the object sizes its result file
+ * reported (the result still naming that run and script). Otherwise why there are no sizes from before. Read only.
+ */
+export function findBeforeRun(root: string, script: { path: string; sha256: string }, startedAt: string): { ok: true; before: DimensionsBefore } | { ok: false; why: string } {
+  const label = `${script.path} as it was (sha256 ${script.sha256.slice(0, 12)})`;
+  let runs: ReturnType<typeof listNativeRuns>;
+  try { runs = listNativeRuns(root); } catch { return { ok: false, why: 'the project\'s native runs could not be read' }; }
+  for (const r of runs) {
+    if (r.app !== 'blender' || !(r.started_at < startedAt)) continue;
+    const last = r.verdicts.at(-1);
+    if (!last || last.outcome !== 'ok') continue;
+    let rec: ReturnType<typeof readNativeRecord>;
+    try { rec = readNativeRecord(root, r.run); } catch { continue; }
+    if (!rec || rec.job.input?.path !== script.path || rec.job.input?.sha256 !== script.sha256) continue;
+    const short = r.run.slice(0, 8);
+    const which = `run ${short}, a judged-ok Blender run of ${label},`;
+    if (rec.result.state !== 'read' || !rec.job.result) return { ok: false, why: `${which} has no result file Timmy can read now` };
+    const data = objOf(rec.result.data);
+    if (!data || data.run !== r.run || data.script_sha256 !== script.sha256) return { ok: false, why: `${which} has a result file that no longer names that run and script` };
+    if (data.bounds === undefined || data.bounds === null) return { ok: false, why: `${which} reported no object sizes (it ran before Timmy reported them)` };
+    const p = parseBounds(data.bounds);
+    if (!p.ok) return { ok: false, why: `${which} ${p.failed ? `could not report its object sizes (${p.error})` : `reported its object sizes in a form Timmy does not read (${p.error})`}` };
+    const at = resolveInside(root, rec.job.result);
+    return {
+      ok: true,
+      before: {
+        run: r.run, started_at: r.started_at, judged_at: typeof last.judged_at === 'string' ? last.judged_at : null, script: { ...script },
+        result: rec.job.result, result_sha256: 'error' in at ? null : sha256File(at.path) ?? null, bounds: p.bounds,
+      },
+    };
+  }
+  return { ok: false, why: `no judged-ok Blender run of ${label} from before this flow` };
+}
+
+/** An object whose size changed between the run from before and Blender's run in this flow; null: it had no size there. */
+export interface DimensionsChange { name: string; before: number[] | null; after: number[] | null }
+
+/** The record's `dimensions`: which objects changed size, against what, and how far the second pass agrees. */
+export interface DimensionsSummary {
+  scope: string;
+  /** Blender units; each value compared within this tolerance */
+  tolerance: number;
+  /** the scene's unit settings as Blender's run reported them: what a unit is shown as */
+  units: BlendUnits | null;
+  /** the sizes after: Blender's run's own report (its result's bounds), and the second pass's dimensions check of it */
+  after: { from: string; objects: number; agrees: boolean | null; agreement: string };
+  /** the sizes before, with the run they come from; null when there is none (before_why says why) */
+  before: DimensionsBefore | null;
+  before_why?: string;
+  /** objects whose size changed (or that have a size only before, or only after), by name; empty when before is null */
+  changed: DimensionsChange[];
+  /** objects with a size before and after, the same within the tolerance */
+  unchanged: number;
+  /** when either report listed only some of its objects: only those were set against each other */
+  listed_only?: string;
+}
+
+const AFTER_FROM = 'Blender\'s run (the bounds in its result file)';
+
+/**
+ * The sizes before and after: the earlier run's report against Blender's run's in this flow, object by object (size
+ * per axis, within DIMENSIONS_TOLERANCE), and the second pass's word on the sizes after (its dimensions check, or why
+ * there is none).
+ */
+export function dimensionsSummary(o: { after: BlendBounds; before: DimensionsBefore | null; beforeWhy?: string; check?: BlendCheck; notCompared?: string }): DimensionsSummary {
+  const c = o.check;
+  const agreement = c?.passed === true ? 'the second pass agrees'
+    : c?.passed === false ? 'the second pass differs: see its dimensions check'
+      : c ? `not compared by the second pass: ${c.note ?? 'no reason given'}`
+        : `not compared by the second pass${o.notCompared ? `: ${o.notCompared}` : ''}`;
+  const out: DimensionsSummary = {
+    scope: DIMENSIONS_SCOPE, tolerance: DIMENSIONS_TOLERANCE, units: o.after.units,
+    after: { from: AFTER_FROM, objects: o.after.objects_total, agrees: c ? c.passed : null, agreement },
+    before: o.before, ...(o.before ? {} : { before_why: o.beforeWhy ?? 'no run from before the flow was looked for' }),
+    changed: [], unchanged: 0,
+  };
+  if (!o.before) return out;
+  const was = new Map(o.before.bounds.objects.map((x) => [x.name, x.size]));
+  const now = new Map(o.after.objects.map((x) => [x.name, x.size]));
+  const order = [...new Set([...now.keys(), ...was.keys()])].sort();
+  for (const name of order) {
+    const b = was.get(name) ?? null;
+    const a = now.get(name) ?? null;
+    if (a && b && near(a, b)) out.unchanged++;
+    else out.changed.push({ name, before: b, after: a });
+  }
+  const partial = [o.before.bounds, o.after].filter((x) => x.objects_total > x.objects.length);
+  if (partial.length) out.listed_only = 'a report listed only some of its objects with a size: only the objects listed in both were set against each other';
+  return out;
+}
+
+/**
+ * Whether a record's `dimensions` (read from its file, which anyone may edit) has the shape Timmy writes, so it can be
+ * put in words; a record that does not is shown as such, never guessed at.
+ */
+export function isDimensionsSummary(v: unknown): v is DimensionsSummary {
+  const d = objOf(v);
+  const a = objOf(d?.after);
+  if (!d || !a || !finite(a.objects) || !text(a.agreement) || !finite(d.unchanged) || !finite(d.tolerance) || !Array.isArray(d.changed)) return false;
+  if (!(d.units === null || objOf(d.units))) return false;
+  const size = (x: unknown): boolean => x === null || numbers(x, 3) !== null;
+  if (!d.changed.every((c) => { const o = objOf(c); return !!o && text(o.name) && size(o.before) && size(o.after); })) return false;
+  if (d.before === null) return d.before_why === undefined || typeof d.before_why === 'string';
+  const b = objOf(d.before);
+  return !!b && text(b.run) && (b.judged_at === null || typeof b.judged_at === 'string') && (d.listed_only === undefined || typeof d.listed_only === 'string');
+}
+
+const sizeChangeText = (x: DimensionsChange): string => `${x.name} ${x.before ? sizeText(x.before) : '(new)'} → ${x.after ? sizeText(x.after) : '(gone)'}`;
+const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * The summary in words, for the card and the REPL's end lines: `sizes`, the objects whose size changed and a count of
+ * the rest ("Cube 2 × 2 × 2 → 3 × 3 × 3 (Blender's report; the second pass agrees) · 3 other objects unchanged in
+ * size"), or why the sizes before are unknown; `detail`, where the sizes before come from, the units and the tolerance.
+ */
+export function dimensionsText(s: DimensionsSummary, max = 12): { sizes: string; detail: string } {
+  const how = `Blender's report; ${s.after.agreement}`;
+  const units = `Blender units (${unitsText(s.units)}); each within ${toleranceText(s.tolerance)}`;
+  if (!s.before) {
+    return { sizes: `sizes before the change unknown: ${s.before_why ?? 'no run from before'}; after: ${plural(s.after.objects, 'object')} with a size (${how})`, detail: units };
+  }
+  const shown = s.changed.slice(0, max).map(sizeChangeText);
+  const more = s.changed.length > max ? ` and ${s.changed.length - max} more (the record lists them)` : '';
+  const rest = s.unchanged ? ` · ${plural(s.unchanged, 'other object')} unchanged in size` : '';
+  const sizes = s.changed.length
+    ? `${shown.join(', ')}${more} (${how})${rest}`
+    : `no object changed size: ${plural(s.unchanged, 'object')} with a size, each as before (${how})`;
+  const b = s.before;
+  return { sizes, detail: `before: run ${b.run.slice(0, 8)}'s report (judged ok${b.judged_at ? ` ${b.judged_at.slice(0, 16).replace('T', ' ')} UTC` : ''})${s.listed_only ? ` · ${s.listed_only}` : ''} · ${units}` };
+}
 
 // ── the flow record ──────────────────────────────────────────────────────────────
 
@@ -506,6 +811,8 @@ export interface BlenderFlowRecord {
     receipt?: string;
     scope: string;
   };
+  /** R4 (H37): the objects' sizes before and after, when Blender's run was judged ok and reported them */
+  dimensions?: DimensionsSummary;
   receipts: { agent?: string; blender?: string; readback?: string };
   child_receipts: string[];
   doctrine: string;
