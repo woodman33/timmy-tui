@@ -29,7 +29,8 @@ const MAX_RECORD_BYTES = 256 * 1024;
 /** How many runs a record lists (the rest are counted). */
 const MAX_RUNS = 200;
 
-export type OperationVia = 'repl' | 'board' | 'act';
+/** R4 (H74): 'md', a `timmy md` run (src/cli-md.ts). */
+export type OperationVia = 'repl' | 'board' | 'act' | 'md';
 /**
  * An operation's state, in words: running, then how it ended. R4 (H68): 'interrupted' is written only by a later session's
  * recovery (endLeftOperation), for an operation whose own process ended before it did; no run's result is claimed by it.
@@ -109,7 +110,7 @@ export function parseOperationRecord(raw: unknown, id?: string): { ok: true; rec
   if (!str(r.id) || !OPERATION_ID.test(r.id) || (id && r.id !== id)) return { ok: false, error: 'its id is not this operation\'s' };
   if (!str(r.request) || !str(r.project) || !str(r.started) || !(r.ended === null || str(r.ended))) return { ok: false, error: 'its request, project or times are missing' };
   if (!str(r.state) || !OPERATION_STATES.includes(r.state as OperationState)) return { ok: false, error: `its state ${JSON.stringify(r.state)} is not one Timmy writes` };
-  if (r.via !== 'repl' && r.via !== 'board' && r.via !== 'act') return { ok: false, error: 'it does not say where its request came from' };
+  if (r.via !== 'repl' && r.via !== 'board' && r.via !== 'act' && r.via !== 'md') return { ok: false, error: 'it does not say where its request came from' };
   if (!(r.parent === null || (str(r.parent) && OPERATION_ID.test(r.parent)))) return { ok: false, error: 'its parent is not an operation id' };
   const runs = Array.isArray(r.runs) ? r.runs.filter((x): x is OperationRun => !!x && typeof x === 'object' && str((x as OperationRun).kind) && str((x as OperationRun).id)) : [];
   const owner = r.owner && typeof r.owner === 'object' ? r.owner as Record<string, unknown> : {};

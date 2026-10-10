@@ -38,6 +38,7 @@ import { voxRecordPath } from '../vox/record.js';
 import { AGENTS_DIR } from '../code-agents/index.js';
 import { actStopReason } from '../utils/stop-words.js';
 import { MCP_CALLS_DIR } from '../connectors/mcp-records.js';
+import { workflowNeedsPerson } from '../repl/workflow-gate.js'; // R4 (H74)
 
 export const ACT_USAGE = 'timmy act "<slash command>" [--wait] [--json] [--project <dir>] [--timeout <dur>]';
 
@@ -60,7 +61,7 @@ export function actHelp(): string {
     '',
     'NEEDS A PERSON (refused, with the line to type in the REPL instead)',
     '  a chat request (its tools may ask for approval), /edit, /watch, /center, /web, /browser, /canvas, /board live, /board off,',
-    '  /model, /new, /exit, /vox view, /restore',
+    '  /model, /new, /exit, /vox view, /restore, and a /run whose blocks include a destructive shell command',
     '',
     'OPERATIONS',
     `  With ${OPERATION_ENV} set (a workflow block of a /run), act joins that operation when this project holds it and it still`,
@@ -203,6 +204,15 @@ export async function actMain(argv: string[], o: { json?: boolean } = {}): Promi
   }
   try { root = fs.realpathSync(root); } catch { /* as given */ }
   try { process.chdir(root); } catch (e) { process.stderr.write(`The project folder cannot be entered: ${e instanceof Error ? e.message : String(e)}\n`); return 2; }
+  // R4 (H74): a /run whose blocks include a risky one waits for a person in the REPL's NEEDS YOU box: refused here, before
+  // an operation begins (src/repl/workflow-gate.ts)
+  const risky = workflowNeedsPerson(root, a.line);
+  if (risky) {
+    const msg = `Not run: ${risky}, which needs a person. Type this in the REPL instead: ${a.line}`;
+    out(msg);
+    if (a.json) process.stdout.write(`${before(a.line, 'refused', msg)}\n`);
+    return 2;
+  }
 
   const glyphs = glyphSet(true);
   const printed: Segment[][] = [];

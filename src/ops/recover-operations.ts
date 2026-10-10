@@ -206,7 +206,7 @@ export function recoverOperations(d: OperationRecoverDeps): RecoveryItem[] {
   const items: RecoveryItem[] = [];
   for (const { record } of open) {
     const id = record.id;
-    const who = record.via === 'act' ? 'timmy act' : 'REPL';
+    const who = record.via === 'act' ? 'timmy act' : record.via === 'md' ? 'timmy md' : 'REPL'; // R4 (H74): timmy md
     const runs: Run[] = [];
     for (const r of [...record.runs, ...(index.get(id) ?? [])]) if (isRun(r) && !runs.some((x) => x.kind === r.kind && x.id === r.id)) runs.push({ kind: r.kind, id: r.id });
     const looked = runs.map((run) => ({ run, end: endOf(d, run, who) }));

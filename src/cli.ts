@@ -55,6 +55,7 @@ Commands:
   tools           What works here, checked live: surfaces, models, agent tools, other agents (tools all; --json)
   drop <file|folder>…  Into the hot-drop lanes: copied, matched by a rule, sealed (--lane; --list [project])
   act "<slash command>"  One REPL command, headlessly, as one operation (--wait, --json, --project, --timeout)
+  md <workflow.md> [<block>]  Run a upmd workflow's block as /run does: prediction, block receipts, NEEDS YOU (--plan, --json)
   demo            Run a local demo and generate a verifiable receipt
   proof <task>    Record a proof receipt for a simulated task
   version         Print package name and version
@@ -148,7 +149,7 @@ if (cleanArgs.length === 0 && !args.includes('--help') && !args.includes('-h')) 
   const { isBlankSlate, runInit } = await import('./utils/init.js');
   if (isBlankSlate()) process.exit(await runInit(args));
 }
-if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop', 'act'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
+if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop', 'act', 'md'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
   printHelp();
   process.exit(0);
 }
@@ -159,6 +160,12 @@ if (command === 'act') {
   // Round R4 (H51): one REPL command run headlessly in a project, as one operation (src/ops/act.ts).
   const { actMain } = await import('./ops/act.js');
   process.exit(await actMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : []), { json: isJson }));
+}
+
+if (command === 'md') {
+  // Round R4 (H74): a upmd workflow's block from the command line, as /run runs it (src/cli-md.ts).
+  const { mdMain } = await import('./cli-md.js');
+  process.exit(await mdMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : []), { json: isJson }));
 }
 
 if (command === 'cockpit' && !['up', 'attach', 'status', 'down', 'hands'].includes(cleanArgs[1] ?? '')) {
