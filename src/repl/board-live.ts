@@ -368,6 +368,7 @@ function readBody(req: IncomingMessage, limit: number): Promise<string | null> {
 
 const LIVE_CSS = `
 .live { color: ${HOMEBREW.accent}; }
+.live.not-live { color: ${HOMEBREW.attention}; font-weight: 400; }
 #status { min-height: 1.5em; }
 #status.bad { color: ${HOMEBREW.failure}; }
 .act { font: inherit; font-size: 12px; font-weight: 600; color: ${HOMEBREW.ground}; background: ${HOMEBREW.accent}; border: 1px solid ${HOMEBREW.accent}; border-radius: 6px; padding: 3px 10px; cursor: pointer; align-self: flex-start; margin-right: 6px; }
@@ -413,6 +414,9 @@ const LIVE_SCRIPT = `
   var status = document.getElementById('status');
   var out = document.getElementById('out');
   var project = document.getElementById('project');
+  // R4 (H67, r20): the header says live only once the board has taken this tab's token and sent its state
+  var liveWord = document.getElementById('live');
+  var mark = function (t) { if (!liveWord) return; liveWord.textContent = t; liveWord.className = 'live' + (t === 'live' ? '' : ' not-live'); };
   var shape = '';
   var busy = 0;
   var say = function (t, isBad) { status.textContent = t; status.className = 'sub' + (isBad ? ' bad' : ''); };
@@ -503,13 +507,15 @@ const LIVE_SCRIPT = `
       if (!since) { since = Date.now(); if (asking) setTimeout(function () { if (!token) poll(); }, 1500); }
       if (asking && Date.now() - since < 1500) say('No token in this tab yet: asking the other tabs of this board for it.');
       else say(NO_TOKEN, true);
+      mark('waiting for the token');
       return;
     }
     fetch('/state', { headers: { Authorization: 'Bearer ' + token }, cache: 'no-store', credentials: 'omit' })
       .then(function (r) { if (!r.ok) throw r.status; return r.json(); })
-      .then(function (s) { good = true; apply(s); say('live · ' + s.madeAt + ' · updates every 2 s'); },
+      .then(function (s) { good = true; apply(s); mark('live'); say('live · ' + s.madeAt + ' · updates every 2 s'); },
         function (e) {
           if (e === 401) good = false;
+          mark('not live');
           say(e === 401 ? 'Refused: the board did not take the token of this tab (it was started again). In Timmy, type /board live: it gives you the address of this board with its token.' : 'Not connected: /board live in Timmy starts the board again.', true);
         });
   };
@@ -575,7 +581,7 @@ export function livePage(nonce: string): string {
     '</head>',
     '<body>',
     '<header>',
-    '<h1>Board · <span class="project" id="project"></span> <span class="live">live</span></h1>',
+    '<h1>Board · <span class="project" id="project"></span> <span class="live not-live" id="live">not live yet</span></h1>',
     '<p class="sub" id="status">connecting…</p>',
     '<p class="sub">Stop, Run, Observe, Rebuild, VoxVision\'s Inspect, Measure, Detect and Compare, Memory\'s Check and the review\'s Restore act through Timmy as the typed command, shown in Timmy as coming from the board. Saving parameters or workflow blocks is checked by Timmy, which keeps the previous version. A green command copies itself.</p>',
     '<pre id="out" hidden></pre>',
