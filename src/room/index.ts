@@ -319,6 +319,9 @@ export function receiptCosts(chain: readonly Receipt[], projectId: string): Map<
       const child = (r.child_receipts ?? []).map((c) => agentRunOf.get(String(c))).find((x): x is string => !!x);
       put(child ? `agent:${child}` : `flow:${String(r.hash)}`, r, receiptCost(r, { known: "its agent step's, as its flow receipt sealed it", unknown: "its agent step's, which no response reported", none: '' }));
     } else if (hasCost) {
+      // A measured 0 on a receipt that names no model, no tokens and no request is no charge at all: nothing was asked
+      // (the recipe's prediction seals cost_usd: 0; r18, ledger row 157, counted it as "$0.0000 known (1 run)").
+      if (hasMeasuredCostUsd(r) && r.cost_usd === 0 && !r.model_requested && !r.model_resolved && r.tokens === undefined) continue;
       put(`receipt:${String(r.hash)}`, r, receiptCost(r, { known: `as its ${r.kind} receipt sealed it`, unknown: `its ${r.kind} receipt marks the cost unknown`, none: '' }));
     }
   }

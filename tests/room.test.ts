@@ -335,6 +335,20 @@ describe('the Control Room: costs, as recorded', () => {
   });
 });
 
+describe('the Control Room: a receipt that asked no model is no charge (r18, ledger row 157)', () => {
+  it('leaves the recipe prediction\'s sealed cost_usd: 0 out of the known costs, and keeps a real request\'s zero', () => {
+    const pid = 'p3';
+    const predict = receipt(pid, { kind: 'predict', cost_usd: 0, status: 'ok' });
+    const asked = receipt(pid, { kind: 'mcp.call', cost_usd: 0, tokens: 12 });
+    const paid = receipt(pid, { kind: 'gen', cost_usd: 0.02, model_requested: 'some/model' });
+    const sealed = receiptCosts([predict, asked, paid], pid);
+    expect([...sealed.keys()].sort()).toEqual([`receipt:${String(asked.hash)}`, `receipt:${String(paid.hash)}`].sort());
+    const sum = sumCosts(sealed.values());
+    expect(sum).toEqual({ knownUsd: 0.02, known: 2, unknown: 0, free: 0, atLeastUsd: 0 });
+    expect(costsLine(sumCosts(receiptCosts([predict], pid).values()))).not.toContain('$0.0000');
+  });
+});
+
 describe('the Control Room: handoffs', () => {
   it('draws a tray flow\'s chain agent → checks → build → readback with each step\'s owner, job, state and receipt, from the record alone', () => {
     const steps = flowHandoff(fakeTray());
