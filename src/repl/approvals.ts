@@ -89,6 +89,44 @@ function withDetail(args: Record<string, unknown>, keys: string[], need: { reaso
   return detail.includes('\n') || detail.length > DETAIL_OVER ? { ...need, detail } : need;
 }
 
+/** A value the model wrote, cleaned for the box: no escapes or control characters; trailing space dropped; newlines kept. */
+const cleaned = (v: unknown): string => (typeof v === 'string' ? sanitize(v).replace(/\s+$/, '') : '');
+/** The same on one line, at most `max` characters (an ellipsis says it was cut). */
+const shortened = (s: string, max: number): string => {
+  const one = s.replace(/\s+/g, ' ').trim();
+  const chars = Array.from(one);
+  return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : one;
+};
+
+/**
+ * R4 (H40): the box for a tool whose first key cannot say what it will do. Its line names each part, shortened; when
+ * that line is long, or a part has a newline, the box also shows every part whole (cleaned, newlines kept), so nothing
+ * the operator approves is hidden behind the first key.
+ */
+function described(parts: Array<[string, string]>, line: string): { summary: string; detail?: string } {
+  const long = line.length > DETAIL_OVER || parts.some(([, v]) => v.includes('\n') || v.length > DETAIL_OVER);
+  return long ? { summary: line, detail: parts.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join('\n') } : { summary: line };
+}
+
+const DESCRIBE: Record<string, (args: Record<string, unknown>) => { summary: string; detail?: string } | undefined> = {
+  // R4 (H40): the app, the file the local agent may change, and the instruction it is given (its first key, file, hid the rest)
+  iterate_native: (a) => {
+    const app = cleaned(a.app);
+    const file = cleaned(a.file);
+    const instruction = cleaned(a.instruction);
+    const head = [shortened(app, 16), shortened(file, 60)].filter(Boolean).join(' ');
+    return described([['app', app], ['file', file], ['instruction', instruction]], `${head}${instruction ? `: ${shortened(instruction, 120)}` : ''}`);
+  },
+  // R4 (H40): Blender's run says its script and the script's arguments (its first key, app, said "blender" alone); the
+  // other apps' line is the app, as before
+  run_native: (a) => {
+    if (a.app !== 'blender') return undefined;
+    const script = cleaned(a.script);
+    const args = Array.isArray(a.args) ? a.args.map(cleaned).filter(Boolean).join(' ') : '';
+    return described([['app', 'blender'], ['script', script], ['args', args]], `blender${script ? ` ${shortened(script, 60)}` : ''}${args ? ` -- ${shortened(args, 80)}` : ''}`);
+  },
+};
+
 /** A Daytona key that is set and is not a template's placeholder (the tool's own test). */
 const daytonaKeySet = (env: Record<string, string | undefined>): boolean => keySet(env.DAYTONA_API_KEY);
 
@@ -97,7 +135,9 @@ export function approvalNeeded(tool: string, args: Record<string, unknown> = {},
   if (READ_ONLY.has(tool)) return null;
   const always = ALWAYS[tool];
   if (always) {
-    const need = withDetail(args, always.keys, { reason: always.reason, summary: summarize(args, always.keys) });
+    // R4 (H40): a tool whose first key cannot say what it will do names each of its parts instead
+    const own = Object.hasOwn(DESCRIBE, tool) ? DESCRIBE[tool](args) : undefined;
+    const need = own ? { reason: always.reason, ...own } : withDetail(args, always.keys, { reason: always.reason, summary: summarize(args, always.keys) });
     return always.session === false ? { ...need, session: false } : need;
   }
   // Every workspace command asks: without a Daytona key it runs on this machine, and no pattern can

@@ -599,8 +599,9 @@ describe('--agent codex for /iterate scad and /iterate blender (FAKE codex, FAKE
 
 describe('iterate_native, the agent\'s tool (FAKE pieces)', () => {
   it('asks each time; starts the same flow as /iterate scad, answered as data (started, not finished); refusals as data', async () => {
+    // R4 (H40): the box names the app, the file and the instruction (tests/repl-approvals.test.ts has the long ones)
     expect(approvalNeeded('iterate_native', { app: 'openscad', file: 'box.scad', instruction: 'wider' })).toEqual({
-      reason: 'starts a local code agent that may change one file in your project (an OpenSCAD model\'s <model>.params.json, or a FreeCAD script), then runs OpenSCAD or FreeCAD on this machine and reads the result back', summary: 'box.scad', session: false,
+      reason: 'starts a local code agent that may change one file in your project (an OpenSCAD model\'s <model>.params.json, or a FreeCAD script), then runs OpenSCAD or FreeCAD on this machine and reads the result back', summary: 'openscad box.scad: wider', session: false,
     });
     const { ws, sealed } = make();
     const tools = createIterateTools({ start: (r) => ws.iterateForTool(r) });
