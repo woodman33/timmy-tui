@@ -284,6 +284,8 @@ describe('the /tools rows', () => {
       ['openscad', 'adapter', 'OpenSCAD (command line)', 'needs setup'],
       // R4 (H28): no FreeCAD.app in this folder either.
       ['freecad', 'adapter', 'FreeCAD (freecadcmd, headless)', 'needs setup'],
+      // R4 (H64): nor Adobe Illustrator.
+      ['illustrator', 'adapter', 'Illustrator (scripting)', 'needs setup'],
     ]);
     expect(rows[2].detail).toMatch(/Blender\.app/);
     expect(rows[0].detail).toMatch(/Maxon Cinema 4D 2026/);
@@ -294,7 +296,7 @@ describe('the /tools rows', () => {
 
   it('says needs setup, with the step, when it is not found', () => {
     const rows = nativeCapabilityRows({}, { platform: 'darwin', applications: path.join(tmp, 'none'), onPath: () => null });
-    expect(rows.map((r) => r.rung)).toEqual(['needs setup', 'needs setup', 'needs setup', 'needs setup', 'needs setup', 'needs setup']);
+    expect(rows.map((r) => r.rung)).toEqual(['needs setup', 'needs setup', 'needs setup', 'needs setup', 'needs setup', 'needs setup', 'needs setup']);
     expect(rows[0].setup).toMatch(/TIMMY_C4DPY/);
     expect(rows[1].setup).toMatch(/TIMMY_AERENDER/);
     expect(rows[2].setup).toMatch(/TIMMY_BLENDER/);

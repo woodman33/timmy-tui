@@ -22,6 +22,9 @@
  *   freecad   (R4) FreeCAD's freecadcmd, headless: a Python script builds a part, saves an editable .FCStd and
  *             exports STEP; its result file (workers/freecad/timmy_freecad.py) decides the run. Built and judged in
  *             src/native/freecad.ts, which also offers the STEP readback.
+ *   illustrator (R4, H64) Adobe Illustrator scripting through osascript (its window opens): a per-run ExtendScript harness
+ *             makes, edits or reads a document, exports SVG and PDF, and writes its result file; Timmy reads the SVG back
+ *             itself. Built and judged in src/native/illustrator.ts.
  *
  * R3 (an independent review of 40022d9, finding 5): every run has its own folder in the project,
  * .timmy/native/<run>/, holding job.json (written once, at submission: the app, the program, the input's
@@ -64,7 +67,7 @@ import { operationField } from '../ops/context.js';
 
 export type { NativeInventory, OutputChange, SourceCheck } from './provenance.js';
 
-export type NativeApp = 'c4dpy' | 'aerender' | 'blender' | 'afterfx' | 'openscad' | 'freecad';
+export type NativeApp = 'c4dpy' | 'aerender' | 'blender' | 'afterfx' | 'openscad' | 'freecad' | 'illustrator';
 type Env = Record<string, string | undefined>;
 
 export interface NativeFound {
@@ -155,6 +158,16 @@ export const NATIVE_APPS: Record<NativeApp, AppInfo> = {
     bundlePath: 'Contents/Resources/bin/freecadcmd', program: 'freecadcmd',
     name: 'FreeCAD (freecadcmd, headless)',
     setup: 'install FreeCAD; or set TIMMY_FREECADCMD to freecadcmd or FreeCAD.app',
+    resultFile: true,
+  },
+  illustrator: {
+    // R4 (H64, src/native/illustrator.ts): Illustrator scripting, run inside the application through osascript (macOS keeps
+    // /Applications/Adobe Illustrator <version>/Adobe Illustrator.app/Contents/MacOS/Adobe Illustrator).
+    envVar: 'TIMMY_ILLUSTRATOR', prefix: 'Adobe Illustrator',
+    inside: ['Adobe Illustrator.app/Contents/MacOS/Adobe Illustrator', '{folder}.app/Contents/MacOS/Adobe Illustrator', 'Contents/MacOS/Adobe Illustrator'],
+    bundleExe: 'Adobe Illustrator', program: 'Adobe Illustrator',
+    name: 'Illustrator (scripting)',
+    setup: 'install Adobe Illustrator; or set TIMMY_ILLUSTRATOR to its .app',
     resultFile: true,
   },
 };
@@ -1477,9 +1490,11 @@ export function nativeCapabilityRows(env: Env = process.env, seams: FinderSeams 
     const scope = app === 'aerender' ? '; renders existing .aep/.aepx projects only (making or editing one: /ae author, /ae edit, After Effects scripting)'
       : app === 'afterfx' ? '; writes and edits projects inside the application (/ae author, /ae edit, /ae inspect; its window opens)'
         : app === 'openscad' ? '; exports a .scad model to a binary STL (/scad), read back by Timmy\'s own STL reader'
-        : app === 'freecad' ? '; runs a Python script headless (/freecad): an editable .FCStd and a STEP export; /freecad readback reads the STEP back' : '';
+        : app === 'freecad' ? '; runs a Python script headless (/freecad): an editable .FCStd and a STEP export; /freecad readback reads the STEP back'
+        // R4 (H64): asked through osascript; macOS's Automation permission is the operator's to give
+        : app === 'illustrator' ? '; makes, edits and reads documents inside the application through osascript (/illustrator author, edit, inspect; its window opens; macOS may ask for Automation), its SVG export read back by Timmy' : '';
     // R4: After Effects scripting, OpenSCAD and FreeCAD say "implemented; not run" until a sealed run of their own says otherwise.
-    const words = runWords(runs?.get(app)) ?? (app === 'afterfx' || app === 'openscad' || app === 'freecad' ? 'implemented; not run' : undefined);
+    const words = runWords(runs?.get(app)) ?? (app === 'afterfx' || app === 'openscad' || app === 'freecad' || app === 'illustrator' ? 'implemented; not run' : undefined);
     const base = { id: app, kind: 'adapter' as const, name: info.name, tools: ['run_native'], exercisedBy: `native:${app}` };
     if (found) {
       const where = found.how === 'applications'

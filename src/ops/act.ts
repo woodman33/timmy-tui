@@ -146,7 +146,7 @@ export function startsWork(line: string): boolean {
   const [word, ...rest] = line.slice(1).split(/\s+/);
   const args = rest.join(' ').trim();
   if (['observe', 'inspect', 'measure', 'detect', 'compare', 'preview', 'scad', 'blender', 'c4d', 'ae'].includes(word)) return true;
-  if (word === 'run' || word === 'iterate' || word === 'freecad') return args.length > 0;
+  if (word === 'run' || word === 'iterate' || word === 'freecad' || word === 'illustrator') return args.length > 0;
   if (word === 'agent') return args.length > 0 && args !== 'last';
   if (word === 'recipe') return /^tray\b/.test(args);
   if (word === 'mcp') return /^call\b/.test(args);

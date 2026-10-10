@@ -179,8 +179,9 @@ describe.skipIf(!python)('the Blender starter against a stand-in bpy (python3 in
 describe('the Blender row and run_native', () => {
   it('lists Blender as a third native app, keyed to its own runs', () => {
     const rows = nativeCapabilityRows({}, { platform: 'linux', onPath: () => null });
-    // R4: After Effects scripting (afterfx) is the fourth row, after Blender; OpenSCAD (H27) the fifth, FreeCAD (H28) the sixth.
-    expect(rows.map((r) => r.id)).toEqual(['c4dpy', 'aerender', 'blender', 'afterfx', 'openscad', 'freecad']);
+    // R4: After Effects scripting (afterfx) is the fourth row, after Blender; OpenSCAD (H27) the fifth, FreeCAD (H28) the sixth,
+    // Illustrator scripting (H64) the seventh.
+    expect(rows.map((r) => r.id)).toEqual(['c4dpy', 'aerender', 'blender', 'afterfx', 'openscad', 'freecad', 'illustrator']);
     const b = rows[2];
     expect(b).toMatchObject({ kind: 'adapter', name: 'Blender (Python, headless)', rung: 'needs setup', exercisedBy: 'native:blender', tools: ['run_native'] });
     expect(b.setup).toMatch(/TIMMY_BLENDER/);

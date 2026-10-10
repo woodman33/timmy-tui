@@ -70,6 +70,7 @@ import { diffText, FLOW_ID, FLOW_SCHEMA, FLOW_WORK_DIR, flowRecordPath, flowWork
 import { scadDiffText, type ScadParamChange } from '../flows/iterate-scad.js';
 import { listNativeRuns, readNativeRecord, reconcileNative, type NativeApp } from '../native/index.js';
 import { reconcileAe } from '../native/ae-author.js';
+import { reconcileIllustrator } from '../native/illustrator.js';
 import { reconcileScad } from '../native/openscad.js';
 import { reconcileFreecad } from '../native/freecad.js';
 import { projectId } from '../project/index.js';
@@ -120,7 +121,7 @@ const TARGETS: Record<string, { app: string; appStep: string; command: string; f
   ae: { app: 'After Effects', appStep: 'author', command: '/ae author', file: 'script', render: { step: 'render', app: 'aerender' } },
 };
 const TARGET_STEPS: ReadonlySet<string> = new Set(['prepare', 'agent', 'checks', 'openscad', 'freecad', 'blender', 'author', 'render', 'readback', 'record']);
-const APP_WORDS: Record<NativeApp, string> = { c4dpy: 'Cinema 4D', aerender: 'After Effects render', blender: 'Blender', afterfx: 'After Effects script', openscad: 'OpenSCAD', freecad: 'FreeCAD' };
+const APP_WORDS: Record<NativeApp, string> = { c4dpy: 'Cinema 4D', aerender: 'After Effects render', blender: 'Blender', afterfx: 'After Effects script', openscad: 'OpenSCAD', freecad: 'FreeCAD', illustrator: 'Illustrator script' };
 /** A recipe job's state now, as a flow's record says it (lanes/recipes/jobs.ts states, and unreadable). */
 const RECIPE_NOW: Record<string, string> = { running: 'still runs', succeeded: 'has succeeded', failed: 'has failed', cancelled: 'was cancelled', interrupted: 'was interrupted', queued: 'is queued', unreadable: 'could not be read' };
 
@@ -947,6 +948,7 @@ function actNative(d: RecoverDeps, p: Extract<Plan, { kind: 'native' }>): Recove
     const j = p.app === 'afterfx' ? reconcileAe(d.root, p.run, job ? { job } : {})
       : p.app === 'openscad' ? reconcileScad(d.root, p.run, job ? { job } : {})
       : p.app === 'freecad' ? reconcileFreecad(d.root, p.run, job ? { job } : {})
+      : p.app === 'illustrator' ? reconcileIllustrator(d.root, p.run, job ? { job } : {}) // R4 (H64)
         : reconcileNative(d.root, p.run, job ? { job } : {});
     return { kind: 'native', id: p.run, did: 'judged', outcome: j.outcome, ...(job ? { job: job.id } : {}), text: `${name}${job ? ` (job ${job.id})` : ''} judged ${j.outcome} from its result file: ${d.scrub(j.why)}` };
   } catch (e) {

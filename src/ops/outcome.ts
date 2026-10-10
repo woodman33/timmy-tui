@@ -115,7 +115,9 @@ export function runOutcome(run: OperationRun, root: string, jobs: { get(id: stri
       const job = rec.started?.job;
       const claims = job && JOB_ID.test(job) ? [`job:${job}`] : [];
       const last = rec.verdicts.at(-1);
-      if (last) return { state: last.outcome === 'ok' ? 'succeeded' : 'failed', words: `${last.outcome} (judged by its result file)`, claims };
+      // R4 (H64): an Illustrator run's verdict carries Timmy's own reading of its export: one that differs is "differs".
+      const readback = (last as { readback?: { verdict?: unknown } } | undefined)?.readback?.verdict;
+      if (last) return { state: last.outcome === 'ok' ? (readback === 'differs' ? 'differs' : 'succeeded') : 'failed', words: `${last.outcome} (judged by its result file)${readback === 'differs' ? '; Timmy\'s own reading of its export differs' : ''}`, claims };
       const j = job ? jobs.get(job) : undefined;
       if (j?.state === 'cancelled') return { state: 'stopped', words: 'stopped before it was judged', claims };
       return { state: 'unknown', words: 'not judged', claims };
