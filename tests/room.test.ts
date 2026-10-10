@@ -196,11 +196,41 @@ describe('the Control Room: grouping and ordering', () => {
     const notOurs = gatherRoom(fakeProject().ctx).all.find((r) => r.id === 'f0000f001')!;
     expect(notOurs).toMatchObject({ running: true, state: 'running, as its state file says (this REPL does not run it)' });
     expect(notOurs.stop).toBeUndefined();
-    expect(notOurs.hint).toContain('/recover');
+    expect(notOurs.hint).toEqual({ words: expect.stringMatching(/^This REPL does not run this flow, so it does not stop it\. If the REPL that ran it has ended, \/recover records it as interrupted/), command: '/recover' });
     const ours = gatherRoom(fakeProject({ activeFlows: ['f0000f001'] }).ctx).all.find((r) => r.id === 'f0000f001')!;
     expect(ours).toMatchObject({ state: 'running', stop: { kind: 'flow', id: 'f0000f001' }, step: 'its build step' });
+    expect(ours.hint).toBeUndefined();
     const theirs = gatherRoom(fakeProject({ mine: [] }).ctx).all.filter((r) => r.running);
     expect(theirs.every((r) => r.stop === undefined)).toBe(true);
+    // The board: the hint's words, its command to copy (never a sentence as a command), and why another session's job is not stopped.
+    const html = roomSection(gatherRoom(fakeProject({ mine: [] }).ctx).view, kit({ live: true, base: '../../' })).html;
+    expect(html).toContain('<p class="meta room-hint">This REPL does not run this flow, so it does not stop it.');
+    expect(html).toContain('data-cmd="/recover"');
+    expect(html).not.toMatch(/data-cmd="\/recover [a-z]/);
+    expect(html).toContain('<p class="meta room-hint">Another Timmy session started it, so this REPL does not stop it.</p>');
+    expect(html).not.toContain('data-act=');
+  });
+
+  it('a FAKE Look whose measurement has ended while its model is asked: it still runs, its Stop is the typed /stop of its job, its cost unknown once sent', () => {
+    const p = fakeProject();
+    const before = gatherRoom(p.ctx).view.costs.unknown;
+    Object.assign(p.jobs.find((j) => j.id === 'j0c0003')!, { state: 'completed', endedAt: '2026-10-10T09:59:00.000Z' });
+    const asking = (sent: boolean) => (id: string) => (id === 'j0c0003' ? { model: 'fake/vision', since: NOW - 5_000, sent } : undefined);
+    const { view, all } = gatherRoom({ ...p.ctx, asking: asking(true) });
+    const run = all.find((r) => r.kind === 'look' && r.id === 'j0c0003')!;
+    expect(run).toMatchObject({ running: true, state: 'measured; asking fake/vision', model: 'fake/vision', endpoint: 'remote', route: 'paid: a request sent to the model', stop: { kind: 'job', id: 'j0c0003' }, cost: { kind: 'unknown' } });
+    expect(run.hint).toBeUndefined();
+    expect(view.running.map((r) => r.id)).toContain('j0c0003');
+    expect(view.costs.unknown).toBe(before + 1);
+    expect(roomSection(view, kit({ live: true, base: '../../' })).html).toContain('data-act="room-stop" data-job="j0c0003"');
+    expect(lines(roomLines(view, { glyphs }))).toContain('/stop j0c0003 stops it');
+    // Before the request goes out: nothing sent, so no cost at all; the same Stop.
+    const unsent = gatherRoom({ ...p.ctx, asking: asking(false) }).all.find((r) => r.id === 'j0c0003')!;
+    expect(unsent).toMatchObject({ route: 'paid when sent: the model is about to be asked; nothing sent yet', cost: { kind: 'none' }, stop: { kind: 'job', id: 'j0c0003' } });
+    // Not this REPL's job: no Stop, and the words say why.
+    const theirs = gatherRoom({ ...p.ctx, mine: () => false, asking: asking(true) });
+    expect(theirs.all.find((r) => r.id === 'j0c0003')!.stop).toBeUndefined();
+    expect(lines(roomItemLines(theirs, 'j0c0003', { glyphs }))).toMatch(/Stop\s+Another Timmy session started it, so this REPL does not stop it\./);
   });
 
   it('finds one run by its id, its job, its receipt or a unique prefix of 8 or more', () => {

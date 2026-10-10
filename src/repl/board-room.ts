@@ -15,7 +15,7 @@
  */
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { CapabilityRow } from '../capabilities/index.js';
-import { costParts, RUNG_WORDS, toolGroups, type RoomCosts, type RoomRun, type RoomStep, type RoomView, type Tone } from '../room/index.js';
+import { costParts, NOT_OURS, RUNG_WORDS, toolGroups, type RoomCosts, type RoomRun, type RoomStep, type RoomView, type Tone } from '../room/index.js';
 import { costWords } from '../room/text.js';
 import { esc, stamp, type Kit } from './board-kit.js';
 
@@ -72,10 +72,10 @@ export function runCard(r: RoomRun, k: Kit): string {
     : '';
   const commands = [
     ...(r.running && r.stop && !k.live ? [`/stop ${r.stop.id}`] : []),
-    ...(r.running && !r.stop && r.hint?.startsWith('/') ? [r.hint] : []),
+    ...(r.running && !r.stop && r.hint?.command ? [r.hint.command] : []),
     `/room ${r.id}`,
   ];
-  const hint = r.running && !r.stop ? `<p class="meta room-hint">${esc(r.hint && !r.hint.startsWith('/') ? r.hint : 'This REPL did not start it, so the board does not stop it.')}</p>` : '';
+  const hint = r.running && !r.stop ? `<p class="meta room-hint">${esc(r.hint?.words ?? NOT_OURS)}</p>` : '';
   return `<article class="card room-run ${STATE_CLASS[r.tone]}" data-room-kind="${esc(r.kind)}" data-room-id="${esc(r.id)}">`
     + `<div class="jobhead"><strong class="room-owner">${esc(r.owner)}</strong> <span class="room-state">${esc(r.state)}</span></div>`
     + `<div class="meta"><span class="kind">${esc(r.kind)}</span> ${esc(r.id)}${r.job && r.job !== r.id ? esc(` · job ${r.job}`) : ''}${r.partOf ? esc(` · ${r.partOf}`) : ''}</div>`

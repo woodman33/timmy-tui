@@ -9,10 +9,13 @@
  *   that is never executed (the flow is stopped before its build);
  * - the tools check is a FAKE list of /tools rows given through the roomTools seam (nothing on this machine is probed);
  * - the recipe job runs through the jobs.ts executor seam with a FAKE executor that only waits (no CadQuery, no Python,
- *   nothing written), so its job stays running until it is cancelled through its own path.
+ *   nothing written), so its job stays running until it is cancelled through its own path;
+ * - the Look is a FAKE vision Python (a TEST DOUBLE that prints made-up measurements of the FAKE image) and a FAKE
+ *   OpenRouter given through the fetch seam: its models list is made up and its chat request never answers until its
+ *   signal aborts, so nothing leaves this process and nothing is charged; the key is the string 'test-key'.
  */
 import type { ChildProcess } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request, type IncomingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -25,6 +28,8 @@ import { Workspace, type WorkspaceDeps } from '../src/repl/workspace.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import type { Segment } from '../src/term/theme.js';
 import type { Receipt, ReceiptInput } from '../src/utils/receipts.js';
+import { resetLookChecks } from '../src/vision/look.js';
+import { resetImageModelCache } from '../src/vision/route.js';
 
 const FAKE_AGENT = resolve('tests/fixtures/fake-code-agent.mjs');
 const dirs: string[] = [];
@@ -37,6 +42,8 @@ const text = (lines: { text: string }[][]): string => lines.map((l) => l.map((s)
 const tick = (ms = 100): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 afterEach(async () => {
+  resetLookChecks();
+  resetImageModelCache();
   for (const w of spaces.splice(0)) await w.close();
   await Promise.race([Promise.all(supervisors), new Promise((r) => setTimeout(r, 15000))]);
   supervisors = [];
@@ -50,7 +57,38 @@ const FAKE_ROWS: CapabilityRow[] = [
   { id: 'mcp-cli', kind: 'tool', name: 'MCP servers (/mcp)', rung: 'installed', detail: 'FAKE: 1 of 2 command-line routes installed' },
 ];
 
-function make(o: { recipe?: true } = {}) {
+/** A FAKE vision Python (a TEST DOUBLE, as in tests/repl-workspace-look.test.ts): it answers the version check and prints
+ *  made-up measurements of the image it is given; no OpenCV runs. */
+function fakeVisionPython(): string {
+  const dir = temp('room-live-fake-vision-');
+  const js = join(dir, 'fake-look.mjs');
+  writeFileSync(js, [
+    "import { createHash } from 'node:crypto';",
+    "import { readFileSync } from 'node:fs';",
+    'const args = process.argv.slice(2);',
+    "if (args[0] === '-c') { console.log('5.0.0-fake'); process.exit(0); }",
+    "const bytes = readFileSync(args[1]); const as = args[args.indexOf('--as') + 1];",
+    "console.log(JSON.stringify({ ok: true, worker: { name: 'timmy-look', version: 'fake' }, opencv: '5.0.0-fake', python: 'fake', source: { path: as, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length }, image: { width: 4, height: 2, channels: 3 }, measurements: [], uncertainty: ['FAKE: a test double'] }));",
+  ].join('\n'));
+  const sh = join(dir, 'python');
+  writeFileSync(sh, `#!/bin/sh\nexec "${process.execPath}" "${js}" "$@"\n`);
+  chmodSync(sh, 0o755);
+  return sh;
+}
+
+/** A FAKE OpenRouter (the fetch seam): a made-up models list; its chat request never answers until its signal aborts. */
+function silentModel() {
+  let posted: () => void = () => undefined;
+  const sent = new Promise<void>((r) => { posted = r; });
+  const fn = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).endsWith('/models')) return new Response(JSON.stringify({ data: [{ id: 'fake/vision-model', architecture: { input_modalities: ['text', 'image'] } }] }), { status: 200 });
+    posted();
+    return new Promise<Response>((_resolve, reject) => { init?.signal?.addEventListener('abort', () => reject(init.signal!.reason ?? new Error('aborted')), { once: true }); });
+  }) as typeof fetch;
+  return { fn, sent };
+}
+
+function make(o: { recipe?: true; look?: { fetch: typeof fetch } } = {}) {
   const root = temp('room-live-');
   const fixtures = temp('room-live-fixtures-');
   const executor = join(fixtures, 'fake-recipe-wait.mts');
@@ -62,7 +100,8 @@ function make(o: { recipe?: true } = {}) {
   const sealed: ReceiptInput[] = [];
   const deps: WorkspaceDeps = {
     glyphs: glyphSet(true),
-    env: { TIMMY_AGENT_QWEN_BIN: FAKE_AGENT, TIMMY_AGENT_MODEL: 'qwen3:4b', TIMMY_CADQUERY_PYTHON: fakePython },
+    env: { TIMMY_AGENT_QWEN_BIN: FAKE_AGENT, TIMMY_AGENT_MODEL: 'qwen3:4b', TIMMY_CADQUERY_PYTHON: fakePython, ...(o.look ? { TIMMY_VISION_PYTHON: fakeVisionPython(), OPENROUTER_API_KEY: 'test-key' } : {}) },
+    ...(o.look ? { fetch: o.look.fetch, model: () => 'fake/vision-model' } : {}),
     onPath: () => null,
     notify: (l) => notes.push(l.map((s) => s.text).join('')),
     openWeb: (url) => `Open ${url} in your browser.`,
@@ -205,6 +244,46 @@ describe('the Control Room on the live board: Stop reaches the existing /stop pa
     const again = await post(port, jsonHeaders(token), { action: 'stop', flow });
     expect(again.status).toBe(404);
   }, 40_000);
+});
+
+describe('the Control Room on the live board: a Look whose model is being asked', () => {
+  it('its measurement job has ended, yet the room shows it running with a Stop; the Stop is /stop <job>, which stops the request (FAKE model)', async () => {
+    const model = silentModel();
+    const { ws, root, notes } = make({ look: { fetch: model.fn } });
+    // FAKE: a PNG signature and made-up bytes (no picture).
+    mkdirSync(join(root, 'refs'), { recursive: true });
+    writeFileSync(join(root, 'refs', 'card.png'), Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 7)]));
+    const started = await ws.observeFile('refs/card.png', 'FAKE: what is on it?');
+    if (!started.ok) throw new Error(started.error);
+    const job = started.job.id;
+    await Promise.race([model.sent, tick(10_000).then(() => { throw new Error(`the FAKE model was never asked: ${notes.join(' | ')}`); })]);
+    const { port, token } = await live(ws);
+    const s = await until(port, token, (x) => x.html.includes(`data-act="room-stop" data-job="${job}"`));
+    // The job is over (the Jobs section offers no Stop for it), but the room's Stop for it is accepted by the server.
+    expect(s.jobs.find((j) => j.id === job)).toMatchObject({ state: 'completed', stoppable: true });
+    expect(s.html).toContain('<span class="room-state">measured; asking fake/vision-model</span>');
+    expect(s.html).toContain('paid: a request sent to the model');
+    expect(s.html).toContain('unknown yet: a request is out; its cost is recorded when it ends');
+    expect(s.html).not.toContain(`data-act="stop" data-job="${job}"`);
+    const refused = await post(port, { ...jsonHeaders(token), Origin: 'http://evil.invalid' }, { action: 'stop', job });
+    expect(refused.status).toBe(403);
+    expect(notes.filter((n) => n.includes('board  /stop'))).toEqual([]);
+
+    const stopped = await post(port, jsonHeaders(token), { action: 'stop', job });
+    expect(stopped.status).toBe(200);
+    expect(stopped.body.split('\n')[0]).toBe(`board /stop ${job}`);
+    expect(stopped.body).toContain(`${job} stopped the model interpretation; the measurement had completed`);
+    expect(stopped.body).toContain('may still be charged: cost unknown');
+    expect(notes).toContain(`  board  /stop ${job}`);
+    const outcome = await started.done;
+    expect(outcome.ok && outcome.interpretation).toMatchObject({ status: 'cancelled', cost_usd: null });
+    // The room: nothing runs; the Look is a recent run whose cost stays unknown (never 0).
+    const after = await until(port, token, (x) => !x.html.includes(`data-act="room-stop" data-job="${job}"`) && x.toc.includes('Control Room <b>idle</b>'));
+    expect(after.html).toContain('1 run of unknown cost');
+    expect((await state(port, token)).jobs.find((j) => j.id === job)).toMatchObject({ stoppable: false });
+    const again = await post(port, jsonHeaders(token), { action: 'stop', job });
+    expect(again.status).toBe(409);
+  }, 30_000);
 });
 
 describe('the Control Room on the live board: a recipe', () => {

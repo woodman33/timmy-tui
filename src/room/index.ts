@@ -120,8 +120,9 @@ export interface RoomRun {
   job?: string;
   /** what this REPL can stop it with: /stop <job> or /stop <flow>, through the live board's Stop (never anything else) */
   stop?: { kind: 'job' | 'flow'; id: string };
-  /** a command that reaches it when this REPL cannot stop it (another session's flow, a recipe whose watcher is gone) */
-  hint?: string;
+  /** why this REPL does not stop it (another session's flow, a recipe no job of this REPL follows), and the typed command
+   *  that reaches it, when there is one; without a hint, a running run this REPL cannot stop is one another session started */
+  hint?: { words: string; command?: string };
   /** "the agent step of flow f…" and the like */
   partOf?: string;
   cost: RoomCost;
@@ -365,6 +366,8 @@ interface Ctx extends RoomContext {
 }
 
 function jobOf(c: Ctx, id: string | undefined): JobRecord | undefined { return id ? c.jobs.find((j) => j.id === id) : undefined; }
+/** Why a running run with neither a Stop nor a hint is not stopped here: it runs only when its job is live, and this REPL did not start it. */
+export const NOT_OURS = 'Another Timmy session started it, so this REPL does not stop it.';
 const liveJob = (j: JobRecord | undefined): boolean => !!j && LIVE.has(j.state) && !j.stale;
 const jobWords = (j: JobRecord): string => (j.stale ? `${j.state}; its process is gone (from an earlier session)` : j.state === 'cancelled' ? 'stopped' : j.state);
 const stopFor = (c: Ctx, j: JobRecord | undefined): RoomRun['stop'] => (j && liveJob(j) && c.mine(j.id) ? { kind: 'job', id: j.id } : undefined);
@@ -566,7 +569,7 @@ function flowRuns(c: Ctx, flows: BoardFlows): RoomRun[] {
       record: f.file,
       ...(f.live ? { recordNote: 'its state file: no record yet' } : verified ? {} : { recordNote: `not verified: ${cleanLine(f.check.reasons.join('; ') || 'no reason was given', c.scrub, 120)}` }),
       ...(verified && f.check.receipt ? { receipt: f.check.receipt } : {}),
-      ...(ours ? { stop: { kind: 'flow' as const, id } } : running ? { hint: '/recover records it as interrupted if the REPL running it has ended' } : {}),
+      ...(ours ? { stop: { kind: 'flow' as const, id } } : running ? { hint: { words: 'This REPL does not run this flow, so it does not stop it. If the REPL that ran it has ended, /recover records it as interrupted (it says when).', command: '/recover' } } : {}),
       cost: recordCost, costKey: str(agent?.run) ? `agent:${String(agent!.run)}` : `flow:${id}`,
       outputs: flowOutputs(r, f.file),
       receipts: Object.values(obj(r.receipts) ?? {}).filter((x): x is string => typeof x === 'string'),
@@ -645,7 +648,7 @@ function recipeRuns(c: Ctx, flowOfOperation: ReadonlyMap<string, string>): RoomR
       ...(uuid ? { record: `.timmy/recipe-jobs/${uuid}/job.json` } : {}),
       ...(card.receipts?.[0] ? { receipt: card.receipts[0].id } : {}),
       ...(watcher ? { job: watcher.id } : {}),
-      ...(stop ? { stop } : active && uuid ? { hint: `/recipe cancel ${uuid}` } : {}),
+      ...(stop ? { stop } : active && uuid ? { hint: { words: `No job of this REPL follows this recipe, so it does not stop it: /recipe cancel ${uuid} asks the recipe's own cancel.`, command: `/recipe cancel ${uuid}` } } : {}),
       ...(flow ? { partOf: `the build step of flow ${flow}` } : {}),
       cost: none('no cost recorded: the recipe worker on this machine'), costKey: `recipe:${uuid ?? i}`,
       outputs: (card.files ?? []).flatMap((f) => { const p = projectPath(f.rel); return p ? [{ role: f.note ?? 'file', path: p }] : []; }),
@@ -700,7 +703,9 @@ function lookRuns(c: Ctx): RoomRun[] {
       state: asking ? `measured; asking ${asking.model}` : 'measuring', tone: 'running', running: true,
       step: cleanLine(j.label, c.scrub, 80),
       ...(start ? { startedAt: j.startedAt, elapsed: span(c, start, undefined, true) } : {}),
-      job: j.id, ...(stopFor(c, j) ? { stop: stopFor(c, j) } : {}),
+      // While its model is asked the measurement's job has ended; /stop <job> still reaches the request (Workspace.stopAsking),
+      // so the room's Stop is that same typed stop. Only this REPL's own observations are asking, never another session's.
+      job: j.id, ...(stopFor(c, j) ? { stop: stopFor(c, j) } : asking && c.mine(j.id) ? { stop: { kind: 'job' as const, id: j.id } } : {}),
       cost: asking?.sent ? { kind: 'unknown', words: 'unknown yet: a request is out; its cost is recorded when it ends' } : none('no model request has gone out'),
       costKey: `look:${j.id}`, outputs: [], at: start,
     });

@@ -6,7 +6,7 @@
  */
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Role, Segment } from '../term/theme.js';
-import { costsLine, findRun, needsSetup, setupCounts, type Room, type RoomRun, type RoomView, type Tone } from './index.js';
+import { costsLine, findRun, needsSetup, NOT_OURS, setupCounts, type Room, type RoomRun, type RoomView, type Tone } from './index.js';
 
 type Line = Segment[];
 
@@ -43,7 +43,7 @@ export function runLines(r: RoomRun, o: RoomTextOptions, indent = '    '): Line[
   lines.push([{ text: `${indent}    ` }, { text: after, role: r.cost.kind === 'unknown' ? 'estimate' : 'secondary' }]);
   if (r.progress) lines.push([{ text: `${indent}    ${g.arrow} `, role: 'secondary' }, { text: r.progress }]);
   if (r.running) {
-    const how = r.stop ? `/stop ${r.stop.id} stops it` : r.hint ?? 'this REPL did not start it, so it does not stop it here';
+    const how = r.stop ? `/stop ${r.stop.id} stops it` : r.hint?.words ?? NOT_OURS;
     lines.push([{ text: `${indent}    ` }, { text: how, role: 'secondary' }]);
   }
   return lines;
@@ -109,6 +109,6 @@ export function roomItemLines(room: Room, id: string, o: RoomTextOptions): Line[
   } else lines.push([label('Outputs'), { text: 'none named in its record', role: 'secondary' }]);
   const rec = [r.record ? link(r.record) : '', r.recordNote ?? '', r.receipt ? `receipt ${r.receipt}` : 'no receipt seals it yet', ...(r.receipts?.length ? [`its record names receipts ${r.receipts.join(', ')}`] : [])].filter(Boolean).join(sep);
   lines.push([label('Record'), { text: rec }]);
-  if (r.running) lines.push([label('Stop'), { text: r.stop ? `/stop ${r.stop.id}` : r.hint ?? 'this REPL did not start it, so it does not stop it here', role: r.stop ? 'strong' : 'secondary' }]);
+  if (r.running) lines.push([label('Stop'), { text: r.stop ? `/stop ${r.stop.id}` : r.hint?.words ?? NOT_OURS, role: r.stop ? 'strong' : 'secondary' }]);
   return lines;
 }

@@ -1996,14 +1996,16 @@ export class Workspace {
     const { toc, main } = renderBoardBody(input);
     // The sections are redrawn when this changes: everything but the jobs' states and times.
     const shape = createHash('sha256').update(JSON.stringify({ ...input, madeAt: '', jobs: input.jobs.map((j) => ({ id: j.id, label: j.label, receipt: j.receipt })) })).digest('hex').slice(0, 16);
-    // R4 (H48): the Control Room's Stop targets: its running flows (stoppable only when this REPL runs one), and a running job of
-    // this REPL's it shows that the Jobs section left off (it shows the newest only); each is checked by checkAction as any stop.
+    // R4 (H48): the Control Room's Stop targets: its running flows (stoppable only when this REPL runs one), and a job of this
+    // REPL's it shows running: one the Jobs section left off (it shows the newest only), or a Look job whose measurement ended
+    // while its model is asked (/stop <job> reaches the request). Each is checked by checkAction as any stop.
     const running = input.room?.running ?? [];
+    const roomStops = new Set(running.flatMap((r) => (r.stop?.kind === 'job' ? [r.stop.id] : [])));
     const shown = new Set(input.jobs.map((j) => j.id));
     const roomJobs = running.flatMap((r) => (r.stop?.kind === 'job' && !shown.has(r.stop.id) ? [{ id: r.stop.id, state: 'running', label: r.step ?? r.owner, stoppable: true }] : []));
     return {
       project: input.project, madeAt: input.madeAt, toc, html: main, shape,
-      jobs: [...input.jobs.map((j) => ({ id: j.id, state: j.state, label: j.label, ...(j.seconds ? { seconds: j.seconds } : {}), stoppable: j.stoppable === true })), ...roomJobs],
+      jobs: [...input.jobs.map((j) => ({ id: j.id, state: j.state, label: j.label, ...(j.seconds ? { seconds: j.seconds } : {}), stoppable: j.stoppable === true || roomStops.has(j.id) })), ...roomJobs],
       flows: running.filter((r) => r.kind === 'flow').map((r) => ({ id: r.id, state: r.state, stoppable: r.stop?.kind === 'flow' })),
       workflows: input.workflows.map((w) => ({ rel: w.rel, blocks: w.blocks.map((b) => b.name) })),
       files: images,
