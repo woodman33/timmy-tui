@@ -177,20 +177,22 @@ export function checkUnrealOutsideOnce(key: string, o: Parameters<typeof checkUn
 /**
  * The check in words, for a verdict: "Unreal wrote nothing outside the project and Timmy's native home", or "Unreal wrote
  * 3 files outside the project: ~/Library/Application Support/Epic/UnrealEngine/5.8 (2), …". `nativeHome`: Unreal's user
- * folders were sent to Timmy's own native home (TIMMY_NATIVE_HOME); without one they are this account's own.
+ * folders were sent to Timmy's own native home (TIMMY_NATIVE_HOME); without one they are this account's own. A walk that
+ * stopped early or a folder it could not read never gives "nothing", and makes its count "at least".
  */
 export function unrealOutsideWords(c: UnrealOutsideCheck, o: { nativeHome: boolean }): string {
   if (c.state === 'not applicable') return `Unreal's writes outside the project were not checked: ${c.why ?? 'nothing is watched here'}`;
   const partial = c.state === 'incomplete' ? ` (an incomplete check: ${c.why ?? 'the walk stopped early'})` : '';
   const unread = c.unreadable ? `; ${c.unreadable} folder${c.unreadable === 1 ? '' : 's'} could not be read` : '';
   if (!c.files) {
-    return c.state === 'incomplete'
-      ? `Unreal's writes outside the project are not known${partial}`
-      : `Unreal wrote nothing outside the project${o.nativeHome ? ' and Timmy\'s native home' : ''}${unread}`;
+    if (c.state === 'incomplete') return `Unreal's writes outside the project are not known${partial}${unread}`;
+    if (c.unreadable) return `Unreal's writes outside the project are known only in part: nothing in the folders read${unread}, so what it wrote there is not known`;
+    return `Unreal wrote nothing outside the project${o.nativeHome ? ' and Timmy\'s native home' : ''}`;
   }
   const groups = Object.entries(c.by_folder);
   const named = groups.slice(0, 6).map(([f, n]) => `${f} (${n})`).join(', ');
-  return `Unreal wrote ${c.files} file${c.files === 1 ? '' : 's'} outside the project: ${named}${groups.length > 6 ? ` and ${groups.length - 6} more folders` : ''}${partial}${unread}`;
+  const atLeast = c.state === 'incomplete' || c.unreadable ? 'at least ' : '';
+  return `Unreal wrote ${atLeast}${c.files} file${c.files === 1 ? '' : 's'} outside the project: ${named}${groups.length > 6 ? ` and ${groups.length - 6} more folders` : ''}${partial}${unread}`;
 }
 
 /** What was watched, in a few words (said beside the verdict). */

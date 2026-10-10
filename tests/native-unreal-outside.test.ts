@@ -2,7 +2,8 @@
  * Round R4 (H72): the check of what an Unreal job wrote outside the project (src/native/unreal-outside.ts), on real files
  * and folders in a temporary folder standing in for the account's home: metadata only, never a link followed, files
  * counted by folder in the job's window, at most 20 names kept, folders named relative to that home ("~/…"); off macOS,
- * with no seam, it says the check does not apply; an incomplete check never says "nothing".
+ * with no seam, it says the check does not apply; an incomplete check, or one with a folder it could not read, never says
+ * "nothing", and its count is "at least".
  */
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -130,13 +131,17 @@ describe('what is counted', () => {
 
 describe('in words', () => {
   const base: UnrealOutsideCheck = { state: 'checked', folders: ['~/Library/Application Support/Epic'], since: '', files: 0, by_folder: {}, names: [], method: '' };
-  it('off macOS: not checked, and why; an incomplete walk never says nothing', () => {
+  it('off macOS: not checked, and why; an incomplete walk or a folder that could not be read never says nothing, and its count is "at least"', () => {
     expect(unrealOutsideWords(checkUnrealOutside({ sinceMs: 0, env: {}, platform: 'linux', home }), { nativeHome: true }))
       .toBe('Unreal\'s writes outside the project were not checked: the check applies on macOS, where Unreal\'s user folders are known; this is linux');
     expect(unrealOutsideWords({ ...base, state: 'incomplete', why: 'the walk stopped after 20 s' }, { nativeHome: true }))
       .toBe('Unreal\'s writes outside the project are not known (an incomplete check: the walk stopped after 20 s)');
     expect(unrealOutsideWords({ ...base, state: 'incomplete', why: 'the walk stopped after 20 s', files: 3, by_folder: { '~/x': 3 } }, { nativeHome: true }))
-      .toBe('Unreal wrote 3 files outside the project: ~/x (3) (an incomplete check: the walk stopped after 20 s)');
-    expect(unrealOutsideWords({ ...base, unreadable: 2 }, { nativeHome: true })).toBe('Unreal wrote nothing outside the project and Timmy\'s native home; 2 folders could not be read');
+      .toBe('Unreal wrote at least 3 files outside the project: ~/x (3) (an incomplete check: the walk stopped after 20 s)');
+    expect(unrealOutsideWords({ ...base, unreadable: 2 }, { nativeHome: true }))
+      .toBe('Unreal\'s writes outside the project are known only in part: nothing in the folders read; 2 folders could not be read, so what it wrote there is not known');
+    expect(unrealOutsideWords({ ...base, files: 1, by_folder: { '~/x': 1 }, unreadable: 1 }, { nativeHome: false }))
+      .toBe('Unreal wrote at least 1 file outside the project: ~/x (1); 1 folder could not be read');
+    expect(unrealOutsideWords(base, { nativeHome: false })).toBe('Unreal wrote nothing outside the project');
   });
 });
