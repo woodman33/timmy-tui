@@ -37,6 +37,7 @@ import { dirname, join } from 'node:path';
 import type { JobManager, JobRecord, JobSpec } from '../jobs/index.js';
 import { AGENTS, AGENTS_DIR, AGENT_NAMES, agentBin, comparedOf, forJudging, notComparedText, planAgent, type AgentInfo, type AgentName, type AgentPlan, type AgentRunRecord } from '../code-agents/index.js';
 import { codexLocalPreflight } from '../code-agents/codex-local.js';
+import { OPENHANDS_NOT_ITERATE } from '../code-agents/openhands.js';
 import { checkCopy, failureFiles, nativeRuntime, PARAMETER_HELP, PARAMETER_NAMES, PYTHON_SETUP, readCard, RECIPE_ID, short } from '../recipes/index.js';
 import { paramsPath, parseParams, readParams, writeParams } from '../recipes/params-file.js';
 import { cancel, status } from '../../lanes/recipes/jobs.js';
@@ -174,6 +175,7 @@ export function parseIterateLine(args: string): { ok: true; request: IterateRequ
   if (!instruction) return { ok: false, error: `Say what to change: ${script ? BLENDER_USAGE : file ? fileUsage : USAGE}` };
   const name = (agent ?? 'qwen').toLowerCase() as AgentName;
   if (!AGENT_NAMES.includes(name)) return { ok: false, error: `No agent named ${agent}: /iterate runs qwen (Qwen Code) or codex (Codex with a local model), on a local endpoint. Nothing was started.` };
+  if (name === 'openhands') return { ok: false, error: OPENHANDS_NOT_ITERATE }; // R4 (H52): its changes reach the project only through its write-back
   if (!LOCAL_AGENTS.includes(name)) return { ok: false, error: `${AGENTS[name].title} runs on your own account and costs money; /iterate runs only a local, free route (--agent qwen or --agent codex, on a local endpoint). Nothing was started.` };
   // R4 (H33): every target takes the local Codex route (H25) now, under the same rule as /iterate tray: a local
   // endpoint, no cloud model, no --paid, and a model this machine's Ollama already lists (checked before anything runs).

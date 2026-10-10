@@ -83,6 +83,11 @@ export interface JobSpec {
    * job's stdin is a pipe nothing here ever writes. Absent: the pipe stays open, as before.
    */
   stdin?: 'closed';
+  /**
+   * Round R4 (H52): written to the child's stdin as it is spawned, which is then ended: for a program that reads its
+   * input there (OpenHands' worker reads its task from stdin, so the task is never on a command line). Absent: as before.
+   */
+  stdinText?: string;
 }
 export interface JobManagerOptions { dir: string; onChange?: (job: JobRecord) => void; seal?: (job: JobRecord) => string | undefined; now?: () => Date }
 
@@ -279,6 +284,10 @@ export class JobManager {
     if (spec.stdin === 'closed') {
       child.stdin.on('error', () => { /* the child is gone or never started: its outcome says so */ });
       child.stdin.end();
+    }
+    if (spec.stdinText !== undefined && spec.stdin !== 'closed') {
+      child.stdin.on('error', () => { /* the child is gone or never started: its outcome says so */ });
+      child.stdin.end(spec.stdinText);
     }
     child.once('spawn', () => {
       if (entry.finished) return;

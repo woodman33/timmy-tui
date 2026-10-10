@@ -13,6 +13,7 @@
  */
 import { agentExercisedAt } from '../code-agents/index.js';
 import { CODEX_LOCAL_ROUTE, codexLocalCapabilityRow } from '../code-agents/codex-local.js';
+import { OPENHANDS_ROUTE, openHandsCapabilityRow, type OpenHandsDocker } from '../code-agents/openhands.js';
 import { mcpCapabilityRows } from '../connectors/mcp-cli.js';
 import { nativeCapabilityRows, nativeExercisedAt, type NativeRunIndex } from '../native/index.js';
 import { recipeCapabilityRow } from '../recipes/index.js';
@@ -86,6 +87,11 @@ export interface ProbeDeps {
    * agentExercisedIndex over the verified chain). Absent: the agent rows are never exercised.
    */
   agentRuns?: () => Map<string, string>;
+  /**
+   * Round R4 (H52): OpenHands: docker's daemon and its image (src/code-agents/openhands-run.ts dockerSetup, read-only),
+   * whether this Timmy has its worker, and the package root its image is built in. Absent: none of it is checked.
+   */
+  openhands?: () => Promise<{ docker: OpenHandsDocker; worker: boolean; root?: string }>;
   /** Whether the edge host (TIMMY_EDGE_HOST or the private overlay) is set; never the host. */
   edgeSet: () => boolean;
 }
@@ -104,6 +110,8 @@ type Row = Omit<CapabilityRow, 'exercised'>;
 
 export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): Promise<CapabilityRow[]> {
   const env = d.env;
+  // R4 (H52): OpenHands' docker checks, under way with the slow checks below (only when docker is on PATH).
+  const ohProbe = d.onPath('docker') && d.openhands ? d.openhands().catch(() => undefined) : undefined;
   // The slow checks run together; each has its own short timeout.
   const [studio, ollama, openrouter, taskforge, missionMap] = await Promise.all([
     d.studio(),
@@ -207,6 +215,9 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   program('codex', 'harness', 'Codex', 'codex', paidHand('codex'), 'brew install --cask codex (or npm install -g @openai/codex)');
   // Round R4 (H25): Codex with a local model is a route of its own: "implemented; not run" until a run of its own.
   add(codexLocalCapabilityRow({ env, onPath: (b) => d.onPath(b), exercisedAt: agentExercisedAt(`agent:${CODEX_LOCAL_ROUTE}`, agentRuns) }));
+  // Round R4 (H52): OpenHands in a container with a local model: "implemented; not run" until a sealed run of its own.
+  const oh = ohProbe ? await ohProbe : undefined;
+  add(openHandsCapabilityRow({ env, onPath: (b) => d.onPath(b), docker: oh?.docker ?? { state: 'unchecked' }, worker: oh?.worker ?? true, ...(oh?.root ? { packageRoot: oh.root } : {}), exercisedAt: agentExercisedAt(`agent:${OPENHANDS_ROUTE}`, agentRuns) }));
   add(d.onPath('qwen') || d.onPath('qwen-code')
     ? { id: 'qwen-code', kind: 'harness', name: 'Qwen Code', rung: 'installed', detail: '/agent qwen <task>: a job; free on a local endpoint' }
     : { id: 'qwen-code', kind: 'harness', name: 'Qwen Code', rung: 'needs setup', detail: 'qwen is not on PATH', setup: 'brew install qwen-code (or npm install -g @qwen-code/qwen-code)' });
