@@ -30,7 +30,7 @@ import { glyphSet } from '../src/term/glyphs.js';
 import type { Receipt, ReceiptInput } from '../src/utils/receipts.js';
 import { JobManager } from '../src/jobs/index.js';
 import { jobDirectory, status } from '../lanes/recipes/jobs.js';
-import { DOCTRINE_15, EXPORTS, prepareRecipe, watcherSpec } from '../src/recipes/index.js';
+import { deliver, DOCTRINE_15, EXPORTS, launchRecipe, prepareRecipe, watcherSpec } from '../src/recipes/index.js';
 import { readNativeRecord } from '../src/native/index.js';
 
 const FIXTURE = path.resolve('tests/fixtures/recover-crash-fixture.ts');
@@ -260,7 +260,7 @@ describe('a REPL session that crashed: the next one picks up what it left runnin
     const record = JSON.parse(fs.readFileSync(recordFile, 'utf8'));
     expect(record).toMatchObject({ schema: 'timmy.flow/1', id: flow, outcome: 'interrupted', ended_in: 'build', instruction: INSTRUCTION, rebuild: { operation: b, job: ready.flow.watcher, state: 'running', followed_again: watcher } });
     expect(record).not.toHaveProperty('step');
-    expect(record.why).toBe(`the REPL running it ended during its rebuild (its job ${ready.flow.watcher} was left running and its process is gone); recipe job ${b} is running; nothing was read back; recorded after a restart, and nothing was run again`);
+    expect(record.why).toBe(`the REPL running it ended during its rebuild (its job ${ready.flow.watcher} was left running and its process is gone); recipe job ${b} still runs; nothing was read back; recorded after a restart, and nothing was run again`);
     expect(record.parameters).toMatchObject({ path: PARAMS, after: { values: { width: 180 } } });
     expect(record.recovered.next).toEqual(expect.arrayContaining([
       `recipe job ${b} is followed again as ${watcher}: its exports reach out/recipes/${b.slice(0, 8)}/ once its signed result verifies`,
@@ -409,6 +409,42 @@ describe('flows: interrupted once nothing about them moves', () => {
       expect(sealed).toEqual([]);
       noAbsolute(notes.join('\n'));
     } finally { fs.rmSync(elsewhere, { recursive: true, force: true }); }
+  });
+
+  it('interrupted during a rebuild that has since succeeded and was copied: the record says so and where its exports are; nothing is delivered again', async () => {
+    // A real recipe job through the jobs.ts seam (the held SYNTHETIC executor, released at once), copied as its watcher copies it.
+    const p = prepareRecipe({ width: 180 }, { root, env: { TIMMY_CADQUERY_PYTHON: fakePython }, executor: heldExecutor() });
+    if (!p.ok) throw new Error(p.error);
+    const uuid = p.prepared.id;
+    release(uuid);
+    await launchRecipe(root, uuid);
+    await until('the recipe to succeed', () => status(root, uuid).state === 'succeeded');
+    expect(deliver(root, uuid).ok).toBe(true);
+    // SYNTHETIC: the flow's state as /iterate saves it once its rebuild started (src/repl/iterate.ts buildStep); its watcher has no record here.
+    const s = {
+      ...state('f0000dddd'), step: 'build',
+      parameters: { ...state('f0000dddd').parameters, after: { sha256: 'b'.repeat(64), values: { width: 180, wall: 3, supportOffset: 10, bore: 3 } }, diff: [{ name: 'width', before: 140, after: 180, changed: true }] },
+      rebuild: { operation: uuid, job: 'j0bbbb2', state: 'running', predicted: { bounds_mm: [180, 80, 30], volume_mm3: 1 }, prediction_receipt: 'rcP' },
+      receipts: { agent: 'rcA', prediction: 'rcP' },
+    };
+    const stateFile = write('.timmy/flows/f0000dddd/state.json', `${JSON.stringify(s, null, 2)}\n`);
+    const old = new Date(Date.now() - FLOW_QUIET_MS - 60_000);
+    fs.utimesSync(stateFile, old, old);
+    const { ws, notes, sealed } = make();
+    const report = (await ws.startRecovery)!;
+    expect(report.items.map((i) => [i.kind, i.id, i.did])).toEqual([['flow', 'f0000dddd', 'interrupted']]);
+    const record = JSON.parse(fs.readFileSync(path.join(root, 'results', 'flows', 'f0000dddd.json'), 'utf8'));
+    expect(record).toMatchObject({ outcome: 'interrupted', ended_in: 'build', rebuild: { operation: uuid, job: 'j0bbbb2', state: 'succeeded' }, child_receipts: ['rcA', 'rcP'] });
+    expect(record.why).toBe(`the REPL running it ended during its rebuild (its job j0bbbb2 has no record in this Timmy's jobs folder); recipe job ${uuid} has succeeded; nothing was read back; recorded after a restart, and nothing was run again`);
+    expect(record.recovered.next).toEqual([
+      `recipe job ${uuid} succeeded: /recipe status shows whether its exports are in out/recipes/${uuid.slice(0, 8)}/, and /recipe copy ${uuid} copies them when they are not`,
+      `/recipe recover ${uuid} reads recipe job ${uuid} again; nothing is rerun`,
+      `${PARAMS} holds the agent's change (width 140 → 180): /recipe tray builds from it`,
+      `/iterate tray "make it 160 mm wide" starts a new flow from ${PARAMS} as it is now`,
+    ]);
+    expect(notes[0]).toBe('  Recovered  1 flow was interrupted: f0000dddd (record written)');
+    expect(sealed.map((r) => r.kind)).toEqual(['flow']);
+    expect(executions(uuid)).toHaveLength(1);
   });
 });
 

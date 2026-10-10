@@ -64,6 +64,8 @@ const WATCH_ENTRY = /[\\/]recipes[\\/]watch\.(?:ts|js)$/;
 const JOB_ID = /^j[0-9a-f]{6}$/;
 const STEPS: ReadonlySet<string> = new Set<FlowStep>(['prepare', 'agent', 'checks', 'build', 'readback', 'record']);
 const APP_WORDS: Record<NativeApp, string> = { c4dpy: 'Cinema 4D', aerender: 'After Effects render', blender: 'Blender', afterfx: 'After Effects script' };
+/** A recipe job's state now, as a flow's record says it (lanes/recipes/jobs.ts states, and unreadable). */
+const RECIPE_NOW: Record<string, string> = { running: 'still runs', succeeded: 'has succeeded', failed: 'has failed', cancelled: 'was cancelled', interrupted: 'was interrupted', queued: 'is queued', unreadable: 'could not be read' };
 
 export interface RecoverDeps {
   /** the project folder looked at, and its name */
@@ -456,7 +458,7 @@ function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Ma
     prepare: ['before its agent started', 'nothing was run'],
     agent: ['while its agent ran', 'nothing was built'],
     checks: ['after its agent ran, before its rebuild was recorded', 'whether a rebuild started is not recorded: /recipe status lists the recipe jobs'],
-    build: ['during its rebuild', `${uuid ? `recipe job ${uuid} is ${String(rebuild?.state)}; ` : ''}nothing was read back`],
+    build: ['during its rebuild', `${uuid ? `recipe job ${uuid} ${RECIPE_NOW[String(rebuild?.state)] ?? `says ${String(rebuild?.state)}`}; ` : ''}nothing was read back`],
     readback: ['during its readback', 'there is no verdict'],
     record: ['as it was being recorded', 'its outcome was not kept'],
   };
@@ -465,7 +467,8 @@ function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Ma
   if (uuid) {
     const r = recipes.get(uuid);
     if (r?.did === 'followed') next.push(`recipe job ${uuid} is followed again as ${r.job}: its exports reach ${outDir(uuid)}/ once its signed result verifies`);
-    if (r?.did === 'delivered') next.push(`recipe job ${uuid} succeeded: its exports were delivered to ${outDir(uuid)}/`);
+    else if (r?.did === 'delivered') next.push(`recipe job ${uuid} succeeded: its exports were delivered to ${outDir(uuid)}/`);
+    else if (rebuild?.state === 'succeeded') next.push(`recipe job ${uuid} succeeded: /recipe status shows whether its exports are in ${outDir(uuid)}/, and /recipe copy ${uuid} copies them when they are not`);
     next.push(`/recipe recover ${uuid} reads recipe job ${uuid} again; nothing is rerun`);
   }
   if (step === 'agent' && v.agent?.progress) next.push(`the agent's run ${v.agent.run} keeps its progress in ${v.agent.progress}; ${v.parameters.path} may hold its change (sha256 before it: ${short(v.parameters.before.sha256)})`);
