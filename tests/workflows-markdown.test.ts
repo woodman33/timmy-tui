@@ -209,3 +209,75 @@ describe('the named blocks, in place', () => {
     expect(html).toContain('49 more lines of BUILD.md are not drawn here: open it to read them.');
   });
 });
+
+describe('long and hostile text: drawn in time linear in its length, never too deep', () => {
+  it('link targets with titles, parentheses, angle brackets and escapes; reference labels hold no bracket', () => {
+    const html = md([
+      '[t](a.md "a title") [u](b.md "no end [v](<c d.md>) [w](e(f)g.md) [x](h.md)i) [y](j\\)k.md)',
+      '',
+      '[[r]] [r][] [s][r] [z][a [r]]',
+      '',
+      '[r]: https://example.com/r',
+    ].join('\n'));
+    expect(html).toContain('<a class="file" href="../../a.md">t</a>');
+    expect(html).toContain('[u](b.md &quot;no end');
+    expect(html).toContain('<a class="file" href="../../c d.md">v</a>');
+    expect(html).toContain('<a class="file" href="../../e(f)g.md">w</a>');
+    expect(html).toContain('<a class="file" href="../../h.md">x</a>i)');
+    expect(html).toContain('<a class="file" href="../../j)k.md">y</a>');
+    const r = (text: string): string => `<a class="md-a md-web" href="https://example.com/r" rel="noopener noreferrer" target="_blank">${text}</a>`;
+    // [[r]]: the outer brackets hold a bracket, so only the inner [r] is a reference
+    expect(html).toContain(`[${r('r')}] ${r('r')} ${r('s')} [z][a ${r('r')}]`);
+  });
+
+  it('a hard break after a long run of spaces, and closing #s of a heading, are read from the line\'s end', () => {
+    expect(md(`a${' '.repeat(10)}b  \nc`)).toContain(`a${' '.repeat(10)}b<br>\nc`);
+    expect(md('# Title ##')).toContain('<h4 class="md-h md-h1">Title</h4>');
+    expect(md('## C# #')).toContain('<h5 class="md-h md-h2">C#</h5>');
+    expect(md('# ##')).toContain('<h4 class="md-h md-h1"></h4>');
+    expect(md('#hashtag')).toContain('<p class="md-p">#hashtag</p>');
+    expect(md(`# a${' '.repeat(10)}b #`)).toContain(`<h4 class="md-h md-h1">a${' '.repeat(10)}b</h4>`);
+  });
+
+  it('lists and quotes nest 16 deep at most; deeper markers are drawn as the text they are', () => {
+    const quotes = md(`${'> '.repeat(5000)}x`);
+    expect(quotes.split('<blockquote').length - 1).toBe(16);
+    expect(quotes).toContain('&gt; &gt; &gt; x');
+    const lists = md(`${'- '.repeat(200)}x`);
+    expect(lists.split('<ul').length - 1).toBe(16);
+    expect(lists).toContain('- - - x');
+  });
+
+  it('hostile text of 128 KB is drawn in well under 3 s each (a quadratic path takes tens of seconds at this size)', () => {
+    const n = 128 * 1024;
+    const fill = (s: string, len = n): string => s.repeat(Math.ceil(len / s.length)).slice(0, len);
+    const cases: Record<string, string> = {
+      'unclosed link targets': fill('[a]('),
+      'targets that never close, then spaces': `${fill('[a]((', n / 2)}${' '.repeat(n / 2)}x`,
+      'a title that never closes': `${fill('[a]((', n / 2)} "${'x'.repeat(n / 2)}`,
+      'nested brackets': `${'['.repeat(n / 2)}${']'.repeat(n / 2)}`,
+      'nested brackets with a definition': `[a]: https://example.com\n${'['.repeat(n / 2)}${']'.repeat(n / 2)}`,
+      'unclosed brackets': fill('['),
+      'emphasis marks': fill('**a'),
+      'underscores': fill('_a'),
+      'backtick runs': fill('`'),
+      'bare-address starts': fill('h '),
+      'an address of dots': `http://x${'.'.repeat(n)}`,
+      'angle brackets': fill('<http:'),
+      'spaces mid-line': `a${' '.repeat(n)}b\nc`,
+      'a heading of spaces': `# a${' '.repeat(n)}b`,
+      'a heading of #s': `# a${' #'.repeat(n / 2)}b`,
+      'quote markers': `${fill('> ')}x`,
+      'backslashes': `a${'\\'.repeat(n)}b\nc`,
+      'raw HTML': fill('&amp;<b>'),
+      'a dense paragraph': fill('word *em* [l](https://example.com) `c` '),
+    };
+    for (const [name, text] of Object.entries(cases)) {
+      const t0 = performance.now();
+      const html = md(text);
+      const ms = performance.now() - t0;
+      expect(html.startsWith('<div class="md">'), name).toBe(true);
+      expect(ms, `${name}: ${ms.toFixed(0)} ms`).toBeLessThan(3000);
+    }
+  });
+});

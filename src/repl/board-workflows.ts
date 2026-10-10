@@ -268,7 +268,7 @@ const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const asBlocks = (nodes: NodeInput[]): WorkflowBlock[] => nodes.map((n, i) => ({ index: n.index ?? i + 1, name: n.name, lang: n.lang ?? '', deps: n.deps, line: 0, code: n.code ?? '' }));
 
 /** One /run job of the document, read from its record and the receipts. */
-function readRun(j: JobRecord, target: string, w: WorkflowDocInput, c: ConnectContext): WorkflowRun {
+function readRun(j: JobRecord, target: string, w: WorkflowDocInput, c: ConnectContext): WorkflowRun & { sealedOutputs: Array<{ rel: string; sealed?: string }> } {
   const outcome = [...c.chain].reverse().find((r) => r.kind === 'workflow' && r.job?.id === j.id);
   const pred = c.prediction?.(j.id);
   const sealed = outcome?.prediction;
@@ -291,13 +291,6 @@ function readRun(j: JobRecord, target: string, w: WorkflowDocInput, c: ConnectCo
     return { name, word: nw, ...(s?.code !== undefined ? { code: s.code } : {}), ...(ms !== undefined ? { ms } : {}) };
   });
   const files = (outcome?.outputs ?? []).flatMap((o) => { const rel = inProject(o.path); return rel ? [{ rel, sealed: typeof o.sha256 === 'string' ? o.sha256 : undefined }] : []; });
-  const outputs = files.slice(0, OUTPUTS_SHOWN).map((f) => {
-    const now = hashNow(c.root, f.rel);
-    const note = 'sha' in now
-      ? (f.sealed === undefined ? 'there now (the outcome sealed no sha256 for it)' : now.sha === f.sealed ? 'as the run wrote it' : 'changed since the run')
-      : now.why === 'gone' ? 'not there now' : now.why === 'large' ? 'there now (larger than 8 MB: not compared)' : 'there now, but unreadable';
-    return { rel: f.rel, note };
-  });
   // The prediction receipt sealed before the run: the document's sha256 then.
   const predId = pred?.receipt ?? (typeof sealed?.receipt === 'string' ? sealed.receipt : undefined);
   const predReceipt = predId ? c.chain.find((r) => r.kind === 'predict' && shortOf(r) === predId) : undefined;
@@ -310,7 +303,23 @@ function readRun(j: JobRecord, target: string, w: WorkflowDocInput, c: ConnectCo
     ...(j.error ? { error: c.scrub ? c.scrub(j.error) : j.error } : {}), ...(j.receipt ? { receipt: j.receipt } : {}),
     ...(typeof sealed?.met === 'boolean' ? { met: sealed.met } : {}), ...(predId ? { predicted: predId } : {}),
     blocks, ...(j.stale ? { interruptedAt: blocks.find((b) => b.word === 'interrupted')?.name } : {}),
-    outputs, outputsMore: Math.max(0, files.length - OUTPUTS_SHOWN), ...(docSha ? { docSha256: docSha } : {}),
+    outputs: [], outputsMore: Math.max(0, files.length - OUTPUTS_SHOWN), ...(docSha ? { docSha256: docSha } : {}),
+    sealedOutputs: files.slice(0, OUTPUTS_SHOWN),
+  };
+}
+
+/** The files a run wrote, from its sealed outcome, each with what it is now (hashed only for the runs the card shows). */
+function withOutputs(r: WorkflowRun & { sealedOutputs?: Array<{ rel: string; sealed?: string }> }, root: string): WorkflowRun {
+  const { sealedOutputs, ...run } = r;
+  return {
+    ...run,
+    outputs: (sealedOutputs ?? []).map((f) => {
+      const now = hashNow(root, f.rel);
+      const note = 'sha' in now
+        ? (f.sealed === undefined ? 'there now (the outcome sealed no sha256 for it)' : now.sha === f.sealed ? 'as the run wrote it' : 'changed since the run')
+        : now.why === 'gone' ? 'not there now' : now.why === 'large' ? 'there now (larger than 8 MB: not compared)' : 'there now, but unreadable';
+      return { rel: f.rel, note };
+    }),
   };
 }
 
@@ -357,7 +366,7 @@ export function connectWorkflow(w: WorkflowDocInput, c: ConnectContext): Workflo
     const read = readScadParams(c.root, r.model);
     scad.push({
       model: r.model, path: r.path,
-      file: !read.ok ? { state: 'unusable', error: read.error, ...(read.sha256 ? { sha256: read.sha256 } : {}) } : read.exists ? { state: 'ok', sha256: read.sha256, parameters: read.parameters } : { state: 'none' },
+      file: !read.ok ? { state: 'unusable', error: c.scrub ? c.scrub(read.error) : read.error, ...(read.sha256 ? { sha256: read.sha256 } : {}) } : read.exists ? { state: 'ok', sha256: read.sha256, parameters: read.parameters } : { state: 'none' },
     });
   }
   let tray: ParamsCard | undefined;
@@ -368,7 +377,7 @@ export function connectWorkflow(w: WorkflowDocInput, c: ConnectContext): Workflo
   return {
     ...w,
     connected: {
-      nodes, runs: runs.filter((r) => used.has(r.job)), ...(latest ? { latest } : {}), ...(tray ? { tray } : {}), scad, files, ...(c.upmd !== undefined ? { upmd: c.upmd } : {}),
+      nodes, runs: runs.filter((r) => used.has(r.job)).map((r) => withOutputs(r, c.root)), ...(latest ? { latest } : {}), ...(tray ? { tray } : {}), scad, files, ...(c.upmd !== undefined ? { upmd: c.upmd } : {}),
     },
   };
 }
@@ -387,8 +396,6 @@ export function graphStates(w: WorkflowDocInput): Array<{ word: string; glyph: s
 
 const runOf2 = (c: ConnectedWorkflow, id: string | undefined): WorkflowRun | undefined => (id ? c.runs.find((r) => r.job === id) : undefined);
 const arrow = (order: string[]): string => order.join(' → ');
-/** The runs this card's run actions stand for: what /run <doc> <block> runs, in words. */
-const runWords = (n: NodeView): string => (n.order.length > 1 ? `${arrow(n.order)}` : n.name);
 
 /** A word with its glyph, as an inline label; the class colours it, the word and glyph carry it. */
 const wordHtml = (word: string, detail = ''): string => `<span class="wf-word ${wordClass(word)}"><span class="wf-glyph" aria-hidden="true">${esc(NODE_GLYPH[word as NodeWord] ?? '·')}</span> <strong>${esc(word)}</strong>${detail ? ` <span class="wf-detail">${esc(detail)}</span>` : ''}</span>`;
@@ -551,9 +558,12 @@ function runHtml(w: WorkflowDocInput, n: NodeView, c: ConnectedWorkflow, k: Kit)
     return `<section class="wf-runs"><h4>run</h4><p class="wf-say">${esc(`Not runnable as it is: ${why}. /run refuses it the same way; nothing runs.`)}</p></section>`;
   }
   const alone = n.order.length === 1;
-  const say = alone
-    ? `${n.name} needs nothing, so upmd runs it alone: Run this block is ${cmd}. The prediction is sealed first, the outcome after.`
-    : `Run up to here is ${cmd}: upmd runs ${arrow(n.order)}, ${n.name} after the blocks it needs. The prediction is sealed first, the outcome after.`;
+  // The snapshot has no buttons: there, the command is what runs it.
+  const say = !k.live
+    ? (alone ? `${cmd} runs ${n.name} alone (it needs nothing)` : `${cmd} runs ${arrow(n.order)}: upmd runs ${n.name} after the blocks it needs`) + '. The prediction is sealed first, the outcome after.'
+    : alone
+      ? `${n.name} needs nothing, so upmd runs it alone: Run this block is ${cmd}. The prediction is sealed first, the outcome after.`
+      : `Run up to here is ${cmd}: upmd runs ${arrow(n.order)}, ${n.name} after the blocks it needs. The prediction is sealed first, the outcome after.`;
   const notAlone = alone ? '' : `Run this block alone is not offered: upmd runs a block after the blocks it needs, and Timmy does not run a block without them.`;
   const buttons = k.live
     ? alone
@@ -562,7 +572,7 @@ function runHtml(w: WorkflowDocInput, n: NodeView, c: ConnectedWorkflow, k: Kit)
     : '';
   const live = c.runs.find((r) => r.job === c.latest && (r.word === 'running' || r.word === 'starting'));
   const busy = live && k.live ? `<p class="meta">${esc(`${live.job} is running now (${live.target}); another run starts beside it.`)}</p>` : '';
-  return `<section class="wf-runs"><h4>run</h4>${buttons ? `<div class="wf-acts">${buttons}</div>` : ''}<p class="meta">${esc(say)}</p>${notAlone ? `<p class="meta">${esc(notAlone)}</p>` : ''}${busy}${k.cmds([cmd])}</section>`;
+  return `<section class="wf-runs"><h4>run</h4>${buttons ? `<div class="wf-acts">${buttons}</div>` : ''}<p class="meta">${esc(say)}</p>${notAlone && k.live ? `<p class="meta">${esc(notAlone)}</p>` : ''}${busy}${k.cmds([cmd])}</section>`;
 }
 
 /** The command: editable on the live board (the existing save-workflow edit), else as text. */

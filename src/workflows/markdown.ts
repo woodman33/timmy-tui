@@ -48,7 +48,8 @@ export const escapeHtml = (s: unknown): string => String(s).replace(/[&<>"']/g, 
 /** A line of the document, with what its containers (list items, block quotes) took off its start. */
 interface Ln { no: number; text: string }
 
-const ATX = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$/;
+/** an ATX heading's opening: its #s, then a space, a tab or the line's end (its text: atxText) */
+const ATX = /^ {0,3}(#{1,6})(?=[ \t]|$)/;
 const THEMATIC = /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/;
 const SETEXT = /^ {0,3}(=+|-+)[ \t]*$/;
 const LIST = /^( {0,3})([-+*]|(\d{1,9})([.)]))([ \t]+|$)/;
@@ -59,6 +60,8 @@ const FENCE = /^( {0,3})(`{3,}|~{3,})(.*)$/;
 const DEFINITION = /^ {0,3}\[((?:[^\]\\\n]|\\.){1,999})\]:[ \t]*(?:<([^<>\n]*)>|(\S+))(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?[ \t]*$/;
 const PUNCT = /[!-/:-@[-`{-~]/;
 const blank = (t: string): boolean => t.trim() === '';
+/** lists and block quotes drawn inside each other at most this deep */
+const MAX_DEPTH = 16;
 
 /** Leading whitespace in columns, a tab to the next multiple of 4 (as upmd.ts counts it). */
 function indentOf(t: string): number {
@@ -183,11 +186,13 @@ function drawBlock(b: WorkflowBlock, ctx: Ctx): string {
 }
 
 /** Lines into blocks: `quoted` is inside a block quote (where parseWorkflow counts no fence); `tight` is a tight list
- *  item's content, whose paragraphs are drawn without <p>. */
-function renderBlocks(lines: Ln[], ctx: Ctx, quoted: boolean, tight = false): string {
+ *  item's content, whose paragraphs are drawn without <p>; `depth` counts the lists and quotes around them (past
+ *  MAX_DEPTH a list or quote marker is drawn as the text it is, so a line of 10,000 markers stays one paragraph). */
+function renderBlocks(lines: Ln[], ctx: Ctx, quoted: boolean, tight = false, depth = 0): string {
   const out: string[] = [];
   let i = 0;
   const starts = (l: Ln): boolean => ctx.spans.has(l.no);
+  const nests = depth < MAX_DEPTH;
   while (i < lines.length) {
     const l = lines[i];
     if (ctx.inSpan.has(l.no)) { i++; continue; }
@@ -221,20 +226,18 @@ function renderBlocks(lines: Ln[], ctx: Ctx, quoted: boolean, tight = false): st
     if (DEFINITION.test(t)) { i++; continue; }
     const atx = ATX.exec(t);
     if (atx) {
-      const level = atx[1].length;
-      const content = (atx[2] ?? '').replace(/(?:^|[ \t]+)#+$/, '').trim();
-      out.push(heading(level, inline(content, ctx)));
+      out.push(heading(atx[1].length, inline(atxText(t.slice(atx[0].length)), ctx)));
       i++;
       continue;
     }
     if (THEMATIC.test(t)) { out.push('<hr class="md-hr">'); i++; continue; }
-    if (QUOTE.test(t)) {
+    if (nests && QUOTE.test(t)) {
       const inner: Ln[] = [];
       while (i < lines.length && !starts(lines[i]) && QUOTE.test(lines[i].text)) {
         inner.push({ no: lines[i].no, text: lines[i].text.replace(/^ {0,3}> ?/, '') });
         i++;
       }
-      out.push(`<blockquote class="md-quote">${renderBlocks(inner, ctx, true)}</blockquote>`);
+      out.push(`<blockquote class="md-quote">${renderBlocks(inner, ctx, true, false, depth + 1)}</blockquote>`);
       continue;
     }
     if (quoted) {
@@ -251,9 +254,9 @@ function renderBlocks(lines: Ln[], ctx: Ctx, quoted: boolean, tight = false): st
         continue;
       }
     }
-    const item = LIST.exec(t);
+    const item = nests ? LIST.exec(t) : null;
     if (item) {
-      const { html, next } = list(lines, i, ctx, quoted);
+      const { html, next } = list(lines, i, ctx, quoted, depth + 1);
       out.push(html);
       i = next;
       continue;
@@ -267,8 +270,8 @@ function renderBlocks(lines: Ln[], ctx: Ctx, quoted: boolean, tight = false): st
       if (para.length) {
         const u = SETEXT.exec(c.text);
         if (u) { setext = u[1][0] === '=' ? 1 : 2; i++; break; }
-        if (ATX.test(c.text) || THEMATIC.test(c.text) || QUOTE.test(c.text) || COMMENT.test(c.text) || (quoted && FENCE.test(c.text))) break;
-        const li = LIST.exec(c.text);
+        if (ATX.test(c.text) || THEMATIC.test(c.text) || (nests && QUOTE.test(c.text)) || COMMENT.test(c.text) || (quoted && FENCE.test(c.text))) break;
+        const li = nests ? LIST.exec(c.text) : null;
         if (li && c.text.slice(li[0].length).trim() && (!li[3] || li[3] === '1')) break;
       }
       para.push(c.text);
@@ -280,10 +283,26 @@ function renderBlocks(lines: Ln[], ctx: Ctx, quoted: boolean, tight = false): st
   return out.join('');
 }
 
-/** A paragraph line's end: two spaces or a backslash before the line break is a hard break (the  mark). */
+/** A paragraph line's end: two spaces or a backslash before the line break is a hard break (marked U+E002 for inline).
+ *  Counted from the end, without a regular expression (a long run of spaces mid-line would make one backtrack). */
 function breakAt(line: string): string {
-  if (/ {2,}$/.test(line) || /(?:^|[^\\])(?:\\\\)*\\$/.test(line)) return `${line.replace(/(?: {2,}|\\)$/, '').trimStart()}`;
+  let k = line.length;
+  while (k > 0 && line[k - 1] === ' ') k--;
+  if (line.length - k >= 2) return `${line.slice(0, k).trimStart()}`;
+  let b = line.length;
+  while (b > 0 && line[b - 1] === '\\') b--;
+  if ((line.length - b) % 2 === 1) return `${line.slice(0, -1).trimStart()}`;
   return line.trim();
+}
+
+/** An ATX heading's text: trimmed, without its closing #s (a run of # at the end after a space or tab, or alone).
+ *  Read from the end, without a regular expression (a long run of spaces would make one backtrack). */
+function atxText(rest: string): string {
+  const text = rest.trim();
+  let k = text.length;
+  while (k > 0 && text[k - 1] === '#') k--;
+  if (k === text.length) return text;
+  return k === 0 ? '' : text[k - 1] === ' ' || text[k - 1] === '\t' ? text.slice(0, k).trim() : text;
 }
 
 /** Headings sit inside a card: the document's # is the card's own heading level, four, and so on down. */
@@ -293,7 +312,7 @@ function heading(level: number, html: string): string {
 }
 
 /** A list starting at line `start`: its items, each drawn as blocks (one plain paragraph is drawn without <p>). */
-function list(lines: Ln[], start: number, ctx: Ctx, quoted: boolean): { html: string; next: number } {
+function list(lines: Ln[], start: number, ctx: Ctx, quoted: boolean, depth: number): { html: string; next: number } {
   const first = LIST.exec(lines[start].text)!;
   const ordered = first[3] !== undefined;
   const kind = ordered ? first[4] : first[2];
@@ -347,120 +366,274 @@ function list(lines: Ln[], start: number, ctx: Ctx, quoted: boolean): { html: st
     }
   }
   // The item's first line may itself hold a block parseWorkflow found (`- ```bash [name:a]`): drawn in place.
-  const html = items.map((body) => `<li>${renderBlocks(body, ctx, quoted, !loose)}</li>`).join('');
+  const html = items.map((body) => `<li>${renderBlocks(body, ctx, quoted, !loose, depth)}</li>`).join('');
   const startAt = ordered ? Number(first[3]) : 1;
   const tag = ordered ? 'ol' : 'ul';
   return { html: `<${tag} class="md-list"${ordered && startAt !== 1 ? ` start="${startAt}"` : ''}>${html}</${tag}>`, next: i };
 }
 
 // ── inline ────────────────────────────────────────────────────────────────────
+//
+// Every step here is linear in the text's length (the live board draws a document on every poll, on the REPL's
+// thread): backtick runs, bracket pairs and the ends of link destinations are found once per text, what follows a
+// destination is read once per place, a reference label is looked up only for brackets that hold no other bracket,
+// delimiters are paired with a bounded stack, and no regular expression is run on a slice of the rest of the text.
 
 interface Link { text: string; dest: string; end: number }
 
-/** The closing run of exactly `n` backticks after `from`, or -1. */
-function closingTicks(s: string, from: number, n: number): number {
-  for (let j = s.indexOf('`', from); j >= 0; j = s.indexOf('`', j)) {
-    let k = j;
-    while (s[k] === '`') k++;
-    if (k - j === n) return j;
-    j = k;
+const SPACE = /\s/;
+const TITLE = /"[^"]*"|'[^']*'|\([^()]*\)/y;
+const AUTOLINK = /<([a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^\s<>]*)>/y;
+const BARE_URL = /https?:\/\/[^\s<]+/iy;
+/** what ends a sentence after a bare address: not part of it */
+const TRAILING = `?!.,:;*_~'"`;
+/** CommonMark's longest link label */
+const LABEL_MAX = 999;
+
+/** Where each backtick run starts, by its length: the closing run of a code span is the next one of the same length. */
+class Ticks {
+  private readonly byLength = new Map<number, number[]>();
+  constructor(s: string) {
+    for (let i = 0; i < s.length;) {
+      if (s[i] !== '`') { i++; continue; }
+      let k = i;
+      while (s[k] === '`') k++;
+      const list = this.byLength.get(k - i) ?? [];
+      list.push(i);
+      this.byLength.set(k - i, list);
+      i = k;
+    }
   }
-  return -1;
+  /** The first run of exactly `n` backticks that starts at or after `from`, or -1. */
+  next(from: number, n: number): number {
+    const list = this.byLength.get(n);
+    if (!list) return -1;
+    let lo = 0;
+    let hi = list.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid] < from) lo = mid + 1; else hi = mid; }
+    return lo < list.length ? list[lo] : -1;
+  }
 }
 
-/** `[text](dest)`, `[text][label]`, `[text][]` or `[label]` from `i` (at the `[`), with defined labels only. */
-function parseLink(s: string, i: number, defs: Map<string, string>): Link | null {
-  let depth = 0;
-  let j = i;
-  for (; j < s.length; j++) {
-    const c = s[j];
-    if (c === '\\') { j++; continue; }
-    if (c === '`') { const n = /^`+/.exec(s.slice(j))![0].length; const close = closingTicks(s, j + n, n); if (close >= 0) { j = close + n - 1; continue; } j += n - 1; continue; }
-    if (c === '[') depth++;
-    else if (c === ']' && --depth === 0) break;
-  }
-  if (j >= s.length) return null;
-  const text = s.slice(i + 1, j);
-  if (s[j + 1] === '(') {
-    let k = j + 2;
-    while (s[k] === ' ' || s[k] === '\t' || s[k] === '\n') k++;
-    let dest = '';
-    if (s[k] === '<') {
-      const close = s.indexOf('>', k);
-      if (close < 0 || s.slice(k + 1, close).includes('\n') || s.slice(k + 1, close).includes('<')) return null;
-      dest = s.slice(k + 1, close);
-      k = close + 1;
-    } else {
-      let parens = 0;
-      const from = k;
-      for (; k < s.length; k++) {
-        const c = s[k];
-        if (c === '\\' && k + 1 < s.length) { k++; continue; }
-        if (/\s/.test(c)) break;
-        if (c === '(') parens++;
-        else if (c === ')') { if (parens === 0) break; parens--; }
-      }
-      dest = s.slice(from, k);
+/**
+ * A text's brackets, paired in one pass (backslash escapes and code spans skipped): `pair[i]` is the ']' that closes
+ * the '[' at i, or -1; `plain[i]` is 1 when no other bracket sits between them (a reference label may hold none).
+ */
+function brackets(s: string, ticks: Ticks): { pair: Int32Array; plain: Uint8Array } {
+  const pair = new Int32Array(s.length).fill(-1);
+  const plain = new Uint8Array(s.length);
+  const open: number[] = [];
+  let last = -1;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '\\') { i++; continue; }
+    if (c === '`') {
+      let k = i;
+      while (s[k] === '`') k++;
+      const close = ticks.next(k, k - i);
+      i = (close >= 0 ? close + (k - i) : k) - 1;
+      continue;
     }
-    while (s[k] === ' ' || s[k] === '\t' || s[k] === '\n') k++;
-    const title = /^(?:"[^"]*"|'[^']*'|\([^()]*\))/.exec(s.slice(k));
-    if (title) { k += title[0].length; while (s[k] === ' ' || s[k] === '\t' || s[k] === '\n') k++; }
-    if (s[k] !== ')') return null;
-    return { text, dest: dest.replace(/\\([!-/:-@[-`{-~])/g, '$1'), end: k + 1 };
+    if (c === '[') { open.push(i); last = i; } else if (c === ']') {
+      if (open.length) { const o = open.pop()!; pair[o] = i; plain[o] = last === o ? 1 : 0; }
+      last = i;
+    }
   }
-  if (s[j + 1] === '[') {
-    const close = s.indexOf(']', j + 2);
-    if (close < 0) return null;
-    const ref = s.slice(j + 2, close) || text;
-    const dest = defs.get(label(ref));
-    return dest === undefined ? null : { text, dest, end: close + 1 };
+  return { pair, plain };
+}
+
+/**
+ * Where a link destination that starts at each place of the text ends: at the first space, or at the first ')' it did
+ * not open itself (escaped punctuation skipped). Found for every place in one pass, with the places still open kept
+ * on a stack by their depth of parentheses (a ')' closes the places at its depth, a space all of them).
+ */
+function destinationEnds(s: string): Int32Array {
+  const end = new Int32Array(s.length + 1).fill(s.length);
+  const starts: number[] = [];
+  const depths: number[] = [];
+  let depth = 0;
+  for (let q = 0; q < s.length; q++) {
+    starts.push(q);
+    depths.push(depth);
+    const c = s[q];
+    // A destination starts after '(' or a space, never on the character an escape takes (that one is not a place).
+    if (c === '\\' && q + 1 < s.length && PUNCT.test(s[q + 1])) { q++; continue; }
+    if (SPACE.test(c)) {
+      for (const p of starts) end[p] = q;
+      starts.length = 0;
+      depths.length = 0;
+      depth = 0;
+    } else if (c === '(') depth++;
+    else if (c === ')') {
+      while (depths.length && depths[depths.length - 1] === depth) { end[starts.pop()!] = q; depths.pop(); }
+      depth--;
+    }
   }
-  const dest = defs.get(label(text));
-  return dest === undefined ? null : { text, dest, end: j + 1 };
+  return end;
+}
+
+/** One text's links, read in time linear in its length: brackets paired once, destinations' ends found once, and
+ *  what follows a destination (a title, then ')') read once per place. */
+class LinkReader {
+  private readonly pair: Int32Array;
+  private readonly plain: Uint8Array;
+  private ends?: Int32Array;
+  private readonly tails = new Map<number, number>();
+  constructor(private readonly s: string, ticks: Ticks, private readonly defs: Map<string, string>) {
+    ({ pair: this.pair, plain: this.plain } = brackets(s, ticks));
+  }
+
+  /** `[text](dest)`, `[text][label]`, `[text][]` or `[label]` from `i` (at the `[`), with defined labels only. */
+  at(i: number): Link | null {
+    const { s, pair, plain, defs } = this;
+    const j = pair[i];
+    if (j < 0) return null;
+    if (s[j + 1] === '(') {
+      let k = j + 2;
+      while (k < s.length && SPACE.test(s[k])) k++;
+      let from = k;
+      let to: number;
+      let after: number;
+      if (s[k] === '<') {
+        let close = k + 1;
+        while (close < s.length && s[close] !== '>' && s[close] !== '<' && s[close] !== '\n') close++;
+        if (s[close] !== '>') return null;
+        from = k + 1;
+        to = close;
+        after = close + 1;
+      } else {
+        to = after = (this.ends ??= destinationEnds(s))[k];
+      }
+      const end = this.tail(after);
+      if (end < 0) return null;
+      return { text: s.slice(i + 1, j), dest: s.slice(from, to).replace(/\\([!-/:-@[-`{-~])/g, '$1'), end };
+    }
+    if (!defs.size) return null;
+    if (s[j + 1] === '[' && pair[j + 1] >= 0) {
+      const close = pair[j + 1];
+      // `[text][]` takes its text as the label; a label holds no bracket and at most 999 characters
+      const [a, b] = close === j + 2 ? [i, j] : [j + 1, close];
+      if (!plain[a] || b - a - 1 > LABEL_MAX) return null;
+      const dest = defs.get(label(s.slice(a + 1, b)));
+      return dest === undefined ? null : { text: s.slice(i + 1, j), dest, end: close + 1 };
+    }
+    if (!plain[i] || j - i - 1 > LABEL_MAX) return null;
+    const text = s.slice(i + 1, j);
+    const dest = defs.get(label(text));
+    return dest === undefined ? null : { text, dest, end: j + 1 };
+  }
+
+  /** After a destination at `k`: spaces, an optional title, spaces and ')'. The place after the ')', or -1. */
+  private tail(k: number): number {
+    const known = this.tails.get(k);
+    if (known !== undefined) return known;
+    const { s } = this;
+    let p = k;
+    while (p < s.length && SPACE.test(s[p])) p++;
+    TITLE.lastIndex = p;
+    if (p > k && TITLE.test(s)) { p = TITLE.lastIndex; while (p < s.length && SPACE.test(s[p])) p++; }
+    const end = s[p] === ')' ? p + 1 : -1;
+    this.tails.set(k, end);
+    return end;
+  }
 }
 
 /** A bare http(s) address at `i`: up to a space or `<`, without the punctuation that ends a sentence. */
 function bareUrl(s: string, i: number): string | null {
-  const m = /^https?:\/\/[^\s<]+/i.exec(s.slice(i));
-  if (!m) return null;
-  let url = m[0];
-  for (;;) {
-    const last = url[url.length - 1];
-    if (/[?!.,:;*_~'"]/.test(last)) { url = url.slice(0, -1); continue; }
-    if (last === ')' && (url.match(/\(/g) ?? []).length < (url.match(/\)/g) ?? []).length) { url = url.slice(0, -1); continue; }
+  BARE_URL.lastIndex = i;
+  if (!BARE_URL.test(s)) return null;
+  let end = BARE_URL.lastIndex;
+  let opens = 0;
+  let closes = 0;
+  for (let k = i; k < end; k++) { if (s[k] === '(') opens++; else if (s[k] === ')') closes++; }
+  while (end > i) {
+    const last = s[end - 1];
+    if (TRAILING.includes(last)) { end--; continue; }
+    if (last === ')' && opens < closes) { end--; closes--; continue; }
     break;
   }
-  return url.length > 'https://'.length ? url : null;
+  return end - i > 'https://'.length ? s.slice(i, end) : null;
+}
+
+/**
+ * Strong and emphasis in escaped text, in one pass: `**`/`__` and `*`/`_` runs that can open (followed by a non-space,
+ * not preceded by a letter or digit) and close (preceded by a non-space, not followed by a letter or digit) are paired
+ * with the nearest opener of the same kind; an opener left between a pair stays text. Marks inside a word stay text
+ * for both `*` and `_` (so `2*3*4` is arithmetic, not emphasis), a deliberate narrowing of CommonMark. The stack is
+ * searched at most 32 deep, so a run of unpaired marks stays linear.
+ */
+function emphasis(text: string): string {
+  const tags = new Map<number, { len: number; html: string }>();
+  const stack: Array<{ at: number; ch: string; n: number }> = [];
+  const space = (c: string | undefined): boolean => c === undefined || SPACE.test(c);
+  const word = (c: string | undefined): boolean => c !== undefined && /[A-Za-z0-9]/.test(c);
+  for (let i = 0; i < text.length;) {
+    const ch = text[i];
+    if (ch !== '*' && ch !== '_') { i++; continue; }
+    let j = i;
+    while (text[j] === ch) j++;
+    const n = j - i;
+    const prev = text[i - 1];
+    const next = text[j];
+    const opens = !space(next) && !word(prev);
+    const closes = !space(prev) && !word(next);
+    if (n <= 2) {
+      let paired = false;
+      if (closes) {
+        for (let k = stack.length - 1; k >= 0 && k >= stack.length - 32; k--) {
+          if (stack[k].ch !== ch || stack[k].n !== n) continue;
+          tags.set(stack[k].at, { len: n, html: n === 2 ? '<strong>' : '<em>' });
+          tags.set(i, { len: n, html: n === 2 ? '</strong>' : '</em>' });
+          stack.length = k;
+          paired = true;
+          break;
+        }
+      }
+      if (!paired && opens) stack.push({ at: i, ch, n });
+    }
+    i = j;
+  }
+  if (!tags.size) return text;
+  let out = '';
+  for (let p = 0; p < text.length;) {
+    const t = tags.get(p);
+    if (t) { out += t.html; p += t.len; } else { out += text[p]; p++; }
+  }
+  return out;
 }
 
 /** Inline text as HTML: everything escaped; code, links, strong and emphasis drawn; nothing else. */
 function inline(src: string, ctx: Ctx, inLink = false): string {
   const slots: string[] = [];
   const put = (html: string): string => `${slots.push(html) - 1}`;
+  const s = src;
+  const ticks = new Ticks(s);
+  let links: LinkReader | undefined;
   let out = '';
   let i = 0;
-  const s = src;
   while (i < s.length) {
     const c = s[i];
     if (c === '') { out += put('<br>'); i++; continue; }
     if (c === '\\' && i + 1 < s.length && PUNCT.test(s[i + 1])) { out += put(escapeHtml(s[i + 1])); i += 2; continue; }
     if (c === '`') {
-      const n = /^`+/.exec(s.slice(i))![0].length;
-      const close = closingTicks(s, i + n, n);
+      let k = i;
+      while (s[k] === '`') k++;
+      const n = k - i;
+      const close = ticks.next(k, n);
       if (close >= 0) {
-        let code = s.slice(i + n, close).replace(/\n/g, ' ');
+        let code = s.slice(k, close).replace(/\n/g, ' ');
         if (code.length > 2 && code.startsWith(' ') && code.endsWith(' ') && code.trim()) code = code.slice(1, -1);
         out += put(`<code class="md-c">${escapeHtml(code)}</code>`);
         i = close + n;
         continue;
       }
-      out += s.slice(i, i + n);
-      i += n;
+      out += s.slice(i, k);
+      i = k;
       continue;
     }
     if (!inLink && (c === '[' || (c === '!' && s[i + 1] === '['))) {
       const image = c === '!';
-      const l = parseLink(s, image ? i + 1 : i, ctx.defs);
+      const l = (links ??= new LinkReader(s, ticks, ctx.defs)).at(image ? i + 1 : i);
       if (l) {
         const text = inline(l.text, ctx, true);
         out += put(linkHtml(image ? `image: ${text || escapeHtml(l.dest)}` : text || escapeHtml(l.dest), l.dest, ctx));
@@ -469,22 +642,18 @@ function inline(src: string, ctx: Ctx, inLink = false): string {
       }
     }
     if (!inLink && c === '<') {
-      const a = /^<([a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^\s<>]*)>/.exec(s.slice(i));
-      if (a) { out += put(linkHtml(escapeHtml(a[1]), a[1], ctx)); i += a[0].length; continue; }
+      AUTOLINK.lastIndex = i;
+      const a = AUTOLINK.exec(s);
+      if (a) { out += put(linkHtml(escapeHtml(a[1]), a[1], ctx)); i = AUTOLINK.lastIndex; continue; }
     }
-    if (!inLink && (c === 'h' || c === 'H') && (i === 0 || /[\s(*_~"']/.test(s[i - 1]))) {
+    if (!inLink && (c === 'h' || c === 'H') && (i === 0 || /[\s(*_~"']/.test(s[i - 1]))) {
       const url = bareUrl(s, i);
       if (url) { out += put(linkHtml(escapeHtml(url), url, ctx)); i += url.length; continue; }
     }
     out += c;
     i++;
   }
-  let html = escapeHtml(out);
-  html = html
-    .replace(/\*\*(?=[^\s*])([\s\S]*?[^\s*])\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^\w])__(?=\S)([\s\S]*?\S)__(?![\w])/g, '$1<strong>$2</strong>')
-    .replace(/(^|[^*\w])\*(?=[^\s*])([^*]*?[^\s*])\*(?![*\w])/g, '$1<em>$2</em>')
-    .replace(/(^|[^\w])_(?=[^\s_])([^_]*?[^\s_])_(?![\w])/g, '$1<em>$2</em>');
+  let html = emphasis(escapeHtml(out));
   for (let k = 0; k < 3 && html.includes(''); k++) html = html.replace(/(\d+)/g, (_, n: string) => slots[Number(n)] ?? '');
   return html;
 }
