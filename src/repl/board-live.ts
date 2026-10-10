@@ -8,7 +8,8 @@
  *   127.0.0.1:<port> (DNS rebinding) or whose Origin, when there is one, is not this page's;
  * - state and actions need `Authorization: Bearer <token>` (32 random bytes, hex, compared in constant
  *   time). The page reads the token from its URL fragment, which is never sent to a server, keeps it in
- *   memory only (no storage, no cookie) and drops it from the address bar;
+ *   memory only (no storage, no cookie) and drops it from the address bar; R4 (H60): a tab opened without
+ *   it asks another tab of the same board for it (LIVE_SCRIPT's handoff, one origin only);
  * - the page itself carries no project data: everything comes from the token-protected state;
  * - actions are POST only, JSON only, at most 4 KB, one of three shapes, each checked against the current
  *   state, then run as the typed command they stand for (`/stop <id>`, `/run <doc> <block>`,
@@ -31,6 +32,8 @@ import { EDIT_CSS, EDIT_LIMIT, EDIT_SCRIPT } from './board-edits.js';
 import { checkVoxAction, VOX_LIVE_SCRIPT } from './board-vox.js';
 // Round R4 (H50): Timmy Memory's Check (src/memory/board.ts): the typed /lesson check <id>.
 import { checkLessonAction } from '../memory/board.js';
+// Round R4 (H60): /file serves only inert images (the audit of every route is in that module's comment).
+import { FILE_HEADERS, imageOnly } from './board-file-guard.js';
 import { HOMEBREW } from '../theme/tokens.js';
 import { FLOW_ID } from '../flows/iterate.js';
 
@@ -317,7 +320,11 @@ export class LiveBoard {
         if (!this.authorized(req)) return this.send(res, 401, 'Refused: no valid token. Open the address /board live printed.', undefined, { 'WWW-Authenticate': 'Bearer' });
         const f = this.d.file?.(new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('p') ?? '');
         if (!f) return this.send(res, 404, 'Not here: no such highlight on this board.');
-        this.headers(res, f.type);
+        // R4 (H60): only bytes no browser runs script in (src/repl/board-file-guard.ts has the audit), as a sandboxed download.
+        const image = imageOnly(f.type, f.body);
+        if (!image.ok) return this.send(res, 404, `Not shown: this highlight is not an image the board shows (${image.why}).`);
+        this.headers(res, image.type);
+        for (const [k, v] of Object.entries(FILE_HEADERS)) res.setHeader(k, v);
         res.statusCode = 200;
         return void res.end(f.body);
       }
@@ -371,13 +378,25 @@ const LIVE_CSS = `
  * (data-open-default). Before a redraw, each one the operator opened or closed against its default is noted by its key;
  * after it, the new one with that key is set as the operator left it. One whose default changed meanwhile (a flow that
  * failed) follows its new default unless the operator had chosen otherwise. Nothing is stored outside this page's memory.
+ *
+ * R4 (H60): the token handoff between tabs of this board. A tab opened without the token (Timmy Canvas's "Open on the
+ * board" links the bare address and a section, #room) asks for it on a BroadcastChannel named for the board's port:
+ * exactly {t:"timmy-board-token?", n:<32 hex, new each tab>}. A tab that holds the token, and whose last /state the board
+ * accepted, answers only that shape, only when the message's origin is its own (a channel never crosses origins: another
+ * port on 127.0.0.1 is another origin), with {t:"timmy-board-token", n:<the same n>, k:<the token>}; the asking tab takes
+ * only an answer to its own n. The token stays in this closure: never in the address (a section anchor is kept there,
+ * the token never), never in storage, never in the page's text, never on Timmy Canvas. No other document is served on the
+ * board's origin to listen (src/repl/board-file-guard.ts has the audit). A tab no other tab answers says how to open the
+ * board from Timmy, and keeps asking while it is open.
  */
 const LIVE_SCRIPT = `
 (function () {
   'use strict';
   var m = /(?:^#|&)t=([0-9a-f]{64})(?:&|$)/.exec(location.hash);
   var token = m ? m[1] : '';
-  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  // R4 (H60): a section named in the address (#room, from Timmy Canvas) stays there and is shown once the board is drawn.
+  var section = !m && /^#[a-z][a-z0-9-]{0,40}$/.test(location.hash) ? location.hash.slice(1) : '';
+  try { history.replaceState(null, '', location.pathname + (section ? '#' + section : '')); } catch (e) {}
   var main = document.getElementById('main');
   var toc = document.getElementById('toc');
   var status = document.getElementById('status');
@@ -423,15 +442,65 @@ const LIVE_SCRIPT = `
     project.textContent = s.project;
     document.title = 'Live board · ' + s.project;
     // R4: a card being edited (data-editing) is never drawn over; jobs still update in place.
-    if (s.shape !== shape && !busy && !main.querySelectorAll('[data-editing]').length) { remember(); toc.innerHTML = s.toc; main.innerHTML = s.html; restore(); shape = s.shape; paint(); if (typeof TimmyVox !== 'undefined') TimmyVox.paint(main); }
+    if (s.shape !== shape && !busy && !main.querySelectorAll('[data-editing]').length) {
+      remember(); toc.innerHTML = s.toc; main.innerHTML = s.html; restore(); shape = s.shape; paint(); if (typeof TimmyVox !== 'undefined') TimmyVox.paint(main);
+      // R4 (H60): the section the address named, once its section is drawn.
+      if (section) { var at = document.getElementById(section); if (at && at.scrollIntoView) at.scrollIntoView(); section = ''; }
+    }
     else { jobs(s.jobs); if (typeof TimmyBoardEdit !== 'undefined' && TimmyBoardEdit.states) TimmyBoardEdit.states(s.wfStates); }
   };
-  var poll = function () {
-    if (!token) { say('No token: open the address /board live printed in Timmy.', true); return; }
+  // R4 (H60): the token handoff between this board's tabs (see the comment above this script).
+  var ASK = 'timmy-board-token?';
+  var GIVE = 'timmy-board-token';
+  var HEX64 = /^[0-9a-f]{64}$/;
+  var HEX32 = /^[0-9a-f]{32}$/;
+  var NO_TOKEN = 'No token: this tab was opened without the token of this board, and no other open tab of this board gave it one. In Timmy, type /board live: it gives you the address of this board with its token.';
+  var good = false;
+  var asked = '';
+  var since = 0;
+  var channel = null;
+  try { if (typeof BroadcastChannel === 'function' && location.port) channel = new BroadcastChannel('timmy-board-' + location.port); } catch (e) { channel = null; }
+  var only = function (d, keys) { var k = Object.keys(d).sort(); return k.join(',') === keys.join(','); };
+  var ask = function () {
+    if (!channel || typeof crypto === 'undefined' || !crypto.getRandomValues) return false;
+    if (!asked) {
+      var b = new Uint8Array(16);
+      crypto.getRandomValues(b);
+      for (var i = 0; i < b.length; i++) asked += (b[i] < 16 ? '0' : '') + b[i].toString(16);
+    }
+    try { channel.postMessage({ t: ASK, n: asked }); return true; } catch (e) { return false; }
+  };
+  var poll;
+  if (channel) channel.onmessage = function (e) {
+    var d = e.data;
+    if (e.origin !== location.origin || !d || typeof d !== 'object' || Array.isArray(d)) return;
+    // A request: answered only by a tab whose token the board accepted, and only in this shape.
+    if (d.t === ASK && only(d, ['n', 't']) && typeof d.n === 'string' && HEX32.test(d.n)) {
+      if (token && good) channel.postMessage({ t: GIVE, n: d.n, k: token });
+      return;
+    }
+    // An answer: taken only for this tab's own request, while it has no token.
+    if (d.t === GIVE && only(d, ['k', 'n', 't']) && asked && d.n === asked && !token && typeof d.k === 'string' && HEX64.test(d.k)) {
+      token = d.k;
+      asked = '';
+      poll();
+    }
+  };
+  poll = function () {
+    if (!token) {
+      var asking = ask();
+      if (!since) { since = Date.now(); if (asking) setTimeout(function () { if (!token) poll(); }, 1500); }
+      if (asking && Date.now() - since < 1500) say('No token in this tab yet: asking the other tabs of this board for it.');
+      else say(NO_TOKEN, true);
+      return;
+    }
     fetch('/state', { headers: { Authorization: 'Bearer ' + token }, cache: 'no-store', credentials: 'omit' })
       .then(function (r) { if (!r.ok) throw r.status; return r.json(); })
-      .then(function (s) { apply(s); say('live · ' + s.madeAt + ' · updates every 2 s'); },
-        function (e) { say(e === 401 ? 'Refused: this page has no valid token. Open the address /board live printed.' : 'Not connected: /board live in Timmy starts the board again.', true); });
+      .then(function (s) { good = true; apply(s); say('live · ' + s.madeAt + ' · updates every 2 s'); },
+        function (e) {
+          if (e === 401) good = false;
+          say(e === 401 ? 'Refused: the board did not take the token of this tab (it was started again). In Timmy, type /board live: it gives you the address of this board with its token.' : 'Not connected: /board live in Timmy starts the board again.', true);
+        });
   };
   var act = function (b) {
     var a = b.getAttribute('data-act');

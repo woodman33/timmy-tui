@@ -97,6 +97,12 @@ import { runOutcome } from '../ops/outcome.js';
 import { annotateRoom, buildIndex, knownOperations, operationCard, recentOperations, type OpIndex } from '../ops/card.js';
 import { cardLines, opsLines } from '../ops/card-text.js';
 import { HOLDS_DIR } from '../ops/flow-hold.js';
+// Round R4 (H60): what waits on a person (/decisions, and the first of the Control Room), read from what exists; hooks "R4 (H60)".
+import { DECISIONS_ALL, gatherDecisions, markWaiting, type DecisionsView } from '../room/decisions.js';
+import { decisionsLines } from '../room/decisions-text.js';
+import { StaleSaves } from '../room/stale-saves.js';
+import { waitingApprovals } from './approvals.js';
+import { toolStatuses, type ToolStatus } from '../vox/tools.js';
 // Round R4 (helper H52): OpenHands in a container with a local model (src/repl/openhands.ts); hooks are marked "R4 (H52)".
 import { OPENHANDS_NO_DOCKER, openHandsSummary, watchOpenHands, writeBackShort } from '../code-agents/openhands.js';
 import { openHandsLastLine, OpenHandsRuns, type OpenHandsRunState } from './openhands.js';
@@ -297,6 +303,8 @@ export class Workspace {
   private readonly freecadReadbacks: FreecadReadbacks;
   /** R4 (H48): the Control Room's last tools check (/room runs it; the board shows it with its time). */
   private roomTools?: RoomTools;
+  /** R4 (H60): the live board's saves refused because their file changed on disk since the board showed it. */
+  private readonly staleSaves = new StaleSaves();
   /** R4 (H49): VoxVision's actions under way. */
   private readonly vox: VoxActions;
   /** R4 (H47): when each block of this REPL's workflow runs started and ended, as upmd's lines came */
@@ -1956,11 +1964,14 @@ export class Workspace {
         scrub: (t) => this.scrub(t, root),
         ...(this.roomTools ? { tools: this.roomTools } : {}),
       });
+      // R4 (H60): what waits on a person, first in the room (all of it: /decisions).
+      room.view.decisions = this.decisionsOf({ jobs: o.jobs, chain: o.chain, ...(o.flows ? { flows: o.flows } : {}) });
       // R4 (H51): each run's operation and role, and the operations themselves, running first (their cards top the section).
       try {
         const ix = this.opIndex(o.jobs, o.chain);
         annotateRoom(room, ix, o.jobs);
         room.view.operations = recentOperations(ix, 6).map((id) => operationCard(ix, id));
+        markWaiting(room.view.operations, room.view.decisions); // R4 (H60)
       } catch (err) {
         room.view.notes.push(`The operations could not be read: ${this.scrub(err instanceof Error ? err.message : String(err), root)}`);
       }
@@ -1968,6 +1979,37 @@ export class Workspace {
     } catch (err) {
       const why = this.scrub(err instanceof Error ? err.message : String(err), root);
       return { all: [], view: { project: this.project.name, groups: [], running: [], costs: { knownUsd: 0, known: 0, unknown: 0, free: 0, atLeastUsd: 0 }, notes: [`The Control Room could not be read: ${why}`] } };
+    }
+  }
+
+  /**
+   * R4 (H60): `/decisions`: everything waiting on a person in the project (the first DECISIONS_ALL), what blocks a request
+   * first: a NEEDS YOU box, a save the board refused because its file changed on disk, what an ended session left (/recover),
+   * the setup a run of this project needs (the tools checked now, as /room checks them), the runs that ended needing a person,
+   * and the lessons to check. Each with what is needed, why and the exact command or step; nothing is done here.
+   */
+  async decisions(_args: string): Promise<Line[]> {
+    await this.checkRoomTools();
+    const jobs = this.jobs.list().filter((j) => sameFolder(j.root, this.root));
+    let chain: Receipt[] = [];
+    try { chain = (this.d.receipts ?? (() => readChain('runs')))(); } catch { chain = []; }
+    const v = this.decisionsOf({ jobs, chain, max: DECISIONS_ALL });
+    return decisionsLines(v, { glyphs: this.d.glyphs, link: (rel) => this.fileLink(rel), project: this.project.name });
+  }
+
+  /** R4 (H60): the decisions of the active project, from what the caller gathered: never throws (a failure is said). */
+  private decisionsOf(o: { jobs: readonly JobRecord[]; chain: readonly Receipt[]; flows?: BoardFlows; max?: number }): DecisionsView {
+    const root = this.root;
+    try {
+      const voxTools = (): ToolStatus[] => { try { return toolStatuses({ env: this.d.env, onPath: this.d.onPath, root }); } catch { return []; } };
+      return gatherDecisions({
+        root, projectId: projectId(root), jobs: o.jobs, chain: o.chain, ...(o.flows ? { flows: o.flows } : {}),
+        activeFlows: this.flows.active, approvals: waitingApprovals(), staleSaves: this.staleSaves.list(root),
+        ...(this.roomTools ? { tools: this.roomTools } : {}), voxTools,
+        scrub: (t) => this.scrub(t, root), ...(o.max ? { max: o.max } : {}),
+      });
+    } catch (err) {
+      return { items: [], more: 0, total: 0, otherSetup: 0, tools: {}, operations: {}, notes: [`What waits on you could not be read: ${this.scrub(err instanceof Error ? err.message : String(err), root)}`] };
     }
   }
 
@@ -2024,7 +2066,9 @@ export class Workspace {
     if (!id) return this.say('No operation recorded in this project yet: a command that starts or seals something leaves one (.timmy/operations/).');
     if (!/^o[0-9a-f]{8}$/.test(id)) return this.say(`${id} is not an operation id (o and 8 hex digits): /ops lists them.`);
     if (!knownOperations(ix).includes(id)) return this.say(`No operation ${id} in this project: /ops lists them.`);
-    return cardLines(operationCard(ix, id), { glyphs: this.d.glyphs, link: (rel) => this.fileLink(rel) });
+    const card = operationCard(ix, id);
+    markWaiting([card], this.decisionsOf({ jobs: this.jobs.list().filter((j) => sameFolder(j.root, this.root)), chain: ix.chain })); // R4 (H60)
+    return cardLines(card, { glyphs: this.d.glyphs, link: (rel) => this.fileLink(rel) });
   }
 
   /** The operation this request runs in, and whether it joined it (TIMMY_OPERATION) rather than began it. */
@@ -2040,7 +2084,9 @@ export class Workspace {
     // This request's own operation is not listed, unless it joined one (a `timmy act` in a workflow block): that one is.
     const { here, joined } = this.requestOperation();
     const ids = recentOperations(ix, 13).filter((x) => x !== here || joined).slice(0, 12);
-    return opsLines(ids.map((id) => operationCard(ix, id)), { glyphs: this.d.glyphs, project: this.project.name, unreadable: ix.unreadableRecords.map((u) => ({ rel: u.rel, error: this.scrub(u.error, this.root) })) });
+    const cards = ids.map((id) => operationCard(ix, id));
+    markWaiting(cards, this.decisionsOf({ jobs: this.jobs.list().filter((j) => sameFolder(j.root, this.root)), chain: ix.chain })); // R4 (H60)
+    return opsLines(cards, { glyphs: this.d.glyphs, project: this.project.name, unreadable: ix.unreadableRecords.map((u) => ({ rel: u.rel, error: this.scrub(u.error, this.root) })) });
   }
 
   // ── /board (round R2: a reference board linked to the actual files, jobs and results) ──
@@ -2314,6 +2360,9 @@ export class Workspace {
       // R4 review (R4-3): a parameter save waits for the end of a flow running (or being started) in this project.
       flowIn: () => this.flows.runningIn(root),
     });
+    // R4 (H60): a save refused because its file changed on disk since the board showed it waits on the operator (Decisions).
+    const operation = currentOperation();
+    this.staleSaves.note(root, body, out, operation ? { operation } : {});
     this.d.notify([{ text: '  board  ', role: 'secondary' }, { text: this.scrub(out.line, root), role: out.status === 200 ? 'strong' : 'failure' }]);
     return { status: out.status, text: this.scrub(out.text, root) };
   }

@@ -115,6 +115,8 @@ export interface WorkspaceViews {
   scad?(args: string): Promise<Segment[][]>;
   /** Round R4 (helper H48): the Control Room: who runs what, routes, handoffs, costs as recorded, outputs, tools. */
   room?(args: string): Promise<Segment[][]>;
+  /** Round R4 (helper H60): what waits on a person in the project: what is needed, why, and the command or step. */
+  decisions?(args: string): Promise<Segment[][]>;
   /** Round R4 (helper H49): Timmy VoxVision's four actions over the supported spatial tools (src/repl/vox.ts). */
   inspect?(args: string): Promise<Segment[][]>;
   measure?(args: string): Promise<Segment[][]>;
@@ -195,6 +197,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'ops', group: 'look', description: 'Recent operations, running first', run: inWorkspace((w, a) => (w.opsView ? w.opsView(a) : [[{ text: '  Operations are not available here.', role: 'secondary' }]])) },
   // Round R4 (helper H48): the Control Room, also a section of the board.
   { name: 'room', group: 'look', description: 'Control Room: runs, costs, tools; /room <id>', run: inWorkspace((w, a) => (w.room ? w.room(a) : [[{ text: '  The Control Room is not available here.', role: 'secondary' }]])) },
+  // Round R4 (helper H60): what waits on you (also first in the Control Room); it reads, and does nothing itself.
+  { name: 'decisions', group: 'look', description: 'What waits on you: what, why, what to type', run: inWorkspace((w, a) => (w.decisions ? w.decisions(a) : [[{ text: '  Decisions are not available here.', role: 'secondary' }]])) },
   { name: 'c4d', group: 'work', description: 'Cinema 4D Python as a job: /c4d <script.py>', run: inWorkspace((w, a) => w.c4d(a)) },
   { name: 'ae', group: 'work', description: 'After Effects: author, edit, inspect, render', run: inWorkspace((w, a) => w.ae(a)) },
   { name: 'blender', group: 'work', description: 'Blender Python as a job: /blender <script.py>', run: inWorkspace((w, a) => w.blender(a)) },

@@ -185,7 +185,8 @@ export function createProjectPanel(deps) {
     });
     acts.append(put);
     const href = boardHref(board, card);
-    if (href) acts.append(el('a', 'Open on the board', { className: 'pcard-board', href, target: '_blank', rel: 'noopener noreferrer', title: 'The live board on this machine (/board live); it opens with the address /board live printed' }));
+    // R4 (H60): the new tab asks a board tab already open for the token (the board's own handoff); this page never holds it.
+    if (href) acts.append(el('a', 'Open on the board', { className: 'pcard-board', href, target: '_blank', rel: 'noopener noreferrer', title: 'The live board on this machine (/board live); a tab of it you already have open gives the new tab its token' }));
     li.append(cmd, acts);
     return li;
   }

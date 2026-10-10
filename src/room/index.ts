@@ -42,6 +42,7 @@ import type { OperationCard } from '../ops/card.js';
 import { liveProgram } from '../workflows/upmd-live.js';
 // R4 (H59): an output only when its file is there; a file a record names that is not there is named as missing, in words
 import { sealedBy, splitOutputs, type RoomMissing } from './outputs.js';
+import type { DecisionsView } from './decisions.js';
 
 // ── the model ─────────────────────────────────────────────────────────────────
 
@@ -178,6 +179,8 @@ export interface RoomView {
   notes: string[];
   /** R4 (H51): the recent operations, running first, each followed through what it made (src/ops/card.ts) */
   operations?: OperationCard[];
+  /** R4 (H60): what waits on a person in the project, what blocks first (src/room/decisions.ts) */
+  decisions?: DecisionsView;
 }
 
 export interface Room {
