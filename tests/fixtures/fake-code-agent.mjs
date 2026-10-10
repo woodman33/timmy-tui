@@ -16,6 +16,10 @@
 //   COST      its result event reports total_cost_usd 0.0123
 //   EXIT3     exits 3 after its start
 //   HOME      prints the HOME it was given, as plain text
+// For /iterate (round R4), on the recipe's parameter file recipes/tray.params.json:
+//   PARAM:<name>=<value>  (one or more) sets those parameters in the file, keeping its schema and recipe fields
+//   PARAMSBAD             writes the file with a width the recipe refuses (5 mm)
+//   OTHERFILE             also writes notes/other.txt, a file /iterate does not allow it to change
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -61,6 +65,20 @@ if (task.includes('SLEEP')) {
       { type: 'tool_use', id: 't3', name: 'run_shell_command', input: { command: 'ls' } },
     ] } });
     emit({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }, { type: 'tool_result', tool_use_id: 't3', is_error: true, content: 'not approved' }] } });
+  }
+  const params = [...task.matchAll(/PARAM:([A-Za-z]+)=(-?[0-9.]+)/g)];
+  if (params.length || task.includes('PARAMSBAD')) {
+    const file = join(cwd, 'recipes', 'tray.params.json');
+    const json = JSON.parse(readFileSync(file, 'utf8'));
+    for (const [, name, value] of params) json.parameters[name] = Number(value);
+    if (task.includes('PARAMSBAD')) json.parameters.width = 5;
+    writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`);
+    emit({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'p1', name: 'edit', input: { file_path: file, old_string: 'x', new_string: 'y' } }] } });
+    emit({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'p1', content: 'ok' }] } });
+  }
+  if (task.includes('OTHERFILE')) {
+    mkdirSync(join(cwd, 'notes'), { recursive: true });
+    writeFileSync(join(cwd, 'notes', 'other.txt'), 'written by a FAKE agent where it was told not to write\n');
   }
   const fail = task.includes('FAILJSON');
   const message = task.includes('LONG') ? 'L'.repeat(9000) : 'All done: FINAL (a FAKE agent).';

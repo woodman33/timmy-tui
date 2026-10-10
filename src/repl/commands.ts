@@ -105,6 +105,8 @@ export interface WorkspaceViews {
   boardLive?(args: string): Promise<Segment[][]>;
   /** Round R3 (helper H13): a code agent (Qwen Code, Claude Code, Codex, OpenCode) as a job in the project. */
   agent?(args: string): Promise<Segment[][]>;
+  /** Round R4 (helper H24): a local agent edits the recipe's parameter file, the recipe rebuilds, a worker reads it back. */
+  iterate?(args: string): Promise<Segment[][]>;
 }
 
 /** /help's sections, in order: what you work on, what you look at, setup, the session. */
@@ -156,6 +158,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'mcp', group: 'setup', description: 'MCP servers and tools: /mcp [tools|call]', run: inWorkspace((w, a) => w.mcp(a)) },
   // Round R3 (helper H13): a code agent as a durable, cancellable job.
   { name: 'agent', group: 'work', description: 'A code agent as a job: /agent qwen <task>', run: inWorkspace((w, a) => (w.agent ? w.agent(a) : [[{ text: '  Code agents are not available here.', role: 'secondary' }]])) },
+  // Round R4 (helper H24): the connected flow: agent, durable rebuild, independent readback, on the board.
+  { name: 'iterate', group: 'work', description: 'Agent edits params, tray rebuilds: /iterate', run: inWorkspace((w, a) => (w.iterate ? w.iterate(a) : [[{ text: '  /iterate is not available here.', role: 'secondary' }]])) },
   {
     name: 'web',
     group: 'look',

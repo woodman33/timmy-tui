@@ -42,8 +42,11 @@ import { copyFileSync, writeFileSync } from 'node:fs';
 import {
   AGENT_NAMES, AGENTS, AGENTS_DIR, agentBin, agentLabel, appendProgress, boundMessage, diffSnapshots, ensureDir, isGitDir, judgeAgentRun,
   listAgentRuns, newProgress, newRunId, parseAgentLine, planAgent, progressLine, readProgressTail, runDir, scrubPaths, snapshotJson, snapshotProject,
-  taskWords, writeJson, type AgentPlan, type AgentProgress, type AgentRunRecord, type Snapshot,
+  taskWords, writeJson, type AgentName, type AgentPlan, type AgentProgress, type AgentRunRecord, type Snapshot,
 } from '../code-agents/index.js';
+// Round R4 (/iterate, helper H24): the connected flow (src/repl/iterate.ts); hooks are marked "R4 (/iterate)".
+import { IterateFlows, type AgentStart, type IterateTestSeams } from './iterate.js';
+import { FLOW_ID, FLOWS_DIR } from '../flows/iterate.js';
 
 type Line = Segment[];
 
@@ -79,6 +82,8 @@ export interface WorkspaceDeps {
   recipeTest?: RecipeTestSeams;
   /** R3 (H14): the model client /observe --qualify uses (src/vision/qualify-route.ts); a test gives a labelled fake. */
   qualifyClient?: (apiKey: string) => QualifyClient;
+  /** R4 (/iterate), test seams only: a FAKE readback worker. */
+  iterateTest?: IterateTestSeams;
 }
 
 /** How an observation ended (round R2, look): its file and receipt, or why there is none. */
@@ -199,10 +204,22 @@ export class Workspace {
   private readonly recipes = new Map<string, string>();
   /** Round R3 (/agent): code-agent runs this REPL started, by their job's id: sealed by sealAgent, not as a plain task. */
   private readonly agentRuns = new Map<string, AgentRunState>();
+  /** R4 (/iterate): jobs whose one receipt their flow seals (a readback), not the plain job seal. */
+  private readonly selfSealed = new Set<string>();
+  /** R4 (/iterate): the flows this REPL runs. */
+  private readonly flows: IterateFlows;
 
   constructor(private readonly d: WorkspaceDeps, start: ActiveProject) {
     this.project = start;
     this.jobs = new JobManager({ dir: d.jobsDir, onChange: (job) => this.changed(job), seal: (job) => this.sealJob(job) });
+    this.flows = new IterateFlows({
+      glyphs: d.glyphs, env: () => this.d.env, onPath: d.onPath, notify: (l) => this.d.notify(l), seal: (input) => this.d.seal(input), jobs: this.jobs,
+      startJob: (spec, o) => { const job = this.jobs.start(spec); this.mine.add(job.id); if (o?.selfSealed) this.selfSealed.add(job.id); return job; },
+      startAgent: (name, task, o) => this.startAgentRun(name, task, o),
+      startRecipe: (root, project, given) => startRecipeJob({ ...this.recipeContext(), root, project }, given),
+      scrub: (t, root) => this.scrub(t, root),
+      ...(d.iterateTest ? { test: d.iterateTest } : {}),
+    });
   }
 
   get root(): string { return this.project.root; }
@@ -842,7 +859,8 @@ export class Workspace {
 
   private sealJob(job: JobRecord): string | undefined {
     // A Look job's one receipt is its observation's (kind observe), sealed once the observation is written.
-    if (this.looks.has(job.id)) return undefined;
+    // R4 (/iterate): a flow's readback job is sealed by its flow (kind readback).
+    if (this.looks.has(job.id) || this.selfSealed.has(job.id)) return undefined;
     // Round R3 (/agent): a code agent's run is sealed with its result (kind agent).
     const agentRun = this.agentRuns.get(job.id);
     if (agentRun) return this.sealAgent(job, agentRun);
@@ -925,12 +943,16 @@ export class Workspace {
   async stop(args: string): Promise<Line[]> {
     const id = args.trim();
     if (!id) return this.say('Usage: /stop <job>, or /stop all');
+    // R4 (/iterate): a flow is stopped by its id (f + 8 hex).
+    if (FLOW_ID.test(id)) return this.flows.stop(id, this.root);
     if (id === 'all') {
+      // R4 (/iterate): the flows first, so none starts a next step; their running steps are this REPL's jobs below.
+      const flows = this.flows.abortAll();
       // Round R3: an observation's model interpretation belongs to its Look job: /stop all reaches it too.
       const asking = [...this.observing.values()].filter((o) => o.asking);
       for (const o of this.observing.values()) o.abort.abort();
       const live = [...this.mine].map((x) => this.jobs.get(x)).filter((j): j is JobRecord => !!j && !TERMINAL.has(j.state));
-      if (!live.length && !asking.length) return this.say('Nothing this REPL started is running.');
+      if (!live.length && !asking.length && !flows) return this.say('Nothing this REPL started is running.');
       const [ended, asked] = await Promise.all([
         Promise.all(live.map((j) => this.jobs.stop(j.id))),
         Promise.all(asking.map((o) => (o.done ? within(o.done) : Promise.resolve(undefined)))),
@@ -950,6 +972,7 @@ export class Workspace {
           ? `Stopped ${n} model interpretation${n === 1 ? '; its measurement' : 's; their measurements'} had completed${rest ? `; ${rest} more had already ended` : ''}.`
           : `${rest} model interpretation${rest === 1 ? ' had' : 's had'} already ended when the stop came.`));
       }
+      if (flows) { await this.flows.settle(20_000); lines.push(...this.say(`Stopped ${flows} flow${flows === 1 ? '' : 's'} (/iterate): none starts a next step, and each keeps its record in results/flows/.`)); }
       return lines;
     }
     const j = this.jobs.get(id);
@@ -992,13 +1015,17 @@ export class Workspace {
    *  observation be recorded (round R3). */
   async close(): Promise<void> {
     await this.closeLiveBoard();
+    // R4 (/iterate): no flow starts a next step; each writes its record once its step has stopped.
+    this.flows.abortAll();
     const pending = [...this.observing.values()].flatMap((o) => { o.abort.abort(); return o.done ? [o.done] : []; });
     await this.jobs.stopAll();
     await within(Promise.allSettled(pending));
+    await this.flows.settle(20_000);
   }
 
   /** The process is exiting at once (a second Ctrl+C): signal this REPL's live jobs without waiting. */
   killNow(): void {
+    this.flows.abortAll();
     this.live?.closeNow();
     this.live = undefined;
     for (const o of this.observing.values()) o.abort.abort();
@@ -1080,34 +1107,9 @@ export class Workspace {
     if (a === 'last') return this.agentLast();
     const p = parseAgentLine(a);
     if (!p.name) return this.say(`No agent named ${p.word ?? ''}. Agents: ${AGENT_NAMES.join(', ')}; /agent lists them.`);
-    const info = AGENTS[p.name];
-    const bin = agentBin(p.name, this.d.env, this.d.onPath);
-    if (!bin) return this.say(`${info.title} is not on PATH (${info.bin}); /tools says how to install it. Nothing was started.`, 'estimate');
-    const run = newRunId();
-    const planned = planAgent(p.name, p.task, { env: this.d.env, paid: p.paid, run, bin });
-    if (!planned.ok) return this.say(planned.error, planned.refused === 'paid' ? 'estimate' : 'failure');
-    const plan = planned.plan;
-    const root = this.root;
-    const dir = runDir(root, run);
-    const version = await agentVersion(bin);
-    let before: { files: Snapshot; truncated: boolean };
-    try { ensureDir(dir); before = snapshotProject(root); } catch (e) { return this.say(`The run could not be prepared: ${this.scrub((e as Error).message, root)}`, 'failure'); }
-    const record: AgentRunRecord = {
-      agent_run: 1, run, agent: p.name, agent_version: version, model: plan.model, endpoint: plan.endpoint, where: plan.where,
-      task: p.task, job: '', started_at: new Date().toISOString(),
-    };
-    const progress = newProgress();
-    const state: AgentRunState = { record, plan, root, dir, before: before.files, beforeTruncated: before.truncated, gitBefore: isGitDir(root) ? gitStat(root) : null, progress };
-    try { writeJson(join(dir, 'snapshot-before.json'), { truncated: before.truncated, files: snapshotJson(before.files) }); } catch { /* kept in memory */ }
-    const job = this.jobs.start({
-      kind: 'task', label: agentLabel(p.name, run, p.task, root), project: this.project.name, root, command: plan.command, args: plan.args, timeoutMs: plan.timeoutMs,
-      ...(plan.env ? { env: plan.env } : {}),
-      parseLine: (line) => { const shown = progressLine(line, progress, root); if (shown) appendProgress(dir, shown); },
-    });
-    this.mine.add(job.id);
-    this.agentRuns.set(job.id, state);
-    record.job = job.id;
-    try { writeJson(join(dir, 'run.json'), { ...record, state: 'submitted' }); } catch { /* the job still runs; its result is written at its end */ }
+    const s = await this.startAgentRun(p.name, p.task, { paid: p.paid });
+    if (!s.ok) return this.say(s.error, s.refused === 'missing' || s.refused === 'paid' ? 'estimate' : 'failure');
+    const { info, version, plan, run, job } = s;
     const g = this.d.glyphs;
     return [
       [{ text: '  Agent      ', role: 'secondary' }, { text: job.id, role: 'strong' }, { text: `  ${job.label}`, role: 'secondary' }],
@@ -1117,6 +1119,49 @@ export class Workspace {
       [{ text: '  Follow     ', role: 'secondary' }, { text: `/jobs ${job.id}${this.sep}/stop ${job.id}${this.sep}then /agent last or /results ${g.arrow} ${AGENTS_DIR}/${run}/`, role: 'secondary' }],
     ];
   }
+
+  /**
+   * R4 (/iterate): a code agent's run started, as data: the one start /agent and /iterate share. The endpoint rule
+   * (planAgent), the project's snapshot before it, its job (this REPL's, so /stop reaches it) and, at its end, its
+   * sealed result (sealAgent). `root`, `project` and `env` default to the active project and this REPL's environment.
+   */
+  async startAgentRun(name: AgentName, task: string, o: { paid: boolean; root?: string; project?: string; env?: NodeJS.ProcessEnv }): Promise<AgentStart> {
+    const info = AGENTS[name];
+    const env = o.env ?? this.d.env;
+    const bin = agentBin(name, env, this.d.onPath);
+    if (!bin) return { ok: false, refused: 'missing', error: `${info.title} is not on PATH (${info.bin}); /tools says how to install it. Nothing was started.` };
+    const run = newRunId();
+    const planned = planAgent(name, task, { env, paid: o.paid, run, bin });
+    if (!planned.ok) return { ok: false, refused: planned.refused, error: planned.error };
+    const plan = planned.plan;
+    const root = o.root ?? this.root;
+    const dir = runDir(root, run);
+    const version = await agentVersion(bin);
+    let before: { files: Snapshot; truncated: boolean };
+    try { ensureDir(dir); before = snapshotProject(root); } catch (e) { return { ok: false, refused: 'prepare', error: `The run could not be prepared: ${this.scrub((e as Error).message, root)}` }; }
+    const record: AgentRunRecord = {
+      agent_run: 1, run, agent: name, agent_version: version, model: plan.model, endpoint: plan.endpoint, where: plan.where,
+      task, job: '', started_at: new Date().toISOString(),
+    };
+    const progress = newProgress();
+    const state: AgentRunState = { record, plan, root, dir, before: before.files, beforeTruncated: before.truncated, gitBefore: isGitDir(root) ? gitStat(root) : null, progress };
+    try { writeJson(join(dir, 'snapshot-before.json'), { truncated: before.truncated, files: snapshotJson(before.files) }); } catch { /* kept in memory */ }
+    const job = this.jobs.start({
+      kind: 'task', label: agentLabel(name, run, task, root), project: o.project ?? this.project.name, root, command: plan.command, args: plan.args, timeoutMs: plan.timeoutMs,
+      ...(plan.env ? { env: plan.env } : {}),
+      parseLine: (line) => { const shown = progressLine(line, progress, root); if (shown) appendProgress(dir, shown); },
+    });
+    this.mine.add(job.id);
+    this.agentRuns.set(job.id, state);
+    record.job = job.id;
+    try { writeJson(join(dir, 'run.json'), { ...record, state: 'submitted' }); } catch { /* the job still runs; its result is written at its end */ }
+    return { ok: true, job, run, plan, info, version, record };
+  }
+
+  // ── /iterate (round R4, helper H24: a local agent edits the parameter file, the recipe rebuilds, a separate worker reads it back) ──
+
+  /** `/iterate` lists the flows; `/iterate tray "<instruction>" [--agent qwen] [--model <m>]` starts one (src/repl/iterate.ts). */
+  async iterate(args: string): Promise<Line[]> { return this.flows.command(args, { root: this.root, project: this.project.name }); }
 
   private agentList(): Line[] {
     const env = this.d.env;
