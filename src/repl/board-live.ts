@@ -43,11 +43,13 @@ export type BoardAction =
   | { action: 'observe'; file: string }
   | { action: 'rebuild'; recipe: string }
   | { action: 'vox'; verb: 'inspect' | 'measure' | 'detect' | 'compare'; file: string; other?: string; color?: string; at?: string }
+  /** R4 (H61): View in Rerun on a VoxVision record the board shows: the typed `/vox view <id> rerun` */
+  | { action: 'vox'; verb: 'view'; id: string }
   /** R4 (H50): Memory's Check on a lesson the board shows: the typed `/lesson check <id>` */
   | { action: 'lesson'; verb: 'check'; id: string };
 
 /** The typed command a valid action stands for: its name, its argument string and the line as typed. */
-export interface BoardCommand { name: 'stop' | 'run' | 'observe' | 'recipe' | 'inspect' | 'measure' | 'detect' | 'compare' | 'lesson'; args: string; line: string }
+export interface BoardCommand { name: 'stop' | 'run' | 'observe' | 'recipe' | 'inspect' | 'measure' | 'detect' | 'compare' | 'lesson' | 'vox'; args: string; line: string }
 
 /** What the live board shows and what its actions are checked against; no absolute path in any of it. */
 export interface LiveState {
@@ -68,6 +70,8 @@ export interface LiveState {
   flows?: Array<{ id: string; state: string; stoppable: boolean }>;
   /** R4 (H49): the files VoxVision offers (its buttons run /inspect, /measure, /detect, /compare on them). */
   voxFiles?: Array<{ rel: string; kind: string }>;
+  /** R4 (H61): the VoxVision records whose View in Rerun the board offers (verified or stale), by id. */
+  voxRecords?: string[];
   /** R4 (H47): the OpenSCAD models whose parameter file a workflow card shows (the set-scad-params edit saves only these). */
   scadModels?: string[];
   /** R4 (H47): each workflow block's state in words (and each document's newest run, key ''), set in place like the jobs'. */
@@ -168,7 +172,7 @@ export function checkAction(body: unknown, state: LiveState): Checked {
     if (!(state.recipes ?? []).includes(o.recipe) || !/^[a-z]+$/.test(o.recipe)) return bad(404, `No recipe ${o.recipe} on this board.`);
     return { ok: true, command: { name: 'recipe', args: o.recipe, line: `/recipe ${o.recipe}` } };
   }
-  if (o.action === 'vox') return checkVoxAction(o, state.voxFiles ?? []);
+  if (o.action === 'vox') return checkVoxAction(o, state.voxFiles ?? [], state.voxRecords ?? []);
   if (o.action === 'lesson') return checkLessonAction(o, state.lessons ?? []); // R4 (H50)
   return bad(400, 'Unknown action: stop, run, observe, rebuild, vox and lesson are the actions.');
 }

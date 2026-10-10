@@ -120,6 +120,8 @@ export interface WorkspaceViews {
   measure?(args: string): Promise<Segment[][]>;
   detect?(args: string): Promise<Segment[][]>;
   compare?(args: string): Promise<Segment[][]>;
+  /** Round R4 (helper H61): `/vox`, the viewer layers, and `/vox view <record id> [rerun]` (src/repl/vox-view.ts). */
+  voxView?(args: string): Promise<Segment[][]>;
   /** Round R4 (helper H50): Timmy Memory: recall over retained work, and lessons with evidence (src/memory/repl.ts). */
   recall?(args: string): Segment[][];
   lesson?(args: string): Segment[][];
@@ -184,6 +186,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'measure', group: 'look', raw: true, description: 'Labelled measured values: /measure <file>', run: inWorkspace((w, a) => (w.measure ? w.measure(a) : [[{ text: '  VoxVision is not available here.', role: 'secondary' }]])) },
   { name: 'detect', group: 'look', raw: true, description: 'QR, ArUco, a colour: /detect <file> [what]', run: inWorkspace((w, a) => (w.detect ? w.detect(a) : [[{ text: '  VoxVision is not available here.', role: 'secondary' }]])) },
   { name: 'compare', group: 'look', raw: true, description: 'Two files of one kind: /compare <a> <b>', run: inWorkspace((w, a) => (w.compare ? w.compare(a) : [[{ text: '  VoxVision is not available here.', role: 'secondary' }]])) },
+  // Round R4 (H61): VoxVision's viewer layers: a record's files in Rerun's viewer (a window on this computer).
+  { name: 'vox', group: 'look', description: 'A record in Rerun: /vox view <id>; /vox', run: inWorkspace((w, a) => (w.voxView ? w.voxView(a) : [[{ text: '  VoxVision is not available here.', role: 'secondary' }]])) },
   // Round R3: `/board live` and `/board off` go to the live board; `/board` alone stays the snapshot.
   { name: 'board', group: 'look', description: 'A board of the project; /board live | off', run: inWorkspace((w, a) => (w.boardLive && /^(?:live|off)$/.test(a.trim()) ? w.boardLive(a) : w.board(a))) },
   // Round R4 (helper H50): Timmy Memory. Raw: a quoted lesson text or file name keeps its spaces.

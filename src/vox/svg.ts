@@ -4,6 +4,8 @@
  * its minimum corner in an oblique view (x to the right, z up, y receding at 30°, half depth), all boxes at one scale,
  * so two boxes of a /compare read against each other. The dimensions are written as measured (seven significant
  * digits); the unit is the reader's (STL records none). DOCTRINE §15 goes in the drawing's description.
+ * R4 (H61): the drawing names its frame (the file's own model frame and its unit, or that the unit is not declared),
+ * and two boxes are drawn together only when their files share a known unit (src/vox/frames.ts together).
  */
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import { DOCTRINE_15, num } from './record.js';
@@ -26,7 +28,7 @@ const COS = Math.cos(Math.PI / 6) * 0.5;
 const SIN = Math.sin(Math.PI / 6) * 0.5;
 
 /** The SVG text of the boxes. Sizes that are not finite and non-negative are refused (nothing is drawn from them). */
-export function bboxSvg(o: { title: string; boxes: SvgBox[]; unit: string; measuredBy: string }): string {
+export function bboxSvg(o: { title: string; boxes: SvgBox[]; unit: string; measuredBy: string; frame?: string }): string {
   const boxes = o.boxes.filter((b) => b.size.every((v) => Number.isFinite(v) && v >= 0));
   if (!boxes.length || boxes.length !== o.boxes.length) throw new Error('a bounding box needs three finite, non-negative sizes');
   const colours = [HOMEBREW.accent, HOMEBREW.link, HOMEBREW.attention];
@@ -67,10 +69,11 @@ export function bboxSvg(o: { title: string; boxes: SvgBox[]; unit: string; measu
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family=${JSON.stringify(TYPE.stack.replace(/"/g, "'"))} font-size="15">`,
     `<title>${esc(o.title)}</title>`,
-    `<desc>${esc(`Axis-aligned bounding box${boxes.length > 1 ? 'es' : ''} as measured by ${o.measuredBy}; drawn from those numbers only. ${DOCTRINE_15}`)}</desc>`,
+    `<desc>${esc(`Axis-aligned bounding box${boxes.length > 1 ? 'es' : ''} as measured by ${o.measuredBy}; drawn from those numbers only.${o.frame ? ` Frame: ${o.frame}.` : ''} ${DOCTRINE_15}`)}</desc>`,
     `<rect width="${W}" height="${H}" fill="${HOMEBREW.surface}"/>`,
     `<text x="16" y="24" fill="${HOMEBREW.text}" font-weight="600" font-size="16">${esc(o.title)}</text>`,
     `<text x="16" y="42" fill="${HOMEBREW.textSecondary}" font-size="11">${esc(`bounding box, ${o.unit}; measured by ${o.measuredBy}`)}</text>`,
+    ...(o.frame ? [`<text x="16" y="57" fill="${HOMEBREW.textSecondary}" font-size="10">${esc(`frame: ${o.frame}`)}</text>`] : []),
     ...parts,
     `<text x="16" y="${H - 10}" fill="${HOMEBREW.textSecondary}" font-size="10">${esc('A measurement of the file, not of a physical part (DOCTRINE §15).')}</text>`,
     '</svg>',

@@ -3,16 +3,17 @@
 // snapshot and on the live board; the live board's VoxVision actions take exact shapes only, run as the typed command;
 // and its /file route serves only a verified record's highlight, with the token. Timmy's STL reader is real here; the
 // Look worker in the last test is a FAKE (tests/helpers/vox-fakes.ts), not OpenCV.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { checkVoxAction, readVoxRecord, voxFileFor, voxSection, type BoardVox } from '../src/repl/board-vox.js';
 import { kit as boardKit } from '../src/repl/board-kit.js';
 import { renderBoard, renderBoardBody } from '../src/repl/board.js';
+import { realOnPath } from '../src/repl/center.js';
 import { resetLookChecks } from '../src/vision/look.js';
 import type { Receipt } from '../src/utils/receipts.js';
-import { cubeStl, fakeTools, png, put, settled, sha, tempKit, text, workspace } from './helpers/vox-fakes.js';
+import { cubeStl, fakeRerun, fakeTools, png, put, settled, sha, tempKit, text, workspace } from './helpers/vox-fakes.js';
 
 const kit = tempKit();
 afterEach(async () => { resetLookChecks(); await kit.cleanup(); });
@@ -188,6 +189,75 @@ describe('the live board\'s VoxVision actions', () => {
     expect((await get(`/file?p=${encodeURIComponent(rec)}`, token)).status).toBe(404);
     const page = await get('/');
     expect(page.body.toString()).toContain('var TimmyVox');
+  });
+
+  it('R4 (H61): View in Rerun takes an exact shape and a record the board offers, and stands for /vox view <id> rerun', () => {
+    expect(checkVoxAction({ action: 'vox', verb: 'view', id: 'v0000abcd' }, [], ['v0000abcd'])).toEqual({ ok: true, command: { name: 'vox', args: 'view v0000abcd rerun', line: '/vox view v0000abcd rerun' } });
+    const refused: Array<[Record<string, unknown>, number]> = [
+      [{ action: 'vox', verb: 'view', id: 'v0000abcd', file: 'x' }, 400],
+      [{ action: 'vox', verb: 'view' }, 400],
+      [{ action: 'vox', verb: 'view', id: 'v0000ffff' }, 404],
+      [{ action: 'vox', verb: 'view', id: 'v0000abcd; rm -rf /' }, 404],
+      [{ action: 'vox', verb: 'view', id: 'v0000abcd\n' }, 400],
+    ];
+    for (const [body, status] of refused) expect([body, checkVoxAction(body, [], ['v0000abcd'])]).toEqual([body, expect.objectContaining({ ok: false, status })]);
+  });
+
+  it('R4 (H61): the words on both boards; View in Rerun on the live board only, over HTTP with the token, for a record it offers (FAKE rerun)', async () => {
+    const root = realpathSync(kit.temp('vox-board-view-'));
+    put(root, 'models/cube.stl', cubeStl(1));
+    const log = join(kit.temp('vox-rerun-log-'), 'rerun.log');
+    const bin = kit.temp('vox-rerun-');
+    fakeRerun(bin);
+    const env: NodeJS.ProcessEnv = { PATH: `${bin}:/usr/bin:/bin`, FAKE_RERUN_LOG: log };
+    const { ws, sealed, notes } = workspace(root, kit, { env, onPath: (c) => realOnPath(c, env) });
+    await ws.measure('models/cube.stl');
+    const id = (sealed[0].sources![0] as { vox: string }).vox;
+    // The snapshot: each value with its word, how it was measured under the advanced view; no View in Rerun.
+    ws.board('');
+    const snap = readFileSync(join(root, '.timmy/board/index.html'), 'utf8');
+    expect(snap).toContain('<span class="vox-word w-measured" title="a deterministic computation on these exact bytes">measured</span>');
+    expect(snap).toContain('advanced: how each value was measured (its tier, method and who measured it)');
+    expect(snap).toContain('frame: the STL&#39;s own model frame, in the file&#39;s units: not declared (an STL carries no unit)');
+    expect(snap).not.toContain('data-verb="view"');
+    // The live board: its state offers the record, and its card has View in Rerun.
+    await ws.boardLive('live');
+    const { port, url } = ws.liveBoard!;
+    const token = url.split('#t=')[1];
+    const call = (method: string, path: string, body?: string, auth?: string): Promise<{ status: number; text: string }> => new Promise((resolve, reject) => {
+      const req = request({ host: '127.0.0.1', port, path, method, headers: { Host: `127.0.0.1:${port}`, ...(auth ? { Authorization: `Bearer ${auth}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) } }, (res) => {
+        let t = '';
+        res.on('data', (c) => { t += c; });
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, text: t }));
+      });
+      req.on('error', reject);
+      req.end(body);
+    });
+    const state = JSON.parse((await call('GET', '/state', undefined, token)).text) as { html: string; voxRecords: string[] };
+    expect(state.voxRecords).toEqual([id]);
+    expect(state.html).toContain(`<button type="button" class="act" data-act="vox" data-verb="view" data-id="${id}">View in Rerun</button>`);
+    expect(state.html).toContain('advanced: opens Rerun&#39;s own viewer, a window on your computer that Timmy does not stop');
+    const view = JSON.stringify({ action: 'vox', verb: 'view', id });
+    expect((await call('POST', '/action', view)).status).toBe(401);
+    expect((await call('POST', '/action', view, 'f'.repeat(64))).status).toBe(401);
+    expect(existsSync(log)).toBe(false);
+    expect((await call('POST', '/action', JSON.stringify({ action: 'vox', verb: 'view', id: 'v0000ffff' }), token)).status).toBe(404);
+    const out = await call('POST', '/action', view, token);
+    expect(out.status).toBe(200);
+    expect(out.text.split('\n')[0]).toBe(`board /vox view ${id} rerun`);
+    expect(out.text).toContain('opens a window on your computer');
+    expect(out.text).toMatch(/started {4}pid \d+ · rerun on the PATH · recorded on results\/vox\/v[0-9a-f]{8}\.json · receipt r\d+/);
+    expect(notes).toContain(`  board  /vox view ${id} rerun`);
+    for (let i = 0; i < 100 && !existsSync(log); i++) await new Promise((r) => setTimeout(r, 25));
+    expect(readFileSync(log, 'utf8')).toContain(`arg ${join(root, 'models/cube.stl')}`);
+    expect(out.text).not.toContain(root);
+    // A record edited since its receipt is not offered, so its View is refused.
+    const rel = `results/vox/${id}.json`;
+    writeFileSync(join(root, rel), readFileSync(join(root, rel), 'utf8').replace('"value": 12', '"value": 13'));
+    const after = JSON.parse((await call('GET', '/state', undefined, token)).text) as { html: string; voxRecords: string[] };
+    expect(after.voxRecords).toEqual([]);
+    expect(after.html).not.toContain('data-verb="view"');
+    expect((await call('POST', '/action', view, token)).status).toBe(404);
   });
 
   it('an Inspect posted to /action runs /inspect through the workspace, echoed as from the board', async () => {

@@ -31,6 +31,7 @@ import { readBoardFlows, type BoardFlow } from '../repl/board-flows.js';
 import { flowHandoff, type RoomStep } from '../room/index.js';
 import { readVoxRecord, type VoxCard } from '../repl/board-vox.js';
 import { VOX_DIR, VOX_ID } from '../vox/record.js';
+import { wordText } from '../vox/words.js';
 import { AGENTS_DIR, listAgentRuns } from '../code-agents/index.js';
 import { listNativeRuns, readNativeRecord } from '../native/index.js';
 import { MCP_CALL_ID, MCP_CALLS_DIR } from '../connectors/mcp-records.js';
@@ -427,8 +428,9 @@ function voxParts(ix: OpIndex, id: string, outputs: CardOutput[]): CardVox[] {
       ? { status: 'verified', words: `receipt ${receipt ?? '?'} sealed this record, and its inputs are the bytes it names`, ...(receipt ? { receipt } : {}) }
       : { status: c.check.status, words: ix.scrub(c.check.reasons.join('; ') || 'not verified'), ...(receipt ? { receipt } : {}) };
     const word = (x: unknown): string => (typeof x === 'number' ? String(Number(x.toPrecision(7))) : typeof x === 'string' ? x : JSON.stringify(x));
+    // R4 (H61): each value's status word (stale or unknown when the record's check says so), then who measured it.
     const values = c.metrics.filter((m) => !m.malformed && !m.name.startsWith('file_')).slice(0, 6)
-      .map((m) => `${m.title}: ${Array.isArray(m.value) ? m.value.map(word).join(' x ') : word(m.value)}${m.unit ? ` ${m.unit}` : ''} (${m.label ?? m.tier ?? 'who measured it is not named'})`);
+      .map((m) => `${m.title}: ${Array.isArray(m.value) ? m.value.map(word).join(' x ') : word(m.value)}${m.unit ? ` ${m.unit}` : ''} · ${m.said ? wordText(m.said) : 'unknown: no word recorded'} (${m.label ?? m.tier ?? 'who measured it is not named'})`);
     out.push({
       id: c.id, file: c.file, action: c.action, status: c.status, tone: toneOf(c.status), inputs: c.inputs.map((i) => ix.scrub(i.path)), values: values.map(ix.scrub),
       about: mine ? 'this operation' : 'its outputs', check,

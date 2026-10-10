@@ -13,6 +13,12 @@
  * are the bytes it names; stale when an input changed since; unverified otherwise. A highlight is drawn only when its
  * bytes are the ones the record and the receipt name. On the live board the images come through the token-protected
  * /file route (voxFileFor), loaded by the page's script as blob: URLs; the snapshot links them relatively.
+ *
+ * Round R4 (H61): each value and highlight shows its status word first (the record's, or derived for an older record;
+ * "stale" or "unknown" when the card's check says so) with what it rests on; its tier, method and who measured it are
+ * the card's advanced view. Each input names its frame; a compare says whether its two were drawn together; the CAD
+ * checks and the views (/vox view) are listed. On the live board only, each verified or stale card has View in Rerun
+ * (the typed `/vox view <id> rerun`) while Rerun's viewer is found, else its setup step.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
@@ -22,10 +28,16 @@ import { hashFile } from '../project/intake.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { Receipt } from '../utils/receipts.js';
 import { headBytes, KIND_WORDS, voxKindOf, type VoxKind } from '../vox/kinds.js';
-import { DOCTRINE_15, num, TIER, VOX_ACTIONS, VOX_DIR, type VoxAction } from '../vox/record.js';
+import { DOCTRINE_15, num, TIER, VOX_ACTIONS, VOX_DIR, VOX_ID, type VoxAction } from '../vox/record.js';
 import { metricText, toolStatuses, type ToolEnv, type ToolStatus } from '../vox/tools.js';
+// R4 (H61): each value's and highlight's status word (the record's, or derived for an older record; stale and unverified
+// said over it), each input's frame, the CAD checks, whether a compare's two were drawn together, and the views.
+import { highlightWord, MEASURED_NOTE, metricWord, NATIVE_NOTE, shownWord, VOX_WORDS, WORD_MEANS, type VoxWord, type WordSaid } from '../vox/words.js';
+import { frameFromRecord, together, type VoxFrame } from '../vox/frames.js';
+import { checkWords, receiptShort, type VoxSourceCheck } from '../vox/sources.js';
+import { RERUN_SETUP } from '../vox/layers.js';
 import { esc, stamp, type Kit } from './board-kit.js';
-import { voxArg } from './vox.js';
+import { voxArg } from '../vox/args.js';
 
 /** How many record cards and offered files the board shows; the rest are counted. */
 export const VOX_MAX = { cards: 12, files: 40 } as const;
@@ -38,12 +50,16 @@ const obj = (v: unknown): Record<string, unknown> | undefined => (v && typeof v 
 const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 const shortSha = (h?: string): string => (h ? h.slice(0, 12) : 'none');
 
-export interface VoxCardMetric { name: string; title: string; value: unknown; unit?: string; method?: string; tier?: string; label?: string; measured_by?: string; of?: string; note?: string; malformed?: boolean }
-export interface VoxCardHighlight { path: string; sha256?: string; type?: string; drawn_from: string[]; drawn_by?: string; method?: string; of?: string; shown: boolean; why?: string }
+/** R4 (H61): the word a value or highlight is shown with: `recorded`, the record's own when the check says stale or unverified; `derived`, an older record's (no word in it). */
+export type ShownWord = WordSaid & { recorded?: VoxWord; derived?: boolean };
+export interface VoxCardMetric { name: string; title: string; value: unknown; unit?: string; method?: string; tier?: string; label?: string; measured_by?: string; of?: string; note?: string; malformed?: boolean; status_word?: string; status_note?: string; said?: ShownWord }
+export interface VoxCardHighlight { path: string; sha256?: string; type?: string; drawn_from: string[]; drawn_by?: string; method?: string; of?: string; shown: boolean; why?: string; status_word?: string; status_note?: string; said?: ShownWord }
 export interface VoxCheck { status: 'verified' | 'stale' | 'unverified'; receipt?: string; reasons: string[] }
+/** R4 (H61): a view of the record's files (/vox view), with the vox receipt that sealed it. */
+export interface VoxCardView { at: string; viewer: string; program?: string; passed: string[]; notPassed: Array<{ path: string; why: string }>; pid?: number; receipt?: string }
 export interface VoxCard {
   file: string; id: string; action: string; command?: string; madeAt?: string; status: string;
-  inputs: Array<{ path: string; sha256?: string; bytes?: number; kind?: string; kind_by?: string; role?: string; note?: string }>;
+  inputs: Array<{ path: string; sha256?: string; bytes?: number; kind?: string; kind_by?: string; role?: string; note?: string; frame?: VoxFrame }>;
   tools: Array<{ tool: string; name?: string; version?: string; engine?: string; ran?: string; job?: string; state?: string; status?: string; raw?: string }>;
   metrics: VoxCardMetric[];
   claims: VoxCardMetric[];
@@ -52,6 +68,11 @@ export interface VoxCard {
   notes: string[];
   doctrine: boolean;
   check: VoxCheck;
+  /** R4 (H61): each CAD check in a line (whether it found the values within tolerance) */
+  checks?: Array<{ words: string; agrees: boolean }>;
+  /** R4 (H61): a compare: whether its two inputs share a known frame and unit (drawn together), or why not */
+  together?: { drawn: boolean; words: string };
+  views?: VoxCardView[];
 }
 export interface BoardVox {
   cards: VoxCard[];
@@ -106,13 +127,19 @@ export function readVoxRecord(o: { root: string; file: string; text: string; fil
     if (!name || m.malformed !== undefined) return { name: name ?? '(an entry with no name)', title: name ?? '(an entry with no name)', value: m.malformed ?? m, malformed: true };
     return {
       name, title: str(m.title) ?? name, value: m.value,
-      ...Object.fromEntries((['unit', 'method', 'tier', 'label', 'measured_by', 'of', 'note'] as const).flatMap((k) => (str(m[k]) ? [[k, str(m[k])]] : []))),
+      ...Object.fromEntries((['unit', 'method', 'tier', 'label', 'measured_by', 'of', 'note', 'status_word', 'status_note'] as const).flatMap((k) => (str(m[k]) ? [[k, str(m[k])]] : []))),
     } as VoxCardMetric;
   };
-  const inputs: VoxCard['inputs'] = list(r.inputs).map((i) => ({
-    path: str(i.path) ?? '(no path)', ...(typeof i.bytes === 'number' ? { bytes: i.bytes } : {}),
-    ...(Object.fromEntries((['sha256', 'kind', 'kind_by', 'role', 'note'] as const).flatMap((k) => (str(i[k]) ? [[k, str(i[k])]] : []))) as Partial<Record<'sha256' | 'kind' | 'kind_by' | 'role' | 'note', string>>),
-  }));
+  const inputs: VoxCard['inputs'] = list(r.inputs).map((i) => {
+    // R4 (H61): the input's frame as recorded (its words and unit), when well formed; else told from the record below.
+    const f = obj(i.frame);
+    const frame = f && str(f.words) && str(f.space) ? { space: str(f.space), unit: str(f.unit) ?? null, unit_by: str(f.unit_by) ?? 'not declared', words: str(f.words), ...(Array.isArray(f.size) && f.size.length === 2 && f.size.every((x) => typeof x === 'number') ? { size: f.size as [number, number] } : {}) } as VoxFrame : undefined;
+    return {
+      path: str(i.path) ?? '(no path)', ...(typeof i.bytes === 'number' ? { bytes: i.bytes } : {}),
+      ...(Object.fromEntries((['sha256', 'kind', 'kind_by', 'role', 'note'] as const).flatMap((k) => (str(i[k]) ? [[k, str(i[k])]] : []))) as Partial<Record<'sha256' | 'kind' | 'kind_by' | 'role' | 'note', string>>),
+      ...(frame ? { frame } : {}),
+    };
+  });
   // The check: the receipt sealed these bytes; the inputs are the bytes named.
   const reasons: string[] = [];
   const seal = sealOf(o.chain, o.file, o.projectId);
@@ -130,7 +157,7 @@ export function readVoxRecord(o: { root: string; file: string; text: string; fil
   const sealed = new Map((seal?.outputs ?? []).map((x) => [x.path, x.sha256]));
   const highlights = list(r.highlights).map((h): VoxCardHighlight => {
     const p = str(h.path) ?? '';
-    const base = { path: p, ...(str(h.sha256) ? { sha256: str(h.sha256) } : {}), drawn_from: Array.isArray(h.drawn_from) ? h.drawn_from.filter((x): x is string => typeof x === 'string') : [], ...Object.fromEntries((['type', 'drawn_by', 'method', 'of'] as const).flatMap((k) => (str(h[k]) ? [[k, str(h[k])]] : []))) };
+    const base = { path: p, ...(str(h.sha256) ? { sha256: str(h.sha256) } : {}), drawn_from: Array.isArray(h.drawn_from) ? h.drawn_from.filter((x): x is string => typeof x === 'string') : [], ...Object.fromEntries((['type', 'drawn_by', 'method', 'of', 'status_word', 'status_note'] as const).flatMap((k) => (str(h[k]) ? [[k, str(h[k])]] : []))) };
     if (!HIGHLIGHT.test(p) || RECORD.exec(o.file)?.[1] !== HIGHLIGHT.exec(p)?.[1]) return { ...base, shown: false, why: 'not a highlight of this record' };
     if (status === 'unverified') return { ...base, shown: false, why: 'the record is not verified' };
     const now = shaNow(o.root, p);
@@ -145,14 +172,55 @@ export function readVoxRecord(o: { root: string; file: string; text: string; fil
       ...(str(job?.id) ? { job: str(job?.id), state: str(job?.state) } : {}), ...(str(raw?.path) ? { raw: str(raw?.path) } : {}),
     };
   });
+  // R4 (H61): every value's and highlight's word: the record's (or derived for an older one), with the check over it.
+  const action = str(r.action) ?? '?';
+  const check: VoxCheck = { status, ...(seal ? { receipt: shortId(seal) } : {}), reasons };
+  const metrics = list(r.metrics).map(metric);
+  for (const i of inputs) i.frame = frameFromRecord(i, metrics.filter((m) => !m.malformed));
+  const ctx = { action, kinds: inputs.map((i) => i.kind ?? 'other') };
+  const recorded = new Map<VoxCardMetric, WordSaid & { derived: boolean }>();
+  const say = (m: VoxCardMetric): VoxCardMetric => {
+    if (m.malformed) return { ...m, said: { word: 'unknown', note: 'a malformed entry of the record', derived: true } };
+    const w = metricWord(m as Parameters<typeof metricWord>[0], ctx);
+    recorded.set(m, w);
+    return { ...m, said: { ...shownWord(w, check), derived: w.derived } };
+  };
+  const saidMetrics = metrics.map(say);
+  const values = metrics.filter((m) => recorded.has(m)).map((m) => ({ name: m.name, ...(m.of ? { of: m.of } : {}), said: recorded.get(m)! }));
+  const saidHighlights = highlights.map((h) => {
+    const w = highlightWord(h as Parameters<typeof highlightWord>[0], values);
+    return { ...h, said: { ...shownWord(w, check), derived: w.derived } };
+  });
+  const checks = list(r.checks).filter((c) => c.malformed === undefined).map((c) => {
+    const compared = Array.isArray(c.compared) ? c.compared.map(obj).filter((x): x is Record<string, unknown> => !!x).map((x) => ({ metric: str(x.metric) ?? '?', what: str(x.what) ?? '?', reported: x.reported as number, measured: x.measured as number, difference: typeof x.difference === 'number' ? x.difference : null, within: x.within === true })) : [];
+    const sc: VoxSourceCheck = { input: str(c.input) ?? '?', against: str(c.against) ?? 'its source', source: { kind: 'openscad-summary' }, tolerance: str(c.tolerance) ?? 'its tolerance', compared, agrees: c.agrees === true, ...(str(c.why) ? { why: str(c.why) } : {}), ...(c.role === 'a' || c.role === 'b' ? { role: c.role } : {}) };
+    return { words: `${sc.role ? `${sc.role}: ` : ''}${checkWords(sc)}`, agrees: sc.agrees && !sc.why };
+  });
+  const t = obj(r.together);
+  const together_ = t && typeof t.drawn === 'boolean' && str(t.words) ? { drawn: t.drawn, words: str(t.words)! }
+    : action === 'compare' && inputs.length === 2 && inputs[0].kind && inputs[0].kind === inputs[1].kind && inputs[0].kind !== 'other' && inputs[0].frame && inputs[1].frame
+      ? together({ kind: inputs[0].kind as VoxKind, frame: inputs[0].frame }, { kind: inputs[1].kind as VoxKind, frame: inputs[1].frame }) : undefined;
+  const views = list(r.views).filter((v) => v.malformed === undefined && str(v.at)).slice(-12).map((v): VoxCardView => {
+    const sealedBy = [...o.chain].reverse().find((x) => {
+      const s = obj(Array.isArray(x.sources) ? x.sources[0] : undefined);
+      return x.kind === 'vox' && (!o.projectId || x.project_id === o.projectId) && s?.event === 'view' && s.vox === id && s.at === v.at;
+    });
+    return {
+      at: str(v.at)!, viewer: str(v.viewer) ?? '?', ...(str(v.program) ? { program: str(v.program) } : {}),
+      passed: list(v.passed).flatMap((p) => (str(p.path) ? [str(p.path)!] : [])),
+      notPassed: list(v.not_passed).flatMap((p) => (str(p.path) ? [{ path: str(p.path)!, why: str(p.why) ?? '' }] : [])),
+      ...(typeof v.pid === 'number' ? { pid: v.pid } : {}), ...(sealedBy ? { receipt: receiptShort(sealedBy) } : {}),
+    };
+  });
   return {
-    file: o.file, id, action: str(r.action) ?? '?', ...(str(r.command) ? { command: str(r.command) } : {}), ...(str(r.made_at) ? { madeAt: str(r.made_at) } : {}),
+    file: o.file, id, action, ...(str(r.command) ? { command: str(r.command) } : {}), ...(str(r.made_at) ? { madeAt: str(r.made_at) } : {}),
     status: str(r.status) ?? 'unknown', inputs, tools,
-    metrics: list(r.metrics).map(metric), claims: list(r.claims).map(metric), highlights,
+    metrics: saidMetrics, claims: list(r.claims).map(metric).map(say), highlights: saidHighlights,
     failures: list(r.failures).map((f) => ({ tool: str(f.tool) ?? '?', code: str(f.code) ?? '?', message: str(f.message) ?? '', ...(str(f.setup) ? { setup: str(f.setup) } : {}), ...(str(f.of) ? { of: str(f.of) } : {}) })),
     notes: Array.isArray(r.notes) ? r.notes.filter((x): x is string => typeof x === 'string').slice(0, 20) : [],
     doctrine: r.doctrine === DOCTRINE_15,
-    check: { status, ...(seal ? { receipt: shortId(seal) } : {}), reasons },
+    check,
+    ...(checks.length ? { checks } : {}), ...(together_ ? { together: together_ } : {}), ...(views.length ? { views } : {}),
   };
 }
 
@@ -190,19 +258,26 @@ function scrubCard(c: VoxCard, scrub: (t: string) => string): VoxCard {
 
 // ── the live board's actions and files ─────────────────────────────────────────
 
-type VoxChecked = { ok: true; command: { name: VoxAction; args: string; line: string } } | { ok: false; status: number; error: string };
+type VoxChecked = { ok: true; command: { name: VoxAction | 'vox'; args: string; line: string } } | { ok: false; status: number; error: string };
 const textOk = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 512 && !/[\x00-\x1f\x7f]/.test(v);
 
 /**
  * A live-board VoxVision action, checked against the files the board offers: {"action":"vox","verb":…,"file":…} with
  * "other" for compare, and "color" (r,g,b) and "at" (seconds, comma-separated) for detect. Exact shapes only; the files
  * must be offered by the board now, of a kind the verb reads. The typed command it stands for, or why not.
+ * R4 (H61): {"action":"vox","verb":"view","id":…}, View in Rerun on a record the board shows now (verified or stale):
+ * the typed `/vox view <id> rerun`.
  */
-export function checkVoxAction(body: Record<string, unknown>, files: ReadonlyArray<{ rel: string; kind: string }>): VoxChecked {
+export function checkVoxAction(body: Record<string, unknown>, files: ReadonlyArray<{ rel: string; kind: string }>, records: readonly string[] = []): VoxChecked {
   const bad = (status: number, error: string): VoxChecked => ({ ok: false, status, error });
   const keys = Object.keys(body).sort().join(',');
   const verb = body.verb;
-  if (typeof verb !== 'string' || !(VOX_ACTIONS as readonly string[]).includes(verb)) return bad(400, 'A VoxVision action names a verb: inspect, measure, detect or compare.');
+  if (verb === 'view') {
+    if (keys !== 'action,id,verb' || !textOk(body.id)) return bad(400, 'A view action is {"action":"vox","verb":"view","id":"<record id>"}.');
+    if (!VOX_ID.test(body.id) || !records.includes(body.id)) return bad(404, `${String(body.id)} is not a VoxVision record this board offers to view.`);
+    return { ok: true, command: { name: 'vox', args: `view ${body.id} rerun`, line: `/vox view ${body.id} rerun` } };
+  }
+  if (typeof verb !== 'string' || !(VOX_ACTIONS as readonly string[]).includes(verb)) return bad(400, 'A VoxVision action names a verb: inspect, measure, detect, compare or view.');
   const shapes: Record<string, string[]> = {
     inspect: ['action,file,verb'], measure: ['action,file,verb'], compare: ['action,file,other,verb'],
     detect: ['action,file,verb', 'action,color,file,verb', 'action,at,color,file,verb'],
@@ -285,8 +360,24 @@ function valueHtml(m: VoxCardMetric, live: boolean): string {
 
 const BADGE: Record<string, string> = { ok: 'ok', untrusted: 'warn', partial: 'warn', 'needs-setup': 'warn', failed: 'bad', cancelled: 'warn' };
 
-function cardHtml(c: VoxCard, k: Kit, base: string): string {
+/**
+ * R4 (H61): a status word as a small label in the text colour (stale in the attention colour, its meaning), with what it
+ * rests on below it: what it was checked against, the assumption, why unknown; what the record said when stale or not verified.
+ */
+function wordHtml(s: ShownWord | undefined, o: { note?: boolean } = {}): string {
+  if (!s) return '';
+  const cls = `vox-word w-${s.word.replace(/\s+/g, '-').toLowerCase()}`;
+  const plainNote = s.word === 'model prediction' || (s.word === 'measured' && (s.note === MEASURED_NOTE || s.note === NATIVE_NOTE || s.note === 'drawn from measured values only'));
+  const note = o.note !== false && s.note && !plainNote ? `<span class="word-note">${esc(s.note)}</span>` : '';
+  const recorded = s.recorded && s.recorded !== s.word ? `<span class="word-note">${esc(`recorded as ${s.recorded}`)}</span>` : '';
+  return `<span class="${cls}" title="${esc(WORD_MEANS[s.word])}">${esc(s.word)}</span>${note}${recorded}`;
+}
+
+function cardHtml(c: VoxCard, k: Kit, base: string, rerun: { found: boolean; setup?: string } = { found: false }): string {
   const verified = c.check.status === 'verified';
+  // R4 (H61): a card made by hand (or read before H61's reader) has no words yet: they are derived here, the same way.
+  const ctx = { action: c.action, kinds: c.inputs.map((i) => i.kind ?? 'other') };
+  const saidOf = (m: VoxCardMetric): ShownWord => m.said ?? (m.malformed ? { word: 'unknown', note: 'a malformed entry of the record' } : shownWord(metricWord(m as Parameters<typeof metricWord>[0], ctx), c.check));
   const src = (rel: string): string => esc(base + rel.split('/').map(encodeURIComponent).join('/'));
   const words = c.inputs.map((i) => `${i.role ? `${i.role}: ` : ''}${i.path}`);
   const head = `<div class="vox-head"><span class="vox-badge vox-badge-${BADGE[c.status] ?? 'warn'}">${esc(c.status === 'needs-setup' ? 'needs setup' : c.status)}</span> <strong class="verb">${esc(c.action)}</strong> ${c.inputs.map((i) => `${i.role ? `<span class="role">${esc(i.role)}</span> ` : ''}${k.fileLink(i.path)}`).join(' ')}</div>`;
@@ -300,7 +391,7 @@ function cardHtml(c: VoxCard, k: Kit, base: string): string {
     const img = k.live ? `<img data-vox-src="${esc(h.path)}" alt="${esc(`${h.type ?? 'highlight'} of ${words.join(' and ')}`)}">` : `<a href="${src(h.path)}"><img src="${src(h.path)}" alt="${esc(`${h.type ?? 'highlight'} of ${words.join(' and ')}`)}" loading="lazy"></a>`;
     const cap = [h.type === 'annotated' ? 'annotated copy' : h.type === 'difference-heatmap' ? 'difference heatmap' : h.type === 'bbox-svg' ? 'bounding box' : h.type === 'frame' ? 'frame read' : h.type ?? 'highlight',
       ...(h.of ? [h.of] : []), ...(h.drawn_from.length ? [`drawn from ${h.drawn_from.join(', ')}`] : []), ...(h.drawn_by ? [`by ${h.drawn_by}`] : []), `sha256 ${shortSha(h.sha256)}`];
-    return `<figure>${img}<figcaption>${esc(cap.join(' · '))}</figcaption></figure>`;
+    return `<figure>${img}<figcaption>${wordHtml(h.said)} ${esc(cap.join(' · '))}</figcaption></figure>`;
   }).join('');
   const hidden = c.highlights.filter((h) => !h.shown).map((h) => `<li>${esc(`${h.path}: not shown (${h.why ?? 'not checked'})`)}</li>`).join('');
   const highlights = `${figs ? `<div class="vox-hl">${figs}</div>` : ''}${hidden ? `<ul class="reasons">${hidden}</ul>` : ''}`;
@@ -327,27 +418,41 @@ function cardHtml(c: VoxCard, k: Kit, base: string): string {
       return `<p class="vox-who"><span class="tier ${m.tier === TIER.model ? 'model' : ''}">${esc(tier)}</span>${who ? ` ${esc(who)}` : ''}</p><div class="vox-table"><table class="metrics"><tbody>${ms.map((x, i) => row(x, ms[i - 1])).join('')}</tbody></table></div>`;
     }).join('');
   };
+  // R4 (H61): each value with its status word first; how it was measured (its tier, method and who) in the advanced view.
+  const wordRow = (m: VoxCardMetric): string => `<tr><td class="of">${esc(m.of === 'delta' ? 'Δ' : m.of ?? '')}</td><th scope="row">${esc(m.title)}</th><td class="val">${valueHtml(m, k.live)}</td><td class="word">${wordHtml(saidOf(m))}</td></tr>`;
+  const wordTable = (list: VoxCardMetric[]): string => `<div class="vox-table"><table class="metrics vox-values"><tbody>${list.map(wordRow).join('')}</tbody></table></div>`;
+  const how = (list: VoxCardMetric[], key: string): string => `<details class="vox-adv" data-keep="${esc(`${c.id}:${key}`)}"><summary>${esc('advanced: how each value was measured (its tier, method and who measured it)')}</summary>${grouped(list)}</details>`;
   // A long record shows its key values first (a comparison's deltas; else the first six) and every value on demand.
   const long = c.metrics.length > 10;
   const key = !long ? c.metrics : c.action === 'compare' ? c.metrics.filter((m) => m.of === 'delta' || !m.of) : c.metrics.slice(0, 6);
-  const heading = verified ? `${long ? 'key values' : 'metrics'}, by who measured them` : c.check.status === 'stale' ? 'values from an earlier version of the input' : 'not verified: values as the file records them, not measurements';
+  const heading = verified ? (long ? 'key values' : 'values') : c.check.status === 'stale' ? 'values from an earlier version of the input' : 'not verified: values as the file records them, not measurements';
   const metrics = c.metrics.length
-    ? `<section class="${verified ? 'measured' : 'unverified'} vox-metrics"><h4>${esc(heading)}</h4>${grouped(key.length ? key : c.metrics.slice(0, 6))}`
-      + `${long ? `<details class="vox-all" data-keep="${esc(`${c.id}:metrics`)}"><summary>${esc(`all ${c.metrics.length} values`)}</summary>${grouped(c.metrics)}</details>` : ''}</section>`
+    ? `<section class="${verified ? 'measured' : 'unverified'} vox-metrics"><h4>${esc(heading)}</h4>${wordTable(key.length ? key : c.metrics.slice(0, 6))}`
+      + `${long ? `<details class="vox-all" data-keep="${esc(`${c.id}:metrics`)}"><summary>${esc(`all ${c.metrics.length} values`)}</summary>${wordTable(c.metrics)}</details>` : ''}${how(c.metrics, 'how')}</section>`
     : '';
   const claims = c.claims.length
-    ? `<section class="claim"><h4>${esc("a model's prediction (a claim, not a measurement)")}</h4>${grouped(c.claims)}</section>`
+    ? `<section class="claim"><h4>${esc("a model's prediction (a claim, not a measurement)")}</h4>${wordTable(c.claims)}${how(c.claims, 'claims')}</section>`
     : '';
+  // R4 (H61): the CAD checks, whether a compare's two were drawn together, the views, and View in Rerun (live board only).
+  const checks = c.checks?.length ? `<ul class="vox-checks">${c.checks.map((x) => `<li class="${x.agrees ? 'ok' : 'warn'}">${esc(x.words)}</li>`).join('')}</ul>` : '';
+  const pair = c.together ? `<p class="vox-together">${esc(c.together.words)}</p>` : '';
+  const views = c.views?.length
+    ? `<ul class="vox-views">${c.views.map((v) => `<li>${esc(`viewed in ${v.viewer === 'rerun' ? "Rerun's viewer" : v.viewer} ${stamp(v.at)}${v.receipt ? ` · receipt ${v.receipt}` : ' · no receipt names it'}: ${v.passed.length} file${v.passed.length === 1 ? '' : 's'} passed${v.notPassed.length ? `, ${v.notPassed.length} not (${v.notPassed.map((x) => x.path).join(', ')})` : ''}`)}</li>`).join('')}</ul>`
+    : '';
+  const viewer = !k.live || c.check.status === 'unverified' ? ''
+    : rerun.found
+      ? `<div class="vox-view">${k.act('View in Rerun', { act: 'vox', verb: 'view', id: c.id })}<span class="meta">${esc("advanced: opens Rerun's own viewer, a window on your computer that Timmy does not stop; it shows the files and measures nothing")}</span></div>`
+      : `<p class="meta vox-view">${esc(`View in Rerun needs setup: ${rerun.setup ?? RERUN_SETUP}`)}</p>`;
   const fails = c.failures.map((f) => (f.code === 'needs-setup'
     ? `<li class="setup"><strong>${esc('needs setup')}</strong> ${esc(`${f.tool}${f.of ? ` (${f.of})` : ''}: ${f.message}`)}${f.setup ? `<code class="step">${esc(f.setup)}</code>` : ''}</li>`
     : `<li class="${f.code === 'untrusted' || f.code === 'not-measured' || f.code === 'cancelled' || f.code === 'unsupported' ? 'warn' : 'bad'}"><strong>${esc(f.code)}</strong> ${esc(`${f.tool}${f.of ? ` (${f.of})` : ''}: ${f.message}`)}</li>`)).join('');
   const failures = fails ? `<ul class="vox-fail">${fails}</ul>` : '';
-  const inputs = `<dl class="vox-inputs">${c.inputs.map((i) => `<dt>${esc(i.role ?? 'input')}</dt><dd>${esc([i.path, i.kind ? `${KIND_WORDS[i.kind as VoxKind] ?? i.kind}${i.kind_by ? ` by its ${i.kind_by}` : ''}` : '', i.bytes !== undefined ? humanBytes(i.bytes) : '', `sha256 ${shortSha(i.sha256)}`, i.note ?? ''].filter(Boolean).join(' · '))}</dd>`).join('')}</dl>`;
+  const inputs = `<dl class="vox-inputs">${c.inputs.map((i) => `<dt>${esc(i.role ?? 'input')}</dt><dd>${esc([i.path, i.kind ? `${KIND_WORDS[i.kind as VoxKind] ?? i.kind}${i.kind_by ? ` by its ${i.kind_by}` : ''}` : '', i.bytes !== undefined ? humanBytes(i.bytes) : '', `sha256 ${shortSha(i.sha256)}`, i.note ?? ''].filter(Boolean).join(' · '))}${i.frame ? `<span class="vox-frame">${esc(`frame: ${i.frame.words}`)}</span>` : ''}</dd>`).join('')}</dl>`;
   const raws = c.tools.filter((t) => t.raw).map((t) => t.raw!);
   const raw = raws.length ? `<p class="meta">${esc('raw output kept: ')}${raws.map((r) => k.fileLink(r, 'file')).join(', ')}</p>` : '';
   const notes = c.notes.length ? `<details class="vox-notes"><summary>${esc(`notes (${c.notes.length})`)}</summary><ul>${c.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></details>` : '';
   const doctrine = c.doctrine || c.inputs.some((i) => i.kind === 'stl' || i.kind === 'step' || i.kind === 'blend' || i.kind === 'ply') ? `<p class="doctrine">${esc(DOCTRINE_15)}</p>` : '';
-  return `<article class="card vox-card" data-vox="${esc(c.id)}">${head}${meta}${check}${highlights}${metrics}${claims}${failures}${inputs}${raw}${notes}${doctrine}${k.cmds([...(c.command ? [c.command] : []), `/open ${c.file}`])}</article>`;
+  return `<article class="card vox-card" data-vox="${esc(c.id)}">${head}${meta}${check}${highlights}${metrics}${claims}${checks}${pair}${failures}${inputs}${raw}${views}${notes}${doctrine}${viewer}${k.cmds([...(c.command ? [c.command] : []), `/open ${c.file}`])}</article>`;
 }
 
 /** The Files panel: each file a tool reads, with its commands (snapshot) or buttons (live). */
@@ -382,14 +487,18 @@ export function voxSection(v: BoardVox, o: { kit: Kit; base: string }): { toc: s
   const k = o.kit;
   const base = /^(?:\.\.\/)*$/.test(o.base) ? o.base : '';
   const n = v.cards.length + v.more;
+  // R4 (H61): View in Rerun is offered on the live board while Rerun's viewer is found (else its setup step is said).
+  const rr = v.tools.find((t) => t.tool === 'rerun');
+  const rerun = { found: rr?.state === 'found', ...(rr?.setup ? { setup: rr.setup } : {}) };
   return {
     toc: `<a href="#voxvision">VoxVision <b>${n}</b></a>`,
     html: [
       `<h2 id="voxvision">VoxVision <span class="count">${n}</span></h2>`,
-      `<p class="sub vox-lead">${esc('Inspect, Measure, Detect and Compare run the spatial tools Timmy supports on project files. Every value says its tier, who measured it and how; a measurement of a CAD or mesh file is never a measurement of a physical part.')}</p>`,
+      `<p class="sub vox-lead">${esc('Inspect, Measure, Detect and Compare run the spatial tools Timmy supports on project files. Every value and highlight carries one word; how it was measured (its tier, method and who) is in each card\'s advanced view. A measurement of a CAD or mesh file is never a measurement of a physical part.')}</p>`,
+      `<p class="meta vox-legend">${VOX_WORDS.map((w) => `<span class="vox-word w-${w.replace(/\s+/g, '-').toLowerCase()}">${esc(w)}</span> ${esc(WORD_MEANS[w])}`).join(' · ')}</p>`,
       `<div class="grid wide vox-panels"><article class="card"><h4>tools</h4>${toolsHtml(v)}</article><article class="card"><h4>files a tool reads</h4>${filesHtml(v, k)}</article></div>`,
       `<h3 id="vox-records">Records <span class="count">${n}</span></h3>`,
-      v.cards.length ? `<div class="grid wide vox-cards">${v.cards.map((c) => cardHtml(c, k, base)).join('')}</div>` : k.empty('No VoxVision records yet: /inspect <file>, /measure, /detect or /compare makes one.'),
+      v.cards.length ? `<div class="grid wide vox-cards">${v.cards.map((c) => cardHtml(c, k, base, rerun)).join('')}</div>` : k.empty('No VoxVision records yet: /inspect <file>, /measure, /detect or /compare makes one.'),
       v.more ? `<p class="more">${esc(`and ${v.more} more records in ${VOX_DIR}/`)}</p>` : '',
     ].join('\n'),
   };
@@ -443,6 +552,23 @@ dl.vox-inputs dd { color: ${HOMEBREW.textSecondary}; }
 .vox-notes { font-size: 12px; color: ${HOMEBREW.textSecondary}; }
 .vox-notes ul { margin: 4px 0 0; padding-left: 18px; }
 .vox-card .doctrine { margin: 0; font-size: 12px; color: ${HOMEBREW.text}; border-left: 3px solid ${HOMEBREW.attention}; padding-left: 8px; }
+/* R4 (H61): the status words, in the text colour (stale in the attention colour, its meaning); what each rests on below it */
+.vox-word { display: inline-block; border: 1px solid ${HOMEBREW.lineStrong}; border-radius: 4px; padding: 0 5px; font-size: 10.5px; line-height: 1.5; text-transform: uppercase; letter-spacing: .05em; color: ${HOMEBREW.text}; white-space: nowrap; }
+.vox-word.w-stale { color: ${HOMEBREW.attention}; border-color: ${HOMEBREW.attention}; }
+.word-note { display: block; font-size: 11px; color: ${HOMEBREW.textSecondary}; overflow-wrap: anywhere; }
+table.vox-values th { width: 34%; }
+table.vox-values td.val { width: 30%; }
+table.vox-values td.word { width: 36%; }
+.vox-legend { font-size: 11px; }
+.vox-legend .vox-word { margin-right: 2px; }
+.vox-adv summary { cursor: pointer; color: ${HOMEBREW.textSecondary}; font-size: 12px; margin-top: 6px; }
+ul.vox-checks, ul.vox-views { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: ${HOMEBREW.textSecondary}; }
+ul.vox-checks li { border-left: 3px solid ${HOMEBREW.lineStrong}; padding-left: 8px; color: ${HOMEBREW.text}; }
+ul.vox-checks li.warn { border-left-color: ${HOMEBREW.attention}; }
+.vox-together { margin: 0; font-size: 12px; color: ${HOMEBREW.text}; border-left: 3px solid ${HOMEBREW.lineStrong}; padding-left: 8px; }
+.vox-frame { display: block; font-size: 11px; color: ${HOMEBREW.textSecondary}; }
+.vox-view { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.vox-view .meta { font-size: 11px; }
 `;
 
 /**
@@ -469,6 +595,8 @@ var TimmyVox = (function () {
   return {
     attach: function (o) { get = o.get; },
     body: function (b) {
+      // R4 (H61): View in Rerun names a record, not a file.
+      if (b.getAttribute('data-verb') === 'view') return { action: 'vox', verb: 'view', id: b.getAttribute('data-id') };
       var r = row(b);
       var body = { action: 'vox', verb: b.getAttribute('data-verb'), file: b.getAttribute('data-file') };
       if (body.verb === 'compare') { var s = r ? r.querySelector('select[data-vox-other]') : null; if (!s || !s.value) return null; body.other = s.value; }

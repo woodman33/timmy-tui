@@ -340,6 +340,8 @@ export class Workspace {
       glyphs: d.glyphs, env: () => this.d.env, onPath: d.onPath, notify: (l) => this.d.notify(l), seal: (input) => this.d.seal(input), jobs: this.jobs,
       startJob: (spec, o) => { const job = this.jobs.start(spec); this.mine.add(job.id); if (o?.selfSealed) this.selfSealed.add(job.id); return job; },
       scrub: (t, root) => this.scrub(t, root),
+      // R4 (H61): the runs chain, for the CAD checks and /vox view
+      receipts: () => (this.d.receipts ?? (() => readChain('runs')))(),
     });
     // Round R4 (H32): once this REPL is set up (a microtask later), what an ended session left in the project is picked
     // up; the notice says what was found and done, and nothing is printed when nothing was found.
@@ -856,6 +858,8 @@ export class Workspace {
   measure(args: string): Promise<Line[]> { return this.voxAction('measure', args); }
   detect(args: string): Promise<Line[]> { return this.voxAction('detect', args); }
   compare(args: string): Promise<Line[]> { return this.voxAction('compare', args); }
+  /** R4 (H61): `/vox` and `/vox view <record id> [rerun]`: a record's files in Rerun's viewer (src/repl/vox-view.ts). */
+  voxView(args: string): Promise<Line[]> { return this.vox.vox(args, { root: this.root, project: this.project.name }); }
 
   // ── R4 (H50): Timmy Memory (src/memory) ───────────────────────────────────
 
@@ -2253,6 +2257,8 @@ export class Workspace {
       files: images,
       recipes: input.params ? [input.params.recipe] : [],
       voxFiles: input.vox?.files ?? [],
+      // R4 (H61): the records whose View in Rerun the board offers (the typed /vox view <id> rerun)
+      voxRecords: (input.vox?.cards ?? []).filter((c) => c.check.status !== 'unverified').map((c) => c.id),
       // R4 (H50): the lessons whose Check the board offers (the typed /lesson check <id>)
       lessons: (input.memory?.lessons ?? []).filter((l) => l.status !== 'retired').map((l) => l.id),
       // R4 (H47): the OpenSCAD models whose parameter file a workflow card shows (set-scad-params saves only these), and
@@ -2315,6 +2321,8 @@ export class Workspace {
       : c.name === 'recipe' ? await this.recipe(c.args)
         // R4 (H49): VoxVision's buttons, as the typed /inspect, /measure, /detect, /compare.
         : c.name === 'inspect' || c.name === 'measure' || c.name === 'detect' || c.name === 'compare' ? await this.voxAction(c.name, c.args)
+          // R4 (H61): View in Rerun, as the typed /vox view <id> rerun.
+          : c.name === 'vox' ? await this.voxView(c.args)
           // R4 (H50): Memory's Check, as the typed /lesson check <id>.
           : c.name === 'lesson' ? this.lesson(c.args) : await this.observe(c.args);
     for (const line of lines) this.d.notify(line);

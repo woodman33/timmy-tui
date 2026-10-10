@@ -15,6 +15,11 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { DOCTRINE_15 } from '../native/stl-readback.js';
 import type { VoxKind, VoxTool } from './kinds.js';
+// R4 (H61): the status word every value and highlight carries, each input's frame, the checks against a source's own
+// report, and the views. Types only: those modules read this one.
+import type { VoxWord } from './words.js';
+import type { VoxFrame } from './frames.js';
+import type { VoxSourceCheck } from './sources.js';
 
 export { DOCTRINE_15 };
 
@@ -50,6 +55,10 @@ export const LABEL: Readonly<Record<VoxTool, string>> = {
   spatial: "Timmy's spatial module reading an ASCII Gaussian-splat PLY, row by row",
   roboflow: "Roboflow's hosted model: a model's prediction, not a measurement",
   intake: "the file's first bytes and its sha256, read by Timmy",
+  // R4 (H61): the viewer layers. Rerun shows files as they are; Viser and FiftyOne are not used by VoxVision yet.
+  rerun: "Rerun's viewer: a window on your computer showing the files as they are, measuring nothing",
+  viser: 'Viser: VoxVision does not use it yet',
+  fiftyone: 'FiftyOne: VoxVision does not use it yet',
 };
 
 /** A metric: one value with how it was got, its tier and who measured it. */
@@ -69,12 +78,36 @@ export interface VoxMetric {
   /** for /compare: the input it is of (a, b), or the delta (b − a) */
   of?: 'a' | 'b' | 'delta';
   note?: string;
+  /**
+   * R4 (H61): the status word a person reads first (src/vox/words.ts) and what it rests on: what it was checked against,
+   * the assumption named, or why there is no value. Optional: a record made before has none, and its word is derived.
+   */
+  status_word?: VoxWord;
+  status_note?: string;
 }
 
 /** A model's claim (Roboflow): kept apart from the metrics, never drawn as a highlight. */
-export interface VoxClaim { name: string; title: string; value: unknown; tier: typeof TIER.model; label: string; claimed_by: string; note?: string }
+export interface VoxClaim { name: string; title: string; value: unknown; tier: typeof TIER.model; label: string; claimed_by: string; note?: string; status_word?: VoxWord; status_note?: string }
 
-export interface VoxInput { path: string; sha256: string; bytes: number; kind: VoxKind; kind_by: 'bytes' | 'name'; role?: 'a' | 'b'; note?: string }
+/** R4 (H61): `frame`, the coordinate frame the input's values are in, in words (src/vox/frames.ts). */
+export interface VoxInput { path: string; sha256: string; bytes: number; kind: VoxKind; kind_by: 'bytes' | 'name'; role?: 'a' | 'b'; note?: string; frame?: VoxFrame }
+
+/** R4 (H61): one opening of a record's files in a viewer (`/vox view`), as recorded on the record before its receipt sealed it. */
+export interface VoxView {
+  viewer: 'rerun';
+  at: string;
+  /** how the program was found (on the PATH, or TIMMY_RERUN); never its folder */
+  program: string;
+  /** the files given to the viewer, each with the loader that reads it and its sha256 now (the bytes the record names) */
+  passed: Array<{ path: string; sha256: string; loader: string; role?: 'a' | 'b' | 'both' }>;
+  /** the record's other files, each with why it was not given */
+  not_passed: Array<{ path: string; why: string }>;
+  /** started apart from Timmy: a program of the user's, which Timmy does not stop */
+  detached: true;
+  pid?: number;
+  /** the operation (one request) that opened it */
+  operation?: string;
+}
 
 /** A file drawn from the metrics: an annotated copy, a heatmap, an SVG of a bounding box. */
 export interface VoxHighlight {
@@ -87,6 +120,9 @@ export interface VoxHighlight {
   drawn_by: string;
   method: string;
   of?: 'a' | 'b' | 'both';
+  /** R4 (H61): its status word, from the values it was drawn from (src/vox/words.ts); absent in records made before */
+  status_word?: VoxWord;
+  status_note?: string;
 }
 
 /** Something that did not run or did not give a value: needs setup (with its exact step), failed, or not measured. */
@@ -132,6 +168,12 @@ export interface VoxRecord {
   notes: string[];
   /** DOCTRINE §15's sentence, on every record of a CAD or mesh file */
   doctrine?: typeof DOCTRINE_15;
+  /** R4 (H61): each comparison of a measured value with its source's own report or prediction (src/vox/sources.ts) */
+  checks?: VoxSourceCheck[];
+  /** R4 (H61): /compare: whether the two inputs share a known frame and unit, so a drawing of both (or a 3D overlay) is made, or why not */
+  together?: { drawn: boolean; words: string };
+  /** R4 (H61): each time its files were opened in a viewer (/vox view), each sealed by a vox receipt over the record so written */
+  views?: VoxView[];
 }
 
 /** A new record id, free in this project (its record file and highlight folder do not exist). */
