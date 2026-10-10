@@ -36,6 +36,8 @@ import { dropLaunchPages } from '../utils/launch-page.js';
 import { gatherResults, paramsCard, type ResultCard } from './board-cards.js';
 import { applyBoardEdit } from './board-edits.js';
 import { workflowForBoard } from './board-nodes.js';
+// R4 (H47): each workflow document connected to its runs, results and parameter files (board and /workflows <file>).
+import { connectWorkflow, liveNodeStates, StepClock, workflowSummaryLines, type ConnectContext } from './board-workflows.js';
 import { recipeEnded, recipeView, startRecipeJob, type RecipeContext, type RecipeStarted, type RecipeTestSeams } from './recipe.js';
 import { cancelRecipe, cancelSentence, RecipeLaunches, type RecipeCancel } from './recipe-stop.js';
 import { liveRecipeJobFolders } from '../recipes/index.js';
@@ -268,6 +270,8 @@ export class Workspace {
   private roomTools?: RoomTools;
   /** R4 (H49): VoxVision's actions under way. */
   private readonly vox: VoxActions;
+  /** R4 (H47): when each block of this REPL's workflow runs started and ended, as upmd's lines came */
+  private readonly stepClock = new StepClock();
 
   constructor(private readonly d: WorkspaceDeps, start: ActiveProject) {
     this.project = start;
@@ -825,7 +829,9 @@ export class Workspace {
     return this.upmdFound;
   }
 
-  async workflows(_args: string): Promise<Line[]> {
+  async workflows(args: string): Promise<Line[]> {
+    // R4 (H47): /workflows <file>: that document's blocks, their last results, the parameter files they name, the next commands.
+    if (args.trim()) return this.workflowSummary(args.trim());
     const docs = findWorkflowDocs(this.root);
     const tool = await this.upmd();
     const lines: Line[] = [[
@@ -841,8 +847,31 @@ export class Workspace {
         lines.push([{ text: `    ${String(b.index).padStart(2)} ${String(b.name).padEnd(16)}` }, { text: b.deps.length ? `needs ${b.deps.join(', ')}` : '', role: 'secondary' }]);
       }
     }
-    lines.push(...this.say('Run one: /run <file> <block>; follow it: /jobs; stop it: /stop <job>'));
+    lines.push(...this.say('Run one: /run <file> <block>; follow it: /jobs; stop it: /stop <job>; one document in full: /workflows <file>'));
     return lines;
+  }
+
+  /** R4 (H47): what connects a workflow document to its runs (src/repl/board-workflows.ts), for the board and the REPL. */
+  private workflowContext(root: string, jobs: readonly JobRecord[], chain: readonly Receipt[], files: readonly string[]): ConnectContext {
+    return {
+      root, jobs, chain, files, clock: this.stepClock, upmd: findUpmd(this.d.env, this.d.onPath) !== null, scrub: (t) => this.scrub(t, root),
+      prediction: (id) => this.predictions.get(id), mine: (id) => this.mine.has(id),
+      tray: () => paramsCard(root),
+    };
+  }
+
+  private async workflowSummary(arg: string): Promise<Line[]> {
+    const r = readProjectFile(this.root, arg, 1024 * 1024);
+    if (!r.ok) return this.say(r.error);
+    if (r.binary || r.text === undefined || r.truncated) return this.say(`${r.rel} is not a Markdown workflow Timmy can read whole.`);
+    const view = workflowForBoard(r.rel, { text: r.text, ...(r.sha256 ? { sha256: r.sha256 } : {}) });
+    if (!view.blocks.length) return this.say(`${r.rel} has no named blocks. upmd runs blocks named like \`\`\`bash [name:build]`);
+    let chain: Receipt[] = [];
+    try { chain = (this.d.receipts ?? (() => readChain('runs')))(); } catch { chain = []; }
+    const jobs = this.jobs.list().filter((j) => sameFolder(j.root, this.root));
+    const w = connectWorkflow(view, this.workflowContext(this.root, jobs, chain, listProjectFiles(this.root).files.map((f) => f.rel)));
+    const title = /^#{1,6}[ \t]+(.+?)[ \t#]*$/m.exec(r.text)?.[1];
+    return workflowSummaryLines(w, { sep: this.sep, link: (rel) => this.fileLink(rel), upmd: await this.upmd(), ...(title ? { title } : {}) });
   }
 
   async run(args: string): Promise<Line[]> {
@@ -953,6 +982,7 @@ export class Workspace {
   private expected(j: JobRecord): number | undefined { return this.predictions.get(j.id)?.order.length; }
 
   private changed(job: JobRecord): void {
+    if (job.kind === 'workflow') this.stepClock.note(job);
     const before = this.seen.get(job.id) ?? { state: 'queued', done: 0 };
     const done = job.steps.filter((s) => s.state !== 'running').length;
     this.seen.set(job.id, { state: job.state, done });
@@ -1886,6 +1916,9 @@ export class Workspace {
     let chain: Receipt[] = [];
     try { chain = (this.d.receipts ?? (() => readChain('runs')))(); } catch { chain = []; }
     const pid = projectId(root);
+    // R4 (H47): each workflow document connected to its runs, its blocks' last results and the parameter files they name.
+    const wfContext = this.workflowContext(root, jobs, chain, files.map((f) => f.rel));
+    const connected = workflows.map((w) => { try { return connectWorkflow(w, wfContext); } catch { return w; } });
     const sources = new Map<string, string | null | undefined>();
     /** The project image's sha256 now: null when it is not there, undefined when it cannot be read or hashed. */
     const sourceNow = (rel: unknown): string | null | undefined => {
@@ -1949,7 +1982,7 @@ export class Workspace {
       madeAt: utcStamp(new Date()),
       base: BOARD_BASE,
       references: shownRefs,
-      workflows,
+      workflows: connected,
       ...(params ? { params } : {}),
       results: results.cards,
       jobs: jobs.slice(0, BOARD_MAX.jobs).map((j) => ({
@@ -2044,6 +2077,10 @@ export class Workspace {
       files: images,
       recipes: input.params ? [input.params.recipe] : [],
       voxFiles: input.vox?.files ?? [],
+      // R4 (H47): the OpenSCAD models whose parameter file a workflow card shows (set-scad-params saves only these), and
+      // each block's state, which the page sets in place while it does not draw the board again
+      scadModels: [...new Set(input.workflows.flatMap((w) => w.connected?.scad.map((v) => v.model) ?? []))],
+      wfStates: liveNodeStates(input.workflows),
     };
   }
 
@@ -2062,7 +2099,7 @@ export class Workspace {
   private async boardEdit(body: unknown, state: LiveState): Promise<{ status: number; text: string }> {
     const root = this.root;
     const out = applyBoardEdit(body, {
-      root, project: this.project.name, projectId: projectId(root), workflows: state.workflows.map((w) => w.rel), recipes: state.recipes ?? [], seal: this.d.seal,
+      root, project: this.project.name, projectId: projectId(root), workflows: state.workflows.map((w) => w.rel), recipes: state.recipes ?? [], seal: this.d.seal, scadModels: state.scadModels ?? [],
       // R4 review (R4-3): a parameter save waits for the end of a flow running (or being started) in this project.
       flowIn: () => this.flows.runningIn(root),
     });
