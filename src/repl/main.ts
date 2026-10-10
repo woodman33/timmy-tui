@@ -138,6 +138,8 @@ export const REPL_INSTRUCTIONS = [
   'run_native starts Cinema 4D (c4dpy, a Python script), After Effects (aerender renders an existing project; afterfx runs a .jsx inside After Effects, whose window opens, to author a new project, edit a new version of one or inspect one), Blender (its own Python, headless: an editable .blend and a render), OpenSCAD (openscad: a .scad model exported to a binary STL with -D parameters, the STL read back by Timmy\'s own reader) or FreeCAD (freecadcmd, headless: a part saved as an editable .FCStd and exported as STEP) as a background job and returns its id at once: it is not finished when you get the id; it is judged by its own result file (OpenSCAD: its exit, the STL it writes and that readback), never by its exit code alone.',
   'run_recipe starts the CadQuery enclosure-tray recipe (enclosure.tray/1, millimetres) as a durable background job and returns its job id and UUID at once: it is not built when you get them; its exports reach out/recipes/ only after its signed result verifies.',
   'iterate_recipe has a local, free code agent change the tray\'s parameter file from an instruction, then rebuilds and reads the STEP back; it returns a flow id at once: nothing is rebuilt or measured when you get it.',
+  // R4 (H40): iterate_native (src/agent/iterate-tools.ts), said with the same care as iterate_recipe.
+  'iterate_native does the same for an OpenSCAD model (app openscad: the agent may change only the values in the model\'s <model>.params.json; OpenSCAD then exports an STL that Timmy reads back) or a FreeCAD script (app freecad: the agent may change only that script; FreeCAD then runs it and its STEP is read back); it returns a flow id at once: nothing is built or measured when you get it.',
   'MCP servers: list_mcp_tools shows the routes and the servers configured on this machine without starting any; list_mcp_command_tools lists one server\'s tools (a configured one by its exact name, or a command) and asks first; call_mcp_tool calls one tool and asks first.',
 ].join(' ');
 
@@ -154,6 +156,15 @@ const tildify = (path: string): string => {
   const base = [home, real].find((h) => path === h || path.startsWith(`${h}/`));
   return base ? `~${path.slice(base.length)}` : path;
 };
+
+/**
+ * R4 (H40): the agent's MCP tools in the REPL work in the active project (asked at each call, so /project moves them)
+ * and put its name on each call's record and receipt (src/agent/mcp-tools.ts); their seal is that file's default, the
+ * runs chain through appendReceipt, as the REPL's own.
+ */
+export function replMcpOptions(active: () => { root: string; project: { name: string } }): McpToolOptions {
+  return { cwd: () => active().root, project: () => active().project.name };
+}
 
 /**
  * The agent's tools in the REPL: the defaults and Timmy Canvas (F-4), each under a NEEDS YOU rule. The
@@ -228,10 +239,12 @@ export async function runRepl(argv: string[]): Promise<number> {
         root: () => workspace.root, model: () => agent.getModel(),
         observe: async (rel, question, model, opts) => { const s = await workspace.observeFile(rel, question, model, opts); return s.ok ? s.done : s; },
       },
-      mcp: { cwd: () => workspace.root },
+      // R4 (H40): the active project's name on each call_mcp_tool record (read when the call runs; workspace is made below).
+      mcp: replMcpOptions(() => workspace),
       native: { root: () => workspace.root, project: () => workspace.project.name, start: (s) => workspace.jobs.start(s), onStarted: (job, spec) => workspace.adoptNative(job.id, spec) },
       recipe: { start: async (p) => ({ ...(await workspace.runRecipe(p)) }) },
-      iterate: { start: (instruction) => workspace.iterateForTool(instruction) },
+      // iterate_recipe gives its instruction; iterate_native (R4, H33) its target, file and instruction.
+      iterate: { start: (request) => workspace.iterateForTool(request) },
     }), async (req) => {
       if (!interactive) {
         transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision: 'no-terminal' });
