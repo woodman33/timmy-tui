@@ -18,6 +18,7 @@ import { ZellijManager } from './zellij.js';
 import { RmuxManager } from './rmux.js';
 import { DEFAULT_LANE_BINDINGS, LANE_RUNNERS, laneStartupScript } from './lanes.js';
 import { writeLog, tuiLogger } from '../utils/logger.js';
+import { carriesSecret, shownAddress, writeLaunchPage } from '../utils/launch-page.js';
 import { probeOllama, pickOllamaModel, ollamaChatCompletion } from './providers.js';
 
 export interface SendOptions {
@@ -420,10 +421,18 @@ export class Agent extends EventEmitter<AgentEvents> {
    */
   addBrowserPane(url: string = 'https://localhost:3001'): void {
     const id = (this.tmuxSessions.length + 1).toString();
-    this.tmuxSessions.push({ id, name: `Browser: ${url}`, model: 'carbonyl/chromium-109' });
+    // Round R4 (review M4): a link that carries a secret (the live board's token) is typed as a private launch
+    // page, so the token is in neither send-keys' arguments, the pane shell's history, nor this lane's name or log.
+    let page: string | null = url;
+    if (carriesSecret(url)) { try { page = writeLaunchPage(url).href; } catch { page = null; } }
+    const shown = shownAddress(url);
+    const word = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+    this.tmuxSessions.push({ id, name: `Browser: ${shown}`, model: 'carbonyl/chromium-109' });
     this.tmuxMgr.spawnSession(id);
-    this.tmuxMgr.sendCommand(id, `if command -v carbonyl >/dev/null 2>&1; then carbonyl "${url}"; else printf '\\033[31m[Browser]\\033[0m carbonyl not found on PATH. Install from https://github.com/fathyb/carbonyl\\n'; fi`, true);
-    if (this.logsEnabled !== false) tuiLogger.info(`[browser.spawned] ${JSON.stringify({ id, url })}`);
+    this.tmuxMgr.sendCommand(id, page === null
+      ? `printf '[Browser] Not opened: the private page that keeps the token of this link off command lines could not be written.\\n'`
+      : `if command -v carbonyl >/dev/null 2>&1; then carbonyl ${word(page)}; else printf '\\033[31m[Browser]\\033[0m carbonyl not found on PATH. Install from https://github.com/fathyb/carbonyl\\n'; fi`, true);
+    if (this.logsEnabled !== false) tuiLogger.info(`[browser.spawned] ${JSON.stringify({ id, url: shown })}`);
     this.emit('tmux:update');
   }
 
