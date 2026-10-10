@@ -60,6 +60,8 @@ const ALWAYS: Record<string, { reason: string; keys: string[]; session?: false }
   run_native: { reason: 'starts Cinema 4D, After Effects or Blender on this machine', keys: ['app', 'script', 'project_file', 'comp'] },
   // Round R3 (/recipe): the CadQuery enclosure-tray recipe as a durable background job (src/agent/recipe-tools.ts).
   run_recipe: { reason: 'builds a CAD tray with CadQuery on this machine, as a background job', keys: ['recipe', 'parameters'] },
+  // Round R4 (/iterate): a local code agent edits the tray's parameter file, then a rebuild and a readback; asked each time.
+  iterate_recipe: { reason: 'starts a local code agent that may change recipes/tray.params.json, then rebuilds the CAD tray and reads it back on this machine', keys: ['instruction'], session: false },
   describe_image: { reason: 'sends an image from your project to a model, and costs money', keys: ['path'], session: false },
 };
 

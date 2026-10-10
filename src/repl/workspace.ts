@@ -1164,6 +1164,9 @@ export class Workspace {
   /** `/iterate` lists the flows; `/iterate tray "<instruction>" [--agent qwen] [--model <m>]` starts one (src/repl/iterate.ts). */
   async iterate(args: string): Promise<Line[]> { return this.flows.command(args, { root: this.root, project: this.project.name }); }
 
+  /** The agent's iterate_recipe: the same start as /iterate tray "<instruction>", answered as data. */
+  iterateForTool(instruction: string): Promise<Record<string, unknown>> { return this.flows.startForTool(instruction, { root: this.root, project: this.project.name }); }
+
   private agentList(): Line[] {
     const env = this.d.env;
     const lines: Line[] = [[{ text: '  Code agents', role: 'strong' }, { text: `  each runs in ${this.project.name} as a job: /agent <name> <task>`, role: 'secondary' }]];

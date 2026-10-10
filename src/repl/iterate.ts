@@ -130,6 +130,9 @@ interface FlowRun {
   recordFile?: string;
 }
 
+/** A start: the flow and what /iterate prints, or why nothing was started. */
+type Started = { ok: true; flow: FlowRun; lines: Line[] } | { ok: false; error: string; lines: Line[] };
+
 const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 const TERMINAL_RECIPE = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
 const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms).unref?.(); });
@@ -154,7 +157,24 @@ export class IterateFlows {
     if (!a) return this.usage(at);
     const p = parseIterateLine(a);
     if (!p.ok) return this.say(p.error, /^Usage|^Say what/.test(p.error) ? 'secondary' : 'failure');
-    return this.start(p.request, at);
+    return (await this.start(p.request, at)).lines;
+  }
+
+  /**
+   * The agent's iterate_recipe (src/agent/iterate-tools.ts): the same start as `/iterate tray "<instruction>"`
+   * with the operator's own model setting, answered as data. Started is never finished: the flow runs on.
+   */
+  async startForTool(instruction: string, at: { root: string; project: string }): Promise<Record<string, unknown>> {
+    const s = await this.start({ recipe: 'tray', instruction, agent: 'qwen' }, at);
+    if (!s.ok) return { ok: false, started: false, error: s.error };
+    const r = s.flow.record;
+    return {
+      ok: true, flow: s.flow.id, agent_job: s.flow.agentJob, agent_run: r.agent?.run, route: r.agent?.route,
+      parameters_file: { path: r.parameters.path, sha256: r.parameters.before.sha256, values: r.parameters.before.values, written_from_defaults: r.parameters.created },
+      record_when_done: flowRecordPath(s.flow.id),
+      note: `Started, not finished: the local agent may change only ${r.parameters.path}; then the recipe rebuilds as a durable job and a separate worker reads its STEP back. The operator follows it with /iterate and /jobs ${s.flow.agentJob}, and stops it with /stop ${s.flow.id}. Do not claim the tray is rebuilt or measured.`,
+      doctrine: DOCTRINE_15,
+    };
   }
 
   private usage(at: { root: string; project: string }): Line[] {
@@ -198,46 +218,51 @@ export class IterateFlows {
     return rows;
   }
 
-  private async start(req: IterateRequest, at: { root: string; project: string }): Promise<Line[]> {
+  private async start(req: IterateRequest, at: { root: string; project: string }): Promise<Started> {
     const { root, project } = at;
     const g = this.d.glyphs;
+    /** A refusal: nothing was started; the reason as one sentence, and as the lines /iterate prints. */
+    const refuse = (error: string, role: Segment['role'] = 'failure', more: Line[] = [], before: Line[] = []): Started => ({ ok: false, error, lines: [...before, ...this.say(error, role), ...more] });
     const env: NodeJS.ProcessEnv = { ...this.d.env(), ...(req.model ? { TIMMY_AGENT_MODEL: req.model } : {}) };
     const info = AGENTS[req.agent];
     // The route first, before anything is written: local and free, or refused with the reason.
     const bin = agentBin(req.agent, env, this.d.onPath);
-    if (!bin) return this.say(`${info.title} is not on PATH (${info.bin}); /tools says how to install it. Nothing was started.`, 'estimate');
-    if (!env.TIMMY_AGENT_MODEL?.trim()) return this.say(`Name the local model: ${USAGE.replace('[--model <local model>]', '--model <a model your local endpoint serves, from ollama list>')}, or set TIMMY_AGENT_MODEL. Nothing was started.`, 'failure');
+    if (!bin) return refuse(`${info.title} is not on PATH (${info.bin}); /tools says how to install it. Nothing was started.`, 'estimate');
+    if (!env.TIMMY_AGENT_MODEL?.trim()) return refuse(`Name the local model: ${USAGE.replace('[--model <local model>]', '--model <a model your local endpoint serves, from ollama list>')}, or set TIMMY_AGENT_MODEL. Nothing was started.`);
     const route = planAgent(req.agent, req.instruction, { env, paid: false, run: 'a00000000', bin });
     if (!route.ok) {
       const why = route.error.replace(/\s*To run it anyway:.*$/, '');
-      return this.say(route.refused === 'paid' ? `${why} /iterate runs only a local, free route, and has no --paid.` : why, route.refused === 'paid' ? 'estimate' : 'failure');
+      return route.refused === 'paid' ? refuse(`${why} /iterate runs only a local, free route, and has no --paid.`, 'estimate') : refuse(why);
     }
     // The build needs the recipe's runtime, so it is checked before the agent runs (not after it has worked).
     const rt = nativeRuntime(env);
-    if (!rt.ok) return [...this.say(`Not started: ${rt.why}. /iterate rebuilds the recipe after the agent, so the runtime comes first.`, 'estimate'), ...this.say(`Setup: ${PYTHON_SETUP}, then /iterate again.`)];
-    if (!this.d.test?.readback && !existsSync(READBACK_SCRIPT)) return this.say('Not started: the readback worker (workers/readback/step_readback.py) is missing from this Timmy.', 'failure');
+    if (!rt.ok) return refuse(`Not started: ${rt.why}. /iterate rebuilds the recipe after the agent, so the runtime comes first.`, 'estimate', this.say(`Setup: ${PYTHON_SETUP}, then /iterate again.`));
+    if (!this.d.test?.readback && !existsSync(READBACK_SCRIPT)) return refuse('Not started: the readback worker (workers/readback/step_readback.py) is missing from this Timmy.');
     // The parameter file: read and checked, or written from the recipe card's defaults (and said so).
     const rel = paramsPath();
     const file = readParams(root);
-    if (!file.ok) return this.say(`${file.path} is not a usable parameter file: ${this.d.scrub(file.error, root)}; fix it or move it aside. Nothing was started.`, 'failure');
+    if (!file.ok) return refuse(`${file.path} is not a usable parameter file: ${this.d.scrub(file.error, root)}; fix it or move it aside. Nothing was started.`);
     let created = false;
     if (!file.exists) {
       const w = writeParams(root, readCard().parameters);
-      if (!w.ok) return this.say(`${w.path} could not be written from the recipe card's defaults: ${this.d.scrub(w.error, root)}. Nothing was started.`, 'failure');
+      if (!w.ok) return refuse(`${w.path} could not be written from the recipe card's defaults: ${this.d.scrub(w.error, root)}. Nothing was started.`);
       created = true;
     }
     // The file's bytes now: the task quotes them, and their sha256 is the "before" every later check compares with.
     let text = '';
-    try { text = readFileSync(join(root, rel), 'utf8'); } catch (e) { return this.say(`${rel} could not be read: ${this.d.scrub(e instanceof Error ? e.message : String(e), root)}. Nothing was started.`, 'failure'); }
+    try { text = readFileSync(join(root, rel), 'utf8'); } catch (e) { return refuse(`${rel} could not be read: ${this.d.scrub(e instanceof Error ? e.message : String(e), root)}. Nothing was started.`); }
     const parsed = parseParams(text);
-    if (!parsed.ok) return this.say(`${rel} is not a usable parameter file: ${parsed.error}. Nothing was started.`, 'failure');
+    if (!parsed.ok) return refuse(`${rel} is not a usable parameter file: ${parsed.error}. Nothing was started.`);
     const before = { sha256: sha(text), values: parsed.parameters };
+    const values = PARAMETER_NAMES.map((n) => `${n} ${fmt(before.values[n])}`).join(', ');
     // The agent, through /agent's own start: its job, its snapshot before, its sealed result at its end.
     const id = newFlowId();
     const task = iterateTask({ instruction: req.instruction, paramsRel: rel, fileText: text });
     const s = await this.d.startAgent(req.agent, task, { paid: false, root, project, env });
-    const wrote: Line[] = created ? this.say(`${rel} did not exist: written from the recipe card's defaults (${PARAMETER_NAMES.map((n) => `${n} ${fmt(before.values[n])}`).join(', ')})`) : [];
-    if (!s.ok) return [...wrote, ...this.say(`The agent did not start: ${this.d.scrub(s.error, root)}`, s.refused === 'paid' || s.refused === 'missing' ? 'estimate' : 'failure')];
+    if (!s.ok) {
+      const wrote = created ? this.say(`${rel} did not exist: written from the recipe card's defaults (${values})`) : [];
+      return refuse(`The agent did not start: ${this.d.scrub(s.error, root)}`, s.refused === 'paid' || s.refused === 'missing' ? 'estimate' : 'failure', [], wrote);
+    }
     const record: FlowRecord = {
       flow: 1, schema: FLOW_SCHEMA, id, kind: 'iterate', recipe: RECIPE_ID, instruction: req.instruction, project, started_at: new Date().toISOString(), outcome: 'running',
       parameters: { path: rel, created, before },
@@ -251,15 +276,16 @@ export class IterateFlows {
     this.running.set(id, flow);
     this.saveState(flow);
     flow.done = this.run(flow).finally(() => { this.running.delete(id); });
-    const values = PARAMETER_NAMES.map((n) => `${n} ${fmt(before.values[n])}`).join(', ');
-    return [
-      [{ text: '  Flow       ', role: 'secondary' }, { text: id, role: 'strong' }, { text: `  iterate tray: ${this.d.scrub(req.instruction, root)}`, role: 'secondary' }],
-      [{ text: '  Parameters ', role: 'secondary' }, { text: rel, role: 'strong' }, { text: `  ${values}${this.sep}sha256 ${short(before.sha256)}`, role: 'secondary' }],
-      ...(created ? this.say(`           it did not exist: written from the recipe card's defaults before the agent ran`, 'estimate') : []),
-      [{ text: '  Agent      ', role: 'secondary' }, { text: s.job.id, role: 'strong' }, { text: `  agent ${s.plan.agent} ${s.run}${this.sep}${s.info.title}${s.version ? ` ${s.version}` : ''}${s.plan.model ? `${this.sep}model ${s.plan.model} at ${s.plan.where}` : ''}${this.sep}${s.plan.charge}`, role: 'secondary' }],
-      [{ text: '  Next       ', role: 'secondary' }, { text: `it may change only ${rel}; then the recipe rebuilds as a durable job and a separate worker reads the STEP back`, role: 'secondary' }],
-      [{ text: '  Follow     ', role: 'secondary' }, { text: `/jobs ${s.job.id}${this.sep}/stop ${id} stops the flow${this.sep}/iterate lists flows${this.sep}the record: ${flowRecordPath(id)} ${g.arrow} /board`, role: 'secondary' }],
-    ];
+    return {
+      ok: true, flow, lines: [
+        [{ text: '  Flow       ', role: 'secondary' }, { text: id, role: 'strong' }, { text: `  iterate tray: ${this.d.scrub(req.instruction, root)}`, role: 'secondary' }],
+        [{ text: '  Parameters ', role: 'secondary' }, { text: rel, role: 'strong' }, { text: `  ${values}${this.sep}sha256 ${short(before.sha256)}`, role: 'secondary' }],
+        ...(created ? this.say(`           it did not exist: written from the recipe card's defaults before the agent ran`, 'estimate') : []),
+        [{ text: '  Agent      ', role: 'secondary' }, { text: s.job.id, role: 'strong' }, { text: `  agent ${s.plan.agent} ${s.run}${this.sep}${s.info.title}${s.version ? ` ${s.version}` : ''}${s.plan.model ? `${this.sep}model ${s.plan.model} at ${s.plan.where}` : ''}${this.sep}${s.plan.charge}`, role: 'secondary' }],
+        [{ text: '  Next       ', role: 'secondary' }, { text: `it may change only ${rel}; then the recipe rebuilds as a durable job and a separate worker reads the STEP back`, role: 'secondary' }],
+        [{ text: '  Follow     ', role: 'secondary' }, { text: `/jobs ${s.job.id}${this.sep}/stop ${id} stops the flow${this.sep}/iterate lists flows${this.sep}the record: ${flowRecordPath(id)} ${g.arrow} /board`, role: 'secondary' }],
+      ],
+    };
   }
 
   // ── the steps ────────────────────────────────────────────────────────────────

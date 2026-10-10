@@ -345,7 +345,8 @@ export function recipeExercisedAt(root: string): string | undefined {
 /** The /tools row: installed or needs setup from TIMMY_CADQUERY_PYTHON alone; exercised is decided by recipeExercisedAt. */
 export function recipeCapabilityRow(env: NodeJS.ProcessEnv) {
   const r = nativeRuntime(env);
-  const base = { id: 'recipe-tray', kind: 'adapter' as const, name: 'CadQuery recipe (/recipe)', tools: ['run_recipe'], exercisedBy: `recipe:${RECIPE_ID}` };
+  // R4 (/iterate): iterate_recipe rebuilds through this recipe too; exercised is still decided by the recipe's own record.
+  const base = { id: 'recipe-tray', kind: 'adapter' as const, name: 'CadQuery recipe (/recipe)', tools: ['run_recipe', 'iterate_recipe'], exercisedBy: `recipe:${RECIPE_ID}` };
   return r.ok
     ? { ...base, rung: 'installed' as const, detail: `${RECIPE_ID} as a durable job; Python set, not run by this check` }
     : { ...base, rung: 'needs setup' as const, detail: r.why, setup: ROW_SETUP };

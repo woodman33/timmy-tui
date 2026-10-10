@@ -24,10 +24,13 @@ import { Workspace, type WorkspaceDeps } from '../src/repl/workspace.js';
 import { COMMANDS } from '../src/repl/commands.js';
 import { parseIterateLine } from '../src/repl/iterate.js';
 import { checkFlowRecord, flowsSection } from '../src/repl/board-flows.js';
+import { approvalNeeded } from '../src/repl/approvals.js';
+import { replTools } from '../src/repl/main.js';
+import { createIterateTools } from '../src/agent/iterate-tools.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import { hashOf, type Receipt, type ReceiptInput } from '../src/utils/receipts.js';
 import { jobDirectory, status } from '../lanes/recipes/jobs.js';
-import { DOCTRINE_15, EXPORTS } from '../src/recipes/index.js';
+import { DOCTRINE_15, EXPORTS, recipeCapabilityRow } from '../src/recipes/index.js';
 import {
   compareReadback, FLOW_ID, iterateTask, judgeAgentChanges, paramDiff, parseReadbackOutput, READBACK_SCRIPT, READBACK_TOLERANCE, type FlowRecord, type ReadbackMeasured,
 } from '../src/flows/iterate.js';
@@ -461,6 +464,28 @@ describe('/iterate end to end (FAKE agent, FAKE recipe executor, FAKE readback)'
       expect(fs.readFileSync(path.join(root, rec.readback!.log!), 'utf8')).toContain('FAKE readback');
     }
   }, 180000);
+});
+
+describe('iterate_recipe, the agent\'s tool (FAKE pieces)', () => {
+  it('asks each time; starts the same flow as /iterate, answered as data (started, not finished); refusals as data', async () => {
+    expect(approvalNeeded('iterate_recipe', { recipe: 'enclosure.tray/1', instruction: 'make it 180 mm wide' })).toEqual({
+      reason: 'starts a local code agent that may change recipes/tray.params.json, then rebuilds the CAD tray and reads it back on this machine', summary: 'make it 180 mm wide', session: false,
+    });
+    expect(replTools(undefined, undefined, { iterate: { start: async () => ({}) } }).map((t) => (t as unknown as { function: { name: string } }).function.name)).toContain('iterate_recipe');
+    expect(recipeCapabilityRow({}).tools).toContain('iterate_recipe');
+    const { ws, sealed } = make();
+    const [tool] = createIterateTools({ start: (i) => ws.iterateForTool(i) });
+    const exec = (tool as unknown as { function: { execute: (i: unknown) => Promise<Record<string, any>> } }).function.execute;
+    const started = await exec({ recipe: 'enclosure.tray/1', instruction: 'make it 180 mm wide PARAM:width=180' });
+    expect(started).toMatchObject({ ok: true, flow: expect.stringMatching(FLOW_ID), agent_job: expect.stringMatching(/^j[0-9a-f]{6}$/), parameters_file: { path: PARAMS, written_from_defaults: true }, record_when_done: `results/flows/${started.flow}.json`, doctrine: DOCTRINE_15 });
+    expect(started.note).toContain('Started, not finished');
+    await until(ended(sealed, started.flow));
+    expect(recordOf(started.flow)).toMatchObject({ outcome: 'succeeded', instruction: 'make it 180 mm wide PARAM:width=180' });
+    const bare = make({ env: { TIMMY_AGENT_MODEL: undefined } });
+    const [t2] = createIterateTools({ start: (i) => bare.ws.iterateForTool(i) });
+    const refused = await (t2 as unknown as { function: { execute: (i: unknown) => Promise<Record<string, any>> } }).function.execute({ recipe: 'enclosure.tray/1', instruction: 'wider' });
+    expect(refused).toMatchObject({ ok: false, started: false, error: expect.stringContaining('Name the local model') });
+  }, 120000);
 });
 
 describe('/stop stops the flow (FAKE pieces)', () => {
