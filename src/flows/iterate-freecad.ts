@@ -182,11 +182,16 @@ export function isFreecadFlowRecord(r: unknown): r is FreecadFlowRecord {
   return !!o && o.kind === 'iterate' && o.target === 'freecad' && !!objOf(o.script);
 }
 
-/** A FreeCAD flow in a few words for /iterate's list ("freecad plate.py +1 −1 lines in 1 place"); '' for any other record. */
+/**
+ * A FreeCAD flow in a few words for /iterate's list ("freecad plate.py +1 −1 lines in 1 place"); '' for any other record.
+ * R4 (H40, review R4-4): a change the record holds in a form Timmy does not write is said, never counted.
+ */
 export function freecadFlowSummary(r: unknown): string {
   if (!isFreecadFlowRecord(r)) return '';
   const p = typeof r.script.path === 'string' ? r.script.path : '?';
-  const c = objOf(r.script.change) && finite(r.script.change!.added) ? ` ${changeText(r.script.change!)}` : '';
-  const without = r.outcome === 'succeeded' && r.readback?.state === 'not run' ? ' · without readback' : '';
+  const ch = objOf(r.script.change);
+  const c = r.script.change === undefined || r.script.change === null ? ''
+    : ch && finite(ch.added) && finite(ch.removed) && finite(ch.hunks_total) ? ` ${changeText(r.script.change)}` : ' (its change is not in the form Timmy writes)';
+  const without = r.outcome === 'succeeded' && objOf(r.readback)?.state === 'not run' ? ' · without readback' : '';
   return `freecad ${p}${c}${without}`;
 }

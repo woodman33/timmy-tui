@@ -824,10 +824,15 @@ export function isBlenderFlowRecord(r: unknown): r is BlenderFlowRecord {
   return !!o && o.kind === 'iterate' && o.target === 'blender' && !!objOf(o.script);
 }
 
-/** A Blender flow's record in a few words for /iterate's list ("blender scene.py +1 −1 lines in 1 place"); '' for any other record. */
+/**
+ * A Blender flow's record in a few words for /iterate's list ("blender scene.py +1 −1 lines in 1 place"); '' for any other
+ * record. R4 (H40, review R4-4): a change the record holds in a form Timmy does not write is said, never counted.
+ */
 export function blenderFlowSummary(r: unknown): string {
   if (!isBlenderFlowRecord(r)) return '';
   const p = typeof r.script.path === 'string' ? r.script.path : '?';
-  const c = objOf(r.script.change) && finite(r.script.change!.added) ? ` ${changeText(r.script.change!)}` : '';
+  const ch = objOf(r.script.change);
+  const c = r.script.change === undefined || r.script.change === null ? ''
+    : ch && finite(ch.added) && finite(ch.removed) && finite(ch.hunks_total) ? ` ${changeText(r.script.change)}` : ' (its change is not in the form Timmy writes)';
   return `blender ${p}${c}`;
 }

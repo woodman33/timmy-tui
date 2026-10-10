@@ -81,10 +81,20 @@ export function scadNameChanges(before: Record<string, ScadValue>, after: Record
   };
 }
 
-const valueText = (v: ScadValue | null): string => (v === null ? 'none' : scadLiteral(v));
-/** "width 60 → 100, part "both" → "lid"" for each changed parameter; "no value changed" when none. */
-export const scadDiffText = (diff: ScadParamChange[], arrow = '→'): string =>
-  diff.filter((d) => d.changed).map((d) => `${d.name} ${valueText(d.before)} ${arrow} ${valueText(d.after)}`).join(', ') || 'no value changed';
+const valueText = (v: unknown): string => (v === null || v === undefined ? 'none' : typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string' ? scadLiteral(v) : '?');
+/**
+ * "width 60 → 100, part "both" → "lid"" for each changed parameter; "no value changed" when none. R4 (H40, review
+ * R4-4): from a record anyone may edit, a diff that is not a list, or entries that are not Timmy's (an object with a
+ * name), are said as such, never read as a change or as no change; a value that is not one OpenSCAD takes is "?".
+ */
+export const scadDiffText = (diff: unknown, arrow = '→'): string => {
+  if (!Array.isArray(diff)) return 'the parameter diff is not a list Timmy can read';
+  const rows = diff.filter((d): d is ScadParamChange => !!d && typeof d === 'object' && typeof (d as { name?: unknown }).name === 'string');
+  const changed = rows.filter((d) => d.changed).map((d) => `${d.name} ${valueText(d.before)} ${arrow} ${valueText(d.after)}`).join(', ');
+  const odd = diff.length - rows.length;
+  const unread = odd ? `${odd} ${odd === 1 ? 'entry' : 'entries'} of the parameter diff not in the form Timmy writes` : '';
+  return [changed, unread].filter(Boolean).join('; ') || 'no value changed';
+};
 
 // ── the comparison ───────────────────────────────────────────────────────────────
 
@@ -272,10 +282,14 @@ export function isScadFlowRecord(r: unknown): r is ScadFlowRecord {
   return !!o && o.kind === 'iterate' && o.target === 'scad' && !!objOf(o.parameters) && !!objOf(o.model);
 }
 
-/** An OpenSCAD flow in a few words for /iterate's list ("scad box.scad width 60 → 100"); '' for any other record. */
+/**
+ * An OpenSCAD flow in a few words for /iterate's list ("scad box.scad width 60 → 100"); '' for any other record. R4
+ * (H40): a diff the record holds in a form Timmy does not write is said (scadDiffText), never left out silently.
+ */
 export function scadFlowSummary(r: unknown, arrow = '→'): string {
   if (!isScadFlowRecord(r)) return '';
   const p = typeof r.model.path === 'string' ? r.model.path : '?';
-  const diff = Array.isArray(r.parameters.diff) ? ` ${scadDiffText(r.parameters.diff, arrow)}` : '';
+  const d: unknown = r.parameters.diff;
+  const diff = d === undefined || d === null ? '' : ` ${scadDiffText(d, arrow)}`;
   return `scad ${p}${diff}`;
 }

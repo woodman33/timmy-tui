@@ -13,11 +13,15 @@
  * Round R4 (H37): the objects whose size changed between a judged-ok Blender run of the script from before the flow and
  * Blender's run in it, with a count of the rest ("Cube 2 × 2 × 2 → 3 × 3 × 3 (Blender's report; the second pass
  * agrees)"), and the second pass's `dimensions` check among its checks.
+ *
+ * Round R4 (H40, review R4-4): a list in the record that is not a list, or entries in it that are not Timmy's (a check
+ * that is not an object, a failing check without its differences, an object without a name), are left out or said as
+ * such, and the card says what it left out; the Flows section draws each card inside a guard as well.
  */
-import { DOCTRINE_15 } from '../flows/iterate.js';
+import { DOCTRINE_15, type OtherChange } from '../flows/iterate.js';
 import {
   BLEND_READBACK_SCOPE, changeText, DIMENSIONS_SCOPE, dimensionsText, isBlenderFlowRecord, isDimensionsSummary, syntaxText, toleranceText, type BlendCheck,
-  type BlenderFlowRecord,
+  type BlenderFlowRecord, type ScriptHunk,
 } from '../flows/iterate-blender.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { BoardFlow } from './board-flows.js';
@@ -48,17 +52,49 @@ const capped = (xs: string[], max = 12): string => `${xs.slice(0, max).join(', '
 /** Objects shown in the card's table; the rest are counted (the record has them all). */
 const OBJECT_ROWS = 24;
 
+/**
+ * R4 (H40): a record's list, read as Timmy writes it (as src/repl/board-flows.ts reads one): the entries that are
+ * objects and pass `ok`, how many are not (`odd`), and whether a value is there that is not a list (`notList`).
+ */
+type Entries<T> = { items: T[]; odd: number; notList: boolean };
+function entries<T>(v: unknown, ok: (x: Record<string, unknown>) => boolean = () => true): Entries<T> {
+  if (!Array.isArray(v)) return { items: [], odd: 0, notList: v !== undefined && v !== null };
+  const items = v.filter((x) => !!x && typeof x === 'object' && !Array.isArray(x) && ok(x as Record<string, unknown>)) as T[];
+  return { items, odd: v.length - items.length, notList: false };
+}
+const named = (x: Record<string, unknown>): boolean => typeof x.name === 'string';
+const pathed = (x: Record<string, unknown>): boolean => typeof x.path === 'string';
+const leftOut = (e: Entries<unknown>, what: string): string => (e.notList
+  ? `${what}: not a list, so not shown`
+  : e.odd ? `${e.odd} ${e.odd === 1 ? 'entry' : 'entries'} of ${what} not in the form Timmy writes, so not shown` : '');
+const notShownRow = (e: Entries<unknown>, what: string): string => { const t = leftOut(e, what); return t ? `<dt>not shown</dt><dd class="nomodel">${esc(t)}</dd>` : ''; };
+const notShownItem = (e: Entries<unknown>, what: string): string => { const t = leftOut(e, what); return t ? `<li class="nomodel">${esc(t)}</li>` : ''; };
+const notShownPara = (e: Entries<unknown>, what: string): string => { const t = leftOut(e, what); return t ? `<p class="nomodel">${esc(t)}</p>` : ''; };
+/** R4 (H40): a dimensions summary's unit settings as Timmy writes them: none, or each field absent, a word, or (scale_length) a number. */
+const unitsAsWritten = (u: unknown): boolean => {
+  if (u === null) return true;
+  if (!u || typeof u !== 'object' || Array.isArray(u)) return false;
+  const o = u as Record<string, unknown>;
+  return (o.system === undefined || typeof o.system === 'string') && (o.length_unit === undefined || typeof o.length_unit === 'string') && (o.scale_length === undefined || finite(o.scale_length));
+};
+
 function scriptBlock(r: BlenderFlowRecord, h: FlowCardHelpers): string {
   const s = r.script;
   if (!s || typeof s !== 'object') return '';
   const shas = `sha256 ${shortSha(s.before?.sha256)}${s.after ? ` → ${shortSha(s.after.sha256)}` : ''}`;
   const rows = [
     `<dt>file</dt><dd>${h.file(s.path)} <span class="tier">${esc(shas)}</span></dd>`,
-    ...(s.change && finite(s.change.added) ? [`<dt>change</dt><dd>${esc(changeText(s.change))}</dd>`] : s.after ? [] : ['<dt>change</dt><dd>none recorded</dd>']),
+    ...(s.change && finite(s.change.added) && finite(s.change.removed) && finite(s.change.hunks_total) ? [`<dt>change</dt><dd>${esc(changeText(s.change))}</dd>`]
+      // R4 (H40): a change there in a form Timmy does not write is said, not counted
+      : s.change !== undefined && s.change !== null ? [`<dt>change</dt><dd class="nomodel">${esc('not in the form Timmy writes, so not shown')}</dd>`]
+        : s.after ? [] : ['<dt>change</dt><dd>none recorded</dd>']),
     ...(s.syntax ? [`<dt>python</dt><dd class="${s.syntax.checked && !s.syntax.ok ? 'bad' : ''}">${esc(syntaxText(s.syntax))}</dd>`] : []),
     ...(s.before?.kept ? [`<dt>before</dt><dd>${h.file(s.before.kept, 'the script as it was before the agent ran')}</dd>`] : []),
   ].join('');
-  const hunks = Array.isArray(s.change?.hunks) ? s.change!.hunks : [];
+  // R4 (H40): a place that is not one of Timmy's (no lines to start at) is left out, and said
+  const places = entries<ScriptHunk>(s.change?.hunks, (k) => finite(k.before_line) && finite(k.after_line));
+  const hunks = places.items;
+  const listed = hunks.length + places.odd;
   const diff = hunks.length
     ? `<pre class="diff">${hunks.map((k) => [
       `<span class="at">${esc(`@@ line ${k.before_line} → ${k.after_line}`)}</span>`,
@@ -66,9 +102,9 @@ function scriptBlock(r: BlenderFlowRecord, h: FlowCardHelpers): string {
       ...(k.removed_total > list(k.removed).length ? [`<span class="at">${esc(`  … ${k.removed_total - list(k.removed).length} more taken out`)}</span>`] : []),
       ...list(k.added).map((l) => `<span class="added">${esc(`+ ${l}`)}</span>`),
       ...(k.added_total > list(k.added).length ? [`<span class="at">${esc(`  … ${k.added_total - list(k.added).length} more put in`)}</span>`] : []),
-    ].join('\n')).join('\n')}</pre>${s.change && s.change.hunks_total > hunks.length ? `<p class="meta">${esc(`and ${s.change.hunks_total - hunks.length} more places in the record`)}</p>` : ''}`
+    ].join('\n')).join('\n')}</pre>${s.change && s.change.hunks_total > listed ? `<p class="meta">${esc(`and ${s.change.hunks_total - listed} more places in the record`)}</p>` : ''}`
     : '';
-  return `<section class="params script"><h4>${esc(s.after ? 'the script, before → after' : 'the script')}</h4><dl>${rows}</dl>${diff}</section>`;
+  return `<section class="params script"><h4>${esc(s.after ? 'the script, before → after' : 'the script')}</h4><dl>${rows}</dl>${diff}${notShownPara(places, 'the places the script changed')}</section>`;
 }
 
 function stepsBlock(r: BlenderFlowRecord, h: FlowCardHelpers): string {
@@ -77,7 +113,9 @@ function stepsBlock(r: BlenderFlowRecord, h: FlowCardHelpers): string {
   if (a) {
     const cost = a.cost_usd === undefined ? '' : a.cost_usd === null ? ' · cost unknown' : ` · cost $${Number(a.cost_usd).toFixed(4)}${a.cost_basis ? ` (${a.cost_basis})` : ''}`;
     rows.push(`<dt>agent</dt><dd>${esc(`${a.agent} ${a.run}${a.model ? ` · model ${a.model}` : ''} · ${a.route} · ${a.outcome ?? 'running'}${cost}${a.receipt ? ` · receipt ${a.receipt}` : ''}`)}${a.transcript ? ` · ${h.file(a.transcript, 'transcript')}` : ''}</dd>`);
-    if (Array.isArray(a.others) && a.others.length) rows.push(`<dt>also changed</dt><dd>${a.others.slice(0, 12).map((x) => `${h.file(x.path)} <span class="tier">${esc(x.how)}</span>`).join(', ')}</dd>`);
+    const others = entries<OtherChange>(a.others, pathed);
+    if (others.items.length) rows.push(`<dt>also changed</dt><dd>${others.items.slice(0, 12).map((x) => `${h.file(x.path)} <span class="tier">${esc(x.how)}</span>`).join(', ')}</dd>`);
+    rows.push(notShownRow(others, 'the files it also changed'));
   }
   const b = r.blender;
   if (b) {
@@ -113,7 +151,9 @@ function checkRow(c: BlendCheck): string {
   if (c.passed === null) return `<dt>${esc(c.name)}</dt><dd>${esc('not compared')} <span class="tier">${esc(c.note ?? '')}</span></dd>`;
   const note = c.note ? ` <span class="tier">${esc(c.note)}</span>` : '';
   if (c.passed) return `<dt>${esc(c.name)}</dt><dd>${esc(valueText(c.name, c.read, c.tolerance))} <span class="tier">as the result reported</span>${note}</dd>`;
-  return `<dt>${esc(c.name)}</dt><dd class="bad">${esc(c.differences.join('; '))} <span class="tier">${esc(`reported: ${valueText(c.name, c.reported)}`)}</span>${note}</dd>`;
+  // R4 (H40, review R4-4): a failing check without its list of differences still says it failed, and that they are not there
+  const said = list(c.differences);
+  return `<dt>${esc(c.name)}</dt><dd class="bad">${esc(said.length ? said.join('; ') : 'differs; the record holds no differences in the form Timmy writes')} <span class="tier">${esc(`reported: ${valueText(c.name, c.reported)}`)}</span>${note}</dd>`;
 }
 
 /** What the second pass read, with its verdict: as measured when the record is verified, as recorded otherwise. */
@@ -122,24 +162,35 @@ function readbackBlock(r: BlenderFlowRecord, verified: boolean): string {
   const read = k?.read;
   if (!k || !read || !Array.isArray(read.objects)) return '';
   const heading = verified ? 'read back from the .blend by a second Blender process' : 'read back from the .blend, as the record says (not verified)';
-  const checks = Array.isArray(k.checks) ? k.checks : [];
+  // R4 (H40): each list read as Timmy writes it; what is not is left out, and said
+  const checkList = entries<BlendCheck>(k.checks, named);
+  const checks = checkList.items;
   const compared = checks.filter((c) => c.passed !== null).map((c) => c.name);
   const checked = new Set(checks.map((c) => c.name));
   const blend = k.blend;
-  const cams = Array.isArray(read.cameras) ? read.cameras.map((c) => `${c.name}${finite(c.lens) || c.name === read.active_camera ? ` (${[...(finite(c.lens) ? [`lens ${c.lens} mm`] : []), ...(c.name === read.active_camera ? ['active'] : [])].join(', ')})` : ''}`) : [];
-  const inFile = Array.isArray(read.materials) ? read.materials.map((m) => m.name) : [];
+  const cameras = entries<{ name: string; lens?: unknown }>(read.cameras, named);
+  const cams = cameras.items.map((c) => `${c.name}${finite(c.lens) || c.name === read.active_camera ? ` (${[...(finite(c.lens) ? [`lens ${c.lens} mm`] : []), ...(c.name === read.active_camera ? ['active'] : [])].join(', ')})` : ''}`);
+  const materials = entries<{ name: string }>(read.materials, named);
+  const inFile = materials.items.map((m) => m.name);
+  const scenes = entries<{ name: string; objects?: unknown }>(read.scenes, named);
+  const objects = entries<{ name: string; type?: unknown; dimensions?: unknown; location?: unknown }>(read.objects, named);
   const rows = [
     `<dt>verdict</dt><dd class="verdict verdict-${esc(String(k.verdict ?? 'none'))}">${esc(`${k.verdict ?? 'none'}${compared.length ? ` · compared: ${compared.join(', ')}` : ''}`)}</dd>`,
     ...checks.map(checkRow),
+    notShownRow(checkList, 'the second pass\'s checks'),
     ...(k.reason ? [`<dt>why</dt><dd>${esc(k.reason)}</dd>`] : []),
     `<dt>file</dt><dd>${esc(`sha256 ${shortSha(blend?.sha256_before)} before the read${blend?.sha256_after ? `, ${blend.sha256_after === blend.sha256_before ? 'the same after it' : `${shortSha(blend.sha256_after)} after it`}` : ''}${k.blender_version ? ` · ${k.blender_version}` : ''}`)}</dd>`,
     `<dt>cameras</dt><dd>${esc(cams.length ? capped(cams) : `none${read.active_camera ? ` (active: ${read.active_camera})` : ''}`)}</dd>`,
+    notShownRow(cameras, 'the cameras read'),
     `<dt>in the file</dt><dd>${esc(`materials: ${capped(inFile)}`)}</dd>`,
+    notShownRow(materials, 'the materials read'),
     ...(!checked.has('frame range') && Array.isArray(read.frame_range) ? [`<dt>frames</dt><dd>${esc(read.frame_range.join('–'))}</dd>`] : []),
     ...(!checked.has('resolution') && Array.isArray(read.render_resolution) ? [`<dt>resolution</dt><dd>${esc(`${read.render_resolution.join(' x ')}${finite(read.resolution_percentage) ? ` at ${read.resolution_percentage}%` : ''}`)}</dd>`] : []),
-    ...(Array.isArray(read.scenes) && read.scenes.length ? [`<dt>scenes</dt><dd>${esc(read.scenes.map((s) => `${s.name}${finite(s.objects) ? ` (${s.objects} objects)` : ''}`).join(', '))}</dd>`] : []),
+    ...(scenes.items.length ? [`<dt>scenes</dt><dd>${esc(scenes.items.map((s) => `${s.name}${finite(s.objects) ? ` (${s.objects} objects)` : ''}`).join(', '))}</dd>`] : []),
+    notShownRow(scenes, 'the scenes read'),
+    notShownRow(objects, 'the objects read'),
   ].join('');
-  const shown = read.objects.slice(0, OBJECT_ROWS);
+  const shown = objects.items.slice(0, OBJECT_ROWS);
   const table = shown.length
     ? `<table class="objects"><thead><tr><th>object</th><th>type</th><th>dimensions</th><th>location</th></tr></thead><tbody>${shown.map((o) => `<tr><td>${esc(o.name)}</td><td>${esc(o.type)}</td><td>${esc(vec(o.dimensions))}</td><td>${esc(point(o.location))}</td></tr>`).join('')}</tbody></table>`
       + `<p class="meta">${esc(`dimensions and locations in Blender units, as Blender reported them${read.objects_total > shown.length ? ` · ${shown.length} of ${read.objects_total} objects shown; the record lists ${read.objects.length}` : ''}`)}</p>`
@@ -156,7 +207,8 @@ function dimensionsBlock(r: BlenderFlowRecord, verified: boolean, doctrine: bool
   const d = (r as { dimensions?: unknown }).dimensions;
   if (d === undefined) return '';
   const heading = verified ? 'object sizes, before → after' : 'object sizes, before → after, as the record says (not verified)';
-  const body = isDimensionsSummary(d)
+  // R4 (H40): the unit settings too must be as Timmy writes them (each a word or a number), or the sizes are not put in words
+  const body = isDimensionsSummary(d) && unitsAsWritten(d.units)
     ? (() => {
       const t = dimensionsText(d);
       return `<p class="sizes${d.after.agrees === false ? ' bad' : ''}">${esc(t.sizes)}</p><p class="meta">${esc(t.detail)}</p>`;
@@ -170,7 +222,8 @@ export function blenderFlowCard(f: BoardFlow, h: FlowCardHelpers, status: string
   const r = f.record as unknown as BlenderFlowRecord;
   const outcome = String(r.outcome ?? 'unknown');
   const b = r.blender;
-  const renders = Array.isArray(b?.renders) ? b!.renders! : [];
+  const shots = entries<{ path: string; sha256: string }>(b?.renders, pathed);
+  const renders = shots.items;
   const receipts = [
     ...(r.receipts?.agent ? [`agent ${r.receipts.agent}`] : []), ...(r.receipts?.blender ? [`Blender ${r.receipts.blender}`] : []),
     ...(r.receipts?.readback ? [`second pass ${r.receipts.readback}`] : []),
@@ -178,6 +231,7 @@ export function blenderFlowCard(f: BoardFlow, h: FlowCardHelpers, status: string
   ];
   const files = [
     ...renders.map((x) => `<li>${h.file(x.path)} <span class="tier">${esc(`the render · sha256 ${shortSha(x.sha256)}`)}</span></li>`),
+    notShownItem(shots, 'the renders'),
     ...(b?.blend ? [`<li>${h.file(b.blend.path)} <span class="tier">${esc(`the .blend · sha256 ${shortSha(b.blend.sha256)}`)}</span></li>`] : []),
     ...(r.script?.path ? [`<li>${h.file(r.script.path)} <span class="tier">the script</span></li>`] : []),
     ...(b?.copy?.path ? [`<li>${h.file(b.copy.path)} <span class="tier">${esc('the copy Blender ran, kept at submission')}</span></li>`] : []),

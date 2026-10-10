@@ -129,9 +129,20 @@ export function paramDiff(before: Record<string, number>, after: Record<string, 
   });
 }
 
-const fmt = (n: number | null): string => (n === null ? 'none' : String(Math.round(n * 1e6) / 1e6));
-/** "width 140 → 180" for each changed parameter, joined; "no value changed" when none. */
-export const diffText = (diff: ParamChange[], arrow = '→'): string => diff.filter((d) => d.changed).map((d) => `${d.name} ${fmt(d.before)} ${arrow} ${fmt(d.after)}`).join(', ') || 'no value changed';
+const fmt = (n: unknown): string => (typeof n === 'number' && Number.isFinite(n) ? String(Math.round(n * 1e6) / 1e6) : n === null || n === undefined ? 'none' : '?');
+/**
+ * "width 140 → 180" for each changed parameter, joined; "no value changed" when none. R4 (H40, review R4-4): the diff
+ * comes from a record anyone may edit, so a diff that is not a list, or entries that are not Timmy's (an object with a
+ * name), are said as such, never read as a change or as no change.
+ */
+export const diffText = (diff: unknown, arrow = '→'): string => {
+  if (!Array.isArray(diff)) return 'the parameter diff is not a list Timmy can read';
+  const rows = diff.filter((d): d is ParamChange => !!d && typeof d === 'object' && typeof (d as { name?: unknown }).name === 'string');
+  const changed = rows.filter((d) => d.changed).map((d) => `${d.name} ${fmt(d.before)} ${arrow} ${fmt(d.after)}`).join(', ');
+  const odd = diff.length - rows.length;
+  const unread = odd ? `${odd} ${odd === 1 ? 'entry' : 'entries'} of the parameter diff not in the form Timmy writes` : '';
+  return [changed, unread].filter(Boolean).join('; ') || 'no value changed';
+};
 
 // ── the readback ─────────────────────────────────────────────────────────────────
 
