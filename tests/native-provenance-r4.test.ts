@@ -18,7 +18,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -141,6 +141,18 @@ describe.each(['c4dpy', 'blender'] as const)('finding 5 (%s): what ran is exactl
     expect(readNativeRecord(root, s.native.run)?.job).toMatchObject({
       input: { path: 'scene.py', sha256: sha(readFileSync(original)) }, copy: { path: `.timmy/native/${s.native.run}/source/scene.py`, sha256: sha(readFileSync(original)) },
     });
+  });
+
+  it('a script reached through a link is copied under the name submitted; its folder is where the link leads, as __file__ was', () => {
+    mkdirSync(path.join(root, 'src'));
+    writeFileSync(path.join(root, 'src', 'real_scene.py'), '# the script the link leads to\n');
+    rmSync(path.join(root, 'scene.py'));
+    symlinkSync(path.join(root, 'src', 'real_scene.py'), path.join(root, 'scene.py'));
+    const s = scripted(app, {});
+    const copy = path.join(root, '.timmy', 'native', s.native.run, 'source', 'scene.py');
+    expect(readFileSync(copy, 'utf8')).toBe('# the script the link leads to\n');
+    expect(s.env).toMatchObject({ TIMMY_SCRIPT: copy, TIMMY_SCRIPT_ORIGINAL: path.join(root, 'src', 'real_scene.py'), TIMMY_SCRIPT_DIR: path.join(root, 'src') });
+    expect(s.native.input).toEqual({ path: 'scene.py', sha256: sha('# the script the link leads to\n') });
   });
 
   it('a copy changed during the run is not what was submitted, whatever the result says it read', async () => {
@@ -330,6 +342,7 @@ describe('finding 6 (aerender): an output and each frame by its bytes', () => {
     expect(verdict.outcome).not.toBe('ok');
     expect(verdict.outcome).toBe('unknown');
     expect(verdict.checked?.[0]).toMatchObject({ range: [0, 3], written: 3, missing: [1], stale: [1], by_change: { created: 0, changed: 3, reused: 1, unverified: 0 } });
+    expect(verdict.why).toMatch(/out\/f_\[####\]\.png \(1 frame of 0–3 missing or not written during this run, first 1; 1 frame was there before this run with the same bytes \(reused\)\)/);
     const pre = s.native.pre?.['out/f_[####].png'];
     expect(pre?.state === 'sequence' ? pre.frames['1'] : undefined).toMatchObject({ sha256: sha('fake frame 1\n') });
   });

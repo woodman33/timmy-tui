@@ -81,7 +81,8 @@ export function readSubmittedScript(at: { path: string; rel: string }): Submitte
  * does not read back the same.
  */
 export function keepScript(root: string, record: string, script: SubmittedScript): { path: string; rel: string; sha256: string } {
-  const at = path.join(record, SOURCE_DIR, path.basename(script.path));
+  // named as submitted (the .py name checked), whatever a link it was reached through leads to
+  const at = path.join(record, SOURCE_DIR, path.basename(script.rel));
   try {
     mkdirSync(path.dirname(at), { recursive: true });
     writeFileSync(at, script.bytes, { flag: 'wx', mode: 0o444 });

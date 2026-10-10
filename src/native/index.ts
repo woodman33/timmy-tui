@@ -561,7 +561,7 @@ export function c4dpyJob(input: C4dpyJobInput): NativeJobSpec {
     kind: 'task', label: input.label ?? `Cinema 4D · ${script.rel}`, project: input.project, root,
     command: bin, args: [copy.path, ...(input.args ?? [])],
     env: {
-      ...input.env, ...nativeHome(input.env), TIMMY_RESULT: result.path, TIMMY_RUN: run, TIMMY_ROOT: root, TIMMY_OUT: path.join(root, 'out'),
+      ...input.env, ...nativeHome(input.env), TIMMY_RESULT: result.path, TIMMY_RUN: run, TIMMY_ROOT: root, TIMMY_OUT: path.join(root, OUT_FOLDER),
       ...scriptEnv(script, copy), ...(lib ? { TIMMY_C4D_LIB: lib } : {}),
     },
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -626,7 +626,7 @@ export function blenderJob(input: BlenderJobInput): NativeJobSpec {
     kind: 'task', label: input.label ?? `Blender · ${script.rel}`, project: input.project, root,
     command: bin, args: ['-b', '--factory-startup', '--python-exit-code', '1', '--python', copy.path, '--', ...(input.args ?? [])],
     env: {
-      ...input.env, ...nativeHome(input.env), TIMMY_RESULT: result.path, TIMMY_RUN: run, TIMMY_ROOT: root, TIMMY_OUT: path.join(root, 'out'),
+      ...input.env, ...nativeHome(input.env), TIMMY_RESULT: result.path, TIMMY_RUN: run, TIMMY_ROOT: root, TIMMY_OUT: path.join(root, OUT_FOLDER),
       ...scriptEnv(script, copy), ...(lib ? { TIMMY_BLENDER_LIB: lib } : {}),
     },
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -911,9 +911,14 @@ function judgeOutputs(x: ExitInfo, opts: JudgeOptions, who: string, verdict: (o:
       const whole = c.range !== null && c.missing.length === 0 && c.written > 0 && !(c.range_from === 'frames written' && c.written < 2);
       files.push({ path: name, present: c.written > 0, written: whole });
       if (!whole) {
-        short.push(c.range === null ? `${name} (no frame was written during this run)`
+        // R4 (finding 6): frames there with the bytes they had before the run are said so, never counted as written
+        const kept = c.by_change ? [
+          ...(c.by_change.reused ? [`${c.by_change.reused} frame${c.by_change.reused === 1 ? ' was' : 's were'} there before this run with the same bytes (reused)`] : []),
+          ...(c.by_change.unverified ? [`${c.by_change.unverified} rewritten with the same size, their bytes before the run not recorded`] : []),
+        ].join(', ') : '';
+        short.push(c.range === null ? `${name} (no frame was written during this run${kept ? `; ${kept}` : ''})`
           : c.range_from === 'frames written' && c.written < 2 ? `${name} (only one frame, ${c.range[0]}, was written during this run, and no range was given to say that is all: -s and -e would)`
-            : `${name} (${c.missing_count} frame${c.missing_count === 1 ? '' : 's'} of ${c.range[0]}–${c.range[1]} missing or not written during this run, first ${c.missing[0]})`);
+            : `${name} (${c.missing_count} frame${c.missing_count === 1 ? '' : 's'} of ${c.range[0]}–${c.range[1]} missing or not written during this run, first ${c.missing[0]}${kept ? `; ${kept}` : ''})`);
       }
       continue;
     }
