@@ -25,14 +25,14 @@ import { agentBin, agentExercisedIndex, AGENTS_DIR, judgeAgentRun, listAgentRuns
 import {
   bindMount, containerOllama, hostUser, judgeOpenHands, OPENHANDS_BUILD, OPENHANDS_BUILD_SHORT, OPENHANDS_IMAGE, OPENHANDS_NO_DOCKER, OPENHANDS_NO_PAID,
   OPENHANDS_NOT_ITERATE, OPENHANDS_NOTE, OPENHANDS_ONLY_LOCAL, openHandsCapabilityRow, openHandsDockerArgs, openHandsProgressLine, openHandsRouteWords, openHandsSaid,
-  PLAIN_SHOWN, watchOpenHands, workRel, type OpenHandsDocker,
+  PLAIN_SHOWN, watchOpenHands, workRel, type ContainerStop, type OpenHandsDocker,
 } from '../src/code-agents/openhands.js';
 import { dockerCall, dockerSetup } from '../src/code-agents/openhands-run.js';
 import { JobManager } from '../src/jobs/index.js';
 import { folderProject, projectId } from '../src/project/index.js';
 import { realOnPath } from '../src/repl/center.js';
 import { parseIterateLine } from '../src/repl/iterate.js';
-import { CLIENT_EXIT_MS, limitHead, OpenHandsRuns, STOP_ANSWER_MS, type OpenHandsRunState } from '../src/repl/openhands.js';
+import { CLIENT_EXIT_MS, limitHead, OpenHandsRuns, STOP_ANSWER_MS, stoppedHow, type OpenHandsRunState } from '../src/repl/openhands.js';
 import { Workspace, type WorkspaceDeps } from '../src/repl/workspace.js';
 import { actStopReason } from '../src/utils/stop-words.js';
 import { routeWords } from '../src/room/index.js';
@@ -713,6 +713,22 @@ describe('/stop and the time limit stop its container by its name and labels (FA
     await until(() => notes.some((n) => n.includes('at Timmy\'s time limit')));
     expect(notes.join('\n')).toContain(`agent openhands ${run}  its container ${name} was stopped by its name and labels at Timmy's time limit (docker stop)`);
   }, 60_000);
+
+  it('how Timmy stopped a run, in words: its container (each docker command with its exit), then what its docker client needed', () => {
+    const name = 'timmy-oh-a1a1a1a1a';
+    const s = (result: ContainerStop['result'], steps: ContainerStop['steps'] = [], detail?: string): ContainerStop => ({ why: 'stop', at: '', name, result, steps, ...(detail ? { detail } : {}) });
+    const stop = (exit: number | null) => ({ command: `docker stop --time 10 ${name}`, exit });
+    const kill = (exit: number | null) => ({ command: `docker kill ${name}`, exit });
+    const byItself = { first: 'answered' as const, group: 'ended by itself' as const };
+    expect(stoppedHow(s('stopped', [stop(0)]), { exitCode: 143, stopOrder: byItself })).toBe(`first docker stop ended its container ${name} (docker stop --time 10 ${name} exited 0), then its docker client ended by itself (exit 143)`);
+    expect(stoppedHow(s('killed', [stop(1), kill(0)]), { exitCode: 137, stopOrder: byItself })).toBe(`first docker stop did not end its container ${name}, and docker kill did (docker stop --time 10 ${name} exited 1, then docker kill ${name} exited 0), then its docker client ended by itself (exit 137)`);
+    expect(stoppedHow(s('ended', [stop(null), kill(1)]), { exitCode: 143, stopOrder: byItself })).toBe(`first its container ${name} ended while Timmy stopped it, not by docker kill (docker stop --time 10 ${name} gave no answer, then docker kill ${name} exited 1), then its docker client ended by itself (exit 143)`);
+    expect(stoppedHow(s('gone'), { exitCode: 0, stopOrder: byItself })).toBe(`first its container ${name} had already ended, then its docker client ended by itself (exit 0)`);
+    expect(stoppedHow(s('unchecked', [], 'docker ps: no answer'), { exitCode: 143, stopOrder: { first: 'answered', group: 'SIGTERM' } })).toBe(`first its container ${name} could not be checked (docker ps: no answer), then its docker client did not end by itself within 15s, so Timmy ended it (SIGTERM; exit 143)`);
+    expect(stoppedHow(s('asked'), { signal: 'SIGKILL', stopOrder: { first: 'no answer', group: 'SIGKILL' } })).toBe(`first the stop of its container ${name} was asked (no answer within 1m 40s), then its docker client did not end by itself within 15s, so Timmy ended it (SIGTERM, then SIGKILL; signal SIGKILL)`);
+    expect(stoppedHow(undefined, { exitCode: 0 })).toBe('its docker client had already ended (exit 0) before Timmy stopped its container; its container is checked by its name and labels after its job\'s end');
+    expect(stoppedHow(s('stopped', [stop(0)]), { exitCode: 143 })).toBe(`first docker stop ended its container ${name} (docker stop --time 10 ${name} exited 0), then its docker client had ended (exit 143)`);
+  });
 
   it('the job\'s own limit, the backstop, takes the same first part (its container first) and the record says the backstop came first', async () => {
     const dock = fakeDocker();

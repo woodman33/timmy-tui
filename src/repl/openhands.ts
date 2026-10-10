@@ -304,22 +304,23 @@ export function stopSteps(r: ContainerStop): string {
  */
 export function stoppedHow(stop: ContainerStop | undefined, job: { exitCode?: number | null; signal?: string | null; stopOrder?: StopOrder }): string {
   const exit = job.signal ? `signal ${job.signal}` : typeof job.exitCode === 'number' ? `exit ${job.exitCode}` : 'its exit not recorded';
-  const n = stop?.name ?? 'its container';
-  const what = !stop ? 'Timmy had not stopped its container'
-    : stop.result === 'stopped' ? `docker stop ended its container ${n}`
+  // No container stop was asked before its job's end: its docker client ended first (finish() then checks its container).
+  if (!stop) return `its docker client had already ended (${exit}) before Timmy stopped its container; its container is checked by its name and labels after its job's end`;
+  const n = stop.name;
+  const what = stop.result === 'stopped' ? `docker stop ended its container ${n}`
     : stop.result === 'killed' ? `docker stop did not end its container ${n}, and docker kill did`
     : stop.result === 'ended' ? `its container ${n} ended while Timmy stopped it, not by docker kill`
     : stop.result === 'gone' ? `its container ${n} had already ended`
     : stop.result === 'unresolved' ? `its container ${n} still ran after docker stop and docker kill`
     : stop.result === 'unchecked' ? `its container ${n} could not be checked${stop.detail ? ` (${stop.detail})` : ''}`
-    : `the stop of its container ${n} had not answered when its job ended`;
-  const steps = stop?.steps.length ? ` (${stopSteps(stop)})` : '';
+    : `the stop of its container ${n} was asked`;
   const o = job.stopOrder;
-  const late = o?.first === 'no answer' ? `; that stop had not answered within ${duration(STOP_ANSWER_MS)}` : '';
+  // Each docker command with its exit, and when Timmy went on without that stop's answer (its bound).
+  const said = [stop.steps.length ? stopSteps(stop) : '', o?.first === 'no answer' ? `no answer within ${duration(STOP_ANSWER_MS)}` : ''].filter(Boolean).join('; ');
   const client = !o ? `its docker client had ended (${exit})`
-    : o.group === 'ended by itself' ? `then its docker client ended by itself (${exit})`
+    : o.group === 'ended by itself' ? `its docker client ended by itself (${exit})`
     : `its docker client did not end by itself within ${duration(CLIENT_EXIT_MS)}, so Timmy ended it (${o.group === 'SIGKILL' ? 'SIGTERM, then SIGKILL' : 'SIGTERM'}; ${exit})`;
-  return `first ${what}${steps}${late}, ${client}`;
+  return `first ${what}${said ? ` (${said})` : ''}, then ${client}`;
 }
 
 /** A container stop in words. */
