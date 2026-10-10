@@ -7,6 +7,7 @@ import { signBody, verifyBody } from './signing.js';
 import { captureEnvLock, type EnvLock } from './envlock.js';
 import type { Edl } from './edl.js';
 import { stampReceipt } from '../ops/context.js';
+import type { BlockFacts } from '../workflows/block-receipts.js'; // R4 (H74)
 
 // TIMMY receipt chain v1 — the spine. Every effect appends a hash-chained,
 // tamper-evident receipt: plan → policy → effect → artifacts → cost → prev_hash.
@@ -47,8 +48,12 @@ export interface Receipt {
   // when the copy was renamed, its source's base name (never its folder).
   files?: Array<{ path: string; sha256?: string; previous_sha256?: string; created?: boolean; bytes?: number; kind?: string; kind_by?: 'bytes' | 'name'; source_name?: string }>;
   outputs?: Array<{ path: string; sha256?: string; bytes: number }>;
-  job?: { id: string; kind: string; label: string; state: string; exit_code?: number | null; steps?: Array<{ name: string; state: string; code?: number }>; log_sha256?: string; url?: string; ms?: number; error?: string };
-  prediction?: { doc: string; block: string; order: string[]; expect: string; met?: boolean; receipt?: string };
+  // R4 (H74): a workflow run's step names its block's receipt (`receipt`, a short id)
+  job?: { id: string; kind: string; label: string; state: string; exit_code?: number | null; steps?: Array<{ name: string; state: string; code?: number; receipt?: string }>; log_sha256?: string; url?: string; ms?: number; error?: string };
+  // R4 (H74): the risky blocks of a workflow's prediction (each with why) and how Timmy asked about them (`gate`)
+  prediction?: { doc: string; block: string; order: string[]; expect: string; met?: boolean; receipt?: string; risky?: Array<{ name: string; reason: string; code_sha256: string }>; gate?: string };
+  /** R4 (H74): one workflow block's receipt (kind workflow-block; src/workflows/block-receipts.ts) */
+  block?: BlockFacts;
   /** round R2, look: an observation's evidence tiers (deterministic computation; model interpretation), never merged */
   /** R2: a native app's run (Cinema 4D, After Effects), judged from its own result file; the exit code is recorded, not decisive */
   native?: { app: string; outcome: 'ok' | 'failed' | 'unknown'; why: string; exit_code: number | null; signal: string | null; files: Array<{ path: string; sha256?: string; present?: boolean; match?: boolean; matches?: boolean }>; c4d_version?: unknown; blender_version?: unknown; /** R4 (H63) */ unreal_version?: unknown; run?: string; input?: { path: string; sha256: string }; checked?: unknown[] };

@@ -16,7 +16,8 @@ import type { JobRecord, JobStep } from '../jobs/index.js';
 import { isLiveRun } from './upmd-live.js';
 
 export type RunBlockWord = 'waiting' | 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted' | 'not run' | 'not seen' | 'unknown';
-export interface RunBlock { name: string; word: RunBlockWord; code?: number; ms?: number; seen?: 'wrapper' }
+/** R4 (H74): `receipt`, the block's own receipt (its short id; src/workflows/block-receipts.ts), when the caller gave them. */
+export interface RunBlock { name: string; word: RunBlockWord; code?: number; ms?: number; seen?: 'wrapper'; receipt?: string }
 type RunRecord = Pick<JobRecord, 'state' | 'stale' | 'interrupted' | 'steps' | 'args'>;
 
 const TERMINAL: ReadonlySet<string> = new Set(['completed', 'failed', 'cancelled']);
@@ -42,9 +43,10 @@ export const replEnded = (j: Pick<JobRecord, 'stale' | 'interrupted'>): boolean 
 /**
  * The run's blocks: those of `order` (the order it was to run them), then any other step it recorded, each with its state.
  * `clock` gives a step's own time where its record has no moments (this REPL's own runs; src/repl/board-workflows.ts
- * StepClock). Only a run on a pty has own times: over a pipe each block was seen only as it ended.
+ * StepClock). Only a run on a pty has own times: over a pipe each block was seen only as it ended. R4 (H74): `receipts`,
+ * the run's block receipts by block name (src/workflows/block-receipts.ts blockReceiptsOf): each block names its own.
  */
-export function runBlocks(j: RunRecord, order: readonly string[], clock?: (i: number) => number | undefined): RunBlock[] {
+export function runBlocks(j: RunRecord, order: readonly string[], clock?: (i: number) => number | undefined, receipts?: ReadonlyMap<string, { receipt: string }>): RunBlock[] {
   const steps = j.steps;
   const live = !j.stale && !TERMINAL.has(j.state);
   const ended = replEnded(j);
@@ -62,7 +64,9 @@ export function runBlocks(j: RunRecord, order: readonly string[], clock?: (i: nu
     if (!s) word = live && !chainStopped ? 'waiting' : rest;
     else if (s.state !== 'running') word = s.state;
     else word = live ? 'running' : ended ? 'interrupted' : j.state === 'cancelled' ? 'stopped' : 'unknown';
-    return { name, word, ...(s?.code !== undefined ? { code: s.code } : {}), ...(ms !== undefined ? { ms } : {}), ...(s?.seen ? { seen: s.seen } : {}) };
+    // R4 (H74): a block that started has its own receipt once it has ended (a block that never started has none)
+    const receipt = s ? receipts?.get(name)?.receipt : undefined;
+    return { name, word, ...(s?.code !== undefined ? { code: s.code } : {}), ...(ms !== undefined ? { ms } : {}), ...(s?.seen ? { seen: s.seen } : {}), ...(receipt ? { receipt } : {}) };
   });
 }
 

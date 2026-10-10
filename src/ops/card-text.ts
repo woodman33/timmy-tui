@@ -37,6 +37,9 @@ export function cardLines(c: OperationCard, o: { glyphs: GlyphSet; link?: (rel: 
   for (const w of c.workflows) {
     lines.push([label('Workflow'), { text: `${w.doc} › ${w.block}`, role: 'strong' }, { text: `  job ${w.job}  ` }, { text: w.state, role: TONE_ROLE[w.tone] }]);
     if (w.steps.length) lines.push([pad, { text: w.steps.map((s, i) => `${i + 1} ${s.name} ${s.state}${s.code !== undefined && s.state === 'failed' ? ` (exit ${s.code})` : ''}`).join(sep) }]);
+    // R4 (H74): each block's own receipt
+    const sealed = w.steps.flatMap((s) => (s.receipt ? [`block ${s.name}: receipt ${s.receipt}`] : []));
+    if (sealed.length) lines.push([pad, { text: sealed.join(sep), role: 'secondary' }]);
     lines.push([pad, check(w.check)]);
     lines.push(cmds(w.commands));
   }

@@ -74,6 +74,11 @@ const ALWAYS: Record<string, { reason: string; keys: string[]; session?: false }
 
 const SHELL: Record<string, string[]> = { run_in_daytona_workspace: ['command'] };
 const DESTRUCTIVE = /\brm\b|sudo|chmod|chown|\bdd\b|mkfs/;
+/**
+ * R4 (H74): the one rule for a destructive shell command. The agent's shell tool's box says "destructive shell command" for
+ * these (approvalNeeded below), and a workflow's risky blocks are the blocks whose code it matches (src/repl/workflow-gate.ts).
+ */
+export const destructiveCommand = (command: string): boolean => DESTRUCTIVE.test(command);
 
 /** What the box shows, cleaned: the model wrote it, and a backspace must not disguise a command. */
 function summarize(args: Record<string, unknown>, keys: string[]): string {
@@ -174,7 +179,7 @@ export function approvalNeeded(tool: string, args: Record<string, unknown> = {},
     // Round R1: the box says where it runs. Without a Daytona key the tool runs it on this machine.
     const where = daytonaKeySet(env) ? 'in Daytona' : 'on this machine';
     // Each command is its own decision: `a` would let every later command run unseen (review finding).
-    return { ...withDetail(args, shell, { reason: DESTRUCTIVE.test(command) ? `destructive shell command ${where}` : `runs a shell command ${where}`, summary: command }), session: false };
+    return { ...withDetail(args, shell, { reason: destructiveCommand(command) ? `destructive shell command ${where}` : `runs a shell command ${where}`, summary: command }), session: false };
   }
   return { reason: 'unknown tool', summary: summarize(args, []) };
 }
@@ -242,22 +247,51 @@ export interface WaitingApproval {
   shown: boolean;
   /** the operation (one request) it belongs to, when the request has one */
   operation?: string;
+  /**
+   * R4 (H74): a wait that is not the chat agent's tool call (a workflow run whose blocks include a destructive shell
+   * command): the Control Room's "Waiting on you" says it in these words, cleaned there. `keys`: its box is the way to
+   * answer it (else the commands are). Absent for a tool call.
+   */
+  words?: { title: string; needed: string; why: string; commands: string[]; keys: boolean };
 }
 const waiting = new Map<number, WaitingApproval>();
 let waitSeq = 0;
 /** The calls waiting for the operator in this process now, oldest first (a copy). */
-export function waitingApprovals(): WaitingApproval[] { return [...waiting.values()].map((w) => ({ ...w })); }
+export function waitingApprovals(): WaitingApproval[] { return [...waiting.values()].map((w) => ({ ...w, ...(w.words ? { words: { ...w.words, commands: [...w.words.commands] } } : {}) })); }
+
+/**
+ * The SDK runs a round's tool calls in parallel; asks wait in line so one keypress answers one box. R4 (H74): one line for
+ * the whole process, so a workflow run's box (askPerson) never shares the terminal with a tool call's.
+ */
+let line: Promise<unknown> = Promise.resolve();
+const inLine = <R>(fn: () => Promise<R>): Promise<R> => {
+  const next = line.then(fn, fn);
+  line = next.catch(() => {});
+  return next;
+};
+
+/**
+ * R4 (H74): a request that is not a tool call waits for the operator in the same NEEDS YOU box, in the same line as the
+ * tool calls' boxes, and is listed as waiting (waitingApprovals: the Control Room's "Waiting on you") from now until it is
+ * answered. `ask` is the REPL's own (its terminal's box); a caller with no terminal to ask has none and asks nothing.
+ */
+export async function askPerson(req: ApprovalRequest, ask: (req: ApprovalRequest) => Promise<Decision>, words?: WaitingApproval['words']): Promise<Decision> {
+  const id = ++waitSeq;
+  const operation = currentOperation();
+  waiting.set(id, { tool: req.tool, reason: req.reason, summary: req.summary, session: req.session !== false, since: Date.now(), shown: false, ...(operation ? { operation } : {}), ...(words ? { words } : {}) });
+  try {
+    return await inLine(async () => {
+      const w = waiting.get(id);
+      if (w) w.shown = true;
+      return ask(req);
+    });
+  } finally { waiting.delete(id); }
+}
 
 /** Wrap each tool's execute so a call that needs approval waits for `ask`; a denial reaches the model. */
 export function gateTools<T>(tools: readonly T[], ask: (req: ApprovalRequest) => Promise<Decision>): T[] {
   const allowed = new Set<string>();
-  // The SDK runs a round's tool calls in parallel; asks wait in line so one keypress answers one box.
-  let line: Promise<unknown> = Promise.resolve();
-  const inTurn = <R>(fn: () => Promise<R>): Promise<R> => {
-    const next = line.then(fn, fn);
-    line = next.catch(() => {});
-    return next;
-  };
+  const inTurn = inLine;
   return tools.map((original) => {
     const t = original as unknown as ToolLike;
     const execute = t.function?.execute;

@@ -25,7 +25,7 @@ import { EXIT, TerminalSession } from '../term/session.js';
 import { buildTheme, fitSegments, roleSlots, serialize, type Segment, type Theme } from '../term/theme.js';
 import { DEMO_LOADER, DEMO_TURN, type DemoStep } from './demo.js';
 import { hyperlink, OSC133 } from '../term/marks.js';
-import { gateTools, readDecision } from './approvals.js';
+import { gateTools, readDecision, type ApprovalRequest, type Decision } from './approvals.js';
 import { COMMANDS, runSlash, type ReceiptsView, type ReplContext, type ThemeInfo } from './commands.js';
 import { LineEditor } from './editor.js';
 import { readPrompt } from './input.js';
@@ -239,6 +239,18 @@ export async function runRepl(argv: string[]): Promise<number> {
   // R1 workspace direction: the files each turn wrote in the project, for its receipt.
   const projectFiles = new ProjectTurnFiles();
   // NEEDS YOU: risky calls wait for the operator; with no terminal to ask, they are denied (§17.8).
+  // R4 (H74): the same box asks before a /run whose blocks include a risky one (the Workspace's askPerson, at a terminal only).
+  const askNeedsYou = async (req: ApprovalRequest): Promise<Decision> => {
+    if (!interactive) {
+      transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision: 'no-terminal' });
+      return 'deny';
+    }
+    transcript.handle({ type: 'needs-you', ...req });
+    approval.active = true;
+    const decision = await readDecision(process.stdin, session, { session: req.session !== false }).finally(() => { approval.active = false; });
+    transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision });
+    return decision;
+  };
   agent.setTools(
     gateTools(replTools(canvasJob, { root: () => workspace.root, touched: projectFiles }, {
       vision: {
@@ -251,17 +263,7 @@ export async function runRepl(argv: string[]): Promise<number> {
       recipe: { start: async (p) => ({ ...(await workspace.runRecipe(p)) }) },
       // iterate_recipe gives its instruction; iterate_native (R4, H33) its target, file and instruction.
       iterate: { start: (request) => workspace.iterateForTool(request) },
-    }), async (req) => {
-      if (!interactive) {
-        transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision: 'no-terminal' });
-        return 'deny';
-      }
-      transcript.handle({ type: 'needs-you', ...req });
-      approval.active = true;
-      const decision = await readDecision(process.stdin, session, { session: req.session !== false }).finally(() => { approval.active = false; });
-      transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision });
-      return decision;
-    }),
+    }), askNeedsYou),
   );
   const themeInfo = (): ThemeInfo => {
     const named = namedPalette(process.env.TIMMY_PALETTE);
@@ -376,6 +378,8 @@ export async function runRepl(argv: string[]): Promise<number> {
     // R4 (H55): the board says whether the canvas is open on this project; /board live's address reaches a canvas on it.
     canvas: () => canvasProject.boardLine(),
     onBoardLive: () => { if (canvasProject.follows) void canvasProject.handOff(); },
+    // R4 (H74): a /run whose blocks include a risky one asks in this terminal's NEEDS YOU box; in a pipe it is refused
+    ...(interactive ? { askPerson: askNeedsYou } : {}),
   }, folderProject(process.cwd()));
   canvasProject.start();
   // A second Ctrl+C exits at once: the jobs this REPL started stop with it.

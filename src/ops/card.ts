@@ -38,6 +38,7 @@ import { MCP_CALL_ID, MCP_CALLS_DIR } from '../connectors/mcp-records.js';
 import { flowClaims } from './outcome.js';
 import { listOperationRecords, operationRel, readOperationRecord, type OperationRecord } from './operations.js';
 import { runBlocks } from '../workflows/run-blocks.js'; // R4 (H67)
+import { blockReceiptsOf } from '../workflows/block-receipts.js'; // R4 (H74): each block's own receipt
 import { OPERATION_ID } from './context.js';
 import { writerState } from './process-proof.js';
 
@@ -338,7 +339,9 @@ function workflowParts(ix: OpIndex, id: string): CardWorkflow[] {
           : now === predicted ? { status: 'verified', words: `the document as it ran (sha256 ${short(now)}), as prediction receipt ${shortReceipt(p)} sealed it`, receipt: shortReceipt(p) }
             : { status: 'stale', words: `the document changed since it ran: sha256 ${short(now)} now, ${short(predicted)} when it ran (receipt ${shortReceipt(p)})`, receipt: shortReceipt(p) };
     const order = p?.prediction?.order ?? [];
-    const steps: CardStep[] = j.steps.map((s) => ({ name: s.name, state: s.state, ...(s.code !== undefined ? { code: s.code } : {}) }));
+    // R4 (H74): each block that ran with its own receipt
+    const own = blockReceiptsOf(ix.chain, j.id);
+    const steps: CardStep[] = j.steps.map((s) => ({ name: s.name, state: s.state, ...(s.code !== undefined ? { code: s.code } : {}), ...(own.get(s.name) ? { receipt: own.get(s.name)!.receipt } : {}) }));
     // R4 (H67, r20): a block with no step reads as the workflow card reads it: "not run" only where that is known
     const unseen = runBlocks(j, order);
     for (const name of order) if (!steps.some((s) => s.name === name)) steps.push({ name, state: unseen.find((b) => b.name === name)?.word ?? 'not run' });

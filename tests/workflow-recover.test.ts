@@ -19,6 +19,11 @@
  * not run (the file proves upmd was stopped before it could start), and /jobs, /workflows and the card say the same. A
  * wrapper that leaves no account (here: stopped with SIGSTOP before the kill, then killed with its run) proves nothing:
  * the block after reads "not seen".
+ *
+ * Round R4 (H74): recovery also seals the block receipts the run still needs: the block interrupted (its REPL ended) and
+ * each block only its wrapper saw end; a block the crashed session sealed before it ended is not sealed again. The
+ * recovering session reads the same chain the crashed one sealed on (as two REPLs of one Timmy share runs.jsonl): here the
+ * crashed session's seals, kept in a file, each given a hash whose short id is the one its seal returned.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
@@ -68,6 +73,13 @@ function table(): Proc[] {
 const groupRuns = (pgid: number): boolean => table().some((p) => p.pgid === pgid && !p.stat.startsWith('Z'));
 const noAbsolute = (s: string): void => { for (const p of new Set([root, fixtures, os.tmpdir()])) expect(s).not.toContain(p); };
 
+/** R4 (H74): what the crashed session sealed (its seals file), as a chain: each with a hash whose short id its seal returned. */
+const crashedChain = (): Receipt[] => {
+  const file = path.join(fixtures, 'crashed-seals.jsonl');
+  if (!fs.existsSync(file)) return [];
+  return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l, i) => ({ ...JSON.parse(l), hash: `sha256_crashed${i + 1}${'0'.repeat(56)}` })) as Receipt[];
+};
+
 /** A REPL session in this process, on the test's project and jobs folder (recovery runs as it starts). */
 function make() {
   const notes: string[] = [];
@@ -75,8 +87,10 @@ function make() {
   const ws = new Workspace({
     glyphs: glyphSet(true), env: { UPMD_BIN: FAKE_UPMD }, onPath: (cmd) => (cmd === 'python3' ? PYTHON3 : null),
     notify: (l) => notes.push(l.map((s) => s.text).join('')), openWeb: (u) => u, link: (t) => t,
-    seal: (input) => { sealed.push(input); return `id${sealed.length}`; },
-    jobsDir, chdir: () => {}, receipts: () => sealed as unknown as Receipt[],
+    // R4 (H74): short ids of 8 characters, as the chain's (id000001 …), each sealed input given a hash that carries it
+    seal: (input) => { sealed.push(input); return `id${String(sealed.length).padStart(6, '0')}`; },
+    // R4 (H74): the chain the crashed session sealed on, then this session's own seals
+    jobsDir, chdir: () => {}, receipts: () => [...crashedChain(), ...sealed.map((r, i) => ({ ...r, hash: `sha256_id${String(i + 1).padStart(6, '0')}${'0'.repeat(56)}` }))] as unknown as Receipt[],
   }, folderProject(root));
   spaces.push(ws);
   return { ws, notes, sealed };
@@ -166,7 +180,8 @@ describe.skipIf(!PYTHON3)('a /run left running by a REPL that was killed (R4 H58
     const error = `interrupted: its REPL ended while long was running; ${did}, so after did not start`;
     expect(item).toMatchObject({ did: 'interrupted', job: s.job, state: 'cancelled' });
     expect(item.stopped).toBeUndefined();
-    expect(item.text).toBe(`run ${s.job} of WORK.md › after was interrupted while long was running: ${did}, so after did not start; its job record now says cancelled: ${error}; nothing was run again: /run WORK.md after runs it again`);
+    // R4 (H74): the block the crashed session could not seal (long, interrupted) is sealed now; first it had sealed itself
+    expect(item.text).toBe(`run ${s.job} of WORK.md › after was interrupted while long was running: ${did}, so after did not start; its job record now says cancelled: ${error}; block long: receipt id000001; nothing was run again: /run WORK.md after runs it again`);
     // The run's own record, through the job module's writer: what is known, and from where.
     const job = new JobManager({ dir: jobsDir }).get(s.job)!;
     expect(job).toMatchObject({
@@ -179,15 +194,22 @@ describe.skipIf(!PYTHON3)('a /run left running by a REPL that was killed (R4 H58
     expect(notes[0]).toContain(`1 workflow run was interrupted: ${s.job} (job record ended)`);
     expect(notes[0]).not.toContain('was stopped');
     noAbsolute(notes.join('\n'));
-    expect(sealed).toEqual([]);
+    // R4 (H74): one block receipt: long, interrupted because its REPL ended, its end as the wrapper saw it; its code the
+    // document's (still the bytes its prediction, crashed1, sealed)
+    expect(crashedChain().map((r) => [r.kind, r.block?.name ?? null])).toEqual([['predict', null], ['workflow-block', 'first']]);
+    expect(sealed).toHaveLength(1);
+    expect(sealed[0]).toMatchObject({ kind: 'workflow-block', status: 'cancelled', block: { run: s.job, doc: 'WORK.md', name: 'long', index: 2, state: 'interrupted', outcome: 'interrupted', interrupted_by: 'repl ended', seen: 'wrapper', prediction: 'crashed1', doc_at_end: 'unchanged', exit_code: null, ended_at: stop.stopping_at } });
+    expect(sealed[0].block!.code_sha256).toMatch(/^[0-9a-f]{64}$/);
+    noAbsolute(JSON.stringify(sealed));
     // /jobs: three blocks (its sealed order), not two; each block with its word, and an own time where the card has one.
     const listed = text(ws.jobsView('')).split('\n').find((l) => l.includes(s.job))!;
     expect(listed).toContain('cancelled');
     expect(listed).toContain(' · 2 of 3 steps · ');
     expect(listed).toContain(`interrupted: its session ended while long ran; ${did}`);
     const shown = text(ws.jobsView(s.job)).split('\n');
-    expect(shown[1]).toMatch(/^ {6}✓ first {2}exit 0 · (<0\.1|\d+\.\d) s$/);
-    expect(shown[2]).toMatch(/^ {6}● long {2}interrupted · (<0\.1|\d+\.\d) s · seen by its pty wrapper \(its stop file\), not by Timmy$/);
+    // R4 (H74): each with its own receipt: first's sealed by the crashed session, long's by this recovery
+    expect(shown[1]).toMatch(/^ {6}✓ first {2}exit 0 · (<0\.1|\d+\.\d) s · receipt crashed2$/);
+    expect(shown[2]).toMatch(/^ {6}● long {2}interrupted · (<0\.1|\d+\.\d) s · seen by its pty wrapper \(its stop file\), not by Timmy · receipt id000001$/);
     expect(shown[3]).toBe('      ● after  not run');
     // /workflows and the card: the same words.
     const lines = text(await ws.workflows('WORK.md'));
@@ -214,13 +236,15 @@ describe.skipIf(!PYTHON3)('a /run left running by a REPL that was killed (R4 H58
     await until('the run\'s record to be stale', () => new JobManager({ dir: jobsDir }).get(s.job)?.stale === true);
     const stopFile = wrapperStopFile(new JobManager({ dir: jobsDir }).get(s.job)!.args)!;
     expect(fs.existsSync(stopFile)).toBe(false);
-    const { ws, notes } = make();
+    const { ws, notes, sealed } = make();
     const report = (await ws.startRecovery)!;
     const item = report.items.find((i) => i.kind === 'workflow' && i.id === s.job)!;
     const error = 'interrupted: its REPL ended while long was running; its process is gone; its pty wrapper wrote no stop file, so whether upmd went on to after is not known';
     expect(item).toMatchObject({ did: 'interrupted', state: 'failed' });
     expect(item.stopped).toBeUndefined();
-    expect(item.text).toBe(`run ${s.job} of WORK.md › after was interrupted while long was running: its REPL ended and its process is gone; its job record now says failed: ${error}; nothing was run again: /run WORK.md after runs it again`);
+    expect(item.text).toBe(`run ${s.job} of WORK.md › after was interrupted while long was running: its REPL ended and its process is gone; its job record now says failed: ${error}; block long: receipt id000001; nothing was run again: /run WORK.md after runs it again`);
+    // R4 (H74): long interrupted (its REPL ended), seen by Timmy as it started; after never started: no receipt
+    expect(sealed.map((r) => [r.kind, r.block?.name, r.block?.outcome, r.block?.interrupted_by, r.block?.seen])).toEqual([['workflow-block', 'long', 'interrupted', 'repl ended', 'timmy']]);
     const job = new JobManager({ dir: jobsDir }).get(s.job)!;
     expect(job).toMatchObject({ state: 'failed', error, interrupted: { step: 'long', rest: 'not seen' }, exitCode: null, signal: null });
     expect(job.interrupted!.wrapper).toBeUndefined();
@@ -256,17 +280,19 @@ describe.skipIf(!PYTHON3)('a /run left running by a REPL that was killed (R4 H58
     await until('the run\'s record to be stale', () => new JobManager({ dir: jobsDir }).get(s.job)?.stale === true);
     expect(words(new JobManager({ dir: jobsDir }).get(s.job)!)).toEqual([['first', 'completed', 0], ['mid', 'running', null]]);
 
-    const { ws, notes } = make();
+    const { ws, notes, sealed } = make();
     const report = (await ws.startRecovery)!;
     const item = report.items.find((i) => i.kind === 'workflow' && i.id === s.job)!;
     const note = "its REPL did not see it end: its pty wrapper saw upmd end by itself (exit 0); it saw mid completed and last completed, which Timmy did not see itself (its wrapper's stop file)";
     expect(item).toMatchObject({ did: 'judged', outcome: 'ok', state: 'completed' });
-    expect(item.text).toBe(`run ${s.job} of QUICK.md › last ended unseen by its REPL: its pty wrapper saw upmd end by itself (exit 0); it saw mid completed and last completed, which Timmy did not see itself; its job record now says completed, from its wrapper's stop file; nothing was run again`);
+    expect(item.text).toBe(`run ${s.job} of QUICK.md › last ended unseen by its REPL: its pty wrapper saw upmd end by itself (exit 0); it saw mid completed and last completed, which Timmy did not see itself; its job record now says completed, from its wrapper's stop file; block mid: receipt id000001, block last: receipt id000002; nothing was run again`);
     const job = new JobManager({ dir: jobsDir }).get(s.job)!;
     expect(job).toMatchObject({ state: 'completed', note, exitCode: null, signal: null });
     expect(job.error).toBeUndefined();
     expect(job.interrupted).toBeUndefined();
     expect(job.steps.map((x) => [x.name, x.index, x.state, x.code, x.seen ?? null])).toEqual([['first', 1, 'completed', 0, null], ['mid', 2, 'completed', 0, 'wrapper'], ['last', 3, 'completed', 0, 'wrapper']]);
+    // R4 (H74): the two blocks only the wrapper saw end are sealed as it saw them; first the crashed session had sealed
+    expect(sealed.map((r) => [r.block?.name, r.block?.outcome, r.block?.exit_code, r.block?.seen])).toEqual([['mid', 'completed', 0, 'wrapper'], ['last', 'completed', 0, 'wrapper']]);
     expect(notes[0]).toContain(`1 workflow run ended unseen by its REPL: ${s.job} (recorded from its pty wrapper's stop file)`);
     // /jobs, /workflows and the card: every block completed; the two the wrapper saw say so.
     const listed = text(ws.jobsView('')).split('\n').find((l) => l.includes(s.job))!;
@@ -274,8 +300,9 @@ describe.skipIf(!PYTHON3)('a /run left running by a REPL that was killed (R4 H58
     expect(listed).toContain(' · 3 of 3 steps · ');
     expect(listed).toContain(note);
     const shown = text(ws.jobsView(s.job)).split('\n');
-    expect(shown[2]).toMatch(/^ {6}✓ mid {2}exit 0 · \d+\.\d s · seen by its pty wrapper \(its stop file\), not by Timmy$/);
-    expect(shown[3]).toMatch(/^ {6}✓ last {2}exit 0 · (<0\.1|\d+\.\d) s · seen by its pty wrapper \(its stop file\), not by Timmy$/);
+    // R4 (H74): each with the receipt this recovery sealed for it
+    expect(shown[2]).toMatch(/^ {6}✓ mid {2}exit 0 · \d+\.\d s · seen by its pty wrapper \(its stop file\), not by Timmy · receipt id000001$/);
+    expect(shown[3]).toMatch(/^ {6}✓ last {2}exit 0 · (<0\.1|\d+\.\d) s · seen by its pty wrapper \(its stop file\), not by Timmy · receipt id000002$/);
     const lines = text(await ws.workflows('QUICK.md'));
     expect(lines).toContain(`Last run  ${s.job}  last (first → mid → last) · completed · first completed, mid completed, last completed`);
     expect(lines).toContain(`             ${note}`);
