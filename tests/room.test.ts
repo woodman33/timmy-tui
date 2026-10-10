@@ -445,7 +445,8 @@ describe('the Control Room on the board: escaping, buttons, no paths', () => {
     const groups = toolGroups(rows);
     expect(groups.map((g) => g.title)).toEqual(['Creative apps', 'Agents', 'MCP', 'Vision', 'Models', 'Everything else /tools checks']);
     expect(groups[0].rows.map((r) => r.name)).toEqual(['Blender (Python, headless)', 'OpenSCAD (command line)', 'Houdini']);
-    expect(groups[0].rows[2]).toMatchObject({ rung: 'not built', detail: '/tools has no row for Houdini, so nothing was checked here' });
+    // R4 (H76): not "proposed" (the engine shelf runs Houdini) and not "needs setup": not checked.
+    expect(groups[0].rows[2]).toMatchObject({ rung: 'not checked', detail: '/tools has no row for Houdini, so nothing was checked here' });
     expect(needsSetup(rows).map((r) => r.id)).toEqual(['blender', 'mcp-cli']);
     expect(setupCounts([...rows, { id: 'trigger', kind: 'tool', name: 'Trigger.dev jobs', rung: 'needs setup', detail: 'no key', setup: 'set TRIGGER_SECRET_KEY' }])).toEqual({ named: 6, otherNeedSetup: 1 });
     const { view } = gatherRoom({ ...ctx, tools: { checkedAt: '2026-10-10T09:59:00.000Z', rows } });

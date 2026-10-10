@@ -1,15 +1,14 @@
 /**
  * What Timmy can do here (round R1, plan F-0): one row per surface, model, agent tool, other agent and
  * adapter, each placed on the ladder of AGENTS.md §8 from a check that is free, quick, writes nothing and
- * prints no secret:
+ * prints no secret.
  *
- *   reachable    a live check answered just now
- *   installed    what it needs is here (a program, a key, a file); nothing was contacted
- *   needs setup  built, but something it needs is missing; `setup` is the step that adds it
- *   not built    planned, or a stub that cannot do its job here
- *
- * "Exercised" is said beside the rung, from the sealed receipts: the last time one of the row's tools
- * completed in a turn. A past use is not a present check, so it never raises the rung.
+ * Round R4 (H76): the plan's whole ladder (src/capabilities/ladder.ts): proposed, installed, reachable,
+ * exercised, qualified, each rung with its own evidence on the row (`ladder`, and `notReached` for why not),
+ * and "needs setup" when Timmy has the code but what it needs is not here (the step is shown). The checks
+ * below decide what is here now; src/capabilities/ladder-rows.ts adds the evidence and the rung that stands.
+ * A rung above installed stands only while the tool is here: a past run never raises a missing tool. What
+ * was demonstrated on the operator's Mac is a separate fact (`demonstrated`), never a rung.
  */
 import { agentExercisedAt } from '../code-agents/index.js';
 import { CODEX_LOCAL_ROUTE, codexLocalCapabilityRow } from '../code-agents/codex-local.js';
@@ -21,9 +20,14 @@ import type { StudioHealth } from '../studio/health.js';
 import { keySet } from '../utils/keys.js';
 // R4 (H61): VoxVision's tools as a group of their own (its readers, Rerun's viewer, Viser and FiftyOne).
 import { voxCapabilityRows } from '../vox/tools.js';
+// R4 (H76): the ladder's evidence on every row, and the Mac's demonstrations beside it.
+import type { Demonstration } from './demonstrations.js';
+import type { ChainEvidence, RunMark } from './evidence.js';
+import type { Ladder, NotReached, Rung } from './ladder.js';
+import { ladderFor, type Probes, type Timed } from './ladder-rows.js';
 
+export type { Rung } from './ladder.js';
 export type Kind = 'surface' | 'model' | 'tool' | 'harness' | 'adapter' | 'vox';
-export type Rung = 'reachable' | 'installed' | 'needs setup' | 'not built';
 /** OpenRouter's answer to the key check; `not-asked` when the caller could not read the key itself. */
 export type OpenRouterAnswer = 'accepted' | 'rejected' | 'unreachable' | 'no-key' | 'not-asked';
 
@@ -31,7 +35,14 @@ export interface CapabilityRow {
   id: string;
   kind: Kind;
   name: string;
+  /** R4 (H76): the rung that stands here now (src/capabilities/ladder.ts), or "needs setup" */
   rung: Rung;
+  /** R4 (H76): each rung's own evidence, null where not reached (every row capabilities() returns has it) */
+  ladder?: Ladder;
+  /** R4 (H76): why each rung that is not reached is not, in words */
+  notReached?: NotReached;
+  /** R4 (H76): its demonstrations on the operator's Mac (the ledger's rows), newest first; never a rung here */
+  demonstrated?: Demonstration[];
   /** Its state in a few words. */
   detail: string;
   /** The step that sets it up, when it needs setup. */
@@ -98,6 +109,16 @@ export interface ProbeDeps {
   edgeSet: () => boolean;
   /** R4 (H61): the project VoxVision's rows are checked in (its Roboflow venv); absent: this process's folder. */
   voxRoot?: () => string;
+  /** R4 (H76): where a program on PATH is (the installed rung's where); absent: where is not said. */
+  which?: (program: string) => string | null;
+  /** R4 (H76): the exercised runs and admitted answers on the verified chain (src/capabilities/evidence.ts chainEvidence). */
+  chainEvidence?: () => ChainEvidence;
+  /** R4 (H76): the recipe's run that counts in this project (src/capabilities/evidence.ts recipeMark). */
+  recipeMark?: () => RunMark | undefined;
+  /** R4 (H76): the folder of Timmy's repository, where its qualification records are kept; absent or undefined: none. */
+  qualificationRoot?: () => string | undefined;
+  /** R4 (H76): the local Ollama's address, as its probe asks it (said in the reachable evidence). */
+  ollamaBase?: string;
 }
 
 export const KIND_TITLES: Record<Kind, string> = {
@@ -117,14 +138,17 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   const env = d.env;
   // R4 (H52): OpenHands' docker checks, under way with the slow checks below (only when docker is on PATH).
   const ohProbe = d.onPath('docker') && d.openhands ? d.openhands().catch(() => undefined) : undefined;
-  // The slow checks run together; each has its own short timeout.
-  const [studio, ollama, openrouter, taskforge, missionMap] = await Promise.all([
-    d.studio(),
-    d.ollama(),
-    d.modelKeySource() ? d.openrouter() : Promise.resolve<OpenRouterAnswer>('no-key'),
-    keySet(env.TASKFORGE_API_URL) ? d.http(`${env.TASKFORGE_API_URL!.replace(/\/+$/, '')}/runtime/health`, 800) : Promise.resolve(null),
-    d.http('http://127.0.0.1:4336/api/vision/status', 600),
+  // The slow checks run together; each has its own short timeout. R4 (H76): each answer keeps the time it came (the
+  // reachable rung's evidence says what was asked, when, and the answer's gist).
+  const timed = <T>(p: Promise<T>): Promise<Timed<T>> => p.then((v) => ({ v, at: new Date().toISOString() }));
+  const [studioT, ollamaT, openrouterT, taskforgeT, missionMapT] = await Promise.all([
+    timed(d.studio()),
+    timed(d.ollama()),
+    timed(d.modelKeySource() ? d.openrouter() : Promise.resolve<OpenRouterAnswer>('no-key')),
+    timed(keySet(env.TASKFORGE_API_URL) ? d.http(`${env.TASKFORGE_API_URL!.replace(/\/+$/, '')}/runtime/health`, 800) : Promise.resolve(null)),
+    timed(d.http('http://127.0.0.1:4336/api/vision/status', 600)),
   ]);
+  const [studio, ollama, openrouter, taskforge, missionMap] = [studioT.v, ollamaT.v, openrouterT.v, taskforgeT.v, missionMapT.v];
   const page = `${d.studioBase}/`;
   const keySource = d.modelKeySource();
   const rows: Row[] = [];
@@ -202,7 +226,8 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   add(d.edgeSet()
     ? { id: 'pulse', kind: 'tool', name: 'Durable Object pulse', rung: 'installed', detail: 'edge host set; not contacted', tools: ['cloudflare_send_durable_pulse'] }
     : { id: 'pulse', kind: 'tool', name: 'Durable Object pulse', rung: 'needs setup', detail: 'no edge host', setup: 'set TIMMY_EDGE_HOST', tools: ['cloudflare_send_durable_pulse'] });
-  add({ id: 'flag', kind: 'tool', name: 'Feature flags', rung: 'not built', detail: 'needs a Worker binding; not readable here', tools: ['cloudflare_get_feature_flag'] });
+  // R4 (H76): built, but it reads a flag only through a Worker's binding; no plan here names it, so it is not "proposed".
+  add({ id: 'flag', kind: 'tool', name: 'Feature flags', rung: 'needs setup', detail: 'built, but it reads a flag only through a Cloudflare Worker\'s Flagship binding, and this terminal has none', setup: 'run it inside a Cloudflare Worker with a Flagship binding', tools: ['cloudflare_get_feature_flag'] });
   add(keySet(env.BREAK_MODE_API_BASE_URL ?? env.API_BASE_URL) && keySet(env.TIMMY_USERNAME)
     ? { id: 'listing', kind: 'tool', name: 'Card listing', rung: 'installed', detail: 'posts listings (asks first)', tools: ['list_card'] }
     : { id: 'listing', kind: 'tool', name: 'Card listing', rung: 'needs setup', detail: 'no listing service', setup: 'set BREAK_MODE_API_BASE_URL and TIMMY_USERNAME', tools: ['list_card'] });
@@ -287,7 +312,7 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   // Exercised: the last sealed, completed use of any of the row's tools; a row keyed by its own record
   // (exercisedBy) is decided by that record alone, never by a tool name it shares (R3, finding 6).
   const used = d.exercised();
-  return rows.map((r) => {
+  const legacy = rows.map((r): CapabilityRow => {
     if (r.exercisedBy?.startsWith('recipe:')) {
       // Submission, failure and cancellation never count: only a verified, succeeded job's result.
       const at = d.recipeExercised?.();
@@ -303,5 +328,28 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
     }
     const last = (r.tools ?? []).map((t) => used.get(t)).filter((t): t is string => Boolean(t)).sort().at(-1);
     return last ? { ...r, exercised: last } : r;
+  });
+
+  // R4 (H76): each row's ladder: the evidence of each rung, why the others are not reached, the rung that stands, and its
+  // demonstrations on the operator's Mac. With the chain's evidence read, "used" is the time of the run the ladder shows.
+  const probes: Probes = {
+    studioBase: d.studioBase, studio: studioT, ollama: ollamaT, openrouter: openrouterT, missionMap: missionMapT,
+    ...(d.ollamaBase ? { ollamaBase: d.ollamaBase } : {}), ...(keySet(env.TASKFORGE_API_URL) ? { taskforge: taskforgeT } : {}),
+  };
+  let evidence: ChainEvidence | undefined;
+  try { evidence = d.chainEvidence?.(); } catch (e) { evidence = { runs: new Map(), qualified: new Map(), broken: `its receipts could not be read (${e instanceof Error ? e.message : String(e)})` }; }
+  let recipe: RunMark | undefined;
+  try { recipe = d.recipeMark?.(); } catch { recipe = undefined; }
+  let qualificationRoot: string | undefined;
+  try { qualificationRoot = d.qualificationRoot?.(); } catch { qualificationRoot = undefined; }
+  const ctx = { env, probes, ...(d.which ? { which: d.which } : {}), ...(evidence ? { chain: evidence } : {}), ...(recipe ? { recipe } : {}), recipeRead: Boolean(d.recipeMark), ...(qualificationRoot ? { qualificationRoot } : {}) };
+  return legacy.map((r) => {
+    const l = ladderFor(r, ctx);
+    const { setup: _setup, exercised: _exercised, ...rest } = r;
+    return {
+      ...rest, rung: l.rung, ...(l.setup ? { setup: l.setup } : {}),
+      ...('exercised' in l ? (l.exercised ? { exercised: l.exercised } : {}) : r.exercised ? { exercised: r.exercised } : {}),
+      ladder: l.ladder, notReached: l.notReached, demonstrated: l.demonstrated,
+    };
   });
 }

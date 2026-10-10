@@ -15,7 +15,11 @@
  */
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { CapabilityRow } from '../capabilities/index.js';
-import { costParts, NOT_OURS, RUNG_WORDS, toolGroups, type RoomCosts, type RoomRun, type RoomStep, type RoomView, type Tone } from '../room/index.js';
+// R4 (H76): each row's ladder and its demonstrations on the operator's Mac.
+import { demonstratedWords, LEDGER } from '../capabilities/demonstrations.js';
+import { RUNGS } from '../capabilities/ladder.js';
+import { DEMONSTRATED_IS, demonstrationText, rungText } from '../capabilities/render.js';
+import { costParts, NOT_OURS, RUNG_WORDS, toolGroups, type PanelRow, type RoomCosts, type RoomRun, type RoomStep, type RoomView, type Tone } from '../room/index.js';
 import { costWords } from '../room/text.js';
 import { esc, stamp, type Kit } from './board-kit.js';
 // R4 (H51): the operation cards at the top of the section, and each run's operation and role.
@@ -91,11 +95,36 @@ export function runCard(r: RoomRun, k: Kit): string {
     + `<div class="cmds">${stop}${commands.map((c) => k.cmd(c)).join('')}</div></article>`;
 }
 
-/** A tool row: its name, its rung in words, what the check found, when a run last used it, and the step that sets it up. */
-function toolRow(r: CapabilityRow & { missing?: true }): string {
-  return `<li class="tl${r.missing ? ' tl-missing' : ''}"><div class="tl-head"><span class="tl-name">${esc(r.name.trim())}</span> <span class="rung rung-${cls(r.rung)}">${esc(r.rung)}</span></div>`
+/**
+ * R4 (H76): a row's ladder, folded: each rung with its evidence or why it is not reached, then its demonstrations on the
+ * operator's Mac (a separate fact, with their ledger rows). Kept open or closed across the live board's redraws.
+ */
+function ladderHtml(r: PanelRow): string {
+  if (r.missing || !r.ladder) return '';
+  const rungs = RUNGS.map((rung) => {
+    const t = rungText(r as CapabilityRow, rung);
+    return `<dt class="${t.reached ? 'lr-on' : 'lr-off'}">${esc(rung)}</dt><dd class="${t.reached ? 'lr-on' : 'lr-off'}">${esc(t.text)}</dd>`;
+  }).join('');
+  const demos = r.demonstrated ?? [];
+  const mac = demos.length
+    ? `<ul class="tl-demos" aria-label="${esc(`${r.name.trim()} on the operator's Mac`)}">${demos.map((d) => `<li><span class="demo demo-${d.result === 'PASS' ? 'pass' : 'fail'}">${esc(d.result)}</span> ${esc(demonstrationText(d).slice(d.result.length + 1))}</li>`).join('')}</ul>`
+    : `<p class="meta">${esc('No demonstration of it on the operator\'s Mac in the ledger.')}</p>`;
+  return `<details class="more tl-ladder" data-keep="${esc(`room:tool:${r.id}`)}"><summary>${esc('the ladder and the Mac runs')}</summary>`
+    + `<div class="more-body"><dl class="tl-rungs">${rungs}</dl>${mac}<p class="meta">${esc(`On the Mac: ${DEMONSTRATED_IS}.`)}</p></div></details>`;
+}
+
+/**
+ * A tool row: its name, its rung in words, what the check found, when a run last used it, its demonstrations on the Mac,
+ * the step that sets it up, and (folded) its ladder.
+ */
+function toolRow(r: PanelRow): string {
+  const demos = r.demonstrated ?? [];
+  return `<li class="tl${r.missing ? ' tl-missing' : ''}" data-tool="${esc(r.id)}"><div class="tl-head"><span class="tl-name">${esc(r.name.trim())}</span> <span class="rung rung-${cls(r.rung)}">${esc(r.rung)}</span></div>`
     + `<div class="tl-detail">${esc(r.detail)}</div>${r.exercised ? `<div class="tl-used">${esc(`used ${r.exercised.slice(0, 10)} (a run's own sealed record)`)}</div>` : ''}`
-    + `${r.setup ? `<div class="tl-step">do: <code>${esc(r.setup)}</code></div>` : ''}</li>`;
+    + `${r.rung === 'qualified' && r.ladder?.qualified ? `<div class="tl-qualified">${esc(`qualified: ${r.ladder.qualified.what}`)}</div>` : ''}`
+    + `${r.ladder?.proposed ? `<div class="tl-detail">${esc(`proposed in ${r.ladder.proposed.plan} (${r.ladder.proposed.section})`)}</div>` : ''}`
+    + `${demos.length ? `<div class="tl-mac">${esc(`on the Mac (scripted): ${demonstratedWords(demos)}`)}</div>` : ''}`
+    + `${r.setup ? `<div class="tl-step">do: <code>${esc(r.setup)}</code></div>` : ''}${ladderHtml(r)}</li>`;
 }
 
 /** The /tools ladder as the panel: its groups, as the Control Room last checked them, or how to check them. */
@@ -114,8 +143,9 @@ export function toolsPanel(v: RoomView, k: Kit): string {
   const advanced = other ? `<details class="more" data-keep="room:tools:other"><summary>${esc(`everything else /tools checks (${other.rows.length}${setup ? `, ${setup} need setup` : ''})`)}</summary>`
     + `<div class="more-body"><div class="grid room-tools">${card(other)}</div></div></details>` : '';
   const legend = (Object.keys(RUNG_WORDS) as Array<keyof typeof RUNG_WORDS>).map((r) => `${r}: ${RUNG_WORDS[r]}`).join(' · ');
-  return `<p class="meta">${esc(`checked ${stamp(t.checkedAt)} by /room; ${legend}. "Used" comes only from a run's own sealed record; a rung is what the check found now.`)}</p>`
-    + `${t.note ? `<p class="meta">${esc(t.note)}</p>` : ''}<div class="grid room-tools">${groups}</div>${advanced}${k.cmds(['/room', '/tools'])}`;
+  return `<p class="meta">${esc(`checked ${stamp(t.checkedAt)} by /room; ${legend}. Each rung stands on its own evidence (the ladder under each row); one above installed stands only while the tool is here. "Used" comes only from a run's own sealed record.`)}</p>`
+    + `<p class="meta">${esc(`"On the Mac" is ${DEMONSTRATED_IS} (${LEDGER}).`)}</p>`
+    + `${t.note ? `<p class="meta">${esc(t.note)}</p>` : ''}<div class="grid room-tools">${groups}</div>${advanced}${k.cmds(['/room', '/tools', '/tools <name>'])}`;
 }
 
 /** The section: its table-of-contents entry and its HTML. */
@@ -216,9 +246,22 @@ export const ROOM_CSS = `
 .room .tl-head { display: flex; justify-content: space-between; gap: 8px; }
 .room .tl-name { font-weight: ${TYPE.weight.strong}; overflow-wrap: anywhere; }
 .room .rung { text-transform: uppercase; letter-spacing: .05em; font-size: 11px; white-space: nowrap; color: ${HOMEBREW.text}; }
-.room .rung-reachable { font-weight: ${TYPE.weight.strong}; }
+.room .rung-reachable, .room .rung-exercised, .room .rung-qualified { font-weight: ${TYPE.weight.strong}; }
 .room .rung-needssetup { color: ${HOMEBREW.attention}; }
-.room .rung-notbuilt { color: ${HOMEBREW.textSecondary}; }
+.room .rung-proposed, .room .rung-notchecked { color: ${HOMEBREW.textSecondary}; }
+.room .tl-mac, .room .tl-qualified { color: ${HOMEBREW.text}; overflow-wrap: anywhere; }
+.room details.tl-ladder { margin-top: 4px; }
+.room dl.tl-rungs { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 8px; margin: 0; font-size: 11.5px; line-height: 1.4; }
+.room dl.tl-rungs dt { text-transform: uppercase; letter-spacing: .05em; font-size: 10.5px; }
+.room dl.tl-rungs dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.room .lr-on { color: ${HOMEBREW.text}; }
+.room dt.lr-on { font-weight: ${TYPE.weight.strong}; }
+.room .lr-off { color: ${HOMEBREW.textSecondary}; }
+.room ul.tl-demos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; }
+.room ul.tl-demos li { min-width: 0; overflow-wrap: anywhere; color: ${HOMEBREW.text}; }
+.room .demo { text-transform: uppercase; letter-spacing: .05em; font-size: 10.5px; font-weight: ${TYPE.weight.strong}; }
+.room .demo-pass { color: ${HOMEBREW.text}; }
+.room .demo-fail { color: ${HOMEBREW.failure}; }
 .room .tl-detail, .room .tl-used { color: ${HOMEBREW.textSecondary}; overflow-wrap: anywhere; }
 .room .tl-step { overflow-wrap: anywhere; }
 .room .tl-step code { font: inherit; color: ${HOMEBREW.text}; }

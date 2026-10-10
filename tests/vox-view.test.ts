@@ -234,15 +234,19 @@ describe('/tools: VoxVision\'s rows', () => {
     ollama: async () => ({ ok: false, models: [] }), openrouter: async () => 'no-key', modelKeySource: () => null, model: 'm', http: async () => null,
     lanes: () => [], adapters: () => [], receipts: () => ({ ok: true, count: 0 }), exercised: () => new Map(), edgeSet: () => false, exists: () => false,
   };
-  it('lists its readers and its viewer layers: Rerun found or needs setup, Viser and FiftyOne needing setup with their steps', async () => {
+  // R4 (H76): Viser and FiftyOne are proposed (the plan names them; VoxVision has no layer that runs them), so they carry
+  // the plan's citation and no install step: installing either would not make /vox view use it.
+  it('lists its readers and its viewer layers: Rerun found or needs setup, Viser and FiftyOne proposed with the plan that names them', async () => {
     const rows = await capabilities({ ...none, voxRoot: () => kit.temp('vox-tools-') });
     const vox = rows.filter((r) => r.kind === 'vox');
     expect(vox.map((r) => r.id)).toEqual(['vox:stl', 'vox:spatial', 'vox:look', 'vox:step', 'vox:blend', 'vox:video', 'vox:geo', 'vox:roboflow', 'vox:rerun', 'vox:viser', 'vox:fiftyone']);
     const by = Object.fromEntries(vox.map((r) => [r.id, r]));
     expect(by['vox:stl']).toMatchObject({ rung: 'installed', detail: expect.stringMatching(/^built in: /) });
     expect(by['vox:rerun']).toMatchObject({ name: 'Rerun viewer (/vox view)', rung: 'needs setup', detail: 'rerun is not on the PATH and TIMMY_RERUN is not set', setup: "cargo install rerun-cli --locked, or Rerun's release from its site" });
-    expect(by['vox:viser']).toMatchObject({ rung: 'needs setup', setup: 'pip install viser', detail: expect.stringContaining('it would add an interactive 3D scene in a browser tab') });
-    expect(by['vox:fiftyone']).toMatchObject({ rung: 'needs setup', setup: 'pip install fiftyone', detail: expect.stringContaining('it would add a browsable dataset') });
+    expect(by['vox:viser']).toMatchObject({ rung: 'proposed', detail: expect.stringContaining('it would add an interactive 3D scene in a browser tab') });
+    expect(by['vox:fiftyone']).toMatchObject({ rung: 'proposed', detail: expect.stringContaining('it would add a browsable dataset') });
+    expect([by['vox:viser'].setup, by['vox:fiftyone'].setup]).toEqual([undefined, undefined]);
+    expect(by['vox:viser'].ladder?.proposed).toEqual({ plan: 'docs/ui-cockpit/COMMAND-CENTER-PLAN.md', section: 'The orders, in order: F-6 The vision observatory', says: 'Viser as the 3D view' });
     const found = await capabilities({ ...none, env: { TIMMY_RERUN: fakeRerun(kit.temp('vox-rerun-')) }, voxRoot: () => kit.temp('vox-tools-') });
     expect(found.find((r) => r.id === 'vox:rerun')).toMatchObject({ rung: 'installed', detail: expect.stringMatching(/^set by TIMMY_RERUN; found is not run/) });
     const onPath = await capabilities({ ...none, onPath: (b) => b === 'rerun', voxRoot: () => kit.temp('vox-tools-') });
@@ -251,7 +255,7 @@ describe('/tools: VoxVision\'s rows', () => {
     expect(lines).toContain('  VOXVISION (/inspect, /measure, /detect, /compare, /vox view)');
     for (const l of lines) expect(l.length, l).toBeLessThanOrEqual(80);
     expect(lines.some((l) => l.includes("do: cargo install rerun-cli --locked, or Rerun's release from its site"))).toBe(true);
-    expect(lines.some((l) => l.includes('do: pip install viser'))).toBe(true);
-    expect(lines.some((l) => l.includes('do: pip install fiftyone'))).toBe(true);
+    expect(lines.some((l) => l.includes('pip install viser') || l.includes('pip install fiftyone'))).toBe(false);
+    expect(lines.filter((l) => l === '      proposed in COMMAND-CENTER-PLAN.md, F-6 The vision observatory')).toHaveLength(2);
   });
 });

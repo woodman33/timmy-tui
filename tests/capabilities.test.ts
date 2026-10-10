@@ -55,7 +55,8 @@ describe('the ladder, from the checks', () => {
     expect(r['canvas-tools']).toMatchObject({ rung: 'needs setup' });
     expect(r.trigger).toMatchObject({ rung: 'needs setup', setup: expect.stringContaining('TRIGGER_SECRET_KEY') });
     expect(r.stress).toMatchObject({ rung: 'needs setup', setup: expect.stringContaining('oha') });
-    expect(r.flag).toMatchObject({ rung: 'not built' });
+    // R4 (H76): built, but only a Worker's binding lets it read a flag; no plan here names it, so it is not "proposed".
+    expect(r.flag).toMatchObject({ rung: 'needs setup', setup: 'run it inside a Cloudflare Worker with a Flagship binding' });
     expect(r.workspace).toMatchObject({ rung: 'installed', detail: expect.stringContaining('this machine') });
     expect(r.taskforge).toMatchObject({ rung: 'needs setup', setup: expect.stringContaining('TASKFORGE_API_URL') });
     expect(r.agentpass).toMatchObject({ rung: 'needs setup', setup: expect.stringContaining('AGENTPASS_REPO_PATH') });
@@ -148,7 +149,11 @@ describe('showing it', () => {
     // A step too long for its row gets a line of its own, whole: a cut step cannot be followed.
     const at = lines.findIndex((l) => l.startsWith('  REPL (timmy)') && /needs setup/.test(l));
     expect(lines[at + 1]).toBe('      do: timmy init, or export OPENROUTER_API_KEY');
-    expect(lines.at(-1)).toMatch(/reachable: answered just now/);
+    // R4 (H76): the legend names every state of the ladder whole, wrapped between phrases, and the Mac's demonstrations apart.
+    const legend = lines.slice(lines.lastIndexOf('') + 1).join(' · ').replace(/\s+/g, ' ');
+    for (const s of ['proposed: a plan names it; no code runs it', 'needs setup: Timmy has the code; do the step', 'installed: found here; nothing asked',
+      'reachable: a probe answered just now', 'exercised: its own run here, judged and sealed', 'qualified: a formal qualification record',
+      'on the Mac: a scripted demonstration in the ledger, never a rung', 'one row in full: /tools <name>']) expect(legend, s).toContain(s);
   });
   it('R4 (H46): each row\'s agent tools are shown under it, whole (wrapped between names), as --json lists them: iterate_native on OpenSCAD and FreeCAD', async () => {
     for (const deps of [none, all]) {

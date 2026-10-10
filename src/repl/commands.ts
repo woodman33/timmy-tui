@@ -298,7 +298,7 @@ export const COMMANDS: SlashCommand[] = [
   {
     name: 'tools',
     group: 'setup',
-    description: 'What works here, checked live; /tools all',
+    description: 'What works here, checked live; /tools all; /tools <name>',
     run: (args, ctx) => printView(ctx.tools, args, ctx, 'The tool check is not available here.'),
   },
   {

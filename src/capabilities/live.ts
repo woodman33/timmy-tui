@@ -3,9 +3,9 @@
  * checks, and local requests with short timeouts; the one network call is OpenRouter's key endpoint,
  * which costs nothing. Nothing here writes a file or a receipt, starts a server, or prints a key.
  */
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { probeOllama } from '../agent/providers.js';
+import { accessSync, constants, existsSync, statSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
+import { getLocalOllamaBaseUrl, probeOllama } from '../agent/providers.js';
 import { studioBaseUrl } from '../studio/config.js';
 import { studioHealth } from '../studio/health.js';
 import { studioRoot } from '../studio/server.js';
@@ -24,6 +24,19 @@ import { recipeExercisedAt } from '../recipes/index.js';
 import { homedir } from 'node:os';
 import { packageRoot } from '../utils/asset-dirs.js';
 import { dockerSetup, openHandsWorker } from '../code-agents/openhands-run.js';
+// R4 (H76): the ladder's evidence: where a program is, the runs that count on the verified chain, the recipe's own, and
+// the repository's qualification records.
+import { chainEvidence, recipeMark } from './evidence.js';
+
+/** Where `program` is on the PATH (the first executable file), or null: nothing is run. */
+export function whichOnPath(program: string, env: Env = process.env): string | null {
+  for (const dir of (env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue;
+    const file = join(dir, program);
+    try { accessSync(file, constants.X_OK); if (statSync(file).isFile()) return file; } catch { /* not here */ }
+  }
+  return null;
+}
 
 type Env = Record<string, string | undefined>;
 
@@ -70,14 +83,19 @@ export interface LiveOptions {
   /** The model key, when the caller has loaded it (the REPL has); without it OpenRouter is not contacted. */
   key?: () => string | null;
   model: string;
+  /** R4 (H76): the folder whose receipts store is read (as appendReceipt's `dir`); absent: the store this process seals to. */
+  storeDir?: string;
+  /** R4 (H76): the project whose recipe jobs are read; absent: this process's folder. */
+  projectRoot?: string;
 }
 
 export function liveDeps(o: LiveOptions): ProbeDeps {
   const env = o.env ?? process.env;
   let chain: Array<Record<string, unknown>> | null = null;
-  const receipts = (): Array<Record<string, unknown>> => (chain ??= readChain('runs') as unknown as Array<Record<string, unknown>>);
+  const receipts = (): Array<Record<string, unknown>> => (chain ??= readChain('runs', o.storeDir) as unknown as Array<Record<string, unknown>>);
   let verified: ReturnType<typeof verifyChain> | null = null;
-  const verify = (): ReturnType<typeof verifyChain> => (verified ??= verifyChain('runs'));
+  const verify = (): ReturnType<typeof verifyChain> => (verified ??= verifyChain('runs', o.storeDir));
+  const project = (): string => o.projectRoot ?? process.cwd();
   return {
     env,
     onPath: (bin) => onPath(bin, env),
@@ -102,12 +120,19 @@ export function liveDeps(o: LiveOptions): ProbeDeps {
     // recorded in the project Timmy works in), never what another app or a shared tool name did.
     nativeRuns: () => {
       let runs: ReturnType<typeof listNativeRuns> = [];
-      try { runs = listNativeRuns(process.cwd()); } catch { /* no project runs here */ }
+      try { runs = listNativeRuns(project()); } catch { /* no project runs here */ }
       return nativeRunIndex(verify().ok ? receipts() : [], runs);
     },
     edgeSet: () => edgeUrlOrNull() !== null,
     // R3 (/recipe): the project's own durable recipe jobs, each read back through its signed result.
-    recipeExercised: () => { try { return recipeExercisedAt(process.cwd()); } catch { return undefined; } },
+    recipeExercised: () => { try { return recipeExercisedAt(project()); } catch { return undefined; } },
+    // R4 (H76): the ladder's evidence (src/capabilities/evidence.ts): nothing here runs a program or contacts anything.
+    which: (bin) => whichOnPath(bin, env),
+    chainEvidence: () => chainEvidence(receipts(), verify()),
+    recipeMark: () => recipeMark(project()),
+    // Its qualification records live in Timmy's repository (docs/orders), which the npm package does not carry.
+    qualificationRoot: () => packageRoot(import.meta.url),
+    ...((): { ollamaBase?: string } => { try { return { ollamaBase: getLocalOllamaBaseUrl() }; } catch { return {}; } })(),
     // Round R3 (/agent): an agent's row is exercised by a sealed, completed run of that agent alone.
     agentRuns: () => agentExercisedIndex(verify().ok ? receipts() : []),
     // Round R4 (H52): OpenHands: docker info and docker image inspect (read-only: nothing is built, pulled or started).
