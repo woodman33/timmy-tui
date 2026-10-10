@@ -40,6 +40,7 @@ import { keepBytes, NativeFlows, relTo, sha, short, type Line, type NativeIterat
 import { lessonsStartLine, pickLessons } from '../memory/retrieve.js'; // R4 (H50): Timmy Memory's lessons for the agent's task
 // R4 (H51): each flow record names the operation (one request) that started it.
 import { operationField } from '../ops/context.js';
+import { stoppedWords } from '../utils/stop-words.js';
 
 export const SCAD_ITERATE_USAGE = '/iterate scad <model.scad> "<instruction>" [--agent qwen|codex] [--model <local model>]';
 
@@ -221,7 +222,7 @@ export class ScadFlows extends NativeFlows<ScadFlowRecord> {
 
   private async openscadStep(f: ScadRun): Promise<void> {
     f.step = 'openscad';
-    if (this.stopped(f)) return this.end(f, 'cancelled', 'openscad', 'stopped with /stop before OpenSCAD ran');
+    if (this.stopped(f)) return this.end(f, 'cancelled', 'openscad', `${stoppedWords(f.abort.signal)} before OpenSCAD ran`);
     const modelRel = f.record.model.path;
     const paramsRel = f.record.parameters.path;
     const after = f.record.parameters.after!;
@@ -270,7 +271,7 @@ export class ScadFlows extends NativeFlows<ScadFlowRecord> {
     if (log) o.log = log.rel;
     if (this.stopped(f) || done.state === 'cancelled') {
       const when = done.state === 'cancelled' ? `during the OpenSCAD run (job ${job.id})` : `as the OpenSCAD run ended (job ${job.id} ${done.state}; its own receipt judges it)`;
-      return this.end(f, 'cancelled', 'openscad', `stopped with /stop ${when}; whatever it wrote is kept, and nothing was compared${o.log ? `; its output: ${o.log}` : ''}`);
+      return this.end(f, 'cancelled', 'openscad', `${stoppedWords(f.abort.signal)} ${when}; whatever it wrote is kept, and nothing was compared${o.log ? `; its output: ${o.log}` : ''}`);
     }
     // The run judged as /scad judges it: its exit, the STL created by this run, OpenSCAD's ERROR lines, Timmy's reading.
     const j = judgeScadJob(done, spec);

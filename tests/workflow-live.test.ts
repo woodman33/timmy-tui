@@ -239,7 +239,7 @@ describe("the connected card's words for live runs (FAKE job records)", () => {
     const w = view(dir, [stopped]);
     expect(w.connected!.nodes.map((n) => [n.name, n.word, n.detail])).toEqual([['first', 'completed', 'exit 0 · 1.0 s'], ['second', 'stopped', '1.5 s'], ['third', 'not run', '']]);
     const live = renderWorkflowCard(w, kit({ live: true, base: '../../' }));
-    expect(live).toContain('Stopped with /stop (or Stop) before it ended, while second was running.');
+    expect(live).toContain('Stopped before it ended, while second was running: /stop, the board&#39;s Stop, or the Timmy that started it stopped its job.');
     expect(live).toContain('It was running when j00b003 was stopped; upmd did not finish it.');
   });
 

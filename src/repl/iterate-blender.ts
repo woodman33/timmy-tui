@@ -49,6 +49,7 @@ import type { Segment } from '../term/theme.js';
 import { lessonsStartLine, pickLessons } from '../memory/retrieve.js'; // R4 (H50): Timmy Memory's lessons for the agent's task
 // R4 (H51): each flow record names the operation (one request) that started it.
 import { operationField } from '../ops/context.js';
+import { stopReason, stoppedWords } from '../utils/stop-words.js';
 
 type Line = Segment[];
 
@@ -294,7 +295,7 @@ export class BlenderFlows {
       ].slice(0, 200);
     }
     const kept = a.transcript ? `; its output is kept: ${a.transcript}` : '';
-    if (this.stopped(f) || a.outcome === 'cancelled' || job.state === 'cancelled') return this.end(f, 'cancelled', 'agent', `stopped with /stop during the agent step; Blender did not run${kept}`);
+    if (this.stopped(f) || a.outcome === 'cancelled' || job.state === 'cancelled') return this.end(f, 'cancelled', 'agent', `${stoppedWords(f.abort.signal)} during the agent step; Blender did not run${kept}`);
     if (a.outcome !== 'completed') return this.end(f, 'failed', 'agent', `the agent run ended ${a.outcome}${a.why ? `: ${a.why}` : ''}; Blender did not run${kept}`);
     this.saveState(f);
   }
@@ -329,7 +330,7 @@ export class BlenderFlows {
     this.saveState(f);
     const syntax = await this.syntax(f, bytes, rel);
     f.record.script.syntax = syntax;
-    if (this.stopped(f)) return this.end(f, 'cancelled', 'checks', 'stopped with /stop during the checks; Blender did not run');
+    if (this.stopped(f)) return this.end(f, 'cancelled', 'checks', `${stoppedWords(f.abort.signal)} during the checks; Blender did not run`);
     if (syntax.checked && !syntax.ok) return this.end(f, 'stopped', 'checks', `${rel} as the agent left it ${syntaxText(syntax)}; it is left as the agent wrote it; Blender did not run${kept}`);
     this.note(f, `agent ${a.agent} ${a.run} completed: changed ${rel} (${changeText(change)})${this.sep}${syntaxText(syntax)}`, syntax.checked ? 'secondary' : 'estimate');
     this.saveState(f);
@@ -355,7 +356,7 @@ export class BlenderFlows {
       }
       child.stdout?.on('data', (b: Buffer) => { if (out.length < 65536) out += b.toString('utf8'); });
       child.stderr?.on('data', () => { /* drained: the answer is the JSON line */ });
-      child.on('error', (e) => done({ checked: false, why: this.stopped(f) ? 'stopped with /stop' : `python3 did not run (${this.d.scrub(e.message, f.root)})` }));
+      child.on('error', (e) => done({ checked: false, why: this.stopped(f) ? `${stoppedWords(f.abort.signal)}` : `python3 did not run (${this.d.scrub(e.message, f.root)})` }));
       child.on('close', (code, signal) => {
         const parsed = parseSyntaxOutput(out);
         if (parsed?.ok) return done({ checked: true, ok: true, python: parsed.python, by: 'python3' });
@@ -369,7 +370,7 @@ export class BlenderFlows {
 
   private async blenderStep(f: BlenderRun): Promise<void> {
     f.step = 'blender';
-    if (this.stopped(f)) return this.end(f, 'cancelled', 'blender', 'stopped with /stop before Blender ran');
+    if (this.stopped(f)) return this.end(f, 'cancelled', 'blender', `${stoppedWords(f.abort.signal)} before Blender ran`);
     const rel = f.record.script.path;
     const after = f.record.script.after!;
     let spec: NativeJobSpec;
@@ -409,7 +410,7 @@ export class BlenderFlows {
     if (log) b.log = log.rel;
     if (this.stopped(f) || done.state === 'cancelled') {
       const when = done.state === 'cancelled' ? `during the Blender run (job ${job.id})` : `as the Blender run ended (job ${job.id} ${done.state}; its own receipt judges it)`;
-      return this.end(f, 'cancelled', 'blender', `stopped with /stop ${when}; whatever it wrote is kept, and nothing was read back${b.log ? `; its output: ${b.log}` : ''}`);
+      return this.end(f, 'cancelled', 'blender', `${stoppedWords(f.abort.signal)} ${when}; whatever it wrote is kept, and nothing was read back${b.log ? `; its output: ${b.log}` : ''}`);
     }
     // The run judged by its own result file (as /blender's end is): ok, failed or unknown, never by its exit alone.
     const j = judgeNativeJob(done, spec);
@@ -465,7 +466,7 @@ export class BlenderFlows {
       return this.end(f, 'failed', 'readback', `${r.reason}; nothing was read back`);
     }
     const blend = b.blend;
-    if (this.stopped(f)) { r.state = 'cancelled'; return this.end(f, 'cancelled', 'readback', 'stopped with /stop before the second pass started; Blender\'s run had finished'); }
+    if (this.stopped(f)) { r.state = 'cancelled'; return this.end(f, 'cancelled', 'readback', `${stoppedWords(f.abort.signal)} before the second pass started; Blender's run had finished`); }
     const abs = path.join(spec.native.root, ...blend.path.split('/'));
     // Timmy's own sha256 of the file, before the second pass: it must be the bytes the judged run recorded.
     const before = sha256File(abs);
@@ -509,8 +510,8 @@ export class BlenderFlows {
     };
     if (this.stopped(f) || done.state === 'cancelled') {
       r.state = 'cancelled';
-      r.reason = 'stopped with /stop before it finished: no verdict';
-      return finish(undefined, 'cancelled', `stopped with /stop during the second pass; Blender's run had finished; no verdict${r.log ? `; its output so far: ${r.log}` : ''}`);
+      r.reason = `${stoppedWords(f.abort.signal)} before it finished: no verdict`;
+      return finish(undefined, 'cancelled', `${stoppedWords(f.abort.signal)} during the second pass; Blender's run had finished; no verdict${r.log ? `; its output so far: ${r.log}` : ''}`);
     }
     let size = 0;
     try { size = statSync(done.logPath).size; } catch { size = 0; }
@@ -667,9 +668,9 @@ export class BlenderFlows {
    * /stop all and the REPL's end: every Blender flow is marked stopped, so none starts a next step (the jobs themselves
    * are stopped by the caller, as this REPL's jobs). How many were running, their records to wait for, and how each ended.
    */
-  abortAll(): { count: number; done: Array<Promise<unknown>>; describe: () => string[] } {
+  abortAll(by?: string): { count: number; done: Array<Promise<unknown>>; describe: () => string[] } {
     const live = [...this.running.values()];
-    for (const f of live) f.abort.abort();
+    for (const f of live) f.abort.abort(by ? stopReason(by) : undefined); // r19 F2: the stop's own words, or /stop's
     return {
       count: live.length,
       done: live.map((f) => f.done ?? Promise.resolve()),

@@ -462,7 +462,8 @@ export function runBarHtml(w: WorkflowDocInput, k: Kit): string {
     lines.push(failedAt ? `${failedAt.name} failed${failedAt.code !== undefined ? ` with exit ${failedAt.code}` : ''}; upmd stopped the chain there.` : `It failed${r.error ? `: ${r.error}` : ''}.`);
   } else if (r.word === 'stopped') {
     const at = r.blocks.find((b) => b.word === 'stopped');
-    lines.push(`Stopped with /stop (or Stop) before it ended${at ? `, while ${at.name} was running` : ''}.`);
+    // r19 F2: its job does not say who stopped it, so no one cause is claimed.
+    lines.push(`Stopped before it ended${at ? `, while ${at.name} was running` : ''}: /stop, the board's Stop, or the Timmy that started it stopped its job.`);
   }
   // R4 (H58): a run over a pipe saw each block only as it ended
   if (!r.live) lines.push('Its block states were not live: upmd wrote to a pipe and printed each block only when it ended, so no block was seen running and no own time was measured.');

@@ -38,6 +38,7 @@ import { keepBytes, NativeFlows, relTo, sha, short, type Line, type NativeIterat
 import { lessonsStartLine, pickLessons } from '../memory/retrieve.js'; // R4 (H50): Timmy Memory's lessons for the agent's task
 // R4 (H51): each flow record names the operation (one request) that started it.
 import { operationField } from '../ops/context.js';
+import { stoppedWords } from '../utils/stop-words.js';
 
 export const FREECAD_ITERATE_USAGE = '/iterate freecad <script.py> "<instruction>" [--agent qwen|codex] [--model <local model>]';
 
@@ -194,7 +195,7 @@ export class FreecadFlows extends NativeFlows<FreecadFlowRecord> {
     this.saveState(f);
     const syntax = await this.syntax(f, bytes, rel);
     f.record.script.syntax = syntax;
-    if (this.stopped(f)) return this.end(f, 'cancelled', 'checks', 'stopped with /stop during the checks; FreeCAD did not run');
+    if (this.stopped(f)) return this.end(f, 'cancelled', 'checks', `${stoppedWords(f.abort.signal)} during the checks; FreeCAD did not run`);
     if (syntax.checked && !syntax.ok) return this.end(f, 'stopped', 'checks', `${rel} as the agent left it ${syntaxWords(syntax, 'FreeCAD')}; it is left as the agent wrote it; FreeCAD did not run${keptOut}`);
     this.note(f, `agent ${a.agent} ${a.run} completed: changed ${rel} (${changeText(change)})${this.sep}${syntaxWords(syntax, 'FreeCAD')}`, syntax.checked ? 'secondary' : 'estimate');
     this.saveState(f);
@@ -202,7 +203,7 @@ export class FreecadFlows extends NativeFlows<FreecadFlowRecord> {
 
   private async freecadStep(f: FreecadRun): Promise<void> {
     f.step = 'freecad';
-    if (this.stopped(f)) return this.end(f, 'cancelled', 'freecad', 'stopped with /stop before FreeCAD ran');
+    if (this.stopped(f)) return this.end(f, 'cancelled', 'freecad', `${stoppedWords(f.abort.signal)} before FreeCAD ran`);
     const rel = f.record.script.path;
     const after = f.record.script.after!;
     let spec: FreecadJobSpec;
@@ -243,7 +244,7 @@ export class FreecadFlows extends NativeFlows<FreecadFlowRecord> {
     if (log) c.log = log.rel;
     if (this.stopped(f) || done.state === 'cancelled') {
       const when = done.state === 'cancelled' ? `during the FreeCAD run (job ${job.id})` : `as the FreeCAD run ended (job ${job.id} ${done.state}; its own receipt judges it)`;
-      return this.end(f, 'cancelled', 'freecad', `stopped with /stop ${when}; whatever it wrote is kept, and nothing was read back${c.log ? `; its output: ${c.log}` : ''}`);
+      return this.end(f, 'cancelled', 'freecad', `${stoppedWords(f.abort.signal)} ${when}; whatever it wrote is kept, and nothing was read back${c.log ? `; its output: ${c.log}` : ''}`);
     }
     // The run judged as /freecad judges it: by its own result file, never by freecadcmd's exit alone.
     const j = judgeFreecadJob(done, spec);
@@ -292,7 +293,7 @@ export class FreecadFlows extends NativeFlows<FreecadFlowRecord> {
       rb.setup = ready.why ?? 'the readback cannot run here';
       return this.end(f, 'succeeded', 'readback', `succeeded without readback: FreeCAD's run is judged ok, but no readback could run (${rb.setup}); its STEP is not compared with FreeCAD's report: /freecad readback ${run8} does it once the setup is done`);
     }
-    if (this.stopped(f)) { rb.state = 'cancelled'; return this.end(f, 'cancelled', 'readback', 'stopped with /stop before the readback started; FreeCAD\'s run had finished'); }
+    if (this.stopped(f)) { rb.state = 'cancelled'; return this.end(f, 'cancelled', 'readback', `${stoppedWords(f.abort.signal)} before the readback started; FreeCAD's run had finished`); }
     // Which file, and its bytes now: as /freecad readback plans it (a run judged ok, a STEP its result names, unchanged since).
     const p = planFreecadReadback(f.root, { run: spec.native.run });
     if (!p.ok) {
@@ -334,7 +335,7 @@ export class FreecadFlows extends NativeFlows<FreecadFlowRecord> {
     if (readReadbacks(plan.dir).some((x) => x.job === line.job)) rb.record = `${relTo(f.root, plan.dir)}/readbacks.jsonl`;
     const keptOut = rb.log ? `; its output is kept: ${rb.log}` : '';
     if (this.stopped(f) || line.state === 'cancelled') {
-      return this.end(f, 'cancelled', 'readback', `stopped with /stop during the readback; FreeCAD's run had finished; no verdict${rb.log ? `; its output so far: ${rb.log}` : ''}`);
+      return this.end(f, 'cancelled', 'readback', `${stoppedWords(f.abort.signal)} during the readback; FreeCAD's run had finished; no verdict${rb.log ? `; its output so far: ${rb.log}` : ''}`);
     }
     if (line.verdict === 'matches') return this.end(f, 'succeeded', 'readback', `the readback of ${plan.step.path} matches FreeCAD's report within ${toleranceText(READBACK_TOLERANCE)} (both are OpenCascade: not an independent kernel's confirmation)`);
     if (line.verdict === 'differs') return this.end(f, 'differs', 'readback', `the readback of ${plan.step.path} differs from FreeCAD's report: ${rb.reason ?? 'see its checks'}`);

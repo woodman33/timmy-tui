@@ -135,7 +135,8 @@ describe('timmy act, a real child process: exit codes, --json, the operation rec
     expect(json(path.join(s.home, 'timmy', 'jobs', `${job}.json`))).toMatchObject({ state: 'cancelled', operation: op });
     const agentRuns = fs.readdirSync(path.join(s.root, '.timmy', 'agents'));
     expect(agentRuns).toHaveLength(1);
-    expect(json(path.join(s.root, '.timmy', 'agents', agentRuns[0], 'result.json'))).toMatchObject({ outcome: 'cancelled', operation: op });
+    // r19 F2: its record says who stopped it, not "with /stop".
+    expect(json(path.join(s.root, '.timmy', 'agents', agentRuns[0], 'result.json'))).toMatchObject({ outcome: 'cancelled', operation: op, why: 'stopped by timmy act (SIGTERM received) before it finished' });
     // Its stop was sealed under its operation too.
     const chain = readChain('runs', s.root);
     expect(chain.length).toBeGreaterThan(0);
@@ -149,7 +150,29 @@ describe('timmy act, a real child process: exit codes, --json, the operation rec
     const o = lastJson(r.stdout);
     expect(o).toMatchObject({ outcome: 'stopped', exit_code: 3, why: expect.stringContaining('was not given --wait') });
     const agent = (o.runs as Array<{ kind: string; id: string }>).find((x) => x.kind === 'agent')!.id;
-    expect(json(path.join(s.root, '.timmy', 'agents', agent, 'result.json'))).toMatchObject({ outcome: 'cancelled', operation: o.operation });
+    expect(json(path.join(s.root, '.timmy', 'agents', agent, 'result.json'))).toMatchObject({ outcome: 'cancelled', operation: o.operation, why: 'stopped by timmy act (run without --wait) before it finished' });
     expect(readOperationRecord(s.root, String(o.operation))).toMatchObject({ ok: true, record: { state: 'stopped' } });
+  }, 90_000);
+
+  it('a flow stopped by SIGINT to timmy act says so in its record, not "with /stop" (r19 finding F2)', async () => {
+    const s = sandbox(kit, 'ops-act-int-');
+    const run = act(kit, s, ['/iterate scad box.scad "SLEEP PYFILE:box.params.json PYREPLACE:60,=>100,"', '--wait']);
+    const [, op] = await run.waitFor(/operation (o[0-9a-f]{8})/);
+    const [, flow] = await run.waitFor(/\b(f[0-9a-f]{8})\b/);
+    // Its agent's job runs (the FAKE agent sleeps until stopped) before the signal is sent.
+    const [, job] = await run.waitFor(/\b(j[0-9a-f]{6})\b/);
+    await new Promise((r) => { setTimeout(r, 800); });
+    run.child.kill('SIGINT');
+    const r = await run.done;
+    expect(r.code, r.stdout + r.stderr).toBe(3);
+    expect(r.stdout).toContain('stopping: SIGINT received');
+    const rec = json(path.join(s.root, 'results', 'flows', `${flow}.json`));
+    expect(rec).toMatchObject({ outcome: 'cancelled', ended_in: 'agent', operation: op });
+    expect(String(rec.why)).toContain('stopped by timmy act (SIGINT received) during the agent step; OpenSCAD did not run');
+    expect(String(rec.why)).not.toContain('/stop');
+    expect(json(path.join(s.home, 'timmy', 'jobs', `${job}.json`))).toMatchObject({ state: 'cancelled' });
+    const agent = (rec.agent as { run: string }).run;
+    expect(json(path.join(s.root, '.timmy', 'agents', agent, 'result.json'))).toMatchObject({ outcome: 'cancelled', why: 'stopped by timmy act (SIGINT received) before it finished' });
+    expect(readOperationRecord(s.root, op)).toMatchObject({ ok: true, record: { state: 'stopped', why: expect.stringMatching(/^SIGINT received/) } });
   }, 90_000);
 });

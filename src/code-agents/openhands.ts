@@ -36,6 +36,7 @@ import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { projectId } from '../project/index.js';
 import { tokenText } from './codex-local.js';
+import { cancelledWhy } from '../utils/stop-words.js';
 import {
   AGENTS_DIR, DEFAULT_BASE_URL, LOCAL_KEY_PLACEHOLDER, endpointClass, noteFile, scrubPaths,
   type AgentOutcome, type AgentPlan, type AgentProgress, type ChangeSet, type PlanResult,
@@ -455,9 +456,9 @@ export function openHandsProgressLine(line: string, state: AgentProgress, root: 
  * How a run ended, from its job's end and its own lines (index.ts judgeAgentRun asks this for OpenHands). `completed` only
  * from its result line saying finished at exit 0; the write-back may still turn it into failed (openhands-run.ts).
  */
-export function judgeOpenHands(job: { state: string; exitCode?: number | null; signal?: string | null; error?: string }, progress: AgentProgress): { outcome: AgentOutcome; why: string } {
+export function judgeOpenHands(job: { state: string; exitCode?: number | null; signal?: string | null; error?: string }, progress: AgentProgress, stopBy?: string): { outcome: AgentOutcome; why: string } {
   const said = openHandsSaid(progress);
-  if (job.state === 'cancelled') return { outcome: 'cancelled', why: 'stopped with /stop (or the REPL ended) before it finished' };
+  if (job.state === 'cancelled') return { outcome: 'cancelled', why: cancelledWhy(stopBy) };
   if (job.error === 'timed out') return { outcome: 'timed out', why: 'Timmy\'s time limit ended it (its wall time and a grace period)' };
   if (job.state !== 'completed') {
     if (job.exitCode === 125) return { outcome: 'failed', why: `docker could not start its container (exit 125)${said.dockerError ? `: ${said.dockerError}` : ''}` };

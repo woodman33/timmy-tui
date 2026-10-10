@@ -58,6 +58,7 @@ import { apart, blendFrame, frameFromRecord, imageFrame, noFrame, plyFrame, step
 import { checkWords, flowPredictionCheck, scadSummaryCheck } from '../vox/sources.js';
 import { voxArg } from '../vox/args.js';
 import { voxCommand } from './vox-view.js';
+import { stopReason, stoppedWords } from '../utils/stop-words.js';
 
 type Line = Segment[];
 
@@ -178,8 +179,8 @@ export class VoxActions {
   private toolEnv(root: string): ToolEnv { return { env: this.d.env(), onPath: this.d.onPath, root }; }
 
   /** /stop all and the REPL's end: no action starts its next step. */
-  abortAll(): number {
-    for (const r of this.running.values()) r.op.abort.abort();
+  abortAll(by?: string): number {
+    for (const r of this.running.values()) r.op.abort.abort(by ? stopReason(by) : undefined); // r19 F2: the stop's own words
     return this.running.size;
   }
 
@@ -366,7 +367,7 @@ export class VoxActions {
       }
     } catch { /* the job's own log stays in the jobs folder */ }
     op.record.tools.push(run);
-    if (done.state === 'cancelled') return fail('cancelled', 'stopped with /stop before it finished: nothing it measured is recorded');
+    if (done.state === 'cancelled') return fail('cancelled', `${stoppedWords(op.abort.signal)} before it finished: nothing it measured is recorded`);
     let size = 0;
     try { size = statSync(done.logPath).size; } catch { size = 0; }
     if (size > maxOutput) return fail('failed', `the worker printed more than ${maxOutput} bytes`);

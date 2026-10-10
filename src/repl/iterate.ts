@@ -72,6 +72,7 @@ import { lessonsStartLine, pickLessons, type LessonQuery, type Retrieval } from 
 // R4 (H51): each flow record names the operation (one request) that started it; a hold another process has refuses a start.
 import { operationField } from '../ops/context.js';
 import { holdWords } from '../ops/flow-hold.js';
+import { stopReason, stoppedWords } from '../utils/stop-words.js';
 
 type Line = Segment[];
 /** A start refused before anything was written. */
@@ -575,7 +576,7 @@ export class IterateFlows {
       ].slice(0, 200);
     }
     const kept = a.transcript ? `; its output is kept: ${a.transcript}` : '';
-    if (this.stopped(f) || a.outcome === 'cancelled' || job.state === 'cancelled') return this.end(f, 'cancelled', 'agent', `stopped with /stop during the agent step; nothing was built${kept}`);
+    if (this.stopped(f) || a.outcome === 'cancelled' || job.state === 'cancelled') return this.end(f, 'cancelled', 'agent', `${stoppedWords(f.abort.signal)} during the agent step; nothing was built${kept}`);
     if (a.outcome !== 'completed') return this.end(f, 'failed', 'agent', `the agent run ended ${a.outcome}${a.why ? `: ${a.why}` : ''}; nothing was built${kept}`);
     this.saveState(f);
   }
@@ -624,7 +625,7 @@ export class IterateFlows {
 
   private async buildStep(f: FlowRun): Promise<void> {
     f.step = 'build';
-    if (this.stopped(f)) return this.end(f, 'cancelled', 'build', 'stopped with /stop before the rebuild started; nothing was built');
+    if (this.stopped(f)) return this.end(f, 'cancelled', 'build', `${stoppedWords(f.abort.signal)} before the rebuild started; nothing was built`);
     const after = f.record.parameters.after!;
     // The checked values are given whole, so the request is exactly what was checked and diffed.
     const r = await this.d.startRecipe(f.root, f.project, after.values);
@@ -662,7 +663,7 @@ export class IterateFlows {
       const copy = checkCopy(f.root, f.uuid);
       if (!copy.ok) return this.end(f, 'failed', 'build', `recipe job ${f.uuid} succeeded, but its exports are not in the project: ${this.d.scrub(copy.error, f.root)}; /recipe copy ${f.uuid}`);
       f.record.rebuild.outputs = copy.v.files.map((x) => ({ path: `${copy.dir}/${x.name}`, sha256: x.sha256, bytes: x.bytes.length }));
-      if (this.stopped(f)) return this.end(f, 'cancelled', 'build', `stopped with /stop as the rebuild finished: recipe job ${f.uuid} succeeded and its exports are in ${copy.dir}/; no readback was made`);
+      if (this.stopped(f)) return this.end(f, 'cancelled', 'build', `${stoppedWords(f.abort.signal)} as the rebuild finished: recipe job ${f.uuid} succeeded and its exports are in ${copy.dir}/; no readback was made`);
       this.saveState(f);
       return;
     }
@@ -670,7 +671,7 @@ export class IterateFlows {
     if (kept.length) f.record.rebuild.failure_files = kept;
     const where = kept.length ? `; kept: ${kept.join(', ')}` : '';
     if (s.state === 'cancelled' || this.stopped(f)) {
-      return this.end(f, 'cancelled', 'build', `stopped with /stop during the build: recipe job ${f.uuid} ${s.state}${s.progress ? ` (${s.progress})` : ''} through the recipe's own cancel path; partial artifacts are kept and nothing is replayed${where}`);
+      return this.end(f, 'cancelled', 'build', `${stoppedWords(f.abort.signal)} during the build: recipe job ${f.uuid} ${s.state}${s.progress ? ` (${s.progress})` : ''} through the recipe's own cancel path; partial artifacts are kept and nothing is replayed${where}`);
     }
     return this.end(f, 'failed', 'build', `recipe job ${f.uuid} ${s.state}${s.reason ? `: ${this.d.scrub(s.reason, f.root)}` : s.error ? `: ${s.error}` : ''}; nothing was read back${where}`);
   }
@@ -682,7 +683,7 @@ export class IterateFlows {
     f.record.readback = { state: 'not started', tolerance: { ...READBACK_TOLERANCE }, scope: READBACK_SCOPE, ...(step ? { step: { path: step.path, sha256: step.sha256 } } : {}) };
     const r = f.record.readback;
     if (!step) return this.end(f, 'failed', 'readback', `the delivered outputs hold no ${STEP_EXPORT}; nothing was read back`);
-    if (this.stopped(f)) { r.state = 'cancelled'; return this.end(f, 'cancelled', 'readback', 'stopped with /stop before the readback started; the rebuild had finished'); }
+    if (this.stopped(f)) { r.state = 'cancelled'; return this.end(f, 'cancelled', 'readback', `${stoppedWords(f.abort.signal)} before the readback started; the rebuild had finished`); }
     const rt = nativeRuntime(this.d.env());
     const abs = join(f.root, step.path);
     let cmd: { command: string; args: string[] };
@@ -725,8 +726,8 @@ export class IterateFlows {
     };
     if (this.stopped(f) || done.state === 'cancelled') {
       r.state = 'cancelled';
-      r.reason = 'stopped with /stop before it finished: no verdict';
-      return finish(undefined, 'cancelled', `stopped with /stop during the readback; the rebuild had finished; no verdict${r.log ? `; its output so far: ${r.log}` : ''}`);
+      r.reason = `${stoppedWords(f.abort.signal)} before it finished: no verdict`;
+      return finish(undefined, 'cancelled', `${stoppedWords(f.abort.signal)} during the readback; the rebuild had finished; no verdict${r.log ? `; its output so far: ${r.log}` : ''}`);
     }
     let size = 0;
     try { size = statSync(done.logPath).size; } catch { size = 0; }
@@ -859,15 +860,15 @@ export class IterateFlows {
    * asks the recipe's own cancel now (the jobs themselves are stopped by the caller, as this REPL's jobs).
    * Returns how many flows were running, and a report of how each ended (it waits, at most `ms`, for them).
    */
-  abortAll(): { count: number; report: (ms?: number) => Promise<string | undefined> } {
+  abortAll(by?: string): { count: number; report: (ms?: number) => Promise<string | undefined> } {
     const live = [...this.running.values()];
     for (const f of live) {
-      f.abort.abort();
+      f.abort.abort(by ? stopReason(by) : undefined); // r19 F2: the stop's own words in its record, or /stop's
       if (f.step === 'build' && f.uuid) { try { cancel(f.root, f.uuid); } catch { /* status says */ } }
     }
-    const blender = this.blender.abortAll(); // R4 (H26)
-    const natives = [this.scad.abortAll(), this.freecad.abortAll()]; // R4 (H33)
-    const others = [blender, ...natives, this.ae.abortAll()]; // R4 (H41): the After Effects flows too
+    const blender = this.blender.abortAll(by); // R4 (H26)
+    const natives = [this.scad.abortAll(by), this.freecad.abortAll(by)]; // R4 (H33)
+    const others = [blender, ...natives, this.ae.abortAll(by)]; // R4 (H41): the After Effects flows too
     const count = live.length + others.reduce((n, o) => n + o.count, 0);
     return {
       count,

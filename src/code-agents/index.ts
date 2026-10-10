@@ -18,6 +18,7 @@ import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { CODEX_LOCAL_ROUTE, codexProgressLine, planCodexLocal } from './codex-local.js';
 // Round R4 (helper H52): OpenHands, in a container with a local model only (openhands.ts); hooks are marked "R4 (H52)".
 import { judgeOpenHands, openHandsProgressLine, planOpenHands, type OpenHandsContainer, type OpenHandsRecord } from './openhands.js';
+import { cancelledWhy } from '../utils/stop-words.js';
 
 export type AgentName = 'qwen' | 'claude' | 'codex' | 'opencode' | 'openhands';
 export const AGENT_NAMES: readonly AgentName[] = ['qwen', 'claude', 'codex', 'opencode', 'openhands'];
@@ -774,10 +775,10 @@ export function writeRunRecord(dir: string, value: AgentRunRecord & { state: Run
 
 export const runDir = (root: string, run: string): string => join(root, AGENTS_DIR, run);
 
-/** How the run ended, from the job's end and what the agent's stream reported. */
-export function judgeAgentRun(job: { state: string; exitCode?: number | null; signal?: string | null; error?: string }, progress: AgentProgress, agent: AgentName): { outcome: AgentOutcome; why: string } {
-  if (agent === 'openhands') return judgeOpenHands(job, progress); // R4 (H52): its result line, read with its token
-  if (job.state === 'cancelled') return { outcome: 'cancelled', why: 'stopped with /stop (or the REPL ended) before it finished' };
+/** How the run ended, from the job's end and what the agent's stream reported; `stopBy`, the words its stop gave. */
+export function judgeAgentRun(job: { state: string; exitCode?: number | null; signal?: string | null; error?: string }, progress: AgentProgress, agent: AgentName, stopBy?: string): { outcome: AgentOutcome; why: string } {
+  if (agent === 'openhands') return judgeOpenHands(job, progress, stopBy); // R4 (H52): its result line, read with its token
+  if (job.state === 'cancelled') return { outcome: 'cancelled', why: cancelledWhy(stopBy) };
   if (job.error === 'timed out') return { outcome: 'timed out', why: 'Timmy\'s time limit ended it (its wall time and a grace period)' };
   if (agent === 'qwen' && job.exitCode === QWEN_BUDGET_EXIT) return { outcome: 'timed out', why: `its own wall-time budget ended it (exit ${QWEN_BUDGET_EXIT})` };
   if (job.state !== 'completed') return { outcome: 'failed', why: job.error ?? (progress.reportedError ? `it reported ${progress.reportedError}` : `it exited ${job.exitCode ?? job.signal ?? '?'}`) };

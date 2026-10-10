@@ -36,6 +36,7 @@ import { operationRel, type OperationHandle, type OperationState } from './opera
 import { flowRecordPath } from '../flows/iterate.js';
 import { voxRecordPath } from '../vox/record.js';
 import { AGENTS_DIR } from '../code-agents/index.js';
+import { actStopReason } from '../utils/stop-words.js';
 import { MCP_CALLS_DIR } from '../connectors/mcp-records.js';
 
 export const ACT_USAGE = 'timmy act "<slash command>" [--wait] [--json] [--project <dir>] [--timeout <dur>]';
@@ -221,20 +222,21 @@ export async function actMain(argv: string[], o: { json?: boolean } = {}): Promi
   // A stop (a signal, the time limit, no --wait): what the command started stops through the normal stop path.
   let stopping: Promise<void> | undefined;
   let stopWhy = '';
-  const stop = (why: string): Promise<void> => {
+  const stop = (why: string, short = why): Promise<void> => {
     if (stopping) return stopping;
     stopWhy = why;
     out(`  stopping: ${why}`);
     ws.ops.stopping(h, why);
     stopping = (async () => {
-      for (const l of await ws.stop('all')) out(plain(l));
+      // r19 F2: the runs it stops keep these words ("stopped by timmy act (SIGINT received)"), not "with /stop".
+      for (const l of await ws.stop('all', { by: actStopReason(short) })) out(plain(l));
     })().catch(() => undefined);
     return stopping;
   };
   let signals = 0;
   const onSignal = (sig: NodeJS.Signals): void => {
     signals += 1;
-    if (signals > 1) { ws.killNow(); process.exit(3); }
+    if (signals > 1) { ws.killNow(actStopReason(`a second ${sig}: it exits at once`)); process.exit(3); }
     void stop(`${sig} received`);
   };
   process.on('SIGINT', onSignal);
@@ -262,7 +264,7 @@ export async function actMain(argv: string[], o: { json?: boolean } = {}): Promi
 
   // Wait for what it started (or stop it), then for the operation's own end.
   while (ws.ops.live(h) && !stopping) {
-    if (!a.wait) { await stop('timmy act was not given --wait, so what the command started is stopped as it exits'); break; }
+    if (!a.wait) { await stop('timmy act was not given --wait, so what the command started is stopped as it exits', 'run without --wait'); break; }
     if (deadline !== undefined && Date.now() >= deadline) { await stop(`--timeout ${a.timeoutMs} ms passed`); break; }
     await sleep(100);
     ws.ops.check();
@@ -274,7 +276,7 @@ export async function actMain(argv: string[], o: { json?: boolean } = {}): Promi
   }
   for (let i = 0; i < 100 && !h.ended; i++) { ws.ops.check(); if (!h.ended) await sleep(50); }
   if (!h.ended) ws.ops.end(h, failedToRun ? 'failed' : 'stopped', failedToRun ? `the command failed: ${failedToRun}` : 'it did not end within the time act waits');
-  await ws.close();
+  await ws.close({ by: actStopReason('it is exiting') });
   process.off('SIGINT', onSignal);
   process.off('SIGTERM', onSignal);
 

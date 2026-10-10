@@ -13,7 +13,8 @@
  *                      ae       agent, checks, author, render, readback
  *                    A finished record says the step it ended in (`ended_in`) and how (`outcome`): the steps before it
  *                    completed, the one it names ended as the outcome says (succeeded and differs: completed; failed;
- *                    stopped; cancelled: stopped with /stop; interrupted: recorded after a restart, src/repl/recover.ts),
+ *                    stopped; cancelled: stopped by /stop, timmy act or the REPL's end; interrupted: recorded after a
+ *                    restart, src/repl/recover.ts),
  *                    and the steps after it did not run. A readback that could not start says so itself (`state: 'not
  *                    run'`). A flow still running has no record yet: its state file (.timmy/flows/<id>/state.json, its
  *                    `step`) says which step runs; the steps before it completed and the ones after it wait.

@@ -110,6 +110,7 @@ import { recoverOpenHands } from './openhands-recover.js';
 import { recoverAgentRuns } from './recover-agents.js'; // R4 (H59): code agent runs an ended REPL left (their run records)
 // Round R4 (H55): the board's line about Timmy Canvas (src/repl/board-canvas.ts; the REPL checks the canvas).
 import type { BoardCanvas } from './board-canvas.js';
+import { REPL_END_REASON, stopReason } from '../utils/stop-words.js';
 
 type Line = Segment[];
 
@@ -276,6 +277,8 @@ export class Workspace {
   private upmdFound: { bin: string; version: string | null } | null = null;
   /** The jobs this REPL started: the only ones it may stop. */
   private readonly mine = new Set<string>();
+  /** r19 F2: the words a stop other than /stop gave each job it stopped (`timmy act`, the REPL's end), for its records. */
+  private readonly stopBy = new Map<string, string>();
   /** R2: native jobs (Cinema 4D, After Effects) this REPL started, with what they must leave behind */
   private readonly natives = new Map<string, NativeJobSpec>();
   /** Look jobs: their one receipt is the observation's, sealed when it is written (not the job's). */
@@ -1235,21 +1238,26 @@ export class Workspace {
    * Stops this REPL's own jobs and reports what actually happened (review at c7475458: /stop claimed
    * another session's job stopped when it was left untouched, and /stop all counted jobs it did not own).
    */
-  async stop(args: string): Promise<Line[]> {
+  /**
+   * /stop <job | flow | all>. `o.by` is the words a stop other than the REPL's /stop gives the flows and VoxVision actions
+   * it stops ("by timmy act (SIGINT received)"), which their records keep; without it they say "stopped with /stop".
+   */
+  async stop(args: string, o: { by?: string } = {}): Promise<Line[]> {
     const id = args.trim();
     if (!id) return this.say('Usage: /stop <job>, or /stop all');
     // R4 (/iterate): a flow is stopped by its id (f + 8 hex).
     if (FLOW_ID.test(id)) return this.flows.stop(id, this.root);
     if (id === 'all') {
       // R4 (/iterate): the flows first, so none starts a next step; their running steps are this REPL's jobs below.
-      const flows = this.flows.abortAll();
+      const flows = this.flows.abortAll(o.by);
       // R4 (H49): no VoxVision action starts its next job; its running job is this REPL's, stopped below.
-      this.vox.abortAll();
+      this.vox.abortAll(o.by);
       // Round R3: an observation's model interpretation belongs to its Look job: /stop all reaches it too.
       const asking = [...this.observing.values()].filter((o) => o.asking);
       for (const o of this.observing.values()) o.abort.abort();
       const live = [...this.mine].map((x) => this.jobs.get(x)).filter((j): j is JobRecord => !!j && !TERMINAL.has(j.state));
       if (!live.length && !asking.length && !flows.count) return this.say('Nothing this REPL started is running.');
+      if (o.by) for (const j of live) this.stopBy.set(j.id, stopReason(o.by)); // r19 F2
       // Round R4 (H17): each recipe watcher's recipe is cancelled through its own path before any watcher is stopped.
       const recipesAsked = live.flatMap((j) => this.cancelWatched(j) ?? []);
       const [ended, asked, containers] = await Promise.all([
@@ -1341,18 +1349,20 @@ export class Workspace {
 
   /** The REPL is ending: stop what this REPL started, a model's interpretation included, and let a stopped
    *  observation be recorded (round R3). */
-  async close(): Promise<void> {
+  async close(o: { by?: string } = {}): Promise<void> {
     // Round R4 (H17): recipes first, through their own cancel; a recipe start under way settles (bounded) and starts no watcher.
     for (const a of this.cancelRecipes()) if (a.error) this.d.notify(this.say(cancelSentence(a), 'failure')[0]);
     await within(this.launches.settled());
     // Round R4 (H32): a recovery pass under way finishes first; it follows nothing more once this REPL is ending.
     await within(this.recoveries);
     await this.closeLiveBoard();
-    // R4 (/iterate): no flow starts a next step; each writes its record once its step has stopped.
-    this.flows.abortAll();
-    this.vox.abortAll();
+    // R4 (/iterate): no flow starts a next step; each writes its record once its step has stopped (said as the REPL's
+    // end, or the words its caller gives: r19 F2).
+    this.flows.abortAll(o.by ?? REPL_END_REASON);
+    this.vox.abortAll(o.by ?? REPL_END_REASON);
     const pending = [...this.observing.values()].flatMap((o) => { o.abort.abort(); return o.done ? [o.done] : []; });
     // R4 (H52): each OpenHands job's container is stopped by its name and labels as its job is.
+    for (const id of this.mine) if (!this.stopBy.has(id)) { const j = this.jobs.get(id); if (j && !TERMINAL.has(j.state)) this.stopBy.set(id, stopReason(o.by ?? REPL_END_REASON)); } // r19 F2
     await Promise.all([this.jobs.stopAll(), this.openhands.stopAll('the REPL ended')]);
     await within(Promise.allSettled(pending));
     await this.flows.settle(20_000);
@@ -1366,9 +1376,9 @@ export class Workspace {
   }
 
   /** The process is exiting at once (a second Ctrl+C): signal this REPL's live jobs without waiting. */
-  killNow(): void {
-    this.flows.abortAll();
-    this.vox.abortAll();
+  killNow(by: string = REPL_END_REASON): void {
+    this.flows.abortAll(by);
+    this.vox.abortAll(by);
     this.openhands.killNow(); // R4 (H52): each OpenHands container is asked to stop, without waiting
     this.live?.closeNow();
     this.live = undefined;
@@ -1763,7 +1773,7 @@ export class Workspace {
   private sealAgent(job: JobRecord, st: AgentRunState): string | undefined {
     const root = st.root;
     const rec = st.record;
-    const judgedRun = judgeAgentRun(job, st.progress, rec.agent);
+    const judgedRun = judgeAgentRun(job, st.progress, rec.agent, this.stopBy.get(job.id)); // r19 F2: the words its stop gave
     // R4 (H52): OpenHands worked on a copy in its container: its changes are written into the project here (only when it
     // completed and the project did not change meanwhile), before the comparison below; that decides its outcome too.
     const oh = st.openhands ? this.openhands.finish(job, st.openhands, judgedRun, st.progress, st.before) : undefined;

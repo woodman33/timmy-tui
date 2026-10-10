@@ -51,6 +51,7 @@ import type { Segment } from '../term/theme.js';
 import { lessonsStartLine, pickLessons } from '../memory/retrieve.js'; // R4 (H50): Timmy Memory's lessons for the agent's task
 // R4 (H51): each flow record names the operation (one request) that started it.
 import { operationField } from '../ops/context.js';
+import { stopReason, stoppedWords } from '../utils/stop-words.js';
 
 type Line = Segment[];
 
@@ -389,7 +390,7 @@ export class AeFlows {
       ].slice(0, 200);
     }
     const keptOut = a.transcript ? `; its output is kept: ${a.transcript}` : '';
-    if (this.stopped(f) || a.outcome === 'cancelled' || job.state === 'cancelled') return this.end(f, 'cancelled', 'agent', `stopped with /stop during the agent step; After Effects did not run${keptOut}`);
+    if (this.stopped(f) || a.outcome === 'cancelled' || job.state === 'cancelled') return this.end(f, 'cancelled', 'agent', `${stoppedWords(f.abort.signal)} during the agent step; After Effects did not run${keptOut}`);
     if (a.outcome !== 'completed') return this.end(f, 'failed', 'agent', `the agent run ended ${a.outcome}${a.why ? `: ${a.why}` : ''}; After Effects did not run${keptOut}`);
     this.saveState(f);
   }
@@ -430,7 +431,7 @@ export class AeFlows {
 
   private async authorStep(f: AeRun): Promise<void> {
     f.step = 'author';
-    if (this.stopped(f)) return this.end(f, 'cancelled', 'author', 'stopped with /stop before After Effects ran');
+    if (this.stopped(f)) return this.end(f, 'cancelled', 'author', `${stoppedWords(f.abort.signal)} before After Effects ran`);
     const rel = f.record.script.path;
     const after = f.record.script.after!;
     const env = this.d.env();
@@ -472,7 +473,7 @@ export class AeFlows {
     if (log) a.log = log.rel;
     if (this.stopped(f) || done.state === 'cancelled') {
       const when = done.state === 'cancelled' ? `during the After Effects run (job ${job.id}; After Effects itself may still be running the script)` : `as the After Effects run ended (job ${job.id} ${done.state}; its own receipt judges it)`;
-      return this.end(f, 'cancelled', 'author', `stopped with /stop ${when}; whatever it wrote is kept, and nothing was rendered${a.log ? `; its output: ${a.log}` : ''}`);
+      return this.end(f, 'cancelled', 'author', `${stoppedWords(f.abort.signal)} ${when}; whatever it wrote is kept, and nothing was rendered${a.log ? `; its output: ${a.log}` : ''}`);
     }
     // The run judged as /ae author judges it: by its result file, the new version created by this run, the harness unchanged.
     const j = judgeAeJob(done, spec);
@@ -504,7 +505,7 @@ export class AeFlows {
     const requested = aep.path.replace(/\.aepx?$/i, AE_RENDER_EXT);
     const r: NonNullable<AeFlowRecord['render']> = { state: 'not started', comp: compName, requested, ...(f.record.options?.om !== undefined ? { om_template: f.record.options.om } : {}) };
     f.record.render = r;
-    if (this.stopped(f)) return this.end(f, 'cancelled', 'render', `stopped with /stop before aerender ran; After Effects' project is ${aep.path}`);
+    if (this.stopped(f)) return this.end(f, 'cancelled', 'render', `${stoppedWords(f.abort.signal)} before aerender ran; After Effects' project is ${aep.path}`);
     const env = this.d.env();
     const found = locateNative('aerender', env);
     if (!found.found) {
@@ -548,7 +549,7 @@ export class AeFlows {
     if (log) r.log = log.rel;
     if (this.stopped(f) || done.state === 'cancelled') {
       const when = done.state === 'cancelled' ? `during the render (job ${job.id})` : `as the render ended (job ${job.id} ${done.state}; its own receipt judges it)`;
-      return this.end(f, 'cancelled', 'render', `stopped with /stop ${when}; whatever it wrote is kept, and nothing was read back${r.log ? `; its output: ${r.log}` : ''}`);
+      return this.end(f, 'cancelled', 'render', `${stoppedWords(f.abort.signal)} ${when}; whatever it wrote is kept, and nothing was read back${r.log ? `; its output: ${r.log}` : ''}`);
     }
     // Judged as /ae's render is: the file asked for, or the one file of its name with another extension this run made.
     const j = judgeNativeJob(done, spec);
@@ -581,7 +582,7 @@ export class AeFlows {
       rb.setup = `${tools.why}: ${AE_FFMPEG_SETUP}`;
       return this.end(f, 'succeeded', 'readback', `succeeded without readback: After Effects' run and aerender's render (${file.path}) are judged ok, but no readback could run (${tools.why}); the render is not compared with After Effects' report. Setup: ${AE_FFMPEG_SETUP}`);
     }
-    if (this.stopped(f)) { rb.state = 'cancelled'; return this.end(f, 'cancelled', 'readback', `stopped with /stop before the readback started; the render ${file.path} is kept`); }
+    if (this.stopped(f)) { rb.state = 'cancelled'; return this.end(f, 'cancelled', 'readback', `${stoppedWords(f.abort.signal)} before the readback started; the render ${file.path} is kept`); }
     const planned = planReadback(f.comp!);
     if ('error' in planned) {
       rb.verdict = 'failed';
@@ -638,8 +639,8 @@ export class AeFlows {
     };
     if (this.stopped(f) || done.state === 'cancelled') {
       rb.state = 'cancelled';
-      rb.reason = 'stopped with /stop before it finished: no verdict';
-      return finish(undefined, 'cancelled', `stopped with /stop during the readback; the render ${file.path} is kept; no verdict${rb.log ? `; its output so far: ${rb.log}` : ''}`);
+      rb.reason = `${stoppedWords(f.abort.signal)} before it finished: no verdict`;
+      return finish(undefined, 'cancelled', `${stoppedWords(f.abort.signal)} during the readback; the render ${file.path} is kept; no verdict${rb.log ? `; its output so far: ${rb.log}` : ''}`);
     }
     let size = 0;
     try { size = statSync(done.logPath).size; } catch { size = 0; }
@@ -809,9 +810,9 @@ export class AeFlows {
    * themselves are stopped by the caller, as this REPL's jobs). How many were running, their records to wait for, and how
    * each ended.
    */
-  abortAll(): { count: number; done: Array<Promise<unknown>>; describe: () => string[] } {
+  abortAll(by?: string): { count: number; done: Array<Promise<unknown>>; describe: () => string[] } {
     const live = [...this.running.values()];
-    for (const f of live) f.abort.abort();
+    for (const f of live) f.abort.abort(by ? stopReason(by) : undefined); // r19 F2: the stop's own words, or /stop's
     return {
       count: live.length,
       done: live.map((f) => f.done ?? Promise.resolve()),

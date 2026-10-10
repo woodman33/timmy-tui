@@ -28,6 +28,7 @@ import type { IterateDeps } from './iterate.js';
 import type { FlowLock } from './flow-lock.js';
 import type { Segment } from '../term/theme.js';
 import type { ReceiptInput } from '../utils/receipts.js';
+import { stopReason, stoppedWords } from '../utils/stop-words.js';
 
 export type Line = Segment[];
 
@@ -255,7 +256,7 @@ export abstract class NativeFlows<R extends NativeFlowRecordBase> {
       ].slice(0, 200);
     }
     const kept = a.transcript ? `; its output is kept: ${a.transcript}` : '';
-    if (this.stopped(f) || a.outcome === 'cancelled' || job.state === 'cancelled') return this.end(f, 'cancelled', 'agent', `stopped with /stop during the agent step; ${this.app} did not run${kept}`);
+    if (this.stopped(f) || a.outcome === 'cancelled' || job.state === 'cancelled') return this.end(f, 'cancelled', 'agent', `${stoppedWords(f.abort.signal)} during the agent step; ${this.app} did not run${kept}`);
     if (a.outcome !== 'completed') return this.end(f, 'failed', 'agent', `the agent run ended ${a.outcome}${a.why ? `: ${a.why}` : ''}; ${this.app} did not run${kept}`);
     this.saveState(f);
   }
@@ -280,12 +281,12 @@ export abstract class NativeFlows<R extends NativeFlowRecordBase> {
       }
       child.stdout?.on('data', (b: Buffer) => { if (out.length < 65536) out += b.toString('utf8'); });
       child.stderr?.on('data', () => { /* drained: the answer is the JSON line */ });
-      child.on('error', (e) => done({ checked: false, why: this.stopped(f) ? 'stopped with /stop' : `python3 did not run (${this.d.scrub(e.message, f.root)})` }));
+      child.on('error', (e) => done({ checked: false, why: this.stopped(f) ? `${stoppedWords(f.abort.signal)}` : `python3 did not run (${this.d.scrub(e.message, f.root)})` }));
       child.on('close', (code, signal) => {
         const parsed = parseSyntaxOutput(out);
         if (parsed?.ok) return done({ checked: true, ok: true, python: parsed.python, by: 'python3' });
         if (parsed) return done({ checked: true, ok: false, python: parsed.python, by: 'python3', error: parsed.error, line: parsed.line ?? null, offset: parsed.offset ?? null });
-        done({ checked: false, why: this.stopped(f) ? 'stopped with /stop' : `python3 gave no answer (${signal ? `ended by ${signal}` : `exit ${code}`})` });
+        done({ checked: false, why: this.stopped(f) ? `${stoppedWords(f.abort.signal)}` : `python3 gave no answer (${signal ? `ended by ${signal}` : `exit ${code}`})` });
       });
       child.stdin?.on('error', () => { /* it ended before reading all of it: its answer, or none, says what happened */ });
       child.stdin?.end(bytes);
@@ -360,9 +361,9 @@ export abstract class NativeFlows<R extends NativeFlowRecordBase> {
    * themselves are stopped by the caller, as this REPL's jobs). How many were running, their records to wait for, and
    * how each ended.
    */
-  abortAll(): { count: number; done: Array<Promise<unknown>>; describe: () => string[] } {
+  abortAll(by?: string): { count: number; done: Array<Promise<unknown>>; describe: () => string[] } {
     const live = [...this.running.values()];
-    for (const f of live) f.abort.abort();
+    for (const f of live) f.abort.abort(by ? stopReason(by) : undefined); // r19 F2: the stop's own words, or /stop's
     return {
       count: live.length,
       done: live.map((f) => f.done ?? Promise.resolve()),
