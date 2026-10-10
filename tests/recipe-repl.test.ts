@@ -15,6 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawnSync, type ChildProcess } from 'node:child_process';
+import { request } from 'node:http';
 import { folderProject } from '../src/project/index.js';
 import { Workspace, type WorkspaceDeps } from '../src/repl/workspace.js';
 import { glyphSet } from '../src/term/glyphs.js';
@@ -419,6 +420,45 @@ describe('an early stop reaches the durable recipe job (the review of 07f37ec, f
     expect(stopped).toContain(`${job} cancelled`);
     expect(stopped).toContain(`recipe ${id}: cancel requested through the recipe's own path`);
     expect(fs.existsSync(path.join(jobDirectory(root, id), 'cancel.json'))).toBe(true);
+    ranAtMostOnce(id);
+  }, 60000);
+
+  it('/stop all right after /recipe tray: the recipe ends cancelled, and the answer says so', async () => {
+    const { ws } = make({ mode: 'wait' });
+    const out = text(await ws.recipe('tray'));
+    const id = uuidIn(out);
+    const job = jobIdIn(out);
+    const stopped = text(await ws.stop('all'));
+    expect(ws.jobs.get(job)).toMatchObject({ state: 'cancelled', signal: 'SIGTERM' });
+    expect(await ended(id)).toBe('cancelled');
+    expect(stopped).toContain(`recipe ${id}: cancel requested through the recipe's own path`);
+    ranAtMostOnce(id);
+  }, 60000);
+
+  it('the live board\'s Stop right after /recipe tray (POST /action on 127.0.0.1 with its token): the recipe ends cancelled', async () => {
+    const { ws } = make({ mode: 'wait' });
+    expect(text(await ws.boardLive('live'))).toContain('Live board');
+    const board = ws.liveBoard!;
+    const token = board.url.split('#t=')[1];
+    const out = text(await ws.recipe('tray'));
+    const id = uuidIn(out);
+    const job = jobIdIn(out);
+    const reply = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = request({ host: '127.0.0.1', port: board.port, method: 'POST', path: '/action', setHost: false, agent: false,
+        headers: { Host: `127.0.0.1:${board.port}`, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
+        res.on('error', reject);
+      });
+      req.on('error', reject);
+      req.end(JSON.stringify({ action: 'stop', job }));
+    });
+    expect(reply.status).toBe(200);
+    expect(ws.jobs.get(job)?.state).toBe('cancelled');
+    expect(await ended(id)).toBe('cancelled');
+    expect(reply.body).toContain(`board /stop ${job}`);
+    expect(reply.body).toContain(`recipe ${id}: cancel requested through the recipe's own path`);
     ranAtMostOnce(id);
   }, 60000);
 
