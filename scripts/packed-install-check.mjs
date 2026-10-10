@@ -140,6 +140,8 @@ if (pkg) {
     const { VIDEO_READBACK_SCRIPT } = await load('dist/src/flows/iterate-ae.js');
     // R4 batch 6: the OpenHands worker /agent openhands mounts into its container (H52).
     const { openHandsWorker } = await load('dist/src/code-agents/openhands-run.js');
+    // R4 batch 7 (H58): the pty wrapper /run runs upmd through.
+    const { PTY_RUN_SCRIPT } = await load('dist/src/workflows/upmd-live.js');
     const dest = join(process.env.PROBE_WORK, 'site');
     const copied = copyStarter('web-starter', dest);
     // R4: each starter of this round copied into a new project of its own; the files the copy holds.
@@ -159,6 +161,7 @@ if (pkg) {
       step: READBACK_SCRIPT, stepExists: existsSync(READBACK_SCRIPT), blend: BLEND_READBACK_SCRIPT, blendExists: existsSync(BLEND_READBACK_SCRIPT),
       video: VIDEO_READBACK_SCRIPT, videoExists: existsSync(VIDEO_READBACK_SCRIPT),
       openhands: openHandsWorker() ?? null,
+      pty: PTY_RUN_SCRIPT, ptyExists: existsSync(PTY_RUN_SCRIPT),
     }));`);
   const r = run(process.execPath, [probe], { cwd: work, env: { ...runEnv, PROBE_PKG: pkg, PROBE_WORK: work }, timeout: 120_000 });
   let p = null;
@@ -190,6 +193,8 @@ if (pkg) {
     check('assets', 'video readback worker', p.video === join(pkg, 'workers/readback/video_readback.py') && p.videoExists, `${short(p.video)}${p.videoExists ? '' : ' (not there)'}`);
     // R4 batch 6 (H52): the OpenHands worker, found by the module that mounts it.
     check('assets', 'OpenHands worker', p.openhands === join(pkg, 'workers/openhands/timmy_openhands.py'), short(p.openhands ?? 'none found'));
+    // R4 batch 7 (H58): the pty wrapper for live workflow states, found by the module that runs it.
+    check('assets', 'upmd pty wrapper', p.pty === join(pkg, 'workers/upmd/pty_run.py') && p.ptyExists, `${short(p.pty)}${p.ptyExists ? '' : ' (not there)'}`);
   }
 } else {
   check('assets', 'probe', false, 'not run: nothing installed');

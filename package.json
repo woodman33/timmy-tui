@@ -45,6 +45,7 @@
     "templates/tray-workflow/recipes/tray.params.json",
     "workers/openhands/Dockerfile",
     "workers/openhands/timmy_openhands.py",
+    "workers/upmd/pty_run.py",
     "README.md",
     "LICENSE",
     "CHANGELOG.md",

@@ -22,6 +22,8 @@ const SHIPPED = [
   'templates/ae-starter', 'templates/scad-starter', 'templates/freecad-starter', 'workers/scad', 'workers/freecad', 'workers/readback',
   // R4 batch 6: the tray workflow starter (H51) and the OpenHands worker and its image definition (H52).
   'templates/tray-workflow', 'workers/openhands',
+  // R4 batch 7 (H58): the pty wrapper /run runs upmd through, for live workflow states.
+  'workers/upmd',
 ];
 /**
  * TODO(lead): templates/blender-starter and workers/blender (another helper, round R3) ship the same way: each
