@@ -6,13 +6,15 @@
  * Every command line below is built from the CLIs' own --help texts as captured on the operator's Mac
  * (qwen 0.25.0, Claude Code 2.1.251, codex-cli 0.140.0, opencode 1.18.31); each flag cites the line it
  * relies on. Nothing here decides that a run is free except the endpoint rule (endpointClass): Qwen Code on a
- * loopback OpenAI-compatible endpoint with a model whose tag does not end in ":cloud". Everything else may
+ * loopback OpenAI-compatible endpoint with a model whose tag does not end in ":cloud", and (round R4, H25)
+ * Codex's local route, `/agent codex --local`, under the same rule (codex-local.ts). Everything else may
  * cost money and runs only when the operator's line says --paid. A cloud-backed model tag remains cloud.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { appendFileSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { CODEX_LOCAL_ROUTE, codexProgressLine, planCodexLocal } from './codex-local.js';
 
 export type AgentName = 'qwen' | 'claude' | 'codex' | 'opencode';
 export const AGENT_NAMES: readonly AgentName[] = ['qwen', 'claude', 'codex', 'opencode'];
@@ -119,6 +121,21 @@ export interface AgentPlan {
   lastMessageFile?: string;
   /** added to the agent's environment: HOME from TIMMY_AGENT_HOME, so its settings and records stay out of the user's own */
   env?: Record<string, string>;
+  /**
+   * Round R4 (H25): Codex's local route (codex exec --oss): the Ollama it is pointed at and the model, which that
+   * endpoint must already list before the run starts (codex-local.ts codexLocalPreflight).
+   */
+  oss?: { provider: 'ollama'; baseUrl: string; model: string };
+  /** folders made just before the run starts (Codex's own CODEX_HOME under TIMMY_AGENT_HOME) */
+  makeDirs?: string[];
+  /**
+   * Round R4 (H25): 'closed': the job's stdin is ended at its start (JobSpec.stdin). codex-exec-help.txt: "If stdin is
+   * piped and a prompt is also provided, stdin is appended as a `<stdin>` block": with the job's pipe left open, nothing
+   * would ever end it and Codex would wait for it until Timmy's time limit.
+   */
+  stdin?: 'closed';
+  /** one sentence the operator is told at the start: what the run is given, and what it is not */
+  note?: string;
 }
 
 export type PlanResult = { ok: true; plan: AgentPlan } | { ok: false; error: string; refused: 'setup' | 'paid' | 'usage' };
@@ -136,7 +153,11 @@ export function wallTimeMs(text: string): number | null {
 /** A task that begins with "-" would be read as an option: it is given as "Task: …" instead. */
 export const taskArg = (task: string): string => (task.trimStart().startsWith('-') ? `Task: ${task.trim()}` : task.trim());
 
-export function planAgent(name: AgentName, task: string, o: { env: Env; paid: boolean; run: string; bin: string }): PlanResult {
+/**
+ * `local` (round R4, H25): the agent's free local route, `/agent <name> --local`: only Codex has one (codex-local.ts),
+ * and it needs `root`, the project folder it works in. It takes no --paid.
+ */
+export function planAgent(name: AgentName, task: string, o: { env: Env; paid: boolean; run: string; bin: string; local?: boolean; root?: string }): PlanResult {
   const env = o.env;
   const info = AGENTS[name];
   if (!task.trim()) return { ok: false, refused: 'usage', error: `Say what ${info.title} should do: /agent ${name} <task>` };
@@ -150,6 +171,13 @@ export function planAgent(name: AgentName, task: string, o: { env: Env; paid: bo
   // TIMMY_AGENT_HOME: the agent runs with this HOME (qwen 0.25.0 was seen writing ~/.qwen even with --bare and no
   // chat recording). For an account agent it also hides its login, so it is for a sandboxed run.
   const home = set(env.TIMMY_AGENT_HOME) ? { env: { HOME: env.TIMMY_AGENT_HOME.trim() } } : {};
+  if (o.local) {
+    if (name === 'qwen') return { ok: false, refused: 'usage', error: 'Qwen Code has no --local: it runs free whenever its endpoint is on this machine (/agent qwen <task>). Nothing was started.' };
+    if (name !== 'codex') return { ok: false, refused: 'usage', error: `${info.title} has no local route: it runs on your own account (/agent ${name} --paid <task>). Nothing was started.` };
+    if (o.paid) return { ok: false, refused: 'usage', error: 'Codex\'s local route (--local) runs on this machine for free and takes no --paid: /agent codex --local <task>, or /agent codex --paid <task> on your own account. Nothing was started.' };
+    if (!o.root) return { ok: false, refused: 'usage', error: 'Codex\'s local route needs the project folder it works in. Nothing was started.' };
+    return planCodexLocal({ task, prompt, env, run: o.run, bin: o.bin, root: o.root, wallTime, timeoutMs });
+  }
   if (name === 'qwen') {
     if (!model) {
       return { ok: false, refused: 'setup', error: 'Set TIMMY_AGENT_MODEL to the model Qwen Code should use (for a local Ollama, a name from `ollama list`), then /agent qwen again. Nothing was started.' };
@@ -221,7 +249,8 @@ export function planAgent(name: AgentName, task: string, o: { env: Env; paid: bo
       ...(model ? ['-m', model] : []),       // "-m, --model <MODEL>  Model the agent should use"
       prompt,                                // "[PROMPT]  Initial instructions for the agent"
     ];
-    return { ok: true, plan: { ...base, args, where: 'your OpenAI account', lastMessageFile: last } };
+    // Round R4 (H25): stdin closed at the start, as for the local route (AgentPlan.stdin); the command line is unchanged.
+    return { ok: true, plan: { ...base, args, where: 'your OpenAI account', lastMessageFile: last, stdin: 'closed' } };
   }
   // opencode: every flag below is from opencode-run-help.txt (opencode 1.18.31):
   const args = [
@@ -235,19 +264,24 @@ export function planAgent(name: AgentName, task: string, o: { env: Env; paid: bo
 }
 
 /**
- * `/agent <name> [--paid] <task…>`: the agent, the task and whether the line says --paid. Only a --paid right after
- * the agent's name counts, and the task is the rest exactly as typed: "--paid" inside a task's own words neither
- * authorizes spending nor disappears from the task (the review of ee70b9e).
+ * `/agent <name> [--paid | --local] <task…>`: the agent, the task and whether the line says --paid (or, since round
+ * R4, --local: Codex's local route). Only the options right after the agent's name count, each once and in either
+ * order, and the task is the rest exactly as typed: "--paid" or "--local" inside a task's own words neither authorizes
+ * spending, nor picks a route, nor disappears from the task (the review of ee70b9e).
  */
-export function parseAgentLine(line: string): { name?: AgentName; word?: string; paid: boolean; task: string } {
+export function parseAgentLine(line: string): { name?: AgentName; word?: string; paid: boolean; local?: true; task: string } {
   const words = line.trim().split(/\s+/).filter(Boolean);
   const word = words[0];
   const name = AGENT_NAMES.find((n) => n === word?.toLowerCase());
-  const rest = line.trim().slice(word ? word.length : 0).trim();
-  const lead = /^--paid(?=\s|$)/.exec(rest);
-  const paid = Boolean(lead);
-  const task = lead ? rest.slice(lead[0].length).trim() : rest;
-  return { ...(name ? { name } : {}), ...(word ? { word } : {}), paid, task };
+  let task = line.trim().slice(word ? word.length : 0).trim();
+  let paid = false;
+  let local = false;
+  for (let lead = /^--(paid|local)(?=\s|$)/.exec(task); lead; lead = /^--(paid|local)(?=\s|$)/.exec(task)) {
+    if (lead[1] === 'paid' ? paid : local) break;
+    if (lead[1] === 'paid') paid = true; else local = true;
+    task = task.slice(lead[0].length).trim();
+  }
+  return { ...(name ? { name } : {}), ...(word ? { word } : {}), paid, ...(local ? { local: true as const } : {}), task };
 }
 
 export const newRunId = (): string => `a${randomBytes(4).toString('hex')}`;
@@ -380,6 +414,10 @@ export interface AgentProgress {
   version?: string;
   structured: number;
   raw: number;
+  /** Codex (round R4): how its own stream said its turn ended (turn.completed or turn.failed); absent when it did not say */
+  reportedEnd?: 'completed' | 'failed';
+  /** Codex (round R4): the tokens its turn.completed reported (counts, not a cost) */
+  usage?: { input: number; cached: number; output: number };
 }
 
 export const newProgress = (): AgentProgress => ({ toolCalls: 0, filesEdited: [], structured: 0, raw: 0, toolErrors: 0, denied: [] });
@@ -400,7 +438,7 @@ export function projectRel(root: string, p: string): string | undefined {
   return undefined;
 }
 
-function noteFile(state: AgentProgress, root: string, p: unknown): string | undefined {
+export function noteFile(state: AgentProgress, root: string, p: unknown): string | undefined {
   if (typeof p !== 'string') return undefined;
   const rel = projectRel(root, p);
   if (rel && !state.filesEdited.includes(rel) && state.filesEdited.length < 500) state.filesEdited.push(rel);
@@ -409,9 +447,11 @@ function noteFile(state: AgentProgress, root: string, p: unknown): string | unde
 
 /**
  * One line of an agent's output: updates the run's progress and returns the line to show, or undefined for a
- * line that says nothing new. A line that is not JSON is shown as it came (raw text).
+ * line that says nothing new. A line that is not JSON is shown as it came (raw text). Given the agent, Codex's
+ * output is read by its own parser (round R4: codex-local.ts codexProgressLine, the paid and the local route alike).
  */
-export function progressLine(line: string, state: AgentProgress, root: string): string | undefined {
+export function progressLine(line: string, state: AgentProgress, root: string, agent?: AgentName): string | undefined {
+  if (agent === 'codex') return codexProgressLine(line, state, root);
   const text = line.trim();
   if (!text) return undefined;
   let ev: Record<string, unknown>;
@@ -552,6 +592,9 @@ export function judgeAgentRun(job: { state: string; exitCode?: number | null; si
   // No structured event and no final message: an exit status is not a report, so success is not claimed and the
   // run never marks the agent exercised (only a completed outcome does).
   if (progress.structured === 0 && !progress.finalMessage) return { outcome: 'unknown', why: 'it exited 0 but reported nothing Timmy could read (no structured events, no final message): whether it did the task is not known; the files it changed are listed' };
+  // Round R4 (H25): Codex reports success with its own turn.completed event (codex-local.ts; the names are assumed). A
+  // stream that never says so is not a report of success, whatever else it printed.
+  if (agent === 'codex' && progress.reportedEnd !== 'completed') return { outcome: 'unknown', why: 'it exited 0, but its event stream never said its turn completed (no turn.completed): whether it did the task is not known; the files it changed are listed' };
   const denied = progress.denied.length ? `; ${progress.denied.length} of its tool calls ${progress.denied.length === 1 ? 'was' : 'were'} denied (${[...new Set(progress.denied)].join(', ')})` : '';
   return { outcome: 'completed', why: `it exited 0 and reported success${denied}` };
 }
@@ -619,17 +662,19 @@ export const ensureDir = (path: string): void => { mkdirSync(path, { recursive: 
 /**
  * Agent name → the newest time a sealed receipt says a run of that agent completed (kind agent, status ok,
  * outcome completed). A submitted, failed, cancelled or timed-out run never counts, and a run counts only for
- * its own agent.
+ * its own agent. Round R4 (H25): only for its own route, too: a completed Codex run on a local endpoint (only the
+ * local route plans one) counts for `codex-local`, never for the paid `codex` row, and a paid run never for it.
  */
 export function agentExercisedIndex(chain: Array<Record<string, unknown>>): Map<string, string> {
   const out = new Map<string, string>();
   for (const r of chain) {
-    const a = r.agent as { name?: unknown; outcome?: unknown } | undefined;
+    const a = r.agent as { name?: unknown; outcome?: unknown; endpoint?: unknown } | undefined;
     if (r.kind !== 'agent' || r.status !== 'ok' || !a || typeof a.name !== 'string' || a.outcome !== 'completed' || typeof r.ts !== 'string') continue;
     const job = r.job as { state?: unknown } | undefined;
     if (job && job.state !== 'completed') continue;
-    const prev = out.get(a.name);
-    if (!prev || prev < r.ts) out.set(a.name, r.ts);
+    const key = a.name === 'codex' && a.endpoint === 'local' ? CODEX_LOCAL_ROUTE : a.name;
+    const prev = out.get(key);
+    if (!prev || prev < r.ts) out.set(key, r.ts);
   }
   return out;
 }

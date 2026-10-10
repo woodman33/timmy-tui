@@ -53,6 +53,8 @@ import {
   listAgentRuns, newProgress, newRunId, parseAgentLine, planAgent, progressLine, readProgressTail, runDir, scrubPaths, snapshotJson, snapshotProject,
   taskWords, writeJson, type AgentName, type AgentPlan, type AgentProgress, type AgentRunRecord, type Snapshot,
 } from '../code-agents/index.js';
+// Round R4 (helper H25): Codex's local route (/agent codex --local); hooks are marked "R4 (H25)".
+import { codexLocalPreflight, codexLocalSummary } from '../code-agents/codex-local.js';
 // Round R4 (/iterate, helper H24): the connected flow (src/repl/iterate.ts); hooks are marked "R4 (/iterate)".
 import { IterateFlows, type AgentStart, type IterateTestSeams } from './iterate.js';
 import { readBoardFlows } from './board-flows.js';
@@ -1237,15 +1239,17 @@ export class Workspace {
     if (a === 'last') return this.agentLast();
     const p = parseAgentLine(a);
     if (!p.name) return this.say(`No agent named ${p.word ?? ''}. Agents: ${AGENT_NAMES.join(', ')}; /agent lists them.`);
-    const s = await this.startAgentRun(p.name, p.task, { paid: p.paid });
+    const s = await this.startAgentRun(p.name, p.task, { paid: p.paid, ...(p.local ? { local: true } : {}) });
     if (!s.ok) return this.say(s.error, s.refused === 'missing' || s.refused === 'paid' ? 'estimate' : 'failure');
     const { info, version, plan, run, job } = s;
     const g = this.d.glyphs;
     return [
       [{ text: '  Agent      ', role: 'secondary' }, { text: job.id, role: 'strong' }, { text: `  ${job.label}`, role: 'secondary' }],
-      [{ text: '  Runs       ', role: 'secondary' }, { text: `${info.title}${version ? ` ${version}` : ''}${plan.model ? `${this.sep}model ${plan.model}` : ''}${plan.agent === 'qwen' ? ` at ${plan.where}` : ''}${this.sep}` },
+      [{ text: '  Runs       ', role: 'secondary' }, { text: `${info.title}${version ? ` ${version}` : ''}${plan.model ? `${this.sep}model ${plan.model}` : ''}${plan.agent === 'qwen' || plan.oss ? ` at ${plan.where}` : ''}${this.sep}` },
         { text: plan.endpoint === 'local' ? plan.charge : `${plan.charge}: it uses ${plan.agent === 'qwen' ? 'that endpoint' : 'your account'} and may cost money`, role: plan.endpoint === 'local' ? 'secondary' : 'estimate' },
         { text: `${this.sep}up to ${plan.wallTime}${plan.env?.HOME ? `${this.sep}its own HOME (TIMMY_AGENT_HOME)` : ''}`, role: 'secondary' }],
+      // R4 (H25): what the run is given and what it is not (Codex's local route says which codex folder it uses).
+      ...(plan.note ? [[{ text: '  Note       ', role: 'secondary' as const }, { text: plan.note, role: 'secondary' as const }]] : []),
       [{ text: '  Follow     ', role: 'secondary' }, { text: `/jobs ${job.id}${this.sep}/stop ${job.id}${this.sep}then /agent last or /results ${g.arrow} ${AGENTS_DIR}/${run}/`, role: 'secondary' }],
     ];
   }
@@ -1255,20 +1259,25 @@ export class Workspace {
    * (planAgent), the project's snapshot before it, its job (this REPL's, so /stop reaches it) and, at its end, its
    * sealed result (sealAgent). `root`, `project` and `env` default to the active project and this REPL's environment.
    */
-  async startAgentRun(name: AgentName, task: string, o: { paid: boolean; root?: string; project?: string; env?: NodeJS.ProcessEnv }): Promise<AgentStart> {
+  async startAgentRun(name: AgentName, task: string, o: { paid: boolean; local?: boolean; root?: string; project?: string; env?: NodeJS.ProcessEnv }): Promise<AgentStart> {
     const info = AGENTS[name];
     const env = o.env ?? this.d.env;
     const bin = agentBin(name, env, this.d.onPath);
     if (!bin) return { ok: false, refused: 'missing', error: `${info.title} is not on PATH (${info.bin}); /tools says how to install it. Nothing was started.` };
     const run = newRunId();
-    const planned = planAgent(name, task, { env, paid: o.paid, run, bin });
+    const root = o.root ?? this.root;
+    const planned = planAgent(name, task, { env, paid: o.paid, run, bin, ...(o.local ? { local: true, root } : {}) });
     if (!planned.ok) return { ok: false, refused: planned.refused, error: planned.error };
     const plan = planned.plan;
-    const root = o.root ?? this.root;
+    // R4 (H25): Codex's local route starts only when its Ollama already lists the model (codex --oss would download it).
+    if (plan.oss) {
+      const ready = await codexLocalPreflight(plan.oss);
+      if (!ready.ok) return { ok: false, refused: 'setup', error: ready.error };
+    }
     const dir = runDir(root, run);
     const version = await agentVersion(bin);
     let before: { files: Snapshot; truncated: boolean };
-    try { ensureDir(dir); before = snapshotProject(root); } catch (e) { return { ok: false, refused: 'prepare', error: `The run could not be prepared: ${this.scrub((e as Error).message, root)}` }; }
+    try { ensureDir(dir); for (const d of plan.makeDirs ?? []) ensureDir(d); before = snapshotProject(root); } catch (e) { return { ok: false, refused: 'prepare', error: `The run could not be prepared: ${this.scrub((e as Error).message, root)}` }; }
     const record: AgentRunRecord = {
       agent_run: 1, run, agent: name, agent_version: version, model: plan.model, endpoint: plan.endpoint, where: plan.where,
       task, job: '', started_at: new Date().toISOString(),
@@ -1279,7 +1288,8 @@ export class Workspace {
     const job = this.jobs.start({
       kind: 'task', label: agentLabel(name, run, task, root), project: o.project ?? this.project.name, root, command: plan.command, args: plan.args, timeoutMs: plan.timeoutMs,
       ...(plan.env ? { env: plan.env } : {}),
-      parseLine: (line) => { const shown = progressLine(line, progress, root); if (shown) appendProgress(dir, shown); },
+      ...(plan.stdin ? { stdin: plan.stdin } : {}),
+      parseLine: (line) => { const shown = progressLine(line, progress, root, name); if (shown) appendProgress(dir, shown); },
     });
     this.mine.add(job.id);
     this.agentRuns.set(job.id, state);
@@ -1290,7 +1300,7 @@ export class Workspace {
 
   // ── /iterate (round R4, helper H24: a local agent edits the parameter file, the recipe rebuilds, a separate worker reads it back) ──
 
-  /** `/iterate` lists the flows; `/iterate tray "<instruction>" [--agent qwen] [--model <m>]` starts one (src/repl/iterate.ts). */
+  /** `/iterate` lists the flows; `/iterate tray "<instruction>" [--agent qwen|codex] [--model <m>]` starts one (src/repl/iterate.ts). */
   async iterate(args: string): Promise<Line[]> { return this.flows.command(args, { root: this.root, project: this.project.name }); }
 
   /** The agent's iterate_recipe: the same start as /iterate tray "<instruction>", answered as data. */
@@ -1316,6 +1326,8 @@ export class Workspace {
         how = { text: `your own account: costs money (--paid)${this.sep}model ${model ?? 'its default'}`, role: 'estimate' };
       }
       lines.push([{ text: `  ${bin ? this.d.glyphs.bullet : ' '} ` }, { text: n.padEnd(9), role: bin ? 'strong' : undefined }, { text: ` ${info.title.padEnd(12)} ${found.padEnd(12)}${this.sep}`, role: 'secondary' }, how]);
+      // R4 (H25): Codex's local route, on its own line.
+      if (n === 'codex') { const l = codexLocalSummary(env); lines.push([{ text: ' '.repeat(14) }, { text: l.text, role: l.ready ? 'secondary' : 'estimate' }]); }
     }
     lines.push(...this.say(`Run one: /agent qwen <task>; a paid one: /agent claude --paid <task>; the last run: /agent last`));
     return lines;
@@ -1427,7 +1439,8 @@ export class Workspace {
       finalInfo = { file: 'final-message.md', chars: final.length, truncated: b.truncated };
     }
     keep('transcript.log', () => copyFileSync(job.logPath, join(st.dir, 'transcript.log')));
-    const local = rec.agent === 'qwen' && st.plan.endpoint === 'local';
+    // R4 (H25): 0 for any plan whose cost basis is a local endpoint (Qwen Code's, and Codex's local route).
+    const local = st.plan.endpoint === 'local' && st.plan.costBasis === 'local endpoint';
     const cost: number | null = local ? 0 : st.progress.reportedCostUsd ?? null;
     const costBasis = local ? 'local endpoint' : cost === null ? 'unknown: the agent reported no cost' : 'reported by the agent';
     Object.assign(rec, {

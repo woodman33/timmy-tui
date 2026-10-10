@@ -70,6 +70,12 @@ export interface JobSpec {
   parseLine?: (line: string, job: JobRecord) => void;
   /** R2: stop the job, failed with this error, when a line of its output matches (an app waiting for a person) */
   stopWhen?: { pattern: RegExp; error: string };
+  /**
+   * Round R4 (H25): 'closed' ends the child's stdin as soon as it is spawned, so it reads the end of its input at
+   * once: for a program that reads piped stdin to its end (codex exec appends piped stdin to its prompt), since a
+   * job's stdin is a pipe nothing here ever writes. Absent: the pipe stays open, as before.
+   */
+  stdin?: 'closed';
 }
 export interface JobManagerOptions { dir: string; onChange?: (job: JobRecord) => void; seal?: (job: JobRecord) => string | undefined; now?: () => Date }
 
@@ -234,6 +240,10 @@ export class JobManager {
     }
     const { child, outcome } = started;
     entry.child = child;
+    if (spec.stdin === 'closed') {
+      child.stdin.on('error', () => { /* the child is gone or never started: its outcome says so */ });
+      child.stdin.end();
+    }
     child.once('spawn', () => {
       if (entry.finished) return;
       job.pid = child.pid;

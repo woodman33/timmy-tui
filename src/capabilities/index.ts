@@ -12,6 +12,7 @@
  * completed in a turn. A past use is not a present check, so it never raises the rung.
  */
 import { agentExercisedAt } from '../code-agents/index.js';
+import { CODEX_LOCAL_ROUTE, codexLocalCapabilityRow } from '../code-agents/codex-local.js';
 import { mcpCapabilityRows } from '../connectors/mcp-cli.js';
 import { nativeCapabilityRows, nativeExercisedAt, type NativeRunIndex } from '../native/index.js';
 import { recipeCapabilityRow } from '../recipes/index.js';
@@ -201,8 +202,11 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   // Round R3 (helper H13): each runs from the REPL as a job (/agent); its row is exercised only by a sealed,
   // completed run of that agent (exercisedBy agent:<name>, src/code-agents agentExercisedIndex), never another's.
   const paidHand = (n: string): string => `/agent ${n} --paid <task>: a job, on your account (costs money)`;
+  const agentRuns = d.agentRuns?.();
   program('claude-code', 'harness', 'Claude Code', 'claude', paidHand('claude'), 'brew install --cask claude-code');
   program('codex', 'harness', 'Codex', 'codex', paidHand('codex'), 'brew install --cask codex (or npm install -g @openai/codex)');
+  // Round R4 (H25): Codex with a local model is a route of its own: "implemented; not run" until a run of its own.
+  add(codexLocalCapabilityRow({ env, onPath: (b) => d.onPath(b), exercisedAt: agentExercisedAt(`agent:${CODEX_LOCAL_ROUTE}`, agentRuns) }));
   add(d.onPath('qwen') || d.onPath('qwen-code')
     ? { id: 'qwen-code', kind: 'harness', name: 'Qwen Code', rung: 'installed', detail: '/agent qwen <task>: a job; free on a local endpoint' }
     : { id: 'qwen-code', kind: 'harness', name: 'Qwen Code', rung: 'needs setup', detail: 'qwen is not on PATH', setup: 'brew install qwen-code (or npm install -g @qwen-code/qwen-code)' });
@@ -258,7 +262,6 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   // Exercised: the last sealed, completed use of any of the row's tools; a row keyed by its own record
   // (exercisedBy) is decided by that record alone, never by a tool name it shares (R3, finding 6).
   const used = d.exercised();
-  const agentRuns = d.agentRuns?.();
   return rows.map((r) => {
     if (r.exercisedBy?.startsWith('recipe:')) {
       // Submission, failure and cancellation never count: only a verified, succeeded job's result.
