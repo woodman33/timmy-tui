@@ -413,7 +413,7 @@ describe("the page's script (fake DOM, real server)", () => {
   const script = (): string => livePage('n0nce').match(/<script nonce="n0nce">([\s\S]*?)<\/script>/)![1];
 
   function page(port: number, hash: string) {
-    const els: Record<string, El> = Object.fromEntries(['main', 'toc', 'status', 'out', 'project'].map((id) => [id, el(id)]));
+    const els: Record<string, El> = Object.fromEntries(['main', 'toc', 'status', 'out', 'project', 'live'].map((id) => [id, el(id)]));
     const calls: Array<{ url: string; method: string; headers: Record<string, string>; body?: string; credentials?: string }> = [];
     const handlers: Record<string, (e: unknown) => void> = {};
     const replaced: unknown[][] = [];
@@ -447,6 +447,8 @@ describe("the page's script (fake DOM, real server)", () => {
     expect(p.els.toc.innerHTML).toBe(s.toc);
     expect(p.els.project.textContent).toBe(ws.project.name);
     expect(p.els.status.textContent).toContain('live');
+    // R4 (H67): the header's word says live once the state has come
+    expect([p.els.live.textContent, p.els.live.className]).toEqual(['live', 'live']);
     expect(p.document.title).toBe(`Live board · ${ws.project.name}`);
   });
 
@@ -477,5 +479,7 @@ describe("the page's script (fake DOM, real server)", () => {
     await tick(50);
     expect(p.calls).toEqual([]);
     expect(p.els.status.textContent).toContain('No token');
+    // R4 (H67, r20): never "live" without a token
+    expect([p.els.live.textContent, p.els.live.className]).toEqual(['waiting for the token', 'live not-live']);
   });
 });

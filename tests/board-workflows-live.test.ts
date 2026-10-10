@@ -303,15 +303,16 @@ describe('an interrupted run: a job record whose session ended while it ran', ()
     const html = (await state(port, token)).html;
     expect(nodeState(html, '1')).toBe('✓ completed · exit 0');
     expect(nodeState(html, '2')).toBe('! interrupted');
-    expect(nodeState(html, '3')).toBe('– not run');
+    // R4 (H67, r20): nothing proves upmd stopped before verify: not seen, never "not run"
+    expect(nodeState(html, '3')).toBe('◌ not seen');
     expect(html).toContain('interrupted run');
-    expect(html).toContain('The session that ran j0dead1 ended while build was running; its process is gone, so how it ended is not known. upmd does not resume a run, and Timmy does not either: /run BUILD.md verify runs it again from setup.');
+    expect(html).toContain('The session that ran j0dead1 ended while build was running; its process is gone, so how it ended is not known; verify not seen: its REPL had ended, and upmd may have gone on until it ended. upmd does not resume a run, and Timmy does not either: /run BUILD.md verify runs it again from setup.');
     expect(html).toContain('<button type="button" class="act" data-wf-rerun="3">Run verify again</button>');
     expect(html).not.toContain('data-wf-stop=');
     expect(html).not.toMatch(/resume safely|data-act="resume"/i);
     const lines = text(await ws.workflows('BUILD.md'));
     expect(lines).toContain('Interrupted j0dead1');
-    expect(lines).toContain('its session ended while build ran; its process is gone. Nothing resumes it: /run BUILD.md verify runs it again.');
+    expect(lines).toContain('its session ended while build ran; its process is gone; verify not seen: its REPL had ended, and upmd may have gone on until it ended. Nothing resumes it: /run BUILD.md verify runs it again.');
     // Run again is the same /run (the test-double upmd): a new job, from setup
     const again = await act(port, token, { action: 'run', doc: 'BUILD.md', block: 'verify' });
     expect(again.body.split('\n')[0]).toBe('board /run BUILD.md verify');
