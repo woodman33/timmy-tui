@@ -87,7 +87,14 @@ export function enqueue(input:unknown,options:{root?:string;python?:string;execu
  const job:Job={...bound,...signBody(bound,workspace)};
  once(path.join(dir,'job.json'),job);return status(root,id);
 }
-export function status(root:string,id:string):{job:Job;state:JobState;progress:string;resultReceipt?:string;resultHash?:string;reason?:string} {
+export type JobStatus={job:Job;state:JobState;progress:string;resultReceipt?:string;resultHash?:string;reason?:string};
+/** What one completion() read verified (the review of 07f37ec, M3): the signed envelope, its report and receipts as
+ * parsed then, and the bytes of every file it hashed, keyed by path. A reader consumes this instead of reading again. */
+export interface ResultSnapshot{job:Job;envelope:any;report:any;receipt:any;prediction:any;base:string;files:ReadonlyMap<string,Buffer>}
+export function status(root:string,id:string):JobStatus{return inspect(root,id).status;}
+/** status() and, when its state rests on a verified result, the snapshot that same verification read. */
+export function verifiedStatus(root:string,id:string):{status:JobStatus;snapshot?:ResultSnapshot}{return inspect(root,id);}
+function inspect(root:string,id:string):{status:JobStatus;snapshot?:ResultSnapshot}{
  const job=loadJob(root,id),dir=jobDirectory(root,id);
  for(const name of ['recovered.json','terminal.json'])if(fs.existsSync(path.join(dir,name))){
   const recorded=read(path.join(dir,name));
@@ -95,18 +102,19 @@ export function status(root:string,id:string):{job:Job;state:JobState;progress:s
   const legacyCancellation=recorded.state==='cancelled'&&!hasReferences&&present(path.join(dir,'result.json'));
   if(recorded.state==='succeeded'||hasReferences||legacyCancellation){
    try{
-    const verified=completion(root,id);
+    // The result is verified against this same job file, not a second read of it.
+    const {result:verified,snapshot}=verifyCompletion(root,id,job);
     if(!['succeeded','failed','cancelled'].includes(recorded.state)||
      (!legacyCancellation&&(typeof recorded.resultReceipt!=='string'||!recorded.resultReceipt||typeof recorded.resultHash!=='string'||!recorded.resultHash||
      recorded.resultReceipt!==verified.resultReceipt||recorded.resultHash!==verified.resultHash))||
      (recorded.state!=='cancelled'&&recorded.state!==verified.state))throw Error('Terminal result reference mismatch');
-    return {...recorded,...verified,state:recorded.state,...(legacyCancellation?{reason:'Cancellation requested; completed native result retained; no replay'}:{}),job};
-   }catch{return {job,state:'interrupted',progress:'verification-failed',reason:'Recorded result could not be verified; original metadata retained; no replay'};}
+    return {status:{...recorded,...verified,state:recorded.state,...(legacyCancellation?{reason:'Cancellation requested; completed native result retained; no replay'}:{}),job},snapshot};
+   }catch{return {status:{job,state:'interrupted',progress:'verification-failed',reason:'Recorded result could not be verified; original metadata retained; no replay'}};}
   }
-  return {...recorded,job};
+  return {status:{...recorded,job}};
  }
- if(fs.existsSync(path.join(dir,'claim.json')))return {job,state:'running',progress:fs.existsSync(path.join(dir,'cancel.json'))?'cancellation-requested':fs.existsSync(path.join(dir,'heartbeat.json'))?'native-build':'starting'};
- return {job,state:fs.existsSync(path.join(dir,'cancel.json'))?'cancelled':'queued',progress:fs.existsSync(path.join(dir,'cancel.json'))?'cancelled-before-start':'queued'};
+ if(fs.existsSync(path.join(dir,'claim.json')))return {status:{job,state:'running',progress:fs.existsSync(path.join(dir,'cancel.json'))?'cancellation-requested':fs.existsSync(path.join(dir,'heartbeat.json'))?'native-build':'starting'}};
+ return {status:{job,state:fs.existsSync(path.join(dir,'cancel.json'))?'cancelled':'queued',progress:fs.existsSync(path.join(dir,'cancel.json'))?'cancelled-before-start':'queued'}};
 }
 export function cancel(root:string,id:string){const current=status(root,id);if(['queued','running'].includes(current.state))once(path.join(jobDirectory(root,id),'cancel.json'),{requested:Date.now()});return status(root,id);}
 function terminal(dir:string,state:JobState,reason?:string,extra:object={}){once(path.join(dir,'terminal.json'),{state,progress:'finished',...extra,...(reason?{reason}:{}),finished:Date.now()});}
@@ -152,32 +160,36 @@ export async function executeJob(root:string,id:string,native:(job:Job,workspace
  });
 }
 /** Read back the incumbent report and its signed receipt; a result JSON alone is insufficient. */
-function completion(root:string,id:string){
- const job=loadJob(root,id),dir=jobDirectory(root,id),envelope=read(path.join(dir,'result.json'));
+function completion(root:string,id:string){return verifyCompletion(root,id).result;}
+/** completion() with what it read: every file is read once, and each check and the returned snapshot use those bytes. */
+function verifyCompletion(root:string,id:string,job:Job=loadJob(root,id)){
+ const dir=jobDirectory(root,id),envelope=read(path.join(dir,'result.json'));
+ const files=new Map<string,Buffer>();
+ const bytes=(file:string)=>{let b=files.get(file);if(!b){b=fs.readFileSync(regular(file));files.set(file,b);}return b;};
  if(envelope.id!==id||envelope.requestHash!==job.requestHash||envelope.sourceHash!==job.sourceHash||envelope.executionHash!==job.executionHash||envelope.signer!==job.signer||!verifySignature(envelope))throw Error('Result binding mismatch');
  const r=envelope.result;if(!uuid.test(r.run)||!['succeeded','failed'].includes(r.state))throw Error('Invalid native result');
  const base=directory(path.join(dir,'workspace','.timmy','recipe-runs',r.run));
  // Walk every result ancestor: never follow a substituted receipt/report directory.
  let parent=dir;for(const part of ['workspace','.timmy','recipe-runs',r.run])parent=directory(path.join(parent,part));
- const report=read(path.join(base,'report.json'));
+ const report=JSON.parse(bytes(path.join(base,'report.json')).toString('utf8'));
  if(sha(JSON.stringify(report))!==envelope.reportHash||report.receipt!==r.receipt||report.receiptHash!==r.receiptHash||report.state!==r.state)throw Error('Report binding mismatch');
  const receiptDir=directory(path.join(dir,'workspace','.timmy','receipts'));
- const receipts=fs.readFileSync(regular(path.join(receiptDir,'runs.jsonl')),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+ const receipts=bytes(path.join(receiptDir,'runs.jsonl')).toString('utf8').trim().split('\n').map(line=>JSON.parse(line));
  const receipt=receipts.find(x=>x.id===r.receipt&&x.hash===r.receiptHash);
  if(!receipt||receipt.signer!==job.signer||!verifySignature(receipt)||hashOf({...receipt,hash:''})!==receipt.hash||receipt.kind!=='recipe.build'||receipt.status!==(r.state==='succeeded'?'ok':'failed'))throw Error('Result receipt invalid');
  const prediction=receipts.find(x=>receipt.child_receipts?.includes(x.id)&&x.kind==='recipe.prediction');
  if(!prediction||prediction.signer!==job.signer||!verifySignature(prediction)||hashOf({...prediction,hash:''})!==prediction.hash||!prediction.sources?.some((s:any)=>s.path===path.join(base,'request.json')&&s.sha256===job.requestHash))throw Error('Prediction/request binding invalid');
- if(sha(fs.readFileSync(regular(path.join(base,'request.json'))))!==job.requestHash)throw Error('Native request changed');
+ if(sha(bytes(path.join(base,'request.json')))!==job.requestHash)throw Error('Native request changed');
  const frozenPrediction=['request.json','prediction.json','build.py'];
  for(const name of frozenPrediction){
   const file=path.join(base,name),source=prediction.sources?.find((s:any)=>s.path===file);
-  if(!source||sha(fs.readFileSync(regular(file)))!==source.sha256)throw Error('Retained prediction source changed');
+  if(!source||sha(bytes(file))!==source.sha256)throw Error('Retained prediction source changed');
  }
  for(const source of prediction.sources??[]){
   if(typeof source.path!=='string'||!source.path.startsWith(base+path.sep))continue;
   if(path.resolve(source.path)!==source.path)throw Error('Prediction path escaped');
   let cursor=base;for(const part of path.relative(base,source.path).split(path.sep).slice(0,-1))cursor=directory(path.join(cursor,part));
-  if(sha(fs.readFileSync(regular(source.path)))!==source.sha256)throw Error('Retained prediction source changed');
+  if(sha(bytes(source.path))!==source.sha256)throw Error('Retained prediction source changed');
  }
 
  if(r.state==='succeeded'){
@@ -190,9 +202,10 @@ function completion(root:string,id:string){
   if(typeof artifact.path!=='string'||path.resolve(artifact.path)!==artifact.path||!artifact.path.startsWith(base+path.sep))throw Error('Receipt artifact escaped native run');
   const relative=path.relative(base,artifact.path);let cursor=base;
   for(const part of relative.split(path.sep).slice(0,-1))cursor=directory(path.join(cursor,part));
-  if(sha(fs.readFileSync(regular(artifact.path)))!==artifact.sha256)throw Error('Result artifact changed');
+  if(sha(bytes(artifact.path))!==artifact.sha256)throw Error('Result artifact changed');
  }
- return {state:r.state as JobState,progress:'finished',resultReceipt:r.receipt as string,resultHash:r.receiptHash as string};
+ const snapshot:ResultSnapshot={job,envelope,report,receipt,prediction,base,files};
+ return {result:{state:r.state as JobState,progress:'finished',resultReceipt:r.receipt as string,resultHash:r.receiptHash as string},snapshot};
 }
 export function recover(root:string,id:string){
  const current=status(root,id),dir=jobDirectory(root,id);
