@@ -53,6 +53,7 @@ Commands:
   center          The cockpit: REPL, monitor and events as tabs (zellij, tmux, or the REPL here)
   studio          Timmy Canvas: the tldraw canvas the agent draws on (127.0.0.1:4337; /canvas)
   tools           What works here, checked live: surfaces, models, agent tools, other agents (tools all; --json)
+  drop <file|folder>…  Into the hot-drop lanes: copied, matched by a rule, sealed (--lane; --list [project])
   demo            Run a local demo and generate a verifiable receipt
   proof <task>    Record a proof receipt for a simulated task
   version         Print package name and version
@@ -146,7 +147,7 @@ if (cleanArgs.length === 0 && !args.includes('--help') && !args.includes('-h')) 
   const { isBlankSlate, runInit } = await import('./utils/init.js');
   if (isBlankSlate()) process.exit(await runInit(args));
 }
-if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
+if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
   printHelp();
   process.exit(0);
 }
@@ -476,25 +477,10 @@ if (command === 'chat') {
 }
 
 if (command === 'drop') {
-  // warroom-v2-c4m8: `timmy drop --list [project]` — what sits in each project
-  // folder's drop/ shelf, read through Claude Code's harness-menu reader
-  const want = args.find(a => !a.startsWith('--')) ?? null;
-  const hm = await import('../fleet/harness-menu.mjs');
-  const { readdirSync, statSync } = await import('node:fs');
-  const names = (want ? [want] : readdirSync(hm.PROJECTS_ROOT, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)).sort();
-  const rows: { project: string; file: string; bytes: number }[] = [];
-  for (const n of names) {
-    const p = hm.readProject(n, hm.PROJECTS_ROOT);
-    for (const d of p.drop ?? []) {
-      const rel = String(d.path ?? d.name ?? '');
-      try { rows.push({ project: n, file: rel, bytes: statSync(`${p.dir}/drop/${rel}`).size }); }
-      catch { rows.push({ project: n, file: rel, bytes: 0 }); }
-    }
-  }
-  if (args.includes('--json')) console.log(JSON.stringify({ v: 1, count: rows.length, rows }, null, 1));
-  else if (rows.length === 0) console.log('drop shelves empty — timmy drop <project> <file> to feed a run');
-  else for (const r of rows) console.log(`${r.project.padEnd(14)} ${String(r.bytes).padStart(9)}  ${r.file}`);
-  process.exit(0);
+  // R4 H19: `timmy drop <file|folder>… [--lane <lane>]` hands each file to the hot-drop processor (src/drop), the same
+  // one the watched drop folder uses; `--list [project]` (warroom-v2-c4m8) lists each project's drop/ shelf.
+  const { dropMain } = await import('./drop/cli.js');
+  process.exit(await dropMain(cleanArgs.slice(1), { json: isJson }));
 }
 
 if (command === 'profile') {
