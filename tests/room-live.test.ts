@@ -7,8 +7,11 @@
  *   start as Qwen Code on a local endpoint; its task says SLEEP, so its job runs (a real child process) until it is stopped;
  * - the flow is /iterate tray with that same FAKE agent, held in its agent step; TIMMY_CADQUERY_PYTHON names a FAKE file
  *   that is never executed (the flow is stopped before its build);
- * - the tools check is a FAKE list of /tools rows given through the roomTools seam (nothing on this machine is probed).
+ * - the tools check is a FAKE list of /tools rows given through the roomTools seam (nothing on this machine is probed);
+ * - the recipe job runs through the jobs.ts executor seam with a FAKE executor that only waits (no CadQuery, no Python,
+ *   nothing written), so its job stays running until it is cancelled through its own path.
  */
+import type { ChildProcess } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request, type IncomingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -26,6 +29,8 @@ import type { Receipt, ReceiptInput } from '../src/utils/receipts.js';
 const FAKE_AGENT = resolve('tests/fixtures/fake-code-agent.mjs');
 const dirs: string[] = [];
 const spaces: Workspace[] = [];
+/** The recipe supervisors started (FAKE executor), so teardown can wait for them to end. */
+let supervisors: Promise<void>[] = [];
 const temp = (prefix: string): string => { const d = mkdtempSync(join(tmpdir(), prefix)); dirs.push(d); return d; };
 const put = (root: string, rel: string, body: string): void => { mkdirSync(dirname(join(root, rel)), { recursive: true }); writeFileSync(join(root, rel), body); };
 const text = (lines: { text: string }[][]): string => lines.map((l) => l.map((s) => s.text).join('')).join('\n');
@@ -33,6 +38,8 @@ const tick = (ms = 100): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 afterEach(async () => {
   for (const w of spaces.splice(0)) await w.close();
+  await Promise.race([Promise.all(supervisors), new Promise((r) => setTimeout(r, 15000))]);
+  supervisors = [];
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
@@ -43,9 +50,11 @@ const FAKE_ROWS: CapabilityRow[] = [
   { id: 'mcp-cli', kind: 'tool', name: 'MCP servers (/mcp)', rung: 'installed', detail: 'FAKE: 1 of 2 command-line routes installed' },
 ];
 
-function make() {
+function make(o: { recipe?: true } = {}) {
   const root = temp('room-live-');
   const fixtures = temp('room-live-fixtures-');
+  const executor = join(fixtures, 'fake-recipe-wait.mts');
+  writeFileSync(executor, '// FAKE recipe executor (a TEST DOUBLE): it only waits; no CadQuery, no Python, nothing written.\nawait new Promise((r) => setTimeout(r, 20000));\n');
   const fakePython = join(fixtures, 'fake-python');
   writeFileSync(fakePython, '#!/bin/sh\necho "FAKE: not a Python; never executed by these tests"\nexit 1\n', { mode: 0o755 });
   put(root, 'README.md', '# FAKE project for the Control Room tests\n');
@@ -64,6 +73,12 @@ function make() {
     receipts: () => sealed.map((r, i) => ({ ...r, ts: new Date(Date.now() + i).toISOString(), hash: `sha256_${String(i).padStart(64, '0')}` })) as unknown as Receipt[],
     recoverAtStart: false,
     roomTools: async () => FAKE_ROWS,
+    ...(o.recipe ? {
+      recipeTest: {
+        executor, pollMs: 100,
+        onSupervisor: (child: ChildProcess) => { supervisors.push(new Promise((r) => { child.once('close', () => r()); child.once('error', () => r()); })); },
+      },
+    } : {}),
   };
   const ws = new Workspace(deps, folderProject(root));
   spaces.push(ws);
@@ -190,6 +205,30 @@ describe('the Control Room on the live board: Stop reaches the existing /stop pa
     const again = await post(port, jsonHeaders(token), { action: 'stop', flow });
     expect(again.status).toBe(404);
   }, 40_000);
+});
+
+describe('the Control Room on the live board: a recipe', () => {
+  it('a running recipe job (FAKE executor that only waits) is shown with its watcher job; its Stop runs /stop <watcher>, which cancels the recipe through its own path', async () => {
+    const { ws, notes } = make({ recipe: true });
+    const out = text(await ws.recipe('tray'));
+    const watcher = /Running\s+(j[0-9a-f]{6})/.exec(out)?.[1];
+    const uuid = /Recipe job\s+([0-9a-f-]{36})/.exec(out)?.[1];
+    expect(watcher, out).toBeDefined();
+    expect(uuid, out).toBeDefined();
+    const { port, token } = await live(ws);
+    const s = await until(port, token, (x) => x.html.includes(`data-room-kind="recipe" data-room-id="${uuid}"`) && x.html.includes(`data-act="room-stop" data-job="${watcher}"`), 15_000);
+    expect(s.html).toContain('<strong class="room-owner">the CadQuery recipe (enclosure.tray/1)</strong> <span class="room-state">running</span>');
+    expect(s.html).toContain(`<span class="kind">recipe</span> ${uuid} · job ${watcher}`);
+    expect(s.html).toContain('no cost recorded: the recipe worker on this machine');
+    const stopped = await post(port, jsonHeaders(token), { action: 'stop', job: watcher });
+    expect(stopped.status).toBe(200);
+    expect(stopped.body.split('\n')[0]).toBe(`board /stop ${watcher}`);
+    expect(notes).toContain(`  board  /stop ${watcher}`);
+    // The recipe's own cancel was asked: its row ends cancelled, and no Stop is offered for it.
+    const after = await until(port, token, (x) => x.html.includes(`data-room-id="${uuid}"`) && !x.html.includes(`data-act="room-stop" data-job="${watcher}"`)
+      && /<strong class="room-owner">the CadQuery recipe \(enclosure\.tray\/1\)<\/strong> <span class="room-state">cancelled/.test(x.html), 20_000);
+    expect(after.html).not.toContain(`data-cmd="/recipe cancel ${uuid}"`);
+  }, 60_000);
 });
 
 describe('/room in the REPL', () => {
