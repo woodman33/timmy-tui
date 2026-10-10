@@ -11,6 +11,7 @@
  * test is a SYNTHETIC object whose every string is hostile markup.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { request } from 'node:http';
@@ -113,6 +114,41 @@ describe('the operation card, each item checked against its receipt', () => {
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt; &amp; &lt;b&gt;wider&lt;/b&gt;');
     expect(html).toContain(`<a class="file" href="../../${stl.path}">${stl.path}</a>`);
     expect(html).not.toContain(s.base);
+  }, 120_000);
+});
+
+describe('the lessons an operation was given (r19, ledger row 158)', () => {
+  it('a lesson given to its flow as context is on its card, said as given, though its evidence names nothing the operation made', async () => {
+    const s = sandbox(kit, 'ops-card-given-');
+    // A SYNTHETIC checked lesson in the shape Timmy Memory writes, applying to scad flows. Its evidence is a note of the
+    // project, nothing this operation makes: before r19's fix the card said no lesson, while the flow record named it.
+    fs.writeFileSync(path.join(s.root, 'notes.md'), 'the lid gap stays 0.4 mm\n');
+    const noteSha = createHash('sha256').update(fs.readFileSync(path.join(s.root, 'notes.md'))).digest('hex');
+    const dir = path.join(s.root, '.timmy', 'memory', 'lessons');
+    fs.mkdirSync(dir, { recursive: true });
+    const now = new Date().toISOString();
+    fs.writeFileSync(path.join(dir, 'l00c0ffee.json'), JSON.stringify({
+      schema: 'timmy.lesson/1', id: 'l00c0ffee', text: 'Keep the lid gap when the box widens', applies_to: { kinds: ['scad'], files: [], words: [] },
+      evidence: [{ path: 'notes.md', sha256: noteSha, receipt: null, why: 'the note that says so' }], status: 'checked', created: now, checked: now, source: 'user', operation: null,
+    }));
+    const { ws, op, flow, record } = await flowRun(kit, s);
+    // Timmy Memory's retrieval gave it to the flow's agent, as the flow record keeps.
+    expect(record.lessons).toEqual([expect.objectContaining({ id: 'l00c0ffee', status: 'checked' })]);
+    const card = text(ws.op(op));
+    expect(card).toContain('Lesson     l00c0ffee  checked  Keep the lid gap when the box widens');
+    expect(card).toMatch(new RegExp(`given to flow ${flow}(, agent run a[0-9a-f]+)? as context when it started`));
+    expect(card).not.toContain("made from this operation's records");
+    expect(card).not.toContain('Lessons    none');
+    // A lesson neither made from it nor given to it stays off its card.
+    fs.writeFileSync(path.join(dir, 'l00decade.json'), JSON.stringify({
+      schema: 'timmy.lesson/1', id: 'l00decade', text: 'about another box', applies_to: { kinds: ['tray'], files: [], words: [] },
+      evidence: [{ path: 'notes.md', sha256: noteSha, receipt: null, why: 'n/a' }], status: 'checked', created: now, checked: now, source: 'user', operation: null,
+    }));
+    expect(text(ws.op(op))).not.toContain('l00decade');
+    // The board's card says the same.
+    ws.board('');
+    const html = fs.readFileSync(path.join(s.root, BOARD_FILE), 'utf8');
+    expect(html).toMatch(new RegExp(`given to flow ${flow}(, agent run a[0-9a-f]+)? as context when it started`));
   }, 120_000);
 });
 

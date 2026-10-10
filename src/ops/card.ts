@@ -59,7 +59,11 @@ export interface CardWorkflow { doc: string; block: string; job: string; state: 
 export interface CardFlow { id: string; kind: string; instruction?: string; outcome: string; verdict: string; tone: CardTone; steps: CardStep[]; file: string; check: CardCheck; commands: string[] }
 export interface CardOutput { path: string; role: string; by: string; sha256?: string; check: CardCheck; commands: string[] }
 export interface CardVox { id: string; file: string; action: string; status: string; tone: CardTone; inputs: string[]; values: string[]; about: 'this operation' | 'its outputs'; check: CardCheck; commands: string[] }
-export interface CardLesson { id: string; file: string; text: string; status: string; tone: CardTone; evidence: Array<{ what: string; check: CardCheck }>; commands: string[] }
+export interface CardLesson {
+  id: string; file: string; text: string; status: string; tone: CardTone; evidence: Array<{ what: string; check: CardCheck }>; commands: string[];
+  /** how it relates to the operation (r19, ledger row 158): made from its records, given to one of its runs, or both */
+  relation?: string;
+}
 export interface CardRun { kind: string; id: string; role: string; state: string; tone: CardTone }
 
 export interface OperationCard {
@@ -443,7 +447,7 @@ function voxParts(ix: OpIndex, id: string, outputs: CardOutput[]): CardVox[] {
 }
 
 /** The project's lessons whose evidence names one of these files or receipts, or that name the operation; and the unreadable files. */
-export function readLessons(ix: OpIndex, id: string, names: { files: Set<string>; receipts: Set<string> }): { lessons: CardLesson[]; errors: string[] } {
+export function readLessons(ix: OpIndex, id: string, names: { files: Set<string>; receipts: Set<string>; given?: Map<string, string[]> }): { lessons: CardLesson[]; errors: string[] } {
   const lessons: CardLesson[] = [];
   const errors: string[] = [];
   let entries: string[];
@@ -457,7 +461,11 @@ export function readLessons(ix: OpIndex, id: string, names: { files: Set<string>
     const evidence = Array.isArray(l.evidence) ? l.evidence.map(obj).filter((e): e is Obj => !!e) : [];
     const names_ = (e: Obj): boolean => (str(e.path) !== undefined && names.files.has(String(e.path)))
       || (str(e.receipt) !== undefined && (names.receipts.has(String(e.receipt)) || names.receipts.has(String(e.receipt).slice(7, 15))));
-    if (l.operation !== id && !evidence.some(names_)) continue;
+    const lid = str(l.id) ?? n.slice(0, -5);
+    const madeHere = l.operation === id || evidence.some(names_);
+    const givenTo = names.given?.get(lid) ?? [];
+    if (!madeHere && !givenTo.length) continue;
+    const relation = [madeHere ? 'made from this operation\'s records' : '', givenTo.length ? `given to ${givenTo.join(', ')} as context when it started` : ''].filter(Boolean).join('; ');
     const checks = evidence.slice(0, 12).map((e) => {
       const what = [str(e.path) ? ix.scrub(String(e.path)) : '', str(e.receipt) ? `receipt ${String(e.receipt).replace(/^sha256_/, '').slice(0, 12)}` : ''].filter(Boolean).join(' · ') || '(names nothing)';
       const rel_ = str(e.path);
@@ -471,8 +479,8 @@ export function readLessons(ix: OpIndex, id: string, names: { files: Set<string>
     const status = str(l.status) ?? 'unknown';
     const stale = checks.some((x) => x.check.status === 'stale' || x.check.status === 'missing');
     lessons.push({
-      id: str(l.id) ?? n.slice(0, -5), file: rel, text: ix.scrub(String(l.text ?? '')).slice(0, 600), status: stale && status === 'checked' ? 'checked, but its evidence changed since' : status,
-      tone: stale ? 'attention' : toneOf(status), evidence: checks, commands: [`/open ${rel}`],
+      id: lid, file: rel, text: ix.scrub(String(l.text ?? '')).slice(0, 600), status: stale && status === 'checked' ? 'checked, but its evidence changed since' : status,
+      tone: stale ? 'attention' : toneOf(status), evidence: checks, commands: [`/open ${rel}`], relation,
     });
   }
   if (entries.length > MAX_LESSON_FILES) errors.push(`${entries.length - MAX_LESSON_FILES} more lesson files were not read`);
@@ -535,7 +543,21 @@ export function operationCard(ix: OpIndex, id: string): OperationCard {
     ...(ix.agents.get(id) ?? []).map((a) => `${AGENTS_DIR}/${a}/result.json`),
   ]);
   const receiptIds = new Set<string>([...receipts.map((r) => r.id), ...(ix.receipts.get(id) ?? []).map((r) => String(r.hash))]);
-  const { lessons, errors } = readLessons(ix, id, { files, receipts: receiptIds });
+  // The lessons this operation's flows were given (each flow record's `lessons`, Timmy Memory's retrieval): r19 saw a
+  // reuse whose card said no lesson, while its flow record and receipt named the one it was given.
+  const given = new Map<string, string[]>();
+  const usedBy = (file: string, who: string): void => {
+    const r = readJson(ix.root, file, 2 * 1024 * 1024);
+    const used = r.ok ? obj(r.value)?.lessons : undefined;
+    if (!Array.isArray(used)) return;
+    for (const u of used.map(obj)) {
+      const lid = u ? str(u.id) : undefined;
+      if (lid && !(given.get(lid) ?? []).includes(who)) given.set(lid, [...(given.get(lid) ?? []), who]);
+    }
+  };
+  for (const f of flows) usedBy(f.file, `flow ${f.id}`);
+  for (const run of ix.agents.get(id) ?? []) usedBy(`${AGENTS_DIR}/${run}/run.json`, `agent run ${run}`); // a plain /agent's task
+  const { lessons, errors } = readLessons(ix, id, { files, receipts: receiptIds, given });
   const runs = runParts(ix, id, rec, flows, vox);
   return {
     id, request: rec ? ix.scrub(rec.request) : '(no record of its request in this project)', ...(rec ? { via: rec.via, started: rec.started, ended: rec.ended, parent: rec.parent } : {}),

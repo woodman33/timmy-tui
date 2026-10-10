@@ -60,10 +60,11 @@ export function cardLines(c: OperationCard, o: { glyphs: GlyphSet; link?: (rel: 
   }
   for (const l of c.lessons) {
     lines.push([label('Lesson'), { text: l.id, role: 'strong' }, { text: '  ' }, { text: l.status, role: TONE_ROLE[l.tone] }, { text: `  ${l.text}` }]);
+    if (l.relation) lines.push([pad, { text: l.relation, role: 'secondary' }]);
     for (const e of l.evidence) lines.push([pad, { text: `${e.what}: ` }, check(e.check)]);
     lines.push(cmds(l.commands));
   }
-  if (!c.lessons.length) lines.push([label('Lessons'), { text: 'none in .timmy/memory/lessons names this operation or its records', role: 'secondary' }]);
+  if (!c.lessons.length) lines.push([label('Lessons'), { text: 'none in .timmy/memory/lessons names this operation or its records, and none was given to its runs', role: 'secondary' }]);
   for (const e of c.lessonErrors) lines.push([label('Unreadable'), { text: e, role: 'estimate' }]);
   if (c.runs.length) {
     lines.push([label('Runs'), { text: `${c.runs.length}, each with its role`, role: 'secondary' }]);

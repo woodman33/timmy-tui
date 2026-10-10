@@ -41,7 +41,7 @@ export function operationCardHtml(c: OperationCard, k: Kit): string {
   )).join('');
   const lessons = c.lessons.map((l) => item(
     `<div class="op-head"><span class="op-name">${esc(l.id)}</span> <span class="op-state op-${l.tone}">${esc(l.status)}</span></div>`,
-    `<p class="op-lesson">${esc(l.text)}</p>${l.evidence.length ? `<ul class="op-values">${l.evidence.map((e) => `<li>${esc(e.what)}: ${checkHtml(e.check)}</li>`).join('')}</ul>` : ''}${k.cmds(l.commands)}`,
+    `<p class="op-lesson">${esc(l.text)}</p>${l.relation ? `<div class="op-meta">${esc(l.relation)}</div>` : ''}${l.evidence.length ? `<ul class="op-values">${l.evidence.map((e) => `<li>${esc(e.what)}: ${checkHtml(e.check)}</li>`).join('')}</ul>` : ''}${k.cmds(l.commands)}`,
   )).join('');
   const errors = c.lessonErrors.map((e) => `<li class="op-item">${esc(`unreadable: ${e}`)}</li>`).join('');
   const runs = c.runs.map((r) => `<li><span class="op-run">${esc(`${r.kind} ${r.id}`)}</span> <span class="op-role">${esc(r.role)}</span> <span class="op-state op-${r.tone}">${esc(r.state)}</span></li>`).join('');
@@ -60,7 +60,7 @@ export function operationCardHtml(c: OperationCard, k: Kit): string {
     + part('Flows', flows ? `<ul class="op-list">${flows}</ul>` : '', c.flows.length)
     + part('Native outputs', outputs ? `<ul class="op-list">${outputs}</ul>` : '', c.outputs.length)
     + part('VoxVision', vox ? `<ul class="op-list">${vox}</ul>` : '', c.vox.length)
-    + part('Lessons', lessons || errors ? `<ul class="op-list">${lessons}${errors}</ul>` : `<p class="empty">${esc('No lesson in .timmy/memory/lessons names this operation or its records.')}</p>`, c.lessons.length)
+    + part('Lessons', lessons || errors ? `<ul class="op-list">${lessons}${errors}</ul>` : `<p class="empty">${esc('No lesson in .timmy/memory/lessons names this operation or its records, and none was given to its runs.')}</p>`, c.lessons.length)
     + part('Runs, by role', runs ? `<ul class="op-runs">${runs}</ul>` : '', c.runs.length)
     + `${k.cmds(c.commands)}</article>`;
 }
