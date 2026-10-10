@@ -54,6 +54,7 @@ import { projectId } from '../project/index.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import type { Receipt, ReceiptInput } from '../utils/receipts.js';
+import { placeNew } from '../utils/place-new.js';
 
 type Line = Segment[];
 
@@ -428,7 +429,11 @@ function actRecipe(d: RecoverDeps, p: Extract<Plan, { kind: 'recipe' }>): Recove
   };
 }
 
-/** Writes a JSON file in the project only where nothing is: a temporary file, then a hard link that fails when a file is there. */
+/**
+ * Writes a JSON file in the project only where nothing is: a temporary file, then a hard link that fails when a file is
+ * there; on a disk without hard links (exFAT, FAT, some network shares), a rename once nothing is there (the review's
+ * R4-7: src/utils/place-new.ts, the fallback kept.ts has).
+ */
 function createProjectJson(root: string, rel: string, value: unknown): { ok: true; path: string; sha256: string; bytes: number } | { ok: false; error: string } {
   const abs = path.join(root, rel);
   const body = `${JSON.stringify(value, null, 2)}\n`;
@@ -444,7 +449,8 @@ function createProjectJson(root: string, rel: string, value: unknown): { ok: tru
     if (!inside(dir)) return { ok: false, error: `${path.dirname(rel)} leads outside the project` };
     const tmp = path.join(dir, `.${path.basename(abs)}.${randomBytes(4).toString('hex')}.tmp`);
     fs.writeFileSync(tmp, body, { flag: 'wx' });
-    try { fs.linkSync(tmp, path.join(dir, path.basename(abs))); } finally { fs.unlinkSync(tmp); }
+    // After a link the temporary name is a second name for the record; after a rename it is gone already.
+    try { placeNew(tmp, path.join(dir, path.basename(abs))); } finally { try { fs.unlinkSync(tmp); } catch { /* renamed */ } }
   } catch (e) {
     return { ok: false, error: (e as NodeJS.ErrnoException).code === 'EEXIST' ? `${rel} is already there; it was left as it is` : message(e) };
   }

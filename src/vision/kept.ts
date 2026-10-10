@@ -15,9 +15,10 @@
  * that cannot hold the file says why, in plain words, and a text kept nowhere is recorded as `{ error }`.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { closeSync, fchmodSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, fchmodSync, fsyncSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { humanBytes, resolveInside } from '../project/index.js';
+import { placeNew } from '../utils/place-new.js';
 import { OBSERVATIONS_DIR } from './look.js';
 import { ANSWER_MAX_BYTES } from './route.js';
 
@@ -45,10 +46,10 @@ function cut(text: string): { text: string; truncated?: true; bytes: number } {
   while (end > 0 && (buf[end] & 0xc0) === 0x80) end--; // buf[end] is the first byte left out: never inside a character
   return { text: buf.subarray(0, end).toString('utf8'), truncated: true, bytes };
 }
-/** No hard links here: a name is taken only when nothing is there. */
-const NO_LINKS = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EXDEV', 'EMLINK', 'ENOSYS']);
-
-/** Writes `body` into `dir` as `name` (or name-2 … when it is taken): atomically, mode 0600, never over a file. */
+/**
+ * Writes `body` into `dir` as `name` (or name-2 … when it is taken): atomically, mode 0600, never over a file. A disk
+ * without hard links takes it by rename once nothing is there (src/utils/place-new.ts, shared with recovery; R4-7).
+ */
 function placePrivate(dir: string, name: string, body: Buffer): { ok: true; abs: string; name: string } | { ok: false; error: string } {
   try { mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch (e) {
     const c = code(e);
@@ -77,17 +78,12 @@ function placePrivate(dir: string, name: string, body: Buffer): { ok: true; abs:
       const final = n === 1 ? name : `${stem}-${n}${ext}`;
       const abs = join(dir, final);
       try {
-        // link(2) fails on a name that is taken, so nothing is ever replaced.
-        linkSync(tmp, abs);
+        // link(2) fails on a name that is taken, so nothing is ever replaced; without hard links, lstat then rename.
+        placeNew(tmp, abs);
         return { ok: true, abs, name: final };
       } catch (e) {
         if (code(e) === 'EEXIST') continue;
-        if (!NO_LINKS.has(code(e))) return { ok: false, error: `it could not be put in place (${code(e)})` };
-        let taken = false;
-        try { lstatSync(abs); taken = true; } catch { /* free */ }
-        if (taken) continue;
-        renameSync(tmp, abs);
-        return { ok: true, abs, name: final };
+        return { ok: false, error: `it could not be put in place (${code(e)})` };
       }
     }
     return { ok: false, error: 'no free name for it' };
