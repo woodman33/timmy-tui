@@ -14,6 +14,8 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DOCTRINE_15, FLOW_SCHEMA, mm3Text, mmText, toleranceText, type FlowRecord } from '../flows/iterate.js';
+// R4 (H26): a Blender flow's card (/iterate blender).
+import { BLENDER_FLOW_CSS, blenderFlowCard, isBlenderFlowRecord } from './board-flows-blender.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { Receipt } from '../utils/receipts.js';
 
@@ -95,7 +97,12 @@ function helpers(d: Draw) {
     return d.live ? `<span class="name">${esc(label ?? rel)}</span>` : `<a class="name" href="${href(rel)}">${esc(label ?? rel)}</a>`;
   };
   const cmd = (c: string): string => `<button type="button" class="cmd" data-cmd="${esc(c)}" title="Copy this command"><code>${esc(c)}</code></button>`;
-  return { file, cmd };
+  /** R4 (H26): a picture of an image file in the project (none on the live board, which serves no files). */
+  const thumb = (p: unknown): string => {
+    const rel = relPath(p);
+    return !rel || d.live ? '' : `<a class="thumb" href="${href(rel)}"><img src="${href(rel)}" alt="${esc(rel)}" loading="lazy"></a>`;
+  };
+  return { file, cmd, thumb };
 }
 
 const shortSha = (s: unknown): string => (typeof s === 'string' ? s.slice(0, 12) : '?');
@@ -165,6 +172,7 @@ function statusLine(check: BoardFlowCheck): string {
 }
 
 function flowCard(f: BoardFlow, h: ReturnType<typeof helpers>): string {
+  if (isBlenderFlowRecord(f.record)) return blenderFlowCard(f, h, statusLine(f.check)); // R4 (H26)
   const r = f.record;
   const outcome = String(r.outcome ?? 'unknown');
   const outputs = Array.isArray(r.rebuild?.outputs) ? r.rebuild!.outputs! : [];
@@ -198,7 +206,7 @@ export function flowsSection(flows: BoardFlows, d: Draw): { toc: string; html: s
       `<h2 id="flows">Flows <span class="count">${total}</span></h2>`,
       flows.list.length
         ? `<div class="grid wide">${flows.list.map((f) => flowCard(f, h)).join('')}</div>`
-        : `<p class="empty">${esc('No flows yet: /iterate tray "<instruction>" has a local agent change the parameters, rebuilds the tray and reads it back.')}</p>`,
+        : `<p class="empty">${esc('No flows yet: /iterate tray "<instruction>" has a local agent change the parameters, rebuilds the tray and reads it back; /iterate blender <script.py> "<instruction>" does the same for a Blender script.')}</p>`,
       flows.more > 0 ? `<p class="more">${esc(`and ${flows.more} more: /iterate`)}</p>` : '',
     ].join('\n'),
   };
@@ -217,4 +225,4 @@ export const FLOWS_CSS = `
 .flow .verdict-differs, .flow .verdict-failed { color: ${HOMEBREW.failure}; }
 .state-succeeded { color: ${HOMEBREW.accent}; }
 .state-differs, .state-stopped { color: ${HOMEBREW.attention}; }
-`;
+${BLENDER_FLOW_CSS}`;

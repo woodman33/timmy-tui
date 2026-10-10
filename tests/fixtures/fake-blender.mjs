@@ -17,7 +17,15 @@
 //   wrong-sha   an ok result echoing another script's sha256; exits 0
 //   no-digest   an ok result naming out/render.png without its sha256; exits 0
 //   outside     an ok result also naming ../outside.blend, written beside the project; exits 0
+//   sleep       (R4, /iterate blender) waits 30 s, writing nothing, then exits 0 (for /stop)
 // A command line that is not the one above exits 2, as a mistyped Blender call would fail to run the script.
+//
+// R4 (/iterate blender, H26): Blender started with a .blend to open, `-b <file.blend> --factory-startup ...
+// --python <script> -- [args]`, is /iterate's second pass. FAKE_BLENDER_READBACK picks what it does then:
+//   python  (the default) runs the script (workers/readback/blend_readback.py) with python3 (FAKE_BLENDER_PYTHON)
+//           and the stand-in bpy (the job's PYTHONPATH) told to open the file (BPY_STUB_OPEN): the stand-in's
+//           .blend is JSON, so this reads back what the stand-in saved; exits with python's status
+//   sleep   waits 30 s, printing nothing, then exits 0 (for /stop)
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -29,10 +37,31 @@ const at = argv.indexOf('--python');
 const script = at >= 0 ? argv[at + 1] : undefined;
 const dashes = argv.indexOf('--');
 const args = dashes >= 0 ? argv.slice(dashes + 1) : [];
-process.stdout.write(`fake-blender: ${argv.slice(0, dashes >= 0 ? dashes : argv.length).map((a) => (a === script ? path.basename(a) : a)).join(' ')}\n`);
+// R4: the file Blender is told to open, right after -b (/iterate blender's second pass)
+const opened = argv[0] === '-b' && /\.blend$/i.test(argv[1] ?? '') ? argv[1] : undefined;
+process.stdout.write(`fake-blender: ${argv.slice(0, dashes >= 0 ? dashes : argv.length).map((a) => (a === script || a === opened ? path.basename(a) : a)).join(' ')}\n`);
 if (argv[0] !== '-b' || !argv.includes('--factory-startup') || !script || (dashes >= 0 && dashes < at)) {
   process.stderr.write('fake-blender: expected -b --factory-startup ... --python <script.py> [-- args]\n');
   process.exit(2);
+}
+
+if (opened) {
+  const readback = process.env.FAKE_BLENDER_READBACK || 'python';
+  if (readback === 'sleep') {
+    await new Promise((resolve) => setTimeout(resolve, 30_000));
+    process.exit(0);
+  }
+  if (readback !== 'python') {
+    process.stderr.write(`fake-blender: unknown FAKE_BLENDER_READBACK ${readback}\n`);
+    process.exit(2);
+  }
+  const py = spawnSync(process.env.FAKE_BLENDER_PYTHON || 'python3', [script, '--', ...args], { stdio: 'inherit', env: { ...process.env, BPY_STUB_OPEN: opened } });
+  process.exit(py.status ?? 1);
+}
+
+if (mode === 'sleep') {
+  await new Promise((resolve) => setTimeout(resolve, 30_000));
+  process.exit(0);
 }
 
 if (mode === 'python') {

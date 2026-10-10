@@ -211,7 +211,8 @@ describe('/iterate: the parts that decide (no processes)', () => {
     expect(parseIterateLine('tray --agent claude widen it')).toMatchObject({ ok: false, error: expect.stringContaining('Claude Code runs on your own account and costs money') });
     expect(parseIterateLine('tray')).toMatchObject({ ok: false, error: expect.stringContaining('Say what to change') });
     expect(parseIterateLine('vase "taller"')).toMatchObject({ ok: false, error: expect.stringContaining('No recipe vase') });
-    expect(parseIterateLine('blender scene.py "x"')).toMatchObject({ ok: false, error: expect.stringContaining('not built yet') });
+    // R4 (H26): /iterate blender is its own flow (tests/iterate-blender.test.ts)
+    expect(parseIterateLine('blender scene.py "x"')).toEqual({ ok: true, request: { recipe: 'blender', script: 'scene.py', instruction: 'x', agent: 'qwen' } });
     expect(parseIterateLine('tray --fast x')).toMatchObject({ ok: false, error: expect.stringContaining('No option --fast') });
     const c = COMMANDS.find((x) => x.name === 'iterate');
     expect(c?.group).toBe('work');
