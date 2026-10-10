@@ -893,8 +893,8 @@ export class Workspace {
   measure(args: string): Promise<Line[]> { return this.voxAction('measure', args); }
   detect(args: string): Promise<Line[]> { return this.voxAction('detect', args); }
   compare(args: string): Promise<Line[]> { return this.voxAction('compare', args); }
-  /** R4 (H61): `/vox` and `/vox view <record id> [rerun]`: a record's files in Rerun's viewer (src/repl/vox-view.ts). */
-  voxView(args: string): Promise<Line[]> { return this.vox.vox(args, { root: this.root, project: this.project.name }); }
+  /** R4 (H61): `/vox` and `/vox view <record id> [rerun]`: a record's files in Rerun's viewer (src/repl/vox-view.ts). R4 (H70): its lines before Rerun starts are notified then; `early` hears them. */
+  voxView(args: string, early?: (line: Line) => void): Promise<Line[]> { return this.vox.vox(args, { root: this.root, project: this.project.name }, early); }
 
   // ── R4 (H50): Timmy Memory (src/memory) ───────────────────────────────────
 
@@ -2529,17 +2529,19 @@ export class Workspace {
   private async boardCommandNow(c: BoardCommand): Promise<string[]> {
     const root = this.root;
     this.d.notify([{ text: '  board  ', role: 'secondary' }, { text: c.line, role: 'strong' }]);
+    // R4 (H70): View in Rerun prints its window warning before Rerun starts (notified then); the page gets those lines first.
+    const early: Line[] = [];
     const lines = c.name === 'stop' ? await this.stop(c.args) : c.name === 'run' ? await this.run(c.args)
       : c.name === 'recipe' ? await this.recipe(c.args)
         // R4 (H49): VoxVision's buttons, as the typed /inspect, /measure, /detect, /compare.
         : c.name === 'inspect' || c.name === 'measure' || c.name === 'detect' || c.name === 'compare' ? await this.voxAction(c.name, c.args)
           // R4 (H61): View in Rerun, as the typed /vox view <id> rerun.
-          : c.name === 'vox' ? await this.voxView(c.args)
+          : c.name === 'vox' ? await this.voxView(c.args, (l) => early.push(l))
           // R4 (H50): Memory's Check, as the typed /lesson check <id>.
           : c.name === 'lesson' ? this.lesson(c.args)
             // R4 (H65): the review's Restore, as the typed /restore <file> --from <kept>.
             : c.name === 'restore' ? this.restore(c.args) : await this.observe(c.args);
     for (const line of lines) this.d.notify(line);
-    return lines.map((l) => this.scrub(l.map((s) => s.text).join(''), root));
+    return [...early, ...lines].map((l) => this.scrub(l.map((s) => s.text).join(''), root));
   }
 }

@@ -25,7 +25,15 @@ const kit = tempKit();
 afterEach(async () => { resetLookChecks(); await kit.cleanup(); });
 
 const SYSTEM_PATH = '/usr/bin:/bin';
-const chainOf = (sealed: unknown[]): Receipt[] => sealed.map((r, i) => ({ ...(r as object), hash: `sha256:${String(i + 1).padStart(8, '0')}${'0'.repeat(56)}` })) as unknown as Receipt[];
+/** R4 (H70): Rerun is told to listen on this computer only. */
+const BIND = ['--bind', '127.0.0.1'];
+/** R4 (H70): the command as a person sees it: the lines printed (notified) while it ran, then its answer. */
+async function seen(p: { ws: { voxView(args: string): Promise<{ text: string }[][]> }; notes: string[] }, args: string): Promise<string> {
+  const n = p.notes.length;
+  const out = await p.ws.voxView(args);
+  return [...p.notes.slice(n), text(out)].join('\n');
+}
+const chainOf =(sealed: unknown[]): Receipt[] => sealed.map((r, i) => ({ ...(r as object), hash: `sha256:${String(i + 1).padStart(8, '0')}${'0'.repeat(56)}` })) as unknown as Receipt[];
 const recordsIn = (root: string): VoxRecord[] => readdirSync(join(root, 'results', 'vox')).filter((f) => /^v[0-9a-f]{8}\.json$/.test(f)).map((f) => JSON.parse(readFileSync(join(root, 'results', 'vox', f), 'utf8')) as VoxRecord);
 const recordOf = (root: string, test: (r: VoxRecord) => boolean): VoxRecord => recordsIn(root).find(test)!;
 const fileSha = (root: string, rel: string): string => sha(readFileSync(join(root, rel)));
@@ -59,7 +67,7 @@ async function viewProject() {
   await settled(w.ws);
   const id = (test: (r: VoxRecord) => boolean): string => recordOf(root, test).id;
   return {
-    root, log, rerun, ...w,
+    root, log, rerun, env, ...w,
     image: id((r) => r.inputs[0].kind === 'image'), stl: id((r) => r.action === 'measure' && r.inputs[0].kind === 'stl'),
     step: id((r) => r.inputs[0].kind === 'step'), pair: id((r) => r.action === 'compare'),
   };
@@ -70,57 +78,64 @@ describe('/vox view: a record\'s files in Rerun\'s viewer (FAKE rerun on the PAT
     const p = await viewProject();
     const rel = `results/vox/${p.stl}.json`;
     const before = JSON.parse(readFileSync(join(p.root, rel), 'utf8')) as VoxRecord;
-    const out = text(await p.ws.voxView(`view ${p.stl}`));
+    const out = await seen(p, `view ${p.stl}`);
     // Said before it starts: a window on the user's computer, apart from Timmy.
     expect(out).toContain("Rerun      opens a window on your computer: Rerun's own viewer, started apart from Timmy (detached), which Timmy does not stop; close its window when done. It shows the files as they are and measures nothing.");
     expect(out).toContain('passed     models/cube.stl (mesh, stl)');
     expect(out).toContain(`not passed results/vox/${p.stl}/bbox.svg: an SVG drawing: Rerun's viewer reads no SVG (the board shows it)`);
     expect(out).toMatch(new RegExp(`started    pid \\d+ · rerun on the PATH · recorded on results/vox/${p.stl}\\.json · receipt r\\d+`));
     expect(out).toContain(`notice     ${DOCTRINE_15}`);
-    // What the viewer was given, from its own log: one absolute path, in the project's folder, in a process group of its own.
+    // What the viewer was given, from its own log: told to listen on this computer only (R4 H70), then one absolute path,
+    // in the project's folder, in a process group of its own.
     const got = (await rerunLog(p.log))!;
-    expect(got.args).toEqual([join(p.root, 'models/cube.stl')]);
+    expect(got.args).toEqual([...BIND, join(p.root, 'models/cube.stl')]);
     expect(got.cwd).toBe(p.root);
     expect(got.pgid).not.toBe(myPgid());
     // The launch on the record, its values unchanged, and the vox receipt event over the record as now written.
     const after = JSON.parse(readFileSync(join(p.root, rel), 'utf8')) as VoxRecord;
     expect(after.metrics).toEqual(before.metrics);
     expect(after.views).toEqual([{
-      viewer: 'rerun', at: expect.any(String), program: 'rerun on the PATH', detached: true, pid: expect.any(Number),
+      viewer: 'rerun', at: expect.any(String), program: 'rerun on the PATH', detached: true, pid: expect.any(Number), bind: '127.0.0.1',
       passed: [{ path: 'models/cube.stl', sha256: sha(cubeStl(1)), loader: 'mesh (stl)' }],
       not_passed: [{ path: `results/vox/${p.stl}/bbox.svg`, why: "an SVG drawing: Rerun's viewer reads no SVG (the board shows it)" }],
     }]);
     const rc = p.sealed.at(-1)!;
     expect(rc).toMatchObject({ kind: 'vox', subject: `vox · view · ${p.stl} · rerun · started`, status: 'ok', project_id: projectId(p.root), files: [{ path: 'models/cube.stl', sha256: sha(cubeStl(1)), kind: 'mesh' }] });
-    expect(rc.outputs).toEqual([{ path: rel, sha256: fileSha(p.root, rel), bytes: readFileSync(join(p.root, rel)).length }]);
+    // R4 (H70): the record first, then its highlight as it is (so the board still draws it after the view).
+    const svg = `results/vox/${p.stl}/bbox.svg`;
+    expect(rc.outputs).toEqual([{ path: rel, sha256: fileSha(p.root, rel), bytes: readFileSync(join(p.root, rel)).length }, { path: svg, sha256: fileSha(p.root, svg), bytes: readFileSync(join(p.root, svg)).length }]);
     expect(rc.sources![0]).toMatchObject({ vox: p.stl, event: 'view', viewer: 'rerun', detached: true, passed: ['models/cube.stl'], not_passed: [`results/vox/${p.stl}/bbox.svg`], at: after.views![0].at });
     // The record stays verified (by the receipt that sealed it as written), and its card names the view and its receipt.
     const card = readVoxRecord({ root: p.root, file: rel, text: readFileSync(join(p.root, rel), 'utf8'), fileSha256: fileSha(p.root, rel), chain: chainOf(p.sealed), projectId: projectId(p.root) })!;
     expect(card.check.status).toBe('verified');
-    expect(card.views).toEqual([{ at: after.views![0].at, viewer: 'rerun', program: 'rerun on the PATH', passed: ['models/cube.stl'], notPassed: [{ path: `results/vox/${p.stl}/bbox.svg`, why: expect.any(String) }], pid: after.views![0].pid, receipt: String(p.sealed.length).padStart(8, '0') }]);
+    expect(card.views).toEqual([{ at: after.views![0].at, viewer: 'rerun', program: 'rerun on the PATH', passed: ['models/cube.stl'], notPassed: [{ path: `results/vox/${p.stl}/bbox.svg`, why: expect.any(String) }], pid: after.views![0].pid, receipt: String(p.sealed.length).padStart(8, '0'), bind: '127.0.0.1' }]);
+    expect(card.highlights.map((h) => h.shown)).toEqual([true]);
     expect(JSON.stringify(rc)).not.toContain(p.root);
 
     // An image record: the image and its annotated copy, both PNGs by their bytes and names.
     rmSync(p.log, { force: true });
-    const img = text(await p.ws.voxView(`view ${p.image} rerun`));
+    const img = await seen(p, `view ${p.image} rerun`);
     expect(img).toContain(`passed     refs/photo.png (image, png) · results/vox/${p.image}/annotated.png (image, png)`);
     expect(img).not.toContain(DOCTRINE_15);
-    expect((await rerunLog(p.log))!.args).toEqual([join(p.root, 'refs/photo.png'), join(p.root, `results/vox/${p.image}/annotated.png`)]);
+    expect((await rerunLog(p.log))!.args).toEqual([...BIND, join(p.root, 'refs/photo.png'), join(p.root, `results/vox/${p.image}/annotated.png`)]);
   });
 
-  it('starts nothing and writes nothing when no file can be passed: a STEP and its drawing, an input changed since, a record not verified', async () => {
+  it('starts nothing and writes nothing when no file can be passed: a STEP (without its tessellation\'s Python) and its drawing, an input changed since, a record not verified', async () => {
     const p = await viewProject();
     const unchanged = (id: string) => { const rel = `results/vox/${id}.json`; const s = fileSha(p.root, rel); return () => expect(fileSha(p.root, rel)).toBe(s); };
     const n = p.sealed.length;
     const stepSame = unchanged(p.step);
-    const out = text(await p.ws.voxView(`view ${p.step}`));
+    // R4 (H70): a STEP is shown as its tessellation by OCP (tests/vox-view-launch.test.ts); without that Python, needs setup.
+    delete p.env.TIMMY_CADQUERY_PYTHON;
+    const out = await seen(p, `view ${p.step}`);
     expect(out).toContain(`Nothing of ${p.step} can be opened in Rerun's viewer (it reads images (PNG, JPEG, GIF, WebP), meshes (.stl, .obj, .glb, .gltf), point clouds (.ply), video (.mp4)):`);
-    expect(out).toContain("not passed cad/part.step: Rerun's viewer has no STEP loader (a STEP is CAD, not a mesh): /measure reads it with OCP");
+    expect(out).toContain("not passed cad/part.step: Rerun's viewer has no STEP loader (a STEP is CAD, not a mesh), and its tessellation for the viewer needs setup");
+    expect(out).toContain('needs setup its tessellation for the viewer (OCP), of cad/part.step: TIMMY_CADQUERY_PYTHON is not set · set TIMMY_CADQUERY_PYTHON to the absolute path of a Python with CadQuery (its OCP reads the STEP)');
     expect(out).toContain('Nothing was started and nothing was written.');
     stepSame();
     // An input changed since: it is not passed (Rerun would show other bytes than were measured); the drawing is SVG.
     put(p.root, 'models/cube.stl', cubeStl(3));
-    const stale = text(await p.ws.voxView(`view ${p.stl}`));
+    const stale = await seen(p, `view ${p.stl}`);
     expect(stale).toMatch(/not passed models\/cube\.stl: it changed since the record \(sha256 [0-9a-f]{12} now, [0-9a-f]{12} recorded\): Rerun would show other bytes than the record's/);
     expect(stale).toContain('Nothing was started and nothing was written.');
     // A record edited since its receipt: refused, as nothing vouches for the files it names.
@@ -137,10 +152,10 @@ describe('/vox view: a record\'s files in Rerun\'s viewer (FAKE rerun on the PAT
 
   it('two STLs are not overlaid: they share no known unit, so the record of their compare shows a alone and says why b is not passed', async () => {
     const p = await viewProject();
-    const out = text(await p.ws.voxView(`view ${p.pair}`));
+    const out = await seen(p, `view ${p.pair}`);
     expect(out).toContain('passed     models/cube.stl (mesh, stl)');
     expect(out).toContain("not passed models/cube2.stl: in one Rerun view with models/cube.stl it would be a 3D overlay, and neither STL declares a unit, so the two STLs share no known unit; their numbers are compared in the files' own units and marked estimated, never given millimetres; /inspect it and view that record to see it alone");
-    expect((await rerunLog(p.log))!.args).toEqual([join(p.root, 'models/cube.stl')]);
+    expect((await rerunLog(p.log))!.args).toEqual([...BIND, join(p.root, 'models/cube.stl')]);
   });
 
   it('needs setup without rerun on the PATH or TIMMY_RERUN; TIMMY_RERUN names it; Viser and FiftyOne need setup; /vox lists the layers', async () => {
@@ -174,7 +189,7 @@ describe('/vox view: a record\'s files in Rerun\'s viewer (FAKE rerun on the PAT
     env.TIMMY_RERUN = fake;
     env.FAKE_RERUN_LOG = log;
     expect(text(await ws.voxView(`view ${id}`))).toMatch(/started {4}pid \d+ · set by TIMMY_RERUN · recorded on/);
-    expect((await rerunLog(log))!.args).toEqual([join(realpathSync(root), 'models/cube.stl')]);
+    expect((await rerunLog(log))!.args).toEqual([...BIND, join(realpathSync(root), 'models/cube.stl')]);
     // `timmy act` never opens a window for a person who did not ask: /vox view is refused there, with the line to type.
     expect(needsPerson(`/vox view ${id}`)).toBe("/vox view opens Rerun's viewer, a window on your computer");
     expect(needsPerson('/vox')).toBeUndefined();

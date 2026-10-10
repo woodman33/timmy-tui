@@ -107,6 +107,40 @@ export interface VoxView {
   pid?: number;
   /** the operation (one request) that opened it */
   operation?: string;
+  /** R4 (H70): the address it was told to listen on (`--bind`, src/vox/layers.ts RERUN_BIND): this computer only */
+  bind?: string;
+  /** R4 (H70): files made from the record's inputs for the viewer (a STEP's tessellation), kept in the record's folder */
+  derived?: VoxDerived[];
+}
+
+/**
+ * R4 (H70): a file `/vox view` made from a record's input so the viewer can show it: a STEP's tessellation by OCP
+ * (src/vox/tessellate.ts), kept in the record's own folder and sealed with the view. It is a mesh approximating the
+ * STEP's surfaces within `tolerance`, never the STEP itself, and measures nothing.
+ */
+export interface VoxDerived {
+  path: string;
+  sha256: string;
+  bytes: number;
+  kind: 'tessellation';
+  format: 'stl';
+  /** the record's input it was made from, with the sha256 the record names (the bytes meshed) */
+  from: { path: string; sha256: string; role?: 'a' | 'b' };
+  /** how, as the worker reported it */
+  method: string;
+  tolerance: { linear_deflection_mm: number; angular_deflection_rad: number; relative: false };
+  triangles: number;
+  /** the worker and its engine, as they reported themselves: "timmy-step-tessellate 0.1.0 (OCP 7.9.3.1)" */
+  made_by: string;
+  /** made by this view's job, or an earlier view's file used again (its bytes unchanged) */
+  made: 'now' | 'reused';
+  job?: string;
+  /** the job's output as it came, kept beside the record (private) */
+  raw?: { path: string; sha256: string; bytes: number };
+  /** Timmy's own reading of the mesh (its triangles and box), and that box against OCP's box of the STEP in the record */
+  check: { by: string; triangles: number; box: [number, number, number] | null; against?: { box: [number, number, number]; within_mm: number; max_difference_mm: number }; note?: string };
+  /** in a person's words: what it is and is not */
+  words: string;
 }
 
 /** A file drawn from the metrics: an annotated copy, a heatmap, an SVG of a bounding box. */

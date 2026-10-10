@@ -10,6 +10,8 @@
  *             and unit (src/vox/frames.ts): an STL or a PLY declares no unit, so a record of two shows the first alone.
  *             The viewer is a window on the user's computer, started apart from Timmy (detached), which Timmy never
  *             stops. It shows the files as they are and measures nothing: no value of the record comes from it.
+ *             R4 (H70): it is told to listen on this computer only (`--bind 127.0.0.1`, RERUN_BIND), and a rerun whose
+ *             --help lacks that option is not started; a STEP is given as its tessellation (src/vox/tessellate.ts).
  *   Viser     not used by VoxVision yet: a "needs setup" row with its install step and what it would add
  *   FiftyOne  likewise
  *
@@ -25,6 +27,48 @@ import { together, type VoxFrame } from './frames.js';
 /** Rerun's setup step, short enough for a /tools row (no link: Timmy cannot check one). */
 export const RERUN_SETUP = "cargo install rerun-cli --locked, or Rerun's release from its site";
 export const RERUN_NAME = "Rerun's viewer (/vox view)";
+/**
+ * R4 (H70): Rerun's viewer is told to listen on this computer only. Without it `rerun <files>` hosts its local viewer
+ * server on all interfaces (r20 saw *:9876 on the Mac). `--bind <BIND>` ("What bind address IP to use", default
+ * 0.0.0.0) is in Rerun's CLI reference (docs/content/reference/cli.md on its main branch, read through Context7 on
+ * 2026-10-10) and in the --help of Rerun 0.37.1 (the operator's Mac, r20) and of Rerun 0.38.1 (read where Timmy is
+ * developed). A found rerun whose own --help does not list it is not started (rerunTakesBind).
+ */
+export const RERUN_BIND = { flag: '--bind', address: '127.0.0.1', known: "Rerun 0.37.1's and 0.38.1's --help, and Rerun's current CLI reference" } as const;
+export const rerunBindArgs = (): string[] => [RERUN_BIND.flag, RERUN_BIND.address];
+/** How long a found rerun's --help may take, and the most of it read. */
+const HELP_TIMEOUT_MS = 20_000;
+const HELP_MAX = 256 * 1024;
+/** The option's line in clap's help: `      --bind <BIND>` (long help) or `  -b, --bind <BIND>  …` (short help). */
+const BIND_LINE = /^[ \t]*(?:-[A-Za-z0-9], +)?--bind(?:[ =<\t]|$)/m;
+
+/**
+ * R4 (H70): whether a found rerun takes `--bind`: its own --help (exit 0) lists the option. Running --help opens no
+ * window and listens on nothing. Anything else (no such option, an error, no answer in time) is a reason not to start
+ * it, since started without the option it would listen on all interfaces.
+ */
+export function rerunTakesBind(o: { command: string; env: NodeJS.ProcessEnv; cwd: string }): Promise<{ ok: true } | { ok: false; why: string }> {
+  return new Promise((resolve) => {
+    let out = '';
+    let ended = false;
+    let child: ChildProcess;
+    let timer: NodeJS.Timeout | undefined;
+    const end = (r: { ok: true } | { ok: false; why: string }): void => { if (ended) return; ended = true; if (timer) clearTimeout(timer); resolve(r); };
+    try {
+      child = spawn(o.command, ['--help'], { cwd: o.cwd, env: o.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) { end({ ok: false, why: `its --help could not be run (${e instanceof Error ? e.message : String(e)})` }); return; }
+    timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } end({ ok: false, why: `its --help gave no answer in ${HELP_TIMEOUT_MS / 1000} s, so whether it takes ${RERUN_BIND.flag} is not known` }); }, HELP_TIMEOUT_MS);
+    const take = (b: Buffer): void => { if (out.length < HELP_MAX) out += b.toString('utf8'); };
+    child.stdout?.on('data', take);
+    child.stderr?.on('data', take);
+    child.once('error', (e) => end({ ok: false, why: `its --help could not be run (${e.message})` }));
+    child.once('close', (code, signal) => {
+      if (code !== 0) end({ ok: false, why: `its --help ended with ${code === null ? `signal ${signal ?? 'unknown'}` : `exit ${code}`}, so whether it takes ${RERUN_BIND.flag} is not known` });
+      else if (!BIND_LINE.test(out)) end({ ok: false, why: `its --help lists no ${RERUN_BIND.flag} option, so started it would listen on all interfaces` });
+      else end({ ok: true });
+    });
+  });
+}
 /** What Rerun's built-in loaders read, as the rows and /vox say it. */
 export const RERUN_READS = 'images (PNG, JPEG, GIF, WebP), meshes (.stl, .obj, .glb, .gltf), point clouds (.ply), video (.mp4)';
 
