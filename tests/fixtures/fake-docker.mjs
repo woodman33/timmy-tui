@@ -47,6 +47,10 @@
 //   STOPERR       `docker stop` ends the worker (SIGTERM, then SIGKILL after its grace) but exits 1 before docker lists it
 //                 as gone, as a stop Timmy's own time limit cut short did on the Mac (ledger row 159); `docker kill` then
 //                 finds it not running, exits 1
+//   PYWORKER      the container runs Timmy's REAL worker instead of this scripted one: the run's own copy of
+//                 timmy_openhands.py (the folder mounted at /timmy) under this machine's python3, on a FAKE OpenHands SDK
+//                 (tests/fixtures/fake-openhands-sdk.py: no model, no tool), with the container's -e settings and the
+//                 copy as its working folder; HANG then reaches the FAKE SDK, whose conversation waits until it is stopped
 // `stop` and `kill` act on a container by its name (or id), as docker's do, on the process playing its worker.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -224,10 +228,17 @@ if (words.has('FAILSTART')) fail('docker: Error response from daemon: failed to 
 
 // ── its container: the worker, a process of its own in a process group of its own, as this "daemon" keeps it ──
 const name = given['--name'];
-const box = spawn(process.execPath, [fileURLToPath(import.meta.url), '--fake-container'], {
-  detached: true, stdio: ['pipe', 'pipe', 'pipe'],
-  env: { ...process.env, FAKE_DOCKER_CONTAINER: JSON.stringify({ name, token, words: [...words], work: work.source, model: envs.LLM_MODEL, max: Number(envs.TIMMY_OPENHANDS_MAX_ITERATIONS) }) },
-});
+const py = words.has('PYWORKER');
+const box = py
+  // The real worker as the container's own process (as python is its PID 1 in Timmy's image), on the FAKE SDK.
+  ? spawn('python3', ['-B', join(dirname(fileURLToPath(import.meta.url)), 'fake-openhands-sdk.py'), join(worker.source, 'timmy_openhands.py')], {
+    detached: true, stdio: ['pipe', 'pipe', 'pipe'], cwd: work.source,
+    env: { PATH: process.env.PATH ?? '', PYTHONDONTWRITEBYTECODE: '1', ...Object.fromEntries(Object.entries(envs).filter(([k]) => k !== 'HOME')) },
+  })
+  : spawn(process.execPath, [fileURLToPath(import.meta.url), '--fake-container'], {
+    detached: true, stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, FAKE_DOCKER_CONTAINER: JSON.stringify({ name, token, words: [...words], work: work.source, model: envs.LLM_MODEL, max: Number(envs.TIMMY_OPENHANDS_MAX_ITERATIONS) }) },
+  });
 writeFileSync(containerFile(name), `${JSON.stringify({ id: randomBytes(32).toString('hex'), name, labels, state: 'running', pid: box.pid, client: process.pid, behaviour: [...words] })}\n`);
 box.stdin.on('error', () => { /* the worker is gone: its exit says so */ });
 box.stdin.end(stdin.body);
@@ -243,7 +254,8 @@ const forward = (sig) => {
 };
 process.on('SIGTERM', () => forward('SIGTERM'));
 process.on('SIGINT', () => forward('SIGINT'));
-box.on('close', (code, signal) => exit(code ?? 128 + (constants.signals[signal] ?? 0)));
+// --rm: the scripted worker removes its own container as it ends; the real worker does not know this "daemon", so its end does.
+box.on('close', (code, signal) => { if (py) remove(name); exit(code ?? 128 + (constants.signals[signal] ?? 0)); });
 
 // ── the container's worker ──
 async function container() {

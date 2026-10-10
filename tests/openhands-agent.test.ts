@@ -674,6 +674,28 @@ describe('/stop and the time limit stop its container by its name and labels (FA
     expect(readFileSync(join(root, 'src/a.txt'), 'utf8')).toBe('first line\n');
   }, 60_000);
 
+  it('end to end: Timmy\'s real worker (python3 on a FAKE SDK) in the FAKE container, stopped by /stop through docker stop: its own last line is in the result', async () => {
+    const ollama = await fakeOllama(['qwen3:4b']);
+    const dock = fakeDocker({ signalDelayMs: 2500 });
+    const root = project();
+    const { ws, sealed } = make(root, ohEnv(dock, ollama.url));
+    const { id, run } = await started(ws, dock, 'openhands --local PYWORKER HANG a long task');
+    const dir = join(root, AGENTS_DIR, run);
+    const progress = (): string => { try { return readFileSync(join(dir, 'progress.log'), 'utf8'); } catch { return ''; } };
+    await until(() => progress().includes('tool  terminal  cat a.txt'));
+    const reply = text(await ws.stop(id));
+    expect(reply).toContain(`${id} cancelled`);
+    const name = `timmy-oh-${run}`;
+    expect(dock.clientSignals()).toEqual([]);
+    expect(progress()).toContain('done  not finished: it was stopped (SIGTERM) · 2 steps · 900 tokens in, 30 out');
+    const r = resultOf(root);
+    expect(r.why).toBe(`stopped with /stop before it finished: first docker stop ended its container ${name} (docker stop --time 10 ${name} exited 0), then its docker client ended by itself (exit 143); the worker's own last line: stopped at step 2 (SIGTERM), 900 tokens in, 30 out`);
+    // the real worker said what it is: no SDK version here (the FAKE SDK is no installed package), its status and steps
+    expect(r.openhands!.reported).toMatchObject({ sdk: null, status: 'stopped', steps: 2 });
+    expect(sealed.find((s) => s.kind === 'agent')).toMatchObject({ status: 'cancelled', openhands: { stop: { result: 'stopped', client: 'by itself' } } });
+    expect(existsSync(dock.containerFile(name))).toBe(false);
+  }, 60_000);
+
   it('Timmy\'s time limit takes the same order: OpenHands\' own limit stops the container first, before the job\'s own (the backstop); the worker\'s words arrive', async () => {
     const ollama = await fakeOllama(['qwen3:4b']);
     const dock = fakeDocker({ signalDelayMs: 3000 });
