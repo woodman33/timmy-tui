@@ -16,8 +16,14 @@
  * while a value differs from the one it was drawn with (or the file there is not usable); typing the drawn values back
  * makes the card clean again.
  */
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { posix } from 'node:path';
+import { checkScadParams, paramsFileFor, readScadParams, scadParamsText, type ScadValue } from '../native/scad-params.js';
+import { writeProjectFile } from '../project/index.js';
 import { saveParams } from './board-cards.js';
-import { saveWorkflow, type EditAnswer, type EditContext } from './board-nodes.js';
+import { filePlace, keepPrevious, saveWorkflow, type EditAnswer, type EditContext } from './board-nodes.js';
+import { WORKFLOW_SCRIPT } from './board-workflows.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 
 /** The largest edit body read; a larger one is refused before it is parsed. */
@@ -29,7 +35,97 @@ export function applyBoardEdit(body: unknown, ctx: EditContext): EditAnswer {
   const o = body as Record<string, unknown>;
   if (o.action === 'set-params') return saveParams(o, ctx);
   if (o.action === 'save-workflow') return saveWorkflow(o, ctx);
-  return { status: 400, text: 'Unknown edit: set-params and save-workflow are the edits.', line: 'refused an unknown edit' };
+  if (o.action === 'set-scad-params') return saveScadParams(o, ctx);
+  return { status: 400, text: 'Unknown edit: set-params, set-scad-params and save-workflow are the edits.', line: 'refused an unknown edit' };
+}
+
+// ── R4 (H47): an OpenSCAD model's parameter file, saved from the board ─────────
+
+/** Where the previous versions of an OpenSCAD parameter file are kept (each under its own path). */
+export const SCAD_HISTORY_DIR = '.timmy/params-history/scad';
+const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
+const keysAre = (o: Record<string, unknown>, keys: string[]): boolean => {
+  const have = Object.keys(o).sort();
+  return have.length === keys.length && [...keys].sort().every((x, i) => have[i] === x);
+};
+const reply = (status: number, text: string, line = text): EditAnswer => ({ status, text, line });
+const CONTROL = /[\x00-\x1f\x7f]/;
+const kindWords = (v: unknown): string => (typeof v === 'number' ? 'a number' : typeof v === 'boolean' ? 'true or false' : typeof v === 'string' ? 'text' : v === null ? 'null' : Array.isArray(v) ? 'a list' : 'something else');
+const shown = (v: ScadValue): string => (typeof v === 'string' ? JSON.stringify(v) : String(v));
+
+/**
+ * `set-scad-params`: {"action":"set-scad-params","model":"<model.scad>","base":"<sha256 of its parameter file as shown>",
+ * "parameters":{"<name>": <value>, …}}. It mirrors set-params (src/repl/board-cards.ts saveParams):
+ * - the model is one whose parameter file the board shows now (`<model>.params.json`, src/native/scad-params.ts);
+ * - refused (409) while an /iterate flow runs in the project (its agent may be changing this very file), and when the file
+ *   changed since the board showed it (its sha256 is not `base`);
+ * - the parameters are the file's own names, each once, each value of the kind the file gives it (the board changes
+ *   values, not names or kinds), every value checked by the scad-params rules (checkScadParams);
+ * - the file is a regular file in place (no link on its way); its previous bytes are kept under
+ *   .timmy/params-history/scad/<file>/ first, then it is replaced atomically, and an edit receipt is sealed.
+ * Nothing runs. The answer says what changed, or why nothing was written.
+ */
+export function saveScadParams(body: Record<string, unknown>, ctx: EditContext): EditAnswer {
+  if (!keysAre(body, ['action', 'model', 'base', 'parameters']) || typeof body.model !== 'string' || !body.model || body.model.length > 512 || CONTROL.test(body.model)
+    || typeof body.base !== 'string' || !body.parameters || typeof body.parameters !== 'object' || Array.isArray(body.parameters)) {
+    return reply(400, 'An OpenSCAD parameter save is {"action":"set-scad-params","model":"<model.scad>","base":"<sha256>","parameters":{…}}.');
+  }
+  const model = body.model;
+  if (!/\.scad$/i.test(model) || !(ctx.scadModels ?? []).includes(model)) return reply(404, `No OpenSCAD parameter card for ${model.slice(0, 80)} on this board.`);
+  const base = body.base;
+  if (!/^[0-9a-f]{64}$/.test(base)) return reply(400, 'base is the 64 hex characters of the parameter file as the board showed it.');
+  const rel = paramsFileFor(model);
+  // Not while a flow runs here, whatever the file's sha256 is now; nothing is read or written.
+  const flow = ctx.flowIn?.();
+  if (flow) {
+    const who = flow.id ? `flow ${flow.id} is running` : 'a flow is being started';
+    return reply(409, `${who} in this project: save after it ends, or /stop it`, `refused an OpenSCAD parameter save: ${who} in this project`);
+  }
+  const now = readScadParams(ctx.root, model);
+  if (!now.ok) return reply(422, `${rel} is not usable: ${now.error}. Nothing was written; /edit ${rel} fixes it.`, `refused an OpenSCAD parameter save: ${rel} is not usable`);
+  if (!now.exists) return reply(409, `${rel} is not there any more; nothing was written.`, `refused an OpenSCAD parameter save: ${rel} is gone`);
+  if (now.sha256 !== base) {
+    return reply(409, `${rel} changed since the board showed it (it is now sha256 ${now.sha256.slice(0, 12)}); nothing was written. Discard shows it as it is now.`, `refused an OpenSCAD parameter save: ${rel} changed since the board showed it`);
+  }
+  const given = body.parameters as Record<string, unknown>;
+  const names = Object.keys(now.parameters);
+  if (!keysAre(given, names)) return reply(400, `The parameters of ${rel} are ${names.join(', ') || '(none)'}, each once: the board changes values, not names.`);
+  for (const n of names) {
+    const was = now.parameters[n];
+    const v = given[n];
+    if (typeof v !== typeof was) {
+      return reply(422, `Refused: ${n} is ${kindWords(was)} in ${rel}, and ${String(JSON.stringify(v)).slice(0, 40)} is ${kindWords(v)}: the board keeps each parameter's kind. Nothing was written.`, `refused an OpenSCAD parameter save: ${n} changed its kind`);
+    }
+  }
+  const checked = checkScadParams(given);
+  if (!checked.ok) return reply(422, `Refused: ${checked.error}. Nothing was written; ${rel} is as it was.`, `refused an OpenSCAD parameter save: ${checked.error}`);
+  const next: Record<string, ScadValue> = Object.fromEntries(names.map((n) => [n, checked.parameters[n]]));
+  const words = names.map((n) => (Object.is(now.parameters[n], next[n]) ? `${n} ${shown(next[n])}` : `${n} ${shown(now.parameters[n])} → ${shown(next[n])}`)).join(', ');
+  if (names.every((n) => Object.is(now.parameters[n], next[n]))) return reply(200, `No change: ${rel} already holds ${words} (sha256 ${base.slice(0, 12)}); nothing was written.`, `no change to ${rel}`);
+  // In place: a regular file, reached through no link; its bytes still the ones shown.
+  const place = filePlace(ctx.root, rel);
+  if (!place.ok) return reply(place.status, `${place.error} Nothing was written.`);
+  let bytes: Buffer;
+  try { bytes = readFileSync(place.value.abs); } catch { return reply(409, `${rel} could not be read again; nothing was written.`); }
+  if (sha(bytes) !== base) return reply(409, `${rel} changed while it was being saved; nothing was written.`);
+  const kept = keepPrevious(ctx.root, rel, bytes, { dir: SCAD_HISTORY_DIR, ext: '.json' });
+  if (!kept.ok) return reply(500, `Nothing was written: the previous version of ${rel} could not be kept (${kept.error}).`);
+  let text: string;
+  try { text = scadParamsText(posix.basename(model), next); } catch (e) { return reply(422, `Refused: ${e instanceof Error ? e.message : String(e)}. Nothing was written.`); }
+  try { if (sha(readFileSync(place.value.abs)) !== base) return reply(409, `${rel} changed while it was being saved; nothing was written over it (the version shown is kept at ${kept.rel}).`); } catch { return reply(409, `${rel} went away while it was being saved; nothing was written.`); }
+  const w = writeProjectFile(ctx.root, rel, text);
+  if (!w.ok) return reply(500, `${rel} could not be written (${w.error}); the previous version is kept at ${kept.rel}.`);
+  let receipt: string | undefined;
+  try {
+    receipt = ctx.seal?.({
+      kind: 'edit', subject: `edit · ${rel} · OpenSCAD parameters from the live board`, policy: 'human-gated', status: 'ok', project: ctx.project, project_id: ctx.projectId,
+      files: [{ path: rel, sha256: w.sha256, previous_sha256: base, created: false, bytes: w.bytes }],
+      sources: [{ path: kept.rel, sha256: base, role: 'previous version' }],
+    });
+  } catch { receipt = undefined; }
+  return reply(200,
+    `Saved ${rel}: ${words}. sha256 ${w.sha256.slice(0, 12)} (was ${base.slice(0, 12)}); the previous version is kept at ${kept.rel}${receipt ? `; receipt ${receipt}` : '; no receipt was sealed'}. /scad ${model} takes these values.`,
+    `saved ${rel}: ${words}${receipt ? ` · receipt ${receipt}` : ''}`);
 }
 
 /** The page's editor. Runs before the live board's script, which calls TimmyBoardEdit.attach({ send, refresh }). */
@@ -160,6 +256,7 @@ var TimmyBoardEdit = (function () {
     if (b) b.hidden = true;
     card.querySelector('.wf-editor').hidden = false;
     draw(m);
+    wfEditing(card, true);
   };
   var close = function (m) {
     var card = m.card;
@@ -170,6 +267,7 @@ var TimmyBoardEdit = (function () {
     box.hidden = true;
     var b = card.querySelector('[data-wf-edit]');
     if (b) b.hidden = false;
+    wfEditing(card, false);
   };
   var fresh = function (m) {
     var taken = Object.create(null);
@@ -285,19 +383,24 @@ var TimmyBoardEdit = (function () {
     }, function () { markParams(p); paramsMsg(p, unreachable, true); });
   };
 
+${WORKFLOW_SCRIPT}
   document.addEventListener('click', function (e) {
     var t = e.target && e.target.closest ? e.target : null;
     if (!t) return;
+    // R4 (H47): the connected card first (a node or a chip, the run bar, the inspector's command, OpenSCAD parameters)
+    if (wfClick(t)) return;
     var edit = t.closest('[data-wf-edit]');
-    if (edit) { var c = edit.closest('[data-wf-doc]'); if (c) open(c); return; }
+    if (edit) { var c = edit.closest('[data-wf-doc]'); if (c && !c.querySelector('[data-wf-cmd-dirty]')) open(c); return; }
+    // R4 (H47): a parameter card inside a workflow card is its own form, also while the block editor is open
+    var p = t.closest('[data-params]');
+    if (p) { paramsClick(p, t); wfGuardOf(p); return; }
     var card = t.closest('[data-wf-doc]');
     if (card && card.timmyModel) { workflowClick(card.timmyModel, t); return; }
-    var p = t.closest('[data-params]');
-    if (p) paramsClick(p, t);
   });
   document.addEventListener('input', function (e) {
     var t = e.target && e.target.closest ? e.target : null;
     if (!t) return;
+    if (wfInput(t)) return;
     var card = t.closest('[data-wf-doc]');
     var m = card && card.timmyModel;
     if (m && t.hasAttribute('data-field')) {
@@ -309,7 +412,7 @@ var TimmyBoardEdit = (function () {
       return;
     }
     var p = t.closest('[data-params]');
-    if (p && t.hasAttribute('data-param')) editParams(p);
+    if (p && t.hasAttribute('data-param')) { editParams(p); wfGuardOf(p); }
   });
   document.addEventListener('change', function (e) {
     var t = e.target && e.target.closest ? e.target : null;

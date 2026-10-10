@@ -54,6 +54,8 @@ export interface LiveState {
   files: Array<{ rel: string; kind: string; bytes: number }>;
   /** R4: the recipes whose parameter card the board shows (their Rebuild runs `/recipe <name>`). */
   recipes?: string[];
+  /** R4 (H47): the OpenSCAD models whose parameter file a workflow card shows (the set-scad-params edit saves only these). */
+  scadModels?: string[];
 }
 
 export interface LiveBoardDeps {

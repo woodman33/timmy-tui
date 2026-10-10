@@ -29,6 +29,8 @@ import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { ReceiptInput } from '../utils/receipts.js';
 import { parseWorkflow, type WorkflowBlock } from '../workflows/upmd.js';
 import { esc, type Kit } from './board-kit.js';
+// R4 (H47): the connected workflow card's parts (instructions, inspector, run bar); that module imports only types from here.
+import { connectWorkflow, graphStates, inspectorsHtml, instructionsHtml, nodeAnchor, runBarHtml, TEXT_DRAWN, WORKFLOWS_CSS, type ConnectedWorkflow } from './board-workflows.js';
 
 // ── bounds ───────────────────────────────────────────────────────────────────
 
@@ -67,6 +69,10 @@ export interface WorkflowDocInput {
   sha256?: string;
   /** why the live board cannot rewrite it; absent when it can (and `sha256` is known) */
   readOnly?: string;
+  /** R4 (H47): the document's Markdown, for its instructions (absent when not read whole, or over TEXT_DRAWN bytes) */
+  text?: string;
+  /** R4 (H47): its runs, its blocks' last results and the parameter files they name (src/repl/board-workflows.ts) */
+  connected?: ConnectedWorkflow;
 }
 
 /** The first `n` lines of a command, leading blank lines skipped. */
@@ -130,6 +136,8 @@ export function workflowForBoard(rel: string, read: { text: string; sha256?: str
     blocks: named.map((b) => ({ index: b.index, name: b.name, lang: b.lang, deps: b.deps, ...(why ? { code: firstLines(b.code, 3).join('\n'), lines: lineCount(b.code) } : { code: b.code }) })),
     ...(read.sha256 ? { sha256: read.sha256 } : {}),
     ...(why ? { readOnly: why } : {}),
+    // R4 (H47): the prose, for the card's instructions
+    ...(Buffer.byteLength(read.text) <= TEXT_DRAWN ? { text: read.text } : {}),
   };
 }
 
@@ -137,6 +145,8 @@ export function workflowForBoard(rel: string, read: { text: string; sha256?: str
 
 const NODE_W = 216;
 const NODE_H = 78;
+/** R4 (H47): a node with its state line under its command */
+const NODE_H_STATE = 98;
 const GAP_X = 52;
 const GAP_Y = 14;
 const PAD = 6;
@@ -162,7 +172,7 @@ export interface GraphLayout {
  * edge runs forward; a loop's closing edge is marked instead. Within a column, blocks sit near what they need.
  * A need is resolved as upmd resolves it (the first block with that name).
  */
-export function layoutGraph(blocks: NodeInput[]): GraphLayout {
+export function layoutGraph(blocks: NodeInput[], nodeH = NODE_H): GraphLayout {
   const shown = blocks.slice(0, GRAPH_MAX);
   const first = new Map<string, number>();
   shown.forEach((b, i) => { if (!first.has(b.name)) first.set(b.name, i); });
@@ -221,13 +231,13 @@ export function layoutGraph(blocks: NodeInput[]): GraphLayout {
       const lines = firstLines(code, 3);
       return {
         i, name: b.name, lang: b.lang ?? '', lines, more: Math.max(0, (b.lines ?? lineCount(code)) - lines.length), layer: layer[i], row: row[i],
-        x: PAD + layer[i] * (NODE_W + GAP_X), y: PAD + top + row[i] * (NODE_H + GAP_Y),
+        x: PAD + layer[i] * (NODE_W + GAP_X), y: PAD + top + row[i] * (nodeH + GAP_Y),
         missing: missing.filter((m) => m.block === b.name).map((m) => m.need), duplicate: first.get(b.name) !== i, loop: onLoop.has(i),
       };
     }),
     edges: shown.flatMap((_, i) => deps[i].map((j) => ({ from: j, to: i, loop: loops.has(`${j}>${i}`) }))),
     width: PAD * 2 + cols * NODE_W + (cols - 1) * GAP_X,
-    height: PAD * 2 + top + rows * NODE_H + (rows - 1) * GAP_Y,
+    height: PAD * 2 + top + rows * nodeH + (rows - 1) * GAP_Y,
     ...(cycle ? { cycle } : {}),
     missing, duplicates, hidden: Math.max(0, blocks.length - shown.length),
   };
@@ -237,8 +247,25 @@ export function layoutGraph(blocks: NodeInput[]): GraphLayout {
  * The graph as inline SVG: geometry in attributes and classes only (the live page's CSP allows no style
  * attribute), arrowheads as plain triangles (no marker reference, so nothing on the page names a url()).
  */
-export function graphSvg(doc: string, blocks: NodeInput[]): string {
-  const g = layoutGraph(blocks);
+/**
+ * R4 (H47): what the connected card adds to the graph: each node's state in words (a glyph, the word and a few words
+ * after it), and each node as a control: on the live board a button that selects its block (`data-wf-node`, its key),
+ * on the snapshot a link to its block's details.
+ */
+export interface GraphDraw {
+  states?: ReadonlyArray<{ word: string; glyph: string; cls: string; detail: string } | undefined>;
+  /** each block's key (upmd's block number), by position */
+  keys?: readonly string[];
+  live?: boolean;
+  /** the snapshot: each node links to this anchor */
+  anchor?: (key: string) => string;
+  /** the key of the node drawn selected */
+  selected?: string;
+}
+
+export function graphSvg(doc: string, blocks: NodeInput[], draw: GraphDraw = {}): string {
+  const nodeH = draw.states ? NODE_H_STATE : NODE_H;
+  const g = layoutGraph(blocks, nodeH);
   const edges = g.edges.map((e) => {
     const a = g.nodes[e.from];
     const b = g.nodes[e.to];
@@ -250,26 +277,38 @@ export function graphSvg(doc: string, blocks: NodeInput[]): string {
         + `<path class="wf-arrow wf-arrow-loop" d="M ${x2} ${b.y} L ${x2 - 4} ${b.y - 7} L ${x2 + 4} ${b.y - 7} Z"/>`;
     }
     const sx = a.x + NODE_W;
-    const sy = a.y + NODE_H / 2;
+    const sy = a.y + nodeH / 2;
     const ex = b.x;
-    const ey = b.y + NODE_H / 2;
+    const ey = b.y + nodeH / 2;
     const c = Math.max(18, (ex - 7 - sx) / 2);
     return `<path class="wf-edge" d="M ${sx} ${sy} C ${sx + c} ${sy}, ${ex - 7 - c} ${ey}, ${ex - 7} ${ey}"/>`
       + `<path class="wf-arrow" d="M ${ex} ${ey} L ${ex - 7} ${ey - 4} L ${ex - 7} ${ey + 4} Z"/>`;
   }).join('');
   const nodes = g.nodes.map((n) => {
-    const cls = ['wf-box', ...(n.missing.length ? ['wf-box-missing'] : []), ...(n.duplicate ? ['wf-box-dup'] : []), ...(n.loop ? ['wf-box-loop'] : [])].join(' ');
+    const st = draw.states?.[n.i];
+    const cls = ['wf-box', ...(n.missing.length ? ['wf-box-missing'] : []), ...(n.duplicate ? ['wf-box-dup'] : []), ...(n.loop ? ['wf-box-loop'] : []), ...(st ? [st.cls] : [])].join(' ');
     const lang = n.lang ? cut(n.lang, 9) : '';
     const name = cut(n.name, CHARS - (lang ? lang.length + 1 : 0));
     const body = n.lines.length
       ? n.lines.slice(0, n.more ? 2 : 3).map((l, k) => `<text class="wf-code" x="${n.x + 10}" y="${n.y + 38 + k * 15}">${esc(cut(l.replace(/\t/g, '  '), CHARS))}</text>`).join('')
         + (n.more ? `<text class="wf-more" x="${n.x + 10}" y="${n.y + 68}">${esc(`+ ${n.more + 1} more line${n.more ? 's' : ''}`)}</text>` : '')
       : `<text class="wf-more" x="${n.x + 10}" y="${n.y + 38}">(an empty command)</text>`;
-    return `<g class="wf-node"><title>${esc(`${n.name}${n.lang ? ` (${n.lang})` : ''}`)}</title><rect class="${cls}" x="${n.x}" y="${n.y}" width="${NODE_W}" height="${NODE_H}" rx="6"/>`
-      + `<text class="wf-name" x="${n.x + 10}" y="${n.y + 20}">${esc(name)}</text>${lang ? `<text class="wf-lang" x="${n.x + NODE_W - 10}" y="${n.y + 20}" text-anchor="end">${esc(lang)}</text>` : ''}${body}</g>`;
+    const state = st ? `<text class="wf-state ${st.cls}" x="${n.x + 10}" y="${n.y + nodeH - 11}">${esc(cut(`${st.glyph} ${st.word}${st.detail ? ` · ${st.detail}` : ''}`, CHARS + 2))}</text>` : '';
+    const key = draw.keys?.[n.i];
+    const said = `${n.name}${n.lang ? ` (${n.lang})` : ''}${st ? `: ${st.word}${st.detail ? `, ${st.detail}` : ''}` : ''}`;
+    const inner = `<title>${esc(said)}</title><rect class="${cls}" x="${n.x}" y="${n.y}" width="${NODE_W}" height="${nodeH}" rx="6"/>`
+      + `<text class="wf-name" x="${n.x + 10}" y="${n.y + 20}">${esc(name)}</text>${lang ? `<text class="wf-lang" x="${n.x + NODE_W - 10}" y="${n.y + 20}" text-anchor="end">${esc(lang)}</text>` : ''}${body}${state}`;
+    if (key !== undefined && draw.live) {
+      const sel = key === draw.selected;
+      return `<g class="wf-node${sel ? ' wf-sel' : ''}" data-wf-node="${esc(key)}" tabindex="0" role="button" aria-pressed="${sel}" aria-label="${esc(`${said}. Show it in the inspector`)}">${inner}</g>`;
+    }
+    if (key !== undefined && draw.anchor) return `<a class="wf-node-link" href="#${esc(draw.anchor(key))}"><g class="wf-node">${inner}</g></a>`;
+    return `<g class="wf-node">${inner}</g>`;
   }).join('');
   const label = cut(`${doc}: ${blocks.slice(0, GRAPH_MAX).map((b) => (b.deps.length ? `${b.name} (needs ${b.deps.join(', ')})` : b.name)).join('; ')}`, 400);
-  return `<div class="wf-graph"><svg class="wf-svg" role="img" aria-label="${esc(label)}" width="${g.width}" height="${g.height}" viewBox="0 0 ${g.width} ${g.height}">`
+  // A graph whose nodes are controls is a group of them; a picture otherwise.
+  const role = draw.keys && (draw.live || draw.anchor) ? 'group' : 'img';
+  return `<div class="wf-graph"><svg class="wf-svg" role="${role}" aria-label="${esc(label)}" width="${g.width}" height="${g.height}" viewBox="0 0 ${g.width} ${g.height}">`
     + `${edges}${nodes}</svg></div>`;
 }
 
@@ -290,10 +329,10 @@ function graphWarnings(blocks: NodeInput[]): string[] {
  * JSON in an attribute; the page reads it with JSON.parse, never as markup).
  */
 export function renderWorkflowCard(w: WorkflowDocInput, k: Kit): string {
-  const nodes = w.blocks;
-  const items = nodes.map((b) => `<li><span class="block">${esc(b.name)}</span>${b.lang ? `<span class="lang">${esc(b.lang)}</span>` : ''}`
-    + `${b.deps.length ? ` <span class="deps">${esc(`needs ${b.deps.join(', ')}`)}</span>` : ''}`
-    + `${k.act('Run', { act: 'run', doc: w.rel, block: b.name })}${k.cmd(`/run ${w.rel} ${b.name}`)}</li>`).join('');
+  // R4 (H47): one connected card: the run bar, the graph with each block's state, the instructions with their chips,
+  // and the inspector (src/repl/board-workflows.ts). A document not connected to its runs is drawn with none.
+  const cw = w.connected ? w : connectWorkflow(w, { root: '', jobs: [], chain: [], files: [] });
+  const nodes = cw.blocks;
   const warnings = graphWarnings(nodes);
   const meta = [`${nodes.length} named block${nodes.length === 1 ? '' : 's'}`, ...(w.sha256 ? [`sha256 ${w.sha256.slice(0, 12)}`] : [])].join(' · ');
   const editable = k.live && !w.readOnly && w.sha256 !== undefined && nodes.every((b) => b.index !== undefined && b.code !== undefined);
@@ -303,9 +342,15 @@ export function renderWorkflowCard(w: WorkflowDocInput, k: Kit): string {
     : k.live
       ? `<p class="meta">${esc(`The board does not edit this document: ${w.readOnly ?? 'its blocks were not read whole'}. /edit ${w.rel} opens your editor.`)}</p>`
       : `<p class="meta">${esc(`Read-only here: /board live edits its blocks${w.readOnly ? ` (not this one: ${w.readOnly})` : ''}; /edit ${w.rel} opens your editor.`)}</p>`;
-  return `<article class="card wide wf"${data}>${k.fileLink(w.rel)}<div class="meta"><span class="kind">workflow</span> ${esc(meta)}</div>`
-    + `${nodes.length ? graphSvg(w.rel, nodes) : ''}${warnings.map((x) => `<p class="wf-warn">${esc(x)}</p>`).join('')}`
-    + `<ol class="blocks">${items}</ol>${how}${k.cmds([`/open ${w.rel}`])}</article>`;
+  const keys = cw.connected!.nodes.map((n) => n.key);
+  const selected = keys[0];
+  const graph = nodes.length
+    ? `<section class="wfx-graph" aria-label="${esc(`the blocks of ${w.rel} as a graph`)}"><p class="meta wf-graph-cap">${esc(k.live ? 'The same blocks as a graph: an arrow runs from a block to the block that needs it. Select a block to inspect it.' : 'The same blocks as a graph: an arrow runs from a block to the block that needs it; a block leads to its details.')}</p>`
+      + `${graphSvg(w.rel, nodes, { states: graphStates(cw), keys, live: k.live, ...(k.live ? { selected } : { anchor: (key: string) => nodeAnchor(w.rel, key) }) })}${warnings.map((x) => `<p class="wf-warn">${esc(x)}</p>`).join('')}</section>`
+    : '';
+  return `<article class="card wide wf wfx" data-wfx="${esc(w.rel)}"${data}><div class="wfx-head">${k.fileLink(w.rel)} <span class="kind">workflow</span> <span class="meta">${esc(meta)}</span></div>`
+    + `${runBarHtml(cw, k)}${graph}<div class="wfx-cols">${instructionsHtml(cw, k, selected)}${inspectorsHtml(cw, k, editable, selected)}</div>`
+    + `${how}${k.cmds([`/open ${w.rel}`, `/workflows ${w.rel}`])}</article>`;
 }
 
 // ── the Markdown, block by block ─────────────────────────────────────────────
@@ -624,6 +669,8 @@ export interface EditContext {
   seal?: (input: ReceiptInput) => string | undefined;
   /** R4 review (R4-3): the /iterate flow running in this project, or being started there (src/repl/iterate.ts runningIn) */
   flowIn?: () => { id?: string; step: string } | undefined;
+  /** R4 (H47): the OpenSCAD models whose parameter file the board shows now (`set-scad-params` saves only these) */
+  scadModels?: readonly string[];
 }
 /** An edit's answer: the HTTP status, the page's text, and one line for the REPL's transcript. */
 export interface EditAnswer { status: number; text: string; line: string }
@@ -638,6 +685,14 @@ const HEX64 = /^[0-9a-f]{64}$/;
 export function docPlace(root: string, doc: string, shown: readonly string[]): Checked<{ abs: string; rel: string; mode: number }> {
   if (!shown.includes(doc)) return no(404, `No workflow ${doc} on this board: /workflows lists them.`);
   if (!/\.(md|markdown)$/i.test(doc)) return no(422, `${doc} is not a Markdown document.`);
+  return filePlace(root, doc);
+}
+
+/**
+ * R4 (H47): a project file's place, checked as docPlace checks a document's (set-scad-params writes a parameter file the
+ * same way): an existing regular file inside the project, reached through no symbolic link.
+ */
+export function filePlace(root: string, doc: string): Checked<{ abs: string; rel: string; mode: number }> {
   // Containment first (a path or a link that leads outside the project is refused here).
   const at = resolveInside(root, doc);
   if ('error' in at) return no(403, `Refused: ${at.error}.`);
@@ -648,20 +703,25 @@ export function docPlace(root: string, doc: string, shown: readonly string[]): C
   const abs = join(realRoot, ...doc.split('/'));
   let st;
   try { st = lstatSync(abs); } catch { return no(404, `${doc} is not there any more.`); }
-  if (st.isSymbolicLink()) return no(403, `Refused: ${doc} is a symbolic link; the board edits a document only in place.`);
+  if (st.isSymbolicLink()) return no(403, `Refused: ${doc} is a symbolic link; the board edits a file only in place.`);
   if (!st.isFile()) return no(403, `Refused: ${doc} is not a regular file.`);
   let real: string;
   try { real = realpathSync(abs); } catch { return no(404, `${doc} cannot be resolved.`); }
-  if (real !== abs || relative(realRoot, real).split(sep).join('/') !== doc) return no(403, `Refused: ${doc} is reached through a symbolic link; the board edits a document only in place.`);
+  if (real !== abs || relative(realRoot, real).split(sep).join('/') !== doc) return no(403, `Refused: ${doc} is reached through a symbolic link; the board edits a file only in place.`);
   return { ok: true, value: { abs, rel: doc, mode: st.mode & 0o7777 } };
 }
 
-/** Keeps the previous bytes under .timmy/workflow-history/<doc>/, never over another kept version. */
-export function keepPrevious(root: string, doc: string, bytes: Buffer): { ok: true; rel: string } | { ok: false; error: string } {
+/**
+ * Keeps the previous bytes under .timmy/workflow-history/<doc>/, never over another kept version. R4 (H47): `o.dir` and
+ * `o.ext` keep another file's previous bytes the same way (an OpenSCAD parameter file under .timmy/params-history/scad/).
+ */
+export function keepPrevious(root: string, doc: string, bytes: Buffer, o: { dir?: string; ext?: string } = {}): { ok: true; rel: string } | { ok: false; error: string } {
   const when = new Date().toISOString().replace(/[:.]/g, '-');
   const h = sha(bytes).slice(0, 12);
+  const dir = o.dir ?? HISTORY_DIR;
+  const ext = o.ext ?? `${extname(doc)}.bak`;
   for (let n = 1; n <= 20; n++) {
-    const rel = `${HISTORY_DIR}/${doc}/${when}-${h}${n > 1 ? `-${n}` : ''}${extname(doc)}.bak`;
+    const rel = `${dir}/${doc}/${when}-${h}${n > 1 ? `-${n}` : ''}${ext}`;
     const at = resolveInside(root, rel);
     if ('error' in at) return { ok: false, error: at.error };
     let fd: number | undefined;
@@ -669,7 +729,7 @@ export function keepPrevious(root: string, doc: string, bytes: Buffer): { ok: tr
       mkdirSync(dirname(at.path), { recursive: true });
       const realRoot = realpathSync(root);
       const realDir = realpathSync(dirname(at.path));
-      if (!realDir.startsWith(realRoot + sep)) return { ok: false, error: `${HISTORY_DIR} leads outside the project` };
+      if (!realDir.startsWith(realRoot + sep)) return { ok: false, error: `${dir} leads outside the project` };
       fd = openSync(at.path, 'wx', 0o644);
       writeSync(fd, bytes);
       closeSync(fd);
@@ -755,5 +815,5 @@ export const NODES_CSS = `
 .wf-arrow { fill: ${HOMEBREW.lineStrong}; }
 .wf-arrow-loop { fill: ${HOMEBREW.failure}; }
 .wf-warn { margin: 0; color: ${HOMEBREW.attention}; font-size: ${TYPE.size.small}px; }
-.blocks .lang { display: inline-block; border: 1px solid ${HOMEBREW.line}; border-radius: 999px; padding: 0 6px; margin-right: 8px; font-size: 11px; color: ${HOMEBREW.textSecondary}; }
-`;
+.blocks .lang, .wf-insp .lang { display: inline-block; border: 1px solid ${HOMEBREW.line}; border-radius: 999px; padding: 0 6px; margin-right: 8px; font-size: 11px; color: ${HOMEBREW.textSecondary}; }
+${WORKFLOWS_CSS}`;
