@@ -22,6 +22,8 @@ export const STARTERS: Readonly<Record<string, string>> = {
   'freecad-starter': 'a FreeCAD part script (/freecad plate.py): a plate with four holes, an editable .FCStd and a STEP',
   // Round R4 (helper H51)
   'tray-workflow': 'one request as one operation: WORKFLOW.md changes the tray, inspects its STEP, shows the result and keeps a draft lesson (/run WORKFLOW.md lesson)',
+  // Round R4 (helper H63)
+  'unreal-starter': 'a Blueprint-only Unreal project and a script that builds a level of cubes from scene.params.json (/unreal TimmyStarter.uproject scene.py)',
 };
 
 /**

@@ -22,6 +22,10 @@
  *   freecad   (R4) FreeCAD's freecadcmd, headless: a Python script builds a part, saves an editable .FCStd and
  *             exports STEP; its result file (workers/freecad/timmy_freecad.py) decides the run. Built and judged in
  *             src/native/freecad.ts, which also offers the STEP readback.
+ *   unreal    (R4, H63) Unreal Engine's UnrealEditor-Cmd, headless: its pythonscript commandlet runs Timmy's harness
+ *             (workers/unreal/timmy_unreal.py), which runs a project's Python script inside the editor and writes the
+ *             result file (levels saved, actors made, files written). A second Unreal process reads each saved level
+ *             back. Built and judged in src/native/unreal.ts and src/native/unreal-readback.ts.
  *
  * R3 (an independent review of 40022d9, finding 5): every run has its own folder in the project,
  * .timmy/native/<run>/, holding job.json (written once, at submission: the app, the program, the input's
@@ -64,19 +68,21 @@ import { operationField } from '../ops/context.js';
 
 export type { NativeInventory, OutputChange, SourceCheck } from './provenance.js';
 
-export type NativeApp = 'c4dpy' | 'aerender' | 'blender' | 'afterfx' | 'openscad' | 'freecad';
+export type NativeApp = 'c4dpy' | 'aerender' | 'blender' | 'afterfx' | 'openscad' | 'freecad' | 'unreal';
 type Env = Record<string, string | undefined>;
 
 export interface NativeFound {
   app: NativeApp;
   /** the executable */
   path: string;
-  /** how it was found: its environment variable, the /Applications scan, or PATH */
+  /** how it was found: its environment variable, the /Applications scan (R4, H63: or a shared engines folder's, `base`), or PATH */
   how: 'env' | 'applications' | 'path';
   /** from the application folder's name, e.g. '2026' */
   version?: string;
   /** the application folder it was found in (the /Applications scan) */
   folder?: string;
+  /** R4 (H63): the folder scanned, when it is not /Applications (Unreal: Epic's shared engines folder) */
+  base?: string;
 }
 
 /** What the finder reads, so a test can stand in for the machine. */
@@ -90,7 +96,17 @@ export interface FinderSeams {
   listDir?: (dir: string) => string[];
   /** the program's path in a PATH folder, or null */
   onPath?: (program: string) => string | null;
+  /** R4 (H63): where Epic keeps shared engines on macOS (default EPIC_SHARED_ENGINES) */
+  shared?: string;
 }
+
+/**
+ * R4 (H63): where the Epic Games Launcher keeps shared engines on macOS, Epic's public default: "Epic Games" in the Mac's
+ * Shared folder (the folder all users of the Mac share, in the Users folder). Written in parts on purpose: the privacy
+ * gate's home-path pattern (lanes/privacy/patterns.json, pii.home_path) matches every name in the Users folder, and this
+ * one is the shared folder, not a person's home. Nothing personal is in it.
+ */
+export const EPIC_SHARED_ENGINES = ['', 'Users', 'Shared', 'Epic Games'].join('/');
 
 interface AppInfo {
   envVar: string;
@@ -109,6 +125,8 @@ interface AppInfo {
   resultFile: boolean;
   /** R4 (openscad): false when /Applications is not scanned: the program is found by its variable or on PATH only */
   applicationsScan?: false;
+  /** R4 (H63): on macOS, versioned folders under one shared folder (<folder>/<prefix><version>/<inside>), newest first */
+  shared?: { folder: string; prefix: string; inside: string[] };
 }
 
 export const NATIVE_APPS: Record<NativeApp, AppInfo> = {
@@ -155,6 +173,18 @@ export const NATIVE_APPS: Record<NativeApp, AppInfo> = {
     bundlePath: 'Contents/Resources/bin/freecadcmd', program: 'freecadcmd',
     name: 'FreeCAD (freecadcmd, headless)',
     setup: 'install FreeCAD; or set TIMMY_FREECADCMD to freecadcmd or FreeCAD.app',
+    resultFile: true,
+  },
+  unreal: {
+    // R4 (H63, src/native/unreal.ts): the Epic Games Launcher keeps each engine version in a folder of its own in
+    // EPIC_SHARED_ENGINES (UE_5.8/Engine/Binaries/Mac/UnrealEditor-Cmd), Epic's public default; a version folder without
+    // the program (an engine not installed there) is passed over. TIMMY_UNREAL names the program; an UnrealEditor.app
+    // named there is taken as the UnrealEditor-Cmd beside it.
+    envVar: 'TIMMY_UNREAL', prefix: 'UnrealEditor', inside: [], bundlePath: '../UnrealEditor-Cmd', program: 'UnrealEditor-Cmd', applicationsScan: false,
+    shared: { folder: EPIC_SHARED_ENGINES, prefix: 'UE_', inside: ['Engine/Binaries/Mac/UnrealEditor-Cmd'] },
+    name: 'Unreal Engine (UnrealEditor-Cmd, Python, headless)',
+    // At most 69 characters: `do: ` and the step print whole at 80 columns (tests/capabilities.test.ts).
+    setup: 'install Unreal Engine 5 (Epic Games Launcher), or set TIMMY_UNREAL',
     resultFile: true,
   },
 };
@@ -212,6 +242,21 @@ export function locateNative(app: NativeApp, env: Env = process.env, seams: Find
     if (file.endsWith('.app')) file = path.join(file, ...(info.bundlePath ?? `Contents/MacOS/${info.bundleExe ?? path.basename(file, '.app')}`).split('/'));
     if (isFile(file)) return { found: { app, path: file, how: 'env' } };
     return { found: null, problem: `${info.envVar} is set, but nothing runnable is there` };
+  }
+  // R4 (H63): versioned folders under one shared folder (Unreal: EPIC_SHARED_ENGINES/UE_5.8/...), newest first.
+  const shared = info.shared;
+  if ((seams.platform ?? process.platform) === 'darwin' && shared) {
+    const base = seams.shared ?? shared.folder;
+    const folders = (seams.listDir ?? listDir)(base)
+      .filter((name) => name.startsWith(shared.prefix) && name.length > shared.prefix.length)
+      .map((name) => ({ name, version: name.slice(shared.prefix.length) }))
+      .sort((a, b) => newerFirst(a.version, b.version));
+    for (const folder of folders) {
+      for (const inside of shared.inside) {
+        const file = path.join(base, folder.name, ...inside.split('/'));
+        if (isFile(file)) return { found: { app, path: file, how: 'applications', folder: folder.name, version: folder.version, base } };
+      }
+    }
   }
   if ((seams.platform ?? process.platform) === 'darwin' && info.applicationsScan !== false) {
     const apps = seams.applications ?? '/Applications';
@@ -1477,19 +1522,25 @@ export function nativeCapabilityRows(env: Env = process.env, seams: FinderSeams 
     const scope = app === 'aerender' ? '; renders existing .aep/.aepx projects only (making or editing one: /ae author, /ae edit, After Effects scripting)'
       : app === 'afterfx' ? '; writes and edits projects inside the application (/ae author, /ae edit, /ae inspect; its window opens)'
         : app === 'openscad' ? '; exports a .scad model to a binary STL (/scad), read back by Timmy\'s own STL reader'
-        : app === 'freecad' ? '; runs a Python script headless (/freecad): an editable .FCStd and a STEP export; /freecad readback reads the STEP back' : '';
-    // R4: After Effects scripting, OpenSCAD and FreeCAD say "implemented; not run" until a sealed run of their own says otherwise.
-    const words = runWords(runs?.get(app)) ?? (app === 'afterfx' || app === 'openscad' || app === 'freecad' ? 'implemented; not run' : undefined);
+        : app === 'freecad' ? '; runs a Python script headless (/freecad): an editable .FCStd and a STEP export; /freecad readback reads the STEP back'
+          // R4 (H63)
+          : app === 'unreal' ? '; runs a Python script inside the Unreal Editor, headless (/unreal <project.uproject> <script.py>); a second Unreal process reads each saved level back' : '';
+    // R4: After Effects scripting, OpenSCAD, FreeCAD and (H63) Unreal say "implemented; not run" until a sealed run of their own says otherwise.
+    const words = runWords(runs?.get(app)) ?? (app === 'afterfx' || app === 'openscad' || app === 'freecad' || app === 'unreal' ? 'implemented; not run' : undefined);
     const base = { id: app, kind: 'adapter' as const, name: info.name, tools: ['run_native'], exercisedBy: `native:${app}` };
     if (found) {
       const where = found.how === 'applications'
-        ? `in ${path.join(apps, found.folder ?? '')}${found.version ? ` (version ${found.version} by its folder name)` : ''}, by the /Applications scan`
+        ? `in ${path.join(found.base ?? apps, found.folder ?? '')}${found.version ? ` (version ${found.version} by its folder name)` : ''}, by the ${found.base ? 'shared engines folder' : '/Applications'} scan`
         : found.how === 'env' ? `at ${info.envVar}` : `on PATH at ${found.path}`;
       return { ...base, rung: 'installed' as const, detail: `${info.program} ${where}; ${words ?? 'not run here'}${scope}` };
     }
     const tail = words ? `; ${words}` : '';
     if (problem) return { ...base, rung: 'needs setup' as const, detail: `${problem}${tail}`, setup: `point ${info.envVar} at ${info.program}, or unset it` };
-    const looked = [`${info.envVar} is not set`, ...(mac && info.applicationsScan !== false ? [`no ${info.prefix} in ${apps}`] : []), `no ${info.program} on PATH`].join(', ');
+    const looked = [
+      `${info.envVar} is not set`,
+      ...(mac && info.shared ? [`no ${info.shared.prefix}<version> folder in ${seams.shared ?? info.shared.folder} holds ${info.program}`] : []),
+      ...(mac && info.applicationsScan !== false ? [`no ${info.prefix} in ${apps}`] : []), `no ${info.program} on PATH`,
+    ].join(', ');
     return { ...base, rung: 'needs setup' as const, detail: `not found: ${looked}${tail}`, setup: info.setup };
   });
 }

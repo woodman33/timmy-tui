@@ -273,7 +273,8 @@ describe('the /tools rows', () => {
     install('fake-c4dpy.mjs', path.join(apps, 'Maxon Cinema 4D 2026', 'c4dpy.app', 'Contents', 'MacOS', 'c4dpy'));
     install('fake-aerender.mjs', path.join(apps, 'Adobe After Effects 2026', 'aerender'));
     install('fake-c4dpy.mjs', path.join(apps, 'Blender.app', 'Contents', 'MacOS', 'Blender')); // any executable stands in
-    const rows = nativeCapabilityRows({}, { platform: 'darwin', applications: apps, onPath: () => null });
+    // R4 (H63): Epic's shared engines folder is a seam too, so no engine of the machine running the test is found.
+    const rows = nativeCapabilityRows({}, { platform: 'darwin', applications: apps, shared: path.join(tmp, 'Epic Games'), onPath: () => null });
     expect(rows.map((r) => [r.id, r.kind, r.name, r.rung])).toEqual([
       ['c4dpy', 'adapter', 'Cinema 4D (c4dpy)', 'installed'],
       ['aerender', 'adapter', 'After Effects (aerender)', 'installed'],
@@ -284,6 +285,8 @@ describe('the /tools rows', () => {
       ['openscad', 'adapter', 'OpenSCAD (command line)', 'needs setup'],
       // R4 (H28): no FreeCAD.app in this folder either.
       ['freecad', 'adapter', 'FreeCAD (freecadcmd, headless)', 'needs setup'],
+      // R4 (H63): Unreal is found in Epic's shared engines folder, never in /Applications.
+      ['unreal', 'adapter', 'Unreal Engine (UnrealEditor-Cmd, Python, headless)', 'needs setup'],
     ]);
     expect(rows[2].detail).toMatch(/Blender\.app/);
     expect(rows[0].detail).toMatch(/Maxon Cinema 4D 2026/);
@@ -293,8 +296,8 @@ describe('the /tools rows', () => {
   });
 
   it('says needs setup, with the step, when it is not found', () => {
-    const rows = nativeCapabilityRows({}, { platform: 'darwin', applications: path.join(tmp, 'none'), onPath: () => null });
-    expect(rows.map((r) => r.rung)).toEqual(['needs setup', 'needs setup', 'needs setup', 'needs setup', 'needs setup', 'needs setup']);
+    const rows = nativeCapabilityRows({}, { platform: 'darwin', applications: path.join(tmp, 'none'), shared: path.join(tmp, 'none'), onPath: () => null });
+    expect(rows.map((r) => r.rung)).toEqual(['needs setup', 'needs setup', 'needs setup', 'needs setup', 'needs setup', 'needs setup', 'needs setup']);
     expect(rows[0].setup).toMatch(/TIMMY_C4DPY/);
     expect(rows[1].setup).toMatch(/TIMMY_AERENDER/);
     expect(rows[2].setup).toMatch(/TIMMY_BLENDER/);

@@ -627,7 +627,7 @@ function nativeRuns(c: Ctx, flowOfJob: ReadonlyMap<string, string>): RoomRun[] {
     const running = !last && liveJob(job);
     const app = NATIVE_APPS[n.app as NativeApp];
     const receipt = sealed.get(n.run);
-    const version = str(receipt?.native?.blender_version) ?? str(receipt?.native?.c4d_version);
+    const version = str(receipt?.native?.blender_version) ?? str(receipt?.native?.c4d_version) ?? str(receipt?.native?.unreal_version); // R4 (H63)
     const state = last ? (last.outcome === 'ok' ? 'ok (judged by its result file)' : `${last.outcome}: ${cleanLine(last.why, c.scrub, 120)}`)
       : running ? 'running' : rec?.started ? (job ? `${jobWords(job)}; not judged yet` : 'not judged yet (its job is not listed here)') : 'submitted; it has not started';
     const flow = jobId ? flowOfJob.get(jobId) ?? FLOW_OF_LABEL.exec(job?.label ?? '')?.[1] : undefined;

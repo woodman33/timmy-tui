@@ -11,6 +11,9 @@
  * R4 (H27): app 'openscad' exports a .scad model to a binary STL with -D parameters (src/native/openscad.ts); the
  * STL is read back by Timmy's own reader when the job is judged. The same rule asks before each call.
  * R4 (H28): app 'freecad' runs a .py with FreeCAD's freecadcmd, headless (src/native/freecad.ts); the same rule asks.
+ * R4 (H63): app 'unreal' runs a .py inside the Unreal Editor through UnrealEditor-Cmd, headless, on a .uproject
+ * (src/native/unreal.ts); when it is judged ok the REPL reads its saved levels back in a second Unreal process. It asks
+ * every time (no "this session").
  */
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { z } from 'zod/v4';
@@ -19,6 +22,7 @@ import { aeScriptJob, aeToolNote, isAeJobSpec, type AeMode } from '../native/ae-
 import { freecadJob, freecadToolNote, isFreecadJobSpec } from '../native/freecad.js';
 import { aerenderJob, blenderJob, c4dpyJob, locateNative, NATIVE_APPS, noteNativeStarted, type NativeApp, type NativeFound, type NativeJobSpec } from '../native/index.js';
 import { isScadJobSpec, scadJob, scadToolNote } from '../native/openscad.js';
+import { isUnrealJobSpec, unrealJob, unrealToolNote } from '../native/unreal.js';
 
 export interface NativeToolOptions {
   /** the active project's folder */
@@ -49,18 +53,19 @@ export function createNativeTools(o: NativeToolOptions) {
       "app 'afterfx' runs an ExtendScript .jsx inside After Effects itself (its window opens): mode 'author' (script, optional name) writes a new project saved as out/ae/<name>-v<N>.aep; mode 'edit' (project_file, script) saves a new version and never writes project_file; mode 'inspect' (project_file) has After Effects read a project back (its own report, not an independent reader). Then app 'aerender' renders the saved project.",
       "app 'openscad' runs OpenSCAD headless on a read-only copy of a .scad model (model, relative to the project) and exports a binary STL to out/scad/<run>/<model>.stl; parameters (numbers, true or false, or text) become -D values over <model>.params.json beside the model; png adds a preview. It is judged by openscad's exit, the STL created by this run and OpenSCAD's ERROR lines, and the STL is read back by Timmy's own reader (triangles, bounding box, volume, area, manifold edges): dimensions of the generated mesh, never of a physical object.",
       "app 'freecad' runs a Python file with FreeCAD's freecadcmd, headless (script, relative to the project; args reach it in TIMMY_SCRIPT_ARGS); the script builds a part with FreeCAD's Part workbench, saves an editable .FCStd and exports STEP, and writes this run's own result file through workers/freecad/timmy_freecad.py, calling run_script(main) at the top level (freecadcmd imports the file as a module). What the result lists is FreeCAD's own report; the operator's /freecad readback reads the STEP back separately.",
+      "app 'unreal' runs a Python file inside the Unreal Editor, headless (UnrealEditor-Cmd <project_file> -run=pythonscript through Timmy's harness, workers/unreal/timmy_unreal.py): project_file is the .uproject and script the .py, both relative to the project; args reach the script as run.args. The script defines main(run) and uses run.new_level or run.load_level, run.load_mesh, run.spawn_mesh and run.save_level; the harness writes the result file (the levels saved with their actors, the files written with sha256). What the result lists is Unreal's own report: when the run is judged ok, a second Unreal process reads each saved level back, and that readback's verdict is the check. The first run of a new project makes Unreal build its caches (slow).",
       'The operator is asked first. Report the job id; the operator follows it with /jobs <id>. Do not claim the render or the scene is done.',
     ].join(' '),
     inputSchema: z.object({
-      app: z.enum(['c4dpy', 'aerender', 'blender', 'afterfx', 'openscad', 'freecad']).describe("'c4dpy' (Cinema 4D Python), 'aerender' (After Effects render of an existing project), 'blender' (Blender Python, headless), 'afterfx' (a .jsx inside After Effects: author, edit or inspect a project), 'openscad' (a .scad model exported to an STL, read back by Timmy) or 'freecad' (FreeCAD Python through freecadcmd, headless)"),
+      app: z.enum(['c4dpy', 'aerender', 'blender', 'afterfx', 'openscad', 'freecad', 'unreal']).describe("'c4dpy' (Cinema 4D Python), 'aerender' (After Effects render of an existing project), 'blender' (Blender Python, headless), 'afterfx' (a .jsx inside After Effects: author, edit or inspect a project), 'openscad' (a .scad model exported to an STL, read back by Timmy), 'freecad' (FreeCAD Python through freecadcmd, headless) or 'unreal' (a Python script inside the Unreal Editor, headless, its saved levels read back)"),
       model: z.string().optional().describe('openscad: the .scad model, relative to the project'),
       parameters: z.record(z.string(), z.union([z.number(), z.boolean(), z.string()])).optional().describe('openscad: name: value parameters (a number, true or false, or text), given to OpenSCAD as -D name=value over <model>.params.json'),
       png: z.boolean().optional().describe('openscad: also a PNG preview rendered by OpenSCAD'),
-      script: z.string().optional().describe('c4dpy, blender, freecad: the .py file to run; afterfx author, edit: the .jsx to run; relative to the project'),
-      args: z.array(z.string()).optional().describe('c4dpy: arguments after the script; blender: the script\'s arguments (after --); freecad: the script\'s arguments (TIMMY_SCRIPT_ARGS)'),
+      script: z.string().optional().describe('c4dpy, blender, freecad, unreal: the .py file to run; afterfx author, edit: the .jsx to run; relative to the project'),
+      args: z.array(z.string()).optional().describe('c4dpy: arguments after the script; blender: the script\'s arguments (after --); freecad, unreal: the script\'s arguments (TIMMY_SCRIPT_ARGS)'),
       mode: z.enum(['author', 'edit', 'inspect']).optional().describe("afterfx: 'author' (default) a new project, 'edit' a new version of project_file, 'inspect' read project_file back"),
       name: z.string().optional().describe('afterfx author: the new project\'s name (default: the script\'s); its versions are out/ae/<name>-v<N>.aep'),
-      project_file: z.string().optional().describe('aerender: the existing .aep or .aepx; afterfx edit, inspect: the .aep or .aepx (never written); relative to the project'),
+      project_file: z.string().optional().describe('aerender: the existing .aep or .aepx; afterfx edit, inspect: the .aep or .aepx (never written); unreal: the .uproject; relative to the project'),
       comp: z.string().optional().describe('aerender: the composition to render, by name'),
       output: z.string().optional().describe('aerender: the file to render to, relative to the project, e.g. out/title.mov'),
       render_settings_template: z.string().optional().describe('aerender: -RStemplate, a render settings template by name'),
@@ -77,9 +82,10 @@ export function createNativeTools(o: NativeToolOptions) {
     }) => {
       const app = input.app;
       const info = NATIVE_APPS[app];
-      if (!info) return { ok: false, error: `no app ${String(app)}: c4dpy, aerender, blender, afterfx, openscad or freecad` };
+      if (!info) return { ok: false, error: `no app ${String(app)}: c4dpy, aerender, blender, afterfx, openscad, freecad or unreal` };
       if (app === 'openscad' && !input.model) return { ok: false, error: 'openscad needs model: the .scad file, relative to the project' };
-      if ((app === 'c4dpy' || app === 'blender' || app === 'freecad') && !input.script) return { ok: false, error: `${app} needs script: the .py file to run, relative to the project` };
+      if ((app === 'c4dpy' || app === 'blender' || app === 'freecad' || app === 'unreal') && !input.script) return { ok: false, error: `${app} needs script: the .py file to run, relative to the project` };
+      if (app === 'unreal' && !input.project_file) return { ok: false, error: 'unreal needs project_file: the .uproject Unreal opens, relative to the project' };
       if (app === 'aerender' && (!input.project_file || !input.comp || !input.output)) {
         return { ok: false, error: 'aerender needs project_file (an existing .aep/.aepx), comp and output' };
       }
@@ -108,6 +114,9 @@ export function createNativeTools(o: NativeToolOptions) {
           });
         } else if (app === 'freecad') {
           spec = freecadJob({ script: input.script!, args: input.args ?? [], root, project, timeoutMs, bin: found.path, ...(o.env ? { env: o.env } : {}) });
+        } else if (app === 'unreal') {
+          // R4 (H63): the harness and its folder are checked too: nothing starts when Unreal cannot be given them
+          spec = unrealJob({ projectFile: input.project_file!, script: input.script!, args: input.args ?? [], root, project, timeoutMs, bin: found.path, ...(o.env ? { env: o.env } : {}) });
         } else spec = app === 'c4dpy'
           ? c4dpyJob({ script: input.script!, args: input.args ?? [], root, project, timeoutMs, bin: found.path, ...(o.env ? { env: o.env } : {}) })
           : app === 'blender'
@@ -138,8 +147,10 @@ export function createNativeTools(o: NativeToolOptions) {
         ...(isAeJobSpec(spec) ? { mode: spec.ae.mode, ...(spec.ae.saved ? { saved: spec.ae.saved.rel } : {}), ...(spec.ae.source ? { project_file: spec.ae.source.rel } : {}) } : {}),
         timeout_minutes: timeoutMs / 60_000,
         ...(isFreecadJobSpec(spec) ? { copy: spec.native.copy?.path, module: spec.freecad.module } : {}),
+        ...(isUnrealJobSpec(spec) ? { copy: spec.native.copy?.path, project_file: spec.unreal.project.path } : {}),
         note: isScadJobSpec(spec) ? scadToolNote(spec, job.id)
-          : isAeJobSpec(spec) ? aeToolNote(spec, job.id) : isFreecadJobSpec(spec) ? freecadToolNote(spec, job.id) : `Started, not finished: the job runs in the background. /jobs ${job.id} follows it; its outcome is judged when it ends, from ${app === 'aerender' ? 'the output file' : 'the script\'s result file'}, with the exit recorded beside it.`,
+          : isAeJobSpec(spec) ? aeToolNote(spec, job.id) : isFreecadJobSpec(spec) ? freecadToolNote(spec, job.id)
+            : isUnrealJobSpec(spec) ? unrealToolNote(spec, job.id) : `Started, not finished: the job runs in the background. /jobs ${job.id} follows it; its outcome is judged when it ends, from ${app === 'aerender' ? 'the output file' : 'the script\'s result file'}, with the exit recorded beside it.`,
       };
     },
   });

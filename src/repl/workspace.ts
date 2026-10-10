@@ -21,6 +21,9 @@ import { parseScadWords } from '../native/scad-params.js';
 // R4 (H28): FreeCAD through freecadcmd, judged by its result file; /freecad readback (src/repl/freecad.ts).
 import { freecadEndLines, freecadJob, freecadReceiptFields, freecadStartLines, isFreecadJobSpec, judgeFreecadJob, type FreecadJobSpec } from '../native/freecad.js';
 import { FreecadReadbacks, readbackReady, type FreecadTestSeams } from './freecad.js';
+// R4 (H63): Unreal Engine through UnrealEditor-Cmd, judged by its harness's result file, then read back by a second Unreal process.
+import { isUnrealJobSpec, judgeUnrealJob, parseUnrealWords, unrealJob, unrealReceiptFields, unrealStartLines, type UnrealJobSpec } from '../native/unreal.js';
+import { UnrealRuns } from './unreal.js';
 import { mcpView, splitCommandLine } from '../connectors/mcp-cli.js';
 import {
   chooseProject, createProject, groupFiles, humanBytes, listProjectFiles, listProjects, projectId, projectsHome, readProjectFile,
@@ -309,6 +312,8 @@ export class Workspace {
   readonly startRecovery: Promise<RecoveryReport | undefined>;
   /** R4 (H28): the STEP readbacks of FreeCAD runs this REPL follows (/freecad readback). */
   private readonly freecadReadbacks: FreecadReadbacks;
+  /** R4 (H63): Unreal runs' ends and their readbacks (a second Unreal process), started and recorded as each job ends. */
+  private readonly unrealRuns: UnrealRuns;
   /** R4 (H48): the Control Room's last tools check (/room runs it; the board shows it with its time). */
   private roomTools?: RoomTools;
   /** R4 (H60): the live board's saves refused because their file changed on disk since the board showed it. */
@@ -354,6 +359,12 @@ export class Workspace {
       startJob: (spec, o) => { const job = this.jobs.start(spec); this.mine.add(job.id); if (o?.selfSealed) this.selfSealed.add(job.id); return job; },
       scrub: (t, root) => this.scrub(t, root),
       ...(d.freecadTest ? { test: d.freecadTest } : {}),
+    });
+    // R4 (H63): an Unreal readback is this REPL's own job; its one readback receipt is sealed by UnrealRuns.
+    this.unrealRuns = new UnrealRuns({
+      glyphs: d.glyphs, env: () => this.d.env, seal: (input) => this.d.seal(input), jobs: this.jobs,
+      startJob: (spec, o) => { const job = this.jobs.start(spec); this.mine.add(job.id); if (o?.selfSealed) this.selfSealed.add(job.id); return job; },
+      scrub: (t, root) => this.scrub(t, root),
     });
     // R4 (H49): VoxVision's jobs are this REPL's own; it seals each action's one vox receipt itself.
     this.vox = new VoxActions({
@@ -1093,7 +1104,15 @@ export class Workspace {
     // Round R3 (/agent): a code agent's end says its outcome and what it changed, from its sealed result.
     const agentRun = this.agentRuns.get(job.id);
     if (agentRun && TERMINAL.has(job.state)) return void this.d.notify(this.agentEndLine(job, agentRun));
+    // R4 (H63): an Unreal readback this REPL follows: recorded, sealed and said now, before anything sees it ended.
+    const unrealRead = this.unrealRuns.ended(job);
+    if (unrealRead) { for (const l of unrealRead) this.d.notify(l); return; }
     const nat = this.natives.get(job.id);
+    if (nat && (job.state === 'completed' || job.state === 'failed') && isUnrealJobSpec(nat)) {
+      // R4 (H63): an Unreal first pass says its files, Unreal's own report, and starts its readback (the first pass alone is never trusted).
+      for (const l of this.unrealRuns.firstPassEnded(job, nat)) this.d.notify(l);
+      return;
+    }
     if (nat && (job.state === 'completed' || job.state === 'failed') && isScadJobSpec(nat)) {
       // R4 (H27): an OpenSCAD run says its STL, Timmy's own reading of it (with DOCTRINE §15) and OpenSCAD's lines.
       for (const l of scadEndLines(judgeScadJob(job, nat), nat, { id: job.id, label: job.label, glyphs: g, sep: this.sep, scrub: (s) => this.scrub(s, job.root), ...(job.receipt ? { receipt: job.receipt } : {}) })) this.d.notify(l);
@@ -1172,7 +1191,8 @@ export class Workspace {
       ? (isScadJobSpec(nat) ? scadReceiptFields(judgeScadJob(job, nat), job.root)
         : isAeJobSpec(nat) ? aeReceiptFields(judgeAeJob(job, nat))
           : isFreecadJobSpec(nat) ? freecadReceiptFields(judgeFreecadJob(job, nat))
-            : nativeReceiptFields(nat.native.app, judgeNativeJob(job, nat)))
+            : isUnrealJobSpec(nat) ? unrealReceiptFields(judgeUnrealJob(job, nat)) // R4 (H63)
+              : nativeReceiptFields(nat.native.app, judgeNativeJob(job, nat)))
       : undefined;
     if (judged) judged.native.why = this.scrub(judged.native.why, job.root);
     const status = job.state === 'cancelled' ? 'cancelled' as const : judged ? judged.status : job.state === 'completed' ? 'ok' as const : 'failed' as const;
@@ -1363,6 +1383,8 @@ export class Workspace {
     await within(this.launches.settled());
     // Round R4 (H32): a recovery pass under way finishes first; it follows nothing more once this REPL is ending.
     await within(this.recoveries);
+    // R4 (H63): an Unreal first pass that ends from here on starts no readback (one already started is stopped below).
+    this.unrealRuns.close();
     await this.closeLiveBoard();
     // R4 (/iterate): no flow starts a next step; each writes its record once its step has stopped (said as the REPL's
     // end, or the words its caller gives: r19 F2).
@@ -1387,6 +1409,7 @@ export class Workspace {
 
   /** The process is exiting at once (a second Ctrl+C): signal this REPL's live jobs without waiting. */
   killNow(by: string = REPL_END_REASON): void {
+    this.unrealRuns.close(); // R4 (H63): no readback starts once the process exits at once
     this.flows.abortAll(by);
     this.vox.abortAll(by);
     this.openhands.killNow(); // R4 (H52): each OpenHands container is asked to stop, without waiting
@@ -1444,6 +1467,25 @@ export class Workspace {
     const made: { spec?: FreecadJobSpec } = {};
     const lines = this.startNative(() => (made.spec = freecadJob({ script: w[0], args: w.slice(1), root: this.root, project: this.project.name, findEnv: this.d.env })), `FreeCAD runs ${w[0]}`);
     return made.spec ? [...freecadStartLines(made.spec, this.sep), ...lines] : lines;
+  }
+
+  /**
+   * R4 (H63): /unreal <project.uproject> <script.py> [args]: the Unreal Editor's own Python, headless, as a judged job
+   * (src/native/unreal.ts); when it is judged ok its saved levels are read back by a second Unreal process (src/repl/unreal.ts).
+   * /unreal readback [<run>] reads a run's levels back again; /unreal alone says where Unreal is and lists the runs.
+   */
+  async unreal(args: string): Promise<Line[]> {
+    const w = splitCommandLine(args.trim());
+    if (!w.length) return this.unrealRuns.usage({ root: this.root });
+    if (w[0] === 'readback') return this.unrealRuns.readback(w.slice(1), { root: this.root, project: this.project.name });
+    const p = parseUnrealWords(w);
+    if ('error' in p) return this.say(p.error);
+    const made: { spec?: UnrealJobSpec } = {};
+    const lines = this.startNative(
+      () => (made.spec = unrealJob({ projectFile: p.projectFile, script: p.script, args: p.args, root: this.root, project: this.project.name, findEnv: this.d.env })),
+      `Unreal runs ${p.script} in ${p.projectFile}`, 'judged by its harness\'s result file, then read back by a second Unreal process',
+    );
+    return made.spec ? [...unrealStartLines(made.spec, this.sep), ...lines] : lines;
   }
 
   /** /ae <project.aep> <comp> <output>: After Effects renders an existing project's comp (aerender), as a job.
