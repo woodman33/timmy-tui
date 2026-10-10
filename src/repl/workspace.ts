@@ -111,6 +111,11 @@ import { recoverAgentRuns } from './recover-agents.js'; // R4 (H59): code agent 
 // Round R4 (H55): the board's line about Timmy Canvas (src/repl/board-canvas.ts; the REPL checks the canvas).
 import type { BoardCanvas } from './board-canvas.js';
 import { REPL_END_REASON, stopReason } from '../utils/stop-words.js';
+// Round R4 (H65): Results and review (/review, /restore, the board's section); hooks are marked "R4 (H65)".
+import { MAX_CHANGES_ONE, operationReview, reviewView, visible } from '../review/changes.js';
+import { restore as restoreKept } from '../review/restore.js';
+import { restorePairs, type BoardReview } from '../review/html.js';
+import { operationLines, restoredLines, reviewLines } from '../review/text.js';
 
 type Line = Segment[];
 
@@ -1967,7 +1972,7 @@ export class Workspace {
   }
 
   /** The Control Room from what the board has gathered (or, for /room, from the project): never throws; a failure is said. */
-  private roomOf(o: { jobs: JobRecord[]; chain: Receipt[]; flows?: BoardFlows; observations?: BoardObservation[] }): Room {
+  private roomOf(o: { jobs: JobRecord[]; chain: Receipt[]; flows?: BoardFlows; observations?: BoardObservation[]; ix?: OpIndex }): Room {
     const root = this.root;
     try {
       const room = gatherRoom({
@@ -1982,7 +1987,7 @@ export class Workspace {
       room.view.decisions = this.decisionsOf({ jobs: o.jobs, chain: o.chain, ...(o.flows ? { flows: o.flows } : {}) });
       // R4 (H51): each run's operation and role, and the operations themselves, running first (their cards top the section).
       try {
-        const ix = this.opIndex(o.jobs, o.chain);
+        const ix = o.ix ?? this.opIndex(o.jobs, o.chain); // R4 (H65): the board reads it once, for the review too
         annotateRoom(room, ix, o.jobs);
         room.view.operations = recentOperations(ix, 6).map((id) => operationCard(ix, id));
         markWaiting(room.view.operations, room.view.decisions); // R4 (H60)
@@ -2101,6 +2106,44 @@ export class Workspace {
     const cards = ids.map((id) => operationCard(ix, id));
     markWaiting(cards, this.decisionsOf({ jobs: this.jobs.list().filter((j) => sameFolder(j.root, this.root)), chain: ix.chain })); // R4 (H60)
     return opsLines(cards, { glyphs: this.d.glyphs, project: this.project.name, unreadable: ix.unreadableRecords.map((u) => ({ rel: u.rel, error: this.scrub(u.error, this.root) })) });
+  }
+
+  // ── /review and /restore (round R4, helper H65: src/review) ─────────────────
+
+  /**
+   * `/review [<operation id>]`: what the newest operations changed in the project (or the one named), each file with how and
+   * by which run, its sha256 before and after, how it is now, its kept previous version and line diff, its record and receipt,
+   * and the /restore that can be done exactly. Nothing is run, sealed or written.
+   */
+  review(args: string): Line[] {
+    const want = args.trim();
+    const o = { glyphs: this.d.glyphs, link: (rel: string) => this.fileLink(rel) };
+    const ix = this.opIndex();
+    if (!want) return reviewLines(reviewView(ix, { max: 6 }), { ...o, project: this.project.name });
+    if (!/^o[0-9a-f]{8}$/.test(want)) return this.say(`${visible(want.slice(0, 40))} is not an operation id (o and 8 hex digits): /review lists the newest, /ops all of them.`);
+    if (!knownOperations(ix).includes(want)) return this.say(`No operation ${want} in this project: /ops lists them.`);
+    return operationLines(operationReview(ix, want, { max: MAX_CHANGES_ONE }), o);
+  }
+
+  /**
+   * `/restore <file> --from <kept previous version>`: the kept version written back only over the file exactly as its run left
+   * it, never while a flow runs in the project, the current version kept first under .timmy/restore-history/, and an edit
+   * receipt sealed (human-gated); refused with the reason otherwise (src/review/restore.ts). The live board's Restore runs this.
+   */
+  restore(args: string): Line[] {
+    const root = this.root;
+    const r = restoreKept(args, {
+      root, project: this.project.name, projectId: projectId(root),
+      chain: () => this.chainNow(),
+      seal: this.d.seal, flowIn: () => this.flows.runningIn(root),
+    });
+    return restoredLines(r.ok ? r : { ...r, why: this.scrub(r.why, root) }, { glyphs: this.d.glyphs, link: (rel) => this.fileLink(rel) });
+  }
+
+  /** R4 (H65): the board's review section, from the index the Control Room read: never throws (a failure is said). */
+  private boardReview(ix: OpIndex | undefined): BoardReview {
+    if (!ix) return { error: 'the project\'s records could not be read' };
+    try { return reviewView(ix, { max: 6 }); } catch (err) { return { error: this.scrub(err instanceof Error ? err.message : String(err), this.root) }; }
   }
 
   // ── /board (round R2: a reference board linked to the actual files, jobs and results) ──
@@ -2225,7 +2268,11 @@ export class Workspace {
     // R4 (/iterate): each flow record, checked against the runs chain like an observation. R4 (H48): read once, for the Flows
     // section and the Control Room.
     const flows = readBoardFlows(root, files.filter((f) => inFlows(f) && f.rel.endsWith('.json')).map((f) => f.rel), { receipts: chain, projectId: pid, scrub: (t) => this.scrub(t, root) });
-    const room = this.roomOf({ jobs, chain, flows, observations: shownObs });
+    // R4 (H65): the project's records read once, for the Control Room's operation cards and the review beside them.
+    let ix: OpIndex | undefined;
+    try { ix = this.opIndex(jobs, chain); } catch { ix = undefined; }
+    const room = this.roomOf({ jobs, chain, flows, observations: shownObs, ...(ix ? { ix } : {}) });
+    const review = this.boardReview(ix);
     // R4 (H55): whether Timmy Canvas is open on this same project, as the REPL last found it.
     const canvas = this.d.canvas?.();
     const input: BoardInput = {
@@ -2255,6 +2302,7 @@ export class Workspace {
       ...(live ? { live: true } : {}),
       flows,
       room: room.view,
+      review, // R4 (H65): what the newest operations changed, each file checked now, with a restore where one is exact
       // R4 (H49): VoxVision's tools, the files they read, and its records, each checked against the runs chain.
       vox: readBoardVox({ root, files, chain, projectId: pid, scrub: (t) => this.scrub(t, root), tools: { env: this.d.env, onPath: this.d.onPath, root } }),
       // R4 (H50): Timmy Memory's lessons, each checked now against its evidence (read only), with how many runs used each.
@@ -2341,6 +2389,8 @@ export class Workspace {
       // each block's state, which the page sets in place while it does not draw the board again
       scadModels: [...new Set(input.workflows.flatMap((w) => w.connected?.scad.map((v) => v.model) ?? []))],
       wfStates: liveNodeStates(input.workflows),
+      // R4 (H65): the kept versions the review shows (its Restore runs the typed /restore, which checks everything again)
+      restores: restorePairs(input.review),
     };
   }
 
@@ -2403,7 +2453,9 @@ export class Workspace {
           // R4 (H61): View in Rerun, as the typed /vox view <id> rerun.
           : c.name === 'vox' ? await this.voxView(c.args)
           // R4 (H50): Memory's Check, as the typed /lesson check <id>.
-          : c.name === 'lesson' ? this.lesson(c.args) : await this.observe(c.args);
+          : c.name === 'lesson' ? this.lesson(c.args)
+            // R4 (H65): the review's Restore, as the typed /restore <file> --from <kept>.
+            : c.name === 'restore' ? this.restore(c.args) : await this.observe(c.args);
     for (const line of lines) this.d.notify(line);
     return lines.map((l) => this.scrub(l.map((s) => s.text).join(''), root));
   }

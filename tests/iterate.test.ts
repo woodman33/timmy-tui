@@ -306,6 +306,10 @@ describe('/iterate end to end (FAKE agent, FAKE recipe executor, FAKE readback)'
     expect(rec.parameters).toMatchObject({ path: PARAMS, created: true, before: { values: { width: 140, wall: 3, supportOffset: 10, bore: 3 } }, after: { values: { width: 180, wall: 3, supportOffset: 10, bore: 3 } } });
     expect(rec.parameters.after!.sha256).toBe(sha(fs.readFileSync(path.join(root, PARAMS))));
     expect(rec.parameters.diff!.filter((d) => d.changed)).toEqual([{ name: 'width', before: 140, after: 180, changed: true }]);
+    // R4 (H65): the bytes the agent was given, kept in the flow's folder (read-only), as the script flows keep theirs
+    expect(rec.parameters.before.kept).toBe(`.timmy/flows/${id}/params.before.json`);
+    expect(sha(fs.readFileSync(path.join(root, rec.parameters.before.kept!)))).toBe(rec.parameters.before.sha256);
+    expect(fs.statSync(path.join(root, rec.parameters.before.kept!)).mode & 0o222).toBe(0);
     // the agent step: its run, its route, what it changed with sha256 before and after, its cost and receipt
     expect(rec.agent).toMatchObject({ agent: 'qwen', model: 'qwen3:4b', outcome: 'completed', route: 'local endpoint, no charge', cost_usd: 0, cost_basis: 'local endpoint' });
     expect(rec.agent!.files_changed).toEqual([{ path: PARAMS, how: 'changed', sha256_before: rec.parameters.before.sha256, sha256_after: rec.parameters.after!.sha256 }]);

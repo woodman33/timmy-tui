@@ -912,8 +912,11 @@ export function findRun(all: readonly RoomRun[], id: string): RoomRun | undefine
 
 // ── tools and connections ─────────────────────────────────────────────────────
 
-/** A panel group; `advanced`, the rows outside the named groups (an advanced view: the board folds it away). */
-export interface ToolGroup { title: string; rows: Array<CapabilityRow & { missing?: true }>; note?: string; advanced?: true }
+/**
+ * A panel group; `advanced`, the rows outside the named groups (an advanced view: the board folds it away). R4 (H65): `apart`,
+ * a group the panel draws on its own whose rows /room's needs-setup line still counts with the other rows (VoxVision's).
+ */
+export interface ToolGroup { title: string; rows: Array<CapabilityRow & { missing?: true }>; note?: string; advanced?: true; apart?: true }
 
 /** Which /tools rows go in which panel group. */
 const CREATIVE = ['blender', 'openscad', 'freecad', 'afterfx', 'aerender', 'c4dpy', 'recipe-tray'];
@@ -921,12 +924,15 @@ const AGENTS_ROWS = ['claude-code', 'codex', 'codex-local', 'qwen-code', 'openco
 const MODEL_ROWS = ['openrouter', 'ollama'];
 const VISION = (id: string): boolean => id === 'look' || id === 'adapters' || id.startsWith('adapter:') || id === 'spatial-review';
 const MCP = (id: string): boolean => id === 'mcp-cli' || id.startsWith('mcp-cli:');
+/** R4 (H65, H61's note in ledger row 160): VoxVision's own rows (src/vox/tools.ts voxCapabilityRows, ids vox:<tool>). */
+const VOX = (id: string): boolean => id.startsWith('vox:');
+const VOX_NOTE = 'VoxVision\'s own readers and viewers, for /inspect, /measure, /detect, /compare and /vox view: built in or found is here, not run; an action says whether each works.';
 
 /**
  * The /tools ladder as the panel's groups: the creative apps (Blender, OpenSCAD, FreeCAD, After Effects, Cinema 4D,
- * Houdini, the CadQuery recipe), the agents, MCP, the vision tools, the models, then every other row. A row is kept as
- * /tools gives it (its rung, its detail, its setup step, its "used" date); Houdini has no /tools row, and the panel says
- * only that.
+ * Houdini, the CadQuery recipe), the agents, MCP, the vision tools, VoxVision's readers and viewers, the models, then every
+ * other row. A row is kept as /tools gives it (its rung, its detail, its setup step, its "used" date); Houdini has no /tools
+ * row, and the panel says only that.
  */
 export function toolGroups(rows: readonly CapabilityRow[]): ToolGroup[] {
   const by = (ids: readonly string[]): CapabilityRow[] => ids.flatMap((id) => rows.filter((r) => r.id === id));
@@ -939,6 +945,7 @@ export function toolGroups(rows: readonly CapabilityRow[]): ToolGroup[] {
     { title: 'Agents', rows: take(by(AGENTS_ROWS)) },
     { title: 'MCP', rows: take(rows.filter((r) => MCP(r.id))) },
     { title: 'Vision', rows: take(rows.filter((r) => VISION(r.id))) },
+    { title: 'VoxVision', rows: take(rows.filter((r) => VOX(r.id))), note: VOX_NOTE, apart: true },
     { title: 'Models', rows: take(by(MODEL_ROWS)), note: 'The Control Room does not contact OpenRouter: /tools checks the key.' },
   ];
   const rest = rows.filter((r) => !used.has(r.id));
@@ -948,15 +955,15 @@ export function toolGroups(rows: readonly CapabilityRow[]): ToolGroup[] {
 
 /** The named groups' rows that need setup (the step shown), in the panel's order; /tools' other rows are counted apart. */
 export function needsSetup(rows: readonly CapabilityRow[]): CapabilityRow[] {
-  return toolGroups(rows).filter((g) => !g.advanced).flatMap((g) => g.rows.filter((r) => r.rung === 'needs setup' && !('missing' in r)));
+  return toolGroups(rows).filter((g) => !g.advanced && !g.apart).flatMap((g) => g.rows.filter((r) => r.rung === 'needs setup' && !('missing' in r)));
 }
 
 /** How many rows the named groups hold (Houdini's placeholder not counted), and how many of /tools' other rows need setup. */
 export function setupCounts(rows: readonly CapabilityRow[]): { named: number; otherNeedSetup: number } {
   const groups = toolGroups(rows);
   return {
-    named: groups.filter((g) => !g.advanced).reduce((n, g) => n + g.rows.filter((r) => !('missing' in r)).length, 0),
-    otherNeedSetup: groups.filter((g) => g.advanced).reduce((n, g) => n + g.rows.filter((r) => r.rung === 'needs setup').length, 0),
+    named: groups.filter((g) => !g.advanced && !g.apart).reduce((n, g) => n + g.rows.filter((r) => !('missing' in r)).length, 0),
+    otherNeedSetup: groups.filter((g) => g.advanced || g.apart).reduce((n, g) => n + g.rows.filter((r) => r.rung === 'needs setup').length, 0),
   };
 }
 

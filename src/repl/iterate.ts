@@ -55,7 +55,7 @@ import { blenderFlowSummary } from '../flows/iterate-blender.js';
 // R4 (H33): /iterate scad and /iterate freecad (src/repl/iterate-scad.ts, src/repl/iterate-freecad.ts).
 import { ScadFlows, SCAD_ITERATE_USAGE } from './iterate-scad.js';
 import { FreecadFlows, FREECAD_ITERATE_USAGE } from './iterate-freecad.js';
-import type { NativeIterateRequest } from './iterate-native.js';
+import { keepBytes, type NativeIterateRequest } from './iterate-native.js';
 import { isScadFlowRecord, scadFlowSummary } from '../flows/iterate-scad.js';
 import { freecadFlowSummary, type FreecadFlowRecord } from '../flows/iterate-freecad.js';
 // R4 (H41): /iterate ae <script.jsx> "<instruction>" (src/repl/iterate-ae.ts).
@@ -483,7 +483,7 @@ export class IterateFlows {
     try { text = readFileSync(join(root, rel), 'utf8'); } catch (e) { return refuse(`${rel} could not be read: ${this.d.scrub(e instanceof Error ? e.message : String(e), root)}. Nothing was started.`); }
     const parsed = parseParams(text);
     if (!parsed.ok) return refuse(`${rel} is not a usable parameter file: ${parsed.error}. Nothing was started.`);
-    const before = { sha256: sha(text), values: parsed.parameters };
+    const before: FlowRecord['parameters']['before'] = { sha256: sha(text), values: parsed.parameters };
     const values = PARAMETER_NAMES.map((n) => `${n} ${fmt(before.values[n])}`).join(', ');
     // The agent, through /agent's own start: its job, its snapshot before, its sealed result at its end.
     // R4 (H50): the checked lessons that apply (each checked again now), given to the agent as one section.
@@ -494,6 +494,11 @@ export class IterateFlows {
       const wrote = created ? this.say(`${rel} did not exist: written from the recipe card's defaults (${values})`) : [];
       return refuse(`The agent did not start: ${this.d.scrub(s.error, root)}`, s.refused === 'paid' || s.refused === 'missing' ? 'estimate' : 'failure', [], wrote);
     }
+    // R4 (H65): the bytes as read (the ones the task quoted) are kept in the flow's folder, as the script flows keep theirs:
+    // /review shows the change against them and /restore can write them back. Kept once the agent has started, so a start
+    // refused before it leaves no folder; a copy that cannot be kept is left out, and the flow goes on without it.
+    const keptAt = keepBytes(root, `${flowWorkDir(id)}/params.before.json`, Buffer.from(text, 'utf8'));
+    if (keptAt) before.kept = keptAt;
     const record: FlowRecord = {
       flow: 1, schema: FLOW_SCHEMA, id, kind: 'iterate', recipe: RECIPE_ID, instruction: req.instruction, project, started_at: new Date().toISOString(), outcome: 'running',
       ...operationField('flow', id), // R4 (H51): the request that started it
