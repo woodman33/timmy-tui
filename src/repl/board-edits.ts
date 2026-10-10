@@ -425,7 +425,7 @@ ${WORKFLOW_SCRIPT}
     r.needs = r.needs.filter(function (n) { return n.id !== id; });
     if (t.checked) r.needs.push({ id: id });
   });
-  return { attach: function (o) { api = o; } };
+  return { attach: function (o) { api = o; }, states: wfStates };
 })();
 `;
 

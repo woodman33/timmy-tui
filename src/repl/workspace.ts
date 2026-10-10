@@ -37,7 +37,7 @@ import { gatherResults, paramsCard, type ResultCard } from './board-cards.js';
 import { applyBoardEdit } from './board-edits.js';
 import { workflowForBoard } from './board-nodes.js';
 // R4 (H47): each workflow document connected to its runs, results and parameter files (board and /workflows <file>).
-import { connectWorkflow, StepClock, workflowSummaryLines, type ConnectContext } from './board-workflows.js';
+import { connectWorkflow, liveNodeStates, StepClock, workflowSummaryLines, type ConnectContext } from './board-workflows.js';
 import { recipeEnded, recipeView, startRecipeJob, type RecipeContext, type RecipeStarted, type RecipeTestSeams } from './recipe.js';
 import { cancelRecipe, cancelSentence, RecipeLaunches, type RecipeCancel } from './recipe-stop.js';
 import { liveRecipeJobFolders } from '../recipes/index.js';
@@ -821,7 +821,7 @@ export class Workspace {
   /** R4 (H47): what connects a workflow document to its runs (src/repl/board-workflows.ts), for the board and the REPL. */
   private workflowContext(root: string, jobs: readonly JobRecord[], chain: readonly Receipt[], files: readonly string[]): ConnectContext {
     return {
-      root, jobs, chain, files, clock: this.stepClock, upmd: findUpmd(this.d.env, this.d.onPath) !== null,
+      root, jobs, chain, files, clock: this.stepClock, upmd: findUpmd(this.d.env, this.d.onPath) !== null, scrub: (t) => this.scrub(t, root),
       prediction: (id) => this.predictions.get(id), mine: (id) => this.mine.has(id),
       tray: () => paramsCard(root),
     };
@@ -1972,8 +1972,10 @@ export class Workspace {
       workflows: input.workflows.map((w) => ({ rel: w.rel, blocks: w.blocks.map((b) => b.name) })),
       files: images,
       recipes: input.params ? [input.params.recipe] : [],
-      // R4 (H47): the OpenSCAD models whose parameter file a workflow card shows (set-scad-params saves only these)
+      // R4 (H47): the OpenSCAD models whose parameter file a workflow card shows (set-scad-params saves only these), and
+      // each block's state, which the page sets in place while it does not draw the board again
       scadModels: [...new Set(input.workflows.flatMap((w) => w.connected?.scad.map((v) => v.model) ?? []))],
+      wfStates: liveNodeStates(input.workflows),
     };
   }
 

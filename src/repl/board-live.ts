@@ -56,6 +56,8 @@ export interface LiveState {
   recipes?: string[];
   /** R4 (H47): the OpenSCAD models whose parameter file a workflow card shows (the set-scad-params edit saves only these). */
   scadModels?: string[];
+  /** R4 (H47): each workflow block's state in words (and each document's newest run, key ''), set in place like the jobs'. */
+  wfStates?: Array<{ doc: string; key: string; word: string; glyph: string; detail: string }>;
 }
 
 export interface LiveBoardDeps {
@@ -383,7 +385,7 @@ const LIVE_SCRIPT = `
     document.title = 'Live board · ' + s.project;
     // R4: a card being edited (data-editing) is never drawn over; jobs still update in place.
     if (s.shape !== shape && !busy && !main.querySelectorAll('[data-editing]').length) { remember(); toc.innerHTML = s.toc; main.innerHTML = s.html; restore(); shape = s.shape; paint(); }
-    else jobs(s.jobs);
+    else { jobs(s.jobs); if (typeof TimmyBoardEdit !== 'undefined' && TimmyBoardEdit.states) TimmyBoardEdit.states(s.wfStates); }
   };
   var poll = function () {
     if (!token) { say('No token: open the address /board live printed in Timmy.', true); return; }

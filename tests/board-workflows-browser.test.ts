@@ -147,6 +147,28 @@ describe.skipIf(!browserPath)('the connected workflow card in a real browser (he
     await close();
   }, 60_000);
 
+  it('while something else on the board is being edited (no redraw), the blocks\' states still change in place, in words', async () => {
+    const { ws } = make();
+    const { page, problems, close } = await open(ws);
+    // the tray recipe's card in the Parameters section, edited and not saved: the live board does not draw over it
+    await page.fill('#parameters ~ .grid [data-params="tray"] [data-param="width"]', '150');
+    expect(await page.getAttribute('#parameters ~ .grid [data-params="tray"]', 'data-editing')).toBe('');
+    await page.click(`${card} [data-wf-select="4"]`);
+    await page.click(`${card} [data-wf-insp="4"] button[data-act="run"]`);
+    await page.waitForFunction(() => (document.querySelector('[data-wfx="BUILD.md"] [data-wf-node="4"] .wf-state')?.textContent ?? '') === '● running', undefined, { timeout: 10_000 });
+    expect(await page.textContent(`${card} [data-wf-select="4"] .wf-chip-state`)).toBe('running');
+    expect(await page.textContent(`${card} [data-wf-insp="4"] .wf-insp-head .wf-word strong`)).toBe('running');
+    expect(await page.getAttribute(`${card} [data-wf-node="4"] .wf-box`, 'class')).toContain('wfs-running');
+    // not drawn again: the unsaved value is still there
+    expect(await page.inputValue('#parameters ~ .grid [data-params="tray"] [data-param="width"]')).toBe('150');
+    const job = ws.jobs.list().find((j) => j.label === 'BUILD.md › wait')!;
+    expect((await ws.stop(job.id)).map((l) => l.map((x) => x.text).join('')).join('\n')).toContain('stopped');
+    await page.waitForFunction(() => (document.querySelector('[data-wfx="BUILD.md"] [data-wf-node="4"] .wf-state')?.textContent ?? '') === '■ stopped', undefined, { timeout: 10_000 });
+    expect(await page.inputValue('#parameters ~ .grid [data-params="tray"] [data-param="width"]')).toBe('150');
+    expect(problems).toEqual([]);
+    await close();
+  }, 60_000);
+
   it("edits a block's command in the inspector (save-workflow); Stop in the run bar stops a run through the Jobs section's Stop", async () => {
     const { ws, root, sealed } = make();
     const { page, problems, close } = await open(ws);

@@ -179,6 +179,8 @@ export interface ConnectContext {
   tray?: () => ParamsCard | undefined;
   /** upmd was found */
   upmd?: boolean;
+  /** writes the project's folder as "." and the home folder as "~" in a job's own text (its error) */
+  scrub?: (text: string) => string;
 }
 
 export const TRAY_PARAMS = 'recipes/tray.params.json';
@@ -305,7 +307,7 @@ function readRun(j: JobRecord, target: string, w: WorkflowDocInput, c: ConnectCo
   return {
     job: j.id, target, order: runOrderNow, orderFrom, word, stoppable: live && (c.mine?.(j.id) ?? false), foreign: !(c.mine?.(j.id) ?? false),
     startedAt: j.startedAt, ...(j.endedAt ? { endedAt: j.endedAt } : {}), ...(Number.isFinite(ended) && Number.isFinite(began) ? { ms: Math.max(0, ended - began) } : {}),
-    ...(j.error ? { error: j.error } : {}), ...(j.receipt ? { receipt: j.receipt } : {}),
+    ...(j.error ? { error: c.scrub ? c.scrub(j.error) : j.error } : {}), ...(j.receipt ? { receipt: j.receipt } : {}),
     ...(typeof sealed?.met === 'boolean' ? { met: sealed.met } : {}), ...(predId ? { predicted: predId } : {}),
     blocks, ...(j.stale ? { interruptedAt: blocks.find((b) => b.word === 'interrupted')?.name } : {}),
     outputs, outputsMore: Math.max(0, files.length - OUTPUTS_SHOWN), ...(docSha ? { docSha256: docSha } : {}),
@@ -678,6 +680,25 @@ export function workflowSummaryLines(w: WorkflowDocInput, o: { sep: string; link
 
 // ── the live page's part ─────────────────────────────────────────────────────
 
+/** One state the live page updates in place: a block's (by its key), or with key '' the document's newest run. */
+export interface LiveNodeState { doc: string; key: string; word: string; glyph: string; detail: string }
+
+/**
+ * Each block's state, and each document's newest run, for the live board's state: the page sets them in place while it
+ * does not draw its sections again (while something on it is being edited), so a run's states never stand still there.
+ */
+export function liveNodeStates(workflows: readonly WorkflowDocInput[]): LiveNodeState[] {
+  return workflows.flatMap((w) => {
+    const c = w.connected;
+    if (!c) return [];
+    const r = c.runs.find((x) => x.job === c.latest);
+    return [
+      ...c.nodes.map((n) => ({ doc: w.rel, key: n.key, word: n.word, glyph: NODE_GLYPH[n.word], detail: n.detail })),
+      ...(r ? [{ doc: w.rel, key: '', word: r.word, glyph: (NODE_GLYPH as Record<string, string>)[r.word] ?? '·', detail: '' }] : []),
+    ];
+  });
+}
+
 /**
  * The connected card's part of the live page's editor script (src/repl/board-edits.ts EDIT_SCRIPT inlines it, inside its
  * closure, so it shares `api`, `out` and `unreachable`; it never sees the token):
@@ -744,6 +765,39 @@ export const WORKFLOW_SCRIPT = `
   };
   var wfMain = document.getElementById ? document.getElementById('main') : null;
   if (wfMain && typeof MutationObserver === 'function') new MutationObserver(wfRestore).observe(wfMain, { childList: true });
+  /* Each block's state (and the newest run's), set in place while the board is not drawn again (something is being edited). */
+  var wfWord = function (el, x, cls) {
+    if (!el) return;
+    var g = el.querySelector('.wf-glyph'), w = el.querySelector('strong, .wf-chip-state'), d = el.querySelector('.wf-detail');
+    if (g) g.textContent = x.glyph;
+    if (w) w.textContent = x.word;
+    if (d) d.textContent = x.detail || '';
+    el.setAttribute('class', String(el.getAttribute('class') || '').replace(/\\bwfs-[a-z]+\\b/, cls));
+  };
+  var wfStates = function (list) {
+    if (!wfMain || !wfMain.querySelectorAll || !list || !list.length) return;
+    var cards = wfMain.querySelectorAll('[data-wfx]');
+    for (var c = 0; c < cards.length; c++) {
+      var doc = cards[c].getAttribute('data-wfx');
+      for (var i = 0; i < list.length; i++) {
+        var x = list[i];
+        if (x.doc !== doc) continue;
+        var cls = 'wfs-' + String(x.word).replace(/[^a-z]/g, '');
+        if (x.key === '') { wfWord(cards[c].querySelector('.wfx-run-head .wf-word'), x, cls); continue; }
+        var node = wfBy(cards[c], 'data-wf-node', x.key);
+        if (node) {
+          var t = node.querySelector('.wf-state');
+          var said = x.glyph + ' ' + x.word + (x.detail ? ' · ' + x.detail : '');
+          if (t) { t.textContent = said.length > 29 ? said.slice(0, 28) + '…' : said; t.setAttribute('class', 'wf-state ' + cls); }
+          var box = node.querySelector('.wf-box');
+          if (box) box.setAttribute('class', String(box.getAttribute('class') || '').replace(/\\bwfs-[a-z]+\\b/, cls));
+        }
+        wfWord(wfBy(cards[c], 'data-wf-select', x.key), x, cls);
+        var panel = wfBy(cards[c], 'data-wf-insp', x.key);
+        wfWord(panel ? panel.querySelector('.wf-insp-head .wf-word') : null, x, cls);
+      }
+    }
+  };
   /* The block editor open: the inspector's commands are read-only meanwhile. */
   var wfEditing = function (card, on) {
     var tas = card.querySelectorAll('[data-wf-cmd]');

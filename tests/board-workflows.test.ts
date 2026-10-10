@@ -10,7 +10,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { JobRecord } from '../src/jobs/index.js';
 import { kit } from '../src/repl/board-kit.js';
 import { renderWorkflowCard, workflowForBoard } from '../src/repl/board-nodes.js';
-import { connectWorkflow, mentions, nodeAnchor, paramRefs, runOf, StepClock, workflowSummaryLines, type ConnectContext } from '../src/repl/board-workflows.js';
+import { EDIT_SCRIPT } from '../src/repl/board-edits.js';
+import { connectWorkflow, liveNodeStates, mentions, nodeAnchor, paramRefs, runOf, StepClock, WORKFLOW_SCRIPT, workflowSummaryLines, type ConnectContext } from '../src/repl/board-workflows.js';
 import type { Receipt } from '../src/utils/receipts.js';
 
 const F = '```';
@@ -253,5 +254,28 @@ describe('the connected card', () => {
     expect(live).not.toContain('data-act="run"');
     expect(live).toContain('Not runnable as it is: it needs ghost, which BAD.md does not define. /run refuses it the same way; nothing runs.');
     expect(live).toContain('Not runnable as it is: its needs loop (b → c → b).');
+  });
+});
+
+describe("the live page's part", () => {
+  it('is inlined in the editor script, parses, and carries no control character a template escape could have made', () => {
+    expect(EDIT_SCRIPT).toContain(WORKFLOW_SCRIPT);
+    expect(() => new Function(EDIT_SCRIPT)).not.toThrow();
+    expect(EDIT_SCRIPT).not.toMatch(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/);
+    // it sends only the two edits the server checks, and never an action of its own (Stop and Run again press the board's buttons)
+    expect([...WORKFLOW_SCRIPT.matchAll(/action: '([a-z-]+)'/g)].map((m) => m[1]).sort()).toEqual(['save-workflow', 'set-scad-params']);
+    expect(WORKFLOW_SCRIPT).not.toContain('/action');
+    expect(WORKFLOW_SCRIPT).not.toMatch(/innerHTML|localStorage|sessionStorage|document\.cookie|eval\(/);
+  });
+
+  it('the states it sets in place: each block\'s, and the newest run\'s (key \'\')', () => {
+    const root = project();
+    const running = job(root, { id: 'j00a009', target: 'build', state: 'running', endedAt: undefined, steps: [{ name: 'check', index: 1, state: 'completed', code: 0 }, { name: 'build', index: 2, state: 'running' }] });
+    expect(liveNodeStates([view(root, { jobs: [running] })])).toEqual([
+      { doc: 'BUILD.md', key: '1', word: 'completed', glyph: '✓', detail: 'exit 0' },
+      { doc: 'BUILD.md', key: '2', word: 'running', glyph: '●', detail: '' },
+      { doc: 'BUILD.md', key: '3', word: 'not run yet', glyph: '·', detail: '' },
+      { doc: 'BUILD.md', key: '', word: 'running', glyph: '●', detail: '' },
+    ]);
   });
 });
