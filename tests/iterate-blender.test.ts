@@ -50,7 +50,7 @@ const spaces: Workspace[] = [];
 const text = (lines: { text: string }[][]): string => lines.map((l) => l.map((s) => s.text).join('')).join('\n');
 const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 
-function make(o: { env?: Record<string, string | undefined>; python?: boolean } = {}) {
+function make(o: { env?: Record<string, string | undefined>; python?: boolean; python3?: string } = {}) {
   const notes: string[] = [];
   const sealed: ReceiptInput[] = [];
   const env: Record<string, string> = {
@@ -62,7 +62,7 @@ function make(o: { env?: Record<string, string | undefined>; python?: boolean } 
   const deps: WorkspaceDeps = {
     glyphs: glyphSet(true),
     env,
-    onPath: (cmd) => (cmd === 'python3' && o.python !== false ? python : null),
+    onPath: (cmd) => (cmd === 'python3' && o.python !== false ? o.python3 ?? python : null),
     notify: (l) => notes.push(l.map((s) => s.text).join('')),
     openWeb: (url) => url,
     link: (t) => t,
@@ -543,6 +543,28 @@ describe.skipIf(!python)('/stop stops a Blender flow (FAKE pieces)', () => {
     expect(nativeRuns()).toEqual([]);
     expect(sealed.at(-1)).toMatchObject({ kind: 'flow', status: 'cancelled' });
     expect(text(await ws.stop(id))).toContain(`${id} already ended (cancelled)`);
+  }, 90000);
+
+  it('during the checks: the syntax check\'s python3 is stopped, Blender never runs', async () => {
+    // FAKE: a python3 that answers nothing for 30 s, so the flow is still in its checks when /stop comes
+    const slow = path.join(fixtures, 'slow-python3');
+    fs.writeFileSync(slow, '#!/bin/sh\nexec sleep 30\n', { mode: 0o755 });
+    const { ws, sealed } = make({ python3: slow });
+    const id = flowIdIn(text(await ws.iterate('blender scene.py "PYREPLACE:Sphere=>Ball"')));
+    const end = Date.now() + 60000;
+    while (!text(await ws.iterate('')).includes(`${id}  running: the checks step`)) {
+      if (Date.now() > end) throw Error('timed out');
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    const started = Date.now();
+    const stopped = text(await ws.stop(id));
+    expect(Date.now() - started).toBeLessThan(15000);
+    expect(stopped).toContain(`${id} cancelled`);
+    const rec = recordOf(id);
+    expect(rec).toMatchObject({ outcome: 'cancelled', ended_in: 'checks', why: 'stopped with /stop during the checks; Blender did not run', script: { syntax: { checked: false, why: 'stopped with /stop' } } });
+    expect(nativeRuns()).toEqual([]);
+    expect(sealed.map((r) => r.kind)).toEqual(['agent', 'flow']);
+    expect(sealed.at(-1)).toMatchObject({ status: 'cancelled' });
   }, 90000);
 
   it('during the Blender run: its job is cancelled, what it wrote kept, no second pass', async () => {
