@@ -120,6 +120,9 @@ function fakeProject(o: { activeFlows?: string[]; mine?: string[] } = {}) {
   chain.push(receipt(pid, { kind: 'turn', ts: '2026-10-10T09:06:00.000Z', status: 'cancelled', cancelled_at: 'during-tool', model_requested: 'fake/chat', cost_usd: 0.001, cost_measured: false, ms: 900 }));
   // Another project's receipt: never counted here.
   chain.push(receipt('another-project', { kind: 'turn', status: 'ok', cost_usd: 9, cost_measured: true }));
+  // R4 (H59): the files these FAKE records name as outputs are there (the room lists an output only when its file is there).
+  for (const rel of ['notes/new.txt', 'recipes/tray.params.json', '.timmy/agents/a0000a001/final-message.md', '.timmy/agents/a0000a001/transcript.log', '.timmy/agents/a0000a001/transcript.txt', '.timmy/flows/f0000a001/readback.log',
+    ...['console-tray.step', 'outer.stl', 'cavity.stl', 'bosses.stl', 'bores.stl'].map((n) => `out/recipes/1a2b3c4d/${n}`)]) put(root, rel, 'FAKE\n');
   const jobs: JobRecord[] = [
     job(root, 'j0a0004', { label: 'agent qwen a0000a004: FAKE: SLEEP', state: 'running', startedAt: '2026-10-10T09:55:00.000Z', endedAt: undefined }),
     job(root, 'j0a0001', { label: 'agent qwen a0000a001: FAKE' }),

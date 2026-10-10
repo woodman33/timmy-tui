@@ -713,6 +713,47 @@ export interface AgentRunRecord {
   judged?: JudgedChanges;
   /** R4 (H50): the checked lessons /agent's task was given (src/memory/retrieve.ts); [] when none applied */
   lessons?: Array<{ id: string; sha256: string; status: string }>;
+  /** R4 (H59): run.json's own state (result.json, what was sealed, has none) */
+  state?: RunRecordState;
+  /** R4 (H59): what a later session's recovery recorded when the REPL running it ended first (run-end.ts); never a result */
+  recovered?: AgentRunRecovered;
+}
+
+/**
+ * R4 (H59): run.json's state: "submitted" at its start, "ended" once its result is written (src/repl/workspace.ts), and
+ * "interrupted" when a later session's recovery recorded that the REPL running it ended first (src/code-agents/run-end.ts).
+ */
+export type RunRecordState = 'submitted' | 'ended' | 'interrupted';
+
+/** R4 (H59): an interrupted run's end as recovery recorded it in run.json: how it ended, its job, and that no result was written. */
+export interface AgentRunRecovered {
+  /** when recovery wrote this */
+  at: string;
+  by: 'recovery';
+  /** what became of its process: stopped by recovery, found gone (when it ended is not recorded), ended as its job's record
+   *  already said (an earlier recovery recorded it), or its OpenHands container stopped by recovery */
+  process: 'stopped by recovery' | 'gone' | 'ended before' | 'container stopped by recovery';
+  /** the job that ran it, as its own record says now */
+  job: { id: string; state: string; error?: string };
+  /** the process group recovery stopped, and with what */
+  stopped?: { process_group: number; processes: number; signals: string[]; cleanup: 'complete' | 'unresolved' };
+  /** the OpenHands container recovery stopped */
+  container?: string;
+  /** the flow whose agent step it was */
+  flow?: string;
+  /** it never reached its end in its REPL, so it was never judged: no outcome, files, final message or cost of its own */
+  result: 'not written';
+}
+
+/** R4 (H59): the run's own record, beside its result. */
+export const RUN_RECORD = 'run.json';
+
+/**
+ * R4 (H59): the one writer of a run's run.json (at its start and its end in src/repl/workspace.ts, and when recovery ends a
+ * run its REPL left, src/code-agents/run-end.ts): the record written whole through writeJson.
+ */
+export function writeRunRecord(dir: string, value: AgentRunRecord & { state: RunRecordState }): { sha256: string; bytes: number } {
+  return writeJson(join(dir, RUN_RECORD), value);
 }
 
 export const runDir = (root: string, run: string): string => join(root, AGENTS_DIR, run);

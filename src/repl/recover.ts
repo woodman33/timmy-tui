@@ -50,6 +50,12 @@
  *     child, or no process has its pid) and that the group is the job's (the recorded pid is the group, and its oldest
  *     process started when the job did). This reads PIDs from the job's record and the process table, and signals
  *     only such a group. When it cannot be proven, nothing is stopped: the lines say what still runs and how to stop it.
+ *
+ *   the agent's own record (R4, H59; ledger row 157, r18 defect 4)
+ *     When the step's job is the agent's and this pass recorded its end, the agent's run record (.timmy/agents/<run>/run.json)
+ *     is ended too, through the code-agent module's writer: interrupted, when, why and the job, never a result
+ *     (src/code-agents/run-end.ts); the flow's record (recovered.agent) and its receipt (a source) name it with its sha256.
+ *     A plain /agent run an ended REPL left is the Workspace's other part of the pass (src/repl/recover-agents.ts).
  */
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -73,6 +79,8 @@ import type { Receipt, ReceiptInput } from '../utils/receipts.js';
 import { placeNew } from '../utils/place-new.js';
 import { lessonsPart } from '../memory/retrieve.js'; // R4 (H50): the lessons an interrupted flow's agent was given, named by its receipt
 import { OPERATION_ID } from '../ops/context.js';
+// R4 (H59): the agent's own run record, ended with its step's job (src/code-agents/run-end.ts); plain /agent runs: recover-agents.ts
+import { endFlowAgentStep } from '../code-agents/run-end.js';
 
 type Line = Segment[];
 
@@ -146,7 +154,8 @@ export interface RecoverDeps {
 
 /** What one pass did about one operation, or saw and left (did 'left'). */
 export interface RecoveryItem {
-  kind: 'recipe' | 'flow' | 'native' | 'agent';
+  /** 'agent': an OpenHands container (R4, H52); 'agent-run': a code agent's run and its record (R4, H59: recover-agents.ts) */
+  kind: 'recipe' | 'flow' | 'native' | 'agent' | 'agent-run';
   /** the operation's own ID: a recipe job's UUID, a flow's id, a native run's token */
   id: string;
   /** 'incomplete' (R4-8): a succeeded recipe's copy is in the project but not whole; named with /recipe copy, left as it is */
@@ -378,9 +387,10 @@ async function waitFor(done: () => boolean, ms: number): Promise<boolean> {
 /**
  * Stops a step's job its ended REPL left running: proven again just before (the table read now), SIGTERM to its group,
  * SIGKILL after STOP_GRACE_MS when some of it still runs, then its end recorded in its own record (JobManager endLeft:
- * cancelled, saying so). Returns what was done, or the job's state now when nothing was signalled.
+ * cancelled, saying so). Returns what was done, or the job's state now when nothing was signalled. R4 (H59): also a plain
+ * /agent run's job (src/repl/recover-agents.ts).
  */
-async function stopLeft(d: RecoverDeps, job: JobRecord): Promise<LeftStop | LeftJob> {
+export async function stopLeft(d: Pick<RecoverDeps, 'jobs'>, job: JobRecord): Promise<LeftStop | LeftJob> {
   const now = d.jobs.get(job.id) ?? job;
   if (now.stale || (now.state !== 'running' && now.state !== 'ready')) return { kind: 'gone' };
   const left = leftBehind(now, processTable());
@@ -751,8 +761,10 @@ function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Ma
         : `its job ${job.id} ${job.state}, and the flow did not go on for ${ago(FLOW_QUIET_MS)}`;
   // R4 (H46): the step's job: its end recorded in its own record first, when it is the agent's or the readback's.
   const jobPart = settleJob(d, String(step), p.job, job, stop);
+  // R4 (H59): then the agent's own run record, when this pass recorded its job's end; the record and receipt below name it.
+  const agentEnd = endFlowAgentStep(d.root, { step: String(step), run: (v.agent as { run?: unknown } | undefined)?.run, flow: p.id, job: jobPart, ...(stop ? { stopped: stop } : {}), ...(d.now ? { now: d.now } : {}) });
   // R4 (H33): an OpenSCAD, FreeCAD or Blender flow, with its own steps and words.
-  if (v.target !== undefined) return actTargetFlow(d, p, state, jobPart, jobWords, stop);
+  if (v.target !== undefined) return actTargetFlow(d, p, state, jobPart, jobWords, stop, agentEnd);
   const uuid = typeof v.rebuild?.operation === 'string' && isRecipeJobId(v.rebuild.operation) ? v.rebuild.operation : undefined;
   let rebuild: Record<string, unknown> | undefined;
   if (uuid) {
@@ -801,11 +813,12 @@ function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Ma
       at: new Date((d.now ?? Date.now)()).toISOString(), step,
       state_file: { path: state.rel, sha256: state.sha256 },
       ...(jobPart ? { job: jobPart } : {}),
+      ...(agentEnd.part ? { agent: agentEnd.part } : {}), // R4 (H59)
       next,
     },
   };
   const w = createProjectJson(d.root, rel, record);
-  if (!w.ok) return { kind: 'flow', id: p.id, did: 'failed', ...(stop ? { stopped: stop } : {}), text: `flow ${p.id} was interrupted in its ${step} step${stop ? ` (${jobWords})` : ''}, but its record could not be written: ${d.scrub(w.error)}` };
+  if (!w.ok) return { kind: 'flow', id: p.id, did: 'failed', ...(stop ? { stopped: stop } : {}), text: `flow ${p.id} was interrupted in its ${step} step${stop ? ` (${jobWords})` : ''}, but its record could not be written: ${d.scrub(w.error)}${agentEnd.words}` };
   const cost = v.agent?.cost_usd;
   let receipt: string | undefined;
   try {
@@ -815,7 +828,7 @@ function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Ma
       project: typeof v.project === 'string' ? v.project : d.project, project_id: projectId(d.root),
       prompt_hash: `sha256:${sha(v.instruction)}`,
       outputs: [{ path: w.path, sha256: w.sha256, bytes: w.bytes }],
-      sources: [{ path: state.rel, sha256: state.sha256, role: 'the flow state its session left' }],
+      sources: [{ path: state.rel, sha256: state.sha256, role: 'the flow state its session left' }, ...(agentEnd.source ? [agentEnd.source] : [])],
       ...(children.length ? { child_receipts: children } : {}),
       discrepancies: [`interrupted: ${why}`],
       // The agent's cost as its own receipt sealed it, when it got that far; unknown is never written as 0.
@@ -826,7 +839,7 @@ function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Ma
   const shortNext = uuid ? `/recipe recover ${uuid}, or /iterate tray again` : '/iterate tray again';
   return {
     kind: 'flow', id: p.id, did: 'interrupted', state: step, record: w.path, ...(receipt ? { receipt } : {}), next, ...(stop ? { stopped: stop } : {}),
-    text: `flow ${p.id} was interrupted in its ${step} step (${jobWords})${endedText(jobPart)}: record ${w.path}${receipt ? `; receipt ${receipt}` : '; the receipt could not be sealed'}; next: ${shortNext}`,
+    text: `flow ${p.id} was interrupted in its ${step} step (${jobWords})${endedText(jobPart)}: record ${w.path}${receipt ? `; receipt ${receipt}` : '; the receipt could not be sealed'}${agentEnd.words}; next: ${shortNext}`,
   };
 }
 
@@ -835,7 +848,7 @@ function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Ma
  * interrupted, the step it ended in, why and what to do next), sealed as a flow receipt. The app's own run, when it
  * started, is judged from its own record by the native part of the pass, as any run is; nothing is run again here.
  */
-function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state: FlowState, jobPart: Record<string, unknown> | undefined, jobWords: string, stop?: LeftStop): RecoveryItem | undefined {
+function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state: FlowState, jobPart: Record<string, unknown> | undefined, jobWords: string, stop: LeftStop | undefined, agentEnd: ReturnType<typeof endFlowAgentStep>): RecoveryItem | undefined {
   const v = state.value;
   const target = String(v.target);
   const t = TARGETS[target];
@@ -886,12 +899,13 @@ function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state
       at: new Date((d.now ?? Date.now)()).toISOString(), step,
       state_file: { path: state.rel, sha256: state.sha256 },
       ...(jobPart ? { job: jobPart } : {}),
+      ...(agentEnd.part ? { agent: agentEnd.part } : {}), // R4 (H59)
       next,
     },
   };
   const rel = flowRecordPath(p.id);
   const w = createProjectJson(d.root, rel, record);
-  if (!w.ok) return { kind: 'flow', id: p.id, did: 'failed', ...(stop ? { stopped: stop } : {}), text: `flow ${p.id} was interrupted in its ${step} step${stop ? ` (${jobWords})` : ''}, but its record could not be written: ${d.scrub(w.error)}` };
+  if (!w.ok) return { kind: 'flow', id: p.id, did: 'failed', ...(stop ? { stopped: stop } : {}), text: `flow ${p.id} was interrupted in its ${step} step${stop ? ` (${jobWords})` : ''}, but its record could not be written: ${d.scrub(w.error)}${agentEnd.words}` };
   const cost = (v.agent as { cost_usd?: unknown } | undefined)?.cost_usd;
   let receipt: string | undefined;
   try {
@@ -901,7 +915,7 @@ function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state
       project: typeof v.project === 'string' ? v.project : d.project, project_id: projectId(d.root),
       prompt_hash: `sha256:${sha(v.instruction)}`,
       outputs: [{ path: w.path, sha256: w.sha256, bytes: w.bytes }],
-      sources: [{ path: state.rel, sha256: state.sha256, role: 'the flow state its session left' }],
+      sources: [{ path: state.rel, sha256: state.sha256, role: 'the flow state its session left' }, ...(agentEnd.source ? [agentEnd.source] : [])],
       ...(children.length ? { child_receipts: children } : {}),
       discrepancies: [`interrupted: ${why}`],
       ...(typeof cost === 'number' ? { cost_usd: cost } : cost === null ? { cost_measured: false } : {}),
@@ -910,7 +924,7 @@ function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state
   } catch { receipt = undefined; }
   return {
     kind: 'flow', id: p.id, did: 'interrupted', state: step, record: w.path, ...(receipt ? { receipt } : {}), next, ...(stop ? { stopped: stop } : {}),
-    text: `flow ${p.id} was interrupted in its ${step} step (${jobWords})${endedText(jobPart)}: record ${w.path}${receipt ? `; receipt ${receipt}` : '; the receipt could not be sealed'}; next: /iterate ${target} again`,
+    text: `flow ${p.id} was interrupted in its ${step} step (${jobWords})${endedText(jobPart)}: record ${w.path}${receipt ? `; receipt ${receipt}` : '; the receipt could not be sealed'}${agentEnd.words}; next: /iterate ${target} again`,
   };
 }
 
@@ -947,8 +961,11 @@ function summary(items: RecoveryItem[]): string {
   // R4 (H46): the step jobs an ended REPL left running, stopped before their flows were recorded.
   const stopped = of((i) => !!i.stopped);
   if (stopped.length) parts.push(`${count(stopped.length, 'job')} left running by a REPL that ended ${stopped.length === 1 ? 'was' : 'were'} stopped: ${stopped.map((i) => i.stopped!.job).join(', ')}`);
-  const flows = of((i) => i.did === 'interrupted');
+  const flows = of((i) => i.kind === 'flow' && i.did === 'interrupted');
   if (flows.length) parts.push(`${count(flows.length, 'flow')} ${flows.length === 1 ? 'was' : 'were'} interrupted: ${flows.map((i) => i.id).join(', ')} (record${flows.length === 1 ? '' : 's'} written)`);
+  // R4 (H59): code agent runs an ended REPL left (not a flow's step), each run's own record ended as interrupted.
+  const runs = of((i) => i.kind === 'agent-run' && i.did === 'interrupted');
+  if (runs.length) parts.push(`${count(runs.length, 'agent run')} left by a REPL that ended ${runs.length === 1 ? 'was' : 'were'} recorded as interrupted: ${runs.map((i) => i.id).join(', ')} (no result written)`);
   const judged = of((i) => i.did === 'judged');
   if (judged.length) parts.push(`${count(judged.length, 'native run')} judged from ${judged.length === 1 ? 'its result file' : 'their result files'}`);
   const failed = of((i) => i.did === 'failed');
@@ -958,7 +975,7 @@ function summary(items: RecoveryItem[]): string {
   const attention = of((i) => i.kind === 'recipe' && i.did === 'left' && i.attention === true);
   if (attention.length) parts.push(`${count(attention.length, 'recipe job')} ${attention.length === 1 ? 'needs' : 'need'} /recipe recover`);
   // R4 (H46): a step's job left running by a REPL that ended, not stopped (its group could not be proven the job's).
-  const running = of((i) => i.kind === 'flow' && i.did === 'left' && i.attention === true);
+  const running = of((i) => (i.kind === 'flow' || i.kind === 'agent-run') && i.did === 'left' && i.attention === true);
   if (running.length) parts.push(`${count(running.length, 'job')} left running by a REPL that ended ${running.length === 1 ? 'was' : 'were'} not stopped: what runs, and how to stop it, below`);
   // R4 (H52): OpenHands containers an ended session left running: stopped, or left with what to do.
   const containers = of((i) => i.kind === 'agent' && i.did === 'stopped');

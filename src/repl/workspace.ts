@@ -59,7 +59,7 @@ import { copyFileSync, writeFileSync } from 'node:fs';
 import {
   AGENT_NAMES, AGENTS, AGENTS_DIR, agentBin, agentLabel, appendProgress, boundMessage, diffSnapshots, ensureDir, folderInProject, isGitDir, judgeAgentRun,
   judgedChanges, judgeSnapshot, listAgentRuns, newProgress, newRunId, parseAgentLine, planAgent, progressLine, readProgressTail, regularOf, runDir, scrubPaths,
-  snapshotJson, snapshotProject, taskWords, writeJson, type AgentName, type AgentPlan, type AgentProgress, type AgentRunRecord, type JudgedSnapshot, type Snapshot,
+  snapshotJson, snapshotProject, taskWords, writeJson, writeRunRecord, type AgentName, type AgentPlan, type AgentProgress, type AgentRunRecord, type JudgedSnapshot, type Snapshot,
 } from '../code-agents/index.js';
 // Round R4 (helper H25): Codex's local route (/agent codex --local); hooks are marked "R4 (H25)".
 import { codexLocalPreflight, codexLocalSummary } from '../code-agents/codex-local.js';
@@ -98,6 +98,7 @@ import { HOLDS_DIR } from '../ops/flow-hold.js';
 import { OPENHANDS_NO_DOCKER, openHandsSummary, watchOpenHands, writeBackShort } from '../code-agents/openhands.js';
 import { openHandsLastLine, OpenHandsRuns, type OpenHandsRunState } from './openhands.js';
 import { recoverOpenHands } from './openhands-recover.js';
+import { recoverAgentRuns } from './recover-agents.js'; // R4 (H59): code agent runs an ended REPL left (their run records)
 // Round R4 (H55): the board's line about Timmy Canvas (src/repl/board-canvas.ts; the REPL checks the canvas).
 import type { BoardCanvas } from './board-canvas.js';
 
@@ -1488,8 +1489,13 @@ export class Workspace {
           return w;
         },
         open: () => !this.launches.closing,
+        // R4 (H59): code agent runs an ended REPL left, each run's own record ended (src/repl/recover-agents.ts); then
         // R4 (H52): OpenHands containers left running, found by their labels and their run's record
-        agents: () => recoverOpenHands({ root, project, jobs: this.jobs, seal: this.d.seal, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing, bin: agentBin('openhands', this.d.env, this.d.onPath), env: this.d.env }),
+        agents: async () => [
+          ...await recoverAgentRuns({ root, project, jobs: this.jobs, seal: this.d.seal, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing }),
+          ...await recoverOpenHands({ root, project, jobs: this.jobs, seal: this.d.seal, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing, bin: agentBin('openhands', this.d.env, this.d.onPath), env: this.d.env })
+            .catch((e: unknown) => [{ kind: 'agent' as const, id: 'openhands', did: 'failed' as const, text: `OpenHands containers could not be checked: ${this.scrub(e instanceof Error ? e.message : String(e), root)}` }]),
+        ],
       });
     });
     this.recoveries = run.catch(() => undefined);
@@ -1599,7 +1605,7 @@ export class Workspace {
     this.agentRuns.set(job.id, state);
     record.job = job.id;
     if (state.openhands) this.openhands.started(job, state.openhands, plan.timeoutMs); // R4 (H52): its container is this REPL's to stop
-    try { writeJson(join(dir, 'run.json'), { ...record, state: 'submitted' }); } catch { /* the job still runs; its result is written at its end */ }
+    try { writeRunRecord(dir, { ...record, state: 'submitted' }); } catch { /* the job still runs; its result is written at its end */ }
     return { ok: true, job, run, plan, info, version, record };
   }
 
@@ -1813,7 +1819,7 @@ export class Workspace {
       });
     } catch { receipt = undefined; }
     if (receipt) rec.receipt = receipt;
-    try { writeJson(join(st.dir, 'run.json'), { ...rec, state: 'ended', ...(receipt ? { receipt } : {}) }); } catch { /* the result stands */ }
+    try { writeRunRecord(st.dir, { ...rec, state: 'ended', ...(receipt ? { receipt } : {}) }); } catch { /* the result stands */ }
     return receipt;
   }
 

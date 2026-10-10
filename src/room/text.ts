@@ -122,7 +122,9 @@ export function roomItemLines(room: Room, id: string, o: RoomTextOptions): Line[
   }
   if (r.outputs.length) {
     r.outputs.forEach((out, i) => lines.push([label(i === 0 ? 'Outputs' : ''), { text: link(out.path) }, { text: `  ${out.role}`, role: 'secondary' }]));
-  } else lines.push([label('Outputs'), { text: 'none named in its record', role: 'secondary' }]);
+  } else lines.push([label('Outputs'), { text: r.missing?.length ? 'none there now' : 'none named in its record', role: 'secondary' }]);
+  // R4 (H59): a file its record names that is not there is named as missing, in words, never listed (or linked) as an output.
+  (r.missing ?? []).forEach((m, i) => lines.push([label(i === 0 ? 'Missing' : ''), { text: `${m.path}: ${m.words}`, role: 'estimate' }, { text: `  ${m.role}`, role: 'secondary' }]));
   const rec = [r.record ? link(r.record) : '', r.recordNote ?? '', r.receipt ? `receipt ${r.receipt}` : 'no receipt seals it yet', ...(r.receipts?.length ? [`its record names receipts ${r.receipts.join(', ')}`] : [])].filter(Boolean).join(sep);
   lines.push([label('Record'), { text: rec }]);
   if (r.running) lines.push([label('Stop'), { text: r.stop ? `/stop ${r.stop.id}` : r.hint?.words ?? NOT_OURS, role: r.stop ? 'strong' : 'secondary' }]);

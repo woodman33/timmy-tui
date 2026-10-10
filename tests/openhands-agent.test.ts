@@ -727,6 +727,17 @@ describe('recovery: an orphaned container is found only by its labels plus its r
     expect((sealed[0].sources as Array<Record<string, unknown>>)[0]).toMatchObject({ operation: run, agent: 'openhands', action: 'container stopped', container: name, job: 'j0a0b0c' });
     expect(JSON.parse(readFileSync(join(root, AGENTS_DIR, run, 'container.json'), 'utf8')).stops).toEqual([expect.objectContaining({ why: 'recovery', result: 'stopped' })]);
     expect(ws.jobs.get('j0a0b0c')).toMatchObject({ state: 'cancelled', error: expect.stringContaining(`recovery stopped its container ${name}`) });
+    // R4 (H59): the run's own record ended as interrupted (no result: its copy's changes never came back), its bytes on the receipt.
+    const runBytes = readFileSync(join(root, AGENTS_DIR, run, 'run.json'));
+    expect(JSON.parse(runBytes.toString('utf8'))).toMatchObject({
+      state: 'interrupted', job: 'j0a0b0c', why: `its REPL ended while it ran; recovery stopped its container ${name} (docker stop); no result was written, and nothing was written into the project`,
+      recovered: { by: 'recovery', process: 'container stopped by recovery', container: name, result: 'not written', job: { id: 'j0a0b0c', state: 'cancelled' } },
+    });
+    expect(existsSync(join(root, AGENTS_DIR, run, 'result.json'))).toBe(false);
+    expect(sealed[0].outputs).toEqual([{ path: `${AGENTS_DIR}/${run}/run.json`, sha256: createHash('sha256').update(runBytes).digest('hex'), bytes: runBytes.length }]);
+    expect(out).toContain(`its record ${AGENTS_DIR}/${run}/run.json now says interrupted (no result was written)`);
+    // the run whose container was not stopped keeps its record as it was
+    expect(JSON.parse(readFileSync(join(root, AGENTS_DIR, other, 'run.json'), 'utf8')).state).toBe('submitted');
     // a second pass finds nothing more to stop
     const again = text(await ws.recover(''));
     expect(again).not.toContain('was stopped');
