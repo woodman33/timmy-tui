@@ -13,6 +13,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { projectId } from '../src/project/index.js';
 import { kit } from '../src/repl/board-kit.js';
 import { roomSection } from '../src/repl/board-room.js';
+import { agentResults } from '../src/repl/board-cards.js';
+import { buildIndex, operationCard } from '../src/ops/card.js';
 import { gatherRoom, type RoomContext } from '../src/room/index.js';
 import { isThere, missingWords, sealedBy, splitOutputs } from '../src/room/outputs.js';
 import { roomItemLines } from '../src/room/text.js';
@@ -141,5 +143,21 @@ describe('the outputs rule: listed only when there; missing ones named in words'
     const out = lines(roomItemLines(gatherRoom(context(root)), RUN, { glyphs }));
     expect(out).toMatch(/Missing {4}notes\/deleted\.txt: not there {2}added/);
     expect(out).toContain(`.timmy/agents/${RUN}/transcript.log: not there  transcript`);
+  });
+});
+
+describe('an interrupted run in the other views: the operation card and the board\'s agent card say so, with no result', () => {
+  it('the operation card names it interrupted (no result was written); the board\'s card says interrupted with its record\'s words and links its record', () => {
+    const root = temp();
+    json(root, `.timmy/agents/${RUN}/run.json`, runRecord('interrupted', { operation: 'o0000c001' }));
+    const ix = buildIndex({ root, projectId: projectId(root), chain: [], jobs: [], scrub: (t) => t });
+    expect(operationCard(ix, 'o0000c001').runs).toContainEqual({ kind: 'agent', id: RUN, role: 'builder', state: 'interrupted (no result was written)', tone: 'stopped' });
+    const card = agentResults(root, (t) => t).cards.find((c) => c.title === `agent qwen · ${RUN}`)!;
+    expect(card.status).toEqual({ word: 'interrupted', tone: 'attention', detail: 'its REPL ended while it ran; recovery stopped its process group 4242 (2 processes) with SIGTERM; no result was written' });
+    expect(card.files).toContainEqual({ rel: `.timmy/agents/${RUN}/run.json`, note: 'its record' });
+    // A run whose record still says submitted keeps its old words: not finished here.
+    json(root, `.timmy/agents/${RUN}/run.json`, runRecord('submitted', { operation: 'o0000c001' }));
+    expect(operationCard(buildIndex({ root, projectId: projectId(root), chain: [], jobs: [], scrub: (t) => t }), 'o0000c001').runs).toContainEqual(expect.objectContaining({ id: RUN, state: 'running or not finished' }));
+    expect(agentResults(root, (t) => t).cards[0].status.word).toBe('not finished here');
   });
 });

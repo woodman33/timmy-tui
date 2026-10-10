@@ -16,7 +16,7 @@
  * its own process group, writes both pids to a file, prints nothing more and waits until it is stopped. One test ends a job
  * record through the job module's own writer (JobManager.endLeft) by hand, as an earlier recovery did on the Mac (r18).
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -28,6 +28,12 @@ import { GONE_WORDS } from '../src/repl/recover.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import type { Receipt, ReceiptInput } from '../src/utils/receipts.js';
 import { JobManager } from '../src/jobs/index.js';
+import { guardRealHome } from './fixtures/home-guard.js';
+
+// The crashed sessions run with their own HOME and TIMMY_HOME (under the test's fixtures folder); nothing here may change
+// the real home's timmy folders (tests/fixtures/home-guard.ts reads them before and after).
+const realHome = guardRealHome();
+afterAll(() => { expect(realHome.check(), 'changed under the real home\'s timmy folders while these tests ran').toEqual([]); });
 
 const FIXTURE = path.resolve('tests/fixtures/recover-crash-fixture.ts');
 const FAKE_READBACK = path.resolve('tests/fixtures/fake-step-readback.mjs');
@@ -294,6 +300,12 @@ describe('a plain /agent run left by a REPL killed with SIGKILL (no flow)', () =
     const one = text(await ws.room(s.run));
     expect(one).toContain(`interrupted: ${why}`);
     expect(one).toContain(`receipt ${String(recovers[0].hash).slice(7, 15)}`);
+    // /agent last and /results say interrupted too, with its record's words, and no result.
+    const last = text(await ws.agent('last'));
+    expect(last).toMatch(new RegExp(`Agent run {2}${s.run} {2}qwen 0\\.0\\.0-fake.*interrupted`));
+    expect(last).toContain(why);
+    expect(last).toContain(`.timmy/agents/${s.run}/run.json`);
+    expect(text(ws.results(''))).toContain(`${s.run}  qwen  interrupted`);
     // Once: a later pass leaves it as it is.
     expect(text(await ws.recover(''))).toContain('nothing to pick up');
     expect(fs.readFileSync(runFile(s.run)).equals(bytes)).toBe(true);

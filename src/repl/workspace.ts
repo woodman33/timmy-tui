@@ -1660,7 +1660,7 @@ export class Workspace {
     const live = [...this.agentRuns.entries()].find(([, s]) => s.record.run === r.run);
     const job = live ? this.jobs.get(live[0]) : r.job ? this.jobs.get(r.job) : undefined;
     const lines: Line[] = [[{ text: '  Agent run  ', role: 'secondary' }, { text: r.run, role: 'strong' }, { text: `  ${r.agent}${r.agent_version ? ` ${r.agent_version}` : ''}${this.sep}`, role: 'secondary' },
-      r.outcome ? { text: r.outcome, role: r.outcome === 'completed' ? 'strong' : 'failure' } : { text: job && !TERMINAL.has(job.state) ? `running: /jobs ${job.id}` : 'not finished here: no result was written (its REPL ended first)', role: 'estimate' },
+      r.outcome ? { text: r.outcome, role: r.outcome === 'completed' ? 'strong' : 'failure' } : { text: job && !TERMINAL.has(job.state) ? `running: /jobs ${job.id}` : r.state === 'interrupted' ? 'interrupted' : 'not finished here: no result was written (its REPL ended first)', role: 'estimate' }, // R4 (H59): its record's words follow
       { text: r.why ? `${this.sep}${this.scrub(r.why, this.root)}` : '', role: 'secondary' }]];
     lines.push([{ text: '  Task       ', role: 'secondary' }, { text: taskWords(r.task, this.root, 160) }]);
     const cost = r.cost_usd === undefined ? '' : r.cost_usd === null ? `${this.sep}cost unknown (the agent reported none)` : `${this.sep}cost $${r.cost_usd.toFixed(4)} (${r.cost_basis ?? ''})`;
@@ -1709,7 +1709,7 @@ export class Workspace {
     for (const r of runs) {
       const f = r.files;
       const counts = f ? `${f.added.length} added, ${f.changed.length} changed, ${f.deleted.length} deleted` : 'no result yet';
-      lines.push([{ text: `    ${r.run}  ` }, { text: `${r.agent}  `, role: 'strong' }, { text: r.outcome ?? 'not finished', role: r.outcome === 'completed' ? undefined : 'failure' },
+      lines.push([{ text: `    ${r.run}  ` }, { text: `${r.agent}  `, role: 'strong' }, { text: r.outcome ?? (r.state === 'interrupted' ? 'interrupted' : 'not finished'), role: r.outcome === 'completed' ? undefined : 'failure' },
         { text: `${this.sep}${counts}${r.receipt ? `${this.sep}receipt ${r.receipt}` : ''}`, role: 'secondary' }]);
       const named = f ? [...f.added.map((c) => `${c.path} added`), ...f.changed.map((c) => `${c.path} changed`), ...f.deleted.map((c) => `${c.path} deleted`)] : [];
       if (named.length) lines.push([{ text: '      ' }, { text: `${named.slice(0, 6).join(this.sep)}${named.length > 6 ? `${this.sep}and ${named.length - 6} more` : ''}`, role: 'secondary' }]);
