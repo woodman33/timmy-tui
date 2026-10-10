@@ -635,13 +635,14 @@ describe('delivery consumes one verified snapshot (the review of 07f37ec, M3)', 
 
   it('a copy that changes under us is refused; what this call wrote is removed again, and the changed file is left as it was found', async () => {
     const { id } = await succeeded();
-    const dest = path.join(root, 'out', 'recipes', id.slice(0, 8));
-    const step = path.join(dest, 'console-tray.step');
+    const recipes = path.join(fs.realpathSync(root), 'out', 'recipes');
+    const dest = path.join(recipes, id.slice(0, 8));
     const realWrite = fs.writeFileSync;
     vi.spyOn(fs, 'writeFileSync').mockImplementation(((file: fs.PathOrFileDescriptor, data: string | NodeJS.ArrayBufferView, options?: fs.WriteFileOptions) => {
       realWrite(file, data, options);
-      // Another writer changes the copy between this call's write and its read-back.
-      if (file === step) realWrite(step, 'CHANGED UNDER US by another writer');
+      // Another writer changes the copy between this call's write and its read-back (R4 review, R4-8: a new copy is
+      // written in a folder of its own beside out/recipes/<uuid8>/, so the file is changed there).
+      if (typeof file === 'string' && path.basename(file) === 'console-tray.step') realWrite(file, 'CHANGED UNDER US by another writer');
     }) as typeof fs.writeFileSync);
     const d = deliver(root, id);
     vi.restoreAllMocks();
@@ -649,7 +650,13 @@ describe('delivery consumes one verified snapshot (the review of 07f37ec, M3)', 
     if (d.ok) return;
     expect(d.error).toContain('console-tray.step');
     expect(d.error).toContain('reads back with a different sha256');
-    expect(fs.readdirSync(dest)).toEqual(['console-tray.step']);
-    expect(fs.readFileSync(step, 'utf8')).toBe('CHANGED UNDER US by another writer');
+    // The copy never took its name; its own folder keeps only the changed file, as it was found, and says where it is.
+    expect(fs.existsSync(dest)).toBe(false);
+    const [work, ...others] = fs.readdirSync(recipes);
+    expect(others).toEqual([]);
+    expect(work).toMatch(new RegExp(`^\\.${id.slice(0, 8)}\\.`));
+    expect(fs.readdirSync(path.join(recipes, work))).toEqual(['console-tray.step']);
+    expect(fs.readFileSync(path.join(recipes, work, 'console-tray.step'), 'utf8')).toBe('CHANGED UNDER US by another writer');
+    expect(d.error).toContain(`4 removed again; out/recipes/${work}/console-tray.step changed while it was copied and was left as it was found`);
   }, 60000);
 });

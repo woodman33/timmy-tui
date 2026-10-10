@@ -8,6 +8,7 @@
  * stopped, and on success copies the verified exports into the project (out/recipes/<uuid8>/), every
  * sha256 checked against the verified result first. Nothing here reads a PID from disk or kills one.
  */
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -16,6 +17,7 @@ import type { ChildProcess } from 'node:child_process';
 import { cardPath, prediction, sha, validate, type Parameters } from '../../lanes/recipes/tray.js';
 import { enqueue, jobDirectory, start, status, verifiedStatus, type Job, type JobState, type JobStatus, type ResultSnapshot } from '../../lanes/recipes/jobs.js';
 import type { JobSpec } from '../jobs/index.js';
+import { placeNew } from '../utils/place-new.js';
 
 export const RECIPE_ID = 'enclosure.tray/1';
 /** DOCTRINE §15, verbatim: shown wherever /recipe offers or presents measured dimensions (AGENTS.md §4). */
@@ -243,8 +245,45 @@ export function outcomeLines(v: Verified, copied: string): string[] {
   return lines;
 }
 
-/** Copies a verified result into the project (out/recipes/<uuid8>/); a file already there must match, or nothing is written. */
-export function deliver(root: string, id: string): { ok: true; dir: string; files: Array<{ path: string; sha256: string; bytes: number }>; v: Verified } | { ok: false; error: string } {
+type Delivered = { ok: true; dir: string; files: Array<{ path: string; sha256: string; bytes: number }>; v: Verified } | { ok: false; error: string };
+
+const lexists = (abs: string): boolean => { try { fs.lstatSync(abs); return true; } catch { return false; } };
+/** The file's bytes flushed to the disk, so a copy that takes its name holds them after a power loss too. */
+const flush = (abs: string): void => { const fd = fs.openSync(abs, 'r+'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } };
+/** A new file ('wx': never over one); one this call made and could not finish writing is removed again. */
+function writeNew(abs: string, bytes: Buffer): void {
+  try { fs.writeFileSync(abs, bytes, { flag: 'wx' }); } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') { try { fs.unlinkSync(abs); } catch { /* never made */ } }
+    throw e;
+  }
+}
+/**
+ * A copy that fails partway removes the files this call wrote (the review of ee70b9e, M2): the project holds the whole
+ * verified set or none of what this call added; files that were already there and matched stay. Round R4 (H17): a file
+ * that changed under the copy no longer holds what this call wrote, so it is left as it was found and named, never
+ * deleted. Returns the error's words.
+ */
+function undoCopy(written: Array<{ to: string; rel: string; sha256: string }>, e: unknown): string {
+  const left: string[] = [];
+  let removed = 0;
+  for (const w of written) {
+    try { if (sha(fs.readFileSync(w.to)) === w.sha256) { fs.unlinkSync(w.to); removed++; } else left.push(w.rel); } catch { /* already gone */ }
+  }
+  const changed = left.length ? `; ${left.join(', ')} changed while it was copied and was left as it was found` : '';
+  return `nothing kept from this copy (${written.length} written, ${removed} removed again${changed}): ${e instanceof Error ? e.message : String(e)}`;
+}
+
+/**
+ * Copies a verified result into the project (out/recipes/<uuid8>/); a file already there must match, or nothing is written.
+ *
+ * Round R4 (the review's R4-8): a new copy is made in a folder of its own beside that one (out/recipes/.<uuid8>.<random>),
+ * each file written, flushed and read back against its verified sha256, and only then does the folder take its name: a
+ * copy cut short never leaves out/recipes/<uuid8>/ behind, partial or empty (one killed partway leaves only that hidden
+ * folder). A folder already there (an earlier copy, or one an older Timmy cut short) is completed in place: each missing
+ * file is written beside its name and then given it, never over a file (src/utils/place-new.ts), so no file there is
+ * ever partial; /recipe copy does this for a copy recovery finds incomplete.
+ */
+export function deliver(root: string, id: string): Delivered {
   const got = verifiedResult(root, id);
   if (!got.ok) return { ok: false, error: `nothing copied: ${got.error}` };
   const dirRel = outDir(id);
@@ -257,40 +296,87 @@ export function deliver(root: string, id: string): { ok: true; dir: string; file
     while (!fs.existsSync(existing) && path.dirname(existing) !== existing) existing = path.dirname(existing);
     const realExisting = fs.realpathSync(existing);
     if (realExisting !== realRoot && !realExisting.startsWith(realRoot + path.sep)) return { ok: false, error: `nothing copied: ${dirRel} leads outside the project` };
-    fs.mkdirSync(dest, { recursive: true });
-    const realDest = fs.realpathSync(dest);
-    if (!realDest.startsWith(realRoot + path.sep)) return { ok: false, error: `nothing copied: ${dirRel} leads outside the project` };
-    for (const f of got.v.files) {
-      const to = path.join(dest, f.name);
-      if (fs.existsSync(to) && sha(fs.readFileSync(to)) !== f.sha256) return { ok: false, error: `nothing copied: ${dirRel}/${f.name} already holds different bytes; it was left as it is` };
+    if (!lexists(dest)) {
+      const made = copyWhole(realRoot, dest, dirRel, got.v);
+      // Another copy took the name meanwhile: it is checked and completed as any copy already there.
+      if (made !== 'taken') return made;
     }
-    const files: Array<{ path: string; sha256: string; bytes: number }> = [];
-    // A copy that fails partway removes the files this call wrote (the review of ee70b9e, M2): the project holds
-    // the whole verified set or none of what this call added; files that were already there and matched stay.
-    // Round R4 (H17): a file that changed under the copy no longer holds what this call wrote, so it is left as it
-    // was found and named, never deleted.
-    const written: Array<{ to: string; name: string; sha256: string }> = [];
-    try {
-      for (const f of got.v.files) {
-        const to = path.join(dest, f.name);
-        if (!fs.existsSync(to)) { fs.writeFileSync(to, f.bytes, { flag: 'wx' }); written.push({ to, name: f.name, sha256: f.sha256 }); }
-        const back = sha(fs.readFileSync(to));
-        if (back !== f.sha256) throw new Error(`${dirRel}/${f.name} reads back with a different sha256 after copying`);
-        files.push({ path: `${dirRel}/${f.name}`, sha256: back, bytes: f.bytes.length });
-      }
-    } catch (e) {
-      const left: string[] = [];
-      let removed = 0;
-      for (const w of written) {
-        try { if (sha(fs.readFileSync(w.to)) === w.sha256) { fs.unlinkSync(w.to); removed++; } else left.push(`${dirRel}/${w.name}`); } catch { /* already gone */ }
-      }
-      const changed = left.length ? `; ${left.join(', ')} changed while it was copied and was left as it was found` : '';
-      return { ok: false, error: `nothing kept from this copy (${written.length} written, ${removed} removed again${changed}): ${e instanceof Error ? e.message : String(e)}` };
-    }
-    return { ok: true, dir: dirRel, files, v: got.v };
+    return completeCopy(realRoot, dest, dirRel, got.v);
   } catch (e) {
     return { ok: false, error: `the copy failed: ${e instanceof Error ? e.message : String(e)}` };
   }
+}
+
+/** A new copy: written in a folder of its own beside `dest`, renamed to `dest` once whole; 'taken' when `dest` appeared meanwhile. */
+function copyWhole(realRoot: string, dest: string, dirRel: string, v: Verified): Delivered | 'taken' {
+  const parent = path.dirname(dest);
+  fs.mkdirSync(parent, { recursive: true });
+  const realParent = fs.realpathSync(parent);
+  if (!realParent.startsWith(realRoot + path.sep)) return { ok: false, error: `nothing copied: ${dirRel} leads outside the project` };
+  // Made as out/recipes/<uuid8>/ was made before (mkdir, its mode from the umask), under a name of its own.
+  const work = path.join(realParent, `.${path.basename(dest)}.${randomBytes(6).toString('hex')}`);
+  fs.mkdirSync(work);
+  const workRel = path.relative(realRoot, work).split(path.sep).join('/');
+  const written: Array<{ to: string; rel: string; sha256: string }> = [];
+  const files: Array<{ path: string; sha256: string; bytes: number }> = [];
+  const dropWork = (): void => { try { fs.rmdirSync(work); } catch { /* not empty: a file in it is not this call's */ } };
+  try {
+    for (const f of v.files) {
+      const to = path.join(work, f.name);
+      writeNew(to, f.bytes);
+      written.push({ to, rel: `${workRel}/${f.name}`, sha256: f.sha256 });
+      flush(to);
+      const back = sha(fs.readFileSync(to));
+      if (back !== f.sha256) throw new Error(`${workRel}/${f.name} reads back with a different sha256 after copying`);
+      files.push({ path: `${dirRel}/${f.name}`, sha256: back, bytes: f.bytes.length });
+    }
+  } catch (e) {
+    const error = undoCopy(written, e);
+    dropWork();
+    return { ok: false, error };
+  }
+  // Whole: the folder takes its name now. A folder already there is never replaced (rename(2) would replace an empty one,
+  // so it is looked for first; in the moment between the two, nothing closer is available).
+  const handBack = (): 'taken' => { for (const w of written) { try { fs.unlinkSync(w.to); } catch { /* gone */ } } dropWork(); return 'taken'; };
+  if (lexists(dest)) return handBack();
+  try { fs.renameSync(work, dest); } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'EEXIST' || code === 'ENOTEMPTY') return handBack();
+    const error = undoCopy(written, e);
+    dropWork();
+    return { ok: false, error };
+  }
+  return { ok: true, dir: dirRel, files, v };
+}
+
+/** A copy already there, checked file by file and completed in place: each missing file written beside its name, then given it. */
+function completeCopy(realRoot: string, dest: string, dirRel: string, v: Verified): Delivered {
+  const realDest = fs.realpathSync(dest);
+  if (!realDest.startsWith(realRoot + path.sep)) return { ok: false, error: `nothing copied: ${dirRel} leads outside the project` };
+  for (const f of v.files) {
+    const to = path.join(dest, f.name);
+    if (fs.existsSync(to) && sha(fs.readFileSync(to)) !== f.sha256) return { ok: false, error: `nothing copied: ${dirRel}/${f.name} already holds different bytes; it was left as it is` };
+  }
+  const files: Array<{ path: string; sha256: string; bytes: number }> = [];
+  const written: Array<{ to: string; rel: string; sha256: string }> = [];
+  try {
+    for (const f of v.files) {
+      const to = path.join(dest, f.name);
+      if (!fs.existsSync(to)) {
+        const tmp = path.join(dest, `.${f.name}.${randomBytes(4).toString('hex')}.tmp`);
+        writeNew(tmp, f.bytes);
+        // After a link the temporary name is a second name for the file; after a rename it is gone already.
+        try { flush(tmp); placeNew(tmp, to); } finally { try { fs.unlinkSync(tmp); } catch { /* renamed */ } }
+        written.push({ to, rel: `${dirRel}/${f.name}`, sha256: f.sha256 });
+      }
+      const back = sha(fs.readFileSync(to));
+      if (back !== f.sha256) throw new Error(`${dirRel}/${f.name} reads back with a different sha256 after copying`);
+      files.push({ path: `${dirRel}/${f.name}`, sha256: back, bytes: f.bytes.length });
+    }
+  } catch (e) {
+    return { ok: false, error: undoCopy(written, e) };
+  }
+  return { ok: true, dir: dirRel, files, v };
 }
 
 /** Whether the project's copy of a succeeded job is complete and matches the verified result, file by file. */
