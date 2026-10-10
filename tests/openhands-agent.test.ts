@@ -326,8 +326,8 @@ describe('needs setup: without docker, its daemon, the image or the model, nothi
   it('each refusal says the exact step; Timmy never builds or pulls the image', async () => {
     const ollama = await fakeOllama(['qwen3:4b']);
     const cases: Array<[Dock | 'none', RegExp]> = [
-      ['none', /^ {2}docker is not on PATH: OpenHands runs in a container \(Rancher Desktop or Docker Desktop provides docker\)\. Nothing was started\.$/],
-      [fakeDocker({ down: true }), /Needs setup: the Docker daemon did not answer \(Cannot connect to the Docker daemon at unix:\/\/\/var\/run\/docker\.sock\. Is the docker daemon running\?\): start Rancher Desktop \(or Docker Desktop\), then \/agent openhands --local again\. Nothing was started\./],
+      ['none', /^ {2}docker is not on PATH: OpenHands runs in a container \(a Docker engine such as OrbStack, Docker Desktop or Rancher Desktop provides docker\)\. Nothing was started\.$/],
+      [fakeDocker({ down: true }), /Needs setup: the Docker daemon did not answer \(Cannot connect to the Docker daemon at unix:\/\/\/var\/run\/docker\.sock\. Is the docker daemon running\?\): start your Docker engine \(OrbStack, Docker Desktop or Rancher Desktop\), then \/agent openhands --local again\. Nothing was started\./],
       [fakeDocker({ image: 'missing' }), new RegExp(`Needs setup: the image timmy-openhands:1\\.21\\.0 is not built\\. Build it once, in .+: ${OPENHANDS_BUILD.replace(/[.]/g, '\\.')} \\(Timmy never builds or pulls it by itself\\)\\. Nothing was started\\.`)],
       [fakeDocker({ image: 'other' }), /Needs setup: the image timmy-openhands:1\.21\.0 here was not built from workers\/openhands\/Dockerfile \(its timmy\.openhands\.sdk label is <no value>\)\. Build it again/],
     ];
@@ -766,8 +766,8 @@ describe('/tools: OpenHands\' own row; exercised only by a sealed, completed run
   const probe = (docker: OpenHandsDocker, worker = true) => async () => ({ docker, worker, root: '~/timmy-tui' });
 
   it('needs setup with the exact step, installed only when docker, its daemon, the image and a local model are there', async () => {
-    expect(await row({})).toMatchObject({ rung: 'needs setup', detail: 'docker is not on PATH; implemented; not run', setup: 'install Rancher Desktop or Docker Desktop (docker on PATH)', exercisedBy: 'agent:openhands' });
-    expect(await row({ ...ready, openhands: probe({ state: 'no daemon' }) })).toMatchObject({ rung: 'needs setup', setup: 'start Rancher Desktop (or Docker Desktop)' });
+    expect(await row({})).toMatchObject({ rung: 'needs setup', detail: 'docker is not on PATH; implemented; not run', setup: 'install a Docker engine (OrbStack, Docker or Rancher Desktop)', exercisedBy: 'agent:openhands' });
+    expect(await row({ ...ready, openhands: probe({ state: 'no daemon' }) })).toMatchObject({ rung: 'needs setup', setup: 'start your Docker engine (OrbStack, Docker or Rancher Desktop)' });
     expect(await row({ ...ready, openhands: probe({ state: 'no image' }) })).toMatchObject({ rung: 'needs setup', detail: 'image timmy-openhands:1.21.0 not built: run the step in ~/timmy-tui; implemented; not run', setup: OPENHANDS_BUILD_SHORT });
     expect(await row({ ...ready, openhands: probe({ state: 'other image', detail: 'x' }) })).toMatchObject({ rung: 'needs setup', setup: OPENHANDS_BUILD_SHORT });
     expect(await row({ ...ready, openhands: probe({ state: 'ready', server: '29.4.0', imageId: IMAGE_ID }, false) })).toMatchObject({ rung: 'needs setup', detail: expect.stringContaining('workers/openhands/timmy_openhands.py is not in this Timmy') });

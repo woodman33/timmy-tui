@@ -27,7 +27,8 @@
  *
  * ASSUMED, not checked by a run (no Docker and no OpenHands here; tests/openhands-agent.test.ts runs a FAKE docker): the docker
  * flags as Docker's CLI documents them (none is checked against a recorded `docker run --help`); that host-gateway reaches
- * the Mac's own 127.0.0.1:11434 under Rancher Desktop; that the SDK's names the worker reads (its default tool preset, the
+ * the Mac's own 127.0.0.1:11434 (on the Mac, whose engine is OrbStack, a plain Python container reached its Ollama at
+ * host.docker.internal with and without that flag: ledger row 156); that the SDK's names the worker reads (its default tool preset, the
  * conversation's options, its event classes) are the ones 1.21.0 has; that LiteLLM's `ollama/<model>` form drives tool
  * calls well enough without streaming. The Mac run checks each (the report of round R4, H52, lists them).
  */
@@ -82,8 +83,8 @@ const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,199}$/;
 export const OPENHANDS_NOTE = `In a container (${OPENHANDS_IMAGE}) on a copy of the project made for this run (no .git, node_modules, .timmy or dist): only that copy is mounted, with Timmy's worker read-only; the model is this machine's Ollama; the container can reach the network. Its changes are written into the project only when it finishes and the project has not changed meanwhile.`;
 export const OPENHANDS_ONLY_LOCAL = 'OpenHands runs only on its local route: /agent openhands --local <task> (a model on this machine\'s Ollama, in a container on a copy of the project). Nothing was started.';
 export const OPENHANDS_NO_PAID = 'OpenHands has no paid route in this round: Timmy runs it only with a model on this machine\'s Ollama (/agent openhands --local <task>). A paid route would send the task and the copy of the project to a remote model, and none has been checked. Nothing was started.';
-export const OPENHANDS_NO_DOCKER = 'docker is not on PATH: OpenHands runs in a container (Rancher Desktop or Docker Desktop provides docker). Nothing was started.';
-export const DOCKER_INSTALL = 'install Rancher Desktop or Docker Desktop (docker on PATH)';
+export const OPENHANDS_NO_DOCKER = 'docker is not on PATH: OpenHands runs in a container (a Docker engine such as OrbStack, Docker Desktop or Rancher Desktop provides docker). Nothing was started.';
+export const DOCKER_INSTALL = 'install a Docker engine (OrbStack, Docker or Rancher Desktop)';
 /** Why /iterate does not take OpenHands (said by parseIterateLine). */
 export const OPENHANDS_NOT_ITERATE = 'OpenHands is not an /iterate agent in this round: it works in a container on a copy, and its changes reach the project only through Timmy\'s write-back at its end, which no /iterate flow is wired to yet. /iterate runs qwen (Qwen Code) or codex (Codex with a local model). Nothing was started.';
 
@@ -557,7 +558,7 @@ export function openHandsCapabilityRow(o: { env: Env; onPath: (bin: string) => b
   if (!o.worker) return { ...base, rung: 'needs setup', detail: `${OPENHANDS_WORKER} is not in this Timmy; ${ran}`, setup: 'reinstall Timmy (its package lacks the OpenHands worker)' };
   if (!o.onPath('docker')) return { ...base, rung: 'needs setup', detail: `docker is not on PATH; ${ran}`, setup: DOCKER_INSTALL };
   const d = o.docker;
-  if (d.state === 'no daemon') return { ...base, rung: 'needs setup', detail: `the Docker daemon did not answer; ${ran}`, setup: 'start Rancher Desktop (or Docker Desktop)' };
+  if (d.state === 'no daemon') return { ...base, rung: 'needs setup', detail: `the Docker daemon did not answer; ${ran}`, setup: 'start your Docker engine (OrbStack, Docker or Rancher Desktop)' };
   const where = o.packageRoot ? ` in ${o.packageRoot}` : ' in Timmy\'s package root';
   if (d.state === 'no image') return { ...base, rung: 'needs setup', detail: `image ${OPENHANDS_IMAGE} not built: run the step${where}; ${ran}`, setup: OPENHANDS_BUILD_SHORT };
   if (d.state === 'other image') return { ...base, rung: 'needs setup', detail: `${OPENHANDS_IMAGE} here was not built from ${OPENHANDS_DOCKERFILE}: build it${where}; ${ran}`, setup: OPENHANDS_BUILD_SHORT };

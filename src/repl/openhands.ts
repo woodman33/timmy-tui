@@ -74,7 +74,7 @@ export class OpenHandsRuns {
     if (!worker) return { ok: false, error: `Needs setup: ${OPENHANDS_WORKER} is not in this Timmy, so OpenHands cannot run here (reinstall Timmy). Nothing was started.` };
     const where = packageRoot(import.meta.url) ?? 'Timmy\'s package root';
     const d = await dockerSetup(bin, env);
-    if (d.state === 'no daemon') return { ok: false, error: `Needs setup: the Docker daemon did not answer${d.detail ? ` (${d.detail})` : ''}: start Rancher Desktop (or Docker Desktop), then /agent openhands --local again. Nothing was started.` };
+    if (d.state === 'no daemon') return { ok: false, error: `Needs setup: the Docker daemon did not answer${d.detail ? ` (${d.detail})` : ''}: start your Docker engine (OrbStack, Docker Desktop or Rancher Desktop), then /agent openhands --local again. Nothing was started.` };
     if (d.state === 'no image') return { ok: false, error: `Needs setup: the image ${OPENHANDS_IMAGE} is not built. Build it once, in ${where}: ${OPENHANDS_BUILD} (Timmy never builds or pulls it by itself). Nothing was started.` };
     if (d.state === 'other image') return { ok: false, error: `Needs setup: the image ${OPENHANDS_IMAGE} here was not built from ${OPENHANDS_DOCKERFILE} (${d.detail ?? 'its label differs'}). Build it again, in ${where}: ${OPENHANDS_BUILD}. Nothing was started.` };
     if (d.state !== 'ready') return { ok: false, error: `docker did not answer as expected${'detail' in d && d.detail ? ` (${d.detail})` : ''}: docker info shows what is wrong. Nothing was started.` };
@@ -224,7 +224,7 @@ export function stopWords(r: ContainerStop): string {
     case 'stopped': return `its container ${r.name} was stopped by its name and labels${when} (docker stop)`;
     case 'killed': return `its container ${r.name} did not stop with docker stop${when}: docker kill ended it`;
     case 'gone': return `its container ${r.name} had already ended`;
-    case 'unresolved': return `its container ${r.name} still runs after docker stop and docker kill${when}${r.detail ? ` (${r.detail})` : ''}: docker kill ${r.name}, or Rancher Desktop's Containers view`;
+    case 'unresolved': return `its container ${r.name} still runs after docker stop and docker kill${when}${r.detail ? ` (${r.detail})` : ''}: docker kill ${r.name}, or your Docker engine's own list of containers`;
     case 'unchecked': return `its container ${r.name} could not be checked${when}${r.detail ? ` (${r.detail})` : ''}: docker stop ${r.name} stops it`;
     default: return `its container ${r.name}: a stop was asked${when}`;
   }
