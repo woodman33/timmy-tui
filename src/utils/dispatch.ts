@@ -2,7 +2,7 @@
 // Equip riders; don't ride: this PREPARES, ARMS and LAUNCHES work into
 // existing harness lanes (LANE_RUNNERS + tmux vocabulary). It is not a second
 // scheduler; the later tldraw Mission Map compiles into these same calls.
-import { accessSync, constants, existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, readdirSync, statSync } from 'fs';
+import { accessSync, constants, existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'fs';
 import { delimiter, join, dirname, resolve } from 'path';
 import { spawnSync } from 'child_process';
 import { tmpdir } from 'os';
@@ -79,11 +79,17 @@ export function validatePlanCue(plan: unknown, dir?: string): { ok: boolean; not
   if (cueBin.status !== 0) return { ok: false, error_class: 'not_configured', note: 'cue binary missing (brew install cue)' };
   // schema lives in the repo, independent of the data dir
   const schema = fileURLToPath(new URL('../../schemas/dispatch.cue', import.meta.url));
-  const tmp = join(mkdtempSync(join(tmpdir(), 'timmy-cue-')), 'plan.json');
-  writeFileSync(tmp, JSON.stringify(plan));
-  const r = spawnSync('cue', ['vet', '-d', '#Plan', schema, tmp], { encoding: 'utf8' });
-  if (r.status !== 0) return { ok: false, error_class: 'schema', note: (r.stderr || r.stdout || 'cue vet failed').slice(0, 400) };
-  return { ok: true };
+  const folder = mkdtempSync(join(tmpdir(), 'timmy-cue-'));
+  // Round R4 (H29): the folder is removed whatever the check finds (thousands had piled up in the temp folder).
+  try {
+    const tmp = join(folder, 'plan.json');
+    writeFileSync(tmp, JSON.stringify(plan));
+    const r = spawnSync('cue', ['vet', '-d', '#Plan', schema, tmp], { encoding: 'utf8' });
+    if (r.status !== 0) return { ok: false, error_class: 'schema', note: (r.stderr || r.stdout || 'cue vet failed').slice(0, 400) };
+    return { ok: true };
+  } finally {
+    try { rmSync(folder, { recursive: true, force: true }); } catch { /* left behind: the check's outcome stands */ }
+  }
 }
 
 /** Whether `cmd` is an executable on PATH. No shell: Node 24 warns (DEP0190) on a shell with arguments. */
