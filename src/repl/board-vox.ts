@@ -70,7 +70,8 @@ function sealOf(chain: readonly Receipt[], rel: string, pid?: string): Receipt |
   }
   return undefined;
 }
-const shortId = (r: Receipt): string => (r.hash ?? '').replace(/^sha256:/, '').slice(0, 8);
+/** The receipt's short id as /receipts prints it: the store writes `sha256_<hex>` (r18 showed "sha256_2" from a `sha256:`-only strip). */
+const shortId = (r: Receipt): string => (r.hash ?? '').replace(/^sha256[:_]/, '').slice(0, 8);
 
 /**
  * The live board rebuilds its state every 2 s: a file's sha256 is kept with its size, mtime and ctime, and computed again
@@ -398,7 +399,7 @@ export const VOX_CSS = `
 .vox-lead { margin-top: -4px; }
 .vox-panels .card h4, .vox-card h4 { margin-bottom: 4px; }
 .vox-badge { display: inline-block; border: 1px solid ${HOMEBREW.lineStrong}; border-radius: 999px; padding: 0 7px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; vertical-align: 1px; }
-.vox-badge-ok { color: ${HOMEBREW.accent}; border-color: ${HOMEBREW.accent}; }
+.vox-badge-ok { color: ${HOMEBREW.text}; border-color: ${HOMEBREW.lineStrong}; } /* an outcome in the text colour; green is for actions (B9) */
 .vox-badge-warn { color: ${HOMEBREW.attention}; border-color: ${HOMEBREW.attention}; }
 .vox-badge-bad { color: ${HOMEBREW.failure}; border-color: ${HOMEBREW.failure}; }
 ul.vox-tools, ul.vox-files, ul.vox-fail { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: ${TYPE.size.small}px; }

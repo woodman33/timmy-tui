@@ -29,6 +29,13 @@ async function stlRecord() {
 }
 
 describe('a card is checked against its receipt', () => {
+  it('names the receipt by the short id /receipts prints, for the store\'s own sha256_ hashes (r18)', async () => {
+    const { root, rec, chain } = await stlRecord();
+    const real = chain.map((r) => ({ ...r, hash: String(r.hash).replace(/^sha256:/, 'sha256_') })) as unknown as Receipt[];
+    const card = readVoxRecord({ root, file: rec, text: readFileSync(join(root, rec), 'utf8'), fileSha256: sha(readFileSync(join(root, rec))), chain: real })!;
+    expect(card.check).toEqual({ status: 'verified', receipt: '00000001', reasons: [] });
+  });
+
   it('verified, then unverified once the record is edited, then stale once its input changes', async () => {
     const { root, rec, chain } = await stlRecord();
     const read = () => readVoxRecord({ root, file: rec, text: readFileSync(join(root, rec), 'utf8'), fileSha256: sha(readFileSync(join(root, rec))), chain });
