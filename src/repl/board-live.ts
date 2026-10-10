@@ -16,21 +16,28 @@
  *   same. No free command text is accepted;
  * - every response is no-store and nosniff with no referrer, no CORS header, and a Content-Security-Policy
  *   that allows only this page's own nonce'd script and style and requests to itself.
+ *
+ * Round R4 (H22): a fourth action, Rebuild (`/recipe tray`, the typed command, as above), and POST /edit for the
+ * two structured edits (the parameter form and the workflow node editor, src/repl/board-edits.ts): the same
+ * checks as /action (token, Host, Origin, JSON only), at most EDIT_LIMIT bytes, run in the same queue; the
+ * Workspace checks each edit on the server and writes nothing it refuses. No edit runs a command.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { BOARD_CSS } from './board.js';
+import { EDIT_CSS, EDIT_LIMIT, EDIT_SCRIPT } from './board-edits.js';
 import { HOMEBREW } from '../theme/tokens.js';
 
-/** An action as the page sends it: one of three shapes, nothing else. */
+/** An action as the page sends it: one of four shapes, nothing else. */
 export type BoardAction =
   | { action: 'stop'; job: string }
   | { action: 'run'; doc: string; block: string }
-  | { action: 'observe'; file: string };
+  | { action: 'observe'; file: string }
+  | { action: 'rebuild'; recipe: string };
 
 /** The typed command a valid action stands for: its name, its argument string and the line as typed. */
-export interface BoardCommand { name: 'stop' | 'run' | 'observe'; args: string; line: string }
+export interface BoardCommand { name: 'stop' | 'run' | 'observe' | 'recipe'; args: string; line: string }
 
 /** What the live board shows and what its actions are checked against; no absolute path in any of it. */
 export interface LiveState {
@@ -45,6 +52,8 @@ export interface LiveState {
   workflows: Array<{ rel: string; blocks: string[] }>;
   /** The project files the board shows, relative to the project, with their kind. */
   files: Array<{ rel: string; kind: string; bytes: number }>;
+  /** R4: the recipes whose parameter card the board shows (their Rebuild runs `/recipe <name>`). */
+  recipes?: string[];
 }
 
 export interface LiveBoardDeps {
@@ -54,6 +63,8 @@ export interface LiveBoardDeps {
   state: () => LiveState;
   /** Runs a checked action as its typed command; the lines it printed, as plain text (no ANSI). */
   execute: (command: BoardCommand) => Promise<string[]>;
+  /** R4: checks and applies a structured edit (set-params, save-workflow) against the state; absent: /edit refuses. */
+  edit?: (body: unknown, state: LiveState) => Promise<{ status: number; text: string }>;
   /** Writes the project's folder as "." and the home folder as "~" (used on the error path too). */
   scrub?: (text: string) => string;
 }
@@ -121,7 +132,12 @@ export function checkAction(body: unknown, state: LiveState): Checked {
     if (!arg) return bad(422, `${file.rel} cannot be written as /observe's argument.`);
     return { ok: true, command: { name: 'observe', args: arg, line: `/observe ${arg}` } };
   }
-  return bad(400, 'Unknown action: stop, run and observe are the actions.');
+  if (o.action === 'rebuild') {
+    if (!keysAre(o, ['action', 'recipe']) || !text(o.recipe)) return bad(400, 'A rebuild action is {"action":"rebuild","recipe":"tray"}.');
+    if (!(state.recipes ?? []).includes(o.recipe) || !/^[a-z]+$/.test(o.recipe)) return bad(404, `No recipe ${o.recipe} on this board.`);
+    return { ok: true, command: { name: 'recipe', args: o.recipe, line: `/recipe ${o.recipe}` } };
+  }
+  return bad(400, 'Unknown action: stop, run, observe and rebuild are the actions.');
 }
 
 const sha = (s: string): Buffer => createHash('sha256').update(s).digest();
@@ -245,7 +261,24 @@ export class LiveBoard {
         const out = await run;
         return this.send(res, out.status, out.text);
       }
-      return this.send(res, 404, 'Not here: this board has /, /state and /action.');
+      // R4 (H22): the structured edits, under the same checks as an action, with their own size limit.
+      if (path === '/edit') {
+        if (req.method !== 'POST') return this.send(res, 405, 'POST only.', undefined, { Allow: 'POST' });
+        if (!this.authorized(req)) return this.send(res, 401, 'Refused: no valid token. Open the address /board live printed.', undefined, { 'WWW-Authenticate': 'Bearer' });
+        const type = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+        if (type !== 'application/json') return this.send(res, 415, 'Refused: an edit is sent as application/json.');
+        const edit = this.d.edit;
+        if (!edit) return this.send(res, 404, 'Not here: this board edits nothing.');
+        const raw = await readBody(req, EDIT_LIMIT);
+        if (raw === null) return this.send(res, 413, `Refused: an edit is at most ${EDIT_LIMIT} bytes.`, undefined, { Connection: 'close' });
+        let body: unknown;
+        try { body = JSON.parse(raw); } catch { return this.send(res, 400, 'Refused: the edit is not valid JSON.'); }
+        const run = this.queue.then(() => edit(body, this.d.state()));
+        this.queue = run.catch(() => undefined);
+        const out = await run;
+        return this.send(res, out.status, plainText(out.text));
+      }
+      return this.send(res, 404, 'Not here: this board has /, /state, /action and /edit.');
     } catch (err) {
       if (!res.headersSent) this.send(res, 500, `The board could not answer: ${err instanceof Error ? plainText((this.d.scrub ?? ((t: string) => t))(err.message)) : 'error'}`);
       else res.destroy();
@@ -325,7 +358,8 @@ const LIVE_SCRIPT = `
   var apply = function (s) {
     project.textContent = s.project;
     document.title = 'Live board · ' + s.project;
-    if (s.shape !== shape && !busy) { toc.innerHTML = s.toc; main.innerHTML = s.html; shape = s.shape; paint(); }
+    // R4: a card being edited (data-editing) is never drawn over; jobs still update in place.
+    if (s.shape !== shape && !busy && !main.querySelectorAll('[data-editing]').length) { toc.innerHTML = s.toc; main.innerHTML = s.html; shape = s.shape; paint(); }
     else jobs(s.jobs);
   };
   var poll = function () {
@@ -339,7 +373,8 @@ const LIVE_SCRIPT = `
     var a = b.getAttribute('data-act');
     var body = a === 'stop' ? { action: 'stop', job: b.getAttribute('data-job') }
       : a === 'run' ? { action: 'run', doc: b.getAttribute('data-doc'), block: b.getAttribute('data-block') }
-      : a === 'observe' ? { action: 'observe', file: b.getAttribute('data-file') } : null;
+      : a === 'observe' ? { action: 'observe', file: b.getAttribute('data-file') }
+      : a === 'rebuild' ? { action: 'rebuild', recipe: b.getAttribute('data-recipe') } : null;
     if (!body || !token) return;
     var label = b.textContent;
     b.disabled = true; b.textContent = label + ' …'; busy++;
@@ -361,6 +396,13 @@ const LIVE_SCRIPT = `
     var select = function () { var s = window.getSelection(); if (s) s.selectAllChildren(c); };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(cmd).then(shown, select); else select();
   });
+  // R4: the editor (EDIT_SCRIPT) sends its edits through this function; the token stays in this closure.
+  var sendEdit = function (body) {
+    if (!token) return Promise.reject(new Error('no token'));
+    return fetch('/edit', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store', credentials: 'omit' })
+      .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, status: r.status, t: t }; }); });
+  };
+  if (typeof TimmyBoardEdit !== 'undefined') TimmyBoardEdit.attach({ send: sendEdit, refresh: poll });
   poll();
   setInterval(poll, 2000);
 })();
@@ -376,19 +418,20 @@ export function livePage(nonce: string): string {
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     '<meta name="referrer" content="no-referrer">',
     '<title>Live board · Timmy</title>',
-    `<style nonce="${nonce}">${BOARD_CSS}${LIVE_CSS}</style>`,
+    `<style nonce="${nonce}">${BOARD_CSS}${LIVE_CSS}${EDIT_CSS}</style>`,
     '</head>',
     '<body>',
     '<header>',
     '<h1>Board · <span class="project" id="project"></span> <span class="live">live</span></h1>',
     '<p class="sub" id="status">connecting…</p>',
-    '<p class="sub">Stop, Run and Observe act through Timmy as the typed command, shown in Timmy as coming from the board. A green command copies itself.</p>',
+    '<p class="sub">Stop, Run, Observe and Rebuild act through Timmy as the typed command, shown in Timmy as coming from the board. Saving parameters or workflow blocks is checked by Timmy, which keeps the previous version. A green command copies itself.</p>',
     '<pre id="out" hidden></pre>',
     '<nav class="toc" id="toc"></nav>',
     '</header>',
     '<main id="main"></main>',
     '<footer>Served by /board live on 127.0.0.1 for this Timmy session; /board off or leaving Timmy stops it. Measured values are deterministic computations on the pixels, shown as measured only when an observe receipt sealed the file and its image is unchanged; a model\'s claim is not a measurement.</footer>',
-    `<script nonce="${nonce}">${LIVE_SCRIPT}</script>`,
+    // R4: one script, the editor first (it defines TimmyBoardEdit, which the live script hands its send to).
+    `<script nonce="${nonce}">${EDIT_SCRIPT}${LIVE_SCRIPT}</script>`,
     '</body>',
     '</html>',
     '',

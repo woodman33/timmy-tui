@@ -21,9 +21,14 @@ import { kindOf } from '../project/intake.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { Receipt } from '../utils/receipts.js';
 import { DETERMINISTIC } from '../vision/look.js';
+// Round R4 (H22): parameter, workflow-graph and result cards (their own modules; small hooks here).
+import { CARDS_CSS, renderParamsCard, renderResultCards, type ParamsCard, type ResultCard } from './board-cards.js';
+import { kit } from './board-kit.js';
+import { NODES_CSS, renderWorkflowCard, type WorkflowDocInput } from './board-nodes.js';
 
 export interface BoardFile { rel: string; bytes: number; sha256?: string; kind?: string }
-export interface BoardWorkflow { rel: string; blocks: Array<{ name: string; deps: string[] }> }
+/** A workflow document: its named blocks (R4: with language and command), its sha256 and whether the live board edits it. */
+export type BoardWorkflow = WorkflowDocInput;
 export interface BoardJob {
   id: string; state: string; label: string; seconds?: string; receipt?: string; kind?: string;
   /** Round R3, live board: a running job this REPL started, which its Stop button may stop. */
@@ -98,7 +103,7 @@ export interface BoardObservation {
   /** Its provenance check (checkObservation); without one the card is shown as not verified. */
   check?: ObservationCheck;
 }
-export type BoardPart = 'references' | 'workflows' | 'jobs' | 'outputs' | 'observations';
+export type BoardPart = 'references' | 'workflows' | 'jobs' | 'outputs' | 'observations' | 'results';
 export interface BoardInput {
   project: string;
   /** When the snapshot was made, as it is shown. */
@@ -113,6 +118,10 @@ export interface BoardInput {
   observations: BoardObservation[];
   /** How many of each were left off the board. */
   more?: Partial<Record<BoardPart, number>>;
+  /** Round R4 (H22): the tray recipe's parameter card (src/repl/board-cards.ts); absent: no Parameters section. */
+  params?: ParamsCard;
+  /** Round R4 (H22): one card per result, newest first (src/repl/board-cards.ts gatherResults); absent: none drawn. */
+  results?: ResultCard[];
   /**
    * Round R3: drawn for the live board (src/repl/board-live.ts), served on 127.0.0.1: Stop, Run and Observe
    * buttons carry structured data-* attributes, file names are text (that page serves no files, so no
@@ -320,12 +329,6 @@ function referenceCard(f: BoardFile, h: ReturnType<typeof render>): string {
   return `<article class="card">${image && SHOWN_IMAGE.test(f.rel) ? h.thumb(f.rel) : ''}`
     + `${h.fileLink(f.rel)}<div class="meta"><span class="kind">${esc(kind)}</span> ${esc(meta)}</div>`
     + `${image ? h.act('Observe', { act: 'observe', file: f.rel }) : ''}${h.cmds([...(image ? [`/observe ${h.quoted(f.rel)}`] : []), `/open ${f.rel}`])}</article>`;
-}
-
-function workflowCard(w: BoardWorkflow, h: ReturnType<typeof render>): string {
-  const blocks = w.blocks.map((b) => `<li><span class="block">${esc(b.name)}</span>${b.deps.length ? ` <span class="deps">${esc(`needs ${b.deps.join(', ')}`)}</span>` : ''}${h.act('Run', { act: 'run', doc: w.rel, block: b.name })}${h.cmd(`/run ${w.rel} ${b.name}`)}</li>`).join('');
-  return `<article class="card wide">${h.fileLink(w.rel)}<div class="meta"><span class="kind">workflow</span> ${esc(`${w.blocks.length} named block${w.blocks.length === 1 ? '' : 's'}`)}</div>`
-    + `<ol class="blocks">${blocks}</ol>${h.cmds([`/open ${w.rel}`])}</article>`;
 }
 
 function jobCard(j: BoardJob, h: ReturnType<typeof render>): string {
@@ -614,6 +617,7 @@ document.addEventListener('click', function (e) {
 /** The board's table of contents and main sections: the snapshot's body, and what the live board's state carries. */
 export function renderBoardBody(input: BoardInput): { toc: string; main: string } {
   const h = render(input);
+  const k = kit({ live: h.live, base: input.base });
   const grid = (cards: string[], wide = false): string => `<div class="grid${wide ? ' wide' : ''}">${cards.join('')}</div>`;
   const heading = (id: string, label: string, n: number): string => `<h2 id="${id}">${esc(label)} <span class="count">${n}</span></h2>`;
   const total = (part: BoardPart, shown: number): number => shown + (input.more?.[part] ?? 0);
@@ -621,23 +625,31 @@ export function renderBoardBody(input: BoardInput): { toc: string; main: string 
     ['references', 'References', total('references', input.references.length)],
     ['workflows', 'Workflows', total('workflows', input.workflows.length)],
     ['jobs', 'Jobs', total('jobs', input.jobs.length)],
+    ...(input.results ? [['results', 'Results', total('results', input.results.length)] as [BoardPart, string, number]] : []),
     ['outputs', 'Outputs', total('outputs', input.outputs.length)],
     ['observations', 'Observations', total('observations', input.observations.length)],
   ];
   const n = Object.fromEntries(counts.map(([k, , c]) => [k, c])) as Record<BoardPart, number>;
+  const params = input.params ? '<a href="#parameters">Parameters</a>' : '';
   return {
-    toc: `<nav class="toc">${counts.map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}</nav>`,
+    toc: `<nav class="toc">${counts.slice(0, 2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${params}${counts.slice(2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}</nav>`,
     main: [
       heading('references', 'References', n.references),
       input.references.length ? grid(input.references.map((f) => referenceCard(f, h))) : h.empty('No references yet: /add <file> copies a file into refs/.'),
       h.more('references', '/files references'),
       heading('workflows', 'Workflows', n.workflows),
-      input.workflows.length ? grid(input.workflows.map((w) => workflowCard(w, h)), true) : h.empty('No workflows yet: write Markdown with a named block (```bash [name:build]), then /workflows.'),
+      input.workflows.length ? grid(input.workflows.map((w) => renderWorkflowCard(w, k)), true) : h.empty('No workflows yet: write Markdown with a named block (```bash [name:build]), then /workflows.'),
       h.more('workflows', '/workflows'),
+      ...(input.params ? ['<h2 id="parameters">Parameters</h2>', `<div class="grid wide">${renderParamsCard(input.params, k)}</div>`] : []),
       heading('jobs', 'Jobs', n.jobs),
       input.jobs.length ? grid(input.jobs.map((j) => jobCard(j, h))) : h.empty('No jobs yet: /run <file> <block> starts a workflow; /preview serves the project.'),
       h.more('jobs', '/jobs'),
       '<h2 id="results">Results</h2>',
+      ...(input.results ? [
+        `<h3 id="result-cards">Recent results <span class="count">${n.results}</span></h3>`,
+        input.results.length ? renderResultCards(input.results, k) : h.empty('No results yet: a recipe, a workflow run, a native app, a code agent or /observe makes one.'),
+        h.more('results', '/results'),
+      ] : []),
       `<h3 id="outputs">Outputs <span class="count">${n.outputs}</span></h3>`,
       input.outputs.length ? grid(input.outputs.map((f) => outputCard(f, h))) : h.empty('No outputs yet: a build writes them (dist/, build/, out/, outputs/).'),
       h.more('outputs', '/files outputs'),
@@ -648,8 +660,8 @@ export function renderBoardBody(input: BoardInput): { toc: string; main: string 
   };
 }
 
-/** The board's stylesheet, shared by the snapshot and the live board's page. */
-export const BOARD_CSS = CSS;
+/** The board's stylesheet, shared by the snapshot and the live board's page (R4: with the new cards' rules). */
+export const BOARD_CSS = CSS + CARDS_CSS + NODES_CSS;
 
 /** The board as one self-contained HTML page. */
 export function renderBoard(input: BoardInput): string {
@@ -662,7 +674,7 @@ export function renderBoard(input: BoardInput): string {
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${esc(title)}</title>`,
-    `<style>${CSS}</style>`,
+    `<style>${BOARD_CSS}</style>`,
     '</head>',
     '<body>',
     '<header>',

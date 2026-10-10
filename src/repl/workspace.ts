@@ -26,6 +26,10 @@ import { copyStarter, listStarters } from '../project/starters.js';
 import { BOARD_BASE, BOARD_FILE, readObservationRecord, renderBoard, renderBoardBody, utcStamp, type BoardFile, type BoardInput, type BoardObservation } from './board.js';
 import { LiveBoard, type BoardCommand, type LiveState } from './board-live.js';
 import { dropLaunchPages } from '../utils/launch-page.js';
+// Round R4 (H22): the board's parameter, workflow-graph and result cards, and the live board's edits.
+import { gatherResults, paramsCard, type ResultCard } from './board-cards.js';
+import { applyBoardEdit } from './board-edits.js';
+import { workflowForBoard } from './board-nodes.js';
 import { recipeEnded, recipeView, startRecipeJob, type RecipeContext, type RecipeStarted, type RecipeTestSeams } from './recipe.js';
 import { cancelRecipe, cancelSentence, RecipeLaunches, type RecipeCancel } from './recipe-stop.js';
 import { killProcessGroup } from '../runtime/spawn-runtime.js';
@@ -1521,10 +1525,10 @@ export class Workspace {
     // Observation files are shown as observations, not again as outputs.
     const outputs = files.filter((f) => f.role === 'output' && !inObservations(f)).sort((a, b) => b.mtimeMs - a.mtimeMs);
     const docs = findWorkflowDocs(root);
+    // R4 (H22): each document's blocks with their language and command, its sha256, and whether the live board edits it.
     const workflows = docs.slice(0, BOARD_MAX.workflows).map((doc) => {
       const r = readProjectFile(root, doc.rel, 1024 * 1024);
-      const blocks = r.ok && r.text ? parseWorkflow(r.text).filter((b) => b.name).map((b) => ({ name: String(b.name), deps: b.deps })) : [];
-      return { rel: doc.rel, blocks };
+      return workflowForBoard(doc.rel, r.ok && r.text !== undefined && !r.truncated ? { text: r.text, ...(r.sha256 ? { sha256: r.sha256 } : {}) } : undefined);
     });
     const jobs = this.jobs.list().filter((j) => sameFolder(j.root, root));
     // The review of 40022d9: an observation file is editable. Each is checked against the runs chain (a
@@ -1574,12 +1578,21 @@ export class Workspace {
         try { if (statSync(at.path).isFile()) images.push({ rel: at.rel, kind: kindOf(at.rel, headOf(at.path)).kind, bytes: statSync(at.path).size }); } catch { /* not readable: not offered */ }
       }
     }
+    // R4 (H22): the tray recipe's parameter card, and one result card per result, newest first.
+    let params: BoardInput['params'];
+    try { params = paramsCard(root); } catch { params = undefined; }
+    let results: { cards: ResultCard[]; more: number };
+    try { results = gatherResults({ root, jobs, chain, observations: shownObs, scrub: (t, r) => this.scrub(t, r) }); } catch (err) {
+      results = { cards: [{ kind: 'board', title: 'results', status: { word: 'unreadable', tone: 'failed', detail: this.scrub(err instanceof Error ? err.message : String(err), root) } }], more: 0 };
+    }
     const input: BoardInput = {
       project: this.project.name,
       madeAt: utcStamp(new Date()),
       base: BOARD_BASE,
       references: shownRefs,
       workflows,
+      ...(params ? { params } : {}),
+      results: results.cards,
       jobs: jobs.slice(0, BOARD_MAX.jobs).map((j) => ({
         id: j.id, state: j.stale ? `${j.state} (its process is gone)` : j.state, label: this.scrub(j.label, j.root), seconds: seconds(j), kind: j.kind,
         ...(j.receipt ? { receipt: j.receipt } : {}),
@@ -1593,6 +1606,7 @@ export class Workspace {
         workflows: Math.max(0, docs.length - BOARD_MAX.workflows),
         jobs: Math.max(0, jobs.length - BOARD_MAX.jobs),
         observations: Math.max(0, observed.length - BOARD_MAX.observations),
+        results: results.more,
       },
       ...(live ? { live: true } : {}),
     };
@@ -1624,7 +1638,7 @@ export class Workspace {
       ];
     }
     // Round R4 (review M4): the pane opens a private launch page, removed once the board has let the page in.
-    const lb = new LiveBoard({ onAuthorized: () => dropLaunchPages(lb.url), state: () => this.liveState(), execute: (c) => this.boardCommand(c), scrub: (t) => this.scrub(t, this.root) });
+    const lb = new LiveBoard({ onAuthorized: () => dropLaunchPages(lb.url), state: () => this.liveState(), execute: (c) => this.boardCommand(c), edit: (body, s) => this.boardEdit(body, s), scrub: (t) => this.scrub(t, this.root) });
     try { await lb.start(); } catch (err) { return this.say(`The live board could not start: ${err instanceof Error ? err.message : 'error'}`, 'failure'); }
     this.live = lb;
     const opened = this.d.openWeb(lb.url, { secret: true });
@@ -1657,7 +1671,22 @@ export class Workspace {
       jobs: input.jobs.map((j) => ({ id: j.id, state: j.state, label: j.label, ...(j.seconds ? { seconds: j.seconds } : {}), stoppable: j.stoppable === true })),
       workflows: input.workflows.map((w) => ({ rel: w.rel, blocks: w.blocks.map((b) => b.name) })),
       files: images,
+      recipes: input.params ? [input.params.recipe] : [],
     };
+  }
+
+  /**
+   * Round R4 (H22): a structured edit from the live board (the parameter form or the workflow node editor),
+   * checked and applied by src/repl/board-edits.ts against the board's state, sealed as an edit receipt; echoed
+   * in the transcript as from the board, with the page's answer scrubbed of the project's and home folders.
+   */
+  private async boardEdit(body: unknown, state: LiveState): Promise<{ status: number; text: string }> {
+    const root = this.root;
+    const out = applyBoardEdit(body, {
+      root, project: this.project.name, projectId: projectId(root), workflows: state.workflows.map((w) => w.rel), recipes: state.recipes ?? [], seal: this.d.seal,
+    });
+    this.d.notify([{ text: '  board  ', role: 'secondary' }, { text: this.scrub(out.line, root), role: out.status === 200 ? 'strong' : 'failure' }]);
+    return { status: out.status, text: this.scrub(out.text, root) };
   }
 
   /**
@@ -1668,7 +1697,8 @@ export class Workspace {
   private async boardCommand(c: BoardCommand): Promise<string[]> {
     const root = this.root;
     this.d.notify([{ text: '  board  ', role: 'secondary' }, { text: c.line, role: 'strong' }]);
-    const lines = c.name === 'stop' ? await this.stop(c.args) : c.name === 'run' ? await this.run(c.args) : await this.observe(c.args);
+    const lines = c.name === 'stop' ? await this.stop(c.args) : c.name === 'run' ? await this.run(c.args)
+      : c.name === 'recipe' ? await this.recipe(c.args) : await this.observe(c.args);
     for (const line of lines) this.d.notify(line);
     return lines.map((l) => this.scrub(l.map((s) => s.text).join(''), root));
   }
