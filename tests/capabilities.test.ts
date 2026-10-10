@@ -150,6 +150,35 @@ describe('showing it', () => {
     expect(lines[at + 1]).toBe('      do: timmy init, or export OPENROUTER_API_KEY');
     expect(lines.at(-1)).toMatch(/reachable: answered just now/);
   });
+  it('R4 (H46): each row\'s agent tools are shown under it, whole (wrapped between names), as --json lists them: iterate_native on OpenSCAD and FreeCAD', async () => {
+    for (const deps of [none, all]) {
+      const rows = await capabilities(deps);
+      for (const columns of [80, 50]) {
+        const lines = capabilityLines(rows, glyphSet(true), columns).map((l) => l.map((s) => s.text).join(''));
+        // The tools lines fit the width (at 80 every line does; a row's own line has a minimum width of its own).
+        for (const l of lines) if (columns === 80 || /^ {6}(tools: | {7})\S/.test(l)) expect(l.length, l).toBeLessThanOrEqual(columns);
+        for (const r of rows.filter((x) => x.tools?.length)) {
+          // The row's line, then its step (when it has its own line), then its tools: every name, none cut.
+          const at = lines.findIndex((l) => l.startsWith(`  ${r.name.length > 25 ? r.name.slice(0, 24) : r.name}`));
+          expect(at, r.id).toBeGreaterThanOrEqual(0);
+          let i = at + 1;
+          if (lines[i]?.startsWith('      do: ')) i += 1;
+          expect(lines[i], r.id).toMatch(/^ {6}tools: /);
+          const shown: string[] = [];
+          for (; i < lines.length && /^ {6}(tools: | {7})\S/.test(lines[i]); i += 1) shown.push(...lines[i].slice(13).split(', ').map((t) => t.replace(/,$/, '')));
+          expect(shown, r.id).toEqual(r.tools);
+        }
+      }
+    }
+    const lines = capabilityLines(await capabilities(none), glyphSet(true), 80).map((l) => l.map((s) => s.text).join(''));
+    for (const app of ['OpenSCAD (command line)', 'FreeCAD (freecadcmd, he']) {
+      const at = lines.findIndex((l) => l.startsWith(`  ${app}`));
+      expect(lines.slice(at + 1, at + 3), app).toContain('      tools: run_native, iterate_native');
+    }
+    // What --json says of the same rows.
+    const json = capabilityJson(await capabilities(none));
+    for (const id of ['openscad', 'freecad']) expect((json.rows as CapabilityRow[]).find((r) => r.id === id)?.tools).toEqual(['run_native', 'iterate_native']);
+  });
   it('the JSON carries every row and the time of the check', async () => {
     const json = capabilityJson(await capabilities(all), new Date('2026-10-08T21:30:00Z'));
     expect(json).toMatchObject({ checkedAt: '2026-10-08T21:30:00.000Z' });
