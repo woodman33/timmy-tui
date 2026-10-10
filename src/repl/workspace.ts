@@ -34,8 +34,10 @@ import { checkOpenCv, DETERMINISTIC, INTERPRETATION, LOOK_MAX_IMAGE, LOOK_MAX_OU
 import { acceptsImages, describeImage, imageMime, MAX_IMAGE_BYTES } from '../vision/route.js';
 // R3 (H14): /observe --qualify, the observed-handle + cite protocol (AGENTS.md §4).
 import { qualifyInterpretation } from '../vision/evidence.js';
-import { keptText, meteredQualifyClient, sdkQualifyClient, unlessAborted, type QualifyClient } from '../vision/qualify-route.js';
-import { describeRefusal, QUALIFIED_PROTOCOL, qualifiedSeal } from '../evidence/observation-check.js';
+import { meteredQualifyClient, sdkQualifyClient, unlessAborted, type QualifyClient } from '../vision/qualify-route.js';
+import { describeRefusal, interpretationSeal, QUALIFIED_PROTOCOL, qualifiedSeal } from '../evidence/observation-check.js';
+// R4 (H20): what an observation keeps privately: a model's whole output past 64 KiB, its whole record when its file cannot be written.
+import { keptReader, observationKeeper, wholeNote, type KeepPlaces, type KeptRef, type ObservationKeeper } from '../vision/kept.js';
 import { findUpmd, findWorkflowDocs, parseUpmdLine, parseWorkflow, runOrder, stepsFromEvent, upmdRunArgs, upmdVersion } from '../workflows/upmd.js';
 // Round R3 (/agent, helper H13): code agents as jobs; the code is in the "/agent" section below.
 import { spawnSync, execFile } from 'node:child_process';
@@ -85,7 +87,8 @@ export interface WorkspaceDeps {
 /** How an observation ended (round R2, look): its file and receipt, or why there is none. */
 export type ObserveOutcome =
   | { ok: true; file: string; receipt?: string; tiers: string[]; interpretation?: Record<string, unknown>; qualified?: Record<string, unknown> }
-  | { ok: false; error: string; receipt?: string };
+  /** R4 (H20): `kept`, where the whole record is kept when the observation file could not be written */
+  | { ok: false; error: string; receipt?: string; kept?: KeptRef };
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const sha256File = (path: string, limit = 16 * 1024 * 1024): string | undefined => {
@@ -475,7 +478,9 @@ export class Workspace {
     let interpretation: Record<string, unknown> | undefined;
     // R3 (H14): --qualify runs the observed-handle + cite protocol instead of the plain interpretation.
     let qualified: Record<string, unknown> | undefined;
-    if (o.question && o.qualify) qualified = await this.qualifyObserved(j, o, look, entry);
+    // R4 (H20): keeps a model's whole output when the record keeps only its first 64 KiB, and the whole record when its file cannot be written.
+    const keeper = observationKeeper(this.keepPlaces(o.root), j.id);
+    if (o.question && o.qualify) qualified = await this.qualifyObserved(j, o, look, entry, keeper);
     else if (o.question) {
       const model = o.model ?? this.d.model?.();
       if (!model) interpretation = { tier: INTERPRETATION, status: 'not asked', question: o.question, reason: 'no current model is known here' };
@@ -488,7 +493,7 @@ export class Workspace {
         };
         const r = await describeImage({
           model, imagePath: o.imagePath, question: o.question, apiKey: this.d.env.OPENROUTER_API_KEY, ...(this.d.fetch ? { fetch: this.d.fetch } : {}),
-          ...(entry ? { signal: entry.abort.signal } : {}), onRequest,
+          ...(entry ? { signal: entry.abort.signal } : {}), onRequest, keepWhole: (whole) => keeper.whole('answer', whole),
         });
         if (entry) entry.asking = undefined;
         if (r.ok && r.image_sha256 !== o.source.sha256) {
@@ -517,43 +522,53 @@ export class Workspace {
       reading: `Measurements are deterministic computations on the pixels. An interpretation is a model's claim about the image, not a measurement.${qualified ? QUALIFIED_READING : ''}`,
       look, ...(interpretation ? { interpretation } : {}), ...(qualified ? { qualified } : {}), job: { id: j.id },
     };
-    const w = writeObservation(o.root, rel, record, now);
-    if (!w.ok) return fail(`the observation could not be written: ${w.error}`, 'failed');
     // Round R3: a charge the response reported is sealed whatever became of the answer; a request that went out
-    // with no charge reported is sealed as an unknown cost (cost_measured: false), never as $0.
+    // with no charge reported is sealed as an unknown cost (cost_measured: false), never as $0. R4 (H20, the review
+    // of 07f37ec, finding 1): worked out before the file is written, so a file that cannot be written loses none of it.
     const spent = interpretation ?? qualified;
     const charged = spent && 'cost_usd' in spent ? (typeof spent.cost_usd === 'number' ? spent.cost_usd : null) : undefined;
     const cost = typeof charged === 'number' ? charged : undefined;
     const costText = charged === null ? 'cost unknown' : cost === undefined ? '' : `cost $${cost.toFixed(4)}`;
+    const tokens = spent?.tokens;
+    const accounting: Pick<ReceiptInput, 'model_requested' | 'model_resolved' | 'tokens' | 'cost_usd' | 'cost_measured'> = {
+      ...(charged !== undefined ? { model_requested: String(spent?.model_requested ?? spent?.model) } : {}),
+      ...(answered || rejected ? { model_resolved: String(interpretation?.model) } : {}),
+      ...(qualified && typeof qualified.model_resolved === 'string' ? { model_resolved: qualified.model_resolved } : {}),
+      ...(typeof tokens === 'number' && Number.isFinite(tokens) ? { tokens } : {}),
+      ...(cost !== undefined ? { cost_usd: cost } : charged === null ? { cost_measured: false } : {}),
+    };
+    // What the model returned, sealed by its hashes (the whole text's, and the cut part's when the record holds only that).
+    const claims = { ...(interpretation ? { interpretation: interpretationSeal(interpretation) } : {}), ...(qualified ? { qualified: qualifiedSeal(qualified) } : {}) };
+    let w: ReturnType<typeof writeObservation>;
+    try { w = writeObservation(o.root, rel, record, now); } catch (e) { w = { ok: false, error: `it could not be written (${e instanceof Error ? e.message : 'error'})` }; }
+    if (!w.ok) return this.unwritten(j, o, { base, record, keeper, storage: w.error, accounting, claims, costText, ...(spent ? { spent } : {}) });
     let receipt: string | undefined;
     try {
       receipt = this.d.seal({
         ...base, subject: `observe · ${rel}`, status: 'ok', outputs: [{ path: w.path, sha256: w.sha256, bytes: w.bytes }],
-        observation: {
-          tiers, worker: `${look.worker.name} ${look.worker.version}`, opencv: look.opencv, measurements: look.measurements.length,
-          ...(interpretation ? { interpretation: { status: String(interpretation.status), ...(typeof interpretation.model === 'string' ? { model: interpretation.model } : {}), ...(charged !== undefined ? { cost_usd: charged } : {}) } } : {}),
-          ...(qualified ? { qualified: qualifiedSeal(qualified) } : {}),
-        },
-        ...(charged !== undefined ? { model_requested: String(spent?.model_requested ?? spent?.model) } : {}),
-        ...(answered || rejected ? { model_resolved: String(interpretation?.model) } : {}),
-        ...(qualified && typeof qualified.model_resolved === 'string' ? { model_resolved: qualified.model_resolved } : {}),
-        ...(cost !== undefined ? { cost_usd: cost } : charged === null ? { cost_measured: false } : {}),
+        observation: { tiers, worker: `${look.worker.name} ${look.worker.version}`, opencv: look.opencv, measurements: look.measurements.length, ...claims },
+        ...accounting,
       });
     } catch { receipt = undefined; }
+    /** R4 (H20): where the whole of a cut text is kept, for a notice. */
+    const whole = (s: Record<string, unknown> | undefined, field: string, label: string): string => {
+      const n = wholeNote(s, field, label, (ref) => this.keptShown(ref));
+      return n ? `${this.sep}${n}` : '';
+    };
     this.d.notify([{ text: `  ${g.ok} ` }, { text: `${j.id} observed`, role: 'strong' }, { text: `  ${rel} ${g.arrow} ${w.path}${this.sep}${tiers.join(', ')}${receipt ? `${this.sep}receipt ${receipt}` : ''}`, role: 'secondary' }]);
     if (interpretation && !answered) {
       const alt = Array.isArray(interpretation.alternatives) && interpretation.alternatives.length ? `; models that do: ${(interpretation.alternatives as string[]).join(', ')} (/model <id>)` : '';
       const kept = rejected ? `${this.sep}${String(interpretation.model)}'s answer is in the file, not as a claim` : '';
-      this.d.notify([{ text: '  Model      ', role: 'secondary' }, { text: `${String(interpretation.reason)}${alt}${kept}${costText ? `${this.sep}${costText}` : ''}`, role: 'estimate' }]);
+      this.d.notify([{ text: '  Model      ', role: 'secondary' }, { text: `${String(interpretation.reason)}${alt}${kept}${whole(interpretation, 'answer', 'answer')}${costText ? `${this.sep}${costText}` : ''}`, role: 'estimate' }]);
     } else if (answered) {
-      this.d.notify([{ text: '  Model      ', role: 'secondary' }, { text: `${String(interpretation?.model)} answered (a claim, in the file)${this.sep}cost ${cost === undefined ? 'not reported' : `$${cost.toFixed(4)}`}`, role: 'ai' }]);
+      this.d.notify([{ text: '  Model      ', role: 'secondary' }, { text: `${String(interpretation?.model)} answered (a claim, in the file)${whole(interpretation, 'answer', 'answer')}${this.sep}cost ${cost === undefined ? 'not reported' : `$${cost.toFixed(4)}`}`, role: 'ai' }]);
     }
     if (qualified) {
       // R3 (H14): an admitted answer is a model's claim whose citations point at measured values; never a measurement.
       const cites = Array.isArray(qualified.cites) ? (qualified.cites as Array<{ measurement?: unknown }>).map((c) => String(c.measurement)).join(', ') : '';
       this.d.notify(admitted
-        ? [{ text: '  Model      ', role: 'secondary' }, { text: `${String(qualified.model)} answered, citing ${cites} (measured values; the answer is a claim, in the file)${costText ? `${this.sep}${costText}` : `${this.sep}cost not reported`}`, role: 'ai' }]
-        : [{ text: '  Model      ', role: 'secondary' }, { text: `no admitted answer: ${String(qualified.status)}${typeof qualified.refusal === 'string' ? ` (${qualified.refusal})` : ''}: ${String(qualified.reason)}${typeof qualified.raw_output === 'string' && qualified.raw_output ? `${this.sep}the raw output is in the file, not as a claim` : ''}${costText ? `${this.sep}${costText}` : ''}`, role: 'estimate' }]);
+        ? [{ text: '  Model      ', role: 'secondary' }, { text: `${String(qualified.model)} answered, citing ${cites} (measured values; the answer is a claim, in the file)${whole(qualified, 'answer', 'answer')}${whole(qualified, 'raw_output', 'raw output')}${costText ? `${this.sep}${costText}` : `${this.sep}cost not reported`}`, role: 'ai' }]
+        : [{ text: '  Model      ', role: 'secondary' }, { text: `no admitted answer: ${String(qualified.status)}${typeof qualified.refusal === 'string' ? ` (${qualified.refusal})` : ''}: ${String(qualified.reason)}${typeof qualified.raw_output === 'string' && qualified.raw_output ? `${this.sep}the raw output is in the file, not as a claim` : ''}${whole(qualified, 'raw_output', 'raw output')}${costText ? `${this.sep}${costText}` : ''}`, role: 'estimate' }]);
     }
     return { ok: true, file: w.path, tiers, ...(receipt ? { receipt } : {}), ...(interpretation ? { interpretation } : {}), ...(qualified ? { qualified } : {}) };
   }
@@ -566,8 +581,10 @@ export class Workspace {
    * observation's own operation: /stop, /stop all and the REPL's end abort it (status cancelled, no admission).
    * The record keeps the raw output on every outcome (bounded like the plain answer) and the cost by the
    * absent / null / number rule. An admitted answer is still a claim: semantic_correctness_verified is false.
+   * R4 (H20): a raw output or answer past 64 KiB keeps its first 64 KiB in the record and the whole of it through
+   * `keeper` (.timmy/kept/model-output/), with the whole text's sha256 either way.
    */
-  private async qualifyObserved(j: JobRecord, o: { root: string; imagePath: string; source: { path: string; sha256: string }; question?: string; model?: string }, look: Parameters<typeof qualifyInterpretation>[0]['observation'], entry?: Observing): Promise<Record<string, unknown>> {
+  private async qualifyObserved(j: JobRecord, o: { root: string; imagePath: string; source: { path: string; sha256: string }; question?: string; model?: string }, look: Parameters<typeof qualifyInterpretation>[0]['observation'], entry: Observing | undefined, keeper: ObservationKeeper): Promise<Record<string, unknown>> {
     const g = this.d.glyphs;
     const rel = o.source.path;
     const question = o.question ?? QUALIFY_DEFAULT_QUESTION;
@@ -610,17 +627,16 @@ export class Workspace {
           : { ...base, status: 'not asked', model_requested: model, reason: why };
       }
       const spend = await meter.spend(signal);
-      const cost = spend.sent ? { cost_usd: spend.cost_usd, ...(spend.tokens !== undefined ? { tokens: spend.tokens } : {}) } : {};
-      const raw = keptText(q.admission.raw_output);
-      const kept = { raw_output: raw.text, ...(raw.truncated ? { raw_output_truncated: true, raw_output_bytes: raw.bytes } : {}) };
+      // R4 (H20, M8): a total the meter cannot tell (responses it cannot tell apart) is unknown, with why; never a sum.
+      const cost = spend.sent ? { cost_usd: spend.cost_usd, ...(spend.tokens !== undefined ? { tokens: spend.tokens } : {}), ...(spend.cost_usd === null && spend.reason ? { cost_unknown_reason: spend.reason } : {}) } : {};
+      const kept = keeper.fields('raw_output', q.admission.raw_output);
       const who = { model_requested: model, model: spend.model ?? model, ...(spend.model ? { model_resolved: spend.model } : {}), image_sent: imageDataUrl !== undefined };
       const run = q.asked ? { run_id: q.snapshot.run_id } : {};
       if (q.admission.ok && q.evidence.admission === 'admitted_references') {
         const values = new Map(q.snapshot.observations.map((h) => [h.handle_id, h.value as { name?: unknown; value?: unknown; unit?: unknown; note?: unknown }]));
-        const answer = keptText(q.answer ?? '');
         return {
           ...base, status: 'admitted', ...who, run_id: q.evidence.run_id, source_revision: q.evidence.source_revision,
-          answer: answer.text, ...(answer.truncated ? { answer_truncated: true, answer_bytes: answer.bytes } : {}),
+          ...keeper.fields('answer', q.answer ?? ''),
           cites: q.evidence.handles.map((h) => {
             const v = values.get(h.handle_id);
             return { handle_id: h.handle_id, measurement: h.measurement, value: v?.value ?? null, ...(typeof v?.unit === 'string' ? { unit: v.unit } : {}) };
@@ -643,6 +659,51 @@ export class Workspace {
     } finally {
       if (entry) entry.asking = undefined;
     }
+  }
+
+  /** R4 (H20): where an observation keeps things privately: the project's .timmy/kept/, else Timmy's own kept folder beside the jobs. */
+  private keepPlaces(root: string): KeepPlaces { return { root, timmy: join(this.d.jobsDir, 'kept') }; }
+
+  /** R4 (H20): where a kept file is, for a person: its place in the project, or in Timmy's own kept folder. */
+  private keptShown(ref: KeptRef): string { return ref.store === 'timmy' ? this.tilde(join(this.d.jobsDir, 'kept', ref.path)) : ref.path; }
+
+  /**
+   * R4 (H20; the review of 07f37ec, finding 1): the observation file could not be written. A paid answer and its cost
+   * are not lost with it: the whole record (measurements, the model's answer and raw output, cites, cost) is kept
+   * privately (.timmy/kept/observations/<job>.json, else Timmy's own kept folder), and the failure receipt seals the
+   * storage error, what was spent and who answered, the hashes of the answer and raw output, and where the record is
+   * kept or why it is kept nowhere. The notice says the file could not be written, why, and where the answer and its cost are.
+   */
+  private unwritten(j: JobRecord, o: { root: string; source: { path: string } }, x: {
+    base: Pick<ReceiptInput, 'kind' | 'policy' | 'project' | 'project_id' | 'files' | 'job'>; record: Record<string, unknown>; keeper: ObservationKeeper; storage: string;
+    accounting: Pick<ReceiptInput, 'model_requested' | 'model_resolved' | 'tokens' | 'cost_usd' | 'cost_measured'>;
+    claims: Pick<NonNullable<ReceiptInput['observation']>, 'interpretation' | 'qualified'>; costText: string; spent?: Record<string, unknown>;
+  }): ObserveOutcome {
+    const g = this.d.glyphs;
+    const rel = o.source.path;
+    const storage = this.scrub(x.storage, o.root);
+    const error = `the observation file could not be written: ${storage}`;
+    let k: ReturnType<ObservationKeeper['record']>;
+    try { k = x.keeper.record(x.record, error); } catch (e) { k = { ok: false, error: `it could not be kept (${e instanceof Error ? e.message : 'error'})` }; }
+    const keptError = k.ok ? '' : this.scrub(k.error, o.root);
+    let receipt: string | undefined;
+    try {
+      receipt = this.d.seal({
+        ...x.base, subject: `observe · ${rel} · failed`, status: 'failed',
+        observation: { tiers: [], error, ...x.claims, kept: k.ok ? k.ref : { error: keptError } },
+        ...x.accounting,
+      });
+    } catch { receipt = undefined; }
+    // What was paid for, in a person's words: a request went out when the record carries a cost (a number or null).
+    const asked = x.spent !== undefined && 'cost_usd' in x.spent;
+    const cost = x.costText.replace(/^cost /, '');
+    const said = typeof x.spent?.answer === 'string' ? "the model's answer" : typeof x.spent?.raw_output === 'string' && x.spent.raw_output ? "the model's raw output" : '';
+    const what = !asked ? 'the measurements' : said ? `the measurements, ${said} and its cost (${cost})` : `the measurements and the cost of the model's request (${cost})`;
+    const line = k.ok
+      ? `the observation file could not be written (${storage}); ${what} were kept at ${this.keptShown(k.ref)}`
+      : `the observation file could not be written (${storage}), and its record could not be kept either (${keptError})${asked ? `; the receipt seals what was spent: ${x.costText}` : ''}`;
+    this.d.notify([{ text: `  ${g.fail} ` }, { text: `${j.id} not observed`, role: 'failure' }, { text: `  ${rel}: ${line}${receipt ? `${this.sep}receipt ${receipt}` : ''}`, role: 'secondary' }]);
+    return { ok: false, error: line, ...(receipt ? { receipt } : {}), ...(k.ok ? { kept: k.ref } : {}) };
   }
 
   // ── /workflows, /run ────────────────────────────────────────────────────────
@@ -1354,10 +1415,13 @@ export class Workspace {
         const q = r.observation?.qualified;
         const n = Array.isArray(q?.cites) ? q.cites.length : 0;
         const qualified = q ? `${this.sep}${q.status === 'admitted' ? `cited answer admitted (${n} handle${n === 1 ? '' : 's'}; a claim)` : `no admitted answer: ${q.status}${q.refusal ? ` (${q.refusal})` : ''}`}` : '';
+        // R4 (H20): an observation whose file could not be written: where its whole record (and any answer and cost) is kept.
+        const kept = r.observation?.kept;
+        const keptAt = kept && 'path' in kept ? `${this.sep}its record is kept at ${kept.store === 'timmy' ? this.keptShown(kept) : kept.path}` : kept ? `${this.sep}its record could not be kept` : '';
         lines.push([
           { text: '    ' }, { text: this.fileLink(src) }, { text: ` ${this.d.glyphs.arrow} ` },
           out ? { text: this.fileLink(out) } : { text: r.observation?.error ?? 'no observation', role: 'failure' },
-          { text: `  ${tiers}${qualified}${this.sep}receipt ${String(r.hash).slice(7, 15)}`, role: 'secondary' },
+          { text: `  ${tiers}${qualified}${keptAt}${this.sep}receipt ${String(r.hash).slice(7, 15)}`, role: 'secondary' },
         ]);
       }
     } else lines.push(...this.say('  none yet: /observe <image>'));
@@ -1433,6 +1497,8 @@ export class Workspace {
       return sources.get(rel);
     };
     const observed: Array<BoardObservation & { at: number }> = [];
+    // R4 (H20): a record whose model text was cut is checked against the file that keeps the whole of it.
+    const readKept = keptReader(this.keepPlaces(root));
     for (const f of files.filter((x) => inObservations(x) && x.rel.endsWith('.json'))) {
       const r = readProjectFile(root, f.rel, 1024 * 1024);
       if (!r.ok || !r.text || r.truncated) continue;
@@ -1441,7 +1507,7 @@ export class Workspace {
       // Checked as written; shown with the project's folder as "." and the home folder as "~".
       try { raw = JSON.parse(r.text); json = JSON.parse(this.scrub(r.text, root)); } catch { continue; }
       const source = raw && typeof raw === 'object' ? (raw as { source?: { path?: unknown } }).source : undefined;
-      const o = readObservationRecord(f.rel, json, { record: raw, fileSha256: r.sha256, currentSourceSha256: sourceNow(source?.path), receipts: chain, projectId: pid });
+      const o = readObservationRecord(f.rel, json, { record: raw, fileSha256: r.sha256, currentSourceSha256: sourceNow(source?.path), receipts: chain, projectId: pid, readKept });
       if (!o) continue;
       const at = o.madeAt ? Date.parse(o.madeAt) : Number.NaN;
       observed.push({ ...o, ...(o.check ? { check: { ...o.check, reasons: o.check.reasons.map((x) => this.scrub(x, root)) } } : {}), at: Number.isNaN(at) ? f.mtimeMs : at });

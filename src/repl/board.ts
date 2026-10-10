@@ -15,7 +15,7 @@
  * malformed entry, or any value of an unverified or stale record — goes to a separate "not verified" block,
  * as recorded, never drawn or worded as a measurement. A card with no check is not verified.
  */
-import { checkObservation, type ObservationCheck } from '../evidence/observation-check.js';
+import { checkObservation, type KeptFileReader, type ObservationCheck } from '../evidence/observation-check.js';
 import { humanBytes } from '../project/index.js';
 import { kindOf } from '../project/intake.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
@@ -48,7 +48,13 @@ export type BoardEvidence =
   | { admission: 'admitted_references'; handles: Array<{ handle_id: string; measurement?: string }> }
   | { admission: 'unknown'; reason?: string }
   | { admission: 'unreadable' };
-export interface BoardInterpretation { status: string; model?: string; question?: string; answer?: string; cost_usd?: number; reason?: string; evidence?: BoardEvidence }
+export interface BoardInterpretation {
+  status: string; model?: string; question?: string; answer?: string; cost_usd?: number; reason?: string; evidence?: BoardEvidence;
+  /** R4 (H20): the file keeps only the answer's first 64 KB (`answer_bytes` its whole size); `answer_full`, where the whole of it is */
+  answer_truncated?: boolean; answer_bytes?: number; answer_full?: BoardKept;
+}
+/** R4 (H20): where a record says the whole of a cut text is kept (a project path, or Timmy's own kept folder), or why it is not. */
+export type BoardKept = { path: string; bytes?: number; store?: 'timmy' } | { error: string };
 /**
  * R3 (H14): the qualified answer of /observe --qualify (the record's `qualified` section), as the record
  * gives it: admitted with the handles it cites and their values, or why there is no admitted answer, with
@@ -67,6 +73,12 @@ export interface BoardQualified {
   reason?: string;
   raw_output?: string;
   raw_output_truncated?: boolean;
+  /** R4 (H20): with a cut raw output or answer, its whole size and where the whole of it is kept */
+  raw_output_bytes?: number;
+  raw_output_full?: BoardKept;
+  answer_truncated?: boolean;
+  answer_bytes?: number;
+  answer_full?: BoardKept;
   /** absent: no request went out; null: one did and its cost is unknown */
   cost_usd?: number | null;
   run_id?: string;
@@ -160,6 +172,26 @@ function readEvidence(v: unknown): BoardEvidence | undefined {
   return { admission: 'unreadable' };
 }
 
+/** R4 (H20): a record's `<field>_full` in the board's shape: where the whole text is, or why it is kept nowhere. */
+function keptPlace(v: unknown): BoardKept | undefined {
+  const k = obj(v);
+  if (!k) return undefined;
+  const path = projectRel(k.path);
+  if (k.store === 'timmy' && str(k.path)) return { path: str(k.path)!, store: 'timmy', ...(num(k.bytes) !== undefined ? { bytes: num(k.bytes) } : {}) };
+  if (path) return { path, ...(num(k.bytes) !== undefined ? { bytes: num(k.bytes) } : {}) };
+  return { error: str(k.error) ?? 'the record names no place that keeps it' };
+}
+
+/** R4 (H20): a text's cut flag, whole size and kept place, as a record gives them under `field`. */
+function cutText(r: Record<string, unknown>, field: 'answer' | 'raw_output'): Record<string, unknown> {
+  if (r[`${field}_truncated`] !== true) return {};
+  return {
+    [`${field}_truncated`]: true,
+    ...(num(r[`${field}_bytes`]) !== undefined ? { [`${field}_bytes`]: num(r[`${field}_bytes`]) } : {}),
+    ...(keptPlace(r[`${field}_full`]) ? { [`${field}_full`]: keptPlace(r[`${field}_full`]) } : {}),
+  };
+}
+
 /** R3 (H14): a record's `qualified` section in the board's shape; null when it has none, or none readable as one. */
 function readQualified(v: unknown): BoardQualified | null {
   const q = obj(v);
@@ -174,7 +206,7 @@ function readQualified(v: unknown): BoardQualified | null {
   return {
     status, cites,
     ...Object.fromEntries((['model', 'question', 'answer', 'refusal', 'reason', 'raw_output', 'run_id'] as const).flatMap((k) => (typeof q[k] === 'string' ? [[k, q[k]]] : []))),
-    ...(q.raw_output_truncated === true ? { raw_output_truncated: true } : {}),
+    ...cutText(q, 'raw_output'), ...cutText(q, 'answer'),
     ...(num(q.cost_usd) !== undefined ? { cost_usd: num(q.cost_usd) } : q.cost_usd === null ? { cost_usd: null } : {}),
   };
 }
@@ -189,6 +221,8 @@ export interface ObservationProvenance {
   currentSourceSha256: string | null | undefined;
   receipts: readonly Receipt[];
   projectId?: string;
+  /** R4 (H20): reads a file a record names as keeping a whole text (checkObservation's rule 6). */
+  readKept?: KeptFileReader;
 }
 
 /**
@@ -235,6 +269,7 @@ export function readObservationRecord(file: string, json: unknown, provenance?: 
         ...Object.fromEntries((['model', 'question', 'answer', 'reason'] as const).flatMap((k) => (str(it[k]) ? [[k, str(it[k])]] : []))),
         ...(num(it.cost_usd) !== undefined ? { cost_usd: num(it.cost_usd) } : {}),
         ...(readEvidence(it.evidence) ? { evidence: readEvidence(it.evidence) } : {}),
+        ...cutText(it, 'answer'),
       },
     } : {}),
     ...(readQualified(r.qualified) ? { qualified: readQualified(r.qualified)! } : {}),
@@ -384,12 +419,26 @@ function evidenceLine(e: BoardEvidence | undefined, status: ObservationCheck['st
 }
 
 /**
+ * R4 (H20): a text the file keeps only the start of: where the whole of it is kept and how big it is (a link to a
+ * project file; Timmy's own kept folder by name), or why it could not be kept. Never the whole text itself.
+ */
+function wholeNote(label: string, cut: boolean | undefined, bytes: number | undefined, full: BoardKept | undefined, h: ReturnType<typeof render>): string {
+  if (!cut) return '';
+  const lead = `the file keeps the first 64 KB of the ${label}; the whole of it${bytes !== undefined ? ` (${humanBytes(bytes)})` : ''}`;
+  if (full && 'path' in full) {
+    const where = full.store === 'timmy' ? esc(`Timmy's own kept folder (${full.path})`) : h.fileLink(full.path, 'file');
+    return `<p class="meta">${esc(`${lead} is kept at `)}${where}</p>`;
+  }
+  return `<p class="meta">${esc(`${lead} could not be kept${full && 'error' in full ? `: ${full.error}` : ''}`)}</p>`;
+}
+
+/**
  * R3 (H14): the qualified answer (/observe --qualify). Admitted: "model answer (a claim), citing …" with each cited
  * value, marked measured only on a verified card; the answer stays a claim. The heading puts "measured" on the cited
  * values, never next to the answer (review M7), so it cannot be read as a measured answer. Otherwise: why there is no admitted answer,
  * and the raw output as it came, labelled as not a claim. Distinct from an uncited claim and from measured values.
  */
-function qualifiedBlock(q: BoardQualified, status: ObservationCheck['status'] | undefined): string {
+function qualifiedBlock(q: BoardQualified, status: ObservationCheck['status'] | undefined, h: ReturnType<typeof render>): string {
   const cost = q.cost_usd === undefined ? 'no request sent' : q.cost_usd === null ? 'cost unknown' : `cost $${q.cost_usd.toFixed(4)}`;
   if (q.status === 'admitted') {
     const verified = status === 'verified';
@@ -404,6 +453,7 @@ function qualifiedBlock(q: BoardQualified, status: ObservationCheck['status'] | 
     const heading = verified ? `model answer (a claim), citing measured values: ${names}` : `model answer (a claim), citing ${names} (not verified)`;
     return `<section class="qualified"><h4>${esc(heading)}</h4><p class="meta">${esc(meta)}</p>`
       + `${q.question ? `<p class="asked">${esc(`Asked: ${q.question}`)}</p>` : ''}<p class="answer">${q.answer ? claimHtml(q.answer.length > BOARD_ANSWER_CHARS ? `${q.answer.slice(0, BOARD_ANSWER_CHARS)}…` : q.answer) : esc('(no answer text)')}</p>`
+      + `${wholeNote('answer', q.answer_truncated, q.answer_bytes, q.answer_full, h)}${wholeNote('raw output', q.raw_output_truncated, q.raw_output_bytes, q.raw_output_full, h)}`
       + `${rows ? `<dl class="cited">${rows}</dl>` : ''}`
       + `<p class="evidence">${esc(verified
         ? "A model's claim: each citation is a handle observed in its run and cited through the cite tool, pointing at a measured value; the answer itself is not a measurement, and whether it is right is not verified."
@@ -411,7 +461,8 @@ function qualifiedBlock(q: BoardQualified, status: ObservationCheck['status'] | 
   }
   const why = `${q.status}${q.refusal ? ` (${q.refusal})` : ''}${q.reason ? `: ${q.reason}` : ''}`;
   const raw = q.raw_output
-    ? `<p class="meta">${esc(`raw output, kept exactly as returned; not a claim${q.raw_output_truncated ? ' (cut at 64 KB in the file)' : ''}`)}</p><pre class="raw">${esc(q.raw_output.length > BOARD_ANSWER_CHARS ? `${q.raw_output.slice(0, BOARD_ANSWER_CHARS)}…` : q.raw_output)}</pre>`
+    ? `<p class="meta">${esc('raw output, kept exactly as returned; not a claim')}</p><pre class="raw">${esc(q.raw_output.length > BOARD_ANSWER_CHARS ? `${q.raw_output.slice(0, BOARD_ANSWER_CHARS)}…` : q.raw_output)}</pre>`
+      + wholeNote('raw output', q.raw_output_truncated, q.raw_output_bytes, q.raw_output_full, h)
     : '';
   return `<section class="qualified refused"><h4>${esc('no admitted model answer')}</h4><p class="meta">${esc([`model ${q.model ?? 'unknown'}`, cost].join(' · '))}</p><p class="nomodel">${esc(why)}</p>${raw}</section>`;
 }
@@ -457,11 +508,12 @@ function observationCard(o: BoardObservation, h: ReturnType<typeof render>): str
     const meta = [`model ${i.model ?? 'unknown'}`, i.cost_usd !== undefined ? `cost $${i.cost_usd.toFixed(4)}` : 'cost not reported'].join(' · ');
     model = `<section class="claim"><h4>${esc("the model's claim")}</h4><p class="meta">${esc(meta)}</p>`
       + `${i.question ? `<p class="asked">${esc(`Asked: ${i.question}`)}</p>` : ''}<p class="answer">${i.answer ? claimHtml(i.answer.length > BOARD_ANSWER_CHARS ? `${i.answer.slice(0, BOARD_ANSWER_CHARS)}…` : i.answer) : esc('(no answer text)')}</p>${i.answer && i.answer.length > BOARD_ANSWER_CHARS ? `<p class="meta">${esc(`${i.answer.length - BOARD_ANSWER_CHARS} more characters in the observation file`)}</p>` : ''}`
+      + wholeNote('answer', i.answer_truncated, i.answer_bytes, i.answer_full, h)
       + `${evidenceLine(i.evidence, o.check?.status, new Set(o.measurements.filter((m) => !m.malformed && m.tier === DETERMINISTIC).map((m) => m.name)))}</section>`;
   } else if (i) {
     model = `<p class="nomodel">${esc(`No model claim: ${i.status}${i.model ? ` (${i.model})` : ''}${i.reason ? `: ${i.reason}` : ''}`)}</p>`;
   }
-  const qualified = o.qualified ? qualifiedBlock(o.qualified, o.check?.status) : '';
+  const qualified = o.qualified ? qualifiedBlock(o.qualified, o.check?.status, h) : '';
   return `<article class="card obs">${head}${statusBlock(o)}${measured}${unverified}${model}${qualified}${src && SHOWN_IMAGE.test(src) ? h.act('Observe again', { act: 'observe', file: src }) : ''}${h.cmds([`/open ${o.file}`, ...(src ? [`/observe ${h.quoted(src)}`] : [])])}</article>`;
 }
 

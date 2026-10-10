@@ -4,10 +4,14 @@
  * and current model the plain interpretation of src/vision/route.ts uses), and what that exchange cost.
  *
  * Cost (the absent / null / number rule): nothing was sent, no cost at all; sent, the sum of the cost every
- * response of the exchange reported (each tool round's and the final one's, by response id), or null
+ * response of the exchange reported (each tool round's and the final one's, each response once), or null
  * (unknown, never 0) when any of them reported none, the exchange failed or it was stopped. On the
  * operator's own provider key (BYOK) a response's `cost` is only OpenRouter's fee: the provider's
  * upstream inference cost is added, and its absence makes the total unknown (as route.ts counts one).
+ *
+ * Each response once (R4, H20; the review of 07f37ec, M8): one object is one response, and so is one id. Two
+ * objects, one of them without an id, that report the same output and usage may be one response seen twice:
+ * the total is then unknown (null, with the reason), never a sum that may count a charge twice.
  *
  * The client is injected: a test gives a labelled fake. Nothing here sends a request by itself.
  */
@@ -40,12 +44,31 @@ export interface QualifySpend {
   model?: string;
   /** how many responses the cost was summed over */
   responses?: number;
+  /** with a null cost from responses that could not be told apart: why the total is not known */
+  reason?: string;
 }
 
 /** How long spend() waits for the final response (its usage) after the text came. */
 const SPEND_WAIT_MS = 30_000;
 const money = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
 const obj = (v: unknown): Record<string, unknown> | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined);
+
+/** A value as canonical JSON (keys sorted); throws on a cycle or on a value JSON cannot hold. */
+function canonical(v: unknown, seen: WeakSet<object> = new WeakSet()): string {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'undefined';
+  if (seen.has(v)) throw new Error('a cycle');
+  seen.add(v);
+  const out = Array.isArray(v)
+    ? `[${v.map((x) => canonical(x, seen)).join(',')}]`
+    : `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k], seen)}`).join(',')}}`;
+  seen.delete(v);
+  return out;
+}
+
+/** What tells a response without an id from another: what it produced and what it reports it used; undefined when that cannot be read. */
+function fingerprint(r: Record<string, unknown>): string | undefined {
+  try { return canonical({ output: r.output ?? null, usage: r.usage ?? null }); } catch { return undefined; }
+}
 
 /** A response's reported cost in USD (the SDK's camelCase usage), or null when it reports none. */
 function responseCost(response: unknown): number | null {
@@ -108,17 +131,33 @@ export function meteredQualifyClient(inner: QualifyClient, onSend?: () => void):
       // The final response is already in hand once the text came; a client that never gives it cannot hold the record.
       const limit = AbortSignal.timeout(SPEND_WAIT_MS);
       try { final = await unlessAborted(result.getResponse(), signal ? AbortSignal.any([signal, limit]) : limit); } catch { return { sent: true, cost_usd: null }; }
-      const seen = new Set<string>();
+      // Each response once (M8): by object, then by id. The final response is often the last round's own object.
+      const objects = new Set<object>();
+      const ids = new Set<string>();
+      const counted: Array<{ id?: string; print?: string }> = [];
       const responses: unknown[] = [];
+      let alike = false;
       for (const r of [...rounds, final]) {
-        const id = obj(r)?.id;
-        if (!obj(r)) continue;
-        if (typeof id === 'string') { if (seen.has(id)) continue; seen.add(id); }
-        responses.push(r);
+        const o = obj(r);
+        if (!o || objects.has(o)) continue;
+        objects.add(o);
+        const id = typeof o.id === 'string' && o.id ? o.id : undefined;
+        if (id !== undefined) { if (ids.has(id)) continue; ids.add(id); }
+        const print = fingerprint(o);
+        // Without an id on either, a response that reports what another reports (or cannot be compared) may be it.
+        if (counted.some((c) => (id === undefined || c.id === undefined) && (print === undefined || c.print === undefined || c.print === print))) alike = true;
+        counted.push({ ...(id !== undefined ? { id } : {}), ...(print !== undefined ? { print } : {}) });
+        responses.push(o);
+      }
+      const model = obj(final)?.model;
+      if (alike) {
+        return {
+          sent: true, cost_usd: null, ...(typeof model === 'string' && model ? { model } : {}),
+          reason: 'two of its responses report the same output and usage and at least one has no id, so they may be one response seen twice: the total is not known',
+        };
       }
       const costs = responses.map(responseCost);
       const tokens = responses.map((r) => obj(obj(r)?.usage)?.totalTokens);
-      const model = obj(final)?.model;
       return {
         sent: true,
         cost_usd: costs.length && costs.every((c): c is number => c !== null) ? costs.reduce((a, b) => a + b, 0) : null,

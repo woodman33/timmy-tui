@@ -27,11 +27,21 @@
  *      same qualified outcome (status, run, cited handles, sha256 of the raw output).
  *
  * Consistency says the citations point at this record's measured values; it never makes the answer a measurement.
+ *
+ * R4 (H20; the review of 07f37ec, finding 2): a model's text (a qualified raw output or answer, a plain answer) is in
+ * the record whole, or as its first 64 KiB with the whole of it kept in a file of its own (src/vision/kept.ts):
+ *
+ *   6. a text the record says was cut must name its kept file, and that file must be there (read through the
+ *      caller's `readKept`), with the sha256 the record names and its receipt sealed, its size, and the record's
+ *      part as its start; a text kept whole must match the sha256 the record names. A receipt that sealed a text's
+ *      hashes (the whole text's, and the cut part's when it was cut) must be matched by the record. Without
+ *      `readKept` a kept file is not checked, and the record is not verified.
  */
 import { createHash } from 'node:crypto';
 import type { RefusalReason } from './admission.js';
 import type { Receipt } from '../utils/receipts.js';
 import { hashOf } from '../utils/receipts.js';
+import { KEPT_DIR, safeKeptPath } from '../vision/kept.js';
 import { DETERMINISTIC } from '../vision/look.js';
 
 export type ObservationStatus = 'verified' | 'unverified' | 'stale';
@@ -60,7 +70,12 @@ export interface ObservationCheckInput {
   receipts: readonly Receipt[];
   /** The project's identity (projectId); when given, the receipt must be this project's. */
   projectId?: string;
+  /** R4 (H20): reads a file the record names as keeping a whole text (src/vision/kept.ts keptReader). */
+  readKept?: KeptFileReader;
 }
+
+/** A kept file's bytes; null when there is no such file; undefined when it cannot be read or is not a place Timmy keeps files. */
+export type KeptFileReader = (ref: { path: string; store?: 'timmy' }) => Buffer | null | undefined;
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const short = (sha: string): string => sha.slice(0, 12);
@@ -140,8 +155,17 @@ export function checkObservation(input: ObservationCheckInput): ObservationCheck
 
   // 5. R3 (H14): a qualified answer consistent with its handles, its image and its receipt.
   const sealedQualified = obj(obj((sealedBy as unknown as Record<string, unknown> | undefined)?.observation)?.qualified);
-  if (r && r.qualified !== undefined) unverified.push(...qualifiedReasons(r.qualified, measurements ?? [], sourceSha, sealedBy ? sealedQualified ?? null : undefined));
+  if (r && r.qualified !== undefined) unverified.push(...qualifiedReasons(r.qualified, measurements ?? [], sourceSha, sealedBy ? sealedQualified ?? null : undefined, input.readKept));
   else if (sealedQualified) unverified.push('its receipt sealed a qualified model answer that the file no longer records');
+
+  // 6. R4 (H20): a plain interpretation's answer, whole in the record or kept whole in its own file, as its receipt sealed it.
+  const interpretation = obj(r?.interpretation);
+  if (interpretation) {
+    const sealedInterpretation = obj(obj((sealedBy as unknown as Record<string, unknown> | undefined)?.observation)?.interpretation);
+    const answer = wholeText('model answer', interpretation, 'answer', input.readKept, sealedInterpretation);
+    unverified.push(...answer.reasons);
+    if (answer.sealMismatch) unverified.push("the model's answer is not the one its receipt sealed");
+  }
 
   // 4. The image unchanged since.
   if (sourcePath && sourceSha) {
@@ -179,11 +203,29 @@ const REFUSALS: Record<RefusalReason, string> = {
 export const describeRefusal = (reason: string): string => (REFUSALS as Record<string, string>)[reason] ?? `refused: ${reason}`;
 
 const sha256Text = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
+const sha256Bytes = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
 const handleIds = (cites: unknown): string[] => (Array.isArray(cites) ? cites.map((c) => text(obj(c)?.handle_id) ?? '') : []);
 const shortHandle = (id: string): string => (id.length > 14 ? `${id.slice(0, 11)}…` : id);
 
 /** What an observe receipt seals of a qualified section (Receipt.observation.qualified). */
-export interface QualifiedSeal { status: string; model?: string; run_id?: string; source_revision?: string; cites: string[]; refusal?: string; raw_output_sha256?: string; answer_sha256?: string; cost_usd?: number | null }
+export interface QualifiedSeal {
+  status: string; model?: string; run_id?: string; source_revision?: string; cites: string[]; refusal?: string;
+  raw_output_sha256?: string; raw_output_excerpt_sha256?: string; answer_sha256?: string; answer_excerpt_sha256?: string; cost_usd?: number | null;
+}
+/** R4 (H20): what an observe receipt seals of a plain interpretation (Receipt.observation.interpretation). */
+export interface InterpretationSeal { status: string; model?: string; cost_usd?: number | null; answer_sha256?: string; answer_excerpt_sha256?: string }
+
+/**
+ * A model text's hashes as a receipt seals them (R4, H20): the whole text's sha256 (the record's `<field>_sha256`,
+ * else the text as written), and, when the record holds only its first 64 KiB, that part's sha256 too.
+ */
+function textSeal<F extends string>(section: Record<string, unknown>, field: F): Partial<Record<`${F}_sha256` | `${F}_excerpt_sha256`, string>> {
+  const value = section[field];
+  if (typeof value !== 'string') return {};
+  const named = section[`${field}_sha256`];
+  const whole = typeof named === 'string' && SHA256.test(named) ? named : sha256Text(value);
+  return { [`${field}_sha256`]: whole, ...(section[`${field}_truncated`] === true ? { [`${field}_excerpt_sha256`]: sha256Text(value) } : {}) } as Partial<Record<`${F}_sha256` | `${F}_excerpt_sha256`, string>>;
+}
 
 /** What an observe receipt seals of a qualified section: enough to tell an edited one from what was written. */
 export function qualifiedSeal(q: Record<string, unknown>): QualifiedSeal {
@@ -194,12 +236,94 @@ export function qualifiedSeal(q: Record<string, unknown>): QualifiedSeal {
     ...(typeof q.source_revision === 'string' ? { source_revision: q.source_revision } : {}),
     cites: handleIds(q.cites),
     ...(typeof q.refusal === 'string' ? { refusal: q.refusal } : {}),
-    ...(typeof q.raw_output === 'string' ? { raw_output_sha256: sha256Text(q.raw_output) } : {}),
+    // R4 (H20): the whole raw output's sha256 (the text as written, when it was not cut), and the cut part's when it was.
+    ...textSeal(q, 'raw_output'),
     // The answer text itself (the review of ee70b9e, M6): with a cut raw output the answer cannot be compared with
     // it, so the receipt carries the answer's own sha256. Seals written before this have none, and are not held to it.
-    ...(typeof q.answer === 'string' ? { answer_sha256: sha256Text(q.answer) } : {}),
+    ...textSeal(q, 'answer'),
     ...('cost_usd' in q ? { cost_usd: typeof q.cost_usd === 'number' ? q.cost_usd : null } : {}),
   };
+}
+
+/** R4 (H20): what an observe receipt seals of a plain interpretation: its status, model and cost, and its answer's hashes. */
+export function interpretationSeal(i: Record<string, unknown>): InterpretationSeal {
+  return {
+    status: String(i.status),
+    ...(typeof i.model === 'string' ? { model: i.model } : {}),
+    ...('cost_usd' in i ? { cost_usd: typeof i.cost_usd === 'number' ? i.cost_usd : null } : {}),
+    ...textSeal(i, 'answer'),
+  };
+}
+
+/** What rule 6 establishes of one model text of a record. */
+interface WholeText {
+  reasons: string[];
+  /** the whole text: the record holds it whole, or its kept file was read and matches */
+  whole?: string;
+  /** the record says the text was cut */
+  cut: boolean;
+  /** the receipt sealed other hashes for it */
+  sealMismatch: boolean;
+}
+
+/**
+ * R4 (H20), rule 6: `section[field]` whole, or cut with the whole of it in the file `section[field + '_full']` names.
+ * `sealed`: the receipt's section that sealed it (`<field>_sha256`, and `<field>_excerpt_sha256` when it was cut);
+ * `requireSealed`: a text that receipt must have sealed (a qualified raw output, since R3).
+ */
+function wholeText(label: string, section: Record<string, unknown>, field: string, read: KeptFileReader | undefined, sealed: Record<string, unknown> | undefined, requireSealed = false): WholeText {
+  const reasons: string[] = [];
+  const value = section[field];
+  const sealedSha = text(sealed?.[`${field}_sha256`]);
+  const sealedPart = text(sealed?.[`${field}_excerpt_sha256`]);
+  if (typeof value !== 'string') return { reasons, cut: false, sealMismatch: sealedSha !== undefined };
+  const cut = section[`${field}_truncated`] === true;
+  const namedRaw = section[`${field}_sha256`];
+  const named = typeof namedRaw === 'string' && SHA256.test(namedRaw) ? namedRaw : undefined;
+  let whole: string | undefined;
+  let wholeSha = named;
+  if (!cut) {
+    whole = value;
+    wholeSha = sha256Text(value);
+    if (named !== undefined && named !== wholeSha) reasons.push(`the ${label} is not the text whose sha256 the record names`);
+  } else {
+    const full = obj(section[`${field}_full`]);
+    const path = text(full?.path);
+    const store = full?.store === 'timmy' ? 'timmy' as const : undefined;
+    const where = store ? `Timmy's own folder (${path})` : path;
+    const placed = path !== undefined && (store ? safeKeptPath(path) : insideProject(path) === path && path.startsWith(`${KEPT_DIR}/`));
+    if (!full) reasons.push(`the ${label} was cut at 64 KB in the file, and the record names no file that keeps the whole of it`);
+    else if (path === undefined) reasons.push(`the whole ${label} could not be kept when it was recorded${text(full.error) ? ` (${full.error})` : ''}: only its first 64 KB are in the file`);
+    else if (!placed) reasons.push(`the record names ${where} for the whole ${label}, which is not a place Timmy keeps it`);
+    else if (!read) reasons.push(`the whole ${label} kept at ${where} was not checked here`);
+    else {
+      const bytes = read({ path, ...(store ? { store } : {}) });
+      const listed = text(full.sha256);
+      const size = section[`${field}_bytes`];
+      if (bytes === null) reasons.push(`the whole ${label} is no longer at ${where}`);
+      else if (bytes === undefined) reasons.push(`the whole ${label} at ${where} could not be read`);
+      else {
+        const got = sha256Bytes(bytes);
+        if (got !== listed || (named !== undefined && got !== named)) {
+          reasons.push(`the whole ${label} at ${where} is not the one recorded: it is sha256 ${short(got)}, the record names ${listed ? short(listed) : '(none)'}`);
+        } else if (typeof size === 'number' && size !== bytes.length) {
+          reasons.push(`the whole ${label} at ${where} is ${bytes.length} bytes, not the ${size} the record names`);
+        } else {
+          const t = bytes.toString('utf8');
+          if (!t.startsWith(value)) reasons.push(`the ${label} in the file is not the start of the whole one kept at ${where}`);
+          else { whole = t; wholeSha = got; }
+        }
+      }
+    }
+  }
+  // Against the receipt. Since H20 it seals the whole text's sha256, and the cut part's when only that is in the file;
+  // before H20 it sealed the text as written, and a record of that time (no sha256 of its own) is compared that way.
+  let sealMismatch: boolean;
+  if (sealedSha === undefined) sealMismatch = requireSealed && sealed !== undefined;
+  else if (named !== undefined || sealedPart !== undefined) {
+    sealMismatch = cut !== (sealedPart !== undefined) || (cut && sealedPart !== sha256Text(value)) || wholeSha !== sealedSha;
+  } else sealMismatch = sha256Text(value) !== sealedSha;
+  return { reasons, ...(whole !== undefined ? { whole } : {}), cut, sealMismatch };
 }
 
 /**
@@ -207,14 +331,17 @@ export function qualifiedSeal(q: Record<string, unknown>): QualifiedSeal {
  * `sealed`: the qualified part of the receipt that sealed this file (null: that receipt sealed none;
  * undefined: no receipt was matched, which the other checks already report).
  */
-function qualifiedReasons(v: unknown, measurements: readonly unknown[], sourceSha: string | undefined, sealed: Record<string, unknown> | null | undefined): string[] {
+function qualifiedReasons(v: unknown, measurements: readonly unknown[], sourceSha: string | undefined, sealed: Record<string, unknown> | null | undefined, read?: KeptFileReader): string[] {
   const out: string[] = [];
   const q = obj(v);
   if (!q) return ['the qualified model answer is not a record'];
   const status = text(q.status);
   if (!status || !(QUALIFIED_STATUSES as readonly string[]).includes(status)) out.push(`the qualified model answer has no known status (${status ?? 'none'})`);
   if (q.source_revision !== sourceSha) out.push(`the qualified model answer is bound to image sha256 ${typeof q.source_revision === 'string' ? short(q.source_revision) : '(none)'}, not the record's ${sourceSha ? short(sourceSha) : '(none)'}`);
-  const raw = typeof q.raw_output === 'string' ? q.raw_output : undefined;
+  // R4 (H20), rule 6: the raw output and the answer, each whole in the record or kept whole in a file of its own.
+  const raw = wholeText('raw output', q, 'raw_output', read, sealed ?? undefined, true);
+  const answer = wholeText('answer', q, 'answer', read, sealed ?? undefined);
+  out.push(...raw.reasons, ...answer.reasons);
   if (status === 'admitted') {
     if (q.semantic_correctness_verified !== false) out.push('the qualified model answer says its correctness was verified: an admission never establishes that');
     if (!text(q.run_id)) out.push('the qualified model answer names no run');
@@ -235,14 +362,17 @@ function qualifiedReasons(v: unknown, measurements: readonly unknown[], sourceSh
       else if (JSON.stringify(m.value ?? null) !== JSON.stringify(co.value ?? null)) out.push(`handle ${shortHandle(id)} cites ${name} with a value this record's measurement does not have`);
     }
     // The citations are the ones the model's raw output was admitted with: the same run, image, handles and answer.
-    let env: Record<string, unknown> | undefined;
-    try { env = raw !== undefined && q.raw_output_truncated !== true ? obj(JSON.parse(raw)) : undefined; } catch { env = undefined; }
-    const listed = obj(env?.evidence)?.answer;
-    if (!env || env.run_id !== q.run_id || env.source_revision !== q.source_revision || !Array.isArray(listed)
-      || listed.length !== cites.length || listed.some((h, i) => h !== text(obj(cites[i])?.handle_id))) {
-      out.push("the qualified model answer's citations, run or image are not those of the raw output it was admitted from");
-    } else if (q.answer_truncated !== true && obj(env.payload)?.answer !== q.answer) {
-      out.push("the qualified model answer's text is not the answer in its raw output");
+    // A text cut and not kept whole cannot be compared; rule 6 has said why above.
+    if (raw.whole !== undefined || !raw.cut) {
+      let env: Record<string, unknown> | undefined;
+      try { env = raw.whole !== undefined ? obj(JSON.parse(raw.whole)) : undefined; } catch { env = undefined; }
+      const listed = obj(env?.evidence)?.answer;
+      if (!env || env.run_id !== q.run_id || env.source_revision !== q.source_revision || !Array.isArray(listed)
+        || listed.length !== cites.length || listed.some((h, i) => h !== text(obj(cites[i])?.handle_id))) {
+        out.push("the qualified model answer's citations, run or image are not those of the raw output it was admitted from");
+      } else if ((answer.whole !== undefined || !answer.cut) && obj(env.payload)?.answer !== answer.whole) {
+        out.push("the qualified model answer's text is not the answer in its raw output");
+      }
     }
   }
   if (sealed === null) out.push('the receipt that sealed this file sealed no qualified model answer, but the file records one');
@@ -250,8 +380,7 @@ function qualifiedReasons(v: unknown, measurements: readonly unknown[], sourceSh
     const sealedIds = Array.isArray(sealed.cites) ? sealed.cites.map(String) : [];
     const ids = handleIds(q.cites);
     if (sealed.status !== q.status || sealed.run_id !== q.run_id || sealed.source_revision !== q.source_revision
-      || sealedIds.join('\n') !== ids.join('\n') || (raw !== undefined ? sealed.raw_output_sha256 !== sha256Text(raw) : sealed.raw_output_sha256 !== undefined)
-      || (sealed.answer_sha256 !== undefined && sealed.answer_sha256 !== (typeof q.answer === 'string' ? sha256Text(q.answer) : undefined))) {
+      || sealedIds.join('\n') !== ids.join('\n') || raw.sealMismatch || answer.sealMismatch) {
       out.push(`the qualified model answer is not the one its receipt sealed (sealed: ${String(sealed.status)}${sealedIds.length ? `, citing ${sealedIds.map(shortHandle).join(', ')}` : ''})`);
     }
   }
