@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -8,6 +8,14 @@ import { WebSocket } from 'ws';
 import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt } from '../src/agent/canvas-tools.js';
 import { approvalNeeded } from '../src/repl/approvals.js';
 import { startStudioServer } from '../src/studio/server.js';
+import { guardRealHome, ownHome } from './fixtures/home-guard.js';
+
+// R4 (H59; found by H55): each server here has its own temporary HOME and TIMMY_HOME (its canvas folder and jobs.json
+// there), never `env: {}`, which put them under the test machine's own home; and nothing here may change the real home's
+// timmy folders (tests/fixtures/home-guard.ts reads them before and after).
+const realHome = guardRealHome();
+const own = ownHome('studio-tools-home-');
+afterAll(() => { own.remove(); expect(realHome.check(), 'changed under the real home\'s timmy folders while these tests ran').toEqual([]); });
 
 // F-4, slice 3: the canvas as agent tools. canvas_exec runs Editor API code; canvas_read and
 // canvas_api send fixed code (the model's words only ever arrive as a JSON string literal).
@@ -36,14 +44,14 @@ const run = (tools: ReturnType<typeof createCanvasTools>, name: string, args: Re
 
 describe('the canvas tools', () => {
   it('canvas_exec runs the code on the open canvas and returns the readback with its job ID and revision', async () => {
-    server = await startStudioServer(0, { env: {} });
+    server = await startStudioServer(0, { env: own.env });
     const seen = await page(() => 2);
     const r = await run(createCanvasTools({ baseUrl: base() }), 'canvas_exec', { code: 'return editor.getCurrentPageShapes().length', jobId: 'job-7' });
     expect(seen).toEqual(['return editor.getCurrentPageShapes().length']);
     expect(r).toEqual({ ok: true, result: 2, jobId: 'job-7', revision: 4 });
   });
   it('canvas_read sends fixed read-only code and returns the page summary', async () => {
-    server = await startStudioServer(0, { env: {} });
+    server = await startStudioServer(0, { env: own.env });
     const seen = await page(() => ({ page: { name: 'Page 1' }, shapes: [] }));
     const r = await run(createCanvasTools({ baseUrl: base() }), 'canvas_read', {});
     expect(seen[0]).toContain('editor.getCurrentPageShapes()');
@@ -51,7 +59,7 @@ describe('the canvas tools', () => {
     expect(r).toMatchObject({ ok: true, result: { page: { name: 'Page 1' } } });
   });
   it('canvas_api searches the live Editor API; the query reaches the page only as a JSON string', async () => {
-    server = await startStudioServer(0, { env: {} });
+    server = await startStudioServer(0, { env: own.env });
     const seen = await page(() => ({ total: 0, members: [] }));
     const hostile = '"); editor.deleteShapes(editor.getCurrentPageShapeIds()); ("';
     await run(createCanvasTools({ baseUrl: base() }), 'canvas_api', { query: hostile });
@@ -63,7 +71,7 @@ describe('the canvas tools', () => {
     expect(r).toEqual({ ok: false, error: 'Timmy Canvas is not running. Open it with /web studio in the REPL, or run `timmy studio`.' });
   });
   it('passes the server\'s own refusal through (no canvas open)', async () => {
-    server = await startStudioServer(0, { env: {} });
+    server = await startStudioServer(0, { env: own.env });
     const r = await run(createCanvasTools({ baseUrl: base() }), 'canvas_read', {});
     expect(r).toMatchObject({ ok: false, error: 'No canvas is open. Open it with /web studio, then try again.' });
   });
@@ -102,7 +110,7 @@ describe('the canvas job of a REPL turn', () => {
     return jobs;
   }
   it("calls without a job ID take the turn's; the turn keeps what they produced, then starts afresh", async () => {
-    server = await startStudioServer(0, { env: {} });
+    server = await startStudioServer(0, { env: own.env });
     const jobs = await savingPage();
     let n = 0;
     const job = new CanvasTurnJob(() => `turn-${++n}`);
@@ -122,7 +130,7 @@ describe('the canvas job of a REPL turn', () => {
   it("links the turn's receipt to its canvas job on the canvas server; an unknown job is not linked", async () => {
     const home = mkdtempSync(join(tmpdir(), 'timmy-canvas-home-'));
     try {
-      server = await startStudioServer(0, { env: { TIMMY_HOME: home } });
+      server = await startStudioServer(0, { env: { HOME: home, TIMMY_HOME: home } });
       await savingPage();
       await run(createCanvasTools({ baseUrl: base() }), 'canvas_exec', { code: 'return 1', jobId: 'turn-abc' });
       expect(await linkCanvasReceipt('turn-abc', '0f3c9a12', base())).toBe(true);
