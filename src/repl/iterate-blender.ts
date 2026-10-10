@@ -32,7 +32,7 @@ import { createHash } from 'node:crypto';
 import { closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import type { JobRecord } from '../jobs/index.js';
-import { AGENTS, AGENTS_DIR, agentBin, planAgent, type AgentName, type AgentRunRecord } from '../code-agents/index.js';
+import { AGENTS, AGENTS_DIR, agentBin, comparedOf, forJudging, notComparedText, planAgent, type AgentName, type AgentRunRecord } from '../code-agents/index.js';
 import { codexLocalPreflight } from '../code-agents/codex-local.js';
 import { blenderJob, judgeNativeJob, locateNative, NATIVE_APPS, NativeNotFound, readNativeResult, sha256File, type NativeJobSpec } from '../native/index.js';
 import { projectId, resolveInside } from '../project/index.js';
@@ -183,7 +183,8 @@ export class BlenderFlows {
     const beforeText = bytes.toString('utf8');
     const task = blenderIterateTask({ instruction: req.instruction, scriptRel: rel, scriptText: beforeText });
     // The agent's start is awaited; the project stays held (its lock) until this start ends.
-    const s = await this.d.startAgent(req.agent, task, { paid: false, ...local, root, project, env });
+    // R4 review (R4-2): judged by the whole project, .timmy and dist included; the flow's own folder is Timmy's write.
+    const s = await this.d.startAgent(req.agent, task, { paid: false, ...local, root, project, env, judge: { own: [flowWorkDir(id)] } });
     if (!s.ok) return refuse(`The agent did not start: ${scrub(s.error)}`, s.refused === 'paid' || s.refused === 'missing' ? 'estimate' : 'failure');
     const kept = keepBytes(root, `${flowWorkDir(id)}/script.before.py`, bytes);
     const record: BlenderFlowRecord = {
@@ -264,8 +265,11 @@ export class BlenderFlows {
   private async agentStep(f: BlenderRun): Promise<void> {
     const job = await this.d.jobs.done(f.agentJob!);
     // The agent's sealed result (sealAgent ran at the job's end): its outcome, what it changed, its cost and receipt.
-    const rec = f.agentRecord!;
+    // R4 review (R4-2): what it changed as the check's own snapshot saw it (the whole project, .timmy and dist included).
+    const rec = forJudging(f.agentRecord!);
+    f.agentRecord = rec;
     const a = f.record.agent!;
+    if (rec.judged) a.compared = comparedOf(rec.judged);
     a.outcome = rec.outcome ?? job.state;
     if (rec.why) a.why = this.d.scrub(rec.why, f.root);
     if (rec.transcript) a.transcript = `${AGENTS_DIR}/${rec.run}/${rec.transcript}`;
@@ -607,6 +611,9 @@ export class BlenderFlows {
     const tail = `${file ? `${this.sep}record ${file}` : `${this.sep}the record could not be written`}${receipt ? `${this.sep}receipt ${receipt}` : ''}`;
     const lines: Line[] = [[{ text: `  ${ok ? g.ok : rec.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok || rec.outcome === 'cancelled' ? undefined : 'failure' },
       { text: `${f.id} ${rec.outcome}`, role: ok || rec.outcome === 'cancelled' ? 'strong' : 'failure' }, { text: `: ${rec.why ?? ''}${tail}`, role: 'secondary' }]];
+    // R4 review (R4-2): what the check of the agent's changes did not look into, never skipped silently.
+    const unseen = notComparedText(rec.agent?.compared);
+    if (unseen) lines.push([{ text: `      not compared while the agent ran: ${unseen}`, role: 'secondary' }]);
     const k = rec.readback;
     const read = k?.read;
     if (k && read) {

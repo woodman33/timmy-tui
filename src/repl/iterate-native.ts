@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto';
 import { closeSync, copyFileSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import type { JobRecord } from '../jobs/index.js';
-import { AGENTS, AGENTS_DIR, agentBin, planAgent, type AgentName, type AgentPlan, type AgentRunRecord } from '../code-agents/index.js';
+import { AGENTS, AGENTS_DIR, agentBin, comparedOf, forJudging, notComparedText, planAgent, type AgentName, type AgentPlan, type AgentRunRecord } from '../code-agents/index.js';
 import { codexLocalPreflight } from '../code-agents/codex-local.js';
 import { projectId, resolveInside } from '../project/index.js';
 import { flowRecordPath, flowWorkDir, writeProjectJson, type FlowOutcome } from '../flows/iterate.js';
@@ -163,10 +163,13 @@ export abstract class NativeFlows<R extends NativeFlowRecordBase> {
   /** The flow running in this project, of any kind. */
   protected busy(root: string): { id: string; step: string } | undefined { return this.runningIn(root) ?? this.busyElsewhere(root); }
 
-  /** Starts the agent through /agent's own start; the project stays held for this start (its lock: R4-5), named first. */
+  /**
+   * Starts the agent through /agent's own start; the project stays held for this start (its lock: R4-5), named first.
+   * R4 review (R4-2): judged by the whole project, .timmy and dist included; the flow's own folder is Timmy's write.
+   */
   protected async startAgent(id: string, req: NativeIterateRequest, task: string, o: { root: string; project: string; env: NodeJS.ProcessEnv; local: { local?: true } }): Promise<Awaited<ReturnType<IterateDeps['startAgent']>>> {
     this.lock?.name(o.root, id);
-    return this.d.startAgent(req.agent, task, { paid: false, ...o.local, root: o.root, project: o.project, env: o.env });
+    return this.d.startAgent(req.agent, task, { paid: false, ...o.local, root: o.root, project: o.project, env: o.env, judge: { own: [flowWorkDir(id)] } });
   }
 
   /** The agent's part of the record, from its start. */
@@ -229,8 +232,12 @@ export abstract class NativeFlows<R extends NativeFlowRecordBase> {
   protected async agentStep(f: NativeRun<R>): Promise<void> {
     f.step = 'agent';
     const job = await this.d.jobs.done(f.agentJob!);
-    const rec = f.agentRecord!;
+    // R4 review (R4-2): what it changed as the check's own snapshot saw it (the whole project, .timmy and dist included);
+    // each target's checks step reads it from f.agentRecord.
+    const rec = forJudging(f.agentRecord!);
+    f.agentRecord = rec;
     const a = f.record.agent!;
+    if (rec.judged) a.compared = comparedOf(rec.judged);
     a.outcome = rec.outcome ?? job.state;
     if (rec.why) a.why = this.d.scrub(rec.why, f.root);
     if (rec.transcript) a.transcript = `${AGENTS_DIR}/${rec.run}/${rec.transcript}`;
@@ -320,8 +327,11 @@ export abstract class NativeFlows<R extends NativeFlowRecordBase> {
     const rec = f.record;
     const ok = rec.outcome === 'succeeded';
     const tail = `${file ? `${this.sep}record ${file}` : `${this.sep}the record could not be written`}${receipt ? `${this.sep}receipt ${receipt}` : ''}`;
+    // R4 review (R4-2): what the check of the agent's changes did not look into, never skipped silently.
+    const unseen = notComparedText(rec.agent?.compared);
     return [[{ text: `  ${ok ? g.ok : rec.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok || rec.outcome === 'cancelled' ? undefined : 'failure' },
-      { text: `${f.id} ${rec.outcome}`, role: ok || rec.outcome === 'cancelled' ? 'strong' : 'failure' }, { text: `: ${rec.why ?? ''}${tail}`, role: 'secondary' }], ...this.measuredLines(rec)];
+      { text: `${f.id} ${rec.outcome}`, role: ok || rec.outcome === 'cancelled' ? 'strong' : 'failure' }, { text: `: ${rec.why ?? ''}${tail}`, role: 'secondary' }],
+      ...(unseen ? [[{ text: `      not compared while the agent ran: ${unseen}`, role: 'secondary' as const }]] : []), ...this.measuredLines(rec)];
   }
 
   // ── stopping ─────────────────────────────────────────────────────────────────

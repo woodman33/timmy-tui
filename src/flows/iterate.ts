@@ -13,7 +13,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ChangeSet, FileChange } from '../code-agents/index.js';
+import type { ChangeSet, ComparedScope, FileChange } from '../code-agents/index.js';
 import { DOCTRINE_15, PARAMETER_HELP, PARAMETER_NAMES, RECIPE_ID } from '../recipes/index.js';
 import { packagedPath, packageRoot } from '../utils/asset-dirs.js';
 
@@ -93,10 +93,16 @@ export type AgentChanges =
   | { ok: true; params: 'changed' | 'unchanged'; change?: FileChange }
   | { ok: false; reason: 'others' | 'deleted' | 'incomplete' | 'missing'; why: string; others: OtherChange[] };
 
+/** A path in a folder named .timmy, at any depth (Timmy's own records). */
+const inTimmy = (p: string): boolean => p.split('/').includes('.timmy');
+
 /**
- * The agent's own before/after snapshot (its result's `files`), judged for /iterate: only the parameter file may
- * have changed. Anything else changed, added or deleted stops the flow before the build (nothing is reverted);
- * a deleted parameter file, or a comparison that did not cover the project, stops it too.
+ * The agent run's before/after snapshot, judged for /iterate: only the parameter file may have changed. For an
+ * /iterate run that is the check's own snapshot (R4 review, R4-2: the whole project, .timmy and dist included, with
+ * Timmy's own writes during the agent step left out; forJudging in src/code-agents), otherwise the result's `files`.
+ * Anything else changed, added or deleted stops the flow before the build (nothing is reverted); a change in a .timmy
+ * folder is said apart, as changed while the agent ran, since Timmy cannot tell whether the agent or something else
+ * changed it. A deleted parameter file, or a comparison that did not cover the project, stops the flow too.
  */
 export function judgeAgentChanges(files: (ChangeSet & { truncated?: boolean }) | undefined, paramsRel: string): AgentChanges {
   if (!files) return { ok: false, reason: 'missing', why: 'the agent run left no record of what it changed, so whether it changed only the parameter file is not known', others: [] };
@@ -106,8 +112,14 @@ export function judgeAgentChanges(files: (ChangeSet & { truncated?: boolean }) |
     ...files.deleted.filter((c) => c.path !== paramsRel).map((c) => ({ path: c.path, how: 'deleted' as const, sha256_before: c.previous_sha256 ?? null })),
   ];
   if (others.length) {
-    const named = others.slice(0, 12).map((o) => `${o.path} (${o.how})`).join(', ');
-    return { ok: false, reason: 'others', why: `the agent changed files other than ${paramsRel}: ${named}${others.length > 12 ? ` and ${others.length - 12} more` : ''}`, others };
+    const named = (list: OtherChange[]): string => `${list.slice(0, 12).map((o) => `${o.path} (${o.how})`).join(', ')}${list.length > 12 ? ` and ${list.length - 12} more` : ''}`;
+    const timmy = others.filter((o) => inTimmy(o.path));
+    const elsewhere = others.filter((o) => !inTimmy(o.path));
+    const why = [
+      ...(elsewhere.length ? [`the agent changed files other than ${paramsRel}: ${named(elsewhere)}`] : []),
+      ...(timmy.length ? [`changed while the agent ran: ${named(timmy)} (Timmy cannot tell who changed it)`] : []),
+    ].join('; ');
+    return { ok: false, reason: 'others', why, others };
   }
   if (files.deleted.some((c) => c.path === paramsRel)) return { ok: false, reason: 'deleted', why: `the agent deleted ${paramsRel}`, others: [] };
   if (files.truncated) return { ok: false, reason: 'incomplete', why: 'the project has more files than the agent run compared, so whether it changed only the parameter file is not known', others: [] };
@@ -266,6 +278,8 @@ export interface FlowRecord {
     files_changed?: Array<{ path: string; how: 'added' | 'changed' | 'deleted'; sha256_before?: string | null; sha256_after?: string | null }>;
     /** files other than the parameter file it changed (the flow stopped before the build; nothing was reverted) */
     others?: OtherChange[];
+    /** R4 review (R4-2): what the check compared: its scope, Timmy's own writes left out, the entries not looked into */
+    compared?: ComparedScope;
     result?: string; transcript?: string; progress?: string;
     cost_usd?: number | null; cost_basis?: string;
     receipt?: string;

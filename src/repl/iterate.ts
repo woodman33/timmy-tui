@@ -33,7 +33,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { JobManager, JobRecord, JobSpec } from '../jobs/index.js';
-import { AGENTS, AGENTS_DIR, AGENT_NAMES, agentBin, planAgent, type AgentInfo, type AgentName, type AgentPlan, type AgentRunRecord } from '../code-agents/index.js';
+import { AGENTS, AGENTS_DIR, AGENT_NAMES, agentBin, comparedOf, forJudging, notComparedText, planAgent, type AgentInfo, type AgentName, type AgentPlan, type AgentRunRecord } from '../code-agents/index.js';
 import { codexLocalPreflight } from '../code-agents/codex-local.js';
 import { checkCopy, failureFiles, nativeRuntime, PARAMETER_HELP, PARAMETER_NAMES, PYTHON_SETUP, readCard, RECIPE_ID, short } from '../recipes/index.js';
 import { paramsPath, parseParams, readParams, writeParams } from '../recipes/params-file.js';
@@ -90,8 +90,12 @@ export interface IterateDeps {
   jobs: JobManager;
   /** Starts a job as this REPL's own (so /stop and /stop all reach it); `selfSealed`: the flow seals its receipt. */
   startJob: (spec: JobSpec, o?: { selfSealed?: boolean }) => JobRecord;
-  /** /agent's own start, in the flow's project; `local`: Codex's local route (round R4, H25). */
-  startAgent: (name: AgentName, task: string, o: { paid: false; local?: true; root: string; project: string; env: NodeJS.ProcessEnv }) => Promise<AgentStart>;
+  /**
+   * /agent's own start, in the flow's project; `local`: Codex's local route (round R4, H25). `judge` (R4 review, R4-2):
+   * the run is also judged by a snapshot of the whole project, .timmy and dist included, leaving out the run's own folder,
+   * the folders in `own` (the flow's), the jobs folder and the recipe jobs not over: Timmy's own writes during the agent step.
+   */
+  startAgent: (name: AgentName, task: string, o: { paid: false; local?: true; root: string; project: string; env: NodeJS.ProcessEnv; judge?: { own: string[] } }) => Promise<AgentStart>;
   /** /recipe's own start (startRecipeJob), in the flow's project. */
   startRecipe: (root: string, project: string, given: Record<string, unknown>) => Promise<RecipeStarted>;
   /** Writes the project's folder as "." and the home folder as "~". */
@@ -402,7 +406,7 @@ export class IterateFlows {
     const values = PARAMETER_NAMES.map((n) => `${n} ${fmt(before.values[n])}`).join(', ');
     // The agent, through /agent's own start: its job, its snapshot before, its sealed result at its end.
     const task = iterateTask({ instruction: req.instruction, paramsRel: rel, fileText: text });
-    const s = await this.d.startAgent(req.agent, task, { paid: false, ...local, root, project, env });
+    const s = await this.d.startAgent(req.agent, task, { paid: false, ...local, root, project, env, judge: { own: [flowWorkDir(id)] } });
     if (!s.ok) {
       const wrote = created ? this.say(`${rel} did not exist: written from the recipe card's defaults (${values})`) : [];
       return refuse(`The agent did not start: ${this.d.scrub(s.error, root)}`, s.refused === 'paid' || s.refused === 'missing' ? 'estimate' : 'failure', [], wrote);
@@ -468,8 +472,11 @@ export class IterateFlows {
   private async agentStep(f: FlowRun): Promise<void> {
     const job = await this.d.jobs.done(f.agentJob!);
     // The agent's sealed result (sealAgent ran at the job's end): its outcome, what it changed, its cost and receipt.
-    const rec = f.agentRecord!;
+    // R4 review (R4-2): what it changed as the check's own snapshot saw it (the whole project, .timmy and dist included).
+    const rec = forJudging(f.agentRecord!);
+    f.agentRecord = rec;
     const a = f.record.agent!;
+    if (rec.judged) a.compared = comparedOf(rec.judged);
     a.outcome = rec.outcome ?? job.state;
     if (rec.why) a.why = this.d.scrub(rec.why, f.root);
     if (rec.transcript) a.transcript = `${AGENTS_DIR}/${rec.run}/${rec.transcript}`;
@@ -726,6 +733,9 @@ export class IterateFlows {
     const tail = `${file ? `${this.sep}record ${file}` : `${this.sep}the record could not be written`}${receipt ? `${this.sep}receipt ${receipt}` : ''}`;
     const lines: Line[] = [[{ text: `  ${ok ? g.ok : rec.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok || rec.outcome === 'cancelled' ? undefined : 'failure' },
       { text: `${f.id} ${rec.outcome}`, role: ok || rec.outcome === 'cancelled' ? 'strong' : 'failure' }, { text: `: ${rec.why ?? ''}${tail}`, role: 'secondary' }]];
+    // R4 review (R4-2): what the check of the agent's changes did not look into, never skipped silently.
+    const unseen = notComparedText(rec.agent?.compared);
+    if (unseen) lines.push([{ text: `      not compared while the agent ran: ${unseen}`, role: 'secondary' }]);
     const m = rec.readback?.measured;
     if (m && rec.readback) {
       lines.push([{ text: '      measured from the CAD file: ', role: 'secondary' }, { text: `${mmText(m.bounds_mm)} mm, ${mm3Text(m.volume_mm3)} mm3, ${m.solids} ${m.valid ? 'valid ' : 'invalid '}solid${m.solids === 1 ? '' : 's'}`, role: 'strong' },

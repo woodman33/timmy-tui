@@ -38,6 +38,7 @@ import { applyBoardEdit } from './board-edits.js';
 import { workflowForBoard } from './board-nodes.js';
 import { recipeEnded, recipeView, startRecipeJob, type RecipeContext, type RecipeStarted, type RecipeTestSeams } from './recipe.js';
 import { cancelRecipe, cancelSentence, RecipeLaunches, type RecipeCancel } from './recipe-stop.js';
+import { liveRecipeJobFolders } from '../recipes/index.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import { readChain, type Receipt, type ReceiptInput } from '../utils/receipts.js';
@@ -54,9 +55,9 @@ import { findUpmd, findWorkflowDocs, parseUpmdLine, parseWorkflow, runOrder, ste
 import { spawnSync, execFile } from 'node:child_process';
 import { copyFileSync, writeFileSync } from 'node:fs';
 import {
-  AGENT_NAMES, AGENTS, AGENTS_DIR, agentBin, agentLabel, appendProgress, boundMessage, diffSnapshots, ensureDir, isGitDir, judgeAgentRun,
-  listAgentRuns, newProgress, newRunId, parseAgentLine, planAgent, progressLine, readProgressTail, runDir, scrubPaths, snapshotJson, snapshotProject,
-  taskWords, writeJson, type AgentName, type AgentPlan, type AgentProgress, type AgentRunRecord, type Snapshot,
+  AGENT_NAMES, AGENTS, AGENTS_DIR, agentBin, agentLabel, appendProgress, boundMessage, diffSnapshots, ensureDir, folderInProject, isGitDir, judgeAgentRun,
+  judgedChanges, judgeSnapshot, listAgentRuns, newProgress, newRunId, parseAgentLine, planAgent, progressLine, readProgressTail, regularOf, runDir, scrubPaths,
+  snapshotJson, snapshotProject, taskWords, writeJson, type AgentName, type AgentPlan, type AgentProgress, type AgentRunRecord, type JudgedSnapshot, type Snapshot,
 } from '../code-agents/index.js';
 // Round R4 (helper H25): Codex's local route (/agent codex --local); hooks are marked "R4 (H25)".
 import { codexLocalPreflight, codexLocalSummary } from '../code-agents/codex-local.js';
@@ -203,6 +204,8 @@ interface AgentRunState {
   /** `git diff --stat --relative` before the run, when the project is in a git work tree */
   gitBefore: string | null;
   progress: AgentProgress;
+  /** R4 review (R4-2), an /iterate run: Timmy's own writes during it (project-relative folders) and the check's snapshot before it */
+  judge?: { own: string[]; before: JudgedSnapshot };
 }
 
 /** R3 (H14): what an observation with a qualified answer adds to its reading. */
@@ -1388,8 +1391,12 @@ export class Workspace {
    * R4 (/iterate): a code agent's run started, as data: the one start /agent and /iterate share. The endpoint rule
    * (planAgent), the project's snapshot before it, its job (this REPL's, so /stop reaches it) and, at its end, its
    * sealed result (sealAgent). `root`, `project` and `env` default to the active project and this REPL's environment.
+   * `judge` (R4 review, R4-2; /iterate's runs): the run is also judged by a snapshot of the whole project, .timmy and dist
+   * included, that leaves out Timmy's own writes during the run: its run folder, the folders in `own` (the flow's), the
+   * jobs folder when it is in the project, and the folders of the recipe jobs not over when it starts (their supervisors
+   * keep writing them). /agent's own `files` are then read from that same walk.
    */
-  async startAgentRun(name: AgentName, task: string, o: { paid: boolean; local?: boolean; root?: string; project?: string; env?: NodeJS.ProcessEnv }): Promise<AgentStart> {
+  async startAgentRun(name: AgentName, task: string, o: { paid: boolean; local?: boolean; root?: string; project?: string; env?: NodeJS.ProcessEnv; judge?: { own: string[] } }): Promise<AgentStart> {
     const info = AGENTS[name];
     const env = o.env ?? this.d.env;
     const bin = agentBin(name, env, this.d.onPath);
@@ -1407,13 +1414,20 @@ export class Workspace {
     const dir = runDir(root, run);
     const version = await agentVersion(bin);
     let before: { files: Snapshot; truncated: boolean };
-    try { ensureDir(dir); for (const d of plan.makeDirs ?? []) ensureDir(d); before = snapshotProject(root); } catch (e) { return { ok: false, refused: 'prepare', error: `The run could not be prepared: ${this.scrub((e as Error).message, root)}` }; }
+    const jobsIn = folderInProject(root, this.d.jobsDir);
+    // Timmy's own writes during the run: its folder, the flow's, the jobs folder, and the recipe jobs not over (their heartbeats).
+    const own = o.judge ? [`${AGENTS_DIR}/${run}`, ...o.judge.own, ...(jobsIn ? [jobsIn] : []), ...liveRecipeJobFolders(root)] : [];
+    let judged: JudgedSnapshot | undefined;
+    try {
+      ensureDir(dir); for (const d of plan.makeDirs ?? []) ensureDir(d);
+      if (o.judge) { judged = judgeSnapshot(root, own); before = { files: regularOf(judged.files), truncated: judged.truncated }; } else before = snapshotProject(root);
+    } catch (e) { return { ok: false, refused: 'prepare', error: `The run could not be prepared: ${this.scrub((e as Error).message, root)}` }; }
     const record: AgentRunRecord = {
       agent_run: 1, run, agent: name, agent_version: version, model: plan.model, endpoint: plan.endpoint, where: plan.where,
       task, job: '', started_at: new Date().toISOString(),
     };
     const progress = newProgress();
-    const state: AgentRunState = { record, plan, root, dir, before: before.files, beforeTruncated: before.truncated, gitBefore: isGitDir(root) ? gitStat(root) : null, progress };
+    const state: AgentRunState = { record, plan, root, dir, before: before.files, beforeTruncated: before.truncated, gitBefore: isGitDir(root) ? gitStat(root) : null, progress, ...(judged ? { judge: { own, before: judged } } : {}) };
     try { writeJson(join(dir, 'snapshot-before.json'), { truncated: before.truncated, files: snapshotJson(before.files) }); } catch { /* kept in memory */ }
     const job = this.jobs.start({
       kind: 'task', label: agentLabel(name, run, task, root), project: o.project ?? this.project.name, root, command: plan.command, args: plan.args, timeoutMs: plan.timeoutMs,
@@ -1553,7 +1567,11 @@ export class Workspace {
     const rec = st.record;
     const judged = judgeAgentRun(job, st.progress, rec.agent);
     let after: { files: Snapshot; truncated: boolean };
-    try { after = snapshotProject(root); } catch { after = { files: new Map(), truncated: true }; }
+    // R4 review (R4-2): an /iterate run's check walks the whole project again, before anything below is written or sealed.
+    let judgedAfter: JudgedSnapshot | undefined;
+    try {
+      if (st.judge) { judgedAfter = judgeSnapshot(root, st.judge.own); after = { files: regularOf(judgedAfter.files), truncated: judgedAfter.truncated }; } else after = snapshotProject(root);
+    } catch { after = { files: new Map(), truncated: true }; if (st.judge) judgedAfter = { files: new Map(), truncated: true, notCompared: [] }; }
     const changes = diffSnapshots(st.before, after.files);
     const gitAfter = st.gitBefore !== null ? gitStat(root) : null;
     let final = st.progress.finalMessage;
@@ -1582,6 +1600,7 @@ export class Workspace {
     Object.assign(rec, {
       ended_at: job.endedAt ?? new Date().toISOString(), exit_code: job.exitCode ?? null, signal: job.signal ?? null, outcome: judged.outcome, why: this.scrub(judged.why, root),
       files: { ...changes, truncated: st.beforeTruncated || after.truncated },
+      ...(st.judge && judgedAfter ? { judged: judgedChanges(st.judge.before, judgedAfter, st.judge.own) } : {}),
       git_diff_stat: st.gitBefore !== null ? { before: st.gitBefore, after: gitAfter ?? '' } : null,
       final_message: finalInfo,
       progress: { tool_calls: st.progress.toolCalls, files_edited: st.progress.filesEdited, tool_errors: st.progress.toolErrors, denied: st.progress.denied, structured_lines: st.progress.structured, raw_lines: st.progress.raw },

@@ -431,6 +431,19 @@ export function listRecipeJobs(root: string): Listed[] {
 }
 
 /**
+ * R4 review (R4-2): the folders of the project's recipe jobs that are not over (neither terminal.json nor recovered.json
+ * in them), project-relative, each ending in /: their supervisors keep writing them (a heartbeat every 250 ms, then the
+ * result), and a recovery may end them, so the /iterate check of an agent run started meanwhile leaves them out as
+ * Timmy's own writes. Read only: no folder is made, and no job is verified here.
+ */
+export function liveRecipeJobFolders(root: string): string[] {
+  const jobs = path.join(root, '.timmy', 'recipe-jobs');
+  let names: string[] = [];
+  try { names = fs.readdirSync(jobs).filter(isRecipeJobId); } catch { return []; }
+  return names.filter((id) => !['terminal.json', 'recovered.json'].some((n) => fs.existsSync(path.join(jobs, id, n)))).sort().map((id) => `.timmy/recipe-jobs/${id}/`);
+}
+
+/**
  * When the recipe was last exercised in this project: a succeeded job of the real worker whose signed result
  * verifies now (status() again). Submission, failure, cancellation and fixture executors never count.
  */
