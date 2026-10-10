@@ -66,6 +66,8 @@ import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import type { ReceiptInput } from '../utils/receipts.js';
 import { FlowLock, type FlowKind } from './flow-lock.js';
+// R4 (H50): Timmy Memory: the checked lessons that apply, picked (and checked again) before the agent's task.
+import { lessonsStartLine, pickLessons, type LessonQuery, type Retrieval } from '../memory/retrieve.js';
 
 type Line = Segment[];
 /** A start refused before anything was written. */
@@ -117,6 +119,8 @@ export interface IterateDeps {
       { ok: true; job: JobRecord; done: Promise<FreecadReadbackLine | undefined> } | { ok: false; failed?: true; error: string };
   };
   test?: IterateTestSeams;
+  /** R4 (H50): the checked lessons for a task (src/memory/repl.ts retrieveForTask); absent: none are looked for or claimed. */
+  lessons?: (q: LessonQuery) => Retrieval;
 }
 
 export interface IterateRequest { recipe: 'tray'; instruction: string; agent: AgentName; model?: string }
@@ -333,6 +337,7 @@ export class IterateFlows {
     return {
       ok: true, flow: s.flow.id, target: req.target, agent_job: s.flow.agentJob, agent_run: r.agent?.run, route: r.agent?.route,
       file_the_agent_may_change: { path: changes.path, sha256: changes.before.sha256 },
+      ...(r.lessons ? { lessons: r.lessons } : {}), // R4 (H50): the checked lessons its task was given
       record_when_done: flowRecordPath(s.flow.id),
       note: req.target === 'scad'
         ? `Started, not finished: the local agent may change only the values in ${changes.path}; then OpenSCAD exports the model as a judged job, and Timmy's reading of its STL is compared with OpenSCAD's own summary. The operator follows it with /iterate and /jobs ${s.flow.agentJob}, and stops it with /stop ${s.flow.id}. Do not claim the model is exported or measured.`
@@ -352,6 +357,7 @@ export class IterateFlows {
     return {
       ok: true, flow: s.flow.id, agent_job: s.flow.agentJob, agent_run: r.agent?.run, route: r.agent?.route,
       parameters_file: { path: r.parameters.path, sha256: r.parameters.before.sha256, values: r.parameters.before.values, written_from_defaults: r.parameters.created },
+      ...(r.lessons ? { lessons: r.lessons } : {}), // R4 (H50): the checked lessons its task was given
       record_when_done: flowRecordPath(s.flow.id),
       note: `Started, not finished: the local agent may change only ${r.parameters.path}; then the recipe rebuilds as a durable job and a separate worker reads its STEP back. The operator follows it with /iterate and /jobs ${s.flow.agentJob}, and stops it with /stop ${s.flow.id}. Do not claim the tray is rebuilt or measured.`,
       doctrine: DOCTRINE_15,
@@ -453,7 +459,9 @@ export class IterateFlows {
     const before = { sha256: sha(text), values: parsed.parameters };
     const values = PARAMETER_NAMES.map((n) => `${n} ${fmt(before.values[n])}`).join(', ');
     // The agent, through /agent's own start: its job, its snapshot before, its sealed result at its end.
-    const task = iterateTask({ instruction: req.instruction, paramsRel: rel, fileText: text });
+    // R4 (H50): the checked lessons that apply (each checked again now), given to the agent as one section.
+    const lessons = pickLessons(this.d, { root, project, kind: 'tray', instruction: req.instruction, files: [rel] });
+    const task = iterateTask({ instruction: req.instruction, paramsRel: rel, fileText: text, ...(lessons?.section ? { lessons: lessons.section } : {}) });
     const s = await this.d.startAgent(req.agent, task, { paid: false, ...local, root, project, env, judge: { own: [flowWorkDir(id)] } });
     if (!s.ok) {
       const wrote = created ? this.say(`${rel} did not exist: written from the recipe card's defaults (${values})`) : [];
@@ -466,7 +474,7 @@ export class IterateFlows {
         run: s.run, agent: s.plan.agent, version: s.version, route: s.plan.charge, where: s.plan.where, model: s.plan.model, job: s.job.id,
         result: `${AGENTS_DIR}/${s.run}/result.json`, progress: `${AGENTS_DIR}/${s.run}/progress.log`,
       },
-      receipts: {}, child_receipts: [], doctrine: DOCTRINE_15,
+      receipts: {}, child_receipts: [], doctrine: DOCTRINE_15, ...(lessons ? { lessons: lessons.record } : {}),
     };
     const flow: FlowRun = { id, root, project, record, abort: new AbortController(), step: 'agent', agentJob: s.job.id, agentRecord: s.record };
     this.running.set(id, flow);
@@ -478,6 +486,7 @@ export class IterateFlows {
         [{ text: '  Parameters ', role: 'secondary' }, { text: rel, role: 'strong' }, { text: `  ${values}${this.sep}sha256 ${short(before.sha256)}`, role: 'secondary' }],
         ...(created ? this.say(`           it did not exist: written from the recipe card's defaults before the agent ran`, 'estimate') : []),
         [{ text: '  Agent      ', role: 'secondary' }, { text: s.job.id, role: 'strong' }, { text: `  agent ${s.plan.agent} ${s.run}${this.sep}${s.info.title}${s.version ? ` ${s.version}` : ''}${s.plan.model ? `${this.sep}model ${s.plan.model} at ${s.plan.where}` : ''}${this.sep}${s.plan.charge}`, role: 'secondary' }],
+        ...(lessons ? [lessonsStartLine(lessons)] : []), // R4 (H50)
         [{ text: '  Next       ', role: 'secondary' }, { text: `it may change only ${rel}; then the recipe rebuilds as a durable job and a separate worker reads the STEP back`, role: 'secondary' }],
         [{ text: '  Follow     ', role: 'secondary' }, { text: `/jobs ${s.job.id}${this.sep}/stop ${id} stops the flow${this.sep}/iterate lists flows${this.sep}the record: ${flowRecordPath(id)} ${g.arrow} /board`, role: 'secondary' }],
       ],
@@ -764,6 +773,7 @@ export class IterateFlows {
         ...(rec.child_receipts.length ? { child_receipts: rec.child_receipts } : {}),
         // The agent's cost as its own receipt sealed it: 0 on a local endpoint; unknown is never written as 0.
         ...(typeof cost === 'number' ? { cost_usd: cost } : cost === null ? { cost_measured: false } : {}),
+        ...(rec.lessons?.length ? { lessons: rec.lessons } : {}), // R4 (H50): the lessons its agent was given
       });
     } catch { receipt = undefined; }
     f.receipt = receipt;

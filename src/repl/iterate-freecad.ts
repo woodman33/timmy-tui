@@ -35,6 +35,7 @@ import { FLOW_SCHEMA, flowRecordPath, flowWorkDir, mm3Text, mmText, newFlowId, R
 import { changeText, DOCTRINE_15, judgeFileChanges, lineCount, NATIVE_FILE_MAX_BYTES, scriptChange, syntaxWords, unseenFolder } from '../flows/iterate-native.js';
 import { FREECAD_FLOW_MEASURED_BY, freecadIterateTask, previousFreecadRun, stepMeasure, type FreecadFlowRecord, type FreecadMeasure } from '../flows/iterate-freecad.js';
 import { keepBytes, NativeFlows, relTo, sha, short, type Line, type NativeIterateRequest, type NativeRun, type Started } from './iterate-native.js';
+import { lessonsStartLine, pickLessons } from '../memory/retrieve.js'; // R4 (H50): Timmy Memory's lessons for the agent's task
 
 export const FREECAD_ITERATE_USAGE = '/iterate freecad <script.py> "<instruction>" [--agent qwen|codex] [--model <local model>]';
 
@@ -115,7 +116,9 @@ export class FreecadFlows extends NativeFlows<FreecadFlowRecord> {
     try { bytes = readFileSync(found.path); } catch (e) { return this.refuse(`${rel} could not be read: ${scrub(e instanceof Error ? e.message : String(e))}. Nothing was started.`); }
     const beforeText = bytes.toString('utf8');
     const startedAt = new Date().toISOString();
-    const task = freecadIterateTask({ instruction: req.instruction, scriptRel: rel, scriptText: beforeText });
+    // R4 (H50): the checked lessons that apply (each checked again now), given to the agent as one section.
+    const lessons = pickLessons(this.d, { root, project, kind: 'freecad', instruction: req.instruction, files: [rel] });
+    const task = freecadIterateTask({ instruction: req.instruction, scriptRel: rel, scriptText: beforeText, ...(lessons?.section ? { lessons: lessons.section } : {}) });
     const s = await this.startAgent(id, req, task, { root, project, env, local: route.local });
     if (!s.ok) return this.refuse(`The agent did not start: ${scrub(s.error)}`, s.refused === 'paid' || s.refused === 'missing' ? 'estimate' : 'failure');
     const keptAt = keepBytes(root, `${flowWorkDir(id)}/script.before.py`, bytes);
@@ -128,7 +131,7 @@ export class FreecadFlows extends NativeFlows<FreecadFlowRecord> {
       before_after: 'none' in prev
         ? { measured_by: FREECAD_FLOW_MEASURED_BY, before: null, before_note: prev.none }
         : { measured_by: FREECAD_FLOW_MEASURED_BY, before: { ...prev.measure, run: prev.run, ...(prev.job ? { job: prev.job } : {}), started_at: prev.started_at } },
-      receipts: {}, child_receipts: [], doctrine: DOCTRINE_15,
+      receipts: {}, child_receipts: [], doctrine: DOCTRINE_15, ...(lessons ? { lessons: lessons.record } : {}),
     };
     const flow: FreecadRun = { id, root, project, record, abort: new AbortController(), step: 'agent', beforeText, agentJob: s.job.id, agentRecord: s.record };
     this.launch(flow, (f) => this.steps(f as FreecadRun));
@@ -141,6 +144,7 @@ export class FreecadFlows extends NativeFlows<FreecadFlowRecord> {
         [{ text: '  Flow       ', role: 'secondary' }, { text: id, role: 'strong' }, { text: `  iterate freecad ${rel}: ${scrub(req.instruction)}`, role: 'secondary' }],
         [{ text: '  Script     ', role: 'secondary' }, { text: rel, role: 'strong' }, { text: `  ${record.script.before.lines} lines${this.sep}sha256 ${short(record.script.before.sha256)}${keptAt ? `${this.sep}kept as read: ${keptAt}` : ''}`, role: 'secondary' }],
         [{ text: '  Agent      ', role: 'secondary' }, { text: s.job.id, role: 'strong' }, { text: `  agent ${s.plan.agent} ${s.run}${this.sep}${s.info.title}${s.version ? ` ${s.version}` : ''}${s.plan.model ? `${this.sep}model ${s.plan.model} at ${s.plan.where}` : ''}${this.sep}${s.plan.charge}`, role: 'secondary' }],
+        ...(lessons ? [lessonsStartLine(lessons)] : []), // R4 (H50)
         [{ text: '  Next       ', role: 'secondary' }, { text: `it may change only ${rel}; then FreeCAD (found, ${how}) runs it as a judged job, ${ready.ready ? 'and its STEP is read back in a separate process as /freecad readback reads it' : `and the flow ends there: no readback (${ready.why})`}`, role: ready.ready ? 'secondary' : 'estimate' }],
         [{ text: '  Before     ', role: 'secondary' }, { text: before ? `run ${before.run.slice(0, 8)} (judged ok): ${measureWords(before)} in ${before.step}, as FreeCAD reported it` : `${record.before_after!.before_note}: the flow's run is reported alone`, role: 'secondary' }],
         [{ text: '  Follow     ', role: 'secondary' }, { text: `/jobs ${s.job.id}${this.sep}/stop ${id} stops the flow${this.sep}/iterate lists flows${this.sep}the record: ${flowRecordPath(id)} ${g.arrow} /board`, role: 'secondary' }],

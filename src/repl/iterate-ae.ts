@@ -48,6 +48,7 @@ import {
 import type { IterateDeps } from './iterate.js';
 import type { FlowLock } from './flow-lock.js';
 import type { Segment } from '../term/theme.js';
+import { lessonsStartLine, pickLessons } from '../memory/retrieve.js'; // R4 (H50): Timmy Memory's lessons for the agent's task
 
 type Line = Segment[];
 
@@ -271,7 +272,9 @@ export class AeFlows {
     const beforeText = bytes.toString('utf8');
     const name = aeStem(path.posix.basename(rel));
     const startedAt = new Date().toISOString();
-    const task = aeIterateTask({ instruction: req.instruction, scriptRel: rel, scriptText: beforeText, name });
+    // R4 (H50): the checked lessons that apply (each checked again now), given to the agent as one section.
+    const lessons = pickLessons(this.d, { root, project, kind: 'ae', instruction: req.instruction, files: [rel] });
+    const task = aeIterateTask({ instruction: req.instruction, scriptRel: rel, scriptText: beforeText, name, ...(lessons?.section ? { lessons: lessons.section } : {}) });
     // The project is held from here: the agent's start is awaited, and no second flow may start meanwhile.
     this.starting.set(root, id);
     let s: Awaited<ReturnType<IterateDeps['startAgent']>>;
@@ -288,7 +291,7 @@ export class AeFlows {
         run: s.run, agent: s.plan.agent, version: s.version, route: s.plan.charge, where: s.plan.where, model: s.plan.model, job: s.job.id,
         result: `${AGENTS_DIR}/${s.run}/result.json`, progress: `${AGENTS_DIR}/${s.run}/progress.log`,
       },
-      receipts: {}, child_receipts: [], doctrine: DOCTRINE_15,
+      receipts: {}, child_receipts: [], doctrine: DOCTRINE_15, ...(lessons ? { lessons: lessons.record } : {}),
     };
     const flow: AeRun = { id, root, project, record, abort: new AbortController(), step: 'agent', beforeText, name, agentJob: s.job.id, agentRecord: s.record };
     // Before: an earlier /ae author run of these same bytes, judged ok (its comps are read when the flow ends).
@@ -307,6 +310,7 @@ export class AeFlows {
         [{ text: '  Flow       ', role: 'secondary' }, { text: id, role: 'strong' }, { text: `  iterate ae ${rel}: ${scrub(req.instruction)}`, role: 'secondary' }],
         [{ text: '  Script     ', role: 'secondary' }, { text: rel, role: 'strong' }, { text: `  ${record.script.before.lines} lines${this.sep}sha256 ${short(record.script.before.sha256)}${keptAt ? `${this.sep}kept as read: ${keptAt}` : ''}`, role: 'secondary' }],
         [{ text: '  Agent      ', role: 'secondary' }, { text: s.job.id, role: 'strong' }, { text: `  agent ${s.plan.agent} ${s.run}${this.sep}${s.info.title}${s.version ? ` ${s.version}` : ''}${s.plan.model ? `${this.sep}model ${s.plan.model} at ${s.plan.where}` : ''}${this.sep}${s.plan.charge}`, role: 'secondary' }],
+        ...(lessons ? [lessonsStartLine(lessons)] : []), // R4 (H50)
         [{ text: '  Next       ', role: 'secondary' }, { text: `it may change only ${rel}; then After Effects (found, ${where(ae.found)}) runs it as /ae author --name ${name} does (its window opens), aerender (found, ${where(render.found)}) renders ${req.comp !== undefined ? `the comp ${req.comp}` : 'the first comp'} to out/ae/${name}-v<N>${AE_RENDER_EXT}${req.om !== undefined ? ` with the output module template "${req.om}" (After Effects' own name, not checked)` : ''}, ${tools.ready ? 'and the render is read back outside After Effects and compared with After Effects\' report' : `and the flow ends there: no readback (${tools.why})`}`, role: tools.ready ? 'secondary' : 'estimate' }],
         [{ text: '  Before     ', role: 'secondary' }, { text: 'none' in prev ? `${prev.none}: the flow's comp is reported alone` : `run ${prev.run.slice(0, 8)} (judged ok): its comps are set beside this run's, as After Effects reported each`, role: 'secondary' }],
         [{ text: '  Follow     ', role: 'secondary' }, { text: `/jobs ${s.job.id}${this.sep}/stop ${id} stops the flow${this.sep}/iterate lists flows${this.sep}the record: ${flowRecordPath(id)} ${g.arrow} /board`, role: 'secondary' }],
@@ -743,6 +747,7 @@ export class AeFlows {
         ...(rec.child_receipts.length ? { child_receipts: rec.child_receipts } : {}),
         // The agent's cost as its own receipt sealed it: 0 on a local endpoint; unknown is never written as 0.
         ...(typeof cost === 'number' ? { cost_usd: cost } : cost === null ? { cost_measured: false } : {}),
+        ...(rec.lessons?.length ? { lessons: rec.lessons } : {}), // R4 (H50): the lessons its agent was given
       });
     } catch { receipt = undefined; }
     f.receipt = receipt;

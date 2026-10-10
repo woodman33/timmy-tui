@@ -65,7 +65,7 @@ const sha = (b: Buffer | string): string => createHash('sha256').update(b).diges
  * parameters the instruction names, and list the recipe's ranges in millimetres (PARAMETER_HELP, the ranges
  * tray.ts validate() admits). The file's text now is given whole, so the agent edits what is there.
  */
-export function iterateTask(o: { instruction: string; paramsRel: string; fileText: string }): string {
+export function iterateTask(o: { instruction: string; paramsRel: string; fileText: string; lessons?: string }): string {
   const ranges = PARAMETER_NAMES.map((n) => `  ${n}: ${PARAMETER_HELP[n]}`).join('\n');
   return [
     o.instruction.trim(),
@@ -79,6 +79,8 @@ export function iterateTask(o: { instruction: string; paramsRel: string; fileTex
     '- Values are millimetres, within the recipe\'s ranges:',
     ranges,
     '- If the instruction cannot be met within these ranges, change nothing and say why.',
+    // R4 (H50): the checked lessons that apply, as one delimited section (src/memory/retrieve.ts lessonsSection)
+    ...(o.lessons ? ['', o.lessons] : []),
     '',
     `${o.paramsRel} now holds:`,
     o.fileText.trimEnd(),
@@ -324,6 +326,8 @@ export interface FlowRecord {
   receipts: { agent?: string; prediction?: string; build?: string; readback?: string };
   child_receipts: string[];
   doctrine: string;
+  /** R4 (H50): the checked lessons the agent's task was given (src/memory/retrieve.ts); [] when none applied */
+  lessons?: Array<{ id: string; sha256: string; status: string }>;
 }
 
 /** The project-relative folder checked: inside the project, through no link that leads out of it. */

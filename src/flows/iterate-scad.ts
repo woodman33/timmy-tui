@@ -37,7 +37,7 @@ const triple = (v: unknown): v is number[] => Array.isArray(v) && v.length === 3
  * rules: the one file it may change, values only (no name added or removed), the file's shape kept. The file's text now
  * is given whole, and the model's text too (read only, for what each parameter does) when it is small.
  */
-export function scadIterateTask(o: { instruction: string; paramsRel: string; modelRel: string; names: string[]; paramsText: string; modelText?: string; modelBytes?: number }): string {
+export function scadIterateTask(o: { instruction: string; paramsRel: string; modelRel: string; names: string[]; paramsText: string; modelText?: string; modelBytes?: number; lessons?: string }): string {
   const lines = [
     o.instruction.trim(),
     '',
@@ -50,6 +50,8 @@ export function scadIterateTask(o: { instruction: string; paramsRel: string; mod
     '- A value is a number, true or false, or text in double quotes; keep each value the kind it is.',
     '- Change only the parameters the instruction names; keep every other value as it is.',
     '- If the instruction cannot be met by changing these values, change nothing and say why.',
+    // R4 (H50): the checked lessons that apply, as one delimited section (src/memory/retrieve.ts lessonsSection)
+    ...(o.lessons ? ['', o.lessons] : []),
     '',
     `${o.paramsRel} now holds:`,
     o.paramsText.trimEnd(),

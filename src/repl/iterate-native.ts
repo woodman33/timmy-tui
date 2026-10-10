@@ -314,6 +314,7 @@ export abstract class NativeFlows<R extends NativeFlowRecordBase> {
         ...(rec.child_receipts.length ? { child_receipts: rec.child_receipts } : {}),
         // The agent's cost as its own receipt sealed it: 0 on a local endpoint; unknown is never written as 0.
         ...(typeof cost === 'number' ? { cost_usd: cost } : cost === null ? { cost_measured: false } : {}),
+        ...(rec.lessons?.length ? { lessons: rec.lessons } : {}), // R4 (H50): the lessons its agent was given
       };
       receipt = this.d.seal(input);
     } catch { receipt = undefined; }

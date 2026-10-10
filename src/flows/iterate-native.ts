@@ -227,6 +227,8 @@ export interface NativeFlowRecordBase {
   receipts: Record<string, string | undefined>;
   child_receipts: string[];
   doctrine: string;
+  /** R4 (H50): the checked lessons the agent's task was given (src/memory/retrieve.ts); [] when none applied */
+  lessons?: Array<{ id: string; sha256: string; status: string }>;
 }
 
 /** Whether a record (as read from its file) is a native flow's (scad or freecad). */

@@ -81,6 +81,12 @@ import type { BoardFlows } from './board-flows.js';
 import { VoxActions } from './vox.js';
 import { readBoardVox, voxFileFor } from './board-vox.js';
 import { VOX_DIR, type VoxAction } from '../vox/record.js';
+// Round R4 (H50): Timmy Memory: /recall, /lesson, /lessons (src/memory/repl.ts), its board section, and the checked lessons
+// picked before an /iterate or /agent task (src/memory/retrieve.ts).
+import { lessonCommand, lessonsCommand, namedFiles, recallCommand, retrieveForTask, type MemoryDeps } from '../memory/repl.js';
+import { agentTask, lessonsStartLine, type LessonQuery, type LessonUse, type Retrieval } from '../memory/retrieve.js';
+import { readBoardMemory, type BoardMemory } from '../memory/board.js';
+import { LESSONS_DIR } from '../memory/lessons.js';
 
 type Line = Segment[];
 
@@ -290,6 +296,7 @@ export class Workspace {
         run: (plan, at, o) => this.freecadReadbacks.run(plan, at, o),
       },
       ...(d.iterateTest ? { test: d.iterateTest } : {}),
+      lessons: (q) => this.lessonsFor(q), // R4 (H50)
     });
     this.freecadReadbacks = new FreecadReadbacks({
       glyphs: d.glyphs, env: () => this.d.env, notify: (l) => this.d.notify(l), seal: (input) => this.d.seal(input), jobs: this.jobs,
@@ -818,6 +825,25 @@ export class Workspace {
   measure(args: string): Promise<Line[]> { return this.voxAction('measure', args); }
   detect(args: string): Promise<Line[]> { return this.voxAction('detect', args); }
   compare(args: string): Promise<Line[]> { return this.voxAction('compare', args); }
+
+  // ── R4 (H50): Timmy Memory (src/memory) ───────────────────────────────────
+
+  /** What the memory commands work with: this project, the runs chain, this REPL's seal and scrub. */
+  private memory(): MemoryDeps {
+    return {
+      root: this.root, project: this.project.name, projectId: projectId(this.root), chain: () => this.chainNow(), seal: this.d.seal, env: this.d.env,
+      glyphs: this.d.glyphs, scrub: (t) => this.scrub(t, this.root), link: (rel) => this.fileLink(rel), jobs: () => this.jobs.list(),
+    };
+  }
+  private chainNow(): Receipt[] { try { return (this.d.receipts ?? (() => readChain('runs')))(); } catch { return []; } }
+  /** `/recall <words> [--all]`: the project's retained records holding the words (by words, not meaning). */
+  recall(args: string): Line[] { return recallCommand(this.memory(), args); }
+  /** `/lesson add | check | retire | eval | <id>`: lessons with evidence. */
+  lesson(args: string): Line[] { return lessonCommand(this.memory(), args); }
+  /** `/lessons [<kind>]`. */
+  lessons(args: string): Line[] { return lessonsCommand(this.memory(), args); }
+  /** The checked lessons for a task, each checked again now (a stale one is recorded and named, never given). */
+  private lessonsFor(q: LessonQuery): Retrieval { return retrieveForTask({ seal: this.d.seal, chain: () => this.chainNow(), projectId: projectId(q.root) }, q); }
 
   // ── /workflows, /run ────────────────────────────────────────────────────────
 
@@ -1444,7 +1470,9 @@ export class Workspace {
     if (a === 'last') return this.agentLast();
     const p = parseAgentLine(a);
     if (!p.name) return this.say(`No agent named ${p.word ?? ''}. Agents: ${AGENT_NAMES.join(', ')}; /agent lists them.`);
-    const s = await this.startAgentRun(p.name, p.task, { paid: p.paid, ...(p.local ? { local: true } : {}) });
+    // R4 (H50): the checked lessons that apply to the task go after the operator's words, as one section (none for no task).
+    const lessons = p.task.trim() ? this.lessonsFor({ root: this.root, project: this.project.name, kind: 'agent', instruction: p.task, files: namedFiles(this.root, p.task) }) : undefined;
+    const s = await this.startAgentRun(p.name, lessons ? agentTask({ task: p.task, lessons: lessons.section }) : p.task, { paid: p.paid, ...(p.local ? { local: true } : {}), ...(lessons ? { lessons: lessons.record } : {}) });
     if (!s.ok) return this.say(s.error, s.refused === 'missing' || s.refused === 'paid' ? 'estimate' : 'failure');
     const { info, version, plan, run, job } = s;
     const g = this.d.glyphs;
@@ -1455,6 +1483,7 @@ export class Workspace {
         { text: `${this.sep}up to ${plan.wallTime}${plan.env?.HOME ? `${this.sep}its own HOME (TIMMY_AGENT_HOME)` : ''}`, role: 'secondary' }],
       // R4 (H25): what the run is given and what it is not (Codex's local route says which codex folder it uses).
       ...(plan.note ? [[{ text: '  Note       ', role: 'secondary' as const }, { text: plan.note, role: 'secondary' as const }]] : []),
+      ...(lessons ? [lessonsStartLine(lessons)] : []), // R4 (H50)
       [{ text: '  Follow     ', role: 'secondary' }, { text: `/jobs ${job.id}${this.sep}/stop ${job.id}${this.sep}then /agent last or /results ${g.arrow} ${AGENTS_DIR}/${run}/`, role: 'secondary' }],
     ];
   }
@@ -1468,7 +1497,7 @@ export class Workspace {
    * jobs folder when it is in the project, and the folders of the recipe jobs not over when it starts (their supervisors
    * keep writing them). /agent's own `files` are then read from that same walk.
    */
-  async startAgentRun(name: AgentName, task: string, o: { paid: boolean; local?: boolean; root?: string; project?: string; env?: NodeJS.ProcessEnv; judge?: { own: string[] } }): Promise<AgentStart> {
+  async startAgentRun(name: AgentName, task: string, o: { paid: boolean; local?: boolean; root?: string; project?: string; env?: NodeJS.ProcessEnv; judge?: { own: string[] }; lessons?: LessonUse[] }): Promise<AgentStart> {
     const info = AGENTS[name];
     const env = o.env ?? this.d.env;
     const bin = agentBin(name, env, this.d.onPath);
@@ -1496,7 +1525,7 @@ export class Workspace {
     } catch (e) { return { ok: false, refused: 'prepare', error: `The run could not be prepared: ${this.scrub((e as Error).message, root)}` }; }
     const record: AgentRunRecord = {
       agent_run: 1, run, agent: name, agent_version: version, model: plan.model, endpoint: plan.endpoint, where: plan.where,
-      task, job: '', started_at: new Date().toISOString(),
+      task, job: '', started_at: new Date().toISOString(), ...(o.lessons ? { lessons: o.lessons } : {}), // R4 (H50)
     };
     const progress = newProgress();
     const state: AgentRunState = { record, plan, root, dir, before: before.files, beforeTruncated: before.truncated, gitBefore: isGitDir(root) ? gitStat(root) : null, progress, ...(judged ? { judge: { own, before: judged } } : {}) };
@@ -1708,6 +1737,7 @@ export class Workspace {
         ...(files.length ? { files } : {}),
         ...(outputs.length ? { outputs } : {}),
         ...(cost === null ? { cost_measured: false } : { cost_usd: cost }),
+        ...(rec.lessons?.length ? { lessons: rec.lessons } : {}), // R4 (H50): the lessons its task was given
       });
     } catch { receipt = undefined; }
     if (receipt) rec.receipt = receipt;
@@ -2005,6 +2035,8 @@ export class Workspace {
       room: room.view,
       // R4 (H49): VoxVision's tools, the files they read, and its records, each checked against the runs chain.
       vox: readBoardVox({ root, files, chain, projectId: pid, scrub: (t) => this.scrub(t, root), tools: { env: this.d.env, onPath: this.d.onPath, root } }),
+      // R4 (H50): Timmy Memory's lessons, each checked now against its evidence (read only), with how many runs used each.
+      memory: this.boardMemory(root, chain, pid),
     };
     return {
       input, references: references.length, docs: docs.length, jobs: jobs.length, outputs: outputs.length, observed: observed.length, verifiedCount, truncated, images,
@@ -2077,11 +2109,20 @@ export class Workspace {
       files: images,
       recipes: input.params ? [input.params.recipe] : [],
       voxFiles: input.vox?.files ?? [],
+      // R4 (H50): the lessons whose Check the board offers (the typed /lesson check <id>)
+      lessons: (input.memory?.lessons ?? []).filter((l) => l.status !== 'retired').map((l) => l.id),
       // R4 (H47): the OpenSCAD models whose parameter file a workflow card shows (set-scad-params saves only these), and
       // each block's state, which the page sets in place while it does not draw the board again
       scadModels: [...new Set(input.workflows.flatMap((w) => w.connected?.scad.map((v) => v.model) ?? []))],
       wfStates: liveNodeStates(input.workflows),
     };
+  }
+
+  /** R4 (H50): the Memory section's lessons; a failure to read them is said on the board, never a failure of the board. */
+  private boardMemory(root: string, chain: readonly Receipt[], pid: string): BoardMemory {
+    try { return readBoardMemory({ root, chain, projectId: pid, scrub: (t) => this.scrub(t, root) }); } catch (err) {
+      return { lessons: [], more: 0, unreadable: [{ file: LESSONS_DIR, why: this.scrub(err instanceof Error ? err.message : String(err), root) }] };
+    }
   }
 
   /** R4 (H49): a VoxVision highlight for the live board's /file: a PNG or SVG of a verified record, as its receipt sealed it. */
@@ -2118,7 +2159,9 @@ export class Workspace {
     const lines = c.name === 'stop' ? await this.stop(c.args) : c.name === 'run' ? await this.run(c.args)
       : c.name === 'recipe' ? await this.recipe(c.args)
         // R4 (H49): VoxVision's buttons, as the typed /inspect, /measure, /detect, /compare.
-        : c.name === 'inspect' || c.name === 'measure' || c.name === 'detect' || c.name === 'compare' ? await this.voxAction(c.name, c.args) : await this.observe(c.args);
+        : c.name === 'inspect' || c.name === 'measure' || c.name === 'detect' || c.name === 'compare' ? await this.voxAction(c.name, c.args)
+          // R4 (H50): Memory's Check, as the typed /lesson check <id>.
+          : c.name === 'lesson' ? this.lesson(c.args) : await this.observe(c.args);
     for (const line of lines) this.d.notify(line);
     return lines.map((l) => this.scrub(l.map((s) => s.text).join(''), root));
   }

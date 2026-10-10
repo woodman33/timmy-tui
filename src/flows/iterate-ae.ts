@@ -86,7 +86,7 @@ export function judgeFileChanges(files: (ChangeSet & { truncated?: boolean }) | 
  * rules: the one file it may change, what Timmy does with it after, to keep it ExtendScript (ES3), and to leave making,
  * opening, saving and closing projects to the harness. The script's text now is given whole.
  */
-export function aeIterateTask(o: { instruction: string; scriptRel: string; scriptText: string; name: string }): string {
+export function aeIterateTask(o: { instruction: string; scriptRel: string; scriptText: string; name: string; lessons?: string }): string {
   return [
     o.instruction.trim(),
     '',
@@ -99,6 +99,8 @@ export function aeIterateTask(o: { instruction: string; scriptRel: string; scrip
     '- Find properties by match name (ADBE Transform Group, ADBE Position, ADBE Text Document and so on), as the script does, so it works in any language After Effects runs in.',
     '- Change only what the instruction asks for; keep everything else as it is.',
     '- If the instruction cannot be done in this script, change nothing and say why.',
+    // R4 (H50): the checked lessons that apply, as one delimited section (src/memory/retrieve.ts lessonsSection)
+    ...(o.lessons ? ['', o.lessons] : []),
     '',
     `${o.scriptRel} now holds:`,
     o.scriptText.trimEnd(),
@@ -804,6 +806,8 @@ export interface AeFlowRecord {
   receipts: { agent?: string; author?: string; render?: string; readback?: string };
   child_receipts: string[];
   doctrine: string;
+  /** R4 (H50): the checked lessons the agent's task was given (src/memory/retrieve.ts); [] when none applied */
+  lessons?: Array<{ id: string; sha256: string; status: string }>;
 }
 
 /** Whether a record (as read from its file) is an After Effects flow's. */

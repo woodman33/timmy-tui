@@ -37,6 +37,7 @@ import {
   scadVolumeText, type ScadFlowRecord, type ScadMeasure,
 } from '../flows/iterate-scad.js';
 import { keepBytes, NativeFlows, relTo, sha, short, type Line, type NativeIterateRequest, type NativeRun, type Started } from './iterate-native.js';
+import { lessonsStartLine, pickLessons } from '../memory/retrieve.js'; // R4 (H50): Timmy Memory's lessons for the agent's task
 
 export const SCAD_ITERATE_USAGE = '/iterate scad <model.scad> "<instruction>" [--agent qwen|codex] [--model <local model>]';
 
@@ -124,9 +125,12 @@ export class ScadFlows extends NativeFlows<ScadFlowRecord> {
     const recheck = parseScadParams(paramsBytes.toString('utf8'), path.posix.basename(modelRel));
     if (!recheck.ok) return this.refuse(`${paramsRel} is not a usable parameter file: ${recheck.error}. Nothing was started.`);
     const startedAt = new Date().toISOString();
+    // R4 (H50): the checked lessons that apply (each checked again now), given to the agent as one section.
+    const lessons = pickLessons(this.d, { root, project, kind: 'scad', instruction: req.instruction, files: [modelRel, paramsRel] });
     const task = scadIterateTask({
       instruction: req.instruction, paramsRel, modelRel, names, paramsText: paramsBytes.toString('utf8'),
       ...(modelBytes.length <= SCAD_MODEL_TEXT_MAX ? { modelText: modelBytes.toString('utf8') } : { modelBytes: modelBytes.length }),
+      ...(lessons?.section ? { lessons: lessons.section } : {}),
     });
     const s = await this.startAgent(id, req, task, { root, project, env, local: route.local });
     if (!s.ok) return this.refuse(`The agent did not start: ${scrub(s.error)}`, s.refused === 'paid' || s.refused === 'missing' ? 'estimate' : 'failure');
@@ -141,7 +145,7 @@ export class ScadFlows extends NativeFlows<ScadFlowRecord> {
       before_after: 'none' in prev
         ? { measured_by: SCAD_MEASURED_BY, before: null, before_note: prev.none }
         : { measured_by: SCAD_MEASURED_BY, before: { ...prev.measure, run: prev.run, ...(prev.job ? { job: prev.job } : {}), started_at: prev.started_at } },
-      receipts: {}, child_receipts: [], doctrine: DOCTRINE_15,
+      receipts: {}, child_receipts: [], doctrine: DOCTRINE_15, ...(lessons ? { lessons: lessons.record } : {}),
     };
     const flow: ScadRun = { id, root, project, record, abort: new AbortController(), step: 'agent', agentJob: s.job.id, agentRecord: s.record };
     this.launch(flow, (f) => this.steps(f as ScadRun));
@@ -153,6 +157,7 @@ export class ScadFlows extends NativeFlows<ScadFlowRecord> {
         [{ text: '  Flow       ', role: 'secondary' }, { text: id, role: 'strong' }, { text: `  iterate scad ${modelRel}: ${scrub(req.instruction)}`, role: 'secondary' }],
         [{ text: '  Parameters ', role: 'secondary' }, { text: paramsRel, role: 'strong' }, { text: `  ${values}${this.sep}sha256 ${short(record.parameters.before.sha256)}${keptAt ? `${this.sep}kept as read: ${keptAt}` : ''}`, role: 'secondary' }],
         [{ text: '  Agent      ', role: 'secondary' }, { text: s.job.id, role: 'strong' }, { text: `  agent ${s.plan.agent} ${s.run}${this.sep}${s.info.title}${s.version ? ` ${s.version}` : ''}${s.plan.model ? `${this.sep}model ${s.plan.model} at ${s.plan.where}` : ''}${this.sep}${s.plan.charge}`, role: 'secondary' }],
+        ...(lessons ? [lessonsStartLine(lessons)] : []), // R4 (H50)
         [{ text: '  Next       ', role: 'secondary' }, { text: `it may change only the values in ${paramsRel}; then OpenSCAD (found, ${located.found.how === 'env' ? 'set by TIMMY_OPENSCAD' : 'on PATH'}) runs /scad ${modelRel} --png as a judged job, and Timmy's reading of its STL is compared with OpenSCAD's own summary`, role: 'secondary' }],
         [{ text: '  Before     ', role: 'secondary' }, { text: before ? `run ${before.run.slice(0, 8)} (judged ok): ${sizeText(before.size)}, volume ${numText(before.volume)}, as Timmy measured its STL` : `${record.before_after!.before_note}: the flow's run is measured alone`, role: 'secondary' }],
         [{ text: '  Follow     ', role: 'secondary' }, { text: `/jobs ${s.job.id}${this.sep}/stop ${id} stops the flow${this.sep}/iterate lists flows${this.sep}the record: ${flowRecordPath(id)} ${g.arrow} /board`, role: 'secondary' }],

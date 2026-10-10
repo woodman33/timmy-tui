@@ -73,7 +73,7 @@ export function unseenFolder(rel: string): string | undefined {
  * fixed rules: the one file it may change, what Timmy does with it after, to keep how it reports its run and to keep
  * that report true to the scene. The script's text now is given whole, so the agent edits what is there.
  */
-export function blenderIterateTask(o: { instruction: string; scriptRel: string; scriptText: string }): string {
+export function blenderIterateTask(o: { instruction: string; scriptRel: string; scriptText: string; lessons?: string }): string {
   return [
     o.instruction.trim(),
     '',
@@ -85,6 +85,8 @@ export function blenderIterateTask(o: { instruction: string; scriptRel: string; 
     '- Keep what it reports true to the scene it builds: the objects, the materials its objects use and the active camera.',
     '- Change only what the instruction asks for; keep everything else as it is.',
     '- If the instruction cannot be done in this script, change nothing and say why.',
+    // R4 (H50): the checked lessons that apply, as one delimited section (src/memory/retrieve.ts lessonsSection)
+    ...(o.lessons ? ['', o.lessons] : []),
     '',
     `${o.scriptRel} now holds:`,
     o.scriptText.trimEnd(),
@@ -818,6 +820,8 @@ export interface BlenderFlowRecord {
   receipts: { agent?: string; blender?: string; readback?: string };
   child_receipts: string[];
   doctrine: string;
+  /** R4 (H50): the checked lessons the agent's task was given (src/memory/retrieve.ts); [] when none applied */
+  lessons?: Array<{ id: string; sha256: string; status: string }>;
 }
 
 /** Whether a record (as read from its file) is a Blender flow's. */
