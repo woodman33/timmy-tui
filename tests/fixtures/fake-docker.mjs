@@ -188,7 +188,8 @@ if (given['--add-host'] !== 'host.docker.internal:host-gateway') problems.push('
 if (given['--workdir'] !== '/work') problems.push('the workdir is not /work');
 if (envs.HOME !== '/tmp/timmy-home') problems.push('HOME is not /tmp/timmy-home');
 if (envs.LLM_API_KEY !== 'ollama') problems.push(`LLM_API_KEY is not the local placeholder`);
-if (!/^ollama\/[A-Za-z0-9][A-Za-z0-9._:/+-]*$/.test(envs.LLM_MODEL ?? '')) problems.push(`LLM_MODEL is ${envs.LLM_MODEL}, not ollama/<model>`);
+// R4 (H69): LiteLLM's ollama_chat route (Ollama's /api/chat), never r20's ollama/ route (its /api/generate)
+if (!/^ollama_chat\/[A-Za-z0-9][A-Za-z0-9._:/+-]*$/.test(envs.LLM_MODEL ?? '')) problems.push(`LLM_MODEL is ${envs.LLM_MODEL}, not ollama_chat/<model>`);
 if (!/^https?:\/\/host\.docker\.internal(:\d+)?$/.test(envs.LLM_BASE_URL ?? '')) problems.push(`LLM_BASE_URL is ${envs.LLM_BASE_URL}, not this machine's Ollama as the container sees it`);
 for (const [k, v] of Object.entries(envs)) {
   if (v === null) problems.push(`-e ${k} with no value (docker would take the client's own)`);

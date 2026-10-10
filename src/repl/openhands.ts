@@ -25,8 +25,8 @@ import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AGENTS_DIR, DEFAULT_BASE_URL, type AgentOutcome, type AgentPlan, type AgentProgress, type ChangeSet, type Snapshot } from '../code-agents/index.js';
 import {
-  dockerClientEnv, OPENHANDS_BUILD, OPENHANDS_DOCKERFILE, OPENHANDS_IMAGE, OPENHANDS_LIMITS, OPENHANDS_SDK, OPENHANDS_WORKER, openHandsSaid, workerLastWords, writeBackShort,
-  type ContainerStop, type OpenHandsContainer, type OpenHandsRecord,
+  dockerClientEnv, OPENHANDS_BUILD, OPENHANDS_DOCKERFILE, OPENHANDS_IMAGE, OPENHANDS_LIMITS, OPENHANDS_SDK, OPENHANDS_WORKER, openHandsSaid, toolCallWords, workerLastWords, writeBackShort,
+  zeroStepsWhy, type ContainerStop, type OpenHandsContainer, type OpenHandsRecord,
 } from '../code-agents/openhands.js';
 import { discardRunDir, dockerSetup, makeCopy, ollamaListed, openHandsWorker, stopContainer, writeBack } from '../code-agents/openhands-run.js';
 import type { JobRecord, JobSpec, StopEnding, StopOrder } from '../jobs/index.js';
@@ -203,7 +203,12 @@ export class OpenHandsRuns {
     const reason = judged.outcome === 'cancelled' ? 'it was stopped' : judged.outcome === 'timed out' ? 'Timmy\'s time limit ended it' : judged.outcome === 'unknown' ? 'it never said it finished' : 'it did not finish';
     const wb = writeBack({ root: st.root, run: st.run, container: st.container, before, copied: st.copied, completed, ...(completed ? {} : { reason }) });
     const said = openHandsSaid(progress);
-    st.record.reported = { sdk: said.sdk ?? null, ...(said.status ? { status: said.status } : {}), ...(said.steps !== undefined ? { steps: said.steps } : {}), ...(said.tools ? { tools: said.tools } : {}) };
+    st.record.reported = {
+      sdk: said.sdk ?? null, ...(said.status ? { status: said.status } : {}), ...(said.steps !== undefined ? { steps: said.steps } : {}), ...(said.tools ? { tools: said.tools } : {}),
+      // R4 (H69): the route and the model's tool calls as its started line said them, and a text answer read as a tool call
+      ...(said.route ? { route: said.route } : {}), ...(said.toolCalls ? { tool_calls: said.toolCalls } : {}), ...(said.sdkTools ? { sdk_tools: said.sdkTools } : {}),
+      ...(said.registered ? { registered: said.registered } : {}), ...(said.litellm !== undefined ? { litellm: said.litellm } : {}), ...(said.textCall ? { text_call: said.textCall } : {}),
+    };
     st.record.copy_changes = wb.copyChanges;
     st.record.writeback = wb.writeback;
     st.record.copy.kept = true;
@@ -219,6 +224,9 @@ export class OpenHandsRuns {
     // command with its exit), and the worker's own last line.
     if (judged.outcome === 'cancelled' || judged.outcome === 'timed out') out = { outcome: judged.outcome, why: `${judged.outcome === 'cancelled' ? cancelledWhy(st.asked?.by) : limitHead(st)}: ${stoppedHow(st.record.stop, job)}; ${workerLastWords(progress)}` };
     else if (completed && (w.state === 'refused' || w.state === 'partial')) out = { outcome: 'failed', why: `it finished in its container, but its changes were ${w.state === 'partial' ? 'only partly written' : 'not written'} into the project: ${w.why}` };
+    // R4 (H69; ledger row 162, r20): finished after 0 steps with nothing changed in its copy: the SDK ends its run on any answer
+    // without a tool call, so whether it did the task is not known; never completed (a run of one step or more keeps the next line)
+    else if (completed && w.state === 'nothing to write' && said.steps === 0) out = { outcome: 'unknown', why: zeroStepsWhy(progress) };
     else if (completed && w.state === 'nothing to write') out = { outcome: 'completed', why: `${judged.why}; it changed nothing in its copy` };
     else if (completed) out = { outcome: 'completed', why: `${judged.why}; its changes were written into the project: ${w.why}${w.not_written.length ? `; ${w.not_written.length} change${w.not_written.length === 1 ? ' was' : 's were'} not (result.json names ${w.not_written.length === 1 ? 'it' : 'them'})` : ''}` };
     const written = new Set(w.written.map((x) => x.path));
@@ -343,5 +351,7 @@ export function openHandsLastLine(r: { openhands?: OpenHandsRecord }, sep: strin
   if (!o) return undefined;
   const copy = `a copy of ${o.copy.files} file${o.copy.files === 1 ? '' : 's'} ${o.copy.kept === false ? '(removed once written back)' : `(kept in ${o.copy.path}/)`}`;
   const sdk = o.reported ? `${sep}it reported openhands-sdk ${o.reported.sdk ?? '(no version)'}` : '';
-  return `${o.container.name}${sep}${o.image}${sdk}${sep}${copy}${o.writeback ? `${sep}${writeBackShort(o.writeback)}` : ''}`;
+  // R4 (H69): LiteLLM's route and how the model's tool calls went, as its started line said them (an older worker says neither)
+  const route = o.reported?.route ? `${sep}route ${o.reported.route}, ${toolCallWords({ ...(o.reported.tool_calls ? { toolCalls: o.reported.tool_calls } : {}), ...(o.reported.sdk_tools ? { sdkTools: o.reported.sdk_tools } : {}) })}` : '';
+  return `${o.container.name}${sep}${o.image}${sdk}${route}${sep}${copy}${o.writeback ? `${sep}${writeBackShort(o.writeback)}` : ''}`;
 }

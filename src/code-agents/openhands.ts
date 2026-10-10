@@ -15,7 +15,7 @@
  *     --tmpfs /tmp/timmy-home:... --add-host host.docker.internal:host-gateway
  *     --mount type=bind,source=<project>/.timmy/agents/<run>/work,target=/work
  *     --mount type=bind,source=<project>/.timmy/agents/<run>/worker,target=/timmy,readonly
- *     --workdir /work -e HOME=/tmp/timmy-home -e LLM_BASE_URL=http://host.docker.internal:<port> -e LLM_MODEL=ollama/<model>
+ *     --workdir /work -e HOME=/tmp/timmy-home -e LLM_BASE_URL=http://host.docker.internal:<port> -e LLM_MODEL=ollama_chat/<model>
  *     -e LLM_API_KEY=ollama ... timmy-openhands:1.21.0 python /timmy/timmy_openhands.py
  *
  * the task on its stdin (workers/openhands/timmy_openhands.py reads it), JSON Lines back on its stdout. What is isolated
@@ -29,8 +29,17 @@
  * flags as Docker's CLI documents them (none is checked against a recorded `docker run --help`); that host-gateway reaches
  * the Mac's own 127.0.0.1:11434 (on the Mac, whose engine is OrbStack, a plain Python container reached its Ollama at
  * host.docker.internal with and without that flag: ledger row 156); that the SDK's names the worker reads (its default tool preset, the
- * conversation's options, its event classes) are the ones 1.21.0 has; that LiteLLM's `ollama/<model>` form drives tool
- * calls well enough without streaming. The Mac run checks each (the report of round R4, H52, lists them).
+ * conversation's options, its event classes) are the ones 1.21.0 has. The Mac run checks each (the report of round R4, H52, lists them).
+ *
+ * R4 (H69; ledger row 162, r20): the model's route is LiteLLM's `ollama_chat/<model>`, which LiteLLM documents as sending
+ * a request to Ollama's /api/chat. On r20's route, `ollama/<model>` (Ollama's /api/generate, where LiteLLM "defaults to json
+ * mode tool calls if native tool calling not supported"), the model's first tool call came back as plain text and the SDK
+ * said it finished after 0 steps. The worker registers the model with LiteLLM as supporting function calling (only for this
+ * loopback route) and its started line says the route and how LiteLLM decides to pass the model's tools; a run that said it
+ * finished after 0 steps and changed nothing in its copy is judged unknown, never completed (src/repl/openhands.ts finish,
+ * zeroStepsWhy here). ASSUMED, not checked by a run: which LiteLLM the image holds and what it decides for this model, and
+ * whether the model then answers Ollama's /api/chat with tool calls, asked without streaming as before. The Mac run sees
+ * both in the started line and the run.
  */
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
@@ -53,6 +62,12 @@ export const OPENHANDS_IMAGE = `timmy-openhands:${OPENHANDS_SDK}`;
 /** The label the Dockerfile sets; an image under the same tag without it was not built from that Dockerfile. */
 export const OPENHANDS_IMAGE_LABEL = 'timmy.openhands.sdk';
 export const OPENHANDS_WORKER = 'workers/openhands/timmy_openhands.py';
+/**
+ * R4 (H69; ledger row 162, r20): LiteLLM's route to this machine's Ollama the worker is given, as `<route>/<model>`:
+ * `ollama_chat` sends a request to Ollama's /api/chat (LiteLLM's documentation of its Ollama provider), not `ollama`'s
+ * /api/generate, where r20's tool calls came back as text.
+ */
+export const OPENHANDS_LLM_ROUTE = 'ollama_chat';
 export const OPENHANDS_DOCKERFILE = 'workers/openhands/Dockerfile';
 /** The one step that makes the image, run from Timmy's package root. Timmy never runs it itself. */
 export const OPENHANDS_BUILD = `docker build -t ${OPENHANDS_IMAGE} -f ${OPENHANDS_DOCKERFILE} workers/openhands`;
@@ -223,7 +238,7 @@ export function planOpenHands(o: OpenHandsInput): PlanResult {
   const container: OpenHandsContainer = {
     name: `${CONTAINER_PREFIX}${o.run}`, image: OPENHANDS_IMAGE, labels: { [LABEL_RUN]: o.run, [LABEL_PROJECT]: projectId(o.root) },
     dir, work: join(dir, 'work'), worker: join(dir, 'worker'), token: randomBytes(16).toString('hex'), maxIterations,
-    llmBase, llmModel: `ollama/${model}`, ...(user ? { user } : {}),
+    llmBase, llmModel: `${OPENHANDS_LLM_ROUTE}/${model}`, ...(user ? { user } : {}), // R4 (H69): Ollama's /api/chat
   };
   const plan: AgentPlan = {
     agent: 'openhands', command: o.bin, args: openHandsDockerArgs(container), model, endpoint: 'local', where: ep.where,
@@ -239,8 +254,13 @@ export function planOpenHands(o: OpenHandsInput): PlanResult {
 
 // ── its lines ───────────────────────────────────────────────────────────────────
 
-/** The protocol's line types the parser reads (the worker's docstring lists their fields). */
-export const OPENHANDS_LINES = ['started', 'action', 'observation', 'message', 'error', 'event', 'result'] as const;
+/** The protocol's line types the parser reads (the worker's docstring lists their fields). R4 (H69): text_call. */
+export const OPENHANDS_LINES = ['started', 'action', 'observation', 'message', 'text_call', 'error', 'event', 'result'] as const;
+/** R4 (H69): how the model's tool calls go, as LiteLLM decided (the worker's started line): natively, in JSON mode, not known. */
+export type OpenHandsToolCalls = 'native' | 'json' | 'unknown';
+const TOOL_CALLS: ReadonlySet<string> = new Set<OpenHandsToolCalls>(['native', 'json', 'unknown']);
+/** R4 (H69): a text answer the worker read as a tool call: its argument names, and the tool's name when it gave one. */
+export interface OpenHandsTextCall { keys: string[]; name?: string }
 const KNOWN: ReadonlySet<string> = new Set(OPENHANDS_LINES);
 /** The file editor's commands that change a file (view does not). */
 const EDITING: ReadonlySet<string> = new Set(['create', 'str_replace', 'insert', 'undo_edit', 'write']);
@@ -284,6 +304,14 @@ interface Seen {
   error?: string;
   /** R4 (H62): the signal a stopped worker said it received (SIGTERM from docker stop, SIGINT) */
   signal?: string;
+  /** R4 (H69): LiteLLM's route it said it used, how LiteLLM decided to pass the model's tools, the SDK's own setting (prompt:
+   *  it describes the tools in its prompt), the keys it registered with LiteLLM, LiteLLM's version, a text answer read as a call */
+  route?: string;
+  toolCalls?: OpenHandsToolCalls;
+  sdkTools?: 'native' | 'prompt';
+  registered?: string[];
+  litellm?: string | null;
+  textCall?: OpenHandsTextCall;
 }
 const watched = new WeakMap<AgentProgress, Seen>();
 
@@ -293,7 +321,11 @@ export function watchOpenHands(state: AgentProgress, token: string): void {
 }
 
 /** What the run's lines said, for its record: the SDK version it reported, its status and steps, docker's error. */
-export function openHandsSaid(state: AgentProgress): { sdk?: string | null; tools?: string[]; status?: string; steps?: number; finished?: boolean; maxIterations?: number; dockerError?: string; signal?: string; result: boolean } {
+export function openHandsSaid(state: AgentProgress): {
+  sdk?: string | null; tools?: string[]; status?: string; steps?: number; finished?: boolean; maxIterations?: number; dockerError?: string; signal?: string; result: boolean;
+  /** R4 (H69) */
+  route?: string; toolCalls?: OpenHandsToolCalls; sdkTools?: 'native' | 'prompt'; registered?: string[]; litellm?: string | null; textCall?: OpenHandsTextCall;
+} {
   const s = watched.get(state);
   if (!s) return { result: false };
   return {
@@ -302,7 +334,38 @@ export function openHandsSaid(state: AgentProgress): { sdk?: string | null; tool
     ...(s.steps !== undefined ? { steps: s.steps } : {}), ...(s.finished !== undefined ? { finished: s.finished } : {}),
     ...(s.maxIterations !== undefined ? { maxIterations: s.maxIterations } : {}), ...(s.dockerError ? { dockerError: s.dockerError } : {}),
     ...(s.signal ? { signal: s.signal } : {}),
+    // R4 (H69): the route and the model's tool calls, as the worker's started line said them; a text answer read as a call
+    ...(s.route ? { route: s.route } : {}), ...(s.toolCalls ? { toolCalls: s.toolCalls } : {}), ...(s.sdkTools ? { sdkTools: s.sdkTools } : {}),
+    ...(s.registered ? { registered: [...s.registered] } : {}), ...(s.litellm !== undefined ? { litellm: s.litellm } : {}),
+    ...(s.textCall ? { textCall: { keys: [...s.textCall.keys], ...(s.textCall.name ? { name: s.textCall.name } : {}) } } : {}),
   };
+}
+
+/**
+ * R4 (H69): how the model's tool calls go, in words, from what the worker's started line said: the SDK's own setting when it
+ * describes the tools in its prompt, otherwise LiteLLM's decision (natively, or in its JSON mode), or that it is not known.
+ */
+export function toolCallWords(s: { toolCalls?: OpenHandsToolCalls; sdkTools?: 'native' | 'prompt' }): string {
+  if (s.sdkTools === 'prompt') return 'tool calls in the prompt, not native (the SDK\'s setting)';
+  if (s.toolCalls === 'native') return 'tool calls native';
+  if (s.toolCalls === 'json') return 'tool calls in JSON mode, not native';
+  return 'tool calls: whether native is not known';
+}
+
+/**
+ * R4 (H69; ledger row 162, r20): the words for a run whose worker said it finished after 0 steps, with nothing changed in its
+ * copy. The SDK ends its run on any answer without a tool call, so "finished" there says only that the model made none:
+ * whether it did the task is not known. What its last answer was comes from its own lines.
+ */
+export function zeroStepsWhy(progress: AgentProgress): string {
+  const said = openHandsSaid(progress);
+  const text = progress.finalMessage ?? progress.lastText;
+  const last = text?.trim() ? 'the model\'s last answer was text, not a tool call' : 'the model\'s last answer held no tool call';
+  const call = said.textCall;
+  const reads = !call ? '' : call.name
+    ? ` (it reads as a call of ${call.name}${call.keys.length ? ` with ${call.keys.join(', ')}` : ''})`
+    : ` (it reads as a tool call's arguments: ${call.keys.join(', ')})`;
+  return `it said it finished after 0 steps and changed nothing: whether it did the task is not known; ${last}${reads}`;
 }
 
 /**
@@ -352,6 +415,31 @@ function statusWords(status: string, ev: Record<string, unknown>, max?: number):
     case 'error': return `an error${error ? `: ${clean(error, 200)}` : ''}`;
     default: return `its status was ${status}${error ? ` (${clean(error, 160)})` : ''}`;
   }
+}
+
+/**
+ * R4 (H69): the started line's route words, each part from the worker's line, bounded: LiteLLM's route and the Ollama
+ * endpoint it reaches, how the model's tool calls go and who decided, what was registered with LiteLLM (or why not), and
+ * LiteLLM's version. "unknown" for a tool-call answer it does not know: nothing is filled in.
+ */
+function startedRoute(s: Seen, ev: Record<string, unknown>, route: string, say: (t: string, n?: number) => string): string {
+  s.route = clean(route, 20);
+  const calls = str(ev.tool_calls);
+  s.toolCalls = calls && TOOL_CALLS.has(calls) ? calls as OpenHandsToolCalls : 'unknown';
+  const sdkTools = str(ev.sdk_tools);
+  if (sdkTools === 'native' || sdkTools === 'prompt') s.sdkTools = sdkTools;
+  s.registered = Array.isArray(ev.registered) ? ev.registered.filter((k): k is string => typeof k === 'string').map((k) => clean(k, 120)).slice(0, 4) : [];
+  const litellm = str(ev.litellm);
+  s.litellm = litellm ? clean(litellm, 40) : null;
+  const endpoint = str(ev.endpoint);
+  const by = str(ev.tool_calls_by);
+  const error = str(ev.tool_calls_error);
+  const decided = s.sdkTools === 'prompt' ? ''
+    : s.toolCalls === 'unknown' ? (error ? ` (${say(error, 100)})` : '')
+    : by === 'mapping' ? ', as LiteLLM decides' : by === 'supports_function_calling' ? ', as LiteLLM says of the model' : '';
+  const notRegistered = str(ev.not_registered);
+  const registered = s.registered.length ? 'registered with LiteLLM as supporting function calling' : `not registered${notRegistered ? ` (${say(notRegistered, 100)})` : ''}`;
+  return [`route ${s.route}${endpoint ? ` (Ollama's ${clean(endpoint, 20)})` : ''}`, `${toolCallWords(s)}${decided}`, registered, s.litellm ? `LiteLLM ${s.litellm}` : 'LiteLLM\'s version not reported'].join(' · ');
 }
 
 /**
@@ -417,7 +505,19 @@ export function openHandsProgressLine(line: string, state: AgentProgress, root: 
       if (model) state.model = clean(model, 120);
       if (s.sdk) state.version = `openhands-sdk ${s.sdk}`;
       const other = s.sdk && s.sdk !== OPENHANDS_SDK ? ` (not ${OPENHANDS_SDK}: rebuild the image)` : '';
-      return `started  OpenHands SDK ${s.sdk ?? '(its version was not reported)'}${other}${model ? ` · model ${clean(model, 80)}` : ''}${tools.length ? ` · tools ${tools.join(', ')}` : ''}${s.maxIterations ? ` · up to ${s.maxIterations} steps` : ''}`;
+      // R4 (H69): LiteLLM's route and how the model's tool calls go, as the worker found them (an older worker says neither)
+      const route = str(ev.route);
+      const routeWords = route ? ` · ${startedRoute(s, ev, route, say)}` : '';
+      return `started  OpenHands SDK ${s.sdk ?? '(its version was not reported)'}${other}${model ? ` · model ${clean(model, 80)}` : ''}${tools.length ? ` · tools ${tools.join(', ')}` : ''}${s.maxIterations ? ` · up to ${s.maxIterations} steps` : ''}${routeWords}`;
+    }
+    case 'text_call': {
+      // R4 (H69; ledger row 162, r20): the model answered with text that reads as a tool call; said once, bounded and scrubbed
+      if (s.textCall) return undefined;
+      const keys = Array.isArray(ev.keys) ? ev.keys.filter((k): k is string => typeof k === 'string').map((k) => say(k, 30)).filter(Boolean).slice(0, 8) : [];
+      const name = str(ev.name);
+      s.textCall = { keys, ...(name ? { name: say(name, 40) } : {}) };
+      const what = s.textCall.name ? `a call of ${s.textCall.name}${keys.length ? ` with ${keys.join(', ')}` : ''}` : `a tool call's arguments${keys.length ? ` (${keys.join(', ')})` : ''}`;
+      return `model answered in text, not with a tool call: its text reads as ${what}`;
     }
     case 'action': {
       state.toolCalls += 1;
@@ -545,7 +645,13 @@ export interface OpenHandsRecord {
   /** the copy: where it is (project-relative), how many files and bytes */
   copy: { path: string; files: number; bytes: number; kept?: boolean };
   /** what its lines said, at its end: the SDK version it reported (null: it did not say), its status and steps */
-  reported?: { sdk: string | null; status?: string; steps?: number; tools?: string[] };
+  reported?: {
+    sdk: string | null; status?: string; steps?: number; tools?: string[];
+    /** R4 (H69): LiteLLM's route, how the model's tool calls went (LiteLLM's decision; sdk_tools: the SDK's own setting), the
+     *  keys registered with LiteLLM as supporting function calling, LiteLLM's version (null: not reported), and a text answer
+     *  the worker read as a tool call */
+    route?: string; tool_calls?: OpenHandsToolCalls; sdk_tools?: 'native' | 'prompt'; registered?: string[]; litellm?: string | null; text_call?: OpenHandsTextCall;
+  };
   /** what it changed in its copy */
   copy_changes?: ChangeSet & { truncated: boolean };
   writeback?: WriteBack;

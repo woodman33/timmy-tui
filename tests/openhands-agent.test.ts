@@ -29,6 +29,7 @@ import {
 } from '../src/code-agents/openhands.js';
 import { dockerCall, dockerSetup } from '../src/code-agents/openhands-run.js';
 import { JobManager } from '../src/jobs/index.js';
+import { readOperationRecord } from '../src/ops/operations.js';
 import { folderProject, projectId } from '../src/project/index.js';
 import { realOnPath } from '../src/repl/center.js';
 import { parseIterateLine } from '../src/repl/iterate.js';
@@ -155,7 +156,7 @@ describe('the plan: the SDK in Timmy\'s container, on a copy of the project, wit
       '--tmpfs', '/tmp/timmy-home:rw,nosuid,nodev,size=512m,mode=1777', '--add-host', 'host.docker.internal:host-gateway',
       '--mount', `type=bind,source=${join(dir, 'work')},target=/work`, '--mount', `type=bind,source=${join(dir, 'worker')},target=/timmy,readonly`,
       '--workdir', '/work',
-      '-e', 'HOME=/tmp/timmy-home', '-e', 'USER=timmy', '-e', 'LLM_BASE_URL=http://host.docker.internal:11434', '-e', 'LLM_MODEL=ollama/qwen3:4b', '-e', 'LLM_API_KEY=ollama',
+      '-e', 'HOME=/tmp/timmy-home', '-e', 'USER=timmy', '-e', 'LLM_BASE_URL=http://host.docker.internal:11434', '-e', 'LLM_MODEL=ollama_chat/qwen3:4b', '-e', 'LLM_API_KEY=ollama',
       '-e', 'TIMMY_OPENHANDS_MAX_ITERATIONS=40', '-e', 'LITELLM_LOCAL_MODEL_COST_MAP=True', '-e', 'OPENHANDS_SUPPRESS_BANNER=1', '-e', 'PYTHONUNBUFFERED=1', '-e', 'PYTHONDONTWRITEBYTECODE=1',
       'timmy-openhands:1.21.0', 'python', '/timmy/timmy_openhands.py',
     ]);
@@ -455,10 +456,10 @@ describe('a run (FAKE docker, FAKE Ollama): the copy, the container, the write-b
       const user = hostUser();
       expect(report.argv).toEqual(openHandsDockerArgs({
         name: `timmy-oh-${run}`, labels: { 'timmy.run': run, 'timmy.project': projectId(root) }, work: join(dir, 'work'), worker: join(dir, 'worker'),
-        llmBase: `http://host.docker.internal:${ollama.port}`, llmModel: 'ollama/qwen3:4b', maxIterations: 40, ...(user ? { user } : {}),
+        llmBase: `http://host.docker.internal:${ollama.port}`, llmModel: 'ollama_chat/qwen3:4b', maxIterations: 40, ...(user ? { user } : {}),
       }));
       expect(report.stdin).toEqual({ open: false, bytes: expect.any(Number), v: 1, task, token_length: 32 });
-      expect(report.env).toMatchObject({ LLM_API_KEY: 'ollama', LLM_MODEL: 'ollama/qwen3:4b', LLM_BASE_URL: `http://host.docker.internal:${ollama.port}`, HOME: '/tmp/timmy-home' });
+      expect(report.env).toMatchObject({ LLM_API_KEY: 'ollama', LLM_MODEL: 'ollama_chat/qwen3:4b', LLM_BASE_URL: `http://host.docker.internal:${ollama.port}`, HOME: '/tmp/timmy-home' });
       // the copy it was given: the project's files, never .git, node_modules, .timmy or dist
       expect(report.mounts.map((m) => m.target)).toEqual(['/work', '/timmy']);
       // every docker command ran with Timmy's keys blank in the client's environment; none built or pulled anything
@@ -468,7 +469,7 @@ describe('a run (FAKE docker, FAKE Ollama): the copy, the container, the write-b
       expect(ollama.requests).toEqual(['GET /api/tags']);
       // progress, final message, transcript
       expect(readFileSync(join(dir, 'progress.log'), 'utf8').trim().split('\n')).toEqual([
-        'started  OpenHands SDK 1.21.0 · model ollama/qwen3:4b · tools terminal, file_editor · up to 40 steps',
+        'started  OpenHands SDK 1.21.0 · model ollama_chat/qwen3:4b · tools terminal, file_editor · up to 40 steps',
         'tool  terminal  cat /work/src/a.txt',
         'tool  file_editor  str_replace  src/a.txt',
         'tool  file_editor  create  src/new.txt',
@@ -612,6 +613,80 @@ describe('a run (FAKE docker, FAKE Ollama): the copy, the container, the write-b
   }, 60_000);
 });
 
+// ── R4 (H69): a run that did nothing is not a success ────────────────────────────
+
+describe('R4 (H69; ledger row 162, r20): a run that said it finished after 0 steps and changed nothing is not a success (FAKE docker, Timmy\'s real worker on a FAKE SDK)', () => {
+  /** One /agent line run as the REPL runs a request: an operation of its own, its job, and the operation's end. */
+  const operated = async (ws: Workspace, line: string) => {
+    const out = text(await ws.operate(`/agent ${line}`, 'repl', () => ws.agent(line)));
+    const h = ws.ops.latest!;
+    const job = await ws.jobs.done(jobIdOf(out));
+    await ws.ops.done(h);
+    return { out, job, op: h.id };
+  };
+
+  it('its model answered with text that reads as a tool call (r20): judged unknown in plain words, never completed and never a ✓; its operation is not succeeded', async () => {
+    const ollama = await fakeOllama(['qwen3:4b']);
+    const dock = fakeDocker();
+    const root = project();
+    const { ws, sealed, notes } = make(root, ohEnv(dock, ollama.url));
+    const { job, op } = await operated(ws, 'openhands --local PYWORKER TEXTCALL add an index page');
+    // the worker said it finished, at exit 0: the job completed; the run is not judged by that alone
+    expect(job).toMatchObject({ state: 'completed', exitCode: 0 });
+    const r = resultOf(root);
+    expect(r.outcome).toBe('unknown');
+    expect(r.why).toBe('it said it finished after 0 steps and changed nothing: whether it did the task is not known; the model\'s last answer was text, not a tool call (it reads as a tool call\'s arguments: command)');
+    expect(r.openhands).toMatchObject({ reported: { status: 'finished', steps: 0 }, writeback: { state: 'nothing to write' } });
+    // the route the worker said, on its own started line: registered with (FAKE) LiteLLM as supporting function calling
+    expect(r.openhands!.reported).toMatchObject({ route: 'ollama_chat', tool_calls: 'native', registered: ['ollama_chat/qwen3:4b', 'ollama/qwen3:4b'], litellm: null, text_call: { keys: ['command'] } });
+    expect(readFileSync(join(root, 'src/a.txt'), 'utf8')).toBe('first line\n');
+    // its receipt: not ok, its outcome unknown; it never marks OpenHands as exercised
+    expect(sealed.find((s) => s.kind === 'agent')).toMatchObject({ status: 'failed', agent: { outcome: 'unknown', added: 0, changed: 0 } });
+    expect(exercised(sealed)).toEqual([]);
+    // what the operator sees: no ✓ and no "completed" at its end, /agent last says unknown and why
+    const g = glyphSet(true);
+    await until(() => notes.some((n) => n.includes(`${job.id} unknown`)));
+    const said = notes.join('\n');
+    expect(said).not.toContain(`${job.id} completed`);
+    expect(said).not.toContain(`${g.ok} ${job.id}`);
+    expect(said).toContain(`? ${job.id} unknown  agent openhands ${r.run}: 0 added, 0 changed, 0 deleted · it changed nothing in its copy`);
+    const last = text(await ws.agent('last'));
+    expect(last).toContain('unknown');
+    expect(last).toContain('it said it finished after 0 steps and changed nothing');
+    expect(last).toContain(`timmy-oh-${r.run} · timmy-openhands:1.21.0 · it reported openhands-sdk (no version) · route ollama_chat, tool calls native · a copy of 2 files`);
+    // its operation: not succeeded, the run's own word beside it
+    const rec = readOperationRecord(root, op);
+    if (!rec.ok) throw new Error(rec.error);
+    expect(rec.record.state).not.toBe('succeeded');
+    expect(rec.record).toMatchObject({ state: 'failed', why: `agent ${r.run} unknown` });
+    // the run's own progress says why it ended: the model's text, and that it reads as a tool call's arguments
+    const progress = readFileSync(join(root, AGENTS_DIR, r.run, 'progress.log'), 'utf8').trim().split('\n');
+    // (the FAKE SDK's own plain line on stderr comes first)
+    expect(progress.find((l) => l.startsWith('started  '))).toBe('started  OpenHands SDK (its version was not reported) · model ollama_chat/qwen3:4b · tools terminal, file_editor · up to 40 steps · route ollama_chat (Ollama\'s /api/chat) · tool calls native, as LiteLLM decides · registered with LiteLLM as supporting function calling · LiteLLM\'s version not reported');
+    expect(progress).toContain('model answered in text, not with a tool call: its text reads as a tool call\'s arguments (command)');
+    expect(progress.at(-1)).toBe('done  finished · 0 steps · 5,552 tokens in, 100 out');
+  }, 60_000);
+
+  it('a run that finished after one step keeps today\'s judgement: completed with a ✓, "it changed nothing in its copy"; its operation succeeded', async () => {
+    const ollama = await fakeOllama(['qwen3:4b']);
+    const dock = fakeDocker();
+    const root = project();
+    const { ws, sealed, notes } = make(root, ohEnv(dock, ollama.url));
+    const { job, op } = await operated(ws, 'openhands --local PYWORKER look around');
+    const r = resultOf(root);
+    expect(r).toMatchObject({ outcome: 'completed', why: 'it exited 0 and reported it finished; it changed nothing in its copy' });
+    expect(r.openhands).toMatchObject({ reported: { status: 'finished', steps: 1 }, writeback: { state: 'nothing to write' } });
+    expect(sealed.find((s) => s.kind === 'agent')).toMatchObject({ status: 'ok', agent: { outcome: 'completed' } });
+    await until(() => notes.some((n) => n.includes(`${job.id} completed`)));
+    expect(notes.join('\n')).toContain(`${glyphSet(true).ok} ${job.id} completed  agent openhands ${r.run}: 0 added, 0 changed, 0 deleted · it changed nothing in its copy`);
+    const rec = readOperationRecord(root, op);
+    if (!rec.ok) throw new Error(rec.error);
+    expect(rec.record).toMatchObject({ state: 'succeeded', why: `agent ${r.run} completed` });
+    // a run that called a tool says nothing of text read as a tool call
+    expect(readFileSync(join(root, AGENTS_DIR, r.run, 'progress.log'), 'utf8')).not.toContain('not with a tool call');
+  }, 60_000);
+});
+
 // ── stop, the time limit ─────────────────────────────────────────────────────────
 
 describe('/stop and the time limit stop its container by its name and labels (FAKE docker)', () => {
@@ -746,7 +821,7 @@ describe('/stop and the time limit stop its container by its name and labels (FA
     writeFileSync(dock.containerFile(name), JSON.stringify({ id: sha(name), name, labels, state: 'running', pid: worker.pid, behaviour: [] }));
     const runs = new OpenHandsRuns({ glyphs: glyphSet(true), notify: () => {} });
     const st: OpenHandsRunState = {
-      container: { name, image: OPENHANDS_IMAGE, labels, dir, work: join(dir, 'work'), worker: join(dir, 'worker'), token: 'f'.repeat(32), maxIterations: 40, llmBase: 'http://host.docker.internal:11434', llmModel: 'ollama/qwen3:4b' },
+      container: { name, image: OPENHANDS_IMAGE, labels, dir, work: join(dir, 'work'), worker: join(dir, 'worker'), token: 'f'.repeat(32), maxIterations: 40, llmBase: 'http://host.docker.internal:11434', llmModel: 'ollama_chat/qwen3:4b' },
       run, root, bin: join(dock.bin, 'docker'), env: { DOCKER_CONFIG: dock.state }, copied: new Map(), stops: [], limits: { openhands: 1000, job: 61_000 },
       record: { image: OPENHANDS_IMAGE, container: { name, labels }, worker: { path: 'w', sha256: 'x' }, limits: { cpus: '2', memory: '4g', pids: 512, max_iterations: 40 }, copy: { path: 'c', files: 0, bytes: 0 } },
     };

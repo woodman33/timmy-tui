@@ -24,7 +24,7 @@ async function until(pred: () => boolean, ms = 20_000): Promise<void> {
 function runWorker(task: string, o: { env?: Record<string, string>; open?: boolean } = {}) {
   const child = spawn('python3', ['-B', FAKE_SDK, WORKER], {
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { PATH: process.env.PATH ?? '', LLM_MODEL: 'ollama/qwen3:4b', LLM_BASE_URL: 'http://host.docker.internal:11434', LLM_API_KEY: 'ollama', TIMMY_OPENHANDS_MAX_ITERATIONS: '40', PYTHONDONTWRITEBYTECODE: '1', ...o.env },
+    env: { PATH: process.env.PATH ?? '', LLM_MODEL: 'ollama_chat/qwen3:4b', LLM_BASE_URL: 'http://host.docker.internal:11434', LLM_API_KEY: 'ollama', TIMMY_OPENHANDS_MAX_ITERATIONS: '40', PYTHONDONTWRITEBYTECODE: '1', ...o.env },
   });
   let out = '';
   let err = '';
