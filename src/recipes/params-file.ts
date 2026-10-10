@@ -119,6 +119,10 @@ export function writeParams(root: string, values: Record<string, unknown>, name 
     try { old = fs.readFileSync(at.abs); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
     if (old) {
       const h = sha(old);
+      // R4 (review of the board helper): the history folder is written only in place, never through a link.
+      for (const part of ['.timmy', path.join('.timmy', 'params-history'), path.join('.timmy', 'params-history', name)]) {
+        try { if (fs.lstatSync(path.join(root, part)).isSymbolicLink()) return { ok: false, path: at.rel, error: `${part.split(path.sep).join('/')} is a symbolic link; Timmy keeps the previous parameter file only in place, so nothing was written` }; } catch { /* absent: made below */ }
+      }
       const keptRel = path.join('.timmy', 'params-history', name, `${new Date().toISOString().replace(/[:.]/g, '-')}-${h.slice(0, 12)}.json`);
       fs.mkdirSync(path.dirname(path.join(root, keptRel)), { recursive: true });
       fs.writeFileSync(path.join(root, keptRel), old, { flag: 'wx' });

@@ -61,6 +61,16 @@ describe('the recipe parameter file', () => {
     expect(readParams(root)).toMatchObject({ ok: true, parameters: { width: 170 } });
   });
 
+  it('a .timmy folder that is a symbolic link stops a write that would keep the previous file through it', () => {
+    const root = project();
+    const elsewhere = project();
+    expect(writeParams(root, { width: 150 }).ok).toBe(true);
+    fs.symlinkSync(elsewhere, path.join(root, '.timmy'));
+    expect(writeParams(root, { width: 160 })).toMatchObject({ ok: false, error: expect.stringMatching(/\.timmy is a symbolic link/) });
+    expect(fs.readdirSync(elsewhere)).toEqual([]);
+    expect(readParams(root)).toMatchObject({ ok: true, parameters: { width: 150 } });
+  });
+
   it('a symbolic link at the file or its folder is refused, and nothing is written through it', () => {
     const root = project();
     const elsewhere = project();
