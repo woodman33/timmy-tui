@@ -70,7 +70,7 @@ const FAKE_SCRIPT = String.raw`
 // FAKE: a test double of Timmy's VoxVision workers (tests/helpers/vox-fakes.ts). Not OpenCV, OCP, Blender, ffmpeg,
 // numpy or Roboflow: it answers in the workers' JSON shape, from the bytes it is given, with "fake" in its version.
 import { createHash } from 'node:crypto';
-import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
 const role = process.env.FAKE_ROLE;
 const args = process.argv.slice(2);
@@ -116,6 +116,33 @@ else if (role === 'look') {
     if (out) o.highlight = { ...draw(image, out), drawn_from: ['pixel_difference'], method: 'FAKE: a copy of a, not a heatmap' };
     say(o);
   } else say({ ok: false, worker, error: { code: 'usage', message: 'FAKE look: --vox only' } }, 64);
+} else if (role === 'step' && /step_tessellate\.py$/.test(args[0] ?? '')) {
+  // FAKE (R4 H70): the STEP tessellation worker's double. Not OCP and not a mesh of the STEP: a box STL of the readback's
+  // size (FAKE_TESS_SIZE, else FAKE_STEP_SIZE), written to --out (never over a file), answered in the worker's JSON shape.
+  // FAKE_NO_OCP: exit 3 (no-ocp); FAKE_TESS_FAIL: exit 2 (mesh-failed); FAKE_TESS_BAD_SHA: it reports a wrong sha256.
+  const worker = { name: 'timmy-step-tessellate', version: 'fake' };
+  const out = opt('--out');
+  const box = ([x, y, z]) => {
+    const v = [[0, 0, 0], [x, 0, 0], [x, y, 0], [0, y, 0], [0, 0, z], [x, 0, z], [x, y, z], [0, y, z]];
+    const f = [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]];
+    const b = Buffer.alloc(84 + 50 * f.length);
+    b.write('FAKE tessellation (a box, not a mesh of the STEP)', 0, 'latin1');
+    b.writeUInt32LE(f.length, 80);
+    f.forEach((t, i) => t.forEach((c, k) => v[c].forEach((q, j) => b.writeFloatLE(q, 84 + i * 50 + 12 + k * 12 + j * 4))));
+    return b;
+  };
+  if (env.FAKE_NO_OCP) say({ ok: false, worker, error: { code: 'no-ocp', message: 'OCP is not importable (FAKE)' } }, 3);
+  else if (env.FAKE_TESS_FAIL) say({ ok: false, worker, error: { code: 'mesh-failed', message: 'BRepMesh made no mesh (FAKE)' } }, 2);
+  else if (!out || existsSync(out)) say({ ok: false, worker, error: { code: 'exists', message: 'the output file is already there (FAKE)' } }, 2);
+  else {
+    const { s } = src(args[1]);
+    const stl = box((env.FAKE_TESS_SIZE ?? env.FAKE_STEP_SIZE ?? '10,20,30').split(',').map(Number));
+    writeFileSync(out, stl);
+    say({ ok: true, worker, python: 'fake', engine: { ocp: '7.9-fake', cadquery: null }, source: { name: opt('--as'), ...s }, units: 'mm', unit_in_effect: 'MM',
+      tessellation: { method: 'FAKE: a box of the readback\'s size, not a mesh of the STEP', linear_deflection_mm: Number(opt('--linear')), angular_deflection_rad: Number(opt('--angular')), relative: false, parallel: false, faces: 6, faces_without_mesh: 0, triangles: 12 },
+      output: { file: basename(out), format: 'stl-binary', sha256: env.FAKE_TESS_BAD_SHA ? '0'.repeat(64) : sha(stl), bytes: stl.length, triangles: 12, writer: 'FAKE' },
+      tier: 'FAKE', scope: 'FAKE' });
+  }
 } else if (role === 'step') {
   const worker = { name: 'timmy-step-readback', version: 'fake' };
   if (env.FAKE_NO_OCP) say({ ok: false, worker, error: { code: 'no-ocp', message: 'OCP is not importable (FAKE)' } }, 3);
@@ -175,17 +202,37 @@ export function fakeTools(dir: string): { look: string; step: string; blender: s
  * R4 (H61): a FAKE `rerun` in a fresh folder: a labelled test double of Rerun's viewer program. It opens no window and
  * reads no file; it writes what it was given to $FAKE_RERUN_LOG (each argument on its own line, its working folder and its
  * process group, which a detached start makes its own), then exits.
+ * R4 (H70): `rerun --help` prints a short help in clap's form listing `--bind <BIND>` (not when FAKE_RERUN_NO_BIND is set;
+ * exit 2 when FAKE_RERUN_HELP_FAIL is set), noting each call in $FAKE_RERUN_HELP_LOG; it never writes the launch log. A
+ * launch copies the lines of $FAKE_RERUN_SCREEN (the test's screen: what was printed so far) into its log as it starts.
  */
 export function fakeRerun(dir: string): string {
   const p = join(dir, 'rerun');
   writeFileSync(p, [
     '#!/bin/sh',
     '# FAKE: a test double of Rerun\'s `rerun` viewer (tests/helpers/vox-fakes.ts): no window, no file read; it logs its arguments.',
+    'if [ "$1" = "--help" ]; then',
+    '  if [ -n "${FAKE_RERUN_HELP_LOG:-}" ]; then echo "help" >> "$FAKE_RERUN_HELP_LOG"; fi',
+    '  if [ -n "${FAKE_RERUN_HELP_FAIL:-}" ]; then echo "error: FAKE: --help failed" >&2; exit 2; fi',
+    '  echo "The Rerun command-line interface (FAKE)"',
+    '  echo ""',
+    '  echo "Usage: rerun [OPTIONS] [URL_OR_PATHS]... [COMMAND]"',
+    '  echo ""',
+    '  echo "Options:"',
+    '  if [ -z "${FAKE_RERUN_NO_BIND:-}" ]; then',
+    '    echo "      --bind <BIND>"',
+    '    echo "          What bind address IP to use."',
+    '  fi',
+    '  echo "      --port <PORT>"',
+    '  echo "          What port the local Viewer server listens on."',
+    '  exit 0',
+    'fi',
     'log="${FAKE_RERUN_LOG:?FAKE_RERUN_LOG is not set}"',
     '{',
     '  echo "pgid $(ps -o pgid= -p $$ | tr -d \' \')"',
     '  echo "cwd $(pwd)"',
     '  for a in "$@"; do echo "arg $a"; done',
+    '  if [ -n "${FAKE_RERUN_SCREEN:-}" ] && [ -f "$FAKE_RERUN_SCREEN" ]; then while IFS= read -r l; do echo "screen $l"; done < "$FAKE_RERUN_SCREEN"; fi',
     '  echo "end"',
     '} > "$log.tmp" && mv "$log.tmp" "$log"',
     '',

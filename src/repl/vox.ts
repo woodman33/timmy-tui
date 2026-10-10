@@ -193,11 +193,15 @@ export class VoxActions {
   /** The record ids of the actions under way in a project. */
   runningIn(root: string): string[] { return [...this.running.values()].filter((r) => r.op.root === root).map((r) => r.op.id); }
 
-  /** R4 (H61): `/vox` (its usage and the viewer layers) and `/vox view <record id> [rerun]` (src/repl/vox-view.ts). */
-  vox(args: string, at: { root: string; project: string }): Promise<Line[]> {
+  /**
+   * R4 (H61): `/vox` (its usage and the viewer layers) and `/vox view <record id> [rerun]` (src/repl/vox-view.ts).
+   * R4 (H70): what it says before Rerun starts is printed then (notify), not returned; `early` hears those lines too.
+   */
+  vox(args: string, at: { root: string; project: string }, early?: (line: Line) => void): Promise<Line[]> {
     return voxCommand({
       glyphs: this.d.glyphs, env: this.d.env, onPath: this.d.onPath, seal: this.d.seal, scrub: this.d.scrub,
       receipts: () => this.chain(), running: (root) => this.runningIn(root),
+      notify: (l) => { this.d.notify(l); early?.(l); }, startJob: this.d.startJob, jobs: this.d.jobs,
     }, args, at);
   }
 

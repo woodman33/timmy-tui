@@ -55,8 +55,8 @@ export type ShownWord = WordSaid & { recorded?: VoxWord; derived?: boolean };
 export interface VoxCardMetric { name: string; title: string; value: unknown; unit?: string; method?: string; tier?: string; label?: string; measured_by?: string; of?: string; note?: string; malformed?: boolean; status_word?: string; status_note?: string; said?: ShownWord }
 export interface VoxCardHighlight { path: string; sha256?: string; type?: string; drawn_from: string[]; drawn_by?: string; method?: string; of?: string; shown: boolean; why?: string; status_word?: string; status_note?: string; said?: ShownWord }
 export interface VoxCheck { status: 'verified' | 'stale' | 'unverified'; receipt?: string; reasons: string[] }
-/** R4 (H61): a view of the record's files (/vox view), with the vox receipt that sealed it. */
-export interface VoxCardView { at: string; viewer: string; program?: string; passed: string[]; notPassed: Array<{ path: string; why: string }>; pid?: number; receipt?: string }
+/** R4 (H61): a view of the record's files (/vox view), with the vox receipt that sealed it. R4 (H70): the address it was told to listen on, and the meshes made for it (a STEP's tessellation). */
+export interface VoxCardView { at: string; viewer: string; program?: string; passed: string[]; notPassed: Array<{ path: string; why: string }>; pid?: number; receipt?: string; bind?: string; derived?: Array<{ path: string; from: string; words: string }> }
 export interface VoxCard {
   file: string; id: string; action: string; command?: string; madeAt?: string; status: string;
   inputs: Array<{ path: string; sha256?: string; bytes?: number; kind?: string; kind_by?: string; role?: string; note?: string; frame?: VoxFrame }>;
@@ -154,14 +154,20 @@ export function readVoxRecord(o: { root: string; file: string; text: string; fil
       reasons.push(now === null ? `${i.path} is gone since` : now === undefined ? `${i.path} cannot be read now` : `${i.path} changed since (sha256 ${shortSha(now)} now, ${shortSha(i.sha256)} measured)`);
     }
   }
-  const sealed = new Map((seal?.outputs ?? []).map((x) => [x.path, x.sha256]));
+  // R4 (H70): a highlight's bytes as a vox receipt of this record sealed them: the newest (a view since H70 names them
+  // again), or the one that made them (a view sealed before H70 named only the record, and the board then hid them).
+  const sealed = new Map<string, Set<string>>();
+  for (const x of o.chain) {
+    if (x.kind !== 'vox' || (o.projectId && x.project_id !== o.projectId) || x.outputs?.[0]?.path !== o.file) continue;
+    for (const out of x.outputs ?? []) if (out.sha256) sealed.set(out.path, (sealed.get(out.path) ?? new Set<string>()).add(out.sha256));
+  }
   const highlights = list(r.highlights).map((h): VoxCardHighlight => {
     const p = str(h.path) ?? '';
     const base = { path: p, ...(str(h.sha256) ? { sha256: str(h.sha256) } : {}), drawn_from: Array.isArray(h.drawn_from) ? h.drawn_from.filter((x): x is string => typeof x === 'string') : [], ...Object.fromEntries((['type', 'drawn_by', 'method', 'of', 'status_word', 'status_note'] as const).flatMap((k) => (str(h[k]) ? [[k, str(h[k])]] : []))) };
     if (!HIGHLIGHT.test(p) || RECORD.exec(o.file)?.[1] !== HIGHLIGHT.exec(p)?.[1]) return { ...base, shown: false, why: 'not a highlight of this record' };
     if (status === 'unverified') return { ...base, shown: false, why: 'the record is not verified' };
     const now = shaNow(o.root, p);
-    if (!now || now !== str(h.sha256) || sealed.get(p) !== now) return { ...base, shown: false, why: now === null ? 'its file is gone' : 'its file is not the bytes the record and its receipt name' };
+    if (!now || now !== str(h.sha256) || !sealed.get(p)?.has(now)) return { ...base, shown: false, why: now === null ? 'its file is gone' : 'its file is not the bytes the record and its receipt name' };
     return { ...base, shown: true };
   });
   const tools = list(r.tools).map((t) => {
@@ -210,6 +216,9 @@ export function readVoxRecord(o: { root: string; file: string; text: string; fil
       passed: list(v.passed).flatMap((p) => (str(p.path) ? [str(p.path)!] : [])),
       notPassed: list(v.not_passed).flatMap((p) => (str(p.path) ? [{ path: str(p.path)!, why: str(p.why) ?? '' }] : [])),
       ...(typeof v.pid === 'number' ? { pid: v.pid } : {}), ...(sealedBy ? { receipt: receiptShort(sealedBy) } : {}),
+      // R4 (H70): the address it was told to listen on, and each mesh made for it, said as what it is (never the STEP itself)
+      ...(str(v.bind) ? { bind: str(v.bind) } : {}),
+      ...(Array.isArray(v.derived) && v.derived.length ? { derived: list(v.derived).flatMap((x) => (str(x.path) && str(obj(x.from)?.path) && str(x.words) ? [{ path: str(x.path)!, from: str(obj(x.from)?.path)!, words: str(x.words)! }] : [])) } : {}),
     };
   });
   return {
@@ -439,7 +448,7 @@ function cardHtml(c: VoxCard, k: Kit, base: string, rerun: { found: boolean; set
   const checks = c.checks?.length ? `<ul class="vox-checks">${c.checks.map((x) => `<li class="${x.agrees ? 'ok' : 'warn'}">${esc(x.words)}</li>`).join('')}</ul>` : '';
   const pair = c.together ? `<p class="vox-together">${esc(c.together.words)}</p>` : '';
   const views = c.views?.length
-    ? `<ul class="vox-views">${c.views.map((v) => `<li>${esc(`viewed in ${v.viewer === 'rerun' ? "Rerun's viewer" : v.viewer} ${stamp(v.at)}${v.receipt ? ` · receipt ${v.receipt}` : ' · no receipt names it'}: ${v.passed.length} file${v.passed.length === 1 ? '' : 's'} passed${v.notPassed.length ? `, ${v.notPassed.length} not (${v.notPassed.map((x) => x.path).join(', ')})` : ''}`)}</li>`).join('')}</ul>`
+    ? `<ul class="vox-views">${c.views.map((v) => `<li>${esc(`viewed in ${v.viewer === 'rerun' ? "Rerun's viewer" : v.viewer} ${stamp(v.at)}${v.receipt ? ` · receipt ${v.receipt}` : ' · no receipt names it'}: ${v.passed.length} file${v.passed.length === 1 ? '' : 's'} passed${v.notPassed.length ? `, ${v.notPassed.length} not (${v.notPassed.map((x) => x.path).join(', ')})` : ''}${v.bind ? ` · told to listen on ${v.bind} only` : ''}`)}${(v.derived ?? []).map((x) => `<span class="meta vox-derived">${esc(x.words)}</span>`).join('')}</li>`).join('')}</ul>`
     : '';
   const viewer = !k.live || c.check.status === 'unverified' ? ''
     : rerun.found
@@ -571,6 +580,7 @@ ul.vox-checks li.warn { border-left-color: ${HOMEBREW.attention}; }
 .vox-frame { display: block; font-size: 11px; color: ${HOMEBREW.textSecondary}; }
 .vox-view { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .vox-view .meta { font-size: 11px; }
+.vox-derived { display: block; font-size: 11px; color: ${HOMEBREW.textSecondary}; }
 `;
 
 /**
