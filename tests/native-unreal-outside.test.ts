@@ -83,7 +83,7 @@ describe('what is counted', () => {
     expect(Object.keys(c.by_folder)[0]).toBe('~/Library/Application Support/Epic/UnrealEngine/Common/DerivedDataCache');
     expect(c.names.join('\n')).not.toContain(path.basename(before));
     expect(JSON.stringify(c)).not.toContain(tmp);
-    expect(unrealOutsideWords(c, { nativeHome: true })).toBe('Unreal wrote 5 files outside the project: ~/Library/Application Support/Epic/UnrealEngine/Common/DerivedDataCache (2), ~/Library/Application Support/Epic/UnrealEngine/5.8/Saved (1), ~/Library/Logs/Unreal Engine/TimmyStarterEditor (1), ~/UnrealEngine/UnrealTrace (1)');
+    expect(unrealOutsideWords(c, { nativeHome: true })).toBe('5 files changed during the job in the 4 folders Unreal keeps in this account\'s home (by their timestamps; which process changed them is not known, and no other folder was looked at): ~/Library/Application Support/Epic/UnrealEngine/Common/DerivedDataCache (2), ~/Library/Application Support/Epic/UnrealEngine/5.8/Saved (1), ~/Library/Logs/Unreal Engine/TimmyStarterEditor (1), ~/UnrealEngine/UnrealTrace (1)');
   });
 
   it('a file modified in the window counts even when born long before; a file whose times were set back counts only if it was born in the window', async () => {
@@ -114,8 +114,8 @@ describe('what is counted', () => {
     const c = checkUnrealOutside({ sinceMs, env: { [UNREAL_ACCOUNT_HOME_ENV]: home }, platform: 'linux' });
     expect(c).toMatchObject({ state: 'checked', files: 0, names: [] });
     expect(c.unreadable).toBeUndefined();
-    expect(unrealOutsideWords(c, { nativeHome: true })).toBe('Unreal wrote nothing outside the project and Timmy\'s native home');
-    expect(unrealOutsideWords(c, { nativeHome: false })).toBe('Unreal wrote nothing outside the project');
+    expect(unrealOutsideWords(c, { nativeHome: true })).toBe('no file changed during the job in the 4 folders Unreal keeps in this account\'s home (by their timestamps; no other folder was looked at)');
+    expect(unrealOutsideWords(c, { nativeHome: false })).toBe('no file changed during the job in the 4 folders Unreal keeps in this account\'s home (by their timestamps; no other folder was looked at)');
   });
 
   it('keeps at most 20 names, all counted', () => {
@@ -133,15 +133,15 @@ describe('in words', () => {
   const base: UnrealOutsideCheck = { state: 'checked', folders: ['~/Library/Application Support/Epic'], since: '', files: 0, by_folder: {}, names: [], method: '' };
   it('off macOS: not checked, and why; an incomplete walk or a folder that could not be read never says nothing, and its count is "at least"', () => {
     expect(unrealOutsideWords(checkUnrealOutside({ sinceMs: 0, env: {}, platform: 'linux', home }), { nativeHome: true }))
-      .toBe('Unreal\'s writes outside the project were not checked: the check applies on macOS, where Unreal\'s user folders are known; this is linux');
+      .toBe('Unreal\'s user folders outside the project were not checked: the check applies on macOS, where Unreal\'s user folders are known; this is linux');
     expect(unrealOutsideWords({ ...base, state: 'incomplete', why: 'the walk stopped after 20 s' }, { nativeHome: true }))
-      .toBe('Unreal\'s writes outside the project are not known (an incomplete check: the walk stopped after 20 s)');
+      .toBe('whether files changed during the job in the folder Unreal keeps in this account\'s home is not known (an incomplete check: the walk stopped after 20 s)');
     expect(unrealOutsideWords({ ...base, state: 'incomplete', why: 'the walk stopped after 20 s', files: 3, by_folder: { '~/x': 3 } }, { nativeHome: true }))
-      .toBe('Unreal wrote at least 3 files outside the project: ~/x (3) (an incomplete check: the walk stopped after 20 s)');
+      .toBe('at least 3 files changed during the job in the folder Unreal keeps in this account\'s home (by their timestamps; which process changed them is not known, and no other folder was looked at): ~/x (3) (an incomplete check: the walk stopped after 20 s)');
     expect(unrealOutsideWords({ ...base, unreadable: 2 }, { nativeHome: true }))
-      .toBe('Unreal\'s writes outside the project are known only in part: nothing in the folders read; 2 folders could not be read, so what it wrote there is not known');
+      .toBe('known only in part: no file changed during the job in the folders read of the folder Unreal keeps in this account\'s home; 2 folders could not be read');
     expect(unrealOutsideWords({ ...base, files: 1, by_folder: { '~/x': 1 }, unreadable: 1 }, { nativeHome: false }))
-      .toBe('Unreal wrote at least 1 file outside the project: ~/x (1); 1 folder could not be read');
-    expect(unrealOutsideWords(base, { nativeHome: false })).toBe('Unreal wrote nothing outside the project');
+      .toBe('at least 1 file changed during the job in the folder Unreal keeps in this account\'s home (by their timestamps; which process changed them is not known, and no other folder was looked at): ~/x (1); 1 folder could not be read');
+    expect(unrealOutsideWords(base, { nativeHome: false })).toBe('no file changed during the job in the folder Unreal keeps in this account\'s home (by their timestamps; no other folder was looked at)');
   });
 });

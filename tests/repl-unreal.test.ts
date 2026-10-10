@@ -78,7 +78,7 @@ describe.skipIf(!python)('/unreal in the REPL: a judged first pass, then its rea
     expect(rb, out).not.toBeNull();
     // R4 (H72): where each Unreal kept its writes, and what each wrote outside the project, counted by folder
     expect(out).toMatch(new RegExp(`caches {3}Saved/DerivedDataCache \\(derived data; no Zen: its local store is not used\\) · log Saved/Logs/Timmy-${run.slice(0, 8)}-readback-[0-9a-f]{8}\\.log`));
-    const outside = 'outside  Unreal wrote 2 files outside the project: ~/Library/Application Support/Epic/UnrealEngine/5.8/Saved (1), ~/Library/Logs/Unreal Engine/TimmyStarterEditor (1)';
+    const outside = 'outside  2 files changed during the job in the 4 folders Unreal keeps in this account\'s home (by their timestamps; which process changed them is not known, and no other folder was looked at): ~/Library/Application Support/Epic/UnrealEngine/5.8/Saved (1), ~/Library/Logs/Unreal Engine/TimmyStarterEditor (1)';
     expect(out.split(outside).length - 1, out).toBe(2);
     // The readback: agrees, with its record and receipt.
     expect(out).toMatch(new RegExp(`✓ ${rb![1]} readback agrees {2}/Game/Timmy/TimmyGrid: 9 of 9 actors agree · Unreal run ${run.slice(0, 8)} · receipt [0-9a-f]{8} · record \\.timmy/native/${run}/readbacks\\.jsonl`));

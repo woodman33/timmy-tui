@@ -175,24 +175,28 @@ export function checkUnrealOutsideOnce(key: string, o: Parameters<typeof checkUn
 }
 
 /**
- * The check in words, for a verdict: "Unreal wrote nothing outside the project and Timmy's native home", or "Unreal wrote
- * 3 files outside the project: ~/Library/Application Support/Epic/UnrealEngine/5.8 (2), …". `nativeHome`: Unreal's user
- * folders were sent to Timmy's own native home (TIMMY_NATIVE_HOME); without one they are this account's own. A walk that
- * stopped early or a folder it could not read never gives "nothing", and makes its count "at least".
+ * The check in words, for a verdict. R4 (the lead, ledger row 165): it says only what a timestamp check of these folders
+ * can show. It names files whose birth or modification time falls in the job's window, in the folders Unreal keeps in
+ * this account's home: not which process wrote them (another program writing there at the same time is counted too), and
+ * not the rest of the disk (no other folder is looked at). H72's first words ("Unreal wrote nothing outside the project")
+ * claimed both. A walk that stopped early or a folder it could not read never gives "no file", and makes its count "at
+ * least". `_o` is kept for the callers' shape (where Unreal's user folders went is said on the Caches line).
  */
-export function unrealOutsideWords(c: UnrealOutsideCheck, o: { nativeHome: boolean }): string {
-  if (c.state === 'not applicable') return `Unreal's writes outside the project were not checked: ${c.why ?? 'nothing is watched here'}`;
+export function unrealOutsideWords(c: UnrealOutsideCheck, _o?: { nativeHome: boolean }): string {
+  if (c.state === 'not applicable') return `Unreal's user folders outside the project were not checked: ${c.why ?? 'nothing is watched here'}`;
+  const where = `the ${c.folders.length === 1 ? 'folder' : `${c.folders.length} folders`} Unreal keeps in this account's home`;
   const partial = c.state === 'incomplete' ? ` (an incomplete check: ${c.why ?? 'the walk stopped early'})` : '';
   const unread = c.unreadable ? `; ${c.unreadable} folder${c.unreadable === 1 ? '' : 's'} could not be read` : '';
+  const limits = 'by their timestamps; which process changed them is not known, and no other folder was looked at';
   if (!c.files) {
-    if (c.state === 'incomplete') return `Unreal's writes outside the project are not known${partial}${unread}`;
-    if (c.unreadable) return `Unreal's writes outside the project are known only in part: nothing in the folders read${unread}, so what it wrote there is not known`;
-    return `Unreal wrote nothing outside the project${o.nativeHome ? ' and Timmy\'s native home' : ''}`;
+    if (c.state === 'incomplete') return `whether files changed during the job in ${where} is not known${partial}${unread}`;
+    if (c.unreadable) return `known only in part: no file changed during the job in the folders read of ${where}${unread}`;
+    return `no file changed during the job in ${where} (by their timestamps; no other folder was looked at)`;
   }
   const groups = Object.entries(c.by_folder);
   const named = groups.slice(0, 6).map(([f, n]) => `${f} (${n})`).join(', ');
   const atLeast = c.state === 'incomplete' || c.unreadable ? 'at least ' : '';
-  return `Unreal wrote ${atLeast}${c.files} file${c.files === 1 ? '' : 's'} outside the project: ${named}${groups.length > 6 ? ` and ${groups.length - 6} more folders` : ''}${partial}${unread}`;
+  return `${atLeast}${c.files} file${c.files === 1 ? '' : 's'} changed during the job in ${where} (${limits}): ${named}${groups.length > 6 ? ` and ${groups.length - 6} more folders` : ''}${partial}${unread}`;
 }
 
 /** What was watched, in a few words (said beside the verdict). */

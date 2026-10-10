@@ -460,7 +460,7 @@ describe('R4 (H72): where Unreal writes, what it wrote outside the project, and 
       expect(j.files.map((f) => f.path)).toEqual(['Content/Timmy/TimmyGrid.umap']);
     });
 
-    it('without a native home, Unreal\'s user files land in the account\'s Unreal folders: the verdict counts them by folder; the run\'s record, the receipt and the lines keep the counts and the names', async () => {
+    it('without a native home, Unreal\'s user files land in the account\'s Unreal folders: the verdict counts the files changed there during the job by folder, by their timestamps, without naming a writer; the run\'s record, the receipt and the lines keep the counts and the names', async () => {
       const { s, j, job } = await firstPass({}, { FAKE_UNREAL_ACCOUNT_HOME: account() });
       expect(j.outcome, j.why).toBe('ok');
       const epic = shown(accountEpic());
@@ -469,20 +469,20 @@ describe('R4 (H72): where Unreal writes, what it wrote outside the project, and 
         state: 'checked', folders: UNREAL_MAC_USER_FOLDERS.map((f) => `~/${f}`), files: 2, by_folder: { [`${epic}/UnrealEngine/5.8/Saved`]: 1, [`${logs}/TimmyStarterEditor`]: 1 },
         names: [`${epic}/UnrealEngine/5.8/Saved/Config/MacEditor/EditorSettings.ini`, `${logs}/TimmyStarterEditor/AutoSDKInfo.json`],
       });
-      expect(j.why).toContain(`Unreal wrote 2 files outside the project: ${epic}/UnrealEngine/5.8/Saved (1), ${logs}/TimmyStarterEditor (1)`);
+      expect(j.why).toContain(`2 files changed during the job in the 4 folders Unreal keeps in this account's home (by their timestamps; which process changed them is not known, and no other folder was looked at): ${epic}/UnrealEngine/5.8/Saved (1), ${logs}/TimmyStarterEditor (1)`);
       expect(readNativeRecord(root, s.native.run)?.verdicts.at(-1)).toMatchObject({ outcome: 'ok', outside: { files: 2, names: j.outside!.names } });
       expect(unrealReceiptFields(j).native.unreal).toMatchObject({ outside: { state: 'checked', files: 2, by_folder: j.outside!.by_folder } });
-      expect(endText(j, s, job.id)).toContain(`outside  Unreal wrote 2 files outside the project: ${epic}/UnrealEngine/5.8/Saved (1), ${logs}/TimmyStarterEditor (1) · checked ${UNREAL_MAC_USER_FOLDERS.map((f) => `~/${f}`).join(', ')} for files changed since the job started (metadata only)`);
+      expect(endText(j, s, job.id)).toContain(`outside  2 files changed during the job in the 4 folders Unreal keeps in this account's home (by their timestamps; which process changed them is not known, and no other folder was looked at): ${epic}/UnrealEngine/5.8/Saved (1), ${logs}/TimmyStarterEditor (1) · checked ${UNREAL_MAC_USER_FOLDERS.map((f) => `~/${f}`).join(', ')} for files changed since the job started (metadata only)`);
       // judged again (its lines, then its receipt), the job's check is the one kept: not walked again
       expect(judgeUnrealJob(job, s).outside).toEqual(j.outside);
     });
 
-    it('with a native home they go there (CFFIXED_USER_HOME: Unreal ignores HOME for them): "Unreal wrote nothing outside the project and Timmy\'s native home"', async () => {
+    it('with a native home they go there (CFFIXED_USER_HOME: Unreal ignores HOME for them): no file changed in the account\'s Unreal folders during the job, said as a timestamp check of those folders only', async () => {
       const home = path.join(tmp, 'native-home');
       const { j } = await firstPass({}, { FAKE_UNREAL_ACCOUNT_HOME: account(), TIMMY_NATIVE_HOME: home });
       expect(j.outcome, j.why).toBe('ok');
       expect(j.outside).toMatchObject({ state: 'checked', files: 0, names: [] });
-      expect(j.why).toContain('Unreal wrote nothing outside the project and Timmy\'s native home');
+      expect(j.why).toContain('no file changed during the job in the 4 folders Unreal keeps in this account\'s home (by their timestamps; no other folder was looked at)');
       expect(existsSync(path.join(home, 'Library', 'Application Support', 'Epic', 'UnrealEngine', '5.8', 'Saved', 'Config', 'MacEditor', 'EditorSettings.ini'))).toBe(true);
       expect(existsSync(path.join(account(), 'Library'))).toBe(false);
     });
@@ -612,7 +612,7 @@ describe('run_native with app unreal, and its approval', () => {
     const answer = await call({ app: 'unreal', project_file: 'TimmyStarter.uproject', script: 'scene.py' });
     expect(answer).toMatchObject({ ok: true, app: 'unreal', result_file: `.timmy/native/${answer.run}/result.json`, copy: `.timmy/native/${answer.run}/source/scene.py`, project_file: 'TimmyStarter.uproject' });
     expect(String(answer.note)).toMatch(/A second Unreal process then reads each saved level back, and its verdict \(agrees or differs\) is the check/);
-    expect(String(answer.note)).toMatch(/Unreal keeps its cache and its log in Saved\/DerivedDataCache and Saved\/Logs\/Timmy-[0-9a-f]{8}\.log; each verdict says whether it wrote anything in this account's Unreal folders outside the project/);
+    expect(String(answer.note)).toMatch(/Unreal keeps its cache and its log in Saved\/DerivedDataCache and Saved\/Logs\/Timmy-[0-9a-f]{8}\.log; each verdict says whether files changed during the job in the folders Unreal keeps in this account's home, by their timestamps \(not which process changed them, and no other folder\)/);
     const job = await m.done(answer.job as string);
     expect(job.state).toBe('completed');
   });

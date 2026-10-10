@@ -847,6 +847,6 @@ export function unrealToolNote(spec: UnrealJobSpec, jobId: string): string {
     `It is judged when it ends, by the harness's result file (${relTo(spec.root, spec.native.result ?? '')}); ${UNREAL_FIRST_RUN}.`,
     'The script defines main(run): run.new_level or run.load_level, run.load_mesh, run.spawn_mesh, run.save_level (workers/unreal/timmy_unreal.py). Its arguments are in run.args.',
     'Do not claim the level is made until the job is judged ok, and do not trust that alone: what the result lists is Unreal\'s own report. A second Unreal process then reads each saved level back, and its verdict (agrees or differs) is the check.',
-    `Unreal keeps its cache and its log in ${spec.unreal.place ? `${spec.unreal.place.cache} and ${spec.unreal.place.log}` : 'the project\'s Saved folder'}; each verdict says whether it wrote anything in this account's Unreal folders outside the project: report that as said.`,
+    `Unreal keeps its cache and its log in ${spec.unreal.place ? `${spec.unreal.place.cache} and ${spec.unreal.place.log}` : 'the project\'s Saved folder'}; each verdict says whether files changed during the job in the folders Unreal keeps in this account's home, by their timestamps (not which process changed them, and no other folder): report that as said.`,
   ].join(' ');
 }
