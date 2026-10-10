@@ -107,6 +107,8 @@ export interface WorkspaceViews {
   agent?(args: string): Promise<Segment[][]>;
   /** Round R4 (helper H24): a local agent edits the recipe's parameter file, the recipe rebuilds, a worker reads it back. */
   iterate?(args: string): Promise<Segment[][]>;
+  /** Round R4 (helper H27): OpenSCAD exports an STL from a .scad model as a judged job; Timmy reads the STL back. */
+  scad?(args: string): Promise<Segment[][]>;
 }
 
 /** /help's sections, in order: what you work on, what you look at, setup, the session. */
@@ -154,6 +156,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'c4d', group: 'work', description: 'Cinema 4D Python as a job: /c4d <script.py>', run: inWorkspace((w, a) => w.c4d(a)) },
   { name: 'ae', group: 'work', description: 'After Effects: author, edit, inspect, render', run: inWorkspace((w, a) => w.ae(a)) },
   { name: 'blender', group: 'work', description: 'Blender Python as a job: /blender <script.py>', run: inWorkspace((w, a) => w.blender(a)) },
+  { name: 'scad', group: 'work', description: 'OpenSCAD to STL, read back: /scad <m.scad>', run: inWorkspace((w, a) => (w.scad ? w.scad(a) : [[{ text: '  /scad is not available here.', role: 'secondary' }]])) },
   { name: 'recipe', group: 'work', description: 'CadQuery tray recipe as a job: /recipe tray', run: inWorkspace((w, a) => w.recipe(a)) },
   { name: 'mcp', group: 'setup', description: 'MCP servers and tools: /mcp [tools|call]', run: inWorkspace((w, a) => w.mcp(a)) },
   // Round R3 (helper H13): a code agent as a durable, cancellable job.

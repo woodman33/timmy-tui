@@ -1,0 +1,12 @@
+{
+  "schema": "timmy.scad-params/1",
+  "model": "box.scad",
+  "parameters": {
+    "width": 60,
+    "depth": 40,
+    "height": 30,
+    "wall": 2,
+    "lid_gap": 0.3,
+    "part": "both"
+  }
+}
