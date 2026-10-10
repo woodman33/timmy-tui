@@ -32,7 +32,7 @@ import { projectId } from '../project/index.js';
 import { splitCommandLine } from '../connectors/mcp-cli.js';
 import {
   compareReadback, diffText, DOCTRINE_15, FLOW_ID, FLOW_SCHEMA, flowRecordPath, flowWorkDir, iterateTask, judgeAgentChanges, listFlows, mm3Text, mmText,
-  newFlowId, paramDiff, parseReadbackOutput, READBACK_MAX_OUTPUT, READBACK_SCOPE, READBACK_SCRIPT, READBACK_TIMEOUT_MS, READBACK_TOLERANCE, STEP_EXPORT,
+  newFlowId, paramDiff, parseReadbackOutput, READBACK_MAX_OUTPUT, READBACK_SCOPE, READBACK_SCRIPT, READBACK_TIMEOUT_MS, READBACK_TOLERANCE, STEP_EXPORT, toleranceText,
   writeFlowRecord, writeProjectJson, type FlowOutcome, type FlowRecord, type FlowStep, type ReadbackFailure, type ReadbackMeasured,
 } from '../flows/iterate.js';
 import type { RecipeStarted } from './recipe.js';
@@ -559,7 +559,7 @@ export class IterateFlows {
     const m = rec.readback?.measured;
     if (m && rec.readback) {
       lines.push([{ text: '      measured from the CAD file: ', role: 'secondary' }, { text: `${mmText(m.bounds_mm)} mm, ${mm3Text(m.volume_mm3)} mm3, ${m.solids} ${m.valid ? 'valid ' : 'invalid '}solid${m.solids === 1 ? '' : 's'}`, role: 'strong' },
-        { text: `${this.sep}${rec.readback.worker ? `${rec.readback.worker.name} ${rec.readback.worker.version}` : 'worker unknown'}${this.sep}within ${rec.readback.tolerance.bounds_mm} mm and ${rec.readback.tolerance.volume_relative} relative of the prediction: ${rec.readback.verdict}`, role: 'secondary' }]);
+        { text: `${this.sep}${rec.readback.worker ? `${rec.readback.worker.name} ${rec.readback.worker.version}` : 'worker unknown'}${this.sep}within ${toleranceText(rec.readback.tolerance)} of the prediction: ${rec.readback.verdict}`, role: 'secondary' }]);
       lines.push([{ text: `      ${DOCTRINE_15}`, role: 'strong' }]);
     }
     return lines;

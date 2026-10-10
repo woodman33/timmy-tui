@@ -46,6 +46,7 @@ import {
 } from '../code-agents/index.js';
 // Round R4 (/iterate, helper H24): the connected flow (src/repl/iterate.ts); hooks are marked "R4 (/iterate)".
 import { IterateFlows, type AgentStart, type IterateTestSeams } from './iterate.js';
+import { readBoardFlows } from './board-flows.js';
 import { FLOW_ID, FLOWS_DIR } from '../flows/iterate.js';
 
 type Line = Segment[];
@@ -1410,9 +1411,11 @@ export class Workspace {
     const w = writeProjectFile(root, BOARD_FILE, html);
     if (!w.ok) return this.say(`The board could not be written: ${w.error}`, 'failure');
     const opened = this.d.openWeb(fileUrl(join(root, w.rel)));
+    const flows = (input.flows?.list.length ?? 0) + (input.flows?.more ?? 0);
     const counts = [
       `References ${references}`, `Workflows ${docs}`, `Jobs ${jobs}`,
       `Outputs ${outputs}`, `Observations ${observed}${observed ? ` (${verifiedCount} verified)` : ''}`,
+      ...(flows ? [`Flows ${flows}`] : []),
     ].join(this.sep);
     return [
       [{ text: '  Board      ', role: 'secondary' }, { text: this.fileLink(w.rel), role: 'strong' }, { text: `  a read-only snapshot${this.sep}/board again makes a new one`, role: 'secondary' }],
@@ -1435,9 +1438,11 @@ export class Workspace {
       return { rel: f.rel, bytes: f.bytes, kind: kindOf(f.rel, headOf(abs)).kind, ...(sha ? { sha256: sha } : {}) };
     };
     const inObservations = (f: ProjectFile): boolean => f.rel.startsWith(`${OBSERVATIONS_DIR}/`);
+    // R4 (/iterate): flow records are shown as flows, not again as outputs.
+    const inFlows = (f: ProjectFile): boolean => f.rel.startsWith(`${FLOWS_DIR}/`);
     const references = files.filter((f) => f.role === 'reference');
     // Observation files are shown as observations, not again as outputs.
-    const outputs = files.filter((f) => f.role === 'output' && !inObservations(f)).sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const outputs = files.filter((f) => f.role === 'output' && !inObservations(f) && !inFlows(f)).sort((a, b) => b.mtimeMs - a.mtimeMs);
     const docs = findWorkflowDocs(root);
     const workflows = docs.slice(0, BOARD_MAX.workflows).map((doc) => {
       const r = readProjectFile(root, doc.rel, 1024 * 1024);
@@ -1511,6 +1516,8 @@ export class Workspace {
         observations: Math.max(0, observed.length - BOARD_MAX.observations),
       },
       ...(live ? { live: true } : {}),
+      // R4 (/iterate): each flow record, checked against the runs chain like an observation.
+      flows: readBoardFlows(root, files.filter((f) => inFlows(f) && f.rel.endsWith('.json')).map((f) => f.rel), { receipts: chain, projectId: pid, scrub: (t) => this.scrub(t, root) }),
     };
     return {
       input, references: references.length, docs: docs.length, jobs: jobs.length, outputs: outputs.length, observed: observed.length, verifiedCount, truncated, images,

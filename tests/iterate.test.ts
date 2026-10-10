@@ -23,6 +23,7 @@ import { folderProject } from '../src/project/index.js';
 import { Workspace, type WorkspaceDeps } from '../src/repl/workspace.js';
 import { COMMANDS } from '../src/repl/commands.js';
 import { parseIterateLine } from '../src/repl/iterate.js';
+import { checkFlowRecord, flowsSection } from '../src/repl/board-flows.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import { hashOf, type Receipt, type ReceiptInput } from '../src/utils/receipts.js';
 import { jobDirectory, status } from '../lanes/recipes/jobs.js';
@@ -215,6 +216,44 @@ describe('/iterate: the parts that decide (no processes)', () => {
   });
 });
 
+describe('the board\'s Flows section (no processes)', () => {
+  const record = (o: Partial<FlowRecord> = {}): FlowRecord => ({
+    flow: 1, schema: 'timmy.flow/1', id: 'f0123abcd', kind: 'iterate', recipe: 'enclosure.tray/1', instruction: 'make it <script>alert(1)</script> wider', project: 'p',
+    started_at: '2026-10-09T09:00:00.000Z', outcome: 'stopped', ended_in: 'checks', why: 'the agent changed nothing; nothing was rebuilt',
+    parameters: { path: PARAMS, created: false, before: { sha256: 'a'.repeat(64), values: { width: 140, wall: 3, supportOffset: 10, bore: 3 } } },
+    receipts: {}, child_receipts: [], doctrine: DOCTRINE_15, ...o,
+  });
+  it('says what to do when there is no flow, and draws a card with every string escaped', () => {
+    expect(flowsSection({ list: [], more: 0 }, { live: false, base: '../../' }).html).toContain('No flows yet: /iterate tray &quot;&lt;instruction&gt;&quot;');
+    const html = flowsSection({ list: [{ file: 'results/flows/f0123abcd.json', record: record(), check: { status: 'unverified', reasons: ['no flow receipt names this file'] } }], more: 2 }, { live: false, base: '../../' });
+    expect(html.toc).toBe('<a href="#flows">Flows <b>3</b></a>');
+    expect(html.html).toContain('make it &lt;script&gt;alert(1)&lt;/script&gt; wider');
+    expect(html.html).not.toContain('<script>');
+    expect(html.html).toContain('no flow receipt names this file');
+    expect(html.html).toContain('and 2 more: /iterate');
+    // no readback, so no measured values and no section claiming any
+    expect(html.html).not.toContain('measured from the CAD file');
+  });
+  it('a path from a record is a link only inside the project; the live board names files as text', () => {
+    const r = record({ rebuild: { state: 'succeeded', outputs: [{ path: '../../etc/x.step', sha256: 'b'.repeat(64), bytes: 1 }, { path: 'https://example.com/a.stl', sha256: 'c'.repeat(64), bytes: 1 }, { path: 'out/recipes/abcd1234/bores.stl', sha256: 'd'.repeat(64), bytes: 1 }] } });
+    const f = { file: 'results/flows/f0123abcd.json', record: r, check: { status: 'unverified' as const, reasons: [] } };
+    const html = flowsSection({ list: [f], more: 0 }, { live: false, base: '../../' }).html;
+    expect(html).toContain('href="../../out/recipes/abcd1234/bores.stl"');
+    expect(html.match(/not a project path/g)).toHaveLength(2);
+    expect(html).not.toMatch(/href="[^"]*(\.\.\/etc|https)/);
+    const live = flowsSection({ list: [f], more: 0 }, { live: true, base: '../../' }).html;
+    expect(live).not.toContain('<a ');
+    expect(live).toContain('<span class="name">out/recipes/abcd1234/bores.stl</span>');
+  });
+  it('verified only when a flow receipt of this project sealed exactly these bytes', () => {
+    const rc = (o: Record<string, unknown>) => ({ kind: 'flow', project_id: 'pid', hash: 'sha256_0123456789abcdef', outputs: [{ path: 'results/flows/f0123abcd.json', sha256: 'e'.repeat(64), bytes: 1 }], ...o }) as unknown as Receipt;
+    expect(checkFlowRecord('results/flows/f0123abcd.json', 'e'.repeat(64), [rc({})], 'pid')).toEqual({ status: 'verified', receipt: '01234567', reasons: [] });
+    expect(checkFlowRecord('results/flows/f0123abcd.json', 'f'.repeat(64), [rc({})], 'pid')).toMatchObject({ status: 'unverified', reasons: [expect.stringContaining('changed after it was sealed')] });
+    expect(checkFlowRecord('results/flows/f0123abcd.json', 'e'.repeat(64), [rc({ project_id: 'other' })], 'pid')).toMatchObject({ status: 'unverified', reasons: ['no flow receipt names this file'] });
+    expect(checkFlowRecord('results/flows/f0123abcd.json', 'e'.repeat(64), [rc({ kind: 'agent' })], 'pid').status).toBe('unverified');
+  });
+});
+
 describe('/iterate refuses before anything is written', () => {
   it('a paid route, a cloud model, no model, no recipe runtime or an unusable parameter file: nothing written, nothing started', async () => {
     const cases: Array<[Record<string, string | undefined>, string, RegExp]> = [
@@ -302,6 +341,40 @@ describe('/iterate end to end (FAKE agent, FAKE recipe executor, FAKE readback)'
     noAbsolute(JSON.stringify(sealed));
     // /iterate lists it
     expect(text(await ws.iterate(''))).toMatch(new RegExp(`${id}\\s+succeeded width 140 → 180 · readback matches · results/flows/${id}\\.json`));
+    // the board: the flow as a card, verified by its flow receipt; measured values labelled, with DOCTRINE §15; files linked
+    expect(text(ws.board(''))).toMatch(/Flows 1/);
+    const html = fs.readFileSync(path.join(root, '.timmy/board/index.html'), 'utf8');
+    expect(html).toContain('<h2 id="flows">Flows <span class="count">1</span></h2>');
+    const card = html.match(/<article class="card flow">([\s\S]*?)<\/article>/)![1];
+    expect(card).toContain(`<strong>${id}</strong> <span class="state state-succeeded">succeeded</span>`);
+    expect(card).toContain('make it 180 mm wide PARAM:width=180');
+    expect(card).toContain('status-verified');
+    expect(card).toContain('<dt>width</dt><dd><span class="was">140</span> → <strong class="changed">180</strong> <span class="tier">changed</span></dd>');
+    expect(card).toContain('<dt>wall</dt><dd>3</dd>');
+    expect(card).toContain('measured from the CAD file (the STEP read back in its own process)');
+    expect(card).toContain('<dt>bounds</dt><dd>180 x 80 x 30 mm <span class="tier">predicted 180 x 80 x 30 mm</span></dd>');
+    expect(card).toContain('matches · within 1e-6 mm and 1e-8 relative of the prediction');
+    expect(card).toContain(DOCTRINE_15);
+    expect(card).toContain('fake-step-readback 0.0.0-fake (a FAKE readback, not a measurement)');
+    const out8 = `out/recipes/${uuid.slice(0, 8)}`;
+    for (const f of ['console-tray.step', 'outer.stl', 'cavity.stl', 'bosses.stl', 'bores.stl']) expect(card).toContain(`href="../../${out8}/${f}"`);
+    expect(card).toContain(`href="../../${PARAMS}"`);
+    expect(card).toContain(`receipts: agent ${rec.receipts.agent} · prediction ${rec.receipts.prediction} · build ${rec.receipts.build} · readback ${rec.receipts.readback} · flow `);
+    // the record is shown as a flow, not again as an output
+    expect(html.match(new RegExp(`data-cmd="/open results/flows/${id}\\.json"`, 'g'))).toHaveLength(1);
+    noAbsolute(html);
+    // an edited record is no longer verified: its values are shown as the file says
+    const edited = body.toString('utf8').replace(/("measured": \{\s*"bounds_mm": \[\s*)180/, '$1999');
+    expect(edited).not.toBe(body.toString('utf8'));
+    fs.writeFileSync(path.join(root, 'results', 'flows', `${id}.json`), edited);
+    ws.board('');
+    const after = fs.readFileSync(path.join(root, '.timmy/board/index.html'), 'utf8').match(/<article class="card flow">([\s\S]*?)<\/article>/)![1];
+    expect(after).toContain('status-unverified');
+    expect(after).toContain('the file changed after it was sealed');
+    expect(after).toContain('measured from the CAD file, as the record says (not verified)');
+    expect(after).toContain('999 x 80 x 30 mm');
+    expect(after).toContain(DOCTRINE_15);
+    expect(after).not.toContain('<section class="measured readback">');
   }, 120000);
 
   it('the agent changes another file: stopped before the build, the files listed, nothing reverted', async () => {

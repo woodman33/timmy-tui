@@ -16,6 +16,8 @@
  * as recorded, never drawn or worded as a measurement. A card with no check is not verified.
  */
 import { checkObservation, type ObservationCheck } from '../evidence/observation-check.js';
+// R4 (/iterate): the Flows section's cards (src/repl/board-flows.ts).
+import { FLOWS_CSS, flowsSection, type BoardFlows } from './board-flows.js';
 import { humanBytes } from '../project/index.js';
 import { kindOf } from '../project/intake.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
@@ -108,6 +110,8 @@ export interface BoardInput {
    * (its Content-Security-Policy allows no style attribute). Absent: the read-only snapshot, unchanged.
    */
   live?: boolean;
+  /** R4 (/iterate): the flow records, newest first, each checked (board-flows.ts); absent: no Flows section. */
+  flows?: BoardFlows;
 }
 
 /** Where `/board` writes the page, relative to the project, and the way back from there. */
@@ -545,7 +549,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .more { margin-top: 10px; }
 footer { color: ${HOMEBREW.textSecondary}; font-size: ${TYPE.size.small}px; padding-top: 32px; padding-bottom: 32px; }
 @media (max-width: 520px) { .obshead { grid-template-columns: minmax(0, 1fr); } h1 { font-size: 19px; } }
-`;
+${FLOWS_CSS}`;
 
 /** Copies a command when it is clicked; where the clipboard is refused, selects it to copy by hand. */
 const SCRIPT = `
@@ -573,8 +577,9 @@ export function renderBoardBody(input: BoardInput): { toc: string; main: string 
     ['observations', 'Observations', total('observations', input.observations.length)],
   ];
   const n = Object.fromEntries(counts.map(([k, , c]) => [k, c])) as Record<BoardPart, number>;
+  const flows = input.flows ? flowsSection(input.flows, { live: h.live, base: input.base }) : undefined;
   return {
-    toc: `<nav class="toc">${counts.map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}</nav>`,
+    toc: `<nav class="toc">${counts.map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${flows?.toc ?? ''}</nav>`,
     main: [
       heading('references', 'References', n.references),
       input.references.length ? grid(input.references.map((f) => referenceCard(f, h))) : h.empty('No references yet: /add <file> copies a file into refs/.'),
@@ -592,6 +597,7 @@ export function renderBoardBody(input: BoardInput): { toc: string; main: string 
       `<h3 id="observations">Observations <span class="count">${n.observations}</span></h3>`,
       input.observations.length ? grid(input.observations.map((o) => observationCard(o, h)), true) : h.empty('No observations yet: /observe <image>'),
       h.more('observations', '/results'),
+      flows?.html ?? '',
     ].join('\n'),
   };
 }

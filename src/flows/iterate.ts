@@ -224,6 +224,9 @@ export function compareReadback(predicted: { bounds: number[]; volume: number },
   return { verdict: checks.every((c) => c.passed) ? 'matches' : 'differs', checks };
 }
 
+/** The tolerance as the notices and the board say it: "1e-6 mm and 1e-8 relative". */
+export const toleranceText = (t: { bounds_mm: number; volume_relative: number }): string => `${t.bounds_mm.toExponential()} mm and ${t.volume_relative.toExponential()} relative`;
+
 /** Numbers as the records and notices show them: up to 6 decimals for mm, 3 for mm3. */
 export const mmText = (b: number[]): string => b.map((n) => String(Math.round(n * 1e6) / 1e6)).join(' x ');
 export const mm3Text = (n: number): string => (Math.round(n * 1000) / 1000).toLocaleString('en-US');
