@@ -27,6 +27,9 @@ import { DETERMINISTIC } from '../vision/look.js';
 import { CARDS_CSS, renderParamsCard, renderResultCards, type ParamsCard, type ResultCard } from './board-cards.js';
 import { kit } from './board-kit.js';
 import { NODES_CSS, renderWorkflowCard, type WorkflowDocInput } from './board-nodes.js';
+// R4 (H48): the Control Room section (src/repl/board-room.ts, drawn from src/room).
+import { ROOM_CSS, roomSection } from './board-room.js';
+import type { RoomView } from '../room/index.js';
 
 export interface BoardFile { rel: string; bytes: number; sha256?: string; kind?: string }
 /** A workflow document: its named blocks (R4: with language and command), its sha256 and whether the live board edits it. */
@@ -133,6 +136,8 @@ export interface BoardInput {
   live?: boolean;
   /** R4 (/iterate): the flow records, newest first, each checked (board-flows.ts); absent: no Flows section. */
   flows?: BoardFlows;
+  /** R4 (H48): the Control Room (src/room): who runs what, routes, handoffs, costs, outputs, tools; absent: no section. */
+  room?: RoomView;
 }
 
 /** Where `/board` writes the page, relative to the project, and the way back from there. */
@@ -636,9 +641,11 @@ export function renderBoardBody(input: BoardInput): { toc: string; main: string 
   const n = Object.fromEntries(counts.map(([k, , c]) => [k, c])) as Record<BoardPart, number>;
   const params = input.params ? '<a href="#parameters">Parameters</a>' : '';
   const flows = input.flows ? flowsSection(input.flows, { live: h.live, base: input.base }) : undefined;
+  const room = input.room ? roomSection(input.room, k) : undefined;
   return {
-    toc: `<nav class="toc">${counts.slice(0, 2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${params}${counts.slice(2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${flows?.toc ?? ''}</nav>`,
+    toc: `<nav class="toc">${room?.toc ?? ''}${counts.slice(0, 2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${params}${counts.slice(2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${flows?.toc ?? ''}</nav>`,
     main: [
+      ...(room ? [room.html] : []),
       heading('references', 'References', n.references),
       input.references.length ? grid(input.references.map((f) => referenceCard(f, h))) : h.empty('No references yet: /add <file> copies a file into refs/.'),
       h.more('references', '/files references'),
@@ -667,7 +674,7 @@ export function renderBoardBody(input: BoardInput): { toc: string; main: string 
 }
 
 /** The board's stylesheet, shared by the snapshot and the live board's page (R4: with the new cards' rules). */
-export const BOARD_CSS = CSS + CARDS_CSS + NODES_CSS;
+export const BOARD_CSS = CSS + CARDS_CSS + NODES_CSS + ROOM_CSS;
 
 /** The board as one self-contained HTML page. */
 export function renderBoard(input: BoardInput): string {

@@ -113,6 +113,8 @@ export interface WorkspaceViews {
   recover?(args: string): Promise<Segment[][]>;
   /** Round R4 (helper H27): OpenSCAD exports an STL from a .scad model as a judged job; Timmy reads the STL back. */
   scad?(args: string): Promise<Segment[][]>;
+  /** Round R4 (helper H48): the Control Room: who runs what, routes, handoffs, costs as recorded, outputs, tools. */
+  room?(args: string): Promise<Segment[][]>;
 }
 
 /** /help's sections, in order: what you work on, what you look at, setup, the session. */
@@ -165,6 +167,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'observe', group: 'look', description: 'Image: /observe <file> [--qualify] [question]', run: inWorkspace((w, a) => w.observe(a)) },
   // Round R3: `/board live` and `/board off` go to the live board; `/board` alone stays the snapshot.
   { name: 'board', group: 'look', description: 'A board of the project; /board live | off', run: inWorkspace((w, a) => (w.boardLive && /^(?:live|off)$/.test(a.trim()) ? w.boardLive(a) : w.board(a))) },
+  // Round R4 (helper H48): the Control Room, also a section of the board.
+  { name: 'room', group: 'look', description: 'Control Room: runs, costs, tools; /room <id>', run: inWorkspace((w, a) => (w.room ? w.room(a) : [[{ text: '  The Control Room is not available here.', role: 'secondary' }]])) },
   { name: 'c4d', group: 'work', description: 'Cinema 4D Python as a job: /c4d <script.py>', run: inWorkspace((w, a) => w.c4d(a)) },
   { name: 'ae', group: 'work', description: 'After Effects: author, edit, inspect, render', run: inWorkspace((w, a) => w.ae(a)) },
   { name: 'blender', group: 'work', description: 'Blender Python as a job: /blender <script.py>', run: inWorkspace((w, a) => w.blender(a)) },

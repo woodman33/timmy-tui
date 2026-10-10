@@ -70,6 +70,11 @@ import { FLOW_ID, FLOWS_DIR } from '../flows/iterate.js';
 import { checkKeptRecord, keptObservations, keptResults } from './board-kept.js';
 // Round R4 (H32): what a session that ended without its stop path left in the project, picked up at start and on /recover.
 import { followSpec, recoverProject, recoveryLines, type RecoveryReport } from './recover.js';
+// Round R4 (H48): the Control Room (/room and the board's section): src/room reads the runs; this file only gathers its inputs.
+import { gatherRoom, scrubRows, type Room, type RoomTools } from '../room/index.js';
+import { roomItemLines, roomLines } from '../room/text.js';
+import type { CapabilityRow } from '../capabilities/index.js';
+import type { BoardFlows } from './board-flows.js';
 
 type Line = Segment[];
 
@@ -113,6 +118,8 @@ export interface WorkspaceDeps {
   recoverAtStart?: boolean;
   /** R4 (/freecad readback), test seams only: a FAKE readback worker. */
   freecadTest?: FreecadTestSeams;
+  /** R4 (H48): the tools check /room runs (the /tools ladder's rows); absent: capabilities() with liveDeps, OpenRouter not contacted. */
+  roomTools?: () => Promise<CapabilityRow[]>;
 }
 
 /** How an observation ended (round R2, look): its file and receipt, or why there is none. */
@@ -250,6 +257,8 @@ export class Workspace {
   readonly startRecovery: Promise<RecoveryReport | undefined>;
   /** R4 (H28): the STEP readbacks of FreeCAD runs this REPL follows (/freecad readback). */
   private readonly freecadReadbacks: FreecadReadbacks;
+  /** R4 (H48): the Control Room's last tools check (/room runs it; the board shows it with its time). */
+  private roomTools?: RoomTools;
 
   constructor(private readonly d: WorkspaceDeps, start: ActiveProject) {
     this.project = start;
@@ -1735,6 +1744,56 @@ export class Workspace {
     return lines;
   }
 
+  // ── /room (round R4, helper H48: the Control Room; src/room reads the runs, src/room/text.ts prints them) ──
+
+  /**
+   * `/room`: who runs what in the project (running first, then the recent runs by owner), the costs as recorded and the
+   * tools that need setup, checked now (the /tools ladder, OpenRouter not contacted). `/room <id>`: one run's route,
+   * handoff chain and outputs. Nothing is run, sealed or written; the board's Control Room shows the same picture.
+   */
+  async room(args: string): Promise<Line[]> {
+    const id = args.trim();
+    if (!id) await this.checkRoomTools();
+    const jobs = this.jobs.list().filter((j) => sameFolder(j.root, this.root));
+    let chain: Receipt[] = [];
+    try { chain = (this.d.receipts ?? (() => readChain('runs')))(); } catch { chain = []; }
+    const room = this.roomOf({ jobs, chain });
+    const o = { glyphs: this.d.glyphs, link: (rel: string) => this.fileLink(rel) };
+    return id ? roomItemLines(room, id, o) : roomLines(room.view, o);
+  }
+
+  /** The Control Room from what the board has gathered (or, for /room, from the project): never throws; a failure is said. */
+  private roomOf(o: { jobs: JobRecord[]; chain: Receipt[]; flows?: BoardFlows; observations?: BoardObservation[] }): Room {
+    const root = this.root;
+    try {
+      return gatherRoom({
+        root, project: this.project.name, projectId: projectId(root), jobs: o.jobs, chain: o.chain,
+        ...(o.flows ? { flows: o.flows } : {}), ...(o.observations ? { observations: o.observations } : {}),
+        mine: (id) => this.mine.has(id), activeFlows: this.flows.active,
+        asking: (id) => this.observing.get(id)?.asking,
+        scrub: (t) => this.scrub(t, root),
+        ...(this.roomTools ? { tools: this.roomTools } : {}),
+      });
+    } catch (err) {
+      const why = this.scrub(err instanceof Error ? err.message : String(err), root);
+      return { all: [], view: { project: this.project.name, groups: [], running: [], costs: { knownUsd: 0, known: 0, unknown: 0, free: 0, atLeastUsd: 0 }, notes: [`The Control Room could not be read: ${why}`] } };
+    }
+  }
+
+  /** /room's tools check: the /tools ladder's rows now (a test gives its own), the project's and home folders scrubbed. */
+  private async checkRoomTools(): Promise<void> {
+    try {
+      const rows = this.d.roomTools ? await this.d.roomTools() : await (async () => {
+        const { capabilities } = await import('../capabilities/index.js');
+        const { liveDeps } = await import('../capabilities/live.js');
+        return capabilities(liveDeps({ env: this.d.env, model: this.d.model?.() ?? 'the configured model' }));
+      })();
+      this.roomTools = { checkedAt: new Date().toISOString(), rows: scrubRows(rows, (t) => this.scrub(t, this.root)) };
+    } catch (err) {
+      this.roomTools = { checkedAt: new Date().toISOString(), rows: [], note: `The tools check failed: ${this.scrub(err instanceof Error ? err.message : String(err), this.root)}` };
+    }
+  }
+
   // ── /board (round R2: a reference board linked to the actual files, jobs and results) ──
 
   /**
@@ -1850,6 +1909,10 @@ export class Workspace {
     try { results = gatherResults({ root, jobs, chain, observations: shownObs, scrub: (t, r) => this.scrub(t, r), extra: kept }); } catch (err) {
       results = { cards: [{ kind: 'board', title: 'results', status: { word: 'unreadable', tone: 'failed', detail: this.scrub(err instanceof Error ? err.message : String(err), root) } }], more: 0 };
     }
+    // R4 (/iterate): each flow record, checked against the runs chain like an observation. R4 (H48): read once, for the Flows
+    // section and the Control Room.
+    const flows = readBoardFlows(root, files.filter((f) => inFlows(f) && f.rel.endsWith('.json')).map((f) => f.rel), { receipts: chain, projectId: pid, scrub: (t) => this.scrub(t, root) });
+    const room = this.roomOf({ jobs, chain, flows, observations: shownObs });
     const input: BoardInput = {
       project: this.project.name,
       madeAt: utcStamp(new Date()),
@@ -1874,8 +1937,8 @@ export class Workspace {
         results: results.more,
       },
       ...(live ? { live: true } : {}),
-      // R4 (/iterate): each flow record, checked against the runs chain like an observation.
-      flows: readBoardFlows(root, files.filter((f) => inFlows(f) && f.rel.endsWith('.json')).map((f) => f.rel), { receipts: chain, projectId: pid, scrub: (t) => this.scrub(t, root) }),
+      flows,
+      room: room.view,
     };
     return {
       input, references: references.length, docs: docs.length, jobs: jobs.length, outputs: outputs.length, observed: observed.length, verifiedCount, truncated, images,
@@ -1933,9 +1996,15 @@ export class Workspace {
     const { toc, main } = renderBoardBody(input);
     // The sections are redrawn when this changes: everything but the jobs' states and times.
     const shape = createHash('sha256').update(JSON.stringify({ ...input, madeAt: '', jobs: input.jobs.map((j) => ({ id: j.id, label: j.label, receipt: j.receipt })) })).digest('hex').slice(0, 16);
+    // R4 (H48): the Control Room's Stop targets: its running flows (stoppable only when this REPL runs one), and a running job of
+    // this REPL's it shows that the Jobs section left off (it shows the newest only); each is checked by checkAction as any stop.
+    const running = input.room?.running ?? [];
+    const shown = new Set(input.jobs.map((j) => j.id));
+    const roomJobs = running.flatMap((r) => (r.stop?.kind === 'job' && !shown.has(r.stop.id) ? [{ id: r.stop.id, state: 'running', label: r.step ?? r.owner, stoppable: true }] : []));
     return {
       project: input.project, madeAt: input.madeAt, toc, html: main, shape,
-      jobs: input.jobs.map((j) => ({ id: j.id, state: j.state, label: j.label, ...(j.seconds ? { seconds: j.seconds } : {}), stoppable: j.stoppable === true })),
+      jobs: [...input.jobs.map((j) => ({ id: j.id, state: j.state, label: j.label, ...(j.seconds ? { seconds: j.seconds } : {}), stoppable: j.stoppable === true })), ...roomJobs],
+      flows: running.filter((r) => r.kind === 'flow').map((r) => ({ id: r.id, state: r.state, stoppable: r.stop?.kind === 'flow' })),
       workflows: input.workflows.map((w) => ({ rel: w.rel, blocks: w.blocks.map((b) => b.name) })),
       files: images,
       recipes: input.params ? [input.params.recipe] : [],
