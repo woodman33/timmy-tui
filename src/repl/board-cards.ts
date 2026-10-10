@@ -11,17 +11,17 @@
  * runs, finished jobs), all with the same parts: what it is, its status in words, its values with how each
  * was obtained, its editable files (links), its receipts and the commands that act on it. A value is shown as
  * measured only when the board's own check verifies it now (a recipe's signed result and the copied exports'
- * sha256); an observation's values stay in its own card, under its provenance check. `renderResultCards` is
+ * sha256; round R4, H29: a recipe card is kept between polls while no file its checks read has changed, and then
+ * says when they ran); an observation's values stay in its own card, under its provenance check. `renderResultCards` is
  * the hook for results built elsewhere (the /iterate flows): give it more cards in the same shape.
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { status as recipeStatus } from '../../lanes/recipes/jobs.js';
 import { listAgentRuns, taskWords, AGENTS_DIR, type AgentRunRecord } from '../code-agents/index.js';
 import type { JobRecord } from '../jobs/index.js';
 import { listNativeRuns, NATIVE_APPS, readNativeRecord, type NativeApp } from '../native/index.js';
 import { resolveInside } from '../project/index.js';
-import { checkCopy, DOCTRINE_15, failureFiles, isRecipeJobId, outcomeOf, PARAMETER_HELP, PARAMETER_NAMES, readCard, RECIPE_ID } from '../recipes/index.js';
+import { checkCopyOf, deliverable, DOCTRINE_15, EXPORTS, failureFiles, isRecipeJobId, outcomeOf, outDir, PARAMETER_HELP, PARAMETER_NAMES, readCard, readRecipe, RECIPE_ID, type RecipeRead } from '../recipes/index.js';
 import { checkParams, paramsPath, PARAMS_RECIPES, readParams, writeParams } from '../recipes/params-file.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { Receipt } from '../utils/receipts.js';
@@ -196,46 +196,128 @@ const mm = (b: number[]): string => b.map(fmt).join(' x ');
 const mm3 = (n: number): string => (Math.round(n * 1000) / 1000).toLocaleString('en-US');
 const shortId = (r: { hash?: unknown; id?: unknown }): string => (typeof r.hash === 'string' && r.hash.length > 15 ? r.hash.slice(7, 15) : String(r.id ?? '?'));
 
-/** The project's newest recipe jobs (by job file time), each read through the recipe's own status(). */
+/**
+ * The project's newest recipe jobs (by job file time), each read through the recipe's own status().
+ *
+ * Round R4 (H29): the live board asks for this every 2 seconds per open page, and a card's checks hash every export
+ * several times (measured: 35 ms a poll with 4 MB of exports, 118 ms with 20 MB, all of it on the REPL's thread).
+ * So a card is kept with the fingerprint of everything its checks read (inputsPrint) and reused while that
+ * fingerprint is unchanged; any change, and the card is checked afresh, as before.
+ */
 export function recipeResults(root: string, max = 4): ResultCard[] {
   const dir = path.join(root, '.timmy', 'recipe-jobs');
   let ids: string[] = [];
   try { ids = fs.readdirSync(dir).filter(isRecipeJobId); } catch { return []; }
   const timed = ids.map((id) => { let t = 0; try { t = fs.statSync(path.join(dir, id, 'job.json')).mtimeMs; } catch { /* unreadable: last */ } return { id, t }; });
   return timed.sort((a, b) => b.t - a.t).slice(0, max).map(({ id, t }) => {
-    const title = `recipe ${RECIPE_ID} · ${id.slice(0, 8)}`;
-    let s: ReturnType<typeof recipeStatus>;
-    try { s = recipeStatus(root, id); } catch (e) {
-      return { kind: 'recipe', title, at: new Date(t).toISOString(), status: { word: 'unreadable', tone: 'failed', detail: e instanceof Error ? e.message : String(e) }, commands: ['/recipe status'] } satisfies ResultCard;
+    const key = `${root}\0${id}`;
+    // taken before the checks: a change during them leaves a fingerprint the next poll does not match
+    const print = inputsPrint(root, id);
+    const kept = keptCards.get(key);
+    if (kept && kept.print === print.text) return shownAgain(kept);
+    const at = Date.now();
+    const card = recipeCard(root, id, t);
+    keptCards.delete(key);
+    if (print.settled) {
+      keptCards.set(key, { print: print.text, card: structuredClone(card), at });
+      if (keptCards.size > CARDS_KEPT) keptCards.delete(keptCards.keys().next().value!);
     }
-    const base: ResultCard = {
-      kind: 'recipe', title, at: new Date(s.job.created).toISOString(), status: { word: s.state, tone: 'neutral' },
-      lines: [`job ${id} · request ${s.job.requestHash.slice(0, 12)} · source ${s.job.sourceHash.slice(0, 12)}`], commands: ['/recipe status'],
-    };
-    if (s.state === 'succeeded') {
-      const copy = checkCopy(root, id);
-      if (!copy.ok) return { ...base, status: { word: 'succeeded', tone: 'attention', detail: `but its exports are not verified in the project: ${copy.error}` }, commands: [`/recipe copy ${id}`, '/recipe status'] };
-      const o = outcomeOf(copy.v);
-      const facts: NonNullable<ResultCard['facts']> = [];
-      if (o.checks) facts.push({ label: 'geometry checks', value: `${o.checks.passed} of ${o.checks.total} passed`, how: "the recipe's gate, from its signed result" });
-      if (o.measured) facts.push({ label: 'bounds', value: `${mm(o.measured.bounds)} mm`, how: `measured on the generated CAD${o.predicted ? `; ${mm(o.predicted.bounds)} mm in the sealed prediction` : ''}` });
-      if (o.measured) facts.push({ label: 'volume', value: `${mm3(o.measured.volume)} mm3`, how: `measured on the generated CAD${o.predicted ? `; ${mm3(o.predicted.volume)} mm3 predicted` : ''}` });
-      if (o.step) facts.push({ label: 'STEP reimport', value: `${o.step.passed} of ${o.step.total} checks passed`, how: 'from its signed result' });
-      if (o.mesh) facts.push({ label: 'mesh checks', value: `${o.mesh.passed} of ${o.mesh.total} passed`, how: `independent (${o.engines.join(', ') || 'engine not recorded'})` });
-      return {
-        ...base, status: { word: 'succeeded', tone: 'ok', detail: 'its signed result verified now, and every copied file matches its sha256' }, facts,
-        files: copy.v.files.map((f) => ({ rel: `${copy.dir}/${f.name}`, note: f.name.endsWith('.json') ? 'record' : 'export' })),
-        receipts: [{ id: copy.v.resultReceipt, what: 'result' }], notice: DOCTRINE_15,
-      };
-    }
-    const failed = s.state === 'failed' || s.state === 'interrupted';
-    const kept = failed || s.state === 'cancelled' ? failureFiles(root, id) : [];
-    return {
-      ...base, status: { word: s.state, tone: failed ? 'failed' : s.state === 'cancelled' ? 'neutral' : 'running', detail: `${s.progress}${s.reason ? `: ${s.reason}` : ''}` },
-      ...(kept.length ? { files: kept.map((rel) => ({ rel, note: 'kept' })) } : {}),
-      commands: s.state === 'interrupted' ? [`/recipe recover ${id}`, '/recipe status'] : ['/recipe status'],
-    };
+    return card;
   });
+}
+
+/** How long every time in a fingerprint must be in the past before a card is kept: longer than the coarsest file
+ *  time resolution (1 to 2 s), so a change within the same tick as the check cannot look like no change. */
+const SETTLE_MS = 2000;
+const CARDS_KEPT = 64;
+const keptCards = new Map<string, { print: string; card: ResultCard; at: number }>();
+const VERIFIED_NOW = 'its signed result verified now, and every copied file matches its sha256';
+
+/** A kept card shown again: its checks did not run now, so a success says when they ran. */
+function shownAgain(kept: { card: ResultCard; at: number }): ResultCard {
+  const card = structuredClone(kept.card);
+  if (card.status.detail === VERIFIED_NOW) card.status.detail = `its signed result and every copied file's sha256 were verified at ${stamp(kept.at)}; no file those checks read has changed since`;
+  return card;
+}
+
+/**
+ * The fingerprint of everything a recipe card's checks read: the project folder's real path; the type, device,
+ * inode, size, mtime and ctime (nanoseconds where the file system has them) of .timmy, .timmy/recipe-jobs, every file
+ * and folder under the job's folder (a link: its own and its target's; the checks refuse links, but some ask whether
+ * one exists), and the copied files the copy check reads in out/recipes/<uuid8>/ (through links, as it reads them).
+ * `settled`: every time in it was at least SETTLE_MS before now. A ctime cannot be set back, so a file rewritten with
+ * the same size and its old mtime restored still changes the fingerprint.
+ */
+function inputsPrint(root: string, id: string): { text: string; settled: boolean } {
+  const lines: string[] = [];
+  const now = Date.now();
+  let settled = true;
+  const stat = (p: string, follow: boolean): fs.BigIntStats | string => {
+    try { return follow ? fs.statSync(p, { bigint: true }) : fs.lstatSync(p, { bigint: true }); } catch (e) { return `!${(e as NodeJS.ErrnoException).code ?? 'unreadable'}`; }
+  };
+  const note = (p: string, follow: boolean): fs.BigIntStats | string => {
+    const s = stat(p, follow);
+    if (typeof s === 'string') { lines.push(`${p} ${follow ? '=>' : '->'} ${s}`); return s; }
+    if (Number(s.mtimeMs > s.ctimeMs ? s.mtimeMs : s.ctimeMs) > now - SETTLE_MS) settled = false;
+    lines.push(`${p} ${follow ? '=>' : '->'} ${s.mode}:${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`);
+    return s;
+  };
+  const walk = (p: string): void => {
+    const s = note(p, false);
+    if (typeof s === 'string') return;
+    if (s.isSymbolicLink()) { note(p, true); return; }
+    if (!s.isDirectory()) return;
+    let names: string[];
+    try { names = fs.readdirSync(p).sort(); } catch (e) { lines.push(`${p} ls ${(e as NodeJS.ErrnoException).code ?? 'unreadable'}`); return; }
+    for (const name of names) walk(path.join(p, name));
+  };
+  try { lines.push(`root ${fs.realpathSync(root)}`); } catch (e) { lines.push(`root !${(e as NodeJS.ErrnoException).code ?? 'unreadable'}`); }
+  for (const p of [path.join(root, '.timmy'), path.join(root, '.timmy', 'recipe-jobs')]) {
+    const s = note(p, false);
+    if (typeof s !== 'string' && s.isSymbolicLink()) note(p, true);
+  }
+  walk(path.join(root, '.timmy', 'recipe-jobs', id));
+  for (const name of [...EXPORTS, 'report.json', 'request.json', 'prediction.json']) note(path.join(root, outDir(id), name), true);
+  return { text: lines.join('\n'), settled };
+}
+
+/** One recipe job's card, checked afresh from one verified read (R4, H29: no second verification for the copy check):
+ *  its status and, when it succeeded, its copy in the project. */
+function recipeCard(root: string, id: string, t: number): ResultCard {
+  const title = `recipe ${RECIPE_ID} · ${id.slice(0, 8)}`;
+  let read: RecipeRead;
+  try { read = readRecipe(root, id); } catch (e) {
+    return { kind: 'recipe', title, at: new Date(t).toISOString(), status: { word: 'unreadable', tone: 'failed', detail: e instanceof Error ? e.message : String(e) }, commands: ['/recipe status'] } satisfies ResultCard;
+  }
+  const s = read.s;
+  const base: ResultCard = {
+    kind: 'recipe', title, at: new Date(s.job.created).toISOString(), status: { word: s.state, tone: 'neutral' },
+    lines: [`job ${id} · request ${s.job.requestHash.slice(0, 12)} · source ${s.job.sourceHash.slice(0, 12)}`], commands: ['/recipe status'],
+  };
+  if (s.state === 'succeeded') {
+    const got = deliverable(id, read);
+    const copy = got.ok ? checkCopyOf(root, got.v) : got;
+    if (!copy.ok) return { ...base, status: { word: 'succeeded', tone: 'attention', detail: `but its exports are not verified in the project: ${copy.error}` }, commands: [`/recipe copy ${id}`, '/recipe status'] };
+    const o = outcomeOf(copy.v);
+    const facts: NonNullable<ResultCard['facts']> = [];
+    if (o.checks) facts.push({ label: 'geometry checks', value: `${o.checks.passed} of ${o.checks.total} passed`, how: "the recipe's gate, from its signed result" });
+    if (o.measured) facts.push({ label: 'bounds', value: `${mm(o.measured.bounds)} mm`, how: `measured on the generated CAD${o.predicted ? `; ${mm(o.predicted.bounds)} mm in the sealed prediction` : ''}` });
+    if (o.measured) facts.push({ label: 'volume', value: `${mm3(o.measured.volume)} mm3`, how: `measured on the generated CAD${o.predicted ? `; ${mm3(o.predicted.volume)} mm3 predicted` : ''}` });
+    if (o.step) facts.push({ label: 'STEP reimport', value: `${o.step.passed} of ${o.step.total} checks passed`, how: 'from its signed result' });
+    if (o.mesh) facts.push({ label: 'mesh checks', value: `${o.mesh.passed} of ${o.mesh.total} passed`, how: `independent (${o.engines.join(', ') || 'engine not recorded'})` });
+    return {
+      ...base, status: { word: 'succeeded', tone: 'ok', detail: VERIFIED_NOW }, facts,
+      files: copy.v.files.map((f) => ({ rel: `${copy.dir}/${f.name}`, note: f.name.endsWith('.json') ? 'record' : 'export' })),
+      receipts: [{ id: copy.v.resultReceipt, what: 'result' }], notice: DOCTRINE_15,
+    };
+  }
+  const failed = s.state === 'failed' || s.state === 'interrupted';
+  const kept = failed || s.state === 'cancelled' ? failureFiles(root, id) : [];
+  return {
+    ...base, status: { word: s.state, tone: failed ? 'failed' : s.state === 'cancelled' ? 'neutral' : 'running', detail: `${s.progress}${s.reason ? `: ${s.reason}` : ''}` },
+    ...(kept.length ? { files: kept.map((rel) => ({ rel, note: 'kept' })) } : {}),
+    commands: s.state === 'interrupted' ? [`/recipe recover ${id}`, '/recipe status'] : ['/recipe status'],
+  };
 }
 
 /** The project's newest native runs (Cinema 4D, Blender, After Effects), judged by their own result files. */
