@@ -15,6 +15,9 @@ import { join } from 'node:path';
 import { JobManager, type JobRecord } from '../jobs/index.js';
 import { aerenderJob, blenderJob, c4dpyJob, judgeNativeJob, nativeReceiptFields, NativeNotFound, noteNativeStarted, type NativeJobSpec } from '../native/index.js';
 import { AE_USAGE, aeEndLines, aeReceiptFields, aeScriptJob, aeStartLines, isAeJobSpec, judgeAeJob, parseAeScriptArgs, type AeJobSpec, type AeMode } from '../native/ae-author.js';
+// Round R4 (helper H27): OpenSCAD as a judged native route, its STL read back by Timmy's own reader.
+import { isScadJobSpec, judgeScadJob, SCAD_USAGE, scadEndLines, scadJob, scadReceiptFields, scadStartLines, type ScadJobSpec } from '../native/openscad.js';
+import { parseScadWords } from '../native/scad-params.js';
 import { mcpView, splitCommandLine } from '../connectors/mcp-cli.js';
 import {
   chooseProject, createProject, groupFiles, humanBytes, listProjectFiles, listProjects, projectId, projectsHome, readProjectFile,
@@ -917,6 +920,11 @@ export class Workspace {
     const agentRun = this.agentRuns.get(job.id);
     if (agentRun && TERMINAL.has(job.state)) return void this.d.notify(this.agentEndLine(job, agentRun));
     const nat = this.natives.get(job.id);
+    if (nat && (job.state === 'completed' || job.state === 'failed') && isScadJobSpec(nat)) {
+      // R4 (H27): an OpenSCAD run says its STL, Timmy's own reading of it (with DOCTRINE §15) and OpenSCAD's lines.
+      for (const l of scadEndLines(judgeScadJob(job, nat), nat, { id: job.id, label: job.label, glyphs: g, sep: this.sep, scrub: (s) => this.scrub(s, job.root), ...(job.receipt ? { receipt: job.receipt } : {}) })) this.d.notify(l);
+      return;
+    }
     if (nat && (job.state === 'completed' || job.state === 'failed') && isAeJobSpec(nat)) {
       // R4: an After Effects script run says its new version (Timmy's sha256), After Effects' own report and the next step.
       for (const l of aeEndLines(judgeAeJob(job, nat), nat, { id: job.id, label: job.label, glyphs: g, sep: this.sep, scrub: (s) => this.scrub(s, job.root), ...(job.receipt ? { receipt: job.receipt } : {}) })) this.d.notify(l);
@@ -980,7 +988,9 @@ export class Workspace {
     const label = this.scrub(job.label, job.root);
     const error = job.error ? this.scrub(job.error, job.root) : undefined;
     const nat = this.natives.get(job.id);
-    const judged = nat && job.state !== 'cancelled' ? (isAeJobSpec(nat) ? aeReceiptFields(judgeAeJob(job, nat)) : nativeReceiptFields(nat.native.app, judgeNativeJob(job, nat))) : undefined;
+    const judged = nat && job.state !== 'cancelled'
+      ? (isScadJobSpec(nat) ? scadReceiptFields(judgeScadJob(job, nat), job.root) : isAeJobSpec(nat) ? aeReceiptFields(judgeAeJob(job, nat)) : nativeReceiptFields(nat.native.app, judgeNativeJob(job, nat)))
+      : undefined;
     if (judged) judged.native.why = this.scrub(judged.native.why, job.root);
     const status = job.state === 'cancelled' ? 'cancelled' as const : judged ? judged.status : job.state === 'completed' ? 'ok' as const : 'failed' as const;
     try {
@@ -1182,7 +1192,7 @@ export class Workspace {
     this.natives.set(id, spec);
   }
 
-  private startNative(make: () => NativeJobSpec, what: string): Line[] {
+  private startNative(make: () => NativeJobSpec, what: string, judged = 'judged by its result file'): Line[] {
     let spec: NativeJobSpec;
     try { spec = make(); } catch (e) {
       if (e instanceof NativeNotFound) return [...this.say(e.message, 'estimate'), ...this.say(`Setup: ${e.setup}`)];
@@ -1192,7 +1202,7 @@ export class Workspace {
     // Round R3: the run's own record (.timmy/native/<run>/) learns its job, so a restart can reconcile it.
     try { noteNativeStarted(spec, job); } catch { /* the record says it was submitted; the job still runs */ }
     this.adoptNative(job.id, spec);
-    return [[{ text: '  Running    ', role: 'secondary' }, { text: job.id, role: 'strong' }, { text: `  ${what}${this.sep}judged by its result file${this.sep}/jobs ${job.id}${this.sep}/stop ${job.id}`, role: 'secondary' }]];
+    return [[{ text: '  Running    ', role: 'secondary' }, { text: job.id, role: 'strong' }, { text: `  ${what}${this.sep}${judged}${this.sep}/jobs ${job.id}${this.sep}/stop ${job.id}`, role: 'secondary' }]];
   }
 
   /** /c4d <script.py> [args]: Cinema 4D's own Python (c4dpy), headless, as a job in the project. */
@@ -1217,6 +1227,24 @@ export class Workspace {
     if (scripted) return 'error' in scripted ? this.say(scripted.error) : this.aeScript(scripted);
     if (w.length < 3) return [[{ text: '  Usage:', role: 'secondary' }], ...AE_USAGE.map((u): Line => [{ text: `    ${u}`, role: 'secondary' }])];
     return this.startNative(() => aerenderJob({ projectFile: w[0], comp: w[1], output: w[2], root: this.root, project: this.project.name }), `After Effects renders ${w[1]} from ${w[0]}`);
+  }
+
+  /**
+   * R4 (H27): /scad <model.scad> [name=value ...] [--png]: OpenSCAD exports an STL from a read-only copy of the model,
+   * as a judged job (src/native/openscad.ts); name=value words override <model>.params.json beside the model.
+   */
+  async scad(args: string): Promise<Line[]> {
+    const usage = (): Line[] => [[{ text: '  Usage:', role: 'secondary' }], ...SCAD_USAGE.map((u): Line => [{ text: `    ${u}`, role: 'secondary' }])];
+    if (!args.trim()) return usage();
+    const p = parseScadWords(args);
+    if ('error' in p) return this.say(p.error, 'failure');
+    if (!p.model) return [...this.say('Name the model (.scad).', 'failure'), ...usage()];
+    const made: { spec?: ScadJobSpec } = {};
+    const lines = this.startNative(
+      () => (made.spec = scadJob({ model: p.model!, params: p.params, png: p.png, root: this.root, project: this.project.name, findEnv: this.d.env })),
+      `OpenSCAD exports ${p.model}`, 'judged by its exit, the STL it writes and Timmy\'s own reading of that STL',
+    );
+    return made.spec ? [...scadStartLines(made.spec, this.sep), ...lines] : lines;
   }
 
   /** R4: an After Effects script run as a job; what happens in After Effects is said before it starts. */

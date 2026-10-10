@@ -17,6 +17,8 @@
  *             c4dpy, the script writes a result file (workers/blender/timmy_blender.py) that decides the run.
  *   afterfx   (R4) After Effects scripting, inside the application (it opens its window): a per-run ExtendScript
  *             harness writes or edits a project and its result file. Built and judged in src/native/ae-author.ts.
+ *   openscad  (R4) OpenSCAD's command line, headless: a .scad model exported to a binary STL with -D parameters,
+ *             read back by Timmy's own STL reader. Built and judged in src/native/openscad.ts.
  *
  * R3 (an independent review of 40022d9, finding 5): every run has its own folder in the project,
  * .timmy/native/<run>/, holding job.json (written once, at submission: the app, the program, the input's
@@ -56,7 +58,7 @@ import {
 
 export type { NativeInventory, OutputChange, SourceCheck } from './provenance.js';
 
-export type NativeApp = 'c4dpy' | 'aerender' | 'blender' | 'afterfx';
+export type NativeApp = 'c4dpy' | 'aerender' | 'blender' | 'afterfx' | 'openscad';
 type Env = Record<string, string | undefined>;
 
 export interface NativeFound {
@@ -97,6 +99,8 @@ interface AppInfo {
   setup: string;
   /** whether a result file (written by the script) decides the run; aerender writes none */
   resultFile: boolean;
+  /** R4 (openscad): false when /Applications is not scanned: the program is found by its variable or on PATH only */
+  applicationsScan?: false;
 }
 
 export const NATIVE_APPS: Record<NativeApp, AppInfo> = {
@@ -127,6 +131,14 @@ export const NATIVE_APPS: Record<NativeApp, AppInfo> = {
     name: 'After Effects (scripting)',
     setup: 'install After Effects; or set TIMMY_AFTERFX to its .app/AfterFX.exe',
     resultFile: true,
+  },
+  openscad: {
+    // R4 (src/native/openscad.ts): found by TIMMY_OPENSCAD (a program, or an OpenSCAD.app opened to Contents/MacOS/
+    // OpenSCAD) or `openscad` on PATH, never by an /Applications scan: the build on PATH is the one meant.
+    envVar: 'TIMMY_OPENSCAD', prefix: 'OpenSCAD', inside: [], program: 'openscad', applicationsScan: false,
+    name: 'OpenSCAD (command line)',
+    setup: 'install OpenSCAD with openscad on PATH, or set TIMMY_OPENSCAD',
+    resultFile: false,
   },
 };
 
@@ -184,7 +196,7 @@ export function locateNative(app: NativeApp, env: Env = process.env, seams: Find
     if (isFile(file)) return { found: { app, path: file, how: 'env' } };
     return { found: null, problem: `${info.envVar} is set, but nothing runnable is there` };
   }
-  if ((seams.platform ?? process.platform) === 'darwin') {
+  if ((seams.platform ?? process.platform) === 'darwin' && info.applicationsScan !== false) {
     const apps = seams.applications ?? '/Applications';
     const folders = (seams.listDir ?? listDir)(apps)
       .filter((name) => name === info.prefix || name === `${info.prefix}.app` || name.startsWith(`${info.prefix} `))
@@ -1262,9 +1274,10 @@ export function nativeCapabilityRows(env: Env = process.env, seams: FinderSeams 
     const info = NATIVE_APPS[app];
     const { found, problem } = locateNative(app, env, seams);
     const scope = app === 'aerender' ? '; renders existing .aep/.aepx projects only (making or editing one: /ae author, /ae edit, After Effects scripting)'
-      : app === 'afterfx' ? '; writes and edits projects inside the application (/ae author, /ae edit, /ae inspect; its window opens)' : '';
-    // R4: After Effects scripting says "implemented; not run" until a sealed run of its own says otherwise.
-    const words = runWords(runs?.get(app)) ?? (app === 'afterfx' ? 'implemented; not run' : undefined);
+      : app === 'afterfx' ? '; writes and edits projects inside the application (/ae author, /ae edit, /ae inspect; its window opens)'
+        : app === 'openscad' ? '; exports a .scad model to a binary STL (/scad), read back by Timmy\'s own STL reader' : '';
+    // R4: After Effects scripting and OpenSCAD say "implemented; not run" until a sealed run of their own says otherwise.
+    const words = runWords(runs?.get(app)) ?? (app === 'afterfx' || app === 'openscad' ? 'implemented; not run' : undefined);
     const base = { id: app, kind: 'adapter' as const, name: info.name, tools: ['run_native'], exercisedBy: `native:${app}` };
     if (found) {
       const where = found.how === 'applications'
@@ -1274,7 +1287,7 @@ export function nativeCapabilityRows(env: Env = process.env, seams: FinderSeams 
     }
     const tail = words ? `; ${words}` : '';
     if (problem) return { ...base, rung: 'needs setup' as const, detail: `${problem}${tail}`, setup: `point ${info.envVar} at ${info.program}, or unset it` };
-    const looked = [`${info.envVar} is not set`, ...(mac ? [`no ${info.prefix} in ${apps}`] : []), `no ${info.program} on PATH`].join(', ');
+    const looked = [`${info.envVar} is not set`, ...(mac && info.applicationsScan !== false ? [`no ${info.prefix} in ${apps}`] : []), `no ${info.program} on PATH`].join(', ');
     return { ...base, rung: 'needs setup' as const, detail: `not found: ${looked}${tail}`, setup: info.setup };
   });
 }

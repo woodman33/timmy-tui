@@ -17,6 +17,8 @@ export const STARTERS: Readonly<Record<string, string>> = {
   'c4d-starter': 'a Cinema 4D scene script (/c4d scene.py) and its build workflow',
   'blender-starter': 'a Blender scene script (/blender scene.py): an editable .blend and a render',
   'ae-starter': 'After Effects scripts: author.jsx makes a project (/ae author author.jsx), edit.jsx changes it (/ae edit)',
+  // Round R4 (helper H27)
+  'scad-starter': 'an OpenSCAD parametric box with a lid gap (/scad box.scad) and its parameter file',
 };
 
 /**
