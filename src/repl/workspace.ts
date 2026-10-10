@@ -57,6 +57,8 @@ import {
 import { IterateFlows, type AgentStart, type IterateTestSeams } from './iterate.js';
 import { readBoardFlows } from './board-flows.js';
 import { FLOW_ID, FLOWS_DIR } from '../flows/iterate.js';
+// Round R4 (H32): what a session that ended without its stop path left in the project, picked up at start and on /recover.
+import { followSpec, recoverProject, recoveryLines, type RecoveryReport } from './recover.js';
 
 type Line = Segment[];
 
@@ -95,6 +97,9 @@ export interface WorkspaceDeps {
   qualifyClient?: (apiKey: string) => QualifyClient;
   /** R4 (/iterate), test seams only: a FAKE readback worker. */
   iterateTest?: IterateTestSeams;
+  /** Round R4 (H32): whether this REPL picks up, as it starts, what an ended session left in the project (default
+   *  true). The REPL passes false when it is not at a terminal (a pipe), so a one-shot run never adopts a recipe. */
+  recoverAtStart?: boolean;
 }
 
 /** How an observation ended (round R2, look): its file and receipt, or why there is none. */
@@ -222,6 +227,11 @@ export class Workspace {
   private readonly selfSealed = new Set<string>();
   /** R4 (/iterate): the flows this REPL runs. */
   private readonly flows: IterateFlows;
+  /** Round R4 (H32): the recipe watchers recovery started (re-attached), and the recovery passes, one at a time. */
+  private readonly reattached = new Set<string>();
+  private recoveries: Promise<unknown> = Promise.resolve();
+  /** Round R4 (H32): the pass this REPL ran as it started; undefined when it ran none (recoverAtStart false). */
+  readonly startRecovery: Promise<RecoveryReport | undefined>;
 
   constructor(private readonly d: WorkspaceDeps, start: ActiveProject) {
     this.project = start;
@@ -234,6 +244,12 @@ export class Workspace {
       scrub: (t, root) => this.scrub(t, root),
       ...(d.iterateTest ? { test: d.iterateTest } : {}),
     });
+    // Round R4 (H32): once this REPL is set up (a microtask later), what an ended session left in the project is picked
+    // up; the notice says what was found and done, and nothing is printed when nothing was found.
+    this.startRecovery = d.recoverAtStart === false ? Promise.resolve(undefined) : this.recoverPass(true).then((report) => {
+      if (!this.launches.closing) for (const l of recoveryLines(report, { glyphs: this.d.glyphs, mode: 'start' })) this.d.notify(l);
+      return report;
+    }, () => undefined);
   }
 
   get root(): string { return this.project.root; }
@@ -1125,6 +1141,8 @@ export class Workspace {
     // Round R4 (H17): recipes first, through their own cancel; a recipe start under way settles (bounded) and starts no watcher.
     for (const a of this.cancelRecipes()) if (a.error) this.d.notify(this.say(cancelSentence(a), 'failure')[0]);
     await within(this.launches.settled());
+    // Round R4 (H32): a recovery pass under way finishes first; it follows nothing more once this REPL is ending.
+    await within(this.recoveries);
     await this.closeLiveBoard();
     // R4 (/iterate): no flow starts a next step; each writes its record once its step has stopped.
     this.flows.abortAll();
@@ -1220,6 +1238,39 @@ export class Workspace {
       launching: (uuid) => this.launches.add(uuid, root),
       ...(this.d.recipeTest ? { test: this.d.recipeTest } : {}),
     };
+  }
+
+  // ── /recover (round R4, helper H32: what an ended session left running; src/repl/recover.ts) ──
+
+  /** `/recover`: picks up now what an ended session left in the active project, and lists what it saw. */
+  async recover(_args: string): Promise<Line[]> {
+    return recoveryLines(await this.recoverPass(false), { glyphs: this.d.glyphs, mode: 'command' });
+  }
+
+  /** One recovery pass of the active project, after any pass under way (`later`: after this REPL is set up). */
+  private recoverPass(later: boolean): Promise<RecoveryReport> {
+    const run = this.recoveries.then(async () => {
+      if (later) await Promise.resolve();
+      const root = this.root;
+      const project = this.project.name;
+      return recoverProject({
+        root, project, jobs: this.jobs, seal: this.d.seal,
+        receipts: () => (this.d.receipts ?? (() => readChain('runs')))(),
+        scrub: (t) => this.scrub(t, root),
+        mine: (id) => this.mine.has(id),
+        reattached: (id) => this.reattached.has(id),
+        flowsHere: () => this.flows.active,
+        // The same watcher /recipe tray starts, through the same start: this REPL's job, cancelled with it by every stop path.
+        follow: (uuid, job) => {
+          const w = this.recipeContext().startJob(followSpec({ root, project, uuid, job, ...(this.d.recipeTest?.pollMs ? { pollMs: this.d.recipeTest.pollMs } : {}) }), uuid);
+          this.reattached.add(w.id);
+          return w;
+        },
+        open: () => !this.launches.closing,
+      });
+    });
+    this.recoveries = run.catch(() => undefined);
+    return run;
   }
 
   /** /mcp: MCP servers and their tools through the two command-line routes (MCPorter, Timmy's SDK command). */

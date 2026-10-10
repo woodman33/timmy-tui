@@ -107,6 +107,8 @@ export interface WorkspaceViews {
   agent?(args: string): Promise<Segment[][]>;
   /** Round R4 (helper H24): a local agent edits the recipe's parameter file, the recipe rebuilds, a worker reads it back. */
   iterate?(args: string): Promise<Segment[][]>;
+  /** Round R4 (helper H32): what a session that ended left running in the project, picked up (src/repl/recover.ts). */
+  recover?(args: string): Promise<Segment[][]>;
 }
 
 /** /help's sections, in order: what you work on, what you look at, setup, the session. */
@@ -146,6 +148,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'preview', group: 'work', description: 'Serve the project; it opens in Browser', run: inWorkspace((w, a) => w.preview(a)) },
   { name: 'jobs', group: 'work', description: 'Running and finished jobs; /jobs <id>', run: inWorkspace((w, a) => w.jobsView(a)) },
   { name: 'stop', group: 'work', description: 'Stop a job: /stop <id>, or /stop all', run: inWorkspace((w, a) => w.stop(a)) },
+  // Round R4 (helper H32): also run as the REPL starts; on demand it lists what it saw.
+  { name: 'recover', group: 'work', description: 'Pick up what an ended session left running', run: inWorkspace((w, a) => (w.recover ? w.recover(a) : [[{ text: '  /recover is not available here.', role: 'secondary' }]])) },
   { name: 'results', group: 'work', description: 'Outputs, jobs and changes, linked to files', run: inWorkspace((w, a) => w.results(a)) },
   { name: 'add', group: 'work', description: 'Copy files into refs/: /add <file…>', run: inWorkspace((w, a) => w.add(a)) },
   { name: 'observe', group: 'look', description: 'Image: /observe <file> [--qualify] [question]', run: inWorkspace((w, a) => w.observe(a)) },
