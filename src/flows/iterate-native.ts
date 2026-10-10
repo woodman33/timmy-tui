@@ -8,7 +8,7 @@
  * agent's comparison does not see) are COPIED from src/flows/iterate-blender.ts (round R4, H26), not imported or moved:
  * another helper edits that file this round. They behave the same; once both settle, one copy can replace the other.
  */
-import { SNAPSHOT_SKIP, type ChangeSet } from '../code-agents/index.js';
+import { SNAPSHOT_SKIP, type ChangeSet, type ComparedScope } from '../code-agents/index.js';
 import { DOCTRINE_15, FLOW_SCHEMA, judgeAgentChanges, type AgentChanges, type FlowOutcome, type OtherChange } from './iterate.js';
 
 export { DOCTRINE_15 };
@@ -198,6 +198,8 @@ export interface FlowAgentPart {
   files_changed?: Array<{ path: string; how: 'added' | 'changed' | 'deleted'; sha256_before?: string | null; sha256_after?: string | null }>;
   /** files other than the one it may change that it changed (the flow stopped before the app ran; nothing was reverted) */
   others?: OtherChange[];
+  /** R4 review (R4-2): what the check compared (src/flows/iterate.ts FlowRecord) */
+  compared?: ComparedScope;
   result?: string; transcript?: string; progress?: string;
   cost_usd?: number | null; cost_basis?: string;
   receipt?: string;

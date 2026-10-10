@@ -32,7 +32,7 @@ import { createHash } from 'node:crypto';
 import { closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import type { JobRecord } from '../jobs/index.js';
-import { AGENTS, AGENTS_DIR, agentBin, planAgent, type AgentName, type AgentRunRecord } from '../code-agents/index.js';
+import { AGENTS, AGENTS_DIR, agentBin, comparedOf, forJudging, notComparedText, planAgent, type AgentName, type AgentRunRecord } from '../code-agents/index.js';
 import { codexLocalPreflight } from '../code-agents/codex-local.js';
 import { blenderJob, judgeNativeJob, locateNative, NATIVE_APPS, NativeNotFound, readNativeResult, sha256File, type NativeJobSpec } from '../native/index.js';
 import { projectId, resolveInside } from '../project/index.js';
@@ -44,6 +44,7 @@ import {
   type BlenderFlowRecord, type BlenderFlowStep, type DimensionsBefore, type SyntaxCheck,
 } from '../flows/iterate-blender.js';
 import type { IterateDeps } from './iterate.js';
+import type { FlowLock } from './flow-lock.js';
 import type { Segment } from '../term/theme.js';
 
 type Line = Segment[];
@@ -87,11 +88,13 @@ const exitWords = (j: JobRecord): string => j.error ?? (j.signal ? `ended by ${j
 
 export class BlenderFlows {
   private readonly running = new Map<string, BlenderRun>();
-  /** a flow being started in a project (its agent is starting), by the project's folder: it holds the project already */
-  private readonly starting = new Map<string, string>();
 
-  /** `busyElsewhere`: a tray flow running in a project (one flow at a time runs in a project, of either kind). */
-  constructor(private readonly d: IterateDeps, private readonly busyElsewhere: (root: string) => { id: string; step: string } | undefined) {}
+  /**
+   * `busyElsewhere`: a flow of another kind running in a project (one flow at a time runs in a project, of any kind).
+   * `lock` (R4 review, R4-5): the projects a start holds (src/repl/flow-lock.ts); IterateFlows takes it around every
+   * start, and the start names its flow there before its first await.
+   */
+  constructor(private readonly d: IterateDeps, private readonly busyElsewhere: (root: string) => { id: string; step: string } | undefined, private readonly lock?: FlowLock) {}
 
   private get sep(): string { return ` ${this.d.glyphs.sep} `; }
   private say(text: string, role: Segment['role'] = 'secondary'): Line[] { return [[{ text: `  ${text}`, role }]]; }
@@ -99,12 +102,10 @@ export class BlenderFlows {
   /** The Blender flows this REPL is running (their ids). */
   get active(): string[] { return [...this.running.keys()]; }
   has(id: string): boolean { return this.running.has(id); }
-  /** The flow running in this project, if one is. */
+  /** The Blender flow running in this project, if one is (one being started holds the project's lock instead). */
   runningIn(root: string): { id: string; step: string } | undefined {
     const f = [...this.running.values()].find((x) => x.root === root);
-    if (f) return { id: f.id, step: f.step };
-    const starting = this.starting.get(root);
-    return starting ? { id: starting, step: 'prepare' } : undefined;
+    return f ? { id: f.id, step: f.step } : undefined;
   }
 
   /** /iterate's rows for the Blender flows running in this project. */
@@ -168,12 +169,12 @@ export class BlenderFlows {
     if (!existsSync(BLEND_READBACK_SCRIPT)) return refuse('Not started: the readback worker (workers/readback/blend_readback.py) is missing from this Timmy.');
     if (!this.d.startNative) return refuse('Not started: this REPL cannot start a native job.');
     const id = newFlowId();
-    // R4 (H33): Codex's local route needs its model already in the local Ollama; asked before anything is written, the
-    // project held while it is asked (the answer is awaited), so no second flow starts meanwhile.
+    // R4 review (R4-5): the project is held for this start (IterateFlows takes the lock around it, before this start's
+    // first await, and gives it back when it ends); its flow is named there now, so a start refused meanwhile names it.
+    this.lock?.name(root, id);
+    // R4 (H33): Codex's local route needs its model already in the local Ollama; asked before anything is written.
     if (route.plan.oss) {
-      this.starting.set(root, id);
-      let ready: Awaited<ReturnType<typeof codexLocalPreflight>>;
-      try { ready = await codexLocalPreflight(route.plan.oss); } finally { this.starting.delete(root); }
+      const ready = await codexLocalPreflight(route.plan.oss);
       if (!ready.ok) return refuse(scrub(ready.error), 'estimate');
     }
     // The script's bytes now: the task quotes them, their sha256 is the "before" every later check compares with.
@@ -181,10 +182,9 @@ export class BlenderFlows {
     try { bytes = readFileSync(at_.path); } catch (e) { return refuse(`${rel} could not be read: ${scrub(e instanceof Error ? e.message : String(e))}. Nothing was started.`); }
     const beforeText = bytes.toString('utf8');
     const task = blenderIterateTask({ instruction: req.instruction, scriptRel: rel, scriptText: beforeText });
-    // The project is held from here: the agent's start is awaited, and no second flow may start meanwhile.
-    this.starting.set(root, id);
-    let s: Awaited<ReturnType<IterateDeps['startAgent']>>;
-    try { s = await this.d.startAgent(req.agent, task, { paid: false, ...local, root, project, env }); } finally { this.starting.delete(root); }
+    // The agent's start is awaited; the project stays held (its lock) until this start ends.
+    // R4 review (R4-2): judged by the whole project, .timmy and dist included; the flow's own folder is Timmy's write.
+    const s = await this.d.startAgent(req.agent, task, { paid: false, ...local, root, project, env, judge: { own: [flowWorkDir(id)] } });
     if (!s.ok) return refuse(`The agent did not start: ${scrub(s.error)}`, s.refused === 'paid' || s.refused === 'missing' ? 'estimate' : 'failure');
     const kept = keepBytes(root, `${flowWorkDir(id)}/script.before.py`, bytes);
     const record: BlenderFlowRecord = {
@@ -265,8 +265,11 @@ export class BlenderFlows {
   private async agentStep(f: BlenderRun): Promise<void> {
     const job = await this.d.jobs.done(f.agentJob!);
     // The agent's sealed result (sealAgent ran at the job's end): its outcome, what it changed, its cost and receipt.
-    const rec = f.agentRecord!;
+    // R4 review (R4-2): what it changed as the check's own snapshot saw it (the whole project, .timmy and dist included).
+    const rec = forJudging(f.agentRecord!);
+    f.agentRecord = rec;
     const a = f.record.agent!;
+    if (rec.judged) a.compared = comparedOf(rec.judged);
     a.outcome = rec.outcome ?? job.state;
     if (rec.why) a.why = this.d.scrub(rec.why, f.root);
     if (rec.transcript) a.transcript = `${AGENTS_DIR}/${rec.run}/${rec.transcript}`;
@@ -608,6 +611,9 @@ export class BlenderFlows {
     const tail = `${file ? `${this.sep}record ${file}` : `${this.sep}the record could not be written`}${receipt ? `${this.sep}receipt ${receipt}` : ''}`;
     const lines: Line[] = [[{ text: `  ${ok ? g.ok : rec.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok || rec.outcome === 'cancelled' ? undefined : 'failure' },
       { text: `${f.id} ${rec.outcome}`, role: ok || rec.outcome === 'cancelled' ? 'strong' : 'failure' }, { text: `: ${rec.why ?? ''}${tail}`, role: 'secondary' }]];
+    // R4 review (R4-2): what the check of the agent's changes did not look into, never skipped silently.
+    const unseen = notComparedText(rec.agent?.compared);
+    if (unseen) lines.push([{ text: `      not compared while the agent ran: ${unseen}`, role: 'secondary' }]);
     const k = rec.readback;
     const read = k?.read;
     if (k && read) {

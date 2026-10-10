@@ -19,7 +19,7 @@
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SNAPSHOT_SKIP, type ChangeSet } from '../code-agents/index.js';
+import { SNAPSHOT_SKIP, type ChangeSet, type ComparedScope } from '../code-agents/index.js';
 import { listNativeRuns, readNativeRecord, sha256File } from '../native/index.js';
 import { resolveInside } from '../project/index.js';
 import { packagedPath, packageRoot } from '../utils/asset-dirs.js';
@@ -770,6 +770,8 @@ export interface BlenderFlowRecord {
     outcome?: string; why?: string;
     files_changed?: Array<{ path: string; how: 'added' | 'changed' | 'deleted'; sha256_before?: string | null; sha256_after?: string | null }>;
     others?: OtherChange[];
+    /** R4 review (R4-2): what the check compared (src/flows/iterate.ts FlowRecord) */
+    compared?: ComparedScope;
     result?: string; transcript?: string; progress?: string;
     cost_usd?: number | null; cost_basis?: string;
     receipt?: string;

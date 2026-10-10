@@ -24,12 +24,16 @@
  * Round R4 (H33): `/iterate scad <model.scad> "<instruction>"` and `/iterate freecad <script.py> "<instruction>"` are
  * parsed here and run by src/repl/iterate-scad.ts and src/repl/iterate-freecad.ts (their shared steps in
  * src/repl/iterate-native.ts); `--agent codex`, Codex's local route, is taken by every target, blender included.
+ *
+ * Round R4 review (R4-5): every start, of any kind and from /iterate or the agent's tools, holds its project
+ * (src/repl/flow-lock.ts) from before its first await until it ends, so a second start in that project meanwhile is
+ * refused, as a start is while a flow runs there.
  */
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { JobManager, JobRecord, JobSpec } from '../jobs/index.js';
-import { AGENTS, AGENTS_DIR, AGENT_NAMES, agentBin, planAgent, type AgentInfo, type AgentName, type AgentPlan, type AgentRunRecord } from '../code-agents/index.js';
+import { AGENTS, AGENTS_DIR, AGENT_NAMES, agentBin, comparedOf, forJudging, notComparedText, planAgent, type AgentInfo, type AgentName, type AgentPlan, type AgentRunRecord } from '../code-agents/index.js';
 import { codexLocalPreflight } from '../code-agents/codex-local.js';
 import { checkCopy, failureFiles, nativeRuntime, PARAMETER_HELP, PARAMETER_NAMES, PYTHON_SETUP, readCard, RECIPE_ID, short } from '../recipes/index.js';
 import { paramsPath, parseParams, readParams, writeParams } from '../recipes/params-file.js';
@@ -56,8 +60,11 @@ import type { NativeJobSpec } from '../native/index.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import type { ReceiptInput } from '../utils/receipts.js';
+import { FlowLock, type FlowKind } from './flow-lock.js';
 
 type Line = Segment[];
+/** A start refused before anything was written. */
+type Refused = { ok: false; error: string; lines: Line[] };
 
 /** A code agent's run started through /agent's own start, as data (Workspace.startAgentRun); /agent prints it. */
 export type AgentStart =
@@ -83,8 +90,12 @@ export interface IterateDeps {
   jobs: JobManager;
   /** Starts a job as this REPL's own (so /stop and /stop all reach it); `selfSealed`: the flow seals its receipt. */
   startJob: (spec: JobSpec, o?: { selfSealed?: boolean }) => JobRecord;
-  /** /agent's own start, in the flow's project; `local`: Codex's local route (round R4, H25). */
-  startAgent: (name: AgentName, task: string, o: { paid: false; local?: true; root: string; project: string; env: NodeJS.ProcessEnv }) => Promise<AgentStart>;
+  /**
+   * /agent's own start, in the flow's project; `local`: Codex's local route (round R4, H25). `judge` (R4 review, R4-2):
+   * the run is also judged by a snapshot of the whole project, .timmy and dist included, leaving out the run's own folder,
+   * the folders in `own` (the flow's), the jobs folder and the recipe jobs not over: Timmy's own writes during the agent step.
+   */
+  startAgent: (name: AgentName, task: string, o: { paid: false; local?: true; root: string; project: string; env: NodeJS.ProcessEnv; judge?: { own: string[] } }) => Promise<AgentStart>;
   /** /recipe's own start (startRecipeJob), in the flow's project. */
   startRecipe: (root: string, project: string, given: Record<string, unknown>) => Promise<RecipeStarted>;
   /** Writes the project's folder as "." and the home folder as "~". */
@@ -194,12 +205,40 @@ export class IterateFlows {
   /** R4 (H33): the OpenSCAD and FreeCAD flows (src/repl/iterate-scad.ts, src/repl/iterate-freecad.ts). */
   private readonly scad: ScadFlows;
   private readonly freecad: FreecadFlows;
+  /** R4 review (R4-5): the projects a start holds, of any kind (src/repl/flow-lock.ts); every start below takes it. */
+  private readonly lock = new FlowLock();
 
   constructor(private readonly d: IterateDeps) {
     const tray = (root: string): { id: string; step: string } | undefined => { const f = [...this.running.values()].find((x) => x.root === root); return f ? { id: f.id, step: f.step } : undefined; };
-    this.blender = new BlenderFlows(d, (root) => tray(root) ?? this.scad.runningIn(root) ?? this.freecad.runningIn(root));
-    this.scad = new ScadFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.freecad.runningIn(root));
-    this.freecad = new FreecadFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.scad.runningIn(root));
+    this.blender = new BlenderFlows(d, (root) => tray(root) ?? this.scad.runningIn(root) ?? this.freecad.runningIn(root), this.lock);
+    this.scad = new ScadFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.freecad.runningIn(root), this.lock);
+    this.freecad = new FreecadFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.scad.runningIn(root), this.lock);
+  }
+
+  /**
+   * R4 review (R4-5): runs a start holding its project (src/repl/flow-lock.ts), taken before the start's first await and
+   * given back when it ends, however it ends. A start made while another holds the project is refused with its own kind's
+   * words, naming the flow being started there (its prepare step); a flow already running is found by the start itself.
+   */
+  private async exclusive<S>(kind: FlowKind, root: string, start: () => Promise<S>): Promise<S | Refused> {
+    const t = this.lock.take(root, kind);
+    if (!t.ok) return this.busyRefusal(kind, { ...(t.by.id ? { id: t.by.id } : {}), step: 'prepare' });
+    try { return await start(); } finally { this.lock.release(t.hold); }
+  }
+
+  /** A start refused because a flow runs, or is being started, in its project: the refused kind's words, nothing written. */
+  private busyRefusal(kind: FlowKind, busy: { id?: string; step: string }): Refused {
+    const who = busy.id ? `Flow ${busy.id} is still running in this project (its ${busy.step} step)` : `A flow is being started in this project (its ${busy.step} step)`;
+    const rule = kind === 'tray' ? `one flow at a time changes ${paramsPath()}` : 'one flow at a time runs in a project (an agent\'s before/after comparison covers all of it)';
+    const error = `${who}, and ${rule}: wait for it${busy.id ? `, or /stop ${busy.id}` : ''}. Nothing was started.`;
+    return { ok: false, error, lines: this.say(error, 'estimate') };
+  }
+
+  /** R4 review (R4-3): the flow of any kind running in a project, or being started there (its id once it has one). */
+  runningIn(root: string): { id?: string; step: string } | undefined {
+    const tray = [...this.running.values()].find((f) => f.root === root);
+    const held = this.lock.holder(root);
+    return tray ? { id: tray.id, step: tray.step } : this.otherIn(root) ?? (held ? { ...(held.id ? { id: held.id } : {}), step: 'prepare' } : undefined);
   }
 
   private get sep(): string { return ` ${this.d.glyphs.sep} `; }
@@ -219,11 +258,13 @@ export class IterateFlows {
     if (!a) return this.usage(at);
     const p = parseIterateLine(a);
     if (!p.ok) return this.say(p.error, /^Usage|^Say what|^Name the (script|model)/.test(p.error) ? 'secondary' : 'failure');
+    // R4 review (R4-5): every start holds its project until it ends (exclusive).
+    const req = p.request;
     // R4 (H26): /iterate blender <script.py> "<instruction>"
-    if (p.request.recipe === 'blender') return (await this.blender.start(p.request, at)).lines;
+    if (req.recipe === 'blender') return (await this.exclusive('blender', at.root, () => this.blender.start(req, at))).lines;
     // R4 (H33): /iterate scad <model.scad> "<instruction>", /iterate freecad <script.py> "<instruction>"
-    if ('file' in p.request) return (await (p.request.recipe === 'scad' ? this.scad : this.freecad).start(p.request, at)).lines;
-    return (await this.start(p.request, at)).lines;
+    if ('file' in req) return (await this.exclusive(req.recipe, at.root, async () => (req.recipe === 'scad' ? await this.scad.start(req, at) : await this.freecad.start(req, at)))).lines;
+    return (await this.exclusive('tray', at.root, () => this.start(req, at))).lines;
   }
 
   /**
@@ -233,7 +274,7 @@ export class IterateFlows {
    */
   async startNativeForTool(req: { target: 'scad' | 'freecad'; file: string; instruction: string }, at: { root: string; project: string }): Promise<Record<string, unknown>> {
     const request: NativeIterateRequest = { recipe: req.target, file: req.file, instruction: req.instruction, agent: 'qwen' };
-    const s = req.target === 'scad' ? await this.scad.start(request, at) : await this.freecad.start(request, at);
+    const s = await this.exclusive(req.target, at.root, async () => (req.target === 'scad' ? await this.scad.start(request, at) : await this.freecad.start(request, at)));
     if (!s.ok) return { ok: false, started: false, error: s.error };
     const r = s.flow.record;
     const changes = isScadFlowRecord(r) ? r.parameters : (r as FreecadFlowRecord).script;
@@ -253,7 +294,7 @@ export class IterateFlows {
    * with the operator's own model setting, answered as data. Started is never finished: the flow runs on.
    */
   async startForTool(instruction: string, at: { root: string; project: string }): Promise<Record<string, unknown>> {
-    const s = await this.start({ recipe: 'tray', instruction, agent: 'qwen' }, at);
+    const s = await this.exclusive('tray', at.root, () => this.start({ recipe: 'tray', instruction, agent: 'qwen' }, at));
     if (!s.ok) return { ok: false, started: false, error: s.error };
     const r = s.flow.record;
     return {
@@ -332,11 +373,15 @@ export class IterateFlows {
     }
     // One flow at a time per project: two agents on one parameter file would make each other's changes look foreign.
     const busy = [...this.running.values()].find((f) => f.root === root) ?? this.otherIn(root);
-    if (busy) return refuse(`Flow ${busy.id} is still running in this project (its ${busy.step} step), and one flow at a time changes ${paramsPath()}: wait for it, or /stop ${busy.id}. Nothing was started.`, 'estimate');
+    if (busy) return this.busyRefusal('tray', busy);
     // The build needs the recipe's runtime, so it is checked before the agent runs (not after it has worked).
     const rt = nativeRuntime(env);
     if (!rt.ok) return refuse(`Not started: ${rt.why}. /iterate rebuilds the recipe after the agent, so the runtime comes first.`, 'estimate', this.say(`Setup: ${PYTHON_SETUP}, then /iterate again.`));
     if (!this.d.test?.readback && !existsSync(READBACK_SCRIPT)) return refuse('Not started: the readback worker (workers/readback/step_readback.py) is missing from this Timmy.');
+    // R4 review (R4-5): the flow's id is named to the project's hold before the first await, so a start refused
+    // meanwhile names this flow.
+    const id = newFlowId();
+    this.lock.name(root, id);
     // R4 (H25): Codex's local route needs its model already in the local Ollama; asked before anything is written.
     if (route.plan.oss) {
       const ready = await codexLocalPreflight(route.plan.oss);
@@ -360,9 +405,8 @@ export class IterateFlows {
     const before = { sha256: sha(text), values: parsed.parameters };
     const values = PARAMETER_NAMES.map((n) => `${n} ${fmt(before.values[n])}`).join(', ');
     // The agent, through /agent's own start: its job, its snapshot before, its sealed result at its end.
-    const id = newFlowId();
     const task = iterateTask({ instruction: req.instruction, paramsRel: rel, fileText: text });
-    const s = await this.d.startAgent(req.agent, task, { paid: false, ...local, root, project, env });
+    const s = await this.d.startAgent(req.agent, task, { paid: false, ...local, root, project, env, judge: { own: [flowWorkDir(id)] } });
     if (!s.ok) {
       const wrote = created ? this.say(`${rel} did not exist: written from the recipe card's defaults (${values})`) : [];
       return refuse(`The agent did not start: ${this.d.scrub(s.error, root)}`, s.refused === 'paid' || s.refused === 'missing' ? 'estimate' : 'failure', [], wrote);
@@ -428,8 +472,11 @@ export class IterateFlows {
   private async agentStep(f: FlowRun): Promise<void> {
     const job = await this.d.jobs.done(f.agentJob!);
     // The agent's sealed result (sealAgent ran at the job's end): its outcome, what it changed, its cost and receipt.
-    const rec = f.agentRecord!;
+    // R4 review (R4-2): what it changed as the check's own snapshot saw it (the whole project, .timmy and dist included).
+    const rec = forJudging(f.agentRecord!);
+    f.agentRecord = rec;
     const a = f.record.agent!;
+    if (rec.judged) a.compared = comparedOf(rec.judged);
     a.outcome = rec.outcome ?? job.state;
     if (rec.why) a.why = this.d.scrub(rec.why, f.root);
     if (rec.transcript) a.transcript = `${AGENTS_DIR}/${rec.run}/${rec.transcript}`;
@@ -686,6 +733,9 @@ export class IterateFlows {
     const tail = `${file ? `${this.sep}record ${file}` : `${this.sep}the record could not be written`}${receipt ? `${this.sep}receipt ${receipt}` : ''}`;
     const lines: Line[] = [[{ text: `  ${ok ? g.ok : rec.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok || rec.outcome === 'cancelled' ? undefined : 'failure' },
       { text: `${f.id} ${rec.outcome}`, role: ok || rec.outcome === 'cancelled' ? 'strong' : 'failure' }, { text: `: ${rec.why ?? ''}${tail}`, role: 'secondary' }]];
+    // R4 review (R4-2): what the check of the agent's changes did not look into, never skipped silently.
+    const unseen = notComparedText(rec.agent?.compared);
+    if (unseen) lines.push([{ text: `      not compared while the agent ran: ${unseen}`, role: 'secondary' }]);
     const m = rec.readback?.measured;
     if (m && rec.readback) {
       lines.push([{ text: '      measured from the CAD file: ', role: 'secondary' }, { text: `${mmText(m.bounds_mm)} mm, ${mm3Text(m.volume_mm3)} mm3, ${m.solids} ${m.valid ? 'valid ' : 'invalid '}solid${m.solids === 1 ? '' : 's'}`, role: 'strong' },

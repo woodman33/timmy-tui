@@ -622,6 +622,8 @@ export interface EditContext {
   recipes: readonly string[];
   /** seals the edit's receipt on the runs chain; its short id back */
   seal?: (input: ReceiptInput) => string | undefined;
+  /** R4 review (R4-3): the /iterate flow running in this project, or being started there (src/repl/iterate.ts runningIn) */
+  flowIn?: () => { id?: string; step: string } | undefined;
 }
 /** An edit's answer: the HTTP status, the page's text, and one line for the REPL's transcript. */
 export interface EditAnswer { status: number; text: string; line: string }

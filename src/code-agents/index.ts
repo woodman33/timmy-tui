@@ -384,6 +384,116 @@ export function diffSnapshots(before: Snapshot, after: Snapshot): ChangeSet {
   return out;
 }
 
+// ── the /iterate check's snapshot (round R4, the review's R4-2) ──────────────────
+
+/**
+ * What /iterate does not look into, for size: entries named .git or node_modules, at any depth. Never skipped silently:
+ * each one found is named in the agent run's result, and in the flow's record and end line.
+ */
+export const JUDGE_SKIP = new Set(['.git', 'node_modules']);
+/** The /iterate check covers .timmy and dist too, so it compares up to this many files (/agent's own snapshot: 20,000). */
+export const JUDGE_MAX_FILES = 100_000;
+/** At most this many entries not looked into are named; the rest are counted. */
+export const NOT_COMPARED_MAX = 20;
+/** What the /iterate check compares, in a sentence (on the agent run's result and the flow's record). */
+export const JUDGE_SCOPE = 'every file of the project at any depth, .timmy and dist included, except Timmy\'s own writes during the agent step (own) and the folders named .git or node_modules (not_compared, not looked into for size)';
+
+/** One walk of the /iterate check: the files, whether the walk stopped at JUDGE_MAX_FILES, and the entries not looked into. */
+export interface JudgedSnapshot { files: Snapshot; truncated: boolean; notCompared: string[] }
+
+/** What the /iterate check of an agent run saw (R4-2): kept on the run's result as `judged`. */
+export interface JudgedChanges {
+  scope: string;
+  files: ChangeSet & { truncated: boolean };
+  /** Timmy's own writes during the agent step, not counted: project-relative folders, each ending in / */
+  own: string[];
+  /** the entries not looked into (named .git or node_modules), before or after the run: the first NOT_COMPARED_MAX */
+  not_compared: string[];
+  /** how many more such entries there were than are named */
+  not_compared_more?: number;
+}
+
+/** What a flow's record keeps of the check: its scope, Timmy's own writes left out, the entries not looked into. */
+export type ComparedScope = Omit<JudgedChanges, 'files'>;
+
+/**
+ * The snapshot /iterate judges an agent's run by (R4-2): every regular file and link of the project at any depth, .timmy
+ * and dist included, except the folders in `own` (Timmy's own writes during the agent step, project-relative) and, for
+ * size, every entry named .git or node_modules, each one listed in notCompared (a folder with a trailing /). No link is
+ * followed; a link is kept as its link text, as snapshotProject keeps it.
+ */
+export function judgeSnapshot(root: string, own: readonly string[]): JudgedSnapshot {
+  const files: Snapshot = new Map();
+  const notCompared: string[] = [];
+  const skipOwn = new Set(own.map((o) => o.replace(/\/+$/, '')));
+  let truncated = false;
+  const walk = (dir: string, rel: string): void => {
+    let names: string[];
+    try { names = readdirSync(dir).sort(); } catch { return; }
+    for (const n of names) {
+      if (files.size >= JUDGE_MAX_FILES) { truncated = true; return; }
+      const abs = join(dir, n);
+      const r = rel ? `${rel}/${n}` : n;
+      let st;
+      try { st = lstatSync(abs); } catch { continue; }
+      if (JUDGE_SKIP.has(n)) { notCompared.push(st.isDirectory() ? `${r}/` : r); continue; }
+      if (skipOwn.has(r)) continue;
+      if (st.isDirectory()) walk(abs, r);
+      else if (st.isSymbolicLink()) {
+        let link = '';
+        try { link = readlinkSync(abs); } catch { link = ''; }
+        files.set(r, { size: Buffer.byteLength(link), sha256: createHash('sha256').update(`symlink\0${link}`).digest('hex'), mtimeMs: st.mtimeMs, link });
+      } else if (st.isFile()) {
+        let sha: string | null = null;
+        if (st.size <= SNAPSHOT_HASH_LIMIT) { try { sha = hashFile(abs); } catch { sha = null; } }
+        files.set(r, { size: st.size, sha256: sha, mtimeMs: st.mtimeMs });
+      }
+    }
+  };
+  walk(root, '');
+  return { files, truncated, notCompared };
+}
+
+/** /agent's own view of a judged snapshot: the files with no entry named in SNAPSHOT_SKIP on their path. */
+export function regularOf(files: Snapshot): Snapshot {
+  const out: Snapshot = new Map();
+  for (const [p, v] of files) if (!p.split('/').some((part) => SNAPSHOT_SKIP.has(part))) out.set(p, v);
+  return out;
+}
+
+/** The check's changes from two judged snapshots of the same run, with its own writes and the entries not looked into. */
+export function judgedChanges(before: JudgedSnapshot, after: JudgedSnapshot, own: readonly string[]): JudgedChanges {
+  const skipped = [...new Set([...before.notCompared, ...after.notCompared])].sort();
+  return {
+    scope: JUDGE_SCOPE,
+    files: { ...diffSnapshots(before.files, after.files), truncated: before.truncated || after.truncated },
+    own: own.map((o) => `${o.replace(/\/+$/, '')}/`),
+    not_compared: skipped.slice(0, NOT_COMPARED_MAX),
+    ...(skipped.length > NOT_COMPARED_MAX ? { not_compared_more: skipped.length - NOT_COMPARED_MAX } : {}),
+  };
+}
+
+/** The project-relative folder of `abs` when it is inside the project (both through their real paths), else undefined. */
+export function folderInProject(root: string, abs: string): string | undefined {
+  const real = (p: string): string => { try { return realpathSync(p); } catch { return p; } };
+  const rel = relative(real(root), real(abs));
+  return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel.split(sep).join('/') : undefined;
+}
+
+/** The agent run's record as the /iterate check judges it: its `files` are the judged snapshot's changes when it has them. */
+export const forJudging = (rec: AgentRunRecord): AgentRunRecord => (rec.judged ? { ...rec, files: rec.judged.files } : rec);
+
+/** What a flow's record keeps of the check (`compared`). */
+export const comparedOf = (j: JudgedChanges): ComparedScope => ({ scope: j.scope, own: [...j.own], not_compared: [...j.not_compared], ...(j.not_compared_more ? { not_compared_more: j.not_compared_more } : {}) });
+
+/** The entries the check did not look into, in words for the end of a flow; '' when there were none. */
+export function notComparedText(c: { not_compared?: unknown; not_compared_more?: unknown } | undefined): string {
+  const named = Array.isArray(c?.not_compared) ? c.not_compared.filter((x): x is string => typeof x === 'string') : [];
+  if (!named.length) return '';
+  const more = typeof c?.not_compared_more === 'number' && c.not_compared_more > 0 ? ` and ${c.not_compared_more} more` : '';
+  return `${named.join(', ')}${more} (folders named .git or node_modules are not looked into, for size)`;
+}
+
 export const snapshotJson = (s: Snapshot): Record<string, SnapFile> => Object.fromEntries([...s].map(([k, v]) => [k, v]));
 export function snapshotFromJson(o: unknown): Snapshot {
   const out: Snapshot = new Map();
@@ -579,6 +689,13 @@ export interface AgentRunRecord {
   cost_basis?: string;
   transcript?: string;
   receipt?: string;
+  /**
+   * Round R4 (the review's R4-2): for an /iterate run, what its check saw: the changes over the whole project (.timmy and
+   * dist included) with Timmy's own writes during the run left out, and the entries not looked into. `files` above stays
+   * /agent's own view (no .timmy, dist, .git or node_modules), read from that same walk, so Timmy's own writes (a jobs
+   * folder in the project, say) are left out of it too.
+   */
+  judged?: JudgedChanges;
 }
 
 export const runDir = (root: string, run: string): string => join(root, AGENTS_DIR, run);

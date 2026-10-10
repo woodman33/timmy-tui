@@ -14,8 +14,10 @@
  *         job of this REPL follows its UUID as /recipe tray's does (it copies the exports once the signed result
  *         verifies; /stop and this REPL's end cancel the recipe through its own path);
  *       - a recipe that succeeded meanwhile has its verified exports delivered (src/recipes deliver: one verified
- *         snapshot), sealed as a recover receipt; not when its copy folder is already in the project, or when a
- *         recover receipt of this project delivered it before (a copy the operator removed is not put back);
+ *         snapshot), sealed as a recover receipt; not when a whole copy is already in the project, or when a recover
+ *         receipt of this project delivered it before (a copy the operator removed is not put back). A copy folder is
+ *         checked file by file against the verified result, never taken as delivered for being there (the review's
+ *         R4-8): an incomplete one is named with /recipe copy <uuid>, and nothing in it is deleted or replaced;
  *       - a recipe that says it runs while its worker stopped answering is named with /recipe recover <uuid> (the
  *         recipe's own recover reads it again and records its end; nothing is rerun).
  *     A recipe that a live watcher follows (this REPL's, or another session's sharing this jobs folder), or that no
@@ -43,7 +45,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { JobRecord, JobSpec } from '../jobs/index.js';
 import { jobDirectory, status, type Job, type JobStatus } from '../../lanes/recipes/jobs.js';
-import { deliver, DOCTRINE_15, isRecipeJobId, outcomeLines, outDir, RECIPE_ID, short, watcherSpec } from '../recipes/index.js';
+import { checkCopyOf, deliver, DOCTRINE_15, isRecipeJobId, outcomeLines, outDir, RECIPE_ID, short, verifiedResult, watcherSpec } from '../recipes/index.js';
 import { diffText, FLOW_ID, FLOW_SCHEMA, FLOW_WORK_DIR, flowRecordPath, flowWorkDir, type FlowRecord, type FlowStep } from '../flows/iterate.js';
 import { scadDiffText, type ScadParamChange } from '../flows/iterate-scad.js';
 import { listNativeRuns, readNativeRecord, reconcileNative, type NativeApp } from '../native/index.js';
@@ -54,6 +56,7 @@ import { projectId } from '../project/index.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import type { Receipt, ReceiptInput } from '../utils/receipts.js';
+import { placeNew } from '../utils/place-new.js';
 
 type Line = Segment[];
 
@@ -112,7 +115,8 @@ export interface RecoveryItem {
   kind: 'recipe' | 'flow' | 'native';
   /** the operation's own ID: a recipe job's UUID, a flow's id, a native run's token */
   id: string;
-  did: 'followed' | 'delivered' | 'interrupted' | 'judged' | 'failed' | 'left';
+  /** 'incomplete' (R4-8): a succeeded recipe's copy is in the project but not whole; named with /recipe copy, left as it is */
+  did: 'followed' | 'delivered' | 'interrupted' | 'judged' | 'failed' | 'incomplete' | 'left';
   /** left as it is, but the operator must act (a recipe whose worker stopped answering) */
   attention?: boolean;
   /** one plain sentence: what was found, and what was done */
@@ -253,9 +257,15 @@ function surveyRecipes(d: RecoverDeps, all: JobRecord[], now: number, plans: Pla
     }
     // Its newest watcher ended with its end recorded: the session that ran it saw that and said so.
     if (newest && phase(newest) === 'ended') continue;
-    // Cheap checks first, so a pass does not verify every finished recipe again: a copy folder only a delivery makes
-    // means it succeeded and was delivered; a recipe no watcher followed matters here only while it runs.
-    if (newest && lexists(path.join(d.root, outDir(uuid)))) continue;
+    // A copy folder means a delivery started; whether it finished is the copy's own check (the review's R4-8: checkCopy,
+    // file by file against the verified result), never the folder alone. A whole copy was delivered; an incomplete one is
+    // named with /recipe copy and left as it is. A copy whose result does not verify now is decided by the status below.
+    if (newest && lexists(path.join(d.root, outDir(uuid)))) {
+      const copy = copyOf(d.root, uuid);
+      if (copy.state === 'whole') continue;
+      if (copy.state === 'incomplete') { left.push(incompleteCopy(d, uuid, copy.why)); continue; }
+    }
+    // A recipe no watcher followed matters here only while it runs.
     if (!newest && ended(d.root, uuid)) continue;
     let s: JobStatus;
     try { s = status(d.root, uuid); } catch (e) {
@@ -381,6 +391,25 @@ function act(d: RecoverDeps, kind: RecoveryItem['kind'], id: string, run: () => 
   }
 }
 
+/**
+ * A succeeded recipe's copy in the project, checked file by file against its verified result (checkCopy's two steps):
+ * whole, incomplete (why: a file missing or different), or unchecked when its result does not verify now.
+ */
+function copyOf(root: string, uuid: string): { state: 'whole' } | { state: 'incomplete' | 'unchecked'; why: string } {
+  const got = verifiedResult(root, uuid);
+  if (!got.ok) return { state: 'unchecked', why: got.error };
+  const c = checkCopyOf(root, got.v);
+  return c.ok ? { state: 'whole' } : { state: 'incomplete', why: c.error };
+}
+
+/** An incomplete copy, said and left as it is: /recipe copy completes it in place (nothing there is deleted or replaced). */
+function incompleteCopy(d: RecoverDeps, uuid: string, why: string): RecoveryItem {
+  return {
+    kind: 'recipe', id: uuid, did: 'incomplete', text: `the copy of ${uuid} is incomplete: /recipe copy ${uuid}`,
+    extra: [`${d.scrub(why)}; nothing in ${outDir(uuid)}/ was deleted or replaced`],
+  };
+}
+
 /** Whether a recover receipt of this project delivered the recipe before (its copy is then the operator's to keep or remove). */
 function deliveredBefore(d: RecoverDeps, uuid: string): boolean {
   let chain: Receipt[] = [];
@@ -405,8 +434,12 @@ function actRecipe(d: RecoverDeps, p: Extract<Plan, { kind: 'recipe' }>): Recove
     }
   }
   if (s.state !== 'succeeded') return undefined;
-  // It succeeded (perhaps while it was surveyed): its exports are delivered once, never over a copy already there.
-  if (lexists(path.join(d.root, outDir(uuid)))) return undefined;
+  // It succeeded (perhaps while it was surveyed): its exports are delivered once, never over a copy already there; a copy
+  // that appeared meanwhile is checked as the survey checks one (R4-8).
+  if (lexists(path.join(d.root, outDir(uuid)))) {
+    const copy = copyOf(d.root, uuid);
+    return copy.state === 'incomplete' ? incompleteCopy(d, uuid, copy.why) : undefined;
+  }
   if (deliveredBefore(d, uuid)) {
     return { kind: 'recipe', id: uuid, did: 'left', text: `recipe ${uuid} succeeded; a recover receipt delivered it before and ${outDir(uuid)}/ is not in the project now, so nothing was copied: /recipe copy ${uuid} copies it again` };
   }
@@ -428,7 +461,11 @@ function actRecipe(d: RecoverDeps, p: Extract<Plan, { kind: 'recipe' }>): Recove
   };
 }
 
-/** Writes a JSON file in the project only where nothing is: a temporary file, then a hard link that fails when a file is there. */
+/**
+ * Writes a JSON file in the project only where nothing is: a temporary file, then a hard link that fails when a file is
+ * there; on a disk without hard links (exFAT, FAT, some network shares), a rename once nothing is there (the review's
+ * R4-7: src/utils/place-new.ts, the fallback kept.ts has).
+ */
 function createProjectJson(root: string, rel: string, value: unknown): { ok: true; path: string; sha256: string; bytes: number } | { ok: false; error: string } {
   const abs = path.join(root, rel);
   const body = `${JSON.stringify(value, null, 2)}\n`;
@@ -444,7 +481,8 @@ function createProjectJson(root: string, rel: string, value: unknown): { ok: tru
     if (!inside(dir)) return { ok: false, error: `${path.dirname(rel)} leads outside the project` };
     const tmp = path.join(dir, `.${path.basename(abs)}.${randomBytes(4).toString('hex')}.tmp`);
     fs.writeFileSync(tmp, body, { flag: 'wx' });
-    try { fs.linkSync(tmp, path.join(dir, path.basename(abs))); } finally { fs.unlinkSync(tmp); }
+    // After a link the temporary name is a second name for the record; after a rename it is gone already.
+    try { placeNew(tmp, path.join(dir, path.basename(abs))); } finally { try { fs.unlinkSync(tmp); } catch { /* renamed */ } }
   } catch (e) {
     return { ok: false, error: (e as NodeJS.ErrnoException).code === 'EEXIST' ? `${rel} is already there; it was left as it is` : message(e) };
   }
@@ -654,6 +692,8 @@ function summary(items: RecoveryItem[]): string {
   if (judged.length) parts.push(`${count(judged.length, 'native run')} judged from ${judged.length === 1 ? 'its result file' : 'their result files'}`);
   const failed = of((i) => i.did === 'failed');
   if (failed.length) parts.push(`${failed.length} could not be picked up`);
+  const incomplete = of((i) => i.did === 'incomplete');
+  if (incomplete.length) parts.push(`${incomplete.length} recipe ${incomplete.length === 1 ? 'copy is' : 'copies are'} incomplete: /recipe copy`);
   const attention = of((i) => i.did === 'left' && i.attention === true);
   if (attention.length) parts.push(`${count(attention.length, 'recipe job')} ${attention.length === 1 ? 'needs' : 'need'} /recipe recover`);
   const left = of((i) => i.did === 'left' && !i.attention);
@@ -673,7 +713,7 @@ export function recoveryLines(r: RecoveryReport, o: { glyphs: GlyphSet; mode: 's
   const g = o.glyphs;
   const lines: Line[] = [[{ text: o.mode === 'start' ? '  Recovered  ' : '  Recovery   ', role: 'secondary' }, { text: summary(shown), role: 'strong' }]];
   for (const i of shown) {
-    const bad = i.did === 'failed' || i.attention === true || (i.did === 'judged' && i.outcome === 'failed');
+    const bad = i.did === 'failed' || i.did === 'incomplete' || i.attention === true || (i.did === 'judged' && i.outcome === 'failed');
     const mark = bad ? g.fail : i.did === 'left' || (i.did === 'judged' && i.outcome !== 'ok') ? g.bullet : g.ok;
     lines.push([{ text: `    ${mark} `, role: bad ? 'failure' : undefined }, { text: i.text, role: bad ? 'failure' : 'secondary' }]);
     for (const x of i.extra ?? []) lines.push([{ text: `      ${x}`, role: x === DOCTRINE_15 ? 'strong' : 'secondary' }]);

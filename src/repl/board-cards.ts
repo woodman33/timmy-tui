@@ -106,7 +106,9 @@ const reply = (status: number, text: string, line = text): EditAnswer => ({ stat
 /**
  * `set-params`: {"action":"set-params","recipe":"tray","base":"<sha256 of the file as shown>"|null,"parameters":{
  * "width":…, "wall":…, "supportOffset":…, "bore":…}}. Checked with the recipe's own rules; written by writeParams
- * (the previous file kept first, then replaced atomically) and sealed as an edit; or refused, with why.
+ * (the previous file kept first, then replaced atomically) and sealed as an edit; or refused, with why. Refused (409)
+ * while an /iterate flow runs in the project (R4 review, R4-3): its agent's before/after comparison would take the save
+ * for the agent's change, or the agent would write over it.
  */
 export function saveParams(body: Record<string, unknown>, ctx: EditContext): EditAnswer {
   if (!keysAre(body, ['action', 'recipe', 'base', 'parameters']) || typeof body.recipe !== 'string' || (body.base !== null && typeof body.base !== 'string')
@@ -119,6 +121,12 @@ export function saveParams(body: Record<string, unknown>, ctx: EditContext): Edi
   if (!keysAre(given, [...PARAMETER_NAMES])) return reply(400, `The parameters are ${PARAMETER_NAMES.join(', ')}, each once.`);
   for (const [n, v] of Object.entries(given)) {
     if (!(typeof v === 'number' || (typeof v === 'string' && v.length <= 32))) return reply(400, `${n} is a number of millimetres.`);
+  }
+  // R4 review (R4-3): not while a flow runs here, whatever the file's sha256 is now; nothing is read or written.
+  const flow = ctx.flowIn?.();
+  if (flow) {
+    const who = flow.id ? `flow ${flow.id} is running` : 'a flow is being started';
+    return reply(409, `${who} in this project: save after it ends, or /stop it`, `refused a parameter save: ${who} in this project`);
   }
   const rel = paramsPath(recipe);
   const now = readParams(ctx.root, recipe);

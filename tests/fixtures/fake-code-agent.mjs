@@ -20,13 +20,15 @@
 //   PARAM:<name>=<value>  (one or more) sets those parameters in the file, keeping its schema and recipe fields
 //   PARAMSBAD             writes the file with a width the recipe refuses (5 mm)
 //   OTHERFILE             also writes notes/other.txt, a file /iterate does not allow it to change
+//   WRITE:<path>          (one or more; round R4, the review's R4-2) writes a line to that project-relative path, making its
+//                         folders (.timmy and dist included); a path that is absolute or climbs out with .. is skipped
 // For /iterate blender (round R4, H26), on a Blender scene script: scene.py, or the file PYFILE:<path> names:
 //   PYREPLACE:<old>=><new>  (one or more) replaces every <old> in it with <new> (neither has spaces)
 //   PYCLAIM:<name>          makes the script's result claim a material it does not make: the Blender starter's
 //                           "materials": ["Timmy Green", "Off White"] gains "<name>"
 //   PYBREAK                 appends lines that are not Python (a syntax error)
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const argv = process.argv.slice(2);
 if (argv[0] === '--version') { console.log('0.0.0-fake (a FAKE code agent, not a real one)'); process.exit(0); }
@@ -96,6 +98,11 @@ if (task.includes('SLEEP')) {
   if (task.includes('OTHERFILE')) {
     mkdirSync(join(cwd, 'notes'), { recursive: true });
     writeFileSync(join(cwd, 'notes', 'other.txt'), 'written by a FAKE agent where it was told not to write\n');
+  }
+  for (const [, rel] of task.matchAll(/WRITE:(\S+)/g)) {
+    if (rel.startsWith('/') || rel.split('/').includes('..')) continue;
+    mkdirSync(dirname(join(cwd, rel)), { recursive: true });
+    writeFileSync(join(cwd, rel), `written by a FAKE agent where it was told not to write: ${rel}\n`);
   }
   const fail = task.includes('FAILJSON');
   const message = task.includes('LONG') ? 'L'.repeat(9000) : 'All done: FINAL (a FAKE agent).';

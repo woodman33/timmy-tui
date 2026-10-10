@@ -16,6 +16,7 @@ import { folderProject } from '../src/project/index.js';
 import { DOCTRINE_15, EXPORTS } from '../src/recipes/index.js';
 import type { LiveState } from '../src/repl/board-live.js';
 import { EDIT_LIMIT } from '../src/repl/board-edits.js';
+import { saveParams } from '../src/repl/board-cards.js';
 import { docPlace } from '../src/repl/board-nodes.js';
 import { Workspace, type WorkspaceDeps } from '../src/repl/workspace.js';
 import { glyphSet } from '../src/term/glyphs.js';
@@ -181,6 +182,56 @@ describe('the parameter card, saved through the live board', () => {
     }
     expect(existsSync(join(root, 'recipes'))).toBe(false);
     expect(sealed).toEqual([]);
+  });
+});
+
+/**
+ * R4 review (R4-3): a parameter save from the board while an /iterate flow runs in the project would be taken for the
+ * agent's change (or lost under it), so it is refused. FAKE pieces: the code agent is tests/fixtures/fake-code-agent.mjs
+ * (a TEST DOUBLE, here only sleeping in its agent step); TIMMY_CADQUERY_PYTHON and TIMMY_BLENDER name FAKE programs that
+ * are never run (each flow is stopped in its agent step).
+ */
+describe('a parameter save while a flow runs in the project (R4 review, R4-3)', () => {
+  it('refused with 409 while any /iterate flow runs there (the tray\'s, a Blender one): nothing written or sealed; taken once the flows have ended', async () => {
+    const root = temp('board-params-flow-');
+    const fakes = temp('board-params-fakes-');
+    const program = (name: string): string => { const p = join(fakes, name); writeFileSync(p, '#!/bin/sh\necho "FAKE: never run by this test"\nexit 1\n', { mode: 0o755 }); return p; };
+    put(root, 'scene.py', readFileSync(resolve('templates/blender-starter/scene.py')));
+    const { ws, notes, sealed } = make(root, {
+      env: { UPMD_BIN: FAKE_UPMD, TIMMY_AGENT_QWEN_BIN: resolve('tests/fixtures/fake-code-agent.mjs'), TIMMY_AGENT_MODEL: 'qwen3:4b', TIMMY_CADQUERY_PYTHON: program('python'), TIMMY_BLENDER: program('blender') },
+    });
+    const { port, token } = await live(ws);
+    for (const line of ['tray "SLEEP PARAM:width=180"', 'blender scene.py "SLEEP"']) {
+      const out = text(await ws.iterate(line));
+      const id = /Flow\s+(f[0-9a-f]{8})/.exec(out)![1];
+      const agent = /Agent\s+(j[0-9a-f]{6})/.exec(out)![1];
+      await until(() => (ws.jobs.get(agent)?.pid ?? 0) > 0);
+      // The tray's start wrote the file from the recipe's defaults; the board shows it as it is.
+      const file = readFileSync(join(root, 'recipes/tray.params.json'));
+      expect((await state(port, token)).html).toContain(`data-params-base="${sha(file)}"`);
+      const seals = sealed.length;
+      const r = await edit(port, token, { action: 'set-params', recipe: 'tray', base: sha(file), parameters: PARAMS });
+      expect(r.status).toBe(409);
+      expect(r.body).toBe(`flow ${id} is running in this project: save after it ends, or /stop it`);
+      expect(readFileSync(join(root, 'recipes/tray.params.json'))).toEqual(file);
+      expect(historyFiles(root)).toEqual([]);
+      expect(sealed).toHaveLength(seals);
+      expect(notes).toContain(`  board  refused a parameter save: flow ${id} is running in this project`);
+      expect(text(await ws.stop(id))).toContain(`${id} cancelled`);
+    }
+    // No flow runs now: the same save is taken.
+    const file = readFileSync(join(root, 'recipes/tray.params.json'));
+    const ok = await edit(port, token, { action: 'set-params', recipe: 'tray', base: sha(file), parameters: PARAMS });
+    expect(ok.status).toBe(200);
+    expect(ok.body).toContain('Saved recipes/tray.params.json: width 140 → 150');
+    expect(JSON.parse(readFileSync(join(root, 'recipes/tray.params.json'), 'utf8')).parameters).toEqual(PARAMS);
+  }, 60_000);
+
+  it('a flow still being started (its id not named yet) refuses the save the same way, before anything is read', () => {
+    const root = temp('board-params-held-');
+    const r = saveParams({ action: 'set-params', recipe: 'tray', base: null, parameters: PARAMS }, { root, project: 'demo', projectId: 'p', workflows: [], recipes: ['tray'], flowIn: () => ({ step: 'prepare' }) });
+    expect(r).toEqual({ status: 409, text: 'a flow is being started in this project: save after it ends, or /stop it', line: 'refused a parameter save: a flow is being started in this project' });
+    expect(existsSync(join(root, 'recipes'))).toBe(false);
   });
 });
 
