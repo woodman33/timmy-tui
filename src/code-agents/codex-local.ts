@@ -27,8 +27,11 @@
  *   not to add /tmp or $TMPDIR as writable roots and to keep the network off (CODEX_LOCAL_SANDBOX_OVERRIDES), and says
  *   plainly that Codex may run commands inside its sandbox and that Timmy checks changes inside the project only.
  *
+ * Round R4 (ledger row 151, r16 D): a second real run with codex-cli 0.153.2 CONFIRMED the sandbox overrides and
+ * --ignore-rules: Codex accepted the three -c sandbox_workspace_write keys and --ignore-rules, its sandbox refused a write
+ * to /tmp ("operation not permitted"), and the network was blocked. The run completed.
+ *
  * Still ASSUMED, from codex-rs's source and Codex's documentation as known, and not confirmed by a run:
- * - the sandbox_workspace_write keys passed with -c (their names are not in the help text; see below);
  * - the events and item types not seen in that run (turn.failed, item.updated, error, and the item types file_change,
  *   mcp_tool_call, web_search and todo_list), and every field of an event beyond its type;
  * - that its built-in ollama provider takes its address from CODEX_OSS_BASE_URL: set in the child's environment
@@ -54,8 +57,10 @@ export const CODEX_LOCAL_PROVIDER = 'ollama';
 /**
  * Round R4 (H37): configuration overrides, each given as `-c <key=value>` ("Override a configuration value that would
  * otherwise be loaded from `~/.codex/config.toml`. Use a dotted path ... The `value` portion is parsed as TOML", its
- * help). ASSUMED from Codex's config documentation (its [sandbox_workspace_write] table), not from the help text, which
- * names no key; to be confirmed by a real run. What they ask of the workspace-write sandbox:
+ * help). The keys come from Codex's config documentation (its [sandbox_workspace_write] table), not from the help text,
+ * which names no key. CONFIRMED by a real run with codex-cli 0.153.2 (ledger row 151): the keys were accepted, a write
+ * to /tmp was refused ("operation not permitted") and the network was blocked. What they ask of the workspace-write
+ * sandbox:
  * - exclude_slash_tmp: do not add /tmp as a writable root (a 0.153.2 run wrote a patch file there);
  * - exclude_tmpdir_env_var: do not add $TMPDIR as a writable root either;
  * - network_access=false: no network for the commands it runs, said explicitly rather than left to a default.
@@ -108,8 +113,8 @@ export function planCodexLocal(o: CodexLocalInput): PlanResult {
     '--json',                                // "--json  Print events to stdout as JSONL"
     '--skip-git-repo-check',                 // "--skip-git-repo-check  Allow running Codex outside a Git repository"
     '-s', 'workspace-write',                 // "-s, --sandbox <SANDBOX_MODE> ... [possible values: read-only, workspace-write, danger-full-access]"
-    // "-c, --config <key=value>  Override a configuration value ...": the flag is in the help; the keys are ASSUMED from
-    // Codex's config documentation, to be confirmed by a real run (CODEX_LOCAL_SANDBOX_OVERRIDES above).
+    // "-c, --config <key=value>  Override a configuration value ...": the flag is in the help; the keys are from Codex's
+    // config documentation, confirmed by a real run with codex-cli 0.153.2 (ledger row 151; CODEX_LOCAL_SANDBOX_OVERRIDES above).
     ...CODEX_LOCAL_SANDBOX_OVERRIDES.flatMap((kv) => ['-c', kv]),
     '-C', o.root,                            // "-C, --cd <DIR>  Tell the agent to use the specified directory as its working root"
     // Beyond the line the round R4 order named, each from the same help text: the user's config.toml (its MCP
@@ -122,6 +127,7 @@ export function planCodexLocal(o: CodexLocalInput): PlanResult {
     // route is set by this command line alone, as --ignore-user-config already makes it for config.toml. The cost: a
     // rule the user wrote to forbid a command does not apply here either. This route's limits do not rest on such
     // rules: the sandbox (workspace-write, the overrides above) and Timmy's own check of the project's files after.
+    // Confirmed by a real run with codex-cli 0.153.2 (ledger row 151): accepted, and the run completed.
     '--ignore-rules',
     '--ephemeral',                           // "--ephemeral  Run without persisting session files to disk"
     '-o', last,                              // "-o, --output-last-message <FILE>  Specifies file where the last message from the agent should be written"
