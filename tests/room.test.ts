@@ -462,6 +462,21 @@ describe('the Control Room on the board: escaping, buttons, no paths', () => {
   });
 });
 
+describe('the tools panel groups every creative app and agent (r21, ledger row 163)', () => {
+  it('puts Unreal and Illustrator among the creative apps and OpenHands among the agents, not under "everything else"', () => {
+    const FAKE_ROWS: CapabilityRow[] = [
+      { id: 'unreal', kind: 'adapter', name: 'Unreal Engine (UnrealEditor-Cmd, Python, headless)', rung: 'installed', detail: 'FAKE' },
+      { id: 'illustrator', kind: 'adapter', name: 'Illustrator (scripting)', rung: 'installed', detail: 'FAKE' },
+      { id: 'openhands', kind: 'harness', name: 'OpenHands, local model', rung: 'installed', detail: 'FAKE' },
+      { id: 'qwen-code', kind: 'harness', name: 'Qwen Code', rung: 'installed', detail: 'FAKE' },
+    ];
+    const groups = toolGroups(FAKE_ROWS);
+    expect(groups.map((g) => g.title)).toEqual(['Creative apps', 'Agents']);
+    expect(groups[0].rows.map((r) => r.id)).toEqual(['illustrator', 'unreal', 'houdini']);
+    expect(groups[1].rows.map((r) => r.id)).toEqual(['qwen-code', 'openhands']);
+  });
+});
+
 describe('/room in text', () => {
   it('prints running first, then the recent runs by owner, then the costs line, then the tools that need setup', () => {
     const { ctx, root } = fakeProject({ activeFlows: ['f0000f001'] });

@@ -919,8 +919,10 @@ export function findRun(all: readonly RoomRun[], id: string): RoomRun | undefine
 export interface ToolGroup { title: string; rows: Array<CapabilityRow & { missing?: true }>; note?: string; advanced?: true; apart?: true }
 
 /** Which /tools rows go in which panel group. */
-const CREATIVE = ['blender', 'openscad', 'freecad', 'afterfx', 'aerender', 'illustrator', 'c4dpy', 'recipe-tray'];
-const AGENTS_ROWS = ['claude-code', 'codex', 'codex-local', 'qwen-code', 'opencode'];
+// r21 (ledger row 163): Unreal's row sat under "everything else", and so did OpenHands' (ids from src/native/index.ts and
+// src/code-agents/openhands.ts OPENHANDS_ROUTE).
+const CREATIVE = ['blender', 'openscad', 'freecad', 'afterfx', 'aerender', 'illustrator', 'c4dpy', 'unreal', 'recipe-tray'];
+const AGENTS_ROWS = ['claude-code', 'codex', 'codex-local', 'qwen-code', 'opencode', 'openhands'];
 const MODEL_ROWS = ['openrouter', 'ollama'];
 const VISION = (id: string): boolean => id === 'look' || id === 'adapters' || id.startsWith('adapter:') || id === 'spatial-review';
 const MCP = (id: string): boolean => id === 'mcp-cli' || id.startsWith('mcp-cli:');

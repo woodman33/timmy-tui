@@ -306,7 +306,7 @@ describe('failures, each with its reason', () => {
     const denied = macJob('author', { script: 'author.jsx' }, 'not-allowed');
     const jd = judgeAeJob((await run(denied)).job, denied);
     expect(jd.outcome).toBe('failed');
-    expect(jd.why).toMatch(/^macOS did not let osascript control After Effects \(osascript reported: Not authorized to send Apple events to Adobe After Effects 2026\. \(-1743\)\): allow your terminal under System Settings > Privacy & Security > Automation, then run again; no result file, and osascript exited 1/);
+    expect(jd.why).toMatch(/^macOS did not let osascript control After Effects \(osascript reported: Not authorized to send Apple events to Adobe After Effects 2026\. \(-1743\)\): allow the app Timmy runs in \(your terminal, or whichever app started Timmy\) under System Settings › Privacy & Security › Automation, then run again; no result file, and osascript exited 1/);
     const slow = macJob('author', { script: 'author.jsx' }, 'crash');
     const js = judgeAeJob((await run(slow)).job, slow);
     expect(js.outcome).toBe('failed');

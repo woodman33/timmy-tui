@@ -23,7 +23,7 @@
 import { spawn } from 'node:child_process';
 import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { AGENTS_DIR, DEFAULT_BASE_URL, type AgentOutcome, type AgentPlan, type AgentProgress, type ChangeSet, type Snapshot } from '../code-agents/index.js';
+import { AGENTS_DIR, DEFAULT_BASE_URL, wallTimeMs, type AgentOutcome, type AgentPlan, type AgentProgress, type ChangeSet, type Snapshot } from '../code-agents/index.js';
 import {
   dockerClientEnv, OPENHANDS_BUILD, OPENHANDS_DOCKERFILE, OPENHANDS_IMAGE, OPENHANDS_LIMITS, OPENHANDS_SDK, OPENHANDS_WORKER, openHandsSaid, toolCallWords, workerLastWords, writeBackShort,
   zeroStepsWhy, type ContainerStop, type OpenHandsContainer, type OpenHandsRecord,
@@ -66,7 +66,9 @@ export interface OpenHandsRunState {
   stops: ContainerStop[];
   timer?: NodeJS.Timeout;
   /** R4 (H62): its time limits: OpenHands' own (the plan's timeoutMs) and its job's own, the backstop above it */
-  limits?: { openhands: number; job: number };
+  limits?: { openhands: number; job: number;
+    /** r21 (ledger row 163): its wall time (TIMMY_AGENT_WALL_TIME), so the words say the grace exactly: openhands - wall */
+    wall?: number };
   /** R4 (H62): which time limit came first: OpenHands' own (its container stopped first) or the job's own (the backstop) */
   limit?: { by: 'openhands' | 'job'; at: string };
 }
@@ -118,7 +120,7 @@ export class OpenHandsRuns {
       limits: { cpus: OPENHANDS_LIMITS.cpus, memory: OPENHANDS_LIMITS.memory, pids: OPENHANDS_LIMITS.pids, max_iterations: c.maxIterations },
       copy: { path: `${AGENTS_DIR}/${run}/work`, files: made.files, bytes: made.bytes, kept: true },
     };
-    return { ok: true, state: { container: c, run, root, bin, env, copied: made.copied, record, stops: [], limits: { openhands: plan.timeoutMs, job: plan.jobTimeoutMs ?? plan.timeoutMs } } };
+    return { ok: true, state: { container: c, run, root, bin, env, copied: made.copied, record, stops: [], limits: { openhands: plan.timeoutMs, job: plan.jobTimeoutMs ?? plan.timeoutMs, ...wallOf(plan) } } };
   }
 
   /** Its job has started: its container is this REPL's to stop, and Timmy's time limit stops it too. */
@@ -294,9 +296,26 @@ export function duration(ms: number): string {
   return m ? `${m}m${s % 60 ? ` ${s % 60}s` : ''}` : `${s}s`;
 }
 
+/** r21 (ledger row 163): the plan's wall time in ms, when it reads as one (it always does once planAgent accepted it). */
+function wallOf(plan: Pick<AgentPlan, 'wallTime'>): { wall?: number } {
+  const ms = wallTimeMs(plan.wallTime);
+  return ms === null ? {} : { wall: ms };
+}
+
+/**
+ * r21 (ledger row 163): what OpenHands' own limit is made of. It said "its wall time and a grace period" even with
+ * TIMMY_AGENT_GRACE_MS=0; now it says the wall time and the grace as they were, or "any grace period" when the record
+ * has no wall time (a run recorded before r21).
+ */
+export function limitParts(l: { openhands: number; wall?: number }): string {
+  if (l.wall === undefined) return 'its wall time and any grace period';
+  const grace = Math.max(0, l.openhands - l.wall);
+  return grace ? `its wall time ${duration(l.wall)} and a grace of ${duration(grace)}` : 'its wall time, with no grace period';
+}
+
 /** R4 (H62): which time limit ended a run, in words: OpenHands' own (its container stopped first), or the job's own (the backstop). */
 export function limitHead(st: Pick<OpenHandsRunState, 'limit' | 'limits'>): string {
-  const own = st.limits ? ` (${duration(st.limits.openhands)}: its wall time and a grace period)` : '';
+  const own = st.limits ? ` (${duration(st.limits.openhands)}: ${limitParts(st.limits)})` : '';
   if (st.limit?.by === 'job') return `the job's own time limit, the backstop${st.limits ? ` (${duration(st.limits.job)})` : ''}, ended it: OpenHands' own stop at its time limit${st.limits ? ` (${duration(st.limits.openhands)})` : ''} had not come`;
   return `Timmy's time limit passed${own}`;
 }

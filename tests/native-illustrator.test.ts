@@ -275,7 +275,7 @@ describe('failures, each with its reason', () => {
     expect(out).toContain('execution error: Not authorized to send Apple events to Adobe Illustrator. (-1743)');
     const j = judgeIllustratorJob(done, s);
     expect(j.outcome).toBe('failed');
-    expect(j.why).toBe('macOS did not let osascript control Adobe Illustrator: osascript reported "Not authorized to send Apple events to Adobe Illustrator." (-1743). The operator grants this, once: System Settings › Privacy & Security › Automation, then under the app this runs in (your terminal) turn on Adobe Illustrator, and run again; Timmy never grants it and never opens System Settings; no result file, and osascript exited 1');
+    expect(j.why).toBe('macOS did not let osascript control Adobe Illustrator: osascript reported "Not authorized to send Apple events to Adobe Illustrator." (-1743). The operator grants this, once: System Settings › Privacy & Security › Automation, then under the app Timmy runs in (your terminal, or whichever app started Timmy) turn on Adobe Illustrator, and run again; Timmy never grants it and never opens System Settings; no result file, and osascript exited 1');
     expect(j.illustrator.osascript).toEqual({ text: 'Not authorized to send Apple events to Adobe Illustrator.', code: -1743 });
     expect(osascriptWhy({ text: 'x', code: -1743 })).toContain(AUTOMATION_PLACE);
     // What ran was osascript with the three lines, nothing else: no settings URL, no "open", no tccutil
@@ -565,7 +565,7 @@ describe('the REPL: /illustrator author, edit, inspect', () => {
 
     const started = text(await ws.illustrator('author badge.jsx --name badge'));
     expect(started).toMatch(/App {8}Adobe Illustrator, asked through osascript \(do javascript\): it starts, or comes forward, and its window opens/);
-    expect(started).toMatch(/macOS may ask once whether the app Timmy runs in \(your terminal\) may control Adobe Illustrator \(System Settings › Privacy & Security › Automation\): that is yours to answer; Timmy never grants it, changes it or opens System Settings/);
+    expect(started).toMatch(/macOS may ask once whether the app Timmy runs in \(your terminal, or whichever app started Timmy\) may control Adobe Illustrator \(System Settings › Privacy & Security › Automation; its question names that app\): that is yours to answer; Timmy never grants it, changes it or opens System Settings/);
     expect(started).toMatch(/Saves {6}out\/illustrator\/badge-v1\.ai, a new document; badge-v1\.svg and badge-v1\.pdf beside it, and badge-v1\.png when Illustrator's PNG export allows/);
     expect(started).toMatch(/Running {4}j[0-9a-f]{6} {2}Illustrator makes a document from badge\.jsx · judged by its result file, the files it writes \(Timmy's sha256\) and Timmy's own reading of the SVG/);
     expect(started.indexOf('its window opens')).toBeLessThan(started.indexOf('Running'));

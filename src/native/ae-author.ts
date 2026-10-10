@@ -47,6 +47,7 @@ import {
   judgeNativeJob, listNativeRuns, locateNative, NATIVE_APPS, NATIVE_RUNS_DIR, NativeNotFound, nativeReceiptFields, preStates, readNativeRecord, readNativeResult,
   sha256File, writeSubmission, type FinderSeams, type NativeJobSpec, type NativeJudgement, type NativeMeta, type NativeVerdictLine, type PreState,
 } from './index.js';
+import { AUTOMATION_PLACE, HOST_APP } from './automation-words.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -1030,7 +1031,7 @@ function osascriptError(tail: string): { text: string; code: number } | undefine
 
 /** osascript's codes that name the step; anything else is quoted as it was reported. */
 function osascriptWhy(e: { text: string; code: number }): string {
-  if (e.code === -1743) return `macOS did not let osascript control After Effects (osascript reported: ${e.text} (-1743)): allow your terminal under System Settings > Privacy & Security > Automation, then run again`;
+  if (e.code === -1743) return `macOS did not let osascript control After Effects (osascript reported: ${e.text} (-1743)): allow ${HOST_APP} under ${AUTOMATION_PLACE}, then run again`;
   if (e.code === -1712) return `the Apple event to After Effects timed out (osascript reported: ${e.text} (-1712)) and no result file was written: After Effects may still be running the script, a dialog may be waiting in it, or the run needs a longer time limit`;
   return `osascript reported: ${e.text} (${e.code}), and no result file was written`;
 }

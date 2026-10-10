@@ -17,7 +17,7 @@ import { setupCheck } from './setup.js';
 import { sealTurn, type SealedTurn, type TurnFacts } from './seal.js';
 import { editExternally } from './external-editor.js';
 import { listLanes } from '../utils/dispatch.js';
-import { currentCapabilities, type TerminalCapabilities } from '../term/capabilities.js';
+import { currentCapabilities, liveSize, type TerminalCapabilities } from '../term/capabilities.js';
 import { LiveRegion } from '../term/live-region.js';
 import { measuredFromPalette, namedPalette, TIMMY_DAY, TIMMY_HOMEBREW, TIMMY_NIGHT, type MeasuredColors } from '../term/palettes.js';
 import { measureTerminal } from '../term/probe.js';
@@ -210,7 +210,9 @@ export async function runRepl(argv: string[]): Promise<number> {
   session.beforeRestore(() => region.close());
   // Into a pipe, stdout carries only the answer; steps, footers and errors go to stderr (§16.7).
   const log = process.stdout.isTTY ? undefined : new LiveRegion({ out: process.stderr, err: process.stderr }, { live: false });
-  const transcript = new Transcript(theme, region, { columns: caps.columns, rows: caps.rows, err: process.stderr, log });
+  // r21 (ledger row 163): the width and height as they are now, not as they were at the start.
+  const size = liveSize(process.stdout, caps);
+  const transcript = new Transcript(theme, region, { get columns() { return size.columns; }, get rows() { return size.rows; }, err: process.stderr, log });
   if (flags.demo || flags.demoLoader) {
     if (caps.animate) session.hideCursor();
     await play(transcript, flags.demoLoader ? DEMO_LOADER : DEMO_TURN);
@@ -344,7 +346,7 @@ export async function runRepl(argv: string[]): Promise<number> {
   // R1 workspace direction (2026-10-08): one active project — this folder until /project chooses another —
   // for Files, the agent's file tools, Workflows, jobs, Preview and Results. Job notices print above the
   // prompt (the live region redraws what is being typed below them).
-  const notify = (segments: Segment[]): void => void region.commit([serialize(fitSegments(segments, caps.columns, theme.glyphs.ellipsis), theme)]);
+  const notify = (segments: Segment[]): void => void region.commit([serialize(fitSegments(segments, size.columns, theme.glyphs.ellipsis), theme)]);
   const editFile = (path: string): void => {
     const command = (process.env.VISUAL || process.env.EDITOR || 'vi').trim();
     spawnSync('sh', ['-c', `${command} "$1"`, 'timmy-editor', path], { stdio: 'inherit' });
@@ -396,7 +398,7 @@ export async function runRepl(argv: string[]): Promise<number> {
   // Round R1: /tools, every capability on the ladder, from live checks that write nothing.
   const tools = async (args: string): Promise<Segment[][]> => {
     const rows = await capabilities(liveDeps({ env: process.env, key: () => config.apiKey ?? null, model: agent.getModel() }), { all: args.trim() === 'all' });
-    return capabilityLines(rows, theme.glyphs, caps.columns);
+    return capabilityLines(rows, theme.glyphs, size.columns);
   };
   let lastCanvas: CanvasJobResult[] = [];
   let lastLinks: Array<Promise<{ job: string; ok: boolean }>> = [];
@@ -567,7 +569,9 @@ const MENU = COMMANDS.map(({ name, description }) => ({ name, description }));
 export async function replLoop(d: ReplDeps): Promise<number> {
   const { agent, caps, theme, region, transcript, session } = d;
   const interactive = caps.interactive && region.live && !caps.plain;
-  const say = (segments: Segment[]): void => void region.commit([serialize(fitSegments(segments, caps.columns, theme.glyphs.ellipsis), theme)]);
+  // r21 (ledger row 163): its own lines too are cut at the width the terminal has now.
+  const size = liveSize(process.stdout, caps);
+  const say = (segments: Segment[]): void => void region.commit([serialize(fitSegments(segments, size.columns, theme.glyphs.ellipsis), theme)]);
   if (interactive) {
     say([{ text: 'TIMMY', role: 'accent' }, { text: `  ${agent.getModel()}`, role: 'secondary' }]);
     // Round R1: where this REPL works: the folder, where receipts go, and Timmy Canvas's state.

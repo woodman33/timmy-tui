@@ -589,7 +589,7 @@ export function openHandsProgressLine(line: string, state: AgentProgress, root: 
 export function judgeOpenHands(job: { state: string; exitCode?: number | null; signal?: string | null; error?: string }, progress: AgentProgress, stopBy?: string): { outcome: AgentOutcome; why: string } {
   const said = openHandsSaid(progress);
   if (job.state === 'cancelled') return { outcome: 'cancelled', why: `${cancelledWhy(stopBy)}; ${workerLastWords(progress)}` };
-  if (job.error === 'timed out') return { outcome: 'timed out', why: `Timmy's time limit ended it (its wall time and a grace period); ${workerLastWords(progress)}` };
+  if (job.error === 'timed out') return { outcome: 'timed out', why: `Timmy's time limit ended it (its wall time and any grace period); ${workerLastWords(progress)}` };
   if (job.state !== 'completed') {
     if (job.exitCode === 125) return { outcome: 'failed', why: `docker could not start its container (exit 125)${said.dockerError ? `: ${said.dockerError}` : ''}` };
     if (job.error) return { outcome: 'failed', why: job.error };

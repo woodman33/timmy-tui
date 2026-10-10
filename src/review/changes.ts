@@ -384,9 +384,23 @@ function editBy(r: Receipt): string {
   const file = r.files?.[0]?.path;
   const head = file ? `edit · ${file}` : undefined;
   if (head && subject === head) return '/edit, in your editor';
-  if (head && subject.startsWith(`${head} · `)) return subject.slice(head.length + 3);
+  if (head && subject.startsWith(`${head} · `)) return editActor(subject.slice(head.length + 3));
   const parts = subject.split(' · ');
-  return parts.length >= 3 ? parts.slice(2).join(' · ') : '/edit, in your editor';
+  return parts.length >= 3 ? editActor(parts.slice(2).join(' · ')) : '/edit, in your editor';
+}
+
+/**
+ * r21 (ledger row 163): the subject's tail names what was saved, not who saved it, and review reads "by <it>" and "as
+ * <it> left it": "by restored from <file> (/restore)" and "by parameters from the live board" read wrong. The known
+ * tails become the actor (src/review/restore.ts, src/repl/board-cards.ts, board-edits.ts, board-nodes.ts); any other
+ * tail is shown as it was written.
+ */
+export function editActor(tail: string): string {
+  const restored = /^restored from (.+) \(\/restore\)$/.exec(tail);
+  if (restored) return `/restore (from ${restored[1]})`;
+  const board = /^(.+) from the live board$/.exec(tail);
+  if (board) return `the live board (${board[1]})`;
+  return tail;
 }
 
 /** An edit receipt (the board's saves, /edit, /restore): each file with the previous version its sources name. */

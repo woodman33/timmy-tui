@@ -144,6 +144,8 @@ if (pkg) {
     const { PTY_RUN_SCRIPT } = await load('dist/src/workflows/upmd-live.js');
     // R4 batch 8 (H63): Unreal's harness and readback worker, found by the module that gives them to Unreal.
     const { unrealWorkers } = await load('dist/src/native/unreal.js');
+    // R4 batch 9 (H70): the STEP tessellation worker /vox view runs for a STEP record.
+    const { TESSELLATE_SCRIPT } = await load('dist/src/vox/tessellate.js');
     const dest = join(process.env.PROBE_WORK, 'site');
     const copied = copyStarter('web-starter', dest);
     // R4: each starter of this round copied into a new project of its own; the files the copy holds.
@@ -165,6 +167,7 @@ if (pkg) {
       openhands: openHandsWorker() ?? null,
       pty: PTY_RUN_SCRIPT, ptyExists: existsSync(PTY_RUN_SCRIPT),
       unreal: (() => { const w = unrealWorkers({}); return w.ok ? { harness: w.harness, readback: w.readback } : { why: w.why }; })(),
+      tessellate: TESSELLATE_SCRIPT, tessellateExists: existsSync(TESSELLATE_SCRIPT),
     }));`);
   const r = run(process.execPath, [probe], { cwd: work, env: { ...runEnv, PROBE_PKG: pkg, PROBE_WORK: work }, timeout: 120_000 });
   let p = null;
@@ -199,6 +202,8 @@ if (pkg) {
     // R4 batch 7 (H58): the pty wrapper for live workflow states, found by the module that runs it.
     check('assets', 'upmd pty wrapper', p.pty === join(pkg, 'workers/upmd/pty_run.py') && p.ptyExists, `${short(p.pty)}${p.ptyExists ? '' : ' (not there)'}`);
     // R4 batch 8 (H63): Unreal's harness and readback worker, as unrealWorkers gives them to Unreal.
+    // R4 batch 9 (H70): the STEP tessellation worker, found by the module that runs it.
+    check('assets', 'STEP tessellation worker', p.tessellate === join(pkg, 'workers/readback/step_tessellate.py') && p.tessellateExists, `${short(p.tessellate)}${p.tessellateExists ? '' : ' (not there)'}`);
     check('assets', 'Unreal harness and readback worker', p.unreal?.harness === join(pkg, 'workers/unreal/timmy_unreal.py') && p.unreal?.readback === join(pkg, 'workers/unreal/unreal_readback.py'), p.unreal?.harness ? `${short(p.unreal.harness)}, ${short(p.unreal.readback)}` : String(p.unreal?.why ?? 'none found'));
   }
 } else {

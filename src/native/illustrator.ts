@@ -49,6 +49,7 @@ import {
   sha256File, writeSubmission, type FinderSeams, type NativeJobSpec, type NativeJudgement, type NativeMeta, type NativeVerdictLine, type PreState,
 } from './index.js';
 import { fileStart, readPngSize, readSvgFile, SVG_SHAPES, type SvgRead, type SvgShape } from './svg-readback.js';
+import { AUTOMATION_PLACE, HOST_APP } from './automation-words.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -70,10 +71,9 @@ const DOC_EXT = /\.ai$/i;
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const MTIME_SLACK_MS = 2000;
 
-/** Where the operator allows it, word for word. */
-export const AUTOMATION_PLACE = 'System Settings › Privacy & Security › Automation';
-/** What macOS's Automation permission means here, said before a run. */
-const AUTOMATION_BEFORE = `macOS may ask once whether the app Timmy runs in (your terminal) may control Adobe Illustrator (${AUTOMATION_PLACE}): that is yours to answer; Timmy never grants it, changes it or opens System Settings`;
+export { AUTOMATION_PLACE };
+/** What macOS's Automation permission means here, said before a run (r21: macOS names the app in its question). */
+const AUTOMATION_BEFORE = `macOS may ask once whether ${HOST_APP} may control Adobe Illustrator (${AUTOMATION_PLACE}; its question names that app): that is yours to answer; Timmy never grants it, changes it or opens System Settings`;
 const NO_RESULT_HINT = 'possible causes, not checked: a dialog in Illustrator waiting for a person, Illustrator quitting, or macOS waiting for the Automation question to be answered; the raw output is in the job\'s log';
 
 /** The usage lines /illustrator shows. */
@@ -1246,7 +1246,7 @@ export function osascriptReported(tail: string): { text: string; code: number } 
  */
 export function osascriptWhy(e: { text: string; code: number }): string {
   if (e.code === -1743) {
-    return `macOS did not let osascript control Adobe Illustrator: osascript reported "${e.text}" (-1743). The operator grants this, once: ${AUTOMATION_PLACE}, then under the app this runs in (your terminal) turn on Adobe Illustrator, and run again; Timmy never grants it and never opens System Settings`;
+    return `macOS did not let osascript control Adobe Illustrator: osascript reported "${e.text}" (-1743). The operator grants this, once: ${AUTOMATION_PLACE}, then under ${HOST_APP} turn on Adobe Illustrator, and run again; Timmy never grants it and never opens System Settings`;
   }
   if (e.code === -1712) return `the Apple event to Illustrator timed out: osascript reported "${e.text}" (-1712), and no result file was written: Illustrator may still be running the script, a dialog may be waiting in it, or the run needs a longer time limit`;
   if (e.code === -2741 || e.code === -2740) return `osascript could not compile the AppleScript that asks Illustrator: it reported "${e.text}" (${e.code}); Timmy asks with "do javascript file" (src/native/illustrator.ts), which this Illustrator may not know`;

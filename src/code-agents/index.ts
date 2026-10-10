@@ -782,7 +782,7 @@ export const runDir = (root: string, run: string): string => join(root, AGENTS_D
 export function judgeAgentRun(job: { state: string; exitCode?: number | null; signal?: string | null; error?: string }, progress: AgentProgress, agent: AgentName, stopBy?: string): { outcome: AgentOutcome; why: string } {
   if (agent === 'openhands') return judgeOpenHands(job, progress, stopBy); // R4 (H52): its result line, read with its token
   if (job.state === 'cancelled') return { outcome: 'cancelled', why: cancelledWhy(stopBy) };
-  if (job.error === 'timed out') return { outcome: 'timed out', why: 'Timmy\'s time limit ended it (its wall time and a grace period)' };
+  if (job.error === 'timed out') return { outcome: 'timed out', why: 'Timmy\'s time limit ended it (its wall time and any grace period)' };
   if (agent === 'qwen' && job.exitCode === QWEN_BUDGET_EXIT) return { outcome: 'timed out', why: `its own wall-time budget ended it (exit ${QWEN_BUDGET_EXIT})` };
   if (job.state !== 'completed') return { outcome: 'failed', why: job.error ?? (progress.reportedError ? `it reported ${progress.reportedError}` : `it exited ${job.exitCode ?? job.signal ?? '?'}`) };
   if (progress.reportedError) return { outcome: 'failed', why: `it exited 0 but reported ${progress.reportedError}` };

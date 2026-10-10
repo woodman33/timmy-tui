@@ -329,7 +329,7 @@ describe('its lines: only a JSON line with the run\'s token is read; hostile lin
     expect(openHandsProgressLine(line({ type: 'result', status: 'stopped', finished: false, steps: 3, max_iterations: 40, signal: 'SIGTERM', usage: { input: 1200, output: 34 } }), stopped, '/proj')).toBe('done  not finished: it was stopped (SIGTERM) · 3 steps · 1,200 tokens in, 34 out');
     expect(openHandsSaid(stopped)).toMatchObject({ result: true, status: 'stopped', steps: 3, signal: 'SIGTERM' });
     expect(judgeOpenHands({ state: 'cancelled', exitCode: 143 }, stopped, 'by timmy act (SIGTERM received)')).toEqual({ outcome: 'cancelled', why: 'stopped by timmy act (SIGTERM received) before it finished; the worker\'s own last line: stopped at step 3 (SIGTERM), 1,200 tokens in, 34 out' });
-    expect(judgeOpenHands({ state: 'failed', error: 'timed out' }, stopped)).toEqual({ outcome: 'timed out', why: 'Timmy\'s time limit ended it (its wall time and a grace period); the worker\'s own last line: stopped at step 3 (SIGTERM), 1,200 tokens in, 34 out' });
+    expect(judgeOpenHands({ state: 'failed', error: 'timed out' }, stopped)).toEqual({ outcome: 'timed out', why: 'Timmy\'s time limit ended it (its wall time and any grace period); the worker\'s own last line: stopped at step 3 (SIGTERM), 1,200 tokens in, 34 out' });
     // a signal name is read only as one (SIGTERM, SIGINT), never as other text
     const odd = fresh();
     openHandsProgressLine(line({ type: 'result', status: 'stopped', finished: false, signal: 'SIGTERM; rm -rf /' }), odd, '/proj');
@@ -782,7 +782,8 @@ describe('/stop and the time limit stop its container by its name and labels (FA
     expect(job).toMatchObject({ state: 'failed', error: 'timed out', exitCode: 143, stopOrder: { first: 'answered', group: 'ended by itself' } });
     expect(dock.clientSignals()).toEqual([]);
     const r = resultOf(root);
-    expect(r.why).toBe(`Timmy's time limit passed (1s: its wall time and a grace period): first docker stop ended its container ${name} (docker stop --time 10 ${name} exited 0), then its docker client ended by itself (exit 143); the worker's own last line: stopped at step 1 (SIGTERM), 900 tokens in, 30 out`);
+    // r21 (ledger row 163): TIMMY_AGENT_GRACE_MS=0 here, so no grace period is claimed.
+    expect(r.why).toBe(`Timmy's time limit passed (1s: its wall time, with no grace period): first docker stop ended its container ${name} (docker stop --time 10 ${name} exited 0), then its docker client ended by itself (exit 143); the worker's own last line: stopped at step 1 (SIGTERM), 900 tokens in, 30 out`);
     expect(r).toMatchObject({ outcome: 'timed out', openhands: { limit: { by: 'openhands', ms: 1000 }, stop: { why: 'time limit', result: 'stopped' }, client: { ended: 'by itself' } } });
     expect(r.openhands!.stop!.by).toBeUndefined();
     await until(() => notes.some((n) => n.includes('at Timmy\'s time limit')));
@@ -837,7 +838,10 @@ describe('/stop and the time limit stop its container by its name and labels (FA
     expect(dock.calls().filter((c) => c.argv[0] === 'stop')).toHaveLength(1);
     expect(JSON.parse(readFileSync(join(dir, 'container.json'), 'utf8')).stops).toEqual([expect.objectContaining({ why: 'time limit', result: 'stopped' })]);
     // OpenHands' own limit, said the other way
-    expect(limitHead({ limit: { by: 'openhands', at: '' }, limits: { openhands: 930_000, job: 990_000 } })).toBe('Timmy\'s time limit passed (15m 30s: its wall time and a grace period)');
+    expect(limitHead({ limit: { by: 'openhands', at: '' }, limits: { openhands: 930_000, job: 990_000 } })).toBe('Timmy\'s time limit passed (15m 30s: its wall time and any grace period)');
+    // r21 (ledger row 163): with the wall time recorded, the grace is said as it was: 30 s, or none at all.
+    expect(limitHead({ limit: { by: 'openhands', at: '' }, limits: { openhands: 930_000, job: 990_000, wall: 900_000 } })).toBe('Timmy\'s time limit passed (15m 30s: its wall time 15m and a grace of 30s)');
+    expect(limitHead({ limit: { by: 'openhands', at: '' }, limits: { openhands: 20_000, job: 80_000, wall: 20_000 } })).toBe('Timmy\'s time limit passed (20s: its wall time, with no grace period)');
   }, 60_000);
 
   it('/stop of a container docker stop cannot end: docker kill ends it', async () => {

@@ -322,3 +322,23 @@ describe('the cancel note', () => {
     }
   });
 });
+
+describe('the width as the terminal is now (r21, ledger row 163)', () => {
+  it('cuts its lines at the width the terminal has now, not the width it had at the start', () => {
+    const stdout = { isTTY: false, columns: 40, rows: 24 };
+    const caps = detectCapabilities({ env: { TERM: 'xterm-256color', LANG: 'en_US.UTF-8' }, stdin: stdout, stdout, stderr: { isTTY: false } });
+    const theme = buildTheme(caps, measuredFromPalette(TIMMY_NIGHT));
+    const out = new Sink(false, 40), err = new Sink(false);
+    const size = { columns: 40 };
+    const t = new Transcript(theme, new LiveRegion({ out, err }, { live: false }), { get columns() { return size.columns; } });
+    const cwd = `/work/${'deep/'.repeat(20)}project`;
+    t.handle({ type: 'prompt', text: 'first', cwd, echoed: true });
+    size.columns = 100;
+    t.handle({ type: 'prompt', text: 'second', cwd, echoed: true });
+    const lines = out.text.split('\n').filter((l) => l.includes('/work/'));
+    expect(lines).toHaveLength(2);
+    expect(visibleWidth(lines[0])).toBeLessThanOrEqual(40);
+    expect(visibleWidth(lines[1])).toBeGreaterThan(40);
+    expect(visibleWidth(lines[1])).toBeLessThanOrEqual(100);
+  });
+});

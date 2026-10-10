@@ -79,6 +79,6 @@ describe('timmy act runs /illustrator, a real child process', () => {
     const denied = await act(kit, n, ['/illustrator author badge.jsx', '--wait', '--json']).done;
     expect(denied.code, denied.stdout + denied.stderr).toBe(1);
     expect(lastJson(denied.stdout)).toMatchObject({ outcome: 'failed', exit_code: 1 });
-    expect(denied.stderr).toContain('macOS did not let osascript control Adobe Illustrator: osascript reported "Not authorized to send Apple events to Adobe Illustrator." (-1743). The operator grants this, once: System Settings › Privacy & Security › Automation, then under the app this runs in (your terminal) turn on Adobe Illustrator, and run again; Timmy never grants it and never opens System Settings');
+    expect(denied.stderr).toContain('macOS did not let osascript control Adobe Illustrator: osascript reported "Not authorized to send Apple events to Adobe Illustrator." (-1743). The operator grants this, once: System Settings › Privacy & Security › Automation, then under the app Timmy runs in (your terminal, or whichever app started Timmy) turn on Adobe Illustrator, and run again; Timmy never grants it and never opens System Settings');
   }, 180_000);
 });

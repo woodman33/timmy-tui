@@ -33,7 +33,7 @@ import { needsPerson } from '../src/ops/act.js';
 import { AGENTS_DIR } from '../src/code-agents/index.js';
 import { OPENHANDS_IMAGE } from '../src/code-agents/openhands.js';
 import { checkRestoreAction } from '../src/review/html.js';
-import { parseRestoreArgs, restoreArg, restoreCommand, visible } from '../src/review/changes.js';
+import { parseRestoreArgs, restoreArg, restoreCommand, visible, editActor } from '../src/review/changes.js';
 import { act, json, opsKit, replOf, sandbox, text, until, type OpsKit, type Sandbox } from './helpers/ops-sandbox.js';
 
 const kit = opsKit();
@@ -130,7 +130,8 @@ describe('/review and /restore on a real /iterate scad flow (FAKE agent, FAKE Op
     // The review now: the restore first, with the way back offered; the flow's change says it changed since, not offered.
     out = text(ws.review(''));
     expect(out.indexOf(`Operation ${restoreOp}`)).toBeLessThan(out.indexOf(`Operation ${op}`));
-    expect(out).toContain(`by restored from ${kept} (/restore)`);
+    expect(out).toContain(`by /restore (from ${kept})`);
+    expect(out).not.toContain('by restored from');
     expect(out).toContain(`its receipt is its record · verified: receipt ${r.hash.slice(7, 15)} is this edit's record, and it verifies on the chain`);
     expect(out).toContain(`/restore box.params.json --from ${history}`);
     expect(out).toContain(`now: changed since the run: sha256 ${sha(original).slice(0, 12)} now, ${sha(changed).slice(0, 12)} as the run left it`);
@@ -414,16 +415,16 @@ describe('/review of the board\'s saves: the parameter, OpenSCAD parameter and w
 
     const out = text(ws.review(''));
     // The tray file: added by the first save (nothing to restore), changed by the second with its previous file kept.
-    expect(out).toMatch(/changed  recipes\/tray\.params\.json\n\s+by parameters from the live board\n/);
+    expect(out).toMatch(/changed  recipes\/tray\.params\.json\n\s+by the live board \(parameters\)\n/);
     expect(out).toMatch(/previous version kept at \.timmy\/params-history\/tray\/\S+\.json/);
     expect(out).toContain(`- ${'    '}"width": ${defaults.width},`);
     expect(out).toContain(`+ ${'    '}"width": ${defaults.width + 10},`);
-    expect(out).toMatch(/added    recipes\/tray\.params\.json\n\s+by parameters from the live board\n/);
-    expect(out).toMatch(/changed  box\.params\.json\n\s+by OpenSCAD parameters from the live board\n/);
+    expect(out).toMatch(/added    recipes\/tray\.params\.json\n\s+by the live board \(parameters\)\n/);
+    expect(out).toMatch(/changed  box\.params\.json\n\s+by the live board \(OpenSCAD parameters\)\n/);
     expect(out).toMatch(/\/restore box\.params\.json --from \.timmy\/params-history\/scad\/box\.params\.json\/\S+\.json/);
     // The hostile workflow: its name quoted for /restore; its lines with every control and direction character as a code.
     expect(out).toContain(`changed  ${doc}`);
-    expect(out).toContain('by workflow blocks from the live board');
+    expect(out).toContain('by the live board (workflow blocks)');
     expect(out).toContain('- echo "<script>alert(1)</script>" \\x1b]8;;http://x\\x07link\\x1b]8;;\\x07 \\u202etxt.exe');
     expect(out).toContain('+ echo safe <img src=x onerror=alert(2)>');
     expect(out).not.toContain(ESC);
@@ -471,5 +472,15 @@ describe('the parts: /restore\'s arguments, the live board\'s restore action, vi
     expect(checkRestoreAction({ action: 'restore', file: offered[0].file, from: offered[0].from, extra: 1 }, offered)).toMatchObject({ ok: false, status: 400 });
     expect(checkRestoreAction({ action: 'restore', file: 7, from: offered[0].from }, offered)).toMatchObject({ ok: false, status: 400 });
     expect(visible(`a${ESC}[31mb${BEL}c${RLO}d\te\nf`)).toBe('a\\x1b[31mb\\x07c\\u202ed\te\\x0af');
+  });
+});
+
+describe('who made an edit, in review\'s words (r21, ledger row 163)', () => {
+  it('names the actor, not what was saved: /restore and the live board; any other tail as it was written', () => {
+    expect(editActor('restored from .timmy/restore-history/a.json/1.json.bak (/restore)')).toBe('/restore (from .timmy/restore-history/a.json/1.json.bak)');
+    expect(editActor('parameters from the live board')).toBe('the live board (parameters)');
+    expect(editActor('OpenSCAD parameters from the live board')).toBe('the live board (OpenSCAD parameters)');
+    expect(editActor('workflow blocks from the live board')).toBe('the live board (workflow blocks)');
+    expect(editActor('something a later Timmy writes')).toBe('something a later Timmy writes');
   });
 });
