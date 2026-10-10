@@ -1,0 +1,350 @@
+/**
+ * Round R4 (H48): the Control Room through the Workspace: `/room`, the board's section, and its Stop on the live board,
+ * which must reach the existing /stop path under the live board's token, Host and Origin rules.
+ *
+ * FAKE pieces, each labelled:
+ * - the code agent is tests/fixtures/fake-code-agent.mjs (a TEST DOUBLE: no model, nothing sent), run through /agent's own
+ *   start as Qwen Code on a local endpoint; its task says SLEEP, so its job runs (a real child process) until it is stopped;
+ * - the flow is /iterate tray with that same FAKE agent, held in its agent step; TIMMY_CADQUERY_PYTHON names a FAKE file
+ *   that is never executed (the flow is stopped before its build);
+ * - the tools check is a FAKE list of /tools rows given through the roomTools seam (nothing on this machine is probed);
+ * - the recipe job runs through the jobs.ts executor seam with a FAKE executor that only waits (no CadQuery, no Python,
+ *   nothing written), so its job stays running until it is cancelled through its own path;
+ * - the Look is a FAKE vision Python (a TEST DOUBLE that prints made-up measurements of the FAKE image) and a FAKE
+ *   OpenRouter given through the fetch seam: its models list is made up and its chat request never answers until its
+ *   signal aborts, so nothing leaves this process and nothing is charged; the key is the string 'test-key'.
+ */
+import type { ChildProcess } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { request, type IncomingHttpHeaders } from 'node:http';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import type { CapabilityRow } from '../src/capabilities/index.js';
+import { folderProject } from '../src/project/index.js';
+import type { LiveState } from '../src/repl/board-live.js';
+import { runSlash, type ReplContext } from '../src/repl/commands.js';
+import { Workspace, type WorkspaceDeps } from '../src/repl/workspace.js';
+import { glyphSet } from '../src/term/glyphs.js';
+import type { Segment } from '../src/term/theme.js';
+import type { Receipt, ReceiptInput } from '../src/utils/receipts.js';
+import { resetLookChecks } from '../src/vision/look.js';
+import { resetImageModelCache } from '../src/vision/route.js';
+
+const FAKE_AGENT = resolve('tests/fixtures/fake-code-agent.mjs');
+const dirs: string[] = [];
+const spaces: Workspace[] = [];
+/** The recipe supervisors started (FAKE executor), so teardown can wait for them to end. */
+let supervisors: Promise<void>[] = [];
+const temp = (prefix: string): string => { const d = mkdtempSync(join(tmpdir(), prefix)); dirs.push(d); return d; };
+const put = (root: string, rel: string, body: string): void => { mkdirSync(dirname(join(root, rel)), { recursive: true }); writeFileSync(join(root, rel), body); };
+const text = (lines: { text: string }[][]): string => lines.map((l) => l.map((s) => s.text).join('')).join('\n');
+const tick = (ms = 100): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+afterEach(async () => {
+  resetLookChecks();
+  resetImageModelCache();
+  for (const w of spaces.splice(0)) await w.close();
+  await Promise.race([Promise.all(supervisors), new Promise((r) => setTimeout(r, 15000))]);
+  supervisors = [];
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+
+/** FAKE /tools rows (what a check might find): nothing on this machine was probed for them. */
+const FAKE_ROWS: CapabilityRow[] = [
+  { id: 'blender', kind: 'adapter', name: 'Blender (Python, headless)', rung: 'needs setup', detail: 'not found: FAKE', setup: 'brew install --cask blender (FAKE step)' },
+  { id: 'qwen-code', kind: 'harness', name: 'Qwen Code', rung: 'installed', detail: '/agent qwen <task>: FAKE row', exercised: '2026-10-09T08:00:00.000Z' },
+  { id: 'mcp-cli', kind: 'tool', name: 'MCP servers (/mcp)', rung: 'installed', detail: 'FAKE: 1 of 2 command-line routes installed' },
+];
+
+/** A FAKE vision Python (a TEST DOUBLE, as in tests/repl-workspace-look.test.ts): it answers the version check and prints
+ *  made-up measurements of the image it is given; no OpenCV runs. */
+function fakeVisionPython(): string {
+  const dir = temp('room-live-fake-vision-');
+  const js = join(dir, 'fake-look.mjs');
+  writeFileSync(js, [
+    "import { createHash } from 'node:crypto';",
+    "import { readFileSync } from 'node:fs';",
+    'const args = process.argv.slice(2);',
+    "if (args[0] === '-c') { console.log('5.0.0-fake'); process.exit(0); }",
+    "const bytes = readFileSync(args[1]); const as = args[args.indexOf('--as') + 1];",
+    "console.log(JSON.stringify({ ok: true, worker: { name: 'timmy-look', version: 'fake' }, opencv: '5.0.0-fake', python: 'fake', source: { path: as, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length }, image: { width: 4, height: 2, channels: 3 }, measurements: [], uncertainty: ['FAKE: a test double'] }));",
+  ].join('\n'));
+  const sh = join(dir, 'python');
+  writeFileSync(sh, `#!/bin/sh\nexec "${process.execPath}" "${js}" "$@"\n`);
+  chmodSync(sh, 0o755);
+  return sh;
+}
+
+/** A FAKE OpenRouter (the fetch seam): a made-up models list; its chat request never answers until its signal aborts. */
+function silentModel() {
+  let posted: () => void = () => undefined;
+  const sent = new Promise<void>((r) => { posted = r; });
+  const fn = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).endsWith('/models')) return new Response(JSON.stringify({ data: [{ id: 'fake/vision-model', architecture: { input_modalities: ['text', 'image'] } }] }), { status: 200 });
+    posted();
+    return new Promise<Response>((_resolve, reject) => { init?.signal?.addEventListener('abort', () => reject(init.signal!.reason ?? new Error('aborted')), { once: true }); });
+  }) as typeof fetch;
+  return { fn, sent };
+}
+
+function make(o: { recipe?: true; look?: { fetch: typeof fetch } } = {}) {
+  const root = temp('room-live-');
+  const fixtures = temp('room-live-fixtures-');
+  const executor = join(fixtures, 'fake-recipe-wait.mts');
+  writeFileSync(executor, '// FAKE recipe executor (a TEST DOUBLE): it only waits; no CadQuery, no Python, nothing written.\nawait new Promise((r) => setTimeout(r, 20000));\n');
+  const fakePython = join(fixtures, 'fake-python');
+  writeFileSync(fakePython, '#!/bin/sh\necho "FAKE: not a Python; never executed by these tests"\nexit 1\n', { mode: 0o755 });
+  put(root, 'README.md', '# FAKE project for the Control Room tests\n');
+  const notes: string[] = [];
+  const sealed: ReceiptInput[] = [];
+  const deps: WorkspaceDeps = {
+    glyphs: glyphSet(true),
+    env: { TIMMY_AGENT_QWEN_BIN: FAKE_AGENT, TIMMY_AGENT_MODEL: 'qwen3:4b', TIMMY_CADQUERY_PYTHON: fakePython, ...(o.look ? { TIMMY_VISION_PYTHON: fakeVisionPython(), OPENROUTER_API_KEY: 'test-key' } : {}) },
+    ...(o.look ? { fetch: o.look.fetch, model: () => 'fake/vision-model' } : {}),
+    onPath: () => null,
+    notify: (l) => notes.push(l.map((s) => s.text).join('')),
+    openWeb: (url) => `Open ${url} in your browser.`,
+    link: (t) => t,
+    seal: (input) => { sealed.push(input); return `id${sealed.length}`; },
+    jobsDir: join(temp('room-live-jobs-'), 'jobs'),
+    chdir: () => {},
+    receipts: () => sealed.map((r, i) => ({ ...r, ts: new Date(Date.now() + i).toISOString(), hash: `sha256_${String(i).padStart(64, '0')}` })) as unknown as Receipt[],
+    recoverAtStart: false,
+    roomTools: async () => FAKE_ROWS,
+    ...(o.recipe ? {
+      recipeTest: {
+        executor, pollMs: 100,
+        onSupervisor: (child: ChildProcess) => { supervisors.push(new Promise((r) => { child.once('close', () => r()); child.once('error', () => r()); })); },
+      },
+    } : {}),
+  };
+  const ws = new Workspace(deps, folderProject(root));
+  spaces.push(ws);
+  return { ws, root, notes, sealed, jobsDir: deps.jobsDir };
+}
+
+interface Reply { status: number; headers: IncomingHttpHeaders; body: string }
+/** One HTTP request to 127.0.0.1:<port>, with exactly the headers given (Host defaults to the board's own). */
+function raw(port: number, o: { method?: string; path?: string; headers?: Record<string, string>; body?: string } = {}): Promise<Reply> {
+  return new Promise((resolveReply, reject) => {
+    const headers = { Host: `127.0.0.1:${port}`, ...(o.headers ?? {}) };
+    const req = request({ host: '127.0.0.1', port, method: o.method ?? 'GET', path: o.path ?? '/', headers, setHost: false, agent: false }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => resolveReply({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }));
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    if (o.body !== undefined) req.write(o.body);
+    req.end();
+  });
+}
+const auth = (token: string): Record<string, string> => ({ Authorization: `Bearer ${token}` });
+const jsonHeaders = (token: string): Record<string, string> => ({ ...auth(token), 'Content-Type': 'application/json' });
+async function live(ws: Workspace): Promise<{ port: number; token: string }> {
+  await ws.boardLive('live');
+  const lb = ws.liveBoard!;
+  return { port: lb.port, token: lb.url.split('#t=')[1] };
+}
+async function state(port: number, token: string): Promise<LiveState> {
+  const r = await raw(port, { path: '/state', headers: auth(token) });
+  expect(r.status).toBe(200);
+  return JSON.parse(r.body) as LiveState;
+}
+const post = (port: number, headers: Record<string, string>, body: unknown): Promise<Reply> => raw(port, { method: 'POST', path: '/action', headers, body: JSON.stringify(body) });
+/** Polls the live state until `ok` holds (the page polls the same way), at most `ms`. */
+async function until(port: number, token: string, ok: (s: LiveState) => boolean, ms = 8000): Promise<LiveState> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const s = await state(port, token);
+    if (ok(s)) return s;
+    if (Date.now() > end) throw new Error(`the state never held: ${s.html.slice(0, 300)}`);
+    await tick(150);
+  }
+}
+const jobIdOf = (out: string): string => { const m = out.match(/\b(j[0-9a-f]{6})\b/); if (!m) throw new Error(`no job id in: ${out}`); return m[1]; };
+const flowIdOf = (out: string): string => { const m = out.match(/\b(f[0-9a-f]{8})\b/); if (!m) throw new Error(`no flow id in: ${out}`); return m[1]; };
+
+describe('the Control Room on the live board: Stop reaches the existing /stop path, under the same token, Host and Origin rules', () => {
+  it('a running FAKE agent job: its Stop is refused without the token, from another Host or Origin, then stops it as the typed /stop', async () => {
+    const { ws, notes, root, jobsDir } = make();
+    const started = text(await ws.agent('qwen FAKE: SLEEP until stopped'));
+    const job = jobIdOf(started);
+    const { port, token } = await live(ws);
+    const s = await until(port, token, (x) => x.html.includes(`data-act="room-stop" data-job="${job}"`));
+    expect(s.toc).toContain('Control Room <b>1 running</b>');
+    expect(s.html).toContain('<h3 id="room-running">Running now <span class="count">1</span></h3>');
+    expect(s.jobs.find((j) => j.id === job)).toMatchObject({ stoppable: true });
+    // The room says who owns it and how it is routed, from its own record.
+    expect(s.html).toContain('<strong class="room-owner">Qwen Code</strong> <span class="room-state">running</span>');
+    expect(s.html).toContain('local endpoint, no charge');
+    expect(s.html).not.toContain(root);
+    expect(s.html).not.toContain(jobsDir);
+
+    const body = { action: 'stop', job };
+    const noToken = await post(port, { 'Content-Type': 'application/json' }, body);
+    expect(noToken.status).toBe(401);
+    const badToken = await post(port, jsonHeaders('0'.repeat(64)), body);
+    expect(badToken.status).toBe(401);
+    const otherOrigin = await post(port, { ...jsonHeaders(token), Origin: 'http://127.0.0.1:1' }, body);
+    expect(otherOrigin.status).toBe(403);
+    const otherHost = await post(port, { ...jsonHeaders(token), Host: `localhost:${port}` }, body);
+    expect(otherHost.status).toBe(403);
+    const notJson = await raw(port, { method: 'POST', path: '/action', headers: { ...auth(token), 'Content-Type': 'text/plain' }, body: JSON.stringify(body) });
+    expect(notJson.status).toBe(415);
+    // Nothing was stopped by any of them.
+    expect(ws.jobs.get(job)?.state).toBe('running');
+    expect(notes.filter((n) => n.includes('board  /stop'))).toEqual([]);
+
+    const stopped = await post(port, jsonHeaders(token), body);
+    expect(stopped.status).toBe(200);
+    expect(stopped.body.split('\n')[0]).toBe(`board /stop ${job}`);
+    expect(stopped.body).toContain(`${job} cancelled`);
+    expect(notes).toContain(`  board  /stop ${job}`);
+    expect(ws.jobs.get(job)?.state).toBe('cancelled');
+    // The room moves it to the recent runs, stopped; no Stop is offered for it any more.
+    const after = await until(port, token, (x) => !x.html.includes(`data-act="room-stop" data-job="${job}"`) && x.html.includes('<span class="room-state">stopped</span>'));
+    expect(after.toc).toContain('Control Room <b>idle</b>');
+    const again = await post(port, jsonHeaders(token), body);
+    expect(again.status).toBe(409);
+  }, 30_000);
+
+  it('a running flow (FAKE agent, held in its agent step): its Stop is /stop <flow-id>, refused from another Origin, and the flow ends cancelled', async () => {
+    const { ws, root, notes } = make();
+    const started = text(await ws.iterate('tray "FAKE: SLEEP, then make the tray wider"'));
+    const flow = flowIdOf(started);
+    const { port, token } = await live(ws);
+    const s = await until(port, token, (x) => x.html.includes(`data-act="room-stop" data-flow="${flow}"`));
+    expect(s.flows).toEqual([{ id: flow, state: 'running', stoppable: true }]);
+    // Its handoff chain from its state file: the agent step runs, the others wait.
+    expect(s.html).toContain(`<ol class="handoff" aria-label="the handoffs of flow ${flow}">`);
+    expect(s.html).toContain('<div class="ho-top"><span class="ho-name">agent</span> <span class="ho-state">running</span> <span class="ho-here-words">running now</span></div><div class="ho-owner">Qwen Code</div>');
+    expect(s.html).toContain('<div class="ho-top"><span class="ho-name">readback</span> <span class="ho-state">waiting</span></div>');
+    // Its agent run is in the room too, as the agent step of the flow.
+    expect(s.html).toContain(`the agent step of flow ${flow}`);
+
+    const refused = await post(port, { ...jsonHeaders(token), Origin: 'http://evil.invalid' }, { action: 'stop', flow });
+    expect(refused.status).toBe(403);
+    const unknown = await post(port, jsonHeaders(token), { action: 'stop', flow: 'f00000000' });
+    expect(unknown.status).toBe(404);
+    // Neither refusal stopped it: the board still offers its Stop.
+    expect((await state(port, token)).flows).toEqual([{ id: flow, state: 'running', stoppable: true }]);
+
+    const stopped = await post(port, jsonHeaders(token), { action: 'stop', flow });
+    expect(stopped.status).toBe(200);
+    expect(stopped.body.split('\n')[0]).toBe(`board /stop ${flow}`);
+    expect(stopped.body).toContain(`${flow} cancelled`);
+    expect(notes).toContain(`  board  /stop ${flow}`);
+    const record = JSON.parse(readFileSync(join(root, 'results', 'flows', `${flow}.json`), 'utf8')) as { outcome: string; ended_in: string };
+    expect(record).toMatchObject({ outcome: 'cancelled', ended_in: 'agent' });
+    // Not running any more: the board has no running flow of that id to stop.
+    const after = await until(port, token, (x) => !(x.flows ?? []).some((f) => f.id === flow));
+    expect(after.html).not.toContain(`data-flow="${flow}"`);
+    const again = await post(port, jsonHeaders(token), { action: 'stop', flow });
+    expect(again.status).toBe(404);
+  }, 40_000);
+});
+
+describe('the Control Room on the live board: a Look whose model is being asked', () => {
+  it('its measurement job has ended, yet the room shows it running with a Stop; the Stop is /stop <job>, which stops the request (FAKE model)', async () => {
+    const model = silentModel();
+    const { ws, root, notes } = make({ look: { fetch: model.fn } });
+    // FAKE: a PNG signature and made-up bytes (no picture).
+    mkdirSync(join(root, 'refs'), { recursive: true });
+    writeFileSync(join(root, 'refs', 'card.png'), Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 7)]));
+    const started = await ws.observeFile('refs/card.png', 'FAKE: what is on it?');
+    if (!started.ok) throw new Error(started.error);
+    const job = started.job.id;
+    await Promise.race([model.sent, tick(10_000).then(() => { throw new Error(`the FAKE model was never asked: ${notes.join(' | ')}`); })]);
+    const { port, token } = await live(ws);
+    const s = await until(port, token, (x) => x.html.includes(`data-act="room-stop" data-job="${job}"`));
+    // The job is over (the Jobs section offers no Stop for it), but the room's Stop for it is accepted by the server.
+    expect(s.jobs.find((j) => j.id === job)).toMatchObject({ state: 'completed', stoppable: true });
+    expect(s.html).toContain('<span class="room-state">measured; asking fake/vision-model</span>');
+    expect(s.html).toContain('paid: a request sent to the model');
+    expect(s.html).toContain('unknown yet: a request is out; its cost is recorded when it ends');
+    expect(s.html).not.toContain(`data-act="stop" data-job="${job}"`);
+    const refused = await post(port, { ...jsonHeaders(token), Origin: 'http://evil.invalid' }, { action: 'stop', job });
+    expect(refused.status).toBe(403);
+    expect(notes.filter((n) => n.includes('board  /stop'))).toEqual([]);
+
+    const stopped = await post(port, jsonHeaders(token), { action: 'stop', job });
+    expect(stopped.status).toBe(200);
+    expect(stopped.body.split('\n')[0]).toBe(`board /stop ${job}`);
+    expect(stopped.body).toContain(`${job} stopped the model interpretation; the measurement had completed`);
+    expect(stopped.body).toContain('may still be charged: cost unknown');
+    expect(notes).toContain(`  board  /stop ${job}`);
+    const outcome = await started.done;
+    expect(outcome.ok && outcome.interpretation).toMatchObject({ status: 'cancelled', cost_usd: null });
+    // The room: nothing runs; the Look is a recent run whose cost stays unknown (never 0).
+    const after = await until(port, token, (x) => !x.html.includes(`data-act="room-stop" data-job="${job}"`) && x.toc.includes('Control Room <b>idle</b>'));
+    expect(after.html).toContain('1 run of unknown cost');
+    expect((await state(port, token)).jobs.find((j) => j.id === job)).toMatchObject({ stoppable: false });
+    const again = await post(port, jsonHeaders(token), { action: 'stop', job });
+    expect(again.status).toBe(409);
+  }, 30_000);
+});
+
+describe('the Control Room on the live board: a recipe', () => {
+  it('a running recipe job (FAKE executor that only waits) is shown with its watcher job; its Stop runs /stop <watcher>, which cancels the recipe through its own path', async () => {
+    const { ws, notes } = make({ recipe: true });
+    const out = text(await ws.recipe('tray'));
+    const watcher = /Running\s+(j[0-9a-f]{6})/.exec(out)?.[1];
+    const uuid = /Recipe job\s+([0-9a-f-]{36})/.exec(out)?.[1];
+    expect(watcher, out).toBeDefined();
+    expect(uuid, out).toBeDefined();
+    const { port, token } = await live(ws);
+    const s = await until(port, token, (x) => x.html.includes(`data-room-kind="recipe" data-room-id="${uuid}"`) && x.html.includes(`data-act="room-stop" data-job="${watcher}"`), 15_000);
+    expect(s.html).toContain('<strong class="room-owner">the CadQuery recipe (enclosure.tray/1)</strong> <span class="room-state">running</span>');
+    expect(s.html).toContain(`<span class="kind">recipe</span> ${uuid} · job ${watcher}`);
+    expect(s.html).toContain('no cost recorded: the recipe worker on this machine');
+    const stopped = await post(port, jsonHeaders(token), { action: 'stop', job: watcher });
+    expect(stopped.status).toBe(200);
+    expect(stopped.body.split('\n')[0]).toBe(`board /stop ${watcher}`);
+    expect(notes).toContain(`  board  /stop ${watcher}`);
+    // The recipe's own cancel was asked: its row ends cancelled, and no Stop is offered for it.
+    const after = await until(port, token, (x) => x.html.includes(`data-room-id="${uuid}"`) && !x.html.includes(`data-act="room-stop" data-job="${watcher}"`)
+      && /<strong class="room-owner">the CadQuery recipe \(enclosure\.tray\/1\)<\/strong> <span class="room-state">cancelled/.test(x.html), 20_000);
+    expect(after.html).not.toContain(`data-cmd="/recipe cancel ${uuid}"`);
+  }, 60_000);
+});
+
+describe('/room in the REPL', () => {
+  it('prints running first, then the recent runs, the costs line and the tools that need setup (FAKE rows), through the command registry', async () => {
+    const { ws, root } = make();
+    const job = jobIdOf(text(await ws.agent('qwen FAKE: SLEEP until stopped')));
+    await tick(400);
+    const printed: Segment[][] = [];
+    const ctx = { print: (s: Segment[]) => printed.push(s), glyphs: glyphSet(true), workspace: ws } as unknown as ReplContext;
+    await runSlash('/room', ctx);
+    const out = text(printed);
+    expect(out).toContain('Control Room ');
+    const at = (s: string): number => { const i = out.indexOf(s); expect(i, s).toBeGreaterThanOrEqual(0); return i; };
+    expect(at('RUNNING NOW')).toBeLessThan(at('Qwen Code'));
+    expect(at('Qwen Code')).toBeLessThan(at('RECENT, BY OWNER'));
+    expect(at('RECENT, BY OWNER')).toBeLessThan(at('COSTS'));
+    expect(at('COSTS')).toBeLessThan(at('NEEDS SETUP'));
+    expect(out).toContain(`/stop ${job} stops it`);
+    expect(out).toContain('1 run free (local endpoint)');
+    expect(out).toContain('1 of the 3 creative, agent, MCP, vision and model tools');
+    expect(out).toContain('do: brew install --cask blender (FAKE step)');
+    expect(out).not.toContain(root);
+    // One run by its job id: its route, its handoff (its job, then its result, not written yet).
+    const one = text(await ws.room(job));
+    expect(one).toContain('Qwen Code');
+    expect(one).toMatch(/Handoff\s+1\. job {2}Qwen Code · running · job j[0-9a-f]{6}/);
+    expect(one).toContain('2. result  Timmy (its result.json, read by its own rules) · not written yet');
+    expect(one).toContain(`Stop       /stop ${job}`);
+    // The board's snapshot now has the tools panel from that check, with the FAKE rows' words kept.
+    ws.board('');
+    const html = readFileSync(join(root, '.timmy', 'board', 'index.html'), 'utf8');
+    expect(html).toContain('<h3 id="room-tools">Tools and connections</h3>');
+    expect(html).toContain('do: <code>brew install --cask blender (FAKE step)</code>');
+    expect(html).toContain('used 2026-10-09');
+    expect(html).toContain('/tools has no row for Houdini');
+    expect(html).toContain(`data-cmd="/stop ${job}"`);
+    expect(html.indexOf('id="room"')).toBeLessThan(html.indexOf('id="references"'));
+    await ws.stop(job);
+  }, 30_000);
+});

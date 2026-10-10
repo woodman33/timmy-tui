@@ -28,10 +28,13 @@ import type { AddressInfo } from 'node:net';
 import { BOARD_CSS } from './board.js';
 import { EDIT_CSS, EDIT_LIMIT, EDIT_SCRIPT } from './board-edits.js';
 import { HOMEBREW } from '../theme/tokens.js';
+import { FLOW_ID } from '../flows/iterate.js';
 
-/** An action as the page sends it: one of four shapes, nothing else. */
+/** An action as the page sends it: one of these shapes, nothing else. */
 export type BoardAction =
   | { action: 'stop'; job: string }
+  /** R4 (H48): the Control Room's Stop on a flow this REPL runs: the typed `/stop <flow-id>`, as a job's is `/stop <job>` */
+  | { action: 'stop'; flow: string }
   | { action: 'run'; doc: string; block: string }
   | { action: 'observe'; file: string }
   | { action: 'rebuild'; recipe: string };
@@ -54,6 +57,8 @@ export interface LiveState {
   files: Array<{ rel: string; kind: string; bytes: number }>;
   /** R4: the recipes whose parameter card the board shows (their Rebuild runs `/recipe <name>`). */
   recipes?: string[];
+  /** R4 (H48): the running flows the Control Room shows; `stoppable` only for one this REPL runs (its Stop is `/stop <flow-id>`). */
+  flows?: Array<{ id: string; state: string; stoppable: boolean }>;
 }
 
 export interface LiveBoardDeps {
@@ -107,6 +112,15 @@ const keysAre = (o: Record<string, unknown>, keys: string[]): boolean => {
 export function checkAction(body: unknown, state: LiveState): Checked {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return bad(400, 'The action must be a JSON object.');
   const o = body as Record<string, unknown>;
+  // R4 (H48): a flow's Stop (the Control Room): only a flow on this board that this REPL runs, as the typed /stop <flow-id>.
+  if (o.action === 'stop' && 'flow' in o) {
+    if (!keysAre(o, ['action', 'flow']) || !text(o.flow)) return bad(400, 'A flow\'s stop action is {"action":"stop","flow":"<flow id>"}.');
+    const flow = (state.flows ?? []).find((f) => f.id === o.flow);
+    if (!flow) return bad(404, `No running flow ${o.flow} on this board: /iterate lists the flows.`);
+    if (!flow.stoppable) return bad(409, `${flow.id} is ${flow.state}: the board stops only a flow this REPL runs.`);
+    if (!FLOW_ID.test(flow.id)) return bad(422, `${flow.id} cannot be written as one /stop argument.`);
+    return { ok: true, command: { name: 'stop', args: flow.id, line: `/stop ${flow.id}` } };
+  }
   if (o.action === 'stop') {
     if (!keysAre(o, ['action', 'job']) || !text(o.job)) return bad(400, 'A stop action is {"action":"stop","job":"<id>"}.');
     const job = state.jobs.find((j) => j.id === o.job);
@@ -393,6 +407,8 @@ const LIVE_SCRIPT = `
   var act = function (b) {
     var a = b.getAttribute('data-act');
     var body = a === 'stop' ? { action: 'stop', job: b.getAttribute('data-job') }
+      // R4 (H48): the Control Room's Stop: the same stop action, for a job or (data-flow) a flow.
+      : a === 'room-stop' ? (b.hasAttribute('data-flow') ? { action: 'stop', flow: b.getAttribute('data-flow') } : { action: 'stop', job: b.getAttribute('data-job') })
       : a === 'run' ? { action: 'run', doc: b.getAttribute('data-doc'), block: b.getAttribute('data-block') }
       : a === 'observe' ? { action: 'observe', file: b.getAttribute('data-file') }
       : a === 'rebuild' ? { action: 'rebuild', recipe: b.getAttribute('data-recipe') } : null;
