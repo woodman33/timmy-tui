@@ -6,46 +6,67 @@
 //   argv.jsonl            every invocation: its arguments, and the keys its environment held (blank or not)
 //   daemon-down           present: every command that needs the daemon fails as docker's does when it is not running
 //   images.json           {"<image>": {"id": "sha256:…", "labels": {…}}}: the images this "daemon" has
-//   containers/<name>.json  a "container": its id, name, labels, state and the pid of the `run` process playing it
+//   signal-delay-ms       present: how long this "daemon" takes to deliver a signal to a container (docker stop's,
+//                         docker kill's, and the one the client forwards), as OrbStack's loaded engine took 5 to 7 s on the
+//                         Mac (ledger row 159); absent: at once
+//   containers/<name>.json  a "container": its id, name, labels, state, the pid of the process playing its worker, and the
+//                         pid of the `run` (client) process that started it
+//   client-signals.jsonl  every SIGTERM or SIGINT a `run` (client) process received: its container's name, the signal and
+//                         when, so a test can tell whether Timmy signalled the client before its container ended
 //   runs/<name>.json      what a `run` was given: its arguments, mounts, -e settings and stdin, for the tests to check
 //
-// `run` plays the docker client and the container's worker in one process: it checks its command line against what
-// Timmy's OpenHands route must give (and refuses anything else with exit 125, as docker refuses a bad run), registers
-// its container, reads the worker's stdin ({"v":1,"task","token"}), then plays a SCRIPTED agent chosen by words in
-// the task, editing the files of the copy mounted at /work (the host folder its --mount names) and printing the
-// worker's JSON Lines with the run's token:
+// `run` plays the docker client, as docker's own does when attached (`docker run -i`, no -t): it checks its command line
+// against what Timmy's OpenHands route must give (and refuses anything else with exit 125, as docker refuses a bad run),
+// reads the worker's stdin ({"v":1,"task","token"}), registers its container and starts the container's worker as a
+// process of its own (this file again, with --fake-container), in a process group of its own: like a real container's
+// processes, it is not in the client's process group, so a signal to the client's group never reaches it. The client
+// relays the worker's stdout and stderr, forwards SIGTERM and SIGINT to it (docker's signal proxy, after the delay
+// above), and exits with the worker's exit status (128 + the signal's number when a signal ended it) once the worker has
+// ended and its output is relayed. A client killed outright (SIGKILL) leaves the worker running and its container file
+// "running": an orphan, as a real container outlives a killed docker client; what the worker prints after that is lost,
+// as a real client's output is.
+//
+// The worker plays a SCRIPTED agent chosen by words in the task, editing the files of the copy mounted at /work (the host
+// folder its --mount names) and printing the worker's JSON Lines with the run's token:
 //   (default)     appends a line to src/a.txt                    ADD      also writes src/new.txt
 //   DELETE        also deletes old.txt                           LINK     also makes link.txt, a link to /etc/hosts
 //   GITDIR        also writes .git/config in the copy            NESTED   also writes deep/er/file.txt
 //   TOUCHPROJECT  also changes the PROJECT's own src/a.txt, as an operator editing meanwhile would (stale)
 //   NOFINISH      its result says not finished (its step limit); exits 3
 //   NORESULT      prints its lines but no result line; exits 0     SILENT   prints nothing; exits 0
-//   FAILSTART     says docker could not start the container; exits 125
+//   FAILSTART     docker could not start the container (the client says so); exits 125, no container
 //   HOSTILE       prints hostile lines first (no token, another token, a forged result, control characters, a huge
 //                 line, an array, unknown types), then its own lines and result
 //   AFTER         prints a forged second result after its own
-//   HANG          starts, then waits until it is stopped; SIGTERM: a "stopped" result, exit 143
+//   HANG          starts, then waits until it is stopped; SIGTERM (SIGINT): its "stopped" result line, as Timmy's worker
+//                 prints it (its step, its tokens so far, the signal), exit 143 (130); it ends by itself after 2 minutes
+//                 at the latest (a FAKE's own limit, so no test leaves it behind)
 //   IGNORETERM    with HANG: SIGTERM does nothing (a worker that does not stop); `docker stop` then kills it
 //   STOPFAILS     `docker stop` fails for its container (and leaves it running); `docker kill` ends it
 //   UNKILLABLE    `docker stop` and `docker kill` both fail for its container
-//   STOPERR       `docker stop` ends the worker (SIGTERM) but exits 1 before docker lists it as gone, as a stop Timmy's own
-//                 time limit cut short did on the Mac (ledger row 159); `docker kill` then finds it not running, exits 1
-// A `run` process killed outright (SIGKILL) leaves its container file "running": an orphan, as a real container
-// outlives a killed docker client. `stop` and `kill` act on a container by its name (or id), as docker's do.
+//   STOPERR       `docker stop` ends the worker (SIGTERM, then SIGKILL after its grace) but exits 1 before docker lists it
+//                 as gone, as a stop Timmy's own time limit cut short did on the Mac (ledger row 159); `docker kill` then
+//                 finds it not running, exits 1
+// `stop` and `kill` act on a container by its name (or id), as docker's do, on the process playing its worker.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { constants } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const argv = process.argv.slice(2);
 const state = process.env.DOCKER_CONFIG;
 if (!state) { process.stderr.write('FAKE docker: DOCKER_CONFIG names no state folder\n'); process.exit(99); }
+/** The container's worker: this file again, started by `run` (never a docker command of its own, so never logged as one). */
+const CONTAINER = argv[0] === '--fake-container';
 mkdirSync(join(state, 'containers'), { recursive: true });
 mkdirSync(join(state, 'runs'), { recursive: true });
 const KEYS = ['OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'TIMMY_AGENT_API_KEY', 'LLM_API_KEY'];
-appendFileSync(join(state, 'argv.jsonl'), `${JSON.stringify({ argv, keys: Object.fromEntries(KEYS.map((k) => [k, process.env[k] ?? null])) })}\n`);
+if (!CONTAINER) appendFileSync(join(state, 'argv.jsonl'), `${JSON.stringify({ argv, keys: Object.fromEntries(KEYS.map((k) => [k, process.env[k] ?? null])) })}\n`);
 
 // The one-shot commands answer with synchronous writes (a few short lines), so process.exit() right after loses nothing;
-// `run` streams through process.stdout and exits only once that has drained (process.exit() alone cuts a pipe short).
+// `run` and the worker stream through process.stdout and exit only once that has drained (process.exit() alone cuts a pipe short).
 const say = (t) => { writeSync(1, `${t}\n`); };
 const fail = (t, code = 1) => { writeSync(2, `${t}\n`); process.exit(code); };
 const exit = (code) => { process.stdout.write('', () => process.stderr.write('', () => process.exit(code))); };
@@ -59,7 +80,11 @@ const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function gone(pid, ms = 5000) { const end = Date.now() + ms; while (alive(pid) && Date.now() < end) await sleep(25); return !alive(pid); }
 const remove = (name) => { try { unlinkSync(containerFile(name)); } catch { /* gone */ } };
+/** How long this "daemon" takes to deliver a signal to a container (signal-delay-ms), 0 when it does not say. */
+const signalDelay = () => { const n = Number(readJson(join(state, 'signal-delay-ms'), 0)); return Number.isFinite(n) && n > 0 ? n : 0; };
 
+// The worker ends the process itself (end(), or its client's stop): nothing below is a docker command of its own.
+if (CONTAINER) { await container(); await new Promise(() => {}); }
 const cmd = argv[0];
 if (cmd === '--version') { say('Docker version 0.0.0-fake, build fake (a FAKE docker, not the real one)'); process.exit(0); }
 if (cmd !== 'run' && down()) fail(DOWN);
@@ -94,18 +119,17 @@ if (cmd === 'stop' || cmd === 'kill') {
   if (!c) fail(`Error response from daemon: No such container: ${ref}`);
   const words = c.behaviour ?? [];
   if (words.includes('UNKILLABLE') || (cmd === 'stop' && words.includes('STOPFAILS'))) fail(`Error response from daemon: cannot ${cmd} container: ${ref}: a FAKE refusal`);
-  if (words.includes('STOPERR')) {
-    if (cmd === 'stop') {
-      if (c.state === 'running' && alive(c.pid)) { process.kill(c.pid, 'SIGTERM'); await gone(c.pid); }
-      fail(`FAKE docker: the stop of ${ref} gave no answer in time`); // the container file stays: listed until kill looks
-    }
-    if (!alive(c.pid)) { remove(c.name); fail(`Error response from daemon: cannot kill container: ${ref}: container is not running`); }
-  }
+  if (cmd === 'kill' && words.includes('STOPERR') && !alive(c.pid)) { remove(c.name); fail(`Error response from daemon: cannot kill container: ${ref}: container is not running`); }
   if (c.state === 'running' && alive(c.pid)) {
-    // docker stop: SIGTERM, then SIGKILL after its grace (played at once for a worker that ignores SIGTERM); docker kill: SIGKILL
+    // docker stop: SIGTERM, then SIGKILL after its grace (played at once for a worker that ignores SIGTERM); docker kill:
+    // SIGKILL. Each reaches the container after this "daemon"'s delivery delay.
+    const delay = signalDelay();
+    if (delay) await sleep(delay);
     process.kill(c.pid, cmd === 'kill' || words.includes('IGNORETERM') ? 'SIGKILL' : 'SIGTERM');
     if (!(await gone(c.pid))) { process.kill(c.pid, 'SIGKILL'); await gone(c.pid); }
   }
+  // STOPERR: the stop ended the worker but gives no answer in time: its container file stays, listed until kill looks.
+  if (cmd === 'stop' && words.includes('STOPERR')) fail(`FAKE docker: the stop of ${ref} gave no answer in time`);
   remove(c.name); // --rm: an ended container is removed
   say(ref);
   process.exit(0);
@@ -196,22 +220,48 @@ const token = typeof request.token === 'string' ? request.token : '';
 const words = new Set(task.split(/\W+/).filter((w) => /^[A-Z]{3,}$/.test(w)));
 writeFileSync(join(state, 'runs', `${given['--name']}.json`), `${JSON.stringify({ argv, labels, mounts, env: envs, user: given['--user'] ?? null, stdin: { open: stdin.open, bytes: Buffer.byteLength(stdin.body), v: request.v ?? null, task, token_length: token.length } }, null, 2)}\n`);
 if (stdin.open) fail('timmy_openhands: its stdin stayed open (a FAKE refusal: the real worker reads it to its end)', 2);
+if (words.has('FAILSTART')) fail('docker: Error response from daemon: failed to create task for container (a FAKE failure)', 125);
 
-// ── its container, as this "daemon" keeps it ──
+// ── its container: the worker, a process of its own in a process group of its own, as this "daemon" keeps it ──
 const name = given['--name'];
-writeFileSync(containerFile(name), `${JSON.stringify({ id: randomBytes(32).toString('hex'), name, labels, state: 'running', pid: process.pid, behaviour: [...words] })}\n`);
-const end = (code) => { remove(name); exit(code); };
-const emit = (type, fields = {}) => process.stdout.write(`${JSON.stringify({ v: 1, type, token, ...fields })}\n`);
+const box = spawn(process.execPath, [fileURLToPath(import.meta.url), '--fake-container'], {
+  detached: true, stdio: ['pipe', 'pipe', 'pipe'],
+  env: { ...process.env, FAKE_DOCKER_CONTAINER: JSON.stringify({ name, token, words: [...words], work: work.source, model: envs.LLM_MODEL, max: Number(envs.TIMMY_OPENHANDS_MAX_ITERATIONS) }) },
+});
+writeFileSync(containerFile(name), `${JSON.stringify({ id: randomBytes(32).toString('hex'), name, labels, state: 'running', pid: box.pid, client: process.pid, behaviour: [...words] })}\n`);
+box.stdin.on('error', () => { /* the worker is gone: its exit says so */ });
+box.stdin.end(stdin.body);
+// What the worker prints reaches Timmy only through this client, as a container's output reaches it through docker's.
+box.stdout.on('data', (c) => process.stdout.write(c));
+box.stderr.on('data', (c) => process.stderr.write(c));
+// docker's signal proxy: a SIGTERM or SIGINT the client receives is forwarded to the container (after the delivery
+// delay); the client itself goes on until the container has ended. SIGKILL cannot be caught: the client dies, the
+// container does not.
+const forward = (sig) => {
+  appendFileSync(join(state, 'client-signals.jsonl'), `${JSON.stringify({ name, signal: sig, at: new Date().toISOString() })}\n`);
+  setTimeout(() => { try { process.kill(box.pid, sig); } catch { /* it has ended */ } }, signalDelay());
+};
+process.on('SIGTERM', () => forward('SIGTERM'));
+process.on('SIGINT', () => forward('SIGINT'));
+box.on('close', (code, signal) => exit(code ?? 128 + (constants.signals[signal] ?? 0)));
 
-/** The scripted agent: each path ends with end(), which exits once its output has drained. */
-function play() {
-  if (words.has('FAILSTART')) { process.stderr.write('docker: Error response from daemon: failed to create task for container (a FAKE failure)\n'); return end(125); }
+// ── the container's worker ──
+async function container() {
+  const c = JSON.parse(process.env.FAKE_DOCKER_CONTAINER ?? '{}');
+  // Its client may be killed while it runs: its output then goes nowhere, and it goes on (a real container does).
+  process.stdout.on('error', () => { /* the client is gone */ });
+  process.stderr.on('error', () => { /* the client is gone */ });
+  await new Promise((done) => { process.stdin.on('data', () => {}); process.stdin.once('end', done); process.stdin.resume(); });
+  const words = new Set(c.words ?? []);
+  const end = (code) => { remove(c.name); exit(code); };
+  const emit = (type, fields = {}) => process.stdout.write(`${JSON.stringify({ v: 1, type, token: c.token, ...fields })}\n`);
   if (words.has('SILENT')) return end(0);
 
-  const root = work.source;
+  const root = c.work;
   const project = dirname(dirname(dirname(dirname(root)))); // <project>/.timmy/agents/<run>/work
   const inCopy = (rel) => join(root, ...rel.split('/'));
   const put = (rel, body) => { mkdirSync(dirname(inCopy(rel)), { recursive: true }); writeFileSync(inCopy(rel), body); };
+  const token = c.token;
 
   const stream = (t) => process.stdout.write(`${t}\n`);
   if (words.has('HOSTILE')) {
@@ -229,32 +279,40 @@ function play() {
     stream('{"v":1,"type":"message","token":"' + token + '","excerpt":"unterminated');
   }
 
-  emit('started', { sdk: '1.21.0', tools_package: '1.21.0', python: '3.12.0', model: envs.LLM_MODEL, tools: ['terminal', 'file_editor'], tool_names: ['TerminalTool', 'FileEditorTool'], max_iterations: Number(envs.TIMMY_OPENHANDS_MAX_ITERATIONS), bounded: true, llm_options: ['stream', 'timeout', 'usage_id'], live_events: true });
+  emit('started', { sdk: '1.21.0', tools_package: '1.21.0', python: '3.12.0', model: c.model, tools: ['terminal', 'file_editor'], tool_names: ['TerminalTool', 'FileEditorTool'], max_iterations: c.max, bounded: true, llm_options: ['stream', 'timeout', 'usage_id'], live_events: true });
   emit('action', { n: 1, tool: 'terminal', name: 'TerminalTool', kind: 'TerminalAction', command: 'cat /work/src/a.txt' });
   emit('observation', { n: 1, tool: 'terminal', kind: 'TerminalObservation', error: false, exit_code: 0, excerpt: 'first line' });
 
   if (words.has('HANG')) {
     if (words.has('IGNORETERM')) process.on('SIGTERM', () => { process.stderr.write('timmy_openhands: SIGTERM ignored (a FAKE worker that does not stop)\n'); });
-    else process.on('SIGTERM', () => { emit('result', { status: 'stopped', finished: false, steps: 1, max_iterations: 40 }); end(143); });
+    else {
+      // As Timmy's worker does (workers/openhands/timmy_openhands.py): its result line, status stopped, with its step, its
+      // tokens so far and the signal, then it exits 128 + the signal's number.
+      // A second signal (docker stop's and the forwarded one may both arrive) changes nothing.
+      let stopping = false;
+      const stopped = (sig, code) => () => { if (stopping) return; stopping = true; emit('result', { status: 'stopped', finished: false, steps: 1, max_iterations: 40, signal: sig, usage: { input: 900, output: 30 } }); end(code); };
+      process.on('SIGTERM', stopped('SIGTERM', 143));
+      process.on('SIGINT', stopped('SIGINT', 130));
+    }
     setInterval(() => {}, 1000);
-  } else {
-    appendFileSync(inCopy('src/a.txt'), 'one more line (a FAKE OpenHands)\n');
-    emit('action', { n: 2, tool: 'file_editor', name: 'FileEditorTool', kind: 'FileEditorAction', command: 'str_replace', path: '/work/src/a.txt' });
-    emit('observation', { n: 2, tool: 'file_editor', kind: 'FileEditorObservation', error: false, excerpt: 'The file /work/src/a.txt has been edited.' });
-    let n = 2;
-    if (words.has('ADD')) { put('src/new.txt', 'a new file (a FAKE OpenHands)\n'); emit('action', { n: ++n, tool: 'file_editor', command: 'create', path: '/work/src/new.txt' }); }
-    if (words.has('DELETE')) { rmSync(inCopy('old.txt'), { force: true }); emit('action', { n: ++n, tool: 'terminal', command: 'rm old.txt' }); }
-    if (words.has('LINK')) { symlinkSync('/etc/hosts', inCopy('link.txt')); emit('action', { n: ++n, tool: 'terminal', command: 'ln -s /etc/hosts link.txt' }); }
-    if (words.has('GITDIR')) { put('.git/config', '[core]\n'); emit('action', { n: ++n, tool: 'terminal', command: 'git init' }); }
-    if (words.has('NESTED')) { put('deep/er/file.txt', 'deep (a FAKE OpenHands)\n'); emit('action', { n: ++n, tool: 'file_editor', command: 'create', path: 'deep/er/file.txt' }); }
-    // Not the agent: the operator editing the project itself while the run goes (the real container cannot reach it).
-    if (words.has('TOUCHPROJECT')) appendFileSync(join(project, 'src', 'a.txt'), 'an edit by the operator meanwhile\n');
-    emit('message', { source: 'agent', excerpt: 'I changed src/a.txt (a FAKE OpenHands).' });
-    if (words.has('NORESULT')) return end(0);
-    if (words.has('NOFINISH')) { emit('result', { status: 'limit', finished: false, steps: n, max_iterations: 40, final_message: 'Ran out of steps (a FAKE OpenHands).', usage: { input: 900, output: 30 } }); return end(3); }
-    emit('result', { status: 'finished', finished: true, steps: n, max_iterations: 40, final_message: 'Done: FINAL (a FAKE OpenHands).', final_chars: 31, usage: { input: 1200, output: 34 } });
-    if (words.has('AFTER')) emit('result', { status: 'finished', finished: true, final_message: 'FORGED: a second result' });
-    return end(0);
+    setTimeout(() => end(124), 120_000); // the FAKE's own limit: no test leaves a worker behind
+    return undefined;
   }
+  appendFileSync(inCopy('src/a.txt'), 'one more line (a FAKE OpenHands)\n');
+  emit('action', { n: 2, tool: 'file_editor', name: 'FileEditorTool', kind: 'FileEditorAction', command: 'str_replace', path: '/work/src/a.txt' });
+  emit('observation', { n: 2, tool: 'file_editor', kind: 'FileEditorObservation', error: false, excerpt: 'The file /work/src/a.txt has been edited.' });
+  let n = 2;
+  if (words.has('ADD')) { put('src/new.txt', 'a new file (a FAKE OpenHands)\n'); emit('action', { n: ++n, tool: 'file_editor', command: 'create', path: '/work/src/new.txt' }); }
+  if (words.has('DELETE')) { rmSync(inCopy('old.txt'), { force: true }); emit('action', { n: ++n, tool: 'terminal', command: 'rm old.txt' }); }
+  if (words.has('LINK')) { symlinkSync('/etc/hosts', inCopy('link.txt')); emit('action', { n: ++n, tool: 'terminal', command: 'ln -s /etc/hosts link.txt' }); }
+  if (words.has('GITDIR')) { put('.git/config', '[core]\n'); emit('action', { n: ++n, tool: 'terminal', command: 'git init' }); }
+  if (words.has('NESTED')) { put('deep/er/file.txt', 'deep (a FAKE OpenHands)\n'); emit('action', { n: ++n, tool: 'file_editor', command: 'create', path: 'deep/er/file.txt' }); }
+  // Not the agent: the operator editing the project itself while the run goes (the real container cannot reach it).
+  if (words.has('TOUCHPROJECT')) appendFileSync(join(project, 'src', 'a.txt'), 'an edit by the operator meanwhile\n');
+  emit('message', { source: 'agent', excerpt: 'I changed src/a.txt (a FAKE OpenHands).' });
+  if (words.has('NORESULT')) return end(0);
+  if (words.has('NOFINISH')) { emit('result', { status: 'limit', finished: false, steps: n, max_iterations: 40, final_message: 'Ran out of steps (a FAKE OpenHands).', usage: { input: 900, output: 30 } }); return end(3); }
+  emit('result', { status: 'finished', finished: true, steps: n, max_iterations: 40, final_message: 'Done: FINAL (a FAKE OpenHands).', final_chars: 31, usage: { input: 1200, output: 34 } });
+  if (words.has('AFTER')) emit('result', { status: 'finished', finished: true, final_message: 'FORGED: a second result' });
+  return end(0);
 }
-play();

@@ -110,7 +110,7 @@ import { recoverOpenHands } from './openhands-recover.js';
 import { recoverAgentRuns } from './recover-agents.js'; // R4 (H59): code agent runs an ended REPL left (their run records)
 // Round R4 (H55): the board's line about Timmy Canvas (src/repl/board-canvas.ts; the REPL checks the canvas).
 import type { BoardCanvas } from './board-canvas.js';
-import { REPL_END_REASON, stopReason } from '../utils/stop-words.js';
+import { REPL_END_REASON, STOPPED_WITH_STOP, stopReason } from '../utils/stop-words.js';
 
 type Line = Segment[];
 
@@ -327,7 +327,7 @@ export class Workspace {
       outcome: (run, root) => runOutcome(run, root, this.jobs),
     });
     this.jobs = new JobManager({ dir: d.jobsDir, onChange: (job) => this.changed(job), seal: (job) => this.sealJob(job) });
-    this.openhands = new OpenHandsRuns({ glyphs: d.glyphs, notify: (l) => this.d.notify(l) });
+    this.openhands = new OpenHandsRuns({ glyphs: d.glyphs, notify: (l) => this.d.notify(l), timeOut: (id) => this.jobs.timeOut(id) }); // R4 (H62): its own time limit ends its job
     this.flows = new IterateFlows({
       glyphs: d.glyphs, env: () => this.d.env, onPath: d.onPath, notify: (l) => this.d.notify(l), seal: (input) => this.d.seal(input), jobs: this.jobs,
       startJob: (spec, o) => { const job = this.jobs.start(spec); this.mine.add(job.id); if (o?.selfSealed) this.selfSealed.add(job.id); return job; },
@@ -1260,10 +1260,12 @@ export class Workspace {
       if (o.by) for (const j of live) this.stopBy.set(j.id, stopReason(o.by)); // r19 F2
       // Round R4 (H17): each recipe watcher's recipe is cancelled through its own path before any watcher is stopped.
       const recipesAsked = live.flatMap((j) => this.cancelWatched(j) ?? []);
+      // R4 (H62): each OpenHands job's container is asked to stop first, with this stop's words; its job's stop awaits it.
+      const containerStops = this.openhands.stopAll('stop', o.by ?? STOPPED_WITH_STOP);
       const [ended, asked, containers] = await Promise.all([
         Promise.all(live.map((j) => this.jobs.stop(j.id))),
         Promise.all(asking.map((o) => (o.done ? within(o.done) : Promise.resolve(undefined)))),
-        this.openhands.stopAll('stop'), // R4 (H52): each OpenHands job's container, by its name and labels
+        containerStops, // R4 (H52): each OpenHands job's container, by its name and labels
       ]);
       const lines: Line[] = [];
       if (live.length) {
@@ -1301,9 +1303,10 @@ export class Workspace {
     // the watcher has its handler still reaches the recipe (the live board's Stop comes here too).
     const asked = this.cancelWatched(j);
     const recipeLine = asked ? this.say(cancelSentence(asked), asked.error ? 'failure' : 'secondary') : [];
+    // R4 (H52): an OpenHands job's container is stopped by its name and labels too (docker stop, then docker kill). R4 (H62):
+    // first, with this stop's words: its job's stop awaits it, then gives its docker client its time to end by itself.
+    const container = this.openhands.stopping(id, 'stop', o.by ?? STOPPED_WITH_STOP);
     const stopping = this.jobs.stop(id);
-    // R4 (H52): an OpenHands job's container is stopped by its name and labels too (docker stop, then docker kill).
-    const container = this.openhands.stopping(id, 'stop');
     const done = await stopping;
     const containerLine = this.openhands.stopLines(container ? await container : undefined);
     if (!done || !TERMINAL.has(done.state) || done.error) {
@@ -1363,7 +1366,9 @@ export class Workspace {
     const pending = [...this.observing.values()].flatMap((o) => { o.abort.abort(); return o.done ? [o.done] : []; });
     // R4 (H52): each OpenHands job's container is stopped by its name and labels as its job is.
     for (const id of this.mine) if (!this.stopBy.has(id)) { const j = this.jobs.get(id); if (j && !TERMINAL.has(j.state)) this.stopBy.set(id, stopReason(o.by ?? REPL_END_REASON)); } // r19 F2
-    await Promise.all([this.jobs.stopAll(), this.openhands.stopAll('the REPL ended')]);
+    // R4 (H62): the containers are asked first, with the REPL's end's words; each OpenHands job's stop awaits its container's.
+    const containers = this.openhands.stopAll('the REPL ended', o.by ?? REPL_END_REASON);
+    await Promise.all([this.jobs.stopAll(), containers]);
     await within(Promise.allSettled(pending));
     await this.flows.settle(20_000);
     // R4 (H28): a stopped readback still writes its record and receipt (no verdict).
@@ -1631,7 +1636,9 @@ export class Workspace {
     const state: AgentRunState = { record, plan, root, dir, before: before.files, beforeTruncated: before.truncated, gitBefore: isGitDir(root) ? gitStat(root) : null, progress, ...(judged ? { judge: { own, before: judged } } : {}), ...(copy?.ok ? { openhands: copy.state } : {}) };
     try { writeJson(join(dir, 'snapshot-before.json'), { truncated: before.truncated, files: snapshotJson(before.files) }); } catch { /* kept in memory */ }
     const job = this.jobs.start({
-      kind: 'task', label: agentLabel(name, run, task, root), project: o.project ?? this.project.name, root, command: plan.command, args: plan.args, timeoutMs: plan.timeoutMs,
+      // R4 (H62): OpenHands' job keeps its own limit above OpenHands' own (the backstop), and every stop of it stops its container first.
+      kind: 'task', label: agentLabel(name, run, task, root), project: o.project ?? this.project.name, root, command: plan.command, args: plan.args, timeoutMs: plan.jobTimeoutMs ?? plan.timeoutMs,
+      ...(state.openhands ? { stopFirst: this.openhands.stopFirst(state.openhands) } : {}),
       ...(plan.env ? { env: plan.env } : {}),
       ...(plan.stdin ? { stdin: plan.stdin } : {}),
       ...(plan.stdinText !== undefined ? { stdinText: plan.stdinText } : {}), // R4 (H52): OpenHands' task, on its worker's stdin

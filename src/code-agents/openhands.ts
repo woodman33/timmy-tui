@@ -65,6 +65,12 @@ export const LABEL_PROJECT = 'timmy.project';
 export const OPENHANDS_LIMITS = { cpus: '2', memory: '4g', pids: 512 } as const;
 /** The agent's steps (the SDK's iterations) when TIMMY_OPENHANDS_MAX_ITERATIONS does not say. */
 export const OPENHANDS_MAX_ITERATIONS = 40;
+/**
+ * R4 (H62): how far above OpenHands' own time limit the job's own limit is. At its own limit (the plan's timeoutMs) Timmy's
+ * OpenHands layer stops the container first, so the worker's last line arrives (src/repl/openhands.ts); the job's own
+ * limit, this much later (the plan's jobTimeoutMs), stays as the backstop.
+ */
+export const OPENHANDS_BACKSTOP_MS = 60_000;
 export const CONTAINER_WORK = '/work';
 export const CONTAINER_WORKER = '/timmy';
 /** HOME inside the container: a tmpfs of its own (nothing of the host's home is mounted; it is gone with the container) */
@@ -221,7 +227,8 @@ export function planOpenHands(o: OpenHandsInput): PlanResult {
   };
   const plan: AgentPlan = {
     agent: 'openhands', command: o.bin, args: openHandsDockerArgs(container), model, endpoint: 'local', where: ep.where,
-    wallTime: o.wallTime, timeoutMs: o.timeoutMs, charge: 'local endpoint, no charge', costBasis: 'local endpoint',
+    wallTime: o.wallTime, timeoutMs: o.timeoutMs, jobTimeoutMs: o.timeoutMs + OPENHANDS_BACKSTOP_MS, // R4 (H62)
+    charge: 'local endpoint, no charge', costBasis: 'local endpoint',
     env: dockerClientEnv(env),
     // The task goes on the worker's stdin, with the run's token; never on the command line, so no process list shows it.
     stdinText: `${JSON.stringify({ v: 1, task: o.task.trim(), token: container.token })}\n`,
@@ -275,6 +282,8 @@ interface Seen {
   steps?: number;
   finished?: boolean;
   error?: string;
+  /** R4 (H62): the signal a stopped worker said it received (SIGTERM from docker stop, SIGINT) */
+  signal?: string;
 }
 const watched = new WeakMap<AgentProgress, Seen>();
 
@@ -284,7 +293,7 @@ export function watchOpenHands(state: AgentProgress, token: string): void {
 }
 
 /** What the run's lines said, for its record: the SDK version it reported, its status and steps, docker's error. */
-export function openHandsSaid(state: AgentProgress): { sdk?: string | null; tools?: string[]; status?: string; steps?: number; finished?: boolean; maxIterations?: number; dockerError?: string; result: boolean } {
+export function openHandsSaid(state: AgentProgress): { sdk?: string | null; tools?: string[]; status?: string; steps?: number; finished?: boolean; maxIterations?: number; dockerError?: string; signal?: string; result: boolean } {
   const s = watched.get(state);
   if (!s) return { result: false };
   return {
@@ -292,7 +301,21 @@ export function openHandsSaid(state: AgentProgress): { sdk?: string | null; tool
     ...(s.sdk !== undefined ? { sdk: s.sdk } : {}), ...(s.tools ? { tools: [...s.tools] } : {}), ...(s.status ? { status: s.status } : {}),
     ...(s.steps !== undefined ? { steps: s.steps } : {}), ...(s.finished !== undefined ? { finished: s.finished } : {}),
     ...(s.maxIterations !== undefined ? { maxIterations: s.maxIterations } : {}), ...(s.dockerError ? { dockerError: s.dockerError } : {}),
+    ...(s.signal ? { signal: s.signal } : {}),
   };
+}
+
+/**
+ * R4 (H62): the worker's own last line, in words, for a run Timmy stopped: what it said (stopped at step N, the signal it
+ * received, its tokens so far), or that it gave none. Its line is read with the run's token, like every line.
+ */
+export function workerLastWords(progress: AgentProgress): string {
+  const said = openHandsSaid(progress);
+  if (!said.result) return 'the worker gave no last line of its own (what it printed is kept in transcript.log)';
+  const tokens = progress.usage ? `, ${tokenText(progress.usage)}` : '';
+  const steps = said.steps !== undefined ? ` at step ${said.steps}` : '';
+  if (said.status === 'stopped') return `the worker's own last line: stopped${steps}${said.signal ? ` (${said.signal})` : ''}${tokens}`;
+  return `the worker's own last line: ${said.finished ? 'finished' : `not finished (${said.status ?? 'no status'})`}${steps}${tokens}`;
 }
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
@@ -315,13 +338,16 @@ export function workRel(p: unknown): string | undefined {
   return parts.join('/');
 }
 
+/** R4 (H62): a signal's name as the worker gives it (SIGTERM, SIGINT), or undefined. */
+const signalName = (v: unknown): string | undefined => (typeof v === 'string' && /^SIG[A-Z0-9]{1,10}$/.test(v) ? v : undefined);
+
 /** How the worker said it did not finish, in words. */
 function statusWords(status: string, ev: Record<string, unknown>, max?: number): string {
   const error = str(ev.error);
   switch (status) {
     case 'limit': return `its step limit${max ? ` (${max})` : ''} was reached`;
     case 'stuck': return 'the SDK found it stuck';
-    case 'stopped': return 'it was stopped';
+    case 'stopped': { const sig = signalName(ev.signal); return `it was stopped${sig ? ` (${sig})` : ''}`; } // R4 (H62): the signal it received
     case 'setup': return `it could not start${error ? `: ${clean(error, 200)}` : ''}`;
     case 'error': return `an error${error ? `: ${clean(error, 200)}` : ''}`;
     default: return `its status was ${status}${error ? ` (${clean(error, 160)})` : ''}`;
@@ -437,6 +463,8 @@ export function openHandsProgressLine(line: string, state: AgentProgress, root: 
       s.status = status;
       s.finished = finished;
       s.steps = count(ev.steps);
+      const sig = signalName(ev.signal); // R4 (H62): a stopped worker names the signal it received
+      if (sig) s.signal = sig;
       const max = count(ev.max_iterations) ?? s.maxIterations;
       const final = str(ev.final_message);
       if (final !== undefined && final.trim()) state.finalMessage = final.replace(ANSI, '').replace(CONTROLS_KEEP_LINES, '');
@@ -455,11 +483,13 @@ export function openHandsProgressLine(line: string, state: AgentProgress, root: 
 /**
  * How a run ended, from its job's end and its own lines (index.ts judgeAgentRun asks this for OpenHands). `completed` only
  * from its result line saying finished at exit 0; the write-back may still turn it into failed (openhands-run.ts).
+ * R4 (H62): a run Timmy stopped (cancelled, timed out) says the worker's own last line beside how it was stopped (the
+ * REPL's layer adds how its container and its docker client ended: src/repl/openhands.ts finish).
  */
 export function judgeOpenHands(job: { state: string; exitCode?: number | null; signal?: string | null; error?: string }, progress: AgentProgress, stopBy?: string): { outcome: AgentOutcome; why: string } {
   const said = openHandsSaid(progress);
-  if (job.state === 'cancelled') return { outcome: 'cancelled', why: cancelledWhy(stopBy) };
-  if (job.error === 'timed out') return { outcome: 'timed out', why: 'Timmy\'s time limit ended it (its wall time and a grace period)' };
+  if (job.state === 'cancelled') return { outcome: 'cancelled', why: `${cancelledWhy(stopBy)}; ${workerLastWords(progress)}` };
+  if (job.error === 'timed out') return { outcome: 'timed out', why: `Timmy's time limit ended it (its wall time and a grace period); ${workerLastWords(progress)}` };
   if (job.state !== 'completed') {
     if (job.exitCode === 125) return { outcome: 'failed', why: `docker could not start its container (exit 125)${said.dockerError ? `: ${said.dockerError}` : ''}` };
     if (job.error) return { outcome: 'failed', why: job.error };
@@ -488,6 +518,9 @@ export interface ContainerStop {
   /** the docker commands run, each with its exit status */
   steps: Array<{ command: string; exit: number | null }>;
   detail?: string;
+  /** R4 (H62): who stopped it, in the words its stop gave: "with /stop", "by timmy act (SIGINT received)", "as the REPL
+   *  ended"; absent for a stop no one gave words to (Timmy's time limit, recovery, the check after its job ended) */
+  by?: string;
 }
 
 /** What Timmy wrote into the project from the copy, or why nothing was written. */
@@ -517,6 +550,11 @@ export interface OpenHandsRecord {
   copy_changes?: ChangeSet & { truncated: boolean };
   writeback?: WriteBack;
   stop?: ContainerStop;
+  /** R4 (H62): a stopped run's docker client, after its container's stop (the job's JobRecord.stopOrder): whether that stop
+   *  answered within its bound, and how the client then ended: by itself (its last output kept), or by Timmy's signal */
+  client?: { container_stop: 'answered' | 'no answer'; ended: 'by itself' | 'SIGTERM' | 'SIGKILL' };
+  /** R4 (H62): the time limit that ended it, and its length: OpenHands' own (its container stopped first) or the job's own (the backstop) */
+  limit?: { by: 'openhands' | 'job'; at: string; ms: number };
 }
 
 /** The write-back in a few words, for the end notice and /agent last. */

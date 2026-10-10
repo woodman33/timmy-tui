@@ -76,7 +76,15 @@ export interface JobRecord {
   /** Round R4 (H58): ended by a later session's recovery because the session following it ended while it ran (endLeft):
    *  the step that was running then, when its output showed one. */
   interrupted?: { step?: string };
+  /** Round R4 (H62): how a stop of a job with a first part (JobSpec.stopFirst) went: whether that part answered within its
+   *  bound, then what the job's process group needed: nothing ('ended by itself', its last output kept), a SIGTERM, or a
+   *  SIGKILL too. Absent when no stop ran, and for every other job. */
+  stopOrder?: StopOrder;
 }
+/** Round R4 (H62): JobRecord.stopOrder. */
+export interface StopOrder { first: 'answered' | 'no answer'; group: 'ended by itself' | 'SIGTERM' | 'SIGKILL' }
+/** Round R4 (H62): why a job is being stopped, as its stop's first part is told (JobSpec.stopFirst). */
+export interface StopEnding { state: 'cancelled' | 'failed'; error?: string }
 export interface JobSpec {
   kind: JobKind; label: string; project: string; root: string;
   command: string; args: string[];
@@ -101,6 +109,15 @@ export interface JobSpec {
    * input there (OpenHands' worker reads its task from stdin, so the task is never on a command line). Absent: as before.
    */
   stdinText?: string;
+  /**
+   * Round R4 (H62): a stop's first part, for a job whose process is the client of something that runs elsewhere and ends
+   * with it (OpenHands' docker client and its container). On the Mac (ledger row 159) the job's group was killed 2 s after
+   * its SIGTERM while docker delivered the container's own signal 5 to 7 s later, so the worker's last line never arrived.
+   * Every stop of such a job (stop, stopAll, its time limit, timeOut, stopWhen) awaits `run` first, for at most `answerMs`,
+   * then gives the job's process group `exitMs` to end by itself, its output kept; only a group still there is then
+   * signalled (SIGTERM, then SIGKILL after the grace). `run` is told why the job is stopped. Absent: as before.
+   */
+  stopFirst?: { run: (ending: StopEnding) => Promise<unknown>; answerMs: number; exitMs: number };
 }
 export interface JobManagerOptions { dir: string; onChange?: (job: JobRecord) => void; seal?: (job: JobRecord) => string | undefined; now?: () => Date }
 
@@ -132,7 +149,7 @@ const OWNER = { pid: process.pid, startedAt: new Date(Date.now() - Math.round(pr
 /** The states of a job that has not ended. */
 const LIVE_STATES: ReadonlySet<string> = new Set<JobState>(['queued', 'running', 'ready']);
 
-interface Ending { state: 'cancelled' | 'failed'; error?: string }
+type Ending = StopEnding;
 
 interface Entry {
   job: JobRecord;
@@ -202,11 +219,23 @@ export class JobManager {
   }
 
   /** SIGTERM the job's process group, SIGKILL it after graceMs; the job ends 'cancelled' once the group is gone.
-   *  A job another session started is returned as listed and left alone (its pid may belong to someone else by now). */
+   *  A job another session started is returned as listed and left alone (its pid may belong to someone else by now).
+   *  Round R4 (H62): a job with a stop's first part (JobSpec.stopFirst) has that part run first, then its group a bounded
+   *  wait to end by itself, before any signal. */
   async stop(id: string, graceMs = GRACE_MS): Promise<JobRecord | undefined> {
     const entry = this.jobs.get(id);
     if (!entry) return this.get(id);
     if (!entry.finished) await this.terminate(entry, { state: 'cancelled' }, Number.isFinite(graceMs) && graceMs >= 0 ? graceMs : GRACE_MS);
+    return snapshot(entry.job);
+  }
+
+  /** Round R4 (H62): ends a job of this manager at a time limit kept outside it (OpenHands' layer, which stops its container
+   *  at its own limit): the stop its own limit would make, its first part included; the job then failed, 'timed out'. Its
+   *  own limit, set above that one, stays as the backstop. A job another session started is returned as listed. */
+  async timeOut(id: string): Promise<JobRecord | undefined> {
+    const entry = this.jobs.get(id);
+    if (!entry) return this.get(id);
+    if (!entry.finished) await this.terminate(entry, { state: 'failed', error: 'timed out' });
     return snapshot(entry.job);
   }
 
@@ -363,9 +392,19 @@ export class JobManager {
       const pid = child.pid;
       if (pid === undefined) { await waitFor(() => entry.outcome !== undefined, KILL_WAIT_MS); return; }  // a spawn error on its way
       const gone = () => entry.outcome !== undefined && !groupLive(pid);
+      // Round R4 (H62): what the job's process follows is stopped first, and its group is given time to end by itself.
+      const first = entry.spec.stopFirst;
+      if (first && !gone()) {
+        const why: StopEnding = { ...(entry.ending ?? ending) };
+        const answered = await settlesWithin(() => first.run(why), first.answerMs);
+        entry.job.stopOrder = { first: answered ? 'answered' : 'no answer', group: 'ended by itself' };
+        if (await waitFor(gone, first.exitMs)) return;
+      }
       killProcessGroup(pid, 'SIGTERM', { leaderExited: leaderExited(child) });
+      if (entry.job.stopOrder) entry.job.stopOrder = { ...entry.job.stopOrder, group: 'SIGTERM' };
       if (await waitFor(gone, graceMs)) return;
       killProcessGroup(pid, 'SIGKILL', { leaderExited: leaderExited(child) });
+      if (entry.job.stopOrder) entry.job.stopOrder = { ...entry.job.stopOrder, group: 'SIGKILL' };
       if (await waitFor(gone, KILL_WAIT_MS)) return;
       if (entry.outcome === undefined && (child.exitCode !== null || child.signalCode !== null)) {
         // the leader is gone but a process that left its group still holds the output pipes: let go of them
@@ -587,6 +626,9 @@ function checkSpec(spec: JobSpec): void {
   if (!Array.isArray(spec.args) || !spec.args.every((arg) => typeof arg === 'string')) throw new TypeError('job args are strings');
   if (typeof spec.label !== 'string' || typeof spec.project !== 'string') throw new TypeError('a job needs a label and a project');
   if (typeof spec.root !== 'string' || !spec.root) throw new TypeError('a job needs a root folder');
+  const first = spec.stopFirst;
+  const ms = (n: unknown): boolean => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+  if (first !== undefined && (typeof first?.run !== 'function' || !ms(first.answerMs) || !ms(first.exitMs))) throw new TypeError('stopFirst needs run, answerMs and exitMs');
   if (spec.ready === undefined) return;
   if (spec.kind !== 'server') throw new TypeError('only a server job has a ready address');
   let protocol = '';
@@ -603,6 +645,16 @@ async function answers(url: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** Round R4 (H62): whether what `start` returns settles (resolves or rejects) within ms; a throw counts as settled. `start`
+ *  runs in a later microtask, once the caller's stop is recorded (a start that stops the job again joins that stop). */
+function settlesWithin(start: () => Promise<unknown>, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), Math.max(0, ms));
+    const done = (): void => { clearTimeout(timer); resolve(true); };
+    Promise.resolve().then(start).then(done, done);
+  });
 }
 
 function waitFor(condition: () => boolean, ms: number): Promise<boolean> {
@@ -704,6 +756,8 @@ function parseRecord(raw: unknown, id: string, logPath: string): JobRecord | und
   if (text(r.operation) && OPERATION_ID.test(r.operation)) job.operation = r.operation;
   const interrupted = r.interrupted && typeof r.interrupted === 'object' ? r.interrupted as Record<string, unknown> : undefined;
   if (interrupted) job.interrupted = text(interrupted.step) ? { step: interrupted.step } : {};
+  const order = r.stopOrder && typeof r.stopOrder === 'object' ? r.stopOrder as Record<string, unknown> : undefined;
+  if (order && (order.first === 'answered' || order.first === 'no answer') && (order.group === 'ended by itself' || order.group === 'SIGTERM' || order.group === 'SIGKILL')) job.stopOrder = { first: order.first, group: order.group };
   return job;
 }
 
