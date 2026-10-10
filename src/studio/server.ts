@@ -16,6 +16,8 @@ import { studioHealth } from './health.js';
 import { CanvasDocuments, MAX_CANVAS_BYTES, canvasDir, shownPath } from './document.js';
 import { publicTemplates } from './templates.js';
 import { FONT_FILES, HOMEBREW, TYPE, themeCss } from '../theme/tokens.js';
+// Round R4 (H55): the project the REPL names, and the read-only project API built from the board's readers.
+import { dropProjectToken, mountProjectRoutes, ProjectLink, writeProjectToken } from './project-link.js';
 
 export { STUDIO_PORT };
 
@@ -31,7 +33,14 @@ export interface StudioOptions {
   canvasDir?: string;
   /** The largest canvas document Timmy saves (default 25 MB). */
   maxCanvasBytes?: number;
+  /** R4 (H55): the token a REPL names its project with (64 hex); made at random when absent. */
+  projectToken?: string;
+  /** R4 (H55): also keep the token in <canvas folder>/project-token-<port> (0600) for other REPLs of this Timmy home. */
+  projectTokenFile?: boolean;
 }
+
+/** R4 (H55): the server, with the token its REPL names the active project with. */
+export type StudioServer = Server & { projectToken: string };
 
 /** companion/studio-canvas, found from the source (src/studio) or the build (dist/src/studio). */
 export function studioRoot(): string {
@@ -75,7 +84,7 @@ const NOT_BUILT = `<!doctype html><html lang="en"><head><meta charset="utf-8"><t
 <p>Its tldraw bundle (dist/canvas.js) is missing. In the Timmy checkout, run:</p>
 <p><code>npm run build:canvas</code></p><p>then reload this page.</p></body></html>`;
 
-export function createStudioApp(options: StudioOptions = {}, bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs)): express.Express {
+export function createStudioApp(options: StudioOptions = {}, bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs), link = new ProjectLink(options.projectToken)): express.Express {
   const env = options.env ?? process.env;
   const maxCanvasBytes = options.maxCanvasBytes ?? MAX_CANVAS_BYTES;
   const savedIn = options.canvasDir ?? canvasDir(env);
@@ -190,6 +199,8 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     }
     res.status(outcome.status).set('Cache-Control', 'no-store').json(outcome.body);
   });
+  // R4 (H55): the active project, named by the REPL (token), and its cards, read-only.
+  mountProjectRoutes(app, { link, pageOpen: () => bridge.open });
   // C-13: the receipt pages, served by the same local server, with a text fallback.
   mountReceiptPages(app, options.receipts);
   // Checked on every request, so building while Timmy runs needs only a reload.
@@ -206,17 +217,22 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   return app;
 }
 
-export async function startStudioServer(port = STUDIO_PORT, options: StudioOptions = {}): Promise<Server> {
+export async function startStudioServer(port = STUDIO_PORT, options: StudioOptions = {}): Promise<StudioServer> {
   const bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs);
-  const server = createServer(createStudioApp(options, bridge));
+  const link = new ProjectLink(options.projectToken);
+  const server = Object.assign(createServer(createStudioApp(options, bridge, link)), { projectToken: link.token });
   bridge.attach(server);
+  // R4 (H55): where the token is kept for other REPLs of this Timmy home, once the port is known.
+  const tokenDir = options.canvasDir ?? canvasDir(options.env ?? process.env);
+  let tokenPort = 0;
   // An open canvas holds its WebSocket for good: closing the server closes the bridge first, or
   // server.close() would wait for the page forever.
   const closeServer = server.close.bind(server);
   server.close = ((done?: (err?: Error) => void) => {
     bridge.close();
+    if (tokenPort) dropProjectToken(tokenDir, tokenPort, link.token);
     return closeServer(done);
-  }) as Server['close'];
+  }) as StudioServer['close'];
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, '127.0.0.1', () => {
@@ -224,10 +240,15 @@ export async function startStudioServer(port = STUDIO_PORT, options: StudioOptio
       resolve();
     });
   });
+  if (options.projectTokenFile) {
+    const at = server.address();
+    const bound = typeof at === 'object' && at ? at.port : 0;
+    if (bound && writeProjectToken(tokenDir, bound, link.token)) tokenPort = bound;
+  }
   return server;
 }
 
-export type EnsureResult = { state: 'started'; server: Server } | { state: 'already-running' } | { state: 'failed'; error: string };
+export type EnsureResult = { state: 'started'; server: StudioServer } | { state: 'already-running' } | { state: 'failed'; error: string };
 
 /**
  * For /web studio: serve Timmy Canvas from this process unless something already listens on the

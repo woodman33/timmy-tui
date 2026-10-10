@@ -128,6 +128,16 @@ const members = names.slice(0, 80).map((name) => {
 });
 return { query, total: names.length, members, docs: 'https://tldraw.dev/reference/editor/Editor' };`;
 
+/**
+ * Round R4 (H55): places one card of the active project (GET /api/project) through the page's own Project panel, or, with
+ * no card, lists the cards and changes nothing. Fixed code: the model's card id reaches the page only as a JSON string.
+ */
+export const PLACE_PROJECT_CARD = (card: string | undefined): string => `
+const card = ${JSON.stringify(card ?? null)};
+const canvas = window.timmyCanvas;
+if (!canvas || typeof canvas.placeProjectCard !== 'function') throw new Error('This canvas page has no Project panel: rebuild it (npm run build:canvas) and reload the page.');
+return await canvas.placeProjectCard(card, editor);`;
+
 type Answer = Record<string, unknown>;
 
 /**
@@ -203,6 +213,18 @@ export function createCanvasTools(options: CanvasToolOptions = {}) {
       inputSchema: z.object({ query: z.string().min(1).max(60).describe('Part of a member name') }),
       outputSchema: answer,
       execute: async ({ query }: { query: string }) => exec(API(query)),
+    } as any),
+    // Round R4 (H55): the active project's cards on the canvas, through the page's Project panel (fixed code).
+    tool({
+      name: 'canvas_place_project_card',
+      description:
+        "Place one card of the active project on Timmy Canvas: a note holding the card's title, its state in words and the typed command that acts on it, " +
+        "with the record and receipt behind it kept in the note's meta. The cards are the project's workflow documents, parameter files, /iterate flows, " +
+        'VoxVision records and Control Room runs, read from their records by the board\'s own readers once the REPL has named the project to the canvas (/canvas open). ' +
+        'Call it without a card to list the cards (nothing is placed); then with one card\'s id as listed, for example flow:f1a2b3c4d.',
+      inputSchema: z.object({ card: z.string().min(1).max(400).optional().describe('A card id as the list gives it; leave it out to list the cards') }),
+      outputSchema: answer,
+      execute: async ({ card }: { card?: string }) => exec(PLACE_PROJECT_CARD(card)),
     } as any),
   ];
 }

@@ -9,6 +9,7 @@ import { createRoot } from 'react-dom/client';
 import { Box, Tldraw, Vec, createBindingId, createShapeId, getSnapshot, toRichText } from 'tldraw';
 import { getAssetUrls } from '@tldraw/assets/selfHosted';
 import 'tldraw/tldraw.css';
+import { createProjectPanel } from './project.js';
 
 /* global __TLDRAW_VERSION__ */
 /** The tldraw version this bundle was built from (scripts/canvas/build.mjs). */
@@ -389,6 +390,31 @@ function connectPanel() {
   void offerBoards();
   void refreshJobs();
   setInterval(() => { if (document.visibilityState === 'visible') void refreshJobs(); }, 5000);
+  // Round R4 (H55): the project the REPL named, as cards to place on the canvas (./project.js).
+  projectPanel = createProjectPanel({ editor: () => current, toRichText, createShapeId, place: placeAt, reveal });
+}
+
+// Round R4 (H55): where a placed project card goes: the middle of the area beside Timmy's panel, each next one a step
+// lower and to the right, so cards placed one after another do not cover each other.
+let projectPanel = null;
+function placeAt(editor) {
+  const area = freeArea();
+  const middle = editor.screenToPage({ x: area.x + area.w / 2, y: area.y + area.h / 2 });
+  const placed = editor.getCurrentPageShapes().filter((shape) => shape.meta?.timmyProjectCard).length % 6;
+  return { x: Math.round(middle.x - 100 + placed * 24), y: Math.round(middle.y - 100 + placed * 24) };
+}
+/**
+ * The agent's canvas_place_project_card (src/agent/canvas-tools.ts) calls this with the card's id, which reached the page
+ * only as a JSON string. With no id it changes nothing and lists the project's cards.
+ */
+async function placeProjectCard(id, editor = current) {
+  if (!projectPanel) throw new Error('The project panel is not ready yet: reload the canvas page.');
+  if (id === undefined || id === null || id === '') {
+    const response = await fetch('/api/project', { cache: 'no-store' });
+    const now = await response.json();
+    return { project: now.project ? now.project.name : null, ...(now.message ? { message: now.message } : {}), cards: (now.cards || []).map((c) => ({ id: c.id, kind: c.kind, title: c.title, state: c.state })) };
+  }
+  return projectPanel.place(String(id), editor);
 }
 /** What the panel follows in each editor: the blank-board guide and the selected shapes' jobs. */
 function followEditor(editor) {
@@ -423,8 +449,11 @@ function mount(snapshot) {
         onMount: (editor) => {
           current = editor;
           editor.user.updateUserPreferences({ colorScheme: 'dark' });
-          // Timmy's agent bridge (F-4, slice 2) drives the canvas through this handle.
-          window.timmyCanvas = { editor, tldrawVersion: BUILT_WITH, licenseState: window.timmyCanvas?.licenseState ?? 'pending', document: canvas, mounts };
+          // Timmy's agent bridge (F-4, slice 2) drives the canvas through this handle. R4 (H55): with the project's cards.
+          window.timmyCanvas = {
+            editor, tldrawVersion: BUILT_WITH, licenseState: window.timmyCanvas?.licenseState ?? 'pending', document: canvas, mounts,
+            placeProjectCard, refreshProjectCards: () => (projectPanel ? projectPanel.refreshAll() : Promise.reject(new Error('The project panel is not ready yet.'))),
+          };
           attachEditor(editor);
           followEditor(editor);
           showStatus(editor);
