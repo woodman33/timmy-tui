@@ -14,7 +14,8 @@
 //   ok              (the default) runs the harness
 //   write-pref-off  the write preference reads 0 and every file opened for writing fails
 //   no-run          runs nothing and exits 0 (After Effects never ran the script)
-//   crash           runs nothing, prints an osascript error and exits 1
+//   crash           runs nothing, prints an osascript error (AppleEvent timed out, -1712) and exits 1
+//   not-allowed     runs nothing, prints osascript's refusal to control the app (-1743) and exits 1
 //   save-noop       app.project.save answers true and writes nothing
 //   vanish-aep      runs the harness, then deletes the project it saved
 //   dirty           the project open before the run has unsaved changes
@@ -24,7 +25,7 @@ import { mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'no
 import path from 'node:path';
 import vm from 'node:vm';
 
-const MODES = new Set(['ok', 'write-pref-off', 'no-run', 'crash', 'save-noop', 'vanish-aep', 'dirty']);
+const MODES = new Set(['ok', 'write-pref-off', 'no-run', 'crash', 'not-allowed', 'save-noop', 'vanish-aep', 'dirty']);
 const mode = process.env.FAKE_AE_MODE || 'ok';
 const say = (s) => process.stdout.write(`fake-afterfx (FAKE After Effects): ${s}\n`);
 const argv = process.argv.slice(2);
@@ -59,6 +60,10 @@ say(route === 'osascript' ? `osascript asked "${appName}" to DoScriptFile ${path
 if (mode === 'no-run') { say('ran nothing (FAKE_AE_MODE=no-run)'); process.exit(0); }
 if (mode === 'crash') {
   process.stderr.write(`execution error: ${appName ?? 'After Effects'} got an error: AppleEvent timed out. (-1712) (fake-afterfx, FAKE)\n`);
+  process.exit(1);
+}
+if (mode === 'not-allowed') {
+  process.stderr.write(`execution error: Not authorized to send Apple events to ${appName ?? 'After Effects'}. (-1743) (fake-afterfx, FAKE)\n`);
   process.exit(1);
 }
 

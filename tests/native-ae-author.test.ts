@@ -257,6 +257,17 @@ describe('failures, each with its reason', () => {
     expect(jc.why).toMatch(/no result file, and After Effects exited 1/);
   });
 
+  it('on the macOS route, what osascript itself reported names the step: not allowed to control the app (-1743), or the Apple event timed out (-1712)', async () => {
+    const denied = macJob('author', { script: 'author.jsx' }, 'not-allowed');
+    const jd = judgeAeJob((await run(denied)).job, denied);
+    expect(jd.outcome).toBe('failed');
+    expect(jd.why).toMatch(/^macOS did not let osascript control After Effects \(osascript reported: Not authorized to send Apple events to Adobe After Effects 2026\. \(-1743\)\): allow your terminal under System Settings > Privacy & Security > Automation, then run again; no result file, and osascript exited 1/);
+    const slow = macJob('author', { script: 'author.jsx' }, 'crash');
+    const js = judgeAeJob((await run(slow)).job, slow);
+    expect(js.outcome).toBe('failed');
+    expect(js.why).toMatch(/^the Apple event to After Effects timed out \(osascript reported: .*AppleEvent timed out\. \(-1712\)\) and no result file was written: After Effects may still be running the script/);
+  });
+
   it('the new version missing after a result that says ok: failed', async () => {
     const s = job('author', { script: 'author.jsx' }, 'vanish-aep');
     const j = judgeAeJob((await run(s)).job, s);

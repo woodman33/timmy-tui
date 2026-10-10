@@ -808,8 +808,9 @@ export interface AeJudgement extends NativeJudgement { ae: AeReadback }
 
 const LIVE = new Set(['queued', 'running', 'ready']);
 
-/** The harness's own line for this run in the job's log (the last one), or undefined. */
-function statusLine(logPath: string, run: string): string | undefined {
+/** The last 64 KB of the job's log, or ''. */
+function logTail(logPath: string): string {
+  if (!logPath) return '';
   let fd: number | undefined;
   try {
     fd = openSync(logPath, 'r');
@@ -817,10 +818,28 @@ function statusLine(logPath: string, run: string): string | undefined {
     const n = Math.min(size, 64 * 1024);
     const buf = Buffer.alloc(n);
     readSync(fd, buf, 0, n, size - n);
-    const lines = buf.toString('utf8').split('\n').filter((l) => l.includes(`${AE_MARK} ${run}`));
-    const last = lines.at(-1)?.trim();
-    return last ? last.slice(last.indexOf(AE_MARK)) : undefined;
-  } catch { return undefined; } finally { if (fd !== undefined) closeSync(fd); }
+    return buf.toString('utf8');
+  } catch { return ''; } finally { if (fd !== undefined) closeSync(fd); }
+}
+
+/** The harness's own line for this run in the log (the last one), or undefined. */
+function statusLine(tail: string, run: string): string | undefined {
+  const last = tail.split('\n').filter((l) => l.includes(`${AE_MARK} ${run}`)).at(-1)?.trim();
+  return last ? last.slice(last.indexOf(AE_MARK)) : undefined;
+}
+
+/** What osascript itself reported, exactly: its last "execution error" and its code. */
+function osascriptError(tail: string): { text: string; code: number } | undefined {
+  const all = [...tail.matchAll(/execution error: (.*?) \((-?\d+)\)/g)];
+  const last = all.at(-1);
+  return last ? { text: last[1].trim(), code: Number(last[2]) } : undefined;
+}
+
+/** osascript's codes that name the step; anything else is quoted as it was reported. */
+function osascriptWhy(e: { text: string; code: number }): string {
+  if (e.code === -1743) return `macOS did not let osascript control After Effects (osascript reported: ${e.text} (-1743)): allow your terminal under System Settings > Privacy & Security > Automation, then run again`;
+  if (e.code === -1712) return `the Apple event to After Effects timed out (osascript reported: ${e.text} (-1712)) and no result file was written: After Effects may still be running the script, a dialog may be waiting in it, or the run needs a longer time limit`;
+  return `osascript reported: ${e.text} (${e.code}), and no result file was written`;
 }
 
 /** Whether a file at a path the result names is the file at `want` (both resolved, links followed when there). */
@@ -882,7 +901,9 @@ export function judgeAeJob(job: JobRecord, spec: AeJobSpec): AeJudgement {
   const sourceNow = a.source ? sha256File(a.source.path) : undefined;
   const sourceUnchanged = a.source ? (sourceNow === undefined ? false : sourceNow === a.source.sha256) : null;
   const saved = a.saved ? savedState(a.saved.path, a.saved.rel, spec.native.pre?.[a.saved.rel], spec.native.submittedMs ?? Date.parse(job.startedAt)) : undefined;
-  const status = job.logPath ? statusLine(job.logPath, spec.native.run) : undefined;
+  const tail = logTail(job.logPath);
+  const status = statusLine(tail, spec.native.run);
+  const reported = a.route === 'osascript' ? osascriptError(tail) : undefined;
   const comps = compsOf(r);
   const readback: AeReadback = {
     mode: a.mode, route: a.route, ...(a.appName ? { appName: a.appName } : {}),
@@ -900,45 +921,48 @@ export function judgeAeJob(job: JobRecord, spec: AeJobSpec): AeJudgement {
   };
   if (!job.stale && LIVE.has(job.state)) return { ...base, ae: readback };
 
+  // On the osascript route the exit recorded is osascript's (it asked After Effects to run the harness).
+  const baseWhy = a.route === 'osascript' ? base.why.replace(/\bAfter Effects (?=(?:exited|timed out|was stopped|ended|did not run|was left)\b)/g, 'osascript ') : base.why;
   let outcome = base.outcome;
-  let why = base.why;
+  let why = baseWhy;
   if (read.state === 'missing' && status && /\bresult=not-written\b/.test(status)) {
     outcome = 'failed';
     why = /\bwrite-preference=off\b/.test(status) ? AE_PREF_OFF
       : `the harness could not write its result file (${status.replace(/^.*?\breason=/, '') || 'no reason given'}), so it stopped before touching any project: check ${PREF} (${PREF_WHERE}) and that the project folder is writable`;
+  } else if (read.state === 'missing' && reported) {
+    // osascript's own report names the reason; the outcome stays the native module's (no result file).
+    why = `${osascriptWhy(reported)}; ${baseWhy}`;
   } else if (read.state === 'missing') {
-    why = `${base.why}; ${NO_RESULT_HINT}`;
+    why = `${baseWhy}; ${NO_RESULT_HINT}`;
   } else if (r?.stage === 'started' && status && /\bresult=not-written\b/.test(status)) {
     // The first write (the provisional result) worked and the last did not: the result file is not this run's ending.
     outcome = /\bok=true\b/.test(status) ? 'unknown' : 'failed';
-    why = `the harness ended (it said ${/\bok=true\b/.test(status) ? 'ok' : 'not ok'}) but could not write its final result (${status.replace(/^.*?\breason=/, '') || 'no reason given'}), so the result file still holds its first, provisional state; ${base.why}`;
+    why = `the harness ended (it said ${/\bok=true\b/.test(status) ? 'ok' : 'not ok'}) but could not write its final result (${status.replace(/^.*?\breason=/, '') || 'no reason given'}), so the result file still holds its first, provisional state; ${baseWhy}`;
   }
   if (outcome === 'ok') {
     if (harnessNow !== a.harness.sha256) {
       outcome = 'unknown';
-      why = `${a.harness.rel} ${harnessNow ? 'changed' : 'is gone'} since Timmy wrote it, so what ran cannot be bound to this run; ${base.why}`;
+      why = `${a.harness.rel} ${harnessNow ? 'changed' : 'is gone'} since Timmy wrote it, so what ran cannot be bound to this run; ${baseWhy}`;
     } else if (harnessRead && harnessRead !== a.harness.sha256) {
       outcome = 'unknown';
-      why = `After Effects read a harness whose sha256 is not the one Timmy wrote for this run; ${base.why}`;
+      why = `After Effects read a harness whose sha256 is not the one Timmy wrote for this run; ${baseWhy}`;
     } else if (a.saved && r && !samePath((r.project as { path?: unknown } | undefined)?.path, a.saved.path)) {
       const named = (r.project as { path?: unknown } | undefined)?.path;
       outcome = 'failed';
-      why = `the result names ${typeof named === 'string' && named ? 'another file' : 'no file'} as the saved project, not ${a.saved.rel}; ${base.why}`;
+      why = `the result names ${typeof named === 'string' && named ? 'another file' : 'no file'} as the saved project, not ${a.saved.rel}; ${baseWhy}`;
     }
   }
   if (a.source && sourceUnchanged === false) {
     outcome = 'failed';
-    why = `${a.source.rel} ${sourceNow ? 'changed' : 'is gone'} during the run (its sha256 is not the one recorded at submission): Timmy never writes it, so the script or something else did${a.saved ? `; this run's new version is ${a.saved.rel}` : ''}; ${base.why}`;
+    why = `${a.source.rel} ${sourceNow ? 'changed' : 'is gone'} during the run (its sha256 is not the one recorded at submission): Timmy never writes it, so the script or something else did${a.saved ? `; this run's new version is ${a.saved.rel}` : ''}; ${baseWhy}`;
   }
   if (outcome === 'ok') {
     // The native module's sentence counts digests the script recorded; here the script records none: Timmy hashes.
-    const exit = base.why.includes('; ') ? base.why.slice(base.why.lastIndexOf('; ') + 2) : '';
+    const exit = baseWhy.includes('; ') ? baseWhy.slice(baseWhy.lastIndexOf('; ') + 2) : '';
     const what = a.saved && saved ? `${a.saved.rel} was created by this run (sha256 ${short(saved.sha256)}, computed by Timmy after the run)` : `${a.source?.rel} is unchanged`;
-    const reported = comps ? `; After Effects reported ${comps.length} comp${comps.length === 1 ? '' : 's'} (its own report)` : '';
-    why = `the result file is this run's, from ${spec.native.input?.path ?? 'its input'} as submitted, and says ok; ${what}${a.mode === 'edit' && a.source ? `; ${a.source.rel} is unchanged` : ''}${reported}${exit ? `; ${exit}` : ''}`;
+    const told = comps ? `; After Effects reported ${comps.length} comp${comps.length === 1 ? '' : 's'} (its own report)` : '';
+    why = `the result file is this run's, from ${spec.native.input?.path ?? 'its input'} as submitted, and says ok; ${what}${a.mode === 'edit' && a.source ? `; ${a.source.rel} is unchanged` : ''}${told}${exit ? `; ${exit}` : ''}`;
   }
-  // On the osascript route the exit recorded is osascript's (it asked After Effects to run the harness).
-  if (a.route === 'osascript') why = why.replace(/\bAfter Effects (?=(?:exited|timed out|was stopped|ended|did not run|was left)\b)/g, 'osascript ');
   const j: AeJudgement = { ...base, outcome, why, ae: readback };
   appendVerdict(spec.native.record, j, job.id);
   return j;
