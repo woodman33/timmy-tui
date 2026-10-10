@@ -234,6 +234,9 @@ export class IterateFlows {
       const why = route.error.replace(/\s*To run it anyway:.*$/, '');
       return route.refused === 'paid' ? refuse(`${why} /iterate runs only a local, free route, and has no --paid.`, 'estimate') : refuse(why);
     }
+    // One flow at a time per project: two agents on one parameter file would make each other's changes look foreign.
+    const busy = [...this.running.values()].find((f) => f.root === root);
+    if (busy) return refuse(`Flow ${busy.id} is still running in this project (its ${busy.step} step), and one flow at a time changes ${paramsPath()}: wait for it, or /stop ${busy.id}. Nothing was started.`, 'estimate');
     // The build needs the recipe's runtime, so it is checked before the agent runs (not after it has worked).
     const rt = nativeRuntime(env);
     if (!rt.ok) return refuse(`Not started: ${rt.why}. /iterate rebuilds the recipe after the agent, so the runtime comes first.`, 'estimate', this.say(`Setup: ${PYTHON_SETUP}, then /iterate again.`));
@@ -614,15 +617,23 @@ export class IterateFlows {
   /**
    * /stop all and the REPL's end: every flow is marked stopped, so none starts a next step; a flow in its build
    * asks the recipe's own cancel now (the jobs themselves are stopped by the caller, as this REPL's jobs).
-   * Returns how many flows were running.
+   * Returns how many flows were running, and a report of how each ended (it waits, at most `ms`, for them).
    */
-  abortAll(): number {
+  abortAll(): { count: number; report: (ms?: number) => Promise<string | undefined> } {
     const live = [...this.running.values()];
     for (const f of live) {
       f.abort.abort();
       if (f.step === 'build' && f.uuid) { try { cancel(f.root, f.uuid); } catch { /* status says */ } }
     }
-    return live.length;
+    return {
+      count: live.length,
+      report: async (ms = 20_000) => {
+        if (!live.length) return undefined;
+        await within(Promise.allSettled(live.map((f) => f.done)), ms);
+        const each = live.map((f) => `${f.id} ${f.step === 'done' ? f.record.outcome : `still stopping (in its ${f.step} step)`}`).join(', ');
+        return `Flows (/iterate): ${each}; none starts a next step, and each keeps its record in results/flows/.`;
+      },
+    };
   }
 
   /** Waits (at most `ms`) for every running flow to write its record. */

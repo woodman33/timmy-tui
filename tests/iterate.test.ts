@@ -495,6 +495,9 @@ describe('/stop stops the flow (FAKE pieces)', () => {
     const id = flowIdIn(out);
     const agent = agentJobIn(out);
     await until(() => (ws.jobs.get(agent)?.pid ?? 0) > 0);
+    // one flow at a time in a project: a second is refused while this one runs
+    expect(text(await ws.iterate('tray "PARAM:width=200"'))).toContain(`Flow ${id} is still running in this project (its agent step)`);
+    expect(ws.jobs.list()).toHaveLength(1);
     const stopped = text(await ws.stop(id));
     expect(stopped).toContain(`${id} cancelled`);
     expect(stopped).toContain('stopped with /stop during the agent step; nothing was built');
@@ -541,7 +544,7 @@ describe('/stop stops the flow (FAKE pieces)', () => {
     const second = flowIdIn(out);
     await until(() => (ws.jobs.get(agentJobIn(out))?.pid ?? 0) > 0);
     const all = text(await ws.stop('all'));
-    expect(all).toContain('Stopped 1 flow (/iterate)');
+    expect(all).toContain(`Flows (/iterate): ${second} cancelled; none starts a next step, and each keeps its record in results/flows/.`);
     expect(recordOf(second)).toMatchObject({ outcome: 'cancelled', ended_in: 'agent' });
   }, 150000);
 });

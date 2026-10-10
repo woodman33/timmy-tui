@@ -953,7 +953,7 @@ export class Workspace {
       const asking = [...this.observing.values()].filter((o) => o.asking);
       for (const o of this.observing.values()) o.abort.abort();
       const live = [...this.mine].map((x) => this.jobs.get(x)).filter((j): j is JobRecord => !!j && !TERMINAL.has(j.state));
-      if (!live.length && !asking.length && !flows) return this.say('Nothing this REPL started is running.');
+      if (!live.length && !asking.length && !flows.count) return this.say('Nothing this REPL started is running.');
       const [ended, asked] = await Promise.all([
         Promise.all(live.map((j) => this.jobs.stop(j.id))),
         Promise.all(asking.map((o) => (o.done ? within(o.done) : Promise.resolve(undefined)))),
@@ -973,7 +973,8 @@ export class Workspace {
           ? `Stopped ${n} model interpretation${n === 1 ? '; its measurement' : 's; their measurements'} had completed${rest ? `; ${rest} more had already ended` : ''}.`
           : `${rest} model interpretation${rest === 1 ? ' had' : 's had'} already ended when the stop came.`));
       }
-      if (flows) { await this.flows.settle(20_000); lines.push(...this.say(`Stopped ${flows} flow${flows === 1 ? '' : 's'} (/iterate): none starts a next step, and each keeps its record in results/flows/.`)); }
+      const flowsEnded = await flows.report();
+      if (flowsEnded) lines.push(...this.say(flowsEnded));
       return lines;
     }
     const j = this.jobs.get(id);
