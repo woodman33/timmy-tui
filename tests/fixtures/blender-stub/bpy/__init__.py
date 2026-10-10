@@ -11,9 +11,18 @@ As in Blender's factory startup, the scene's master collection has one child col
 active one: the primitive operators link their objects there (bpy.context.collection), not to
 scene.collection, so scene.collection.objects misses them and scene.objects (every object in the scene's
 collections) has them all. Round R3 found this on the Mac: the first real run listed 3 of 7 objects.
+
+Round R4 (/iterate blender, H26): the stand-in .blend that save_as_mainfile writes is JSON, and from R4 it also
+keeps a "data" section (each object's type, location, dimensions and materials, the camera, the frame range and
+the resolution). BPY_STUB_OPEN=<file> stands in for `blender -b <file>`: the module opens that stand-in .blend
+when it is imported (tests/fixtures/fake-blender.mjs sets it for /iterate's second pass, which runs
+workers/readback/blend_readback.py). A file that is not a stand-in .blend leaves no file open (bpy.data.filepath
+''), as Blender keeps its startup scene when it cannot read a file. Dimensions here come from the primitives'
+arguments (a plane has no depth), not from any geometry.
 """
 import json
 import os
+import sys
 
 
 class _Strict(object):
@@ -71,6 +80,15 @@ class Material(_Strict):
         if key == "use_nodes" and value and self.node_tree is None:
             object.__setattr__(self, "node_tree", _NodeTree())
 
+    @property
+    def users(self):
+        """How many meshes hold it (read-only, as in Blender; the stand-in counts meshes only)."""
+        return sum(1 for mesh in data.meshes if self in mesh.materials)
+
+    @property
+    def use_fake_user(self):
+        return False
+
 
 class _Mesh(object):
     def __init__(self, name):
@@ -124,8 +142,14 @@ class _Constraints(object):
         return c
 
 
+class _MaterialSlot(object):
+    def __init__(self, material):
+        self.material = material
+        self.name = material.name if material is not None else ""
+
+
 class Object(_Strict):
-    _fields = ("name", "data", "location", "rotation_euler", "scale", "constraints")
+    _fields = ("name", "data", "location", "rotation_euler", "scale", "constraints", "dimensions")
 
     def __init__(self, name, data):
         self.name = name
@@ -134,6 +158,23 @@ class Object(_Strict):
         self.rotation_euler = (0.0, 0.0, 0.0)
         self.scale = (1.0, 1.0, 1.0)
         self.constraints = _Constraints()
+        self.dimensions = (0.0, 0.0, 0.0)
+
+    @property
+    def type(self):
+        """From its data, read-only, as in Blender: MESH, CAMERA, LIGHT, or EMPTY with none."""
+        if isinstance(self.data, _Mesh):
+            return "MESH"
+        if isinstance(self.data, Camera):
+            return "CAMERA"
+        if isinstance(self.data, Light):
+            return "LIGHT"
+        return "EMPTY"
+
+    @property
+    def material_slots(self):
+        """A mesh object's slots, one per material its mesh holds."""
+        return [_MaterialSlot(m) for m in self.data.materials] if isinstance(self.data, _Mesh) else []
 
 
 class _IDs(object):
@@ -201,6 +242,9 @@ class _Data(object):
         self.cameras = _Cameras()
         self.lights = _Lights()
         self.meshes = _Meshes()
+        # the open .blend's path: '' until one is saved or opened (as in Blender); the scenes, set below
+        self.filepath = ""
+        self.scenes = []
 
 
 class _Linked(object):
@@ -335,6 +379,24 @@ class _App(object):
 data = _Data()
 context = _Context()
 app = _App()
+data.scenes.append(context.scene)
+
+
+def _dimensions(kind, dims):
+    """A primitive's size from its operator's arguments (the stand-in has no geometry to measure)."""
+    if kind == "plane":
+        s = float(dims.get("size", 2.0))
+        return (s, s, 0.0)
+    if kind == "cube":
+        s = float(dims.get("size", 2.0))
+        return (s, s, s)
+    if kind == "sphere":
+        r = float(dims.get("radius", 1.0))
+        return (2 * r, 2 * r, 2 * r)
+    if kind == "cylinder":
+        r = float(dims.get("radius", 1.0))
+        return (2 * r, 2 * r, float(dims.get("depth", 2.0)))
+    return (0.0, 0.0, 0.0)
 
 
 def _add_mesh(kind, location, **dims):
@@ -343,6 +405,7 @@ def _add_mesh(kind, location, **dims):
     mesh = data.meshes.new(kind)
     obj = data.objects.new(kind.capitalize(), mesh)
     obj.location = tuple(location)
+    obj.dimensions = _dimensions(kind, dims)
     context.collection.objects.link(obj)
     context.view_layer.objects.active = obj
     return {"FINISHED"}
@@ -366,18 +429,43 @@ class _MeshOps(object):
         return _add_mesh("cylinder", location, radius=radius, depth=depth)
 
 
+def _saved_object(o):
+    entry = {
+        "name": o.name, "type": o.type, "data": o.data.name if o.data is not None else None,
+        "location": list(o.location), "dimensions": list(o.dimensions), "materials": [s.material.name for s in o.material_slots],
+    }
+    if isinstance(o.data, Camera):
+        entry["lens"] = o.data.lens
+    if isinstance(o.data, Light):
+        entry["light_type"] = o.data.type
+    return entry
+
+
 class _WmOps(object):
     @staticmethod
     def save_as_mainfile(filepath="", check_existing=False):
         if not filepath.endswith(".blend"):
             return {"CANCELLED"}
+        scene = context.scene
+        r = scene.render
         with open(filepath, "w") as f:
             json.dump({
                 "stand-in blend": True,
-                "objects": sorted(o.name for o in context.scene.objects),
+                "objects": sorted(o.name for o in scene.objects),
                 "materials": [m.name for m in data.materials],
-                "camera": context.scene.camera.name if context.scene.camera else None,
+                "camera": scene.camera.name if scene.camera else None,
+                # R4 (H26): what /iterate's second pass reads back when this stand-in .blend is opened (BPY_STUB_OPEN)
+                "data": {
+                    "scene": {
+                        "name": scene.name, "camera": scene.camera.name if scene.camera else None,
+                        "frame_start": scene.frame_start, "frame_end": scene.frame_end,
+                        "resolution": [r.resolution_x, r.resolution_y], "resolution_percentage": r.resolution_percentage, "engine": r.engine,
+                    },
+                    "materials": [m.name for m in data.materials],
+                    "objects": [_saved_object(o) for o in scene.objects],
+                },
             }, f, sort_keys=True)
+        data.filepath = os.path.abspath(filepath)
         return {"FINISHED"}
 
 
@@ -403,3 +491,50 @@ class _Ops(object):
 
 
 ops = _Ops()
+
+
+def _open(path):
+    """`blender -b <path>` for the stand-in: the stand-in .blend's "data" made the open scene. A file that is not
+    one leaves nothing open (bpy.data.filepath stays ''), as Blender keeps its startup scene when a read fails."""
+    try:
+        with open(path) as f:
+            saved = json.load(f)
+        d = saved["data"]
+        objects = d["objects"]
+    except Exception as e:
+        sys.stderr.write("stand-in bpy: %s is not a stand-in .blend (%s); no file is open\n" % (os.path.basename(path), type(e).__name__))
+        return
+    mats = dict((name, data.materials.new(name)) for name in d.get("materials", []))
+    scene = context.scene
+    s = d.get("scene", {})
+    r = scene.render
+    scene.name = s.get("name", "Scene")
+    scene.frame_start = s.get("frame_start", 1)
+    scene.frame_end = s.get("frame_end", 250)
+    res = s.get("resolution") or [r.resolution_x, r.resolution_y]
+    r.resolution_x, r.resolution_y = res[0], res[1]
+    r.resolution_percentage = s.get("resolution_percentage", 100)
+    r.engine = s.get("engine", r.engine)
+    for od in objects:
+        kind = od.get("type")
+        if kind == "MESH":
+            obj_data = data.meshes.new(od.get("data") or od["name"])
+            obj_data.materials.extend(mats[m] for m in od.get("materials", []) if m in mats)
+        elif kind == "CAMERA":
+            obj_data = data.cameras.new(od.get("data") or od["name"])
+            obj_data.lens = od.get("lens", 50.0)
+        elif kind == "LIGHT":
+            obj_data = data.lights.new(od.get("data") or od["name"], type=od.get("light_type", "SUN"))
+        else:
+            obj_data = None
+        obj = data.objects.new(od["name"], obj_data)
+        obj.location = tuple(od.get("location", (0.0, 0.0, 0.0)))
+        obj.dimensions = tuple(od.get("dimensions", (0.0, 0.0, 0.0)))
+        context.collection.objects.link(obj)
+    if s.get("camera"):
+        scene.camera = data.objects.get(s["camera"])
+    data.filepath = os.path.abspath(path)
+
+
+if os.environ.get("BPY_STUB_OPEN"):
+    _open(os.environ["BPY_STUB_OPEN"])

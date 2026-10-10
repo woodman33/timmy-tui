@@ -232,6 +232,8 @@ export class Workspace {
       startAgent: (name, task, o) => this.startAgentRun(name, task, o),
       startRecipe: (root, project, given) => startRecipeJob({ ...this.recipeContext(), root, project }, given),
       scrub: (t, root) => this.scrub(t, root),
+      // R4 (H26): /iterate blender's Blender run, started and adopted as /blender's (judged and sealed at its end).
+      startNative: (spec) => { const job = this.jobs.start(spec); try { noteNativeStarted(spec, job); } catch { /* the record says it was submitted */ } this.adoptNative(job.id, spec); return job; },
       ...(d.iterateTest ? { test: d.iterateTest } : {}),
     });
   }

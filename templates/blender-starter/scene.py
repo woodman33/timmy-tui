@@ -8,6 +8,8 @@ Exercised once on a real Blender (5.2.2 LTS on macOS, round R3, as a Timmy job):
 rendered the PNG, and a second, independent headless Blender read the .blend back with all 7 objects and
 3 materials. That run's result file listed only 3 objects (the master collection's own); the list now
 comes from scene.objects and that fix has run only against the stand-in `bpy` (tests/native-blender.test.ts).
+Round R4: the result also reports the active camera, which /iterate blender's second pass compares with the
+saved .blend; that too has run only against the stand-in.
 
 What it writes (under TIMMY_OUT, default ./out):
   scene.blend        the editable scene (bpy.ops.wm.save_as_mainfile): open it in Blender
@@ -135,6 +137,8 @@ def main(run):
         # scene.objects is every object in the scene; scene.collection.objects only the master collection's
         # own, which misses the primitives (the operators link them to the active collection).
         "objects": sorted(o.name for o in scene.objects), "materials": ["Timmy Green", "Off White"],
+        # R4: the active camera, which /iterate blender's second pass compares with the saved .blend
+        "camera": scene.camera.name if scene.camera else None,
         "args": timmy_blender.script_args(),
     }
 

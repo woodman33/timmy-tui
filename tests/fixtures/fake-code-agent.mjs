@@ -20,6 +20,11 @@
 //   PARAM:<name>=<value>  (one or more) sets those parameters in the file, keeping its schema and recipe fields
 //   PARAMSBAD             writes the file with a width the recipe refuses (5 mm)
 //   OTHERFILE             also writes notes/other.txt, a file /iterate does not allow it to change
+// For /iterate blender (round R4, H26), on a Blender scene script: scene.py, or the file PYFILE:<path> names:
+//   PYREPLACE:<old>=><new>  (one or more) replaces every <old> in it with <new> (neither has spaces)
+//   PYCLAIM:<name>          makes the script's result claim a material it does not make: the Blender starter's
+//                           "materials": ["Timmy Green", "Off White"] gains "<name>"
+//   PYBREAK                 appends lines that are not Python (a syntax error)
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -75,6 +80,18 @@ if (task.includes('SLEEP')) {
     writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`);
     emit({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'p1', name: 'edit', input: { file_path: file, old_string: 'x', new_string: 'y' } }] } });
     emit({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'p1', content: 'ok' }] } });
+  }
+  const pyEdits = [...task.matchAll(/PYREPLACE:(\S+?)=>(\S+)/g)];
+  const claims = [...task.matchAll(/PYCLAIM:([A-Za-z]+)/g)];
+  if (pyEdits.length || claims.length || task.includes('PYBREAK')) {
+    const file = join(cwd, task.match(/PYFILE:(\S+)/)?.[1] ?? 'scene.py');
+    let text = readFileSync(file, 'utf8');
+    for (const [, from, to] of pyEdits) text = text.split(from).join(to);
+    for (const [, name] of claims) text = text.replace('"Off White"],', `"Off White", "${name}"],`);
+    if (task.includes('PYBREAK')) text += '\ndef broken(:\n    pass\n';
+    writeFileSync(file, text);
+    emit({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'b1', name: 'edit', input: { file_path: file, old_string: 'x', new_string: 'y' } }] } });
+    emit({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'b1', content: 'ok' }] } });
   }
   if (task.includes('OTHERFILE')) {
     mkdirSync(join(cwd, 'notes'), { recursive: true });

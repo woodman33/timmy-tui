@@ -159,7 +159,7 @@ export const COMMANDS: SlashCommand[] = [
   // Round R3 (helper H13): a code agent as a durable, cancellable job.
   { name: 'agent', group: 'work', description: 'A code agent as a job: /agent qwen <task>', run: inWorkspace((w, a) => (w.agent ? w.agent(a) : [[{ text: '  Code agents are not available here.', role: 'secondary' }]])) },
   // Round R4 (helper H24): the connected flow: agent, durable rebuild, independent readback, on the board.
-  { name: 'iterate', group: 'work', description: 'Agent edits params, tray rebuilds: /iterate', run: inWorkspace((w, a) => (w.iterate ? w.iterate(a) : [[{ text: '  /iterate is not available here.', role: 'secondary' }]])) },
+  { name: 'iterate', group: 'work', description: 'Agent edits; tray/Blender rebuilds: /iterate', run: inWorkspace((w, a) => (w.iterate ? w.iterate(a) : [[{ text: '  /iterate is not available here.', role: 'secondary' }]])) },
   {
     name: 'web',
     group: 'look',

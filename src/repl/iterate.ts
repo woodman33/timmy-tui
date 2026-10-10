@@ -36,6 +36,10 @@ import {
   writeFlowRecord, writeProjectJson, type FlowOutcome, type FlowRecord, type FlowStep, type ReadbackFailure, type ReadbackMeasured,
 } from '../flows/iterate.js';
 import type { RecipeStarted } from './recipe.js';
+// R4 (H26): /iterate blender <script.py> "<instruction>", run by src/repl/iterate-blender.ts.
+import { BLENDER_USAGE, BlenderFlows, type BlenderIterateRequest } from './iterate-blender.js';
+import { blenderFlowSummary } from '../flows/iterate-blender.js';
+import type { NativeJobSpec } from '../native/index.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import type { ReceiptInput } from '../utils/receipts.js';
@@ -72,6 +76,8 @@ export interface IterateDeps {
   startRecipe: (root: string, project: string, given: Record<string, unknown>) => Promise<RecipeStarted>;
   /** Writes the project's folder as "." and the home folder as "~". */
   scrub: (text: string, root: string) => string;
+  /** R4 (H26): starts a native job as this REPL's own, judged and sealed at its end as /blender's are. */
+  startNative?: (spec: NativeJobSpec) => JobRecord;
   test?: IterateTestSeams;
 }
 
@@ -79,13 +85,20 @@ export interface IterateRequest { recipe: 'tray'; instruction: string; agent: Ag
 
 const USAGE = '/iterate tray "<instruction>" [--agent qwen] [--model <local model>]';
 
-/** `/iterate tray "<instruction>" [--agent qwen] [--model <m>]`: the request, or why it is refused (nothing started). */
-export function parseIterateLine(args: string): { ok: true; request: IterateRequest } | { ok: false; error: string } {
+/**
+ * `/iterate tray "<instruction>" [--agent qwen] [--model <m>]`, or (R4, H26) `/iterate blender <script.py> "<instruction>"`
+ * with the same options: the request, or why it is refused (nothing started).
+ */
+export function parseIterateLine(args: string): { ok: true; request: IterateRequest | BlenderIterateRequest } | { ok: false; error: string } {
   const words = splitCommandLine(args.trim());
   const [what, ...rest] = words;
   if (!what) return { ok: false, error: `Usage: ${USAGE}` };
-  if (what === 'blender') return { ok: false, error: '/iterate blender is not built yet: /iterate tray "<instruction>" is the one flow. Nothing was started.' };
-  if (what !== 'tray' && what !== RECIPE_ID) return { ok: false, error: `No recipe ${what}: /iterate takes tray (${RECIPE_ID}). Usage: ${USAGE}` };
+  // R4 (H26): a Blender script's flow names its script first.
+  let script: string | undefined;
+  if (what === 'blender') {
+    script = rest.shift();
+    if (!script || script.startsWith('--')) return { ok: false, error: `Name the script: ${BLENDER_USAGE}` };
+  } else if (what !== 'tray' && what !== RECIPE_ID) return { ok: false, error: `No recipe ${what}: /iterate takes tray (${RECIPE_ID}) or blender <script.py>. Usage: ${USAGE}` };
   let agent: string | undefined;
   let model: string | undefined;
   const text: string[] = [];
@@ -105,11 +118,12 @@ export function parseIterateLine(args: string): { ok: true; request: IterateRequ
     text.push(w);
   }
   const instruction = text.join(' ').trim();
-  if (!instruction) return { ok: false, error: `Say what to change: ${USAGE}` };
+  if (!instruction) return { ok: false, error: `Say what to change: ${script ? BLENDER_USAGE : USAGE}` };
   const name = (agent ?? 'qwen').toLowerCase();
   if (!AGENT_NAMES.includes(name as AgentName)) return { ok: false, error: `No agent named ${agent}: /iterate runs qwen (Qwen Code on a local endpoint). Nothing was started.` };
   if (name !== 'qwen') return { ok: false, error: `${AGENTS[name as AgentName].title} runs on your own account and costs money; /iterate runs only a local, free route (--agent qwen, on a local endpoint). Nothing was started.` };
-  return { ok: true, request: { recipe: 'tray', instruction, agent: 'qwen', ...(model?.trim() ? { model: model.trim() } : {}) } };
+  const chosen = { instruction, agent: 'qwen' as const, ...(model?.trim() ? { model: model.trim() } : {}) };
+  return { ok: true, request: script ? { recipe: 'blender', script, ...chosen } : { recipe: 'tray', ...chosen } };
 }
 
 interface FlowRun {
@@ -142,21 +156,27 @@ const fmt = (n: number): string => String(Math.round(n * 1000) / 1000);
 
 export class IterateFlows {
   private readonly running = new Map<string, FlowRun>();
+  /** R4 (H26): the Blender flows (src/repl/iterate-blender.ts); one flow of either kind at a time runs in a project. */
+  private readonly blender: BlenderFlows;
 
-  constructor(private readonly d: IterateDeps) {}
+  constructor(private readonly d: IterateDeps) {
+    this.blender = new BlenderFlows(d, (root) => { const f = [...this.running.values()].find((x) => x.root === root); return f ? { id: f.id, step: f.step } : undefined; });
+  }
 
   private get sep(): string { return ` ${this.d.glyphs.sep} `; }
   private say(text: string, role: Segment['role'] = 'secondary'): Line[] { return [[{ text: `  ${text}`, role }]]; }
 
   /** The flows this REPL is running (their ids). */
-  get active(): string[] { return [...this.running.keys()]; }
+  get active(): string[] { return [...this.running.keys(), ...this.blender.active]; }
 
   /** `/iterate` (usage and the project's flows), or `/iterate tray "<instruction>" …` (starts one). */
   async command(args: string, at: { root: string; project: string }): Promise<Line[]> {
     const a = args.trim();
     if (!a) return this.usage(at);
     const p = parseIterateLine(a);
-    if (!p.ok) return this.say(p.error, /^Usage|^Say what/.test(p.error) ? 'secondary' : 'failure');
+    if (!p.ok) return this.say(p.error, /^Usage|^Say what|^Name the script/.test(p.error) ? 'secondary' : 'failure');
+    // R4 (H26): /iterate blender <script.py> "<instruction>"
+    if (p.request.recipe === 'blender') return (await this.blender.start(p.request, at)).lines;
     return (await this.start(p.request, at)).lines;
   }
 
@@ -194,6 +214,7 @@ export class IterateFlows {
     lines.push(rt.ok
       ? [{ text: '  Runtime    ', role: 'secondary' }, { text: 'TIMMY_CADQUERY_PYTHON is set', role: 'strong' }, { text: `${this.sep}it builds the recipe and reads its STEP back; checked when a flow runs, not now`, role: 'secondary' }]
       : [{ text: '  Runtime    ', role: 'secondary' }, { text: rt.why, role: 'estimate' }, { text: `${this.sep}${PYTHON_SETUP}`, role: 'secondary' }]);
+    lines.push(...this.blender.usageLines()); // R4 (H26)
     const flows = this.flowRows(at.root);
     lines.push([{ text: '  Flows      ', role: 'secondary' }, { text: flows.length ? 'newest first' : 'none yet in this project', role: 'secondary' }]);
     for (const r of flows.slice(0, 8)) lines.push(r);
@@ -207,10 +228,11 @@ export class IterateFlows {
     const rows: Line[] = [];
     const live = [...this.running.values()].filter((f) => f.root === root);
     for (const f of live) rows.push([{ text: `    ${g.bullet} ` }, { text: f.id, role: 'strong' }, { text: `  running: the ${f.step} step${this.sep}/stop ${f.id}${this.sep}${this.d.scrub(f.record.instruction, root).slice(0, 60)}`, role: 'secondary' }]);
+    rows.push(...this.blender.runningRows(root)); // R4 (H26)
     for (const { rel, record } of listFlows(root)) {
-      if (live.some((f) => f.id === record.id)) continue;
+      if (live.some((f) => f.id === record.id) || this.blender.has(record.id)) continue;
       const ok = record.outcome === 'succeeded';
-      const diff = record.parameters?.diff ? diffText(record.parameters.diff, g.arrow) : '';
+      const diff = record.parameters?.diff ? diffText(record.parameters.diff, g.arrow) : blenderFlowSummary(record);
       const verdict = record.readback?.verdict ? `${this.sep}readback ${record.readback.verdict}` : '';
       rows.push([{ text: `    ${ok ? g.ok : record.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok ? undefined : record.outcome === 'cancelled' ? undefined : 'failure' }, { text: record.id, role: 'strong' },
         { text: `  ${String(record.outcome).padEnd(9)} ${diff}${verdict}${this.sep}${rel}`, role: 'secondary' }]);
@@ -235,7 +257,7 @@ export class IterateFlows {
       return route.refused === 'paid' ? refuse(`${why} /iterate runs only a local, free route, and has no --paid.`, 'estimate') : refuse(why);
     }
     // One flow at a time per project: two agents on one parameter file would make each other's changes look foreign.
-    const busy = [...this.running.values()].find((f) => f.root === root);
+    const busy = [...this.running.values()].find((f) => f.root === root) ?? this.blender.runningIn(root);
     if (busy) return refuse(`Flow ${busy.id} is still running in this project (its ${busy.step} step), and one flow at a time changes ${paramsPath()}: wait for it, or /stop ${busy.id}. Nothing was started.`, 'estimate');
     // The build needs the recipe's runtime, so it is checked before the agent runs (not after it has worked).
     const rt = nativeRuntime(env);
@@ -598,6 +620,7 @@ export class IterateFlows {
 
   /** `/stop <flow-id>`: stops the step that runs, waits for the record, and says what happened. */
   async stop(id: string, root: string): Promise<Line[]> {
+    if (this.blender.has(id)) return this.blender.stop(id); // R4 (H26)
     const f = this.running.get(id);
     if (!f) {
       const known = FLOW_ID.test(id) ? listFlows(root).find((x) => x.record.id === id) : undefined;
@@ -625,12 +648,13 @@ export class IterateFlows {
       f.abort.abort();
       if (f.step === 'build' && f.uuid) { try { cancel(f.root, f.uuid); } catch { /* status says */ } }
     }
+    const blender = this.blender.abortAll(); // R4 (H26)
     return {
-      count: live.length,
+      count: live.length + blender.count,
       report: async (ms = 20_000) => {
-        if (!live.length) return undefined;
-        await within(Promise.allSettled(live.map((f) => f.done)), ms);
-        const each = live.map((f) => `${f.id} ${f.step === 'done' ? f.record.outcome : `still stopping (in its ${f.step} step)`}`).join(', ');
+        if (!live.length && !blender.count) return undefined;
+        await within(Promise.allSettled([...live.map((f) => f.done), ...blender.done]), ms);
+        const each = [...live.map((f) => `${f.id} ${f.step === 'done' ? f.record.outcome : `still stopping (in its ${f.step} step)`}`), ...blender.describe()].join(', ');
         return `Flows (/iterate): ${each}; none starts a next step, and each keeps its record in results/flows/.`;
       },
     };
@@ -638,6 +662,6 @@ export class IterateFlows {
 
   /** Waits (at most `ms`) for every running flow to write its record. */
   async settle(ms = 30_000): Promise<void> {
-    await within(Promise.allSettled([...this.running.values()].map((f) => f.done)), ms);
+    await within(Promise.allSettled([...[...this.running.values()].map((f) => f.done), ...this.blender.pending()]), ms);
   }
 }
