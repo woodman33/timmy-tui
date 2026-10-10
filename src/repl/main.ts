@@ -573,7 +573,9 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     if (text === 'exit' || text === 'quit') break;
     if (text.startsWith('/')) {
       const ctx = { agent, print: say, glyphs: theme.glyphs, themeInfo: d.themeInfo, receipts: d.receipts, openWatch: d.openWatch, openWeb: d.openWeb, setup: d.setup, lanes: d.lanes, openCenter: d.openCenter, canvas: d.canvas, tools: d.tools, workspace: d.workspace };
-      if ((await runSlash(text, ctx)) === 'exit') break;
+      // Round R4 (H51): each typed line is one operation (src/ops): what it starts or seals carries its id.
+      const slash = (): ReturnType<typeof runSlash> => runSlash(text, ctx);
+      if ((await (d.workspace?.operate ? d.workspace.operate(text, 'repl', slash) : slash())) === 'exit') break;
       region.commit(['']);
       continue;
     }
@@ -604,7 +606,9 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     };
     const stopWatching = interactive ? watchCtrlC(d.stdin, session, onCtrlC) : () => {};
     if (caps.animate) session.hideCursor();
-    const result = await runTurn(agent, transcript, text, Date.now, turnMarks, controller.signal, d.seal, abandon, { inspect: d.inspect });
+    // Round R4 (H51): a turn is one operation too: the runs its tools start and its receipt carry its id.
+    const turn = (): ReturnType<typeof runTurn> => runTurn(agent, transcript, text, Date.now, turnMarks, controller.signal, d.seal, abandon, { inspect: d.inspect });
+    const result = await (d.workspace?.operate ? d.workspace.operate(text, 'repl', turn) : turn());
     stopWatching();
     if (!interactive && result === 'failed') status = EXIT.failure;
     if (interactive) region.commit(['']);

@@ -43,6 +43,8 @@ import {
   plyHeaderMetrics, ROBOFLOW_BRIDGE, roboflowClaims, roboflowReady, SETUP, splatMetrics, stepMetrics, stepReady, stlMetrics, valueWords, videoMetrics, videoReady,
   videoSampleMetrics, type ToolEnv,
 } from '../vox/tools.js';
+// R4 (H51): each record names the operation (one request) that started its action.
+import { operationField } from '../ops/context.js';
 
 type Line = Segment[];
 
@@ -190,6 +192,7 @@ export class VoxActions {
     const command = `/${action} ${[...resolved.map((r) => voxArg(r.input.path) ?? r.input.path), ...optionWords(action, parsed.opts)].join(' ')}`;
     const record: VoxRecord = {
       schema: VOX_SCHEMA, id, action, command, made_at: new Date().toISOString(), project: at.project, status: 'ok',
+      ...operationField('vox', id), // R4 (H51): the request that started it
       inputs: resolved.map((r) => r.input), tools: [], metrics: [], highlights: [], failures: [], notes: [],
       ...(resolved.some((r) => isGeometry(r.input.kind)) ? { doctrine: DOCTRINE_15 } : {}),
     };

@@ -120,6 +120,11 @@ export interface WorkspaceViews {
   measure?(args: string): Promise<Segment[][]>;
   detect?(args: string): Promise<Segment[][]>;
   compare?(args: string): Promise<Segment[][]>;
+  /** Round R4 (helper H51): one operation in full (/op [id]) and the recent operations (/ops). */
+  op?(args: string): Segment[][];
+  opsView?(args: string): Segment[][];
+  /** Round R4 (helper H51): runs one request (a typed line) as an operation: what it starts or seals carries its id. */
+  operate?<T>(request: string, via: 'repl' | 'board' | 'act', run: () => T | Promise<T>): Promise<T>;
 }
 
 /** /help's sections, in order: what you work on, what you look at, setup, the session. */
@@ -177,6 +182,9 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'compare', group: 'look', raw: true, description: 'Two files of one kind: /compare <a> <b>', run: inWorkspace((w, a) => (w.compare ? w.compare(a) : [[{ text: '  VoxVision is not available here.', role: 'secondary' }]])) },
   // Round R3: `/board live` and `/board off` go to the live board; `/board` alone stays the snapshot.
   { name: 'board', group: 'look', description: 'A board of the project; /board live | off', run: inWorkspace((w, a) => (w.boardLive && /^(?:live|off)$/.test(a.trim()) ? w.boardLive(a) : w.board(a))) },
+  // Round R4 (helper H51): operations, one request each, followed through what they made (also atop the Control Room).
+  { name: 'op', group: 'look', description: 'One request in full: /op [<id>]', run: inWorkspace((w, a) => (w.op ? w.op(a) : [[{ text: '  Operations are not available here.', role: 'secondary' }]])) },
+  { name: 'ops', group: 'look', description: 'Recent operations, running first', run: inWorkspace((w, a) => (w.opsView ? w.opsView(a) : [[{ text: '  Operations are not available here.', role: 'secondary' }]])) },
   // Round R4 (helper H48): the Control Room, also a section of the board.
   { name: 'room', group: 'look', description: 'Control Room: runs, costs, tools; /room <id>', run: inWorkspace((w, a) => (w.room ? w.room(a) : [[{ text: '  The Control Room is not available here.', role: 'secondary' }]])) },
   { name: 'c4d', group: 'work', description: 'Cinema 4D Python as a job: /c4d <script.py>', run: inWorkspace((w, a) => w.c4d(a)) },

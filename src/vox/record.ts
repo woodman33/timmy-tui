@@ -120,6 +120,8 @@ export interface VoxRecord {
   command: string;
   made_at: string;
   project: string;
+  /** Round R4 (H51): the operation (one request) that started the action (src/ops/context.ts); absent before, or outside one */
+  operation?: string;
   status: VoxStatus;
   inputs: VoxInput[];
   tools: VoxToolRun[];

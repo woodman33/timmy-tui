@@ -7,6 +7,8 @@
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Role, Segment } from '../term/theme.js';
 import { costsLine, findRun, needsSetup, NOT_OURS, setupCounts, type Room, type RoomRun, type RoomView, type Tone } from './index.js';
+import { mark as opMark } from '../ops/card-text.js';
+import type { CardTone } from '../ops/card.js';
 
 type Line = Segment[];
 
@@ -17,6 +19,7 @@ export interface RoomTextOptions {
 }
 
 const TONE_ROLE: Readonly<Record<Tone, Role | undefined>> = { running: 'estimate', ok: undefined, failed: 'failure', stopped: 'secondary', attention: 'estimate', neutral: undefined };
+const OP_ROLE: Readonly<Record<CardTone, Role | undefined>> = TONE_ROLE;
 const stamp = (iso: string | undefined): string => (iso && !Number.isNaN(Date.parse(iso)) ? `${new Date(iso).toISOString().slice(0, 16).replace('T', ' ')} UTC` : 'an unknown time');
 
 function mark(r: RoomRun, g: GlyphSet): string {
@@ -39,7 +42,8 @@ export function runLines(r: RoomRun, o: RoomTextOptions, indent = '    '): Line[
     { text: r.state, role: TONE_ROLE[r.tone] },
     { text: `${sep}${what}`, role: 'secondary' },
   ]];
-  const after = [r.partOf ?? '', `cost ${costWords(r)}`, r.receipt ? `receipt ${r.receipt}` : ''].filter(Boolean).join(sep);
+  // R4 (H51): its role in its operation, and the operation, where its record or receipt names them.
+  const after = [r.role ? `role ${r.role}` : '', r.operation ? `operation ${r.operation}` : '', r.partOf ?? '', `cost ${costWords(r)}`, r.receipt ? `receipt ${r.receipt}` : ''].filter(Boolean).join(sep);
   lines.push([{ text: `${indent}    ` }, { text: after, role: r.cost.kind === 'unknown' ? 'estimate' : 'secondary' }]);
   if (r.progress) lines.push([{ text: `${indent}    ${g.arrow} `, role: 'secondary' }, { text: r.progress }]);
   if (r.running) {
@@ -54,6 +58,16 @@ export function roomLines(v: RoomView, o: RoomTextOptions): Line[] {
   const g = o.glyphs;
   const sep = ` ${g.sep} `;
   const lines: Line[] = [[{ text: '  Control Room ', role: 'strong' }, { text: v.project, role: 'strong' }, { text: `  who runs what in this project, from the runs' own records and receipts`, role: 'secondary' }]];
+  // R4 (H51): the operations first, running first: each request with its runs and their roles (/op <id> in full).
+  if (v.operations) {
+    lines.push([{ text: '  OPERATIONS', role: 'strong' }, { text: v.operations.length ? `  ${v.operations.length} newest, running first; one in full: /op <id>` : '', role: 'secondary' }]);
+    if (!v.operations.length) lines.push([{ text: '    None recorded yet: a command that starts or seals something leaves one.', role: 'secondary' }]);
+    for (const c of v.operations) {
+      lines.push([{ text: `    ${opMark(c.tone, g)} ` }, { text: c.id, role: 'strong' }, { text: `  ${c.state}  `, role: OP_ROLE[c.tone] }, { text: c.request.length > 70 ? `${c.request.slice(0, 69)}…` : c.request }]);
+      for (const r of c.runs.slice(0, 8)) lines.push([{ text: `        ${r.kind} ${r.id}` }, { text: `  ${r.role}${sep}`, role: 'secondary' }, { text: r.state, role: OP_ROLE[r.tone] }]);
+      if (c.runs.length > 8) lines.push([{ text: `        and ${c.runs.length - 8} more: /op ${c.id}`, role: 'secondary' }]);
+    }
+  }
   lines.push([{ text: '  RUNNING NOW', role: 'strong' }]);
   if (!v.running.length) lines.push([{ text: '    Nothing runs in this project now.', role: 'secondary' }]);
   for (const r of v.running) lines.push(...runLines(r, o));
@@ -96,6 +110,8 @@ export function roomItemLines(room: Room, id: string, o: RoomTextOptions): Line[
   const when = [r.step ?? '', r.startedAt ? `started ${stamp(r.startedAt)}` : '', r.endedAt && !r.running ? `ended ${stamp(r.endedAt)}` : '', r.elapsed ?? ''].filter(Boolean).join(sep);
   if (when) lines.push([label('When'), { text: when }]);
   if (r.partOf) lines.push([label('Part of'), { text: r.partOf }]);
+  // R4 (H51): its role in its operation, and the operation (its card: /op <id>).
+  if (r.role || r.operation) lines.push([label('Role'), { text: [r.role ?? 'role not recorded', r.operation ? `operation ${r.operation} (/op ${r.operation})` : ''].filter(Boolean).join(sep) }]);
   if (r.progress) lines.push([label(r.running ? 'Progress' : 'Last said'), { text: r.progress }]);
   lines.push([label('Cost'), { text: costWords(r), role: r.cost.kind === 'unknown' ? 'estimate' : undefined }]);
   if (r.handoff?.length) {

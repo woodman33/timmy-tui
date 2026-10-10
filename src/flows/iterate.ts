@@ -267,6 +267,8 @@ export interface FlowRecord {
   recipe: typeof RECIPE_ID;
   instruction: string;
   project: string;
+  /** Round R4 (H51): the operation (one request) that started the flow (src/ops/context.ts); absent before, or outside one */
+  operation?: string;
   started_at: string;
   ended_at?: string;
   outcome: FlowOutcome;

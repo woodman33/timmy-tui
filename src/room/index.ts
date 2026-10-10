@@ -35,6 +35,7 @@ import { FLOWS_SHOWN, readBoardFlows, type BoardFlow, type BoardFlows } from '..
 import { flowKind, flowSteps, projectPath, type StepState } from '../repl/board-steps.js';
 import type { BoardObservation } from '../repl/board.js';
 import { declaredUnknownCostUsd, hasMeasuredCostUsd, type Receipt } from '../utils/receipts.js';
+import type { OperationCard } from '../ops/card.js';
 
 // ── the model ─────────────────────────────────────────────────────────────────
 
@@ -134,6 +135,10 @@ export interface RoomRun {
   handoff?: RoomStep[];
   /** for ordering: when it started (running) or last changed (recent), in ms */
   at: number;
+  /** R4 (H51): the operation (one request) it belongs to, as its record or receipt names it */
+  operation?: string;
+  /** R4 (H51): its role in its operation, from its kind: planner, builder, checker, observer, or "role not recorded" */
+  role?: string;
 }
 
 export interface RoomGroup { kind: RoomKind; title: string; running: RoomRun[]; recent: RoomRun[]; more: number; note?: string }
@@ -162,6 +167,8 @@ export interface RoomView {
   costs: RoomCosts;
   tools?: RoomTools;
   notes: string[];
+  /** R4 (H51): the recent operations, running first, each followed through what it made (src/ops/card.ts) */
+  operations?: OperationCard[];
 }
 
 export interface Room {

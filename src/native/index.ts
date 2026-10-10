@@ -59,6 +59,9 @@ import {
   type NativeInventory, type OutputChange, type SourceCheck,
 } from './provenance.js';
 
+// R4 (H51): each run's job.json names the operation (one request) it was submitted in.
+import { operationField } from '../ops/context.js';
+
 export type { NativeInventory, OutputChange, SourceCheck } from './provenance.js';
 
 export type NativeApp = 'c4dpy' | 'aerender' | 'blender' | 'afterfx' | 'openscad' | 'freecad';
@@ -454,6 +457,8 @@ export interface NativeRunJob {
   /** R4: what `pre` covers besides the expected outputs (out/, for the scripted apps) */
   inventory?: NativeInventory;
   frames?: { start?: number; end?: number };
+  /** Round R4 (H51): the operation (one request) the run was submitted in (src/ops/context.ts); absent before, or outside one */
+  operation?: string;
   /** R4 (H41): aerender: its output's folder was listed for files of the same name with other extensions */
   siblings?: OutputSiblings;
   /** R4 (H46): aerender: its own log folder beside the project, and whether it was there at submission */
@@ -498,6 +503,7 @@ export function writeSubmission(spec: NativeJobSpec): void {
     expect: m.expect, pre: m.pre ?? {}, ...(m.inventory ? { inventory: m.inventory } : {}), ...(m.frames ? { frames: m.frames } : {}),
     ...(m.siblings ? { siblings: m.siblings } : {}), ...(m.logs ? { logs: m.logs } : {}),
     started_at: new Date(m.submittedMs ?? Date.now()).toISOString(), timeout_ms: spec.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    ...operationField('native', m.run), // R4 (H51): the request it was submitted in
   };
   writeFileSync(path.join(dir, 'job.json'), `${JSON.stringify(job, null, 2)}\n`, { flag: 'wx' });
 }

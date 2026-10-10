@@ -6,6 +6,7 @@ import { publish as busPublish } from '../bus/index.js';
 import { signBody, verifyBody } from './signing.js';
 import { captureEnvLock, type EnvLock } from './envlock.js';
 import type { Edl } from './edl.js';
+import { stampReceipt } from '../ops/context.js';
 
 // TIMMY receipt chain v1 — the spine. Every effect appends a hash-chained,
 // tamper-evident receipt: plan → policy → effect → artifacts → cost → prev_hash.
@@ -100,6 +101,9 @@ export interface Receipt {
   // preserved unchanged as incident evidence; the verifier checks each epoch
   // segment independently so a clean release epoch can start after an incident.
   epoch?: number;
+  /** Round R4 (H51): the operation (one request: a REPL command, a live-board action, a `timmy act`) it was sealed in
+   *  (src/ops/context.ts); absent on receipts sealed outside one, and on every receipt sealed before */
+  operation_id?: string;
   prev_hash: string;
   hash: string;
 }
@@ -262,6 +266,9 @@ export function rotateEpoch(n: number, reason: string, dir?: string): void {
 }
 
 export function appendReceipt(stream: string, input: ReceiptInput, dir?: string): Receipt {
+  // Round R4 (H51): the one place a receipt is written carries the operation it is sealed in (operation_id), unless
+  // the input names one already; outside any operation the input is sealed as it is.
+  input = stampReceipt(input);
   return withChainLock(dir, () => {
     const epoch = currentEpoch(dir);
     const prev = lastReceipt(stream, dir);

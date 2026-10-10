@@ -46,6 +46,8 @@ import {
 import type { IterateDeps } from './iterate.js';
 import type { FlowLock } from './flow-lock.js';
 import type { Segment } from '../term/theme.js';
+// R4 (H51): each flow record names the operation (one request) that started it.
+import { operationField } from '../ops/context.js';
 
 type Line = Segment[];
 
@@ -192,6 +194,7 @@ export class BlenderFlows {
     const kept = keepBytes(root, `${flowWorkDir(id)}/script.before.py`, bytes);
     const record: BlenderFlowRecord = {
       flow: 1, schema: FLOW_SCHEMA, id, kind: 'iterate', target: 'blender', instruction: req.instruction, project, started_at: new Date().toISOString(), outcome: 'running',
+      ...operationField('flow', id), // R4 (H51): the request that started it
       script: { path: rel, before: { sha256: sha(bytes), bytes: bytes.length, lines: lineCount(beforeText), ...(kept ? { kept } : {}) } },
       agent: {
         run: s.run, agent: s.plan.agent, version: s.version, route: s.plan.charge, where: s.plan.where, model: s.plan.model, job: s.job.id,

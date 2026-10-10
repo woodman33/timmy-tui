@@ -66,6 +66,9 @@ import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import type { ReceiptInput } from '../utils/receipts.js';
 import { FlowLock, type FlowKind } from './flow-lock.js';
+// R4 (H51): each flow record names the operation (one request) that started it; a hold another process has refuses a start.
+import { operationField } from '../ops/context.js';
+import { holdWords } from '../ops/flow-hold.js';
 
 type Line = Segment[];
 /** A start refused before anything was written. */
@@ -267,29 +270,50 @@ export class IterateFlows {
    */
   private async exclusive<S>(kind: FlowKind, root: string, start: () => Promise<S>): Promise<S | Refused> {
     const t = this.lock.take(root, kind);
-    if (!t.ok) return this.busyRefusal(kind, { ...(t.by.id ? { id: t.by.id } : {}), step: 'prepare' });
+    // R4 (H51): a hold another live Timmy process has on the project (or a hold file that cannot be written) refuses it too.
+    if (!t.ok) return t.by.error ? this.holdRefusal(t.by.error) : this.busyRefusal(kind, { ...(t.by.id ? { id: t.by.id } : {}), step: 'prepare', ...(t.by.elsewhere ? { elsewhere: holdWords(t.by.elsewhere) } : {}) });
+    let kept = false;
     try {
       // R4 (H46, ledger row 153): a flow already running in the project is named before any other check of the start (its
       // file, its route, its app): on the Mac, /iterate scad answered "No model at box.scad" while a tray flow ran there.
       const busy = [...this.running.values()].find((f) => f.root === root) ?? this.otherIn(root);
       if (busy) return this.busyRefusal(kind, busy);
-      return await start();
-    } finally { this.lock.release(t.hold); }
+      const s = await start();
+      // R4 (H51): the project's hold file stays until the flow this start made has ended.
+      const made = s as { ok?: boolean; flow?: { done?: Promise<unknown> } };
+      if (made.ok && made.flow?.done) { this.lock.keepUntil(t.hold, made.flow.done); kept = true; }
+      return s;
+    } finally { this.lock.release(t.hold, { keepFile: kept }); }
   }
 
   /** A start refused because a flow runs, or is being started, in its project: the refused kind's words, nothing written. */
-  private busyRefusal(kind: FlowKind, busy: { id?: string; step: string }): Refused {
-    const who = busy.id ? `Flow ${busy.id} is still running in this project (its ${busy.step} step)` : `A flow is being started in this project (its ${busy.step} step)`;
+  private busyRefusal(kind: FlowKind, busy: { id?: string; step: string; elsewhere?: string }): Refused {
+    // R4 (H51): a flow in another Timmy process is named with that process; it is stopped there, not from here.
+    const who = busy.elsewhere
+      ? `${busy.id ? `Flow ${busy.id} is still running` : 'A flow is being started'} in this project ${busy.elsewhere}`
+      : busy.id ? `Flow ${busy.id} is still running in this project (its ${busy.step} step)` : `A flow is being started in this project (its ${busy.step} step)`;
     const rule = kind === 'tray' ? `one flow at a time changes ${paramsPath()}` : 'one flow at a time runs in a project (an agent\'s before/after comparison covers all of it)';
-    const error = `${who}, and ${rule}: wait for it${busy.id ? `, or /stop ${busy.id}` : ''}. Nothing was started.`;
+    const error = `${who}, and ${rule}: wait for it${busy.elsewhere ? ', or stop it in the Timmy that runs it' : busy.id ? `, or /stop ${busy.id}` : ''}. Nothing was started.`;
     return { ok: false, error, lines: this.say(error, 'estimate') };
   }
 
-  /** R4 review (R4-3): the flow of any kind running in a project, or being started there (its id once it has one). */
-  runningIn(root: string): { id?: string; step: string } | undefined {
+  /** R4 (H51): the project's hold file could not be taken: one flow at a time across processes needs it, so nothing starts. */
+  private holdRefusal(why: string): Refused {
+    const error = `Not started: ${why}; one flow at a time across Timmy processes needs it. Nothing was started.`;
+    return { ok: false, error, lines: this.say(error, 'failure') };
+  }
+
+  /**
+   * R4 review (R4-3): the flow of any kind running in a project, or being started there (its id once it has one). R4 (H51):
+   * also one another live Timmy process runs there (its hold file), with that process in words (`elsewhere`).
+   */
+  runningIn(root: string): { id?: string; step: string; elsewhere?: string } | undefined {
     const tray = [...this.running.values()].find((f) => f.root === root);
     const held = this.lock.holder(root);
-    return tray ? { id: tray.id, step: tray.step } : this.otherIn(root) ?? (held ? { ...(held.id ? { id: held.id } : {}), step: 'prepare' } : undefined);
+    const here = tray ? { id: tray.id, step: tray.step } : this.otherIn(root) ?? (held ? { ...(held.id ? { id: held.id } : {}), step: 'prepare' } : undefined);
+    if (here) return here;
+    const other = this.lock.elsewhere(root);
+    return other ? { ...(other.flow ? { id: other.flow } : {}), step: 'running', elsewhere: holdWords(other) } : undefined;
   }
 
   private get sep(): string { return ` ${this.d.glyphs.sep} `; }
@@ -461,6 +485,7 @@ export class IterateFlows {
     }
     const record: FlowRecord = {
       flow: 1, schema: FLOW_SCHEMA, id, kind: 'iterate', recipe: RECIPE_ID, instruction: req.instruction, project, started_at: new Date().toISOString(), outcome: 'running',
+      ...operationField('flow', id), // R4 (H51): the request that started it
       parameters: { path: rel, created, before },
       agent: {
         run: s.run, agent: s.plan.agent, version: s.version, route: s.plan.charge, where: s.plan.where, model: s.plan.model, job: s.job.id,

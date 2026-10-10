@@ -668,7 +668,7 @@ export interface EditContext {
   /** seals the edit's receipt on the runs chain; its short id back */
   seal?: (input: ReceiptInput) => string | undefined;
   /** R4 review (R4-3): the /iterate flow running in this project, or being started there (src/repl/iterate.ts runningIn) */
-  flowIn?: () => { id?: string; step: string } | undefined;
+  flowIn?: () => { id?: string; step: string; elsewhere?: string } | undefined;
   /** R4 (H47): the OpenSCAD models whose parameter file the board shows now (`set-scad-params` saves only these) */
   scadModels?: readonly string[];
 }

@@ -22,6 +22,8 @@ import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, rea
 import path from 'node:path';
 import { groupLive } from '../runtime/process-group.js';
 import { killProcessGroup, spawnProcess, type ProcessOutcome } from '../runtime/spawn-runtime.js';
+// Round R4 (H51): each job carries the operation that started it; its callbacks run back inside that operation.
+import { inOperationId, jobEnvironment, operationField, OPERATION_ID } from '../ops/context.js';
 
 export type JobKind = 'task' | 'workflow' | 'server';
 export type JobState = 'queued' | 'running' | 'ready' | 'completed' | 'failed' | 'cancelled';
@@ -63,6 +65,9 @@ export interface JobRecord {
    *  process runs, the job's first process is its child; a later session's recovery tells by this whether the job was
    *  left running by a REPL that ended (src/repl/recover.ts). Absent in records written before R4 (H46). */
   owner?: { pid: number; startedAt: string };
+  /** Round R4 (H51): the operation (one request) that started the job (src/ops/context.ts); its process gets it as
+   *  TIMMY_OPERATION. Absent in records written before, and for a job no request started. */
+  operation?: string;
 }
 export interface JobSpec {
   kind: JobKind; label: string; project: string; root: string;
@@ -159,6 +164,8 @@ export class JobManager {
       id, kind: spec.kind, label: spec.label, project: spec.project, root: path.resolve(spec.root),
       command: spec.command, args: [...spec.args], state: 'queued', startedAt: this.stamp(),
       steps: [], logPath: this.logFile(id), lines: 0, owner: { ...OWNER },
+      // Round R4 (H51): the operation this job is started in, if any (and the run noted with it).
+      ...operationField('job', id),
     };
     let resolveDone: (job: JobRecord) => void = () => undefined;
     const done = new Promise<JobRecord>((resolve) => { resolveDone = resolve; });
@@ -266,7 +273,8 @@ export class JobManager {
     let started: ReturnType<typeof spawnProcess>;
     try {
       started = spawnProcess(job.command, job.args, {
-        cwd: job.root, env: { ...process.env, ...spec.env }, detached: true, capture: false,
+        // Round R4 (H51): TIMMY_OPERATION is the job's own operation, or absent (never one inherited from elsewhere).
+        cwd: job.root, env: jobEnvironment(process.env, spec.env, job.operation), detached: true, capture: false,
         onStdout: (text) => this.output(entry, entry.out, text),
         onStderr: (text) => this.output(entry, entry.err, text),
       });
@@ -397,7 +405,9 @@ export class JobManager {
     if (end.error !== undefined) job.error = end.error;
     if (this.opts.seal) {
       try {
-        const receipt = this.opts.seal(snapshot(job));
+        // Round R4 (H51): sealed inside the job's own operation, whichever request ended it (a /stop, a time limit).
+        const seal = this.opts.seal;
+        const receipt = inOperationId(job.operation, () => seal(snapshot(job)));
         if (typeof receipt === 'string') job.receipt = receipt;
       } catch { /* a seal that throws leaves no receipt; the outcome stands */ }
     }
@@ -416,7 +426,9 @@ export class JobManager {
   private changed(entry: Entry): void {
     this.persist(entry.job);
     if (!this.opts.onChange) return;
-    try { this.opts.onChange(snapshot(entry.job)); } catch { /* a listener's failure is not the job's */ }
+    const onChange = this.opts.onChange;
+    // Round R4 (H51): the listener runs inside the job's own operation (what it seals or starts belongs to that request).
+    try { inOperationId(entry.job.operation, () => onChange(snapshot(entry.job))); } catch { /* a listener's failure is not the job's */ }
   }
 
   private output(entry: Entry, splitter: LineSplitter, text: string): void {
@@ -664,6 +676,7 @@ function parseRecord(raw: unknown, id: string, logPath: string): JobRecord | und
   if (r.cleanup === 'complete' || r.cleanup === 'unresolved') job.cleanup = r.cleanup;
   const owner = r.owner && typeof r.owner === 'object' ? r.owner as Record<string, unknown> : undefined;
   if (owner && typeof owner.pid === 'number' && Number.isInteger(owner.pid) && owner.pid > 0 && text(owner.startedAt)) job.owner = { pid: owner.pid, startedAt: owner.startedAt };
+  if (text(r.operation) && OPERATION_ID.test(r.operation)) job.operation = r.operation;
   return job;
 }
 
