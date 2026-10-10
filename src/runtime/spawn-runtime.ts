@@ -196,13 +196,18 @@ export function spawnProcess(command: string, args: string[], options: SpawnProc
  * Signal a whole process group: the group a detached child leads (spawnProcess's `detached`), so the
  * signal reaches every process that child started. Falls back to the single pid when there is no such
  * group (a child spawned without `detached`, or Windows). Returns whether a signal was delivered.
+ *
+ * Round R4 (H29): `leaderExited` says the caller knows the leader has exited (its ChildProcess has an exit
+ * code or signal, so it has been reaped): its pid may then be another process's, and only its group is
+ * signalled. A failed group signal stops there; the bare pid is never signalled.
  */
-export function killProcessGroup(pid: number, signal: NodeJS.Signals): boolean {
+export function killProcessGroup(pid: number, signal: NodeJS.Signals, options: { leaderExited?: boolean } = {}): boolean {
   // 0 and 1 are refused: process.kill(-0) is this process's own group and process.kill(-1) is every process
   if (!Number.isInteger(pid) || pid <= 1) return false;
   if (process.platform !== 'win32') {
     try { process.kill(-pid, signal); return true; } catch { /* no such group, or not permitted: the pid alone */ }
   }
+  if (options.leaderExited) return false;
   try { process.kill(pid, signal); return true; } catch { return false; }
 }
 
