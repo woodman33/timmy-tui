@@ -25,7 +25,7 @@ import path from 'node:path';
 import { join } from 'node:path';
 import { folderProject } from '../project/index.js';
 import { Workspace } from '../repl/workspace.js';
-import { COMMANDS, runSlash, type ReplContext } from '../repl/commands.js';
+import { runSlash, type ReplContext } from '../repl/commands.js';
 import { realOnPath } from '../repl/center.js';
 import { glyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
@@ -296,6 +296,3 @@ export async function actMain(argv: string[], o: { json?: boolean } = {}): Promi
   }
   return code;
 }
-
-/** The command names act knows (for the CLI's help): the REPL's own. */
-export const ACT_COMMANDS = COMMANDS.map((c) => c.name);
