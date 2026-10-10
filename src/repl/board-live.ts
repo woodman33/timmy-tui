@@ -323,6 +323,11 @@ const LIVE_CSS = `
  * as a header. Sections are drawn from the state's HTML, which the server escaped; a job's state and
  * time are updated in place, and the sections are redrawn only when their shape changes and no action
  * is in flight. Text from responses is set with textContent, never as HTML.
+ *
+ * R4 (H45): a flow card's <details> carry a key (data-keep, "<flow-id>:<part>") and say whether they were drawn open
+ * (data-open-default). Before a redraw, each one the operator opened or closed against its default is noted by its key;
+ * after it, the new one with that key is set as the operator left it. One whose default changed meanwhile (a flow that
+ * failed) follows its new default unless the operator had chosen otherwise. Nothing is stored outside this page's memory.
  */
 const LIVE_SCRIPT = `
 (function () {
@@ -355,11 +360,27 @@ const LIVE_SCRIPT = `
       if (stop && !j.stoppable && !stop.disabled) stop.hidden = true;
     }
   };
+  // R4 (H45): the operator's open or closed <details>, by key, kept across redraws (in memory only).
+  var kept = Object.create(null);
+  var remember = function () {
+    var ds = main.querySelectorAll('details[data-keep]');
+    for (var i = 0; i < ds.length; i++) {
+      var k = ds[i].getAttribute('data-keep');
+      if (ds[i].open !== ds[i].hasAttribute('data-open-default')) kept[k] = ds[i].open; else delete kept[k];
+    }
+  };
+  var restore = function () {
+    var ds = main.querySelectorAll('details[data-keep]');
+    for (var i = 0; i < ds.length; i++) {
+      var k = ds[i].getAttribute('data-keep');
+      if (k in kept) ds[i].open = kept[k];
+    }
+  };
   var apply = function (s) {
     project.textContent = s.project;
     document.title = 'Live board · ' + s.project;
     // R4: a card being edited (data-editing) is never drawn over; jobs still update in place.
-    if (s.shape !== shape && !busy && !main.querySelectorAll('[data-editing]').length) { toc.innerHTML = s.toc; main.innerHTML = s.html; shape = s.shape; paint(); }
+    if (s.shape !== shape && !busy && !main.querySelectorAll('[data-editing]').length) { remember(); toc.innerHTML = s.toc; main.innerHTML = s.html; restore(); shape = s.shape; paint(); }
     else jobs(s.jobs);
   };
   var poll = function () {

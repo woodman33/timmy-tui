@@ -11,6 +11,10 @@
  * board's own script hands it a `send` function (TimmyBoardEdit.attach). It builds every element with
  * createElement and textContent, and marks a card it is editing with data-editing, so the live page does not
  * redraw the board over unsaved work (jobs still update in place).
+ *
+ * R4 (H45): the parameter form shows each edited field's before → after beside the saved value, and offers Save only
+ * while a value differs from the one it was drawn with (or the file there is not usable); typing the drawn values back
+ * makes the card clean again.
  */
 import { saveParams } from './board-cards.js';
 import { saveWorkflow, type EditAnswer, type EditContext } from './board-nodes.js';
@@ -211,6 +215,29 @@ var TimmyBoardEdit = (function () {
     e.hidden = !text; e.textContent = text; e.className = 'params-msg' + (bad ? ' bad' : '');
   };
   var rebuildOf = function (p) { return p.querySelector('button[data-act="rebuild"]'); };
+  /* R4 (H45): a field differs from the value it was drawn with (the saved file's, or the recipe's default): as numbers when both are. */
+  var sameValue = function (a, b) {
+    var x = String(a).trim(), y = String(b).trim();
+    if (x !== '' && y !== '' && isFinite(Number(x)) && isFinite(Number(y))) return Number(x) === Number(y);
+    return x === y;
+  };
+  /* Each edited field's before → after beside it; Save only while a value differs (or the file there is not usable). How many differ. */
+  var markParams = function (p) {
+    var fields = p.querySelectorAll('[data-param]');
+    var changed = 0;
+    for (var i = 0; i < fields.length; i++) {
+      var differs = !sameValue(fields[i].value, fields[i].defaultValue);
+      if (differs) changed++;
+      var row = fields[i].closest('tr');
+      if (!row) continue;
+      if (differs) row.setAttribute('data-edited', ''); else row.removeAttribute('data-edited');
+      var c = row.querySelector('[data-param-change]');
+      if (c) c.textContent = differs ? ' → ' + (String(fields[i].value).trim() || '(empty)') : '';
+    }
+    var save = p.querySelector('[data-params-save]');
+    if (save) save.disabled = !(changed || p.getAttribute('data-params-file') === 'unusable');
+    return changed;
+  };
   var dirtyParams = function (p) {
     if (p.hasAttribute('data-editing')) return;
     p.setAttribute('data-editing', '');
@@ -223,12 +250,18 @@ var TimmyBoardEdit = (function () {
     var r = rebuildOf(p);
     if (r) { r.disabled = false; r.title = ''; }
   };
+  /* An input: the marks and Save follow it; back to the drawn values, the card is clean again. */
+  var editParams = function (p) {
+    if (markParams(p)) dirtyParams(p);
+    else if (p.hasAttribute('data-editing')) { cleanParams(p); paramsMsg(p, '', false); }
+  };
   var paramsClick = function (p, t) {
     var b = t.closest('button');
     if (!b || b.disabled) return;
     if (b.hasAttribute('data-params-discard')) {
       var inputs = p.querySelectorAll('[data-param]');
       for (var i = 0; i < inputs.length; i++) inputs[i].value = inputs[i].defaultValue;
+      markParams(p);
       cleanParams(p); paramsMsg(p, '', false);
       if (api) api.refresh();
       return;
@@ -244,9 +277,12 @@ var TimmyBoardEdit = (function () {
     b.disabled = true;
     paramsMsg(p, 'Saving…', false);
     api.send({ action: 'set-params', recipe: p.getAttribute('data-params'), base: base === 'none' ? null : base, parameters: values }).then(function (x) {
-      b.disabled = false;
-      if (x.ok) { cleanParams(p); paramsMsg(p, x.t, false); out(x.t, false); api.refresh(); } else paramsMsg(p, x.t, true);
-    }, function () { b.disabled = false; paramsMsg(p, unreachable, true); });
+      if (x.ok) {
+        // Saved: these values are what the card stands for now, until the board draws it again from the file.
+        for (var j = 0; j < fields.length; j++) fields[j].defaultValue = fields[j].value;
+        markParams(p); cleanParams(p); paramsMsg(p, x.t, false); out(x.t, false); api.refresh();
+      } else { markParams(p); paramsMsg(p, x.t, true); }
+    }, function () { markParams(p); paramsMsg(p, unreachable, true); });
   };
 
   document.addEventListener('click', function (e) {
@@ -273,7 +309,7 @@ var TimmyBoardEdit = (function () {
       return;
     }
     var p = t.closest('[data-params]');
-    if (p && t.hasAttribute('data-param')) dirtyParams(p);
+    if (p && t.hasAttribute('data-param')) editParams(p);
   });
   document.addEventListener('change', function (e) {
     var t = e.target && e.target.closest ? e.target : null;

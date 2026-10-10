@@ -11,9 +11,18 @@
  * rendered file read by ffprobe, ffmpeg and Timmy's pixel reading, outside After Effects (AE_READBACK_LABEL, said with
  * it). Every value comes from an editable file, so each is checked for its type before it is drawn, and every string is
  * escaped; links come from the Flows section's own helpers (a link only inside the project; text on the live board).
+ *
+ * Round R4 (H45): the step strip (agent, checks, author, render, readback), a summary in view (the change, the verdict,
+ * the render as ffprobe read it, what After Effects reported changed, who measured what in one line), the frames, a
+ * timeline of After Effects' own report (one row per layer: a bar from its in to its out point, a diamond at each key
+ * the record keeps, a mark at each time the readback sampled it, shaped and coloured by that sample's check), the
+ * artifacts with their /open commands; the report and the readback's checks in full, the script's diff, the steps and the
+ * files in <details>. The timeline is inline SVG built from the record's numbers alone (no font, image or link), with a
+ * bounded size; a record without the fields it needs (an older one) draws none.
  */
 import { AE_READBACK_LABEL, AE_REPORTED_BY, changeText, compileWords, isAeFlowRecord, type AeCompileCheck, type ScriptChange } from '../flows/iterate-ae.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
+import { artifactsHtml, detailsHtml, nextHtml, opensByDefault, recordStrip, summaryHtml, verdictWord } from './board-steps.js';
 
 export { isAeFlowRecord };
 
@@ -23,8 +32,8 @@ export interface AeCardHelpers {
   cmd: (c: string) => string;
   thumb: (p: unknown) => string;
 }
-/** The card's record (as read from its file) and its check, as the Flows section holds them. */
-export interface AeCardFlow { file: string; record: unknown; check: { status: 'verified' | 'unverified'; receipt?: string } }
+/** The card's record (as read from its file) and its check, as the Flows section holds them (R4, H45: `live` for a flow with no record yet). */
+export interface AeCardFlow { file: string; record: unknown; check: { status: 'verified' | 'unverified'; receipt?: string }; live?: { written: string } }
 
 type Obj = Record<string, unknown>;
 const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -231,10 +240,154 @@ function framesBlock(frames: Obj[], h: AeCardHelpers): string {
   return pictures.length ? `<div class="frames">${pictures.join('')}</div>` : '';
 }
 
+// ── the summary ──────────────────────────────────────────────────────────────────
+
+/**
+ * R4 (H45): the summary, always in view: the script's change and its compile check, the readback's verdict, the render as
+ * ffprobe read it, what After Effects reported changed, and who measured what in one line.
+ */
+function aeSummary(r: Obj, verified: boolean): string {
+  const rows: Array<[string, string]> = [];
+  const script = obj(r.script);
+  const change = obj(script?.change);
+  const syntax = obj(script?.syntax);
+  const compiled = !syntax ? '' : syntax.checked === true ? (syntax.ok === true ? 'compiles (a modern-JavaScript check, not After Effects\' parser)' : 'does not compile') : 'not compiled';
+  const lines = change && finite(change.added) && finite(change.removed) && finite(change.hunks_total) ? changeText(change as unknown as ScriptChange) : '';
+  if (lines || compiled) rows.push(['change', esc([lines, compiled].filter(Boolean).join(' · '))]);
+  const k = obj(r.readback);
+  const notRun = k?.state === 'not run';
+  const verdict = str(k?.verdict) ?? (notRun ? 'succeeded without readback' : undefined);
+  if (verdict) rows.push(['verdict', `${verdictWord(verdict)}${esc(str(k?.verdict) ? 'the render against After Effects\' own report' : 'the render was not read back')}`]);
+  const p = obj(k?.probe);
+  if (p) rows.push(['the render', `${esc(`${n3(p.width)}x${n3(p.height)}, ${n3(p.fps_value)} fps, ${n3(p.duration)} s, ${finite(p.frames) ? p.frames : '?'} frames`)} <span class="tier">${esc('ffprobe\'s reading of the file')}</span>`]);
+  const ba = obj(r.before_after);
+  const after = obj(ba?.after);
+  const changes = list(ba?.changes);
+  if (obj(ba?.before) && after) rows.push(['reported change', esc(changes.length ? `${changes.slice(0, 3).join('; ')}${changes.length > 3 ? `; and ${changes.length - 3} more` : ''}` : 'nothing After Effects reported changed')]);
+  else if (after) rows.push(['reported', esc(`${compText(after)}${str(ba?.before_note) ? `; ${ba!.before_note as string}` : ''}`)]);
+  const read = notRun || !k ? 'the render was not read back' : p ? 'the render measured by ffprobe, ffmpeg and Timmy\'s pixel reading, outside After Effects' : 'the readback measured nothing from the render';
+  const who = after || p
+    ? `<p class="who">${esc(`After Effects' own report of its project, read inside After Effects; ${read}${verified ? '' : '; as the record says (not verified)'}`)}</p>`
+    : '';
+  return summaryHtml(rows, who);
+}
+
+// ── the timeline: After Effects' own report, with the readback's samples ────────
+
+/** The timeline's bounds: rows, keys a property and samples drawn, and its size in SVG user units. */
+const TL_ROWS = 16;
+const TL_KEYS = 50;
+const TL_SAMPLES = 160;
+const TL_NAME = 14;
+const TL_W = 360;
+const TL_X0 = 100;
+const TL_X1 = 350;
+const TL_TOP = 24;
+const TL_ROW = 26;
+/** The transform properties whose key times a row draws, as a record may keep them (src/flows/iterate-ae.ts keeps Position). */
+const TL_PROPS = [['position', 'Position'], ['scale', 'Scale'], ['opacity', 'Opacity'], ['rotation', 'Rotation']] as const;
+/** A readback check of a layer's position: "<layer> at <time> s" (src/flows/iterate-ae.ts compareAeReadback). */
+const SAMPLE = /^(.{1,300}) at (-?\d{1,9}(?:\.\d{1,9})?) s$/;
+
+const keyTimes = (p: unknown): number[] => {
+  const o = obj(p);
+  if (!o || !Array.isArray(o.keys)) return [];
+  return o.keys.filter((k): k is unknown[] => Array.isArray(k) && k.length >= 2 && finite(k[0])).map((k) => k[0] as number).slice(0, TL_KEYS);
+};
+const spanOf = (s: unknown): [number, number] | undefined => (Array.isArray(s) && s.length === 2 && finite(s[0]) && finite(s[1]) && s[1] >= s[0] ? [s[0], s[1]] : undefined);
+/** A number for an SVG attribute: one decimal, never NaN. */
+const u = (n: number): string => (Number.isFinite(n) ? (Math.round(n * 10) / 10).toString() : '0');
+const short = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+
+/**
+ * One row per layer After Effects reported in this run (before_after.after, at most TL_ROWS): a bar from its in to its out
+ * point, a diamond at each key time the record keeps (Position; Scale, Opacity and Rotation when a record keeps them), and
+ * a mark at each time the readback sampled it: filled when it matches, a cross when it differs, hollow when not compared.
+ * '' when the record has none of these fields (an older record) or no length to draw them on.
+ */
+function timelineBlock(r: Obj, id: string, verified: boolean): string {
+  const after = obj(obj(r.before_after)?.after);
+  const all = objs(after?.layers);
+  if (!after || !all.length) return '';
+  const layers = all.slice(0, TL_ROWS).map((l) => ({
+    name: typeof l.name === 'string' && l.name ? l.name : '(unnamed)',
+    span: spanOf(l.span),
+    keys: TL_PROPS.map(([field, label]) => ({ label, times: keyTimes(l[field]) })),
+  }));
+  const anyKeys = (l: (typeof layers)[number]): boolean => l.keys.some((k) => k.times.length > 0);
+  if (!layers.some((l) => l.span || anyKeys(l))) return '';
+  const k = obj(r.readback);
+  type Sample = { row: number; t: number; result: 'matches' | 'differs' | 'not compared'; words: string };
+  const samples: Sample[] = [];
+  let elsewhere = 0;
+  for (const c of objs(k?.checks)) {
+    const m = typeof c.name === 'string' ? SAMPLE.exec(c.name) : null;
+    if (!m || samples.length >= TL_SAMPLES) continue;
+    const t = Number(m[2]);
+    const row = layers.findIndex((l) => l.name === m[1]);
+    if (!Number.isFinite(t) || row < 0) { elsewhere++; continue; }
+    const result = c.passed === true ? 'matches' : c.passed === false ? 'differs' : 'not compared';
+    samples.push({ row, t, result, words: `${m[1]} at ${n3(t)} s: ${result}${str(c.tolerance) && c.passed !== null ? ` (${c.passed ? 'within' : 'outside'} ${c.tolerance as string})` : ''}` });
+  }
+  const times = [...layers.flatMap((l) => [...(l.span ? [l.span[1]] : []), ...l.keys.flatMap((x) => x.times)]), ...samples.map((s) => s.t)];
+  const length = finite(after.duration) && after.duration > 0 ? after.duration : Math.max(0, ...times.filter((t) => t > 0));
+  if (!(length > 0)) return '';
+  const x = (t: number): number => TL_X0 + (Math.min(Math.max(t, 0), length) / length) * (TL_X1 - TL_X0);
+  const height = TL_TOP + layers.length * TL_ROW + 6;
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => {
+    const at = x(length * f);
+    return `<line x1="${u(at)}" y1="${TL_TOP - 4}" x2="${u(at)}" y2="${height - 4}" stroke="${HOMEBREW.line}" stroke-width="1"/>`
+      + `<text x="${u(at)}" y="12" text-anchor="${f === 0 ? 'start' : f === 1 ? 'end' : 'middle'}" font-size="9" fill="${HOMEBREW.textSecondary}">${esc(`${n3(length * f)} s`)}</text>`;
+  }).join('');
+  const rows = layers.map((l, i) => {
+    const y = TL_TOP + i * TL_ROW;
+    const bar = l.span
+      ? `<rect x="${u(x(l.span[0]))}" y="${y + 3}" width="${u(Math.max(1, x(l.span[1]) - x(l.span[0])))}" height="12" rx="2" fill="${HOMEBREW.line}" stroke="${HOMEBREW.lineStrong}" stroke-width="1"><title>${esc(`${l.name}: in ${n3(l.span[0])} s, out ${n3(l.span[1])} s (After Effects' report)`)}</title></rect>`
+      : '';
+    const keys = l.keys.flatMap((p, j) => p.times.map((t) => {
+      const cx = x(t);
+      const d = `M${u(cx)} ${y + 4}L${u(cx + 5)} ${y + 9}L${u(cx)} ${y + 14}L${u(cx - 5)} ${y + 9}Z`;
+      return `<path d="${d}" ${j === 0 ? `fill="${HOMEBREW.text}"` : `fill="${HOMEBREW.surface}" stroke="${HOMEBREW.text}" stroke-width="1.2"`}><title>${esc(`${l.name}: ${/^[AEIOU]/.test(p.label) ? 'an' : 'a'} ${p.label} key at ${n3(t)} s (After Effects' report)`)}</title></path>`;
+    })).join('');
+    const marks = samples.filter((s) => s.row === i).map((s) => {
+      const cx = u(x(s.t));
+      const cy = y + 21;
+      const shape = s.result === 'differs'
+        ? `<path d="M${u(x(s.t) - 3.5)} ${cy - 3.5}L${u(x(s.t) + 3.5)} ${cy + 3.5}M${u(x(s.t) + 3.5)} ${cy - 3.5}L${u(x(s.t) - 3.5)} ${cy + 3.5}" stroke="${HOMEBREW.failure}" stroke-width="2"/>`
+        : s.result === 'matches'
+          ? `<circle cx="${cx}" cy="${cy}" r="3.5" fill="${HOMEBREW.text}"/>`
+          : `<circle cx="${cx}" cy="${cy}" r="3" fill="none" stroke="${HOMEBREW.textSecondary}" stroke-width="1.2"/>`;
+      return `<g class="tl-sample tl-${s.result.replace(/ /g, '')}"><title>${esc(s.words)}</title>${shape}</g>`;
+    }).join('');
+    return `<g class="tl-row"><text x="4" y="${y + 13}" font-size="10" fill="${HOMEBREW.text}"><title>${esc(l.name)}</title>${esc(short(l.name, TL_NAME))}</text>${bar}${keys}${marks}</g>`;
+  }).join('');
+  const sampled = samples.length > 0;
+  const ran = !!k && k.state !== 'not run' && Array.isArray(k.checks);
+  const label = `${sampled ? 'After Effects\' own report; samples measured from the render' : ran ? 'After Effects\' own report; the readback sampled no layer\'s position' : 'After Effects\' own report; no samples: the render was not read back'}${verified ? '' : ' · as the record says (not verified)'}`;
+  const drawn = TL_PROPS.filter((_, j) => layers.some((l) => l.keys[j].times.length)).map(([, name]) => name);
+  const legend = [
+    drawn.length ? `◆ ${drawn.join(', ')} key${drawn.length === 1 ? '' : 's'}` : '',
+    'bar: in to out point',
+    ...(sampled ? ['● sample matches', '✕ differs', '○ not compared'] : []),
+  ].filter(Boolean).join(' · ');
+  const kept = drawn.length && drawn.every((d) => d === 'Position') ? 'the record keeps Position keys only, not Scale, Opacity or Rotation' : '';
+  const more = [
+    ...(all.length > layers.length ? [`the first ${layers.length} of ${all.length} layers`] : []),
+    ...(elsewhere ? [`${elsewhere} sample${elsewhere === 1 ? '' : 's'} of a layer not drawn here`] : []),
+    `comp time 0 to ${n3(length)} s${finite(after.duration) && after.duration > 0 ? '' : ' (the comp\'s length is not in the record: the last time in it)'}`,
+  ];
+  const aria = `A timeline of ${layers.length} layer${layers.length === 1 ? '' : 's'} as After Effects reported them${sampled ? `, with ${samples.length} readback sample${samples.length === 1 ? '' : 's'}: ${samples.filter((s) => s.result === 'matches').length} match, ${samples.filter((s) => s.result === 'differs').length} differ, ${samples.filter((s) => s.result === 'not compared').length} not compared` : ''}`;
+  return `<section class="timeline"><h4>timeline</h4><p class="meta tl-label">${esc(label)}</p>`
+    + `<svg class="tl" viewBox="0 0 ${TL_W} ${height}" width="${TL_W}" height="${height}" role="img" aria-label="${esc(aria)}" data-flow="${esc(id)}">${ticks}${rows}</svg>`
+    + `<p class="meta tl-legend">${esc([legend, kept].filter(Boolean).join(' · '))}</p><p class="meta">${esc(more.join(' · '))}</p></section>`;
+}
+
 /** The card: drawn for a record whose target is 'ae' (isAeFlowRecord); `status` is the Flows section's verified line. */
 export function aeFlowCard(f: AeCardFlow, h: AeCardHelpers, status: string): string {
   const r = obj(f.record) ?? {};
+  const id = valueText(r.id);
   const outcome = String(r.outcome ?? 'unknown');
+  const open = opensByDefault(outcome);
   const script = obj(r.script) ?? {};
   const author = obj(r.author);
   const render = obj(r.render);
@@ -258,18 +411,27 @@ export function aeFlowCard(f: AeCardFlow, h: AeCardHelpers, status: string): str
     ...(str(script.path) ? [`<li>${h.file(script.path)} <span class="tier">the script</span></li>`] : []),
     ...(copy && str(copy.path) ? [`<li>${h.file(copy.path)} <span class="tier">${esc('the copy After Effects ran, kept at submission')}</span></li>`] : []),
     ...(plan && str(plan.path) ? [`<li>${h.file(plan.path)} <span class="tier">${esc('the readback\'s plan: the layers and times it read')}</span></li>`] : []),
-    `<li>${h.file(f.file)} <span class="tier">this record</span></li>`,
-  ].join('');
+    `<li>${h.file(f.file)} <span class="tier">${esc(f.live ? 'its state file (no record yet)' : 'this record')}</span></li>`,
+  ];
   const verified = f.check.status === 'verified';
   const options = obj(r.options);
   const asked = [...(typeof options?.comp === 'string' ? [`--comp ${options.comp}`] : []), ...(typeof options?.om === 'string' ? [`--om ${options.om}`] : [])].join(' ');
+  // R4 (H45): what a person opens, each with its /open command (the commands are here only, once each).
+  const artifacts = artifactsHtml([
+    ...(aep && str(aep.path) ? [{ role: '.aep', path: aep.path, note: 'the After Effects project' }] : []),
+    ...(str(script.path) ? [{ role: 'script', path: script.path, note: 'what the agent changed' }] : []),
+    ...(video && str(video.path) ? [{ role: 'render', path: video.path, ...(video.instead === true ? { note: `written instead of ${valueText(render?.requested)}` } : {}) }] : []),
+    { role: f.live ? 'state file' : 'record', path: f.file },
+  ], h, receiptWords.length ? `<div class="meta">${esc(`receipts: ${receiptWords.join(' · ')}`)}</div>` : '');
   return `<article class="card flow ae"><div class="jobhead"><strong>${esc(valueText(r.id))}</strong> <span class="state state-${esc(outcome.replace(/[^a-z]/gi, ''))}">${esc(outcome)}</span></div>`
     + `<div class="meta">${esc(`iterate ae · ${valueText(script.path)}${asked ? ` ${asked}` : ''} · started ${when(r.started_at)}${r.ended_at ? ` · ended ${when(r.ended_at)}` : ''}${str(r.ended_in) ? ` · in the ${r.ended_in as string} step` : ''}`)}</div>`
-    + `<p class="instruction">${esc(valueText(r.instruction))}</p>${status}`
-    + `${str(r.why) ? `<p class="why">${esc(r.why)}</p>` : ''}${framesBlock(frames, h)}${scriptBlock(script, h)}${stepsBlock(r, h)}${beforeAfterBlock(r, verified)}${readbackBlock(r, h, verified)}`
-    + `<section class="files"><h4>files</h4><ul>${files}</ul></section>`
-    + `${receiptWords.length ? `<div class="meta">${esc(`receipts: ${receiptWords.join(' · ')}`)}</div>` : ''}`
-    + `<div class="cmds">${[...(str(script.path) ? [h.cmd(`/open ${script.path as string}`)] : []), ...(video && str(video.path) ? [h.cmd(`/open ${video.path as string}`)] : []), ...(aep && str(aep.path) ? [h.cmd(`/open ${aep.path as string}`)] : []), h.cmd(`/open ${f.file}`), h.cmd('/iterate')].join('')}</div></article>`;
+    + `<p class="instruction">${esc(valueText(r.instruction))}</p>${recordStrip(r, id)}${status}`
+    + `${str(r.why) ? `<p class="why">${esc(r.why)}</p>` : ''}${nextHtml(r, h)}${aeSummary(r, verified)}${framesBlock(frames, h)}${timelineBlock(r, id, verified)}${artifacts}`
+    + detailsHtml({ id, part: 'checks', summary: 'After Effects\' report and the readback\'s checks, with who measured what', body: `${beforeAfterBlock(r, verified)}${readbackBlock(r, h, verified)}`, open })
+    + detailsHtml({ id, part: 'change', summary: obj(script.after) ? 'the script, before → after' : 'the script', body: scriptBlock(script, h), open })
+    + detailsHtml({ id, part: 'steps', summary: 'the steps: jobs, receipts and raw output', body: stepsBlock(r, h), open })
+    + detailsHtml({ id, part: 'files', summary: `files (${files.length})`, body: `<section class="files"><h4>files</h4><ul>${files.join('')}</ul></section>`, open })
+    + `<div class="cmds">${[...(f.live ? [h.cmd(`/stop ${id}`)] : []), h.cmd('/iterate')].join('')}</div></article>`;
 }
 
 export const AE_FLOW_CSS = `
@@ -280,7 +442,7 @@ export const AE_FLOW_CSS = `
 .flow.ae td.changed { color: ${HOMEBREW.accent}; }
 .flow.ae section.beforeafter, .flow.ae section.readback.ae { padding: 2px 0 2px 10px; }
 .flow.ae section.beforeafter.unverified, .flow.ae section.readback.ae.unverified { border-left: 3px solid ${HOMEBREW.lineStrong}; }
-.flow.ae section.beforeafter.measured { border-left: 3px solid ${HOMEBREW.accent}; }
+.flow.ae section.beforeafter.measured { border-left: 3px solid ${HOMEBREW.lineStrong}; }
 .flow.ae ul.changes { margin: 0; padding-left: 18px; }
 .flow.ae .scroll { overflow-x: auto; max-width: 100%; }
 .flow.ae table.layers, .flow.ae table.checks { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: ${TYPE.size.small}px; }
@@ -288,8 +450,12 @@ export const AE_FLOW_CSS = `
 .flow.ae table td { padding: 2px 6px 2px 0; overflow-wrap: anywhere; border-bottom: 1px solid ${HOMEBREW.line}; vertical-align: top; }
 .flow.ae p.label { color: ${HOMEBREW.text}; }
 .flow.ae .verdict-succeededwithoutreadback { color: ${HOMEBREW.attention}; }
-.flow.ae .frames { display: flex; flex-wrap: wrap; gap: 8px; }
-.flow.ae .frames figure { margin: 0; }
-.flow.ae .frames img { height: 120px; max-width: 100%; }
-.flow.ae .frames figcaption { font-size: ${TYPE.size.small}px; color: ${HOMEBREW.textSecondary}; }
+.flow.ae .frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(110px, 100%), 1fr)); gap: 6px; }
+.flow.ae .frames figure { margin: 0; min-width: 0; }
+.flow.ae .frames img { width: 100%; height: 72px; object-fit: contain; }
+.flow.ae .frames figcaption { font-size: 11px; color: ${HOMEBREW.textSecondary}; }
+.flow.ae section.timeline { border-left: 3px solid ${HOMEBREW.lineStrong}; padding: 2px 0 2px 10px; min-width: 0; }
+.flow.ae section.timeline p { margin: 0; }
+.flow.ae svg.tl { display: block; width: 100%; max-width: 560px; height: auto; margin: 6px 0; overflow: visible; }
+.flow.ae svg.tl text { font-family: ${TYPE.stack}; }
 `;
