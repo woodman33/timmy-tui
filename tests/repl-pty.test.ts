@@ -26,7 +26,7 @@ describe('timmy repl', () => {
     const { dir, env } = sandbox();
     try {
       const r = await runAsync(TSX, [CLI, 'repl'], { cwd: dir, env, input: '', timeout: CLI_MS });
-      expect(r.status).toBe(78);
+      expect(r.status, `${r.error?.message ?? ''}\n${r.stderr}`).toBe(78);
       expect(r.stderr).toContain('Error: no model key');
       expect(r.stderr).toContain('Try: timmy init');
       expect(r.stderr).toContain('Help: timmy repl --help');
@@ -38,7 +38,7 @@ describe('timmy repl', () => {
   it('prints its own help from the registries for --help and -h, and exits 0', async () => {
     for (const flag of ['--help', '-h']) {
       const r = await runAsync(TSX, [CLI, 'repl', flag], { timeout: CLI_MS });
-      expect(r.status).toBe(0);
+      expect(r.status, `${r.error?.message ?? ''}\n${r.stderr}`).toBe(0);
       expect(r.stdout.startsWith('timmy repl: ')).toBe(true);
       expect(r.stdout).toContain('/receipts');
     }
