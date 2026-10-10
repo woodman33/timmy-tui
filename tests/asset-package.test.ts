@@ -24,6 +24,9 @@ const SHIPPED = [
   'templates/tray-workflow', 'workers/openhands',
   // R4 batch 7 (H58): the pty wrapper /run runs upmd through, for live workflow states.
   'workers/upmd',
+  // R4 batch 8: the Unreal starter and its harness and readback worker (H63); the Illustrator starter (H64: its harness is
+  // generated per run by src/native/illustrator.ts, so it has no worker file).
+  'templates/unreal-starter', 'workers/unreal', 'templates/illustrator-starter',
 ];
 /**
  * TODO(lead): templates/blender-starter and workers/blender (another helper, round R3) ship the same way: each
@@ -159,7 +162,7 @@ describe('an installed Timmy finds its starters and workers', () => {
       const r = run(layout, dest);
       expect(r.root).toBe(pkg);
       expect(r.starters).toBe(join(pkg, 'templates'));
-      expect(r.list).toEqual(['ae-starter', 'blender-starter', 'c4d-starter', 'freecad-starter', 'scad-starter', 'tray-workflow', 'web-starter']);
+      expect(r.list).toEqual(['ae-starter', 'blender-starter', 'c4d-starter', 'freecad-starter', 'illustrator-starter', 'scad-starter', 'tray-workflow', 'unreal-starter', 'web-starter']);
       expect(r.look).toBe(join(pkg, 'workers/look/look.py'));
       expect(r.lookExists).toBe(true);
       expect(r.c4d).toBe(join(pkg, 'workers/c4d/timmy_c4d.py'));
@@ -181,7 +184,7 @@ describe('an installed Timmy finds its starters and workers', () => {
     for (const layout of [TSC, BUNDLE]) {
       const dest = join(temp('timmy-asset-project-'), 'site');
       const r = run(layout, dest);
-      expect(r.list, layout).toEqual(['ae-starter', 'blender-starter', 'c4d-starter', 'freecad-starter', 'scad-starter', 'tray-workflow']);
+      expect(r.list, layout).toEqual(['ae-starter', 'blender-starter', 'c4d-starter', 'freecad-starter', 'illustrator-starter', 'scad-starter', 'tray-workflow', 'unreal-starter']);
       expect(r.look, layout).toBe(join(pkg, 'workers/look/look.py'));
       expect(r.lookExists, layout).toBe(false);
       expect(r.c4d, layout).toBeNull();

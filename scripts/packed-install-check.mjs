@@ -142,11 +142,13 @@ if (pkg) {
     const { openHandsWorker } = await load('dist/src/code-agents/openhands-run.js');
     // R4 batch 7 (H58): the pty wrapper /run runs upmd through.
     const { PTY_RUN_SCRIPT } = await load('dist/src/workflows/upmd-live.js');
+    // R4 batch 8 (H63): Unreal's harness and readback worker, found by the module that gives them to Unreal.
+    const { unrealWorkers } = await load('dist/src/native/unreal.js');
     const dest = join(process.env.PROBE_WORK, 'site');
     const copied = copyStarter('web-starter', dest);
     // R4: each starter of this round copied into a new project of its own; the files the copy holds.
     const r4 = {};
-    for (const name of ['ae-starter', 'scad-starter', 'freecad-starter', 'tray-workflow']) {
+    for (const name of ['ae-starter', 'scad-starter', 'freecad-starter', 'tray-workflow', 'unreal-starter', 'illustrator-starter']) {
       const c = copyStarter(name, join(process.env.PROBE_WORK, name));
       r4[name] = 'files' in c ? c.files.sort() : c.error;
     }
@@ -162,6 +164,7 @@ if (pkg) {
       video: VIDEO_READBACK_SCRIPT, videoExists: existsSync(VIDEO_READBACK_SCRIPT),
       openhands: openHandsWorker() ?? null,
       pty: PTY_RUN_SCRIPT, ptyExists: existsSync(PTY_RUN_SCRIPT),
+      unreal: (() => { const w = unrealWorkers({}); return w.ok ? { harness: w.harness, readback: w.readback } : { why: w.why }; })(),
     }));`);
   const r = run(process.execPath, [probe], { cwd: work, env: { ...runEnv, PROBE_PKG: pkg, PROBE_WORK: work }, timeout: 120_000 });
   let p = null;
@@ -171,7 +174,7 @@ if (pkg) {
   } else {
     const inside = (path) => typeof path === 'string' && (path === pkg || path.startsWith(`${pkg}/`));
     check('assets', 'package root', p.root === pkg, short(p.root ?? 'none found'));
-    const starters = ['ae-starter', 'blender-starter', 'c4d-starter', 'freecad-starter', 'scad-starter', 'tray-workflow', 'web-starter'];
+    const starters = ['ae-starter', 'blender-starter', 'c4d-starter', 'freecad-starter', 'illustrator-starter', 'scad-starter', 'tray-workflow', 'unreal-starter', 'web-starter'];
     check('assets', 'starters (templates/)', p.starters === join(pkg, 'templates') && starters.every((n) => p.list.includes(n)), `${short(p.starters ?? 'none found')}: ${p.list.join(', ') || 'none'}`);
     check('assets', 'Look worker', p.look === join(pkg, 'workers/look/look.py') && p.lookExists, short(p.look));
     check('assets', 'Cinema 4D worker', p.c4d === join(pkg, 'workers/c4d'), short(p.c4d ?? 'none found'));
@@ -179,7 +182,7 @@ if (pkg) {
     check('assets', 'Timmy Canvas (built)', inside(p.canvas), short(p.canvas ?? 'none found'));
     check('assets', 'web-starter copied', typeof p.copied === 'number' && p.copied > 0 && p.same, typeof p.copied === 'number' ? `${p.copied} files into a new project; index.html is the packaged one` : String(p.copied));
     // R4 (H40): this round's starters, each copied as /project new --from copies it: the files "files" lists for it.
-    for (const name of ['ae-starter', 'scad-starter', 'freecad-starter', 'tray-workflow']) {
+    for (const name of ['ae-starter', 'scad-starter', 'freecad-starter', 'tray-workflow', 'unreal-starter', 'illustrator-starter']) {
       const want = (manifest.files ?? []).filter((f) => f.startsWith(`templates/${name}/`)).map((f) => f.slice(`templates/${name}/`.length)).sort();
       const got = p.r4?.[name];
       check('assets', `${name} copied`, Array.isArray(got) && want.length > 0 && got.join('\n') === want.join('\n'), Array.isArray(got) ? `${got.length} files into a new project (${got.join(', ')}); "files" lists ${want.length}` : String(got ?? 'not copied'));
@@ -195,6 +198,8 @@ if (pkg) {
     check('assets', 'OpenHands worker', p.openhands === join(pkg, 'workers/openhands/timmy_openhands.py'), short(p.openhands ?? 'none found'));
     // R4 batch 7 (H58): the pty wrapper for live workflow states, found by the module that runs it.
     check('assets', 'upmd pty wrapper', p.pty === join(pkg, 'workers/upmd/pty_run.py') && p.ptyExists, `${short(p.pty)}${p.ptyExists ? '' : ' (not there)'}`);
+    // R4 batch 8 (H63): Unreal's harness and readback worker, as unrealWorkers gives them to Unreal.
+    check('assets', 'Unreal harness and readback worker', p.unreal?.harness === join(pkg, 'workers/unreal/timmy_unreal.py') && p.unreal?.readback === join(pkg, 'workers/unreal/unreal_readback.py'), p.unreal?.harness ? `${short(p.unreal.harness)}, ${short(p.unreal.readback)}` : String(p.unreal?.why ?? 'none found'));
   }
 } else {
   check('assets', 'probe', false, 'not run: nothing installed');
