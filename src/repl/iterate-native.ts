@@ -25,6 +25,7 @@ import { projectId, resolveInside } from '../project/index.js';
 import { flowRecordPath, flowWorkDir, writeProjectJson, type FlowOutcome } from '../flows/iterate.js';
 import { parseSyntaxOutput, SYNTAX_CHECK_CODE, SYNTAX_TIMEOUT_MS, type NativeFlowRecordBase, type NativeTarget, type SyntaxCheck } from '../flows/iterate-native.js';
 import type { IterateDeps } from './iterate.js';
+import type { FlowLock } from './flow-lock.js';
 import type { Segment } from '../term/theme.js';
 import type { ReceiptInput } from '../utils/receipts.js';
 
@@ -82,11 +83,13 @@ export function keepBytes(root: string, rel: string, bytes: Buffer): string | un
 
 export abstract class NativeFlows<R extends NativeFlowRecordBase> {
   protected readonly running = new Map<string, NativeRun<R>>();
-  /** a flow being started in a project (its agent is starting), by the project's folder: it holds the project already */
-  protected readonly starting = new Map<string, string>();
 
-  /** `busyElsewhere`: a flow of another kind running in a project (one flow at a time runs in a project, of any kind). */
-  constructor(protected readonly d: IterateDeps, protected readonly busyElsewhere: (root: string) => { id: string; step: string } | undefined) {}
+  /**
+   * `busyElsewhere`: a flow of another kind running in a project (one flow at a time runs in a project, of any kind).
+   * `lock` (R4 review, R4-5): the projects a start holds (src/repl/flow-lock.ts); IterateFlows takes it around every
+   * start, before its first await, and the start names its flow there (preflight and startAgent below).
+   */
+  constructor(protected readonly d: IterateDeps, protected readonly busyElsewhere: (root: string) => { id: string; step: string } | undefined, protected readonly lock?: FlowLock) {}
 
   /** 'scad' or 'freecad': the record's target and the receipt's subject. */
   abstract readonly target: NativeTarget;
@@ -112,12 +115,10 @@ export abstract class NativeFlows<R extends NativeFlowRecordBase> {
   /** The flows of this kind this REPL is running (their ids). */
   get active(): string[] { return [...this.running.keys()]; }
   has(id: string): boolean { return this.running.has(id); }
-  /** The flow of this kind running (or being started) in this project, if one is. */
+  /** The flow of this kind running in this project, if one is (one being started holds the project's lock instead). */
   runningIn(root: string): { id: string; step: string } | undefined {
     const f = [...this.running.values()].find((x) => x.root === root);
-    if (f) return { id: f.id, step: f.step };
-    const starting = this.starting.get(root);
-    return starting ? { id: starting, step: 'prepare' } : undefined;
+    return f ? { id: f.id, step: f.step } : undefined;
   }
 
   /** /iterate's rows for the flows of this kind running in this project. */
@@ -149,23 +150,23 @@ export abstract class NativeFlows<R extends NativeFlowRecordBase> {
 
   /**
    * Codex's local route: its model must already be in this machine's Ollama (codex --oss would download it). Why not, or
-   * undefined. The project is held while it is asked (the answer is awaited), so no second flow starts meanwhile.
+   * undefined. The project stays held for this start meanwhile (its lock, taken before the start's first await: R4-5);
+   * the flow is named there first, so a start refused meanwhile names it.
    */
   protected async preflight(plan: AgentPlan, root: string, id: string): Promise<string | undefined> {
     if (!plan.oss) return undefined;
-    this.starting.set(root, id);
-    let ready: Awaited<ReturnType<typeof codexLocalPreflight>>;
-    try { ready = await codexLocalPreflight(plan.oss); } finally { this.starting.delete(root); }
+    this.lock?.name(root, id);
+    const ready = await codexLocalPreflight(plan.oss);
     return ready.ok ? undefined : this.d.scrub(ready.error, root);
   }
 
   /** The flow running in this project, of any kind. */
   protected busy(root: string): { id: string; step: string } | undefined { return this.runningIn(root) ?? this.busyElsewhere(root); }
 
-  /** Starts the agent through /agent's own start, holding the project meanwhile, so no second flow starts. */
+  /** Starts the agent through /agent's own start; the project stays held for this start (its lock: R4-5), named first. */
   protected async startAgent(id: string, req: NativeIterateRequest, task: string, o: { root: string; project: string; env: NodeJS.ProcessEnv; local: { local?: true } }): Promise<Awaited<ReturnType<IterateDeps['startAgent']>>> {
-    this.starting.set(o.root, id);
-    try { return await this.d.startAgent(req.agent, task, { paid: false, ...o.local, root: o.root, project: o.project, env: o.env }); } finally { this.starting.delete(o.root); }
+    this.lock?.name(o.root, id);
+    return this.d.startAgent(req.agent, task, { paid: false, ...o.local, root: o.root, project: o.project, env: o.env });
   }
 
   /** The agent's part of the record, from its start. */
