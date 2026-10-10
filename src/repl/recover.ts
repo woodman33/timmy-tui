@@ -142,11 +142,14 @@ export interface RecoverDeps {
   settleMs?: number;
   /** R4 (H52): OpenHands containers an ended session left running (src/repl/openhands-recover.ts), asked after the rest */
   agents?: () => Promise<RecoveryItem[]>;
+  /** R4 (H58): /run jobs an ended session left running (src/repl/workflow-recover.ts), asked after the native runs */
+  workflows?: () => Promise<RecoveryItem[]>;
 }
 
 /** What one pass did about one operation, or saw and left (did 'left'). */
 export interface RecoveryItem {
-  kind: 'recipe' | 'flow' | 'native' | 'agent';
+  /** R4 (H58): 'workflow' is a /run job (its id the job's) */
+  kind: 'recipe' | 'flow' | 'native' | 'agent' | 'workflow';
   /** the operation's own ID: a recipe job's UUID, a flow's id, a native run's token */
   id: string;
   /** 'incomplete' (R4-8): a succeeded recipe's copy is in the project but not whole; named with /recipe copy, left as it is */
@@ -594,6 +597,10 @@ export async function recoverProject(d: RecoverDeps): Promise<RecoveryReport> {
     const item = act(d, 'native', p.run, () => actNative(d, p));
     if (item) done.push(item);
   }
+  // R4 (H58): /run jobs left running: each ended in its own record as interrupted (its group stopped first when proven).
+  if (d.workflows && d.open()) {
+    try { done.push(...await d.workflows()); } catch (e) { done.push({ kind: 'workflow', id: 'workflows', did: 'failed', text: `workflow runs could not be checked: ${d.scrub(message(e))}` }); }
+  }
   // R4 (H52): OpenHands containers left running, each found by its labels and its run's record (never by a name alone).
   if (d.agents && d.open()) {
     try { done.push(...await d.agents()); } catch (e) { done.push({ kind: 'agent', id: 'openhands', did: 'failed', text: `OpenHands containers could not be checked: ${d.scrub(message(e))}` }); }
@@ -947,8 +954,11 @@ function summary(items: RecoveryItem[]): string {
   // R4 (H46): the step jobs an ended REPL left running, stopped before their flows were recorded.
   const stopped = of((i) => !!i.stopped);
   if (stopped.length) parts.push(`${count(stopped.length, 'job')} left running by a REPL that ended ${stopped.length === 1 ? 'was' : 'were'} stopped: ${stopped.map((i) => i.stopped!.job).join(', ')}`);
-  const flows = of((i) => i.did === 'interrupted');
+  const flows = of((i) => i.did === 'interrupted' && i.kind !== 'workflow');
   if (flows.length) parts.push(`${count(flows.length, 'flow')} ${flows.length === 1 ? 'was' : 'were'} interrupted: ${flows.map((i) => i.id).join(', ')} (record${flows.length === 1 ? '' : 's'} written)`);
+  // R4 (H58): /run jobs whose session ended while they ran, each ended in its own job record
+  const runs = of((i) => i.did === 'interrupted' && i.kind === 'workflow');
+  if (runs.length) parts.push(`${count(runs.length, 'workflow run')} ${runs.length === 1 ? 'was' : 'were'} interrupted: ${runs.map((i) => i.id).join(', ')} (job record${runs.length === 1 ? '' : 's'} ended)`);
   const judged = of((i) => i.did === 'judged');
   if (judged.length) parts.push(`${count(judged.length, 'native run')} judged from ${judged.length === 1 ? 'its result file' : 'their result files'}`);
   const failed = of((i) => i.did === 'failed');
@@ -958,7 +968,7 @@ function summary(items: RecoveryItem[]): string {
   const attention = of((i) => i.kind === 'recipe' && i.did === 'left' && i.attention === true);
   if (attention.length) parts.push(`${count(attention.length, 'recipe job')} ${attention.length === 1 ? 'needs' : 'need'} /recipe recover`);
   // R4 (H46): a step's job left running by a REPL that ended, not stopped (its group could not be proven the job's).
-  const running = of((i) => i.kind === 'flow' && i.did === 'left' && i.attention === true);
+  const running = of((i) => (i.kind === 'flow' || i.kind === 'workflow') && i.did === 'left' && i.attention === true);
   if (running.length) parts.push(`${count(running.length, 'job')} left running by a REPL that ended ${running.length === 1 ? 'was' : 'were'} not stopped: what runs, and how to stop it, below`);
   // R4 (H52): OpenHands containers an ended session left running: stopped, or left with what to do.
   const containers = of((i) => i.kind === 'agent' && i.did === 'stopped');

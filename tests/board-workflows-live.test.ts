@@ -20,6 +20,9 @@ import { glyphSet } from '../src/term/glyphs.js';
 import type { Receipt, ReceiptInput } from '../src/utils/receipts.js';
 
 const FAKE_UPMD = resolve('tests/fixtures/fake-upmd.mjs');
+// R4 (H58): this machine's python3, which runs upmd (here the test double) on a pty through workers/upmd/pty_run.py
+const PYTHON3 = String(spawnSync('sh', ['-c', 'command -v python3'], { encoding: 'utf8' }).stdout ?? '').trim() || null;
+const withPython = { onPath: (cmd: string): string | null => (cmd === 'python3' ? PYTHON3 : null) };
 const F = '```';
 const DOC = [
   '# Tray build', '', 'The blocks read `box.params.json` and write `dist/`.', '',
@@ -217,9 +220,10 @@ describe('set-scad-params: an OpenSCAD model\'s parameter file, saved from the i
 });
 
 describe('a run on the live board: the blocks\' states come from the run job\'s events (test-double upmd)', () => {
-  it('Run up to here on verify: setup completed, build running, verify waiting, then each completed with its exit, its own time and what the run wrote', async () => {
+  // R4 (H58): through the pty wrapper (python3), as /run runs upmd wherever python3 works: each block's own time is real
+  it.skipIf(!PYTHON3)('Run up to here on verify: setup completed, build running, verify waiting, then each completed with its exit, its own time and what the run wrote', async () => {
     const root = project();
-    const { ws, sealed } = make(root);
+    const { ws, sealed } = make(root, withPython);
     const { port, token } = await live(ws);
     const first = (await state(port, token)).html;
     expect(nodeState(first, '1')).toBe('· not run yet');

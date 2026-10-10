@@ -37,6 +37,7 @@ import { flowKind, flowSteps, projectPath, type StepState } from '../repl/board-
 import type { BoardObservation } from '../repl/board.js';
 import { declaredUnknownCostUsd, hasMeasuredCostUsd, type Receipt } from '../utils/receipts.js';
 import type { OperationCard } from '../ops/card.js';
+import { liveProgram } from '../workflows/upmd-live.js';
 
 // ── the model ─────────────────────────────────────────────────────────────────
 
@@ -786,7 +787,7 @@ function jobRuns(c: Ctx): RoomRun[] {
     const failedStep = j.steps.find((s) => s.state === 'failed');
     const start = time(j.startedAt);
     const owner = j.kind === 'workflow' ? 'upmd (a workflow run)' : j.kind === 'server' ? 'a preview server' : /^readback /.test(j.label) ? 'a readback worker' : 'a task';
-    const program = path.basename(j.command);
+    const program = path.basename(liveProgram(j) ?? j.command); // R4 (H58): a /run on a pty names upmd, not its wrapper's python3
     return {
       kind: 'job', id: j.id, owner, harness: program ? cleanLine(program, c.scrub, 40) : 'its program (not named)',
       endpoint: 'local', route: 'this machine (a job); no cost recorded',

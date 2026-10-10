@@ -15,13 +15,19 @@
  * - a failing block's end line carries its code, upmd writes `Block <n> failed - stopping dependency
  *   chain` to stderr and exits 1; success exits 0;
  * - `upmd --version` prints `upmd 0.2.7`.
+ * - (R4, H58; ledger row 157) with its output a pipe, upmd 0.2.7 prints a block's start line, its output and its end
+ *   line all at once, when the block ends: the lines above say how each block ended, never that one is running. On a
+ *   terminal it draws each block as it starts and its output as it runs; src/workflows/upmd-live.ts runs it on a pty of
+ *   its own (workers/upmd/pty_run.py) and reads that format, and this pipe format where no pty can be had.
  *
  * A run, wired by its caller: findUpmd(env, onPath) → upmdVersion(bin) → parseWorkflow + runOrder
  * (the prediction shown before the run) → spawnProcess(bin, upmdRunArgs(file, block, dir)) with each
- * stdout and stderr line passed through parseUpmdLine into stepsFromEvent.
+ * stdout and stderr line passed through parseUpmdLine into stepsFromEvent (upmd-live.ts: upmdJob and
+ * upmdLineParser for a job of either kind).
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
+import type { JobStep } from '../jobs/index.js';
 import { spawnProcess } from '../runtime/spawn-runtime.js';
 
 export interface WorkflowBlock {
@@ -250,6 +256,8 @@ export function upmdRunArgs(file: string, block: string, workingDir: string): st
 }
 
 export type UpmdEvent = { type: 'start'; name: string; index: number } | { type: 'end'; name: string; code: number } | { type: 'chain-stopped'; index: number };
+/** A run's step as a job keeps it (src/jobs JobStep): R4 (H58) adds stopped and interrupted, and when it started and ended. */
+export type UpmdStep = JobStep;
 
 // ANSI colour and cursor sequences, in case upmd styles its lines
 const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]/g;
@@ -283,7 +291,7 @@ export function parseUpmdLine(line: string): UpmdEvent | null {
  * on stderr, two pipes read in no fixed order. An `end` whose start was not seen appends the finished
  * step. `chain-stopped` marks the step with that block number failed if it is still running.
  */
-export function stepsFromEvent(steps: { name: string; index?: number; state: 'running' | 'completed' | 'failed'; code?: number }[], ev: UpmdEvent): void {
+export function stepsFromEvent(steps: UpmdStep[], ev: UpmdEvent): void {
   if (ev.type === 'start') {
     steps.push({ name: ev.name, index: ev.index, state: 'running' });
     return;
