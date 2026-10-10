@@ -110,14 +110,17 @@ describe('c4dpy jobs: the result file decides, the exit is recorded beside it', 
     const s = spec('ok-exit-1');
     expect(s.kind).toBe('task');
     expect(s.command).toBe(path.join(tmp, 'bin', 'c4dpy'));
-    expect(s.args).toEqual([path.join(root, 'scene.py'), '--frames', '1']);
+    // R4 (finding 5): c4dpy runs the read-only copy kept in the run's folder at submission, not the script at its own path
+    const copy = path.join(root, '.timmy', 'native', s.native.run, 'source', 'scene.py');
+    expect(s.args).toEqual([copy, '--frames', '1']);
     expect(s.root).toBe(root);
     expect(s.label).toMatch(/Cinema 4D/);
     // R3 (finding 5a): each run writes its own result file, never a shared one
     expect(s.env?.TIMMY_RESULT).toBe(path.join(root, '.timmy', 'native', String(s.env?.TIMMY_RUN), 'result.json'));
     expect(s.env?.TIMMY_ROOT).toBe(root);
     expect(s.env?.TIMMY_RUN).toMatch(/^[0-9a-f-]{16,}$/);
-    expect(s.env?.TIMMY_SCRIPT).toBe(path.join(root, 'scene.py'));
+    expect(s.env?.TIMMY_SCRIPT).toBe(copy);
+    expect(s.env?.TIMMY_SCRIPT_ORIGINAL).toBe(path.join(root, 'scene.py'));
     expect(s.env?.TIMMY_SCRIPT_SHA256).toMatch(/^[0-9a-f]{64}$/);
     expect(existsSync(path.join(String(s.env?.TIMMY_C4D_LIB), 'timmy_c4d.py'))).toBe(true);
     expect(s.native).toMatchObject({ app: 'c4dpy', result: s.env?.TIMMY_RESULT, run: s.env?.TIMMY_RUN, input: { path: 'scene.py', sha256: s.env?.TIMMY_SCRIPT_SHA256 } });

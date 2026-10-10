@@ -16,16 +16,21 @@ What it writes (under TIMMY_OUT, default ./out):
 
 Every step is inside timmy_c4d.run_script: an exception becomes ok: false with the error, never a silent
 success. The c4dpy exit status is not the outcome; the result file is.
+
+A Timmy job runs a read-only copy of this file, kept in the run's folder when the job is submitted
+(.timmy/native/<run>/source/scene.py), so what runs is exactly what was submitted. __file__ is that copy;
+TIMMY_SCRIPT_DIR is the folder the script was submitted from, for files and modules beside it.
 """
 import os
 import sys
 
-# timmy_c4d.py: next to this script, in TIMMY_C4D_LIB (Timmy's c4dpy job sets it to its workers/c4d), or on sys.path.
+# timmy_c4d.py: next to this script (TIMMY_SCRIPT_DIR when a Timmy job runs its copy), in TIMMY_C4D_LIB (Timmy's
+# c4dpy job sets it to its workers/c4d), or on sys.path.
 try:
     _here = os.path.dirname(os.path.abspath(__file__))
 except NameError:  # a host that runs the file without __file__
     _here = os.getcwd()
-for _folder in (os.environ.get("TIMMY_C4D_LIB"), _here):
+for _folder in (os.environ.get("TIMMY_C4D_LIB"), os.environ.get("TIMMY_SCRIPT_DIR"), _here):
     if _folder and _folder not in sys.path:
         sys.path.insert(0, _folder)
 

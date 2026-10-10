@@ -17,17 +17,22 @@ What it writes (under TIMMY_OUT, default ./out):
 
 Every step is inside timmy_blender.run_script: an exception becomes ok: false with the error, never a
 silent success. Blender's exit status is not the outcome; the result file is.
+
+A Timmy job runs a read-only copy of this file, kept in the run's folder when the job is submitted
+(.timmy/native/<run>/source/scene.py), so what runs is exactly what was submitted. __file__ is that copy;
+TIMMY_SCRIPT_DIR is the folder the script was submitted from, for files and modules beside it.
 """
 import os
 import sys
 
 # timmy_blender.py: in TIMMY_BLENDER_LIB (Timmy's Blender job sets it to its workers/blender), next to this
-# script, or already on sys.path. Blender's Python ignores PYTHONPATH by default, so the folder is added here.
+# script (TIMMY_SCRIPT_DIR when a Timmy job runs its copy), or already on sys.path. Blender's Python ignores
+# PYTHONPATH by default, so the folders are added here.
 try:
     _here = os.path.dirname(os.path.abspath(__file__))
 except NameError:  # a host that runs the file without __file__
     _here = os.getcwd()
-for _folder in (os.environ.get("TIMMY_BLENDER_LIB"), _here):
+for _folder in (os.environ.get("TIMMY_BLENDER_LIB"), os.environ.get("TIMMY_SCRIPT_DIR"), _here):
     if _folder and _folder not in sys.path:
         sys.path.insert(0, _folder)
 

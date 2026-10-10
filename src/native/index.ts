@@ -25,20 +25,34 @@
  * now; an aerender output must have been created or changed during the run, and an image sequence must be
  * whole. reconcileNative judges a run again from that folder alone, after a restart.
  *
+ * R4 (a review of 07f37ec, findings 5 and 6; src/native/provenance.ts): a c4dpy or Blender run runs a
+ * read-only copy of its script kept in its folder at submission (source/<name>.py, in job.json as `copy`),
+ * checked against the submitted sha256 when made and when judged, so what ran is what was submitted; and each
+ * output it may be judged on is inventoried before it starts (job.json `pre`: the expected outputs and, for
+ * the scripted apps, every file under out/; `inventory` says what that covered), then classified created,
+ * changed or reused. A file there before with the same bytes is never counted as made by the run.
+ *
  * Finding a program is not running it: the /tools rows say 'installed' at most, and a row is marked
  * exercised only by a sealed receipt of its own app judged ok (finding 6), never by a shared tool name.
  * Nothing in this module has been run against the real applications here (see tests/native*.test.ts:
  * test doubles only).
  */
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
-  accessSync, appendFileSync, closeSync, constants, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync, writeFileSync,
+  accessSync, appendFileSync, constants, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
 import { packagedPath } from '../utils/asset-dirs.js';
 import type { CapabilityRow } from '../capabilities/index.js';
 import type { JobRecord, JobSpec, JobState } from '../jobs/index.js';
 import { resolveInside } from '../project/index.js';
+import {
+  changeOf, checkSource, classifyOutput, inventoryFolders, keepScript, madeByRun, MTIME_SLACK_MS, notMadeWords, notWrittenWords, OUT_FOLDER,
+  readSubmittedScript, scriptEnv, sha256File, sourceWords, stateBefore, whyNotInventoried,
+  type NativeInventory, type OutputChange, type SourceCheck,
+} from './provenance.js';
+
+export type { NativeInventory, OutputChange, SourceCheck } from './provenance.js';
 
 export type NativeApp = 'c4dpy' | 'aerender' | 'blender';
 type Env = Record<string, string | undefined>;
@@ -182,14 +196,16 @@ export const findBlender = (env: Env = process.env, seams: FinderSeams = {}): Na
 // ── job specs ─────────────────────────────────────────────────────────────────
 
 /**
- * An expected output's state when the run was submitted: absent, a file (its size, time and sha256), or,
- * for an image sequence ([####] in its name), the frames already there (size and time each).
+ * An output path's state when the run was submitted: absent, a file (its size, times and sha256), or, for an
+ * image sequence ([####] in its name), the frames already there (size, times and, from R4, sha256 each).
+ * sha256 '' (or none) means its bytes were not recorded: unreadable then, private by name, or past the
+ * inventory's hashing budget (src/native/provenance.ts). ctimeMs from R4.
  */
 export type PreState =
   | { state: 'absent' }
   | { state: 'not-a-file' }
-  | { state: 'present'; size: number; mtimeMs: number; sha256: string }
-  | { state: 'sequence'; frames: Record<string, { size: number; mtimeMs: number }> };
+  | { state: 'present'; size: number; mtimeMs: number; sha256: string; ctimeMs?: number }
+  | { state: 'sequence'; frames: Record<string, { size: number; mtimeMs: number; ctimeMs?: number; sha256?: string }> };
 
 /** What judging a native job needs, carried on its spec (JobManager ignores it) and in its job.json. */
 export interface NativeMeta {
@@ -208,8 +224,12 @@ export interface NativeMeta {
   expect: string[];
   /** R3: the script (c4dpy) or project file (aerender) as submitted, relative to root, and its sha256 */
   input?: { path: string; sha256: string };
-  /** R3: each expected output's state at submission */
+  /** R4: the read-only copy of the script the app runs, kept in the run's folder, relative to root, and its sha256 */
+  copy?: { path: string; sha256: string };
+  /** R3: each expected output's state at submission; R4: and every entry under out/ for the scripted apps */
   pre?: Record<string, PreState>;
+  /** R4: what the inventory in `pre` covered besides the expected outputs */
+  inventory?: NativeInventory;
   /** R3: aerender's frame range (-s, -e), when given */
   frames?: { start?: number; end?: number };
   /** R3: when the run was submitted (ms since the epoch) */
@@ -249,8 +269,6 @@ const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 /** Where each run keeps its own folder, inside the project (classified as history, never as output). */
 export const NATIVE_RUNS_DIR = path.join('.timmy', 'native');
 const RUN_TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** an output's time may trail the submission by this much (coarse file times) */
-const MTIME_SLACK_MS = 2000;
 
 /**
  * R2: a native app finds its license and preferences in HOME. When Timmy itself runs with a separate HOME
@@ -274,17 +292,6 @@ function program(app: NativeApp, bin: string | undefined, env: Env): string {
   const { found, problem } = locateNative(app, env);
   if (!found) throw new NativeNotFound(app, NATIVE_APPS[app].setup, problem);
   return found.path;
-}
-
-function sha256File(file: string): string | undefined {
-  let fd: number;
-  try { fd = openSync(file, 'r'); } catch { return undefined; }
-  try {
-    const hash = createHash('sha256');
-    const chunk = Buffer.alloc(1024 * 1024);
-    for (let n = readSync(fd, chunk, 0, chunk.length, null); n > 0; n = readSync(fd, chunk, 0, chunk.length, null)) hash.update(chunk.subarray(0, n));
-    return hash.digest('hex');
-  } catch { return undefined; } finally { closeSync(fd); }
 }
 
 /** An existing input file inside the project, with its sha256 now (the bytes submitted). */
@@ -316,15 +323,21 @@ function sequenceFrames(abs: string): Map<number, string> {
   return frames;
 }
 
-/** Each expected output's state now: what a later judgement compares against (R3, finding 5c). */
+/**
+ * Each expected output's state now: what a later judgement compares against (R3, finding 5c). R4 (finding 6):
+ * with its sha256, and each frame of a sequence with its own, so bytes that were there before are told apart.
+ */
 function preStates(root: string, names: string[]): Record<string, PreState> {
   const pre: Record<string, PreState> = {};
   for (const name of names) {
     const abs = path.join(root, name);
     if (isSequence(name)) {
-      const frames: Record<string, { size: number; mtimeMs: number }> = {};
+      const frames: Record<string, { size: number; mtimeMs: number; ctimeMs: number; sha256: string }> = {};
       for (const [n, file] of sequenceFrames(abs)) {
-        try { const s = statSync(file); if (s.isFile()) frames[String(n)] = { size: s.size, mtimeMs: s.mtimeMs }; } catch { /* gone */ }
+        try {
+          const s = statSync(file);
+          if (s.isFile()) frames[String(n)] = { size: s.size, mtimeMs: s.mtimeMs, ctimeMs: s.ctimeMs, sha256: sha256File(file) ?? '' };
+        } catch { /* gone */ }
       }
       pre[name] = { state: 'sequence', frames };
       continue;
@@ -332,9 +345,15 @@ function preStates(root: string, names: string[]): Record<string, PreState> {
     let s;
     try { s = statSync(abs); } catch { pre[name] = { state: 'absent' }; continue; }
     if (!s.isFile()) { pre[name] = { state: 'not-a-file' }; continue; }
-    pre[name] = { state: 'present', size: s.size, mtimeMs: s.mtimeMs, sha256: sha256File(abs) ?? '' };
+    pre[name] = { state: 'present', size: s.size, mtimeMs: s.mtimeMs, ctimeMs: s.ctimeMs, sha256: sha256File(abs) ?? '' };
   }
   return pre;
+}
+
+/** R4 (finding 6): a scripted run's expected outputs and every entry under out/ (TIMMY_OUT), as they are before it. */
+function inventoryOutputs(root: string, expect: string[]): { pre: Record<string, PreState>; inventory: NativeInventory } {
+  const pre = preStates(root, expect);
+  return { pre, inventory: inventoryFolders(root, pre, [OUT_FOLDER]) };
 }
 
 // ── each run's own record ────────────────────────────────────────────────────
@@ -352,10 +371,14 @@ export interface NativeRunJob {
   /** the job's arguments, the project folder written as "." */
   args: string[];
   input?: { path: string; sha256: string };
+  /** R4: the read-only copy of the script the app runs, in this run's folder */
+  copy?: { path: string; sha256: string };
   result?: string;
   output?: string;
   expect: string[];
   pre: Record<string, PreState>;
+  /** R4: what `pre` covers besides the expected outputs (out/, for the scripted apps) */
+  inventory?: NativeInventory;
   frames?: { start?: number; end?: number };
   started_at: string;
   timeout_ms: number;
@@ -368,8 +391,11 @@ export interface NativeVerdictLine {
   outcome: NativeJudgement['outcome'];
   why: string;
   exit: NativeJudgement['exit'];
+  /** each file's check; R4: with what the run did to it (`change`) */
   files: NativeFileCheck[];
   checked?: SequenceCheck[];
+  /** R4: how what ran was bound to the script submitted */
+  source?: SourceCheck;
 }
 
 const runDir = (root: string, run: string): string => path.join(root, NATIVE_RUNS_DIR, run);
@@ -384,9 +410,10 @@ function writeSubmission(spec: NativeJobSpec): void {
     record: 'timmy-native-run', v: 1, app: m.app, run: m.run, program: spec.command, label: spec.label, project: spec.project,
     args: spec.args.map((a) => (a.startsWith(`${m.root}${path.sep}`) || a === m.root ? `./${relTo(m.root, a)}`.replace(/^\.\/\.$/, '.') : a)),
     ...(m.input ? { input: m.input } : {}),
+    ...(m.copy ? { copy: m.copy } : {}),
     ...(m.result ? { result: relTo(m.root, m.result) } : {}),
     ...(m.output ? { output: relTo(m.root, m.output) } : {}),
-    expect: m.expect, pre: m.pre ?? {}, ...(m.frames ? { frames: m.frames } : {}),
+    expect: m.expect, pre: m.pre ?? {}, ...(m.inventory ? { inventory: m.inventory } : {}), ...(m.frames ? { frames: m.frames } : {}),
     started_at: new Date(m.submittedMs ?? Date.now()).toISOString(), timeout_ms: spec.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   };
   writeFileSync(path.join(dir, 'job.json'), `${JSON.stringify(job, null, 2)}\n`, { flag: 'wx' });
@@ -413,7 +440,7 @@ function appendVerdict(dir: string, j: NativeJudgement, jobId?: string): void {
     if (last && last.outcome === j.outcome && last.why === j.why && last.job === jobId) return;
     const line: NativeVerdictLine = {
       judged_at: new Date().toISOString(), ...(jobId ? { job: jobId } : {}), outcome: j.outcome, why: j.why, exit: j.exit, files: j.files,
-      ...(j.checked ? { checked: j.checked } : {}),
+      ...(j.checked ? { checked: j.checked } : {}), ...(j.source ? { source: j.source } : {}),
     };
     appendFileSync(path.join(dir, 'verdicts.jsonl'), `${JSON.stringify(line)}\n`);
   } catch { /* the judgement stands without its record; a missing folder is not a verdict */ }
@@ -507,15 +534,19 @@ export interface C4dpyJobInput {
 }
 
 /**
- * A task job running `c4dpy <script.py> [args]` in the project folder. The script learns where to write
- * from its environment: TIMMY_RESULT (this run's own result file), TIMMY_RUN (this run's token, written
- * back into the result), TIMMY_SCRIPT and TIMMY_SCRIPT_SHA256 (the script and its sha256 at submission,
- * echoed back), TIMMY_ROOT (the project folder), TIMMY_OUT (its out/ folder) and TIMMY_C4D_LIB (the folder
- * with timmy_c4d.py, when this checkout has it). Making the spec writes the run's job.json.
+ * A task job running `c4dpy <copy of script.py> [args]` in the project folder. R4 (finding 5): the app runs a
+ * read-only copy of the script kept in the run's folder at submission (.timmy/native/<run>/source/), so what
+ * runs is the bytes hashed then. The script learns where to write from its environment: TIMMY_RESULT (this
+ * run's own result file), TIMMY_RUN (this run's token, written back into the result), TIMMY_SCRIPT (the copy
+ * it runs) and TIMMY_SCRIPT_SHA256 (the sha256 submitted, echoed back), TIMMY_SCRIPT_ORIGINAL and
+ * TIMMY_SCRIPT_DIR (the script and folder it was submitted from, for files and modules beside it),
+ * TIMMY_ROOT (the project folder), TIMMY_OUT (its out/ folder) and TIMMY_C4D_LIB (the folder with
+ * timmy_c4d.py, when this checkout has it). Making the spec inventories the outputs it may be judged on (R4,
+ * finding 6), keeps the copy and writes the run's job.json.
  */
 export function c4dpyJob(input: C4dpyJobInput): NativeJobSpec {
   const root = realRoot(input.root);
-  const script = inputFile(root, input.script, 'script');
+  const script = readSubmittedScript(inside(root, input.script));
   if (!/\.py$/i.test(script.rel)) throw new Error(`${script.rel} is not a Python file (.py)`);
   const run = randomUUID();
   const record = runDir(root, run);
@@ -524,17 +555,22 @@ export function c4dpyJob(input: C4dpyJobInput): NativeJobSpec {
   const bin = program('c4dpy', input.bin, { ...process.env, ...input.env });
   const lib = input.env?.TIMMY_C4D_LIB ?? c4dHelperDir();
   const submittedMs = Date.now();
+  const { pre, inventory } = inventoryOutputs(root, expect);
+  const copy = keepScript(root, record, script);
   const spec: NativeJobSpec = {
     kind: 'task', label: input.label ?? `Cinema 4D · ${script.rel}`, project: input.project, root,
-    command: bin, args: [script.path, ...(input.args ?? [])],
+    command: bin, args: [copy.path, ...(input.args ?? [])],
     env: {
-      ...input.env, ...nativeHome(input.env), TIMMY_RESULT: result.path, TIMMY_RUN: run, TIMMY_ROOT: root, TIMMY_OUT: path.join(root, 'out'),
-      TIMMY_SCRIPT: script.path, TIMMY_SCRIPT_SHA256: script.sha256, ...(lib ? { TIMMY_C4D_LIB: lib } : {}),
+      ...input.env, ...nativeHome(input.env), TIMMY_RESULT: result.path, TIMMY_RUN: run, TIMMY_ROOT: root, TIMMY_OUT: path.join(root, OUT_FOLDER),
+      ...scriptEnv(script, copy), ...(lib ? { TIMMY_C4D_LIB: lib } : {}),
     },
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     // R2 (the Mac run): without its license, c4dpy asks this and waits for a person, even with its input closed.
     stopWhen: { pattern: /Enter the license method/i, error: 'Cinema 4D asked how to license it and waits for a person: run Cinema 4D once as this user, or set TIMMY_NATIVE_HOME to the home that holds its license' },
-    native: { app: 'c4dpy', root, run, record, result: result.path, expect, input: { path: script.rel, sha256: script.sha256 }, pre: preStates(root, expect), submittedMs },
+    native: {
+      app: 'c4dpy', root, run, record, result: result.path, expect, input: { path: script.rel, sha256: script.sha256 }, copy: { path: copy.rel, sha256: copy.sha256 },
+      pre, inventory, submittedMs,
+    },
   };
   writeSubmission(spec);
   return spec;
@@ -562,17 +598,20 @@ export interface BlenderJobInput {
 }
 
 /**
- * A task job running `blender -b --factory-startup --python-exit-code 1 --python <script.py> -- [args]` in
- * the project folder: Blender headless, with its factory settings (no user preferences or add-ons), the
+ * A task job running `blender -b --factory-startup --python-exit-code 1 --python <copy of script.py> -- [args]`
+ * in the project folder: Blender headless, with its factory settings (no user preferences or add-ons), the
  * script's arguments after `--`, and an uncaught Python error made a non-zero exit (recorded beside the
- * outcome, never deciding it). The script learns where to write from TIMMY_RESULT, TIMMY_RUN, TIMMY_SCRIPT,
- * TIMMY_SCRIPT_SHA256, TIMMY_ROOT, TIMMY_OUT and TIMMY_BLENDER_LIB (the folder with timmy_blender.py, when
- * this checkout has it). Making the spec writes the run's job.json. It is judged like c4dpy: by this run's
- * result file, bound to its token, the script's sha256 and a matching sha256 for every file it names.
+ * outcome, never deciding it). R4 (finding 5): like c4dpy, Blender runs the read-only copy kept in the run's
+ * folder at submission. The script learns where to write from TIMMY_RESULT, TIMMY_RUN, TIMMY_SCRIPT (the
+ * copy), TIMMY_SCRIPT_SHA256, TIMMY_SCRIPT_ORIGINAL, TIMMY_SCRIPT_DIR, TIMMY_ROOT, TIMMY_OUT and
+ * TIMMY_BLENDER_LIB (the folder with timmy_blender.py, when this checkout has it). Making the spec inventories
+ * the outputs it may be judged on, keeps the copy and writes the run's job.json. It is judged like c4dpy: by
+ * this run's result file, bound to its token and to the script as submitted, every file it names with a
+ * matching sha256 and made by this run.
  */
 export function blenderJob(input: BlenderJobInput): NativeJobSpec {
   const root = realRoot(input.root);
-  const script = inputFile(root, input.script, 'script');
+  const script = readSubmittedScript(inside(root, input.script));
   if (!/\.py$/i.test(script.rel)) throw new Error(`${script.rel} is not a Python file (.py)`);
   const run = randomUUID();
   const record = runDir(root, run);
@@ -581,15 +620,20 @@ export function blenderJob(input: BlenderJobInput): NativeJobSpec {
   const bin = program('blender', input.bin, { ...process.env, ...input.env });
   const lib = input.env?.TIMMY_BLENDER_LIB ?? blenderHelperDir();
   const submittedMs = Date.now();
+  const { pre, inventory } = inventoryOutputs(root, expect);
+  const copy = keepScript(root, record, script);
   const spec: NativeJobSpec = {
     kind: 'task', label: input.label ?? `Blender · ${script.rel}`, project: input.project, root,
-    command: bin, args: ['-b', '--factory-startup', '--python-exit-code', '1', '--python', script.path, '--', ...(input.args ?? [])],
+    command: bin, args: ['-b', '--factory-startup', '--python-exit-code', '1', '--python', copy.path, '--', ...(input.args ?? [])],
     env: {
-      ...input.env, ...nativeHome(input.env), TIMMY_RESULT: result.path, TIMMY_RUN: run, TIMMY_ROOT: root, TIMMY_OUT: path.join(root, 'out'),
-      TIMMY_SCRIPT: script.path, TIMMY_SCRIPT_SHA256: script.sha256, ...(lib ? { TIMMY_BLENDER_LIB: lib } : {}),
+      ...input.env, ...nativeHome(input.env), TIMMY_RESULT: result.path, TIMMY_RUN: run, TIMMY_ROOT: root, TIMMY_OUT: path.join(root, OUT_FOLDER),
+      ...scriptEnv(script, copy), ...(lib ? { TIMMY_BLENDER_LIB: lib } : {}),
     },
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    native: { app: 'blender', root, run, record, result: result.path, expect, input: { path: script.rel, sha256: script.sha256 }, pre: preStates(root, expect), submittedMs },
+    native: {
+      app: 'blender', root, run, record, result: result.path, expect, input: { path: script.rel, sha256: script.sha256 }, copy: { path: copy.rel, sha256: copy.sha256 },
+      pre, inventory, submittedMs,
+    },
   };
   writeSubmission(spec);
   return spec;
@@ -693,8 +737,13 @@ export interface NativeFileCheck {
   /** the file's sha256 now */
   sha256?: string;
   matches?: boolean;
-  /** R3: created or changed during this run, from its state at submission */
+  /** R3: created or changed during this run, from its state at submission. R4: made by this run, by its bytes:
+   *  a file there before with the same bytes is never written by this run, whatever its times say */
   written?: boolean;
+  /** R4 (finding 6): what this run did to it, against the inventory taken before the run */
+  change?: OutputChange;
+  /** R4: false when the path was not inventoried before the run (its change told from its times alone) */
+  inventoried?: false;
   /** R3: the result named it outside the project */
   outside?: boolean;
 }
@@ -713,6 +762,8 @@ export interface SequenceCheck {
   missing_count: number;
   /** frames there from before the run and not written by it (at most 50 listed); outside the range they decide nothing */
   stale: number[];
+  /** R4 (finding 6): the frames there now, by what this run did to each; only created and changed are its own */
+  by_change?: Record<'created' | 'changed' | 'reused' | 'unverified' | 'unrecorded', number>;
 }
 export interface NativeJudgement {
   outcome: 'ok' | 'failed' | 'unknown';
@@ -729,6 +780,8 @@ export interface NativeJudgement {
   input?: { path: string; sha256: string };
   /** R3: each image sequence's check */
   checked?: SequenceCheck[];
+  /** R4 (finding 5): how what ran was bound to the script submitted, when the result got that far */
+  source?: SourceCheck;
 }
 export interface JudgeOptions {
   /** the project folder: file names are relative to it */
@@ -742,8 +795,13 @@ export interface JudgeOptions {
   resultExpected?: boolean;
   /** R3: the input as submitted: the result must echo its sha256 (c4dpy), the project file must still have it (aerender) */
   input?: { path: string; sha256: string };
-  /** R3: each expected output's state at submission */
+  /** R4: the copy of the script the app ran, relative to root: it must still hold the submitted bytes. Without one,
+   *  the result must report what the script read (script_sha256_read) to be bound to the input as submitted */
+  copy?: { path: string; sha256: string };
+  /** R3: each expected output's state at submission; R4: and each inventoried path's */
   pre?: Record<string, PreState>;
+  /** R4: what the inventory in `pre` covered besides the expected outputs */
+  inventory?: NativeInventory;
   /** R3: an image sequence's frame range, when given */
   frames?: { start?: number; end?: number };
   /** R3: when the run was submitted (ms) */
@@ -776,42 +834,44 @@ function orphanExit(text: string, startedMs: number): ExitInfo {
 }
 
 /** A name from a result file, as the project knows it: relative and inside, or `outside`. */
-function placeName(root: string, name: string): { rel: string; abs: string } | { outside: string } {
+function placeName(root: string, name: string): { rel: string; abs: string; real: string } | { outside: string } {
   const abs = path.resolve(root, name);
   const shown = path.isAbsolute(name) ? `(a path outside the project) ${path.basename(name)}` : name;
   if (!(abs === root || abs.startsWith(`${root}${path.sep}`))) return { outside: shown };
   let real = abs;
   try { real = realpathSync(abs); } catch { /* not there: judged missing below */ }
   if (!(real === root || real.startsWith(`${root}${path.sep}`))) return { outside: shown };
-  return { rel: relTo(root, abs), abs };
+  return { rel: relTo(root, abs), abs, real };
 }
 
-/** Whether a single file was created or changed since submission, by its state then. */
-function writtenSince(abs: string, pre: PreState | undefined, sinceMs: number): { present: boolean; written: boolean; sha256?: string } {
-  let s;
-  try { s = statSync(abs); } catch { return { present: false, written: false }; }
-  if (!s.isFile()) return { present: false, written: false };
-  const sha256 = sha256File(abs);
-  const fresh = s.size > 0 && s.mtimeMs >= sinceMs - MTIME_SLACK_MS;
-  if (!pre || pre.state !== 'present') return { present: true, written: fresh, ...(sha256 ? { sha256 } : {}) };
-  const changed = s.size !== pre.size || s.mtimeMs !== pre.mtimeMs || (sha256 !== undefined && sha256 !== pre.sha256);
-  return { present: true, written: fresh && changed, ...(sha256 ? { sha256 } : {}) };
+/**
+ * Whether a single output found by its path (not named by a result) was made by this run: R4 (finding 6),
+ * created or changed to other bytes than the inventory recorded before the run, not empty, with a time from
+ * the run. The same bytes as before, rewritten or not, are never this run's.
+ */
+function writtenSince(abs: string, pre: PreState | undefined, sinceMs: number): { present: boolean; written: boolean; sha256?: string; change: OutputChange; inventoried: boolean; words: string } {
+  const c = classifyOutput(abs, pre, sinceMs);
+  const written = madeByRun(c, sinceMs);
+  return { present: c.present, written, change: c.change, inventoried: c.inventoried, words: written ? '' : notWrittenWords(c), ...(c.sha256 ? { sha256: c.sha256 } : {}) };
 }
 
-/** An image sequence, frame by frame: which frames this run wrote, against the range it must have. */
+/** An image sequence, frame by frame: which frames this run wrote, against the range it must have. R4: by each frame's bytes. */
 function checkSequence(root: string, name: string, pre: PreState | undefined, frames: JudgeOptions['frames'], sinceMs: number): SequenceCheck {
-  const before = pre?.state === 'sequence' ? pre.frames : {};
+  // a sequence with no record of its frames before the run: each frame's times alone speak
+  const before = pre?.state === 'sequence' ? pre.frames : undefined;
   const now = sequenceFrames(path.join(root, name));
   const written = new Set<number>();
   const there = new Set<number>();
+  const byChange = { created: 0, changed: 0, reused: 0, unverified: 0, unrecorded: 0 };
   for (const [n, file] of now) {
     let s;
     try { s = statSync(file); } catch { continue; }
     if (!s.isFile()) continue;
     there.add(n);
-    const b = before[String(n)];
+    const change = changeOf(s, before ? before[String(n)] : null, sinceMs, () => sha256File(file));
+    if (change in byChange) byChange[change as keyof typeof byChange]++;
     const fresh = s.size > 0 && s.mtimeMs >= sinceMs - MTIME_SLACK_MS;
-    if (fresh && (!b || b.size !== s.size || b.mtimeMs !== s.mtimeMs)) written.add(n);
+    if (fresh && (change === 'created' || change === 'changed')) written.add(n);
   }
   const cap = (xs: number[]): number[] => xs.sort((a, b) => a - b).slice(0, 50);
   const sorted = [...written].sort((a, b) => a - b);
@@ -832,7 +892,7 @@ function checkSequence(root: string, name: string, pre: PreState | undefined, fr
     }
   }
   const stale = cap([...there].filter((n) => !written.has(n)));
-  return { pattern: name, range, range_from: from, written: inRange, missing, missing_count: missingCount, stale };
+  return { pattern: name, range, range_from: from, written: inRange, missing, missing_count: missingCount, stale, by_change: byChange };
 }
 
 /** The judgement of a run with no result file (aerender): what it left, against its state at submission. */
@@ -851,26 +911,33 @@ function judgeOutputs(x: ExitInfo, opts: JudgeOptions, who: string, verdict: (o:
       const whole = c.range !== null && c.missing.length === 0 && c.written > 0 && !(c.range_from === 'frames written' && c.written < 2);
       files.push({ path: name, present: c.written > 0, written: whole });
       if (!whole) {
-        short.push(c.range === null ? `${name} (no frame was written during this run)`
+        // R4 (finding 6): frames there with the bytes they had before the run are said so, never counted as written
+        const kept = c.by_change ? [
+          ...(c.by_change.reused ? [`${c.by_change.reused} frame${c.by_change.reused === 1 ? ' was' : 's were'} there before this run with the same bytes (reused)`] : []),
+          ...(c.by_change.unverified ? [`${c.by_change.unverified} rewritten with the same size, their bytes before the run not recorded`] : []),
+        ].join(', ') : '';
+        short.push(c.range === null ? `${name} (no frame was written during this run${kept ? `; ${kept}` : ''})`
           : c.range_from === 'frames written' && c.written < 2 ? `${name} (only one frame, ${c.range[0]}, was written during this run, and no range was given to say that is all: -s and -e would)`
-            : `${name} (${c.missing_count} frame${c.missing_count === 1 ? '' : 's'} of ${c.range[0]}–${c.range[1]} missing or not written during this run, first ${c.missing[0]})`);
+            : `${name} (${c.missing_count} frame${c.missing_count === 1 ? '' : 's'} of ${c.range[0]}–${c.range[1]} missing or not written during this run, first ${c.missing[0]}${kept ? `; ${kept}` : ''})`);
       }
       continue;
     }
-    const w = writtenSince(path.join(opts.root, name), opts.pre?.[name], sinceMs);
-    files.push({ path: name, present: w.present, written: w.written, ...(w.sha256 ? { sha256: w.sha256 } : {}) });
-    if (!w.written) short.push(w.present ? `${name} (there, but not written by this run)` : `${name} (not there)`);
+    const w = writtenSince(path.join(opts.root, name), stateBefore(name, opts.pre, opts.inventory), sinceMs);
+    files.push({ path: name, present: w.present, written: w.written, change: w.change, ...(w.inventoried ? {} : { inventoried: false as const }), ...(w.sha256 ? { sha256: w.sha256 } : {}) });
+    if (!w.written) short.push(`${name} (${w.words})`);
   }
   const extra: Partial<NativeJudgement> = checked.length ? { checked } : {};
+  // R4: each single output with what the run did to it (created, or changed from other bytes)
+  const made = files.map((f) => (f.change ? `${f.path} (${f.change})` : f.path)).join(', ');
   if (!short.length) {
     if (opts.input) {
       const now = sha256File(path.join(opts.root, opts.input.path));
       if (now !== opts.input.sha256) {
-        return verdict('unknown', `${files.map((f) => f.path).join(', ')} written during the run, but ${opts.input.path} ${now ? 'changed' : 'is gone'} since it was submitted, so what was rendered cannot be bound to it; ${who} ${x.text}`, files, extra);
+        return verdict('unknown', `${made} written during the run, but ${opts.input.path} ${now ? 'changed' : 'is gone'} since it was submitted, so what was rendered cannot be bound to it; ${who} ${x.text}`, files, extra);
       }
     }
-    if (x.clean) return verdict('ok', `${files.map((f) => f.path).join(', ')} written during the run${opts.input ? `, from ${opts.input.path} as submitted` : ''}; ${who} exited 0`, files, extra);
-    return verdict('unknown', `${files.map((f) => f.path).join(', ')} written during the run, but ${who} ${x.text}: its log says whether it finished`, files, extra);
+    if (x.clean) return verdict('ok', `${made} written during the run${opts.input ? `, from ${opts.input.path} as submitted` : ''}; ${who} exited 0`, files, extra);
+    return verdict('unknown', `${made} written during the run, but ${who} ${x.text}: its log says whether it finished`, files, extra);
   }
   if (x.clean || !x.known) return verdict('unknown', `${who} ${x.text}, but ${short.join('; ')} was not written by this run`, files, extra);
   return verdict('failed', `${who} ${x.text} and ${short.join('; ')} was not written by this run`, files, extra);
@@ -879,16 +946,21 @@ function judgeOutputs(x: ExitInfo, opts: JudgeOptions, who: string, verdict: (o:
 /**
  * The outcome of a native run, from what it left behind. The process's exit is recorded beside the
  * outcome and never decides it alone:
- *   ok       c4dpy: the result file is this run's (its token), echoes the script's sha256 as submitted,
- *            says ok:true, names only files inside the project, each with a sha256 that matches the file
- *            now, and every expected file is named or was written during the run. aerender: every
- *            expected output was created or changed during the run (an image sequence whole), the project
- *            file is as submitted, and aerender exited 0.
+ *   ok       c4dpy, blender: the result file is this run's (its token), echoes the script's sha256 as
+ *            submitted, and what ran is shown to be that script (R4: the copy the app ran still holds the
+ *            submitted bytes, or, with no copy, the script reports reading them); it says ok:true, names only
+ *            files inside the project, each with a sha256 that matches the file now and each made by this run
+ *            (R4: created, or changed from other bytes, against the inventory taken before the run), and every
+ *            expected file is named or was made by this run. aerender: every expected output was made by this
+ *            run (an image sequence whole, frame by frame), the project file is as submitted, and aerender
+ *            exited 0.
  *   failed   the result says ok:false; or it says ok but a file is missing, differs, has no sha256 or is
  *            outside the project, or an expected file is not accounted for; or there is no result (no
  *            output) and the process did not exit 0.
  *   unknown  still running; exited 0 with no result file (no output); a result from another run, without
- *            ok, or not bound to the script submitted; aerender's output there but a non-zero exit.
+ *            ok, or not bound to the script submitted (R4: a read digest that disagrees, a copy changed or
+ *            gone, or neither a copy nor a read digest); R4: a file it names that this run did not make (there
+ *            before with the same bytes, or not inventoried); aerender's output there but a non-zero exit.
  * `result` is the parsed result file, or undefined when there was none.
  */
 export function judgeNativeRun(job: JobRecord, result: unknown, opts: JudgeOptions): NativeJudgement {
@@ -922,6 +994,7 @@ function judgeExit(x: ExitInfo, result: unknown, opts: JudgeOptions): NativeJudg
     const error = typeof r.error === 'string' && r.error.trim() ? r.error.trim() : 'no error given';
     return verdict('failed', `the script reported ok: false: ${error}; ${recorded}`, [], version);
   }
+  let source: SourceCheck | undefined;
   if (opts.input) {
     if (typeof r.script_sha256 !== 'string') {
       return verdict('unknown', `the result says ok but does not echo the script's sha256 (TIMMY_SCRIPT_SHA256), so it cannot be bound to ${opts.input.path} as submitted; ${recorded}`, [], version);
@@ -929,56 +1002,86 @@ function judgeExit(x: ExitInfo, result: unknown, opts: JudgeOptions): NativeJudg
     if (r.script_sha256.toLowerCase() !== opts.input.sha256) {
       return verdict('unknown', `the result echoes another script's sha256, not ${opts.input.path} as submitted; ${recorded}`, [], version);
     }
-    if (typeof r.script_sha256_read === 'string' && r.script_sha256_read.toLowerCase() !== opts.input.sha256) {
-      return verdict('unknown', `${opts.input.path} changed between submission and the run: what ran is not what was submitted; ${recorded}`, [], version);
+    // R4 (finding 5): what ran is the script submitted only when the copy the app ran still holds the submitted
+    // bytes or, with no copy (a run recorded before R4), the script reports reading them; a read digest that
+    // disagrees, or a copy changed or gone, rules it out whatever else agrees.
+    source = checkSource(opts.root, opts.input, opts.copy, r.script_sha256_read);
+    const held = { ...version, source };
+    if (source.read === 'differs') {
+      return verdict('unknown', `the script reports reading other bytes than ${opts.input.path} as submitted (its script_sha256_read is not the submitted sha256): what ran cannot be shown to be what was submitted; ${recorded}`, [], held);
+    }
+    if (source.copy_state !== undefined && source.copy_state !== 'intact') {
+      return verdict('unknown', `the copy of ${opts.input.path} kept at submission (${source.copy}) ${source.copy_state === 'gone' ? 'is gone' : 'no longer holds the submitted bytes'}, so what ran cannot be shown to be what was submitted; ${recorded}`, [], held);
+    }
+    if (!source.established_by.length) {
+      return verdict('unknown', `the result does not report the sha256 of the script as it was read (script_sha256_read), and no copy kept at submission ran, so what ran cannot be bound to ${opts.input.path} as submitted; ${recorded}`, [], held);
     }
   }
+  const extra: Partial<NativeJudgement> = { ...version, ...(source ? { source } : {}) };
+  const since = opts.submittedMs ?? x.startedMs;
+  const sinceMs = Number.isNaN(since) ? 0 : since;
   const files: NativeFileCheck[] = [];
   const named = r.files && typeof r.files === 'object' && !Array.isArray(r.files) ? Object.entries(r.files as Record<string, unknown>) : [];
   const covered = new Set<string>();
+  const unlisted = new Map<string, string>();
   for (const [name, hash] of named) {
     const at = placeName(opts.root, name);
     if ('outside' in at) {
       files.push({ path: at.outside, present: false, outside: true });
-      return verdict('failed', `the result says ok, but names ${at.outside}, outside the project; ${recorded}`, files, version);
+      return verdict('failed', `the result says ok, but names ${at.outside}, outside the project; ${recorded}`, files, extra);
     }
     covered.add(at.rel);
-    let present = false;
-    try { present = statSync(at.abs).isFile(); } catch { /* missing */ }
-    const check: NativeFileCheck = { path: at.rel, present };
+    // R4 (finding 6): the bytes the name leads to (through any link), against the inventory taken before the run
+    const real = relTo(opts.root, at.real);
+    const c = classifyOutput(at.real, stateBefore(real, opts.pre, opts.inventory), sinceMs);
+    const check: NativeFileCheck = {
+      path: at.rel, present: c.present, written: c.change === 'created' || c.change === 'changed', change: c.change, ...(c.inventoried ? {} : { inventoried: false as const }),
+    };
+    if (!c.inventoried) unlisted.set(at.rel, `${real === at.rel ? '' : `it leads to ${real}, and `}${whyNotInventoried(real, opts.inventory)}`);
     if (typeof hash === 'string' && /^[0-9a-f]{64}$/i.test(hash)) {
       check.recorded = hash.toLowerCase();
-      if (present) {
-        const now = sha256File(at.abs);
-        if (now) check.sha256 = now;
-        check.matches = now === check.recorded;
+      if (c.present) {
+        if (c.sha256) check.sha256 = c.sha256;
+        check.matches = c.sha256 === check.recorded;
       }
     }
     files.push(check);
   }
-  const since = opts.submittedMs ?? x.startedMs;
+  const unwritten = new Map<string, string>();
   for (const name of opts.expect ?? []) {
     if (covered.has(name)) continue;
-    const w = writtenSince(path.join(opts.root, name), opts.pre?.[name], Number.isNaN(since) ? 0 : since);
-    files.push({ path: name, present: w.present, written: w.written, ...(w.sha256 ? { sha256: w.sha256 } : {}) });
+    const w = writtenSince(path.join(opts.root, name), stateBefore(name, opts.pre, opts.inventory), sinceMs);
+    files.push({ path: name, present: w.present, written: w.written, change: w.change, ...(w.inventoried ? {} : { inventoried: false as const }), ...(w.sha256 ? { sha256: w.sha256 } : {}) });
+    if (!w.written) unwritten.set(name, w.words);
   }
   const undigested = files.find((f) => covered.has(f.path) && f.recorded === undefined);
-  if (undigested) return verdict('failed', `the result says ok, but names ${undigested.path} without its sha256: every file it names must carry one; ${recorded}`, files, version);
+  if (undigested) return verdict('failed', `the result says ok, but names ${undigested.path} without its sha256: every file it names must carry one; ${recorded}`, files, extra);
   const missing = files.find((f) => !f.present);
-  if (missing) return verdict('failed', `the result says ok, but ${missing.path} is not there; ${recorded}`, files, version);
+  if (missing) return verdict('failed', `the result says ok, but ${missing.path} is not there; ${recorded}`, files, extra);
   const differs = files.find((f) => f.matches === false);
-  if (differs) return verdict('failed', `the result says ok, but ${differs.path} does not match the sha256 it recorded; ${recorded}`, files, version);
+  if (differs) return verdict('failed', `the result says ok, but ${differs.path} does not match the sha256 it recorded; ${recorded}`, files, extra);
   const unaccounted = files.find((f) => !covered.has(f.path) && !f.written);
-  if (unaccounted) return verdict('failed', `the result says ok, but ${unaccounted.path} was expected and the result does not name it, nor did this run write it; ${recorded}`, files, version);
-  const hashed = files.filter((f) => f.matches).length;
-  const what = files.length ? `${files.length} file${files.length === 1 ? '' : 's'} there, ${hashed} matching the sha256 it recorded` : 'no files named or expected';
-  return verdict('ok', `the result file is this run's, from ${opts.input?.path ?? 'its script'}${opts.input ? ' as submitted' : ''}, and says ok, ${what}; ${recorded}`, files, version);
+  if (unaccounted) {
+    return verdict('failed', `the result says ok, but ${unaccounted.path} was expected and the result does not name it, nor did this run write it (${unwritten.get(unaccounted.path) ?? 'not written by this run'}); ${recorded}`, files, extra);
+  }
+  // R4 (finding 6): a file the result names that this run did not make is not its work, however its bytes match.
+  const notMade = files.find((f) => covered.has(f.path) && !f.written);
+  if (notMade) return verdict('unknown', `the result says ok, but names ${notMade.path}, which ${notMadeWords(notMade, unlisted.get(notMade.path))}; ${recorded}`, files, extra);
+  const list = (fs: NativeFileCheck[]): string => fs.map((f) => `${f.path} ${f.change ?? 'written'}`).join(', ');
+  const byName = files.filter((f) => covered.has(f.path));
+  const byPath = files.filter((f) => !covered.has(f.path));
+  const what = [
+    ...(byName.length ? [`${list(byName)} by this run, ${byName.length === 1 ? 'matching the sha256 the result recorded' : 'each matching the sha256 the result recorded'}`] : []),
+    ...(byPath.length ? [`${list(byPath)} by this run, though the result does not name ${byPath.length === 1 ? 'it' : 'them'}`] : []),
+  ].join('; ') || 'no files named or expected';
+  return verdict('ok', `the result file is this run's, from ${source && opts.input ? sourceWords(source, opts.input) : 'its script'}, and says ok: ${what}; ${recorded}`, files, extra);
 }
 
 function optionsOf(meta: NativeMeta): JudgeOptions {
   return {
     root: meta.root, app: meta.app, run: meta.run, expect: meta.expect, resultExpected: meta.result !== undefined,
-    ...(meta.input ? { input: meta.input } : {}), ...(meta.pre ? { pre: meta.pre } : {}), ...(meta.frames ? { frames: meta.frames } : {}),
+    ...(meta.input ? { input: meta.input } : {}), ...(meta.copy ? { copy: meta.copy } : {}), ...(meta.pre ? { pre: meta.pre } : {}),
+    ...(meta.inventory ? { inventory: meta.inventory } : {}), ...(meta.frames ? { frames: meta.frames } : {}),
     ...(meta.submittedMs !== undefined ? { submittedMs: meta.submittedMs } : {}),
   };
 }
@@ -1029,10 +1132,15 @@ export function reconcileNative(root: string, run: string, opts: { job?: JobReco
   const expect = Array.isArray(j.expect) ? j.expect.filter((n): n is string => typeof n === 'string') : [];
   for (const name of expect) within(name);
   if (j.input) within(j.input.path);
+  // R4: a copy the record names must be a file in the project with a digest; an inventory, a list of folders
+  const copy = j.copy && typeof j.copy.path === 'string' && typeof j.copy.sha256 === 'string' ? { path: j.copy.path, sha256: j.copy.sha256 } : undefined;
+  if (j.copy && !copy) throw new Error(`the record of run ${run} names its script's copy without a path and a sha256`);
+  if (copy) within(copy.path);
+  const inventory = j.inventory && Array.isArray(j.inventory.folders) && j.inventory.folders.every((f) => typeof f === 'string') ? j.inventory : undefined;
   const meta: NativeMeta = {
     app: j.app, root: base, run, record: rec.dir, expect, pre: j.pre ?? {}, submittedMs: started,
     ...(j.result ? { result: within(j.result) } : {}), ...(j.output ? { output: within(j.output) } : {}),
-    ...(j.input ? { input: j.input } : {}), ...(j.frames ? { frames: j.frames } : {}),
+    ...(j.input ? { input: j.input } : {}), ...(copy ? { copy } : {}), ...(inventory ? { inventory } : {}), ...(j.frames ? { frames: j.frames } : {}),
   };
   const job = opts.job ?? (rec.started && opts.findJob ? opts.findJob(rec.started.job) : undefined);
   const x = job ? exitOf(job) : orphanExit('ended without a recorded exit status (reconciled from its record after a restart)', started);
@@ -1043,7 +1151,8 @@ export function reconcileNative(root: string, run: string, opts: { job?: JobReco
 
 /**
  * A judgement as a receipt can carry it: names as the result or the spec gave them (relative to the
- * project), the outcome and why, the exit beside them, the run and the input it was bound to. `status`
+ * project), the outcome and why, the exit beside them, the run and the input it was bound to; R4: each
+ * file's change (created, changed, reused...) and how what ran was bound to the script (`source`). `status`
  * is the receipt status the outcome allows: 'ok' or 'failed', and none for 'unknown' (a receipt must not
  * call an unknown run either).
  */
@@ -1051,7 +1160,7 @@ export function nativeReceiptFields(app: NativeApp, j: NativeJudgement): {
   status?: 'ok' | 'failed';
   native: {
     app: NativeApp; outcome: NativeJudgement['outcome']; why: string; exit_code: number | null; signal: string | null; files: NativeFileCheck[]; c4d_version?: unknown;
-    blender_version?: unknown; run?: string; input?: { path: string; sha256: string }; checked?: SequenceCheck[];
+    blender_version?: unknown; run?: string; input?: { path: string; sha256: string }; checked?: SequenceCheck[]; source?: SourceCheck;
   };
 } {
   return {
@@ -1061,6 +1170,7 @@ export function nativeReceiptFields(app: NativeApp, j: NativeJudgement): {
       ...(j.c4dVersion === undefined ? {} : { c4d_version: j.c4dVersion }),
       ...(j.blenderVersion === undefined ? {} : { blender_version: j.blenderVersion }),
       ...(j.run ? { run: j.run } : {}), ...(j.input ? { input: { ...j.input } } : {}), ...(j.checked ? { checked: j.checked.map((c) => ({ ...c })) } : {}),
+      ...(j.source ? { source: { ...j.source, established_by: [...j.source.established_by] } } : {}),
     },
   };
 }

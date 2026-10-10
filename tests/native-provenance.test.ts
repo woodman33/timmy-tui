@@ -110,12 +110,14 @@ describe('finding 5b: success is bound to the script submitted', () => {
     expect(verdict.why).toMatch(/another script/);
   });
 
-  it('a script changed after submission is not the input that was submitted', async () => {
+  it('a script changed after submission does not change what runs: the copy kept at submission runs, and the verdict says the original changed', async () => {
     const s = c4d('ok-exit-1');
     writeFileSync(path.join(root, 'scene.py'), '# edited after the job was made\n');
     const verdict = judgeNativeJob(await runSpec(s), s);
-    expect(verdict.outcome).toBe('unknown');
-    expect(verdict.why).toMatch(/changed/);
+    // R4 (finding 5): this was unknown while c4dpy ran the script at its own path, edited; it now runs the bytes submitted
+    expect(verdict.outcome).toBe('ok');
+    expect(verdict.why).toMatch(/scene\.py itself has changed since it was submitted, which did not change what ran/);
+    expect(verdict.source).toMatchObject({ copy_state: 'intact', read: 'matches', established_by: ['retained copy', 'read digest'], original_changed: true });
   });
 
   it('a file named without its sha256 is not ok: digests are required', async () => {
