@@ -34,6 +34,29 @@ export interface TurnInspect {
   inspect?: (sealed: SealedTurn | null, result: TurnResult) => Promise<InspectRow[]>;
 }
 
+/** R4 (H30): the tool that asks a model in a request of its own, outside the agent's: cost:update never reports it. */
+const PAID_TOOL = 'describe_image';
+
+/**
+ * R4 (H30): what a describe_image call says it spent, from its own result (src/agent/vision-tools.ts): `cost` is the
+ * reported amount, null when a request went out and no cost came back, absent when no request went out (anything
+ * else in that field is unknown, never a number); `receipt`, the observe receipt that sealed it.
+ */
+export function toolSpent(output: unknown): { cost?: number | null; receipt?: string } {
+  let v = output;
+  if (typeof v === 'string') {
+    try { v = JSON.parse(v); } catch { return {}; }
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  const o = v as Record<string, unknown>;
+  const cost = !('cost_usd' in o) ? undefined : typeof o.cost_usd === 'number' && Number.isFinite(o.cost_usd) && o.cost_usd >= 0 ? o.cost_usd : null;
+  const receipt = typeof o.receipt === 'string' && /^[\w-]{1,64}$/.test(o.receipt) ? o.receipt : undefined;
+  return { ...(cost !== undefined ? { cost } : {}), ...(receipt ? { receipt } : {}) };
+}
+
+/** Dollars to three places, as the turn's line has them; a nonzero amount is never shown as zero. */
+const usd = (n: number): string => (n > 0 && n < 0.001 ? `$${n.toPrecision(2)}` : `$${n.toFixed(3)}`);
+
 export async function runTurn(
   agent: TurnAgent,
   transcript: Transcript,
@@ -59,10 +82,16 @@ export async function runTurn(
   let cancelled = false;
   // Each tool as it actually ends (third order, checkpoint 1): unknown until its result arrives.
   const tools = new Map<string, ToolOutcome>();
+  // R4 (H30): describe_image's own charge, sealed on its observe receipt, never reported by cost:update. The line adds
+  // what each call reported, once per call id: a number, or unknown (no cost came back, or no result came before the
+  // turn ended). The turn's receipt keeps sealing only the agent's own spend and names each call's receipt instead,
+  // so no charge is sealed twice.
+  const paid = new Map<string, { answered: boolean; cost?: number | null }>();
   const stop = bridgeAgent(agent, (e) => {
     if (e.type === 'tool-start') {
       steps++;
       tools.set(e.id, { tool: e.tool, outcome: 'unknown' });
+      if (e.tool === PAID_TOOL) paid.set(e.id, { answered: false });
     }
     if (e.type === 'tool-end') {
       const t = tools.get(e.id);
@@ -75,8 +104,35 @@ export async function runTurn(
     if (Number.isFinite(cost)) spend += cost;
     if (info?.complete === false) costMeasured = false;
   };
-  const spendText = (): string => (costMeasured ? `$${spend.toFixed(3)}` : spend > 0 ? `at least $${spend.toFixed(3)}` : 'cost unknown');
+  // R4 (H30): a describe_image call's result, read once per call (a repeated item is not counted again).
+  const onItem = (item: any): void => {
+    if (item?.type !== 'function_call_output') return;
+    const id = String(item.callId || '');
+    const call = paid.get(id);
+    if (!call || call.answered) return;
+    const said = toolSpent(item.output);
+    call.answered = true;
+    if (said.cost !== undefined) call.cost = said.cost;
+    const t = tools.get(id);
+    if (t && said.receipt) t.receipt = said.receipt;
+  };
+  const spendText = (): string => {
+    let toolSum = 0;
+    let toolUnknown = false;
+    let toolCalls = 0;
+    for (const c of paid.values()) {
+      if (c.answered && c.cost === undefined) continue; // it answered, and no request went out: nothing was charged
+      toolCalls++;
+      if (typeof c.cost === 'number') toolSum += c.cost;
+      else toolUnknown = true; // no cost came back, or no result came: it may have been charged
+    }
+    const total = spend + toolSum;
+    const head = costMeasured && !toolUnknown ? usd(total) : total > 0 ? `at least ${usd(total)}` : 'cost unknown';
+    if (!toolCalls) return head;
+    return `${head} (${PAID_TOOL} ${toolUnknown ? (toolSum > 0 ? `at least ${usd(toolSum)}` : 'cost unknown') : usd(toolSum)})`;
+  };
   agent.on('cost:update', onCost);
+  agent.on('item:update', onItem);
   let answer = '';
   let ended = false;
   const outcomesNow = (): ToolOutcome[] => [...tools.values()].map((t) => ({ ...t }));
@@ -115,6 +171,7 @@ export async function runTurn(
   } finally {
     stop();
     agent.off('cost:update', onCost);
+    agent.off('item:update', onItem);
   }
   if (ended) return 'cancelled'; // sealed already, by the caller's abandon.now()
   ended = true;

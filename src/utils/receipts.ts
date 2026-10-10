@@ -84,7 +84,9 @@ export interface Receipt {
   // A turn's tools, each as it actually ended: completed, failed, or unknown (still running when the
   // turn ended, so it may have run in part or in full). A cancelled turn also says where the cancel
   // came and that nothing was rolled back: a cancel stops what is left, it never undoes.
-  tool_outcomes?: { name: string; outcome: 'completed' | 'failed' | 'unknown' }[];
+  // R4 (H30): `receipt`, the short id of the tool's own receipt where it sealed what it spent (describe_image's observe
+  // receipt), so the turn names that charge instead of sealing it a second time.
+  tool_outcomes?: { name: string; outcome: 'completed' | 'failed' | 'unknown'; receipt?: string }[];
   // How those outcomes were decided (src/repl/seal.ts OUTCOME_RULE): 2 = the tool's own answer decides.
   // Absent on turns sealed before round R1, which sealed every finished step completed.
   outcome_rule?: number;

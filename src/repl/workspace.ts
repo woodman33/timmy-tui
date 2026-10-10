@@ -57,6 +57,8 @@ import {
 import { IterateFlows, type AgentStart, type IterateTestSeams } from './iterate.js';
 import { readBoardFlows } from './board-flows.js';
 import { FLOW_ID, FLOWS_DIR } from '../flows/iterate.js';
+// R4 (H30): observation records kept because their file could not be written, as result cards; their check.
+import { checkKeptRecord, keptObservations, keptResults } from './board-kept.js';
 
 type Line = Segment[];
 
@@ -100,8 +102,9 @@ export interface WorkspaceDeps {
 /** How an observation ended (round R2, look): its file and receipt, or why there is none. */
 export type ObserveOutcome =
   | { ok: true; file: string; receipt?: string; tiers: string[]; interpretation?: Record<string, unknown>; qualified?: Record<string, unknown> }
-  /** R4 (H20): `kept`, where the whole record is kept when the observation file could not be written */
-  | { ok: false; error: string; receipt?: string; kept?: KeptRef };
+  /** R4 (H20): `kept`, where the whole record is kept when the observation file could not be written. R4 (H30):
+   * `cost_usd` when a model request went out (null: no cost came back), so a caller can count it */
+  | { ok: false; error: string; receipt?: string; kept?: KeptRef; cost_usd?: number | null };
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const sha256File = (path: string, limit = 16 * 1024 * 1024): string | undefined => {
@@ -730,7 +733,9 @@ export class Workspace {
       ? `the observation file could not be written (${storage}); ${what} were kept at ${this.keptShown(k.ref)}`
       : `the observation file could not be written (${storage}), and its record could not be kept either (${keptError})${asked ? `; the receipt seals what was spent: ${x.costText}` : ''}`;
     this.d.notify([{ text: `  ${g.fail} ` }, { text: `${j.id} not observed`, role: 'failure' }, { text: `  ${rel}: ${line}${receipt ? `${this.sep}receipt ${receipt}` : ''}`, role: 'secondary' }]);
-    return { ok: false, error: line, ...(receipt ? { receipt } : {}), ...(k.ok ? { kept: k.ref } : {}) };
+    // R4 (H30): what the request cost goes back with the failure too (describe_image reports it to the turn).
+    const spent = asked ? { cost_usd: typeof x.spent?.cost_usd === 'number' ? x.spent.cost_usd : null } : {};
+    return { ok: false, error: line, ...(receipt ? { receipt } : {}), ...(k.ok ? { kept: k.ref } : {}), ...spent };
   }
 
   // ── /workflows, /run ────────────────────────────────────────────────────────
@@ -1485,7 +1490,8 @@ export class Workspace {
     lines.push([{ text: '  Jobs', role: 'strong' }]);
     if (jobs.length) for (const j of jobs) lines.push(this.jobLine(j));
     else lines.push(...this.say('  none yet: /run, /preview'));
-    const outputs = listProjectFiles(this.root).files.filter((f) => f.role === 'output').sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const projectFiles = listProjectFiles(this.root).files;
+    const outputs = projectFiles.filter((f) => f.role === 'output').sort((a, b) => b.mtimeMs - a.mtimeMs);
     lines.push([{ text: '  Outputs', role: 'strong' }, { text: outputs.length ? '  editable where they are' : '', role: 'secondary' }]);
     if (outputs.length) for (const f of outputs.slice(0, 10)) lines.push([{ text: '    ' }, { text: this.fileLink(f.rel) }, { text: `  ${humanBytes(f.bytes)}${this.sep}${ago(f.mtimeMs)}`, role: 'secondary' }]);
     else lines.push(...this.say('  none yet: a build writes them (dist/, build/, out/, outputs/)'));
@@ -1507,6 +1513,7 @@ export class Workspace {
     const observed = [...chain].reverse().filter((r) => r.project_id === id && r.kind === 'observe').slice(0, 8);
     lines.push([{ text: '  Observations', role: 'strong' }, { text: observed.length ? '  newest first; measurements, and any model claim' : '', role: 'secondary' }]);
     if (observed.length) {
+      const readKept = keptReader(this.keepPlaces(this.root));
       for (const r of observed) {
         const src = r.files?.[0]?.path ?? '?';
         const out = r.outputs?.[0]?.path;
@@ -1516,8 +1523,13 @@ export class Workspace {
         const n = Array.isArray(q?.cites) ? q.cites.length : 0;
         const qualified = q ? `${this.sep}${q.status === 'admitted' ? `cited answer admitted (${n} handle${n === 1 ? '' : 's'}; a claim)` : `no admitted answer: ${q.status}${q.refusal ? ` (${q.refusal})` : ''}`}` : '';
         // R4 (H20): an observation whose file could not be written: where its whole record (and any answer and cost) is kept.
+        // R4 (H30): checked against the receipt that sealed it, as the board's kept card is.
         const kept = r.observation?.kept;
-        const keptAt = kept && 'path' in kept ? `${this.sep}its record is kept at ${kept.store === 'timmy' ? this.keptShown(kept) : kept.path}` : kept ? `${this.sep}its record could not be kept` : '';
+        let keptAt = kept ? `${this.sep}its record could not be kept` : '';
+        if (kept && 'path' in kept) {
+          const c = checkKeptRecord(kept, r, readKept);
+          keptAt = `${this.sep}its record is kept at ${kept.store === 'timmy' ? this.keptShown(kept) : kept.path}${c.status === 'matches' ? ', as its receipt sealed it' : ` (not verified: ${this.scrub(c.reasons.join('; '), this.root)})`}`;
+        }
         lines.push([
           { text: '    ' }, { text: this.fileLink(src) }, { text: ` ${this.d.glyphs.arrow} ` },
           out ? { text: this.fileLink(out) } : { text: r.observation?.error ?? 'no observation', role: 'failure' },
@@ -1525,7 +1537,35 @@ export class Workspace {
         ]);
       }
     } else lines.push(...this.say('  none yet: /observe <image>'));
+    // R4 (H30): the flow records (results/flows/*.json), checked as the board's Flows cards are.
+    lines.push(...this.flowResultLines(projectFiles, chain, id));
     lines.push(...this.say('All receipts: /receipts; a receipt\'s page: /web <receipt id>; a job\'s output: /jobs <id>'));
+    return lines;
+  }
+
+  /**
+   * R4 (H30): /results' Flows: each flow record, newest first, checked by src/repl/board-flows.ts as the board's Flows
+   * cards are: verified only when a `flow` receipt of this project sealed exactly the record's bytes; otherwise its
+   * outcome is shown as the file says, with why it is not verified. No measured value is shown here (the board shows
+   * them, with DOCTRINE §15).
+   */
+  private flowResultLines(files: ProjectFile[], chain: Receipt[], id: string): Line[] {
+    const root = this.root;
+    const rels = files.filter((f) => f.rel.startsWith(`${FLOWS_DIR}/`) && f.rel.endsWith('.json')).map((f) => f.rel);
+    const flows = readBoardFlows(root, rels, { receipts: chain, projectId: id, scrub: (t) => this.scrub(t, root) });
+    const lines: Line[] = [[{ text: '  Flows', role: 'strong' }, { text: flows.list.length ? "  newest first; verified only when a flow receipt sealed the record's exact bytes" : '', role: 'secondary' }]];
+    if (!flows.list.length) return [...lines, ...this.say('  none yet: /iterate tray "<instruction>"')];
+    const shown = flows.list.slice(0, 8);
+    for (const f of shown) {
+      const r = f.record;
+      const said = typeof r.instruction === 'string' && r.instruction ? `${this.sep}${r.instruction.length > 60 ? `${r.instruction.slice(0, 59)}…` : r.instruction}` : '';
+      const check = f.check.status === 'verified'
+        ? [{ text: `${String(r.outcome ?? 'unknown')}`, role: r.outcome === 'succeeded' ? undefined : 'failure' as const }, { text: `${this.sep}verified: receipt ${f.check.receipt ?? '?'} sealed these bytes`, role: 'secondary' as const }]
+        : [{ text: `${String(r.outcome ?? 'unknown')} as the file says`, role: 'estimate' as const }, { text: `${this.sep}not verified: ${f.check.reasons.join('; ') || 'no reason was given'}`, role: 'estimate' as const }];
+      lines.push([{ text: '    ' }, { text: this.fileLink(f.file) }, { text: `  ${String(r.id)}  `, role: 'strong' }, ...check, { text: said, role: 'secondary' }]);
+    }
+    const more = flows.list.length - shown.length + flows.more;
+    if (more > 0) lines.push(...this.say(`  and ${more} more: /board`));
     return lines;
   }
 
@@ -1635,8 +1675,13 @@ export class Workspace {
     // R4 (H22): the tray recipe's parameter card, and one result card per result, newest first.
     let params: BoardInput['params'];
     try { params = paramsCard(root); } catch { params = undefined; }
+    // R4 (H30): observation records kept because their file could not be written, each checked against its receipt.
+    let kept: ResultCard[];
+    try { kept = keptResults(keptObservations({ root, chain, projectId: pid, read: readKept }), (t) => this.scrub(t, root)); } catch (err) {
+      kept = [{ kind: 'kept', title: 'kept records', status: { word: 'unreadable', tone: 'failed', detail: this.scrub(err instanceof Error ? err.message : String(err), root) } }];
+    }
     let results: { cards: ResultCard[]; more: number };
-    try { results = gatherResults({ root, jobs, chain, observations: shownObs, scrub: (t, r) => this.scrub(t, r) }); } catch (err) {
+    try { results = gatherResults({ root, jobs, chain, observations: shownObs, scrub: (t, r) => this.scrub(t, r), extra: kept }); } catch (err) {
       results = { cards: [{ kind: 'board', title: 'results', status: { word: 'unreadable', tone: 'failed', detail: this.scrub(err instanceof Error ? err.message : String(err), root) } }], more: 0 };
     }
     const input: BoardInput = {
