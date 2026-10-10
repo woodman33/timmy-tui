@@ -61,7 +61,7 @@ function get(url, headers) {
 }
 
 async function browse(address) {
-  const ps = spawnSync('ps', ['-eww', '-o', 'pid=,args='], { encoding: 'utf8' }).stdout ?? '';
+  const ps = spawnSync('ps', ['-A', '-ww', '-o', 'pid=,args='], { encoding: 'utf8' }).stdout ?? '';
   const record = { ps };
   if (address.startsWith('file:')) {
     const file = fileURLToPath(address);
