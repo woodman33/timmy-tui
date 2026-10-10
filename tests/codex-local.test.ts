@@ -7,8 +7,11 @@
  * - a FAKE Ollama: an HTTP server on 127.0.0.1 answering GET /api/tags with a model list, and nothing else;
  * - for /iterate, the fakes tests/iterate.test.ts uses: the SYNTHETIC recipe executor
  *   (tests/fixtures/fake-recipe-executor.ts) and tests/fixtures/fake-step-readback.mjs.
- * The command line is checked against the recorded `codex exec --help` of codex-cli 0.140.0
- * (tests/fixtures/agent-help/codex-exec-help.txt). No test runs the real Codex, a real Ollama or a model.
+ * The command line is checked against the recorded `codex exec --help` of codex-cli 0.153.2
+ * (tests/fixtures/agent-help/codex-exec-help.txt; round R4, H37: byte for byte the text recorded in R3 as codex-cli
+ * 0.140.0's). No test runs the real Codex, a real Ollama or a model. Round R4 (H37): the event sequence one real
+ * codex-cli 0.153.2 run printed (reported from the operator's Mac) is replayed by the FAKE codex (its OBSERVED word) and
+ * fed to the parser directly; the sandbox's -c keys are checked as given, not as a real Codex applies them.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -19,9 +22,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { capabilities, type ProbeDeps } from '../src/capabilities/index.js';
 import { capabilityLines } from '../src/capabilities/render.js';
 import {
-  agentExercisedIndex, AGENTS_DIR, listAgentRuns, newProgress, parseAgentLine, planAgent, progressLine, type AgentRunRecord,
+  agentExercisedIndex, AGENTS_DIR, judgeAgentRun, listAgentRuns, newProgress, parseAgentLine, planAgent, progressLine, type AgentRunRecord,
 } from '../src/code-agents/index.js';
-import { codexLocalPreflight, CODEX_EVENTS, ollamaRoot } from '../src/code-agents/codex-local.js';
+import {
+  CODEX_CLI_CHECKED, CODEX_EVENTS, CODEX_EVENTS_ASSUMED, CODEX_EVENTS_OBSERVED, CODEX_ITEMS_ASSUMED, CODEX_ITEMS_OBSERVED, CODEX_LOCAL_COMMANDS_NOTE,
+  CODEX_LOCAL_SANDBOX_OVERRIDES, CODEX_OBSERVED_WITH, codexLocalPreflight, ollamaRoot,
+} from '../src/code-agents/codex-local.js';
 import { JobManager } from '../src/jobs/index.js';
 import { folderProject } from '../src/project/index.js';
 import { parseIterateLine } from '../src/repl/iterate.js';
@@ -108,16 +114,21 @@ function make(root: string, env: Record<string, string>) {
 const localEnv = (url: string, extra: Record<string, string> = {}): Record<string, string> => ({ TIMMY_AGENT_CODEX_BIN: FAKE_CODEX, TIMMY_AGENT_MODEL: 'qwen3:4b', TIMMY_AGENT_BASE_URL: url, ...extra });
 const jobIdOf = (out: string): string => { const m = out.match(/\b(j[0-9a-f]{6})\b/); if (!m) throw new Error(`no job id in: ${out}`); return m[1]; };
 const resultOf = (root: string): AgentRunRecord => listAgentRuns(root)[0];
-const reportOf = (root: string, run: string): { argv: string[]; cwd: string; stdin: { open: boolean; bytes: number; tty?: boolean }; env: Record<string, string | null> } => JSON.parse(readFileSync(join(root, AGENTS_DIR, run, 'fake-codex-report.json'), 'utf8'));
+const reportOf = (root: string, run: string): { argv: string[]; config: string[]; cwd: string; stdin: { open: boolean; bytes: number; tty?: boolean }; env: Record<string, string | null> } => JSON.parse(readFileSync(join(root, AGENTS_DIR, run, 'fake-codex-report.json'), 'utf8'));
 const runTask = async (ws: Workspace, line: string): Promise<{ out: string; job: Awaited<ReturnType<Workspace['jobs']['done']>> }> => {
   const out = text(await ws.agent(line));
   return { out, job: await ws.jobs.done(jobIdOf(out)) };
 };
+/** R4 (H37): the sandbox overrides, each after -c (the keys ASSUMED from Codex's config documentation). */
+const OVERRIDES = ['-c', 'sandbox_workspace_write.exclude_slash_tmp=true', '-c', 'sandbox_workspace_write.exclude_tmpdir_env_var=true', '-c', 'sandbox_workspace_write.network_access=false'];
 /** The command line the local route plans for `task` in `root` (its run id from the result). */
 const localArgs = (root: string, run: string, task: string, model = 'qwen3:4b'): string[] => [
-  'exec', '--oss', '--local-provider', 'ollama', '-m', model, '--json', '--skip-git-repo-check', '-s', 'workspace-write', '-C', root,
-  '--ignore-user-config', '--ephemeral', '-o', `${AGENTS_DIR}/${run}/codex-last-message.txt`, task,
+  'exec', '--oss', '--local-provider', 'ollama', '-m', model, '--json', '--skip-git-repo-check', '-s', 'workspace-write', ...OVERRIDES, '-C', root,
+  '--ignore-user-config', '--ignore-rules', '--ephemeral', '-o', `${AGENTS_DIR}/${run}/codex-last-message.txt`, task,
 ];
+/** The note a local run is started with (the plan's note, on /agent's start). */
+const NOTE_SHARED = 'codex exec --oss on this machine\'s Ollama; your codex folder (~/.codex or CODEX_HOME) is used, not its config.toml or rules files; TIMMY_AGENT_HOME gives it its own. Codex may run commands inside its sandbox (workspace-write, asked to write only in the project, not in the temporary folders, and to keep the network off); Timmy checks changes inside the project only';
+const NOTE_OWN_HOME = 'codex exec --oss on this machine\'s Ollama; its own HOME and CODEX_HOME (TIMMY_AGENT_HOME): your codex settings and sign-in are not used. Codex may run commands inside its sandbox (workspace-write, asked to write only in the project, not in the temporary folders, and to keep the network off); Timmy checks changes inside the project only';
 
 /** Every option a command line uses is one its --help text lists (as tests/code-agent.test.ts checks). */
 function flagsIn(args: string[], help: string): string[] {
@@ -151,11 +162,24 @@ describe('the plan: codex exec --oss on this machine\'s Ollama', () => {
     // keys are blanked in the child's environment; the Ollama address is the one the rule judged
     expect(r.plan.env).toEqual({ CODEX_OSS_BASE_URL: 'http://127.0.0.1:11434/v1', CODEX_OSS_PORT: '', OPENAI_API_KEY: '', CODEX_API_KEY: '', OPENROUTER_API_KEY: '', TIMMY_AGENT_API_KEY: '' });
     expect(r.plan.makeDirs).toBeUndefined();
-    expect(r.plan.note).toBe('codex exec --oss on this machine\'s Ollama; your codex folder (~/.codex or CODEX_HOME) is used, not its config.toml; TIMMY_AGENT_HOME gives it its own');
+    expect(r.plan.note).toBe(NOTE_SHARED);
+    expect(r.plan.note).toContain(CODEX_LOCAL_COMMANDS_NOTE);
     expect(flagsIn(r.plan.args, HELP)).toEqual([]);
     expect(HELP).toMatch(/--local-provider <OSS_PROVIDER>\s+Specify which local provider to use \(lmstudio or ollama\)/);
     expect(HELP).toMatch(/possible values: read-only, workspace-write, danger-full-access/);
-    expect(r.plan.args.join(' ')).not.toMatch(/dangerously|danger-full-access|--full-auto|--yolo|bypass/);
+    expect(r.plan.args.join(' ')).not.toMatch(/dangerously|danger-full-access|--full-auto|--yolo|bypass|--add-dir/);
+    // R4 (H37): the flags rechecked against codex-cli 0.153.2's help: -c and --ignore-rules are in it; the -c keys are not
+    // (they are ASSUMED from Codex's config documentation, to be confirmed by a real run)
+    expect(CODEX_CLI_CHECKED).toBe('codex-cli 0.153.2');
+    expect(HELP).toMatch(/-c, --config <key=value>\s+Override a configuration value that would otherwise be loaded from `~\/\.codex\/config\.toml`/);
+    expect(HELP).toMatch(/--ignore-rules\s+Do not load user or project execpolicy `\.rules` files/);
+    expect([...CODEX_LOCAL_SANDBOX_OVERRIDES]).toEqual(['sandbox_workspace_write.exclude_slash_tmp=true', 'sandbox_workspace_write.exclude_tmpdir_env_var=true', 'sandbox_workspace_write.network_access=false']);
+    for (const kv of CODEX_LOCAL_SANDBOX_OVERRIDES) {
+      expect(r.plan.args[r.plan.args.indexOf(kv) - 1]).toBe('-c');
+      expect(HELP).not.toContain(kv.split('=')[0]);
+    }
+    expect(r.plan.args).toContain('--ignore-user-config');
+    expect(r.plan.args).toContain('--ignore-rules');
     // a task that begins with "-" is never read as an option
     const dash = planAgent('codex', '--dangerously-bypass-approvals-and-sandbox do it', { env: { TIMMY_AGENT_MODEL: 'm' }, paid: false, local: true, run: 'a00000002', bin: 'codex', root });
     expect(dash.ok && dash.plan.args.at(-1)).toBe('Task: --dangerously-bypass-approvals-and-sandbox do it');
@@ -168,7 +192,9 @@ describe('the plan: codex exec --oss on this machine\'s Ollama', () => {
     if (!r.ok) throw new Error(r.error);
     expect(r.plan.env).toEqual({ HOME: home, CODEX_HOME: join(home, '.codex'), CODEX_OSS_BASE_URL: 'http://127.0.0.1:11434/v1', CODEX_OSS_PORT: '', OPENAI_API_KEY: '', CODEX_API_KEY: '', OPENROUTER_API_KEY: '', TIMMY_AGENT_API_KEY: '' });
     expect(r.plan.makeDirs).toEqual([join(home, '.codex')]);
-    expect(r.plan.note).toBe('codex exec --oss on this machine\'s Ollama; its own HOME and CODEX_HOME (TIMMY_AGENT_HOME): your codex settings and sign-in are not used');
+    expect(r.plan.note).toBe(NOTE_OWN_HOME);
+    // the same command line, rules files ignored there too (its own CODEX_HOME has none, but a project could)
+    expect(r.plan.args).toEqual(localArgs(root, 'a00000003', 'x'));
   });
 
   it('free only on this machine with a model whose tag does not end in cloud; anything else is refused, with no --paid', () => {
@@ -276,6 +302,8 @@ describe('a run of the local route (FAKE codex, FAKE Ollama on 127.0.0.1)', () =
     expect(out).toContain(`model qwen3:4b at ${ollama.host}`);
     expect(out).toContain('local endpoint, no charge');
     expect(out).toContain('codex exec --oss on this machine\'s Ollama');
+    // R4 (H37): /agent's start says plainly that Codex may run commands in its sandbox, and what Timmy checks
+    expect(out).toContain(`Note       ${NOTE_SHARED}`);
     expect(job.state).toBe('completed');
     const r = resultOf(root);
     expect(r).toMatchObject({ agent: 'codex', outcome: 'completed', why: 'it exited 0 and reported success', endpoint: 'local', where: ollama.host, model: 'qwen3:4b', cost_usd: 0, cost_basis: 'local endpoint', exit_code: 0 });
@@ -294,6 +322,7 @@ describe('a run of the local route (FAKE codex, FAKE Ollama on 127.0.0.1)', () =
     // what the FAKE codex was given: exactly the planned command line, in the project's folder
     const report = reportOf(root, r.run);
     expect(report.argv).toEqual(localArgs(root, r.run, task));
+    expect(report.config).toEqual([...CODEX_LOCAL_SANDBOX_OVERRIDES]);
     expect(realpathSync(report.cwd)).toBe(realpathSync(root));
     // its stdin was ended at its start: it read nothing from it, and did not wait
     expect(report.stdin).toEqual({ open: false, bytes: 0 });
@@ -321,6 +350,29 @@ describe('a run of the local route (FAKE codex, FAKE Ollama on 127.0.0.1)', () =
       expect(shown).not.toContain(root);
       expect(shown).not.toContain(tmpdir());
     }
+  });
+
+  it('R4 (H37): the FAKE codex replays the sequence codex-cli 0.153.2 printed: completed; its warning and note shown as its own; its commands counted; the change found by Timmy\'s comparison', async () => {
+    const ollama = await fakeOllama(['qwen3:4b']);
+    const root = project();
+    const { ws, sealed } = make(root, localEnv(ollama.url));
+    const { out, job } = await runTask(ws, 'codex --local OBSERVED append a line to src/a.txt and run no commands');
+    expect(job.state).toBe('completed');
+    expect(out).toContain(`Note       ${NOTE_SHARED}`);
+    const r = resultOf(root);
+    expect(r).toMatchObject({ outcome: 'completed', why: 'it exited 0 and reported success' });
+    // no file_change item named the file: Timmy's own before/after comparison of the project found the change
+    expect(r.files!.changed.map((f) => f.path)).toEqual(['src/a.txt']);
+    expect(r.progress).toEqual({ tool_calls: 5, files_edited: [], tool_errors: 0, denied: [], structured_lines: 16, raw_lines: 1 });
+    const log = readFileSync(join(root, AGENTS_DIR, r.run, 'progress.log'), 'utf8').trim().split('\n');
+    // Codex's own note comes on stderr: its place among the JSON lines is not fixed
+    expect(log).toContain('codex note  Reading additional input from stdin...');
+    const fromJson = log.filter((l) => !l.startsWith('codex note  '));
+    expect(fromJson.slice(0, 2)).toEqual(['started', 'codex warning  Model metadata for `<model>` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.']);
+    expect(fromJson.slice(2, 7).every((l) => l.startsWith('command  bash -lc ') && l.endsWith('  exit 0'))).toBe(true);
+    expect(fromJson[4]).toMatch(/^command {2}bash -lc "cat > \/tmp\/patch\.txt << 'EOF' \*\*\* Begin Patch/);
+    expect(fromJson.slice(7)).toEqual(['says  Done: FINAL (a FAKE codex, the observed sequence).', 'done  turn completed · 2,400 tokens in, 120 out']);
+    expect(sealed.filter((s) => s.kind === 'agent').map((s) => s.status)).toEqual(['ok']);
   });
 
   it('no key reaches its environment; TIMMY_AGENT_HOME gives it its own HOME and CODEX_HOME; an inherited Ollama address is replaced', async () => {
@@ -408,12 +460,22 @@ describe('the FAKE codex\'s own checks, as negative controls (they fail on purpo
     // had Timmy not blanked a key, the report would show it: the run tests above rely on this
     expect(reportOf(root, 'a0000000b').env.OPENAI_API_KEY).toBe(fake);
     const task = good.at(-1)!;
+    const without = (drop: string): string[] => { const i = good.indexOf(drop); return [...good.slice(0, i - 1), ...good.slice(i + 1)]; };
     const cases: Array<[string[], string]> = [
       [good.filter((a) => a !== '--oss'), 'no --oss'],
       [[...good.slice(0, -1), '--dangerously-bypass-approvals-and-sandbox', task], 'it was given --dangerously-bypass-approvals-and-sandbox'],
       [good.map((a) => (a === 'workspace-write' ? 'danger-full-access' : a)), 'the sandbox is danger-full-access, not workspace-write'],
       [good.map((a) => (a === root ? elsewhere : a)), `-C ${elsewhere} is not the folder it runs in`],
       [good.map((a) => (a === 'ollama' ? 'lmstudio' : a)), '--local-provider is lmstudio, not ollama'],
+      // R4 (H37): the sandbox overrides, each required; no other override; the rules files and the user's config ignored
+      [without('sandbox_workspace_write.exclude_slash_tmp=true'), 'no -c sandbox_workspace_write.exclude_slash_tmp=true'],
+      [without('sandbox_workspace_write.exclude_tmpdir_env_var=true'), 'no -c sandbox_workspace_write.exclude_tmpdir_env_var=true'],
+      [without('sandbox_workspace_write.network_access=false'), 'no -c sandbox_workspace_write.network_access=false'],
+      [good.map((a) => (a === 'sandbox_workspace_write.network_access=false' ? 'sandbox_workspace_write.network_access=true' : a)), 'an override it does not expect: -c sandbox_workspace_write.network_access=true'],
+      [[...good.slice(0, -1), '-c', 'sandbox_mode="danger-full-access"', task], 'an override it does not expect: -c sandbox_mode="danger-full-access"'],
+      [good.filter((a) => a !== '--ignore-rules'), 'no --ignore-rules'],
+      [good.filter((a) => a !== '--ignore-user-config'), 'no --ignore-user-config'],
+      [[...good.slice(0, -1), '--add-dir', elsewhere, task], 'it was given --add-dir'],
     ];
     for (const [args, why] of cases) {
       const r = run(args);
@@ -457,7 +519,55 @@ describe('a job\'s stdin (JobSpec.stdin, round R4): ended at once when asked, le
 
 // ── its events, read defensively ──────────────────────────────────────────────────
 
-describe('Codex\'s events, read defensively (the names are assumed, not confirmed for codex-cli 0.140.0)', () => {
+describe('Codex\'s events, read defensively (some names observed with codex-cli 0.153.2, the rest assumed)', () => {
+  it('R4 (H37): which names a real run printed (observed with codex-cli 0.153.2) and which are still assumed', () => {
+    expect(CODEX_OBSERVED_WITH).toBe('codex-cli 0.153.2');
+    expect([...CODEX_EVENTS_OBSERVED]).toEqual(['thread.started', 'turn.started', 'item.started', 'item.completed', 'turn.completed']);
+    expect([...CODEX_EVENTS_ASSUMED]).toEqual(['turn.failed', 'item.updated', 'error']);
+    expect([...CODEX_ITEMS_OBSERVED]).toEqual(['reasoning', 'agent_message', 'command_execution', 'error']);
+    expect([...CODEX_ITEMS_ASSUMED]).toEqual(['file_change', 'mcp_tool_call', 'web_search', 'todo_list']);
+    // every event Timmy reads is either observed or assumed, never both
+    expect([...CODEX_EVENTS].sort()).toEqual([...CODEX_EVENTS_OBSERVED, ...CODEX_EVENTS_ASSUMED].sort());
+  });
+
+  it('R4 (H37) regression: the observed 0.153.2 sequence (a first item of type error, then a completed turn) is completed; the error item is Codex\'s own warning; its stdin line is Codex\'s own note', () => {
+    const root = '/proj';
+    const s = newProgress();
+    // as printed by codex-cli 0.153.2 on the operator's Mac (the model name replaced by a placeholder)
+    const lines = [
+      'Reading additional input from stdin...',
+      { type: 'thread.started', thread_id: 't-0001' },
+      { type: 'turn.started' },
+      { type: 'item.completed', item: { id: 'item_0', type: 'error', message: 'Model metadata for `<model>` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.' } },
+      { type: 'item.completed', item: { id: 'item_1', type: 'reasoning', text: 'Looking at the file.' } },
+      { type: 'item.started', item: { id: 'item_2', type: 'command_execution', command: "bash -lc 'cat src/a.txt'", aggregated_output: '', exit_code: null, status: 'in_progress' } },
+      { type: 'item.completed', item: { id: 'item_2', type: 'command_execution', command: "bash -lc 'cat src/a.txt'", aggregated_output: 'first line\n', exit_code: 0, status: 'completed' } },
+      { type: 'item.completed', item: { id: 'item_3', type: 'agent_message', text: 'Done.' } },
+      { type: 'turn.completed', usage: { input_tokens: 20, cached_input_tokens: 0, output_tokens: 4 } },
+    ];
+    const shown = lines.map((l) => progressLine(typeof l === 'string' ? l : JSON.stringify(l), s, root, 'codex'));
+    expect(shown).toEqual([
+      'codex note  Reading additional input from stdin...',
+      'started', undefined,
+      'codex warning  Model metadata for `<model>` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.',
+      undefined, undefined,
+      'command  bash -lc \'cat src/a.txt\'  exit 0',
+      'says  Done.',
+      'done  turn completed · 20 tokens in, 4 out',
+    ]);
+    // the warning decided nothing: no error held, the turn's own end is completed, the run is completed
+    expect(s.reportedError).toBeUndefined();
+    expect(s.reportedEnd).toBe('completed');
+    expect(s).toMatchObject({ toolCalls: 1, toolErrors: 0, structured: 8, raw: 1 });
+    expect(judgeAgentRun({ state: 'completed', exitCode: 0 }, s, 'codex')).toEqual({ outcome: 'completed', why: 'it exited 0 and reported success' });
+    // the same warning with no later turn.completed is not a success either (the turn's end is what decides)
+    const t = newProgress();
+    for (const l of lines.slice(0, 5)) progressLine(typeof l === 'string' ? l : JSON.stringify(l), t, root, 'codex');
+    expect(judgeAgentRun({ state: 'completed', exitCode: 0 }, t, 'codex').outcome).toBe('unknown');
+    // a plain line that is not one of Codex's known notes is still shown as it came
+    expect(progressLine('thread panicked at codex-rs/core', newProgress(), root, 'codex')).toBe('thread panicked at codex-rs/core');
+  });
+
   it('messages, commands, file changes, tool calls, plans, usage and errors; any other type is counted raw and named once', () => {
     expect([...CODEX_EVENTS]).toEqual(['thread.started', 'turn.started', 'turn.completed', 'turn.failed', 'item.started', 'item.updated', 'item.completed', 'error']);
     const root = '/proj';
@@ -493,7 +603,7 @@ describe('Codex\'s events, read defensively (the names are assumed, not confirme
       'tool  docs.search  failed',
       'search  cadquery fillet',
       undefined,
-      'warning  a tool is not available',
+      'codex warning  a tool is not available',
       'says  First draft.',
       'says  Fixed ./src/x.ts.',
       'item  future_item: not one Timmy reads (kept in the transcript)', undefined,
@@ -619,7 +729,8 @@ describe('/iterate tray … --agent codex (FAKE codex, FAKE Ollama, FAKE recipe 
     expect(rec.readback).toMatchObject({ verdict: 'matches', worker: { name: 'fake-step-readback' } });
     // the agent's own run: the planned local command line, in the project
     const report = reportOf(root, rec.agent!.run);
-    expect(report.argv.slice(0, 12)).toEqual(['exec', '--oss', '--local-provider', 'ollama', '-m', 'qwen3:4b', '--json', '--skip-git-repo-check', '-s', 'workspace-write', '-C', root]);
+    expect(report.argv.slice(0, 18)).toEqual(['exec', '--oss', '--local-provider', 'ollama', '-m', 'qwen3:4b', '--json', '--skip-git-repo-check', '-s', 'workspace-write', ...OVERRIDES, '-C', root]);
+    expect(report.argv).toContain('--ignore-rules');
     expect(report.argv.at(-1)!.split('\n')[0]).toBe('make it 180 mm wide PARAM:width=180');
     expect(report.env).toMatchObject({ OPENAI_API_KEY: '', CODEX_API_KEY: '', OPENROUTER_API_KEY: '', TIMMY_AGENT_API_KEY: '', CODEX_OSS_BASE_URL: ollama.url });
     // the receipts: agent (local, cost 0), prediction, build, readback, then the flow's own, with cost 0

@@ -10,10 +10,27 @@
  * does not end in cloud. Anything else is refused, and this route has no --paid. Without --local, Codex is the
  * paid route on the user's own account, exactly as before (index.ts).
  *
- * Every flag is from tests/fixtures/agent-help/codex-exec-help.txt, the `codex exec --help` of codex-cli 0.140.0
- * captured on the operator's Mac in round R3. ASSUMED, from codex-rs's source as known, and not checked against
- * codex-cli 0.140.0 (no real run of this route is recorded):
- * - the names and shapes of its --json events (codexProgressLine below);
+ * Every flag is checked against tests/fixtures/agent-help/codex-exec-help.txt, the `codex exec --help` of codex-cli
+ * 0.153.2 captured on the operator's Mac in round R4 (H37). That text is byte for byte the one recorded in round R3 as
+ * codex-cli 0.140.0's, so the file did not change.
+ *
+ * Round R4 (H37): one real run of this route is reported from the operator's Mac, with codex-cli 0.153.2. It completed.
+ * What it showed, and what this module does about it:
+ * - its --json events: thread.started, turn.started, item.started, item.completed (item types reasoning,
+ *   agent_message, command_execution and error) and turn.completed. Those names are marked observed below
+ *   (CODEX_EVENTS_OBSERVED, CODEX_ITEMS_OBSERVED); the rest stay assumed (CODEX_EVENTS_ASSUMED, CODEX_ITEMS_ASSUMED);
+ * - its first item was an item.completed of type error ("Model metadata for `<model>` not found. Defaulting to fallback
+ *   metadata; ..."), and its turn still completed: an error item is Codex's own warning and never the outcome;
+ * - before its JSON it printed the plain line "Reading additional input from stdin...": shown as Codex's own note;
+ * - told to run no commands, the model ran 5 shell commands; one wrote a patch file under /tmp, which Codex's
+ *   workspace-write sandbox lets commands write (with $TMPDIR) as well as the project. The route now asks the sandbox
+ *   not to add /tmp or $TMPDIR as writable roots and to keep the network off (CODEX_LOCAL_SANDBOX_OVERRIDES), and says
+ *   plainly that Codex may run commands inside its sandbox and that Timmy checks changes inside the project only.
+ *
+ * Still ASSUMED, from codex-rs's source and Codex's documentation as known, and not confirmed by a run:
+ * - the sandbox_workspace_write keys passed with -c (their names are not in the help text; see below);
+ * - the events and item types not seen in that run (turn.failed, item.updated, error, and the item types file_change,
+ *   mcp_tool_call, web_search and todo_list), and every field of an event beyond its type;
  * - that its built-in ollama provider takes its address from CODEX_OSS_BASE_URL: set in the child's environment
  *   to the endpoint the rule judged, so a value inherited from Timmy's own environment cannot send it elsewhere;
  * - that --oss downloads a model the local Ollama does not list (codex-rs ensure_oss_ready): so a run starts only
@@ -30,8 +47,27 @@ const set = (v: string | undefined): v is string => typeof v === 'string' && v.t
 
 /** The route's key: its /tools row (`agent:codex-local`) and the receipts that mark it exercised (index.ts). */
 export const CODEX_LOCAL_ROUTE = 'codex-local';
-/** The local provider named on the command line: codex-cli 0.140.0 offers lmstudio or ollama. */
+/** The codex-cli whose `codex exec --help` the flags are checked against, and with which the events below were observed. */
+export const CODEX_CLI_CHECKED = 'codex-cli 0.153.2';
+/** The local provider named on the command line: codex-cli 0.153.2 offers lmstudio or ollama. */
 export const CODEX_LOCAL_PROVIDER = 'ollama';
+/**
+ * Round R4 (H37): configuration overrides, each given as `-c <key=value>` ("Override a configuration value that would
+ * otherwise be loaded from `~/.codex/config.toml`. Use a dotted path ... The `value` portion is parsed as TOML", its
+ * help). ASSUMED from Codex's config documentation (its [sandbox_workspace_write] table), not from the help text, which
+ * names no key; to be confirmed by a real run. What they ask of the workspace-write sandbox:
+ * - exclude_slash_tmp: do not add /tmp as a writable root (a 0.153.2 run wrote a patch file there);
+ * - exclude_tmpdir_env_var: do not add $TMPDIR as a writable root either;
+ * - network_access=false: no network for the commands it runs, said explicitly rather than left to a default.
+ * Writes then stay in the project (-C), where Timmy's before/after comparison sees them.
+ */
+export const CODEX_LOCAL_SANDBOX_OVERRIDES = [
+  'sandbox_workspace_write.exclude_slash_tmp=true',
+  'sandbox_workspace_write.exclude_tmpdir_env_var=true',
+  'sandbox_workspace_write.network_access=false',
+] as const;
+/** What the run is told about the commands Codex may run (the plan's note, shown on /agent's start). */
+export const CODEX_LOCAL_COMMANDS_NOTE = 'Codex may run commands inside its sandbox (workspace-write, asked to write only in the project, not in the temporary folders, and to keep the network off); Timmy checks changes inside the project only';
 /** Blank in the child's environment: no OpenAI, OpenRouter or Timmy key is the local model's to use. */
 export const CODEX_LOCAL_BLANKED = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENROUTER_API_KEY', 'TIMMY_AGENT_API_KEY'] as const;
 
@@ -62,7 +98,8 @@ export function planCodexLocal(o: CodexLocalInput): PlanResult {
     return { ok: false, refused: 'paid', error: `Remote, so it may cost money: ${ep.why}. Codex's local route runs only on this machine's Ollama, with a model that is not a cloud model. Nothing was started.` };
   }
   const last = `${AGENTS_DIR}/${o.run}/codex-last-message.txt`;
-  // Every flag below is from codex-exec-help.txt (codex-cli 0.140.0). Never --dangerously-bypass-approvals-and-sandbox.
+  // Every flag below is in codex-exec-help.txt (codex-cli 0.153.2), rechecked in round R4 (H37); each comment quotes
+  // the line it relies on. Never --dangerously-bypass-approvals-and-sandbox, never --add-dir.
   const args = [
     'exec',                                  // "codex exec  Run Codex non-interactively"
     '--oss',                                 // "--oss  Use open-source provider"
@@ -71,11 +108,21 @@ export function planCodexLocal(o: CodexLocalInput): PlanResult {
     '--json',                                // "--json  Print events to stdout as JSONL"
     '--skip-git-repo-check',                 // "--skip-git-repo-check  Allow running Codex outside a Git repository"
     '-s', 'workspace-write',                 // "-s, --sandbox <SANDBOX_MODE> ... [possible values: read-only, workspace-write, danger-full-access]"
+    // "-c, --config <key=value>  Override a configuration value ...": the flag is in the help; the keys are ASSUMED from
+    // Codex's config documentation, to be confirmed by a real run (CODEX_LOCAL_SANDBOX_OVERRIDES above).
+    ...CODEX_LOCAL_SANDBOX_OVERRIDES.flatMap((kv) => ['-c', kv]),
     '-C', o.root,                            // "-C, --cd <DIR>  Tell the agent to use the specified directory as its working root"
     // Beyond the line the round R4 order named, each from the same help text: the user's config.toml (its MCP
     // servers and profiles, which could reach paid services) is not loaded, no session is kept on disk, and the
     // last message is written where the paid route writes it.
     '--ignore-user-config',                  // "--ignore-user-config  Do not load `$CODEX_HOME/config.toml`; auth still uses `CODEX_HOME`"
+    // Round R4 (H37), decided: passed. "--ignore-rules  Do not load user or project execpolicy `.rules` files". An
+    // execpolicy rules file in the user's codex folder, or in the project itself (which the repository being worked on,
+    // or the agent, can put there), could mark commands as allowed and so loosen this route; with it ignored, the
+    // route is set by this command line alone, as --ignore-user-config already makes it for config.toml. The cost: a
+    // rule the user wrote to forbid a command does not apply here either. This route's limits do not rest on such
+    // rules: the sandbox (workspace-write, the overrides above) and Timmy's own check of the project's files after.
+    '--ignore-rules',
     '--ephemeral',                           // "--ephemeral  Run without persisting session files to disk"
     '-o', last,                              // "-o, --output-last-message <FILE>  Specifies file where the last message from the agent should be written"
     o.prompt,                                // "[PROMPT]  Initial instructions for the agent"
@@ -99,8 +146,8 @@ export function planCodexLocal(o: CodexLocalInput): PlanResult {
     oss: { provider: CODEX_LOCAL_PROVIDER, baseUrl, model },
     ...(codexHome ? { makeDirs: [codexHome] } : {}),
     note: home
-      ? 'codex exec --oss on this machine\'s Ollama; its own HOME and CODEX_HOME (TIMMY_AGENT_HOME): your codex settings and sign-in are not used'
-      : 'codex exec --oss on this machine\'s Ollama; your codex folder (~/.codex or CODEX_HOME) is used, not its config.toml; TIMMY_AGENT_HOME gives it its own',
+      ? `codex exec --oss on this machine's Ollama; its own HOME and CODEX_HOME (TIMMY_AGENT_HOME): your codex settings and sign-in are not used. ${CODEX_LOCAL_COMMANDS_NOTE}`
+      : `codex exec --oss on this machine's Ollama; your codex folder (~/.codex or CODEX_HOME) is used, not its config.toml or rules files; TIMMY_AGENT_HOME gives it its own. ${CODEX_LOCAL_COMMANDS_NOTE}`,
   };
   return { ok: true, plan };
 }
@@ -157,14 +204,33 @@ export async function codexLocalPreflight(oss: NonNullable<AgentPlan['oss']>, o:
 // ── its events ──────────────────────────────────────────────────────────────────
 
 /**
- * The `codex exec --json` events this parser reads. ASSUMED names (codex-rs exec_events.rs as known; not confirmed
- * for codex-cli 0.140.0): thread.started; turn.started; turn.completed {usage}; turn.failed {error.message};
- * item.started, item.updated and item.completed {item}, where item.type is agent_message, reasoning,
- * command_execution {command, exit_code, status}, file_change {changes[{path, kind}], status}, mcp_tool_call
- * {server, tool, status}, web_search {query}, todo_list {items[{text, completed}]} or error {message} (the earliest
- * format named it item_type, and an agent message assistant_message: both read); and error {message}.
+ * The `codex exec --json` events this parser reads (shapes from codex-rs exec_events.rs as known): thread.started;
+ * turn.started; turn.completed {usage}; turn.failed {error.message}; item.started, item.updated and item.completed
+ * {item}, where item.type is agent_message, reasoning, command_execution {command, exit_code, status}, file_change
+ * {changes[{path, kind}], status}, mcp_tool_call {server, tool, status}, web_search {query}, todo_list {items[{text,
+ * completed}]} or error {message} (the earliest format named it item_type, and an agent message assistant_message: both
+ * read); and error {message}.
+ *
+ * Round R4 (H37): which of those names a real run printed. OBSERVED with codex-cli 0.153.2 (one completed run of this
+ * route on the operator's Mac): the events thread.started, turn.started, item.started, item.completed and
+ * turn.completed, and the item types reasoning, agent_message, command_execution and error. Still ASSUMED (not seen in
+ * that run): the events turn.failed, item.updated and error, and the item types file_change, mcp_tool_call, web_search
+ * and todo_list. A name observed is a type that run printed; its other fields are still read as codex-rs is known to
+ * write them.
  */
 export const CODEX_EVENTS = ['thread.started', 'turn.started', 'turn.completed', 'turn.failed', 'item.started', 'item.updated', 'item.completed', 'error'] as const;
+/** The codex-cli the observed names were seen with. */
+export const CODEX_OBSERVED_WITH = CODEX_CLI_CHECKED;
+export const CODEX_EVENTS_OBSERVED = ['thread.started', 'turn.started', 'item.started', 'item.completed', 'turn.completed'] as const;
+export const CODEX_EVENTS_ASSUMED = ['turn.failed', 'item.updated', 'error'] as const;
+export const CODEX_ITEMS_OBSERVED = ['reasoning', 'agent_message', 'command_execution', 'error'] as const;
+export const CODEX_ITEMS_ASSUMED = ['file_change', 'mcp_tool_call', 'web_search', 'todo_list'] as const;
+/**
+ * Plain lines Codex prints itself that are not events, each shown as Codex's own note, never as an error. Observed with
+ * codex-cli 0.153.2: "Reading additional input from stdin..." before its JSON (its stdin is ended at the start, so it
+ * reads nothing and goes on).
+ */
+export const CODEX_PLAIN_NOTES: readonly RegExp[] = [/^Reading additional input from stdin\.\.\.$/];
 const KNOWN: ReadonlySet<string> = new Set(CODEX_EVENTS);
 /** The most event or item types named as unread in one run's progress. */
 const NAMED_MAX = 20;
@@ -185,10 +251,11 @@ export const tokenText = (u: NonNullable<AgentProgress['usage']>): string => `${
 
 /**
  * One line of Codex's output: updates the run's progress and returns the line to show, or undefined. A line that is
- * not JSON is shown as it came (raw); a JSON line whose type is not one of CODEX_EVENTS is counted raw too (never as
- * Codex reporting anything) and its type is named once. Success is Codex's own turn.completed: an `error` event
- * (Codex also sends one for a stream error it retries) holds the run as failed until a later turn.completed;
- * turn.failed holds it for good (index.ts judgeAgentRun).
+ * not JSON is shown as it came (raw), or, when it is one of Codex's own known notes (CODEX_PLAIN_NOTES), as "codex
+ * note"; a JSON line whose type is not one of CODEX_EVENTS is counted raw too (never as Codex reporting anything) and
+ * its type is named once. Success is Codex's own turn.completed: an `error` event (Codex also sends one for a stream
+ * error it retries) holds the run as failed until a later turn.completed; turn.failed holds it for good (index.ts
+ * judgeAgentRun). An item of type error is Codex's own warning: shown, and never the run's outcome.
  */
 export function codexProgressLine(line: string, state: AgentProgress, root: string): string | undefined {
   const raw = line.trim();
@@ -198,7 +265,12 @@ export function codexProgressLine(line: string, state: AgentProgress, root: stri
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ev = parsed as Record<string, unknown>;
   } catch { /* plain text */ }
-  if (!ev) { state.raw += 1; return short(scrubPaths(raw, root), 200); }
+  if (!ev) {
+    state.raw += 1;
+    // R4 (H37): a note Codex prints itself (observed with codex-cli 0.153.2), not an error
+    if (CODEX_PLAIN_NOTES.some((re) => re.test(raw))) return `codex note  ${short(scrubPaths(raw, root), 160)}`;
+    return short(scrubPaths(raw, root), 200);
+  }
   const type = typeof ev.type === 'string' ? ev.type : '';
   const s = seenOf(state);
   if (!KNOWN.has(type)) {
@@ -289,8 +361,10 @@ export function codexProgressLine(line: string, state: AgentProgress, root: stri
       return done ? `plan  ${items.filter((i) => obj(i).completed === true).length} of ${n} done` : undefined;
     }
     case 'error':
-      // "a non-fatal error surfaced as an item" (codex-rs): shown; the turn's own end decides the run.
-      return done ? `warning  ${say(text(item.message) ?? 'an error item without a message', 160)}` : undefined;
+      // "a non-fatal error surfaced as an item" (codex-rs). Observed with codex-cli 0.153.2 as a run's first item ("Model
+      // metadata for `<model>` not found. Defaulting to fallback metadata; ..."), its turn then completed. Codex's own
+      // warning: shown, and it sets neither reportedError nor reportedEnd, so the turn's own end decides the run.
+      return done ? `codex warning  ${say(text(item.message) ?? 'an error item without a message', 160)}` : undefined;
     default:
       if (s.items.has(kind) || s.items.size >= NAMED_MAX) return undefined;
       s.items.add(kind);
