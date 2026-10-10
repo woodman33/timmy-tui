@@ -9,7 +9,8 @@
  * src/repl/openhands-recover.ts for an OpenHands container) ends or stops the run's job, records that in the job's own
  * record (JobManager.endLeft), and then ends the run's record here:
  *   state "interrupted", ended_at, why in words (recovery stopped its process group with which signals; its process was
- *   found gone, and when it ended is not recorded; or its job's record already said how it ended), and `recovered`: the
+ *   found gone, and when it ended is not recorded (R4, H62: for OpenHands, its docker client and its container both); or
+ *   its job's record already said how it ended), and `recovered`: the
  *   job that ran it as its record says now, what recovery stopped, the flow whose step it was, and result "not written".
  * Never a result: no outcome, files, final message, cost or exit status is written, and no result.json. The record is
  * changed only while it says "submitted", names the same job, and has no result.json beside it: once, never over an end.
@@ -31,7 +32,9 @@ export type LeftRunEnd =
   /** an earlier recovery recorded its job's end (the words of the job's record), but not the run's */
   | { how: 'ended before' }
   /** R4 (H52): recovery stopped its OpenHands container (docker stop, then docker kill), named here */
-  | { how: 'container stopped'; container: string; steps: string };
+  | { how: 'container stopped'; container: string; steps: string }
+  /** R4 (H62): its job's process (OpenHands' docker client) and its container were both gone when recovery looked */
+  | { how: 'container gone'; container: string };
 
 export interface LeftRunInput {
   /** the job that ran it, as its own record says now (after recovery recorded its end) */
@@ -60,10 +63,12 @@ export function leftRunWhy(input: Pick<LeftRunInput, 'job' | 'end'>): string {
     case 'gone': return 'its REPL ended while it ran, and its process is gone (when it ended is not recorded); no result was written';
     case 'ended before': return `its REPL ended while it ran; its job record says ${input.job.state}${input.job.error ? `: ${input.job.error}` : ''}; no result was written`;
     case 'container stopped': return `its REPL ended while it ran; recovery stopped its container ${e.container} (${e.steps}); no result was written, and nothing was written into the project`;
+    case 'container gone': return `its REPL ended while it ran; its docker client and its container ${e.container} were already gone when recovery looked (when they ended is not recorded); no result was written, and nothing was written into the project`;
   }
 }
 
-const PROCESS: Record<LeftRunEnd['how'], AgentRunRecovered['process']> = { stopped: 'stopped by recovery', gone: 'gone', 'ended before': 'ended before', 'container stopped': 'container stopped by recovery' };
+/** R4 (H62): 'container gone' is a process found gone too: when it ended is not recorded (the Control Room shows no end time). */
+const PROCESS: Record<LeftRunEnd['how'], AgentRunRecovered['process']> = { stopped: 'stopped by recovery', gone: 'gone', 'ended before': 'ended before', 'container stopped': 'container stopped by recovery', 'container gone': 'gone' };
 
 /** The record's project-relative path. */
 export const runRecordRel = (run: string): string => `${AGENTS_DIR}/${run}/${RUN_RECORD}`;
@@ -103,7 +108,7 @@ export function endLeftAgentRun(root: string, run: string, input: LeftRunInput):
     at, by: 'recovery', process: PROCESS[input.end.how],
     job: { id: input.job.id, state: input.job.state, ...(input.job.error ? { error: input.job.error } : {}) },
     ...(input.end.how === 'stopped' ? { stopped: { ...input.end.stopped, signals: [...input.end.stopped.signals] } } : {}),
-    ...(input.end.how === 'container stopped' ? { container: input.end.container } : {}),
+    ...(input.end.how === 'container stopped' || input.end.how === 'container gone' ? { container: input.end.container } : {}),
     ...(input.flow ? { flow: input.flow } : {}),
     result: 'not written',
   };

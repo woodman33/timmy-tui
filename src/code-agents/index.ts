@@ -139,6 +139,9 @@ export interface AgentPlan {
   /** the wall time asked of the agent, and Timmy's own limit for the job */
   wallTime: string;
   timeoutMs: number;
+  /** R4 (H62): the job's own limit when it is not timeoutMs: OpenHands' layer stops its container at timeoutMs, and the
+   *  job's own limit, this, later, stays as the backstop (openhands.ts OPENHANDS_BACKSTOP_MS) */
+  jobTimeoutMs?: number;
   /** Codex writes its last message here (project-relative), from its -o flag */
   lastMessageFile?: string;
   /** added to the agent's environment: HOME from TIMMY_AGENT_HOME, so its settings and records stay out of the user's own */
@@ -754,7 +757,7 @@ export interface AgentRunRecovered {
   job: { id: string; state: string; error?: string };
   /** the process group recovery stopped, and with what */
   stopped?: { process_group: number; processes: number; signals: string[]; cleanup: 'complete' | 'unresolved' };
-  /** the OpenHands container recovery stopped */
+  /** the OpenHands container recovery stopped, or (R4, H62) found already gone with its docker client (process 'gone') */
   container?: string;
   /** the flow whose agent step it was */
   flow?: string;

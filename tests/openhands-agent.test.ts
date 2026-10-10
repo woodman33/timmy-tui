@@ -17,22 +17,24 @@ import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { basename, delimiter, dirname, join, resolve } from 'node:path';
+import { afterEach, describe, expect, it, onTestFinished } from 'vitest';
 import { capabilities, type ProbeDeps } from '../src/capabilities/index.js';
 import { capabilityLines } from '../src/capabilities/render.js';
 import { agentBin, agentExercisedIndex, AGENTS_DIR, judgeAgentRun, listAgentRuns, newProgress, parseAgentLine, planAgent, progressLine, type AgentRunRecord } from '../src/code-agents/index.js';
 import {
   bindMount, containerOllama, hostUser, judgeOpenHands, OPENHANDS_BUILD, OPENHANDS_BUILD_SHORT, OPENHANDS_IMAGE, OPENHANDS_NO_DOCKER, OPENHANDS_NO_PAID,
   OPENHANDS_NOT_ITERATE, OPENHANDS_NOTE, OPENHANDS_ONLY_LOCAL, openHandsCapabilityRow, openHandsDockerArgs, openHandsProgressLine, openHandsRouteWords, openHandsSaid,
-  PLAIN_SHOWN, watchOpenHands, workRel, type OpenHandsDocker,
+  PLAIN_SHOWN, watchOpenHands, workRel, type ContainerStop, type OpenHandsDocker,
 } from '../src/code-agents/openhands.js';
 import { dockerCall, dockerSetup } from '../src/code-agents/openhands-run.js';
 import { JobManager } from '../src/jobs/index.js';
 import { folderProject, projectId } from '../src/project/index.js';
 import { realOnPath } from '../src/repl/center.js';
 import { parseIterateLine } from '../src/repl/iterate.js';
+import { CLIENT_EXIT_MS, limitHead, OpenHandsRuns, STOP_ANSWER_MS, stoppedHow, type OpenHandsRunState } from '../src/repl/openhands.js';
 import { Workspace, type WorkspaceDeps } from '../src/repl/workspace.js';
+import { actStopReason } from '../src/utils/stop-words.js';
 import { routeWords } from '../src/room/index.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import type { Receipt, ReceiptInput } from '../src/utils/receipts.js';
@@ -75,18 +77,22 @@ async function fakeOllama(models: string[]): Promise<{ url: string; host: string
 }
 
 interface Call { argv: string[]; keys: Record<string, string | null> }
-/** The FAKE docker, on PATH as `docker`, with its FAKE daemon's state in its own folder (DOCKER_CONFIG). */
-function fakeDocker(o: { image?: 'ready' | 'missing' | 'other'; down?: boolean } = {}) {
+/** The FAKE docker, on PATH as `docker`, with its FAKE daemon's state in its own folder (DOCKER_CONFIG). `signalDelayMs`:
+ *  how late its FAKE daemon delivers a signal to a container (OrbStack on the loaded Mac took 5 to 7 s: ledger row 159). */
+function fakeDocker(o: { image?: 'ready' | 'missing' | 'other'; down?: boolean; signalDelayMs?: number } = {}) {
   const state = temp('oh-docker-');
   const bin = temp('oh-bin-');
   symlinkSync(FAKE_DOCKER, join(bin, 'docker'));
   if (o.down) writeFileSync(join(state, 'daemon-down'), '');
+  if (o.signalDelayMs) writeFileSync(join(state, 'signal-delay-ms'), String(o.signalDelayMs));
   const image = o.image ?? 'ready';
   if (image !== 'missing') writeFileSync(join(state, 'images.json'), JSON.stringify({ [OPENHANDS_IMAGE]: { id: IMAGE_ID, labels: image === 'ready' ? { 'timmy.openhands.sdk': '1.21.0' } : { other: 'x' } } }));
   const calls = (): Call[] => { try { return readFileSync(join(state, 'argv.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as Call); } catch { return []; } };
   const containerFile = (name: string): string => join(state, 'containers', `${name}.json`);
   const report = (name: string): { argv: string[]; labels: Record<string, string>; mounts: Array<Record<string, unknown>>; env: Record<string, string | null>; user: string | null; stdin: { open: boolean; bytes: number; v: number | null; task: string; token_length: number } } => JSON.parse(readFileSync(join(state, 'runs', `${name}.json`), 'utf8'));
-  return { state, bin, calls, containerFile, report };
+  /** R4 (H62): every SIGTERM or SIGINT a FAKE docker client received (it forwards them to its container, as docker's does). */
+  const clientSignals = (): Array<{ name: string; signal: string }> => { try { return readFileSync(join(state, 'client-signals.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as { name: string; signal: string }); } catch { return []; } };
+  return { state, bin, calls, containerFile, report, clientSignals };
 }
 type Dock = ReturnType<typeof fakeDocker>;
 
@@ -154,6 +160,8 @@ describe('the plan: the SDK in Timmy\'s container, on a copy of the project, wit
       'timmy-openhands:1.21.0', 'python', '/timmy/timmy_openhands.py',
     ]);
     expect(r.plan).toMatchObject({ agent: 'openhands', command: 'docker', model: 'qwen3:4b', endpoint: 'local', where: '127.0.0.1:11434', charge: 'local endpoint, no charge', costBasis: 'local endpoint', note: OPENHANDS_NOTE, wallTime: '15m', timeoutMs: 15 * 60_000 + 30_000 });
+    // R4 (H62): the job's own limit, the backstop, a minute above OpenHands' own (where its container is stopped first)
+    expect(r.plan.jobTimeoutMs).toBe(15 * 60_000 + 30_000 + 60_000);
     // no -e without a value (docker would take the client's own), no host network, no socket, nothing privileged
     const joined = r.plan.args.join(' ');
     expect(joined).not.toMatch(/--privileged|--network|docker\.sock|--cap-add|-v |--volume|--env-file/);
@@ -314,6 +322,17 @@ describe('its lines: only a JSON line with the run\'s token is read; hostile lin
     openHandsProgressLine(line({ type: 'result', status: 'limit', finished: false, max_iterations: 40 }), s, '/proj');
     expect(judgeOpenHands({ state: 'failed', exitCode: 3 }, s)).toEqual({ outcome: 'failed', why: 'it did not finish: its step limit (40) was reached (exit 3)' });
     expect(judgeAgentRun({ state: 'completed', exitCode: 0 }, s, 'openhands')).toEqual({ outcome: 'failed', why: 'it exited 0 but it did not finish: its step limit (40) was reached' });
+    // R4 (H62): a stopped run says the worker's own last line (read with its token) beside how it was stopped, or that it gave none
+    expect(judgeOpenHands({ state: 'cancelled' }, fresh())).toEqual({ outcome: 'cancelled', why: 'stopped with /stop (or the REPL ended) before it finished; the worker gave no last line of its own (what it printed is kept in transcript.log)' });
+    const stopped = fresh();
+    expect(openHandsProgressLine(line({ type: 'result', status: 'stopped', finished: false, steps: 3, max_iterations: 40, signal: 'SIGTERM', usage: { input: 1200, output: 34 } }), stopped, '/proj')).toBe('done  not finished: it was stopped (SIGTERM) · 3 steps · 1,200 tokens in, 34 out');
+    expect(openHandsSaid(stopped)).toMatchObject({ result: true, status: 'stopped', steps: 3, signal: 'SIGTERM' });
+    expect(judgeOpenHands({ state: 'cancelled', exitCode: 143 }, stopped, 'by timmy act (SIGTERM received)')).toEqual({ outcome: 'cancelled', why: 'stopped by timmy act (SIGTERM received) before it finished; the worker\'s own last line: stopped at step 3 (SIGTERM), 1,200 tokens in, 34 out' });
+    expect(judgeOpenHands({ state: 'failed', error: 'timed out' }, stopped)).toEqual({ outcome: 'timed out', why: 'Timmy\'s time limit ended it (its wall time and a grace period); the worker\'s own last line: stopped at step 3 (SIGTERM), 1,200 tokens in, 34 out' });
+    // a signal name is read only as one (SIGTERM, SIGINT), never as other text
+    const odd = fresh();
+    openHandsProgressLine(line({ type: 'result', status: 'stopped', finished: false, signal: 'SIGTERM; rm -rf /' }), odd, '/proj');
+    expect(openHandsSaid(odd).signal).toBeUndefined();
     expect(workRel('/work')).toBeUndefined();
     expect(workRel('./a/./b')).toBe('a/b');
     expect(workRel('~/x')).toBeUndefined();
@@ -624,6 +643,128 @@ describe('/stop and the time limit stop its container by its name and labels (FA
     expect(kept.stops).toEqual([expect.objectContaining({ why: 'stop', result: 'stopped', name: `timmy-oh-${run}`, steps: [{ command: `docker stop --time 10 timmy-oh-${run}`, exit: 0 }] })]);
   }, 60_000);
 
+  it('a stop ends its container before its docker client, so the worker\'s own last line arrives even when docker delivers its signal late (row 159)', async () => {
+    const ollama = await fakeOllama(['qwen3:4b']);
+    // The FAKE daemon delivers each signal to the container 3 s late: more than the job's own 2 s between SIGTERM and SIGKILL.
+    const dock = fakeDocker({ signalDelayMs: 3000 });
+    const root = project();
+    const { ws, sealed } = make(root, ohEnv(dock, ollama.url));
+    const { id, run } = await started(ws, dock, 'openhands --local HANG a long task');
+    const reply = text(await ws.stop(id));
+    expect(reply).toContain(`${id} cancelled`);
+    expect(reply).toContain(`its container timmy-oh-${run} was stopped by its name and labels (docker stop)`);
+    const dir = join(root, AGENTS_DIR, run);
+    // the worker's own last line reached Timmy through its docker client: kept in the transcript, read into the progress
+    expect(readFileSync(join(dir, 'transcript.log'), 'utf8')).toContain('"status":"stopped"');
+    expect(readFileSync(join(dir, 'progress.log'), 'utf8')).toContain('done  not finished: it was stopped (SIGTERM) · 1 step · 900 tokens in, 30 out');
+    // the order: its container first (docker stop), then its docker client ended by itself: no signal ever reached the client
+    expect(dock.clientSignals()).toEqual([]);
+    expect(ws.jobs.get(id)).toMatchObject({ state: 'cancelled', exitCode: 143, signal: null, cleanup: 'complete', stopOrder: { first: 'answered', group: 'ended by itself' } });
+    // the run's result: who stopped it, how its container and then its client ended, and the worker's own words
+    const name = `timmy-oh-${run}`;
+    const r = resultOf(root);
+    expect(r.why).toBe(`stopped with /stop before it finished: first docker stop ended its container ${name} (docker stop --time 10 ${name} exited 0), then its docker client ended by itself (exit 143); the worker's own last line: stopped at step 1 (SIGTERM), 900 tokens in, 30 out`);
+    expect(r).toMatchObject({ outcome: 'cancelled', exit_code: 143, openhands: { reported: { status: 'stopped', steps: 1 }, client: { container_stop: 'answered', ended: 'by itself' }, writeback: { state: 'not attempted' } } });
+    expect(r.openhands!.stop).toMatchObject({ why: 'stop', by: 'with /stop', result: 'stopped', steps: [{ command: `docker stop --time 10 ${name}`, exit: 0 }] });
+    expect(r.openhands!.limit).toBeUndefined();
+    expect(sealed.find((s) => s.kind === 'agent')).toMatchObject({
+      status: 'cancelled', agent: { outcome: 'cancelled' },
+      openhands: { stop: { why: 'stop', by: 'with /stop', result: 'stopped', steps: [{ command: `docker stop --time 10 ${name}`, exit: 0 }], client: 'by itself' } },
+    });
+    expect(readFileSync(join(root, 'src/a.txt'), 'utf8')).toBe('first line\n');
+  }, 60_000);
+
+  it('end to end: Timmy\'s real worker (python3 on a FAKE SDK) in the FAKE container, stopped by /stop through docker stop: its own last line is in the result', async () => {
+    const ollama = await fakeOllama(['qwen3:4b']);
+    const dock = fakeDocker({ signalDelayMs: 2500 });
+    const root = project();
+    const { ws, sealed } = make(root, ohEnv(dock, ollama.url));
+    const { id, run } = await started(ws, dock, 'openhands --local PYWORKER HANG a long task');
+    const dir = join(root, AGENTS_DIR, run);
+    const progress = (): string => { try { return readFileSync(join(dir, 'progress.log'), 'utf8'); } catch { return ''; } };
+    await until(() => progress().includes('tool  terminal  cat a.txt'));
+    const reply = text(await ws.stop(id));
+    expect(reply).toContain(`${id} cancelled`);
+    const name = `timmy-oh-${run}`;
+    expect(dock.clientSignals()).toEqual([]);
+    expect(progress()).toContain('done  not finished: it was stopped (SIGTERM) · 2 steps · 900 tokens in, 30 out');
+    const r = resultOf(root);
+    expect(r.why).toBe(`stopped with /stop before it finished: first docker stop ended its container ${name} (docker stop --time 10 ${name} exited 0), then its docker client ended by itself (exit 143); the worker's own last line: stopped at step 2 (SIGTERM), 900 tokens in, 30 out`);
+    // the real worker said what it is: no SDK version here (the FAKE SDK is no installed package), its status and steps
+    expect(r.openhands!.reported).toMatchObject({ sdk: null, status: 'stopped', steps: 2 });
+    expect(sealed.find((s) => s.kind === 'agent')).toMatchObject({ status: 'cancelled', openhands: { stop: { result: 'stopped', client: 'by itself' } } });
+    expect(existsSync(dock.containerFile(name))).toBe(false);
+  }, 60_000);
+
+  it('Timmy\'s time limit takes the same order: OpenHands\' own limit stops the container first, before the job\'s own (the backstop); the worker\'s words arrive', async () => {
+    const ollama = await fakeOllama(['qwen3:4b']);
+    const dock = fakeDocker({ signalDelayMs: 3000 });
+    const root = project();
+    const { ws, notes } = make(root, ohEnv(dock, ollama.url, { TIMMY_AGENT_WALL_TIME: '1s', TIMMY_AGENT_GRACE_MS: '0' }));
+    const { out, job } = await runAgent(ws, 'openhands --local HANG forever');
+    const run = /agent openhands (a[0-9a-f]{8})/.exec(out)![1];
+    const name = `timmy-oh-${run}`;
+    expect(job).toMatchObject({ state: 'failed', error: 'timed out', exitCode: 143, stopOrder: { first: 'answered', group: 'ended by itself' } });
+    expect(dock.clientSignals()).toEqual([]);
+    const r = resultOf(root);
+    expect(r.why).toBe(`Timmy's time limit passed (1s: its wall time and a grace period): first docker stop ended its container ${name} (docker stop --time 10 ${name} exited 0), then its docker client ended by itself (exit 143); the worker's own last line: stopped at step 1 (SIGTERM), 900 tokens in, 30 out`);
+    expect(r).toMatchObject({ outcome: 'timed out', openhands: { limit: { by: 'openhands', ms: 1000 }, stop: { why: 'time limit', result: 'stopped' }, client: { ended: 'by itself' } } });
+    expect(r.openhands!.stop!.by).toBeUndefined();
+    await until(() => notes.some((n) => n.includes('at Timmy\'s time limit')));
+    expect(notes.join('\n')).toContain(`agent openhands ${run}  its container ${name} was stopped by its name and labels at Timmy's time limit (docker stop)`);
+  }, 60_000);
+
+  it('how Timmy stopped a run, in words: its container (each docker command with its exit), then what its docker client needed', () => {
+    const name = 'timmy-oh-a1a1a1a1a';
+    const s = (result: ContainerStop['result'], steps: ContainerStop['steps'] = [], detail?: string): ContainerStop => ({ why: 'stop', at: '', name, result, steps, ...(detail ? { detail } : {}) });
+    const stop = (exit: number | null) => ({ command: `docker stop --time 10 ${name}`, exit });
+    const kill = (exit: number | null) => ({ command: `docker kill ${name}`, exit });
+    const byItself = { first: 'answered' as const, group: 'ended by itself' as const };
+    expect(stoppedHow(s('stopped', [stop(0)]), { exitCode: 143, stopOrder: byItself })).toBe(`first docker stop ended its container ${name} (docker stop --time 10 ${name} exited 0), then its docker client ended by itself (exit 143)`);
+    expect(stoppedHow(s('killed', [stop(1), kill(0)]), { exitCode: 137, stopOrder: byItself })).toBe(`first docker stop did not end its container ${name}, and docker kill did (docker stop --time 10 ${name} exited 1, then docker kill ${name} exited 0), then its docker client ended by itself (exit 137)`);
+    expect(stoppedHow(s('ended', [stop(null), kill(1)]), { exitCode: 143, stopOrder: byItself })).toBe(`first its container ${name} ended while Timmy stopped it, not by docker kill (docker stop --time 10 ${name} gave no answer, then docker kill ${name} exited 1), then its docker client ended by itself (exit 143)`);
+    expect(stoppedHow(s('gone'), { exitCode: 0, stopOrder: byItself })).toBe(`first its container ${name} had already ended, then its docker client ended by itself (exit 0)`);
+    expect(stoppedHow(s('unchecked', [], 'docker ps: no answer'), { exitCode: 143, stopOrder: { first: 'answered', group: 'SIGTERM' } })).toBe(`first its container ${name} could not be checked (docker ps: no answer), then its docker client did not end by itself within 15s, so Timmy ended it (SIGTERM; exit 143)`);
+    expect(stoppedHow(s('asked'), { signal: 'SIGKILL', stopOrder: { first: 'no answer', group: 'SIGKILL' } })).toBe(`first the stop of its container ${name} was asked (no answer within 1m 40s), then its docker client did not end by itself within 15s, so Timmy ended it (SIGTERM, then SIGKILL; signal SIGKILL)`);
+    expect(stoppedHow(undefined, { exitCode: 0 })).toBe('its docker client had already ended (exit 0) before Timmy stopped its container; its container is checked by its name and labels after its job\'s end');
+    expect(stoppedHow(s('stopped', [stop(0)]), { exitCode: 143 })).toBe(`first docker stop ended its container ${name} (docker stop --time 10 ${name} exited 0), then its docker client had ended (exit 143)`);
+  });
+
+  it('the job\'s own limit, the backstop, takes the same first part (its container first) and the record says the backstop came first', async () => {
+    const dock = fakeDocker();
+    const root = project();
+    const run = 'a0c0c0c0c';
+    const name = `timmy-oh-${run}`;
+    const labels = { 'timmy.run': run, 'timmy.project': projectId(root) };
+    const dir = join(root, AGENTS_DIR, run);
+    mkdirSync(dir, { recursive: true });
+    // A FAKE container as the FAKE daemon keeps it; its worker, a real process that ends on SIGTERM.
+    const worker = spawn(process.execPath, ['-e', 'process.on("SIGTERM",()=>process.exit(143));setInterval(()=>{},1000)'], { detached: true, stdio: 'ignore' });
+    await new Promise<void>((r) => worker.once('spawn', () => r()));
+    onTestFinished(() => { if (worker.exitCode === null && worker.signalCode === null) worker.kill('SIGKILL'); });
+    mkdirSync(dirname(dock.containerFile(name)), { recursive: true });
+    writeFileSync(dock.containerFile(name), JSON.stringify({ id: sha(name), name, labels, state: 'running', pid: worker.pid, behaviour: [] }));
+    const runs = new OpenHandsRuns({ glyphs: glyphSet(true), notify: () => {} });
+    const st: OpenHandsRunState = {
+      container: { name, image: OPENHANDS_IMAGE, labels, dir, work: join(dir, 'work'), worker: join(dir, 'worker'), token: 'f'.repeat(32), maxIterations: 40, llmBase: 'http://host.docker.internal:11434', llmModel: 'ollama/qwen3:4b' },
+      run, root, bin: join(dock.bin, 'docker'), env: { DOCKER_CONFIG: dock.state }, copied: new Map(), stops: [], limits: { openhands: 1000, job: 61_000 },
+      record: { image: OPENHANDS_IMAGE, container: { name, labels }, worker: { path: 'w', sha256: 'x' }, limits: { cpus: '2', memory: '4g', pids: 512, max_iterations: 40 }, copy: { path: 'c', files: 0, bytes: 0 } },
+    };
+    const first = runs.stopFirst(st);
+    expect(first).toMatchObject({ answerMs: STOP_ANSWER_MS, exitMs: CLIENT_EXIT_MS });
+    const stopped = await first.run({ state: 'failed', error: 'timed out' }) as Record<string, unknown>;
+    expect(stopped).toMatchObject({ why: 'time limit', result: 'stopped', steps: [{ command: `docker stop --time 10 ${name}`, exit: 0 }] });
+    expect(st.limit?.by).toBe('job');
+    expect(limitHead(st)).toBe('the job\'s own time limit, the backstop (1m 1s), ended it: OpenHands\' own stop at its time limit (1s) had not come');
+    await until(() => worker.exitCode !== null || worker.signalCode !== null);
+    // a later ask (a /stop meanwhile) gets the first one's answer: one docker stop, its why and words kept
+    expect(await runs.stopFirst(st).run({ state: 'cancelled' })).toBe(stopped);
+    expect(dock.calls().filter((c) => c.argv[0] === 'stop')).toHaveLength(1);
+    expect(JSON.parse(readFileSync(join(dir, 'container.json'), 'utf8')).stops).toEqual([expect.objectContaining({ why: 'time limit', result: 'stopped' })]);
+    // OpenHands' own limit, said the other way
+    expect(limitHead({ limit: { by: 'openhands', at: '' }, limits: { openhands: 930_000, job: 990_000 } })).toBe('Timmy\'s time limit passed (15m 30s: its wall time and a grace period)');
+  }, 60_000);
+
   it('/stop of a container docker stop cannot end: docker kill ends it', async () => {
     const ollama = await fakeOllama(['qwen3:4b']);
     const dock = fakeDocker();
@@ -706,6 +847,27 @@ describe('/stop and the time limit stop its container by its name and labels (FA
     expect(dock.calls().some((c) => c.argv.join(' ') === `stop --time 10 timmy-oh-${run}`)).toBe(true);
     expect(existsSync(dock.containerFile(`timmy-oh-${run}`))).toBe(false);
     expect(resultOf(root)).toMatchObject({ outcome: 'cancelled' });
+  }, 60_000);
+
+  it('the REPL\'s end and timmy act\'s stop take the same order (container first, the worker\'s words kept), each with its own words', async () => {
+    const ollama = await fakeOllama(['qwen3:4b']);
+    for (const how of ['the REPL\'s end', 'timmy act\'s stop'] as const) {
+      const dock = fakeDocker({ signalDelayMs: 2500 });
+      const root = project();
+      const { ws } = make(root, ohEnv(dock, ollama.url));
+      const { id, run } = await started(ws, dock, 'openhands --local HANG a long task');
+      if (how === 'the REPL\'s end') await ws.close();
+      else await ws.stop('all', { by: actStopReason('SIGINT received') }); // what `timmy act` does on a SIGINT (src/ops/act.ts)
+      const name = `timmy-oh-${run}`;
+      const by = how === 'the REPL\'s end' ? 'as the REPL ended' : 'by timmy act (SIGINT received)';
+      expect(dock.clientSignals(), how).toEqual([]);
+      expect(ws.jobs.get(id), how).toMatchObject({ state: 'cancelled', exitCode: 143, stopOrder: { first: 'answered', group: 'ended by itself' } });
+      const r = resultOf(root);
+      expect(r.why, how).toBe(`stopped ${by} before it finished: first docker stop ended its container ${name} (docker stop --time 10 ${name} exited 0), then its docker client ended by itself (exit 143); the worker's own last line: stopped at step 1 (SIGTERM), 900 tokens in, 30 out`);
+      expect(r.openhands!.stop, how).toMatchObject({ why: how === 'the REPL\'s end' ? 'the REPL ended' : 'stop', by, result: 'stopped' });
+      const kept = JSON.parse(readFileSync(join(root, AGENTS_DIR, run, 'container.json'), 'utf8')) as { stops: Array<Record<string, unknown>> };
+      expect(kept.stops, how).toEqual([expect.objectContaining({ by, result: 'stopped', steps: [{ command: `docker stop --time 10 ${name}`, exit: 0 }] })]);
+    }
   }, 60_000);
 });
 
@@ -801,6 +963,73 @@ describe('recovery: an orphaned container is found only by its labels plus its r
     const plain = make(project(), ohEnv(empty, 'http://127.0.0.1:11434/v1'), { recoverAtStart: false });
     await plain.ws.recover('');
     expect(empty.calls()).toEqual([]);
+  }, 60_000);
+
+  it('a stale job whose container is already gone is ended: its job cancelled with words, its run interrupted, one receipt each; nothing claimed about its result (H59\'s note)', async () => {
+    const dock = fakeDocker();
+    const root = project();
+    const pid = projectId(root);
+    const jobsDir = join(temp('oh-jobs-'), 'jobs');
+    const dead = await exitedPid();
+    // one whose container docker no longer lists (removed, --rm), one docker lists as exited
+    const runs = [{ run: 'a1d1d1d1d', job: 'j1d1d1d' }, { run: 'a2e2e2e2e', job: 'j2e2e2e' }];
+    for (const x of runs) { runRecord(root, x.run, x.job, `timmy-oh-${x.run}`, { 'timmy.run': x.run, 'timmy.project': pid }); jobRecord(jobsDir, x.job, root, dead); }
+    container(dock, `timmy-oh-${runs[1].run}`, { 'timmy.run': runs[1].run, 'timmy.project': pid }, dead);
+    const file = dock.containerFile(`timmy-oh-${runs[1].run}`);
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), state: 'exited' }));
+    // an earlier recovery ended this one's job record, but not its run's record
+    const earlier = { run: 'a3f3f3f3f', job: 'j3f3f3f' };
+    runRecord(root, earlier.run, earlier.job, `timmy-oh-${earlier.run}`, { 'timmy.run': earlier.run, 'timmy.project': pid });
+    writeFileSync(join(jobsDir, `${earlier.job}.json`), JSON.stringify({ id: earlier.job, kind: 'task', label: 'agent openhands', project: 'p', root, command: 'docker', args: ['run'], state: 'cancelled', pid: dead, startedAt: new Date(Date.now() - 120_000).toISOString(), endedAt: new Date(Date.now() - 60_000).toISOString(), exitCode: null, signal: null, error: 'its REPL ended; its container was already gone', steps: [], lines: 0 }));
+    writeFileSync(join(jobsDir, `${earlier.job}.log`), '');
+    // docker not on PATH: whether the containers are gone cannot be told, so nothing is ended
+    const blind = make(root, { PATH: temp('oh-nobin-'), TIMMY_AGENT_MODEL: 'qwen3:4b' }, { jobsDir, recoverAtStart: false });
+    const said = text(await blind.ws.recover(''));
+    expect(said).toContain(`OpenHands run ${runs[0].run} has no result, and docker is not on PATH, so whether its container timmy-oh-${runs[0].run} still runs cannot be checked`);
+    expect(blind.sealed).toEqual([]);
+    expect(blind.ws.jobs.get(runs[0].job)).toMatchObject({ state: 'running', stale: true });
+    await blind.ws.close();
+
+    const { ws, sealed } = make(root, ohEnv(dock, 'http://127.0.0.1:11434/v1'), { jobsDir, recoverAtStart: false });
+    const out = text(await ws.recover(''));
+    expect(out).toContain('3 agent runs left by a REPL that ended were recorded as interrupted');
+    for (const x of runs) {
+      const name = `timmy-oh-${x.run}`;
+      expect(out).toContain(`OpenHands run ${x.run} (job ${x.job}): its REPL ended, and its job's process and its container ${name} were already gone; its job record now says cancelled: its REPL ended; its container was already gone; its record ${AGENTS_DIR}/${x.run}/run.json now says interrupted (no result was written); nothing was written into the project; receipt id`);
+      expect(ws.jobs.get(x.job)).toMatchObject({ state: 'cancelled', error: 'its REPL ended; its container was already gone', exitCode: null, signal: null });
+      const bytes = readFileSync(join(root, AGENTS_DIR, x.run, 'run.json'));
+      expect(JSON.parse(bytes.toString('utf8'))).toMatchObject({
+        state: 'interrupted', job: x.job,
+        why: `its REPL ended while it ran; its docker client and its container ${name} were already gone when recovery looked (when they ended is not recorded); no result was written, and nothing was written into the project`,
+        recovered: { by: 'recovery', process: 'gone', container: name, result: 'not written', job: { id: x.job, state: 'cancelled', error: 'its REPL ended; its container was already gone' } },
+      });
+      const r = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+      for (const k of ['outcome', 'files', 'final_message', 'cost_usd', 'exit_code']) expect(r, k).not.toHaveProperty(k);
+      expect(existsSync(join(root, AGENTS_DIR, x.run, 'result.json'))).toBe(false);
+      const receipt = sealed.find((s) => s.subject === `recover · agent · openhands · ${x.run} · interrupted`)!;
+      expect(receipt).toMatchObject({ kind: 'recover', status: 'ok', project_id: pid, outputs: [{ path: `${AGENTS_DIR}/${x.run}/run.json`, sha256: sha(bytes), bytes: bytes.length }] });
+      expect((receipt.sources as Array<Record<string, unknown>>)[0]).toMatchObject({ operation: x.run, agent: 'openhands', job: x.job, container: name, action: 'found its job\'s process and its container gone' });
+      expect(JSON.stringify(receipt)).not.toMatch(/"outcome"|"cost_usd"/);
+    }
+    expect(out).toContain(`OpenHands run ${earlier.run} (job ${earlier.job}): an earlier recovery ended its job (its record says cancelled: its REPL ended; its container was already gone) but not its own record, and its container timmy-oh-${earlier.run} runs no more; its record ${AGENTS_DIR}/${earlier.run}/run.json now says interrupted`);
+    expect(JSON.parse(readFileSync(join(root, AGENTS_DIR, earlier.run, 'run.json'), 'utf8'))).toMatchObject({ state: 'interrupted', recovered: { process: 'ended before' } });
+    expect(sealed.map((s) => s.subject).sort()).toEqual([...runs, earlier].map((x) => `recover · agent · openhands · ${x.run} · interrupted`).sort());
+    // nothing was stopped (there was nothing to stop)
+    expect(dock.calls().filter((c) => c.argv[0] === 'stop' || c.argv[0] === 'kill')).toEqual([]);
+    // a second pass: nothing more, said with everything it looked for
+    expect(text(await ws.recover(''))).toBe(`  Recovery   nothing to pick up in ${basename(root)}: no recipe job, flow, native run, workflow run, code agent run or OpenHands container was left by a REPL that ended`);
+    expect(sealed).toHaveLength(3);
+    // a stale job whose container's name is taken by a container without Timmy's labels: never judged by a name, left as it is
+    const decoy = { run: 'a4a4a4a4a', job: 'j4a4a4a' };
+    runRecord(root, decoy.run, decoy.job, `timmy-oh-${decoy.run}`, { 'timmy.run': decoy.run, 'timmy.project': pid });
+    jobRecord(jobsDir, decoy.job, root, dead);
+    container(dock, `timmy-oh-${decoy.run}`, {}, dead);
+    expect(text(await ws.recover(''))).toContain(`OpenHands run ${decoy.run}: no container with its labels runs, but a container named timmy-oh-${decoy.run} without them is there (not Timmy's; never judged by its name alone): its records were left as they are`);
+    expect(JSON.parse(readFileSync(join(root, AGENTS_DIR, decoy.run, 'run.json'), 'utf8')).state).toBe('submitted');
+    expect(ws.jobs.get(decoy.job)).toMatchObject({ state: 'running', stale: true });
+    expect(sealed).toHaveLength(3);
+    // docker was asked by labels, and for its whole list; never by a name
+    expect(dock.calls().filter((c) => c.argv[0] === 'ps').flatMap((c) => c.argv).some((a) => a.startsWith('name='))).toBe(false);
   }, 60_000);
 });
 

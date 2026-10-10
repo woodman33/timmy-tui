@@ -30,14 +30,22 @@ line only with it); anything else this process or what it starts writes to its s
     {"type": "result", "status", "finished", "steps", "max_iterations", "final_message", "final_chars", "usage"?, "error"?}
 The result line is the last one: "finished" is true only when the SDK's own state says its conversation finished.
 
+Stopped (round R4, H62; ledger row 159): on SIGTERM (what docker stop sends) or SIGINT (Ctrl+C through docker's signal
+proxy) it prints its result line at once, from the handler itself, so no exception handling of the SDK's can swallow it:
+    {"type": "result", "status": "stopped", "finished": false, "steps", "max_iterations", "signal", "usage"?, "final_message"?}
+with its steps and its tokens so far; then it flushes and exits. A signal arriving while it writes a line waits for that
+line to be written whole. A signal before it has read its task (it has no token yet) prints no protocol line, only its words
+on stderr. A signal after its own result line changes nothing.
+
 Its exit status: 0 finished; 3 the agent did not finish (its step limit, stuck, an error); 2 it could not start (its
-stdin, the SDK, the tools); 143 stopped (SIGTERM: docker stop, or Timmy's stop through docker's signal proxy).
+stdin, the SDK, the tools); 143 stopped by SIGTERM (docker stop), 130 by SIGINT.
 """
 import json
 import os
 import re
 import signal
 import sys
+import threading
 import traceback
 
 PROTOCOL = 1
@@ -58,21 +66,48 @@ sys.stdout = sys.stderr
 
 TOKEN = None
 
+# R4 (H62): what a stop's result line says, as main() makes it (a signal may come at any point of it).
+RUN = {"events": None, "conversation": None, "llm": None, "limit": None}
+# One line at a time on the protocol channel (the SDK may call back from a thread of its own).
+_lock = threading.Lock()
+# The main thread is writing a line: a signal handled meanwhile (signal handlers run in the main thread) waits for it.
+_main_writing = False
+_pending = None
+# Its result line is out (its own, or a stop's): a later signal changes nothing.
+_ended = False
 
-def emit(line_type, /, **fields):
-    # The line's type is positional-only: the action, observation and event lines also carry a field named `kind` (the
-    # SDK's own kind), which a parameter named kind took twice (the Mac's first real run, ledger row 159: TypeError).
+
+def line_text(line_type, fields):
     line = {"v": PROTOCOL, "type": line_type}
     if TOKEN:
         line["token"] = TOKEN
     for key, value in fields.items():
         if value is not None:
             line[key] = value
+    return json.dumps(line, ensure_ascii=True, default=str) + "\n"
+
+
+def emit(line_type, /, **fields):
+    # The line's type is positional-only: the action, observation and event lines also carry a field named `kind` (the
+    # SDK's own kind), which a parameter named kind took twice (the Mac's first real run, ledger row 159: TypeError).
+    global _main_writing
+    text = line_text(line_type, fields)
+    main = threading.current_thread() is threading.main_thread()
+    if main:
+        _main_writing = True
     try:
-        _proto.write(json.dumps(line, ensure_ascii=True, default=str) + "\n")
-        _proto.flush()
-    except Exception:
-        pass
+        with _lock:
+            try:
+                _proto.write(text)
+                _proto.flush()
+            except Exception:
+                pass
+    finally:
+        if main:
+            _main_writing = False
+    # A stop that came while this line was written is acted on now that the line is whole (R4, H62).
+    if main and _pending is not None:
+        stop_now(_pending)
 
 
 def clip(value, limit=EXCERPT):
@@ -100,20 +135,75 @@ def finish(code):
     os._exit(code)
 
 
-class Stopped(BaseException):
-    """SIGTERM or SIGINT arrived (docker stop, or Timmy's stop through docker's signal proxy)."""
-
-
 class Limit(BaseException):
     """Its step limit, enforced here when this SDK's conversation takes no iteration limit of its own."""
 
 
+def signal_name(signum):
+    try:
+        return signal.Signals(signum).name
+    except Exception:
+        return "signal %s" % signum
+
+
+def stop_now(signum):
+    """R4 (H62): stopped by a signal (docker stop's SIGTERM, or SIGINT): its result line, status stopped, with its token,
+    its steps and its tokens so far and the signal, flushed; then it exits 128 + the signal's number. With no token yet
+    (its task not read) only its words, on stderr: a line without the run's token would not be believed."""
+    global _ended, _pending
+    if _ended:
+        return
+    _ended = True
+    _pending = None
+    name = signal_name(signum)
+    if not TOKEN:
+        note("stopped (%s) before it read its task" % name)
+        finish(128 + signum)
+    events = RUN.get("events")
+    steps = events.steps if events is not None else 0
+    usage = None
+    try:
+        usage = usage_of(RUN.get("conversation"), RUN.get("llm"))
+    except BaseException:
+        usage = None
+    if usage is None and events is not None:
+        usage = events.usage
+    final = (events.finish_message or events.agent_message) if events is not None else None
+    text = line_text("result", {"status": "stopped", "finished": False, "steps": steps, "max_iterations": RUN.get("limit"),
+                                "signal": name, "usage": usage, "final_message": clip(final, FINAL_MAX)})
+    # Another thread may be writing a line: it is let finish (bounded); this thread's own line is never interrupted here.
+    held = _lock.acquire(timeout=5)
+    try:
+        _proto.write(text)
+        _proto.flush()
+    except BaseException:
+        pass
+    finally:
+        if held:
+            _lock.release()
+    note("stopped (%s) at step %d" % (name, steps))
+    finish(128 + signum)
+
+
 def _stop(signum, frame):
-    raise Stopped()
+    """SIGTERM or SIGINT: the result line now, or, when the main thread is writing a line, once that line is whole."""
+    global _pending
+    if _ended:
+        return
+    if _main_writing:
+        _pending = signum
+        return
+    stop_now(signum)
 
 
-signal.signal(signal.SIGTERM, _stop)
-signal.signal(signal.SIGINT, _stop)
+def install_handlers():
+    """SIGTERM and SIGINT are the worker's: installed at its start, and again before the conversation runs, in case the
+    SDK installed its own while it was set up (R4, H62; whether it does was not checked with the real SDK)."""
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGINT, _stop)
+
+
+install_handlers()
 
 
 def read_request():
@@ -230,8 +320,6 @@ def make_llm(LLM, model, base_url, api_key):
         try:
             llm = LLM(model=model, base_url=base_url, api_key=api_key, **dict(options))
             return llm, [key for key, _ in options]
-        except Stopped:
-            raise
         except Exception as error:  # pydantic refuses an unknown field; an older SDK has fewer options
             last_error = error
             if not options:
@@ -288,6 +376,8 @@ class Events:
         self.agent_message = None
         self.finish_message = None
         self.seen_ids = set()
+        # R4 (H62): its tokens as of its last event, for a stop's result line when they cannot be read at that moment
+        self.usage = None
 
     def __call__(self, event):
         try:
@@ -296,10 +386,14 @@ class Events:
                 if key in self.seen_ids:
                     return
                 self.seen_ids.add(key)
+            try:
+                self.usage = usage_of(RUN.get("conversation"), RUN.get("llm")) or self.usage
+            except Exception:
+                pass
             self.summarise(event)
             if self.enforce and self.steps > self.limit:
                 raise Limit()
-        except (Stopped, Limit):
+        except Limit:
             raise
         except Exception as error:
             emit("event", kind=clip(type(event).__name__, 60), note=clip("not summarised: %s" % error, 200))
@@ -381,13 +475,17 @@ def usage_of(conversation, llm):
     return None
 
 
+def final_result(**fields):
+    """The run's own result line: once it is going out, a signal changes nothing (R4, H62)."""
+    global _ended
+    _ended = True
+    emit("result", **fields)
+
+
 def main():
     global TOKEN
     try:
         task, TOKEN = read_request()
-    except Stopped:
-        note("stopped before it read its task")
-        finish(143)
     except Exception as error:
         note("its stdin is not a Timmy request: %s" % clip(error, 200))
         finish(2)
@@ -396,57 +494,54 @@ def main():
     base_url = os.environ.get("LLM_BASE_URL", "")
     api_key = os.environ.get("LLM_API_KEY", "ollama")
     events = Events(limit)
+    # R4 (H62): what a stop's result line reads, as it is made (a signal may come at any point from here on)
+    RUN["limit"] = limit
+    RUN["events"] = events
     conversation = None
     llm = None
     try:
-        try:
-            from openhands.sdk import LLM, Agent
-            tools, names = pick_tools()
-            llm, options = make_llm(LLM, model, base_url, api_key)
-            agent = Agent(llm=llm, tools=tools)
-            conversation, live, bounded = make_conversation(agent, events, limit)
-        except Stopped:
-            raise
-        except Exception as error:
-            emit("result", status="setup", finished=False, steps=0, max_iterations=limit,
-                 error=clip("%s: %s" % (type(error).__name__, error), 600))
-            note(clip(traceback.format_exc(), 4000))
-            finish(2)
-        # An SDK whose conversation takes no iteration limit has its steps counted here, and is stopped past the limit.
-        events.enforce = live and not bounded
-        emit("started", sdk=dist_version("openhands-sdk"), tools_package=dist_version("openhands-tools"),
-             python=sys.version.split()[0], model=clip(model, 200), tools=["terminal", "file_editor"], tool_names=names,
-             max_iterations=limit, bounded=bounded or events.enforce, llm_options=options, live_events=live)
-        error_text = None
-        limited = False
-        try:
-            conversation.send_message(task)
-            conversation.run()
-        except Stopped:
-            raise
-        except Limit:
-            limited = True
-        except Exception as error:
-            error_text = clip("%s: %s" % (type(error).__name__, error), 600)
-            note(clip(traceback.format_exc(), 4000))
-        if not live:
-            for event in list(getattr(getattr(conversation, "state", None), "events", []) or []):
-                events(event)
-        status = status_of(conversation)
-        finished = status == "finished" and error_text is None and not limited
-        if not finished and error_text is not None:
-            status = "error"
-        elif not finished and (limited or events.steps >= limit):
-            status = "limit"
-        final = final_response(conversation, events)
-        emit("result", status=status, finished=finished, steps=events.steps, max_iterations=limit,
-             final_message=clip(final, FINAL_MAX), final_chars=len(final) if isinstance(final, str) else 0,
-             usage=usage_of(conversation, llm), error=error_text)
-        code = 0 if finished else 3
-    except Stopped:
-        emit("result", status="stopped", finished=False, steps=events.steps, max_iterations=limit,
-             final_message=clip(events.finish_message or events.agent_message, FINAL_MAX))
-        code = 143
+        from openhands.sdk import LLM, Agent
+        tools, names = pick_tools()
+        llm, options = make_llm(LLM, model, base_url, api_key)
+        RUN["llm"] = llm
+        agent = Agent(llm=llm, tools=tools)
+        conversation, live, bounded = make_conversation(agent, events, limit)
+        RUN["conversation"] = conversation
+    except Exception as error:
+        final_result(status="setup", finished=False, steps=0, max_iterations=limit,
+                     error=clip("%s: %s" % (type(error).__name__, error), 600))
+        note(clip(traceback.format_exc(), 4000))
+        finish(2)
+    # An SDK whose conversation takes no iteration limit has its steps counted here, and is stopped past the limit.
+    events.enforce = live and not bounded
+    emit("started", sdk=dist_version("openhands-sdk"), tools_package=dist_version("openhands-tools"),
+         python=sys.version.split()[0], model=clip(model, 200), tools=["terminal", "file_editor"], tool_names=names,
+         max_iterations=limit, bounded=bounded or events.enforce, llm_options=options, live_events=live)
+    error_text = None
+    limited = False
+    try:
+        conversation.send_message(task)
+        install_handlers()
+        conversation.run()
+    except Limit:
+        limited = True
+    except Exception as error:
+        error_text = clip("%s: %s" % (type(error).__name__, error), 600)
+        note(clip(traceback.format_exc(), 4000))
+    if not live:
+        for event in list(getattr(getattr(conversation, "state", None), "events", []) or []):
+            events(event)
+    status = status_of(conversation)
+    finished = status == "finished" and error_text is None and not limited
+    if not finished and error_text is not None:
+        status = "error"
+    elif not finished and (limited or events.steps >= limit):
+        status = "limit"
+    final = final_response(conversation, events)
+    final_result(status=status, finished=finished, steps=events.steps, max_iterations=limit,
+                 final_message=clip(final, FINAL_MAX), final_chars=len(final) if isinstance(final, str) else 0,
+                 usage=usage_of(conversation, llm), error=error_text)
+    code = 0 if finished else 3
     try:
         if conversation is not None and callable(getattr(conversation, "close", None)):
             conversation.close()

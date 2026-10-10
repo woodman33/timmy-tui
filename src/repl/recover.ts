@@ -148,7 +148,8 @@ export interface RecoverDeps {
   open: () => boolean;
   now?: () => number;
   settleMs?: number;
-  /** R4 (H52): OpenHands containers an ended session left running (src/repl/openhands-recover.ts), asked after the rest */
+  /** R4 (H52): OpenHands containers an ended session left running (src/repl/openhands-recover.ts), asked after the rest;
+   *  R4 (H59): with the code agent runs an ended session left (src/repl/recover-agents.ts), as the Workspace gives it */
   agents?: () => Promise<RecoveryItem[]>;
   /** R4 (H58): /run jobs an ended session left running (src/repl/workflow-recover.ts), asked after the native runs */
   workflows?: () => Promise<RecoveryItem[]>;
@@ -1003,7 +1004,8 @@ function summary(items: RecoveryItem[]): string {
 export function recoveryLines(r: RecoveryReport, o: { glyphs: GlyphSet; mode: 'start' | 'command' }): Line[] {
   const shown = o.mode === 'start' ? r.items.filter((i) => i.did !== 'left' || i.attention) : r.items;
   if (!shown.length) {
-    return o.mode === 'start' ? [] : [[{ text: '  Recovery   ', role: 'secondary' }, { text: `nothing to pick up in ${r.project}: no recipe job, flow or native run was left by a REPL that ended`, role: 'secondary' }]];
+    // R4 (H62): everything a pass looks for, the Workspace's workflow and agent parts included (its /recover always gives them).
+    return o.mode === 'start' ? [] : [[{ text: '  Recovery   ', role: 'secondary' }, { text: `nothing to pick up in ${r.project}: no recipe job, flow, native run, workflow run, code agent run or OpenHands container was left by a REPL that ended`, role: 'secondary' }]];
   }
   const g = o.glyphs;
   const lines: Line[] = [[{ text: o.mode === 'start' ? '  Recovered  ' : '  Recovery   ', role: 'secondary' }, { text: summary(shown), role: 'strong' }]];

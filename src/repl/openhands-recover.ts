@@ -14,14 +14,22 @@
  * stop it. Each stop is kept in the run's container.json and sealed as a recover receipt; the job's own record, when it
  * was left running or stale, has its end recorded through the job module's writer, and then (R4, H59) the run's own
  * record is ended as interrupted, with no result (src/code-agents/run-end.ts). Nothing is started, removed or rerun.
+ *
+ * R4 (H62; H59's note, ledger row 160): a run with no result whose container no longer runs (docker lists none of its
+ * containers, or only an ended one) is ended too, when its job's record was left by a REPL that ended: a stale job (its
+ * docker client gone as well; read again after a short wait) has its record ended cancelled, "its REPL ended; its
+ * container was already gone", and the run's record interrupted; a job an earlier recovery ended without ending the run's
+ * record has the run's record ended with its words. One recover receipt each, naming the record's bytes; nothing is
+ * claimed about its result, and nothing is stopped (there is nothing left to stop).
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { AGENTS_DIR, type AgentRunRecord } from '../code-agents/index.js';
-import { endLeftAgentRun } from '../code-agents/run-end.js'; // R4 (H59): the run's own record, ended with its job
+import { endLeftAgentRun, type LeftRunEnd } from '../code-agents/run-end.js'; // R4 (H59): the run's own record, ended with its job
 import { LABEL_PROJECT, LABEL_RUN } from '../code-agents/openhands.js';
 import { listByLabels, stopContainer } from '../code-agents/openhands-run.js';
 import type { JobRecord } from '../jobs/index.js';
+import { OPERATION_ID } from '../ops/context.js';
 import { projectId } from '../project/index.js';
 import { leftBehind, processTable, SETTLE_MS, type Proc, type RecoverDeps, type RecoveryItem } from './recover.js';
 import { stopWords } from './openhands.js';
@@ -49,6 +57,15 @@ export interface OpenHandsRecoverDeps {
 interface Run { run: string; record: AgentRunRecord; ended: boolean; dir: string }
 const RUN_ID = /^a[0-9a-f]{8}$/;
 const LIVE: ReadonlySet<string> = new Set(['running', 'restarting', 'paused']);
+/** R4 (H62): the words a stale OpenHands job's record ends with when its container was already gone. */
+export const CONTAINER_GONE_WORDS = 'its REPL ended; its container was already gone';
+/** R4 (H62): the states docker lists a container in once it has ended (it runs no more). */
+const ENDED: ReadonlySet<string> = new Set(['exited', 'dead', 'removing']);
+/** The words every end recovery writes in a job's record begin with (as recover-agents.ts reads them). */
+const ENDED_BY_RECOVERY = /^its REPL ended\b/;
+const JOB_LIVE: ReadonlySet<string> = new Set(['running', 'ready', 'queued']);
+/** R4 (H62): a run with no result whose container runs no more, and how its job's record was left. */
+interface Gone { r: Run; job: JobRecord; act: 'gone' | 'ended before' }
 const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
 const read = (file: string): AgentRunRecord | undefined => {
   try {
@@ -99,6 +116,52 @@ function decide(d: OpenHandsRecoverDeps, r: Run, table: () => Proc[] | undefined
   return { act: 'stop', why: `its job ${job.id} was left running by a REPL that has ended`, job, viaStale: false };
 }
 
+/**
+ * R4 (H62): ends the records of a run whose REPL ended and whose container is already gone (see the module comment): its
+ * job's record (stale: cancelled with CONTAINER_GONE_WORDS), then the run's own record, interrupted, and one recover
+ * receipt naming that record's bytes. Nothing is claimed about its result; nothing is written into the project.
+ */
+function endGone(d: OpenHandsRecoverDeps, g: Gone): RecoveryItem {
+  const c = g.r.record.openhands!.container;
+  const who = `OpenHands run ${g.r.run} (job ${g.job.id})`;
+  let job: { id: string; state: string; error?: string; endedAt?: string };
+  let end: LeftRunEnd;
+  let how: string;
+  if (g.act === 'gone') {
+    let recorded: JobRecord | undefined;
+    try { recorded = d.jobs.endLeft?.(g.job.id, { state: 'cancelled', error: CONTAINER_GONE_WORDS }); } catch { recorded = undefined; }
+    if (!recorded) return { kind: 'agent-run', id: g.r.run, did: 'left', job: g.job.id, text: `${who}: its job's record could not be ended (it changed meanwhile): /recover again` };
+    job = { id: recorded.id, state: recorded.state, ...(recorded.error ? { error: recorded.error } : {}) };
+    end = { how: 'container gone', container: c.name };
+    how = `its REPL ended, and its job's process and its container ${c.name} were already gone; its job record now says ${recorded.state}: ${recorded.error ?? CONTAINER_GONE_WORDS}`;
+  } else {
+    job = { id: g.job.id, state: g.job.state, ...(g.job.error ? { error: g.job.error } : {}), ...(g.job.endedAt ? { endedAt: g.job.endedAt } : {}) };
+    end = { how: 'ended before' };
+    how = `an earlier recovery ended its job (its record says ${g.job.state}: ${g.job.error ?? ''}) but not its own record, and its container ${c.name} runs no more`;
+  }
+  const w = endLeftAgentRun(d.root, g.r.run, { job, end });
+  if (!w.ok) return { kind: 'agent-run', id: g.r.run, did: 'failed', attention: true, job: g.job.id, text: `${who}: ${d.scrub(how)}; its record ${w.path} was left as it is: ${w.why}` };
+  const operation = typeof g.r.record.operation === 'string' && OPERATION_ID.test(g.r.record.operation) ? { operation_id: g.r.record.operation } : {};
+  let receipt: string | undefined;
+  try {
+    receipt = d.seal({
+      kind: 'recover', subject: `recover · agent · openhands · ${g.r.run} · interrupted`, policy: 'human-gated', status: 'ok',
+      ...operation, // the request the run belonged to, not the one that recovered it
+      project: d.project, project_id: projectId(d.root),
+      outputs: [{ path: w.path, sha256: w.sha256, bytes: w.bytes }],
+      sources: [{
+        operation: g.r.run, agent: 'openhands', job: g.job.id, container: c.name, labels: { ...c.labels },
+        action: g.act === 'gone' ? 'found its job\'s process and its container gone' : 'ended its record as its job record says',
+        why: d.scrub(w.record.why ?? ''),
+      }],
+    });
+  } catch { receipt = undefined; }
+  return {
+    kind: 'agent-run', id: g.r.run, did: 'interrupted', job: g.job.id, record: w.path, ...(receipt ? { receipt } : {}),
+    text: `${who}: ${d.scrub(how)}; its record ${w.path} now says interrupted (no result was written); nothing was written into the project${receipt ? `; receipt ${receipt}` : '; the receipt could not be sealed'}`,
+  };
+}
+
 /** Finds and stops OpenHands containers an ended session left running in this project; see the module comment. */
 export async function recoverOpenHands(d: OpenHandsRecoverDeps): Promise<RecoveryItem[]> {
   const runs = openHandsRuns(d.root);
@@ -138,9 +201,32 @@ export async function recoverOpenHands(d: OpenHandsRecoverDeps): Promise<Recover
     }
     plans.push({ r, name: want.name, labels, decision });
   }
+  // R4 (H62): the runs with no result whose container runs no more (docker lists none of this run's, or only an ended one).
+  const running = new Set(listed.listed.filter((c) => c.project === pid && !ENDED.has(c.state)).map((c) => c.run));
+  const gone: Gone[] = [];
+  for (const r of runs.values()) {
+    if (r.ended || running.has(r.run) || r.record.state !== 'submitted') continue;
+    const id = typeof r.record.job === 'string' ? r.record.job : '';
+    if (!id || d.mine(id)) continue;
+    const job = d.jobs.get(id);
+    if (!job) continue;
+    if (job.stale) gone.push({ r, job, act: 'gone' });
+    else if (!JOB_LIVE.has(job.state) && ENDED_BY_RECOVERY.test(job.error ?? '')) gone.push({ r, job, act: 'ended before' });
+  }
+  // A container that carries the run's name without its labels is not Timmy's, and Timmy never judges by a name alone: the
+  // run is then left as it is. docker is asked for its whole list (no name filter); the names are only compared here.
+  if (gone.length) {
+    const all = await listByLabels(d.bin, d.env, {});
+    for (const g of gone.splice(0)) {
+      const name = g.r.record.openhands!.container.name;
+      if (!all.ok) { items.push({ kind: 'agent-run', id: g.r.run, did: 'left', job: g.job.id, text: `OpenHands run ${g.r.run}: no container with its labels runs, but docker's whole list could not be read (${d.scrub(all.error)}), so whether ${name} is gone cannot be told: its records were left as they are` }); continue; }
+      if (all.listed.some((c) => c.names.includes(name) && !(c.run === g.r.run && c.project === pid))) { items.push({ kind: 'agent-run', id: g.r.run, did: 'left', job: g.job.id, text: `OpenHands run ${g.r.run}: no container with its labels runs, but a container named ${name} without them is there (not Timmy's; never judged by its name alone): its records were left as they are` }); continue; }
+      gone.push(g);
+    }
+  }
   // A stale job record is believed only when it is still stale after a moment (a live session records its end at once).
   const skip = new Set<string>();
-  if (plans.some((p) => p.decision.viaStale)) {
+  if (plans.some((p) => p.decision.viaStale) || gone.some((g) => g.act === 'gone')) {
     await sleep(d.settleMs ?? SETTLE_MS);
     for (const p of plans) {
       if (!p.decision.viaStale || !p.decision.job) continue;
@@ -150,6 +236,19 @@ export async function recoverOpenHands(d: OpenHandsRecoverDeps): Promise<Recover
         skip.add(p.r.run);
       }
     }
+    for (const g of gone) {
+      if (g.act !== 'gone') continue;
+      const now = d.jobs.get(g.job.id);
+      if (now?.stale) continue;
+      // Recorded by its own session meanwhile (or it runs after all): that session's records stand.
+      skip.add(g.r.run);
+      if (now && JOB_LIVE.has(now.state)) items.push({ kind: 'agent-run', id: g.r.run, did: 'left', job: now.id, text: `OpenHands run ${g.r.run}: its job ${now.id} runs in a session after all: its records were left as they are` });
+    }
+  }
+  for (const g of gone) {
+    if (skip.has(g.r.run)) continue;
+    if (!d.open()) { items.push({ kind: 'agent-run', id: g.r.run, did: 'left', job: g.job.id, text: `OpenHands run ${g.r.run}: not picked up, because this REPL is ending` }); continue; }
+    items.push(endGone(d, g));
   }
   for (const p of plans) {
     if (skip.has(p.r.run)) continue;

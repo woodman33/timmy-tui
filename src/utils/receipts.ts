@@ -82,7 +82,7 @@ export interface Receipt {
   manifest_sha256?: string;
   sources?: unknown[];
   /** Round R4 (H52): an OpenHands run's container (its image, name and labels), the worker that ran, its copy and what was written back from it */
-  openhands?: { image: string; image_id?: string; container: string; labels: Record<string, string>; worker_sha256: string; sdk_reported: string | null; copy: { files: number; bytes: number; kept: boolean }; writeback: { state: string; written: number; not_written: number }; stop?: { why: string; result: string } };
+  openhands?: { image: string; image_id?: string; container: string; labels: Record<string, string>; worker_sha256: string; sdk_reported: string | null; copy: { files: number; bytes: number; kept: boolean }; writeback: { state: string; written: number; not_written: number }; stop?: { why: string; result: string; by?: string; steps?: Array<{ command: string; exit: number | null }>; client?: string; limit?: string } }; // R4 (H62): stop's by, steps, client, limit
   max_spend?: number;
   tier?: string;
   signer?: string;   // ed25519 public key (SPKI PEM)
