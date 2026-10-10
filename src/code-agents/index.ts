@@ -4,7 +4,8 @@
  * run folder (.timmy/agents/<run>/), its result and its receipt.
  *
  * Every command line below is built from the CLIs' own --help texts as captured on the operator's Mac
- * (qwen 0.25.0, Claude Code 2.1.251, codex-cli 0.140.0, opencode 1.18.31); each flag cites the line it
+ * (qwen 0.25.0, Claude Code 2.1.251, codex-cli 0.153.2 (round R4; its `codex exec --help` is byte for byte the text
+ * recorded in R3 as 0.140.0's), opencode 1.18.31); each flag cites the line it
  * relies on. Nothing here decides that a run is free except the endpoint rule (endpointClass): Qwen Code on a
  * loopback OpenAI-compatible endpoint with a model whose tag does not end in ":cloud", and (round R4, H25)
  * Codex's local route, `/agent codex --local`, under the same rule (codex-local.ts). Everything else may
@@ -238,7 +239,7 @@ export function planAgent(name: AgentName, task: string, o: { env: Env; paid: bo
   }
   if (name === 'codex') {
     const last = `${AGENTS_DIR}/${o.run}/codex-last-message.txt`;
-    // Every flag below is from codex-exec-help.txt (codex-cli 0.140.0):
+    // Every flag below is in codex-exec-help.txt (codex-cli 0.153.2, rechecked in round R4):
     const args = [
       'exec',                                // "codex exec  Run Codex non-interactively"
       '--json',                              // "--json  Print events to stdout as JSONL"
