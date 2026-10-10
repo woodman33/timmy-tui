@@ -17,6 +17,9 @@
  *             c4dpy, the script writes a result file (workers/blender/timmy_blender.py) that decides the run.
  *   afterfx   (R4) After Effects scripting, inside the application (it opens its window): a per-run ExtendScript
  *             harness writes or edits a project and its result file. Built and judged in src/native/ae-author.ts.
+ *   freecad   (R4) FreeCAD's freecadcmd, headless: a Python script builds a part, saves an editable .FCStd and
+ *             exports STEP; its result file (workers/freecad/timmy_freecad.py) decides the run. Built and judged in
+ *             src/native/freecad.ts, which also offers the STEP readback.
  *
  * R3 (an independent review of 40022d9, finding 5): every run has its own folder in the project,
  * .timmy/native/<run>/, holding job.json (written once, at submission: the app, the program, the input's
@@ -56,7 +59,7 @@ import {
 
 export type { NativeInventory, OutputChange, SourceCheck } from './provenance.js';
 
-export type NativeApp = 'c4dpy' | 'aerender' | 'blender' | 'afterfx';
+export type NativeApp = 'c4dpy' | 'aerender' | 'blender' | 'afterfx' | 'freecad';
 type Env = Record<string, string | undefined>;
 
 export interface NativeFound {
@@ -92,6 +95,8 @@ interface AppInfo {
   inside: string[];
   /** R4: the executable inside a .app bundle named by the environment variable, when it is not the bundle's own name */
   bundleExe?: string;
+  /** R4 (FreeCAD): the executable's path inside such a bundle, from the bundle's folder, when it is not under Contents/MacOS */
+  bundlePath?: string;
   program: string;
   name: string;
   setup: string;
@@ -126,6 +131,15 @@ export const NATIVE_APPS: Record<NativeApp, AppInfo> = {
     program: 'After Effects',
     name: 'After Effects (scripting)',
     setup: 'install After Effects; or set TIMMY_AFTERFX to its .app/AfterFX.exe',
+    resultFile: true,
+  },
+  freecad: {
+    // R4 (src/native/freecad.ts): FreeCAD's command-line program, headless. macOS keeps it inside the bundle,
+    // /Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd (FreeCADCmd before FreeCAD 1.0).
+    envVar: 'TIMMY_FREECADCMD', prefix: 'FreeCAD', inside: ['Contents/Resources/bin/freecadcmd', 'Contents/Resources/bin/FreeCADCmd'],
+    bundlePath: 'Contents/Resources/bin/freecadcmd', program: 'freecadcmd',
+    name: 'FreeCAD (freecadcmd, headless)',
+    setup: 'install FreeCAD; or set TIMMY_FREECADCMD to freecadcmd or FreeCAD.app',
     resultFile: true,
   },
 };
@@ -180,7 +194,7 @@ export function locateNative(app: NativeApp, env: Env = process.env, seams: Find
   const raw = env[info.envVar]?.trim();
   if (raw) {
     let file = raw.replace(/\/+$/, '');
-    if (file.endsWith('.app')) file = path.join(file, 'Contents', 'MacOS', info.bundleExe ?? path.basename(file, '.app'));
+    if (file.endsWith('.app')) file = path.join(file, ...(info.bundlePath ?? `Contents/MacOS/${info.bundleExe ?? path.basename(file, '.app')}`).split('/'));
     if (isFile(file)) return { found: { app, path: file, how: 'env' } };
     return { found: null, problem: `${info.envVar} is set, but nothing runnable is there` };
   }
@@ -1262,9 +1276,10 @@ export function nativeCapabilityRows(env: Env = process.env, seams: FinderSeams 
     const info = NATIVE_APPS[app];
     const { found, problem } = locateNative(app, env, seams);
     const scope = app === 'aerender' ? '; renders existing .aep/.aepx projects only (making or editing one: /ae author, /ae edit, After Effects scripting)'
-      : app === 'afterfx' ? '; writes and edits projects inside the application (/ae author, /ae edit, /ae inspect; its window opens)' : '';
-    // R4: After Effects scripting says "implemented; not run" until a sealed run of its own says otherwise.
-    const words = runWords(runs?.get(app)) ?? (app === 'afterfx' ? 'implemented; not run' : undefined);
+      : app === 'afterfx' ? '; writes and edits projects inside the application (/ae author, /ae edit, /ae inspect; its window opens)'
+        : app === 'freecad' ? '; runs a Python script headless (/freecad): an editable .FCStd and a STEP export; /freecad readback reads the STEP back' : '';
+    // R4: After Effects scripting and FreeCAD say "implemented; not run" until a sealed run of their own says otherwise.
+    const words = runWords(runs?.get(app)) ?? (app === 'afterfx' || app === 'freecad' ? 'implemented; not run' : undefined);
     const base = { id: app, kind: 'adapter' as const, name: info.name, tools: ['run_native'], exercisedBy: `native:${app}` };
     if (found) {
       const where = found.how === 'applications'

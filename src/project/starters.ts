@@ -17,6 +17,7 @@ export const STARTERS: Readonly<Record<string, string>> = {
   'c4d-starter': 'a Cinema 4D scene script (/c4d scene.py) and its build workflow',
   'blender-starter': 'a Blender scene script (/blender scene.py): an editable .blend and a render',
   'ae-starter': 'After Effects scripts: author.jsx makes a project (/ae author author.jsx), edit.jsx changes it (/ae edit)',
+  'freecad-starter': 'a FreeCAD part script (/freecad plate.py): a plate with four holes, an editable .FCStd and a STEP',
 };
 
 /**

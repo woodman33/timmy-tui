@@ -78,11 +78,13 @@ export function readSubmittedScript(at: { path: string; rel: string }): Submitte
  * Keeps the script as submitted in the run's folder (<record>/source/<name>), read-only, and checks that the
  * copy reads back with the submitted sha256. The app runs this copy, so what runs is the bytes hashed at
  * submission whatever happens to the original. Throws (and nothing starts) when the copy cannot be made or
- * does not read back the same.
+ * does not read back the same. R4 (FreeCAD): `name` gives the copy another file name (a plain name, no folder);
+ * the bytes are the same.
  */
-export function keepScript(root: string, record: string, script: SubmittedScript): { path: string; rel: string; sha256: string } {
+export function keepScript(root: string, record: string, script: SubmittedScript, name?: string): { path: string; rel: string; sha256: string } {
+  if (name !== undefined && (path.basename(name) !== name || name === '.' || name === '..')) throw new Error(`${name} is not a plain file name for the copy of ${script.rel}`);
   // named as submitted (the .py name checked), whatever a link it was reached through leads to
-  const at = path.join(record, SOURCE_DIR, path.basename(script.rel));
+  const at = path.join(record, SOURCE_DIR, name ?? path.basename(script.rel));
   try {
     mkdirSync(path.dirname(at), { recursive: true });
     writeFileSync(at, script.bytes, { flag: 'wx', mode: 0o444 });
