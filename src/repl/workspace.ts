@@ -70,6 +70,10 @@ import { FLOW_ID, FLOWS_DIR } from '../flows/iterate.js';
 import { checkKeptRecord, keptObservations, keptResults } from './board-kept.js';
 // Round R4 (H32): what a session that ended without its stop path left in the project, picked up at start and on /recover.
 import { followSpec, recoverProject, recoveryLines, type RecoveryReport } from './recover.js';
+// Round R4 (H49): Timmy VoxVision, /inspect /measure /detect /compare (src/repl/vox.ts) and its board section (board-vox.ts).
+import { VoxActions } from './vox.js';
+import { readBoardVox, voxFileFor } from './board-vox.js';
+import { VOX_DIR, type VoxAction } from '../vox/record.js';
 
 type Line = Segment[];
 
@@ -250,6 +254,8 @@ export class Workspace {
   readonly startRecovery: Promise<RecoveryReport | undefined>;
   /** R4 (H28): the STEP readbacks of FreeCAD runs this REPL follows (/freecad readback). */
   private readonly freecadReadbacks: FreecadReadbacks;
+  /** R4 (H49): VoxVision's actions under way. */
+  private readonly vox: VoxActions;
 
   constructor(private readonly d: WorkspaceDeps, start: ActiveProject) {
     this.project = start;
@@ -274,6 +280,12 @@ export class Workspace {
       startJob: (spec, o) => { const job = this.jobs.start(spec); this.mine.add(job.id); if (o?.selfSealed) this.selfSealed.add(job.id); return job; },
       scrub: (t, root) => this.scrub(t, root),
       ...(d.freecadTest ? { test: d.freecadTest } : {}),
+    });
+    // R4 (H49): VoxVision's jobs are this REPL's own; it seals each action's one vox receipt itself.
+    this.vox = new VoxActions({
+      glyphs: d.glyphs, env: () => this.d.env, onPath: d.onPath, notify: (l) => this.d.notify(l), seal: (input) => this.d.seal(input), jobs: this.jobs,
+      startJob: (spec, o) => { const job = this.jobs.start(spec); this.mine.add(job.id); if (o?.selfSealed) this.selfSealed.add(job.id); return job; },
+      scrub: (t, root) => this.scrub(t, root),
     });
     // Round R4 (H32): once this REPL is set up (a microtask later), what an ended session left in the project is picked
     // up; the notice says what was found and done, and nothing is printed when nothing was found.
@@ -782,6 +794,15 @@ export class Workspace {
     return { ok: false, error: line, ...(receipt ? { receipt } : {}), ...(k.ok ? { kept: k.ref } : {}), ...spent };
   }
 
+  // ── R4 (H49): VoxVision ────────────────────────────────────────────────────
+
+  /** `/inspect`, `/measure`, `/detect`, `/compare` on project files (src/repl/vox.ts). */
+  voxAction(action: VoxAction, args: string): Promise<Line[]> { return this.vox.command(action, args, { root: this.root, project: this.project.name }); }
+  inspect(args: string): Promise<Line[]> { return this.voxAction('inspect', args); }
+  measure(args: string): Promise<Line[]> { return this.voxAction('measure', args); }
+  detect(args: string): Promise<Line[]> { return this.voxAction('detect', args); }
+  compare(args: string): Promise<Line[]> { return this.voxAction('compare', args); }
+
   // ── /workflows, /run ────────────────────────────────────────────────────────
 
   private async upmd(): Promise<{ bin: string; version: string | null } | null> {
@@ -1096,6 +1117,8 @@ export class Workspace {
     if (id === 'all') {
       // R4 (/iterate): the flows first, so none starts a next step; their running steps are this REPL's jobs below.
       const flows = this.flows.abortAll();
+      // R4 (H49): no VoxVision action starts its next job; its running job is this REPL's, stopped below.
+      this.vox.abortAll();
       // Round R3: an observation's model interpretation belongs to its Look job: /stop all reaches it too.
       const asking = [...this.observing.values()].filter((o) => o.asking);
       for (const o of this.observing.values()) o.abort.abort();
@@ -1195,17 +1218,21 @@ export class Workspace {
     await this.closeLiveBoard();
     // R4 (/iterate): no flow starts a next step; each writes its record once its step has stopped.
     this.flows.abortAll();
+    this.vox.abortAll();
     const pending = [...this.observing.values()].flatMap((o) => { o.abort.abort(); return o.done ? [o.done] : []; });
     await this.jobs.stopAll();
     await within(Promise.allSettled(pending));
     await this.flows.settle(20_000);
     // R4 (H28): a stopped readback still writes its record and receipt (no verdict).
     await this.freecadReadbacks.settle(10_000);
+    // R4 (H49): a stopped VoxVision action still writes its record and receipt (cancelled).
+    await this.vox.settle(10_000);
   }
 
   /** The process is exiting at once (a second Ctrl+C): signal this REPL's live jobs without waiting. */
   killNow(): void {
     this.flows.abortAll();
+    this.vox.abortAll();
     this.live?.closeNow();
     this.live = undefined;
     for (const o of this.observing.values()) o.abort.abort();
@@ -1783,7 +1810,8 @@ export class Workspace {
     const inFlows = (f: ProjectFile): boolean => f.rel.startsWith(`${FLOWS_DIR}/`);
     const references = files.filter((f) => f.role === 'reference');
     // Observation files are shown as observations, not again as outputs.
-    const outputs = files.filter((f) => f.role === 'output' && !inObservations(f) && !inFlows(f)).sort((a, b) => b.mtimeMs - a.mtimeMs);
+    // R4 (H49): VoxVision's records and highlights are shown in its section, not again as outputs.
+    const outputs = files.filter((f) => f.role === 'output' && !inObservations(f) && !inFlows(f) && !f.rel.startsWith(`${VOX_DIR}/`)).sort((a, b) => b.mtimeMs - a.mtimeMs);
     const docs = findWorkflowDocs(root);
     // R4 (H22): each document's blocks with their language and command, its sha256, and whether the live board edits it.
     const workflows = docs.slice(0, BOARD_MAX.workflows).map((doc) => {
@@ -1876,6 +1904,8 @@ export class Workspace {
       ...(live ? { live: true } : {}),
       // R4 (/iterate): each flow record, checked against the runs chain like an observation.
       flows: readBoardFlows(root, files.filter((f) => inFlows(f) && f.rel.endsWith('.json')).map((f) => f.rel), { receipts: chain, projectId: pid, scrub: (t) => this.scrub(t, root) }),
+      // R4 (H49): VoxVision's tools, the files they read, and its records, each checked against the runs chain.
+      vox: readBoardVox({ root, files, chain, projectId: pid, scrub: (t) => this.scrub(t, root), tools: { env: this.d.env, onPath: this.d.onPath, root } }),
     };
     return {
       input, references: references.length, docs: docs.length, jobs: jobs.length, outputs: outputs.length, observed: observed.length, verifiedCount, truncated, images,
@@ -1905,7 +1935,7 @@ export class Workspace {
       ];
     }
     // Round R4 (review M4): the pane opens a private launch page, removed once the board has let the page in.
-    const lb = new LiveBoard({ onAuthorized: () => dropLaunchPages(lb.url), state: () => this.liveState(), execute: (c) => this.boardCommand(c), edit: (body, s) => this.boardEdit(body, s), scrub: (t) => this.scrub(t, this.root) });
+    const lb = new LiveBoard({ onAuthorized: () => dropLaunchPages(lb.url), state: () => this.liveState(), execute: (c) => this.boardCommand(c), edit: (body, s) => this.boardEdit(body, s), scrub: (t) => this.scrub(t, this.root), file: (p) => this.voxFile(p) });
     try { await lb.start(); } catch (err) { return this.say(`The live board could not start: ${err instanceof Error ? err.message : 'error'}`, 'failure'); }
     this.live = lb;
     const opened = this.d.openWeb(lb.url, { secret: true });
@@ -1939,7 +1969,15 @@ export class Workspace {
       workflows: input.workflows.map((w) => ({ rel: w.rel, blocks: w.blocks.map((b) => b.name) })),
       files: images,
       recipes: input.params ? [input.params.recipe] : [],
+      voxFiles: input.vox?.files ?? [],
     };
+  }
+
+  /** R4 (H49): a VoxVision highlight for the live board's /file: a PNG or SVG of a verified record, as its receipt sealed it. */
+  private voxFile(p: string): { type: string; body: Buffer } | null {
+    let chain: Receipt[] = [];
+    try { chain = (this.d.receipts ?? (() => readChain('runs')))(); } catch { chain = []; }
+    return voxFileFor({ root: this.root, path: p, chain, projectId: projectId(this.root) });
   }
 
   /**
@@ -1967,7 +2005,9 @@ export class Workspace {
     const root = this.root;
     this.d.notify([{ text: '  board  ', role: 'secondary' }, { text: c.line, role: 'strong' }]);
     const lines = c.name === 'stop' ? await this.stop(c.args) : c.name === 'run' ? await this.run(c.args)
-      : c.name === 'recipe' ? await this.recipe(c.args) : await this.observe(c.args);
+      : c.name === 'recipe' ? await this.recipe(c.args)
+        // R4 (H49): VoxVision's buttons, as the typed /inspect, /measure, /detect, /compare.
+        : c.name === 'inspect' || c.name === 'measure' || c.name === 'detect' || c.name === 'compare' ? await this.voxAction(c.name, c.args) : await this.observe(c.args);
     for (const line of lines) this.d.notify(line);
     return lines.map((l) => this.scrub(l.map((s) => s.text).join(''), root));
   }

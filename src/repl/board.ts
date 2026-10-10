@@ -27,6 +27,8 @@ import { DETERMINISTIC } from '../vision/look.js';
 import { CARDS_CSS, renderParamsCard, renderResultCards, type ParamsCard, type ResultCard } from './board-cards.js';
 import { kit } from './board-kit.js';
 import { NODES_CSS, renderWorkflowCard, type WorkflowDocInput } from './board-nodes.js';
+// Round R4 (H49): the VoxVision section (src/repl/board-vox.ts).
+import { VOX_CSS, voxSection, type BoardVox } from './board-vox.js';
 
 export interface BoardFile { rel: string; bytes: number; sha256?: string; kind?: string }
 /** A workflow document: its named blocks (R4: with language and command), its sha256 and whether the live board edits it. */
@@ -133,6 +135,8 @@ export interface BoardInput {
   live?: boolean;
   /** R4 (/iterate): the flow records, newest first, each checked (board-flows.ts); absent: no Flows section. */
   flows?: BoardFlows;
+  /** R4 (H49): VoxVision's tools, files and records (board-vox.ts); absent: no VoxVision section. */
+  vox?: BoardVox;
 }
 
 /** Where `/board` writes the page, relative to the project, and the way back from there. */
@@ -636,8 +640,9 @@ export function renderBoardBody(input: BoardInput): { toc: string; main: string 
   const n = Object.fromEntries(counts.map(([k, , c]) => [k, c])) as Record<BoardPart, number>;
   const params = input.params ? '<a href="#parameters">Parameters</a>' : '';
   const flows = input.flows ? flowsSection(input.flows, { live: h.live, base: input.base }) : undefined;
+  const vox = input.vox ? voxSection(input.vox, { kit: k, base: input.base }) : undefined;
   return {
-    toc: `<nav class="toc">${counts.slice(0, 2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${params}${counts.slice(2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${flows?.toc ?? ''}</nav>`,
+    toc: `<nav class="toc">${counts.slice(0, 2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${params}${counts.slice(2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${flows?.toc ?? ''}${vox?.toc ?? ''}</nav>`,
     main: [
       heading('references', 'References', n.references),
       input.references.length ? grid(input.references.map((f) => referenceCard(f, h))) : h.empty('No references yet: /add <file> copies a file into refs/.'),
@@ -662,12 +667,13 @@ export function renderBoardBody(input: BoardInput): { toc: string; main: string 
       input.observations.length ? grid(input.observations.map((o) => observationCard(o, h)), true) : h.empty('No observations yet: /observe <image>'),
       h.more('observations', '/results'),
       flows?.html ?? '',
+      vox?.html ?? '',
     ].join('\n'),
   };
 }
 
 /** The board's stylesheet, shared by the snapshot and the live board's page (R4: with the new cards' rules). */
-export const BOARD_CSS = CSS + CARDS_CSS + NODES_CSS;
+export const BOARD_CSS = CSS + CARDS_CSS + NODES_CSS + VOX_CSS;
 
 /** The board as one self-contained HTML page. */
 export function renderBoard(input: BoardInput): string {

@@ -27,6 +27,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { BOARD_CSS } from './board.js';
 import { EDIT_CSS, EDIT_LIMIT, EDIT_SCRIPT } from './board-edits.js';
+// Round R4 (H49): VoxVision's actions, and its highlight images through /file (src/repl/board-vox.ts).
+import { checkVoxAction, VOX_LIVE_SCRIPT } from './board-vox.js';
 import { HOMEBREW } from '../theme/tokens.js';
 
 /** An action as the page sends it: one of four shapes, nothing else. */
@@ -34,10 +36,11 @@ export type BoardAction =
   | { action: 'stop'; job: string }
   | { action: 'run'; doc: string; block: string }
   | { action: 'observe'; file: string }
-  | { action: 'rebuild'; recipe: string };
+  | { action: 'rebuild'; recipe: string }
+  | { action: 'vox'; verb: 'inspect' | 'measure' | 'detect' | 'compare'; file: string; other?: string; color?: string; at?: string };
 
 /** The typed command a valid action stands for: its name, its argument string and the line as typed. */
-export interface BoardCommand { name: 'stop' | 'run' | 'observe' | 'recipe'; args: string; line: string }
+export interface BoardCommand { name: 'stop' | 'run' | 'observe' | 'recipe' | 'inspect' | 'measure' | 'detect' | 'compare'; args: string; line: string }
 
 /** What the live board shows and what its actions are checked against; no absolute path in any of it. */
 export interface LiveState {
@@ -54,6 +57,8 @@ export interface LiveState {
   files: Array<{ rel: string; kind: string; bytes: number }>;
   /** R4: the recipes whose parameter card the board shows (their Rebuild runs `/recipe <name>`). */
   recipes?: string[];
+  /** R4 (H49): the files VoxVision offers (its buttons run /inspect, /measure, /detect, /compare on them). */
+  voxFiles?: Array<{ rel: string; kind: string }>;
 }
 
 export interface LiveBoardDeps {
@@ -67,6 +72,8 @@ export interface LiveBoardDeps {
   edit?: (body: unknown, state: LiveState) => Promise<{ status: number; text: string }>;
   /** Writes the project's folder as "." and the home folder as "~" (used on the error path too). */
   scrub?: (text: string) => string;
+  /** R4 (H49): a VoxVision highlight's type and bytes for GET /file, or null (404); absent: /file answers 404. */
+  file?: (path: string) => { type: string; body: Buffer } | null;
 }
 
 /** The largest action body read; a larger one is refused before it is parsed. */
@@ -137,7 +144,8 @@ export function checkAction(body: unknown, state: LiveState): Checked {
     if (!(state.recipes ?? []).includes(o.recipe) || !/^[a-z]+$/.test(o.recipe)) return bad(404, `No recipe ${o.recipe} on this board.`);
     return { ok: true, command: { name: 'recipe', args: o.recipe, line: `/recipe ${o.recipe}` } };
   }
-  return bad(400, 'Unknown action: stop, run, observe and rebuild are the actions.');
+  if (o.action === 'vox') return checkVoxAction(o, state.voxFiles ?? []);
+  return bad(400, 'Unknown action: stop, run, observe, rebuild and vox are the actions.');
 }
 
 const sha = (s: string): Buffer => createHash('sha256').update(s).digest();
@@ -233,7 +241,7 @@ export class LiveBoard {
         if (req.method !== 'GET' && req.method !== 'HEAD') return this.send(res, 405, 'GET only.', undefined, { Allow: 'GET, HEAD' });
         const nonce = randomBytes(18).toString('base64');
         this.headers(res, 'text/html; charset=utf-8',
-          `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
+          `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; img-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
         res.statusCode = 200;
         return void res.end(req.method === 'HEAD' ? undefined : livePage(nonce));
       }
@@ -278,7 +286,17 @@ export class LiveBoard {
         const out = await run;
         return this.send(res, out.status, plainText(out.text));
       }
-      return this.send(res, 404, 'Not here: this board has /, /state, /action and /edit.');
+      // R4 (H49): a VoxVision highlight, for the page's script to show as a blob: URL (the token is a header, never in an address).
+      if (path === '/file') {
+        if (req.method !== 'GET') return this.send(res, 405, 'GET only.', undefined, { Allow: 'GET' });
+        if (!this.authorized(req)) return this.send(res, 401, 'Refused: no valid token. Open the address /board live printed.', undefined, { 'WWW-Authenticate': 'Bearer' });
+        const f = this.d.file?.(new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('p') ?? '');
+        if (!f) return this.send(res, 404, 'Not here: no such highlight on this board.');
+        this.headers(res, f.type);
+        res.statusCode = 200;
+        return void res.end(f.body);
+      }
+      return this.send(res, 404, 'Not here: this board has /, /state, /action, /edit and /file.');
     } catch (err) {
       if (!res.headersSent) this.send(res, 500, `The board could not answer: ${err instanceof Error ? plainText((this.d.scrub ?? ((t: string) => t))(err.message)) : 'error'}`);
       else res.destroy();
@@ -380,7 +398,7 @@ const LIVE_SCRIPT = `
     project.textContent = s.project;
     document.title = 'Live board · ' + s.project;
     // R4: a card being edited (data-editing) is never drawn over; jobs still update in place.
-    if (s.shape !== shape && !busy && !main.querySelectorAll('[data-editing]').length) { remember(); toc.innerHTML = s.toc; main.innerHTML = s.html; restore(); shape = s.shape; paint(); }
+    if (s.shape !== shape && !busy && !main.querySelectorAll('[data-editing]').length) { remember(); toc.innerHTML = s.toc; main.innerHTML = s.html; restore(); shape = s.shape; paint(); if (typeof TimmyVox !== 'undefined') TimmyVox.paint(main); }
     else jobs(s.jobs);
   };
   var poll = function () {
@@ -395,7 +413,8 @@ const LIVE_SCRIPT = `
     var body = a === 'stop' ? { action: 'stop', job: b.getAttribute('data-job') }
       : a === 'run' ? { action: 'run', doc: b.getAttribute('data-doc'), block: b.getAttribute('data-block') }
       : a === 'observe' ? { action: 'observe', file: b.getAttribute('data-file') }
-      : a === 'rebuild' ? { action: 'rebuild', recipe: b.getAttribute('data-recipe') } : null;
+      : a === 'rebuild' ? { action: 'rebuild', recipe: b.getAttribute('data-recipe') }
+      : a === 'vox' && typeof TimmyVox !== 'undefined' ? TimmyVox.body(b) : null;
     if (!body || !token) return;
     var label = b.textContent;
     b.disabled = true; b.textContent = label + ' …'; busy++;
@@ -424,6 +443,8 @@ const LIVE_SCRIPT = `
       .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, status: r.status, t: t }; }); });
   };
   if (typeof TimmyBoardEdit !== 'undefined') TimmyBoardEdit.attach({ send: sendEdit, refresh: poll });
+  // R4 (H49): VoxVision's highlights, fetched with the token (it stays in this closure).
+  if (typeof TimmyVox !== 'undefined') TimmyVox.attach({ get: function (p) { return fetch('/file?p=' + encodeURIComponent(p), { headers: { Authorization: 'Bearer ' + token }, cache: 'no-store', credentials: 'omit' }); } });
   poll();
   setInterval(poll, 2000);
 })();
@@ -445,14 +466,14 @@ export function livePage(nonce: string): string {
     '<header>',
     '<h1>Board · <span class="project" id="project"></span> <span class="live">live</span></h1>',
     '<p class="sub" id="status">connecting…</p>',
-    '<p class="sub">Stop, Run, Observe and Rebuild act through Timmy as the typed command, shown in Timmy as coming from the board. Saving parameters or workflow blocks is checked by Timmy, which keeps the previous version. A green command copies itself.</p>',
+    '<p class="sub">Stop, Run, Observe, Rebuild and VoxVision\'s Inspect, Measure, Detect and Compare act through Timmy as the typed command, shown in Timmy as coming from the board. Saving parameters or workflow blocks is checked by Timmy, which keeps the previous version. A green command copies itself.</p>',
     '<pre id="out" hidden></pre>',
     '<nav class="toc" id="toc"></nav>',
     '</header>',
     '<main id="main"></main>',
     '<footer>Served by /board live on 127.0.0.1 for this Timmy session; /board off or leaving Timmy stops it. Measured values are deterministic computations on the pixels, shown as measured only when an observe receipt sealed the file and its image is unchanged; a model\'s claim is not a measurement.</footer>',
     // R4: one script, the editor first (it defines TimmyBoardEdit, which the live script hands its send to).
-    `<script nonce="${nonce}">${EDIT_SCRIPT}${LIVE_SCRIPT}</script>`,
+    `<script nonce="${nonce}">${EDIT_SCRIPT}${VOX_LIVE_SCRIPT}${LIVE_SCRIPT}</script>`,
     '</body>',
     '</html>',
     '',

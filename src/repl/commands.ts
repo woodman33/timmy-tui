@@ -113,6 +113,11 @@ export interface WorkspaceViews {
   recover?(args: string): Promise<Segment[][]>;
   /** Round R4 (helper H27): OpenSCAD exports an STL from a .scad model as a judged job; Timmy reads the STL back. */
   scad?(args: string): Promise<Segment[][]>;
+  /** Round R4 (helper H49): Timmy VoxVision's four actions over the supported spatial tools (src/repl/vox.ts). */
+  inspect?(args: string): Promise<Segment[][]>;
+  measure?(args: string): Promise<Segment[][]>;
+  detect?(args: string): Promise<Segment[][]>;
+  compare?(args: string): Promise<Segment[][]>;
 }
 
 /** /help's sections, in order: what you work on, what you look at, setup, the session. */
@@ -163,6 +168,11 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'results', group: 'work', description: 'Outputs, jobs and changes, linked to files', run: inWorkspace((w, a) => w.results(a)) },
   { name: 'add', group: 'work', description: 'Copy files into refs/: /add <file…>', run: inWorkspace((w, a) => w.add(a)) },
   { name: 'observe', group: 'look', description: 'Image: /observe <file> [--qualify] [question]', run: inWorkspace((w, a) => w.observe(a)) },
+  // Round R4 (H49): VoxVision. Raw: a quoted file name keeps its spaces.
+  { name: 'inspect', group: 'look', raw: true, description: 'What a file is, and its facts: /inspect <f>', run: inWorkspace((w, a) => (w.inspect ? w.inspect(a) : [[{ text: '  VoxVision is not available here.', role: 'secondary' }]])) },
+  { name: 'measure', group: 'look', raw: true, description: 'Labelled measured values: /measure <file>', run: inWorkspace((w, a) => (w.measure ? w.measure(a) : [[{ text: '  VoxVision is not available here.', role: 'secondary' }]])) },
+  { name: 'detect', group: 'look', raw: true, description: 'QR, ArUco, a colour: /detect <file> [what]', run: inWorkspace((w, a) => (w.detect ? w.detect(a) : [[{ text: '  VoxVision is not available here.', role: 'secondary' }]])) },
+  { name: 'compare', group: 'look', raw: true, description: 'Two files of one kind: /compare <a> <b>', run: inWorkspace((w, a) => (w.compare ? w.compare(a) : [[{ text: '  VoxVision is not available here.', role: 'secondary' }]])) },
   // Round R3: `/board live` and `/board off` go to the live board; `/board` alone stays the snapshot.
   { name: 'board', group: 'look', description: 'A board of the project; /board live | off', run: inWorkspace((w, a) => (w.boardLive && /^(?:live|off)$/.test(a.trim()) ? w.boardLive(a) : w.board(a))) },
   { name: 'c4d', group: 'work', description: 'Cinema 4D Python as a job: /c4d <script.py>', run: inWorkspace((w, a) => w.c4d(a)) },
