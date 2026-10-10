@@ -6,6 +6,7 @@
  * no a. Without a terminal: deny.
  */
 import { emitKeypressEvents, type Key } from 'node:readline';
+import { currentOperation } from '../ops/context.js';
 import { sanitize } from '../term/sanitize.js';
 import { keySet } from '../utils/keys.js';
 import type { TerminalSession } from '../term/session.js';
@@ -203,6 +204,29 @@ interface ToolLike {
   function: { name: string; execute?: unknown; [k: string]: unknown };
 }
 
+/**
+ * R4 (H60): a call that waits for the operator, as the Control Room's Decisions part shows it: from the moment it waits
+ * (queued behind another box, or with its own box on screen) until it is answered. Read only through waitingApprovals();
+ * nothing outside the gate can answer it.
+ */
+export interface WaitingApproval {
+  tool: string;
+  reason: string;
+  summary: string;
+  /** false: the box offers no `a` (this tool asks every time) */
+  session: boolean;
+  /** when it began to wait (ms) */
+  since: number;
+  /** its box is on screen now (else it waits behind another one) */
+  shown: boolean;
+  /** the operation (one request) it belongs to, when the request has one */
+  operation?: string;
+}
+const waiting = new Map<number, WaitingApproval>();
+let waitSeq = 0;
+/** The calls waiting for the operator in this process now, oldest first (a copy). */
+export function waitingApprovals(): WaitingApproval[] { return [...waiting.values()].map((w) => ({ ...w })); }
+
 /** Wrap each tool's execute so a call that needs approval waits for `ask`; a denial reaches the model. */
 export function gateTools<T>(tools: readonly T[], ask: (req: ApprovalRequest) => Promise<Decision>): T[] {
   const allowed = new Set<string>();
@@ -221,8 +245,20 @@ export function gateTools<T>(tools: readonly T[], ask: (req: ApprovalRequest) =>
     const gated = async (args: Record<string, unknown>, ctx: unknown) => {
       const need = approvalNeeded(name, args ?? {});
       if (need && !allowed.has(name)) {
-        // Re-check after waiting: an earlier box may have allowed this tool for the session.
-        const decision = await inTurn(async () => (allowed.has(name) ? 'session' : ask({ tool: name, ...need })));
+        // R4 (H60): the call waits for the operator from here until it is answered (the Control Room's Decisions).
+        const id = ++waitSeq;
+        const operation = currentOperation();
+        waiting.set(id, { tool: name, reason: need.reason, summary: need.summary, session: need.session !== false, since: Date.now(), shown: false, ...(operation ? { operation } : {}) });
+        let decision: Decision;
+        try {
+          // Re-check after waiting: an earlier box may have allowed this tool for the session.
+          decision = await inTurn(async () => {
+            if (allowed.has(name)) return 'session';
+            const w = waiting.get(id);
+            if (w) w.shown = true;
+            return ask({ tool: name, ...need });
+          });
+        } finally { waiting.delete(id); }
         if (decision === 'deny') throw new Error(`The operator denied ${name}; it did not run.`);
         if (decision === 'session' && need.session !== false) allowed.add(name);
       }

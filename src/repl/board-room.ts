@@ -20,6 +20,8 @@ import { costWords } from '../room/text.js';
 import { esc, stamp, type Kit } from './board-kit.js';
 // R4 (H51): the operation cards at the top of the section, and each run's operation and role.
 import { operationsHtml, OPS_CSS } from '../ops/card-html.js';
+// R4 (H60): what waits on a person (src/room/decisions.ts), first in the section.
+import { DECISIONS_CSS, decisionsHtml } from './board-decisions.js';
 
 const cls = (s: string): string => s.replace(/[^a-z0-9]+/gi, '').toLowerCase();
 const STATE_CLASS: Readonly<Record<Tone, string>> = { running: 'rs-running', ok: 'rs-ok', failed: 'rs-failed', stopped: 'rs-stopped', attention: 'rs-attention', neutral: 'rs-neutral' };
@@ -120,11 +122,14 @@ export function roomSection(v: RoomView, k: Kit): { toc: string; html: string } 
   const c = v.costs;
   const costs = `<div class="room-costs"><span class="room-label">costs, as recorded</span> <span class="room-costline">${costsHtml(c)}</span>`
     + `<p class="meta">${esc('From the runs\' receipts first, else their own records; one charge seen through two records is counted once. Unknown stays unknown, never 0, and no budget or remaining amount is shown.')}</p></div>`;
+  // R4 (H60): what waits on a person, first in the section and counted in its entry.
+  const waiting = v.decisions?.total ?? 0;
   return {
-    toc: `<a href="#room">Control Room <b>${running ? `${running} running` : 'idle'}</b></a>`,
+    toc: `<a href="#room">Control Room <b>${running ? `${running} running` : 'idle'}${waiting ? ` · ${waiting} waiting on you` : ''}</b></a>`,
     html: [
       `<h2 id="room">Control Room <span class="count">${esc(running ? `${running} running` : 'nothing running')}</span></h2>`,
       `<section class="room"><p class="sub room-lead">${esc(`Who runs what in ${v.project}: each run's owner, route, state, handoffs, cost and outputs, from its own record and receipt.${k.live ? ' Stop acts as the typed /stop, only on a run this REPL started.' : ''}`)}</p>`,
+      ...(v.decisions ? [decisionsHtml(v.decisions, k)] : []),
       costs,
       // R4 (H51): one card per recent operation, running first: its runs grouped under the request that started them.
       ...(v.operations ? [operationsHtml(v.operations, k)] : []),
@@ -214,4 +219,4 @@ export const ROOM_CSS = `
 .room .tl-step code { font: inherit; color: ${HOMEBREW.text}; }
 .room .tl-missing .tl-name { color: ${HOMEBREW.textSecondary}; }
 .room .room-role { text-transform: uppercase; letter-spacing: .05em; font-size: 10.5px; }
-` + OPS_CSS;
+` + OPS_CSS + DECISIONS_CSS;

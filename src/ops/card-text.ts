@@ -29,6 +29,8 @@ export function cardLines(c: OperationCard, o: { glyphs: GlyphSet; link?: (rel: 
     { text: `  ${mark(c.tone, g)} `, role: c.tone === 'failed' ? 'failure' : undefined }, { text: `Operation ${c.id}`, role: 'strong' }, { text: '  ' }, { text: c.state, role: TONE_ROLE[c.tone] },
   ]];
   lines.push([label('Request'), { text: c.request }, { text: `${sep}${c.via ?? 'where unknown'}${c.started ? `${sep}started ${stamp(c.started)}` : ''}${c.ended ? `${sep}ended ${stamp(c.ended)}` : ''}${c.parent ? `${sep}continues ${c.parent}` : ''}`, role: 'secondary' }]);
+  // R4 (H60): what of it waits on a person (/decisions has each in full).
+  for (const [i, w] of (c.waiting ?? []).entries()) lines.push([label(i === 0 ? 'Waiting' : ''), { text: `on you: ${w}`, role: 'estimate' }, ...(i === 0 ? [{ text: `${sep}/decisions`, role: 'secondary' as const }] : [])]);
   if (c.why) lines.push([label('Why'), { text: c.why }]);
   if (c.note) lines.push([label('Note'), { text: c.note, role: 'estimate' }]);
   lines.push([label('Record'), c.record ? { text: link(c.record) } : { text: c.recordError ?? 'none here', role: 'secondary' }]);
@@ -79,7 +81,8 @@ export function opsLines(cards: OperationCard[], o: { glyphs: GlyphSet; project:
   const lines: Line[] = [[{ text: '  Operations', role: 'strong' }, { text: ` in ${o.project}${sep}running first, then the newest; one request each`, role: 'secondary' }]];
   if (!cards.length) lines.push([{ text: '    None recorded yet: a command that starts or seals something leaves one (.timmy/operations/).', role: 'secondary' }]);
   for (const c of cards) {
-    const parts = [c.workflows.length ? `${c.workflows.length} workflow run${c.workflows.length === 1 ? '' : 's'}` : '', c.flows.length ? `${c.flows.length} flow${c.flows.length === 1 ? '' : 's'}` : '', c.vox.length ? `${c.vox.length} VoxVision` : '', c.outputs.length ? `${c.outputs.length} output${c.outputs.length === 1 ? '' : 's'}` : '', c.lessons.length ? `${c.lessons.length} lesson${c.lessons.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ');
+    const parts = [c.workflows.length ? `${c.workflows.length} workflow run${c.workflows.length === 1 ? '' : 's'}` : '', c.flows.length ? `${c.flows.length} flow${c.flows.length === 1 ? '' : 's'}` : '', c.vox.length ? `${c.vox.length} VoxVision` : '', c.outputs.length ? `${c.outputs.length} output${c.outputs.length === 1 ? '' : 's'}` : '', c.lessons.length ? `${c.lessons.length} lesson${c.lessons.length === 1 ? '' : 's'}` : '',
+      c.waiting?.length ? `${c.waiting.length} waiting on you` : ''].filter(Boolean).join(', '); // R4 (H60)
     lines.push([
       { text: `  ${mark(c.tone, g)} `, role: c.tone === 'failed' ? 'failure' : undefined }, { text: c.id, role: 'strong' }, { text: `  ${c.state.padEnd(10)} `, role: TONE_ROLE[c.tone] },
       { text: c.request.length > 70 ? `${c.request.slice(0, 69)}…` : c.request }, { text: `${c.started ? `${sep}${stamp(c.started)}` : ''}${parts ? `${sep}${parts}` : ''}`, role: 'secondary' },

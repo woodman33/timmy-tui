@@ -86,6 +86,8 @@ export interface OperationCard {
   runs: CardRun[];
   receipts: Array<{ id: string; kind: string; status?: string }>;
   commands: string[];
+  /** R4 (H60): what of it waits on a person now (src/room/decisions.ts), each in a few words; absent when nothing does */
+  waiting?: string[];
 }
 
 type Obj = Record<string, unknown>;

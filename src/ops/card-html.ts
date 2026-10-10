@@ -46,8 +46,13 @@ export function operationCardHtml(c: OperationCard, k: Kit): string {
   const errors = c.lessonErrors.map((e) => `<li class="op-item">${esc(`unreadable: ${e}`)}</li>`).join('');
   const runs = c.runs.map((r) => `<li><span class="op-run">${esc(`${r.kind} ${r.id}`)}</span> <span class="op-role">${esc(r.role)}</span> <span class="op-state op-${r.tone}">${esc(r.state)}</span></li>`).join('');
   const when = [c.via ? `from ${c.via}` : '', c.started ? `started ${stamp(c.started)}` : '', c.ended ? `ended ${stamp(c.ended)}` : '', c.parent ? `continues ${c.parent}` : ''].filter(Boolean).join(' · ');
-  return `<article class="card op-card op-tone-${c.tone}" data-op="${esc(c.id)}">`
+  // R4 (H60): what of it waits on a person (the Control Room's "Waiting on you" has each in full).
+  const waiting = c.waiting?.length
+    ? `<div class="op-waiting"><span class="op-label">waiting on you</span> ${esc(c.waiting.slice(0, 3).join(' · '))}${c.waiting.length > 3 ? esc(` · and ${c.waiting.length - 3} more`) : ''} <a href="#room-decisions">${esc('Waiting on you')}</a></div>`
+    : '';
+  return `<article class="card op-card op-tone-${c.tone}${c.waiting?.length ? ' op-has-waiting' : ''}" data-op="${esc(c.id)}"${c.waiting?.length ? ` data-waiting="${c.waiting.length}"` : ''}>`
     + `<div class="jobhead"><strong class="op-id">${esc(`Operation ${c.id}`)}</strong> <span class="op-state op-${c.tone}">${esc(c.state)}</span></div>`
+    + waiting
     + `<p class="op-request"><span class="op-label">request</span> <code>${esc(c.request)}</code></p>`
     + `${when ? `<p class="op-meta">${esc(when)}</p>` : ''}${c.why ? `<p class="op-why">${esc(c.why)}</p>` : ''}${c.note ? `<p class="op-note">${esc(c.note)}</p>` : ''}`
     + `<p class="op-meta">${c.record ? `record ${k.fileLink(c.record, 'file')}` : esc(c.recordError ?? 'no record here')}${esc(` · ${c.receipts.length} receipt${c.receipts.length === 1 ? '' : 's'} sealed under it`)}</p>`
@@ -101,4 +106,8 @@ export const OPS_CSS = `
 .room .op-check-stale b, .room .op-check-unverified b { color: ${HOMEBREW.attention}; }
 .room .op-check-missing b { color: ${HOMEBREW.failure}; }
 .room .op-run { color: ${HOMEBREW.text}; }
+.room .op-card.op-has-waiting { border-left-color: ${HOMEBREW.attention}; }
+.room .op-waiting { margin: 0; color: ${HOMEBREW.text}; font-size: ${TYPE.size.small}px; overflow-wrap: anywhere; }
+.room .op-waiting .op-label { color: ${HOMEBREW.attention}; }
+.room .op-waiting a { color: ${HOMEBREW.link}; }
 `;

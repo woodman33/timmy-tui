@@ -37,6 +37,7 @@ import { flowKind, flowSteps, projectPath, type StepState } from '../repl/board-
 import type { BoardObservation } from '../repl/board.js';
 import { declaredUnknownCostUsd, hasMeasuredCostUsd, type Receipt } from '../utils/receipts.js';
 import type { OperationCard } from '../ops/card.js';
+import type { DecisionsView } from './decisions.js';
 
 // ── the model ─────────────────────────────────────────────────────────────────
 
@@ -170,6 +171,8 @@ export interface RoomView {
   notes: string[];
   /** R4 (H51): the recent operations, running first, each followed through what it made (src/ops/card.ts) */
   operations?: OperationCard[];
+  /** R4 (H60): what waits on a person in the project, what blocks first (src/room/decisions.ts) */
+  decisions?: DecisionsView;
 }
 
 export interface Room {

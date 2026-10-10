@@ -9,6 +9,7 @@ import type { Role, Segment } from '../term/theme.js';
 import { costsLine, findRun, needsSetup, NOT_OURS, setupCounts, type Room, type RoomRun, type RoomView, type Tone } from './index.js';
 import { mark as opMark } from '../ops/card-text.js';
 import type { CardTone } from '../ops/card.js';
+import { roomDecisionLines } from './decisions-text.js';
 
 type Line = Segment[];
 
@@ -58,6 +59,8 @@ export function roomLines(v: RoomView, o: RoomTextOptions): Line[] {
   const g = o.glyphs;
   const sep = ` ${g.sep} `;
   const lines: Line[] = [[{ text: '  Control Room ', role: 'strong' }, { text: v.project, role: 'strong' }, { text: `  who runs what in this project, from the runs' own records and receipts`, role: 'secondary' }]];
+  // R4 (H60): what waits on a person first (all of it: /decisions).
+  if (v.decisions) lines.push(...roomDecisionLines(v.decisions, o));
   // R4 (H51): the operations first, running first: each request with its runs and their roles (/op <id> in full).
   if (v.operations) {
     lines.push([{ text: '  OPERATIONS', role: 'strong' }, { text: v.operations.length ? `  ${v.operations.length} newest, running first; one in full: /op <id>` : '', role: 'secondary' }]);
