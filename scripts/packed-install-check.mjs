@@ -16,6 +16,12 @@
 //    starters (templates/), the Look worker (workers/look/look.py), the Cinema 4D and Blender workers (workers/c4d,
 //    workers/blender) and Timmy Canvas (companion/studio-canvas) are: each must be inside the installed package.
 //    It also copies the web starter into a new project and compares the copy with the packaged file.
+//    Round R4 (H40): the same for this round's assets in package.json "files", each found by the module that uses it:
+//    the After Effects, OpenSCAD and FreeCAD starters (templates/ae-starter, scad-starter, freecad-starter: each copied
+//    into a new project, its files compared with what "files" lists for it), the OpenSCAD runner
+//    (workers/scad/timmy_scad_run.mjs, src/native/openscad.ts), the FreeCAD worker (workers/freecad/timmy_freecad.py,
+//    src/native/freecad.ts) and the STEP and .blend readback workers (workers/readback/step_readback.py and
+//    blend_readback.py, src/flows/iterate.ts and src/flows/iterate-blender.ts).
 //
 // It prints a short report: each step with its exit code and first output line. Exit 0 when every check passed,
 // 1 when any failed or did not run, 2 on a usage error.
@@ -125,8 +131,19 @@ if (pkg) {
     const { LOOK_SCRIPT } = await load('dist/src/vision/look.js');
     const { c4dHelperDir, blenderHelperDir } = await load('dist/src/native/index.js');
     const { studioRoot } = await load('dist/src/studio/server.js');
+    // R4: the OpenSCAD runner, the FreeCAD worker and the two readback workers, each found by the module that runs it.
+    const { scadRunnerPath } = await load('dist/src/native/openscad.js');
+    const { freecadHelperDir } = await load('dist/src/native/freecad.js');
+    const { READBACK_SCRIPT } = await load('dist/src/flows/iterate.js');
+    const { BLEND_READBACK_SCRIPT } = await load('dist/src/flows/iterate-blender.js');
     const dest = join(process.env.PROBE_WORK, 'site');
     const copied = copyStarter('web-starter', dest);
+    // R4: each starter of this round copied into a new project of its own; the files the copy holds.
+    const r4 = {};
+    for (const name of ['ae-starter', 'scad-starter', 'freecad-starter']) {
+      const c = copyStarter(name, join(process.env.PROBE_WORK, name));
+      r4[name] = 'files' in c ? c.files.sort() : c.error;
+    }
     console.log(JSON.stringify({
       root: packageRoot(pathToFileURL(join(root, 'dist/src/native/index.js')).href) ?? null,
       starters: startersDir() ?? null, list: listStarters().map((s) => s.name).sort(),
@@ -134,6 +151,8 @@ if (pkg) {
       canvas: existsSync(join(studioRoot(), 'dist', 'canvas.js')) ? studioRoot() : null,
       copied: 'files' in copied ? copied.files.length : copied.error,
       same: existsSync(join(dest, 'index.html')) && readFileSync(join(dest, 'index.html')).equals(readFileSync(join(root, 'templates/web-starter/index.html'))),
+      r4, scad: scadRunnerPath() ?? null, freecad: freecadHelperDir() ?? null,
+      step: READBACK_SCRIPT, stepExists: existsSync(READBACK_SCRIPT), blend: BLEND_READBACK_SCRIPT, blendExists: existsSync(BLEND_READBACK_SCRIPT),
     }));`);
   const r = run(process.execPath, [probe], { cwd: work, env: { ...runEnv, PROBE_PKG: pkg, PROBE_WORK: work }, timeout: 120_000 });
   let p = null;
@@ -143,12 +162,24 @@ if (pkg) {
   } else {
     const inside = (path) => typeof path === 'string' && (path === pkg || path.startsWith(`${pkg}/`));
     check('assets', 'package root', p.root === pkg, short(p.root ?? 'none found'));
-    check('assets', 'starters (templates/)', p.starters === join(pkg, 'templates') && ['blender-starter', 'c4d-starter', 'web-starter'].every((n) => p.list.includes(n)), `${short(p.starters ?? 'none found')}: ${p.list.join(', ') || 'none'}`);
+    const starters = ['ae-starter', 'blender-starter', 'c4d-starter', 'freecad-starter', 'scad-starter', 'web-starter'];
+    check('assets', 'starters (templates/)', p.starters === join(pkg, 'templates') && starters.every((n) => p.list.includes(n)), `${short(p.starters ?? 'none found')}: ${p.list.join(', ') || 'none'}`);
     check('assets', 'Look worker', p.look === join(pkg, 'workers/look/look.py') && p.lookExists, short(p.look));
     check('assets', 'Cinema 4D worker', p.c4d === join(pkg, 'workers/c4d'), short(p.c4d ?? 'none found'));
     check('assets', 'Blender worker', p.blender === join(pkg, 'workers/blender'), short(p.blender ?? 'none found'));
     check('assets', 'Timmy Canvas (built)', inside(p.canvas), short(p.canvas ?? 'none found'));
     check('assets', 'web-starter copied', typeof p.copied === 'number' && p.copied > 0 && p.same, typeof p.copied === 'number' ? `${p.copied} files into a new project; index.html is the packaged one` : String(p.copied));
+    // R4 (H40): this round's starters, each copied as /project new --from copies it: the files "files" lists for it.
+    for (const name of ['ae-starter', 'scad-starter', 'freecad-starter']) {
+      const want = (manifest.files ?? []).filter((f) => f.startsWith(`templates/${name}/`)).map((f) => f.slice(`templates/${name}/`.length)).sort();
+      const got = p.r4?.[name];
+      check('assets', `${name} copied`, Array.isArray(got) && want.length > 0 && got.join('\n') === want.join('\n'), Array.isArray(got) ? `${got.length} files into a new project (${got.join(', ')}); "files" lists ${want.length}` : String(got ?? 'not copied'));
+    }
+    // R4 (H40): this round's workers, each found by the module that runs it.
+    check('assets', 'OpenSCAD runner', p.scad === join(pkg, 'workers/scad/timmy_scad_run.mjs'), short(p.scad ?? 'none found'));
+    check('assets', 'FreeCAD worker', p.freecad === join(pkg, 'workers/freecad'), short(p.freecad ?? 'none found'));
+    check('assets', 'STEP readback worker', p.step === join(pkg, 'workers/readback/step_readback.py') && p.stepExists, `${short(p.step)}${p.stepExists ? '' : ' (not there)'}`);
+    check('assets', '.blend readback worker', p.blend === join(pkg, 'workers/readback/blend_readback.py') && p.blendExists, `${short(p.blend)}${p.blendExists ? '' : ' (not there)'}`);
   }
 } else {
   check('assets', 'probe', false, 'not run: nothing installed');
