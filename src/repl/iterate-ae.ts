@@ -49,6 +49,8 @@ import type { IterateDeps } from './iterate.js';
 import type { FlowLock } from './flow-lock.js';
 import type { Segment } from '../term/theme.js';
 import { lessonsStartLine, pickLessons } from '../memory/retrieve.js'; // R4 (H50): Timmy Memory's lessons for the agent's task
+// R4 (H51): each flow record names the operation (one request) that started it.
+import { operationField } from '../ops/context.js';
 
 type Line = Segment[];
 
@@ -285,6 +287,7 @@ export class AeFlows {
     const keptAt = keepBytes(root, `${flowWorkDir(id)}/script.before${path.posix.extname(rel).toLowerCase() || '.jsx'}`, bytes);
     const record: AeFlowRecord = {
       flow: 1, schema: FLOW_SCHEMA, id, kind: 'iterate', target: 'ae', instruction: req.instruction, project, started_at: startedAt, outcome: 'running',
+      ...operationField('flow', id), // R4 (H51): the request that started it
       ...(req.comp !== undefined || req.om !== undefined ? { options: { ...(req.comp !== undefined ? { comp: req.comp } : {}), ...(req.om !== undefined ? { om: req.om } : {}) } } : {}),
       script: { path: rel, before: { sha256: sha(bytes), bytes: bytes.length, lines: lineCount(beforeText), ...(keptAt ? { kept: keptAt } : {}) } },
       agent: {

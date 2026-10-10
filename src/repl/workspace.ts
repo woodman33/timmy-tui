@@ -87,6 +87,13 @@ import { lessonCommand, lessonsCommand, namedFiles, recallCommand, retrieveForTa
 import { agentTask, lessonsStartLine, type LessonQuery, type LessonUse, type Retrieval } from '../memory/retrieve.js';
 import { readBoardMemory, type BoardMemory } from '../memory/board.js';
 import { LESSONS_DIR } from '../memory/lessons.js';
+// Round R4 (H51): operations (one request each), their records, their card, and the hold a flow keeps across processes.
+import { currentOperation, operationField } from '../ops/context.js';
+import { OPERATIONS_DIR, OperationLog, type OperationHandle, type OperationVia } from '../ops/operations.js';
+import { runOutcome } from '../ops/outcome.js';
+import { annotateRoom, buildIndex, knownOperations, operationCard, recentOperations, type OpIndex } from '../ops/card.js';
+import { cardLines, opsLines } from '../ops/card-text.js';
+import { HOLDS_DIR } from '../ops/flow-hold.js';
 
 type Line = Segment[];
 
@@ -278,9 +285,18 @@ export class Workspace {
   private readonly vox: VoxActions;
   /** R4 (H47): when each block of this REPL's workflow runs started and ended, as upmd's lines came */
   private readonly stepClock = new StepClock();
+  /** R4 (H51): this REPL's operations, one per request: their runs, their end and their records (.timmy/operations/) */
+  readonly ops: OperationLog;
 
   constructor(private readonly d: WorkspaceDeps, start: ActiveProject) {
     this.project = start;
+    // R4 (H51): an operation ends when its request has returned and none of its runs (jobs, flows, VoxVision actions) runs.
+    this.ops = new OperationLog({
+      scrub: (t, root) => this.scrub(t, root),
+      live: (run, root) => (run.kind === 'job' ? ((j) => !!j && !j.stale && !TERMINAL.has(j.state))(this.jobs.get(run.id))
+        : run.kind === 'flow' ? this.flows.active.includes(run.id) : run.kind === 'vox' ? this.vox.runningIn(root).includes(run.id) : false),
+      outcome: (run, root) => runOutcome(run, root, this.jobs),
+    });
     this.jobs = new JobManager({ dir: d.jobsDir, onChange: (job) => this.changed(job), seal: (job) => this.sealJob(job) });
     this.flows = new IterateFlows({
       glyphs: d.glyphs, env: () => this.d.env, onPath: d.onPath, notify: (l) => this.d.notify(l), seal: (input) => this.d.seal(input), jobs: this.jobs,
@@ -1009,6 +1025,8 @@ export class Workspace {
 
   private changed(job: JobRecord): void {
     if (job.kind === 'workflow') this.stepClock.note(job);
+    // R4 (H51): a job that ended may end its operation (checked once this change is through).
+    if (job.operation && TERMINAL.has(job.state)) queueMicrotask(() => this.ops.check());
     const before = this.seen.get(job.id) ?? { state: 'queued', done: 0 };
     const done = job.steps.filter((s) => s.state !== 'running').length;
     this.seen.set(job.id, { state: job.state, done });
@@ -1295,6 +1313,9 @@ export class Workspace {
     await this.freecadReadbacks.settle(10_000);
     // R4 (H49): a stopped VoxVision action still writes its record and receipt (cancelled).
     await this.vox.settle(10_000);
+    // R4 (H51): each operation ends by its runs as they ended; one still open when this REPL ends is recorded stopped.
+    this.ops.check();
+    this.ops.closeAll();
   }
 
   /** The process is exiting at once (a second Ctrl+C): signal this REPL's live jobs without waiting. */
@@ -1517,7 +1538,8 @@ export class Workspace {
     let before: { files: Snapshot; truncated: boolean };
     const jobsIn = folderInProject(root, this.d.jobsDir);
     // Timmy's own writes during the run: its folder, the flow's, the jobs folder, and the recipe jobs not over (their heartbeats).
-    const own = o.judge ? [`${AGENTS_DIR}/${run}`, ...o.judge.own, ...(jobsIn ? [jobsIn] : []), ...liveRecipeJobFolders(root)] : [];
+    // R4 (H51): the operations' records and the flow holds are Timmy's own bookkeeping too (another request may write them meanwhile).
+    const own = o.judge ? [`${AGENTS_DIR}/${run}`, ...o.judge.own, ...(jobsIn ? [jobsIn] : []), ...liveRecipeJobFolders(root), OPERATIONS_DIR, HOLDS_DIR] : [];
     let judged: JudgedSnapshot | undefined;
     try {
       ensureDir(dir); for (const d of plan.makeDirs ?? []) ensureDir(d);
@@ -1526,6 +1548,7 @@ export class Workspace {
     const record: AgentRunRecord = {
       agent_run: 1, run, agent: name, agent_version: version, model: plan.model, endpoint: plan.endpoint, where: plan.where,
       task, job: '', started_at: new Date().toISOString(), ...(o.lessons ? { lessons: o.lessons } : {}), // R4 (H50)
+      ...operationField('agent', run), // R4 (H51): the request that started it
     };
     const progress = newProgress();
     const state: AgentRunState = { record, plan, root, dir, before: before.files, beforeTruncated: before.truncated, gitBefore: isGitDir(root) ? gitStat(root) : null, progress, ...(judged ? { judge: { own, before: judged } } : {}) };
@@ -1856,7 +1879,7 @@ export class Workspace {
   private roomOf(o: { jobs: JobRecord[]; chain: Receipt[]; flows?: BoardFlows; observations?: BoardObservation[] }): Room {
     const root = this.root;
     try {
-      return gatherRoom({
+      const room = gatherRoom({
         root, project: this.project.name, projectId: projectId(root), jobs: o.jobs, chain: o.chain,
         ...(o.flows ? { flows: o.flows } : {}), ...(o.observations ? { observations: o.observations } : {}),
         mine: (id) => this.mine.has(id), activeFlows: this.flows.active,
@@ -1864,6 +1887,15 @@ export class Workspace {
         scrub: (t) => this.scrub(t, root),
         ...(this.roomTools ? { tools: this.roomTools } : {}),
       });
+      // R4 (H51): each run's operation and role, and the operations themselves, running first (their cards top the section).
+      try {
+        const ix = this.opIndex(o.jobs, o.chain);
+        annotateRoom(room, ix, o.jobs);
+        room.view.operations = recentOperations(ix, 6).map((id) => operationCard(ix, id));
+      } catch (err) {
+        room.view.notes.push(`The operations could not be read: ${this.scrub(err instanceof Error ? err.message : String(err), root)}`);
+      }
+      return room;
     } catch (err) {
       const why = this.scrub(err instanceof Error ? err.message : String(err), root);
       return { all: [], view: { project: this.project.name, groups: [], running: [], costs: { knownUsd: 0, known: 0, unknown: 0, free: 0, atLeastUsd: 0 }, notes: [`The Control Room could not be read: ${why}`] } };
@@ -1882,6 +1914,64 @@ export class Workspace {
     } catch (err) {
       this.roomTools = { checkedAt: new Date().toISOString(), rows: [], note: `The tools check failed: ${this.scrub(err instanceof Error ? err.message : String(err), this.root)}` };
     }
+  }
+
+  // ── operations (round R4, helper H51: one request each; src/ops) ─────────────
+
+  /**
+   * Runs one request (a typed line, a live-board action) as an operation: it gets an id, and everything it starts or seals
+   * carries it (src/ops/context.ts); its record is written once it starts or seals something, and ends once the request has
+   * returned and none of its runs runs. `timmy act` begins its own (beginOperation) to join one or record one at once.
+   */
+  async operate<T>(request: string, via: OperationVia, run: () => T | Promise<T>): Promise<T> {
+    const h = this.ops.begin({ request, via, root: this.root, project: this.project.name });
+    return this.ops.run(h, run);
+  }
+
+  /** `timmy act`'s operation: a new one recorded at once, or (`join`, its TIMMY_OPERATION) the running one it continues. */
+  beginOperation(request: string, o: { join?: string; via?: OperationVia } = {}): OperationHandle {
+    return this.ops.begin({ request, via: o.via ?? 'act', root: this.root, project: this.project.name, record: true, ...(o.join ? { join: o.join } : {}) });
+  }
+
+  /** The project's records, read once for the operation cards (the board, /op, /ops, /room). */
+  private opIndex(jobs?: readonly JobRecord[], chain?: readonly Receipt[]): OpIndex {
+    const root = this.root;
+    let c = chain;
+    if (!c) { try { c = (this.d.receipts ?? (() => readChain('runs')))(); } catch { c = []; } }
+    return buildIndex({ root, projectId: projectId(root), chain: c, jobs: jobs ?? this.jobs.list().filter((j) => sameFolder(j.root, root)), scrub: (t) => this.scrub(t, root) });
+  }
+
+  /**
+   * `/op [<id>]`: one operation's card: the request, its workflow and block runs, its flows with their verdicts and steps,
+   * its native outputs with their sha256, the VoxVision records about them, the lessons that name them, each checked
+   * against its receipt. Without an id: the operation this request joined (a `timmy act` in a workflow block), else the
+   * newest of the project other than this request's own.
+   */
+  op(args: string): Line[] {
+    const want = args.trim();
+    const ix = this.opIndex();
+    const { here, joined } = this.requestOperation();
+    const id = want || (joined ? here : undefined) || recentOperations(ix, 50).find((x) => x !== here);
+    if (!id) return this.say('No operation recorded in this project yet: a command that starts or seals something leaves one (.timmy/operations/).');
+    if (!/^o[0-9a-f]{8}$/.test(id)) return this.say(`${id} is not an operation id (o and 8 hex digits): /ops lists them.`);
+    if (!knownOperations(ix).includes(id)) return this.say(`No operation ${id} in this project: /ops lists them.`);
+    return cardLines(operationCard(ix, id), { glyphs: this.d.glyphs, link: (rel) => this.fileLink(rel) });
+  }
+
+  /** The operation this request runs in, and whether it joined it (TIMMY_OPERATION) rather than began it. */
+  private requestOperation(): { here?: string; joined: boolean } {
+    const here = currentOperation();
+    const h = here ? [...this.ops.open, ...(this.ops.latest ? [this.ops.latest] : [])].find((x) => x.id === here) : undefined;
+    return { ...(here ? { here } : {}), joined: h?.joined === true };
+  }
+
+  /** `/ops`: the project's recent operations, running first. */
+  opsView(_args: string): Line[] {
+    const ix = this.opIndex();
+    // This request's own operation is not listed, unless it joined one (a `timmy act` in a workflow block): that one is.
+    const { here, joined } = this.requestOperation();
+    const ids = recentOperations(ix, 13).filter((x) => x !== here || joined).slice(0, 12);
+    return opsLines(ids.map((id) => operationCard(ix, id)), { glyphs: this.d.glyphs, project: this.project.name, unreadable: ix.unreadableRecords.map((u) => ({ rel: u.rel, error: this.scrub(u.error, this.root) })) });
   }
 
   // ── /board (round R2: a reference board linked to the actual files, jobs and results) ──
@@ -2138,6 +2228,12 @@ export class Workspace {
    * in the transcript as from the board, with the page's answer scrubbed of the project's and home folders.
    */
   private async boardEdit(body: unknown, state: LiveState): Promise<{ status: number; text: string }> {
+    // R4 (H51): a live-board action is an operation of its own (its edit receipt carries its id).
+    const action = body && typeof body === 'object' && typeof (body as { action?: unknown }).action === 'string' ? String((body as { action: string }).action).slice(0, 40) : 'edit';
+    return this.operate(`board edit: ${action}`, 'board', () => this.boardEditNow(body, state));
+  }
+
+  private async boardEditNow(body: unknown, state: LiveState): Promise<{ status: number; text: string }> {
     const root = this.root;
     const out = applyBoardEdit(body, {
       root, project: this.project.name, projectId: projectId(root), workflows: state.workflows.map((w) => w.rel), recipes: state.recipes ?? [], seal: this.d.seal, scadModels: state.scadModels ?? [],
@@ -2154,6 +2250,11 @@ export class Workspace {
    * with what it printed; the page gets that text with the project's folder as "." and the home folder as "~".
    */
   private async boardCommand(c: BoardCommand): Promise<string[]> {
+    // R4 (H51): a live-board action is an operation of its own: the request is the typed command it stands for.
+    return this.operate(c.line, 'board', () => this.boardCommandNow(c));
+  }
+
+  private async boardCommandNow(c: BoardCommand): Promise<string[]> {
     const root = this.root;
     this.d.notify([{ text: '  board  ', role: 'secondary' }, { text: c.line, role: 'strong' }]);
     const lines = c.name === 'stop' ? await this.stop(c.args) : c.name === 'run' ? await this.run(c.args)

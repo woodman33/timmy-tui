@@ -674,6 +674,8 @@ export interface AgentRunRecord {
   where: string;
   task: string;
   job: string;
+  /** Round R4 (H51): the operation (one request) that started the run (src/ops/context.ts); absent before, or outside one */
+  operation?: string;
   started_at: string;
   ended_at?: string;
   exit_code?: number | null;

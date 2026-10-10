@@ -754,6 +754,8 @@ export interface BlenderFlowRecord {
   target: 'blender';
   instruction: string;
   project: string;
+  /** Round R4 (H51): the operation (one request) that started the flow; absent before, or outside one */
+  operation?: string;
   started_at: string;
   ended_at?: string;
   outcome: FlowOutcome;

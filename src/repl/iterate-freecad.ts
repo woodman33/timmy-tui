@@ -36,6 +36,8 @@ import { changeText, DOCTRINE_15, judgeFileChanges, lineCount, NATIVE_FILE_MAX_B
 import { FREECAD_FLOW_MEASURED_BY, freecadIterateTask, previousFreecadRun, stepMeasure, type FreecadFlowRecord, type FreecadMeasure } from '../flows/iterate-freecad.js';
 import { keepBytes, NativeFlows, relTo, sha, short, type Line, type NativeIterateRequest, type NativeRun, type Started } from './iterate-native.js';
 import { lessonsStartLine, pickLessons } from '../memory/retrieve.js'; // R4 (H50): Timmy Memory's lessons for the agent's task
+// R4 (H51): each flow record names the operation (one request) that started it.
+import { operationField } from '../ops/context.js';
 
 export const FREECAD_ITERATE_USAGE = '/iterate freecad <script.py> "<instruction>" [--agent qwen|codex] [--model <local model>]';
 
@@ -126,6 +128,7 @@ export class FreecadFlows extends NativeFlows<FreecadFlowRecord> {
     const prev = previousFreecadRun(root, rel, startedAt);
     const record: FreecadFlowRecord = {
       flow: 1, schema: FLOW_SCHEMA, id, kind: 'iterate', target: 'freecad', instruction: req.instruction, project, started_at: startedAt, outcome: 'running',
+      ...operationField('flow', id), // R4 (H51): the request that started it
       script: { path: rel, before: { sha256: sha(bytes), bytes: bytes.length, lines: lineCount(beforeText), ...(keptAt ? { kept: keptAt } : {}) } },
       agent: this.agentPart(s),
       before_after: 'none' in prev

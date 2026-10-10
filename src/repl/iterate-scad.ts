@@ -38,6 +38,8 @@ import {
 } from '../flows/iterate-scad.js';
 import { keepBytes, NativeFlows, relTo, sha, short, type Line, type NativeIterateRequest, type NativeRun, type Started } from './iterate-native.js';
 import { lessonsStartLine, pickLessons } from '../memory/retrieve.js'; // R4 (H50): Timmy Memory's lessons for the agent's task
+// R4 (H51): each flow record names the operation (one request) that started it.
+import { operationField } from '../ops/context.js';
 
 export const SCAD_ITERATE_USAGE = '/iterate scad <model.scad> "<instruction>" [--agent qwen|codex] [--model <local model>]';
 
@@ -139,6 +141,7 @@ export class ScadFlows extends NativeFlows<ScadFlowRecord> {
     const prev = previousScadRun(root, modelRel, startedAt);
     const record: ScadFlowRecord = {
       flow: 1, schema: FLOW_SCHEMA, id, kind: 'iterate', target: 'scad', instruction: req.instruction, project, started_at: startedAt, outcome: 'running',
+      ...operationField('flow', id), // R4 (H51): the request that started it
       model: { path: modelRel, sha256: sha(modelBytes), bytes: modelBytes.length },
       parameters: { path: paramsRel, before: { sha256: sha(paramsBytes), bytes: paramsBytes.length, values: recheck.parameters, ...(keptAt ? { kept: keptAt } : {}) } },
       agent: this.agentPart(s),

@@ -72,6 +72,7 @@ import type { Segment } from '../term/theme.js';
 import type { Receipt, ReceiptInput } from '../utils/receipts.js';
 import { placeNew } from '../utils/place-new.js';
 import { lessonsPart } from '../memory/retrieve.js'; // R4 (H50): the lessons an interrupted flow's agent was given, named by its receipt
+import { OPERATION_ID } from '../ops/context.js';
 
 type Line = Segment[];
 
@@ -207,6 +208,8 @@ interface Survey { plans: Plan[]; left: RecoveryItem[] }
 
 const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+/** R4 (H51): an interrupted flow's receipt names the operation its state names (the request that started it), whichever request recovers it. */
+const operationOf = (v: { operation?: unknown }): { operation_id?: string } => (typeof v.operation === 'string' && OPERATION_ID.test(v.operation) ? { operation_id: v.operation } : {});
 /**
  * R4 (H46, ledger row 153): a plain timer, which holds Node's event loop. While a typed command runs the REPL's input is
  * paused, so /recover's settle wait may be the only thing left; an unref'd timer let Node exit (code 13, an unsettled
@@ -802,6 +805,7 @@ function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Ma
   try {
     receipt = d.seal({
       kind: 'flow', subject: `flow · iterate · tray · ${p.id} · interrupted`, policy: 'human-gated', status: 'failed',
+      ...operationOf(v), // R4 (H51): the request the flow belonged to, not the one that recovered it
       project: typeof v.project === 'string' ? v.project : d.project, project_id: projectId(d.root),
       prompt_hash: `sha256:${sha(v.instruction)}`,
       outputs: [{ path: w.path, sha256: w.sha256, bytes: w.bytes }],
@@ -887,6 +891,7 @@ function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state
   try {
     receipt = d.seal({
       kind: 'flow', subject: `flow · iterate · ${target} · ${p.id} · interrupted`, policy: 'human-gated', status: 'failed',
+      ...operationOf(v), // R4 (H51)
       project: typeof v.project === 'string' ? v.project : d.project, project_id: projectId(d.root),
       prompt_hash: `sha256:${sha(v.instruction)}`,
       outputs: [{ path: w.path, sha256: w.sha256, bytes: w.bytes }],

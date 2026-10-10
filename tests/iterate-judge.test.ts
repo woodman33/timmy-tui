@@ -144,7 +144,8 @@ describe('the /iterate change check sees .timmy and dist (R4 review, R4-2)', () 
     // What the check compared: Timmy's own writes during the step, not counted; the folders not looked into, named.
     expect(rec.agent.compared).toEqual({
       scope: expect.stringContaining('.timmy and dist included'),
-      own: [`.timmy/agents/${rec.agent.run}/`, `.timmy/flows/${id}/`],
+      // R4 (H51): operation records and flow holds are Timmy's own bookkeeping too (another request may write them meanwhile).
+      own: [`.timmy/agents/${rec.agent.run}/`, `.timmy/flows/${id}/`, '.timmy/operations/', '.timmy/flow-holds/'],
       not_compared: ['.git/', 'node_modules/'],
     });
     // Nothing was built, nothing reverted: the files stay as the agent left them.
@@ -167,7 +168,7 @@ describe('the /iterate change check sees .timmy and dist (R4 review, R4-2)', () 
     const rec = recordOf(id);
     expect(rec).toMatchObject({ outcome: 'succeeded', ended_in: 'readback', readback: { verdict: 'matches' } });
     expect(rec.agent.files_changed.map((c: { path: string }) => c.path)).toEqual([PARAMS]);
-    expect(rec.agent.compared).toEqual({ scope: expect.any(String), own: [`.timmy/agents/${rec.agent.run}/`, `.timmy/flows/${id}/`, 'timmy/jobs/'], not_compared: [] });
+    expect(rec.agent.compared).toEqual({ scope: expect.any(String), own: [`.timmy/agents/${rec.agent.run}/`, `.timmy/flows/${id}/`, 'timmy/jobs/', '.timmy/operations/', '.timmy/flow-holds/'], not_compared: [] });
     // Nothing was skipped here, so the end line says nothing about it.
     expect(notes.join('\n')).not.toContain('not compared while the agent ran');
     // The agent's own record lists the parameter file only, too (its jobs folder's files are Timmy's, not the agent's).
@@ -190,7 +191,7 @@ describe('the /iterate change check sees .timmy and dist (R4 review, R4-2)', () 
       const rec = recordOf(id);
       expect(rec).toMatchObject({ target: kind, outcome: 'stopped', ended_in: 'checks' });
       expect(rec.why).toBe(`the agent changed files other than ${file}: dist/x.js (added); ${TIMMY_WORDS}; ${app} did not run, and nothing was reverted; the agent's output is kept: ${rec.agent.transcript}`);
-      expect(rec.agent.compared).toMatchObject({ own: [`.timmy/agents/${rec.agent.run}/`, `.timmy/flows/${id}/`], not_compared: [] });
+      expect(rec.agent.compared).toMatchObject({ own: [`.timmy/agents/${rec.agent.run}/`, `.timmy/flows/${id}/`, '.timmy/operations/', '.timmy/flow-holds/'], not_compared: [] });
       expect(sealed.map((r) => r.kind)).toEqual(['agent', 'flow']);
     }, 60_000);
   }

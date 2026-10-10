@@ -18,6 +18,8 @@ import type { CapabilityRow } from '../capabilities/index.js';
 import { costParts, NOT_OURS, RUNG_WORDS, toolGroups, type RoomCosts, type RoomRun, type RoomStep, type RoomView, type Tone } from '../room/index.js';
 import { costWords } from '../room/text.js';
 import { esc, stamp, type Kit } from './board-kit.js';
+// R4 (H51): the operation cards at the top of the section, and each run's operation and role.
+import { operationsHtml, OPS_CSS } from '../ops/card-html.js';
 
 const cls = (s: string): string => s.replace(/[^a-z0-9]+/gi, '').toLowerCase();
 const STATE_CLASS: Readonly<Record<Tone, string>> = { running: 'rs-running', ok: 'rs-ok', failed: 'rs-failed', stopped: 'rs-stopped', attention: 'rs-attention', neutral: 'rs-neutral' };
@@ -79,6 +81,7 @@ export function runCard(r: RoomRun, k: Kit): string {
   return `<article class="card room-run ${STATE_CLASS[r.tone]}" data-room-kind="${esc(r.kind)}" data-room-id="${esc(r.id)}">`
     + `<div class="jobhead"><strong class="room-owner">${esc(r.owner)}</strong> <span class="room-state">${esc(r.state)}</span></div>`
     + `<div class="meta"><span class="kind">${esc(r.kind)}</span> ${esc(r.id)}${r.job && r.job !== r.id ? esc(` · job ${r.job}`) : ''}${r.partOf ? esc(` · ${r.partOf}`) : ''}</div>`
+    + (r.role || r.operation ? `<div class="meta room-op">${r.role ? `<span class="room-role">${esc(r.role)}</span>` : ''}${r.operation ? esc(` · operation ${r.operation}`) : ''}</div>` : '')
     + `<dl class="room-facts">${facts}</dl>${handoffHtml(r)}${details}${hint}`
     + `<div class="cmds">${stop}${commands.map((c) => k.cmd(c)).join('')}</div></article>`;
 }
@@ -123,6 +126,8 @@ export function roomSection(v: RoomView, k: Kit): { toc: string; html: string } 
       `<h2 id="room">Control Room <span class="count">${esc(running ? `${running} running` : 'nothing running')}</span></h2>`,
       `<section class="room"><p class="sub room-lead">${esc(`Who runs what in ${v.project}: each run's owner, route, state, handoffs, cost and outputs, from its own record and receipt.${k.live ? ' Stop acts as the typed /stop, only on a run this REPL started.' : ''}`)}</p>`,
       costs,
+      // R4 (H51): one card per recent operation, running first: its runs grouped under the request that started them.
+      ...(v.operations ? [operationsHtml(v.operations, k)] : []),
       `<h3 id="room-running">Running now <span class="count">${running}</span></h3>`,
       running ? `<div class="grid wide room-runs">${v.running.map((r) => runCard(r, k)).join('')}</div>` : `<p class="empty">${esc('Nothing runs in this project now.')}</p>`,
       `<h3 id="room-crew">Recent, by owner</h3>`,
@@ -208,4 +213,5 @@ export const ROOM_CSS = `
 .room .tl-step { overflow-wrap: anywhere; }
 .room .tl-step code { font: inherit; color: ${HOMEBREW.text}; }
 .room .tl-missing .tl-name { color: ${HOMEBREW.textSecondary}; }
-`;
+.room .room-role { text-transform: uppercase; letter-spacing: .05em; font-size: 10.5px; }
+` + OPS_CSS;

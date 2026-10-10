@@ -20,6 +20,8 @@ export const STARTERS: Readonly<Record<string, string>> = {
   // Round R4 (helper H27)
   'scad-starter': 'an OpenSCAD parametric box with a lid gap (/scad box.scad) and its parameter file',
   'freecad-starter': 'a FreeCAD part script (/freecad plate.py): a plate with four holes, an editable .FCStd and a STEP',
+  // Round R4 (helper H51)
+  'tray-workflow': 'one request as one operation: WORKFLOW.md changes the tray, inspects its STEP and shows the result (/run WORKFLOW.md result)',
 };
 
 /**

@@ -79,6 +79,8 @@ export function saveScadParams(body: Record<string, unknown>, ctx: EditContext):
   const flow = ctx.flowIn?.();
   if (flow) {
     const who = flow.id ? `flow ${flow.id} is running` : 'a flow is being started';
+    // R4 (H51): a flow another Timmy process runs here is named with that process; it is stopped there.
+    if (flow.elsewhere) return reply(409, `${who} in this project ${flow.elsewhere}: save after it ends`, `refused an OpenSCAD parameter save: ${who} in this project ${flow.elsewhere}`);
     return reply(409, `${who} in this project: save after it ends, or /stop it`, `refused an OpenSCAD parameter save: ${who} in this project`);
   }
   const now = readScadParams(ctx.root, model);

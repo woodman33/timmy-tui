@@ -31,6 +31,8 @@ import { humanBytes, projectId, resolveInside } from '../project/index.js';
 import { stripEscapes, visibleWidth } from '../term/width.js';
 import type { Receipt, ReceiptInput } from '../utils/receipts.js';
 import type { McpRouteId } from './mcp-cli.js';
+// R4 (H51): each call record names the operation (one request) it was made in.
+import { operationField } from '../ops/context.js';
 
 export const MCP_CALLS_DIR = '.timmy/mcp';
 export const MCP_CALL_SCHEMA = 'timmy.mcp-call/1';
@@ -347,6 +349,7 @@ export function writeMcpCall(ctx: McpRecordContext, f: McpCallFacts): McpRecordW
       ...(f.notes.length ? { notes: f.notes } : {}),
       ...(ctx.project ? { project: ctx.project } : {}),
       project_id: projectId(ctx.root),
+      ...operationField('mcp', id), // R4 (H51): the request it was made in
     };
     const text = `${JSON.stringify(record, null, 2)}\n`;
     writeNew(`${dir}/call.json`, text);
@@ -392,6 +395,8 @@ export interface McpCallRecord {
   started_at: string; ended_at: string; ms: number; outcome: McpOutcome; called: boolean; isError: boolean | null; error?: string;
   output_file: string | null; output_bytes: number; output_sha256: string | null; truncated: boolean; kept_bytes?: number; kept_sha256?: string;
   annotations: Record<string, unknown> | null; annotations_note?: string; notes?: string[]; project?: string; project_id?: string;
+  /** Round R4 (H51): the operation (one request) the call was made in; absent before, or outside one */
+  operation?: string;
 }
 
 export interface McpCallRead {
