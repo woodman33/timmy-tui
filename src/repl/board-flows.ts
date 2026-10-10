@@ -24,6 +24,7 @@ import { DOCTRINE_15, FLOW_SCHEMA, mm3Text, mmText, toleranceText, type FlowReco
 import { BLENDER_FLOW_CSS, blenderFlowCard, isBlenderFlowRecord } from './board-flows-blender.js';
 // R4 (H33): an OpenSCAD or FreeCAD flow's card (/iterate scad, /iterate freecad).
 import { isNativeFlowRecord, NATIVE_FLOW_CSS, nativeFlowCard } from './board-flows-native.js';
+import { AE_FLOW_CSS, aeFlowCard, isAeFlowRecord } from './board-flows-ae.js'; // R4 (H41): an After Effects flow's card (/iterate ae)
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { Receipt } from '../utils/receipts.js';
 
@@ -208,6 +209,7 @@ function statusLine(check: BoardFlowCheck): string {
 function flowCard(f: BoardFlow, h: ReturnType<typeof helpers>): string {
   if (isBlenderFlowRecord(f.record)) return blenderFlowCard(f, h, statusLine(f.check)); // R4 (H26)
   if (isNativeFlowRecord(f.record)) return nativeFlowCard(f, h, statusLine(f.check)); // R4 (H33)
+  if (isAeFlowRecord(f.record)) return aeFlowCard(f, h, statusLine(f.check)); // R4 (H41)
   const r = f.record;
   const outcome = String(r.outcome ?? 'unknown');
   const outputs = entries<{ path: string; sha256: string }>(r.rebuild?.outputs, pathed);
@@ -281,4 +283,4 @@ export const FLOWS_CSS = `
 .state-succeeded { color: ${HOMEBREW.accent}; }
 .state-differs, .state-stopped { color: ${HOMEBREW.attention}; }
 .state-unreadable { color: ${HOMEBREW.failure}; }
-${BLENDER_FLOW_CSS}${NATIVE_FLOW_CSS}`;
+${BLENDER_FLOW_CSS}${NATIVE_FLOW_CSS}${AE_FLOW_CSS}`;

@@ -79,8 +79,9 @@ const TARGETS: Record<string, { app: string; appStep: string; command: string; f
   scad: { app: 'OpenSCAD', appStep: 'openscad', command: '/scad', file: 'parameters' },
   freecad: { app: 'FreeCAD', appStep: 'freecad', command: '/freecad', file: 'script' },
   blender: { app: 'Blender', appStep: 'blender', command: '/blender', file: 'script' },
+  ae: { app: 'After Effects', appStep: 'author', command: '/ae author', file: 'script' }, // R4 (H41): /iterate ae (its render step: TODO(H39) its job, and its receipt among the children)
 };
-const TARGET_STEPS: ReadonlySet<string> = new Set(['prepare', 'agent', 'checks', 'openscad', 'freecad', 'blender', 'readback', 'record']);
+const TARGET_STEPS: ReadonlySet<string> = new Set(['prepare', 'agent', 'checks', 'openscad', 'freecad', 'blender', 'author', 'render', 'readback', 'record']);
 const APP_WORDS: Record<NativeApp, string> = { c4dpy: 'Cinema 4D', aerender: 'After Effects render', blender: 'Blender', afterfx: 'After Effects script', openscad: 'OpenSCAD', freecad: 'FreeCAD' };
 /** A recipe job's state now, as a flow's record says it (lanes/recipes/jobs.ts states, and unreadable). */
 const RECIPE_NOW: Record<string, string> = { running: 'still runs', succeeded: 'has succeeded', failed: 'has failed', cancelled: 'was cancelled', interrupted: 'was interrupted', queued: 'is queued', unreadable: 'could not be read' };

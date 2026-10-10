@@ -14,7 +14,7 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { JobManager, type JobRecord } from '../jobs/index.js';
 import { aerenderJob, blenderJob, c4dpyJob, judgeNativeJob, nativeReceiptFields, NativeNotFound, noteNativeStarted, type NativeJobSpec } from '../native/index.js';
-import { AE_USAGE, aeEndLines, aeReceiptFields, aeScriptJob, aeStartLines, isAeJobSpec, judgeAeJob, parseAeScriptArgs, type AeJobSpec, type AeMode } from '../native/ae-author.js';
+import { AE_RENDER_NOTES, AE_USAGE, aeEndLines, aeReceiptFields, aeScriptJob, aeStartLines, isAeJobSpec, judgeAeJob, parseAeRenderArgs, parseAeScriptArgs, type AeJobSpec, type AeMode } from '../native/ae-author.js';
 // Round R4 (helper H27): OpenSCAD as a judged native route, its STL read back by Timmy's own reader.
 import { isScadJobSpec, judgeScadJob, SCAD_USAGE, scadEndLines, scadJob, scadReceiptFields, scadStartLines, type ScadJobSpec } from '../native/openscad.js';
 import { parseScadWords } from '../native/scad-params.js';
@@ -1268,8 +1268,11 @@ export class Workspace {
     const w = splitCommandLine(args.trim());
     const scripted = parseAeScriptArgs(w);
     if (scripted) return 'error' in scripted ? this.say(scripted.error) : this.aeScript(scripted);
-    if (w.length < 3) return [[{ text: '  Usage:', role: 'secondary' }], ...AE_USAGE.map((u): Line => [{ text: `    ${u}`, role: 'secondary' }])];
-    return this.startNative(() => aerenderJob({ projectFile: w[0], comp: w[1], output: w[2], root: this.root, project: this.project.name }), `After Effects renders ${w[1]} from ${w[0]}`);
+    if (w.length < 3) return [[{ text: '  Usage:', role: 'secondary' }], ...[...AE_USAGE, ...AE_RENDER_NOTES].map((u): Line => [{ text: `    ${u}`, role: 'secondary' }])];
+    // R4 (H41): --om <template> is passed to aerender as -OMtemplate, by After Effects' own name, unchecked.
+    const r = parseAeRenderArgs(w);
+    if ('error' in r) return this.say(r.error);
+    return this.startNative(() => aerenderJob({ ...r, root: this.root, project: this.project.name }), `After Effects renders ${r.comp} from ${r.projectFile}${r.omTemplate ? ` with the output module template "${r.omTemplate}" (After Effects' own name; Timmy does not check it)` : ''}`);
   }
 
   /**

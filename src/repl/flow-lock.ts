@@ -1,7 +1,7 @@
 /**
  * One flow at a time in a project, of any kind, also while one is being started (round R4, the review's R4-5).
  *
- * A start of each of the four kinds (tray, blender, scad, freecad) awaits before its flow is registered as running (the
+ * A start of each kind (tray, blender, scad, freecad and, since H41, ae) awaits before its flow is registered as running (the
  * Codex preflight, /agent's own start), and a second start could pass the "one flow at a time" check in that time. So
  * every start takes its project here before its first await and gives it back when it ends, however it ends
  * (src/repl/iterate.ts holds it around each start, for /iterate and for the agent's tools alike); a start made while
@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export type FlowKind = 'tray' | 'blender' | 'scad' | 'freecad';
+export type FlowKind = 'tray' | 'blender' | 'scad' | 'freecad' | 'ae';
 
 /** A start that holds a project: its kind, and its flow's id once the start has made one. */
 export interface FlowHold { readonly key: string; readonly kind: FlowKind; id?: string }

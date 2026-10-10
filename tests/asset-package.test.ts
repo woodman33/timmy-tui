@@ -14,7 +14,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 const root = fileURLToPath(new URL('..', import.meta.url));
 /**
  * What the package must carry, file for file, as git tracks it. Round R4 (H40): this round's starters and workers too,
- * as scripts/packed-install-check.mjs's probe now asks for them in an installed package.
+ * as scripts/packed-install-check.mjs's probe now asks for them in an installed package. R4 (H41): workers/readback
+ * holds the STEP, .blend and video readback workers.
  */
 const SHIPPED = [
   'templates/web-starter', 'templates/c4d-starter', 'workers/look', 'workers/c4d',

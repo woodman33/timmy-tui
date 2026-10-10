@@ -273,8 +273,27 @@ export interface NativeMeta {
   frames?: { start?: number; end?: number };
   /** R3: when the run was submitted (ms since the epoch) */
   submittedMs?: number;
+  /** R4 (H41): aerender: its output's folder, listed at submission for files of the same name with other extensions */
+  siblings?: OutputSiblings;
 }
 export interface NativeJobSpec extends JobSpec { native: NativeMeta }
+
+/**
+ * R4 (H41): aerender's output module decides the container, and aerender gives the file that container's extension:
+ * asked for out/promo-v2.mov, After Effects 2026 wrote out/promo-v2.mp4 (H.264). So at submission the output's folder
+ * is listed for files named like the output with another extension; each one there then is recorded in `pre`, so a file
+ * of that name there after the run and not in `pre` was absent before it.
+ */
+export interface OutputSiblings {
+  /** the output's folder, relative to the project ('.' for the project folder itself) */
+  folder: string;
+  /** the output's name without its extension */
+  stem: string;
+  /** the output's own extension with its dot ('' when it has none) */
+  ext: string;
+  /** every file of the same stem there at submission is in `pre`: one there now that `pre` does not name was absent then */
+  listed: true;
+}
 
 export class NativeNotFound extends Error {
   constructor(readonly app: NativeApp, readonly setup: string, problem?: string) {
@@ -422,6 +441,8 @@ export interface NativeRunJob {
   /** R4: what `pre` covers besides the expected outputs (out/, for the scripted apps) */
   inventory?: NativeInventory;
   frames?: { start?: number; end?: number };
+  /** R4 (H41): aerender: its output's folder was listed for files of the same name with other extensions */
+  siblings?: OutputSiblings;
   started_at: string;
   timeout_ms: number;
 }
@@ -438,6 +459,8 @@ export interface NativeVerdictLine {
   checked?: SequenceCheck[];
   /** R4: how what ran was bound to the script submitted */
   source?: SourceCheck;
+  /** R4 (H41): aerender wrote another file than the one asked for */
+  instead?: AerenderInstead;
 }
 
 const runDir = (root: string, run: string): string => path.join(root, NATIVE_RUNS_DIR, run);
@@ -456,6 +479,7 @@ export function writeSubmission(spec: NativeJobSpec): void {
     ...(m.result ? { result: relTo(m.root, m.result) } : {}),
     ...(m.output ? { output: relTo(m.root, m.output) } : {}),
     expect: m.expect, pre: m.pre ?? {}, ...(m.inventory ? { inventory: m.inventory } : {}), ...(m.frames ? { frames: m.frames } : {}),
+    ...(m.siblings ? { siblings: m.siblings } : {}),
     started_at: new Date(m.submittedMs ?? Date.now()).toISOString(), timeout_ms: spec.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   };
   writeFileSync(path.join(dir, 'job.json'), `${JSON.stringify(job, null, 2)}\n`, { flag: 'wx' });
@@ -482,7 +506,7 @@ function appendVerdict(dir: string, j: NativeJudgement, jobId?: string): void {
     if (last && last.outcome === j.outcome && last.why === j.why && last.job === jobId) return;
     const line: NativeVerdictLine = {
       judged_at: new Date().toISOString(), ...(jobId ? { job: jobId } : {}), outcome: j.outcome, why: j.why, exit: j.exit, files: j.files,
-      ...(j.checked ? { checked: j.checked } : {}), ...(j.source ? { source: j.source } : {}),
+      ...(j.checked ? { checked: j.checked } : {}), ...(j.source ? { source: j.source } : {}), ...(j.instead ? { instead: j.instead } : {}),
     };
     appendFileSync(path.join(dir, 'verdicts.jsonl'), `${JSON.stringify(line)}\n`);
   } catch { /* the judgement stands without its record; a missing folder is not a verdict */ }
@@ -712,10 +736,38 @@ const frameNumber = (n: unknown, what: string): number | undefined => {
   return n;
 };
 
+/** R4 (H41): an extension aerender may give a file: letters and digits, after the output's stem and one dot. */
+const SIBLING_EXT = /^[A-Za-z0-9]{1,10}$/;
+
+/** R4 (H41): the output's folder, stem and extension (an image sequence has none: its frames are judged one by one). */
+export function outputSiblings(rel: string): OutputSiblings | undefined {
+  if (isSequence(rel)) return undefined;
+  const base = path.posix.basename(rel);
+  const dot = base.lastIndexOf('.');
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  const ext = dot > 0 ? base.slice(dot) : '';
+  if (!stem) return undefined;
+  const folder = path.posix.dirname(rel);
+  return { folder, stem, ext, listed: true };
+}
+
+/** R4 (H41): the files in the output's folder named <stem>.<another extension> now, project-relative, sorted. */
+function siblingNames(root: string, s: OutputSiblings, requested: string): string[] {
+  const at = (name: string): string => (s.folder === '.' ? name : `${s.folder}/${name}`);
+  return listDir(path.join(root, ...s.folder.split('/'))).filter((name) => {
+    if (!name.startsWith(`${s.stem}.`) || at(name) === requested) return false;
+    return SIBLING_EXT.test(name.slice(s.stem.length + 1));
+  }).sort().map(at);
+}
+
 /**
  * A task job running `aerender -project <file> -comp "<name>" -output <file> [-s <n>] [-e <n>]` in the
  * project folder. The output's folder is made here, before the job starts; the project file's sha256 and
- * the output's state before the run go into the run's job.json.
+ * the output's state before the run go into the run's job.json. R4 (H41): so do the files in that folder named
+ * like the output with another extension (`siblings`): aerender's output module decides the container, and
+ * aerender gives the file its extension, so a run asked for out/promo.mov can write out/promo.mp4. `-OMtemplate`
+ * names an output module template by After Effects' own name (they differ by version and language): passed as
+ * given, never checked here.
  */
 export function aerenderJob(input: AerenderJobInput): NativeJobSpec {
   const root = realRoot(input.root);
@@ -736,6 +788,9 @@ export function aerenderJob(input: AerenderJobInput): NativeJobSpec {
   mkdirSync(path.dirname(output.path), { recursive: true });
   const run = randomUUID();
   const frames = start !== undefined || end !== undefined ? { ...(start !== undefined ? { start } : {}), ...(end !== undefined ? { end } : {}) } : undefined;
+  // R4 (H41): the files of the same name with other extensions there now, recorded with the output's own state.
+  const siblings = outputSiblings(output.rel);
+  const pre = preStates(root, [output.rel, ...(siblings ? siblingNames(root, siblings, output.rel) : [])]);
   const spec: NativeJobSpec = {
     kind: 'task', label: input.label ?? `After Effects · ${project.rel} › ${input.comp}`, project: input.project, root,
     command: bin,
@@ -750,7 +805,7 @@ export function aerenderJob(input: AerenderJobInput): NativeJobSpec {
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     native: {
       app: 'aerender', root, run, record: runDir(root, run), output: output.path, expect: [output.rel],
-      input: { path: project.rel, sha256: project.sha256 }, pre: preStates(root, [output.rel]), ...(frames ? { frames } : {}), submittedMs,
+      input: { path: project.rel, sha256: project.sha256 }, pre, ...(frames ? { frames } : {}), ...(siblings ? { siblings } : {}), submittedMs,
     },
   };
   writeSubmission(spec);
@@ -824,7 +879,25 @@ export interface NativeJudgement {
   checked?: SequenceCheck[];
   /** R4 (finding 5): how what ran was bound to the script submitted, when the result got that far */
   source?: SourceCheck;
+  /**
+   * R4 (H41): aerender did not write the file it was asked for, and this run created files of the same name with other
+   * extensions in that folder: `written` when exactly one (it is judged as the output), else `candidates`, all of them.
+   */
+  instead?: AerenderInstead;
 }
+/** R4 (H41): what aerender wrote in place of the file it was asked for (see NativeJudgement.instead). */
+export interface AerenderInstead {
+  /** the output asked for, relative to the project: not there after the run */
+  requested: string;
+  /** the one file of the same name with another extension this run created: judged as the output */
+  written?: string;
+  /** more than one such file: each named, none judged */
+  candidates?: string[];
+  /** said with it wherever it is shown */
+  note: string;
+}
+/** R4 (H41): what a file aerender wrote in place of the one asked for is, in one sentence. */
+export const AERENDER_INSTEAD_NOTE = 'aerender\'s output module decides the container, and aerender gives the file that container\'s extension';
 export interface JudgeOptions {
   /** the project folder: file names are relative to it */
   root: string;
@@ -848,6 +921,8 @@ export interface JudgeOptions {
   frames?: { start?: number; end?: number };
   /** R3: when the run was submitted (ms) */
   submittedMs?: number;
+  /** R4 (H41): aerender: its output's folder was listed for files of the same name with other extensions */
+  siblings?: OutputSiblings;
 }
 
 const LIVE: ReadonlySet<JobState> = new Set<JobState>(['queued', 'running', 'ready']);
@@ -937,6 +1012,23 @@ function checkSequence(root: string, name: string, pre: PreState | undefined, fr
   return { pattern: name, range, range_from: from, written: inRange, missing, missing_count: missingCount, stale, by_change: byChange };
 }
 
+/**
+ * R4 (H41): the files of the output's name with other extensions in its folder now, by what this run did to each:
+ * created (absent at submission, as the folder's listing then says; a file now; made during the run) or changed
+ * (there at submission, other bytes now). Only `created` can stand in for the output.
+ */
+function siblingsMade(root: string, requested: string, s: OutputSiblings, pre: Record<string, PreState> | undefined, sinceMs: number): { created: NativeFileCheck[]; changed: string[] } {
+  const created: NativeFileCheck[] = [];
+  const changed: string[] = [];
+  for (const name of siblingNames(root, s, requested)) {
+    // The listing at submission recorded every file of this stem there: one it did not record was not there.
+    const c = classifyOutput(path.join(root, ...name.split('/')), pre?.[name] ?? { state: 'absent' }, sinceMs);
+    if (c.change === 'created' && madeByRun(c, sinceMs)) created.push({ path: name, present: true, written: true, change: 'created', ...(c.sha256 ? { sha256: c.sha256 } : {}) });
+    else if (c.change === 'changed') changed.push(name);
+  }
+  return { created, changed };
+}
+
 /** The judgement of a run with no result file (aerender): what it left, against its state at submission. */
 function judgeOutputs(x: ExitInfo, opts: JudgeOptions, who: string, verdict: (o: NativeJudgement['outcome'], why: string, files?: NativeFileCheck[], extra?: Partial<NativeJudgement>) => NativeJudgement): NativeJudgement {
   const names = opts.expect ?? [];
@@ -946,6 +1038,8 @@ function judgeOutputs(x: ExitInfo, opts: JudgeOptions, who: string, verdict: (o:
   const files: NativeFileCheck[] = [];
   const checked: SequenceCheck[] = [];
   const short: string[] = [];
+  /** R4 (H41): what aerender wrote in place of the output asked for, when it did not write that */
+  let instead: AerenderInstead | undefined;
   for (const name of names) {
     if (isSequence(name)) {
       const c = checkSequence(opts.root, name, opts.pre?.[name], opts.frames, sinceMs);
@@ -966,23 +1060,44 @@ function judgeOutputs(x: ExitInfo, opts: JudgeOptions, who: string, verdict: (o:
     }
     const w = writtenSince(path.join(opts.root, name), stateBefore(name, opts.pre, opts.inventory), sinceMs);
     files.push({ path: name, present: w.present, written: w.written, change: w.change, ...(w.inventoried ? {} : { inventoried: false as const }), ...(w.sha256 ? { sha256: w.sha256 } : {}) });
-    if (!w.written) short.push(`${name} (${w.words})`);
+    if (w.written) continue;
+    // R4 (H41): the output asked for is not there: a file of its name with another extension, made by this run, stands
+    // in for it when there is exactly one; more than one are named, and none is taken.
+    const alt = opts.siblings && !w.present ? siblingsMade(opts.root, name, opts.siblings, opts.pre, sinceMs) : undefined;
+    if (alt && alt.created.length === 1) {
+      files.push(alt.created[0]);
+      instead = { requested: name, written: alt.created[0].path, note: AERENDER_INSTEAD_NOTE };
+      continue;
+    }
+    if (alt && alt.created.length > 1) {
+      files.push(...alt.created);
+      instead = { requested: name, candidates: alt.created.map((f) => f.path), note: AERENDER_INSTEAD_NOTE };
+      continue;
+    }
+    const before = alt?.changed.length ? `; ${alt.changed.join(', ')} ${alt.changed.length === 1 ? 'was' : 'were'} there before this run and changed during it, so not taken as its output` : '';
+    short.push(`${name} (${w.words}${before})`);
   }
-  const extra: Partial<NativeJudgement> = checked.length ? { checked } : {};
-  // R4: each single output with what the run did to it (created, or changed from other bytes)
-  const made = files.map((f) => (f.change ? `${f.path} (${f.change})` : f.path)).join(', ');
+  const extra: Partial<NativeJudgement> = { ...(checked.length ? { checked } : {}), ...(instead ? { instead } : {}) };
+  if (instead?.candidates) {
+    const named = instead.candidates.join(' and ');
+    return verdict('unknown', `${who} ${x.text}, but ${instead.requested} (not there) was not written by this run; this run created ${named}, the same name with other extensions (${AERENDER_INSTEAD_NOTE}): more than one, so which is its output is not known${short.length ? `; ${short.join('; ')} was not written by this run` : ''}`, files, extra);
+  }
+  // R4: each single output with what the run did to it (created, or changed from other bytes); not the one asked for
+  // when another file stands in for it (R4, H41), which the sentence names first.
+  const made = files.filter((f) => !(instead && f.path === instead.requested)).map((f) => (f.change ? `${f.path} (${f.change})` : f.path)).join(', ');
+  const lead = instead?.written ? `${who} wrote ${instead.written} instead of ${instead.requested} (not there): ${AERENDER_INSTEAD_NOTE}; ` : '';
   if (!short.length) {
     if (opts.input) {
       const now = sha256File(path.join(opts.root, opts.input.path));
       if (now !== opts.input.sha256) {
-        return verdict('unknown', `${made} written during the run, but ${opts.input.path} ${now ? 'changed' : 'is gone'} since it was submitted, so what was rendered cannot be bound to it; ${who} ${x.text}`, files, extra);
+        return verdict('unknown', `${lead}${made} written during the run, but ${opts.input.path} ${now ? 'changed' : 'is gone'} since it was submitted, so what was rendered cannot be bound to it; ${who} ${x.text}`, files, extra);
       }
     }
-    if (x.clean) return verdict('ok', `${made} written during the run${opts.input ? `, from ${opts.input.path} as submitted` : ''}; ${who} exited 0`, files, extra);
-    return verdict('unknown', `${made} written during the run, but ${who} ${x.text}: its log says whether it finished`, files, extra);
+    if (x.clean) return verdict('ok', `${lead}${made} written during the run${opts.input ? `, from ${opts.input.path} as submitted` : ''}; ${who} exited 0`, files, extra);
+    return verdict('unknown', `${lead}${made} written during the run, but ${who} ${x.text}: its log says whether it finished`, files, extra);
   }
-  if (x.clean || !x.known) return verdict('unknown', `${who} ${x.text}, but ${short.join('; ')} was not written by this run`, files, extra);
-  return verdict('failed', `${who} ${x.text} and ${short.join('; ')} was not written by this run`, files, extra);
+  if (x.clean || !x.known) return verdict('unknown', `${lead}${who} ${x.text}, but ${short.join('; ')} was not written by this run`, files, extra);
+  return verdict('failed', `${lead}${who} ${x.text} and ${short.join('; ')} was not written by this run`, files, extra);
 }
 
 /**
@@ -1125,7 +1240,17 @@ function optionsOf(meta: NativeMeta): JudgeOptions {
     ...(meta.input ? { input: meta.input } : {}), ...(meta.copy ? { copy: meta.copy } : {}), ...(meta.pre ? { pre: meta.pre } : {}),
     ...(meta.inventory ? { inventory: meta.inventory } : {}), ...(meta.frames ? { frames: meta.frames } : {}),
     ...(meta.submittedMs !== undefined ? { submittedMs: meta.submittedMs } : {}),
+    ...(meta.siblings ? { siblings: meta.siblings } : {}),
   };
+}
+
+/** R4 (H41): a record's sibling listing, when it is one: its folder inside the project, a plain stem and extension. */
+function siblingsOf(v: unknown, within: (rel: string) => string): OutputSiblings | undefined {
+  const s = v && typeof v === 'object' ? v as Partial<OutputSiblings> : undefined;
+  if (!s || s.listed !== true || typeof s.folder !== 'string' || typeof s.stem !== 'string' || typeof s.ext !== 'string') return undefined;
+  if (!s.stem || s.stem.includes('/') || s.ext.includes('/')) return undefined;
+  if (s.folder !== '.') within(s.folder);
+  return { folder: s.folder, stem: s.stem, ext: s.ext, listed: true };
 }
 
 function judgeMeta(x: ExitInfo, meta: NativeMeta): NativeJudgement {
@@ -1179,10 +1304,13 @@ export function reconcileNative(root: string, run: string, opts: { job?: JobReco
   if (j.copy && !copy) throw new Error(`the record of run ${run} names its script's copy without a path and a sha256`);
   if (copy) within(copy.path);
   const inventory = j.inventory && Array.isArray(j.inventory.folders) && j.inventory.folders.every((f) => typeof f === 'string') ? j.inventory : undefined;
+  // R4 (H41): aerender's sibling listing, its folder checked to lead inside the project as every other name is
+  const siblings = j.app === 'aerender' ? siblingsOf(j.siblings, within) : undefined;
   const meta: NativeMeta = {
     app: j.app, root: base, run, record: rec.dir, expect, pre: j.pre ?? {}, submittedMs: started,
     ...(j.result ? { result: within(j.result) } : {}), ...(j.output ? { output: within(j.output) } : {}),
     ...(j.input ? { input: j.input } : {}), ...(copy ? { copy } : {}), ...(inventory ? { inventory } : {}), ...(j.frames ? { frames: j.frames } : {}),
+    ...(siblings ? { siblings } : {}),
   };
   const job = opts.job ?? (rec.started && opts.findJob ? opts.findJob(rec.started.job) : undefined);
   const x = job ? exitOf(job) : orphanExit('ended without a recorded exit status (reconciled from its record after a restart)', started);
@@ -1203,6 +1331,8 @@ export function nativeReceiptFields(app: NativeApp, j: NativeJudgement): {
   native: {
     app: NativeApp; outcome: NativeJudgement['outcome']; why: string; exit_code: number | null; signal: string | null; files: NativeFileCheck[]; c4d_version?: unknown;
     blender_version?: unknown; run?: string; input?: { path: string; sha256: string }; checked?: SequenceCheck[]; source?: SourceCheck;
+    /** R4 (H41): aerender wrote another file than the one asked for (the same name, another extension) */
+    instead?: AerenderInstead;
   };
 } {
   return {
@@ -1213,6 +1343,7 @@ export function nativeReceiptFields(app: NativeApp, j: NativeJudgement): {
       ...(j.blenderVersion === undefined ? {} : { blender_version: j.blenderVersion }),
       ...(j.run ? { run: j.run } : {}), ...(j.input ? { input: { ...j.input } } : {}), ...(j.checked ? { checked: j.checked.map((c) => ({ ...c })) } : {}),
       ...(j.source ? { source: { ...j.source, established_by: [...j.source.established_by] } } : {}),
+      ...(j.instead ? { instead: { ...j.instead, ...(j.instead.candidates ? { candidates: [...j.instead.candidates] } : {}) } } : {}),
     },
   };
 }
