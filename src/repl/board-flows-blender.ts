@@ -17,6 +17,10 @@
  * Round R4 (H40, review R4-4): a list in the record that is not a list, or entries in it that are not Timmy's (a check
  * that is not an object, a failing check without its differences, an object without a name), are left out or said as
  * such, and the card says what it left out; the Flows section draws each card inside a guard as well.
+ *
+ * Round R4 (H45): the step strip (agent, checks, blender, readback), a summary in view (the change, the second pass's
+ * verdict, the object sizes before → after with who measured them in one line and DOCTRINE §15), the render, the
+ * artifacts with their /open commands; the second pass's checks, the script's diff, the steps and the files in <details>.
  */
 import { DOCTRINE_15, type OtherChange } from '../flows/iterate.js';
 import {
@@ -25,6 +29,7 @@ import {
 } from '../flows/iterate-blender.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { BoardFlow } from './board-flows.js';
+import { artifactsHtml, detailsHtml, nextHtml, opensByDefault, recordStrip, summaryHtml, verdictWord } from './board-steps.js';
 
 export { isBlenderFlowRecord };
 
@@ -217,10 +222,40 @@ function dimensionsBlock(r: BlenderFlowRecord, verified: boolean, doctrine: bool
   return `<section class="${verified ? 'measured' : 'unverified'} dimensions"><h4>${esc(heading)}</h4>${body}<p class="meta">${esc(DIMENSIONS_SCOPE)}</p>${doctrine ? `<p class="doctrine">${esc(DOCTRINE_15)}</p>` : ''}</section>`;
 }
 
+/**
+ * R4 (H45): the summary, always in view: the script's change and its Python check, the second pass's verdict, and the
+ * objects whose size changed, with who measured what in one line and DOCTRINE §15 (as the record says, not verified,
+ * when no flow receipt sealed its bytes).
+ */
+function blenderSummary(r: BlenderFlowRecord, verified: boolean): string {
+  const rows: Array<[string, string]> = [];
+  const s = r.script && typeof r.script === 'object' ? r.script : undefined;
+  const ch = s?.change;
+  const syntax = s?.syntax && typeof s.syntax === 'object' ? s.syntax : undefined;
+  const python = !syntax ? '' : syntax.checked ? (syntax.ok ? 'parses as Python' : 'does not parse as Python') : 'not checked as Python';
+  const change = ch && finite(ch.added) && finite(ch.removed) && finite(ch.hunks_total) ? changeText(ch) : '';
+  if (change || python) rows.push(['change', esc([change, python].filter(Boolean).join(' · '))]);
+  const k = r.readback && typeof r.readback === 'object' ? r.readback : undefined;
+  const compared = entries<BlendCheck>(k?.checks, named).items.filter((c) => c.passed !== null).map((c) => String(c.name));
+  if (k?.verdict) rows.push(['verdict', `${verdictWord(String(k.verdict))}${esc(compared.length ? `compared by the second pass: ${compared.join(', ')}` : 'the second pass')}`]);
+  const d = (r as { dimensions?: unknown }).dimensions;
+  const sizes = d !== undefined && isDimensionsSummary(d) && unitsAsWritten(d.units) ? dimensionsText(d).sizes : '';
+  if (sizes) rows.push(['object sizes', esc(sizes)]);
+  const read = !!k?.read && Array.isArray(k.read.objects);
+  const who = sizes || read
+    ? `<p class="who">${esc(verified
+      ? 'Blender reported the sizes in its run; a second Blender process read the saved .blend back: the same application reading its own file, not an independent implementation; lengths in Blender units of a generated scene'
+      : 'Blender\'s report and the second pass, as the record says (not verified); lengths in Blender units of a generated scene')}</p><p class="doctrine">${esc(DOCTRINE_15)}</p>`
+    : '';
+  return summaryHtml(rows, who);
+}
+
 /** The card: drawn for a record whose target is 'blender' (isBlenderFlowRecord); `status` is the Flows section's verified line. */
 export function blenderFlowCard(f: BoardFlow, h: FlowCardHelpers, status: string): string {
   const r = f.record as unknown as BlenderFlowRecord;
+  const id = String(r.id);
   const outcome = String(r.outcome ?? 'unknown');
+  const open = opensByDefault(outcome);
   const b = r.blender;
   const shots = entries<{ path: string; sha256: string }>(b?.renders, pathed);
   const renders = shots.items;
@@ -235,18 +270,27 @@ export function blenderFlowCard(f: BoardFlow, h: FlowCardHelpers, status: string
     ...(b?.blend ? [`<li>${h.file(b.blend.path)} <span class="tier">${esc(`the .blend · sha256 ${shortSha(b.blend.sha256)}`)}</span></li>`] : []),
     ...(r.script?.path ? [`<li>${h.file(r.script.path)} <span class="tier">the script</span></li>`] : []),
     ...(b?.copy?.path ? [`<li>${h.file(b.copy.path)} <span class="tier">${esc('the copy Blender ran, kept at submission')}</span></li>`] : []),
-    `<li>${h.file(f.file)} <span class="tier">this record</span></li>`,
-  ].join('');
+    `<li>${h.file(f.file)} <span class="tier">${esc(f.live ? 'its state file (no record yet)' : 'this record')}</span></li>`,
+  ].filter(Boolean);
   const picture = renders.length ? h.thumb(renders[0].path) : '';
   const verified = f.check.status === 'verified';
   const readback = readbackBlock(r, verified);
+  // R4 (H45): what a person opens, each with its /open command (the commands are here only, once each).
+  const artifacts = artifactsHtml([
+    ...(b?.blend ? [{ role: '.blend', path: b.blend.path, note: 'the saved scene' }] : []),
+    ...(r.script?.path ? [{ role: 'script', path: r.script.path, note: 'what the agent changed' }] : []),
+    ...(renders.length ? [{ role: 'render', path: renders[0].path }] : []),
+    { role: f.live ? 'state file' : 'record', path: f.file },
+  ], h, receipts.length ? `<div class="meta">${esc(`receipts: ${receipts.join(' · ')}`)}</div>` : '');
   return `<article class="card flow blender"><div class="jobhead"><strong>${esc(r.id)}</strong> <span class="state state-${esc(outcome.replace(/[^a-z]/gi, ''))}">${esc(outcome)}</span></div>`
     + `<div class="meta">${esc(`iterate blender · ${r.script?.path ?? ''} · started ${when(r.started_at)}${r.ended_at ? ` · ended ${when(r.ended_at)}` : ''}${r.ended_in ? ` · in the ${r.ended_in} step` : ''}`)}</div>`
-    + `<p class="instruction">${esc(r.instruction ?? '')}</p>${status}`
-    + `${r.why ? `<p class="why">${esc(r.why)}</p>` : ''}${picture}${scriptBlock(r, h)}${stepsBlock(r, h)}${dimensionsBlock(r, verified, !readback)}${readback}`
-    + `<section class="files"><h4>files</h4><ul>${files}</ul></section>`
-    + `${receipts.length ? `<div class="meta">${esc(`receipts: ${receipts.join(' · ')}`)}</div>` : ''}`
-    + `<div class="cmds">${[...(r.script?.path ? [h.cmd(`/open ${r.script.path}`)] : []), ...(b?.blend ? [h.cmd(`/open ${b.blend.path}`)] : []), h.cmd(`/open ${f.file}`), h.cmd('/iterate')].join('')}</div></article>`;
+    + `<p class="instruction">${esc(r.instruction ?? '')}</p>${recordStrip(r, id)}${status}`
+    + `${r.why ? `<p class="why">${esc(r.why)}</p>` : ''}${nextHtml(r, h)}${blenderSummary(r, verified)}${picture}${artifacts}`
+    + detailsHtml({ id, part: 'checks', summary: 'the second pass: its checks, the object sizes, scope and DOCTRINE §15', body: `${dimensionsBlock(r, verified, !readback)}${readback}`, open })
+    + detailsHtml({ id, part: 'change', summary: r.script?.after ? 'the script, before → after' : 'the script', body: scriptBlock(r, h), open })
+    + detailsHtml({ id, part: 'steps', summary: 'the steps: jobs, receipts and raw output', body: stepsBlock(r, h), open })
+    + detailsHtml({ id, part: 'files', summary: `files (${files.length})`, body: `<section class="files"><h4>files</h4><ul>${files.join('')}</ul></section>`, open })
+    + `<div class="cmds">${[...(f.live ? [h.cmd(`/stop ${id}`)] : []), h.cmd('/iterate')].join('')}</div></article>`;
 }
 
 export const BLENDER_FLOW_CSS = `

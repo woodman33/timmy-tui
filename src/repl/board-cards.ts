@@ -68,30 +68,41 @@ export function paramsCard(root: string, recipe = 'tray'): ParamsCard {
 /** The base a save must still find: the file's sha256, or 'none' when there is no file. */
 const baseOf = (p: ParamsCard): string => (p.file.state === 'none' ? 'none' : p.file.sha256 ?? 'unreadable');
 
+/**
+ * The card. On the live board (R4, H45) each input has the value the saved file holds beside it ("saved", or the recipe's
+ * "default" when there is no usable file), and the page's form (EDIT_SCRIPT, src/repl/board-edits.ts) writes an edited
+ * field's before → after there; Save stays disabled while no value differs from the saved one (a file that is not usable
+ * can be replaced with the values shown at once). Saving while a flow runs in the project is refused with a 409, said.
+ */
 export function renderParamsCard(p: ParamsCard, k: Kit): string {
   const state = p.file.state === 'ok'
     ? `<div class="status status-verified"><strong>saved</strong> ${esc(`${p.path} · sha256 ${p.file.sha256.slice(0, 12)} · /recipe ${p.recipe} takes it as its defaults; name=value words override it`)}</div>`
     : p.file.state === 'none'
       ? `<div class="status status-none"><strong>defaults</strong> ${esc(`no ${p.path} yet: these are the recipe's own defaults${k.live ? '; Save writes the file' : ''}`)}</div>`
       : `<div class="status status-unverified"><strong>not usable</strong> ${esc(`${p.path}: ${p.file.error}. /recipe ${p.recipe} refuses to start until it is fixed; shown below are the recipe's defaults${k.live ? '; Save writes a new file and keeps this one' : ''}`)}</div>`;
+  // What each input starts from: the saved file's value, or the recipe's default when there is no usable file.
+  const savedWord = p.file.state === 'ok' ? 'saved' : 'default';
   const rows = PARAMETER_NAMES.map((name) => {
     const v = p.values[name];
     const value = k.live
       ? `<input type="number" step="any" inputmode="decimal" class="param-input" data-param="${esc(name)}" value="${esc(fmt(v))}" aria-label="${esc(`${name} in millimetres`)}"> <span class="unit">mm</span>`
       : `<span class="param-value">${esc(fmt(v))}</span> <span class="unit">mm</span>`;
+    const saved = k.live ? `<td class="saved"><span class="param-saved">${esc(fmt(v))}</span><span class="param-change" data-param-change></span></td>` : '';
     const differs = v !== p.defaults[name] ? ` (default ${fmt(p.defaults[name])})` : '';
-    return `<tr><th scope="row">${esc(name)}</th><td>${value}</td><td class="help">${esc(`${PARAMETER_HELP[name]}${differs}`)}</td></tr>`;
+    return `<tr><th scope="row">${esc(name)}</th><td>${value}</td>${saved}<td class="help">${esc(`${PARAMETER_HELP[name]}${differs}`)}</td></tr>`;
   }).join('');
   const fixed = Object.entries(p.fixed).map(([n, v]) => `${n} ${fmt(v)}`).join(', ');
+  const offered = p.file.state === 'ok' ? 'Save is offered once a value differs from the saved file. '
+    : p.file.state === 'none' ? 'Save is offered once a value differs from the recipe\'s defaults. ' : '';
   const live = k.live
-    ? `<div class="param-actions"><button type="button" class="act" data-params-save>Save parameters</button><button type="button" class="act quiet" data-params-discard>Discard</button>`
+    ? `<div class="param-actions"><button type="button" class="act" data-params-save${p.file.state === 'unusable' ? '' : ' disabled'}>Save parameters</button><button type="button" class="act quiet" data-params-discard>Discard</button>`
       + `${k.act('Rebuild', { act: 'rebuild', recipe: p.recipe })}</div><p class="params-msg" data-params-msg hidden></p>`
-      + `<p class="meta">${esc(`Save checks the values with the recipe's own rules and keeps the previous file under .timmy/params-history/. Rebuild runs /recipe ${p.recipe} from the saved file, as a job you can stop.`)}</p>`
+      + `<p class="meta">${esc(`${offered}Save checks the values with the recipe's own rules and keeps the previous file under .timmy/params-history/; while an /iterate flow runs in this project, Save is refused. Rebuild runs /recipe ${p.recipe} from the saved file, as a job you can stop.`)}</p>`
     : '';
-  const data = k.live ? ` data-params="${esc(p.recipe)}" data-params-base="${esc(baseOf(p))}"` : '';
+  const data = k.live ? ` data-params="${esc(p.recipe)}" data-params-base="${esc(baseOf(p))}" data-params-file="${esc(p.file.state)}"` : '';
   return `<article class="card wide params"${data}><div class="jobhead"><span>${p.file.state === 'none' ? `<span class="name">${esc(p.path)}</span>` : k.fileLink(p.path)}</span> <span class="kind">parameters</span></div>`
     + `<div class="meta">${esc(`${p.id} (/recipe ${p.recipe}) · ${p.engine} · ${p.units}`)}</div>${state}`
-    + `<table class="param-table"><thead><tr><th scope="col">parameter</th><th scope="col">value</th><th scope="col">meaning and range (mm)</th></tr></thead><tbody>${rows}</tbody></table>`
+    + `<table class="param-table"><thead><tr><th scope="col">parameter</th><th scope="col">value</th>${k.live ? `<th scope="col">${esc(savedWord)}</th>` : ''}<th scope="col">meaning and range (mm)</th></tr></thead><tbody>${rows}</tbody></table>`
     + `<p class="meta">${esc(`fixed (mm): ${fixed}`)}</p>${live}`
     + `${k.cmds([`/recipe ${p.recipe}`, ...(p.file.state === 'none' ? [] : [`/open ${p.path}`]), '/recipe status'])}`
     + `<p class="notice">${esc(DOCTRINE_15)}</p></article>`;
@@ -507,6 +518,11 @@ export const CARDS_CSS = `
 .unit { color: ${HOMEBREW.textSecondary}; }
 .param-input { font: inherit; width: 7.5em; color: ${HOMEBREW.text}; background: ${HOMEBREW.ground}; border: 1px solid ${HOMEBREW.lineStrong}; border-radius: 4px; padding: 2px 6px; }
 .param-input:focus-visible { outline: 2px solid ${HOMEBREW.accent}; outline-offset: 1px; }
+.param-table td.saved { white-space: nowrap; color: ${HOMEBREW.textSecondary}; }
+.param-table .param-change { color: ${HOMEBREW.text}; font-weight: ${TYPE.weight.strong}; }
+.param-table tr[data-edited] .param-saved { text-decoration: line-through; }
+.param-table tr[data-edited] th { color: ${HOMEBREW.attention}; }
+.param-actions .act[disabled] { opacity: .45; cursor: not-allowed; }
 .param-actions, .wf-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .params-msg, .wf-msg { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: ${TYPE.size.small}px; }
 .params-msg.bad, .wf-msg.bad { color: ${HOMEBREW.failure}; }

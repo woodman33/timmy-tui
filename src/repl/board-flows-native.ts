@@ -16,15 +16,21 @@
  * Round R4 (H40, review R4-4): a list in the record that is not a list, or entries in it that are not Timmy's (a
  * parameter change without a name, a check that is not an object, a document without a path), are left out and the
  * card says what it left out; the Flows section draws each card inside a guard as well.
+ *
+ * Round R4 (H45): the step strip (agent, checks, openscad, compare; agent, checks, freecad, readback), a summary in view
+ * (the change, the verdict, the before → after numbers with who measured them in one line and DOCTRINE §15), the preview,
+ * the artifacts with their /open commands; the measurements in full with their scope, the change in full, the steps and
+ * the files in <details>.
  */
 import { DOCTRINE_15, type OtherChange } from '../flows/iterate.js';
 import { changeText, isNativeFlowRecord, numText, sizeText, syntaxWords, type ScriptHunk } from '../flows/iterate-native.js';
-import { isScadFlowRecord, SCAD_COMPARE_SCOPE, scadVolumeText, type ScadCompareCheck, type ScadFlowRecord, type ScadParamChange } from '../flows/iterate-scad.js';
+import { isScadFlowRecord, SCAD_COMPARE_SCOPE, scadDiffText, scadVolumeText, type ScadCompareCheck, type ScadFlowRecord, type ScadParamChange } from '../flows/iterate-scad.js';
 import { isFreecadFlowRecord, type FreecadFlowRecord } from '../flows/iterate-freecad.js';
 import { FREECAD_READBACK_SCOPE, type FreecadReadbackCheck } from '../native/freecad.js';
 import { scadLiteral, type ScadValue } from '../native/scad-params.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { FlowRecord } from '../flows/iterate.js';
+import { artifactsHtml, detailsHtml, nextHtml, opensByDefault, recordStrip, summaryHtml, verdictWord } from './board-steps.js';
 
 export { isNativeFlowRecord };
 
@@ -34,8 +40,8 @@ export interface NativeCardHelpers {
   cmd: (c: string) => string;
   thumb: (p: unknown) => string;
 }
-/** The card's record and its check, as the Flows section holds them. */
-export interface NativeCardFlow { file: string; record: FlowRecord; check: { status: 'verified' | 'unverified'; receipt?: string } }
+/** The card's record and its check, as the Flows section holds them (R4, H45: `live` for a flow with no record yet). */
+export interface NativeCardFlow { file: string; record: FlowRecord; check: { status: 'verified' | 'unverified'; receipt?: string }; live?: { written: string } }
 
 const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (s: unknown): string => String(s).replace(/[&<>"']/g, (c) => ESC[c]);
@@ -166,9 +172,40 @@ function scadMeasuredBlock(r: ScadFlowRecord, verified: boolean): string {
     + `${rows.length ? `<dl>${rows.join('')}</dl>` : ''}${beforeAfterRows(ba, measure)}<p class="doctrine">${esc(DOCTRINE_15)}</p></section>`;
 }
 
+/** R4 (H45): the before → after summary row: an earlier judged-ok run and this run, each with its run. */
+function beforeAfterWords(ba: { before?: unknown; before_note?: unknown; after?: unknown } | undefined, show: (x: Record<string, unknown>) => string): string {
+  if (!ba || typeof ba !== 'object') return '';
+  const b = ba.before && typeof ba.before === 'object' ? ba.before as Record<string, unknown> : undefined;
+  const a = ba.after && typeof ba.after === 'object' ? ba.after as Record<string, unknown> : undefined;
+  if (!a) return '';
+  return b ? `${show(b)} → ${show(a)}` : `${typeof ba.before_note === 'string' ? ba.before_note : 'no earlier run'}; this run: ${show(a)}`;
+}
+
+/** R4 (H45): what a native card's summary says, kept in view: the change, the verdict, the numbers, who measured them. */
+function scadSummary(r: ScadFlowRecord, verified: boolean): string {
+  const rows: Array<[string, string]> = [];
+  const p = r.parameters && typeof r.parameters === 'object' ? r.parameters : undefined;
+  if (p && p.diff !== undefined && p.diff !== null) rows.push(['changed', esc(scadDiffText(p.diff))]);
+  const k = r.readback && typeof r.readback === 'object' ? r.readback : undefined;
+  if (k?.verdict) rows.push(['verdict', `${verdictWord(String(k.verdict))}${esc(k.verdict === 'no summary' ? 'succeeded, no OpenSCAD summary to compare' : 'Timmy\'s STL reading against OpenSCAD\'s own summary')}`]);
+  const numbers = beforeAfterWords(r.before_after, (x) => `${sizeText(x.size)}, volume ${finite(x.volume) ? numText(x.volume) : '?'} (run ${String(x.run ?? '?').slice(0, 8)})`);
+  const m = k?.measured;
+  const measured = !!m && Array.isArray(m.size) && m.size.length === 3;
+  if (numbers) rows.push(['before → after', esc(numbers)]);
+  else if (measured) rows.push(['measured', esc(`${sizeText(m!.size)}, volume ${finite(m!.volume) ? numText(m!.volume) : '?'}`)]);
+  const who = numbers || measured
+    ? `<p class="who">${esc(verified
+      ? 'measured from the CAD file: Timmy\'s own reading of each exported STL (independent of OpenSCAD\'s engine), against OpenSCAD\'s own summary; in the file\'s units (millimetres by OpenSCAD\'s convention), not a physical part'
+      : 'measured from the CAD file, as the record says (not verified)')}</p><p class="doctrine">${esc(DOCTRINE_15)}</p>`
+    : '';
+  return summaryHtml(rows, who);
+}
+
 function scadCard(f: NativeCardFlow, h: NativeCardHelpers, status: string): string {
   const r = f.record as unknown as ScadFlowRecord;
+  const id = String(r.id);
   const outcome = String(r.outcome ?? 'unknown');
+  const open = opensByDefault(outcome);
   const o = r.openscad;
   const stl = o?.stl?.made ? o.stl : undefined;
   const png = o?.png?.made ? o.png : undefined;
@@ -182,15 +219,26 @@ function scadCard(f: NativeCardFlow, h: NativeCardHelpers, status: string): stri
     ...(r.parameters?.path ? [`<li>${h.file(r.parameters.path)} <span class="tier">the parameter file</span></li>`] : []),
     ...(r.model?.path ? [`<li>${h.file(r.model.path)} <span class="tier">the model</span></li>`] : []),
     ...(o?.copy?.path ? [`<li>${h.file(o.copy.path)} <span class="tier">${esc('the copy OpenSCAD ran, kept at submission')}</span></li>`] : []),
-    `<li>${h.file(f.file)} <span class="tier">this record</span></li>`,
-  ].join('');
+    `<li>${h.file(f.file)} <span class="tier">${esc(f.live ? 'its state file (no record yet)' : 'this record')}</span></li>`,
+  ];
+  // R4 (H45): what a person opens, each with its /open command (the commands are here only, once each).
+  const artifacts = artifactsHtml([
+    ...(r.model?.path ? [{ role: '.scad', path: r.model.path, note: 'the model, unchanged by the flow' }] : []),
+    ...(r.parameters?.path ? [{ role: 'parameters', path: r.parameters.path, note: 'what the agent changed' }] : []),
+    ...(stl ? [{ role: 'STL', path: stl.path }] : []),
+    ...(png ? [{ role: 'preview', path: png.path }] : []),
+    { role: f.live ? 'state file' : 'record', path: f.file },
+  ], h, receipts.length ? `<div class="meta">${esc(`receipts: ${receipts.join(' · ')}`)}</div>` : '');
+  const verified = f.check.status === 'verified';
   return `<article class="card flow scad"><div class="jobhead"><strong>${esc(r.id)}</strong> <span class="state state-${esc(outcome.replace(/[^a-z]/gi, ''))}">${esc(outcome)}</span></div>`
     + `<div class="meta">${esc(`iterate scad · ${r.model?.path ?? ''} · started ${when(r.started_at)}${r.ended_at ? ` · ended ${when(r.ended_at)}` : ''}${r.ended_in ? ` · in the ${r.ended_in} step` : ''}`)}</div>`
-    + `<p class="instruction">${esc(r.instruction ?? '')}</p>${status}`
-    + `${r.why ? `<p class="why">${esc(r.why)}</p>` : ''}${png ? h.thumb(png.path) : ''}${scadParamsBlock(r, h)}${scadStepsBlock(r, h)}${scadMeasuredBlock(r, f.check.status === 'verified')}`
-    + `<section class="files"><h4>files</h4><ul>${files}</ul></section>`
-    + `${receipts.length ? `<div class="meta">${esc(`receipts: ${receipts.join(' · ')}`)}</div>` : ''}`
-    + `<div class="cmds">${[...(r.parameters?.path ? [h.cmd(`/open ${r.parameters.path}`)] : []), ...(stl ? [h.cmd(`/open ${stl.path}`)] : []), h.cmd(`/open ${f.file}`), h.cmd('/iterate')].join('')}</div></article>`;
+    + `<p class="instruction">${esc(r.instruction ?? '')}</p>${recordStrip(r, id)}${status}`
+    + `${r.why ? `<p class="why">${esc(r.why)}</p>` : ''}${nextHtml(r, h)}${scadSummary(r, verified)}${png ? h.thumb(png.path) : ''}${artifacts}`
+    + detailsHtml({ id, part: 'checks', summary: 'the comparison: Timmy\'s STL reading, OpenSCAD\'s summary, scope and DOCTRINE §15', body: scadMeasuredBlock(r, verified), open })
+    + detailsHtml({ id, part: 'change', summary: r.parameters?.after ? 'the parameters, before → after' : 'the parameters', body: scadParamsBlock(r, h), open })
+    + detailsHtml({ id, part: 'steps', summary: 'the steps: jobs, receipts and raw output', body: scadStepsBlock(r, h), open })
+    + detailsHtml({ id, part: 'files', summary: `files (${files.length})`, body: `<section class="files"><h4>files</h4><ul>${files.join('')}</ul></section>`, open })
+    + `<div class="cmds">${[...(f.live ? [h.cmd(`/stop ${id}`)] : []), h.cmd('/iterate')].join('')}</div></article>`;
 }
 
 // ── FreeCAD ──────────────────────────────────────────────────────────────────────
@@ -277,9 +325,34 @@ function freecadMeasuredBlock(r: FreecadFlowRecord, verified: boolean): string {
     + `${rows.length ? `<dl>${rows.join('')}</dl>` : ''}${beforeAfterRows(ba, measure)}<p class="doctrine">${esc(DOCTRINE_15)}</p></section>`;
 }
 
+function freecadSummary(r: FreecadFlowRecord, verified: boolean): string {
+  const rows: Array<[string, string]> = [];
+  const s = r.script && typeof r.script === 'object' ? r.script : undefined;
+  const ch = s?.change;
+  const syntax = s?.syntax && typeof s.syntax === 'object' ? s.syntax : undefined;
+  const python = !syntax ? '' : syntax.checked ? (syntax.ok ? 'parses as Python' : 'does not parse as Python') : 'not checked as Python';
+  const change = ch && finite(ch.added) && finite(ch.removed) && finite(ch.hunks_total) ? changeText(ch) : '';
+  if (change || python) rows.push(['change', esc([change, python].filter(Boolean).join(' · '))]);
+  const k = r.readback && typeof r.readback === 'object' ? r.readback : undefined;
+  const verdict = k?.verdict ?? (k?.state === 'not run' ? 'succeeded without readback' : undefined);
+  if (verdict) rows.push(['verdict', `${verdictWord(String(verdict))}${esc(k?.verdict ? 'FreeCAD\'s report against the STEP read back' : 'the STEP was not read back')}`]);
+  const numbers = beforeAfterWords(r.before_after, (x) => `${sizeText(x.size)} mm, ${finite(x.volume_mm3) ? `${numText(x.volume_mm3)} mm3` : '?'} (run ${String(x.run ?? '?').slice(0, 8)})`);
+  if (numbers) rows.push(['before → after', esc(numbers)]);
+  const m = k?.measured && typeof k.measured === 'object' ? k.measured : undefined;
+  if (m) rows.push(['read back', esc(shapeText(m))]);
+  const who = numbers || m || r.freecad?.reported
+    ? `<p class="who">${esc(verified
+      ? 'measured from the CAD file: FreeCAD\'s own report of its document, and the exported STEP read back with OpenCascade\'s reader in its own process (both OpenCascade, not an independent kernel); not a physical part'
+      : 'measured from the CAD file, as the record says (not verified)')}</p><p class="doctrine">${esc(DOCTRINE_15)}</p>`
+    : '';
+  return summaryHtml(rows, who);
+}
+
 function freecadCard(f: NativeCardFlow, h: NativeCardHelpers, status: string): string {
   const r = f.record as unknown as FreecadFlowRecord;
+  const id = String(r.id);
   const outcome = String(r.outcome ?? 'unknown');
+  const open = opensByDefault(outcome);
   const c = r.freecad;
   const receipts = [
     ...(r.receipts?.agent ? [`agent ${r.receipts.agent}`] : []), ...(r.receipts?.freecad ? [`FreeCAD ${r.receipts.freecad}`] : []),
@@ -294,25 +367,35 @@ function freecadCard(f: NativeCardFlow, h: NativeCardHelpers, status: string): s
     ...(c?.step ? [`<li>${h.file(c.step.path)} <span class="tier">${esc(`the STEP · sha256 ${shortSha(c.step.sha256)}`)}</span></li>`] : []),
     ...(r.script?.path ? [`<li>${h.file(r.script.path)} <span class="tier">the script</span></li>`] : []),
     ...(c?.copy?.path ? [`<li>${h.file(c.copy.path)} <span class="tier">${esc('the copy freecadcmd ran, kept at submission')}</span></li>`] : []),
-    `<li>${h.file(f.file)} <span class="tier">this record</span></li>`,
-  ].join('');
+    `<li>${h.file(f.file)} <span class="tier">${esc(f.live ? 'its state file (no record yet)' : 'this record')}</span></li>`,
+  ].filter(Boolean);
+  // R4 (H45): what a person opens, each with its /open command (the commands are here only, once each).
+  const artifacts = artifactsHtml([
+    ...fcstd.map((x) => ({ role: '.FCStd', path: x.path, note: 'the FreeCAD document' })),
+    ...(c?.step ? [{ role: 'STEP', path: c.step.path, note: 'the exported CAD file' }] : []),
+    ...(r.script?.path ? [{ role: 'script', path: r.script.path, note: 'what the agent changed' }] : []),
+    { role: f.live ? 'state file' : 'record', path: f.file },
+  ], h, receipts.length ? `<div class="meta">${esc(`receipts: ${receipts.join(' · ')}`)}</div>` : '');
+  const verified = f.check.status === 'verified';
   return `<article class="card flow freecad"><div class="jobhead"><strong>${esc(r.id)}</strong> <span class="state state-${esc(outcome.replace(/[^a-z]/gi, ''))}">${esc(outcome)}</span></div>`
     + `<div class="meta">${esc(`iterate freecad · ${r.script?.path ?? ''} · started ${when(r.started_at)}${r.ended_at ? ` · ended ${when(r.ended_at)}` : ''}${r.ended_in ? ` · in the ${r.ended_in} step` : ''}`)}</div>`
-    + `<p class="instruction">${esc(r.instruction ?? '')}</p>${status}`
-    + `${r.why ? `<p class="why">${esc(r.why)}</p>` : ''}${scriptBlock(r, h)}${freecadStepsBlock(r, h)}${freecadMeasuredBlock(r, f.check.status === 'verified')}`
-    + `<section class="files"><h4>files</h4><ul>${files}</ul></section>`
-    + `${receipts.length ? `<div class="meta">${esc(`receipts: ${receipts.join(' · ')}`)}</div>` : ''}`
-    + `<div class="cmds">${[...(r.script?.path ? [h.cmd(`/open ${r.script.path}`)] : []), ...(c?.step ? [h.cmd(`/open ${c.step.path}`)] : []), ...fcstd.slice(0, 1).map((x) => h.cmd(`/open ${x.path}`)), h.cmd(`/open ${f.file}`), h.cmd('/iterate')].join('')}</div></article>`;
+    + `<p class="instruction">${esc(r.instruction ?? '')}</p>${recordStrip(r, id)}${status}`
+    + `${r.why ? `<p class="why">${esc(r.why)}</p>` : ''}${nextHtml(r, h)}${freecadSummary(r, verified)}${artifacts}`
+    + detailsHtml({ id, part: 'checks', summary: 'the readback: FreeCAD\'s report, the measurement, scope and DOCTRINE §15', body: freecadMeasuredBlock(r, verified), open })
+    + detailsHtml({ id, part: 'change', summary: r.script?.after ? 'the script, before → after' : 'the script', body: scriptBlock(r, h), open })
+    + detailsHtml({ id, part: 'steps', summary: 'the steps: jobs, receipts and raw output', body: freecadStepsBlock(r, h), open })
+    + detailsHtml({ id, part: 'files', summary: `files (${files.length})`, body: `<section class="files"><h4>files</h4><ul>${files.join('')}</ul></section>`, open })
+    + `<div class="cmds">${[...(f.live ? [h.cmd(`/stop ${id}`)] : []), h.cmd('/iterate')].join('')}</div></article>`;
 }
 
 /** The card for an OpenSCAD or FreeCAD flow (isNativeFlowRecord); `status` is the Flows section's verified line. */
 export function nativeFlowCard(f: NativeCardFlow, h: NativeCardHelpers, status: string): string {
   if (isScadFlowRecord(f.record)) return scadCard(f, h, status);
   if (isFreecadFlowRecord(f.record)) return freecadCard(f, h, status);
-  // a record that says scad or freecad but lacks its parts: the record's own words, as recorded
+  // a record that says scad or freecad but lacks its parts: the record's own words, as recorded (R4, H45: with its strip)
   const r = f.record;
   return `<article class="card flow"><div class="jobhead"><strong>${esc(r.id)}</strong> <span class="state">${esc(String(r.outcome ?? 'unknown'))}</span></div>`
-    + `<p class="instruction">${esc(r.instruction ?? '')}</p>${status}${r.why ? `<p class="why">${esc(r.why)}</p>` : ''}<section class="files"><h4>files</h4><ul><li>${h.file(f.file)} <span class="tier">this record</span></li></ul></section></article>`;
+    + `<p class="instruction">${esc(r.instruction ?? '')}</p>${recordStrip(r, String(r.id))}${status}${r.why ? `<p class="why">${esc(r.why)}</p>` : ''}<section class="files"><h4>files</h4><ul><li>${h.file(f.file)} <span class="tier">${esc(f.live ? 'its state file (no record yet)' : 'this record')}</span></li></ul></section></article>`;
 }
 
 export const NATIVE_FLOW_CSS = `
