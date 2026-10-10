@@ -262,12 +262,19 @@ export class IterateFlows {
   /**
    * R4 review (R4-5): runs a start holding its project (src/repl/flow-lock.ts), taken before the start's first await and
    * given back when it ends, however it ends. A start made while another holds the project is refused with its own kind's
-   * words, naming the flow being started there (its prepare step); a flow already running is found by the start itself.
+   * words, naming the flow being started there (its prepare step); R4 (H46): so is a start while a flow of any kind runs
+   * there, before any other check of the start (each start still checks it too).
    */
   private async exclusive<S>(kind: FlowKind, root: string, start: () => Promise<S>): Promise<S | Refused> {
     const t = this.lock.take(root, kind);
     if (!t.ok) return this.busyRefusal(kind, { ...(t.by.id ? { id: t.by.id } : {}), step: 'prepare' });
-    try { return await start(); } finally { this.lock.release(t.hold); }
+    try {
+      // R4 (H46, ledger row 153): a flow already running in the project is named before any other check of the start (its
+      // file, its route, its app): on the Mac, /iterate scad answered "No model at box.scad" while a tray flow ran there.
+      const busy = [...this.running.values()].find((f) => f.root === root) ?? this.otherIn(root);
+      if (busy) return this.busyRefusal(kind, busy);
+      return await start();
+    } finally { this.lock.release(t.hold); }
   }
 
   /** A start refused because a flow runs, or is being started, in its project: the refused kind's words, nothing written. */

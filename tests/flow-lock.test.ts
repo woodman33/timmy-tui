@@ -9,6 +9,10 @@
  * until the test releases it, then answers that it did not start, so no agent, job or app runs; Blender, OpenSCAD,
  * freecadcmd, After Effects and aerender are stand-in programs that are found and never run; TIMMY_CADQUERY_PYTHON names a FAKE file that is never
  * executed; the tray's readback is a test seam that is never reached. Real files, in os.tmpdir().
+ *
+ * R4 (H46, ledger row 153): a flow already running in the project is named before any other check of a start. That case
+ * runs a real Workspace whose tray flow is held in its agent step by tests/fixtures/fake-code-agent.mjs (a TEST DOUBLE:
+ * its SLEEP word makes it wait); each kind's start is given a line that an earlier check would refuse.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
@@ -16,6 +20,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { JobManager } from '../src/jobs/index.js';
 import { IterateFlows, type AgentStart, type IterateDeps } from '../src/repl/iterate.js';
+import { Workspace } from '../src/repl/workspace.js';
+import { folderProject } from '../src/project/index.js';
 import { glyphSet } from '../src/term/glyphs.js';
 
 const REPO = path.resolve(__dirname, '..');
@@ -166,4 +172,36 @@ describe('a start that fails still gives the project back', () => {
     expect(failing.calls).toHaveLength(2);
     await raced;
   });
+});
+
+describe('R4 (H46): a flow already running in the project is named before any other check of a start', () => {
+  it('a tray flow in its agent step: a scad, freecad, ae, blender and tray start, each with a line an earlier check refuses, name that flow', async () => {
+    const root = project();
+    const ws = new Workspace({
+      glyphs: glyphSet(true), env, onPath: () => null, notify: () => {}, openWeb: (u) => u, link: (t) => t, seal: () => undefined,
+      jobsDir: path.join(fs.mkdtempSync(path.join(fixtures, 'jobs-')), 'jobs'), chdir: () => {}, receipts: () => [], recoverAtStart: false,
+      // Test seam: the tray's readback worker, never reached here.
+      iterateTest: { readback: () => ({ command: process.execPath, args: ['-e', ''] }) },
+    }, folderProject(root));
+    try {
+      const started = text(await ws.iterate('tray "make it wider SLEEP"'));
+      const id = started.match(/Flow\s+(f[0-9a-f]{8})/)?.[1];
+      expect(id, started).toBeDefined();
+      // What each line meets first otherwise: no such model or script, or (the tray) an agent not on PATH.
+      const lines: Array<[Kind, string, string]> = [
+        ['scad', 'scad missing.scad "make it wider"', 'No model at missing.scad'],
+        ['freecad', 'freecad missing.py "make it longer"', 'No script at missing.py'],
+        ['ae', 'ae missing.jsx "move it right"', 'No script at missing.jsx'],
+        ['blender', 'blender missing.py "make the sphere red"', 'No script at missing.py'],
+        ['tray', 'tray "make it narrower" --agent codex', 'is not on PATH'],
+      ];
+      for (const [kind, line, earlier] of lines) {
+        const out = text(await ws.iterate(line));
+        expect(out, line).toMatch(BUSY(kind).source.includes('prepare') ? new RegExp(BUSY(kind).source.replace('its prepare step', 'its agent step')) : BUSY(kind));
+        expect(out, line).toContain(`Flow ${id} is still running in this project (its agent step)`);
+        expect(out, line).not.toContain(earlier);
+      }
+      expect(text(await ws.stop(id!))).toContain(`${id} cancelled`);
+    } finally { await ws.close(); }
+  }, 60_000);
 });
