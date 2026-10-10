@@ -166,7 +166,7 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
 
   // ── agent tools (what the REPL's agent can call; NEEDS YOU asks before the risky ones)
   add({ id: 'builtin', kind: 'tool', name: 'Built-in tools', rung: 'installed', detail: 'time, math, system, env (asks), spatial files', tools: ['get_current_time', 'calculate', 'get_system_info', 'get_env', 'read_spatial_model_context'] });
-  add({ id: 'project-files', kind: 'tool', name: 'Project files', rung: 'installed', detail: 'list, read, write (asks) in the project', tools: ['list_project_files', 'read_project_file', 'write_project_file'] });
+  add({ id: 'project-files', kind: 'tool', name: 'Project files', rung: 'installed', detail: 'list, read, write (asks) in the project; recall its records by words (R4 H50)', tools: ['list_project_files', 'read_project_file', 'write_project_file', 'recall_project_work'] });
   const canvasTools = ['canvas_exec', 'canvas_read', 'canvas_api'];
   // Reachable only when a page answered: the tools draw in the page, not in the server (review finding).
   add(studio.state === 'running' && studio.pageConnected === true

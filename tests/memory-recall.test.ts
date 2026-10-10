@@ -14,7 +14,10 @@ import { BY_WORDS, recallWords } from '../src/memory/recall.js';
 import { readCard } from '../src/recipes/index.js';
 import { DETERMINISTIC } from '../src/vision/look.js';
 import { enqueue } from '../lanes/recipes/jobs.js';
-import { memoryKit, put, realSeal, sealIn, sha, text, workspace, writeFlow } from './helpers/memory-kit.js';
+import { createProjectTools } from '../src/agent/project-tools.js';
+import { approvalNeeded } from '../src/repl/approvals.js';
+import { replTools } from '../src/repl/main.js';
+import { chainOf, memoryKit, put, realSeal, sealIn, sha, text, workspace, writeFlow } from './helpers/memory-kit.js';
 
 const kit = memoryKit();
 afterEach(async () => { vi.unstubAllEnvs(); await kit.cleanup(); });
@@ -150,5 +153,26 @@ describe('/recall: by words, not meaning, over every kind of retained record', (
     expect(usage).toContain(BY_WORDS);
     expect(usage).toContain('MCP calls (server, tool and arguments, never the output)');
     expect(text(ws.recall('a'))).toContain('Give words of two characters or more');
+  });
+});
+
+describe('recall_project_work: the agent\'s read-only recall (the same hits, as data)', () => {
+  type Exec = (a: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  it('gives the hits with their files and receipts, names what it cannot read, scrubs the project\'s folder, and asks nothing', async () => {
+    const root = kit.temp('memory-tool-');
+    const flow = writeFlow(root, { instruction: `make the zebra wider than ${root}/notes`, verdict: 'matches' });
+    put(root, 'results/flows/f99999999.json', '{ not json');
+    const tools = createProjectTools({ root: () => root, chain: () => chainOf(root) });
+    const tool = tools.find((t) => t.function.name === 'recall_project_work')!;
+    const call = (args: Record<string, unknown>): Promise<Record<string, unknown>> => (tool.function as unknown as { execute: Exec }).execute(args);
+    const r = await call({ words: 'zebra' });
+    expect(r).toMatchObject({ ok: true, how: BY_WORDS, words: ['zebra'], total: 1, shown: 1 });
+    expect(r.hits).toEqual([expect.objectContaining({ kind: 'flow', id: flow.id, file: flow.rel, receipt: flow.receipt!.hash.slice(7, 15), matched: ['zebra'] })]);
+    expect(r.unreadable).toEqual([expect.objectContaining({ kind: 'flow', file: 'results/flows/f99999999.json' })]);
+    expect(JSON.stringify(r)).not.toContain(root);
+    expect(String((r.hits as Array<{ line: string }>)[0].line)).toContain('./notes');
+    expect(await call({ words: 'x' })).toMatchObject({ ok: false, error: 'Give words of two characters or more.' });
+    expect(approvalNeeded('recall_project_work', { words: 'zebra' })).toBeNull();
+    expect(replTools().map((t) => t.function.name)).toContain('recall_project_work');
   });
 });
