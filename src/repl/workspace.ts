@@ -1847,8 +1847,9 @@ export class Workspace {
     const r = st.record;
     const f = r.files;
     const ok = r.outcome === 'completed';
+    const unknown = r.outcome === 'unknown'; // R4 (H69): neither a ✓ nor a ✖: "?", as the Control Room marks such a run
     const cost = r.cost_usd === null ? 'cost unknown' : r.cost_usd === undefined ? '' : `cost $${r.cost_usd.toFixed(4)}${r.cost_basis === 'local endpoint' ? ' (local endpoint)' : ''}`;
-    return [{ text: `  ${ok ? g.ok : r.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok ? undefined : 'failure' }, { text: `${job.id} ${r.outcome ?? job.state}`, role: ok ? 'strong' : 'failure' },
+    return [{ text: `  ${ok ? g.ok : r.outcome === 'cancelled' ? ' ' : unknown ? '?' : g.fail} `, role: ok ? undefined : unknown ? 'estimate' : 'failure' }, { text: `${job.id} ${r.outcome ?? job.state}`, role: ok ? 'strong' : unknown ? 'estimate' : 'failure' },
       { text: `  agent ${r.agent} ${r.run}${f ? `: ${f.added.length} added, ${f.changed.length} changed, ${f.deleted.length} deleted` : ''}${r.openhands?.writeback ? `${this.sep}${writeBackShort(r.openhands.writeback)}` : ''}${cost ? `${this.sep}${cost}` : ''}${job.receipt ?? r.receipt ? `${this.sep}receipt ${job.receipt ?? r.receipt}` : ''}${this.sep}/agent last`, role: 'secondary' }];
   }
 
