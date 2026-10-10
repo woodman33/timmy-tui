@@ -34,6 +34,8 @@ import { checkVoxAction, VOX_LIVE_SCRIPT } from './board-vox.js';
 import { checkLessonAction } from '../memory/board.js';
 // Round R4 (H60): /file serves only inert images (the audit of every route is in that module's comment).
 import { FILE_HEADERS, imageOnly } from './board-file-guard.js';
+// Round R4 (H65): the review's Restore: the typed /restore <file> --from <kept>, only for a pair the board offers.
+import { checkRestoreAction } from '../review/html.js';
 import { HOMEBREW } from '../theme/tokens.js';
 import { FLOW_ID } from '../flows/iterate.js';
 
@@ -49,10 +51,12 @@ export type BoardAction =
   /** R4 (H61): View in Rerun on a VoxVision record the board shows: the typed `/vox view <id> rerun` */
   | { action: 'vox'; verb: 'view'; id: string }
   /** R4 (H50): Memory's Check on a lesson the board shows: the typed `/lesson check <id>` */
-  | { action: 'lesson'; verb: 'check'; id: string };
+  | { action: 'lesson'; verb: 'check'; id: string }
+  /** R4 (H65): the review's Restore of a pair the board offers: the typed `/restore <file> --from <kept previous version>` */
+  | { action: 'restore'; file: string; from: string };
 
 /** The typed command a valid action stands for: its name, its argument string and the line as typed. */
-export interface BoardCommand { name: 'stop' | 'run' | 'observe' | 'recipe' | 'inspect' | 'measure' | 'detect' | 'compare' | 'lesson' | 'vox'; args: string; line: string }
+export interface BoardCommand { name: 'stop' | 'run' | 'observe' | 'recipe' | 'inspect' | 'measure' | 'detect' | 'compare' | 'lesson' | 'vox' | 'restore'; args: string; line: string }
 
 /** What the live board shows and what its actions are checked against; no absolute path in any of it. */
 export interface LiveState {
@@ -81,6 +85,8 @@ export interface LiveState {
   wfStates?: Array<{ doc: string; key: string; word: string; glyph: string; detail: string }>;
   /** R4 (H50): the lessons whose Check the board offers (not retired), by id. */
   lessons?: string[];
+  /** R4 (H65): the kept versions the review shows now (src/review/html.ts restorePairs): a file and its kept previous version. */
+  restores?: Array<{ file: string; from: string }>;
 }
 
 export interface LiveBoardDeps {
@@ -177,7 +183,8 @@ export function checkAction(body: unknown, state: LiveState): Checked {
   }
   if (o.action === 'vox') return checkVoxAction(o, state.voxFiles ?? [], state.voxRecords ?? []);
   if (o.action === 'lesson') return checkLessonAction(o, state.lessons ?? []); // R4 (H50)
-  return bad(400, 'Unknown action: stop, run, observe, rebuild, vox and lesson are the actions.');
+  if (o.action === 'restore') return checkRestoreAction(o, state.restores ?? []); // R4 (H65)
+  return bad(400, 'Unknown action: stop, run, observe, rebuild, vox, lesson and restore are the actions.');
 }
 
 const sha = (s: string): Buffer => createHash('sha256').update(s).digest();
@@ -516,7 +523,9 @@ const LIVE_SCRIPT = `
       : a === 'rebuild' ? { action: 'rebuild', recipe: b.getAttribute('data-recipe') }
       : a === 'vox' && typeof TimmyVox !== 'undefined' ? TimmyVox.body(b)
       // R4 (H50): Memory's Check on a lesson.
-      : a === 'lesson-check' ? { action: 'lesson', verb: 'check', id: b.getAttribute('data-lesson') } : null;
+      : a === 'lesson-check' ? { action: 'lesson', verb: 'check', id: b.getAttribute('data-lesson') }
+      // R4 (H65): the review's Restore: the file and the kept version it names, checked again by Timmy.
+      : a === 'restore' ? { action: 'restore', file: b.getAttribute('data-file'), from: b.getAttribute('data-from') } : null;
     if (!body || !token) return;
     var label = b.textContent;
     b.disabled = true; b.textContent = label + ' …'; busy++;
@@ -568,7 +577,7 @@ export function livePage(nonce: string): string {
     '<header>',
     '<h1>Board · <span class="project" id="project"></span> <span class="live">live</span></h1>',
     '<p class="sub" id="status">connecting…</p>',
-    '<p class="sub">Stop, Run, Observe, Rebuild, VoxVision\'s Inspect, Measure, Detect and Compare, and Memory\'s Check act through Timmy as the typed command, shown in Timmy as coming from the board. Saving parameters or workflow blocks is checked by Timmy, which keeps the previous version. A green command copies itself.</p>',
+    '<p class="sub">Stop, Run, Observe, Rebuild, VoxVision\'s Inspect, Measure, Detect and Compare, Memory\'s Check and the review\'s Restore act through Timmy as the typed command, shown in Timmy as coming from the board. Saving parameters or workflow blocks is checked by Timmy, which keeps the previous version. A green command copies itself.</p>',
     '<pre id="out" hidden></pre>',
     '<nav class="toc" id="toc"></nav>',
     '</header>',

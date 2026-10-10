@@ -281,7 +281,8 @@ export interface FlowRecord {
     path: string;
     /** true when /iterate wrote the file from the recipe card's defaults before the agent ran */
     created: boolean;
-    before: { sha256: string; values: Record<string, number> };
+    /** R4 (H65): `kept`, a copy of those bytes in the flow's folder (as the script flows keep theirs), for /review and /restore */
+    before: { sha256: string; values: Record<string, number>; kept?: string };
     after?: { sha256: string; values: Record<string, number> };
     diff?: ParamChange[];
     /** an invalid file the agent left: its sha256 and why it is refused (the file is left as it is) */

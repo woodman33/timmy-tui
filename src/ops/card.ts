@@ -103,7 +103,9 @@ const short = (s: string | undefined): string => (s ? s.slice(0, 12) : '?');
 
 // ── files and their sha256 now ────────────────────────────────────────────────
 
-const hashes = new Map<string, { size: number; mtimeMs: number; ctimeMs: number; sha256: string }>();
+// R4 (H65): with the file's inode and device: another file reached by the same path (a link replaced, a file renamed over it)
+// within one tick of the file system's clock, with the same size, was given the hash of the file that was there before.
+const hashes = new Map<string, { size: number; mtimeMs: number; ctimeMs: number; ino: number; dev: number; sha256: string }>();
 /** A project file's sha256 now: null when it is gone, 'large' past HASH_LIMIT, undefined when it cannot be read or is outside. */
 export function shaNow(root: string, rel: string): string | null | 'large' | undefined {
   let real: string;
@@ -117,10 +119,10 @@ export function shaNow(root: string, rel: string): string | null | 'large' | und
     if (r !== real && !r.startsWith(real + path.sep)) return undefined;
     if (st.size > HASH_LIMIT) return 'large';
     const known = hashes.get(abs);
-    if (known && known.size === st.size && known.mtimeMs === st.mtimeMs && known.ctimeMs === st.ctimeMs) return known.sha256;
+    if (known && known.size === st.size && known.mtimeMs === st.mtimeMs && known.ctimeMs === st.ctimeMs && known.ino === st.ino && known.dev === st.dev) return known.sha256;
     const sha = createHash('sha256').update(fs.readFileSync(abs)).digest('hex');
     if (hashes.size > 4000) hashes.clear();
-    hashes.set(abs, { size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, sha256: sha });
+    hashes.set(abs, { size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, ino: st.ino, dev: st.dev, sha256: sha });
     return sha;
   } catch (e) { return (e as NodeJS.ErrnoException).code === 'ENOENT' ? null : undefined; }
 }

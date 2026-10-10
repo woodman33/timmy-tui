@@ -133,6 +133,9 @@ export interface WorkspaceViews {
   opsView?(args: string): Segment[][];
   /** Round R4 (helper H51): runs one request (a typed line) as an operation: what it starts or seals carries its id. */
   operate?<T>(request: string, via: 'repl' | 'board' | 'act', run: () => T | Promise<T>): Promise<T>;
+  /** Round R4 (helper H65): what the newest operations changed (/review [id]), and a checked restore of a kept version. */
+  review?(args: string): Segment[][];
+  restore?(args: string): Segment[][];
 }
 
 /** /help's sections, in order: what you work on, what you look at, setup, the session. */
@@ -199,6 +202,9 @@ export const COMMANDS: SlashCommand[] = [
   // Round R4 (helper H51): operations, one request each, followed through what they made (also atop the Control Room).
   { name: 'op', group: 'look', description: 'One request in full: /op [<id>]', run: inWorkspace((w, a) => (w.op ? w.op(a) : [[{ text: '  Operations are not available here.', role: 'secondary' }]])) },
   { name: 'ops', group: 'look', description: 'Recent operations, running first', run: inWorkspace((w, a) => (w.opsView ? w.opsView(a) : [[{ text: '  Operations are not available here.', role: 'secondary' }]])) },
+  // Round R4 (helper H65): what each operation changed, checked now; a restore only over the file exactly as its run left it.
+  { name: 'review', group: 'look', description: 'What operations changed: /review [<id>]', run: inWorkspace((w, a) => (w.review ? w.review(a) : [[{ text: '  The review is not available here.', role: 'secondary' }]])) },
+  { name: 'restore', group: 'work', raw: true, description: 'Kept version back: /restore <f> --from <kept>', run: inWorkspace((w, a) => (w.restore ? w.restore(a) : [[{ text: '  /restore is not available here.', role: 'secondary' }]])) },
   // Round R4 (helper H48): the Control Room, also a section of the board.
   { name: 'room', group: 'look', description: 'Control Room: runs, costs, tools; /room <id>', run: inWorkspace((w, a) => (w.room ? w.room(a) : [[{ text: '  The Control Room is not available here.', role: 'secondary' }]])) },
   // Round R4 (helper H60): what waits on you (also first in the Control Room); it reads, and does nothing itself.
