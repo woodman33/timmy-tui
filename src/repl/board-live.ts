@@ -29,6 +29,8 @@ import { BOARD_CSS } from './board.js';
 import { EDIT_CSS, EDIT_LIMIT, EDIT_SCRIPT } from './board-edits.js';
 // Round R4 (H49): VoxVision's actions, and its highlight images through /file (src/repl/board-vox.ts).
 import { checkVoxAction, VOX_LIVE_SCRIPT } from './board-vox.js';
+// Round R4 (H50): Timmy Memory's Check (src/memory/board.ts): the typed /lesson check <id>.
+import { checkLessonAction } from '../memory/board.js';
 import { HOMEBREW } from '../theme/tokens.js';
 import { FLOW_ID } from '../flows/iterate.js';
 
@@ -40,10 +42,12 @@ export type BoardAction =
   | { action: 'run'; doc: string; block: string }
   | { action: 'observe'; file: string }
   | { action: 'rebuild'; recipe: string }
-  | { action: 'vox'; verb: 'inspect' | 'measure' | 'detect' | 'compare'; file: string; other?: string; color?: string; at?: string };
+  | { action: 'vox'; verb: 'inspect' | 'measure' | 'detect' | 'compare'; file: string; other?: string; color?: string; at?: string }
+  /** R4 (H50): Memory's Check on a lesson the board shows: the typed `/lesson check <id>` */
+  | { action: 'lesson'; verb: 'check'; id: string };
 
 /** The typed command a valid action stands for: its name, its argument string and the line as typed. */
-export interface BoardCommand { name: 'stop' | 'run' | 'observe' | 'recipe' | 'inspect' | 'measure' | 'detect' | 'compare'; args: string; line: string }
+export interface BoardCommand { name: 'stop' | 'run' | 'observe' | 'recipe' | 'inspect' | 'measure' | 'detect' | 'compare' | 'lesson'; args: string; line: string }
 
 /** What the live board shows and what its actions are checked against; no absolute path in any of it. */
 export interface LiveState {
@@ -68,6 +72,8 @@ export interface LiveState {
   scadModels?: string[];
   /** R4 (H47): each workflow block's state in words (and each document's newest run, key ''), set in place like the jobs'. */
   wfStates?: Array<{ doc: string; key: string; word: string; glyph: string; detail: string }>;
+  /** R4 (H50): the lessons whose Check the board offers (not retired), by id. */
+  lessons?: string[];
 }
 
 export interface LiveBoardDeps {
@@ -163,7 +169,8 @@ export function checkAction(body: unknown, state: LiveState): Checked {
     return { ok: true, command: { name: 'recipe', args: o.recipe, line: `/recipe ${o.recipe}` } };
   }
   if (o.action === 'vox') return checkVoxAction(o, state.voxFiles ?? []);
-  return bad(400, 'Unknown action: stop, run, observe, rebuild and vox are the actions.');
+  if (o.action === 'lesson') return checkLessonAction(o, state.lessons ?? []); // R4 (H50)
+  return bad(400, 'Unknown action: stop, run, observe, rebuild, vox and lesson are the actions.');
 }
 
 const sha = (s: string): Buffer => createHash('sha256').update(s).digest();
@@ -434,7 +441,9 @@ const LIVE_SCRIPT = `
       : a === 'run' ? { action: 'run', doc: b.getAttribute('data-doc'), block: b.getAttribute('data-block') }
       : a === 'observe' ? { action: 'observe', file: b.getAttribute('data-file') }
       : a === 'rebuild' ? { action: 'rebuild', recipe: b.getAttribute('data-recipe') }
-      : a === 'vox' && typeof TimmyVox !== 'undefined' ? TimmyVox.body(b) : null;
+      : a === 'vox' && typeof TimmyVox !== 'undefined' ? TimmyVox.body(b)
+      // R4 (H50): Memory's Check on a lesson.
+      : a === 'lesson-check' ? { action: 'lesson', verb: 'check', id: b.getAttribute('data-lesson') } : null;
     if (!body || !token) return;
     var label = b.textContent;
     b.disabled = true; b.textContent = label + ' …'; busy++;
@@ -486,7 +495,7 @@ export function livePage(nonce: string): string {
     '<header>',
     '<h1>Board · <span class="project" id="project"></span> <span class="live">live</span></h1>',
     '<p class="sub" id="status">connecting…</p>',
-    '<p class="sub">Stop, Run, Observe, Rebuild and VoxVision\'s Inspect, Measure, Detect and Compare act through Timmy as the typed command, shown in Timmy as coming from the board. Saving parameters or workflow blocks is checked by Timmy, which keeps the previous version. A green command copies itself.</p>',
+    '<p class="sub">Stop, Run, Observe, Rebuild, VoxVision\'s Inspect, Measure, Detect and Compare, and Memory\'s Check act through Timmy as the typed command, shown in Timmy as coming from the board. Saving parameters or workflow blocks is checked by Timmy, which keeps the previous version. A green command copies itself.</p>',
     '<pre id="out" hidden></pre>',
     '<nav class="toc" id="toc"></nav>',
     '</header>',

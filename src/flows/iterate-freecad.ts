@@ -32,7 +32,7 @@ const isStep = (p: string): boolean => /\.(step|stp)$/i.test(p);
  * rules: the one file it may change, what Timmy does with it after, to keep how it reports its run (timmy_freecad's
  * run_script at the top level, which freecadcmd's import needs) and to keep that report true. The script is given whole.
  */
-export function freecadIterateTask(o: { instruction: string; scriptRel: string; scriptText: string }): string {
+export function freecadIterateTask(o: { instruction: string; scriptRel: string; scriptText: string; lessons?: string }): string {
   return [
     o.instruction.trim(),
     '',
@@ -44,6 +44,8 @@ export function freecadIterateTask(o: { instruction: string; scriptRel: string; 
     '- Keep what it reports true to the part it builds.',
     '- Change only what the instruction asks for; keep everything else as it is.',
     '- If the instruction cannot be done in this script, change nothing and say why.',
+    // R4 (H50): the checked lessons that apply, as one delimited section (src/memory/retrieve.ts lessonsSection)
+    ...(o.lessons ? ['', o.lessons] : []),
     '',
     `${o.scriptRel} now holds:`,
     o.scriptText.trimEnd(),

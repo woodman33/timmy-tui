@@ -38,6 +38,8 @@ const READ_ONLY = new Set([
   // The active project (R1 workspace direction): listing and reading stay inside it and never reach keys,
   // .env files or .timmy/private (src/project); writing asks (ALWAYS below).
   'list_project_files', 'read_project_file',
+  // R4 (H50): Timmy Memory's recall: it reads the project's records and the runs chain, and writes, seals and runs nothing.
+  'recall_project_work',
   // Round R2: MCP routes and configured servers by name (never a command line); a fixed local OpenCV script
   // that reads one project file and writes only its own observation file.
   'list_mcp_tools', 'observe_image',

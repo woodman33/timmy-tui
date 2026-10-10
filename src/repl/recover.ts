@@ -71,6 +71,7 @@ import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import type { Receipt, ReceiptInput } from '../utils/receipts.js';
 import { placeNew } from '../utils/place-new.js';
+import { lessonsPart } from '../memory/retrieve.js'; // R4 (H50): the lessons an interrupted flow's agent was given, named by its receipt
 
 type Line = Segment[];
 
@@ -809,6 +810,7 @@ function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Ma
       discrepancies: [`interrupted: ${why}`],
       // The agent's cost as its own receipt sealed it, when it got that far; unknown is never written as 0.
       ...(typeof cost === 'number' ? { cost_usd: cost } : cost === null ? { cost_measured: false } : {}),
+      ...lessonsPart(v.lessons), // R4 (H50)
     });
   } catch { receipt = undefined; }
   const shortNext = uuid ? `/recipe recover ${uuid}, or /iterate tray again` : '/iterate tray again';
@@ -892,6 +894,7 @@ function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state
       ...(children.length ? { child_receipts: children } : {}),
       discrepancies: [`interrupted: ${why}`],
       ...(typeof cost === 'number' ? { cost_usd: cost } : cost === null ? { cost_measured: false } : {}),
+      ...lessonsPart(v.lessons), // R4 (H50)
     });
   } catch { receipt = undefined; }
   return {

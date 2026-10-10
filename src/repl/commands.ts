@@ -120,6 +120,10 @@ export interface WorkspaceViews {
   measure?(args: string): Promise<Segment[][]>;
   detect?(args: string): Promise<Segment[][]>;
   compare?(args: string): Promise<Segment[][]>;
+  /** Round R4 (helper H50): Timmy Memory: recall over retained work, and lessons with evidence (src/memory/repl.ts). */
+  recall?(args: string): Segment[][];
+  lesson?(args: string): Segment[][];
+  lessons?(args: string): Segment[][];
 }
 
 /** /help's sections, in order: what you work on, what you look at, setup, the session. */
@@ -177,6 +181,10 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'compare', group: 'look', raw: true, description: 'Two files of one kind: /compare <a> <b>', run: inWorkspace((w, a) => (w.compare ? w.compare(a) : [[{ text: '  VoxVision is not available here.', role: 'secondary' }]])) },
   // Round R3: `/board live` and `/board off` go to the live board; `/board` alone stays the snapshot.
   { name: 'board', group: 'look', description: 'A board of the project; /board live | off', run: inWorkspace((w, a) => (w.boardLive && /^(?:live|off)$/.test(a.trim()) ? w.boardLive(a) : w.board(a))) },
+  // Round R4 (helper H50): Timmy Memory. Raw: a quoted lesson text or file name keeps its spaces.
+  { name: 'recall', group: 'look', raw: true, description: 'Find retained work by words, not meaning', run: inWorkspace((w, a) => (w.recall ? w.recall(a) : [[{ text: '  Timmy Memory is not available here.', role: 'secondary' }]])) },
+  { name: 'lesson', group: 'work', raw: true, description: 'Add, check, eval, retire: text with evidence', run: inWorkspace((w, a) => (w.lesson ? w.lesson(a) : [[{ text: '  Timmy Memory is not available here.', role: 'secondary' }]])) },
+  { name: 'lessons', group: 'work', description: 'Lessons as agent context; no model trained', run: inWorkspace((w, a) => (w.lessons ? w.lessons(a) : [[{ text: '  Timmy Memory is not available here.', role: 'secondary' }]])) },
   // Round R4 (helper H48): the Control Room, also a section of the board.
   { name: 'room', group: 'look', description: 'Control Room: runs, costs, tools; /room <id>', run: inWorkspace((w, a) => (w.room ? w.room(a) : [[{ text: '  The Control Room is not available here.', role: 'secondary' }]])) },
   { name: 'c4d', group: 'work', description: 'Cinema 4D Python as a job: /c4d <script.py>', run: inWorkspace((w, a) => w.c4d(a)) },

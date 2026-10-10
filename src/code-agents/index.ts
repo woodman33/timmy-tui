@@ -696,6 +696,8 @@ export interface AgentRunRecord {
    * folder in the project, say) are left out of it too.
    */
   judged?: JudgedChanges;
+  /** R4 (H50): the checked lessons /agent's task was given (src/memory/retrieve.ts); [] when none applied */
+  lessons?: Array<{ id: string; sha256: string; status: string }>;
 }
 
 export const runDir = (root: string, run: string): string => join(root, AGENTS_DIR, run);

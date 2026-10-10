@@ -62,6 +62,10 @@ export interface Receipt {
   };
   /** Round R3 (/agent): a code agent's run in the project: its run id (the operation ID), where its model ran, how it ended, what it changed (the files themselves are in `files`) */
   agent?: { name: string; run: string; version?: string | null; model?: string | null; endpoint: 'local' | 'remote'; outcome: string; why: string; tool_calls: number; added: number; changed: number; deleted: string[]; final_message_sha256?: string; cost_basis: string };
+  /** Round R4 (H50, Timmy Memory): a lesson's own receipt (kind lesson: its add, check or retire; src/memory/lessons.ts) */
+  lesson?: { id: string; action: 'add' | 'check' | 'retire'; status: string; evidence: number; by?: string; operation?: string | null };
+  /** R4 (H50): the checked lessons a flow's or an agent run's task was given, each with its file's sha256 as given */
+  lessons?: Array<{ id: string; sha256: string; status: string }>;
   model_resolved?: string;
   via?: string;
   ms?: number;
@@ -344,4 +348,21 @@ export function verifyChain(stream: string, dir?: string): VerifyResult {
     result.reason = cur.reason;
   }
   return result;
+}
+
+/**
+ * Round R4 (H50, Timmy Memory): whether one receipt of a chain (as readChain gives it) verifies where it stands: every
+ * link of its epoch from that epoch's genesis up to it and every body hash on the way (verifySegment over that part, so
+ * a break after it does not count against it), and its own signature. Why not, when it does not.
+ */
+export function verifyReceiptIn(chain: readonly Receipt[], hash: string): { ok: true; receipt: Receipt } | { ok: false; reason: string } {
+  const at = chain.findIndex((r) => r.hash === hash);
+  if (at < 0) return { ok: false, reason: 'it is not on the chain' };
+  const rec = chain[at];
+  const epoch = rec.epoch ?? 1;
+  const upTo = chain.slice(0, at + 1).filter((r) => (r.epoch ?? 1) === epoch);
+  const seg = verifySegment(upTo, epoch, false);
+  if (!seg.ok) return { ok: false, reason: seg.brokenAt === rec.id ? seg.reason ?? 'its link or body does not verify' : `the chain is broken before it (${seg.reason ?? `at ${seg.brokenAt}`})` };
+  if (!verifySignature(rec)) return { ok: false, reason: 'its signature does not verify' };
+  return { ok: true, receipt: rec };
 }
