@@ -427,8 +427,9 @@ def route_info(model, base_url):
     """R4 (H69): the route, registered before the LLM is made, and what LiteLLM decides for the model's tool calls (see the
     module docstring). For this machine's Ollama on the ollama_chat route, the model is registered as supporting function
     calling under ollama_chat/<model>, the key LiteLLM's documentation shows, and under ollama/<model>, the same model under
-    LiteLLM's other Ollama provider name, which some LiteLLM versions' Ollama chat mapping looks it up by (which one a version
-    reads is not checked here: litellm_decides then says what LiteLLM decides)."""
+    LiteLLM's other Ollama provider name, in case this LiteLLM's Ollama chat mapping looks the model up by that name (an older
+    LiteLLM's did, as recalled from its source, not confirmed in its documentation; LiteLLM's current source passes the tools
+    to /api/chat without looking): which key a LiteLLM reads is not checked here, and litellm_decides then says what it decides."""
     route, bare, loopback = route_of(model, base_url)
     info = {"route": route, "endpoint": ROUTES.get(route), "registered": [], "tool_calls": "unknown"}
     if route == "other":
