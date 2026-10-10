@@ -584,7 +584,8 @@ section.unverified dd { color: ${HOMEBREW.textSecondary}; }
 .tier { font-size: 11px; color: ${HOMEBREW.textSecondary}; font-style: italic; margin-left: 6px; }
 .status { font-size: ${TYPE.size.small}px; margin: 0; overflow-wrap: anywhere; }
 .status strong { text-transform: uppercase; letter-spacing: .06em; font-size: 11px; margin-right: 6px; }
-.status-verified strong { color: ${HOMEBREW.accent}; }
+/* R4 (H46, B9: green is interaction, not proof): a seal's word is in the text colour, as on the flow cards; green stays for actions and links. */
+.status-verified strong { color: ${HOMEBREW.text}; }
 .status-unverified strong, .status-stale strong { color: ${HOMEBREW.attention}; }
 .status .reasons { margin: 4px 0 0; padding-left: 18px; color: ${HOMEBREW.textSecondary}; }
 dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 0; font-size: ${TYPE.size.small}px; }

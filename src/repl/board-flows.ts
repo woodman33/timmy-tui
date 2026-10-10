@@ -388,9 +388,8 @@ export const FLOWS_CSS = `
 .flow .doctrine { margin: 6px 0 0; font-size: ${TYPE.size.small}px; color: ${HOMEBREW.text}; }
 .flow .verdict-matches { color: ${HOMEBREW.text}; }
 .flow .verdict-differs, .flow .verdict-failed { color: ${HOMEBREW.failure}; }
-.state-succeeded { color: ${HOMEBREW.accent}; }
-/* Green is for actions: on a flow card an outcome or a seal keeps its word in the text colour (job cards keep theirs). */
-.flow .state-succeeded, .flow .status-verified strong { color: ${HOMEBREW.text}; }
+/* Green is for actions: an outcome or a seal keeps its word in the text colour, on a flow card and (R4, H46) on every other card. */
+.state-succeeded { color: ${HOMEBREW.text}; }
 .state-differs, .state-stopped { color: ${HOMEBREW.attention}; }
 .state-unreadable { color: ${HOMEBREW.failure}; }
 ${BLENDER_FLOW_CSS}${NATIVE_FLOW_CSS}${AE_FLOW_CSS}${STEPS_CSS}`;

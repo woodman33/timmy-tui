@@ -222,4 +222,45 @@ describe.skipIf(!browserPath)('the flow cards on the live board in a real browse
     expect(await style(`${tray} button.cmd[data-cmd="/open results/flows/f0000a001.json"]`)).toBe(rgb(HOMEBREW.accent));
     await context.close();
   }, 30_000);
+
+  it('R4 (H46): on the other cards too, "verified", "succeeded" and a recipe\'s ok are in the text colour with their weight; actions and links stay green and blue (FAKE cards)', async () => {
+    const root = temp('board-colours-');
+    // FAKE cards, drawn by the board's own renderer: a job whose state word is "succeeded", an observation drawn verified
+    // (its check made up here: nothing was observed or sealed) and a recipe result that succeeded (made up too).
+    put(root, '.timmy/board/index.html', renderBoard({
+      project: 'fake', madeAt: '2026-10-10 10:00 UTC', base: '../../', references: [], workflows: [], outputs: [],
+      jobs: [{ id: 'j0000a1', state: 'succeeded', label: 'FAKE job' }, { id: 'j0000a2', state: 'failed', label: 'FAKE job that failed' }],
+      observations: [
+        { file: 'results/observations/o0001.json', measurements: [], check: { status: 'verified', reasons: [], receipt: 'rc00001' } },
+        { file: 'results/observations/o0002.json', measurements: [], check: { status: 'unverified', reasons: ['FAKE: no receipt'] } },
+      ],
+      results: [
+        { kind: 'recipe', title: 'FAKE recipe that succeeded', status: { word: 'succeeded', tone: 'ok', detail: 'FAKE' }, commands: ['/recipe status'] },
+        { kind: 'recipe', title: 'FAKE recipe that failed', status: { word: 'failed', tone: 'failed', detail: 'FAKE' }, files: [{ rel: 'out/recipes/x.log' }] },
+      ],
+    }));
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(`file://${join(root, '.timmy/board/index.html')}`);
+    const rgb = (hex: string): string => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`;
+    const style = (sel: string, prop = 'color'): Promise<string> => page.$eval(sel, (e, p) => getComputedStyle(e).getPropertyValue(p), prop);
+    const pairs: Array<[string, string, string]> = [
+      // the outcome word, its failing (or unverified) counterpart for the weight, and the word itself
+      ['.state.state-succeeded', '.state.state-failed', 'succeeded'],
+      ['.status-verified strong', '.status-unverified strong', 'verified'],
+      ['.rstatus-ok strong', '.rstatus-failed strong', 'succeeded'],
+    ];
+    for (const [sel, other, word] of pairs) {
+      expect(await page.textContent(sel), sel).toBe(word);
+      expect(await style(sel), sel).toBe(rgb(HOMEBREW.text));
+      expect(await style(sel, 'font-weight'), sel).toBe(await style(other, 'font-weight'));
+      expect(await style(sel, 'text-transform'), sel).toBe(await style(other, 'text-transform'));
+    }
+    // What fails keeps its colour; the actions stay green, the links blue.
+    expect(await style('.state.state-failed')).toBe(rgb(HOMEBREW.failure));
+    expect(await style('.rstatus-failed strong')).toBe(rgb(HOMEBREW.failure));
+    expect(await style('button.cmd[data-cmd="/recipe status"]')).toBe(rgb(HOMEBREW.accent));
+    expect(await style('a[href="../../out/recipes/x.log"]')).toBe(rgb(HOMEBREW.link));
+    await context.close();
+  }, 30_000);
 });
