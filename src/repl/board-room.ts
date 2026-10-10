@@ -62,13 +62,16 @@ export function runCard(r: RoomRun, k: Kit): string {
     `<dt>cost</dt><dd class="${costClass}">${esc(costWords(r))}</dd>`,
   ].join('');
   const outputs = r.outputs.map((o) => `<li><span class="art-role">${esc(o.role)}</span> ${k.fileLink(o.path, 'file')}</li>`).join('');
+  // R4 (H59): a file its record names that is not there: named as missing, in words, never linked as an output.
+  const missing = (r.missing ?? []).map((m) => `<li class="room-missing"><span class="art-role">${esc(m.role)}</span> <span class="room-missing-path">${esc(`${m.path}: ${m.words}`)}</span></li>`).join('');
   const record = [
     r.record ? `record ${k.fileLink(r.record, 'file')}${r.recordNote ? ` <span class="tier">${esc(r.recordNote)}</span>` : ''}` : '',
     esc(r.receipt ? `receipt ${r.receipt}` : 'no receipt seals it yet'),
     r.receipts?.length ? esc(`its record names receipts ${r.receipts.join(', ')}`) : '',
   ].filter(Boolean).join(' · ');
-  const details = `<details class="more" data-keep="${esc(`room:${r.kind}:${r.id}:outputs`)}"><summary>${esc(`outputs (${r.outputs.length}) and record`)}</summary>`
-    + `<div class="more-body">${outputs ? `<ul class="room-outs">${outputs}</ul>` : `<p class="empty">${esc('Its record names no outputs.')}</p>`}<div class="meta">${record}</div></div></details>`;
+  const details = `<details class="more" data-keep="${esc(`room:${r.kind}:${r.id}:outputs`)}"><summary>${esc(`outputs (${r.outputs.length})${missing ? `, ${r.missing!.length} not there,` : ''} and record`)}</summary>`
+    + `<div class="more-body">${outputs ? `<ul class="room-outs">${outputs}</ul>` : `<p class="empty">${esc(missing ? 'None of the files its record names is there now.' : 'Its record names no outputs.')}</p>`}`
+    + `${missing ? `<ul class="room-outs room-missing-list" aria-label="${esc('named by its record, not there')}">${missing}</ul>` : ''}<div class="meta">${record}</div></div></details>`;
   const stop = r.running && r.stop
     ? k.act('Stop', r.stop.kind === 'flow' ? { act: 'room-stop', flow: r.stop.id } : { act: 'room-stop', job: r.stop.id })
     : '';
@@ -197,6 +200,8 @@ export const ROOM_CSS = `
 .room ul.room-outs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: ${TYPE.size.small}px; }
 .room ul.room-outs li { display: flex; flex-wrap: wrap; gap: 4px 8px; min-width: 0; overflow-wrap: anywhere; }
 .room .art-role { text-transform: uppercase; letter-spacing: .05em; font-size: 11px; color: ${HOMEBREW.textSecondary}; min-width: 7.5em; }
+.room ul.room-missing-list { margin-top: 6px; }
+.room .room-missing-path { color: ${HOMEBREW.attention}; }
 .room .room-hint { margin: 0; }
 .room .grid.room-tools { grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); }
 .room .room-toolgroup h4 { margin: 0; }

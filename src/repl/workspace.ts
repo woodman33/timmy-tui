@@ -61,7 +61,7 @@ import { copyFileSync, writeFileSync } from 'node:fs';
 import {
   AGENT_NAMES, AGENTS, AGENTS_DIR, agentBin, agentLabel, appendProgress, boundMessage, diffSnapshots, ensureDir, folderInProject, isGitDir, judgeAgentRun,
   judgedChanges, judgeSnapshot, listAgentRuns, newProgress, newRunId, parseAgentLine, planAgent, progressLine, readProgressTail, regularOf, runDir, scrubPaths,
-  snapshotJson, snapshotProject, taskWords, writeJson, type AgentName, type AgentPlan, type AgentProgress, type AgentRunRecord, type JudgedSnapshot, type Snapshot,
+  snapshotJson, snapshotProject, taskWords, writeJson, writeRunRecord, type AgentName, type AgentPlan, type AgentProgress, type AgentRunRecord, type JudgedSnapshot, type Snapshot,
 } from '../code-agents/index.js';
 // Round R4 (helper H25): Codex's local route (/agent codex --local); hooks are marked "R4 (H25)".
 import { codexLocalPreflight, codexLocalSummary } from '../code-agents/codex-local.js';
@@ -101,6 +101,7 @@ import { HOLDS_DIR } from '../ops/flow-hold.js';
 import { OPENHANDS_NO_DOCKER, openHandsSummary, watchOpenHands, writeBackShort } from '../code-agents/openhands.js';
 import { openHandsLastLine, OpenHandsRuns, type OpenHandsRunState } from './openhands.js';
 import { recoverOpenHands } from './openhands-recover.js';
+import { recoverAgentRuns } from './recover-agents.js'; // R4 (H59): code agent runs an ended REPL left (their run records)
 // Round R4 (H55): the board's line about Timmy Canvas (src/repl/board-canvas.ts; the REPL checks the canvas).
 import type { BoardCanvas } from './board-canvas.js';
 
@@ -1502,8 +1503,13 @@ export class Workspace {
         open: () => !this.launches.closing,
         // R4 (H58): /run jobs an ended REPL left running: ended in their own records as interrupted
         workflows: () => recoverWorkflowJobs({ root, jobs: this.jobs, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing }),
+        // R4 (H59): code agent runs an ended REPL left, each run's own record ended (src/repl/recover-agents.ts); then
         // R4 (H52): OpenHands containers left running, found by their labels and their run's record
-        agents: () => recoverOpenHands({ root, project, jobs: this.jobs, seal: this.d.seal, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing, bin: agentBin('openhands', this.d.env, this.d.onPath), env: this.d.env }),
+        agents: async () => [
+          ...await recoverAgentRuns({ root, project, jobs: this.jobs, seal: this.d.seal, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing }),
+          ...await recoverOpenHands({ root, project, jobs: this.jobs, seal: this.d.seal, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing, bin: agentBin('openhands', this.d.env, this.d.onPath), env: this.d.env })
+            .catch((e: unknown) => [{ kind: 'agent' as const, id: 'openhands', did: 'failed' as const, text: `OpenHands containers could not be checked: ${this.scrub(e instanceof Error ? e.message : String(e), root)}` }]),
+        ],
       });
     });
     this.recoveries = run.catch(() => undefined);
@@ -1613,7 +1619,7 @@ export class Workspace {
     this.agentRuns.set(job.id, state);
     record.job = job.id;
     if (state.openhands) this.openhands.started(job, state.openhands, plan.timeoutMs); // R4 (H52): its container is this REPL's to stop
-    try { writeJson(join(dir, 'run.json'), { ...record, state: 'submitted' }); } catch { /* the job still runs; its result is written at its end */ }
+    try { writeRunRecord(dir, { ...record, state: 'submitted' }); } catch { /* the job still runs; its result is written at its end */ }
     return { ok: true, job, run, plan, info, version, record };
   }
 
@@ -1668,7 +1674,7 @@ export class Workspace {
     const live = [...this.agentRuns.entries()].find(([, s]) => s.record.run === r.run);
     const job = live ? this.jobs.get(live[0]) : r.job ? this.jobs.get(r.job) : undefined;
     const lines: Line[] = [[{ text: '  Agent run  ', role: 'secondary' }, { text: r.run, role: 'strong' }, { text: `  ${r.agent}${r.agent_version ? ` ${r.agent_version}` : ''}${this.sep}`, role: 'secondary' },
-      r.outcome ? { text: r.outcome, role: r.outcome === 'completed' ? 'strong' : 'failure' } : { text: job && !TERMINAL.has(job.state) ? `running: /jobs ${job.id}` : 'not finished here: no result was written (its REPL ended first)', role: 'estimate' },
+      r.outcome ? { text: r.outcome, role: r.outcome === 'completed' ? 'strong' : 'failure' } : { text: job && !TERMINAL.has(job.state) ? `running: /jobs ${job.id}` : r.state === 'interrupted' ? 'interrupted' : 'not finished here: no result was written (its REPL ended first)', role: 'estimate' }, // R4 (H59): its record's words follow
       { text: r.why ? `${this.sep}${this.scrub(r.why, this.root)}` : '', role: 'secondary' }]];
     lines.push([{ text: '  Task       ', role: 'secondary' }, { text: taskWords(r.task, this.root, 160) }]);
     const cost = r.cost_usd === undefined ? '' : r.cost_usd === null ? `${this.sep}cost unknown (the agent reported none)` : `${this.sep}cost $${r.cost_usd.toFixed(4)} (${r.cost_basis ?? ''})`;
@@ -1717,7 +1723,7 @@ export class Workspace {
     for (const r of runs) {
       const f = r.files;
       const counts = f ? `${f.added.length} added, ${f.changed.length} changed, ${f.deleted.length} deleted` : 'no result yet';
-      lines.push([{ text: `    ${r.run}  ` }, { text: `${r.agent}  `, role: 'strong' }, { text: r.outcome ?? 'not finished', role: r.outcome === 'completed' ? undefined : 'failure' },
+      lines.push([{ text: `    ${r.run}  ` }, { text: `${r.agent}  `, role: 'strong' }, { text: r.outcome ?? (r.state === 'interrupted' ? 'interrupted' : 'not finished'), role: r.outcome === 'completed' ? undefined : 'failure' },
         { text: `${this.sep}${counts}${r.receipt ? `${this.sep}receipt ${r.receipt}` : ''}`, role: 'secondary' }]);
       const named = f ? [...f.added.map((c) => `${c.path} added`), ...f.changed.map((c) => `${c.path} changed`), ...f.deleted.map((c) => `${c.path} deleted`)] : [];
       if (named.length) lines.push([{ text: '      ' }, { text: `${named.slice(0, 6).join(this.sep)}${named.length > 6 ? `${this.sep}and ${named.length - 6} more` : ''}`, role: 'secondary' }]);
@@ -1827,7 +1833,7 @@ export class Workspace {
       });
     } catch { receipt = undefined; }
     if (receipt) rec.receipt = receipt;
-    try { writeJson(join(st.dir, 'run.json'), { ...rec, state: 'ended', ...(receipt ? { receipt } : {}) }); } catch { /* the result stands */ }
+    try { writeRunRecord(st.dir, { ...rec, state: 'ended', ...(receipt ? { receipt } : {}) }); } catch { /* the result stands */ }
     return receipt;
   }
 

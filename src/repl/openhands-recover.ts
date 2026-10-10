@@ -12,11 +12,13 @@
  *   - its job still runs and the process table proves the REPL that started it has ended (recover.ts leftBehind).
  * A job that is not in this Timmy's jobs folder, or a REPL that still runs, leaves it as it is; the lines say how to
  * stop it. Each stop is kept in the run's container.json and sealed as a recover receipt; the job's own record, when it
- * was left running or stale, has its end recorded through the job module's writer. Nothing is started, removed or rerun.
+ * was left running or stale, has its end recorded through the job module's writer, and then (R4, H59) the run's own
+ * record is ended as interrupted, with no result (src/code-agents/run-end.ts). Nothing is started, removed or rerun.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { AGENTS_DIR, type AgentRunRecord } from '../code-agents/index.js';
+import { endLeftAgentRun } from '../code-agents/run-end.js'; // R4 (H59): the run's own record, ended with its job
 import { LABEL_PROJECT, LABEL_RUN } from '../code-agents/openhands.js';
 import { listByLabels, stopContainer } from '../code-agents/openhands-run.js';
 import type { JobRecord } from '../jobs/index.js';
@@ -159,21 +161,26 @@ export async function recoverOpenHands(d: OpenHandsRecoverDeps): Promise<Recover
     const stopped = stop.result === 'stopped' || stop.result === 'killed';
     // The job's own record: its end, through the job module's writer, once its container (and so its docker client) stopped.
     let recorded: JobRecord | undefined;
+    const steps = stop.steps.map((s) => s.command.split(' ').slice(0, 2).join(' ')).join(', then ');
     if (job && stopped) {
-      try { recorded = d.jobs.endLeft?.(job.id, { state: 'cancelled', error: `its REPL ended; recovery stopped its container ${p.name} (${stop.steps.map((s) => s.command.split(' ').slice(0, 2).join(' ')).join(', then ')})` }); } catch { recorded = undefined; }
+      try { recorded = d.jobs.endLeft?.(job.id, { state: 'cancelled', error: `its REPL ended; recovery stopped its container ${p.name} (${steps})` }); } catch { recorded = undefined; }
     }
+    // R4 (H59): then the run's own record, ended as interrupted (no result is written: its copy's changes never come back).
+    const runEnd = recorded ? endLeftAgentRun(d.root, p.r.run, { job: { id: recorded.id, state: recorded.state, ...(recorded.error ? { error: recorded.error } : {}) }, end: { how: 'container stopped', container: p.name, steps } }) : undefined;
     let receipt: string | undefined;
     try {
       receipt = d.seal({
         kind: 'recover', subject: `recover · agent · openhands · ${p.r.run} · container ${stop.result}`, policy: 'human-gated', status: stopped ? 'ok' : 'failed',
         project: d.project, project_id: projectId(d.root),
+        ...(runEnd?.ok ? { outputs: [{ path: runEnd.path, sha256: runEnd.sha256, bytes: runEnd.bytes }] } : {}), // R4 (H59)
         sources: [{ operation: p.r.run, agent: 'openhands', action: `container ${stop.result}`, container: p.name, labels: p.labels, ...(job ? { job: job.id } : {}), why: d.scrub(p.decision.why), steps: stop.steps, ...(stop.detail ? { detail: d.scrub(stop.detail) } : {}) }],
       });
     } catch { receipt = undefined; }
     const did = stopped ? 'stopped' as const : 'failed' as const;
+    const runWords = runEnd ? runEnd.ok ? `; its record ${runEnd.path} now says interrupted (no result was written)` : `; its record ${runEnd.path} was left as it is: ${runEnd.why}` : '';
     items.push({
       kind: 'agent', id: p.r.run, did, ...(job ? { job: job.id } : {}), ...(receipt ? { receipt } : {}), ...(did === 'failed' ? { attention: true } : {}),
-      text: `OpenHands run ${p.r.run}: ${d.scrub(p.decision.why)}; ${stopWords(stop)}${recorded ? `; its job record now says ${recorded.state}` : ''}; nothing was written into the project${receipt ? `; receipt ${receipt}` : ''}`,
+      text: `OpenHands run ${p.r.run}: ${d.scrub(p.decision.why)}; ${stopWords(stop)}${recorded ? `; its job record now says ${recorded.state}` : ''}; nothing was written into the project${receipt ? `; receipt ${receipt}` : ''}${runWords}`,
     });
   }
   return items;

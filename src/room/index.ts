@@ -21,6 +21,8 @@
  * - "Used" (exercised) on a tool comes only from the /tools ladder, which reads it from a run's own sealed record.
  * - Every path shown is project-relative; free text goes through the caller's scrub (the project's folder as ".", the
  *   home folder as "~") and loses its control characters.
+ * - R4 (H59): an agent run's or a flow's output is listed only when its file is there; a file its record names that is not
+ *   there is named as missing, in words ("result.json: not written"), never as an output (src/room/outputs.ts).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -38,6 +40,8 @@ import type { BoardObservation } from '../repl/board.js';
 import { declaredUnknownCostUsd, hasMeasuredCostUsd, type Receipt } from '../utils/receipts.js';
 import type { OperationCard } from '../ops/card.js';
 import { liveProgram } from '../workflows/upmd-live.js';
+// R4 (H59): an output only when its file is there; a file a record names that is not there is named as missing, in words
+import { sealedBy, splitOutputs, type RoomMissing } from './outputs.js';
 
 // ── the model ─────────────────────────────────────────────────────────────────
 
@@ -131,7 +135,10 @@ export interface RoomRun {
   cost: RoomCost;
   /** the charge's key: a run whose charge another record also names shares its key, so it is counted once */
   costKey: string;
+  /** the files its record names that are there now (R4, H59: an agent run's and a flow's are looked for) */
   outputs: RoomOutput[];
+  /** R4 (H59): the files its record names that are not there, each named in words ("not written"), never as an output */
+  missing?: RoomMissing[];
   /** every receipt its record names, beside the run's own */
   receipts?: string[];
   handoff?: RoomStep[];
@@ -423,19 +430,26 @@ function agentRuns(c: Ctx, flowOfRun: ReadonlyMap<string, string>): RoomRun[] {
     if (str(r.job)) c.claimed.add(r.job);
     const job = jobOf(c, r.job);
     const ended = !!r.outcome;
-    const running = !ended && liveJob(job);
+    // R4 (H59): a run whose REPL ended first, its record ended by recovery: interrupted, in its record's words (never a result).
+    const interrupted = !ended && r.state === 'interrupted';
+    const running = !ended && !interrupted && liveJob(job);
     const state = r.outcome === 'cancelled' ? 'stopped' : r.outcome
-      ?? (running ? (job!.state === 'queued' ? 'starting' : 'running') : job ? `${jobWords(job)}; no result was written` : 'not finished here: no result was written (its REPL ended first)');
+      ?? (interrupted ? `interrupted: ${cleanLine(r.why ?? 'its REPL ended first; no result was written', c.scrub, 240)}`
+        : running ? (job!.state === 'queued' ? 'starting' : 'running') : job ? `${jobWords(job)}; no result was written` : 'not finished here: no result was written (its REPL ended first)');
+    // Its process found gone by recovery: when it ended is not recorded, so no end time or duration is shown.
+    const endUnknown = interrupted && r.recovered?.process === 'gone';
     const tone: Tone = r.outcome === 'completed' ? 'ok' : r.outcome === 'failed' || r.outcome === 'timed out' ? 'failed' : r.outcome === 'cancelled' ? 'stopped' : running ? 'running' : 'attention';
     const dir = `${AGENTS_DIR}/${r.run}`;
     const record = `${dir}/${ended ? 'result.json' : 'run.json'}`;
     const files = r.files;
-    const outputs: RoomOutput[] = [
+    const named: RoomOutput[] = [
       ...(files ? [...files.added.map((f) => ({ role: 'added', path: f.path })), ...files.changed.map((f) => ({ role: 'changed', path: f.path }))] : []),
       ...(r.final_message?.file ? [{ role: 'its final message', path: `${dir}/${r.final_message.file}` }] : []),
       ...(r.transcript ? [{ role: 'transcript', path: `${dir}/${r.transcript}` }] : []),
       { role: 'record', path: record },
     ].flatMap((o) => { const p = projectPath(o.path); return p ? [{ role: o.role, path: p }] : []; }).slice(0, 16);
+    const { outputs, missing } = splitOutputs(c.root, named); // R4 (H59)
+    const receipt = r.receipt ?? (interrupted ? sealedBy(c.root, record, c.chain, c.projectId) : undefined);
     let tail: string[] = [];
     try { tail = readProgressTail(c.root, r.run, 1); } catch { tail = []; }
     const start = time(r.started_at);
@@ -448,13 +462,13 @@ function agentRuns(c: Ctx, flowOfRun: ReadonlyMap<string, string>): RoomRun[] {
       model: r.model ?? 'its default model (none named)', endpoint: r.endpoint === 'local' ? 'local' : 'remote', route: r.agent === 'openhands' ? openHandsRouteWords(r) : routeWords(r),
       state, tone, running,
       ...(flow ? { partOf: `the agent step of flow ${flow}`, step: 'agent step' } : {}),
-      ...(start ? { startedAt: r.started_at } : {}), ...(r.ended_at ? { endedAt: r.ended_at } : {}),
-      ...(start ? { elapsed: span(c, start, r.ended_at ? time(r.ended_at) : job?.endedAt ? time(job.endedAt) : undefined, running) } : {}),
+      ...(start ? { startedAt: r.started_at } : {}), ...(r.ended_at && !endUnknown ? { endedAt: r.ended_at } : {}),
+      ...(start && !endUnknown ? { elapsed: span(c, start, r.ended_at ? time(r.ended_at) : job?.endedAt ? time(job.endedAt) : undefined, running) } : {}),
       ...(tail.length ? { progress: cleanLine(tail.at(-1), c.scrub) } : {}),
-      record, ...(r.receipt ? { receipt: r.receipt } : {}), ...(str(r.job) ? { job: r.job } : {}),
+      record, ...(receipt ? { receipt } : {}), ...(str(r.job) ? { job: r.job } : {}),
       ...(stopFor(c, job) ? { stop: stopFor(c, job) } : {}),
       cost: agentRecordCost(r, running), costKey: `agent:${r.run}`,
-      outputs,
+      outputs, ...(missing.length ? { missing } : {}),
       handoff: [
         { name: 'job', owner: AGENT_OWNER(r.agent), state: job ? jobWords(job) : ended ? 'ended (its job record is not here)' : 'not found here', ...(str(r.job) ? { job: r.job } : {}) },
         { name: 'result', owner: 'Timmy (its result.json, read by its own rules)', state: outcomeWords, ...(r.receipt ? { receipt: r.receipt } : {}) },
@@ -568,6 +582,7 @@ function flowRuns(c: Ctx, flows: BoardFlows): RoomRun[] {
     const recordCost = agent ? agentRecordCost({ cost_usd: agent.cost_usd as number | null | undefined, cost_basis: str(agent.cost_basis), endpoint: route && /^local endpoint/.test(route) ? 'local' : 'remote', outcome: str(agent.outcome) as AgentRunRecord['outcome'] }, running)
       : none('its record names no agent step');
     const verified = f.check.status === 'verified';
+    const { outputs, missing } = splitOutputs(c.root, flowOutputs(r, f.file)); // R4 (H59)
     return {
       kind: 'flow', id, owner: `Timmy flow (/iterate ${kind})`, harness: `/iterate ${kind}`,
       ...(str(agent?.model) ? { model: String(agent!.model) } : {}),
@@ -584,7 +599,7 @@ function flowRuns(c: Ctx, flows: BoardFlows): RoomRun[] {
       ...(verified && f.check.receipt ? { receipt: f.check.receipt } : {}),
       ...(ours ? { stop: { kind: 'flow' as const, id } } : running ? { hint: { words: 'This REPL does not run this flow, so it does not stop it. If the REPL that ran it has ended, /recover records it as interrupted (it says when).', command: '/recover' } } : {}),
       cost: recordCost, costKey: str(agent?.run) ? `agent:${String(agent!.run)}` : `flow:${id}`,
-      outputs: flowOutputs(r, f.file),
+      outputs, ...(missing.length ? { missing } : {}),
       receipts: Object.values(obj(r.receipts) ?? {}).filter((x): x is string => typeof x === 'string'),
       handoff,
       at: running ? start : time(r.ended_at) || start,

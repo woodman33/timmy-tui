@@ -391,7 +391,10 @@ export function agentResults(root: string, scrub: (t: string) => string, max = 4
       .flatMap((x) => (x.rel ? [{ rel: x.rel, note: x.note }] : [])).slice(0, 8) : [];
     return {
       kind: 'agent', title: `agent ${r.agent} · ${r.run}`, at: r.ended_at ?? r.started_at,
-      status: r.outcome ? { word: r.outcome, tone, ...(r.why ? { detail: scrub(r.why) } : {}) } : { word: 'not finished here', tone: 'attention', detail: 'no result was written (its REPL ended first, or it is still running)' },
+      status: r.outcome ? { word: r.outcome, tone, ...(r.why ? { detail: scrub(r.why) } : {}) }
+        // R4 (H59): its REPL ended first and recovery ended its record: interrupted, in its record's words (no result)
+        : r.state === 'interrupted' ? { word: 'interrupted', tone: 'attention', detail: scrub(r.why ?? 'its REPL ended first; no result was written') }
+          : { word: 'not finished here', tone: 'attention', detail: 'no result was written (its REPL ended first, or it is still running)' },
       lines: [taskWords(r.task, root, 120), `${r.model ?? 'its default model'} · ${r.endpoint === 'local' ? `local endpoint ${r.where}` : r.where}${cost ? ` · ${cost}` : ''}`,
         ...(f ? [`${f.added.length} added, ${f.changed.length} changed, ${f.deleted.length} deleted${f.truncated ? ' (not every file was compared)' : ''}`] : [])],
       files: [...changed, { rel: `${AGENTS_DIR}/${r.run}/${r.outcome ? 'result.json' : 'run.json'}`, note: 'its record' }],

@@ -1,15 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
+import { join } from 'node:path';
 import { NAMED_PAGES, resolveWebTarget } from '../src/repl/web.js';
 import { replTools } from '../src/repl/main.js';
 import { approvalNeeded } from '../src/repl/approvals.js';
 import { STUDIO_PORT } from '../src/studio/config.js';
+import { guardRealHome, ownHome } from './fixtures/home-guard.js';
+
+// R4 (H59; found by H55): `timmy studio` runs with its own temporary HOME and TIMMY_HOME, so its project token file
+// (<TIMMY_HOME>/canvas/project-token-<port>) is written and removed there, never under the test machine's own home; and
+// nothing here may change the real home's timmy folders (tests/fixtures/home-guard.ts reads them before and after).
+const realHome = guardRealHome();
+const own = ownHome('studio-cli-home-');
+afterAll(() => { own.remove(); expect(realHome.check(), 'changed under the real home\'s timmy folders while these tests ran').toEqual([]); });
 
 // F-4, slice 3: `timmy studio` serves Timmy Canvas; the REPL's agent has the canvas tools; /web studio opens it.
 function studio(args: string[], env: Record<string, string> = {}) {
-  const child = spawn(process.execPath, ['--import', 'tsx', 'src/cli.ts', 'studio', ...args], { env: { ...process.env, ...env, NO_COLOR: '1' } });
+  const child = spawn(process.execPath, ['--import', 'tsx', 'src/cli.ts', 'studio', ...args], { env: { ...process.env, ...own.env, ...env, NO_COLOR: '1' } });
   let out = '';
   child.stdout.on('data', (d) => { out += String(d); });
   child.stderr.on('data', (d) => { out += String(d); });
@@ -28,8 +38,12 @@ describe('timmy studio', () => {
     expect(s.out()).toContain('License: TLDRAW_LICENSE_KEY is set (tldraw checks it in the page)');
     expect(s.out()).not.toContain('tldraw-secret');
     expect((await (await fetch(`${url}studio-config.json`)).json()).licenseKey).toBe('tldraw-secret/AAAA.BBBB');
+    // R4 (H59): its project token is in its own Timmy home while it runs, and removed when it stops.
+    const token = join(own.TIMMY_HOME, 'canvas', `project-token-${new URL(url).port}`);
+    expect(existsSync(token)).toBe(true);
     s.child.kill('SIGTERM');
     expect(await s.exited).toBe(143);
+    expect(existsSync(token)).toBe(false);
   }, 20_000);
   it('without a key says it runs in development mode, which needs none on this machine', async () => {
     const s = studio(['--port', '0'], { TLDRAW_LICENSE_KEY: '' });

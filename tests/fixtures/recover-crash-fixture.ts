@@ -19,8 +19,9 @@ import { jobDirectory } from '../../lanes/recipes/jobs.js';
 /**
  * R4 (H46): the `agent` step runs `/iterate tray` with the test's agent (cfg.agent, a TEST DOUBLE that waits until it is
  * stopped) and the words `agentWords` added to its instruction, and is ready once that agent wrote cfg.agentStarted.
+ * R4 (H59): the `plain-agent` step runs that same agent as a plain `/agent qwen <task>` (no flow), ready the same way.
  */
-interface Config { root: string; jobsDir: string; executor: string; fakePython: string; agent: string; readback: string; seals: string; nativeStarted: string; steps: Array<'recipe' | 'iterate' | 'blender' | 'agent'>; agentStarted?: string; agentWords?: string }
+interface Config { root: string; jobsDir: string; executor: string; fakePython: string; agent: string; readback: string; seals: string; nativeStarted: string; steps: Array<'recipe' | 'iterate' | 'blender' | 'agent' | 'plain-agent'>; agentStarted?: string; agentWords?: string }
 const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8')) as Config;
 const text = (lines: Array<Array<{ text: string }>>): string => lines.map((l) => l.map((s) => s.text).join('')).join('\n');
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -89,6 +90,13 @@ try {
       if (!id || !job) throw new Error(`no flow started: ${said}`);
       await until('the agent to start', () => !!cfg.agentStarted && fs.existsSync(cfg.agentStarted) && !!ws.jobs.get(job)?.pid);
       out.agent = { flow: id, job, pid: ws.jobs.get(job)!.pid, started: JSON.parse(fs.readFileSync(cfg.agentStarted!, 'utf8')) };
+    } else if (step === 'plain-agent') {
+      const said = text(await ws.agent(`qwen make it 180 mm wide${cfg.agentWords ? ` ${cfg.agentWords}` : ''}`));
+      const m = said.match(/Agent\s+(j[0-9a-f]{6})\s+agent qwen (a[0-9a-f]{8})/);
+      if (!m) throw new Error(`no agent started: ${said}`);
+      const [, job, run] = m;
+      await until('the agent to start', () => !!cfg.agentStarted && fs.existsSync(cfg.agentStarted) && !!ws.jobs.get(job)?.pid);
+      out.plainAgent = { run, job, pid: ws.jobs.get(job)!.pid, started: JSON.parse(fs.readFileSync(cfg.agentStarted!, 'utf8')) };
     }
   }
   process.stdout.write(`READY ${JSON.stringify(out)}\n`);

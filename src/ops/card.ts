@@ -489,7 +489,11 @@ function runParts(ix: OpIndex, id: string, rec: OperationRecord | undefined, flo
   for (const run of ix.agents.get(id) ?? []) {
     const r = readJson(ix.root, `${AGENTS_DIR}/${run}/result.json`);
     const outcome = r.ok ? str(obj(r.value)?.outcome) : undefined;
-    add({ kind: 'agent', id: run, role: roleOf('agent'), state: outcome ?? 'running or not finished', tone: toneOf(outcome ?? 'running') });
+    // R4 (H59): no result, and its record ended by recovery after its REPL ended first: interrupted (no result was written).
+    const started = outcome ? undefined : readJson(ix.root, `${AGENTS_DIR}/${run}/run.json`);
+    const interrupted = started?.ok && obj(started.value)?.state === 'interrupted';
+    const state = outcome ?? (interrupted ? 'interrupted (no result was written)' : 'running or not finished');
+    add({ kind: 'agent', id: run, role: roleOf('agent'), state, tone: toneOf(outcome ?? (interrupted ? 'interrupted' : 'running')) });
   }
   for (const run of ix.natives.get(id) ?? []) add({ kind: 'native', id: run.slice(0, 8), role: roleOf('native'), state: 'native run', tone: 'neutral' });
   for (const j of ix.jobs.get(id) ?? []) {
