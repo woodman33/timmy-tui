@@ -116,11 +116,16 @@ describe('two starts at once (Promise.all), one project: the second is refused w
         await tick();
         // Only the first reached its agent's start; the second was refused before it.
         expect(calls.map((c) => c.root)).toEqual([root]);
+        // What the board asks (R4-3): the flow being started here, by its id, in its prepare step.
+        const held = f.runningIn(root);
+        expect(held).toEqual({ id: expect.stringMatching(/^f[0-9a-f]{8}$/), step: 'prepare' });
         release();
         const [a, b] = (await both).map(text);
         expect(a).toContain(NOT_STARTED);
         expect(b).toMatch(BUSY(second));
+        expect(b).toContain(`Flow ${held!.id} is still running in this project (its prepare step)`);
         expect(b).not.toContain(NOT_STARTED);
+        expect(f.runningIn(root)).toBeUndefined();
         // Released when the first start ended: a third start reaches its agent's start.
         expect(text(await f.command(LINE[second], at))).toContain(NOT_STARTED);
         expect(calls).toHaveLength(2);

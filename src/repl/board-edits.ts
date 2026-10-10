@@ -3,7 +3,8 @@
  * the same protections as its actions (127.0.0.1 only, its own Host and Origin, the bearer token, JSON only,
  * a size limit, one at a time in the actions' queue), and hands each to `applyBoardEdit`. There are two, each
  * an exact shape checked on the server; neither runs a command:
- * - `set-params`: the tray recipe's parameter file, checked by the recipe's own rules (src/repl/board-cards.ts);
+ * - `set-params`: the tray recipe's parameter file, checked by the recipe's own rules (src/repl/board-cards.ts); refused
+ *   while an /iterate flow runs in the project, which the Workspace passes in the context (`flowIn`; the R4 review, R4-3);
  * - `save-workflow`: a workflow document's named blocks, rewritten in place (src/repl/board-nodes.ts).
  *
  * EDIT_SCRIPT is the page's side: the node editor and the parameter form. It never sees the token: the live

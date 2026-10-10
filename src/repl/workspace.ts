@@ -1929,6 +1929,8 @@ export class Workspace {
     const root = this.root;
     const out = applyBoardEdit(body, {
       root, project: this.project.name, projectId: projectId(root), workflows: state.workflows.map((w) => w.rel), recipes: state.recipes ?? [], seal: this.d.seal,
+      // R4 review (R4-3): a parameter save waits for the end of a flow running (or being started) in this project.
+      flowIn: () => this.flows.runningIn(root),
     });
     this.d.notify([{ text: '  board  ', role: 'secondary' }, { text: this.scrub(out.line, root), role: out.status === 200 ? 'strong' : 'failure' }]);
     return { status: out.status, text: this.scrub(out.text, root) };
