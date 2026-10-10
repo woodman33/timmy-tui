@@ -11,10 +11,12 @@
  *             result file (workers/c4d/timmy_c4d.py) and that file, not c4dpy's exit status, says how
  *             the run went: a retained run on the operator's machine wrote ok:true while c4dpy exited 1.
  *   aerender  renders an EXISTING .aep/.aepx headless. It does not make or edit a project; that needs
- *             After Effects' own scripting through the app, which these jobs do not do.
+ *             After Effects' own scripting through the app: afterfx below.
  *   blender   Blender's own Python, headless (`blender -b --factory-startup --python <script> -- <args>`):
  *             a script that can build or change a scene, save an editable .blend and render a still. Like
  *             c4dpy, the script writes a result file (workers/blender/timmy_blender.py) that decides the run.
+ *   afterfx   (R4) After Effects scripting, inside the application (it opens its window): a per-run ExtendScript
+ *             harness writes or edits a project and its result file. Built and judged in src/native/ae-author.ts.
  *
  * R3 (an independent review of 40022d9, finding 5): every run has its own folder in the project,
  * .timmy/native/<run>/, holding job.json (written once, at submission: the app, the program, the input's
@@ -40,7 +42,7 @@ import type { CapabilityRow } from '../capabilities/index.js';
 import type { JobRecord, JobSpec, JobState } from '../jobs/index.js';
 import { resolveInside } from '../project/index.js';
 
-export type NativeApp = 'c4dpy' | 'aerender' | 'blender';
+export type NativeApp = 'c4dpy' | 'aerender' | 'blender' | 'afterfx';
 type Env = Record<string, string | undefined>;
 
 export interface NativeFound {
@@ -72,8 +74,10 @@ interface AppInfo {
   envVar: string;
   /** an application folder's name starts with this (then its version), or is this plus .app */
   prefix: string;
-  /** where the executable sits inside that folder, first match wins */
+  /** where the executable sits inside that folder, first match wins; {folder} is the folder's own name */
   inside: string[];
+  /** R4: the executable inside a .app bundle named by the environment variable, when it is not the bundle's own name */
+  bundleExe?: string;
   program: string;
   name: string;
   setup: string;
@@ -99,6 +103,15 @@ export const NATIVE_APPS: Record<NativeApp, AppInfo> = {
     envVar: 'TIMMY_BLENDER', prefix: 'Blender', inside: ['Contents/MacOS/Blender'], program: 'blender',
     name: 'Blender (Python, headless)',
     setup: 'install Blender; or set TIMMY_BLENDER to its blender program',
+    resultFile: true,
+  },
+  afterfx: {
+    // R4 (src/native/ae-author.ts): After Effects scripting, run inside the application itself. macOS keeps
+    // /Applications/Adobe After Effects <version>/Adobe After Effects <version>.app/Contents/MacOS/After Effects.
+    envVar: 'TIMMY_AFTERFX', prefix: 'Adobe After Effects', inside: ['{folder}.app/Contents/MacOS/After Effects'], bundleExe: 'After Effects',
+    program: 'After Effects',
+    name: 'After Effects (scripting)',
+    setup: 'install After Effects; or set TIMMY_AFTERFX to its .app/AfterFX.exe',
     resultFile: true,
   },
 };
@@ -153,7 +166,7 @@ export function locateNative(app: NativeApp, env: Env = process.env, seams: Find
   const raw = env[info.envVar]?.trim();
   if (raw) {
     let file = raw.replace(/\/+$/, '');
-    if (file.endsWith('.app')) file = path.join(file, 'Contents', 'MacOS', path.basename(file, '.app'));
+    if (file.endsWith('.app')) file = path.join(file, 'Contents', 'MacOS', info.bundleExe ?? path.basename(file, '.app'));
     if (isFile(file)) return { found: { app, path: file, how: 'env' } };
     return { found: null, problem: `${info.envVar} is set, but nothing runnable is there` };
   }
@@ -165,7 +178,7 @@ export function locateNative(app: NativeApp, env: Env = process.env, seams: Find
       .sort((a, b) => newerFirst(a.version, b.version));
     for (const folder of folders) {
       for (const inside of info.inside) {
-        const file = path.join(apps, folder.name, ...inside.split('/'));
+        const file = path.join(apps, folder.name, ...inside.replace('{folder}', folder.name).split('/'));
         if (isFile(file)) return { found: { app, path: file, how: 'applications', folder: folder.name, ...(folder.version ? { version: folder.version } : {}) } };
       }
     }
@@ -276,7 +289,7 @@ function program(app: NativeApp, bin: string | undefined, env: Env): string {
   return found.path;
 }
 
-function sha256File(file: string): string | undefined {
+export function sha256File(file: string): string | undefined {
   let fd: number;
   try { fd = openSync(file, 'r'); } catch { return undefined; }
   try {
@@ -317,7 +330,7 @@ function sequenceFrames(abs: string): Map<number, string> {
 }
 
 /** Each expected output's state now: what a later judgement compares against (R3, finding 5c). */
-function preStates(root: string, names: string[]): Record<string, PreState> {
+export function preStates(root: string, names: string[]): Record<string, PreState> {
   const pre: Record<string, PreState> = {};
   for (const name of names) {
     const abs = path.join(root, name);
@@ -376,7 +389,7 @@ const runDir = (root: string, run: string): string => path.join(root, NATIVE_RUN
 const relTo = (root: string, abs: string): string => (abs === root ? '.' : abs.startsWith(`${root}${path.sep}`) ? abs.slice(root.length + 1).split(path.sep).join('/') : abs);
 
 /** Writes the run's job.json once, refusing to replace one (a run token is never reused). */
-function writeSubmission(spec: NativeJobSpec): void {
+export function writeSubmission(spec: NativeJobSpec): void {
   const m = spec.native;
   const dir = m.record ?? runDir(m.root, m.run);
   mkdirSync(dir, { recursive: true });
@@ -1135,8 +1148,10 @@ export function nativeCapabilityRows(env: Env = process.env, seams: FinderSeams 
   return (Object.keys(NATIVE_APPS) as NativeApp[]).map((app) => {
     const info = NATIVE_APPS[app];
     const { found, problem } = locateNative(app, env, seams);
-    const scope = app === 'aerender' ? '; renders existing .aep/.aepx projects only (making or editing one needs After Effects scripting in the app)' : '';
-    const words = runWords(runs?.get(app));
+    const scope = app === 'aerender' ? '; renders existing .aep/.aepx projects only (making or editing one: /ae author, /ae edit, After Effects scripting)'
+      : app === 'afterfx' ? '; writes and edits projects inside the application (/ae author, /ae edit, /ae inspect; its window opens)' : '';
+    // R4: After Effects scripting says "implemented; not run" until a sealed run of its own says otherwise.
+    const words = runWords(runs?.get(app)) ?? (app === 'afterfx' ? 'implemented; not run' : undefined);
     const base = { id: app, kind: 'adapter' as const, name: info.name, tools: ['run_native'], exercisedBy: `native:${app}` };
     if (found) {
       const where = found.how === 'applications'

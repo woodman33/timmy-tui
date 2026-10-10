@@ -6,10 +6,13 @@
  * ends (src/native: the script's result file for c4dpy and Blender, the outputs for aerender; the exit is
  * recorded beside it). The operator is asked before each call
  * (the REPL's NEEDS YOU rule for run_native).
+ * R4: app 'afterfx' runs a .jsx inside After Effects itself (src/native/ae-author.ts): author a new project, edit a
+ * new version of one, or inspect one; After Effects opens its window. The same rule asks before each call.
  */
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { z } from 'zod/v4';
 import type { JobRecord, JobSpec } from '../jobs/index.js';
+import { aeScriptJob, aeToolNote, isAeJobSpec, type AeMode } from '../native/ae-author.js';
 import { aerenderJob, blenderJob, c4dpyJob, locateNative, NATIVE_APPS, noteNativeStarted, type NativeApp, type NativeFound, type NativeJobSpec } from '../native/index.js';
 
 export interface NativeToolOptions {
@@ -38,13 +41,16 @@ export function createNativeTools(o: NativeToolOptions) {
       "app 'c4dpy' runs a Python file with Cinema 4D's own Python, headless (script, relative to the project, plus args); the script can build or change a scene, save an editable .c4d and render, and writes this run's own result file (.timmy/native/<run>/result.json) through workers/c4d/timmy_c4d.py.",
       "app 'aerender' renders an EXISTING After Effects project (project_file .aep/.aepx, comp by name, output file); it cannot create or edit a project.",
       "app 'blender' runs a Python file with Blender's own Python, headless (blender -b --factory-startup --python <script> -- <args>); the script can build or change a scene, save an editable .blend and render a still, and writes this run's own result file through workers/blender/timmy_blender.py.",
+      "app 'afterfx' runs an ExtendScript .jsx inside After Effects itself (its window opens): mode 'author' (script, optional name) writes a new project saved as out/ae/<name>-v<N>.aep; mode 'edit' (project_file, script) saves a new version and never writes project_file; mode 'inspect' (project_file) has After Effects read a project back (its own report, not an independent reader). Then app 'aerender' renders the saved project.",
       'The operator is asked first. Report the job id; the operator follows it with /jobs <id>. Do not claim the render or the scene is done.',
     ].join(' '),
     inputSchema: z.object({
-      app: z.enum(['c4dpy', 'aerender', 'blender']).describe("'c4dpy' (Cinema 4D Python), 'aerender' (After Effects render of an existing project) or 'blender' (Blender Python, headless)"),
-      script: z.string().optional().describe('c4dpy, blender: the .py file to run, relative to the project'),
+      app: z.enum(['c4dpy', 'aerender', 'blender', 'afterfx']).describe("'c4dpy' (Cinema 4D Python), 'aerender' (After Effects render of an existing project), 'blender' (Blender Python, headless) or 'afterfx' (a .jsx inside After Effects: author, edit or inspect a project)"),
+      script: z.string().optional().describe('c4dpy, blender: the .py file to run; afterfx author, edit: the .jsx to run; relative to the project'),
       args: z.array(z.string()).optional().describe('c4dpy: arguments after the script; blender: the script\'s arguments (after --)'),
-      project_file: z.string().optional().describe('aerender: the existing .aep or .aepx, relative to the project'),
+      mode: z.enum(['author', 'edit', 'inspect']).optional().describe("afterfx: 'author' (default) a new project, 'edit' a new version of project_file, 'inspect' read project_file back"),
+      name: z.string().optional().describe('afterfx author: the new project\'s name (default: the script\'s); its versions are out/ae/<name>-v<N>.aep'),
+      project_file: z.string().optional().describe('aerender: the existing .aep or .aepx; afterfx edit, inspect: the .aep or .aepx (never written); relative to the project'),
       comp: z.string().optional().describe('aerender: the composition to render, by name'),
       output: z.string().optional().describe('aerender: the file to render to, relative to the project, e.g. out/title.mov'),
       render_settings_template: z.string().optional().describe('aerender: -RStemplate, a render settings template by name'),
@@ -57,14 +63,18 @@ export function createNativeTools(o: NativeToolOptions) {
     execute: async (input: {
       app: NativeApp; script?: string; args?: string[]; project_file?: string; comp?: string; output?: string;
       render_settings_template?: string; output_module_template?: string; start_frame?: number; end_frame?: number; timeout_minutes?: number;
+      mode?: AeMode; name?: string;
     }) => {
       const app = input.app;
       const info = NATIVE_APPS[app];
-      if (!info) return { ok: false, error: `no app ${String(app)}: c4dpy, aerender or blender` };
+      if (!info) return { ok: false, error: `no app ${String(app)}: c4dpy, aerender, blender or afterfx` };
       if ((app === 'c4dpy' || app === 'blender') && !input.script) return { ok: false, error: `${app} needs script: the .py file to run, relative to the project` };
       if (app === 'aerender' && (!input.project_file || !input.comp || !input.output)) {
         return { ok: false, error: 'aerender needs project_file (an existing .aep/.aepx), comp and output' };
       }
+      const aeMode: AeMode = input.mode ?? 'author';
+      if (app === 'afterfx' && aeMode !== 'inspect' && !input.script) return { ok: false, error: `afterfx ${aeMode} needs script: the .jsx to run, relative to the project` };
+      if (app === 'afterfx' && aeMode !== 'author' && !input.project_file) return { ok: false, error: `afterfx ${aeMode} needs project_file: the .aep or .aepx, relative to the project` };
       let found: NativeFound | null;
       let problem: string | undefined;
       if (o.find?.[app]) found = o.find[app]!();
@@ -75,7 +85,13 @@ export function createNativeTools(o: NativeToolOptions) {
       const timeoutMs = Math.round((input.timeout_minutes ?? DEFAULT_MINUTES) * 60_000);
       let spec: NativeJobSpec;
       try {
-        spec = app === 'c4dpy'
+        if (app === 'afterfx') {
+          spec = aeScriptJob({
+            mode: aeMode, root, project, timeoutMs, bin: found.path,
+            ...(input.script ? { script: input.script } : {}), ...(input.project_file ? { projectFile: input.project_file } : {}),
+            ...(input.name ? { name: input.name } : {}), ...(o.env ? { env: o.env } : {}),
+          });
+        } else spec = app === 'c4dpy'
           ? c4dpyJob({ script: input.script!, args: input.args ?? [], root, project, timeoutMs, bin: found.path, ...(o.env ? { env: o.env } : {}) })
           : app === 'blender'
             ? blenderJob({ script: input.script!, args: input.args ?? [], root, project, timeoutMs, bin: found.path, ...(o.env ? { env: o.env } : {}) })
@@ -100,8 +116,9 @@ export function createNativeTools(o: NativeToolOptions) {
       return {
         ok: true, job: job.id, run: spec.native.run, state: job.state, app, label: job.label,
         ...(app === 'aerender' ? { output: rel(spec.native.output) } : { result_file: rel(spec.native.result) }),
+        ...(isAeJobSpec(spec) ? { mode: spec.ae.mode, ...(spec.ae.saved ? { saved: spec.ae.saved.rel } : {}), ...(spec.ae.source ? { project_file: spec.ae.source.rel } : {}) } : {}),
         timeout_minutes: timeoutMs / 60_000,
-        note: `Started, not finished: the job runs in the background. /jobs ${job.id} follows it; its outcome is judged when it ends, from ${app === 'aerender' ? 'the output file' : 'the script\'s result file'}, with the exit recorded beside it.`,
+        note: isAeJobSpec(spec) ? aeToolNote(spec, job.id) : `Started, not finished: the job runs in the background. /jobs ${job.id} follows it; its outcome is judged when it ends, from ${app === 'aerender' ? 'the output file' : 'the script\'s result file'}, with the exit recorded beside it.`,
       };
     },
   });

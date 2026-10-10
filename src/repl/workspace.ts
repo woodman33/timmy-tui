@@ -14,6 +14,7 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { JobManager, type JobRecord } from '../jobs/index.js';
 import { aerenderJob, blenderJob, c4dpyJob, judgeNativeJob, nativeReceiptFields, NativeNotFound, noteNativeStarted, type NativeJobSpec } from '../native/index.js';
+import { AE_USAGE, aeEndLines, aeReceiptFields, aeScriptJob, aeStartLines, isAeJobSpec, judgeAeJob, parseAeScriptArgs, type AeJobSpec, type AeMode } from '../native/ae-author.js';
 import { mcpView, splitCommandLine } from '../connectors/mcp-cli.js';
 import {
   chooseProject, createProject, groupFiles, humanBytes, listProjectFiles, listProjects, projectId, projectsHome, readProjectFile,
@@ -798,6 +799,11 @@ export class Workspace {
     const agentRun = this.agentRuns.get(job.id);
     if (agentRun && TERMINAL.has(job.state)) return void this.d.notify(this.agentEndLine(job, agentRun));
     const nat = this.natives.get(job.id);
+    if (nat && (job.state === 'completed' || job.state === 'failed') && isAeJobSpec(nat)) {
+      // R4: an After Effects script run says its new version (Timmy's sha256), After Effects' own report and the next step.
+      for (const l of aeEndLines(judgeAeJob(job, nat), nat, { id: job.id, label: job.label, glyphs: g, sep: this.sep, scrub: (s) => this.scrub(s, job.root), ...(job.receipt ? { receipt: job.receipt } : {}) })) this.d.notify(l);
+      return;
+    }
     if (nat && (job.state === 'completed' || job.state === 'failed')) {
       // R2: judged by the app's own result file; an exit code alone decides nothing (c4dpy can exit 1 after a good run).
       const j = judgeNativeJob(job, nat);
@@ -855,7 +861,7 @@ export class Workspace {
     const label = this.scrub(job.label, job.root);
     const error = job.error ? this.scrub(job.error, job.root) : undefined;
     const nat = this.natives.get(job.id);
-    const judged = nat && job.state !== 'cancelled' ? nativeReceiptFields(nat.native.app, judgeNativeJob(job, nat)) : undefined;
+    const judged = nat && job.state !== 'cancelled' ? (isAeJobSpec(nat) ? aeReceiptFields(judgeAeJob(job, nat)) : nativeReceiptFields(nat.native.app, judgeNativeJob(job, nat))) : undefined;
     if (judged) judged.native.why = this.scrub(judged.native.why, job.root);
     const status = job.state === 'cancelled' ? 'cancelled' as const : judged ? judged.status : job.state === 'completed' ? 'ok' as const : 'failed' as const;
     try {
@@ -1043,11 +1049,22 @@ export class Workspace {
     return this.startNative(() => blenderJob({ script: w[0], args: w.slice(1), root: this.root, project: this.project.name }), `Blender runs ${w[0]}`);
   }
 
-  /** /ae <project.aep> <comp> <output>: After Effects renders an existing project's comp (aerender), as a job. */
+  /** /ae <project.aep> <comp> <output>: After Effects renders an existing project's comp (aerender), as a job.
+   *  R4: /ae author|edit|inspect run a script inside After Effects itself (src/native/ae-author.ts). */
   async ae(args: string): Promise<Line[]> {
     const w = splitCommandLine(args.trim());
-    if (w.length < 3) return this.say('Usage: /ae <project.aep> <comp> <output file>   (renders an existing project)');
+    const scripted = parseAeScriptArgs(w);
+    if (scripted) return 'error' in scripted ? this.say(scripted.error) : this.aeScript(scripted);
+    if (w.length < 3) return [[{ text: '  Usage:', role: 'secondary' }], ...AE_USAGE.map((u): Line => [{ text: `    ${u}`, role: 'secondary' }])];
     return this.startNative(() => aerenderJob({ projectFile: w[0], comp: w[1], output: w[2], root: this.root, project: this.project.name }), `After Effects renders ${w[1]} from ${w[0]}`);
+  }
+
+  /** R4: an After Effects script run as a job; what happens in After Effects is said before it starts. */
+  private aeScript(p: { mode: AeMode; script?: string; projectFile?: string; name?: string }): Line[] {
+    const made: { spec?: AeJobSpec } = {};
+    const what = p.mode === 'author' ? `After Effects writes a project from ${p.script}` : p.mode === 'edit' ? `After Effects edits a new version of ${p.projectFile} with ${p.script}` : `After Effects reads ${p.projectFile} back`;
+    const lines = this.startNative(() => (made.spec = aeScriptJob({ ...p, root: this.root, project: this.project.name, findEnv: this.d.env })), what);
+    return made.spec ? [...aeStartLines(made.spec, this.sep), ...lines] : lines;
   }
 
   // ── /recipe (round R3: the CadQuery enclosure-tray recipe as a durable job; src/repl/recipe.ts) ──

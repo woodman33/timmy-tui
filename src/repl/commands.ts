@@ -150,7 +150,7 @@ export const COMMANDS: SlashCommand[] = [
   // Round R3: `/board live` and `/board off` go to the live board; `/board` alone stays the snapshot.
   { name: 'board', group: 'look', description: 'A board of the project; /board live | off', run: inWorkspace((w, a) => (w.boardLive && /^(?:live|off)$/.test(a.trim()) ? w.boardLive(a) : w.board(a))) },
   { name: 'c4d', group: 'work', description: 'Cinema 4D Python as a job: /c4d <script.py>', run: inWorkspace((w, a) => w.c4d(a)) },
-  { name: 'ae', group: 'work', description: 'After Effects render: /ae <aep> <comp> <out>', run: inWorkspace((w, a) => w.ae(a)) },
+  { name: 'ae', group: 'work', description: 'After Effects: author, edit, inspect, render', run: inWorkspace((w, a) => w.ae(a)) },
   { name: 'blender', group: 'work', description: 'Blender Python as a job: /blender <script.py>', run: inWorkspace((w, a) => w.blender(a)) },
   { name: 'recipe', group: 'work', description: 'CadQuery tray recipe as a job: /recipe tray', run: inWorkspace((w, a) => w.recipe(a)) },
   { name: 'mcp', group: 'setup', description: 'MCP servers and tools: /mcp [tools|call]', run: inWorkspace((w, a) => w.mcp(a)) },

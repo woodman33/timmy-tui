@@ -16,6 +16,7 @@ export const STARTERS: Readonly<Record<string, string>> = {
   'web-starter': 'a page, a development server (npm run dev) and a build workflow',
   'c4d-starter': 'a Cinema 4D scene script (/c4d scene.py) and its build workflow',
   'blender-starter': 'a Blender scene script (/blender scene.py): an editable .blend and a render',
+  'ae-starter': 'After Effects scripts: author.jsx makes a project (/ae author author.jsx), edit.jsx changes it (/ae edit)',
 };
 
 /**

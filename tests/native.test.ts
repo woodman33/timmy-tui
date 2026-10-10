@@ -275,6 +275,8 @@ describe('the /tools rows', () => {
       ['c4dpy', 'adapter', 'Cinema 4D (c4dpy)', 'installed'],
       ['aerender', 'adapter', 'After Effects (aerender)', 'installed'],
       ['blender', 'adapter', 'Blender (Python, headless)', 'installed'],
+      // R4: no After Effects application is in this folder (only aerender is): After Effects scripting needs setup.
+      ['afterfx', 'adapter', 'After Effects (scripting)', 'needs setup'],
     ]);
     expect(rows[2].detail).toMatch(/Blender\.app/);
     expect(rows[0].detail).toMatch(/Maxon Cinema 4D 2026/);
@@ -285,7 +287,7 @@ describe('the /tools rows', () => {
 
   it('says needs setup, with the step, when it is not found', () => {
     const rows = nativeCapabilityRows({}, { platform: 'darwin', applications: path.join(tmp, 'none'), onPath: () => null });
-    expect(rows.map((r) => r.rung)).toEqual(['needs setup', 'needs setup', 'needs setup']);
+    expect(rows.map((r) => r.rung)).toEqual(['needs setup', 'needs setup', 'needs setup', 'needs setup']);
     expect(rows[0].setup).toMatch(/TIMMY_C4DPY/);
     expect(rows[1].setup).toMatch(/TIMMY_AERENDER/);
     expect(rows[2].setup).toMatch(/TIMMY_BLENDER/);
