@@ -38,8 +38,8 @@ function make(root: string) {
 }
 
 describe('a command gets its arguments as typed only when it asks for them (raw)', () => {
-  it('only /mcp is raw; /model still gets its words joined by one space', () => {
-    expect(COMMANDS.filter((c) => c.raw).map((c) => c.name)).toEqual(['mcp']);
+  it('only /mcp and the four VoxVision commands (whose paths keep their spaces) are raw; /model still gets its words joined by one space', () => {
+    expect(COMMANDS.filter((c) => c.raw).map((c) => c.name)).toEqual(['inspect', 'measure', 'detect', 'compare', 'mcp']);
     const models: string[] = [];
     const ctx = { print: () => {}, glyphs: glyphSet(true), agent: { getModel: () => 'm', setModel: (m: string) => models.push(m), startSession: () => '' } } as unknown as ReplContext;
     expect(runSlash('  /model   a  b  ', ctx)).toBe('handled');
