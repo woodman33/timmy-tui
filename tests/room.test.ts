@@ -372,11 +372,13 @@ describe('the Control Room on the board: escaping, buttons, no paths', () => {
     expect(snap).toContain('href="../../.timmy/agents/a0000a001/result.json"');
     expect(live).not.toContain('href=');
     // The costs line, never a remaining budget.
-    expect(snap).toContain('$0.0186 known (3 runs) · 4 runs of unknown cost');
+    // The costs bar: the same words as the costs line (only the unknown part is drawn in the attention colour).
+    expect(snap.replace(/<[^>]+>/g, '')).toContain('$0.0186 known (3 runs) · 4 runs of unknown cost (at least $0.0010 reported on them) · 2 runs free (local endpoint); runs that record no cost are not counted');
+    expect(snap).toContain('<span class="cost-unknown">4 runs of unknown cost');
     expect(snap).not.toMatch(/\$[0-9.]+\s*(remaining|left)|remaining budget:|budget remaining/i);
     // The handoff chain is an ordered list with each step's owner, state, job and receipt.
     expect(snap).toContain('<ol class="handoff" aria-label="the handoffs of flow f0000a001">');
-    expect(snap).toContain('<span class="ho-name">build</span> <span class="ho-owner">the CadQuery recipe (enclosure.tray/1)</span> <span class="ho-state">completed</span>');
+    expect(snap).toContain('<div class="ho-top"><span class="ho-name">build</span> <span class="ho-state">completed</span></div><div class="ho-owner">the CadQuery recipe (enclosure.tray/1)</div><div class="ho-meta">job j0a0002 · receipt rcpt-build-0a01 · recipe job 1a2b3c4d-0000-4000-8000-00000000000a · succeeded</div>');
     expect(ROOM_CSS).not.toMatch(/data-act=/);
   });
 

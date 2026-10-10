@@ -250,6 +250,8 @@ export function routeWords(o: { endpoint?: unknown; where?: unknown }): string {
 // ── costs ─────────────────────────────────────────────────────────────────────
 
 const none = (words: string): RoomCost => ({ kind: 'none', words });
+/** A cost basis that names a local endpoint ("local endpoint", as sealAgent writes it; "a local endpoint: …" in a flow record's words). */
+const localBasis = (basis: string | undefined): boolean => !!basis && /^(?:a )?local endpoint\b/i.test(basis);
 
 /**
  * An agent run's cost from its record (result.json or run.json): the reported amount, free on a local endpoint, unknown
@@ -258,7 +260,7 @@ const none = (words: string): RoomCost => ({ kind: 'none', words });
 export function agentRecordCost(r: Pick<AgentRunRecord, 'cost_usd' | 'cost_basis' | 'endpoint' | 'outcome'>, running: boolean): RoomCost {
   const basis = str(r.cost_basis);
   if (typeof r.cost_usd === 'number' && Number.isFinite(r.cost_usd)) {
-    if (basis === 'local endpoint' && r.cost_usd === 0) return { kind: 'free', words: 'free: a local endpoint, recorded as no charge' };
+    if (localBasis(basis) && r.cost_usd === 0) return { kind: 'free', words: 'free: a local endpoint, recorded as no charge' };
     return { kind: 'known', usd: r.cost_usd, words: `${usd(r.cost_usd)}, ${basis ?? 'as its record gives it'}` };
   }
   if (r.cost_usd === null) return { kind: 'unknown', words: `unknown: ${basis?.replace(/^unknown:\s*/, '') ?? 'no cost was reported'}` };
@@ -301,7 +303,7 @@ export function receiptCosts(chain: readonly Receipt[], projectId: string): Map<
     } else if (r.kind === 'agent' && str(r.agent?.run)) {
       const basis = str(r.agent?.cost_basis);
       const c = receiptCost(r, { known: basis ?? 'as its receipt sealed it', unknown: basis?.replace(/^unknown:\s*/, '') ?? 'no cost was reported', none: 'its receipt records no cost' });
-      put(`agent:${r.agent!.run}`, r, c.kind === 'known' && c.usd === 0 && basis === 'local endpoint' ? { kind: 'free', words: 'free: a local endpoint, sealed as no charge' } : c);
+      put(`agent:${r.agent!.run}`, r, c.kind === 'known' && c.usd === 0 && localBasis(basis) ? { kind: 'free', words: 'free: a local endpoint, sealed as no charge' } : c);
     } else if (r.kind === 'observe') {
       put(`look:${str(r.job?.id) ?? String(r.hash)}`, r, receiptCost(r, { known: 'as the response reported it, sealed on its receipt', unknown: 'a request went out and no cost was reported', none: 'no model request went out' }));
     } else if (r.kind === 'flow' && hasCost) {
@@ -330,12 +332,21 @@ export function sumCosts(entries: Iterable<CostEntry>): RoomCosts {
   return out;
 }
 
+/** The costs line's parts: the known sum, the unknown count (with any lower bound), the free count, and what is not counted. */
+export function costParts(c: RoomCosts): { known: string; unknown: string; free: string; rest: string } {
+  const n = (k: number, one: string, many = `${one}s`): string => `${k} ${k === 1 ? one : many}`;
+  return {
+    known: c.known ? `${usd(c.knownUsd)} known (${n(c.known, 'run')})` : 'no known cost recorded',
+    unknown: `${n(c.unknown, 'run')} of unknown cost${c.atLeastUsd > 0 ? ` (at least ${usd(c.atLeastUsd)} reported on them)` : ''}`,
+    free: `${n(c.free, 'run')} free (local endpoint)`,
+    rest: 'runs that record no cost are not counted',
+  };
+}
+
 /** The project's costs in one line: the known sum, the unknown and free counts; never a remaining budget, never 0 for unknown. */
 export function costsLine(c: RoomCosts): string {
-  const n = (k: number, one: string, many = `${one}s`): string => `${k} ${k === 1 ? one : many}`;
-  const known = c.known ? `${usd(c.knownUsd)} known (${n(c.known, 'run')})` : 'no known cost recorded';
-  const unknown = `${n(c.unknown, 'run')} of unknown cost${c.atLeastUsd > 0 ? ` (at least ${usd(c.atLeastUsd)} reported on them)` : ''}`;
-  return `${known} · ${unknown} · ${n(c.free, 'run')} free (local endpoint); runs that record no cost are not counted`;
+  const p = costParts(c);
+  return `${p.known} · ${p.unknown} · ${p.free}; ${p.rest}`;
 }
 
 // ── each owner's runs ─────────────────────────────────────────────────────────
@@ -375,7 +386,7 @@ function chatRuns(c: Ctx): RoomRun[] {
     return {
       kind: 'chat', id: shortReceipt(r), owner: 'Timmy chat agent', harness: 'Timmy REPL (version not recorded)',
       ...(str(r.model_requested) ? { model: r.model_requested } : {}),
-      route: "not recorded on the turn's receipt: it names the model asked for, not the endpoint that answered",
+      route: 'not recorded on its receipt (it names the model asked for, not the endpoint that answered)',
       state, tone: status === 'ok' ? 'ok' : status === 'cancelled' ? 'stopped' : 'failed', running: false,
       step: `${tools.length} tool call${tools.length === 1 ? '' : 's'}`,
       ...(start ? { startedAt: new Date(start).toISOString() } : {}), ...(end ? { endedAt: r.ts } : {}),
@@ -477,7 +488,10 @@ export function flowHandoff(record: unknown): RoomStep[] {
     const job = str(part?.job);
     const receipt = str(part?.receipt) ?? str(receipts[s.step]);
     const operation = s.step === 'build' ? str(part?.operation) : undefined;
-    const detail = [operation ? `recipe job ${operation}` : '', s.detail].filter(Boolean).join(' · ');
+    // The strip's few words, without what this step already says: its job, its agent's name, the recipe job's short id.
+    const agentName = s.step === 'agent' ? str(obj(r.agent)?.agent) : undefined;
+    const words = s.detail.split(' · ').filter((w) => w && w !== `job ${job}` && w !== agentName && !(operation && w.startsWith('recipe job ')));
+    const detail = [operation ? `recipe job ${operation}` : '', ...words].filter(Boolean).join(' · ');
     return { name: s.name, owner: stepOwner(s.step, r, strip.kind), state: s.state, ...(job ? { job } : {}), ...(receipt ? { receipt } : {}), ...(detail ? { detail } : {}), ...(s.here ? { here: s.here } : {}) };
   });
 }

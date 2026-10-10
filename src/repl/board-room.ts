@@ -15,19 +15,28 @@
  */
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { CapabilityRow } from '../capabilities/index.js';
-import { costsLine, RUNG_WORDS, toolGroups, type RoomRun, type RoomStep, type RoomView, type Tone } from '../room/index.js';
+import { costParts, RUNG_WORDS, toolGroups, type RoomCosts, type RoomRun, type RoomStep, type RoomView, type Tone } from '../room/index.js';
 import { costWords } from '../room/text.js';
 import { esc, stamp, type Kit } from './board-kit.js';
 
 const cls = (s: string): string => s.replace(/[^a-z0-9]+/gi, '').toLowerCase();
 const STATE_CLASS: Readonly<Record<Tone, string>> = { running: 'rs-running', ok: 'rs-ok', failed: 'rs-failed', stopped: 'rs-stopped', attention: 'rs-attention', neutral: 'rs-neutral' };
 
-/** A step of a handoff chain: its name, who did it, its state in words, and its job and receipt where the record names them. */
+/**
+ * A step of a handoff chain, as a numbered row: its name and its state in words (and "ended here" or "running now" on the
+ * step that holds the flow), then who did it, then its job and receipt where the record names them.
+ */
 function stepHtml(s: RoomStep): string {
   const meta = [s.job ? `job ${s.job}` : '', s.receipt ? `receipt ${s.receipt}` : '', s.detail ?? ''].filter(Boolean).join(' · ');
   return `<li class="ho ho-${cls(String(s.state))}${s.here ? ' ho-here' : ''}"${s.here ? ' aria-current="step"' : ''}>`
-    + `<span class="ho-name">${esc(s.name)}</span> <span class="ho-owner">${esc(s.owner)}</span> <span class="ho-state">${esc(String(s.state))}</span>`
-    + `${s.here ? ` <span class="ho-here-words">${esc(s.here)}</span>` : ''}${meta ? ` <span class="ho-meta">${esc(meta)}</span>` : ''}</li>`;
+    + `<div class="ho-top"><span class="ho-name">${esc(s.name)}</span> <span class="ho-state">${esc(String(s.state))}</span>${s.here ? ` <span class="ho-here-words">${esc(s.here)}</span>` : ''}</div>`
+    + `<div class="ho-owner">${esc(s.owner)}</div>${meta ? `<div class="ho-meta">${esc(meta)}</div>` : ''}</li>`;
+}
+
+/** The costs line as the board draws it: the same words as costsLine, only the unknown part in the attention colour. */
+export function costsHtml(c: RoomCosts): string {
+  const p = costParts(c);
+  return `<strong class="cost-known">${esc(p.known)}</strong> · <span class="${c.unknown ? 'cost-unknown' : 'cost-none'}">${esc(p.unknown)}</span> · <span class="cost-free">${esc(p.free)}</span>; <span class="cost-none">${esc(p.rest)}</span>`;
 }
 
 /** The handoff chain as an ordered list (it needs no script). */
@@ -99,8 +108,7 @@ export function roomSection(v: RoomView, k: Kit): { toc: string; html: string } 
   const running = v.running.length;
   const groups = v.groups.filter((g) => g.recent.length);
   const c = v.costs;
-  const costs = `<div class="room-costs"><span class="room-label">costs, as recorded</span> `
-    + `<span class="${c.unknown ? 'cost-unknown' : 'cost-known'}">${esc(costsLine(c))}</span>`
+  const costs = `<div class="room-costs"><span class="room-label">costs, as recorded</span> <span class="room-costline">${costsHtml(c)}</span>`
     + `<p class="meta">${esc('From the runs\' receipts first, else their own records; one charge seen through two records is counted once. Unknown stays unknown, never 0, and no budget or remaining amount is shown.')}</p></div>`;
   return {
     toc: `<a href="#room">Control Room <b>${running ? `${running} running` : 'idle'}</b></a>`,
@@ -129,6 +137,7 @@ export const ROOM_CSS = `
 .room-costs .room-label { text-transform: uppercase; letter-spacing: .06em; font-size: 11px; color: ${HOMEBREW.textSecondary}; margin-right: 8px; }
 .room-costs .cost-known { font-weight: ${TYPE.weight.strong}; color: ${HOMEBREW.text}; }
 .room-costs .cost-unknown { font-weight: ${TYPE.weight.strong}; color: ${HOMEBREW.attention}; }
+.room-costs .cost-free, .room-costs .cost-none { color: ${HOMEBREW.textSecondary}; }
 .room-costs .meta { margin: 4px 0 0; }
 .room-group { margin: 0 0 14px; }
 .room-group > h4 { margin: 14px 0 8px; font-size: 12px; }
@@ -150,20 +159,24 @@ export const ROOM_CSS = `
 .room .cost-unknown { color: ${HOMEBREW.attention}; }
 .room .cost-free, .room .cost-none { color: ${HOMEBREW.textSecondary}; }
 .room .cost-known { color: ${HOMEBREW.text}; }
-.room ol.handoff { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; font-size: 11.5px; }
-.room ol.handoff .ho { position: relative; border: 1px solid ${HOMEBREW.line}; border-radius: 6px; padding: 4px 8px; background: ${HOMEBREW.raised}; display: flex; flex-direction: column; min-width: 0; max-width: 100%; }
-.room ol.handoff .ho + .ho { margin-left: 14px; }
-.room ol.handoff .ho + .ho::before { content: "\\2192"; position: absolute; left: -15px; top: 4px; color: ${HOMEBREW.textSecondary}; }
+.room ol.handoff { list-style: none; margin: 2px 0 0; padding: 0; counter-reset: ho; display: flex; flex-direction: column; font-size: 11.5px; line-height: 1.4; }
+.room ol.handoff .ho { position: relative; padding: 0 0 8px 28px; min-width: 0; overflow-wrap: anywhere; }
+.room ol.handoff .ho::before { counter-increment: ho; content: counter(ho); position: absolute; left: 0; top: 0; width: 18px; height: 18px; border-radius: 50%; border: 1px solid ${HOMEBREW.lineStrong}; background: ${HOMEBREW.surface}; color: ${HOMEBREW.text}; font-size: 10px; line-height: 16px; text-align: center; box-sizing: border-box; }
+.room ol.handoff .ho:not(:last-child)::after { content: ""; position: absolute; left: 9px; top: 19px; bottom: 1px; border-left: 1px solid ${HOMEBREW.line}; }
+.room ol.handoff .ho:last-child { padding-bottom: 0; }
+.room .ho-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 .room .ho-name { text-transform: uppercase; letter-spacing: .05em; font-weight: ${TYPE.weight.strong}; }
-.room .ho-owner, .room .ho-meta { color: ${HOMEBREW.textSecondary}; overflow-wrap: anywhere; }
-.room .ho-state { color: ${HOMEBREW.text}; }
+.room .ho-state { text-transform: uppercase; letter-spacing: .05em; font-size: 10.5px; color: ${HOMEBREW.text}; }
+.room .ho-owner { color: ${HOMEBREW.text}; }
+.room .ho-meta { color: ${HOMEBREW.textSecondary}; }
+.room .ho-running::before, .room .ho-stopped::before, .room .ho-interrupted::before { border-color: ${HOMEBREW.attention}; color: ${HOMEBREW.attention}; }
 .room .ho-running .ho-state, .room .ho-stopped .ho-state, .room .ho-interrupted .ho-state { color: ${HOMEBREW.attention}; }
-.room .ho-failed { border-color: ${HOMEBREW.failure}; }
+.room .ho-failed::before { border-color: ${HOMEBREW.failure}; color: ${HOMEBREW.failure}; }
 .room .ho-failed .ho-state { color: ${HOMEBREW.failure}; }
-.room .ho-notrun, .room .ho-waiting { border-style: dashed; }
-.room .ho-notrun .ho-state, .room .ho-waiting .ho-state { color: ${HOMEBREW.textSecondary}; }
-.room .ho-here { border-color: ${HOMEBREW.lineStrong}; box-shadow: inset 0 -2px 0 ${HOMEBREW.lineStrong}; }
-.room .ho-here-words { font-size: 11px; color: ${HOMEBREW.text}; }
+.room .ho-notrun::before, .room .ho-waiting::before { border-style: dashed; color: ${HOMEBREW.textSecondary}; }
+.room .ho-notrun .ho-state, .room .ho-waiting .ho-state, .room .ho-notrun .ho-name, .room .ho-waiting .ho-name { color: ${HOMEBREW.textSecondary}; }
+.room .ho-here .ho-name { text-decoration: underline; text-underline-offset: 3px; }
+.room .ho-here-words { font-size: 10.5px; color: ${HOMEBREW.text}; }
 .room details.more { border: 1px solid ${HOMEBREW.line}; border-radius: 6px; padding: 0 10px; }
 .room details.more > summary { cursor: pointer; padding: 6px 0; font-size: ${TYPE.size.small}px; color: ${HOMEBREW.textSecondary}; text-transform: uppercase; letter-spacing: .06em; }
 .room details.more > summary:hover, .room details.more > summary:focus-visible { color: ${HOMEBREW.text}; outline: none; }
@@ -188,9 +201,4 @@ export const ROOM_CSS = `
 .room .tl-step { overflow-wrap: anywhere; }
 .room .tl-step code { font: inherit; color: ${HOMEBREW.text}; }
 .room .tl-missing .tl-name { color: ${HOMEBREW.textSecondary}; }
-@media (max-width: 520px) {
-  .room ol.handoff { flex-direction: column; }
-  .room ol.handoff .ho + .ho { margin-left: 0; margin-top: 12px; }
-  .room ol.handoff .ho + .ho::before { content: "\\2193"; left: 8px; top: -15px; }
-}
 `;

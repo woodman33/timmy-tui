@@ -165,8 +165,8 @@ describe('the Control Room on the live board: Stop reaches the existing /stop pa
     expect(s.flows).toEqual([{ id: flow, state: 'running', stoppable: true }]);
     // Its handoff chain from its state file: the agent step runs, the others wait.
     expect(s.html).toContain(`<ol class="handoff" aria-label="the handoffs of flow ${flow}">`);
-    expect(s.html).toMatch(/<span class="ho-name">agent<\/span> <span class="ho-owner">Qwen Code<\/span> <span class="ho-state">running<\/span>/);
-    expect(s.html).toMatch(/<span class="ho-name">readback<\/span> <span class="ho-owner">[^<]*<\/span> <span class="ho-state">waiting<\/span>/);
+    expect(s.html).toContain('<div class="ho-top"><span class="ho-name">agent</span> <span class="ho-state">running</span> <span class="ho-here-words">running now</span></div><div class="ho-owner">Qwen Code</div>');
+    expect(s.html).toContain('<div class="ho-top"><span class="ho-name">readback</span> <span class="ho-state">waiting</span></div>');
     // Its agent run is in the room too, as the agent step of the flow.
     expect(s.html).toContain(`the agent step of flow ${flow}`);
 
