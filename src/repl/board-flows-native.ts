@@ -12,12 +12,16 @@
  * names exactly its bytes; otherwise they are shown as the record says, not verified. Every dimension is labelled as
  * measured from the CAD file, with who measured it and DOCTRINE §15's sentence. Every string is escaped; links come
  * from the Flows section's own helpers (a link only inside the project; text on the live board).
+ *
+ * Round R4 (H40, review R4-4): a list in the record that is not a list, or entries in it that are not Timmy's (a
+ * parameter change without a name, a check that is not an object, a document without a path), are left out and the
+ * card says what it left out; the Flows section draws each card inside a guard as well.
  */
-import { DOCTRINE_15 } from '../flows/iterate.js';
-import { changeText, isNativeFlowRecord, numText, sizeText, syntaxWords } from '../flows/iterate-native.js';
-import { isScadFlowRecord, SCAD_COMPARE_SCOPE, scadVolumeText, type ScadFlowRecord, type ScadParamChange } from '../flows/iterate-scad.js';
+import { DOCTRINE_15, type OtherChange } from '../flows/iterate.js';
+import { changeText, isNativeFlowRecord, numText, sizeText, syntaxWords, type ScriptHunk } from '../flows/iterate-native.js';
+import { isScadFlowRecord, SCAD_COMPARE_SCOPE, scadVolumeText, type ScadCompareCheck, type ScadFlowRecord, type ScadParamChange } from '../flows/iterate-scad.js';
 import { isFreecadFlowRecord, type FreecadFlowRecord } from '../flows/iterate-freecad.js';
-import { FREECAD_READBACK_SCOPE } from '../native/freecad.js';
+import { FREECAD_READBACK_SCOPE, type FreecadReadbackCheck } from '../native/freecad.js';
 import { scadLiteral, type ScadValue } from '../native/scad-params.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { FlowRecord } from '../flows/iterate.js';
@@ -47,11 +51,33 @@ const point = (v: unknown): string => (triple(v) ? `(${v.map(numText).join(', ')
 const value = (v: unknown): string => (v === null || v === undefined ? 'none' : typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string' ? scadLiteral(v as ScadValue) : '?');
 const cost = (a: { cost_usd?: number | null; cost_basis?: string }): string => (a.cost_usd === undefined ? '' : a.cost_usd === null ? ' · cost unknown' : ` · cost $${Number(a.cost_usd).toFixed(4)}${a.cost_basis ? ` (${a.cost_basis})` : ''}`);
 
+/**
+ * R4 (H40): a record's list, read as Timmy writes it (as src/repl/board-flows.ts reads one): the entries that are
+ * objects and pass `ok`, how many are not (`odd`), and whether a value is there that is not a list (`notList`).
+ */
+type Entries<T> = { items: T[]; odd: number; notList: boolean };
+function entries<T>(v: unknown, ok: (x: Record<string, unknown>) => boolean = () => true): Entries<T> {
+  if (!Array.isArray(v)) return { items: [], odd: 0, notList: v !== undefined && v !== null };
+  const items = v.filter((x) => !!x && typeof x === 'object' && !Array.isArray(x) && ok(x as Record<string, unknown>)) as T[];
+  return { items, odd: v.length - items.length, notList: false };
+}
+const named = (x: Record<string, unknown>): boolean => typeof x.name === 'string';
+const pathed = (x: Record<string, unknown>): boolean => typeof x.path === 'string';
+const leftOut = (e: Entries<unknown>, what: string): string => (e.notList
+  ? `${what}: not a list, so not shown`
+  : e.odd ? `${e.odd} ${e.odd === 1 ? 'entry' : 'entries'} of ${what} not in the form Timmy writes, so not shown` : '');
+const notShownRow = (e: Entries<unknown>, what: string): string => { const t = leftOut(e, what); return t ? `<dt>not shown</dt><dd class="nomodel">${esc(t)}</dd>` : ''; };
+const notShownItem = (e: Entries<unknown>, what: string): string => { const t = leftOut(e, what); return t ? `<li class="nomodel">${esc(t)}</li>` : ''; };
+const notShownPara = (e: Entries<unknown>, what: string): string => { const t = leftOut(e, what); return t ? `<p class="nomodel">${esc(t)}</p>` : ''; };
+
 /** The agent's row (and the files it changed that it should not have), as the other flow cards show it. */
 function agentRows(a: FlowRecord['agent'] | undefined, h: NativeCardHelpers): string[] {
   if (!a) return [];
   const rows = [`<dt>agent</dt><dd>${esc(`${a.agent} ${a.run}${a.model ? ` · model ${a.model}` : ''} · ${a.route} · ${a.outcome ?? 'running'}${cost(a)}${a.receipt ? ` · receipt ${a.receipt}` : ''}`)}${a.transcript ? ` · ${h.file(a.transcript, 'transcript')}` : ''}</dd>`];
-  if (Array.isArray(a.others) && a.others.length) rows.push(`<dt>also changed</dt><dd>${a.others.slice(0, 12).map((x) => `${h.file(x.path)} <span class="tier">${esc(x.how)}</span>`).join(', ')}</dd>`);
+  const others = entries<OtherChange>(a.others, pathed);
+  if (others.items.length) rows.push(`<dt>also changed</dt><dd>${others.items.slice(0, 12).map((x) => `${h.file(x.path)} <span class="tier">${esc(x.how)}</span>`).join(', ')}</dd>`);
+  const odd = notShownRow(others, 'the files it also changed');
+  if (odd) rows.push(odd);
   return rows;
 }
 
@@ -74,7 +100,9 @@ function beforeAfterRows(ba: { measured_by?: unknown; before?: unknown; before_n
 function scadParamsBlock(r: ScadFlowRecord, h: NativeCardHelpers): string {
   const p = r.parameters;
   if (!p || typeof p !== 'object') return '';
-  const diff: ScadParamChange[] = Array.isArray(p.diff) ? p.diff : [];
+  // R4 (H40): a diff that is not a list, or entries in it that are not Timmy's, are said, never drawn as values
+  const changes = entries<ScadParamChange>(p.diff, named);
+  const diff = changes.items;
   const before = p.before?.values && typeof p.before.values === 'object' ? p.before.values : {};
   const rows = diff.length
     ? diff.map((d) => `<dt>${esc(d.name)}</dt><dd>${d.changed ? `<span class="was">${esc(value(d.before))}</span> → <strong class="changed">${esc(value(d.after))}</strong> <span class="tier">${esc(d.before === null ? 'added' : d.after === null ? 'removed' : 'changed')}</span>` : esc(value(d.after))}</dd>`).join('')
@@ -83,7 +111,7 @@ function scadParamsBlock(r: ScadFlowRecord, h: NativeCardHelpers): string {
   const names = p.names && (list(p.names.added).length || list(p.names.removed).length)
     ? `<p class="nomodel">${esc(`the agent ${[...(list(p.names.added).length ? [`added ${list(p.names.added).join(', ')}`] : []), ...(list(p.names.removed).length ? [`removed ${list(p.names.removed).join(', ')}`] : [])].join(' and ')}: values only may change`)}</p>` : '';
   const invalid = p.invalid ? `<p class="nomodel">${esc(`the agent left a file that does not check (sha256 ${shortSha(p.invalid.sha256)}): ${p.invalid.error}`)}</p>` : '';
-  return `<section class="params"><h4>${esc(diff.length ? 'parameters, before → after' : 'parameters before')}</h4><dl>${rows}</dl>`
+  return `<section class="params"><h4>${esc(diff.length ? 'parameters, before → after' : 'parameters before')}</h4><dl>${rows}${notShownRow(changes, 'the parameter diff')}</dl>`
     + `<p class="meta">${h.file(p.path)} ${esc(`· ${shas}`)}${p.before?.kept ? ` · ${h.file(p.before.kept, 'the file as it was before the agent ran')}` : ''}${r.model?.path ? ` · ${esc('for')} ${h.file(r.model.path)}` : ''}</p>${names}${invalid}</section>`;
 }
 
@@ -126,7 +154,11 @@ function scadMeasuredBlock(r: ScadFlowRecord, verified: boolean): string {
     const said = s.state === 'written' ? (s.agrees === true ? 'agrees with Timmy\'s reading' : s.agrees === false ? `differs from Timmy's reading by up to ${numText(s.differs_by)}` : 'holds no bounding box') : s.state === 'refused' ? `refused by this OpenSCAD${s.line ? ` (${s.line})` : ''}` : s.state;
     rows.push(`<dt>${esc("OpenSCAD's summary")}</dt><dd>${esc(`${said}${box}`)} <span class="tier">${esc('its own report, not Timmy\'s')}</span></dd>`);
   }
-  for (const c of (k?.checks ?? []).filter((x) => x.passed === false)) rows.push(`<dt>${esc(c.name)}</dt><dd class="bad">${esc(c.detail)}</dd>`);
+  // R4 (H40): checks read as Timmy writes them; what is not is left out, and said
+  const checks = entries<ScadCompareCheck>(k?.checks, named);
+  for (const c of checks.items.filter((x) => x.passed === false)) rows.push(`<dt>${esc(c.name)}</dt><dd class="bad">${esc(c.detail)}</dd>`);
+  const oddChecks = notShownRow(checks, 'the readback\'s checks');
+  if (oddChecks) rows.push(oddChecks);
   if (k?.reason && k.verdict !== 'differs') rows.push(`<dt>why</dt><dd>${esc(k.reason)}</dd>`);
   const heading = verified ? 'measured from the CAD file: Timmy\'s own reading of the exported STL, against OpenSCAD\'s own summary' : 'measured from the CAD file, as the record says (not verified)';
   const measure = (x: Record<string, unknown>): string => `${sizeText(x.size)}, volume ${finite(x.volume) ? numText(x.volume) : '?'}`;
@@ -169,11 +201,17 @@ function scriptBlock(r: FreecadFlowRecord, h: NativeCardHelpers): string {
   const shas = `sha256 ${shortSha(s.before?.sha256)}${s.after ? ` → ${shortSha(s.after.sha256)}` : ''}`;
   const rows = [
     `<dt>file</dt><dd>${h.file(s.path)} <span class="tier">${esc(shas)}</span></dd>`,
-    ...(s.change && finite(s.change.added) ? [`<dt>change</dt><dd>${esc(changeText(s.change))}</dd>`] : s.after ? [] : ['<dt>change</dt><dd>none recorded</dd>']),
+    ...(s.change && finite(s.change.added) && finite(s.change.removed) && finite(s.change.hunks_total) ? [`<dt>change</dt><dd>${esc(changeText(s.change))}</dd>`]
+      // R4 (H40): a change there in a form Timmy does not write is said, not counted
+      : s.change !== undefined && s.change !== null ? [`<dt>change</dt><dd class="nomodel">${esc('not in the form Timmy writes, so not shown')}</dd>`]
+        : s.after ? [] : ['<dt>change</dt><dd>none recorded</dd>']),
     ...(s.syntax ? [`<dt>python</dt><dd class="${s.syntax.checked && !s.syntax.ok ? 'bad' : ''}">${esc(syntaxWords(s.syntax, 'FreeCAD'))}</dd>`] : []),
     ...(s.before?.kept ? [`<dt>before</dt><dd>${h.file(s.before.kept, 'the script as it was before the agent ran')}</dd>`] : []),
   ].join('');
-  const hunks = Array.isArray(s.change?.hunks) ? s.change!.hunks : [];
+  // R4 (H40): a place that is not one of Timmy's (no lines to start at) is left out, and said
+  const places = entries<ScriptHunk>(s.change?.hunks, (k) => finite(k.before_line) && finite(k.after_line));
+  const hunks = places.items;
+  const listed = hunks.length + places.odd;
   const diff = hunks.length
     ? `<pre class="diff">${hunks.map((k) => [
       `<span class="at">${esc(`@@ line ${k.before_line} → ${k.after_line}`)}</span>`,
@@ -181,9 +219,9 @@ function scriptBlock(r: FreecadFlowRecord, h: NativeCardHelpers): string {
       ...(k.removed_total > list(k.removed).length ? [`<span class="at">${esc(`  … ${k.removed_total - list(k.removed).length} more taken out`)}</span>`] : []),
       ...list(k.added).map((l) => `<span class="added">${esc(`+ ${l}`)}</span>`),
       ...(k.added_total > list(k.added).length ? [`<span class="at">${esc(`  … ${k.added_total - list(k.added).length} more put in`)}</span>`] : []),
-    ].join('\n')).join('\n')}</pre>${s.change && s.change.hunks_total > hunks.length ? `<p class="meta">${esc(`and ${s.change.hunks_total - hunks.length} more places in the record`)}</p>` : ''}`
+    ].join('\n')).join('\n')}</pre>${s.change && s.change.hunks_total > listed ? `<p class="meta">${esc(`and ${s.change.hunks_total - listed} more places in the record`)}</p>` : ''}`
     : '';
-  return `<section class="params script"><h4>${esc(s.after ? 'the script, before → after' : 'the script')}</h4><dl>${rows}</dl>${diff}</section>`;
+  return `<section class="params script"><h4>${esc(s.after ? 'the script, before → after' : 'the script')}</h4><dl>${rows}</dl>${diff}${notShownPara(places, 'the places the script changed')}</section>`;
 }
 
 function freecadStepsBlock(r: FreecadFlowRecord, h: NativeCardHelpers): string {
@@ -194,7 +232,10 @@ function freecadStepsBlock(r: FreecadFlowRecord, h: NativeCardHelpers): string {
       + `${c.result?.path ? ` · ${h.file(c.result.path, 'its result')}` : ''}${c.log ? ` · ${h.file(c.log, 'its output')}` : ''}</dd>`);
     if (c.why && c.outcome !== 'ok') rows.push(`<dt>why</dt><dd>${esc(c.why)}</dd>`);
     if (c.error) rows.push(`<dt>error</dt><dd>${esc(c.error)}</dd>`);
-    if (Array.isArray(c.checks) && c.checks.length) rows.push(`<dt>its checks</dt><dd>${esc(`the script's own: ${c.checks.filter((x) => x.passed).length} of ${c.checks.length} passed`)}</dd>`);
+    const own = entries<{ label?: unknown; passed?: unknown }>(c.checks);
+    if (own.items.length) rows.push(`<dt>its checks</dt><dd>${esc(`the script's own: ${own.items.filter((x) => x.passed).length} of ${own.items.length} passed`)}</dd>`);
+    const odd = notShownRow(own, 'the script\'s own checks');
+    if (odd) rows.push(odd);
     if (Array.isArray(c.failure_files) && c.failure_files.length) rows.push(`<dt>kept</dt><dd>${c.failure_files.map((x) => h.file(x)).join(', ')}</dd>`);
   }
   const k = r.readback;
@@ -224,7 +265,11 @@ function freecadMeasuredBlock(r: FreecadFlowRecord, verified: boolean): string {
   if (k) rows.push(`<dt>verdict</dt><dd class="verdict verdict-${esc(String(k.verdict ?? 'none').replace(/[^a-z]/gi, ''))}">${esc(k.verdict ?? (k.state === 'not run' ? 'succeeded without readback' : 'none'))}${k.tolerance && finite(k.tolerance.bounds_mm) ? ` <span class="tier">${esc(`within ${k.tolerance.bounds_mm} mm and ${k.tolerance.volume_relative} relative`)}</span>` : ''}</dd>`);
   if (c?.reported) rows.push(`<dt>FreeCAD reported</dt><dd>${esc(`${c.step?.path ?? 'its STEP'}: ${shapeText(c.reported as unknown as Record<string, unknown>)}`)} <span class="tier">${esc('FreeCAD\'s own report of its own document')}</span></dd>`);
   if (k?.measured) rows.push(`<dt>readback measured</dt><dd>${esc(shapeText(k.measured))} <span class="tier">${esc(typeof k.measured.measured_by === 'string' ? k.measured.measured_by : 'the readback worker')}</span></dd>`);
-  for (const x of (k?.checks ?? []).filter((y) => !y.passed)) rows.push(`<dt>${esc(x.name)}</dt><dd class="bad">${esc(`FreeCAD reported ${String(x.reported)}, the readback measured ${String(x.measured)}`)} <span class="tier">outside the tolerance</span></dd>`);
+  // R4 (H40): checks read as Timmy writes them; what is not is left out, and said
+  const checks = entries<FreecadReadbackCheck>(k?.checks, named);
+  for (const x of checks.items.filter((y) => !y.passed)) rows.push(`<dt>${esc(x.name)}</dt><dd class="bad">${esc(`FreeCAD reported ${String(x.reported)}, the readback measured ${String(x.measured)}`)} <span class="tier">outside the tolerance</span></dd>`);
+  const oddChecks = notShownRow(checks, 'the readback\'s checks');
+  if (oddChecks) rows.push(oddChecks);
   if (k?.reason && k.verdict !== 'differs') rows.push(`<dt>why</dt><dd>${esc(k.reason)}</dd>`);
   const heading = verified ? 'measured from the CAD file: FreeCAD\'s report, and the STEP read back in its own process' : 'measured from the CAD file, as the record says (not verified)';
   const measure = (x: Record<string, unknown>): string => `${sizeText(x.size)} mm, ${finite(x.volume_mm3) ? `${numText(x.volume_mm3)} mm3` : '?'}${typeof x.step === 'string' ? ` in ${x.step}` : ''}`;
@@ -241,9 +286,11 @@ function freecadCard(f: NativeCardFlow, h: NativeCardHelpers, status: string): s
     ...(r.receipts?.readback ? [`readback ${r.receipts.readback}`] : []),
     ...(f.check.status === 'verified' && f.check.receipt ? [`flow ${f.check.receipt}`] : []),
   ];
-  const fcstd = Array.isArray(c?.fcstd) ? c!.fcstd! : [];
+  const documents = entries<{ path: string; sha256: string }>(c?.fcstd, pathed);
+  const fcstd = documents.items;
   const files = [
     ...fcstd.map((x) => `<li>${h.file(x.path)} <span class="tier">${esc(`the FreeCAD document · sha256 ${shortSha(x.sha256)}`)}</span></li>`),
+    notShownItem(documents, 'FreeCAD\'s documents'),
     ...(c?.step ? [`<li>${h.file(c.step.path)} <span class="tier">${esc(`the STEP · sha256 ${shortSha(c.step.sha256)}`)}</span></li>`] : []),
     ...(r.script?.path ? [`<li>${h.file(r.script.path)} <span class="tier">the script</span></li>`] : []),
     ...(c?.copy?.path ? [`<li>${h.file(c.copy.path)} <span class="tier">${esc('the copy freecadcmd ran, kept at submission')}</span></li>`] : []),

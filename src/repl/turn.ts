@@ -54,6 +54,29 @@ export function toolSpent(output: unknown): { cost?: number | null; receipt?: st
   return { ...(cost !== undefined ? { cost } : {}), ...(receipt ? { receipt } : {}) };
 }
 
+/**
+ * R4 (H40): the tools whose own answer names a receipt sealed during the call, and the field that names it (read in
+ * src/agent/*-tools.ts): the observe receipt of observe_image and describe_image (through the REPL's workspace), the
+ * mcp.call receipt of call_mcp_tool, and run_recipe's sealed prediction. The turn's receipt names it beside the
+ * tool's outcome. A tool that answers with a job or flow id only (run_native, iterate_recipe, iterate_native) has no
+ * receipt yet when it answers, so none is named for it.
+ */
+export const TOOL_RECEIPT_FIELD: Readonly<Record<string, string>> = {
+  describe_image: 'receipt', observe_image: 'receipt', call_mcp_tool: 'receipt', run_recipe: 'prediction_receipt',
+};
+
+/** R4 (H40): the receipt a tool's own answer names (TOOL_RECEIPT_FIELD), only in the shape of a receipt id; never another field. */
+export function toolReceipt(tool: string, output: unknown): string | undefined {
+  if (!Object.hasOwn(TOOL_RECEIPT_FIELD, tool)) return undefined;
+  let v = output;
+  if (typeof v === 'string') {
+    try { v = JSON.parse(v); } catch { return undefined; }
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const id = (v as Record<string, unknown>)[TOOL_RECEIPT_FIELD[tool]];
+  return typeof id === 'string' && /^[\w-]{1,64}$/.test(id) ? id : undefined;
+}
+
 /** Dollars to three places, as the turn's line has them; a nonzero amount is never shown as zero. */
 const usd = (n: number): string => (n > 0 && n < 0.001 ? `$${n.toPrecision(2)}` : `$${n.toFixed(3)}`);
 
@@ -104,17 +127,23 @@ export async function runTurn(
     if (Number.isFinite(cost)) spend += cost;
     if (info?.complete === false) costMeasured = false;
   };
+  // R4 (H40): each call's first answer is read once for the tool's own receipt (TOOL_RECEIPT_FIELD).
+  const answered = new Set<string>();
   // R4 (H30): a describe_image call's result, read once per call (a repeated item is not counted again).
   const onItem = (item: any): void => {
     if (item?.type !== 'function_call_output') return;
     const id = String(item.callId || '');
+    const t = tools.get(id);
+    if (t && !answered.has(id)) {
+      answered.add(id);
+      const own = toolReceipt(t.tool, item.output);
+      if (own) t.receipt = own;
+    }
     const call = paid.get(id);
     if (!call || call.answered) return;
     const said = toolSpent(item.output);
     call.answered = true;
     if (said.cost !== undefined) call.cost = said.cost;
-    const t = tools.get(id);
-    if (t && said.receipt) t.receipt = said.receipt;
   };
   const spendText = (): string => {
     let toolSum = 0;

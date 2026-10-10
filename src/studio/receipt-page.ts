@@ -53,9 +53,19 @@ export function spendText(r: { cost_usd?: number | null; cost_measured?: boolean
   return Number.isFinite(r.cost_usd) && r.cost_usd >= 0 ? usd(r.cost_usd) : 'cost unknown (the receipt records no usable amount)';
 }
 
+/**
+ * R4 (H40): the tools whose own receipt seals what they spent (a model asked in a request of their own). A turn also
+ * names the own receipt of other tools (an observation, an MCP call, a recipe's sealed prediction, src/repl/turn.ts
+ * TOOL_RECEIPT_FIELD): those are named as the tool's receipt, never as one that seals a cost.
+ */
+const SEALS_ITS_OWN_COST = new Set(['describe_image']);
+
 export function receiptFacts(r: Receipt): Array<[string, string]> {
   // R4 (H30): a tool that spends on its own (describe_image) is sealed on its own receipt, which the turn names.
-  const ownReceipts = r.tool_outcomes?.some((t) => typeof t.receipt === 'string' && t.receipt) === true;
+  const ownReceipts = r.tool_outcomes?.some((t) => SEALS_ITS_OWN_COST.has(t.name) && typeof t.receipt === 'string' && t.receipt) === true;
+  const ownReceipt = (t: { name: string; receipt?: string }): string => (typeof t.receipt === 'string' && t.receipt
+    ? (SEALS_ITS_OWN_COST.has(t.name) ? ` (receipt ${t.receipt} seals its own cost)` : ` (its own receipt ${t.receipt})`)
+    : '');
   const spend = spendText(r as { cost_usd?: number | null; cost_measured?: boolean });
   const facts: Array<[string, string | undefined]> = [
     ['kind', r.kind],
@@ -63,7 +73,7 @@ export function receiptFacts(r: Receipt): Array<[string, string]> {
     ['status', r.status],
     // A cancelled turn (third order, checkpoint 1): where the cancel came, each tool as it ended.
     ['cancelled', r.cancelled_at ? CANCEL_AT[r.cancelled_at] : undefined],
-    ['tools', r.tool_outcomes?.length ? r.tool_outcomes.map((t) => `${t.name} ${t.outcome}${t.outcome === 'unknown' ? ' (it may have run in part or in full)' : ''}${typeof t.receipt === 'string' && t.receipt ? ` (receipt ${t.receipt} seals its own cost)` : ''}`).join(', ') : undefined],
+    ['tools', r.tool_outcomes?.length ? r.tool_outcomes.map((t) => `${t.name} ${t.outcome}${t.outcome === 'unknown' ? ' (it may have run in part or in full)' : ''}${ownReceipt(t)}`).join(', ') : undefined],
     ['rollback', r.rollback === 'none' ? 'none: a cancel stops what is left; it never undoes' : undefined],
     ['sealed', r.ts],
     ['model', r.model_requested],

@@ -54,6 +54,30 @@ describe('approvalNeeded (dangerous-only policy)', () => {
   it('asks for a tool it does not know', () => {
     expect(approvalNeeded('mystery_tool', { a: 1 })?.reason).toBe('unknown tool');
   });
+  it("R4 (H40): iterate_native's box names its app, file and instruction; Blender's run its script and arguments", () => {
+    const reason = 'starts a local code agent that may change one file in your project (an OpenSCAD model\'s <model>.params.json, or a FreeCAD script), then runs OpenSCAD or FreeCAD on this machine and reads the result back';
+    expect(approvalNeeded('iterate_native', { app: 'openscad', file: 'box.scad', instruction: 'make it 100 mm wide' })).toEqual({ reason, summary: 'openscad box.scad: make it 100 mm wide', session: false });
+    // A long instruction with a newline and an escape: the line shortened and cleaned; every part whole below it, cleaned.
+    const instruction = `make the lid 4 mm thicker\nand the walls ${'x'.repeat(200)}\x1b[2K done`;
+    const long = approvalNeeded('iterate_native', { app: 'freecad', file: 'parts/plate.py', instruction });
+    const one = `make the lid 4 mm thicker and the walls ${'x'.repeat(200)} done`;
+    expect(long).toEqual({
+      reason, session: false,
+      summary: `freecad parts/plate.py: ${one.slice(0, 119)}…`,
+      detail: `app: freecad\nfile: parts/plate.py\ninstruction: make the lid 4 mm thicker\nand the walls ${'x'.repeat(200)} done`,
+    });
+    const box = renderApproval({ tool: 'iterate_native', ...long! }, plain, 80).join('\n');
+    for (const part of ['iterate_native', 'app: freecad', 'file: parts/plate.py', 'instruction: make the lid 4 mm thicker', 'and the walls']) expect(box, part).toContain(part);
+    expect(box).not.toContain('\x1b[2K');
+    // Blender's run: its script and arguments (the line said "blender" alone); the other apps' line is still the app.
+    expect(approvalNeeded('run_native', { app: 'blender', script: 'scenes/scene.py', args: ['--size', '3'] })).toEqual({ reason: 'starts Cinema 4D, After Effects, Blender, OpenSCAD or FreeCAD on this machine', summary: 'blender scenes/scene.py -- --size 3' });
+    expect(approvalNeeded('run_native', { app: 'blender', script: 'scene\x1b]52;c;eA==\x07.py' })?.summary).toBe('blender scene.py');
+    expect(approvalNeeded('run_native', { app: 'c4dpy', script: 'scene.py' })?.summary).toBe('c4dpy');
+    // iterate_recipe already shows its instruction (whole below the line when long): unchanged.
+    expect(approvalNeeded('iterate_recipe', { recipe: 'enclosure.tray/1', instruction: 'make it 180 mm wide' })?.summary).toBe('make it 180 mm wide');
+    const recipe = `make it 180 mm wide ${'and deeper '.repeat(8)}`;
+    expect(approvalNeeded('iterate_recipe', { recipe: 'enclosure.tray/1', instruction: recipe })?.detail).toBe(recipe.trimEnd());
+  });
 });
 
 describe('gateTools', () => {

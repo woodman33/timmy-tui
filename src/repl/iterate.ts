@@ -170,6 +170,29 @@ export function parseIterateLine(args: string): { ok: true; request: IterateRequ
   return { ok: true, request: script ? { recipe: 'blender', script, ...chosen } : { recipe: 'tray', ...chosen } };
 }
 
+/**
+ * One ended flow's row in /iterate's list: its outcome, its change, its readback's verdict and its record file. R4
+ * (H40, review R4-4): a record is an editable file, so its change is read by functions that say a part in a form Timmy
+ * does not write rather than fail on it, and the row is made inside a guard: a record that still cannot be listed gets
+ * the row "unreadable record: <file> (<why>)", and the other flows are listed as before.
+ */
+export function flowListRow(rel: string, record: FlowRecord, o: { glyphs: GlyphSet; sep: string }): Line {
+  const g = o.glyphs;
+  try {
+    const ok = record.outcome === 'succeeded';
+    // R4 (H33): an OpenSCAD or FreeCAD flow says its own change (its parameter values are not all numbers).
+    const native = scadFlowSummary(record, g.arrow) || freecadFlowSummary(record);
+    const given: unknown = record.parameters?.diff;
+    const diff = native || (given !== undefined && given !== null ? diffText(given, g.arrow) : blenderFlowSummary(record));
+    const verdict = record.readback?.verdict ? `${o.sep}readback ${String(record.readback.verdict)}` : '';
+    return [{ text: `    ${ok ? g.ok : record.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok ? undefined : record.outcome === 'cancelled' ? undefined : 'failure' }, { text: record.id, role: 'strong' },
+      { text: `  ${String(record.outcome).padEnd(9)} ${diff}${verdict}${o.sep}${rel}`, role: 'secondary' }];
+  } catch (err) {
+    const why = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').slice(0, 200);
+    return [{ text: `    ${g.fail} `, role: 'failure' }, { text: `unreadable record: ${rel}`, role: 'failure' }, { text: ` (its row could not be made: ${why})`, role: 'secondary' }];
+  }
+}
+
 interface FlowRun {
   id: string;
   root: string;
@@ -342,13 +365,7 @@ export class IterateFlows {
     rows.push(...this.scad.runningRows(root), ...this.freecad.runningRows(root)); // R4 (H33)
     for (const { rel, record } of listFlows(root)) {
       if (live.some((f) => f.id === record.id) || this.blender.has(record.id) || this.scad.has(record.id) || this.freecad.has(record.id)) continue;
-      const ok = record.outcome === 'succeeded';
-      // R4 (H33): an OpenSCAD or FreeCAD flow says its own change (its parameter values are not all numbers).
-      const native = scadFlowSummary(record, g.arrow) || freecadFlowSummary(record);
-      const diff = native || (record.parameters?.diff ? diffText(record.parameters.diff, g.arrow) : blenderFlowSummary(record));
-      const verdict = record.readback?.verdict ? `${this.sep}readback ${record.readback.verdict}` : '';
-      rows.push([{ text: `    ${ok ? g.ok : record.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok ? undefined : record.outcome === 'cancelled' ? undefined : 'failure' }, { text: record.id, role: 'strong' },
-        { text: `  ${String(record.outcome).padEnd(9)} ${diff}${verdict}${this.sep}${rel}`, role: 'secondary' }]);
+      rows.push(flowListRow(rel, record, { glyphs: g, sep: this.sep }));
     }
     return rows;
   }

@@ -12,8 +12,14 @@ import { buildSync, transformSync, type Metafile } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-/** What the package must carry, file for file, as git tracks it. */
-const SHIPPED = ['templates/web-starter', 'templates/c4d-starter', 'workers/look', 'workers/c4d'];
+/**
+ * What the package must carry, file for file, as git tracks it. Round R4 (H40): this round's starters and workers too,
+ * as scripts/packed-install-check.mjs's probe now asks for them in an installed package.
+ */
+const SHIPPED = [
+  'templates/web-starter', 'templates/c4d-starter', 'workers/look', 'workers/c4d',
+  'templates/ae-starter', 'templates/scad-starter', 'templates/freecad-starter', 'workers/scad', 'workers/freecad', 'workers/readback',
+];
 /**
  * TODO(lead): templates/blender-starter and workers/blender (another helper, round R3) ship the same way: each
  * tracked regular file listed by name in package.json "files" (a folder entry would also carry __pycache__).
@@ -67,12 +73,16 @@ describe('the npm package', () => {
   });
 });
 
-type Probe = { starters: string | null; list: string[]; look: string; lookExists: boolean; c4d: string | null; root: string | null; copied: { files: string[] } | { error: string } | null };
+type Probe = {
+  starters: string | null; list: string[]; look: string; lookExists: boolean; c4d: string | null; root: string | null; copied: { files: string[] } | { error: string } | null;
+  /** R4 (H40): the OpenSCAD runner and the FreeCAD worker (from src/native/), and the two readback workers (from src/flows/) */
+  scad: string | null; freecad: string | null; step: string | null; blend: string | null;
+};
 
 describe('an installed Timmy finds its starters and workers', () => {
   let base = '', pkg = '';
   let bundled: Metafile;
-  const layouts: Record<string, { probe: string; native: string }> = {};
+  const layouts: Record<string, { probe: string; native: string; flows: string }> = {};
   const TSC = 'the TypeScript build (dist/src/<area>/)', BUNDLE = 'the bundled CLI (dist/<chunk>.js)';
 
   beforeAll(() => {
@@ -85,6 +95,8 @@ describe('an installed Timmy finds its starters and workers', () => {
     write(join(base, 'templates/web-starter/index.html'), 'decoy');
     write(join(base, 'workers/look/look.py'), 'decoy');
     write(join(base, 'workers/c4d/timmy_c4d.py'), 'decoy');
+    // R4 (H40): decoys for this round's workers too
+    for (const w of ['workers/scad/timmy_scad_run.mjs', 'workers/freecad/timmy_freecad.py', 'workers/readback/step_readback.py', 'workers/readback/blend_readback.py']) write(join(base, w), 'decoy');
 
     const probeBody = (load: (m: string) => string): string => `
       const { startersDir, listStarters, copyStarter } = await import(${load('src/project/starters.ts')});
@@ -94,10 +106,16 @@ describe('an installed Timmy finds its starters and workers', () => {
       const { existsSync } = await import('node:fs');
       // How src/native/index.ts would find workers/c4d from its own place in this layout.
       const native = pathToFileURL(process.env.PROBE_NATIVE_MODULE).href;
+      // R4 (H40): how src/flows/iterate.ts and iterate-blender.ts would find the readback workers from theirs
+      // (src/native/openscad.ts and freecad.ts sit beside src/native/index.ts, so native stands for them).
+      const flows = pathToFileURL(process.env.PROBE_FLOWS_MODULE).href;
       const dest = process.env.PROBE_DEST;
       const copied = dest ? copyStarter('web-starter', dest) : null;
+      const found = (rel, from) => packagedPath(rel, from, { kind: 'file' }) ?? null;
       console.log(JSON.stringify({ starters: startersDir() ?? null, list: listStarters().map((s) => s.name).sort(), look: LOOK_SCRIPT, lookExists: existsSync(LOOK_SCRIPT),
-        c4d: packagedPath('workers/c4d/timmy_c4d.py', native, { kind: 'file' }) ?? null, root: packageRoot(native) ?? null, copied }));`;
+        c4d: found('workers/c4d/timmy_c4d.py', native), root: packageRoot(native) ?? null, copied,
+        scad: found('workers/scad/timmy_scad_run.mjs', native), freecad: found('workers/freecad/timmy_freecad.py', native),
+        step: found('workers/readback/step_readback.py', flows), blend: found('workers/readback/blend_readback.py', flows) }));`;
 
     // The TypeScript build's layout: each module compiled on its own to dist/<its path>.js, as tsc emits it.
     const graph = buildSync({ entryPoints: ['src/project/starters.ts', 'src/vision/look.ts', 'src/utils/asset-dirs.ts'], bundle: true, platform: 'node', format: 'esm', write: false, metafile: true, logLevel: 'silent', outdir: join(base, 'unused'), absWorkingDir: root });
@@ -107,19 +125,19 @@ describe('an installed Timmy finds its starters and workers', () => {
     }
     const tscProbe = join(base, 'probe-tsc.mjs');
     writeFileSync(tscProbe, probeBody((m) => JSON.stringify(pathToFileURL(join(pkg, 'dist', m.replace(/\.ts$/, '.js'))).href)));
-    layouts[TSC] = { probe: tscProbe, native: join(pkg, 'dist/src/native/index.js') };
+    layouts[TSC] = { probe: tscProbe, native: join(pkg, 'dist/src/native/index.js'), flows: join(pkg, 'dist/src/flows/iterate.js') };
 
     // The bundled CLI's layout: scripts/build-cli.mjs's options, so the modules run from chunks in dist/.
     const entry = join(base, 'bundle-probe.ts');
     writeFileSync(entry, probeBody((m) => JSON.stringify(join(root, m))));
     bundled = buildSync({ entryPoints: [entry], bundle: true, splitting: true, platform: 'node', format: 'esm', outdir: join(pkg, 'dist'), entryNames: 'bundle-probe', metafile: true, logLevel: 'silent', absWorkingDir: root,
       banner: { js: "import { createRequire as __timmyCR } from 'node:module'; const require = __timmyCR(import.meta.url);" } }).metafile!;
-    layouts[BUNDLE] = { probe: join(pkg, 'dist/bundle-probe.js'), native: join(pkg, 'dist/chunk-NATIVE.js') };
+    layouts[BUNDLE] = { probe: join(pkg, 'dist/bundle-probe.js'), native: join(pkg, 'dist/chunk-NATIVE.js'), flows: join(pkg, 'dist/chunk-FLOWS.js') };
   }, 180_000);
 
   const run = (layout: string, dest?: string): Probe => {
-    const { probe, native } = layouts[layout];
-    return JSON.parse(execFileSync(process.execPath, [probe], { cwd: base, encoding: 'utf8', timeout: 30_000, env: { ...env(), PROBE_NATIVE_MODULE: native, PROBE_DEST: dest ?? '' } })) as Probe;
+    const { probe, native, flows } = layouts[layout];
+    return JSON.parse(execFileSync(process.execPath, [probe], { cwd: base, encoding: 'utf8', timeout: 30_000, env: { ...env(), PROBE_NATIVE_MODULE: native, PROBE_FLOWS_MODULE: flows, PROBE_DEST: dest ?? '' } })) as Probe;
   };
   const sortedCopy = (c: Probe['copied']): Probe['copied'] => (c && 'files' in c ? { files: [...c.files].sort() } : c);
 
@@ -139,6 +157,8 @@ describe('an installed Timmy finds its starters and workers', () => {
       expect(r.look).toBe(join(pkg, 'workers/look/look.py'));
       expect(r.lookExists).toBe(true);
       expect(r.c4d).toBe(join(pkg, 'workers/c4d/timmy_c4d.py'));
+      // R4 (H40): this round's workers, in the package
+      expect([r.scad, r.freecad, r.step, r.blend]).toEqual(['workers/scad/timmy_scad_run.mjs', 'workers/freecad/timmy_freecad.py', 'workers/readback/step_readback.py', 'workers/readback/blend_readback.py'].map((w) => join(pkg, w)));
       expect(sortedCopy(r.copied)).toEqual({ files: tracked('templates/web-starter').map((f) => f.slice('templates/web-starter/'.length)).sort() });
       expect(readFileSync(join(dest, 'index.html'))).toEqual(readFileSync(join(root, 'templates/web-starter/index.html')));
     });
@@ -148,6 +168,9 @@ describe('an installed Timmy finds its starters and workers', () => {
     rmSync(join(pkg, 'workers/look/look.py'));
     rmSync(join(pkg, 'workers/c4d/timmy_c4d.py'));
     rmSync(join(pkg, 'templates/web-starter'), { recursive: true });
+    // R4 (H40): one native worker and one readback worker gone; the decoys outside the package are never used
+    rmSync(join(pkg, 'workers/scad/timmy_scad_run.mjs'));
+    rmSync(join(pkg, 'workers/readback/blend_readback.py'));
     for (const layout of [TSC, BUNDLE]) {
       const dest = join(temp('timmy-asset-project-'), 'site');
       const r = run(layout, dest);
@@ -155,6 +178,8 @@ describe('an installed Timmy finds its starters and workers', () => {
       expect(r.look, layout).toBe(join(pkg, 'workers/look/look.py'));
       expect(r.lookExists, layout).toBe(false);
       expect(r.c4d, layout).toBeNull();
+      expect([r.scad, r.blend], layout).toEqual([null, null]);
+      expect([r.freecad, r.step], layout).toEqual([join(pkg, 'workers/freecad/timmy_freecad.py'), join(pkg, 'workers/readback/step_readback.py')]);
       expect(r.copied, layout).toEqual({ error: 'the web-starter starter is not in this Timmy (templates/web-starter)' });
       expect(existsSync(dest) ? readdirSync(dest) : [], layout).toEqual([]);
     }

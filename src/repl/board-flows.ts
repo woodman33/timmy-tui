@@ -9,11 +9,17 @@
  * why. A measured value is never drawn without the words "measured from the CAD file" and DOCTRINE §15's
  * sentence: the readback measures the file, never a physical part. Every string is escaped; a path from a
  * record becomes a link only when it is inside the project.
+ *
+ * Round R4 (H40, review R4-4): a record that passes the schema and id check can still hold parts in a form Timmy does
+ * not write (a hand edit, an older or newer Timmy, a merge resolved by hand). A list that is not a list, or entries that
+ * are not Timmy's, are left out of the card and the card says so; and each card is drawn inside a guard, so a record
+ * that still cannot be drawn becomes an "unreadable record" card naming its file and why, never a failure of the whole
+ * section (the board snapshot, the live board's state).
  */
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { DOCTRINE_15, FLOW_SCHEMA, mm3Text, mmText, toleranceText, type FlowRecord } from '../flows/iterate.js';
+import { DOCTRINE_15, FLOW_SCHEMA, mm3Text, mmText, toleranceText, type FlowRecord, type OtherChange, type ParamChange, type ReadbackCheck } from '../flows/iterate.js';
 // R4 (H26): a Blender flow's card (/iterate blender).
 import { BLENDER_FLOW_CSS, blenderFlowCard, isBlenderFlowRecord } from './board-flows-blender.js';
 // R4 (H33): an OpenSCAD or FreeCAD flow's card (/iterate scad, /iterate freecad).
@@ -40,6 +46,26 @@ const esc = (s: unknown): string => String(s).replace(/[&<>"']/g, (c) => ESC[c])
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
 const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 const triple = (v: unknown): v is number[] => Array.isArray(v) && v.length === 3 && v.every((n) => num(n) !== undefined);
+
+/**
+ * R4 (H40): a record's list, read as Timmy writes it: the entries that are objects (and pass `ok`), how many are not
+ * (`odd`), and whether a value is there that is not a list at all (`notList`). Nothing is guessed from the rest.
+ */
+type Entries<T> = { items: T[]; odd: number; notList: boolean };
+function entries<T>(v: unknown, ok: (x: Record<string, unknown>) => boolean = () => true): Entries<T> {
+  if (!Array.isArray(v)) return { items: [], odd: 0, notList: v !== undefined && v !== null };
+  const items = v.filter((x) => !!x && typeof x === 'object' && !Array.isArray(x) && ok(x as Record<string, unknown>)) as T[];
+  return { items, odd: v.length - items.length, notList: false };
+}
+const named = (x: Record<string, unknown>): boolean => typeof x.name === 'string';
+const pathed = (x: Record<string, unknown>): boolean => typeof x.path === 'string';
+/** What a card left out of a record's list, in words ('' when nothing was). */
+const leftOut = (e: Entries<unknown>, what: string): string => (e.notList
+  ? `${what}: not a list, so not shown`
+  : e.odd ? `${e.odd} ${e.odd === 1 ? 'entry' : 'entries'} of ${what} not in the form Timmy writes, so not shown` : '');
+/** The same as a row of a card's list (<dl>), or as an item of its files (<ul>). */
+const notShownRow = (e: Entries<unknown>, what: string): string => { const t = leftOut(e, what); return t ? `<dt>not shown</dt><dd class="nomodel">${esc(t)}</dd>` : ''; };
+const notShownItem = (e: Entries<unknown>, what: string): string => { const t = leftOut(e, what); return t ? `<li class="nomodel">${esc(t)}</li>` : ''; };
 
 /** A path inside the project as '/'-separated parts, or null (absolute, a URL, or one that climbs out): as board.ts. */
 function relPath(p: unknown): string | null {
@@ -117,14 +143,16 @@ const when = (iso: unknown): string => {
 function paramsBlock(r: FlowRecord, h: ReturnType<typeof helpers>): string {
   const p = r.parameters;
   if (!p || typeof p !== 'object') return '';
-  const diff = Array.isArray(p.diff) ? p.diff : undefined;
+  // R4 (H40): a diff that is not a list, or entries in it that are not Timmy's, are said, never drawn as values
+  const d = entries<ParamChange>(p.diff, named);
+  const diff = Array.isArray(p.diff) ? d.items : undefined;
   const before = p.before?.values ?? {};
   const rows = diff
-    ? diff.map((d) => `<dt>${esc(d.name)}</dt><dd>${d.changed ? `<span class="was">${esc(n(d.before))}</span> → <strong class="changed">${esc(n(d.after))}</strong> <span class="tier">changed</span>` : esc(n(d.after))}</dd>`).join('')
+    ? diff.map((x) => `<dt>${esc(x.name)}</dt><dd>${x.changed ? `<span class="was">${esc(n(x.before))}</span> → <strong class="changed">${esc(n(x.after))}</strong> <span class="tier">changed</span>` : esc(n(x.after))}</dd>`).join('')
     : Object.entries(before).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(n(v))}${p.after ? '' : ' <span class="tier">before; no new value</span>'}</dd>`).join('');
   const shas = `sha256 ${shortSha(p.before?.sha256)}${p.after ? ` → ${shortSha(p.after.sha256)}` : ''}`;
   const invalid = p.invalid ? `<p class="nomodel">${esc(`the agent left an invalid file (sha256 ${shortSha(p.invalid.sha256)}): ${p.invalid.error}`)}</p>` : '';
-  return `<section class="params"><h4>${esc(diff ? 'parameters, before → after (mm)' : 'parameters before (mm)')}</h4><dl>${rows}</dl>`
+  return `<section class="params"><h4>${esc(diff ? 'parameters, before → after (mm)' : 'parameters before (mm)')}</h4><dl>${rows}${notShownRow(d, 'the parameter diff')}</dl>`
     + `<p class="meta">${h.file(p.path)} ${esc(`· ${shas}${p.created ? ' · written from the recipe card\'s defaults before the agent ran' : ''}`)}</p>${invalid}</section>`;
 }
 
@@ -134,7 +162,9 @@ function stepsBlock(r: FlowRecord, h: ReturnType<typeof helpers>): string {
   if (a) {
     const cost = a.cost_usd === undefined ? '' : a.cost_usd === null ? ' · cost unknown' : ` · cost $${Number(a.cost_usd).toFixed(4)}${a.cost_basis ? ` (${a.cost_basis})` : ''}`;
     rows.push(`<dt>agent</dt><dd>${esc(`${a.agent} ${a.run}${a.model ? ` · model ${a.model}` : ''} · ${a.route} · ${a.outcome ?? 'running'}${cost}${a.receipt ? ` · receipt ${a.receipt}` : ''}`)}${a.transcript ? ` · ${h.file(a.transcript, 'transcript')}` : ''}</dd>`);
-    if (Array.isArray(a.others) && a.others.length) rows.push(`<dt>also changed</dt><dd>${a.others.slice(0, 12).map((x) => `${h.file(x.path)} <span class="tier">${esc(x.how)}</span>`).join(', ')}</dd>`);
+    const others = entries<OtherChange>(a.others, pathed);
+    if (others.items.length) rows.push(`<dt>also changed</dt><dd>${others.items.slice(0, 12).map((x) => `${h.file(x.path)} <span class="tier">${esc(x.how)}</span>`).join(', ')}</dd>`);
+    rows.push(notShownRow(others, 'the files it also changed'));
   }
   const b = r.rebuild;
   if (b) {
@@ -156,13 +186,15 @@ function readbackBlock(r: FlowRecord, check: BoardFlowCheck): string {
   const pred = r.rebuild?.predicted;
   const heading = verified ? 'measured from the CAD file (the STEP read back in its own process)' : 'measured from the CAD file, as the record says (not verified)';
   const tol = k.tolerance && num(k.tolerance.bounds_mm) !== undefined && num(k.tolerance.volume_relative) !== undefined ? `within ${toleranceText(k.tolerance)} of the prediction` : '';
-  const failing = Array.isArray(k.checks) ? k.checks.filter((c) => !c.passed) : [];
+  const checks = entries<ReadbackCheck>(k.checks, named);
+  const failing = checks.items.filter((c) => !c.passed);
   const rows = [
     `<dt>bounds</dt><dd>${esc(`${mmText(m.bounds_mm)} mm`)}${pred && triple(pred.bounds_mm) ? ` <span class="tier">${esc(`predicted ${mmText(pred.bounds_mm)} mm`)}</span>` : ''}</dd>`,
     `<dt>volume</dt><dd>${esc(`${mm3Text(m.volume_mm3)} mm3`)}${pred && num(pred.volume_mm3) !== undefined ? ` <span class="tier">${esc(`predicted ${mm3Text(pred.volume_mm3)} mm3`)}</span>` : ''}</dd>`,
     `<dt>shape</dt><dd>${esc(`${m.solids} solid${m.solids === 1 ? '' : 's'}, ${m.valid ? 'valid' : 'not valid'}`)}</dd>`,
     `<dt>verdict</dt><dd class="verdict verdict-${esc(String(k.verdict ?? 'none'))}">${esc(`${k.verdict ?? 'none'}${tol ? ` · ${tol}` : ''}`)}</dd>`,
     ...failing.map((c) => `<dt>${esc(c.name)}</dt><dd>${esc(`measured ${String(c.measured)}, predicted ${String(c.predicted)}${c.difference !== null && num(c.difference) !== undefined ? `, difference ${(c.difference as number).toPrecision(3)}` : ''}`)} <span class="tier">outside the tolerance</span></dd>`),
+    notShownRow(checks, 'the readback\'s checks'),
     `<dt>file</dt><dd>${esc(`sha256 ${shortSha(m.sha256)}${k.worker ? ` · ${k.worker.name} ${k.worker.version}` : ''}`)}</dd>`,
   ].join('');
   return `<section class="${verified ? 'measured' : 'unverified'} readback"><h4>${esc(heading)}</h4><dl>${rows}</dl><p class="doctrine">${esc(DOCTRINE_15)}</p></section>`;
@@ -178,8 +210,8 @@ function flowCard(f: BoardFlow, h: ReturnType<typeof helpers>): string {
   if (isNativeFlowRecord(f.record)) return nativeFlowCard(f, h, statusLine(f.check)); // R4 (H33)
   const r = f.record;
   const outcome = String(r.outcome ?? 'unknown');
-  const outputs = Array.isArray(r.rebuild?.outputs) ? r.rebuild!.outputs! : [];
-  const editable = outputs.filter((o) => /\.(step|stp|stl)$/i.test(String(o.path)));
+  const outputs = entries<{ path: string; sha256: string }>(r.rebuild?.outputs, pathed);
+  const editable = outputs.items.filter((o) => /\.(step|stp|stl)$/i.test(o.path));
   const receipts = [
     ...(r.receipts?.agent ? [`agent ${r.receipts.agent}`] : []), ...(r.receipts?.prediction ? [`prediction ${r.receipts.prediction}`] : []),
     ...(r.receipts?.build ? [`build ${r.receipts.build}`] : []), ...(r.receipts?.readback ? [`readback ${r.receipts.readback}`] : []),
@@ -187,6 +219,7 @@ function flowCard(f: BoardFlow, h: ReturnType<typeof helpers>): string {
   ];
   const files = [
     ...editable.map((o) => `<li>${h.file(o.path)} <span class="tier">${esc(`sha256 ${shortSha(o.sha256)}`)}</span></li>`),
+    notShownItem(outputs, 'the rebuild\'s outputs'),
     ...(r.parameters?.path ? [`<li>${h.file(r.parameters.path)} <span class="tier">the parameter file</span></li>`] : []),
     `<li>${h.file(f.file)} <span class="tier">this record</span></li>`,
   ].join('');
@@ -199,6 +232,25 @@ function flowCard(f: BoardFlow, h: ReturnType<typeof helpers>): string {
     + `<div class="cmds">${[h.cmd(`/open ${f.file}`), ...(r.parameters?.path ? [h.cmd(`/open ${r.parameters.path}`)] : []), h.cmd('/iterate')].join('')}</div></article>`;
 }
 
+/**
+ * R4 (H40, review R4-4): what stands in for a card that could not be drawn: the record's file, why (the error, as
+ * raised), its verified line, and the command that opens the file. Nothing from the record's inside is read again here.
+ */
+function unreadableCard(f: BoardFlow, h: ReturnType<typeof helpers>, err: unknown): string {
+  const why = `its card could not be drawn: ${(err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').slice(0, 300)}`;
+  let status = '';
+  try { status = statusLine(f.check); } catch { status = ''; }
+  return `<article class="card flow unreadable"><div class="jobhead"><strong>${esc(path.posix.basename(f.file, '.json'))}</strong> <span class="state state-unreadable">unreadable</span></div>`
+    + `<p class="nomodel">${esc(`unreadable record: ${f.file} (${why})`)}</p>${status}`
+    + `<section class="files"><h4>files</h4><ul><li>${h.file(f.file)} <span class="tier">this record</span></li></ul></section>`
+    + `<div class="cmds">${[h.cmd(`/open ${f.file}`), h.cmd('/iterate')].join('')}</div></article>`;
+}
+
+/** R4 (H40, review R4-4): each card inside a guard, so one record cannot take the section (and the board) down with it. */
+function guardedCard(f: BoardFlow, h: ReturnType<typeof helpers>): string {
+  try { return flowCard(f, h); } catch (err) { return unreadableCard(f, h, err); }
+}
+
 /** The Flows section: its table-of-contents entry and its HTML (a heading, the cards or what to do, what was left off). */
 export function flowsSection(flows: BoardFlows, d: Draw): { toc: string; html: string } {
   const h = helpers(d);
@@ -208,7 +260,7 @@ export function flowsSection(flows: BoardFlows, d: Draw): { toc: string; html: s
     html: [
       `<h2 id="flows">Flows <span class="count">${total}</span></h2>`,
       flows.list.length
-        ? `<div class="grid wide">${flows.list.map((f) => flowCard(f, h)).join('')}</div>`
+        ? `<div class="grid wide">${flows.list.map((f) => guardedCard(f, h)).join('')}</div>`
         : `<p class="empty">${esc('No flows yet: /iterate tray "<instruction>" has a local agent change the parameters, rebuilds the tray and reads it back; /iterate blender <script.py> "<instruction>" does the same for a Blender script; /iterate scad <model.scad> and /iterate freecad <script.py> for OpenSCAD and FreeCAD.')}</p>`,
       flows.more > 0 ? `<p class="more">${esc(`and ${flows.more} more: /iterate`)}</p>` : '',
     ].join('\n'),
@@ -228,4 +280,5 @@ export const FLOWS_CSS = `
 .flow .verdict-differs, .flow .verdict-failed { color: ${HOMEBREW.failure}; }
 .state-succeeded { color: ${HOMEBREW.accent}; }
 .state-differs, .state-stopped { color: ${HOMEBREW.attention}; }
+.state-unreadable { color: ${HOMEBREW.failure}; }
 ${BLENDER_FLOW_CSS}${NATIVE_FLOW_CSS}`;

@@ -84,6 +84,23 @@ describe('the ladder, from the checks', () => {
     const names = replTools().map((t) => (t as unknown as { function: { name: string } }).function.name);
     expect(names.filter((n) => !covered.has(n))).toEqual([]);
   });
+  it('R4 (H40): with the native, recipe and iterate tools too; iterate_native is named on the OpenSCAD and FreeCAD rows, as iterate_recipe on the recipe\'s', async () => {
+    const rows = await capabilities(none);
+    const covered = new Set(rows.flatMap((r) => r.tools ?? []));
+    // stand-ins: the tools are listed, never called
+    const more = { native: { root: () => '.', project: () => 'demo', start: () => { throw new Error('not started in this test'); } }, recipe: { start: async () => ({}) }, iterate: { start: async () => ({}) } };
+    const names = replTools(undefined, undefined, more).map((t) => (t as unknown as { function: { name: string } }).function.name);
+    expect(names).toEqual(expect.arrayContaining(['run_native', 'run_recipe', 'iterate_recipe', 'iterate_native']));
+    expect(names.filter((n) => !covered.has(n))).toEqual([]);
+    const r = byId(rows);
+    expect(r.openscad.tools).toEqual(['run_native', 'iterate_native']);
+    expect(r.freecad.tools).toEqual(['run_native', 'iterate_native']);
+    expect(r['recipe-tray'].tools).toEqual(['run_recipe', 'iterate_recipe']);
+    expect(r.blender.tools).toEqual(['run_native']);
+    // A completed iterate_native call alone marks neither app exercised: only a sealed run of that app judged ok does.
+    const used = byId(await capabilities({ ...none, exercised: () => new Map([['iterate_native', '2026-10-09T10:00:00Z']]) }));
+    expect([used.openscad.exercised, used.freecad.exercised]).toEqual([undefined, undefined]);
+  });
   it('a tool a sealed receipt shows completed says when it was last used', async () => {
     const r = byId(await capabilities({ ...all, exercised: () => new Map([['canvas_exec', '2026-10-08T21:04:00Z'], ['canvas_read', '2026-10-07T10:00:00Z']]) }));
     expect(r['canvas-tools'].exercised).toBe('2026-10-08T21:04:00Z');
