@@ -5,8 +5,11 @@ A minimal Blueprint-only Unreal Engine project (`TimmyStarter.uproject`: no C++,
 `/Engine/BasicShapes/Cube.Cube`, 100 cm on each side), placed on the ground, saved as `/Game/Timmy/TimmyGrid`
 (the file `Content/Timmy/TimmyGrid.umap`).
 
-**Status: not run on a real Unreal Engine.** The script, Timmy's harness and the readback have run only against a
-stand-in `unreal` module in Timmy's tests. The first real run is on the operator's Mac.
+**Status: run on Unreal Engine 5.8.2 on the operator's Mac, by a driver giving Unreal Timmy's exact command line and
+environment, not yet by Timmy itself.** There the script built the level with its 9 cubes in 15 seconds (its own checks 9
+of 9), a second Unreal process read the saved level back with the same bytes and the same 9 actors (Timmy's comparison:
+agrees), and run again it opened the level, replaced its cubes and saved it. Timmy's tests run the script, the harness and
+the readback against a stand-in `unreal` module. The first run through Timmy (`/unreal`, its receipts) is the next one.
 
 ## What it needs
 
@@ -16,9 +19,21 @@ stand-in `unreal` module in Timmy's tests. The first real run is on the operator
   Launcher installs engines, `Epic Games/UE_<version>/Engine/Binaries/Mac/UnrealEditor-Cmd` in the Mac's Shared folder
   (in the Users folder), newest version first, else on `PATH`. `/tools` and `/unreal` say what was found. Found is not
   run: a judged run and its readback say whether it works.
-- **The first run of a new project makes Unreal build its caches (shaders, derived data): slow, minutes, with nothing
-  to see.** Later runs start faster. Unreal makes its own `Saved/`, `Intermediate/` and `DerivedDataCache/` folders
-  beside the project file: its caches and logs, not outputs, and Timmy does not judge them.
+- **The first run of a new project makes Unreal build its caches (shaders, derived data): it can be slow, with nothing
+  to see.** On the Mac a first run took 15 to 30 seconds, using the engine's own shipped cache. Timmy tells Unreal to keep
+  its derived-data cache in `Saved/DerivedDataCache` beside the project file and to start no Zen server
+  (`-DDC=InstalledNoZenLocalFallback -LocalDataCachePath=…`), and to write its log to `Saved/Logs/Timmy-<run>.log`
+  (`-abslog=…`). Unreal also makes `Intermediate/` and other `Saved/` folders there and may write `Config/DefaultEngine.ini`
+  (it did on the Mac): its caches, logs and settings, not outputs, and Timmy does not judge them. It also made two empty
+  folders in `Content/`: `Collections` and `Developers/<your account name>/Collections`, which puts your account name in
+  the project's folders (git keeps no empty folder, but a copy of the project does).
+- **Unreal's own user folders.** On macOS Unreal keeps per-user files (its settings, UnrealBuildTool's, a log folder per
+  project, its trace server's store) in `~/Library/Application Support/Epic`, `~/Library/Application Support/Unreal Engine`,
+  `~/Library/Logs/Unreal Engine` and `~/UnrealEngine`. A sandboxed Timmy (`TIMMY_NATIVE_HOME`) sends them to its own
+  home: it sets `HOME` and `CFFIXED_USER_HOME` (macOS's CoreFoundation, through which Unreal finds those folders, ignores
+  `HOME`). After every Unreal job Timmy looks through those folders in your account's home for files changed during the
+  job (names and times only) and says what it found: "Unreal wrote nothing outside the project and Timmy's native home",
+  or how many files, by folder.
 
 ## Run it
 
@@ -30,12 +45,21 @@ stand-in `unreal` module in Timmy's tests. The first real run is on the operator
 or, headless, `timmy act '/unreal TimmyStarter.uproject scene.py' --wait`.
 
 Timmy runs `UnrealEditor-Cmd TimmyStarter.uproject -run=pythonscript -script=<Timmy's harness>
--unattended -nullrhi -nosplash -nopause -stdout -FullStdOutLogOutput`. The harness
+-unattended -nullrhi -nosplash -nopause -stdout -FullStdOutLogOutput -DDC=InstalledNoZenLocalFallback
+-LocalDataCachePath=<this folder>/Saved/DerivedDataCache -abslog=<this folder>/Saved/Logs/Timmy-<run>.log`: Unreal's
+Python commandlet, headless, with no window. The harness
 (`workers/unreal/timmy_unreal.py` in Timmy) runs a read-only copy of `scene.py` that Timmy keeps when the job is
 submitted, calls its `main(run)` and writes the run's result file, `.timmy/native/<run>/result.json`: the level the
 script saved and every actor in it (class, label, location, rotation, scale and bounds, as Unreal reports them), the
 actors the script made, `scene.params.json`'s sha256 as it read it, and every file created or changed under `Content/`
-and `out/`, with its sha256. Timmy judges the run by that file, not by Unreal's exit status.
+and `out/`, with its sha256. Timmy judges the run by that file, not by Unreal's exit status: Unreal exits 0 and says
+"Python script executed successfully" even when the script failed. A run that fails still names what it wrote, each
+file checked against its sha256, as written by the failed run, never as its output.
+
+`run.spawn_mesh` places a mesh by spawning a `StaticMeshActor` by class and giving it the mesh
+(`EditorActorSubsystem.spawn_actor_from_class`, then `set_static_mesh`). In the commandlet of Unreal 5.8.2,
+`EditorActorSubsystem.spawn_actor_from_object(mesh, …)` gives no actor ("SpawnActorFromObject. No actor was spawned."):
+a script of your own should spawn the same way, or through `run.spawn_mesh`.
 
 The first pass alone is never trusted. When it is judged ok, Timmy starts a second, separate Unreal process that opens
 the saved level and lists its actors again (`workers/unreal/unreal_readback.py`), and compares the two, actor by actor:

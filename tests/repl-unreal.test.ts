@@ -56,9 +56,13 @@ function repl(s: Sandbox, knobs: Record<string, string> = {}) {
 describe.skipIf(!python)('/unreal in the REPL: a judged first pass, then its readback in a second Unreal process', () => {
   it('runs the starter, starts the readback at once, records and seals it: agrees, 9 of 9 actors', async () => {
     const s = unrealSandbox('unreal-repl-');
-    const { slash, said } = repl(s);
+    // R4 (H72): a folder standing in for the account's home (its Unreal folders watched, named "~/…"); the FAKE writes its
+    // user files there, as Unreal does without CFFIXED_USER_HOME
+    const account = path.join(s.base, 'account');
+    const { slash, said } = repl(s, { TIMMY_UNREAL_ACCOUNT_HOME: account, FAKE_UNREAL_ACCOUNT_HOME: account });
     const started = await slash('/unreal TimmyStarter.uproject scene.py');
     expect(started).toMatch(/App {8}UnrealEditor-Cmd, headless · it opens TimmyStarter\.uproject and runs Timmy's harness, which runs \.timmy\/native\/[0-9a-f-]{36}\/source\/scene\.py, a read-only copy of scene\.py/);
+    expect(started).toMatch(/Caches {5}Saved\/DerivedDataCache \(derived data; no Zen: its local store is not used\) · log Saved\/Logs\/Timmy-[0-9a-f]{8}\.log · Unreal's user folders in this account's own home \(TIMMY_NATIVE_HOME would keep them out of it\)/);
     expect(started).toMatch(/the first run of a new project makes Unreal build its caches \(slow: minutes\)/);
     expect(started).toMatch(/Running {4}(j[0-9a-f]{6}) {2}Unreal runs scene\.py in TimmyStarter\.uproject · judged by its harness's result file, then read back by a second Unreal process/);
     await until(() => /readback (agrees|differs|failed)/.test(said()), 60_000, 'the readback to end');
@@ -72,6 +76,10 @@ describe.skipIf(!python)('/unreal in the REPL: a judged first pass, then its rea
     expect(out).toMatch(/checks {3}the script's own: 9 of 9 passed/);
     const rb = /readback (j[0-9a-f]{6}) {2}a second Unreal process opens \/Game\/Timmy\/TimmyGrid \(Content\/Timmy\/TimmyGrid\.umap, sha256 [0-9a-f]{12}…\)/.exec(out);
     expect(rb, out).not.toBeNull();
+    // R4 (H72): where each Unreal kept its writes, and what each wrote outside the project, counted by folder
+    expect(out).toMatch(new RegExp(`caches {3}Saved/DerivedDataCache \\(derived data; no Zen: its local store is not used\\) · log Saved/Logs/Timmy-${run.slice(0, 8)}-readback-[0-9a-f]{8}\\.log`));
+    const outside = 'outside  Unreal wrote 2 files outside the project: ~/Library/Application Support/Epic/UnrealEngine/5.8/Saved (1), ~/Library/Logs/Unreal Engine/TimmyStarterEditor (1)';
+    expect(out.split(outside).length - 1, out).toBe(2);
     // The readback: agrees, with its record and receipt.
     expect(out).toMatch(new RegExp(`✓ ${rb![1]} readback agrees {2}/Game/Timmy/TimmyGrid: 9 of 9 actors agree · Unreal run ${run.slice(0, 8)} · receipt [0-9a-f]{8} · record \\.timmy/native/${run}/readbacks\\.jsonl`));
     expect(out).toMatch(/both are Unreal Engine: agreement shows the saved file holds what the first pass reported, not an independent engine's confirmation/);
@@ -86,7 +94,8 @@ describe.skipIf(!python)('/unreal in the REPL: a judged first pass, then its rea
     expect(native.native).toMatchObject({ app: 'unreal', outcome: 'ok', run, unreal_version: '5.8.2-0+++UE5+Release-5.8 (stand-in)' });
     expect(read.child_receipts).toEqual([native.hash.slice(7, 15)]);
     expect(read.sources?.[0]).toEqual({ path: 'Content/Timmy/TimmyGrid.umap', sha256: lines[0].levels[0].sha256.recorded, role: 'read' });
-    expect(read.sources?.[1]).toMatchObject({ unreal_run: run, verdict: 'agrees', geometry: { provenance: 'generated', evidence: 'checked' } });
+    expect(read.sources?.[1]).toMatchObject({ unreal_run: run, verdict: 'agrees', geometry: { provenance: 'generated', evidence: 'checked' }, outside: { state: 'checked', files: 2 } });
+    expect(native.native).toMatchObject({ unreal: { outside: { state: 'checked', files: 2, names: ['~/Library/Application Support/Epic/UnrealEngine/5.8/Saved/Config/MacEditor/EditorSettings.ini', '~/Library/Logs/Unreal Engine/TimmyStarterEditor/AutoSDKInfo.json'] } } });
     expect(lines[0].receipt).toBe(read.hash.slice(7, 15));
     expect(verifyChain('runs', s.root).ok).toBe(true);
     expect(JSON.stringify(chain)).not.toContain(s.base);

@@ -12,20 +12,21 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { JobManager, type JobRecord } from '../src/jobs/index.js';
 import { EPIC_SHARED_ENGINES, locateNative, NATIVE_APPS, nativeCapabilityRows, nativeExercisedAt, nativeRunIndex, readNativeRecord } from '../src/native/index.js';
 import {
-  findUnreal, isUnrealJobSpec, judgeUnrealJob, parseUnrealWords, reconcileUnreal, UNREAL_FLAGS, unrealJob, unrealReceiptFields, unrealWorkers,
-  type UnrealJobInput, type UnrealJobSpec,
+  findUnreal, isUnrealJobSpec, judgeUnrealJob, parseUnrealWords, reconcileUnreal, UNREAL_DDC_GRAPH, UNREAL_FLAGS, unrealEndLines, unrealJob, unrealReceiptFields,
+  unrealStartLines, unrealWorkers, type UnrealJobInput, type UnrealJobSpec,
 } from '../src/native/unreal.js';
 import {
   compareUnrealActors, judgeUnrealReadback, planUnrealReadback, readUnrealReadbackFile, readUnrealReadbacks, unrealReadbackJob, unrealRunOutcome,
   type UnrealReadbackPlan,
 } from '../src/native/unreal-readback.js';
+import { shownFolder, UNREAL_ACCOUNT_HOME_ENV, UNREAL_MAC_USER_FOLDERS } from '../src/native/unreal-outside.js';
 import { createNativeTools } from '../src/agent/native-tools.js';
 import { approvalNeeded } from '../src/repl/approvals.js';
 import { startsWork } from '../src/ops/act.js';
@@ -66,8 +67,20 @@ afterEach(async () => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
-/** The job's environment for the FAKE: the stand-in `unreal` module and python3. */
-const fakeEnv = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({ PYTHONPATH: STUB, FAKE_UNREAL_PYTHON: python, PYTHONDONTWRITEBYTECODE: '1', ...extra });
+/** A folder standing in for the account's home in these tests (never a real home): its Unreal folders, as macOS keeps them. */
+const account = (): string => path.join(tmp, 'account');
+const accountEpic = (): string => path.join(account(), 'Library', 'Application Support', 'Epic');
+const accountLogs = (): string => path.join(account(), 'Library', 'Logs', 'Unreal Engine');
+/**
+ * The job's environment for the FAKE: the stand-in `unreal` module and python3; no native home unless a test gives one;
+ * and the outside check's seam (TIMMY_UNREAL_ACCOUNT_HOME) naming the stand-in account's home, whose Unreal folders are
+ * watched and named "~/…", so no test walks a real home on any platform.
+ */
+const fakeEnv = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
+  PYTHONPATH: STUB, FAKE_UNREAL_PYTHON: python, PYTHONDONTWRITEBYTECODE: '1', TIMMY_NATIVE_HOME: '', [UNREAL_ACCOUNT_HOME_ENV]: account(), ...extra,
+});
+/** A watched folder or file as the verdict names it: relative to the stand-in account's home. */
+const shown = (abs: string): string => shownFolder(abs, account());
 function spec(extra: Partial<UnrealJobInput> = {}, env: NodeJS.ProcessEnv = {}): UnrealJobSpec {
   return unrealJob({ projectFile: 'TimmyStarter.uproject', script: 'scene.py', root, project: 'demo', timeoutMs: 60_000, bin: fake, env: fakeEnv(env), ...extra });
 }
@@ -88,7 +101,7 @@ async function readback(env: NodeJS.ProcessEnv = {}, o: { run?: string } = {}) {
   if (!p.ok) throw new Error(p.error);
   const made = unrealReadbackJob(p.plan, { bin: fake, worker: path.join(WORKERS, 'unreal_readback.py'), lib: WORKERS, project: 'demo', env: fakeEnv(env), timeoutMs: 60_000 });
   const { job } = await run(made.spec);
-  return { plan: p.plan, made, job, line: judgeUnrealReadback(p.plan, job, made.token, made.result) };
+  return { plan: p.plan, made, job, line: judgeUnrealReadback(p.plan, job, made.token, made.result, { env: made.spec.env }) };
 }
 
 describe('finding UnrealEditor-Cmd', () => {
@@ -164,8 +177,12 @@ describe('the Unreal job: its command line, its record, its refusals', () => {
     const s = spec({ args: ['--cubes', '4'] });
     expect(isUnrealJobSpec(s)).toBe(true);
     const harness = path.join(WORKERS, 'timmy_unreal.py');
-    expect(s.args).toEqual([path.join(root, 'TimmyStarter.uproject'), '-run=pythonscript', `-script=${harness}`, '-unattended', '-nullrhi', '-nosplash', '-nopause', '-stdout', '-FullStdOutLogOutput']);
-    expect([...UNREAL_FLAGS]).toEqual(s.args.slice(3));
+    const log = `Saved/Logs/Timmy-${s.native.run.slice(0, 8)}.log`;
+    expect(s.args).toEqual([
+      path.join(root, 'TimmyStarter.uproject'), '-run=pythonscript', `-script=${harness}`, '-unattended', '-nullrhi', '-nosplash', '-nopause', '-stdout', '-FullStdOutLogOutput',
+      '-DDC=InstalledNoZenLocalFallback', `-LocalDataCachePath=${path.join(root, 'Saved', 'DerivedDataCache')}`, `-abslog=${path.join(root, ...log.split('/'))}`,
+    ]);
+    expect([...UNREAL_FLAGS]).toEqual(s.args.slice(3, 3 + UNREAL_FLAGS.length));
     const copy = path.join(root, '.timmy', 'native', s.native.run, 'source', 'scene.py');
     expect(statSync(copy).mode & 0o777).toBe(0o444);
     expect(s.env).toMatchObject({
@@ -179,7 +196,13 @@ describe('the Unreal job: its command line, its record, its refusals', () => {
     expect(u).toEqual({
       record: 'timmy-unreal-run', v: 1, run: s.native.run, project: { path: 'TimmyStarter.uproject', sha256: sha(path.join(root, 'TimmyStarter.uproject')) }, content: 'Content',
       watch: ['Content', 'out'], harness: { file: 'timmy_unreal.py', sha256: sha(harness) }, args: ['--cubes', '4'], flags: [...UNREAL_FLAGS],
+      place: { cache: 'Saved/DerivedDataCache', log, ddc: UNREAL_DDC_GRAPH, native_home: false },
     });
+    // R4 (H72): with no native home Timmy sets neither HOME nor CFFIXED_USER_HOME, and makes the cache's and the log's folders
+    expect(s.env?.HOME).toBeUndefined();
+    expect(s.env?.CFFIXED_USER_HOME).toBeUndefined();
+    expect(statSync(path.join(root, 'Saved', 'DerivedDataCache')).isDirectory()).toBe(true);
+    expect(statSync(path.join(root, 'Saved', 'Logs')).isDirectory()).toBe(true);
   });
 
   it('a project in a folder has its Content beside it', () => {
@@ -237,7 +260,7 @@ describe('judging a first pass: the harness\'s result file decides, bound to the
       expect(j.files.map((f) => [f.path, f.change, f.matches])).toEqual([['Content/Timmy/TimmyGrid.umap', 'created', true]]);
       const u = j.unreal;
       expect(u).toMatchObject({ version: '5.8.2-0+++UE5+Release-5.8 (stand-in)', script_ran: s.native.copy!.path, project: 'TimmyStarter.uproject', watched: ['Content', 'out'] });
-      expect(u.harness).toEqual({ name: 'timmy_unreal', version: '0.1.0', sha256: sha(path.join(WORKERS, 'timmy_unreal.py')) });
+      expect(u.harness).toEqual({ name: 'timmy_unreal', version: '0.2.0', sha256: sha(path.join(WORKERS, 'timmy_unreal.py')) });
       expect(u.inputs).toEqual({ 'scene.params.json': sha(path.join(root, 'scene.params.json')) });
       expect(u.levels).toHaveLength(1);
       const level = u.levels[0];
@@ -334,7 +357,12 @@ describe.skipIf(!python)('the readback: a second Unreal process opens each saved
     expect(first.j.outcome).toBe('ok');
     const { plan, made, job, line } = await readback();
     expect(plan).toMatchObject({ run: first.s.native.run, project: { path: 'TimmyStarter.uproject', changed: false }, levels: [{ asset: '/Game/Timmy/TimmyGrid', file: 'Content/Timmy/TimmyGrid.umap', actors_total: 9 }] });
-    expect(made.spec.args).toEqual([path.join(root, 'TimmyStarter.uproject'), '-run=pythonscript', `-script=${path.join(WORKERS, 'unreal_readback.py')}`, ...UNREAL_FLAGS]);
+    expect(made.spec.args).toEqual([
+      path.join(root, 'TimmyStarter.uproject'), '-run=pythonscript', `-script=${path.join(WORKERS, 'unreal_readback.py')}`, ...UNREAL_FLAGS,
+      '-DDC=InstalledNoZenLocalFallback', `-LocalDataCachePath=${path.join(root, 'Saved', 'DerivedDataCache')}`,
+      `-abslog=${path.join(root, 'Saved', 'Logs', `Timmy-${first.s.native.run.slice(0, 8)}-readback-${made.token.slice(0, 8)}.log`)}`,
+    ]);
+    expect(made.place).toEqual({ cache: 'Saved/DerivedDataCache', log: `Saved/Logs/Timmy-${first.s.native.run.slice(0, 8)}-readback-${made.token.slice(0, 8)}.log`, ddc: UNREAL_DDC_GRAPH, native_home: false });
     expect(job.state).toBe('completed');
     expect(line).toMatchObject({ app: 'unreal', run: first.s.native.run, token: made.token, verdict: 'agrees', worker: { name: 'unreal_readback', version: '0.1.0' }, unreal_version: '5.8.2-0+++UE5+Release-5.8 (stand-in)' });
     const level = line.levels[0];
@@ -392,6 +420,152 @@ describe.skipIf(!python)('the readback: a second Unreal process opens each saved
   });
 });
 
+/** A judgement's lines as the REPL prints them (text only). */
+const endText = (j: ReturnType<typeof judgeUnrealJob>, s: UnrealJobSpec, id: string): string =>
+  unrealEndLines(j, s, { id, label: 'Unreal', glyphs: { ok: '✓', fail: '✖' }, sep: ' · ', scrub: (x) => x }).map((l) => l.map((seg) => seg.text).join('')).join('\n');
+
+describe('R4 (H72): where Unreal writes, what it wrote outside the project, and what a failed run left', () => {
+  it('with TIMMY_NATIVE_HOME, the first pass and the readback set HOME and CFFIXED_USER_HOME to it (never recording its path); the started line says where everything goes', () => {
+    const home = path.join(tmp, 'native-home');
+    mkdirSync(home);
+    const s = spec({}, { TIMMY_NATIVE_HOME: home });
+    expect(s.env).toMatchObject({ HOME: home, CFFIXED_USER_HOME: home });
+    expect(s.unreal.place).toEqual({ cache: 'Saved/DerivedDataCache', log: `Saved/Logs/Timmy-${s.native.run.slice(0, 8)}.log`, ddc: UNREAL_DDC_GRAPH, native_home: true });
+    expect(readFileSync(path.join(root, '.timmy', 'native', s.native.run, 'unreal.json'), 'utf8')).not.toContain(home);
+    const started = unrealStartLines(s, ' · ').map((l) => l.map((seg) => seg.text).join('')).join('\n');
+    expect(started).toContain(`Caches     Saved/DerivedDataCache (derived data; no Zen: its local store is not used) · log Saved/Logs/Timmy-${s.native.run.slice(0, 8)}.log · Unreal's user folders in Timmy's native home (TIMMY_NATIVE_HOME)`);
+    const plan = { run: s.native.run, dir: s.native.record!, root, project: { path: 'TimmyStarter.uproject', abs: path.join(root, 'TimmyStarter.uproject'), changed: false }, levels: [] } as UnrealReadbackPlan;
+    const made = unrealReadbackJob(plan, { bin: fake, worker: path.join(WORKERS, 'unreal_readback.py'), lib: WORKERS, project: 'demo', env: { TIMMY_NATIVE_HOME: home } });
+    expect(made.spec.env).toMatchObject({ HOME: home, CFFIXED_USER_HOME: home });
+    expect(made.place.native_home).toBe(true);
+    // without one, the started line says Unreal's user folders are this account's own
+    expect(unrealStartLines(spec(), ' · ').map((l) => l.map((seg) => seg.text).join('')).join('\n')).toContain('Unreal\'s user folders in this account\'s own home (TIMMY_NATIVE_HOME would keep them out of it)');
+  });
+
+  it('refuses (nothing starts, nothing recorded) a project whose Saved folder leads outside it', () => {
+    const elsewhere = path.join(tmp, 'elsewhere');
+    mkdirSync(elsewhere);
+    symlinkSync(elsewhere, path.join(root, 'Saved'));
+    expect(() => spec()).toThrow(/Unreal's cache folder Saved\/DerivedDataCache does not lead inside the project .*nothing started/);
+    expect(existsSync(path.join(root, '.timmy', 'native'))).toBe(false);
+    expect(readdirSync(elsewhere)).toEqual([]);
+  });
+
+  describe.skipIf(!python)('a FAKE Unreal in real child processes', () => {
+    it('keeps its derived-data cache and its log in the project\'s Saved folder, where the flags put them; none of it is an output', async () => {
+      const { s, j } = await firstPass();
+      expect(j.outcome, j.why).toBe('ok');
+      expect(existsSync(path.join(root, 'Saved', 'DerivedDataCache', 'fake-unreal-ddc.udd'))).toBe(true);
+      expect(readFileSync(path.join(root, 'Saved', 'Logs', `Timmy-${s.native.run.slice(0, 8)}.log`), 'utf8')).toMatch(/Python script executed successfully/);
+      expect(j.files.map((f) => f.path)).toEqual(['Content/Timmy/TimmyGrid.umap']);
+    });
+
+    it('without a native home, Unreal\'s user files land in the account\'s Unreal folders: the verdict counts them by folder; the run\'s record, the receipt and the lines keep the counts and the names', async () => {
+      const { s, j, job } = await firstPass({}, { FAKE_UNREAL_ACCOUNT_HOME: account() });
+      expect(j.outcome, j.why).toBe('ok');
+      const epic = shown(accountEpic());
+      const logs = shown(accountLogs());
+      expect(j.outside).toMatchObject({
+        state: 'checked', folders: UNREAL_MAC_USER_FOLDERS.map((f) => `~/${f}`), files: 2, by_folder: { [`${epic}/UnrealEngine/5.8/Saved`]: 1, [`${logs}/TimmyStarterEditor`]: 1 },
+        names: [`${epic}/UnrealEngine/5.8/Saved/Config/MacEditor/EditorSettings.ini`, `${logs}/TimmyStarterEditor/AutoSDKInfo.json`],
+      });
+      expect(j.why).toContain(`Unreal wrote 2 files outside the project: ${epic}/UnrealEngine/5.8/Saved (1), ${logs}/TimmyStarterEditor (1)`);
+      expect(readNativeRecord(root, s.native.run)?.verdicts.at(-1)).toMatchObject({ outcome: 'ok', outside: { files: 2, names: j.outside!.names } });
+      expect(unrealReceiptFields(j).native.unreal).toMatchObject({ outside: { state: 'checked', files: 2, by_folder: j.outside!.by_folder } });
+      expect(endText(j, s, job.id)).toContain(`outside  Unreal wrote 2 files outside the project: ${epic}/UnrealEngine/5.8/Saved (1), ${logs}/TimmyStarterEditor (1) · checked ${UNREAL_MAC_USER_FOLDERS.map((f) => `~/${f}`).join(', ')} for files changed since the job started (metadata only)`);
+      // judged again (its lines, then its receipt), the job's check is the one kept: not walked again
+      expect(judgeUnrealJob(job, s).outside).toEqual(j.outside);
+    });
+
+    it('with a native home they go there (CFFIXED_USER_HOME: Unreal ignores HOME for them): "Unreal wrote nothing outside the project and Timmy\'s native home"', async () => {
+      const home = path.join(tmp, 'native-home');
+      const { j } = await firstPass({}, { FAKE_UNREAL_ACCOUNT_HOME: account(), TIMMY_NATIVE_HOME: home });
+      expect(j.outcome, j.why).toBe('ok');
+      expect(j.outside).toMatchObject({ state: 'checked', files: 0, names: [] });
+      expect(j.why).toContain('Unreal wrote nothing outside the project and Timmy\'s native home');
+      expect(existsSync(path.join(home, 'Library', 'Application Support', 'Epic', 'UnrealEngine', '5.8', 'Saved', 'Config', 'MacEditor', 'EditorSettings.ini'))).toBe(true);
+      expect(existsSync(path.join(account(), 'Library'))).toBe(false);
+    });
+
+    it('the readback is checked too: a FAKE write into a watched folder while it runs is named on its record', async () => {
+      expect((await firstPass()).j.outcome).toBe('ok');
+      const stray = path.join(accountEpic(), 'UnrealEngine', 'Common', 'Zen', 'Data', 'stray.bin');
+      const { line } = await readback({ FAKE_UNREAL_OUTSIDE_WRITE: stray });
+      expect(line.verdict).toBe('agrees');
+      expect(line.outside).toMatchObject({ state: 'checked', files: 1, by_folder: { [`${shown(accountEpic())}/UnrealEngine/Common/Zen`]: 1 }, names: [shown(stray)] });
+    });
+
+    it('r21 again: a script whose spawn gives no actor (spawn_actor_from_object in the commandlet) after its level was saved fails, whatever Unreal\'s exit and words; the level is recorded as written by the failed run, never as an output', async () => {
+      writeFileSync(path.join(root, 'spawn.py'), [
+        'import unreal',
+        'def main(run):',
+        '    run.new_level("/Game/Timmy/TimmyGrid")',
+        '    cube = run.load_mesh("/Engine/BasicShapes/Cube.Cube")',
+        '    actor = unreal.get_editor_subsystem(unreal.EditorActorSubsystem).spawn_actor_from_object(cube, unreal.Vector(0, 0, 50), unreal.Rotator(0, 0, 0))',
+        '    if actor is None:',
+        '        raise RuntimeError("spawn_actor_from_object gave no actor for /Engine/BasicShapes/Cube.Cube")',
+        '',
+      ].join('\n'));
+      const { s, job, j, log } = await firstPass({ script: 'spawn.py' });
+      // Unreal's exit and words say success: the result file decides
+      expect(job.exitCode).toBe(0);
+      expect(log).toMatch(/LogUtils: Warning: SpawnActorFromObject\. No actor was spawned\./);
+      expect(log).toMatch(/Python script executed successfully/);
+      expect(j.outcome).toBe('failed');
+      expect(j.why).toMatch(/the script reported ok: false: RuntimeError: spawn_actor_from_object gave no actor for \/Engine\/BasicShapes\/Cube\.Cube/);
+      const level = sha(path.join(root, 'Content', 'Timmy', 'TimmyGrid.umap'));
+      expect(j.files).toEqual([]);
+      expect(j.failedWrites).toEqual([{ path: 'Content/Timmy/TimmyGrid.umap', recorded: level, present: true, sha256: level, matches: true, change: 'created' }]);
+      expect(j.why).toContain(`written by this failed run: Content/Timmy/TimmyGrid.umap (created; sha256 ${level.slice(0, 12)}…)`);
+      expect(readNativeRecord(root, s.native.run)?.verdicts.at(-1)).toMatchObject({ outcome: 'failed', files: [], failed_writes: [{ path: 'Content/Timmy/TimmyGrid.umap', recorded: level, change: 'created' }] });
+      const sealed = unrealReceiptFields(j);
+      expect(sealed.status).toBe('failed');
+      expect(sealed.native.files).toEqual([]);
+      expect(sealed.native.unreal).toMatchObject({ failed_run_writes: [{ path: 'Content/Timmy/TimmyGrid.umap', recorded: level, change: 'created', matches: true }] });
+      const text = endText(j, s, job.id);
+      expect(text).toMatch(/left {5}Content\/Timmy\/TimmyGrid\.umap · written by this failed run \(created\) · sha256 [0-9a-f]{12}… \(Timmy's, after the run, as the harness recorded it\) · [0-9.]+ (B|KB) · not an output: the run failed/);
+      expect(text).not.toMatch(/saved {4}Content/);
+      // a file the failed run named and then changed again is said so: the harness's sha256 and Timmy's both
+      appendFileSync(path.join(root, 'Content', 'Timmy', 'TimmyGrid.umap'), ' ');
+      const again = judgeUnrealJob(job, s);
+      expect(again.failedWrites?.[0]).toMatchObject({ matches: false, recorded: level });
+      expect(again.why).toMatch(new RegExp(`Content/Timmy/TimmyGrid\\.umap \\(created; sha256 ${level.slice(0, 12)}…; [0-9a-f]{12}… now\\)`));
+    });
+
+    it('spawn_mesh spawns by class and then sets the mesh; a mesh set_static_mesh refuses leaves no half-made actor', async () => {
+      writeFileSync(path.join(root, 'half.py'), [
+        'import unreal',
+        'def main(run):',
+        '    run.new_level("/Game/Half")',
+        '    try:',
+        '        run.spawn_mesh(unreal.Class("/Script/Engine.NotAMesh"), (0, 0, 0))',
+        '    except RuntimeError as e:',
+        '        run.note(str(e))',
+        '    run.spawn_mesh(run.load_mesh("/Engine/BasicShapes/Cube.Cube"), (0, 0, 50), label="One")',
+        '    run.save_level()',
+        '',
+      ].join('\n'));
+      const { j, log } = await firstPass({ script: 'half.py' });
+      expect(j.outcome, j.why).toBe('ok');
+      expect(log).not.toMatch(/No actor was spawned/);
+      expect(j.unreal.notes).toEqual(['set_static_mesh did not give the spawned StaticMeshActor the mesh /Script/Engine.NotAMesh']);
+      expect(j.unreal.levels[0].actors.map((a) => [a.label, a.mesh, a.bounds.size])).toEqual([['One', '/Engine/BasicShapes/Cube.Cube', [100, 100, 100]]]);
+      expect(j.unreal.made.map((m) => m.label)).toEqual(['One']);
+    });
+
+    it('the harness writes no bytecode beside itself (Unreal\'s Python wrote __pycache__ there on the Mac)', async () => {
+      const lib = path.join(tmp, 'lib');
+      const stub = path.join(tmp, 'stub');
+      cpSync(WORKERS, lib, { recursive: true });
+      cpSync(STUB, stub, { recursive: true });
+      const { j } = await firstPass({}, { TIMMY_UNREAL_LIB: lib, PYTHONPATH: stub, PYTHONDONTWRITEBYTECODE: '' });
+      expect(j.outcome, j.why).toBe('ok');
+      expect(readdirSync(lib).sort()).toEqual(['timmy_unreal.py', 'unreal_readback.py']);
+      expect(readdirSync(stub)).toEqual(['unreal.py']);
+    });
+  });
+});
+
 describe('the comparison itself', () => {
   const actor = (o: Partial<{ name: string; location: number[]; rotation: number[]; scale: number[] }> = {}) => ({
     name: o.name ?? 'A', label: 'A', class: '/Script/Engine.StaticMeshActor', location: o.location ?? [0, 0, 0], rotation: o.rotation ?? [0, 0, 0], scale: o.scale ?? [1, 1, 1],
@@ -438,6 +612,7 @@ describe('run_native with app unreal, and its approval', () => {
     const answer = await call({ app: 'unreal', project_file: 'TimmyStarter.uproject', script: 'scene.py' });
     expect(answer).toMatchObject({ ok: true, app: 'unreal', result_file: `.timmy/native/${answer.run}/result.json`, copy: `.timmy/native/${answer.run}/source/scene.py`, project_file: 'TimmyStarter.uproject' });
     expect(String(answer.note)).toMatch(/A second Unreal process then reads each saved level back, and its verdict \(agrees or differs\) is the check/);
+    expect(String(answer.note)).toMatch(/Unreal keeps its cache and its log in Saved\/DerivedDataCache and Saved\/Logs\/Timmy-[0-9a-f]{8}\.log; each verdict says whether it wrote anything in this account's Unreal folders outside the project/);
     const job = await m.done(answer.job as string);
     expect(job.state).toBe('completed');
   });

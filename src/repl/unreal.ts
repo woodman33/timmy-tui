@@ -20,7 +20,7 @@ import { copyFileSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type { JobManager, JobRecord, JobSpec } from '../jobs/index.js';
 import { locateNative, NATIVE_APPS } from '../native/index.js';
-import { cm, judgeUnrealJob, UNREAL_FIRST_RUN, UNREAL_USAGE, unrealEndLines, unrealWorkers, type UnrealJobSpec } from '../native/unreal.js';
+import { cm, judgeUnrealJob, UNREAL_FIRST_RUN, UNREAL_USAGE, unrealEndLines, unrealLeftLines, unrealPlaceWords, unrealWorkers, type UnrealJobSpec } from '../native/unreal.js';
 import {
   appendUnrealReadback, differenceWords, judgeUnrealReadback, listUnrealRuns, planUnrealReadback, UNREAL_READBACK_SCOPE, UNREAL_READBACK_TOLERANCE,
   unrealReadbackJob, type UnrealReadbackLine, type UnrealReadbackPlan,
@@ -45,8 +45,8 @@ export interface UnrealDeps {
   scrub: (text: string, root: string) => string;
 }
 
-/** A readback this REPL follows: what it reads, its token and the file it writes. */
-interface Following { plan: UnrealReadbackPlan; token: string; result: string; project: string }
+/** A readback this REPL follows: what it reads, its token and the file it writes. R4 (H72): its environment and where Unreal kept its writes. */
+interface Following { plan: UnrealReadbackPlan; token: string; result: string; project: string; env?: NodeJS.ProcessEnv; place?: { cache: string; log: string; native_home: boolean } }
 
 const TERMINAL: ReadonlySet<string> = new Set(['completed', 'failed', 'cancelled']);
 /** A readback's own output is kept beside the run up to this size; past it, it stays in the job's log. */
@@ -102,7 +102,7 @@ export class UnrealRuns {
     if (!p.ok) return this.say(`Not started: ${this.d.scrub(p.error, at.root)}`, 'estimate');
     const s = this.start(p.plan, at);
     if (!s.ok) return this.say(s.error, s.failed ? 'failure' : 'estimate');
-    return [...this.startedLines(p.plan, s.job, '  '), ...s.ended];
+    return [...this.startedLines(p.plan, s.job, '  ', s.place), ...s.ended];
   }
 
   /**
@@ -122,7 +122,7 @@ export class UnrealRuns {
     if (!p.ok) return [...lines, next(`the readback was not started: ${scrub(p.error)}`, 'estimate')];
     const s = this.start(p.plan, { root: spec.root, project: spec.project });
     if (!s.ok) return [...lines, next(s.error, s.failed ? 'failure' : 'estimate')];
-    return [...lines, ...this.startedLines(p.plan, s.job, '      '), ...s.ended];
+    return [...lines, ...this.startedLines(p.plan, s.job, '      ', s.place), ...s.ended];
   }
 
   /** A job ended: when it is a readback this REPL follows, its record, receipt and lines (else undefined). Synchronous. */
@@ -134,28 +134,36 @@ export class UnrealRuns {
   }
 
   /** Starts the readback of a plan as this REPL's own job (selfSealed: its receipt is sealed here when it ends). */
-  private start(plan: UnrealReadbackPlan, at: { root: string; project: string }): { ok: true; job: JobRecord; ended: Line[] } | { ok: false; failed?: true; error: string } {
+  private start(plan: UnrealReadbackPlan, at: { root: string; project: string }):
+    { ok: true; job: JobRecord; ended: Line[]; place: { cache: string; log: string; native_home: boolean } } | { ok: false; failed?: true; error: string } {
     const env = this.d.env();
     const located = locateNative('unreal', env);
     if (!located.found) return { ok: false, error: `Not started: ${NATIVE_APPS.unreal.name} was not found on this machine${located.problem ? ` (${located.problem})` : ''}. Setup: ${NATIVE_APPS.unreal.setup}` };
     const w = unrealWorkers(env);
     if (!w.ok) return { ok: false, error: `Not started: ${w.why}. Setup: ${w.setup}` };
-    const made = unrealReadbackJob(plan, { bin: located.found.path, worker: w.readback, lib: w.lib, project: at.project });
+    let made: ReturnType<typeof unrealReadbackJob>;
+    // R4 (H72): Timmy's native home from the REPL's own environment, as the first pass takes it
+    const home = env.TIMMY_NATIVE_HOME ? { env: { TIMMY_NATIVE_HOME: env.TIMMY_NATIVE_HOME } } : {};
+    try { made = unrealReadbackJob(plan, { bin: located.found.path, worker: w.readback, lib: w.lib, project: at.project, ...home }); } catch (e) {
+      return { ok: false, failed: true, error: `Not started: ${this.d.scrub(e instanceof Error ? e.message : String(e), at.root)}` };
+    }
     let job: JobRecord;
     try { job = this.d.startJob(made.spec, { selfSealed: true }); } catch (e) {
       return { ok: false, failed: true, error: `Not started: the readback job did not start (${this.d.scrub(e instanceof Error ? e.message : String(e), at.root)})` };
     }
-    const f: Following = { plan, token: made.token, result: made.result, project: at.project };
+    const f: Following = { plan, token: made.token, result: made.result, project: at.project, ...(made.spec.env ? { env: made.spec.env } : {}), place: made.place };
     // A job that ended before start returned (its folder gone at once) is recorded now, its lines with the start's.
-    if (TERMINAL.has(job.state)) return { ok: true, job, ended: this.finish(job, f) };
+    if (TERMINAL.has(job.state)) return { ok: true, job, ended: this.finish(job, f), place: made.place };
     this.following.set(job.id, f);
-    return { ok: true, job, ended: [] };
+    return { ok: true, job, ended: [], place: made.place };
   }
 
-  private startedLines(plan: UnrealReadbackPlan, job: JobRecord, indent: string): Line[] {
+  private startedLines(plan: UnrealReadbackPlan, job: JobRecord, indent: string, place?: { cache: string; log: string; native_home: boolean }): Line[] {
     const levels = plan.levels.map((l) => `${l.asset} (${l.file}, sha256 ${short(l.sha256)})`).join(', ');
     return [
       [{ text: `${indent}readback `, role: 'secondary' }, { text: job.id, role: 'strong' }, { text: `  a second Unreal process opens ${levels} and lists its actors, compared with the first pass's report: the first pass alone is never trusted${this.sep}/jobs ${job.id}${this.sep}/stop ${job.id}`, role: 'secondary' }],
+      // R4 (H72): where the readback's Unreal keeps its cache, its log and its user folders
+      ...(place ? [[{ text: `${indent}caches   `, role: 'secondary' }, { text: unrealPlaceWords(place, this.sep), role: 'secondary' }] as Line] : []),
       ...(plan.project.changed ? [[{ text: `${indent}         `, role: 'secondary' }, { text: `${plan.project.path} has changed since the first pass ran: the readback opens it as it is now`, role: 'estimate' }] as Line] : []),
     ];
   }
@@ -173,16 +181,16 @@ export class UnrealRuns {
         log = { sha256: sha(b), bytes: b.length };
       }
     } catch { /* the job's own log stays in the jobs folder */ }
-    const line = judgeUnrealReadback(plan, done, f.token, f.result);
+    const line = judgeUnrealReadback(plan, done, f.token, f.result, { env: f.env });
     if (line.reason) line.reason = this.d.scrub(line.reason, plan.root);
     if (log) line.log = logRel;
-    line.receipt = this.seal(done, plan, line, log, f.project);
+    line.receipt = this.seal(done, plan, line, log, f.project, f.place);
     const recorded = appendUnrealReadback(plan.dir, line);
-    return this.endLines(done, plan, line, recorded);
+    return this.endLines(done, plan, line, recorded, f.place);
   }
 
   /** The readback's receipt (kind readback): what it read (in sources: it changed nothing), its job, the verdict and the differences. */
-  private seal(job: JobRecord, plan: UnrealReadbackPlan, line: UnrealReadbackLine, log: { sha256: string; bytes: number } | undefined, project: string): string | undefined {
+  private seal(job: JobRecord, plan: UnrealReadbackPlan, line: UnrealReadbackLine, log: { sha256: string; bytes: number } | undefined, project: string, place?: Following['place']): string | undefined {
     const ms = job.endedAt ? Date.parse(job.endedAt) - Date.parse(job.startedAt) : undefined;
     const parent = plan.job ? this.d.jobs.get(plan.job)?.receipt : undefined;
     const failing = line.levels.flatMap((l) => l.checks.filter((c) => !c.passed).map((c) => `${l.asset}: ${differenceWords(c, c.differences[0])}`));
@@ -203,6 +211,9 @@ export class UnrealRuns {
             scope: UNREAL_READBACK_SCOPE, units: 'Unreal units (centimetres), degrees',
             // DOCTRINE §15: the bounds stay generated; only the second pass's agreement within the stated tolerance checks them.
             geometry: { provenance: 'generated', evidence: agrees ? 'checked' : 'constructed' },
+            // R4 (H72): where the readback's Unreal kept its writes, and what it wrote outside the project
+            ...(place ? { place: { ...place } } : {}),
+            ...(line.outside ? { outside: { ...line.outside, by_folder: { ...line.outside.by_folder }, names: [...line.outside.names], folders: [...line.outside.folders] } } : {}),
           },
         ],
         ...(parent ? { child_receipts: [parent] } : {}),
@@ -211,7 +222,7 @@ export class UnrealRuns {
     } catch { return undefined; }
   }
 
-  private endLines(job: JobRecord, plan: UnrealReadbackPlan, line: UnrealReadbackLine, recorded: boolean): Line[] {
+  private endLines(job: JobRecord, plan: UnrealReadbackPlan, line: UnrealReadbackLine, recorded: boolean, place?: Following['place']): Line[] {
     const g = this.d.glyphs;
     const agrees = line.verdict === 'agrees';
     const mark = agrees ? g.ok : line.verdict ? g.fail : ' ';
@@ -234,6 +245,8 @@ export class UnrealRuns {
       }
     }
     if (line.verdict) lines.push([{ text: '      both are Unreal Engine: agreement shows the saved file holds what the first pass reported, not an independent engine\'s confirmation; Unreal units (centimetres) of a generated scene', role: 'secondary' }]);
+    // R4 (H72): what the readback's Unreal wrote outside the project
+    lines.push(...unrealLeftLines({ ...(line.outside ? { outside: line.outside } : {}) }, { root: plan.root, sep: this.sep, nativeHome: place?.native_home ?? false }));
     return lines;
   }
 }

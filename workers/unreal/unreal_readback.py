@@ -4,10 +4,11 @@ A separate UnrealEditor-Cmd process, started after the first pass was judged ok,
 and lists its actors as they load from the file. Timmy compares that list with what the first pass reported when it
 saved the level (src/native/unreal-readback.ts): the second pass is the check; the first pass alone is never trusted.
 
-How Timmy runs it (src/native/unreal-readback.ts, unrealReadbackJob):
+How Timmy runs it (src/native/unreal-readback.ts, unrealReadbackJob; the command line built where the first pass's is):
     UnrealEditor-Cmd <project.uproject> -run=pythonscript -script=<this file> -unattended -nullrhi -nosplash -nopause
-                     -stdout -FullStdOutLogOutput
-with, in its environment:
+                     -stdout -FullStdOutLogOutput -DDC=InstalledNoZenLocalFallback -LocalDataCachePath=<project>/Saved/
+                     DerivedDataCache -abslog=<project>/Saved/Logs/Timmy-<run>-readback-<token>.log
+with HOME and CFFIXED_USER_HOME set to Timmy's native home when it has one, and, in its environment:
   TIMMY_READBACK_RESULT  where to write what it read (a JSON file in the first run's own folder)
   TIMMY_READBACK_TOKEN   this readback's token, written back so an older readback's file is never taken for this one
   TIMMY_RUN              the first pass's run token, written back
@@ -22,8 +23,10 @@ harness, so nothing of the first pass's code or state is used here.
 What this is, exactly: the same engine reading its own file in a separate process. It is a second pass, not an
 independent implementation: a fault in how Unreal writes or reads its levels could be in both passes.
 
-NOT YET EXERCISED on a real Unreal Engine: run here only with python3 against the stand-in `unreal` module
-(tests/fixtures/unreal-stub), whose level files are JSON. The first real run is the operator's, on the Mac.
+Tested with python3 against the stand-in `unreal` module (tests/fixtures/unreal-stub), whose level files are JSON, and
+exercised once on Unreal Engine 5.8.2 (5.8.2-56702186) on the operator's Mac by helper H72, through a driver with Timmy's
+exact command line and environment, not through Timmy: it opened /Game/Timmy/TimmyGrid as the starter had saved it, read
+the same bytes before and after (sha256), and listed its 9 actors; Timmy's comparison of the two passes said agrees.
 """
 import datetime
 import hashlib

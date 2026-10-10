@@ -1,18 +1,24 @@
-"""timmy_unreal: Timmy's harness for Unreal Engine's own Python, headless (round R4, helper H63).
+"""timmy_unreal: Timmy's harness for Unreal Engine's own Python, headless (round R4, helper H63; spawn and paths, H72).
 
-NOT YET EXERCISED on a real Unreal Engine. Written against the Unreal Editor Python API as Epic documents it
-(unreal.get_editor_subsystem; LevelEditorSubsystem.new_level, load_level, save_current_level; EditorActorSubsystem
-.spawn_actor_from_object, get_all_level_actors, destroy_actor; UnrealEditorSubsystem.get_editor_world;
-EditorAssetLibrary.does_asset_exist; unreal.load_asset; Actor.get_name, get_class, get_actor_label, set_actor_label,
-get_actor_location, get_actor_rotation, get_actor_scale3d, set_actor_scale3d, get_actor_bounds, get_editor_property;
-unreal.Vector; unreal.Rotator(roll, pitch, yaw); SystemLibrary.get_engine_version) and run here only with python3
-against a stand-in `unreal` module (tests/fixtures/unreal-stub; tests/native-unreal.test.ts). The first real run is the
-operator's, on the Mac. Where a level's file is comes from TIMMY_UNREAL_CONTENT (Timmy's own reading of the .uproject's
+Written against the Unreal Editor Python API as Epic documents it (unreal.get_editor_subsystem; LevelEditorSubsystem
+.new_level, load_level, save_current_level; EditorActorSubsystem.spawn_actor_from_class, get_all_level_actors,
+destroy_actor; StaticMeshComponent.set_static_mesh; UnrealEditorSubsystem.get_editor_world; EditorAssetLibrary
+.does_asset_exist; unreal.load_asset; Actor.get_name, get_class, get_actor_label, set_actor_label, get_actor_location,
+get_actor_rotation, get_actor_scale3d, set_actor_scale3d, get_actor_bounds, get_editor_property; unreal.Vector;
+unreal.Rotator(roll, pitch, yaw); SystemLibrary.get_engine_version), and tested with python3 against a stand-in `unreal`
+module (tests/fixtures/unreal-stub; tests/native-unreal.test.ts). Exercised on Unreal Engine 5.8.2 (5.8.2-56702186) on the
+operator's Mac by helper H72, through a driver with Timmy's exact command line and environment, not through Timmy: the
+starter (templates/unreal-starter/scene.py) built /Game/Timmy/TimmyGrid with its 9 cubes in 15 s and saved it, and a
+second process read the level back with the same 9 actors and bounds (Timmy's comparison: agrees). The run r21 (H63's
+version) had failed: EditorActorSubsystem.spawn_actor_from_object gave no actor in the commandlet; spawn_mesh now spawns
+by class (see it). Where a level's file is comes from TIMMY_UNREAL_CONTENT (Timmy's own reading of the .uproject's
 folder), not from Unreal's Paths.
 
-How Timmy runs it (src/native/unreal.ts, unrealJob):
+How Timmy runs it (src/native/unreal.ts, unrealJob; unrealArgs and unrealPlace build the command line in one place):
     UnrealEditor-Cmd <project.uproject> -run=pythonscript -script=<this file> -unattended -nullrhi -nosplash -nopause
-                     -stdout -FullStdOutLogOutput
+                     -stdout -FullStdOutLogOutput -DDC=InstalledNoZenLocalFallback -LocalDataCachePath=<project>/Saved/
+                     DerivedDataCache -abslog=<project>/Saved/Logs/Timmy-<run>.log
+with HOME and CFFIXED_USER_HOME set to Timmy's native home when it has one (TIMMY_NATIVE_HOME).
 Unreal's pythonscript commandlet runs this file as a script (its __name__ is "__main__"). The harness then:
   1. imports this file again as the module timmy_unreal (from TIMMY_UNREAL_LIB, else this file's folder), so that a
      script's `import timmy_unreal` gets this same run;
@@ -90,7 +96,7 @@ import traceback
 
 __all__ = ["Run", "current", "describe_actor", "harness_main", "HARNESS", "BOUNDS_METHOD"]
 
-HARNESS = {"name": "timmy_unreal", "version": "0.1.0"}
+HARNESS = {"name": "timmy_unreal", "version": "0.2.0"}
 #: How each actor's bounds are taken. The same words, word for word, as unreal_readback.py.
 BOUNDS_METHOD = ("Actor.get_actor_bounds(only_colliding_components=False): the axis-aligned box around every component "
                  "of the actor, in world space, as origin and half-size extent; min = origin - extent, max = origin + "
@@ -326,15 +332,27 @@ class Run(object):
         return mesh
 
     def spawn_mesh(self, mesh, location, rotation=(0.0, 0.0, 0.0), scale=(1.0, 1.0, 1.0), label=None):
-        """A StaticMeshActor showing `mesh`, in the open level (EditorActorSubsystem.spawn_actor_from_object), reported
-        as made. location and scale are (x, y, z); rotation is (pitch, yaw, roll) in degrees, Unreal's own order."""
+        """A StaticMeshActor showing `mesh`, in the open level, reported as made. location and scale are (x, y, z);
+        rotation is (pitch, yaw, roll) in degrees, Unreal's own order.
+
+        It is spawned by class (EditorActorSubsystem.spawn_actor_from_class(unreal.StaticMeshActor, ...)) and then given
+        its mesh (its static_mesh_component's set_static_mesh), not by EditorActorSubsystem.spawn_actor_from_object(mesh):
+        in the pythonscript commandlet of Unreal Engine 5.8.2 that call gave no actor ("LogUtils: Warning:
+        SpawnActorFromObject. No actor was spawned.", the Mac run r21, and again in H72's first Mac run), while this route
+        gave a StaticMeshActor with the mesh and its bounds, which saved and loaded back (H72's Mac runs)."""
         unreal = _unreal()
         pitch, yaw, roll = (float(v) for v in rotation)
-        actor = _subsystem("EditorActorSubsystem").spawn_actor_from_object(
-            mesh, unreal.Vector(float(location[0]), float(location[1]), float(location[2])),
+        actors = _subsystem("EditorActorSubsystem")
+        actor = actors.spawn_actor_from_class(
+            unreal.StaticMeshActor, unreal.Vector(float(location[0]), float(location[1]), float(location[2])),
             unreal.Rotator(roll=roll, pitch=pitch, yaw=yaw))
         if actor is None:
-            raise RuntimeError("spawn_actor_from_object gave no actor for %s" % mesh.get_path_name())
+            raise RuntimeError("spawn_actor_from_class(StaticMeshActor) gave no actor for %s" % mesh.get_path_name())
+        component = actor.get_editor_property("static_mesh_component")
+        if component is None or not component.set_static_mesh(mesh):
+            # the half-made actor (no mesh) is removed, so the level never keeps it
+            actors.destroy_actor(actor)
+            raise RuntimeError("set_static_mesh did not give the spawned StaticMeshActor the mesh %s" % mesh.get_path_name())
         if label:
             actor.set_actor_label(str(label))
         if tuple(float(s) for s in scale) != (1.0, 1.0, 1.0):
@@ -510,6 +528,9 @@ def _bare_result(error):
 if __name__ == "__main__":
     # Unreal runs this file as a script: it is imported again as the module timmy_unreal, so that the run lives in one
     # module and a script's `import timmy_unreal` gets it. TIMMY_UNREAL_LIB comes first on sys.path, then this file's folder.
+    # No bytecode is written: importing itself made Unreal's Python write __pycache__/timmy_unreal.cpython-311.pyc beside
+    # this file (H72's second Mac run), which in an installed Timmy is Timmy's own folder, outside the project.
+    sys.dont_write_bytecode = True
     try:
         _here = os.path.dirname(os.path.abspath(__file__))
     except NameError:  # a host that runs the file without __file__
