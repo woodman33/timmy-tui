@@ -96,11 +96,18 @@ export function toolsPanel(v: RoomView, k: Kit): string {
   if (!t) {
     return `<p class="empty">${esc('Not checked yet in this session: /room checks every tool the way /tools does (without contacting OpenRouter), and this panel then shows what it found.')}</p>${k.cmds(['/room', '/tools'])}`;
   }
-  const groups = toolGroups(t.rows).map((g) => `<section class="card room-toolgroup"><h4>${esc(g.title)} <span class="count">${g.rows.length}</span></h4>`
-    + `<ul class="room-toollist">${g.rows.map(toolRow).join('')}</ul>${g.note ? `<p class="meta">${esc(g.note)}</p>` : ''}</section>`).join('');
+  const all = toolGroups(t.rows);
+  const card = (g: (typeof all)[number]): string => `<section class="card room-toolgroup"><h4>${esc(g.title)} <span class="count">${g.rows.length}</span></h4>`
+    + `<ul class="room-toollist">${g.rows.map(toolRow).join('')}</ul>${g.note ? `<p class="meta">${esc(g.note)}</p>` : ''}</section>`;
+  const groups = all.filter((g) => !g.advanced).map(card).join('');
+  // The rows outside the named groups: an advanced view, folded away (kept open or closed across the live board's redraws).
+  const other = all.find((g) => g.advanced);
+  const setup = other ? other.rows.filter((r) => r.rung === 'needs setup').length : 0;
+  const advanced = other ? `<details class="more" data-keep="room:tools:other"><summary>${esc(`everything else /tools checks (${other.rows.length}${setup ? `, ${setup} need setup` : ''})`)}</summary>`
+    + `<div class="more-body"><div class="grid room-tools">${card(other)}</div></div></details>` : '';
   const legend = (Object.keys(RUNG_WORDS) as Array<keyof typeof RUNG_WORDS>).map((r) => `${r}: ${RUNG_WORDS[r]}`).join(' · ');
   return `<p class="meta">${esc(`checked ${stamp(t.checkedAt)} by /room; ${legend}. "Used" comes only from a run's own sealed record; a rung is what the check found now.`)}</p>`
-    + `${t.note ? `<p class="meta">${esc(t.note)}</p>` : ''}<div class="grid room-tools">${groups}</div>${k.cmds(['/room', '/tools'])}`;
+    + `${t.note ? `<p class="meta">${esc(t.note)}</p>` : ''}<div class="grid room-tools">${groups}</div>${advanced}${k.cmds(['/room', '/tools'])}`;
 }
 
 /** The section: its table-of-contents entry and its HTML. */

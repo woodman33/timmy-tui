@@ -876,7 +876,8 @@ export function findRun(all: readonly RoomRun[], id: string): RoomRun | undefine
 
 // ── tools and connections ─────────────────────────────────────────────────────
 
-export interface ToolGroup { title: string; rows: Array<CapabilityRow & { missing?: true }>; note?: string }
+/** A panel group; `advanced`, the rows outside the named groups (an advanced view: the board folds it away). */
+export interface ToolGroup { title: string; rows: Array<CapabilityRow & { missing?: true }>; note?: string; advanced?: true }
 
 /** Which /tools rows go in which panel group. */
 const CREATIVE = ['blender', 'openscad', 'freecad', 'afterfx', 'aerender', 'c4dpy', 'recipe-tray'];
@@ -905,13 +906,22 @@ export function toolGroups(rows: readonly CapabilityRow[]): ToolGroup[] {
     { title: 'Models', rows: take(by(MODEL_ROWS)), note: 'The Control Room does not contact OpenRouter: /tools checks the key.' },
   ];
   const rest = rows.filter((r) => !used.has(r.id));
-  if (rest.length) groups.push({ title: 'Everything else /tools checks', rows: rest });
+  if (rest.length) groups.push({ title: 'Everything else /tools checks', rows: rest, advanced: true });
   return groups.filter((g) => g.rows.length);
 }
 
-/** The rows that need setup (the step shown), in the panel's order. */
+/** The named groups' rows that need setup (the step shown), in the panel's order; /tools' other rows are counted apart. */
 export function needsSetup(rows: readonly CapabilityRow[]): CapabilityRow[] {
-  return toolGroups(rows).flatMap((g) => g.rows.filter((r) => r.rung === 'needs setup' && !('missing' in r)));
+  return toolGroups(rows).filter((g) => !g.advanced).flatMap((g) => g.rows.filter((r) => r.rung === 'needs setup' && !('missing' in r)));
+}
+
+/** How many rows the named groups hold (Houdini's placeholder not counted), and how many of /tools' other rows need setup. */
+export function setupCounts(rows: readonly CapabilityRow[]): { named: number; otherNeedSetup: number } {
+  const groups = toolGroups(rows);
+  return {
+    named: groups.filter((g) => !g.advanced).reduce((n, g) => n + g.rows.filter((r) => !('missing' in r)).length, 0),
+    otherNeedSetup: groups.filter((g) => g.advanced).reduce((n, g) => n + g.rows.filter((r) => r.rung === 'needs setup').length, 0),
+  };
 }
 
 /** A tools check's rows with the project's and home folders scrubbed from their words (the /tools wording otherwise kept). */

@@ -248,7 +248,7 @@ describe('/room in the REPL', () => {
     expect(at('COSTS')).toBeLessThan(at('NEEDS SETUP'));
     expect(out).toContain(`/stop ${job} stops it`);
     expect(out).toContain('1 run free (local endpoint)');
-    expect(out).toContain('1 of 3 tools');
+    expect(out).toContain('1 of the 3 creative, agent, MCP, vision and model tools');
     expect(out).toContain('do: brew install --cask blender (FAKE step)');
     expect(out).not.toContain(root);
     // One run by its job id: its route, its handoff (its job, then its result, not written yet).

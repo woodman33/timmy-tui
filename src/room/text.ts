@@ -6,7 +6,7 @@
  */
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Role, Segment } from '../term/theme.js';
-import { costsLine, findRun, needsSetup, type Room, type RoomRun, type RoomView, type Tone } from './index.js';
+import { costsLine, findRun, needsSetup, setupCounts, type Room, type RoomRun, type RoomView, type Tone } from './index.js';
 
 type Line = Segment[];
 
@@ -70,10 +70,12 @@ export function roomLines(v: RoomView, o: RoomTextOptions): Line[] {
     lines.push([{ text: '  TOOLS        ', role: 'strong' }, { text: 'not checked here yet', role: 'secondary' }]);
   } else {
     const setup = needsSetup(v.tools.rows);
-    lines.push([{ text: '  NEEDS SETUP  ', role: 'strong' }, { text: `${setup.length ? `${setup.length} of ${v.tools.rows.length} tools` : 'none of the tools /tools checks'}${sep}checked ${stamp(v.tools.checkedAt)}`, role: 'secondary' }]);
+    const counts = setupCounts(v.tools.rows);
+    lines.push([{ text: '  NEEDS SETUP  ', role: 'strong' }, { text: `${setup.length} of the ${counts.named} creative, agent, MCP, vision and model tools${sep}checked ${stamp(v.tools.checkedAt)}`, role: 'secondary' }]);
     for (const t of setup) {
       lines.push([{ text: `    ${t.name.trim()}  ` }, { text: `do: ${t.setup ?? '(no step recorded)'}` }, { text: `  (${t.detail}${t.exercised ? `${sep}used ${t.exercised.slice(0, 10)}` : ''})`, role: 'secondary' }]);
     }
+    if (counts.otherNeedSetup) lines.push([{ text: `    and ${counts.otherNeedSetup} other row${counts.otherNeedSetup === 1 ? '' : 's'} of /tools need setup: /tools lists them`, role: 'secondary' }]);
     if (v.tools.note) lines.push([{ text: `    ${v.tools.note}`, role: 'secondary' }]);
   }
   for (const n of v.notes) lines.push([{ text: `  ${n}`, role: 'secondary' }]);

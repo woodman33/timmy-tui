@@ -17,7 +17,7 @@ import { kit } from '../src/repl/board-kit.js';
 import { roomSection, ROOM_CSS } from '../src/repl/board-room.js';
 import type { BoardObservation } from '../src/repl/board.js';
 import {
-  costsLine, elapsedWords, findRun, flowHandoff, flowOutputs, gatherRoom, needsSetup, receiptCosts, ROOM_KINDS, routeWords, scrubRows, shortReceipt, sumCosts, toolGroups,
+  costsLine, elapsedWords, findRun, flowHandoff, flowOutputs, gatherRoom, needsSetup, receiptCosts, ROOM_KINDS, routeWords, scrubRows, setupCounts, shortReceipt, sumCosts, toolGroups,
   type RoomContext, type RoomRun,
 } from '../src/room/index.js';
 import { roomItemLines, roomLines } from '../src/room/text.js';
@@ -400,6 +400,7 @@ describe('the Control Room on the board: escaping, buttons, no paths', () => {
     expect(groups[0].rows.map((r) => r.name)).toEqual(['Blender (Python, headless)', 'OpenSCAD (command line)', 'Houdini']);
     expect(groups[0].rows[2]).toMatchObject({ rung: 'not built', detail: '/tools has no row for Houdini, so nothing was checked here' });
     expect(needsSetup(rows).map((r) => r.id)).toEqual(['blender', 'mcp-cli']);
+    expect(setupCounts([...rows, { id: 'trigger', kind: 'tool', name: 'Trigger.dev jobs', rung: 'needs setup', detail: 'no key', setup: 'set TRIGGER_SECRET_KEY' }])).toEqual({ named: 6, otherNeedSetup: 1 });
     const { view } = gatherRoom({ ...ctx, tools: { checkedAt: '2026-10-10T09:59:00.000Z', rows } });
     const html = roomSection(view, kit({ live: false, base: '../../' })).html;
     expect(html).toContain('<span class="tl-name">Blender (Python, headless)</span> <span class="rung rung-needssetup">needs setup</span>');
@@ -407,6 +408,8 @@ describe('the Control Room on the board: escaping, buttons, no paths', () => {
     expect(html).toContain('do: <code>brew install --cask blender (FAKE)</code>');
     expect(html).toContain('checked 2026-10-10 09:59 UTC by /room');
     expect(html).toContain('The Control Room does not contact OpenRouter');
+    // The rows outside the named groups are an advanced view, folded away.
+    expect(html).toContain('<details class="more" data-keep="room:tools:other"><summary>everything else /tools checks (1)</summary>');
     const unchecked = roomSection(gatherRoom(ctx).view, kit({ live: false, base: '../../' })).html;
     expect(unchecked).toContain('Not checked yet in this session');
   });
