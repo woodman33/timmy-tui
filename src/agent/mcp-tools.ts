@@ -15,17 +15,29 @@
  * match the config exactly and tools must be on the server's own list (mcp-cli.ts). Variables reach a server only
  * by name (pass_env, asking tools only); their values never appear in a call or an answer. A server that wants a
  * sign-in answers "needs authorization" with MCPorter's own step; no tool here starts a sign-in.
+ *
+ * Round R4 (H34): call_mcp_tool keeps the same record as the REPL's /mcp call (src/connectors/mcp-records.ts): its
+ * call.json and raw output.json in the project's .timmy/mcp/<call-id>/, sealed with an `mcp.call` receipt on the runs
+ * chain; the answer names both. A tool's annotations are the server's own claim, and come through the SDK route only.
  */
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { z } from 'zod/v4';
-import { callTool, listServers, listTools, mcpRoutes, type McpRouteId, type McpServerRef } from '../connectors/mcp-cli.js';
+import { callAndRecord, listServers, listTools, MCPORTER_DROPS_HINTS, mcpRoutes, type McpRouteId, type McpServerRef } from '../connectors/mcp-cli.js';
+import { appendReceipt, type ReceiptInput } from '../utils/receipts.js';
 
 type Env = Record<string, string | undefined>;
 export interface McpToolOptions {
-  /** The folder MCPorter runs in (its ./config/mcporter.json); default: this process's folder. */
+  /** The folder MCPorter runs in (its ./config/mcporter.json), and the project a call's record is kept in; default: this process's folder. */
   cwd?: () => string;
   env?: () => Env;
+  /** R4 (H34): the project's name for a call's record and receipt. */
+  project?: () => string | undefined;
+  /** R4 (H34): seals a call's receipt (a short id back); default: appendReceipt on the runs chain, as the REPL's own seal. */
+  seal?: (input: ReceiptInput) => string | undefined;
 }
+
+/** The REPL's own seal (src/repl/main.ts): the runs chain through appendReceipt, the short id back. */
+const sealOnRuns = (input: ReceiptInput): string | undefined => appendReceipt('runs', input).hash.slice(7, 15);
 
 const answer = z.record(z.string(), z.unknown());
 const ROUTE = z.enum(['mcporter', 'sdk']);
@@ -75,15 +87,19 @@ export function createMcpTools(o: McpToolOptions = {}) {
     outputSchema: answer,
     execute: async ({ server, command, route, pass_env }: { server?: string; command?: string[]; route?: McpRouteId; pass_env?: string[] }) => {
       if (Array.isArray(command) && command.length && server) return { ok: false, error: 'give server (a configured name) or command (a command line), not both' };
-      if (Array.isArray(command) && command.length) return { ...(await listTools(route ?? firstRoute(), { command }, runOpts(pass_env))) };
-      if (typeof server === 'string' && server) return { ...(await listTools(route ?? 'mcporter', { name: server }, runOpts(pass_env))) };
+      // R4 (H34): the server's own hints come with each tool on the SDK route; on MCPorter's they are not known.
+      const hinted = (picked: McpRouteId, r: Awaited<ReturnType<typeof listTools>>): Record<string, unknown> => ({
+        ...r, ...(r.ok ? { annotations_note: picked === 'mcporter' ? MCPORTER_DROPS_HINTS : "each tool's annotations are the server's own hints, as it lists them: its claim, not checked" } : {}),
+      });
+      if (Array.isArray(command) && command.length) { const picked = route ?? firstRoute(); return hinted(picked, await listTools(picked, { command }, runOpts(pass_env))); }
+      if (typeof server === 'string' && server) { const picked = route ?? 'mcporter'; return hinted(picked, await listTools(picked, { name: server }, runOpts(pass_env))); }
       return { ok: false, error: "which server? give server (a name in MCPorter's config, as list_mcp_tools shows) or command (a command line, one word per item)" };
     },
   });
 
   const call = tool({
     name: 'call_mcp_tool',
-    description: "Call one tool on an MCP server through a command-line route (MCPorter's CLI, or Timmy's own SDK CLI). The operator is asked first. Give the server as its exact name in MCPorter's config or editor imports, or as a command line; the tool's exact name and its arguments as an object (list_mcp_command_tools shows them). Through MCPorter the tool must be on the server's own list: a near miss is refused, never corrected. The answer is the server's own: its text (at most 32 KB; a longer one is cut and says so), how long it took, or its error; a server that wants a sign-in answers needs authorization. A call that does not answer in time is stopped, server included.",
+    description: "Call one tool on an MCP server through a command-line route (MCPorter's CLI, or Timmy's own SDK CLI). The operator is asked first. Give the server as its exact name in MCPorter's config or editor imports, or as a command line; the tool's exact name and its arguments as an object (list_mcp_command_tools shows them). Through MCPorter the tool must be on the server's own list: a near miss is refused, never corrected. The answer is the server's own: its text (at most 32 KB; a longer one is cut and says so), how long it took, or its error; an error answer (isError) says what the server said; a server that wants a sign-in answers needs authorization. A call that does not answer in time is stopped, server included. Every call is kept in the project as a record (record: .timmy/mcp/<call-id>/call.json, and output: the raw output.json) sealed with an mcp.call receipt (receipt).",
     inputSchema: z.object({
       route: ROUTE.optional().describe('mcporter (names and command lines) or sdk (command lines only); default: mcporter for a name, else the first installed route'),
       server: SERVER.optional(),
@@ -98,7 +114,14 @@ export function createMcpTools(o: McpToolOptions = {}) {
       const ref: McpServerRef | null = command?.length ? { command } : server ? { name: server } : null;
       if (!ref) return { ok: false, error: "which server? give server (a name in MCPorter's config) or command (a command line)" };
       const picked = route ?? ('name' in ref ? 'mcporter' : firstRoute());
-      return { ...(await callTool(picked, ref, name, args ?? {}, runOpts(pass_env, timeout_s))) };
+      const opts = runOpts(pass_env, timeout_s);
+      // R4 (H34): the same record and receipt as the REPL's /mcp call, in the project (the folder MCPorter runs in).
+      const { run, record } = await callAndRecord(picked, ref, name, args ?? {}, opts, { root: opts.cwd ?? process.cwd(), project: o.project?.(), seal: o.seal ?? sealOnRuns });
+      return {
+        ...run.answer,
+        ...(record?.ok ? { record: record.call, ...(record.output ? { output: record.output } : {}) } : record ? { record_error: record.error } : {}),
+        ...(record?.receipt ? { receipt: record.receipt } : {}),
+      };
     },
   });
 

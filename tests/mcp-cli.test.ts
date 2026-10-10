@@ -10,6 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { callTool, listServers, listTools, mcpCapabilityRows, mcpRoutes, mcpView, MCP_OUTPUT_LIMIT, serverLabel, splitCommandLine } from '../src/connectors/mcp-cli.js';
 import { createMcpTools } from '../src/agent/mcp-tools.js';
+import { appendReceipt, type ReceiptInput } from '../src/utils/receipts.js';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/mcp-echo-server.mjs', import.meta.url));
 const SERVER = { command: [process.execPath, FIXTURE] };
@@ -78,7 +79,7 @@ describe.each(ROUTES)('route %s, end to end against a real stdio MCP server', (r
     const r = await callTool(route, SERVER, 'no_such_tool', {}, { timeoutMs: 30_000 });
     expect(r.ok).toBe(false);
     // R3: through MCPorter the tool must be on the server's list first (its call would correct a near miss).
-    if (route === 'mcporter') expect(r.error).toMatch(/no tool named "no_such_tool" on node mcp-echo-server\.mjs \(its tools: echo, add, big, hang\); nothing was called/);
+    if (route === 'mcporter') expect(r.error).toMatch(/no tool named "no_such_tool" on node mcp-echo-server\.mjs \(its tools: echo, add, big, hang, fail, lines, json, mixed\); nothing was called/);
     else expect(r.error).toContain('echo-fixture has no tool named no_such_tool');
   }, LONG);
 
@@ -210,8 +211,12 @@ describe('the capability list rows', () => {
 });
 
 type Exec = (a: Record<string, unknown>) => Promise<Record<string, unknown>>;
+// R4 (H34): call_mcp_tool keeps a record in its project (.timmy/mcp/) and seals a receipt: here a scratch project and
+// a chain in it, never this checkout (the default seal keeps its key under the process's folder).
+const EXEC_PROJECT = scratch();
+const execSeal = (input: ReceiptInput): string => appendReceipt('runs', input, EXEC_PROJECT).hash.slice(7, 15);
 const exec = (name: string) => {
-  const t = createMcpTools().find((x) => x.function.name === name);
+  const t = createMcpTools({ cwd: () => EXEC_PROJECT, seal: execSeal }).find((x) => x.function.name === name);
   if (!t) throw new Error(`no tool ${name}`);
   return (t.function as unknown as { execute: Exec }).execute;
 };

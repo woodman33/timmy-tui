@@ -14,10 +14,16 @@
  * sha256; round R4, H29: a recipe card is kept between polls while no file its checks read has changed, and then
  * says when they ran); an observation's values stay in its own card, under its provenance check. `renderResultCards` is
  * the hook for results built elsewhere (the /iterate flows): give it more cards in the same shape.
+ *
+ * Round R4 (H34): MCP calls (/mcp call and the agent's call_mcp_tool) are result cards too (mcpResults): the tool and
+ * the server, the outcome in words, how long it took, the record and the raw output as files, and the answer's first
+ * lines, read back from output.json; the record counts as sealed only when an mcp.call receipt of this project sealed
+ * exactly its bytes.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { listAgentRuns, taskWords, AGENTS_DIR, type AgentRunRecord } from '../code-agents/index.js';
+import { answerLines, hintWords, readMcpCalls, readRouteAnswer, serverSaid } from '../connectors/mcp-records.js';
 import type { JobRecord } from '../jobs/index.js';
 import { listNativeRuns, NATIVE_APPS, readNativeRecord, type NativeApp } from '../native/index.js';
 import { resolveInside } from '../project/index.js';
@@ -415,6 +421,50 @@ export function observationResults(observations: readonly BoardObservation[], ma
   });
 }
 
+/** How many of an MCP answer's first lines a card shows, and how long each may be. */
+const MCP_CARD_LINES = 6;
+const MCP_CARD_WIDTH = 200;
+
+/**
+ * R4 (H34): the project's newest MCP calls (.timmy/mcp/<call-id>/), each as a result card. Every string goes through
+ * `scrub` (the project's folder as ".", the home folder as "~") and is escaped when drawn; a line's leading spaces
+ * become non-breaking ones, so pretty-printed JSON keeps its indent on the page.
+ */
+export function mcpResults(root: string, chain: readonly Receipt[], scrub: (t: string) => string, max = 6): ResultCard[] {
+  let read: ReturnType<typeof readMcpCalls>;
+  try { read = readMcpCalls(root, chain, max); } catch { return []; }
+  const keepIndent = (l: string): string => l.replace(/^ +/, (m) => '\u00a0'.repeat(m.length));
+  const cut = (l: string): string => (l.length > MCP_CARD_WIDTH ? `${l.slice(0, MCP_CARD_WIDTH - 1)}…` : l);
+  return read.list.map((c): ResultCard => {
+    const r = c.record;
+    const tone: ResultCard['status']['tone'] = r.outcome === 'answered' ? 'ok' : r.outcome === 'needs authorization' ? 'attention' : 'failed';
+    const why = r.isError === true ? 'the server answered with its own error (isError)' : r.outcome !== 'answered' && typeof r.error === 'string' ? scrub(r.error).slice(0, 300) : '';
+    const sealed = c.check.status === 'verified' ? `its record was sealed by receipt ${c.check.receipt}` : `its record is not verified: ${c.check.reason}`;
+    const lines = [scrub(`via ${r.route} · ${r.transport}${r.url ? ` ${r.url}` : ''} · ${r.ms} ms · ${r.output_bytes} bytes${r.truncated ? ' (output.json keeps the first 32 KB)' : ''}`)];
+    const hints = hintWords(r.annotations);
+    if (hints) lines.push(`the server's hints: ${hints} (its claim)`);
+    // The answer's first lines, as output.json holds them now; an answer that was not shown when it came is not shown here.
+    if (c.outputText !== undefined && (r.outcome === 'answered' || r.isError === true)) {
+      const a = readRouteAnswer(c.outputText, r.route);
+      const body = (r.isError === true ? serverSaid(a, r.route) : answerLines(a, r.route).lines).filter((l, i, all) => l.trim() || (i > 0 && i < all.length - 1));
+      lines.push(r.isError === true ? 'the server said:' : 'the answer begins:', ...body.slice(0, MCP_CARD_LINES).map((l) => keepIndent(cut(scrub(l)))));
+      if (body.length > MCP_CARD_LINES) lines.push(`… ${body.length - MCP_CARD_LINES} more line${body.length - MCP_CARD_LINES === 1 ? '' : 's'} in output.json`);
+    }
+    // The record's own notes on what the route could not pass on (MCPorter's JSON output, an isError told by its exit).
+    for (const n of (Array.isArray(r.notes) ? r.notes : []).slice(0, 3)) lines.push(`note: ${scrub(String(n)).slice(0, 300)}`);
+    if (c.outputCheck === 'differs') lines.push('output.json is not what the record sealed (its sha256 differs)');
+    if (c.outputCheck === 'missing') lines.push('output.json is missing or unreadable');
+    return {
+      kind: 'mcp', title: scrub(`${r.tool} on ${r.server}`), at: r.started_at,
+      status: { word: r.outcome, tone, detail: [why, sealed].filter(Boolean).join('; ') },
+      lines,
+      files: [{ rel: c.call, note: 'the record' }, ...(c.output ? [{ rel: c.output, note: 'the raw output' }] : [])],
+      ...(c.check.status === 'verified' ? { receipts: [{ id: c.check.receipt, what: 'mcp.call' }] } : {}),
+      commands: [`/open ${c.output ?? c.call}`],
+    };
+  });
+}
+
 /**
  * Every result the board knows, newest first, at most `max`, with how many more there are. `extra` takes cards
  * built elsewhere (the /iterate flows) in the same shape.
@@ -429,7 +479,7 @@ export function gatherResults(o: {
   const all = [
     ...recipeResults(o.root), ...natives.cards, ...agents.cards,
     ...jobResults(o.jobs, o.chain, new Set([...natives.jobs, ...agents.jobs]), o.scrub),
-    ...observationResults(o.observations), ...(o.extra ?? []),
+    ...observationResults(o.observations), ...mcpResults(o.root, o.chain, scrub), ...(o.extra ?? []),
   ];
   const time = (c: ResultCard): number => { const t = c.at ? Date.parse(c.at) : Number.NaN; return Number.isNaN(t) ? 0 : t; };
   all.sort((a, b) => time(b) - time(a));

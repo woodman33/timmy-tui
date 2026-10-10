@@ -29,14 +29,26 @@
  * names an exact tool the server lists: MCPorter's own call retries a "Tool x not found" with the closest
  * name, which would run a tool nobody asked for. Every list and call passes --no-oauth: a server that wants
  * a sign-in answers "needs authorization" with MCPorter's own step, and Timmy never opens a browser for it.
+ *
+ * Round R4 (H34): every call is kept as a record with a receipt (./mcp-records.ts: .timmy/mcp/<call-id>/), its answer
+ * is shown as content items, an error answer shows the server's own words, /mcp call takes its JSON as the rest of
+ * the line, and a server URL is only ever shown or kept in its safe form (safeServerUrl). Tool annotations (the
+ * server's own hints, such as readOnlyHint) come through the SDK route only: MCPorter 0.12.4 drops them from its
+ * list (its dist/runtime.js listTools keeps a tool's name, description and schemas), so on its route they are not
+ * known, and Timmy says so instead of guessing.
  */
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { CapabilityRow } from '../capabilities/index.js';
+import {
+  answerLines, boundedAnnotations, cleanText, fitLines, hintWords, parseRouteJson, readRouteAnswer, routeAnswerOf, serverSaid, writeMcpCall,
+  type McpCallFacts, type McpOutcome, type McpRecordContext, type McpRecordWritten, type RouteAnswer,
+} from './mcp-records.js';
 
 export type McpRouteId = 'mcporter' | 'sdk';
 export const MCP_ROUTE_IDS: readonly McpRouteId[] = ['mcporter', 'sdk'];
@@ -103,7 +115,7 @@ export interface McpServerEntry {
   description?: string;
   /** The program a stdio server runs (its name only; arguments are not shown). */
   program?: string;
-  /** An HTTP server's address without credentials or query. */
+  /** An HTTP server's address in its safe form (safeServerUrl): no credentials, query or fragment, no identifier in its path. */
   url?: string;
   envNames?: string[];
   headerNames?: string[];
@@ -115,6 +127,8 @@ export interface McpToolEntry {
   required: string[];
   params: string[];
   inputSchema?: unknown;
+  /** R4 (H34): the server's own hints for the tool (readOnlyHint, destructiveHint, …), as it lists them: its claim, never checked. SDK route only. */
+  annotations?: Record<string, boolean | number | string>;
 }
 
 /** An HTTP server wants a sign-in: Timmy never starts one; the answer carries MCPorter's own step. */
@@ -135,7 +149,10 @@ export interface McpCallAnswer extends NeedsAuth {
   result?: unknown;
   /** The tool's text (or the answer as JSON), at most 32 KB; a cut text ends with a marker. */
   text?: string;
+  /** R4 (H34): on an error answer (isError), "the server said: " and the server's own first lines. */
   error?: string;
+  /** R4 (H34): the server answered with its own error (isError: true). The call is failed. */
+  isError?: true;
   /** Bytes the route printed, in all. */
   outputBytes: number;
   truncated?: boolean;
@@ -263,7 +280,10 @@ function childEnv(source: Env, passEnv: string[] = []): Record<string, string> {
   return out;
 }
 
-interface RunOutcome { code: number | null; stdout: string; stdoutBytes: number; readCut: boolean; stderrTail: string; timedOut: boolean; ms: number; spawnError?: string; stderrHit?: string }
+/** R4 (H34): `stdoutBuf`, the bytes read (at most READ_LIMIT); `stdoutSha256`, the sha256 of every byte printed, read or not. */
+interface RunOutcome { code: number | null; stdout: string; stdoutBuf: Buffer; stdoutBytes: number; stdoutSha256: string; readCut: boolean; stderrTail: string; timedOut: boolean; ms: number; spawnError?: string; stderrHit?: string }
+
+const EMPTY_SHA256 = createHash('sha256').digest('hex');
 
 function runProcess(argv: string[], o: { cwd?: string; env: Record<string, string>; timeoutMs: number; input?: string; watch?: RegExp }): Promise<RunOutcome> {
   const started = performance.now();
@@ -273,11 +293,12 @@ function runProcess(argv: string[], o: { cwd?: string; env: Record<string, strin
     try {
       child = spawn(argv[0], argv.slice(1), { cwd: o.cwd, env: o.env, stdio: [o.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], detached: group, windowsHide: true });
     } catch (e) {
-      resolveRun({ code: null, stdout: '', stdoutBytes: 0, readCut: false, stderrTail: '', timedOut: false, ms: performance.now() - started, spawnError: (e as Error).message });
+      resolveRun({ code: null, stdout: '', stdoutBuf: Buffer.alloc(0), stdoutBytes: 0, stdoutSha256: EMPTY_SHA256, readCut: false, stderrTail: '', timedOut: false, ms: performance.now() - started, spawnError: (e as Error).message });
       return;
     }
     if (o.input !== undefined) { child.stdin?.on('error', () => { /* the route left early; its exit says why */ }); child.stdin?.end(o.input); }
     const chunks: Buffer[] = [];
+    const hash = createHash('sha256');
     let kept = 0;
     let bytes = 0;
     let stderrTail = '';
@@ -293,6 +314,7 @@ function runProcess(argv: string[], o: { cwd?: string; env: Record<string, strin
     };
     child.stdout?.on('data', (d: Buffer) => {
       bytes += d.length;
+      hash.update(d);
       if (kept < READ_LIMIT) { const take = d.subarray(0, READ_LIMIT - kept); chunks.push(take); kept += take.length; }
     });
     child.stderr?.on('data', (d: Buffer) => {
@@ -313,7 +335,8 @@ function runProcess(argv: string[], o: { cwd?: string; env: Record<string, strin
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolveRun({ code, stdout: Buffer.concat(chunks).toString('utf8'), stdoutBytes: bytes, readCut: bytes > kept, stderrTail, timedOut, ms: performance.now() - started, ...(spawnError ? { spawnError } : {}), ...(stderrHit ? { stderrHit } : {}) });
+      const buf = Buffer.concat(chunks);
+      resolveRun({ code, stdout: buf.toString('utf8'), stdoutBuf: buf, stdoutBytes: bytes, stdoutSha256: hash.digest('hex'), readCut: bytes > kept, stderrTail, timedOut, ms: performance.now() - started, ...(spawnError ? { spawnError } : {}), ...(stderrHit ? { stderrHit } : {}) });
     };
     child.on('error', (e) => { spawnError = e.message; finish(null); });
     // The route is done: anything it left in its group (a server it did not close) goes with it.
@@ -342,15 +365,66 @@ function mcporterServerArgs(ref: McpServerRef): string[] {
   return ['--stdio', ref.command[0], ...ref.command.slice(1).flatMap((a) => ['--stdio-arg', a]), '--name', slug(ref), ...(ref.cwd ? ['--cwd', ref.cwd] : [])];
 }
 
-const parseJson = (s: string): { ok: true; value: unknown } | { ok: false } => {
-  const t = s.trim();
-  if (!t) return { ok: false };
-  try { return { ok: true, value: JSON.parse(t) }; } catch { /* a notice may come before the JSON */ }
-  // MCPorter prints its JSON as one block whose first line opens with "{": read from there.
-  const at = t.search(/^\{/m);
-  if (at > 0) { try { return { ok: true, value: JSON.parse(t.slice(at)) }; } catch { /* not JSON */ } }
-  return { ok: false };
-};
+// MCPorter prints its JSON as one block whose first line opens with "{" (after any stderr of the server's): read from there.
+const parseJson = parseRouteJson;
+
+// ── safe server URLs (R4, H34) ───────────────────────────────────────────────────
+
+/** A path segment kept as it is: a plain word (letters, dots, dashes, underscores; no digits; at most 24), or a version (v1). */
+const PLAIN_SEGMENT = /^[A-Za-z._-]{1,24}$/;
+const VERSION_SEGMENT = /^v\d{1,4}$/;
+
+/**
+ * A server's URL as Timmy shows and keeps it: scheme://host[:port], then the path with every segment that is not a
+ * plain word or a version replaced by "…" (a gateway key, an account id, a token in the path); never the userinfo,
+ * the query or the fragment. https://gw.example.com/mcp/gateways/sk/usergw-0a1b…/mcp is shown as
+ * https://gw.example.com/mcp/gateways/sk/…/mcp. Anything that is not a URL is "(not a valid address)".
+ */
+export function safeServerUrl(url: string): string {
+  let u: URL;
+  try { u = new URL(url); } catch { return '(not a valid address)'; }
+  if (!u.host) return `${u.protocol}//…`;
+  const path = u.pathname.split('/').map((seg, i) => (i === 0 || seg === '' || PLAIN_SEGMENT.test(seg) || VERSION_SEGMENT.test(seg) ? seg : '…')).join('/');
+  return `${u.protocol}//${u.host}${path}`;
+}
+
+/** Every URL in a text (a route's error, a server's status) in its safe form. */
+export const scrubUrls = (text: string): string => text.replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>()[\]{}`]+/gi, (m) => safeServerUrl(m));
+
+/**
+ * The private parts of a configured server's URL (userinfo, query values, path segments safeServerUrl hides), long
+ * enough to look for in what a route prints: a server or MCPorter that echoes its own address would otherwise put a
+ * gateway key into an answer, a record or the agent's context. Held in memory only, never written.
+ */
+export function urlSecrets(url: string): string[] {
+  let u: URL;
+  try { u = new URL(url); } catch { return []; }
+  const parts = new Set<string>();
+  const add = (v: string, min: number): void => {
+    for (const x of [v, (() => { try { return decodeURIComponent(v); } catch { return v; } })()]) if (x.length >= min) parts.add(x);
+  };
+  add(u.username, 6);
+  add(u.password, 6);
+  for (const [, v] of u.searchParams) add(v, 8);
+  for (const seg of u.pathname.split('/')) if (seg && !PLAIN_SEGMENT.test(seg) && !VERSION_SEGMENT.test(seg)) add(seg, 8);
+  // Longest first, so a part that holds another is replaced whole.
+  return [...parts].sort((a, b) => b.length - a.length);
+}
+
+/** A text with every private part replaced by "…", and how many were. */
+export function redactParts(text: string, parts: readonly string[]): { text: string; count: number } {
+  let count = 0;
+  let out = text;
+  for (const p of parts) {
+    const pieces = out.split(p);
+    count += pieces.length - 1;
+    out = pieces.join('…');
+  }
+  return { text: out, count };
+}
+
+/** A configured server's private URL parts, by its entry (a WeakMap: never serialized with the entry). */
+const PRIVATE_PARTS = new WeakMap<McpServerEntry, string[]>();
 
 const stderrLine = (tail: string): string => {
   const lines = tail.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -360,7 +434,7 @@ const stderrLine = (tail: string): string => {
 function failure(run: RunOutcome, timeoutMs: number, fallback: string): { error: string; timedOut?: boolean } {
   if (run.timedOut) return { error: `no answer within ${Math.round(timeoutMs / 1000)} s; stopped the route and its server`, timedOut: true };
   if (run.spawnError) return { error: `could not start: ${run.spawnError}` };
-  const said = stderrLine(run.stderrTail);
+  const said = scrubUrls(stderrLine(run.stderrTail));
   return { error: said ? `${fallback} (${said})` : fallback };
 }
 
@@ -411,10 +485,11 @@ function serverEntry(s: Record<string, unknown>, where: { cwd?: string; home?: s
   if (typeof src?.importKind === 'string') e.importKind = src.importKind;
   if (typeof src?.path === 'string' && src.path) e.source = shownConfigPath(src.path, where);
   if (typeof s.auth === 'string' && s.auth) e.auth = s.auth;
-  if (typeof s.description === 'string') e.description = s.description.slice(0, 200);
+  if (typeof s.description === 'string') e.description = scrubUrls(s.description).slice(0, 200);
   if (typeof s.command === 'string') e.program = basename(s.command);
   const url = typeof s.baseUrl === 'string' ? s.baseUrl : typeof s.url === 'string' ? s.url : undefined;
-  if (url) { try { const u = new URL(url); e.url = `${u.protocol}//${u.host}${u.pathname}`; } catch { e.url = '(not a valid address)'; } }
+  // R4 (H34): a gateway key or an account name can sit in the path itself: only the safe form is ever kept.
+  if (url) { e.url = safeServerUrl(url); PRIVATE_PARTS.set(e, urlSecrets(url)); }
   // Names only: an editor's config often holds the values themselves (keys, bearer tokens).
   const envNames = s.env && typeof s.env === 'object' ? Object.keys(s.env) : [];
   if (envNames.length) e.envNames = envNames;
@@ -467,26 +542,48 @@ async function configuredServer(name: string, o: McpRunOptions): Promise<{ entry
 
 function toolEntries(raw: unknown[]): McpToolEntry[] {
   return raw.map((t) => {
-    const tool = t as { name?: string; description?: string; inputSchema?: { properties?: Record<string, unknown>; required?: string[] } };
+    const tool = t as { name?: string; description?: string; inputSchema?: { properties?: Record<string, unknown>; required?: string[] }; annotations?: unknown };
     const e: McpToolEntry = { name: String(tool.name ?? ''), required: Array.isArray(tool.inputSchema?.required) ? tool.inputSchema!.required!.map(String) : [], params: Object.keys(tool.inputSchema?.properties ?? {}) };
     if (tool.description) e.description = tool.description.slice(0, 500);
     if (tool.inputSchema) e.inputSchema = tool.inputSchema;
+    // R4 (H34): the server's own hints, when the route passes them on (the SDK route does; MCPorter 0.12.4's list drops them).
+    const hints = boundedAnnotations(tool.annotations);
+    if (hints && Object.keys(hints).length) e.annotations = hints;
     return e;
   });
 }
 
+/** Why a tool's annotations are not known on MCPorter's route, said where they would be. */
+export const MCPORTER_DROPS_HINTS = "not known on this route: MCPorter 0.12.4 drops the server's tool annotations from its list (it keeps a tool's name, description and schemas)";
+
 /** A server's tools, through one route. A name must be one MCPorter's config holds exactly. */
 export async function listTools(route: McpRouteId, server: McpServerRef, o: McpRunOptions = {}): Promise<McpToolsAnswer> {
+  return (await listToolsWith(route, server, o)).answer;
+}
+
+/** listTools, and the configured server's entry (its transport and safe URL) when a name was given and found. */
+async function listToolsWith(route: McpRouteId, server: McpServerRef, o: McpRunOptions): Promise<{ answer: McpToolsAnswer; entry?: McpServerEntry }> {
   const label = serverLabel(server);
   const r = routeFor(route, o.seams, o.env);
-  if (!r?.available || !r.argv) return { ok: false, route, server: label, ms: 0, tools: [], error: noRoute(route, r) };
-  if (route === 'sdk' && 'name' in server) return { ok: false, route, server: label, ms: 0, tools: [], error: sdkNeedsCommand(server) };
-  if ('command' in server && !server.command.length) return { ok: false, route, server: label, ms: 0, tools: [], error: 'the command line is empty' };
+  if (!r?.available || !r.argv) return { answer: { ok: false, route, server: label, ms: 0, tools: [], error: noRoute(route, r) } };
+  if (route === 'sdk' && 'name' in server) return { answer: { ok: false, route, server: label, ms: 0, tools: [], error: sdkNeedsCommand(server) } };
+  if ('command' in server && !server.command.length) return { answer: { ok: false, route, server: label, ms: 0, tools: [], error: 'the command line is empty' } };
   const started = performance.now();
+  let entry: McpServerEntry | undefined;
   if ('name' in server) {
     const found = await configuredServer(server.name, o);
-    if ('error' in found) return { ok: false, route, server: label, ms: Math.max(1, Math.round(performance.now() - started)), tools: [], error: found.error };
+    if ('error' in found) return { answer: { ok: false, route, server: label, ms: Math.max(1, Math.round(performance.now() - started)), tools: [], error: found.error } };
+    entry = found.entry;
   }
+  const answer = await listedTools(route, server, label, r.argv, o, started);
+  // R4 (H34): a configured server's own address, echoed in an error, keeps no private part of it.
+  const parts = entry ? PRIVATE_PARTS.get(entry) ?? [] : [];
+  if (parts.length && answer.error) answer.error = redactParts(answer.error, parts).text;
+  return { answer, ...(entry ? { entry } : {}) };
+}
+
+async function listedTools(route: McpRouteId, server: McpServerRef, label: string, routeArgv: string[], o: McpRunOptions, started: number): Promise<McpToolsAnswer> {
+  const r = { argv: routeArgv };
   const timeoutMs = o.timeoutMs ?? 30_000;
   const inner = String(timeoutMs + 2000);
   // --no-oauth: cached sign-ins only; a server that wants a new one says so instead of opening a browser.
@@ -504,7 +601,7 @@ export async function listTools(route: McpRouteId, server: McpServerRef, o: McpR
     return { ok: false, route, server: label, ms, tools: [], needsAuth: true, authCommand, error: needsAuthorization(authCommand) };
   }
   const failed = route === 'mcporter' ? v.status !== 'ok' : v.ok !== true;
-  if (failed) return { ok: false, route, server: label, ms, tools: [], error: v.error ?? v.issue?.rawMessage ?? (v.status ? `the server is ${v.status}` : 'the route failed') };
+  if (failed) return { ok: false, route, server: label, ms, tools: [], error: scrubUrls(String(v.error ?? v.issue?.rawMessage ?? (v.status ? `the server is ${v.status}` : 'the route failed'))) };
   // The list must be the named server's own: MCPorter answers with the name it resolved.
   if ('name' in server && typeof v.name === 'string' && v.name !== server.name) return { ok: false, route, server: label, ms, tools: [], error: `MCPorter answered for "${v.name}", not "${server.name}"` };
   let tools = toolEntries(v.tools ?? []);
@@ -538,34 +635,107 @@ function cutUtf8(s: string, limit: number): string {
 /** MCPorter's line when its call has swapped the asked-for tool for the closest name. */
 const AUTO_CORRECTED = /Auto-corrected tool call to/i;
 
+/** A route's run with a server URL's private parts replaced in what it printed (its byte count and sha256 stay the raw ones). */
+function withoutParts(run: RunOutcome, parts: readonly string[]): RunOutcome & { redacted: number } {
+  if (!parts.length) return { ...run, redacted: 0 };
+  const out = redactParts(run.stdout, parts);
+  const err = redactParts(run.stderrTail, parts);
+  if (!out.count && !err.count) return { ...run, redacted: 0 };
+  return { ...run, stdout: out.text, stdoutBuf: Buffer.from(out.text, 'utf8'), stderrTail: err.text, ...(run.stderrHit ? { stderrHit: redactParts(run.stderrHit, parts).text } : {}), redacted: out.count };
+}
+
+/** R4 (H34): what one call ran to: the bounded answer, the facts its record keeps, and the route's whole output to show. */
+export interface McpCallRun {
+  answer: McpCallAnswer;
+  facts: McpCallFacts;
+  /** what the route printed for the call (at most what Timmy reads); absent when no answer may be shown */
+  stdout?: string;
+}
+
 /**
  * Call one tool on a server, through one route, with a time limit and a bounded answer. On the MCPorter route the
  * server's own list must hold the tool by its exact name before the call runs (one more start of the server, within
  * the same time limit): MCPorter's call would otherwise answer a misspelling by calling the closest tool.
  */
 export async function callTool(route: McpRouteId, server: McpServerRef, tool: string, args: Record<string, unknown> = {}, o: McpRunOptions = {}): Promise<McpCallAnswer> {
+  return (await runToolCall(route, server, tool, args, o)).answer;
+}
+
+/**
+ * R4 (H34): one call, and its record (.timmy/mcp/<call-id>/) with its `mcp.call` receipt when `record` says where.
+ * The REPL's /mcp call and the agent's call_mcp_tool both come here, so both keep the same record.
+ */
+export async function callAndRecord(route: McpRouteId, server: McpServerRef, tool: string, args: Record<string, unknown>, o: McpRunOptions, record?: McpRecordContext): Promise<{ run: McpCallRun; record?: McpRecordWritten }> {
+  const run = await runToolCall(route, server, tool, args, o);
+  return { run, ...(record ? { record: writeMcpCall(record, run.facts) } : {}) };
+}
+
+/** The server's own first lines of an error answer, for the answer's error: "the server said: …", bounded. */
+const saidError = (answer: RouteAnswer, route: McpRouteId): string | undefined => {
+  const lines = serverSaid(answer, route).filter((l, i, all) => l.trim() || (i > 0 && i < all.length - 1));
+  if (!lines.length) return undefined;
+  return `the server said: ${lines.slice(0, 12).join('\n')}${lines.length > 12 ? `\n… ${lines.length - 12} more lines` : ''}`;
+};
+
+/** callTool, with what its record keeps. Never throws for a server's or a route's failure: the answer says it. */
+export async function runToolCall(route: McpRouteId, server: McpServerRef, tool: string, args: Record<string, unknown> = {}, o: McpRunOptions = {}): Promise<McpCallRun> {
   const label = serverLabel(server);
   const base = { route, server: label, tool };
-  const r = routeFor(route, o.seams, o.env);
-  if (!r?.available || !r.argv) return { ok: false, ...base, ms: 0, outputBytes: 0, error: noRoute(route, r) };
-  if (route === 'sdk' && 'name' in server) return { ok: false, ...base, ms: 0, outputBytes: 0, error: sdkNeedsCommand(server) };
-  if ('command' in server && !server.command.length) return { ok: false, ...base, ms: 0, outputBytes: 0, error: 'the command line is empty' };
-  if (!tool) return { ok: false, ...base, ms: 0, outputBytes: 0, error: 'no tool named' };
-  const timeoutMs = o.timeoutMs ?? 60_000;
+  const startedAt = new Date().toISOString();
   const started = performance.now();
   const spent = (): number => Math.max(1, Math.round(performance.now() - started));
+  const source = o.env ?? process.env;
+  // Kept in the record with the home folder as ~ (a route's error can name a server's script by its path).
+  const homes = [...new Set([homeOf(childEnv(source)), homedir()])].filter((h) => h && h !== '/' && h.length > 1);
+  const tilde = (s: string): string => homes.reduce((t, h) => t.split(h).join('~'), s);
+  let shown: McpCallFacts['server'] = { name: label, transport: 'command' in server ? 'stdio' : 'unknown' };
+  let secrets: string[] = [];
+  let redacted = 0;
+  let annotations: McpCallFacts['annotations'] = null;
+  let annotationsNote: string | undefined = route === 'mcporter' ? MCPORTER_DROPS_HINTS : 'not read: no tool list came back in this call';
+  const notes: string[] = [];
+  const finish = (answer: McpCallAnswer, more: { called?: boolean; isError?: boolean | null; run?: RunOutcome; show?: boolean } = {}): McpCallRun => {
+    const outcome: McpOutcome = answer.ok ? 'answered' : answer.needsAuth ? 'needs authorization' : answer.timedOut ? 'stopped' : 'failed';
+    const run = more.run;
+    // bytes and sha256: what the route printed; kept: output.json's bytes (any private URL part already replaced).
+    const output = run && !run.spawnError
+      ? { bytes: run.stdoutBytes, sha256: run.stdoutSha256, kept: Buffer.from(run.stdoutBuf.subarray(0, MCP_OUTPUT_LIMIT)), truncated: run.stdoutBuf.length > MCP_OUTPUT_LIMIT || run.readCut, ...(redacted ? { redacted } : {}) }
+      : undefined;
+    if (secrets.length && answer.error) answer.error = redactParts(answer.error, secrets).text;
+    const passEnv = (o.passEnv ?? []).filter((n) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(n));
+    return {
+      answer,
+      ...(run && more.show !== false ? { stdout: run.stdout } : {}),
+      facts: {
+        route, server: shown, tool, args, ...(passEnv.length ? { passEnv } : {}), startedAt, endedAt: new Date().toISOString(), ms: answer.ms, outcome,
+        called: more.called ?? false, isError: more.isError ?? null, ...(answer.error ? { error: tilde(answer.error) } : {}), ...(output ? { output } : {}),
+        annotations, ...(annotationsNote ? { annotationsNote } : {}), notes,
+      },
+    };
+  };
+  const r = routeFor(route, o.seams, o.env);
+  if (!r?.available || !r.argv) return finish({ ok: false, ...base, ms: 0, outputBytes: 0, error: noRoute(route, r) });
+  if (route === 'sdk' && 'name' in server) return finish({ ok: false, ...base, ms: 0, outputBytes: 0, error: sdkNeedsCommand(server) });
+  if ('command' in server && !server.command.length) return finish({ ok: false, ...base, ms: 0, outputBytes: 0, error: 'the command line is empty' });
+  if (!tool) return finish({ ok: false, ...base, ms: 0, outputBytes: 0, error: 'no tool named' });
+  const timeoutMs = o.timeoutMs ?? 60_000;
   let callMs = timeoutMs;
   if (route === 'mcporter') {
     // The name check happens inside listTools; nothing starts for a name the config does not hold exactly.
-    const listed = await listTools('mcporter', server, { ...o, timeoutMs: Math.min(timeoutMs, 30_000) });
-    if (!listed.ok) {
-      const why = listed.timedOut ? `no answer within ${Math.round(timeoutMs / 1000)} s while reading its tools; stopped the route and its server` : listed.error ?? 'its tools could not be read';
-      const error = listed.needsAuth || /nothing was (started|called)/.test(why) ? why : `${why}; nothing was called`;
-      return { ok: false, ...base, ms: spent(), outputBytes: 0, error, ...(listed.timedOut ? { timedOut: true } : {}), ...(listed.needsAuth ? { needsAuth: true, authCommand: listed.authCommand } : {}) };
+    const listed = await listToolsWith('mcporter', server, { ...o, timeoutMs: Math.min(timeoutMs, 30_000) });
+    if (listed.entry) {
+      shown = { name: label, transport: listed.entry.transport, ...(listed.entry.url ? { url: listed.entry.url } : {}) };
+      secrets = PRIVATE_PARTS.get(listed.entry) ?? [];
     }
-    const names = listed.allNames ?? listed.tools.map((t) => t.name);
+    const l = listed.answer;
+    if (!l.ok) {
+      const why = l.timedOut ? `no answer within ${Math.round(timeoutMs / 1000)} s while reading its tools; stopped the route and its server` : l.error ?? 'its tools could not be read';
+      const error = l.needsAuth || /nothing was (started|called)/.test(why) ? why : `${why}; nothing was called`;
+      return finish({ ok: false, ...base, ms: spent(), outputBytes: 0, error, ...(l.timedOut ? { timedOut: true } : {}), ...(l.needsAuth ? { needsAuth: true, authCommand: l.authCommand } : {}) });
+    }
+    const names = l.allNames ?? l.tools.map((t) => t.name);
     if (!names.includes(tool)) {
-      return { ok: false, ...base, ms: spent(), outputBytes: 0, error: `no tool named "${tool}" on ${label} (${names.length ? `its tools: ${names.slice(0, 20).join(', ')}${names.length > 20 ? ', …' : ''}` : 'it lists none'}); nothing was called` };
+      return finish({ ok: false, ...base, ms: spent(), outputBytes: 0, error: `no tool named "${tool}" on ${label} (${names.length ? `its tools: ${names.slice(0, 20).join(', ')}${names.length > 20 ? ', …' : ''}` : 'it lists none'}); nothing was called` });
     }
     callMs = Math.max(1000, timeoutMs - spent());
   }
@@ -576,42 +746,75 @@ export async function callTool(route: McpRouteId, server: McpServerRef, tool: st
     ? [...r.argv, 'call', ...('name' in server ? ['--server', server.name] : mcporterServerArgs(server)), '--tool', tool, '--args', '-', '--output', 'json', '--no-oauth', '--timeout', inner]
     : [...r.argv, 'call', tool, '--args', '-', '--json', '--timeout', inner, '--', ...(server as { command: string[] }).command];
   const cwd = 'command' in server && server.cwd && route === 'sdk' ? server.cwd : o.cwd;
-  const run = await runProcess(argv, { cwd, env: childEnv(o.env ?? process.env, o.passEnv), timeoutMs: callMs, input: payload, ...(route === 'mcporter' ? { watch: AUTO_CORRECTED } : {}) });
+  const printed = await runProcess(argv, { cwd, env: childEnv(source, o.passEnv), timeoutMs: callMs, input: payload, ...(route === 'mcporter' ? { watch: AUTO_CORRECTED } : {}) });
+  const run = withoutParts(printed, secrets);
+  redacted = run.redacted;
+  if (redacted) notes.push(`${redacted} private part${redacted === 1 ? '' : 's'} of the server's URL in what the route printed ${redacted === 1 ? 'was' : 'were'} replaced by "…" (output_sha256 is of the bytes as printed)`);
   const ms = spent();
   const outputBytes = run.stdoutBytes;
-  if (run.timedOut || run.spawnError) return { ok: false, ...base, ms, outputBytes, ...failure(run, timeoutMs, 'the route failed') };
+  const called = !run.spawnError;
+  if (run.timedOut || run.spawnError) return finish({ ok: false, ...base, ms, outputBytes, ...failure(run, timeoutMs, 'the route failed') }, { called, run });
   // Should the server's list have changed between the check and the call, MCPorter's correction still shows here.
-  if (run.stderrHit) return { ok: false, ...base, ms, outputBytes, error: `MCPorter called a different tool than "${tool}" (${run.stderrHit}); its answer is not shown` };
+  if (run.stderrHit) {
+    notes.push('MCPorter called a different tool than the one asked for; its answer is kept in output.json and not shown');
+    return finish({ ok: false, ...base, ms, outputBytes, error: `MCPorter called a different tool than "${tool}" (${run.stderrHit}); its answer is not shown` }, { called, run, show: false });
+  }
   const parsed = run.readCut ? { ok: false as const } : parseJson(run.stdout);
   let ok: boolean;
   let result: unknown;
   let error: string | undefined;
+  let isError: boolean | null = null;
+  // What the answer is, read once: for the server's own words, and for what MCPorter's JSON output holds.
+  const shape: RouteAnswer = parsed.ok ? routeAnswerOf(parsed.value, route) : { kind: 'none' };
   if (parsed.ok) {
     const v = parsed.value as Record<string, unknown> | null;
     if (route === 'sdk') {
       ok = v?.ok === true;
       result = v?.result;
-      if (!ok) error = String(v?.error ?? 'the call failed');
+      const res = v?.result as { isError?: unknown } | undefined;
+      isError = res && typeof res === 'object' ? res.isError === true : ok ? false : null;
+      if (!ok) error = (isError ? saidError(shape, route) : undefined) ?? scrubUrls(String(v?.error ?? 'the call failed'));
+      // The server's own entry for the tool, read by Timmy's SDK command in the same session before the call.
+      const listedTool = v?.tool;
+      if (listedTool && typeof listedTool === 'object') {
+        annotations = boundedAnnotations((listedTool as { annotations?: unknown }).annotations) ?? {};
+        annotationsNote = Object.keys(annotations).length ? undefined : 'the server lists this tool without annotations';
+      } else if (listedTool === null) annotationsNote = "the tool is not on the server's own list";
+      else if (typeof v?.tool_list_error === 'string') annotationsNote = `the server's tool list could not be read: ${scrubUrls(v.tool_list_error).slice(0, 200)}`;
     } else if (run.code !== 0) {
       const issue = v?.issue as { kind?: string; rawMessage?: string } | undefined;
       if (issue?.kind === 'auth') {
         // MCPorter's call names its step on stderr ("Run 'mcporter auth <server>'"); the server's name is the fallback.
         const authCommand = /Run '([^']+)'/.exec(run.stderrTail)?.[1] ?? `mcporter auth ${label}`;
-        return { ok: false, ...base, ms, outputBytes, needsAuth: true, authCommand, error: needsAuthorization(authCommand) };
+        return finish({ ok: false, ...base, ms, outputBytes, needsAuth: true, authCommand, error: needsAuthorization(authCommand) }, { called, run });
       }
       ok = false;
-      error = String(v?.error ?? issue?.rawMessage ?? `mcporter exited ${run.code}`);
+      if (shape.kind === 'issue' || shape.kind === 'none') {
+        // MCPorter's own failure ({ server, tool, error, issue }): the route's words, not the server's answer.
+        error = scrubUrls(String(v?.error ?? issue?.rawMessage ?? `mcporter exited ${run.code}`));
+      } else {
+        // MCPorter exits 1 after printing a tool's error answer (isError): that answer is the server's own words.
+        isError = true;
+        result = v;
+        error = saidError(shape, route) ?? `mcporter exited ${run.code}`;
+        if (shape.kind === 'json') notes.push("isError is told by MCPorter's exit 1: its JSON output holds the answer's JSON, not the result's own isError field");
+      }
     } else {
       result = v;
       ok = !(v && typeof v === 'object' && (v as { isError?: boolean }).isError === true);
-      if (!ok) error = textOf(v);
+      isError = !ok;
+      if (!ok) error = saidError(shape, route) ?? textOf(v);
     }
   } else if (run.code === 0 && run.stdout.trim()) {
     // Plain text, or more than Timmy reads: the text is the answer.
     ok = true;
     result = undefined;
+    notes.push(run.readCut ? `the route printed more than Timmy reads (${READ_LIMIT / 1024 / 1024} MB); the answer was not read as JSON` : 'the route printed text, not JSON');
   } else {
-    return { ok: false, ...base, ms, outputBytes, ...failure(run, timeoutMs, `the route failed (exit ${run.code})`) };
+    return finish({ ok: false, ...base, ms, outputBytes, ...failure(run, timeoutMs, `the route failed (exit ${run.code})`) }, { called, run });
+  }
+  if (route === 'mcporter' && shape.kind === 'json') {
+    notes.push("MCPorter's JSON output holds the answer's structuredContent, or its text read as JSON, not the result itself");
   }
   let text = parsed.ok ? (result === undefined ? undefined : textOf(result)) : run.stdout;
   let truncated = run.readCut;
@@ -619,7 +822,8 @@ export async function callTool(route: McpRouteId, server: McpServerRef, tool: st
   if (text !== undefined && Buffer.byteLength(text, 'utf8') > MCP_OUTPUT_LIMIT) { text = cutUtf8(text, MCP_OUTPUT_LIMIT); truncated = true; }
   if (truncated && text !== undefined) text = `${text}\n[cut: ${outputBytes.toLocaleString('en-US')} bytes in all, the first 32 KB shown]`;
   if (error) error = cutUtf8(error, 2000);
-  return { ok, ...base, ms, outputBytes, ...(result !== undefined ? { result } : {}), ...(text !== undefined ? { text } : {}), ...(error ? { error } : {}), ...(truncated ? { truncated } : {}) };
+  const answer: McpCallAnswer = { ok, ...base, ms, outputBytes, ...(result !== undefined ? { result } : {}), ...(text !== undefined ? { text } : {}), ...(error ? { error } : {}), ...(isError ? { isError: true as const } : {}), ...(truncated ? { truncated } : {}) };
+  return finish(answer, { called, isError, run });
 }
 
 // ---------------------------------------------------------------- /mcp
@@ -640,13 +844,156 @@ export function splitCommandLine(s: string): string[] {
   return out;
 }
 
+// R4 (H34): /mcp call takes its JSON as the rest of the line, as typed: splitCommandLine would strip its double quotes.
+
+/** A /mcp call line, read: the route asked for, the server (a name, or a command line after --), the tool, its arguments. */
+export type McpCallLine =
+  | { ok: true; route?: McpRouteId; server?: string; command?: string[]; tool: string; args: Record<string, unknown> }
+  | { ok: false; error: string };
+
+const CALL_USAGE = '/mcp call <server> <tool> [json], or /mcp call [--route sdk] <tool> [json] -- <command>';
+const exampleCall = (o: { server?: string; tool?: string; command?: boolean }): string => (o.command
+  ? `/mcp call ${o.tool ?? '<tool>'} {"text":"hi there"} -- <command>`
+  : `/mcp call ${o.server ?? '<server>'} ${o.tool ?? '<tool>'} {"text":"hi there"}`);
+const argsHint = (o: { server?: string; tool?: string; command?: boolean }): string =>
+  `Give one JSON object after the tool, as it is or in single quotes, e.g. ${exampleCall(o)}`;
+
+/** One word from s at i, quotes as a shell reads them; where it ends. */
+function wordAt(s: string, i: number): { word: string; end: number } {
+  let cur = '';
+  let quote: '"' | "'" | null = null;
+  let j = i;
+  for (; j < s.length; j++) {
+    const ch = s[j];
+    if (quote) { if (ch === quote) quote = null; else cur += ch; continue; }
+    if (ch === '"' || ch === "'") { quote = ch; continue; }
+    if (/\s/.test(ch)) break;
+    cur += ch;
+  }
+  return { word: cur, end: j };
+}
+
+/** Just past the JSON value that opens at s[i] ('{' or '['), strings and escapes respected; -1 when it never closes. */
+function jsonEnd(s: string, i: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let j = i; j < s.length; j++) {
+    const ch = s[j];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{' || ch === '[') depth++;
+    else if (ch === '}' || ch === ']') { depth--; if (depth === 0) return j + 1; }
+  }
+  return -1;
+}
+
+/** The JSON text that starts at s[i]: as it is, or inside single quotes (an apostrophe inside its strings allowed). */
+function takeJson(s: string, i: number): { text: string; end: number } | { error: string } {
+  if (s[i] === "'") {
+    const open = s.indexOf('{', i);
+    const close = open < 0 ? -1 : jsonEnd(s, open);
+    const after = close < 0 ? null : /^\s*'/.exec(s.slice(close));
+    if (after) return { text: s.slice(open, close), end: close + after[0].length };
+    const q = s.indexOf("'", i + 1);
+    if (q < 0) return { error: 'the single quote before the arguments is not closed' };
+    return { text: s.slice(i + 1, q), end: q + 1 };
+  }
+  const close = jsonEnd(s, i);
+  if (close > 0) return { text: s.slice(i, close), end: close };
+  // It never closes: everything up to a command (" -- ") or the end is what was meant; the JSON reader names the problem.
+  const sepAt = s.slice(i).search(/\s--(\s|$)/);
+  return sepAt < 0 ? { text: s.slice(i), end: s.length } : { text: s.slice(i, i + sepAt), end: i + sepAt };
+}
+
+/** Arguments from their JSON text: one object, or why not, with an example that works. */
+function argsFromJson(text: string, ctx: { server?: string; tool?: string; command?: boolean }): { ok: true; args: Record<string, unknown> } | { ok: false; error: string } {
+  let v: unknown;
+  try { v = JSON.parse(text); } catch (e) {
+    const why = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, ' ').slice(0, 240);
+    return { ok: false, error: `the arguments are not valid JSON: ${why}. ${argsHint(ctx)}` };
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) {
+    return { ok: false, error: `the arguments must be one JSON object, not ${Array.isArray(v) ? 'an array' : v === null ? 'null' : `a ${typeof v}`}. ${argsHint(ctx)}` };
+  }
+  return { ok: true, args: v as Record<string, unknown> };
+}
+
+/**
+ * The words after `/mcp call`, as typed: `[--route <id>] <server> <tool> [json]` or `[--route <id>] <tool> [json] --
+ * <command>`. The JSON is read as it was typed, so it may hold spaces and double quotes; single quotes around it are
+ * read as a shell would. After the JSON only `-- <command>` may follow.
+ */
+export function parseCallLine(rest: string): McpCallLine {
+  const s = rest;
+  const isSep = (j: number): boolean => s.startsWith('--', j) && (j + 2 >= s.length || /\s/.test(s[j + 2]));
+  const words: string[] = [];
+  let route: string | undefined;
+  let jsonText: string | undefined;
+  let command: string[] | undefined;
+  let i = 0;
+  for (;;) {
+    while (i < s.length && /\s/.test(s[i])) i++;
+    if (i >= s.length) break;
+    if (isSep(i)) { command = splitCommandLine(s.slice(i + 2)); break; }
+    if (s[i] === '{' || (s[i] === "'" && /^'\s*\{/.test(s.slice(i)))) {
+      if (jsonText !== undefined) return { ok: false, error: `give the arguments once, as one JSON object. ${argsHint({ server: words[0], tool: words[1] })}` };
+      const t = takeJson(s, i);
+      if ('error' in t) return { ok: false, error: `${t.error}. ${argsHint({ server: words[0], tool: words[1] })}` };
+      jsonText = t.text;
+      i = t.end;
+      let j = i;
+      while (j < s.length && /\s/.test(s[j])) j++;
+      if (j < s.length && !isSep(j)) {
+        const extra = s.slice(j, j + 24);
+        return { ok: false, error: `only "-- <command>" may follow the JSON arguments, not "${extra}${s.length > j + 24 ? '…' : ''}". ${argsHint({ server: words[0], tool: words[1] })}` };
+      }
+      continue;
+    }
+    const w = wordAt(s, i);
+    i = w.end;
+    if (w.word === '--route') {
+      while (i < s.length && /\s/.test(s[i])) i++;
+      const id = wordAt(s, i);
+      i = id.end;
+      route = id.word;
+      continue;
+    }
+    words.push(w.word);
+  }
+  if (route !== undefined && route !== 'mcporter' && route !== 'sdk') return { ok: false, error: `no route named ${route || '(none)'}: mcporter or sdk` };
+  return callLineFrom(words, command, route as McpRouteId | undefined, jsonText);
+}
+
+/** The call from its words: a name and a tool (or a tool and a command line), and the JSON text when there is one. */
+function callLineFrom(words: string[], command: string[] | undefined, route: McpRouteId | undefined, jsonText: string | undefined): McpCallLine {
+  if (command !== undefined) {
+    if (!command.length) return { ok: false, error: `give the server as a command line after --: ${CALL_USAGE}` };
+    if (!words.length) return { ok: false, error: `which tool? ${CALL_USAGE}` };
+    if (words.length > 1) return { ok: false, error: `with -- <command>, name only the tool before the JSON, not "${words.join(' ')}". ${argsHint({ tool: words[words.length - 1], command: true })}` };
+    const a = jsonText === undefined ? { ok: true as const, args: {} } : argsFromJson(jsonText, { tool: words[0], command: true });
+    return a.ok ? { ok: true, ...(route ? { route } : {}), command, tool: words[0], args: a.args } : a;
+  }
+  if (words.length < 2) return { ok: false, error: CALL_USAGE };
+  if (words.length > 2) return { ok: false, error: `the arguments must be one JSON object after the tool, not "${words.slice(2).join(' ').slice(0, 40)}". ${argsHint({ server: words[0], tool: words[1] })}` };
+  const a = jsonText === undefined ? { ok: true as const, args: {} } : argsFromJson(jsonText, { server: words[0], tool: words[1] });
+  return a.ok ? { ok: true, ...(route ? { route } : {}), server: words[0], tool: words[1], args: a.args } : a;
+}
+
 const MCP_HELP = [
   '/mcp                                   the routes, and how many servers are configured',
   '/mcp servers [--check]                 the configured servers (--check contacts each one)',
   '/mcp tools <server>                    a configured server\'s tools (MCPorter)',
-  '/mcp tools [--route sdk] -- <command>  any stdio server\'s tools, from its command line',
-  '/mcp call <server> <tool> [json]       call a tool on a configured server',
+  '/mcp tools [--route sdk] -- <command>  any stdio server\'s tools, from its command line, with the server\'s own hints',
+  '/mcp call <server> <tool> [json]       call a tool on a configured server; the JSON object is the rest of the line',
   '/mcp call [--route sdk] <tool> [json] -- <command>',
+  '  e.g. /mcp call docs search {"query":"Workers KV eventual consistency"}   (single quotes around the JSON work too)',
+  '  each call is kept in .timmy/mcp/<call-id>/ (call.json and the raw output.json) with an mcp.call receipt',
 ];
 
 /**
@@ -663,7 +1010,8 @@ async function checkServers(o: McpRunOptions): Promise<{ ok: true; status: Map<s
   const status = new Map<string, { status: string; authCommand?: string; error?: string }>();
   for (const s of ((parsed.value as { servers?: unknown[] }).servers ?? []) as Array<Record<string, unknown>>) {
     if (typeof s.name !== 'string') continue;
-    status.set(s.name, { status: String(s.status ?? 'error'), ...(typeof s.authCommand === 'string' ? { authCommand: s.authCommand } : {}), ...(typeof s.error === 'string' ? { error: s.error } : {}) });
+    // R4 (H34): MCPorter's own words for a failed contact can carry the server's whole URL: only its safe form is shown.
+    status.set(s.name, { status: String(s.status ?? 'error'), ...(typeof s.authCommand === 'string' ? { authCommand: scrubUrls(s.authCommand) } : {}), ...(typeof s.error === 'string' ? { error: scrubUrls(s.error) } : {}) });
   }
   return { ok: true, status };
 }
@@ -678,11 +1026,30 @@ const serverRow = (e: McpServerEntry): string => [
   e.status ? `status ${e.status}` : undefined,
 ].filter(Boolean).join(' · ');
 
+/** What /mcp is given besides the routes' own options (R4, H34). */
+export interface McpViewOptions extends McpRunOptions {
+  /** The width the view's lines may take (the terminal's, less any prefix the caller adds); answers wrap to it. */
+  columns?: number;
+  /** Where /mcp call keeps its record and how it seals its receipt; without it no record is written. */
+  record?: McpRecordContext;
+}
+
+/** How many display lines of an answer /mcp call shows, and of an error answer's own words. */
+const ANSWER_LINES = 20;
+const SAID_LINES = 12;
+
 /**
- * Plain text lines for /mcp. args are the words after /mcp (a REPL can pass splitCommandLine(rest)).
+ * Plain text lines for /mcp. `args` is what follows /mcp as typed (a string: R4, H34), or its words. As a string,
+ * /mcp call keeps its JSON exactly as typed; every other verb is split into words as a shell would.
  * Answers what was actually run: routes come from what resolves here; servers and tools from a live run.
  */
-export async function mcpView(args: string[], o: McpRunOptions = {}): Promise<string[]> {
+export async function mcpView(args: string[] | string, o: McpViewOptions = {}): Promise<string[]> {
+  if (typeof args === 'string') {
+    const line = args.trim();
+    const call = /^call(?:\s+|$)/.exec(line);
+    if (call) return callView(parseCallLine(line.slice(call[0].length)), o);
+    return mcpView(splitCommandLine(line), o);
+  }
   const routes = mcpRoutes(o.env ?? process.env, o.seams);
   const words = [...args];
   const verb = words[0] && !words[0].startsWith('-') ? words.shift()! : 'routes';
@@ -752,27 +1119,66 @@ export async function mcpView(args: string[], o: McpRunOptions = {}): Promise<st
     const id = pick('name' in ref);
     const r = await listTools(id, ref, o);
     if (!r.ok) return [`${serverLabel(ref)} via ${id}: ${r.error}`];
+    // R4 (H34): the server's own hints, labelled as its claim; before the description, which is what a narrow terminal cuts.
     return [`${r.server} via ${id} · ${r.tools.length} tools · ${r.ms} ms${r.truncated ? ' · list cut' : ''}`,
-      ...r.tools.map((t) => `  ${t.name}(${t.params.map((p) => (t.required.includes(p) ? p : `${p}?`)).join(', ')})${t.description ? `  ${t.description.split('\n')[0].slice(0, 100)}` : ''}`)];
+      ...r.tools.map((t) => {
+        const hints = hintWords(t.annotations);
+        return `  ${t.name}(${t.params.map((p) => (t.required.includes(p) ? p : `${p}?`)).join(', ')})${hints ? `  [${hints}, per the server]` : ''}${t.description ? `  ${t.description.split('\n')[0].slice(0, 100)}` : ''}`;
+      }),
+      ...(id === 'mcporter' && r.tools.length ? ["  the server's own hints (read-only, destructive, …) are not shown: MCPorter 0.12.4 drops them from its list; --route sdk -- <command> shows them for a stdio server"] : [])];
   }
 
   if (verb === 'call') {
+    // The words' form (a caller that split the line already): the JSON is one word.
     const named = !command.length;
-    const [first, second, third] = head;
-    const ref: McpServerRef | null = named ? (first ? { name: first } : null) : { command };
-    const tool = named ? second : first;
-    const json = named ? third : second;
-    if (!ref || !tool) return ['/mcp call <server> <tool> [json], or /mcp call <tool> [json] -- <command>'];
-    let callArgs: Record<string, unknown> = {};
-    if (json) {
-      try { callArgs = JSON.parse(json) as Record<string, unknown>; } catch { return ['the arguments must be one JSON object, e.g. {"text":"hi"}']; }
-      if (!callArgs || typeof callArgs !== 'object' || Array.isArray(callArgs)) return ['the arguments must be one JSON object, e.g. {"text":"hi"}'];
-    }
-    const id = pick(named);
-    const r = await callTool(id, ref, tool, callArgs, o);
-    const head1 = `${r.tool} on ${r.server} via ${id} · ${r.ok ? 'answered' : r.needsAuth ? 'needs authorization' : r.timedOut ? 'stopped' : 'failed'} · ${r.ms} ms · ${r.outputBytes} bytes${r.truncated ? ' · cut' : ''}`;
-    return [head1, ...(r.ok ? (r.text ?? '').split('\n') : [`  ${r.error ?? 'failed'}`])];
+    const json = named ? head[2] : head[1];
+    const words = (named ? head.slice(0, 2) : head.slice(0, 1)).filter(Boolean);
+    const extra = named ? head.slice(3) : head.slice(2);
+    if (extra.length) return [`the arguments must be one JSON object after the tool, not "${extra.join(' ').slice(0, 40)}". ${argsHint({ server: words[0], tool: words[1], command: !named })}`];
+    return callView(callLineFrom(words, named ? undefined : command, route, json), o);
   }
 
   return [`unknown: /mcp ${verb}`, ...MCP_HELP];
+}
+
+/** /mcp call: the call, its record and receipt, and its answer to read (R4, H34). */
+async function callView(c: McpCallLine, o: McpViewOptions): Promise<string[]> {
+  if (!c.ok) return [c.error];
+  const routes = mcpRoutes(o.env ?? process.env, o.seams);
+  const ref: McpServerRef = c.command ? { command: c.command } : { name: c.server! };
+  const id = c.route ?? ('name' in ref ? 'mcporter' : (routes.find((r) => r.available)?.id ?? 'mcporter'));
+  const { run, record } = await callAndRecord(id, ref, c.tool, c.args, o, o.record);
+  const r = run.answer;
+  const width = Math.max(24, (o.columns ?? 100) - 2);
+  const lines = [`${r.tool} on ${r.server} via ${id} · ${run.facts.outcome} · ${r.ms} ms · ${r.outputBytes} bytes`];
+  const answer = run.stdout !== undefined ? readRouteAnswer(run.stdout, id) : ({ kind: 'none' } as const);
+  const kept = record?.ok && record.output
+    ? (run.facts.output?.truncated ? `output.json keeps the first 32 KB of it: ${record.output}` : `the whole answer is in ${record.output}`)
+    : 'no record keeps it';
+  let left: string | undefined;
+  if (r.isError) {
+    lines.push('  the server said:');
+    const said = serverSaid(answer, id);
+    const fit = fitLines(said.length ? said : cleanText((r.error ?? 'nothing').replace(/^the server said: /, '')).split('\n'), width - 2, SAID_LINES);
+    lines.push(...fit.shown.map((l) => `    ${l}`));
+    left = fit.left;
+  } else if (r.ok) {
+    const { lines: body, notes } = answerLines(answer, id);
+    const fit = fitLines(body.length ? body : ['(an empty answer)'], width, ANSWER_LINES);
+    lines.push(...fit.shown.map((l) => `  ${l}`));
+    left = fit.left;
+    for (const n of notes) lines.push(`  (${n})`);
+  } else {
+    // The route's or Timmy's own words (a time limit, a sign-in, a server that would not start), as many lines as they take.
+    const fit = fitLines(cleanText(r.error ?? 'failed').split('\n'), width, SAID_LINES);
+    lines.push(...fit.shown.map((l) => `  ${l}`));
+    if (fit.left) lines.push(`  … ${fit.left}: ${record?.ok ? `the whole error is in ${record.call}` : 'no record keeps it'}`);
+  }
+  if (left) lines.push(`  … ${left}: ${kept}`);
+  if (record) {
+    lines.push(record.ok
+      ? `  record ${record.call}${record.receipt ? ` · receipt ${record.receipt}` : ' · no receipt was sealed'}`
+      : `  no record: ${record.error}${record.receipt ? ` · receipt ${record.receipt}` : ' · no receipt was sealed'}`);
+  }
+  return lines;
 }

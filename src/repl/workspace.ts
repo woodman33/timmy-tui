@@ -1343,9 +1343,14 @@ export class Workspace {
     return run;
   }
 
-  /** /mcp: MCP servers and their tools through the two command-line routes (MCPorter, Timmy's SDK command). */
+  /**
+   * /mcp: MCP servers and their tools through the two command-line routes (MCPorter, Timmy's SDK command). R4 (H34): the
+   * line goes as typed, so /mcp call keeps its JSON whole; an answer wraps to the terminal; a call is kept in the
+   * project's .timmy/mcp/<call-id>/ and sealed with an mcp.call receipt through this REPL's seal.
+   */
   async mcp(args: string): Promise<Line[]> {
-    const lines = await mcpView(splitCommandLine(args.trim()), { cwd: this.root });
+    const columns = process.stdout.columns && process.stdout.columns > 0 ? process.stdout.columns : 80;
+    const lines = await mcpView(args.trim(), { cwd: this.root, columns: columns - 2, record: { root: this.root, project: this.project.name, seal: this.d.seal } });
     return lines.map((l) => [{ text: `  ${l}` }]);
   }
 

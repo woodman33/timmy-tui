@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { callTool, listServers, listTools, mcpView, shownConfigPath } from '../src/connectors/mcp-cli.js';
 import { createMcpTools } from '../src/agent/mcp-tools.js';
+import { appendReceipt, type ReceiptInput } from '../src/utils/receipts.js';
 import { approvalNeeded } from '../src/repl/approvals.js';
 import { convertZodToJsonSchema, validateToolInput } from '@openrouter/sdk/lib/tool-executor.js';
 
@@ -226,8 +227,10 @@ describe('an HTTP server that needs a sign-in', () => {
 });
 
 type Exec = (a: Record<string, unknown>) => Promise<Record<string, unknown>>;
+// R4 (H34): call_mcp_tool seals a receipt for its record: into a chain in the scratch project, never this checkout.
+const projectSeal = (input: ReceiptInput): string => appendReceipt('runs', input, project).hash.slice(7, 15);
 const agentTool = (name: string): Exec => {
-  const t = createMcpTools({ cwd: () => project, env: () => env }).find((x) => x.function.name === name);
+  const t = createMcpTools({ cwd: () => project, env: () => env, seal: projectSeal }).find((x) => x.function.name === name);
   if (!t) throw new Error(`no tool ${name}`);
   return (t.function as unknown as { execute: Exec }).execute;
 };
