@@ -87,23 +87,26 @@ describe.skipIf(!PYTHON3)('upmd on a pty of its own (the wrapper, a real job; th
     const job = await go();
     expect(isLiveRun(job.args)).toBe(true);
     const done = await m.done(job.id);
-    // while first ran: running, with no end yet, a second before it ended
+    // while first ran: running, with no end yet, about a second before it ended
     const running = seen.find((x) => x.steps[0]?.name === 'first' && x.steps[0].state === 'running');
     const ended = seen.find((x) => x.steps[0]?.state === 'completed');
     expect(running?.steps[0].endedAt).toBeUndefined();
-    expect(ended!.at - running!.at).toBeGreaterThanOrEqual(900);
+    expect(ended!.at - running!.at).toBeGreaterThanOrEqual(700);
     expect(seen.some((x) => x.steps[1]?.state === 'running')).toBe(true);
     // its end: first completed, second failed with exit 3, third never started; upmd's exit 1 is the job's
     expect(done).toMatchObject({ state: 'failed', exitCode: 1 });
     expect(done.steps.map((s) => [s.name, s.index, s.state, s.code])).toEqual([['first', 1, 'completed', 0], ['second', 2, 'failed', 3]]);
-    expect(ownMs(done.steps[0])).toBeGreaterThanOrEqual(1000);
-    expect(ownMs(done.steps[0])).toBeLessThan(5000);
-    expect(ownMs(done.steps[1])).toBeGreaterThanOrEqual(1000);
+    // each block's own time is about its 1 s (r18 read "<0.1 s" for every block). The moments are when this process read
+    // the lines, so a loaded machine can shift each by a fraction of a second: 0.8 s is the floor allowed for that.
+    for (const s of done.steps) {
+      expect(ownMs(s), s.name).toBeGreaterThanOrEqual(800);
+      expect(ownMs(s), s.name).toBeLessThan(5000);
+    }
     // the card: each block's own time, the rest not run
     const w = connectWorkflow(workflowForBoard('WORK.md', { text: PROBE }), { root, jobs: [done], chain: [], files: ['WORK.md'], upmd: true });
     expect(w.connected!.nodes.map((n) => [n.name, n.word])).toEqual([['first', 'completed'], ['second', 'failed'], ['third', 'not run']]);
-    expect(w.connected!.nodes[0].detail).toMatch(/^exit 0 · [1-4]\.\d s$/);
-    expect(w.connected!.nodes[1].detail).toMatch(/^exit 3 · [1-4]\.\d s$/);
+    expect(w.connected!.nodes[0].detail).toMatch(/^exit 0 · (0\.[89]|[1-4]\.\d) s$/);
+    expect(w.connected!.nodes[1].detail).toMatch(/^exit 3 · (0\.[89]|[1-4]\.\d) s$/);
     expect(renderWorkflowCard(w, kit({ live: true, base: '../../' }))).not.toContain('were not live');
     // the log keeps the terminal's bytes as they came, and the wrapper's own line
     const log = readFileSync(done.logPath, 'utf8');

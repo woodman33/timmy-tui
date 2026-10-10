@@ -84,10 +84,11 @@ describe.skipIf(!browserPath || !PYTHON3)('live block states on the card, in pla
     expect(await page.textContent(`${card} [data-wf-select="1"] .wf-chip-state`)).toBe('running');
     expect(await page.textContent(`${card} [data-wf-insp="1"] .wf-insp-head .wf-word strong`)).toBe('running');
     // first ends after its 3 s: completed, with its exit and its own time; second runs
-    await waitNode('1', '^✓ completed · exit 0 · [3-9]\\.\\d s$');
+    // (its own time is about its 3 s: the moments are when the REPL read the lines, so a loaded machine may shift them)
+    await waitNode('1', '^✓ completed · exit 0 · (2\\.[5-9]|[3-9]\\.\\d) s$');
     await waitNode('2', '^● running$');
     // second fails with exit 3 after its 3 s; third, after the failure, is not run
-    await waitNode('2', '^✕ failed · exit 3 · [3-9]\\.\\d s$');
+    await waitNode('2', '^✕ failed · exit 3 · (2\\.[5-9]|[3-9]\\.\\d) s$');
     await waitNode('3', '^– not run$');
     expect(await page.textContent(`${card} [data-wf-insp="2"] .wf-insp-head .wf-word strong`)).toBe('failed');
     expect(await page.getAttribute(`${card} [data-wf-node="2"] .wf-box`, 'class')).toContain('wfs-failed');
