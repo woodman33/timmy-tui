@@ -43,6 +43,7 @@ import { cancelRecipe, cancelSentence, RecipeLaunches, type RecipeCancel } from 
 import { liveRecipeJobFolders } from '../recipes/index.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
+import { sanitize } from '../term/sanitize.js';
 import { readChain, type Receipt, type ReceiptInput } from '../utils/receipts.js';
 import { checkOpenCv, DETERMINISTIC, INTERPRETATION, LOOK_MAX_IMAGE, LOOK_MAX_OUTPUT, LOOK_TIMEOUT_MS, lookArgs, lookPython, OBSERVATIONS_DIR, OPENCV_SETUP, parseLookOutput, writeObservation, lookEnv } from '../vision/look.js';
 import { acceptsImages, describeImage, imageMime, MAX_IMAGE_BYTES } from '../vision/route.js';
@@ -52,7 +53,8 @@ import { meteredQualifyClient, sdkQualifyClient, unlessAborted, type QualifyClie
 import { describeRefusal, interpretationSeal, QUALIFIED_PROTOCOL, qualifiedSeal } from '../evidence/observation-check.js';
 // R4 (H20): what an observation keeps privately: a model's whole output past 64 KiB, its whole record when its file cannot be written.
 import { keptReader, observationKeeper, wholeNote, type KeepPlaces, type KeptRef, type ObservationKeeper } from '../vision/kept.js';
-import { findUpmd, findWorkflowDocs, parseUpmdLine, parseWorkflow, runOrder, stepsFromEvent, upmdRunArgs, upmdVersion } from '../workflows/upmd.js';
+import { findUpmd, findWorkflowDocs, parseWorkflow, runOrder, upmdRunArgs, upmdVersion } from '../workflows/upmd.js';
+import { ptyKnown, ptyReady, upmdJob, upmdLineParser } from '../workflows/upmd-live.js'; // R4 (H58)
 // Round R3 (/agent, helper H13): code agents as jobs; the code is in the "/agent" section below.
 import { spawnSync, execFile } from 'node:child_process';
 import { copyFileSync, writeFileSync } from 'node:fs';
@@ -72,6 +74,7 @@ import { FLOW_ID, FLOWS_DIR } from '../flows/iterate.js';
 import { checkKeptRecord, keptObservations, keptResults } from './board-kept.js';
 // Round R4 (H32): what a session that ended without its stop path left in the project, picked up at start and on /recover.
 import { followSpec, recoverProject, recoveryLines, type RecoveryReport } from './recover.js';
+import { recoverWorkflowJobs } from './workflow-recover.js'; // R4 (H58)
 // Round R4 (H48): the Control Room (/room and the board's section): src/room reads the runs; this file only gathers its inputs.
 import { gatherRoom, scrubRows, type Room, type RoomTools } from '../room/index.js';
 import { roomItemLines, roomLines } from '../room/text.js';
@@ -912,6 +915,7 @@ export class Workspace {
   private workflowContext(root: string, jobs: readonly JobRecord[], chain: readonly Receipt[], files: readonly string[]): ConnectContext {
     return {
       root, jobs, chain, files, clock: this.stepClock, upmd: findUpmd(this.d.env, this.d.onPath) !== null, scrub: (t) => this.scrub(t, root),
+      live: ptyKnown(this.d.onPath('python3')), // R4 (H58): whether a run's block states can come as they happen
       prediction: (id) => this.predictions.get(id), mine: (id) => this.mine.has(id),
       tray: () => paramsCard(root),
     };
@@ -954,16 +958,20 @@ export class Workspace {
       prediction: { doc: r.rel, block: target, order: plan.order, expect: 'each block exits 0' },
       files: [{ path: r.rel, ...(r.sha256 ? { sha256: r.sha256 } : {}) }],
     });
+    // R4 (H58): upmd on a pty of its own (workers/upmd/pty_run.py), so each block's state arrives as it happens; else a pipe.
+    const how = upmdJob(tool.bin, upmdRunArgs(join(this.root, r.rel), target, this.root), await ptyReady(this.d.onPath('python3')));
+    const parse = upmdLineParser(blocks, how.live ? 'pty' : 'pipe');
     const job = this.jobs.start({
       kind: 'workflow', label: `${r.rel} › ${target}`, project: this.project.name, root: this.root,
-      command: tool.bin, args: upmdRunArgs(join(this.root, r.rel), target, this.root),
-      parseLine: (line, j) => { const ev = parseUpmdLine(line); if (ev) stepsFromEvent(j.steps, ev); },
+      command: how.command, args: how.args,
+      parseLine: (line, j) => parse(line, j.steps),
     });
     this.mine.add(job.id);
     this.predictions.set(job.id, { doc: r.rel, block: target, order: plan.order, ...(predicted ? { receipt: predicted } : {}) });
     return [
       [{ text: '  Predicted  ', role: 'secondary' }, { text: plan.order.join(` ${this.d.glyphs.arrow} `), role: 'strong' }, { text: `, each exits 0${predicted ? `${this.sep}receipt ${predicted}` : ''}`, role: 'secondary' }],
       [{ text: '  Running    ', role: 'secondary' }, { text: job.id, role: 'strong' }, { text: `  ${job.label}${this.sep}/jobs ${job.id}${this.sep}/stop ${job.id}`, role: 'secondary' }],
+      ...(how.live ? [] : this.say(`Live block states are not available: ${how.why}, so upmd's output is a pipe and it prints each block only when the block ends.`, 'estimate')),
     ];
   }
 
@@ -1049,7 +1057,8 @@ export class Workspace {
     if (job.kind === 'workflow' && done > before.done) {
       const s = job.steps.filter((x) => x.state !== 'running').at(-1);
       const total = this.expected(job) ?? job.steps.length;
-      if (s) this.d.notify([{ text: `  ${g.bullet} ` }, { text: job.id, role: 'strong' }, { text: `  ${s.name} ${s.state === 'completed' ? 'completed' : `failed, exit ${s.code ?? '?'}`}${this.sep}${done} of ${total}`, role: s.state === 'failed' ? 'failure' : 'secondary' }]);
+      // R4 (H58): a block's exit may come after upmd says it failed; a stopped block is said as stopped
+      if (s) this.d.notify([{ text: `  ${g.bullet} ` }, { text: job.id, role: 'strong' }, { text: `  ${s.name} ${s.state === 'failed' ? `failed${s.code === undefined ? '' : `, exit ${s.code}`}` : s.state}${this.sep}${done} of ${total}`, role: s.state === 'failed' ? 'failure' : 'secondary' }]);
     }
     if (job.state === before.state) return;
     const recipe = this.recipes.get(job.id);
@@ -1169,7 +1178,9 @@ export class Workspace {
     const steps = j.kind === 'workflow' ? `${this.sep}${j.steps.filter((s) => s.state !== 'running').length} of ${this.expected(j) ?? j.steps.length} steps` : '';
     const where = j.url && j.state === 'ready' ? `${this.sep}${j.url}` : '';
     const stale = j.stale ? `${this.sep}from an earlier session; its process is gone` : '';
-    const note = j.note ? `${this.sep}${j.note}` : '';
+    // R4 (H58): ended by a later session's recovery, its session having ended while it ran
+    const interrupted = j.interrupted ? `${this.sep}interrupted: its session ended${j.interrupted.step ? ` while ${j.interrupted.step} ran` : ''}` : '';
+    const note = `${interrupted}${j.note ? `${this.sep}${j.note}` : ''}`;
     return [
       { text: `  ${mark} `, role: j.state === 'failed' ? 'failure' : undefined },
       { text: j.id, role: 'strong' },
@@ -1193,12 +1204,13 @@ export class Workspace {
       const j = this.jobs.get(id) ?? this.jobs.list().find((x) => x.id === id);
       if (!j) return this.say(`No job ${id}. /jobs lists them.`);
       const lines: Line[] = [this.jobLine(j), ...this.askingLine(j)];
-      for (const s of j.steps) lines.push([{ text: `      ${s.state === 'completed' ? this.d.glyphs.ok : s.state === 'failed' ? this.d.glyphs.fail : this.d.glyphs.bullet} ${s.name}`, role: s.state === 'failed' ? 'failure' : undefined }, { text: s.code === undefined ? '' : `  exit ${s.code}`, role: 'secondary' }]);
+      for (const s of j.steps) lines.push([{ text: `      ${s.state === 'completed' ? this.d.glyphs.ok : s.state === 'failed' ? this.d.glyphs.fail : this.d.glyphs.bullet} ${s.name}`, role: s.state === 'failed' ? 'failure' : undefined }, { text: `${s.state === 'completed' || s.state === 'failed' ? '' : `  ${s.state}`}${s.code === undefined ? '' : `  exit ${s.code}`}`, role: 'secondary' }]);
       // Round R3 (/agent): a code agent's job shows its parsed progress, not its raw stream.
       const progress = this.agentProgressLines(j);
       if (progress) return [...lines, ...progress];
       lines.push([{ text: '  Output   ', role: 'secondary' }, { text: this.d.link('the full log', fileUrl(j.logPath)) }, { text: `${this.sep}${j.lines} lines; the last of them:`, role: 'secondary' }]);
-      for (const l of this.jobs.tail(j.id, 12)) lines.push([{ text: `  ${this.d.glyphs.sep} `, role: 'secondary' }, { text: l }]);
+      // R4 (H58): a job's own text is drawn without its escape sequences (a run on a pty moves the cursor and redraws)
+      for (const l of this.jobs.tail(j.id, 12)) lines.push([{ text: `  ${this.d.glyphs.sep} `, role: 'secondary' }, { text: sanitize(l) }]);
       return lines;
     }
     const all = this.jobs.list().slice(0, 12);
@@ -1488,6 +1500,8 @@ export class Workspace {
           return w;
         },
         open: () => !this.launches.closing,
+        // R4 (H58): /run jobs an ended REPL left running: ended in their own records as interrupted
+        workflows: () => recoverWorkflowJobs({ root, jobs: this.jobs, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing }),
         // R4 (H52): OpenHands containers left running, found by their labels and their run's record
         agents: () => recoverOpenHands({ root, project, jobs: this.jobs, seal: this.d.seal, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing, bin: agentBin('openhands', this.d.env, this.d.onPath), env: this.d.env }),
       });

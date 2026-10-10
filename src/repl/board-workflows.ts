@@ -21,10 +21,16 @@
  *                  run when the block needs nothing; for a block with needs it is not offered, because no observed upmd
  *                  mode runs a block without them. Stop is the existing /stop of the Jobs section
  *   results        a run's job record and its sealed outcome: each block's state (waiting, running, completed, failed,
- *                  stopped, interrupted, not run), exit code and, for a run this REPL watched, its own time; the files
- *                  the run wrote (from the outcome receipt; a run's files are not attributed to one block) and the
- *                  outcome receipt. A run whose job record is stale (its session ended while it ran) is interrupted:
- *                  the card says so and gives `/run <file> <block>` again; nothing resumes a run
+ *                  stopped, interrupted, not run), exit code and own time; the files the run wrote (from the outcome
+ *                  receipt; a run's files are not attributed to one block) and the outcome receipt. A run whose job
+ *                  record is stale, or that a later session's recovery recorded interrupted (its session ended while it
+ *                  ran), is interrupted at the block that was running then: the card says so and gives
+ *                  `/run <file> <block>` again; nothing resumes a run
+ *   live states    R4 (H58): a run through workers/upmd/pty_run.py (upmd on a pty, src/workflows/upmd-live.ts) records
+ *                  each block's start and end as they happen, so its blocks read running while they run, and stopped or
+ *                  interrupted where a stop or an ended session found them; its own time is from those two moments. A
+ *                  run over a pipe (no python3, or a run before H58) saw each block only when it ended: its own time is
+ *                  not shown, and the card says live states were not available
  *
  * Every string is escaped. Colour never stands alone: each state is a word, each glyph its own shape; green is for
  * interaction (the selection, the primary action), never for an outcome.
@@ -32,13 +38,14 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
-import type { JobRecord } from '../jobs/index.js';
+import type { JobRecord, JobStep } from '../jobs/index.js';
 import { paramsFileFor, readScadParams, SCAD_LIMITS, type ScadValue } from '../native/scad-params.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { Segment } from '../term/theme.js';
 import type { Receipt } from '../utils/receipts.js';
 import { markdownLinks, renderMarkdown } from '../workflows/markdown.js';
 import { parseWorkflow, runOrder, type WorkflowBlock } from '../workflows/upmd.js';
+import { isLiveRun, type PtyReady } from '../workflows/upmd-live.js';
 import { renderParamsCard, type ParamsCard } from './board-cards.js';
 import { esc, stamp, type Kit } from './board-kit.js';
 import type { NodeInput, WorkflowDocInput } from './board-nodes.js';
@@ -90,10 +97,15 @@ export interface WorkflowRun {
   met?: boolean;
   /** the prediction receipt sealed before it ran, when known */
   predicted?: string;
-  /** each block of the run, in order, with its state, exit code and (for a run this REPL watched) its own time */
+  /** each block of the run, in order, with its state, exit code and (for a run with live states) its own time */
   blocks: Array<{ name: string; word: NodeWord; code?: number; ms?: number }>;
   /** the block that was running when an interrupted run's session ended */
   interruptedAt?: string;
+  /** R4 (H58): upmd ran on a pty, so each block's start and end were seen as they happened (else over a pipe) */
+  live: boolean;
+  /** R4 (H58): how an interrupted run's end was found: its record left without an end and its process gone, or recorded by
+   *  a later session's recovery (its process gone then, or its process group stopped by it) */
+  interruptedHow?: 'gone' | 'recorded gone' | 'recovery stopped it';
   /** the files the run wrote, from its sealed outcome (at most 8 here), each with what it is now */
   outputs: Array<{ rel: string; note: string }>;
   outputsMore: number;
@@ -135,11 +147,16 @@ export interface ConnectedWorkflow {
   files: string[];
   /** upmd was found (UPMD_BIN, or upmd on PATH); absent when not looked for */
   upmd?: boolean;
+  /** R4 (H58): whether a run's block states can come as they happen here (src/workflows/upmd-live.ts ptyKnown); absent
+   *  when not known yet */
+  live?: PtyReady;
 }
 
 /**
  * When each block of a run started and ended, as Timmy saw upmd's start and end lines (this REPL's runs only, in
- * memory): the Workspace notes every change of a workflow job. A block's own time is known only here.
+ * memory): the Workspace notes every change of a workflow job. R4 (H58): a run with live states records both moments in
+ * its job's steps, which are read first; this is used only for such a run's step without them. A run over a pipe saw
+ * each block only when it ended, so neither gives it an own time.
  */
 export class StepClock {
   private readonly runs = new Map<string, Array<{ start?: number; end?: number }>>();
@@ -181,6 +198,8 @@ export interface ConnectContext {
   upmd?: boolean;
   /** writes the project's folder as "." and the home folder as "~" in a job's own text (its error) */
   scrub?: (text: string) => string;
+  /** R4 (H58): whether runs can have live states here (src/workflows/upmd-live.ts ptyKnown); absent when not known yet */
+  live?: PtyReady;
 }
 
 export const TRAY_PARAMS = 'recipes/tray.params.json';
@@ -262,6 +281,12 @@ function inProject(p: unknown): string | null {
 }
 
 const shortOf = (r: Receipt): string | undefined => (typeof r.hash === 'string' && r.hash.length > 15 ? r.hash.slice(7, 15) : undefined);
+/** R4 (H58): a step's own time, from the moments its start and its end were seen (both recorded by a run with live states). */
+const ownMs = (s: JobStep): number | undefined => {
+  const a = s.startedAt ? Date.parse(s.startedAt) : Number.NaN;
+  const b = s.endedAt ? Date.parse(s.endedAt) : Number.NaN;
+  return Number.isFinite(a) && Number.isFinite(b) && b >= a ? b - a : undefined;
+};
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
 /** The blocks of a document as runOrder reads them (a name and its needs). */
@@ -277,19 +302,27 @@ function readRun(j: JobRecord, target: string, w: WorkflowDocInput, c: ConnectCo
   const steps = j.steps;
   const runOrderNow = order ?? runOrder(asBlocks(w.blocks), target).order;
   const live = !j.stale && !TERMINAL.has(j.state);
-  const word = j.stale ? 'interrupted' : j.state === 'cancelled' ? 'stopped' : j.state === 'queued' ? 'starting' : j.state === 'ready' ? 'running' : j.state;
+  // R4 (H58): ended by a later session's recovery because its session ended while it ran (src/jobs endLeft)
+  const interrupted = j.stale || !!j.interrupted;
+  const word = interrupted ? 'interrupted' : j.state === 'cancelled' ? 'stopped' : j.state === 'queued' ? 'starting' : j.state === 'ready' ? 'running' : j.state;
+  // R4 (H58): upmd on a pty: each block's start and end were seen as they happened, so its own time is known
+  const pty = isLiveRun(j.args);
+  // upmd stops the chain at a failing block: no block after it runs, even before the run has ended
+  const chainStopped = steps.some((s) => s.state === 'failed');
   const names = [...runOrderNow, ...steps.map((s) => s.name).filter((n) => !runOrderNow.includes(n))];
   const blocks = names.map((name) => {
     let at = -1;
     for (let i = steps.length - 1; i >= 0; i--) if (steps[i].name === name) { at = i; break; }
     const s = at >= 0 ? steps[at] : undefined;
-    const ms = at >= 0 ? c.clock?.ms(j.id, at) : undefined;
+    const ms = !pty || !s ? undefined : ownMs(s) ?? c.clock?.ms(j.id, at);
     let nw: NodeWord;
-    if (!s) nw = live ? 'waiting' : 'not run';
+    if (!s) nw = live && !chainStopped ? 'waiting' : 'not run';
     else if (s.state !== 'running') nw = s.state;
-    else nw = live ? 'running' : j.stale ? 'interrupted' : j.state === 'cancelled' ? 'stopped' : 'unknown';
+    else nw = live ? 'running' : interrupted ? 'interrupted' : j.state === 'cancelled' ? 'stopped' : 'unknown';
     return { name, word: nw, ...(s?.code !== undefined ? { code: s.code } : {}), ...(ms !== undefined ? { ms } : {}) };
   });
+  const interruptedAt = interrupted ? j.interrupted?.step ?? blocks.find((b) => b.word === 'interrupted')?.name : undefined;
+  const interruptedHow: WorkflowRun['interruptedHow'] = j.stale ? 'gone' : j.interrupted ? (j.state === 'cancelled' ? 'recovery stopped it' : 'recorded gone') : undefined;
   const files = (outcome?.outputs ?? []).flatMap((o) => { const rel = inProject(o.path); return rel ? [{ rel, sealed: typeof o.sha256 === 'string' ? o.sha256 : undefined }] : []; });
   // The prediction receipt sealed before the run: the document's sha256 then.
   const predId = pred?.receipt ?? (typeof sealed?.receipt === 'string' ? sealed.receipt : undefined);
@@ -302,7 +335,7 @@ function readRun(j: JobRecord, target: string, w: WorkflowDocInput, c: ConnectCo
     startedAt: j.startedAt, ...(j.endedAt ? { endedAt: j.endedAt } : {}), ...(Number.isFinite(ended) && Number.isFinite(began) ? { ms: Math.max(0, ended - began) } : {}),
     ...(j.error ? { error: c.scrub ? c.scrub(j.error) : j.error } : {}), ...(j.receipt ? { receipt: j.receipt } : {}),
     ...(typeof sealed?.met === 'boolean' ? { met: sealed.met } : {}), ...(predId ? { predicted: predId } : {}),
-    blocks, ...(j.stale ? { interruptedAt: blocks.find((b) => b.word === 'interrupted')?.name } : {}),
+    blocks, ...(interruptedAt ? { interruptedAt } : {}), live: pty, ...(interruptedHow ? { interruptedHow } : {}),
     outputs: [], outputsMore: Math.max(0, files.length - OUTPUTS_SHOWN), ...(docSha ? { docSha256: docSha } : {}),
     sealedOutputs: files.slice(0, OUTPUTS_SHOWN),
   };
@@ -378,6 +411,7 @@ export function connectWorkflow(w: WorkflowDocInput, c: ConnectContext): Workflo
     ...w,
     connected: {
       nodes, runs: runs.filter((r) => used.has(r.job)).map((r) => withOutputs(r, c.root)), ...(latest ? { latest } : {}), ...(tray ? { tray } : {}), scad, files, ...(c.upmd !== undefined ? { upmd: c.upmd } : {}),
+      ...(c.live ? { live: c.live } : {}),
     },
   };
 }
@@ -408,8 +442,12 @@ export function runBarHtml(w: WorkflowDocInput, k: Kit): string {
   const c = w.connected;
   if (!c) return '';
   const upmd = c.upmd !== false ? '' : `<p class="wf-note">${esc('upmd was not found here (UPMD_BIN, or upmd on PATH): a run says so and runs nothing. Setup: brew install rezigned/tap/upmd')}</p>`;
+  // R4 (H58): where upmd cannot run on a pty, a run's blocks are seen only as each one ends
+  const noLive = c.live && !c.live.ok
+    ? `<p class="wf-note">${esc(`Live block states are not available here: ${c.live.why}. upmd then writes to a pipe and prints each block only when it ends, so a block is never shown running and its own time is not measured.${c.live.why === 'no python3 on PATH' ? ' Setup: install Python 3 (brew install python), then start Timmy again.' : ''}`)}</p>`
+    : '';
   const r = runOf2(c, c.latest);
-  if (!r) return `<div class="wfx-run wfx-run-none"><p class="meta">${esc(`No run of ${w.rel} yet. Run up to here on a block runs it through upmd as /run ${w.rel} <block>: the prediction is sealed first, the outcome after.`)}</p>${upmd}</div>`;
+  if (!r) return `<div class="wfx-run wfx-run-none"><p class="meta">${esc(`No run of ${w.rel} yet. Run up to here on a block runs it through upmd as /run ${w.rel} <block>: the prediction is sealed first, the outcome after.`)}</p>${upmd}${noLive}</div>`;
   const what = `${r.target}${r.order.length > 1 ? ` (${arrow(r.order)})` : ''}`;
   const steps = r.blocks.map((b) => `${b.name} ${b.word}`).join(', ');
   const failedAt = r.blocks.find((b) => b.word === 'failed');
@@ -419,12 +457,15 @@ export function runBarHtml(w: WorkflowDocInput, k: Kit): string {
   const cls = r.word === 'interrupted' ? ' wfx-run-interrupted' : r.word === 'failed' ? ' wfx-run-failed' : r.word === 'running' || r.word === 'starting' ? ' wfx-run-live' : '';
   const lines: string[] = [];
   if (r.word === 'interrupted') {
-    lines.push(`The session that ran ${r.job} ended while ${r.interruptedAt ?? 'a block'} was running; its process is gone, so how it ended is not known. upmd does not resume a run, and Timmy does not either: /run ${w.rel} ${r.target} runs it again${r.order.length > 1 ? ` from ${r.order[0]}` : ''}.`);
+    lines.push(`The session that ran ${r.job} ended while ${interruptedWhile(r)}; ${interruptedHowWords(r)}. upmd does not resume a run, and Timmy does not either: /run ${w.rel} ${r.target} runs it again${r.order.length > 1 ? ` from ${r.order[0]}` : ''}.`);
   } else if (r.word === 'failed') {
     lines.push(failedAt ? `${failedAt.name} failed${failedAt.code !== undefined ? ` with exit ${failedAt.code}` : ''}; upmd stopped the chain there.` : `It failed${r.error ? `: ${r.error}` : ''}.`);
   } else if (r.word === 'stopped') {
-    lines.push('Stopped with /stop (or Stop) before it ended.');
+    const at = r.blocks.find((b) => b.word === 'stopped');
+    lines.push(`Stopped with /stop (or Stop) before it ended${at ? `, while ${at.name} was running` : ''}.`);
   }
+  // R4 (H58): a run over a pipe saw each block only as it ended
+  if (!r.live) lines.push('Its block states were not live: upmd wrote to a pipe and printed each block only when it ended, so no block was seen running and no own time was measured.');
   const facts = [
     r.receipt ? `outcome receipt ${r.receipt}` : r.word === 'running' || r.word === 'starting' ? 'its outcome is sealed when it ends' : r.word === 'interrupted' ? 'no outcome was sealed' : '',
     r.met === undefined ? '' : r.met ? 'its sealed prediction was met' : 'its sealed prediction was missed',
@@ -439,7 +480,20 @@ export function runBarHtml(w: WorkflowDocInput, k: Kit): string {
   const cmds = [...(r.stoppable ? [`/stop ${r.job}`] : []), ...(r.word === 'interrupted' ? [`/run ${w.rel} ${r.target}`] : []), `/jobs ${r.job}`];
   return `<div class="wfx-run${cls}" role="status"><div class="wfx-run-head"><span class="wfx-run-label">${esc(head)}</span> <strong class="wfx-run-job">${esc(r.job)}</strong> <span class="wfx-run-what">${esc(what)}</span> ${wordHtml(r.word)}</div>`
     + `<p class="meta">${esc(`${steps ? `${steps} · ` : ''}${when}`)}</p>${lines.map((l) => `<p class="wfx-run-say">${esc(l)}</p>`).join('')}`
-    + `${facts ? `<p class="meta">${esc(facts)}</p>` : ''}${acts ? `<div class="wf-acts">${acts}</div>` : ''}${k.cmds(cmds)}${upmd}</div>`;
+    + `${facts ? `<p class="meta">${esc(facts)}</p>` : ''}${acts ? `<div class="wf-acts">${acts}</div>` : ''}${k.cmds(cmds)}${upmd}${noLive}</div>`;
+}
+
+/** R4 (H58): what was running when an interrupted run's session ended: the block its output showed running, if any. */
+function interruptedWhile(r: WorkflowRun): string {
+  if (r.interruptedAt) return `${r.interruptedAt} was running`;
+  return r.live ? 'no block was running (before upmd started one, or between two)' : 'it ran (which block was running is not known: its block states were not live)';
+}
+
+/** R4 (H58): how its end was found: its process gone, or recorded by a later session's recovery. */
+function interruptedHowWords(r: WorkflowRun): string {
+  return r.interruptedHow === 'recovery stopped it' ? 'a later session\'s recovery stopped its process group, so how the block would have ended is not known'
+    : r.interruptedHow === 'recorded gone' ? 'its process was gone when a later session\'s recovery recorded its end, so how it ended is not known'
+      : 'its process is gone, so how it ended is not known';
 }
 
 /** A chip for a named block, drawn in the prose where the block is: it selects (live) or leads to (snapshot) its node. */
@@ -532,9 +586,10 @@ function lastHtml(w: WorkflowDocInput, n: NodeView, c: ConnectedWorkflow, k: Kit
     return `<section class="wf-last"><h4>last result</h4><p class="meta">${esc(`${n.name} has not run in any run of ${w.rel} that Timmy's job records hold.`)}</p></section>`;
   }
   const own = at.ms !== undefined ? `${seconds(at.ms)} its own time`
-    : r.ms !== undefined && r.endedAt ? (r.blocks.length === 1 ? `the run took ${seconds(r.ms)} (upmd and this one block)` : `its own time was not recorded; the run took ${seconds(r.ms)} for ${r.blocks.length} blocks`) : '';
+    : r.ms !== undefined && r.endedAt ? (r.blocks.length === 1 ? `the run took ${seconds(r.ms)} (upmd and this one block)` : `its own time was not ${r.live ? 'recorded' : 'measured (its block states were not live)'}; the run took ${seconds(r.ms)} for ${r.blocks.length} blocks`) : '';
   const lead = at.word === 'running' ? `running now in ${r.job}` : at.word === 'waiting' ? `waiting in ${r.job}: it runs after ${r.blocks.slice(0, r.blocks.findIndex((b) => b.name === n.name)).map((b) => b.name).join(', ') || 'what it needs'}` : `in run ${r.job}`;
   const say = at.word === 'interrupted' ? `It was running when the session that ran ${r.job} ended; how it ended is not known. Nothing resumes it: /run ${w.rel} ${r.target} runs it again.`
+    : at.word === 'stopped' ? `It was running when ${r.job} was stopped; upmd did not finish it.`
     : at.word === 'not run' ? `upmd did not reach it in ${r.job}${r.blocks.some((b) => b.word === 'failed') ? ` (the chain stopped at ${r.blocks.find((b) => b.word === 'failed')!.name})` : ''}.`
       : at.word === 'unknown' ? `The run ended before upmd said how ${n.name} ended.` : '';
   const files = r.outputs.length
@@ -604,7 +659,8 @@ function techHtml(w: WorkflowDocInput, b: NodeInput, n: NodeView, c: ConnectedWo
   const r = runOf2(c, n.run);
   const rows: Array<[string, string]> = [
     ['upmd runs', `upmd --ci -b ${n.name} -d . ${w.rel} (with the project's folder and the document's full path)`],
-    ['its own time', "from when Timmy saw upmd's start line for the block to its end line; known only for the runs this REPL watched"],
+    ['its own time', "from when upmd drew the block's start on its terminal to its end line, as Timmy saw them (kept in the run's job record); not measured for a run whose upmd output was a pipe, where both came when the block ended"],
+    ['live states', 'upmd runs on a terminal of its own (workers/upmd/pty_run.py, with python3), so each block reads running while it runs; without python3 it writes to a pipe and each block is seen only when it ends'],
     ['block', `${b.index !== undefined ? `block ${b.index} of ${w.rel} (upmd numbers every fenced block, named or not)` : 'its number was not read'}`],
     ...(w.sha256 ? [['document', `sha256 ${w.sha256}`] as [string, string]] : []),
     ...(r ? [['its run', `${r.job}: order from ${r.orderFrom === 'prediction' ? "this REPL's prediction" : r.orderFrom === 'sealed' ? 'the sealed outcome' : 'the document as it is now'}${r.predicted ? ` · prediction receipt ${r.predicted}` : ''}${r.receipt ? ` · outcome receipt ${r.receipt}` : ''}`] as [string, string]] : []),
@@ -673,9 +729,17 @@ export function workflowSummaryLines(w: WorkflowDocInput, o: { sep: string; link
     const role: Segment['role'] = r.word === 'failed' ? 'failure' : r.word === 'interrupted' ? 'estimate' : 'strong';
     const label = r.word === 'interrupted' ? '  Interrupted ' : r.word === 'running' || r.word === 'starting' ? '  Running   ' : '  Last run  ';
     lines.push([{ text: label, role: 'secondary' }, { text: r.job, role: 'strong' }, { text: `  ${what}${o.sep}`, role: 'secondary' }, { text: r.word, role }, { text: `${o.sep}${steps}${r.ms !== undefined && r.endedAt ? `${o.sep}${seconds(r.ms)}` : ''}${r.receipt ? `${o.sep}outcome receipt ${r.receipt}` : ''}${r.met === undefined ? '' : r.met ? `${o.sep}prediction met` : `${o.sep}prediction missed`}`, role: 'secondary' }]);
-    if (r.word === 'interrupted') lines.push([{ text: `             its session ended while ${r.interruptedAt ?? 'a block'} ran; its process is gone. Nothing resumes it: /run ${w.rel} ${r.target} runs it again.`, role: 'estimate' }]);
+    if (r.word === 'interrupted') {
+      // R4 (H58): the block that was running then, and how the run's end was found
+      const what = r.interruptedAt ? `${r.interruptedAt} ran` : r.live ? 'no block ran' : 'it ran (which block is not known)';
+      const how = r.interruptedHow === 'recovery stopped it' ? 'recovery stopped its process group' : r.interruptedHow === 'recorded gone' ? 'its process was gone; recovery recorded its end' : 'its process is gone';
+      lines.push([{ text: `             its session ended while ${what}; ${how}. Nothing resumes it: /run ${w.rel} ${r.target} runs it again.`, role: 'estimate' }]);
+    }
+    if (!r.live) lines.push([{ text: '             its block states were not live: upmd wrote to a pipe and printed each block only when it ended', role: 'secondary' }]);
     if (r.outputs.length) lines.push([{ text: '             wrote ', role: 'secondary' }, ...r.outputs.flatMap((f, i): Segment[] => [...(i ? [{ text: ', ', role: 'secondary' as const }] : []), { text: o.link(f.rel) }, { text: ` (${f.note})`, role: 'secondary' }]), ...(r.outputsMore ? [{ text: ` and ${r.outputsMore} more`, role: 'secondary' as const }] : [])]);
   }
+  // R4 (H58): where upmd cannot run on a pty here, the runs to come have no live states either
+  if (c.live && !c.live.ok) lines.push([{ text: `  Live      not available here: ${c.live.why}; a run's blocks are seen only as each one ends`, role: 'estimate' }]);
   // The next commands: each block nothing needs (its run covers what it needs), a stop, the board.
   const leaves = c.nodes.filter((n) => !n.neededBy.length && !n.missing.length && !n.cycle).slice(0, 4);
   const next: string[] = [

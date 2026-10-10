@@ -18,8 +18,28 @@
 // dependency, a cycle) was not observed: the double says so on stderr and exits 2 instead of
 // guessing. It parses the Markdown with its own small logic and imports nothing from src/, so the
 // adapter's parser is checked against an independent reading of the document.
-import { spawnSync } from 'node:child_process';
+//
+// Round R4 (H58): the pty mode, when its stdout is a terminal (Timmy runs upmd through
+// workers/upmd/pty_run.py). What upmd 0.2.7 wrote on a terminal (a probe run under python3's pty on
+// the operator's Mac, kept byte for byte in tests/fixtures/upmd-0.2.7-pty-third.bin), reproduced here
+// by its shape, with the blocks running for real so their delays are real:
+//   ESC[?25l (the cursor hidden) first and ESC[?25h last;
+//   as a block starts: ` [<n>/<count>] <Lang>` (<count>: every fenced block of the document; <Lang>:
+//     its language with a capital), with ` [<needs>]` after it for a block with needs, then its code
+//     (each line indented by two spaces), a blank line, an empty styled line, its output as it runs
+//     (indented by two spaces) and a drawn cursor (an inverse space);
+//   each new line of output: ESC[<k>A CR ESC[J and the whole drawing again (its header repeated);
+//   as it ends: a failing block's `Block <n> failed - stopping dependency chain` on stderr first,
+//     then ESC[<k>A CR ESC[J, `==> <name> [block <n>]`, its whole output again and `✔ exited with
+//     code 0` or `✘ exited with code <c>` (indented by two spaces), then a blank line; a failing
+//     block ends the run there with exit 1.
+// Lines end with \n, which the terminal writes as CR LF (upmd, in raw mode, writes CR LF itself).
+// Like upmd (r18 saw each block's bash in a session of its own), each block runs in a session of its
+// own; unlike upmd, its output comes through pipes, not a terminal of its own, so it gets no hangup
+// when this process ends. The pipe mode (stdout not a terminal) is unchanged.
+import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, writeSync } from 'node:fs';
+import { isatty } from 'node:tty';
 
 // synchronous writes to the file descriptors the blocks share, so the lines interleave in order
 const out = (text) => writeSync(1, text);
@@ -67,7 +87,7 @@ for (let i = 0; i < lines.length; i++) {
   for (const pair of (list ? list[1] : '').matchAll(/(\w+)\s*:\s*("[^"]*"|'[^']*'|[^,]*)/g)) {
     attrs[pair[1]] = pair[2].trim().replace(/^(["'])(.*)\1$/, '$2');
   }
-  blocks.push({ n: blocks.length + 1, name: attrs.name || null, deps: (attrs.deps || '').match(/[\w.-]+/g) || [], code: body.join('\n') });
+  blocks.push({ n: blocks.length + 1, name: attrs.name || null, deps: (attrs.deps || '').match(/[\w.-]+/g) || [], code: body.join('\n'), lang: /^[^\s[]*/.exec(open[2].trim())[0] });
   i = j;
 }
 
@@ -87,6 +107,61 @@ const visit = (name) => {
   order.push(block);
 };
 visit(target);
+
+if (isatty(1)) await runOnTerminal();
+
+/** The pty mode (see the header): each block drawn as it starts, its output as it comes, its end. */
+async function runOnTerminal() {
+  const E = '\x1b';
+  const quiet = `${E}[38;2;130;130;146m`;
+  const lang = (l) => (l ? l[0].toUpperCase() + l.slice(1) : 'Text');
+  out(`${E}[?25l\n`);
+  for (const block of order) {
+    const header = `${E}[48;2;60;60;76m${quiet} [${E}[38;2;203;166;247m${block.n}${E}[0m${E}[48;2;60;60;76m${quiet}/${blocks.length}]${quiet} ${lang(block.lang)}`
+      + `${block.deps.length ? ` ${E}[38;2;147;153;178m [${block.deps.join(', ')}]` : ''}${E}[0m`;
+    const code = block.code.split('\n').map((l) => `  ${E}[38;2;205;214;244m${l}${E}[0m`);
+    const output = [];
+    const shown = (l) => `  ${E}[39m${E}[49m${l}${E}[0m`;
+    let drawn = 0;
+    const draw = () => {
+      const frame = [header, ...code, '', `${E}[38;2;147;153;178m${E}[0m`, ...output.map(shown), `  ${E}[39m${E}[49m${E}[7m ${E}[0m`];
+      out(`${drawn ? `${E}[${drawn}A\r${E}[J\n` : ''}${frame.join('\n')}\n`);
+      drawn = frame.length + 1;
+    };
+    draw();
+    const child = spawn('sh', ['-c', block.code], { cwd: dir, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const reader = () => {
+      let rest = '';
+      return {
+        data: (chunk) => {
+          const lines = (rest + chunk.toString('utf8')).split('\n');
+          rest = lines.pop();
+          if (lines.length) { output.push(...lines); draw(); }
+        },
+        end: () => { if (rest) output.push(rest); rest = ''; },
+      };
+    };
+    const o = reader();
+    const e = reader();
+    child.stdout.on('data', o.data);
+    child.stderr.on('data', e.data);
+    // a signal or a spawn error was not observed; reported as a failure
+    const code0 = await new Promise((resolve) => { child.on('error', () => resolve(1)); child.on('close', (status) => resolve(status ?? 1)); });
+    o.end();
+    e.end();
+    if (code0 !== 0) err(`Block ${block.n} failed - stopping dependency chain\n`);
+    out(`${E}[${drawn}A\r${E}[J\n${E}[38;2;203;166;247m==> ${block.name} [block ${block.n}]${E}[0m\n`);
+    for (const l of output) out(`${shown(l)}\n`);
+    out(`  ${code0 === 0 ? `${E}[38;2;166;227;161m✔` : `${E}[38;2;243;139;168m✘`} exited with code ${code0}${E}[0m\n`);
+    if (code0 !== 0) {
+      out(`${E}[?25h`);
+      process.exit(1);
+    }
+    out('\n');
+  }
+  out(`${E}[?25h`);
+  process.exit(0);
+}
 
 for (const block of order) {
   out(`==> ${block.name} [block ${block.n}]\n`);

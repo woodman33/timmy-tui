@@ -100,17 +100,21 @@ describe('each block connected to its runs (FAKE job records and receipts)', () 
 
   it("after a run: each block's exit code and own time, the files the run wrote from its sealed outcome, the outcome receipt", () => {
     const root = project();
+    // R4 (H58): a run with live states (upmd on a pty, through the wrapper) records when each block started and ended:
+    // check from 0 to 400 ms, build from 400 to 2400 ms, inspect from 2400 to 2450 ms
+    const t = (ms: number): string => new Date(Date.parse('2026-10-10T10:00:00.000Z') + ms).toISOString();
+    const done = job(root, {
+      id: 'j00a002', target: 'inspect', receipt: 'cafe0002', command: 'python3', args: ['-I', join(root, 'workers', 'upmd', 'pty_run.py'), '--', 'upmd', '--ci', '-b', 'inspect', '-d', root, join(root, 'BUILD.md')],
+      steps: [
+        { name: 'check', index: 1, state: 'completed', code: 0, startedAt: t(0), endedAt: t(400) },
+        { name: 'build', index: 2, state: 'completed', code: 0, startedAt: t(400), endedAt: t(2400) },
+        { name: 'inspect', index: 3, state: 'completed', code: 0, startedAt: t(2400), endedAt: t(2450) },
+      ],
+    });
+    // the in-memory clock is only the fallback for such a run's step without recorded moments: a stale reading here is not used
     const clock = new StepClock();
-    const done = job(root, { id: 'j00a002', target: 'inspect', receipt: 'cafe0002', steps: [] });
-    // the Workspace notes each change of the run: check from 0 to 400 ms, build from 400 to 2400 ms, inspect 2400 to 2450
-    const at = (steps: JobRecord['steps'], ms: number): void => clock.note({ id: done.id, steps }, 1_000_000 + ms);
-    at([{ name: 'check', state: 'running' }], 0);
-    at([{ name: 'check', state: 'completed', code: 0 }], 400);
-    at([{ name: 'check', state: 'completed', code: 0 }, { name: 'build', state: 'running' }], 400);
-    at([{ name: 'check', state: 'completed', code: 0 }, { name: 'build', state: 'completed', code: 0 }], 2400);
-    at([{ name: 'check', state: 'completed', code: 0 }, { name: 'build', state: 'completed', code: 0 }, { name: 'inspect', state: 'running' }], 2400);
-    done.steps = [{ name: 'check', index: 1, state: 'completed', code: 0 }, { name: 'build', index: 2, state: 'completed', code: 0 }, { name: 'inspect', index: 3, state: 'completed', code: 0 }];
-    at(done.steps, 2450);
+    clock.note({ id: done.id, steps: done.steps.map((s) => ({ ...s, state: 'running' as const })) }, 1_000_000);
+    clock.note({ id: done.id, steps: done.steps }, 1_000_001);
     const chain = [
       { kind: 'predict', hash: `sha256:abcd1234${'0'.repeat(56)}`, prediction: { doc: 'BUILD.md', block: 'inspect', order: ['check', 'build', 'inspect'], expect: 'each block exits 0' }, files: [{ path: 'BUILD.md', sha256: 'f'.repeat(64) }] },
       {
@@ -139,6 +143,19 @@ describe('each block connected to its runs (FAKE job records and receipts)', () 
     expect(lines).toContain('outcome receipt cafe0002 · prediction met');
     expect(lines).toContain('wrote out/tray.stl (as the run wrote it), out/gone.txt (not there now)');
     expect(lines).toContain('/run BUILD.md inspect  (check → build → inspect)');
+    expect(lines).not.toContain('were not live');
+    expect(c.runs[0].live).toBe(true);
+
+    // R4 (H58, ledger row 157): the same run over a pipe (upmd's own args; no python3, or a run before H58) saw each block
+    // only when it ended: no own time is shown, even where a clock noted one, and the card says its states were not live
+    const piped = { ...done, command: 'upmd', args: ['--ci', '-b', 'inspect', '-d', root, join(root, 'BUILD.md')], steps: done.steps.map(({ startedAt: _s, endedAt: _e, ...s }) => s) };
+    const p = view(root, { jobs: [piped], chain, clock });
+    expect(p.connected!.nodes.map((n) => [n.name, n.word, n.detail])).toEqual([['check', 'completed', 'exit 0'], ['build', 'completed', 'exit 0'], ['inspect', 'completed', 'exit 0']]);
+    expect(p.connected!.runs[0].live).toBe(false);
+    const pipedLive = renderWorkflowCard(p, kit({ live: true, base: '../../' }));
+    expect(pipedLive).toContain('Its block states were not live: upmd wrote to a pipe and printed each block only when it ended, so no block was seen running and no own time was measured.');
+    expect(pipedLive).toContain('its own time was not measured (its block states were not live); the run took 3.0 s for 3 blocks');
+    expect(text(workflowSummaryLines(p, { sep: ' · ', link: (rel) => rel, upmd: { version: '0.2.7' } }))).toContain('its block states were not live: upmd wrote to a pipe and printed each block only when it ended');
   });
 
   it('a failed run: the block that failed with its exit, the blocks after it not run; a stopped run says stopped', () => {

@@ -27,7 +27,12 @@ import { inOperationId, jobEnvironment, operationField, OPERATION_ID } from '../
 
 export type JobKind = 'task' | 'workflow' | 'server';
 export type JobState = 'queued' | 'running' | 'ready' | 'completed' | 'failed' | 'cancelled';
-export interface JobStep { name: string; index?: number; state: 'running' | 'completed' | 'failed'; code?: number }
+/**
+ * One step of a job (a workflow run's block). Round R4 (H58): 'stopped' is a step that was running when its job was
+ * stopped, 'interrupted' one that was running when the session following its job ended (written by recovery); startedAt
+ * and endedAt are when the step's start and end were seen, set only where they arrive as they happen (upmd on a pty).
+ */
+export interface JobStep { name: string; index?: number; state: 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted'; code?: number; startedAt?: string; endedAt?: string }
 export interface JobRecord {
   /** 'j' + 6 hex chars, unique in the jobs dir */
   id: string;
@@ -68,6 +73,9 @@ export interface JobRecord {
   /** Round R4 (H51): the operation (one request) that started the job (src/ops/context.ts); its process gets it as
    *  TIMMY_OPERATION. Absent in records written before, and for a job no request started. */
   operation?: string;
+  /** Round R4 (H58): ended by a later session's recovery because the session following it ended while it ran (endLeft):
+   *  the step that was running then, when its output showed one. */
+  interrupted?: { step?: string };
 }
 export interface JobSpec {
   kind: JobKind; label: string; project: string; root: string;
@@ -98,7 +106,7 @@ export interface JobManagerOptions { dir: string; onChange?: (job: JobRecord) =>
 
 const KINDS: ReadonlySet<string> = new Set<JobKind>(['task', 'workflow', 'server']);
 const STATES: ReadonlySet<string> = new Set<JobState>(['queued', 'running', 'ready', 'completed', 'failed', 'cancelled']);
-const STEP_STATES: ReadonlySet<string> = new Set<JobStep['state']>(['running', 'completed', 'failed']);
+const STEP_STATES: ReadonlySet<string> = new Set<JobStep['state']>(['running', 'completed', 'failed', 'stopped', 'interrupted']);
 const JOB_ID = /^j[0-9a-f]{6}$/;
 const RECORD_FILE = /^(j[0-9a-f]{6})\.json$/;
 /** the ready address is asked again POLL_MS after each unanswered request; each request gets PROBE_MS */
@@ -251,13 +259,20 @@ export class JobManager {
    * process was gone, or recovery stopped its process group. Only a record still in a live state (queued, running,
    * ready) is changed, never a job of this manager; how the job's process exited is not known here, so the exit code
    * and signal are recorded as null. Returns the record as written, or undefined when nothing was written.
+   * Round R4 (H58): `interrupted` records the job as interrupted (its session ended while it ran): each step still
+   * running becomes 'interrupted', and the record names the newest of them (the step running when that session ended).
    */
-  endLeft(id: string, end: { state: 'failed' | 'cancelled'; error: string; cleanup?: 'complete' | 'unresolved' }): JobRecord | undefined {
+  endLeft(id: string, end: { state: 'failed' | 'cancelled'; error: string; cleanup?: 'complete' | 'unresolved'; interrupted?: boolean }): JobRecord | undefined {
     if (this.jobs.has(id) || !JOB_ID.test(id)) return undefined;
     const left = this.readPersisted(id);
     if (!left || !LIVE_STATES.has(left.state)) return undefined;
     const { stale: _stale, ...job } = left;
-    const ended: JobRecord = { ...job, state: end.state, endedAt: this.stamp(), exitCode: null, signal: null, error: end.error, ...(end.cleanup ? { cleanup: end.cleanup } : {}) };
+    const running = end.interrupted ? job.steps.filter((s) => s.state === 'running').at(-1) : undefined;
+    const steps = end.interrupted ? job.steps.map((s) => (s.state === 'running' ? { ...s, state: 'interrupted' as const } : s)) : job.steps;
+    const ended: JobRecord = {
+      ...job, steps, state: end.state, endedAt: this.stamp(), exitCode: null, signal: null, error: end.error, ...(end.cleanup ? { cleanup: end.cleanup } : {}),
+      ...(end.interrupted ? { interrupted: running ? { step: running.name } : {} } : {}),
+    };
     return this.persist(ended) ? snapshot(ended) : undefined;
   }
 
@@ -534,8 +549,9 @@ export class JobManager {
 }
 
 /** Splits a stream's text into lines: \n and \r\n end a line (also when split across chunks), and so does
- *  a lone \r (a progress redraw), except at a line's start, where it makes no line of its own. */
-class LineSplitter {
+ *  a lone \r (a progress redraw), except at a line's start, where it makes no line of its own.
+ *  Exported (R4, H58) so a parser's tests split recorded output exactly as a job's output is split. */
+export class LineSplitter {
   private rest = '';
 
   push(text: string): string[] {
@@ -686,6 +702,8 @@ function parseRecord(raw: unknown, id: string, logPath: string): JobRecord | und
   const owner = r.owner && typeof r.owner === 'object' ? r.owner as Record<string, unknown> : undefined;
   if (owner && typeof owner.pid === 'number' && Number.isInteger(owner.pid) && owner.pid > 0 && text(owner.startedAt)) job.owner = { pid: owner.pid, startedAt: owner.startedAt };
   if (text(r.operation) && OPERATION_ID.test(r.operation)) job.operation = r.operation;
+  const interrupted = r.interrupted && typeof r.interrupted === 'object' ? r.interrupted as Record<string, unknown> : undefined;
+  if (interrupted) job.interrupted = text(interrupted.step) ? { step: interrupted.step } : {};
   return job;
 }
 
@@ -696,5 +714,7 @@ function parseStep(raw: unknown): JobStep[] {
   const step: JobStep = { name: s.name, state: s.state as JobStep['state'] };
   if (typeof s.index === 'number') step.index = s.index;
   if (typeof s.code === 'number') step.code = s.code;
+  if (typeof s.startedAt === 'string') step.startedAt = s.startedAt;
+  if (typeof s.endedAt === 'string') step.endedAt = s.endedAt;
   return [step];
 }
