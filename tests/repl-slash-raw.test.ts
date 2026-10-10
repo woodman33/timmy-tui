@@ -38,8 +38,8 @@ function make(root: string) {
 }
 
 describe('a command gets its arguments as typed only when it asks for them (raw)', () => {
-  it('only /mcp, the four VoxVision commands (whose paths keep their spaces) and /recall and /lesson (R4 H50: a quoted lesson text keeps its spaces) are raw; /model still gets its words joined by one space', () => {
-    expect(COMMANDS.filter((c) => c.raw).map((c) => c.name)).toEqual(['inspect', 'measure', 'detect', 'compare', 'recall', 'lesson', 'mcp']);
+  it('only /mcp, the four VoxVision commands (whose paths keep their spaces), /recall and /lesson (R4 H50: a quoted lesson text keeps its spaces) and /unreal (R4 H63: a quoted .uproject path keeps its spaces) are raw; /model still gets its words joined by one space', () => {
+    expect(COMMANDS.filter((c) => c.raw).map((c) => c.name)).toEqual(['inspect', 'measure', 'detect', 'compare', 'recall', 'lesson', 'unreal', 'mcp']);
     const models: string[] = [];
     const ctx = { print: () => {}, glyphs: glyphSet(true), agent: { getModel: () => 'm', setModel: (m: string) => models.push(m), startSession: () => '' } } as unknown as ReplContext;
     expect(runSlash('  /model   a  b  ', ctx)).toBe('handled');

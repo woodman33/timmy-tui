@@ -113,7 +113,10 @@ function described(parts: Array<[string, string]>, line: string): { summary: str
   return long ? { summary: line, detail: parts.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join('\n') } : { summary: line };
 }
 
-const DESCRIBE: Record<string, (args: Record<string, unknown>) => { summary: string; detail?: string } | undefined> = {
+/** R4 (H63): what Unreal's run_native call does, said in its box (it asks every time: no `a`). */
+const UNREAL_REASON = 'starts Unreal Engine on this machine (UnrealEditor-Cmd, headless): it runs a Python script of your project inside the editor, which may save levels in your project; a second Unreal process then reads them back';
+
+const DESCRIBE: Record<string, (args: Record<string, unknown>) => { summary: string; detail?: string; reason?: string; session?: false } | undefined> = {
   // R4 (H40): the app, the file the local agent may change, and the instruction it is given (its first key, file, hid the rest)
   iterate_native: (a) => {
     const app = cleaned(a.app);
@@ -125,6 +128,14 @@ const DESCRIBE: Record<string, (args: Record<string, unknown>) => { summary: str
   // R4 (H40): Blender's run says its script and the script's arguments (its first key, app, said "blender" alone); the
   // other apps' line is the app, as before
   run_native: (a) => {
+    // R4 (H63): Unreal's call names its project file, script and arguments, and is judged one call at a time
+    if (a.app === 'unreal') {
+      const project = cleaned(a.project_file);
+      const script = cleaned(a.script);
+      const args = Array.isArray(a.args) ? a.args.map(cleaned).filter(Boolean).join(' ') : '';
+      const line = `unreal${project ? ` ${shortened(project, 50)}` : ''}${script ? ` ${shortened(script, 50)}` : ''}${args ? ` ${shortened(args, 60)}` : ''}`;
+      return { ...described([['app', 'unreal'], ['project_file', project], ['script', script], ['args', args]], line), reason: UNREAL_REASON, session: false };
+    }
     if (a.app !== 'blender') return undefined;
     const script = cleaned(a.script);
     const args = Array.isArray(a.args) ? a.args.map(cleaned).filter(Boolean).join(' ') : '';

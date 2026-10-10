@@ -14,6 +14,7 @@ import { flowRecordPath } from '../flows/iterate.js';
 import { voxRecordPath } from '../vox/record.js';
 import { MCP_CALLS_DIR } from '../connectors/mcp-records.js';
 import { readNativeRecord } from '../native/index.js';
+import { unrealRunOutcome } from '../native/unreal-readback.js';
 import type { OperationRun, RunOutcome } from './operations.js';
 
 const JOB_ID = /^j[0-9a-f]{6}$/;
@@ -115,6 +116,8 @@ export function runOutcome(run: OperationRun, root: string, jobs: { get(id: stri
       const job = rec.started?.job;
       const claims = job && JOB_ID.test(job) ? [`job:${job}`] : [];
       const last = rec.verdicts.at(-1);
+      // R4 (H63): an Unreal run's first pass is never trusted alone: its readback's verdict decides (and its readback jobs are its own).
+      if (last && rec.job.app === 'unreal') return unrealRunOutcome(rec.dir, last, rec.result, claims);
       if (last) return { state: last.outcome === 'ok' ? 'succeeded' : 'failed', words: `${last.outcome} (judged by its result file)`, claims };
       const j = job ? jobs.get(job) : undefined;
       if (j?.state === 'cancelled') return { state: 'stopped', words: 'stopped before it was judged', claims };

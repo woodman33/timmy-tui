@@ -51,7 +51,7 @@ export interface Receipt {
   prediction?: { doc: string; block: string; order: string[]; expect: string; met?: boolean; receipt?: string };
   /** round R2, look: an observation's evidence tiers (deterministic computation; model interpretation), never merged */
   /** R2: a native app's run (Cinema 4D, After Effects), judged from its own result file; the exit code is recorded, not decisive */
-  native?: { app: string; outcome: 'ok' | 'failed' | 'unknown'; why: string; exit_code: number | null; signal: string | null; files: Array<{ path: string; sha256?: string; present?: boolean; match?: boolean; matches?: boolean }>; c4d_version?: unknown; blender_version?: unknown; run?: string; input?: { path: string; sha256: string }; checked?: unknown[] };
+  native?: { app: string; outcome: 'ok' | 'failed' | 'unknown'; why: string; exit_code: number | null; signal: string | null; files: Array<{ path: string; sha256?: string; present?: boolean; match?: boolean; matches?: boolean }>; c4d_version?: unknown; blender_version?: unknown; /** R4 (H63) */ unreal_version?: unknown; run?: string; input?: { path: string; sha256: string }; checked?: unknown[] };
   observation?: {
     tiers: string[]; worker?: string; opencv?: string; measurements?: number; error?: string;
     /** R4 (H20): with its answer's sha256 (the whole answer's, and the cut part's when the record holds only that); interpretationSeal */

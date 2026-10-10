@@ -98,6 +98,8 @@ export interface WorkspaceViews {
   blender(args: string): Promise<Segment[][]>;
   /** Round R4 (helper H28): FreeCAD's freecadcmd, headless, as a judged job; /freecad readback reads its STEP back. */
   freecad?(args: string): Promise<Segment[][]>;
+  /** Round R4 (helper H63): Unreal's own Python through UnrealEditor-Cmd, headless, as a judged job; a second Unreal process reads its levels back. */
+  unreal?(args: string): Promise<Segment[][]>;
   /** Round R3: the CadQuery enclosure-tray recipe as a durable job (src/repl/recipe.ts). */
   recipe(args: string): Promise<Segment[][]>;
   mcp(args: string): Promise<Segment[][]>;
@@ -208,6 +210,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'blender', group: 'work', description: 'Blender Python as a job: /blender <script.py>', run: inWorkspace((w, a) => w.blender(a)) },
   { name: 'scad', group: 'work', description: 'OpenSCAD to STL, read back: /scad <m.scad>', run: inWorkspace((w, a) => (w.scad ? w.scad(a) : [[{ text: '  /scad is not available here.', role: 'secondary' }]])) },
   { name: 'freecad', group: 'work', description: 'FreeCAD Python as a job: /freecad <script.py>', run: inWorkspace((w, a) => (w.freecad ? w.freecad(a) : [[{ text: '  FreeCAD is not available here.', role: 'secondary' }]])) },
+  // Round R4 (helper H63). Raw: a quoted .uproject or script path keeps its spaces.
+  { name: 'unreal', group: 'work', raw: true, description: 'Unreal Python: /unreal <p.uproject> <s.py>', run: inWorkspace((w, a) => (w.unreal ? w.unreal(a) : [[{ text: '  Unreal is not available here.', role: 'secondary' }]])) },
   { name: 'recipe', group: 'work', description: 'CadQuery tray recipe as a job: /recipe tray', run: inWorkspace((w, a) => w.recipe(a)) },
   // R4 (H40): /mcp gets its line as typed, so a JSON string's runs of spaces reach the server as they were written.
   { name: 'mcp', group: 'setup', description: 'MCP servers and tools: /mcp [tools|call]', raw: true, run: inWorkspace((w, a) => w.mcp(a)) },
