@@ -243,7 +243,13 @@ export async function startStudioServer(port = STUDIO_PORT, options: StudioOptio
   if (options.projectTokenFile) {
     const at = server.address();
     const bound = typeof at === 'object' && at ? at.port : 0;
-    if (bound && writeProjectToken(tokenDir, bound, link.token)) tokenPort = bound;
+    if (bound && writeProjectToken(tokenDir, bound, link.token)) {
+      tokenPort = bound;
+      // A REPL ends without closing its canvas server: the token file goes with the process (a kill leaves it, unused).
+      const drop = (): void => dropProjectToken(tokenDir, bound, link.token);
+      process.once('exit', drop);
+      server.once('close', () => process.removeListener('exit', drop));
+    }
   }
   return server;
 }

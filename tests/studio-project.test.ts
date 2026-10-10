@@ -4,7 +4,8 @@
  * 127.0.0.1, a real temporary project with real record files (tests/helpers/canvas-project.ts), a real jobs folder and a
  * receipts store under os.tmpdir().
  */
-import { mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
@@ -164,7 +165,7 @@ describe('the project handoff and the project API', () => {
     expect((await handoff(named())).json.board).toBe(false);
   });
 
-  it("keeps its token for other REPLs of this Timmy home only when asked (mode 0600, removed on close); a file whose process is gone is not used", async () => {
+  it("keeps its token for other REPLs of this Timmy home only when asked (mode 0600, removed on close and when its process ends); a file whose process is gone is not used", async () => {
     const file = projectTokenFile(join(home, 'canvas'), port);
     expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(readProjectToken(join(home, 'canvas'), port)).toBe(server.projectToken);
@@ -175,6 +176,18 @@ describe('the project handoff and the project API', () => {
     expect(readProjectToken(join(quiet, 'canvas'), otherPort)).toBeNull();
     await new Promise<void>((done) => other.close(() => done()));
     rmSync(quiet, { recursive: true, force: true });
+    // A process that ends without closing its server (a REPL's exit) takes its token file with it.
+    const ending = mkdtempSync(join(tmpdir(), 'studio-project-ending-'));
+    const child = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', [
+      "import { startStudioServer } from './src/studio/server.ts';",
+      "import { existsSync } from 'node:fs';",
+      `const s = await startStudioServer(0, { env: { TIMMY_HOME: ${JSON.stringify(ending)} }, projectTokenFile: true });`,
+      `console.log(existsSync(${JSON.stringify(join(ending, 'canvas'))} + '/project-token-' + s.address().port) ? 'kept' : 'none');`,
+      'process.exit(0);',
+    ].join('\n')], { encoding: 'utf8', cwd: process.cwd(), env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60_000 });
+    expect(child.stdout.trim(), child.stderr).toBe('kept');
+    expect(readdirSync(join(ending, 'canvas')).filter((f) => f.startsWith('project-token-'))).toEqual([]);
+    rmSync(ending, { recursive: true, force: true });
     // A token left by a process that is gone: never used.
     const stale = mkdtempSync(join(tmpdir(), 'studio-project-stale-'));
     expect(writeProjectToken(stale, 4999, 'a'.repeat(64), 2 ** 22 + 12345)).toBe(true);

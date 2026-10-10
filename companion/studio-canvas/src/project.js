@@ -100,6 +100,8 @@ export function refreshWords(counts) {
 // ── the panel (the browser only) ─────────────────────────────────────────────
 
 const el = (tag, text, props = {}) => Object.assign(document.createElement(tag), text === undefined ? {} : { textContent: text }, props);
+/** A message's text, cut at `max` characters (an ellipsis says so): the panel stays short. */
+const short = (text, max = 90) => { const chars = Array.from(String(text)); return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : chars.join(''); };
 
 /**
  * The panel, attached to its elements in index.html. `deps`: editor() (the live editor), toRichText, createShapeId,
@@ -179,7 +181,7 @@ export function createProjectPanel(deps) {
     const put = el('button', 'Place on canvas', { type: 'button', className: 'pcard-place' });
     put.addEventListener('click', () => {
       put.disabled = true;
-      place(card.id).then((r) => say(`Placed: ${r.card.title}`), (e) => say(`Not placed: ${e instanceof Error ? e.message : String(e)}`, true)).finally(() => { put.disabled = false; });
+      place(card.id).then((r) => say(`Placed: ${short(r.card.title)}`), (e) => say(`Not placed: ${short(e instanceof Error ? e.message : String(e), 300)}`, true)).finally(() => { put.disabled = false; });
     });
     acts.append(put);
     const href = boardHref(board, card);
