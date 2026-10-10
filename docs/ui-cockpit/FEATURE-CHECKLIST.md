@@ -185,7 +185,7 @@ scripting or computer use) before it can move up.
 
 | Feature | Planned | Implemented | Tested | Demonstrated | Blocker / user action | Evidence |
 |---|---|---|---|---|---|---|
-| Code CAD besides CadQuery: FreeCAD, build123d (OpenSCAD moved up to section 5 in round R4, `a4df9e4`) | partial: the operator's register | – | – | – | – | – |
+| Code CAD besides CadQuery: build123d (OpenSCAD and FreeCAD moved up to section 5 in round R4, `a4df9e4` and `0a69571`) | partial: the operator's register | – | – | – | – | – |
 | Plasticity (direct-modeling CAD; STEP round trip) | partial: the operator's register | – | – | – | no public API: a computer-use or STEP route | – |
 | Unity, Godot, USD stages | partial: the operator's register | – | – | – | – | – |
 | Spline V2, Hana, Omma (design and first-draft 3D) | partial: the operator's register | – | – | – | – | – |

@@ -135,7 +135,7 @@ describe('an installed Timmy finds its starters and workers', () => {
       const r = run(layout, dest);
       expect(r.root).toBe(pkg);
       expect(r.starters).toBe(join(pkg, 'templates'));
-      expect(r.list).toEqual(['ae-starter', 'blender-starter', 'c4d-starter', 'web-starter']);
+      expect(r.list).toEqual(['ae-starter', 'blender-starter', 'c4d-starter', 'freecad-starter', 'scad-starter', 'web-starter']);
       expect(r.look).toBe(join(pkg, 'workers/look/look.py'));
       expect(r.lookExists).toBe(true);
       expect(r.c4d).toBe(join(pkg, 'workers/c4d/timmy_c4d.py'));
@@ -151,7 +151,7 @@ describe('an installed Timmy finds its starters and workers', () => {
     for (const layout of [TSC, BUNDLE]) {
       const dest = join(temp('timmy-asset-project-'), 'site');
       const r = run(layout, dest);
-      expect(r.list, layout).toEqual(['ae-starter', 'blender-starter', 'c4d-starter']);
+      expect(r.list, layout).toEqual(['ae-starter', 'blender-starter', 'c4d-starter', 'freecad-starter', 'scad-starter']);
       expect(r.look, layout).toBe(join(pkg, 'workers/look/look.py'));
       expect(r.lookExists, layout).toBe(false);
       expect(r.c4d, layout).toBeNull();
