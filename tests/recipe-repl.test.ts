@@ -9,19 +9,22 @@
  * synthetic files and signed receipts; TIMMY_CADQUERY_PYTHON points at a FAKE file that is never executed.
  * These tests exercise the REPL wiring, the job lifecycle and the copy checks, not native geometry.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { ChildProcess } from 'node:child_process';
+import { spawnSync, type ChildProcess } from 'node:child_process';
 import { folderProject } from '../src/project/index.js';
 import { Workspace, type WorkspaceDeps } from '../src/repl/workspace.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import type { ReceiptInput } from '../src/utils/receipts.js';
 import { sha } from '../lanes/recipes/tray.js';
-import { jobDirectory, status } from '../lanes/recipes/jobs.js';
-import { DOCTRINE_15, EXPORTS, recipeCapabilityRow, recipeExercisedAt } from '../src/recipes/index.js';
+import { cancel, jobDirectory, status } from '../lanes/recipes/jobs.js';
+import { recipeEnded, type RecipeContext } from '../src/repl/recipe.js';
+import { cancelRecipe, cancelSentence, cancelUnfollowed } from '../src/repl/recipe-stop.js';
+import type { JobRecord } from '../src/jobs/index.js';
+import { checkCopy, deliver, DOCTRINE_15, EXPORTS, launchRecipe, outcomeLines, prepareRecipe, recipeCapabilityRow, recipeExercisedAt } from '../src/recipes/index.js';
 import { capabilities, type ProbeDeps } from '../src/capabilities/index.js';
 import { listProjectFiles } from '../src/project/index.js';
 import { createRecipeTools } from '../src/agent/recipe-tools.js';
@@ -74,6 +77,7 @@ recordResult(root,id,{...report,directory:base});
 function make(o: { python?: boolean; mode?: 'complete' | 'reported-failure' | 'wait'; sealFails?: boolean } = {}) {
   const notes: string[] = [];
   const sealed: ReceiptInput[] = [];
+  const jobsDir = path.join(fs.mkdtempSync(path.join(fixtures, 'jobs-')), 'jobs');
   const deps: WorkspaceDeps = {
     glyphs: glyphSet(true),
     env: o.python === false ? {} : { TIMMY_CADQUERY_PYTHON: fakePython },
@@ -82,7 +86,7 @@ function make(o: { python?: boolean; mode?: 'complete' | 'reported-failure' | 'w
     openWeb: (url) => url,
     link: (t) => t,
     seal: (input) => { if (o.sealFails) return undefined; sealed.push(input); return `id${sealed.length}`; },
-    jobsDir: path.join(fs.mkdtempSync(path.join(fixtures, 'jobs-')), 'jobs'),
+    jobsDir,
     chdir: () => {},
     receipts: () => [],
     // FAKE: the jobs.ts executor seam and a fast watcher poll; the supervisor is observed so teardown can wait for it.
@@ -94,7 +98,7 @@ function make(o: { python?: boolean; mode?: 'complete' | 'reported-failure' | 'w
   };
   const ws = new Workspace(deps, folderProject(root));
   spaces.push(ws);
-  return { ws, notes, sealed };
+  return { ws, notes, sealed, jobsDir };
 }
 
 const jobIdIn = (out: string): string => { const m = out.match(/Running\s+(j[0-9a-f]{6})/); if (!m) throw Error(`no job in: ${out}`); return m[1]; };
@@ -104,6 +108,11 @@ async function until(pred: () => boolean, ms = 20000): Promise<void> {
   while (!pred()) { if (Date.now() > end) throw Error('timed out'); await new Promise((r) => setTimeout(r, 50)); }
 }
 const recipeJobs = (): string[] => { try { return fs.readdirSync(path.join(root, '.timmy', 'recipe-jobs')); } catch { return []; } };
+/** The durable recipe job's own end states (lanes/recipes/jobs.ts). */
+const ENDED = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
+/** The live processes whose command line names this recipe job (its supervisor, the FAKE executor, a watcher), read from the process table, never from a PID file. */
+const processesNaming = (id: string): string[] =>
+  String(spawnSync('ps', ['-A', '-o', 'pid=', '-o', 'args='], { encoding: 'utf8' }).stdout ?? '').split('\n').filter((l) => l.includes(id));
 
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'recipe-repl-project-'));
@@ -113,6 +122,7 @@ beforeEach(() => {
   supervisors = [];
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const w of spaces.splice(0)) await w.close();
   await Promise.race([Promise.all(supervisors), new Promise((r) => setTimeout(r, 15000))]);
   fs.rmSync(root, { recursive: true, force: true });
@@ -371,4 +381,235 @@ describe('the /tools row for the recipe route', () => {
     const used = await capabilities({ ...none, recipeExercised: () => '2026-10-09T01:00:00Z' });
     expect(used.find((r) => r.id === 'recipe-tray')!.exercised).toBe('2026-10-09T01:00:00Z');
   });
+});
+
+/**
+ * Round R4 (H17), the review of 07f37ec, finding 4: the recipe's watcher cancels it from its SIGTERM handler, which
+ * exists only once the watcher's module has loaded. A stop that lands earlier must still reach the durable job: the
+ * REPL asks the recipe's own cancel through the operation UUID it kept, before it stops the watcher. Each test stops
+ * the watcher within moments of its spawn (Node alone takes far longer to start than that) and checks, from
+ * lanes/recipes/jobs.ts status(), that the recipe ends cancelled and that no process naming it is left. FAKE: the
+ * recipe runs the SYNTHETIC 'wait' executor, which would finish after 10 s if nothing cancelled it.
+ */
+describe('an early stop reaches the durable recipe job (the review of 07f37ec, finding 4)', () => {
+  /** Waits for the recipe job's own end, and when it was cancelled, for every process naming it to be gone. */
+  async function ended(id: string): Promise<string> {
+    await until(() => ENDED.has(status(root, id).state), 30000);
+    const state = status(root, id).state;
+    if (state === 'cancelled') await until(() => processesNaming(id).length === 0, 10000);
+    return state;
+  }
+  /** The FAKE executor ran at most once: nothing was replayed. */
+  const ranAtMostOnce = (id: string): void => {
+    const file = path.join(jobDirectory(root, id), 'executions.txt');
+    if (fs.existsSync(file)) expect(fs.readFileSync(file, 'utf8').trim().split('\n')).toHaveLength(1);
+  };
+
+  it('/stop right after /recipe tray returns, before the watcher has its SIGTERM handler: the recipe ends cancelled and its FAKE native process is gone', async () => {
+    const { ws } = make({ mode: 'wait' });
+    const out = text(await ws.recipe('tray'));
+    const id = uuidIn(out);
+    const job = jobIdIn(out);
+    const stopped = text(await ws.stop(job));
+    // The watcher died of the signal itself: its own handler never ran, so only the REPL's cancel can have reached the recipe.
+    expect(ws.jobs.get(job)).toMatchObject({ state: 'cancelled', signal: 'SIGTERM' });
+    expect(ws.jobs.tail(job).join('\n')).not.toContain('stop:');
+    expect(await ended(id)).toBe('cancelled');
+    expect(processesNaming(id)).toEqual([]);
+    expect(stopped).toContain(`${job} cancelled`);
+    expect(stopped).toContain(`recipe ${id}: cancel requested through the recipe's own path`);
+    expect(fs.existsSync(path.join(jobDirectory(root, id), 'cancel.json'))).toBe(true);
+    ranAtMostOnce(id);
+  }, 60000);
+
+  it('a SIGTERM sent straight to the watcher before it loads: the REPL sees its watcher end by the signal and cancels the recipe through its own path', async () => {
+    const { ws, notes } = make({ mode: 'wait' });
+    const out = text(await ws.recipe('tray'));
+    const id = uuidIn(out);
+    const job = jobIdIn(out);
+    let pid: number | undefined;
+    while (!(pid = ws.jobs.get(job)?.pid)) await new Promise((r) => setImmediate(r));
+    process.kill(pid, 'SIGTERM');
+    await until(() => TERMINAL.has(ws.jobs.get(job)?.state ?? ''));
+    expect(ws.jobs.get(job)).toMatchObject({ state: 'failed', signal: 'SIGTERM' });
+    expect(await ended(id)).toBe('cancelled');
+    const notice = notes.join('\n');
+    expect(notice).toContain(`${job} recipe ${id}`);
+    expect(notice).toContain('cancel requested through the recipe\'s own path');
+    ranAtMostOnce(id);
+  }, 60000);
+
+  it('the REPL ending right after /recipe tray (Workspace.close): the recipe is cancelled through its own path before its watcher is stopped', async () => {
+    const { ws } = make({ mode: 'wait' });
+    const out = text(await ws.recipe('tray'));
+    const id = uuidIn(out);
+    const job = jobIdIn(out);
+    await ws.close();
+    expect(ws.jobs.get(job)).toMatchObject({ state: 'cancelled', signal: 'SIGTERM' });
+    expect(await ended(id)).toBe('cancelled');
+    ranAtMostOnce(id);
+  }, 60000);
+
+  it('Workspace.killNow (a second Ctrl+C, and the first thing a normal exit runs): the cancel is written before any watcher is signalled', async () => {
+    const { ws } = make({ mode: 'wait' });
+    const out = text(await ws.recipe('tray'));
+    const id = uuidIn(out);
+    ws.killNow();
+    expect(fs.existsSync(path.join(jobDirectory(root, id), 'cancel.json'))).toBe(true);
+    expect(await ended(id)).toBe('cancelled');
+    ranAtMostOnce(id);
+  }, 60000);
+
+  it('the REPL ending while a recipe is being launched (the agent\'s run_recipe): no watcher starts after it, and the recipe is cancelled through its own path', async () => {
+    const { ws } = make({ mode: 'wait' });
+    const starting = ws.runRecipe({});
+    await ws.close();
+    const r = await starting;
+    expect(r).toMatchObject({ ok: false, stage: 'start', operation: expect.stringMatching(/^[0-9a-f-]{36}$/) });
+    if (r.ok || !r.operation) throw Error('the start should have been refused');
+    expect(r.error).toContain('cancel');
+    expect(ws.jobs.list()).toEqual([]);
+    expect(await ended(r.operation)).toBe('cancelled');
+    ranAtMostOnce(r.operation);
+  }, 60000);
+
+  it('a recipe whose watcher could not start is cancelled through its own path, and the answer names the command that shows it', async () => {
+    const { ws, jobsDir } = make({ mode: 'wait' });
+    // The REPL's jobs folder is unusable (a file stands where the folder goes), so the watcher job cannot start.
+    fs.writeFileSync(jobsDir, 'not a folder');
+    const out = text(await ws.recipe('tray'));
+    const id = out.match(/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/)?.[0];
+    if (!id) throw Error(`no recipe job in: ${out}`);
+    expect(ws.jobs.list()).toEqual([]);
+    expect(await ended(id)).toBe('cancelled');
+    expect(out).toContain('its watcher did not start');
+    expect(out).toContain('cancel requested through the recipe\'s own path');
+    expect(out).toContain('/recipe status');
+    ranAtMostOnce(id);
+  }, 60000);
+
+  it('a watcher that ended without a signal while its recipe still runs: the notice gives the exact commands, and the recipe is left running', async () => {
+    const p = prepareRecipe({}, { root, env: { TIMMY_CADQUERY_PYTHON: fakePython }, executor: fakeExecutor('wait') });
+    if (!p.ok) throw Error(p.error);
+    const { id } = p.prepared;
+    await launchRecipe(root, id, (child) => { supervisors.push(new Promise((r) => { child.once('close', () => r()); child.once('error', () => r()); })); });
+    const c: RecipeContext = { root, project: 'p', env: {}, glyphs: glyphSet(true), seal: () => undefined, startJob: () => { throw Error('not used'); } };
+    // A watcher that exited by itself (exit 5, its status read failed), not by a stop or a signal.
+    const watcher = { id: 'j000001', state: 'failed', exitCode: 5, signal: null } as unknown as JobRecord;
+    const said = text(recipeEnded(c, watcher, id));
+    expect(said).toContain(`j000001 recipe ${id} running`);
+    expect(said).toContain(`the recipe still runs: /recipe status follows it; /recipe cancel ${id} cancels it`);
+    expect(fs.existsSync(path.join(jobDirectory(root, id), 'cancel.json'))).toBe(false);
+    expect(cancel(root, id).progress).toBe('cancellation-requested');
+    expect(await ended(id)).toBe('cancelled');
+  }, 60000);
+
+  it('a cancel request that fails is said with the exact commands, never as a cancel', () => {
+    const missing = '00000000-0000-4000-8000-000000000000';
+    const a = cancelRecipe(root, missing);
+    expect(a).toMatchObject({ operation: missing, requested: false, error: expect.any(String) });
+    expect(cancelSentence(a)).toContain(`/recipe status shows it; /recipe cancel ${missing} asks again`);
+    const unfollowed = cancelUnfollowed(root, missing, 'its watcher did not start (FAKE reason)');
+    expect(unfollowed).toContain('the cancel request failed');
+    expect(unfollowed).toContain(`it may still be running: /recipe status shows it, /recipe cancel ${missing} cancels it`);
+    expect(unfollowed).not.toContain('cancel requested');
+  });
+});
+
+/**
+ * Round R4 (H17), the review of 07f37ec, M3: verification and delivery consume one verified snapshot. The seam
+ * (vi.spyOn on fs.readFileSync, which jobs.ts and src/recipes read through) lets the first read of the signed result,
+ * the job's receipt store, one export and the native result see their real bytes, and every later read see changed
+ * ones: the files changed on disk right after a verification read them. Delivery and the copy check must copy and
+ * report only what that verification read. FAKE: the SYNTHETIC 'complete' executor; no watcher runs here, so
+ * nothing is copied before the call under test.
+ */
+describe('delivery consumes one verified snapshot (the review of 07f37ec, M3)', () => {
+  async function succeeded(): Promise<{ id: string; dir: string; base: string }> {
+    const p = prepareRecipe({}, { root, env: { TIMMY_CADQUERY_PYTHON: fakePython }, executor: fakeExecutor('complete') });
+    if (!p.ok) throw Error(p.error);
+    const { id } = p.prepared;
+    await launchRecipe(root, id, (child) => { supervisors.push(new Promise((r) => { child.once('close', () => r()); child.once('error', () => r()); })); });
+    await until(() => status(root, id).state === 'succeeded');
+    const dir = jobDirectory(root, id);
+    const envelope = JSON.parse(fs.readFileSync(path.join(dir, 'result.json'), 'utf8'));
+    return { id, dir, base: path.join(dir, 'workspace', '.timmy', 'recipe-runs', envelope.result.run) };
+  }
+
+  it('the result and its receipt changing after their verification read: delivery and the copy check use only the verified bytes, reading each file once', async () => {
+    const { id, dir, base } = await succeeded();
+    const resultFile = path.join(dir, 'result.json');
+    const runsFile = path.join(dir, 'workspace', '.timmy', 'receipts', 'runs.jsonl');
+    const outer = path.join(base, 'native', 'outer.stl');
+    const nativeResult = path.join(base, 'native', 'result.json');
+    const verifiedOuter = fs.readFileSync(outer);
+    // The changed files: a forged export and native result, and the signed result and the build receipt with their
+    // recorded sha256 values pointed at those forged bytes (neither re-signed, as a tampering writer would leave them).
+    const forgedOuter = Buffer.from('FORGED after the verification read; not the verified bytes');
+    const native = JSON.parse(fs.readFileSync(nativeResult, 'utf8'));
+    native.variant.measured.bounds = [999, 999, 999];
+    const forgedNative = Buffer.from(JSON.stringify(native));
+    const envelope = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
+    envelope.result.exports = envelope.result.exports.map((e: { file: string; sha256: string }) => (e.file === 'outer.stl' ? { ...e, sha256: sha(forgedOuter) } : e));
+    const receipts = fs.readFileSync(runsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    const forgedRuns = receipts.map((r: { kind: string; sources: Array<{ path: string; sha256: string }> }) => (r.kind !== 'recipe.build' ? r : {
+      ...r, sources: r.sources.map((s) => (s.path === outer ? { ...s, sha256: sha(forgedOuter) } : s.path === nativeResult ? { ...s, sha256: sha(forgedNative) } : s)),
+    })).map((r: unknown) => JSON.stringify(r)).join('\n') + '\n';
+    const later = new Map<string, Buffer>([[resultFile, Buffer.from(JSON.stringify(envelope))], [runsFile, Buffer.from(forgedRuns)], [outer, forgedOuter], [nativeResult, forgedNative]]);
+    const reads = new Map<string, number>();
+    const real = fs.readFileSync;
+    vi.spyOn(fs, 'readFileSync').mockImplementation(((file: fs.PathOrFileDescriptor, options?: unknown) => {
+      if (typeof file === 'string' && later.has(file)) {
+        const n = (reads.get(file) ?? 0) + 1;
+        reads.set(file, n);
+        if (n > 1) {
+          const changed = later.get(file)!;
+          const encoding = typeof options === 'string' ? options : (options as { encoding?: BufferEncoding } | undefined)?.encoding;
+          return encoding ? changed.toString(encoding) : Buffer.from(changed);
+        }
+      }
+      return real(file as never, options as never);
+    }) as typeof fs.readFileSync);
+
+    const d = deliver(root, id);
+    const deliverReads = new Map(reads);
+    reads.clear();
+    const copy = checkCopy(root, id);
+    const copyReads = new Map(reads);
+    vi.restoreAllMocks();
+
+    if (!d.ok) throw Error(`delivery refused: ${d.error}`);
+    const dest = path.join(root, 'out', 'recipes', id.slice(0, 8));
+    expect(sha(fs.readFileSync(path.join(dest, 'outer.stl')))).toBe(sha(verifiedOuter));
+    expect(d.files.find((f) => f.path.endsWith('/outer.stl'))?.sha256).toBe(sha(verifiedOuter));
+    const said = outcomeLines(d.v, d.dir).join('\n');
+    expect(said).toContain('Bounds 140 x 80 x 30 mm measured');
+    expect(said).not.toContain('999');
+    // The copy check (what the REPL's notice and /recipe status show) reads the same way and finds the copy whole.
+    if (!copy.ok) throw Error(`the copy check failed: ${copy.error}`);
+    expect(outcomeLines(copy.v, copy.dir).join('\n')).toContain('Bounds 140 x 80 x 30 mm measured');
+    // Each of the four was read once, by the verification, and never again.
+    for (const file of later.keys()) expect([file, deliverReads.get(file)]).toEqual([file, 1]);
+    for (const file of later.keys()) expect([file, copyReads.get(file)]).toEqual([file, 1]);
+  }, 60000);
+
+  it('a copy that changes under us is refused; what this call wrote is removed again, and the changed file is left as it was found', async () => {
+    const { id } = await succeeded();
+    const dest = path.join(root, 'out', 'recipes', id.slice(0, 8));
+    const step = path.join(dest, 'console-tray.step');
+    const realWrite = fs.writeFileSync;
+    vi.spyOn(fs, 'writeFileSync').mockImplementation(((file: fs.PathOrFileDescriptor, data: string | NodeJS.ArrayBufferView, options?: fs.WriteFileOptions) => {
+      realWrite(file, data, options);
+      // Another writer changes the copy between this call's write and its read-back.
+      if (file === step) realWrite(step, 'CHANGED UNDER US by another writer');
+    }) as typeof fs.writeFileSync);
+    const d = deliver(root, id);
+    vi.restoreAllMocks();
+    expect(d.ok).toBe(false);
+    if (d.ok) return;
+    expect(d.error).toContain('console-tray.step');
+    expect(d.error).toContain('reads back with a different sha256');
+    expect(fs.readdirSync(dest)).toEqual(['console-tray.step']);
+    expect(fs.readFileSync(step, 'utf8')).toBe('CHANGED UNDER US by another writer');
+  }, 60000);
 });

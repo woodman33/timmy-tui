@@ -14,7 +14,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import type { ChildProcess } from 'node:child_process';
 import { cardPath, prediction, sha, validate, type Parameters } from '../../lanes/recipes/tray.js';
-import { enqueue, jobDirectory, start, status, type Job, type JobState } from '../../lanes/recipes/jobs.js';
+import { enqueue, jobDirectory, start, status, verifiedStatus, type Job, type JobState, type JobStatus, type ResultSnapshot } from '../../lanes/recipes/jobs.js';
 import type { JobSpec } from '../jobs/index.js';
 
 export const RECIPE_ID = 'enclosure.tray/1';
@@ -112,77 +112,84 @@ export function watcherSpec(o: { root: string; id: string; label: string; projec
 
 export const short = (h: string, n = 12): string => h.slice(0, n);
 export const outDir = (id: string): string => `out/recipes/${id.slice(0, 8)}`;
-const jsonl = (file: string): Array<Record<string, any>> => fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
 const rel = (root: string, abs: string): string => {
   const r = path.relative(fs.realpathSync(root), abs);
   return r && !r.startsWith('..') && !path.isAbsolute(r) ? r : path.basename(abs);
 };
 
-interface Verified {
+export interface Verified {
   id: string; run: string; resultReceipt: string; resultHash: string; buildTs?: string; executor: string;
   files: Array<{ name: string; from: string; bytes: Buffer; sha256: string }>;
   result: Record<string, any> | null; prediction: Record<string, any> | null;
 }
 
+/** One verified read of a recipe job: its status and, when that rests on a verified result, what the verification read. */
+export interface RecipeRead { s: JobStatus; snapshot?: ResultSnapshot }
+
 /**
- * Freshly verified bytes of a succeeded job: status() re-verifies the signed result, its receipts and every
- * artifact hash; then each file to copy is read once and its sha256 compared with the verified record
- * (exports and native/result.json: the signed recipe.build receipt; request.json and prediction.json: the
- * signed recipe.prediction receipt and the job's request hash; report.json: the signed result's report hash,
- * which is over its JSON value). Any mismatch refuses the whole set.
+ * Reads a recipe job once (the review of 07f37ec, M3): lanes/recipes/jobs.ts verifiedStatus() checks the signed result,
+ * its report and receipts and every artifact hash, reading each file once, and hands back what it read. Throws when the
+ * job itself cannot be read.
+ */
+export function readRecipe(root: string, id: string): RecipeRead {
+  const { status: s, snapshot } = verifiedStatus(root, id);
+  return snapshot ? { s, snapshot } : { s };
+}
+
+/**
+ * Freshly verified bytes of a succeeded job, from one verified read: nothing is read again after the verification.
+ * The set to copy comes from that read's snapshot alone, each file's sha256 compared with the verified record
+ * (exports and native/result.json: the signed result and the signed recipe.build receipt; request.json and
+ * prediction.json: the job's request hash and the signed recipe.prediction receipt; report.json: the signed result's
+ * report hash, which is over its JSON value). Any mismatch refuses the whole set.
  */
 export function verifiedResult(root: string, id: string): { ok: true; v: Verified } | { ok: false; error: string } {
   if (!isRecipeJobId(id)) return { ok: false, error: `${id} is not a recipe job UUID` };
-  let s: ReturnType<typeof status>;
-  try { s = status(root, id); } catch (e) { return { ok: false, error: `the job could not be read: ${e instanceof Error ? e.message : String(e)}` }; }
+  let read: RecipeRead;
+  try { read = readRecipe(root, id); } catch (e) { return { ok: false, error: `the job could not be read: ${e instanceof Error ? e.message : String(e)}` }; }
+  return deliverable(id, read);
+}
+
+/** The deliverable set of one read whose job succeeded, from its snapshot alone; otherwise why there is none. */
+export function deliverable(id: string, read: RecipeRead): { ok: true; v: Verified } | { ok: false; error: string } {
+  const { s, snapshot } = read;
   if (s.state !== 'succeeded' || !s.resultReceipt || !s.resultHash) {
     return { ok: false, error: `the job is ${s.state} (${s.progress})${s.reason ? `: ${s.reason}` : ''}` };
   }
-  try {
-    const dir = jobDirectory(root, id);
-    const envelope = JSON.parse(fs.readFileSync(path.join(dir, 'result.json'), 'utf8'));
-    const run = String(envelope?.result?.run ?? '');
-    if (!isRecipeJobId(run)) return { ok: false, error: 'the verified result names no native run' };
-    const base = path.join(dir, 'workspace', '.timmy', 'recipe-runs', run);
-    const receipts = jsonl(path.join(dir, 'workspace', '.timmy', 'receipts', 'runs.jsonl'));
-    const build = receipts.find((r) => r.id === s.resultReceipt && r.hash === s.resultHash && r.kind === 'recipe.build' && r.status === 'ok');
-    if (!build) return { ok: false, error: 'the verified build receipt is not in the job store' };
-    const predicted = receipts.find((r) => Array.isArray(build.child_receipts) && build.child_receipts.includes(r.id) && r.kind === 'recipe.prediction');
-    if (!predicted) return { ok: false, error: 'the sealed prediction receipt is not in the job store' };
-    const expect = new Map<string, string>();
-    for (const src of [...(build.sources ?? []), ...(predicted.sources ?? [])]) if (typeof src?.path === 'string' && typeof src?.sha256 === 'string') expect.set(src.path, src.sha256);
-    const files: Verified['files'] = [];
-    const take = (name: string, from: string, check: (b: Buffer) => string | undefined): string | undefined => {
-      const bytes = fs.readFileSync(from);
-      const bad = check(bytes);
-      if (bad) return `${name}: ${bad}`;
-      files.push({ name, from, bytes, sha256: sha(bytes) });
-      return undefined;
-    };
-    const exports: Array<{ file: string; sha256: string }> = Array.isArray(envelope.result.exports) ? envelope.result.exports : [];
-    if (exports.map((e) => path.basename(e.file)).sort().join() !== [...EXPORTS].sort().join()) return { ok: false, error: 'the verified result does not name the five exports' };
-    const problems: string[] = [];
-    for (const e of exports) {
-      const from = path.join(base, 'native', e.file);
-      const p = take(path.basename(e.file), from, (b) => (sha(b) !== e.sha256 || expect.get(from) !== e.sha256 ? 'its sha256 differs from the verified result' : undefined));
-      if (p) problems.push(p);
-    }
-    const reportFrom = path.join(base, 'report.json');
-    const p1 = take('report.json', reportFrom, (b) => { try { return sha(JSON.stringify(JSON.parse(b.toString('utf8')))) === envelope.reportHash ? undefined : 'it differs from the signed report hash'; } catch { return 'it is not JSON'; } });
-    const p2 = take('request.json', path.join(base, 'request.json'), (b) => (sha(b) !== s.job.requestHash || expect.get(path.join(base, 'request.json')) !== s.job.requestHash ? 'its sha256 differs from the job request hash' : undefined));
-    const p3 = take('prediction.json', path.join(base, 'prediction.json'), (b) => { const want = expect.get(path.join(base, 'prediction.json')); return !want || sha(b) !== want ? 'its sha256 differs from the sealed prediction' : undefined; });
-    problems.push(...[p1, p2, p3].filter((x): x is string => Boolean(x)));
-    if (problems.length) return { ok: false, error: problems.join('; ') };
-    // native/result.json is read for the outcome only, under the same verified hash; it is not copied.
-    let result: Record<string, any> | null = null;
-    const resultFrom = path.join(base, 'native', 'result.json');
-    try { const b = fs.readFileSync(resultFrom); if (expect.get(resultFrom) === sha(b)) result = JSON.parse(b.toString('utf8')); } catch { result = null; }
-    let pred: Record<string, any> | null = null;
-    try { pred = JSON.parse(files.find((f) => f.name === 'prediction.json')!.bytes.toString('utf8')); } catch { pred = null; }
-    return { ok: true, v: { id, run, resultReceipt: s.resultReceipt, resultHash: s.resultHash, ...(typeof build.ts === 'string' ? { buildTs: build.ts } : {}), executor: s.job.executor, files, result, prediction: pred } };
-  } catch (e) {
-    return { ok: false, error: `the verified result could not be read: ${e instanceof Error ? e.message : String(e)}` };
+  if (!snapshot) return { ok: false, error: 'its verification kept no result to deliver' };
+  const { envelope, receipt: build, prediction: predicted, base, files: verified } = snapshot;
+  const run = String(envelope?.result?.run ?? '');
+  if (!isRecipeJobId(run) || path.basename(base) !== run) return { ok: false, error: 'the verified result names no native run' };
+  if (build?.id !== s.resultReceipt || build?.hash !== s.resultHash || build?.kind !== 'recipe.build' || build?.status !== 'ok') return { ok: false, error: 'the verified build receipt is not this result\'s' };
+  if (predicted?.kind !== 'recipe.prediction' || !Array.isArray(build.child_receipts) || !build.child_receipts.includes(predicted.id)) return { ok: false, error: 'the sealed prediction receipt is not this build\'s' };
+  const expect = new Map<string, string>();
+  for (const src of [...(build.sources ?? []), ...(predicted.sources ?? [])]) if (typeof src?.path === 'string' && typeof src?.sha256 === 'string') expect.set(src.path, src.sha256);
+  const files: Verified['files'] = [];
+  const problems: string[] = [];
+  const take = (name: string, from: string, check: (b: Buffer) => string | undefined): void => {
+    const bytes = verified.get(from);
+    const bad = bytes ? check(bytes) : 'it is not among the files the verification read';
+    if (bad || !bytes) problems.push(`${name}: ${bad}`);
+    else files.push({ name, from, bytes, sha256: sha(bytes) });
+  };
+  const exports: Array<{ file: string; sha256: string }> = Array.isArray(envelope.result.exports) ? envelope.result.exports : [];
+  if (exports.map((e) => path.basename(e.file)).sort().join() !== [...EXPORTS].sort().join()) return { ok: false, error: 'the verified result does not name the five exports' };
+  for (const e of exports) {
+    const from = path.join(base, 'native', e.file);
+    take(path.basename(e.file), from, (b) => (sha(b) !== e.sha256 || expect.get(from) !== e.sha256 ? 'its sha256 differs from the verified result' : undefined));
   }
+  take('report.json', path.join(base, 'report.json'), (b) => { try { return sha(JSON.stringify(JSON.parse(b.toString('utf8')))) === envelope.reportHash ? undefined : 'it differs from the signed report hash'; } catch { return 'it is not JSON'; } });
+  take('request.json', path.join(base, 'request.json'), (b) => (sha(b) !== s.job.requestHash || expect.get(path.join(base, 'request.json')) !== s.job.requestHash ? 'its sha256 differs from the job request hash' : undefined));
+  take('prediction.json', path.join(base, 'prediction.json'), (b) => { const want = expect.get(path.join(base, 'prediction.json')); return !want || sha(b) !== want ? 'its sha256 differs from the sealed prediction' : undefined; });
+  if (problems.length) return { ok: false, error: problems.join('; ') };
+  // native/result.json gives the outcome only, under the same verified hash; it is not copied.
+  let result: Record<string, any> | null = null;
+  const resultFrom = path.join(base, 'native', 'result.json');
+  const native = verified.get(resultFrom);
+  try { if (native && expect.get(resultFrom) === sha(native)) result = JSON.parse(native.toString('utf8')); } catch { result = null; }
+  let pred: Record<string, any> | null = null;
+  try { pred = JSON.parse(files.find((f) => f.name === 'prediction.json')!.bytes.toString('utf8')); } catch { pred = null; }
+  return { ok: true, v: { id, run, resultReceipt: s.resultReceipt, resultHash: s.resultHash, ...(typeof build.ts === 'string' ? { buildTs: build.ts } : {}), executor: s.job.executor, files, result, prediction: pred } };
 }
 
 export interface Outcome {
@@ -260,18 +267,25 @@ export function deliver(root: string, id: string): { ok: true; dir: string; file
     const files: Array<{ path: string; sha256: string; bytes: number }> = [];
     // A copy that fails partway removes the files this call wrote (the review of ee70b9e, M2): the project holds
     // the whole verified set or none of what this call added; files that were already there and matched stay.
-    const written: string[] = [];
+    // Round R4 (H17): a file that changed under the copy no longer holds what this call wrote, so it is left as it
+    // was found and named, never deleted.
+    const written: Array<{ to: string; name: string; sha256: string }> = [];
     try {
       for (const f of got.v.files) {
         const to = path.join(dest, f.name);
-        if (!fs.existsSync(to)) { fs.writeFileSync(to, f.bytes, { flag: 'wx' }); written.push(to); }
+        if (!fs.existsSync(to)) { fs.writeFileSync(to, f.bytes, { flag: 'wx' }); written.push({ to, name: f.name, sha256: f.sha256 }); }
         const back = sha(fs.readFileSync(to));
         if (back !== f.sha256) throw new Error(`${dirRel}/${f.name} reads back with a different sha256 after copying`);
         files.push({ path: `${dirRel}/${f.name}`, sha256: back, bytes: f.bytes.length });
       }
     } catch (e) {
-      for (const w of written) { try { fs.unlinkSync(w); } catch { /* already gone */ } }
-      return { ok: false, error: `nothing kept from this copy (${written.length} written, removed again): ${e instanceof Error ? e.message : String(e)}` };
+      const left: string[] = [];
+      let removed = 0;
+      for (const w of written) {
+        try { if (sha(fs.readFileSync(w.to)) === w.sha256) { fs.unlinkSync(w.to); removed++; } else left.push(`${dirRel}/${w.name}`); } catch { /* already gone */ }
+      }
+      const changed = left.length ? `; ${left.join(', ')} changed while it was copied and was left as it was found` : '';
+      return { ok: false, error: `nothing kept from this copy (${written.length} written, ${removed} removed again${changed}): ${e instanceof Error ? e.message : String(e)}` };
     }
     return { ok: true, dir: dirRel, files, v: got.v };
   } catch (e) {
@@ -282,14 +296,18 @@ export function deliver(root: string, id: string): { ok: true; dir: string; file
 /** Whether the project's copy of a succeeded job is complete and matches the verified result, file by file. */
 export function checkCopy(root: string, id: string): { ok: true; v: Verified; dir: string } | { ok: false; error: string } {
   const got = verifiedResult(root, id);
-  if (!got.ok) return got;
-  const dirRel = outDir(id);
-  for (const f of got.v.files) {
+  return got.ok ? checkCopyOf(root, got.v) : got;
+}
+
+/** The same check against a result the caller has already verified (its one read). */
+export function checkCopyOf(root: string, v: Verified): { ok: true; v: Verified; dir: string } | { ok: false; error: string } {
+  const dirRel = outDir(v.id);
+  for (const f of v.files) {
     const at = path.join(root, dirRel, f.name);
     if (!fs.existsSync(at)) return { ok: false, error: `${dirRel}/${f.name} is missing` };
     if (sha(fs.readFileSync(at)) !== f.sha256) return { ok: false, error: `${dirRel}/${f.name} differs from the verified result` };
   }
-  return { ok: true, v: got.v, dir: dirRel };
+  return { ok: true, v, dir: dirRel };
 }
 
 /** Where a job's raw failure is kept, project-relative: its worker log, and the native log and report when the run wrote them. */

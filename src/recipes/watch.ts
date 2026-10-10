@@ -4,6 +4,8 @@
  * ends: on success copies the freshly verified exports into the project (src/recipes deliver) and exits 0;
  * otherwise says where the raw failure is kept and exits nonzero. Stopped (SIGTERM from /stop or the REPL's
  * end), it asks the recipe's own cancel path and keeps reading status briefly for a final state. The
+ * REPL asks that same cancel itself before it stops this watcher (round R4: a stop can land before this
+ * module, and so its handler, has loaded); asking twice changes nothing. The
  * recipe supervisor owns the native process; this watcher never signals a process it did not start.
  *
  *   node [--import tsx] src/recipes/watch.ts <project root> <recipe job UUID>

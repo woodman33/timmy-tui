@@ -3,18 +3,20 @@
  * durable job. The request is validated and its analytic prediction sealed before any native start; a
  * refused request or a missing runtime starts nothing. A started job shows in /jobs as a Timmy job (the
  * watcher, src/recipes/watch.ts) whose label carries the recipe job's UUID (its operation ID), its request
- * hash and its source hash; /stop reaches the recipe's own cancel path through that watcher. The durable
+ * hash and its source hash; /stop asks the recipe's own cancel path through that UUID before it stops the watcher
+ * (round R4: src/repl/recipe-stop.ts), and the watcher's own handler may ask again. The durable
  * jobs live in the project (.timmy/recipe-jobs), so /recipe status lists them after a restart.
  */
 import type { ChildProcess } from 'node:child_process';
 import type { JobRecord, JobSpec } from '../jobs/index.js';
 import { projectId } from '../project/index.js';
 import {
-  checkCopy, deliver, DOCTRINE_15, failureFiles, isRecipeJobId, launchRecipe, listRecipeJobs, nativeRuntime, outcomeLines, outDir,
-  PARAMETER_HELP, PARAMETER_NAMES, parseWords, prepareRecipe, PYTHON_SETUP, readCard, RECIPE_ID, short, watcherSpec,
+  checkCopy, checkCopyOf, deliver, deliverable, DOCTRINE_15, failureFiles, isRecipeJobId, launchRecipe, listRecipeJobs, nativeRuntime, outcomeLines, outDir,
+  PARAMETER_HELP, PARAMETER_NAMES, parseWords, prepareRecipe, PYTHON_SETUP, readCard, readRecipe, RECIPE_ID, short, watcherSpec,
 } from '../recipes/index.js';
 import { paramsPath, readParams } from '../recipes/params-file.js';
 import { cancel, recover, status } from '../../lanes/recipes/jobs.js';
+import { cancelUnfollowed, type RecipeCancel } from './recipe-stop.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import type { ReceiptInput } from '../utils/receipts.js';
@@ -32,6 +34,8 @@ export interface RecipeContext {
   seal: (input: ReceiptInput) => string | undefined;
   /** Starts the watcher as this REPL's job (so /stop reaches it) and remembers its recipe UUID. */
   startJob: (spec: JobSpec, uuid: string) => JobRecord;
+  /** Round R4 (H17): tells the REPL a recipe's UUID before its supervisor starts; the returned function, once its start has settled. */
+  launching?: (uuid: string) => () => void;
   test?: RecipeTestSeams;
 }
 
@@ -67,14 +71,20 @@ export async function startRecipeJob(c: RecipeContext, given: Record<string, unk
   } catch { sealed = undefined; }
   // No sealed prediction, no start: the job stays queued (listed by /recipe status), and nothing native runs.
   if (!sealed) return { ok: false, stage: 'start', operation: id, error: `the prediction could not be sealed, so job ${id} was written but not started` };
-  try { await launchRecipe(c.root, id, c.test?.onSupervisor); } catch (e) {
-    return { ok: false, stage: 'start', operation: id, error: `the job was written but did not start: ${e instanceof Error ? e.message : String(e)}` };
-  }
-  const label = `recipe ${RECIPE_ID} ${id} · request ${short(job.requestHash)} · source ${short(job.sourceHash)}`;
+  // Round R4 (H17, the review of 07f37ec, finding 4): the recipe can run before its watcher does, so the REPL learns its
+  // UUID first; every stop path and the REPL's end can then cancel it through the recipe's own path.
+  const settled = c.launching?.(id);
   let watcher: JobRecord;
-  try { watcher = c.startJob(watcherSpec({ root: c.root, id, label, project: c.project, ...(c.test?.pollMs ? { pollMs: c.test.pollMs } : {}) }), id); } catch (e) {
-    return { ok: false, stage: 'start', operation: id, error: `job ${id} runs, but its watcher did not start (${e instanceof Error ? e.message : String(e)}); /recipe status follows it` };
-  }
+  try {
+    try { await launchRecipe(c.root, id, c.test?.onSupervisor); } catch (e) {
+      return { ok: false, stage: 'start', operation: id, error: `the job was written but did not start: ${e instanceof Error ? e.message : String(e)}` };
+    }
+    const label = `recipe ${RECIPE_ID} ${id} · request ${short(job.requestHash)} · source ${short(job.sourceHash)}`;
+    try { watcher = c.startJob(watcherSpec({ root: c.root, id, label, project: c.project, ...(c.test?.pollMs ? { pollMs: c.test.pollMs } : {}) }), id); } catch (e) {
+      // Without its watcher nothing follows the recipe, so it is cancelled through its own path, never left running unsaid.
+      return { ok: false, stage: 'start', operation: id, error: cancelUnfollowed(c.root, id, `its watcher did not start (${e instanceof Error ? e.message : String(e)})`) };
+    }
+  } finally { settled?.(); }
   return {
     ok: true, job: watcher.id, operation: id, request_sha256: job.requestHash, source_sha256: job.sourceHash,
     predicted: { bounds_mm: predicted.bounds, volume_mm3: predicted.volumeMm3 }, prediction_receipt: sealed,
@@ -115,7 +125,7 @@ async function startView(c: RecipeContext, words: string[]): Promise<Line[]> {
   if (!r.ok) {
     if (r.stage === 'refused') return say(`Refused before any native start: ${r.error}. Nothing started.`, 'failure');
     if (r.stage === 'setup') return [...say(`Not started: ${r.error}.`, 'estimate'), ...say(`Setup: ${PYTHON_SETUP}, then /recipe tray again.`)];
-    return say(`${r.error}${r.operation ? `${sep(c)}/recipe status` : ''}`, 'failure');
+    return say(`${r.error}${r.operation && !r.error.includes('/recipe status') ? `${sep(c)}/recipe status` : ''}`, 'failure');
   }
   const [x, y, z] = r.predicted.bounds_mm;
   return [
@@ -203,13 +213,19 @@ export async function recipeView(c: RecipeContext, args: string): Promise<Line[]
   return say(`No recipe ${w[0]}: /recipe lists ${RECIPE_ID} (tray).`);
 }
 
-/** The notice when a recipe's watcher job ends: the verified outcome, or what happened and where it is kept. */
-export function recipeEnded(c: RecipeContext, job: JobRecord, id: string): Line[] {
+/**
+ * The notice when a recipe's watcher job ends: the verified outcome, or what happened and where it is kept. The state
+ * shown, the outcome and the copy check come from one verified read (the review of 07f37ec, M3). `asked` is the REPL's
+ * own cancel, asked when the watcher was stopped or ended by a signal (round R4, H17).
+ */
+export function recipeEnded(c: RecipeContext, job: JobRecord, id: string, asked?: RecipeCancel): Line[] {
   const g = c.glyphs;
-  let s: ReturnType<typeof status>;
-  try { s = status(c.root, id); } catch (e) { return [[{ text: `  ${g.fail} `, role: 'failure' }, { text: `${job.id} recipe ${id}`, role: 'failure' }, { text: `  could not be read: ${e instanceof Error ? e.message : String(e)}`, role: 'secondary' }]]; }
+  let read: ReturnType<typeof readRecipe>;
+  try { read = readRecipe(c.root, id); } catch (e) { return [[{ text: `  ${g.fail} `, role: 'failure' }, { text: `${job.id} recipe ${id}`, role: 'failure' }, { text: `  could not be read: ${e instanceof Error ? e.message : String(e)}${asked?.requested ? `${sep(c)}cancel requested through the recipe's own path` : ''}`, role: 'secondary' }]]; }
+  const s = read.s;
   if (s.state === 'succeeded') {
-    const copy = checkCopy(c.root, id);
+    const got = deliverable(id, read);
+    const copy = got.ok ? checkCopyOf(c.root, got.v) : got;
     if (!copy.ok) return [[{ text: `  ${g.fail} `, role: 'failure' }, { text: `${job.id} recipe ${id} succeeded`, role: 'strong' }, { text: `  but its exports are not in the project: ${copy.error}${sep(c)}/jobs ${job.id}${sep(c)}/recipe copy ${id}`, role: 'secondary' }]];
     return outcomeLines(copy.v, copy.dir).map((l, i) => i === 0
       ? [{ text: `  ${g.ok} ` }, { text: `${job.id} ${l}`, role: 'strong' }]
@@ -217,7 +233,13 @@ export function recipeEnded(c: RecipeContext, job: JobRecord, id: string): Line[
   }
   const kept = failureFiles(c.root, id);
   const where = kept.length ? `${sep(c)}kept: ${kept.join(', ')}` : '';
-  const next = s.state === 'interrupted' ? `${sep(c)}/recipe recover ${id}` : s.state === 'queued' || s.state === 'running' ? `${sep(c)}the watcher ended first: /recipe status` : '';
+  const live = s.state === 'queued' || s.state === 'running';
+  const cancelled = asked?.error ? `${sep(c)}the cancel request failed (${asked.error})` : asked?.requested ? `${sep(c)}cancel requested through the recipe's own path` : '';
+  const next = s.state === 'interrupted' ? `${sep(c)}/recipe recover ${id}`
+    : !live ? ''
+      : asked?.error ? `${sep(c)}the watcher ended first: /recipe status shows it; /recipe cancel ${id} cancels it`
+        : asked?.requested || s.progress === 'cancellation-requested' ? `${sep(c)}the watcher ended first: /recipe status shows it end`
+          : `${sep(c)}the watcher ended first and the recipe still runs: /recipe status follows it; /recipe cancel ${id} cancels it`;
   return [[{ text: `  ${s.state === 'cancelled' ? ' ' : g.fail} `, role: s.state === 'cancelled' ? undefined : 'failure' }, { text: `${job.id} recipe ${id} ${s.state}`, role: s.state === 'cancelled' ? 'strong' : 'failure' },
-    { text: `  ${s.progress}${s.reason ? `: ${s.reason}` : ''}${where}${next}`, role: 'secondary' }]];
+    { text: `  ${s.progress}${s.reason ? `: ${s.reason}` : ''}${cancelled}${where}${next}`, role: 'secondary' }]];
 }

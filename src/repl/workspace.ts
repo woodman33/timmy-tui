@@ -25,6 +25,7 @@ import { copyStarter, listStarters } from '../project/starters.js';
 import { BOARD_BASE, BOARD_FILE, readObservationRecord, renderBoard, renderBoardBody, utcStamp, type BoardFile, type BoardInput, type BoardObservation } from './board.js';
 import { LiveBoard, type BoardCommand, type LiveState } from './board-live.js';
 import { recipeEnded, recipeView, startRecipeJob, type RecipeContext, type RecipeStarted, type RecipeTestSeams } from './recipe.js';
+import { cancelRecipe, cancelSentence, RecipeLaunches, type RecipeCancel } from './recipe-stop.js';
 import { killProcessGroup } from '../runtime/spawn-runtime.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
@@ -197,6 +198,8 @@ export class Workspace {
   private live?: LiveBoard;
   /** Round R3 (/recipe): each recipe watcher job's recipe job UUID (its operation ID). */
   private readonly recipes = new Map<string, string>();
+  /** Round R4 (H17): recipes being launched, before their watcher exists; the REPL's end cancels them too. */
+  private readonly launches = new RecipeLaunches();
   /** Round R3 (/agent): code-agent runs this REPL started, by their job's id: sealed by sealAgent, not as a plain task. */
   private readonly agentRuns = new Map<string, AgentRunState>();
 
@@ -793,7 +796,13 @@ export class Workspace {
     }
     if (job.state === before.state) return;
     const recipe = this.recipes.get(job.id);
-    if (recipe && TERMINAL.has(job.state)) { for (const l of recipeEnded({ ...this.recipeContext(), root: job.root }, job, recipe)) this.d.notify(l); return; }
+    if (recipe && TERMINAL.has(job.state)) {
+      // Round R4 (H17): a watcher stopped, or ended by a signal (its handler may never have loaded), cannot follow its
+      // recipe any more: the recipe's own cancel is asked (again, when a stop path already did), idempotently.
+      const asked = job.state === 'cancelled' || job.signal ? cancelRecipe(job.root, recipe) : undefined;
+      for (const l of recipeEnded({ ...this.recipeContext(), root: job.root }, job, recipe, asked)) this.d.notify(l);
+      return;
+    }
     // Round R3 (/agent): a code agent's end says its outcome and what it changed, from its sealed result.
     const agentRun = this.agentRuns.get(job.id);
     if (agentRun && TERMINAL.has(job.state)) return void this.d.notify(this.agentEndLine(job, agentRun));
@@ -931,6 +940,8 @@ export class Workspace {
       for (const o of this.observing.values()) o.abort.abort();
       const live = [...this.mine].map((x) => this.jobs.get(x)).filter((j): j is JobRecord => !!j && !TERMINAL.has(j.state));
       if (!live.length && !asking.length) return this.say('Nothing this REPL started is running.');
+      // Round R4 (H17): each recipe watcher's recipe is cancelled through its own path before any watcher is stopped.
+      const recipesAsked = live.flatMap((j) => this.cancelWatched(j) ?? []);
       const [ended, asked] = await Promise.all([
         Promise.all(live.map((j) => this.jobs.stop(j.id))),
         Promise.all(asking.map((o) => (o.done ? within(o.done) : Promise.resolve(undefined)))),
@@ -950,6 +961,7 @@ export class Workspace {
           ? `Stopped ${n} model interpretation${n === 1 ? '; its measurement' : 's; their measurements'} had completed${rest ? `; ${rest} more had already ended` : ''}.`
           : `${rest} model interpretation${rest === 1 ? ' had' : 's had'} already ended when the stop came.`));
       }
+      for (const a of recipesAsked) lines.push(...this.say(cancelSentence(a), a.error ? 'failure' : 'secondary'));
       return lines;
     }
     const j = this.jobs.get(id);
@@ -963,11 +975,32 @@ export class Workspace {
     if (TERMINAL.has(j.state)) return this.say(`${id} already ${j.state}.`);
     // A measurement that completes while this stop lands goes no further: the model is not asked.
     obs?.abort.abort();
+    // Round R4 (H17): a recipe watcher's recipe is cancelled through its own path first, so a stop that lands before
+    // the watcher has its handler still reaches the recipe (the live board's Stop comes here too).
+    const asked = this.cancelWatched(j);
+    const recipeLine = asked ? this.say(cancelSentence(asked), asked.error ? 'failure' : 'secondary') : [];
     const done = await this.jobs.stop(id);
     if (!done || !TERMINAL.has(done.state) || done.error) {
-      return [[{ text: `  ${id} ${done?.state ?? 'unknown'}`, role: 'failure' }, { text: `  ${j.label}: ${done?.error ?? 'it did not stop'}; /jobs ${id}`, role: 'secondary' }]];
+      return [[{ text: `  ${id} ${done?.state ?? 'unknown'}`, role: 'failure' }, { text: `  ${j.label}: ${done?.error ?? 'it did not stop'}; /jobs ${id}`, role: 'secondary' }], ...recipeLine];
     }
-    return [[{ text: `  ${id} ${done.state}`, role: 'strong' }, { text: `  ${j.label}: it and its process group have stopped`, role: 'secondary' }]];
+    return [[{ text: `  ${id} ${done.state}`, role: 'strong' }, { text: `  ${j.label}: it and its process group have stopped`, role: 'secondary' }], ...recipeLine];
+  }
+
+  /** Round R4 (H17): the recipe's own cancel for a live recipe watcher job, asked before the watcher is stopped. */
+  private cancelWatched(j: JobRecord): RecipeCancel | undefined {
+    const uuid = this.recipes.get(j.id);
+    return uuid && !TERMINAL.has(j.state) ? cancelRecipe(j.root, uuid) : undefined;
+  }
+
+  /** Round R4 (H17): the REPL is ending: no recipe watcher starts after this, and each recipe being launched or
+   *  followed is cancelled through its own path (never a signal, never a PID read from disk) before anything stops. */
+  private cancelRecipes(): RecipeCancel[] {
+    const asked = this.launches.close();
+    for (const id of this.recipes.keys()) {
+      const j = this.jobs.get(id);
+      if (j) { const a = this.cancelWatched(j); if (a) asked.push(a); }
+    }
+    return asked;
   }
 
   /**
@@ -991,6 +1024,9 @@ export class Workspace {
   /** The REPL is ending: stop what this REPL started, a model's interpretation included, and let a stopped
    *  observation be recorded (round R3). */
   async close(): Promise<void> {
+    // Round R4 (H17): recipes first, through their own cancel; a recipe start under way settles (bounded) and starts no watcher.
+    for (const a of this.cancelRecipes()) if (a.error) this.d.notify(this.say(cancelSentence(a), 'failure')[0]);
+    await within(this.launches.settled());
     await this.closeLiveBoard();
     const pending = [...this.observing.values()].flatMap((o) => { o.abort.abort(); return o.done ? [o.done] : []; });
     await this.jobs.stopAll();
@@ -1002,6 +1038,8 @@ export class Workspace {
     this.live?.closeNow();
     this.live = undefined;
     for (const o of this.observing.values()) o.abort.abort();
+    // Round R4 (H17): each recipe is cancelled through its own path before any watcher is signalled (synchronous).
+    this.cancelRecipes();
     for (const id of this.mine) {
       const j = this.jobs.get(id);
       if (j?.pid && !TERMINAL.has(j.state)) killProcessGroup(j.pid, 'SIGTERM');
@@ -1052,15 +1090,21 @@ export class Workspace {
 
   // ── /recipe (round R3: the CadQuery enclosure-tray recipe as a durable job; src/repl/recipe.ts) ──
 
-  async recipe(args: string): Promise<Line[]> { return recipeView(this.recipeContext(), args); }
+  async recipe(args: string): Promise<Line[]> { return this.launches.track(recipeView(this.recipeContext(), args)); }
 
   /** The agent's run_recipe: the same start as /recipe tray, answered as data. */
-  runRecipe(parameters: Record<string, unknown>): Promise<RecipeStarted> { return startRecipeJob(this.recipeContext(), parameters); }
+  runRecipe(parameters: Record<string, unknown>): Promise<RecipeStarted> { return this.launches.track(startRecipeJob(this.recipeContext(), parameters)); }
 
   private recipeContext(): RecipeContext {
+    const root = this.root;
     return {
-      root: this.root, project: this.project.name, env: this.d.env, glyphs: this.d.glyphs, seal: this.d.seal,
-      startJob: (spec, uuid) => { const job = this.jobs.start(spec); this.mine.add(job.id); this.recipes.set(job.id, uuid); return job; },
+      root, project: this.project.name, env: this.d.env, glyphs: this.d.glyphs, seal: this.d.seal,
+      startJob: (spec, uuid) => {
+        // Round R4 (H17): a watcher started after the REPL began to end would outlive it, so none is.
+        if (this.launches.closing) throw new Error('this REPL is ending');
+        const job = this.jobs.start(spec); this.mine.add(job.id); this.recipes.set(job.id, uuid); return job;
+      },
+      launching: (uuid) => this.launches.add(uuid, root),
       ...(this.d.recipeTest ? { test: this.d.recipeTest } : {}),
     };
   }
