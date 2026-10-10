@@ -122,7 +122,8 @@ else if (role === 'look') {
   else {
     const { s } = src(args[1]);
     const size = (env.FAKE_STEP_SIZE ?? '10,20,30').split(',').map(Number);
-    say({ ok: true, worker, python: 'fake', engine: { ocp: '7.8-fake', cadquery: null }, source: { name: opt('--as'), ...s }, units: 'mm', unit_in_effect: 'MM', tier: 'deterministic computation',
+    // FAKE_STEP_NO_UNIT (R4 H61): a readback whose OCP did not report the unit in effect (unit_in_effect null).
+    say({ ok: true, worker, python: 'fake', engine: { ocp: '7.8-fake', cadquery: null }, source: { name: opt('--as'), ...s }, units: 'mm', unit_in_effect: env.FAKE_STEP_NO_UNIT ? null : 'MM', tier: 'deterministic computation',
       valid: true, solids: 1, bounds: { min: [0, 0, 0], max: size, size, method: 'FAKE bounds' }, volume_mm3: size[0] * size[1] * size[2], volume_method: 'FAKE volume' });
   }
 } else if (role === 'blender') {
@@ -168,6 +169,29 @@ export function fakeTools(dir: string): { look: string; step: string; blender: s
     return p;
   };
   return { look: wrap('python', 'look'), step: wrap('cadquery-python', 'step'), blender: wrap('blender', 'blender'), python3: wrap('python3', 'python3'), ffprobe: wrap('ffprobe', 'ffprobe'), ffmpeg: wrap('ffmpeg', 'ffmpeg'), roboflow: wrap('roboflow-python', 'roboflow') };
+}
+
+/**
+ * R4 (H61): a FAKE `rerun` in a fresh folder: a labelled test double of Rerun's viewer program. It opens no window and
+ * reads no file; it writes what it was given to $FAKE_RERUN_LOG (each argument on its own line, its working folder and its
+ * process group, which a detached start makes its own), then exits.
+ */
+export function fakeRerun(dir: string): string {
+  const p = join(dir, 'rerun');
+  writeFileSync(p, [
+    '#!/bin/sh',
+    '# FAKE: a test double of Rerun\'s `rerun` viewer (tests/helpers/vox-fakes.ts): no window, no file read; it logs its arguments.',
+    'log="${FAKE_RERUN_LOG:?FAKE_RERUN_LOG is not set}"',
+    '{',
+    '  echo "pgid $(ps -o pgid= -p $$ | tr -d \' \')"',
+    '  echo "cwd $(pwd)"',
+    '  for a in "$@"; do echo "arg $a"; done',
+    '  echo "end"',
+    '} > "$log.tmp" && mv "$log.tmp" "$log"',
+    '',
+  ].join('\n'));
+  chmodSync(p, 0o755);
+  return p;
 }
 
 /** A Workspace on a project folder, with its notices and receipts recorded (sealed receipts get fake hashes). */

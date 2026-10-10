@@ -17,7 +17,8 @@ import { extname } from 'node:path';
 import { kindOf, type IntakeKind } from '../project/intake.js';
 
 export type VoxKind = 'image' | 'stl' | 'step' | 'blend' | 'video' | 'ply' | 'other';
-export type VoxTool = 'look' | 'stl' | 'step' | 'blend' | 'video' | 'spatial' | 'geo' | 'roboflow' | 'intake';
+/** R4 (H61): rerun, viser and fiftyone are the viewer layers (src/vox/layers.ts): they show files, they measure nothing. */
+export type VoxTool = 'look' | 'stl' | 'step' | 'blend' | 'video' | 'spatial' | 'geo' | 'roboflow' | 'intake' | 'rerun' | 'viser' | 'fiftyone';
 
 export interface VoxKindAnswer {
   kind: VoxKind;

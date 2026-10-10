@@ -16,6 +16,12 @@
  * writes results/vox/<id>.json (timmy.vox/1, src/vox/record.ts) with its highlight files beside it (results/vox/<id>/,
  * each with its sha256), and seals one `vox` receipt over the record's bytes and the highlights'. A missing tool is a
  * "needs setup" row with its exact step, never a value. DOCTRINE §15 goes with every CAD or mesh result.
+ *
+ * Round R4 (H61): every value and highlight carries one status word (src/vox/words.ts: CAD checked, measured, estimated,
+ * model prediction, stale, unknown), shown first in the lines below, the tier and method kept as the advanced detail;
+ * generated CAD is checked against its source's own report or prediction (src/vox/sources.ts); each input names its
+ * frame, and a compare draws its two together only in a shared known frame and unit (src/vox/frames.ts), else says why.
+ * `/vox view <record id> [rerun]` opens a record's files in Rerun's viewer (src/repl/vox-view.ts).
  */
 import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync, readFileSync, statSync } from 'node:fs';
@@ -29,7 +35,7 @@ import { projectId, resolveInside, writeProjectFile } from '../project/index.js'
 import { hashFile, splitArgs } from '../project/intake.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
-import type { ReceiptInput } from '../utils/receipts.js';
+import type { Receipt, ReceiptInput } from '../utils/receipts.js';
 import { checkOpenCv, LOOK_MAX_OUTPUT, LOOK_SCRIPT, LOOK_TIMEOUT_MS, lookEnv, parseLookOutput, type LookObservation } from '../vision/look.js';
 import { buildGaussianPlyContext } from '../vision/spatial/gaussian-ply-context.js';
 import { headBytes, KIND_WORDS, voxKindOf, type VoxKind, type VoxTool } from '../vox/kinds.js';
@@ -45,6 +51,13 @@ import {
 } from '../vox/tools.js';
 // R4 (H51): each record names the operation (one request) that started its action.
 import { operationField } from '../ops/context.js';
+// R4 (H61): the status word of every value and highlight, each input's frame, the checks of generated CAD against its
+// source's own report or prediction, and /vox view (Rerun's viewer, src/repl/vox-view.ts).
+import { settleWords, wordText, type VoxWord } from '../vox/words.js';
+import { apart, blendFrame, frameFromRecord, imageFrame, noFrame, plyFrame, stepFrame, stlFrame, together, videoFrame, type VoxFrame } from '../vox/frames.js';
+import { checkWords, flowPredictionCheck, scadSummaryCheck } from '../vox/sources.js';
+import { voxArg } from '../vox/args.js';
+import { voxCommand } from './vox-view.js';
 
 type Line = Segment[];
 
@@ -60,6 +73,8 @@ export interface VoxDeps {
   startJob: (spec: JobSpec, o?: { selfSealed?: boolean }) => JobRecord;
   /** Writes the project's folder as "." and the home folder as "~". */
   scrub: (text: string, root: string) => string;
+  /** R4 (H61): the runs chain, read when an action checks generated CAD against its source and when /vox view checks a record; absent: none */
+  receipts?: () => readonly Receipt[];
 }
 
 export const VOX_USAGE: Readonly<Record<VoxAction, string>> = {
@@ -90,14 +105,15 @@ interface Op {
   first: (j: JobRecord | null) => void;
 }
 
+/** R4 (H61): an input's frame, as the tool that read it found it (set once; the rest are told from the record at the end). */
+function setFrame(r: Resolved, frame: VoxFrame): void { r.input.frame ??= frame; }
+/** R4 (H61): the line a status word is shown on: its word, and what it rests on. */
+const WORD_ROLE: Readonly<Record<VoxWord, Segment['role']>> = { 'CAD checked': undefined, measured: undefined, estimated: undefined, 'model prediction': undefined, stale: 'estimate', unknown: undefined };
+
 const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 const short = (h?: string): string => (h ? `${h.slice(0, 12)}…` : 'none');
-/** A project path written so splitArgs reads it back exactly (the board's buttons and a record's command use it). */
-export function voxArg(rel: string): string | null {
-  const arg = /^[^\s"'\\]+$/.test(rel) ? rel : `"${rel.replace(/["\\]/g, '\\$&')}"`;
-  const back = splitArgs(arg);
-  return back.length === 1 && back[0] === rel ? arg : null;
-}
+/** A project path written so splitArgs reads it back exactly (src/vox/args.ts since R4 H61; exported here as before). */
+export { voxArg };
 
 /** A parsed command line, or why it cannot be read. */
 export function parseVoxArgs(action: VoxAction, args: string): { files: string[]; opts: Opts } | { error: string } {
@@ -176,6 +192,19 @@ export class VoxActions {
   /** The record ids of the actions under way in a project. */
   runningIn(root: string): string[] { return [...this.running.values()].filter((r) => r.op.root === root).map((r) => r.op.id); }
 
+  /** R4 (H61): `/vox` (its usage and the viewer layers) and `/vox view <record id> [rerun]` (src/repl/vox-view.ts). */
+  vox(args: string, at: { root: string; project: string }): Promise<Line[]> {
+    return voxCommand({
+      glyphs: this.d.glyphs, env: this.d.env, onPath: this.d.onPath, seal: this.d.seal, scrub: this.d.scrub,
+      receipts: () => this.chain(), running: (root) => this.runningIn(root),
+    }, args, at);
+  }
+
+  /** R4 (H61): the runs chain now (none when it cannot be read). */
+  private chain(): readonly Receipt[] {
+    try { return this.d.receipts?.() ?? []; } catch { return []; }
+  }
+
   /** `/inspect`, `/measure`, `/detect`, `/compare`: starts the action; with a job, its end arrives as a notice. */
   async command(action: VoxAction, args: string, at: { root: string; project: string }): Promise<Line[]> {
     const parsed = parseVoxArgs(action, args);
@@ -248,7 +277,8 @@ export class VoxActions {
     }
     if (action === 'compare') {
       if (r[0].input.path === r[1].input.path) return '/compare needs two different files.';
-      if (kinds[0] !== kinds[1]) return `/compare needs two files of the same kind: ${r[0].input.path} is ${KIND_WORDS[kinds[0]]}, ${r[1].input.path} is ${KIND_WORDS[kinds[1]]}.`;
+      // R4 (H61): and why by their frames: an STL and a STEP share no known unit; a video and an image share no frame.
+      if (kinds[0] !== kinds[1]) return `/compare needs two files of the same kind: ${r[0].input.path} is ${KIND_WORDS[kinds[0]]}, ${r[1].input.path} is ${KIND_WORDS[kinds[1]]}.${kinds.includes('other') ? '' : ` ${apart(kinds[0], kinds[1])}`}`;
       if (kinds[0] === 'other') return `${reads}; these are not one of them.`;
       if (kinds[0] === 'blend') return 'Two .blend files are not compared here: /measure each (a second pass by Blender) and read their object sizes side by side.';
       if (kinds[0] !== 'ply' && (o.voxel !== undefined || o.tau !== undefined || o.normalize || o.fit)) return '--voxel, --tau, --normalize and --fit are the geo lane\'s, for two PLY point clouds.';
@@ -265,6 +295,7 @@ export class VoxActions {
     try {
       if (op.action === 'inspect') this.intake(op);
       if (k === 'other') {
+        for (const r of op.inputs) setFrame(r, noFrame());
         op.record.failures.push({ tool: 'intake', code: 'unsupported', message: `${op.inputs[0].input.note ?? 'not a kind VoxVision reads'}: no supported tool reads it, so only what its bytes say is recorded` });
       } else if (op.action === 'compare') {
         if (k === 'image') await this.lookDiff(op);
@@ -417,6 +448,7 @@ export class VoxActions {
     const obs = parsed.observation;
     Object.assign(j.run, { name: obs.worker.name, version: obs.worker.version, engine: `OpenCV ${obs.opencv}, Python ${obs.python}` });
     if (obs.source.sha256 !== r.input.sha256) { op.record.failures.push({ tool: 'look', code: 'failed', message: `${r.input.path} changed while Look read it (sha256 ${short(obs.source.sha256)}, recorded ${short(r.input.sha256)})` }); return; }
+    setFrame(r, imageFrame([obs.image.width, obs.image.height]));
     const select = op.action === 'measure' && o.what?.length ? new Set(o.what.flatMap((w) => IMAGE_SELECT[w] ?? [])) : undefined;
     let metrics = lookMetrics(obs, op.action, select);
     if (op.action === 'detect') metrics = metrics.filter((m) => (only ? (o.qr && m.name === 'qr_codes_decoded') || (o.aruco && m.name === 'aruco_markers') : m.name === 'qr_codes_decoded' || m.name === 'aruco_markers'));
@@ -454,7 +486,10 @@ export class VoxActions {
     Object.assign(j.run, { name: pa.observation.worker.name, version: pa.observation.worker.version, engine: `OpenCV ${pa.observation.opencv}, Python ${pa.observation.python}` });
     for (const [p, r] of [[pa.observation, a], [pb.observation, b]] as Array<[LookObservation, Resolved]>) {
       if (p.source.sha256 !== r.input.sha256) { op.record.failures.push({ tool: 'look', code: 'failed', message: `${r.input.path} changed while Look read it`, of: r.input.role }); return; }
+      setFrame(r, imageFrame([p.image.width, p.image.height]));
     }
+    // R4 (H61): the two images are compared pixel by pixel (and the heatmap drawn) only in one pixel frame: Look's own rule.
+    op.record.together = together({ kind: 'image', frame: a.input.frame! }, { kind: 'image', frame: b.input.frame! });
     const ma = lookMetrics(pa.observation, 'measure', undefined, 'a');
     const mb = lookMetrics(pb.observation, 'measure', undefined, 'b');
     op.record.metrics.push(...ma, ...mb, ...deltaMetrics(ma, mb, ['width', 'height', 'sharpness', 'edge_density']));
@@ -476,6 +511,10 @@ export class VoxActions {
     if (!read.ok) { op.record.failures.push({ tool: 'stl', code: 'failed', message: `${r.input.path}: ${read.kind}: ${read.error}`, ...(r.input.role ? { of: r.input.role } : {}) }); return null; }
     this.keep(run, read.readback);
     if (read.readback.sha256 !== r.input.sha256) { op.record.failures.push({ tool: 'stl', code: 'failed', message: `${r.input.path} changed while it was read` }); return null; }
+    setFrame(r, stlFrame());
+    // R4 (H61): an STL OpenSCAD wrote is checked against OpenSCAD's own summary of that run (its receipt names these bytes).
+    const check = scadSummaryCheck({ root: op.root, chain: this.chain(), projectId: projectId(op.root), input: { path: r.input.path, sha256: r.input.sha256, ...(r.input.role ? { role: r.input.role } : {}) }, readback: read.readback });
+    if (check) { (op.record.checks ??= []).push(check); op.record.notes.push(this.d.scrub(`${r.input.role ? `${r.input.role}: ` : ''}${checkWords(check)}`, op.root)); }
     return read.readback;
   }
 
@@ -484,7 +523,7 @@ export class VoxActions {
     const read = this.stlOne(op, r);
     if (!read) return;
     op.record.metrics.push(...stlMetrics(read, op.action));
-    if (read.bbox) this.svg(op, 'bbox.svg', { title: r.input.path, boxes: [{ label: r.input.path, size: read.bbox.size }], unit: 'file units', measuredBy: `${STL_READBACK} (Timmy's reader)` }, undefined);
+    if (read.bbox) this.svg(op, 'bbox.svg', { title: r.input.path, boxes: [{ label: r.input.path, size: read.bbox.size }], unit: 'file units', measuredBy: `${STL_READBACK} (Timmy's reader)`, frame: "the STL's own model frame; the file's units, not declared" }, undefined);
   }
 
   private stlCompare(op: Op): void {
@@ -494,11 +533,15 @@ export class VoxActions {
     if (!ra || !rb) return;
     const ma = stlMetrics(ra, 'measure', 'a');
     const mb = stlMetrics(rb, 'measure', 'b');
+    // R4 (H61): the deltas compare numbers in each file's own units: estimated (units not declared), never millimetres.
     op.record.metrics.push(...ma, ...mb, ...deltaMetrics(ma, mb, ['bbox_size', 'volume', 'area', 'triangles'], ['volume', 'area']));
     if (!ra.oriented || !rb.oriented) op.record.notes.push('A mesh that is not closed and consistently oriented has a signed volume, not an enclosed one: its volume delta compares signed sums.');
-    if (ra.bbox && rb.bbox) {
+    // R4 (H61): both boxes are drawn at one scale only when the two files share a known unit, which two STLs never do.
+    const t = together({ kind: 'stl', frame: a.input.frame ?? stlFrame() }, { kind: 'stl', frame: b.input.frame ?? stlFrame() });
+    op.record.together = t;
+    if (t.drawn && ra.bbox && rb.bbox) {
       this.svg(op, 'bbox.svg', { title: `${a.input.path} and ${b.input.path}`, boxes: [{ label: `a: ${a.input.path}`, size: ra.bbox.size }, { label: `b: ${b.input.path}`, size: rb.bbox.size }], unit: 'file units', measuredBy: `${STL_READBACK} (Timmy's reader)` }, 'both');
-    }
+    } else op.record.notes.push(`No bounding-box drawing of both: ${t.words.replace(/^no drawing of both: /, '')}.`);
   }
 
   /** The STEP readback (OCP), as a job; null when it gave nothing. */
@@ -517,9 +560,14 @@ export class VoxActions {
     this.keep(j.run, m);
     Object.assign(j.run, { name: m.worker.name, version: m.worker.version, engine: `OCP ${String((m.engine as { ocp?: unknown } | undefined)?.ocp ?? 'version not reported')}` });
     if (m.source.sha256 !== r.input.sha256) { op.record.failures.push({ tool: 'step', code: 'failed', message: `the worker read bytes other than ${r.input.path} as recorded (sha256 ${short(m.source.sha256)})` }); return null; }
+    const frame = stepFrame(m);
+    setFrame(r, frame);
+    // R4 (H61): a STEP a flow delivered is checked against the recipe's prediction sealed before that flow's build.
+    const check = flowPredictionCheck({ root: op.root, chain: this.chain(), projectId: projectId(op.root), input: { path: r.input.path, sha256: r.input.sha256, ...(r.input.role ? { role: r.input.role } : {}) }, measured: m });
+    if (check) { (op.record.checks ??= []).push(check); op.record.notes.push(this.d.scrub(`${r.input.role ? `${r.input.role}: ` : ''}${checkWords(check)}`, op.root)); }
     if (op.action !== 'compare') {
       op.record.metrics.push(...stepMetrics(m, op.action));
-      this.svg(op, 'bbox.svg', { title: r.input.path, boxes: [{ label: r.input.path, size: m.bounds.size as [number, number, number] }], unit: 'mm', measuredBy: `${m.worker.name} ${m.worker.version} (OCP)` }, undefined);
+      this.svg(op, 'bbox.svg', { title: r.input.path, boxes: [{ label: r.input.path, size: m.bounds.size as [number, number, number] }], unit: 'mm', measuredBy: `${m.worker.name} ${m.worker.version} (OCP)`, frame: frame.unit_by === 'reported' ? "the STEP's own model frame, in millimetres (OCP reported MM in effect)" : "the STEP's own model frame, millimetres assumed (OCP did not report the unit)" }, undefined);
     }
     return m;
   }
@@ -533,7 +581,12 @@ export class VoxActions {
     const xa = stepMetrics(ma, 'measure', 'a');
     const xb = stepMetrics(mb, 'measure', 'b');
     op.record.metrics.push(...xa, ...xb, ...deltaMetrics(xa, xb, ['bbox_size', 'volume', 'solids'], ['volume']));
-    this.svg(op, 'bbox.svg', { title: `${a.input.path} and ${b.input.path}`, boxes: [{ label: `a: ${a.input.path}`, size: ma.bounds.size as [number, number, number] }, { label: `b: ${b.input.path}`, size: mb.bounds.size as [number, number, number] }], unit: 'mm', measuredBy: `${ma.worker.name} ${ma.worker.version} (OCP)` }, 'both');
+    // R4 (H61): both boxes at one scale only when both files are in millimetres as OCP reported them.
+    const t = together({ kind: 'step', frame: a.input.frame ?? stepFrame(ma) }, { kind: 'step', frame: b.input.frame ?? stepFrame(mb) });
+    op.record.together = t;
+    if (t.drawn) {
+      this.svg(op, 'bbox.svg', { title: `${a.input.path} and ${b.input.path}`, boxes: [{ label: `a: ${a.input.path}`, size: ma.bounds.size as [number, number, number] }, { label: `b: ${b.input.path}`, size: mb.bounds.size as [number, number, number] }], unit: 'mm', measuredBy: `${ma.worker.name} ${ma.worker.version} (OCP)`, frame: "each STEP's own model frame, in millimetres; each box from its own minimum corner" }, 'both');
+    } else op.record.notes.push(`No bounding-box drawing of both: ${t.words.replace(/^no drawing of both: /, '')}.`);
   }
 
   /** The .blend readback: a second pass by Blender, as a job. Timmy hashes the file after it, to say the bytes held. */
@@ -555,6 +608,7 @@ export class VoxActions {
     let after: string | undefined;
     try { after = hashFile(r.abs); } catch { after = undefined; }
     if (after !== r.input.sha256) { op.record.failures.push({ tool: 'blend', code: 'failed', message: `${r.input.path} changed during the second pass (sha256 ${short(after)} after, ${short(r.input.sha256)} before)` }); return; }
+    setFrame(r, blendFrame(b.read.units));
     op.record.metrics.push(...blendMetrics(b, op.action));
     if (b.read.bounds_error) op.record.notes.push(`Blender gave no object sizes: ${b.read.bounds_error}`);
     op.record.notes.push('A second pass: Blender read its own file in a separate process (the same application, not an independent implementation). Lengths are Blender units of a generated scene; the scene\'s unit settings are reported, never applied.');
@@ -587,6 +641,7 @@ export class VoxActions {
     this.keep(j.run, v);
     Object.assign(j.run, { name: v.worker.name, version: v.worker.version, engine: [v.tools.ffprobe?.version, sample ? v.tools.ffmpeg?.version : undefined].filter(Boolean).join('; ') || undefined });
     if (v.source.sha256 !== r.input.sha256 || !v.unchanged_during_read) { op.record.failures.push({ tool: 'video', code: 'failed', message: `${r.input.path} is not the bytes recorded, or changed during the read` }); return null; }
+    setFrame(r, videoFrame(typeof v.probe.width === 'number' && typeof v.probe.height === 'number' ? [v.probe.width, v.probe.height] : null));
     if (framesDir) {
       const folder = `${voxHighlightDir(op.id)}/frames${r.input.role ? `-${r.input.role}` : ''}`;
       for (const f of v.frames.filter((x) => x.written && x.png && x.sha256).slice(0, MAX_TIMES)) {
@@ -615,10 +670,14 @@ export class VoxActions {
     const ma = videoMetrics(va, 'a');
     const mb = videoMetrics(vb, 'b');
     op.record.metrics.push(...ma, ...mb, ...deltaMetrics(ma, mb, ['width', 'height', 'fps', 'duration', 'frames']));
+    // R4 (H61): centroids are compared only in one pixel frame (two videos of the same size).
+    const t = together({ kind: 'video', frame: a.input.frame ?? videoFrame() }, { kind: 'video', frame: b.input.frame ?? videoFrame() });
+    op.record.together = t;
     if (sample) {
       const sa = videoSampleMetrics(va, 'a');
       const sb = videoSampleMetrics(vb, 'b');
       op.record.metrics.push(...sa, ...sb);
+      if (!t.drawn) { op.record.notes.push(`No centroid differences: ${t.words.replace(/^no drawing of both: /, '')}.`); return; }
       for (const x of sa) {
         const y = sb.find((m) => m.name === x.name);
         const ca = (x.value as { centroid_px?: number[] | null } | null)?.centroid_px;
@@ -631,6 +690,10 @@ export class VoxActions {
   /** Two point clouds: the geo lane's score (a is the truth, b the prediction), as a job; its exit code read as the lane means it. */
   private async geoCompare(op: Op): Promise<void> {
     const [a, b] = op.inputs;
+    // R4 (H61): a PLY declares no unit: the lane's numbers are estimated (it reads the coordinates as metres), never drawn together.
+    setFrame(a, plyFrame());
+    setFrame(b, plyFrame());
+    op.record.together = together({ kind: 'ply', frame: plyFrame() }, { kind: 'ply', frame: plyFrame() });
     const ready = geoReady(this.toolEnv(op.root));
     if (!ready.ready) { this.needsSetup(op, 'geo', ready.why, ready.setup); return; }
     const o = op.opts;
@@ -650,12 +713,13 @@ export class VoxActions {
     op.record.metrics.push(...geoMetrics(result, st.meaning));
     if (st.status === 'untrusted') op.record.failures.push({ tool: 'geo', code: 'untrusted', message: `${st.meaning}: a shape score, never a metric one` });
     const notes = Array.isArray(result.note) ? (result.note as unknown[]).map(String) : [];
-    op.record.notes.push(...notes, 'a is the truth and b the prediction, in the same frame; DOCTRINE §15: a computed score of files, not a measurement of a physical object.');
+    op.record.notes.push(...notes, 'a is the truth and b the prediction, read as one frame in metres: an assumption, since a PLY declares no unit (each value says so); DOCTRINE §15: a computed score of files, not a measurement of a physical object.');
   }
 
   /** A PLY in Timmy's process: the spatial module's facts for an ASCII Gaussian splat, else the header as declared. */
   private plyRead(op: Op): void {
     const r = op.inputs[0];
+    setFrame(r, plyFrame());
     const run: VoxToolRun = { tool: 'spatial', name: 'gaussian-ply-context', ran: 'in-process' };
     op.record.tools.push(run);
     try {
@@ -707,6 +771,13 @@ export class VoxActions {
   private finish(op: Op): Line[] {
     const rec = op.record;
     rec.status = settleStatus(rec);
+    // R4 (H61): each input's frame (as its tool found it, else as the record tells it), whether a compare's two share one,
+    // and the status word of every value, claim and highlight.
+    for (const i of rec.inputs) i.frame ??= frameFromRecord(i, rec.metrics);
+    if (rec.action === 'compare' && !rec.together && rec.inputs.length === 2 && rec.inputs[0].kind === rec.inputs[1].kind && rec.inputs[0].kind !== 'other') {
+      rec.together = together({ kind: rec.inputs[0].kind, frame: rec.inputs[0].frame! }, { kind: rec.inputs[1].kind, frame: rec.inputs[1].frame! });
+    }
+    settleWords(rec);
     const w = writeProjectFile(op.root, voxRecordPath(op.id), `${JSON.stringify(rec, null, 2)}\n`);
     let receipt: string | undefined;
     const rs = receiptStatus(rec.status);
@@ -748,13 +819,25 @@ export class VoxActions {
       { text: `  ${mark} `, role: good ? undefined : role }, { text: `${op.id} ${op.action} ${rec.status}`, role },
       { text: `  ${what}${file ? ` ${g.arrow} ${file}` : `: the record could not be written (${this.d.scrub(storage ?? 'error', op.root)})`}${this.sep}${counts.join(', ')}${receipt ? `${this.sep}receipt ${receipt}` : ''}`, role: 'secondary' },
     ]];
-    for (const m of rec.metrics.filter((x) => !x.name.startsWith('file_')).slice(0, 8)) {
+    // R4 (H61): each input's frame, and for a compare whether the two share one; then each value with its status word first
+    // (and what it rests on), who measured it after; the tier and method stay in the record and on the board.
+    for (const i of rec.inputs) if (i.frame) lines.push([{ text: `      frame     ${i.role ? `${i.role}: ` : ''}`, role: 'secondary' }, { text: this.d.scrub(i.frame.words, op.root), role: 'secondary' }]);
+    if (rec.together && !rec.together.drawn) lines.push([{ text: '      together  ', role: 'secondary' }, { text: rec.together.words }]);
+    for (const c of rec.checks ?? []) lines.push([{ text: '      CAD check ', role: 'secondary' }, { text: this.d.scrub(`${c.role ? `${c.role}: ` : ''}${checkWords(c)}`, op.root) }]);
+    // A comparison leads with its differences (b − a), as the board does; then each input's own values.
+    const shownMetrics = rec.metrics.filter((x) => !x.name.startsWith('file_'));
+    const ordered = rec.action === 'compare' ? [...shownMetrics.filter((x) => x.of === 'delta'), ...shownMetrics.filter((x) => x.of !== 'delta')] : shownMetrics;
+    for (const m of ordered.slice(0, 8)) {
       const v = valueWords(m.value, m.unit, m.name);
-      lines.push([{ text: `      ${m.of ? `${m.of === 'delta' ? 'Δ' : m.of} ` : ''}${m.title}`.padEnd(34) }, { text: ` ${v}`, role: 'strong' }, { text: `${this.sep}${m.tier}${this.sep}${m.label}`, role: 'secondary' }]);
+      const said = { word: m.status_word ?? 'unknown', note: m.status_note ?? '' };
+      lines.push([
+        { text: `      ${m.of ? `${m.of === 'delta' ? 'Δ' : m.of} ` : ''}${m.title}`.padEnd(34) }, { text: ` ${v}`, role: 'strong' },
+        { text: `  ${said.word}`, role: WORD_ROLE[said.word] }, { text: `${wordText(said).slice(said.word.length)}${this.sep}${m.label}`, role: 'secondary' },
+      ]);
     }
     if (rec.metrics.length > 8) lines.push(this.say(`    and ${rec.metrics.length - 8} more in the record`)[0]);
-    for (const c of rec.claims ?? []) lines.push([{ text: `      ${c.title}`, role: 'ai' }, { text: `  a model's prediction, not a measurement${this.sep}${valueWords(c.value)}`, role: 'secondary' }]);
-    for (const h of rec.highlights) lines.push([{ text: '      highlight ', role: 'secondary' }, { text: h.path }, { text: `${this.sep}sha256 ${short(h.sha256)}${this.sep}drawn from ${h.drawn_from.join(', ') || 'the frame'}`, role: 'secondary' }]);
+    for (const c of rec.claims ?? []) lines.push([{ text: `      ${c.title}`, role: 'ai' }, { text: '  model prediction' }, { text: `: a model's output, not a measurement${this.sep}${valueWords(c.value)}`, role: 'secondary' }]);
+    for (const h of rec.highlights) lines.push([{ text: '      highlight ', role: 'secondary' }, { text: h.path }, { text: `  ${h.status_word ?? 'unknown'}` }, { text: `${this.sep}sha256 ${short(h.sha256)}${this.sep}drawn from ${h.drawn_from.join(', ') || 'the frame'}`, role: 'secondary' }]);
     for (const f of rec.failures) {
       lines.push(f.code === 'needs-setup'
         ? [{ text: '      needs setup ', role: 'estimate' }, { text: `${f.tool}${f.of ? ` (${f.of})` : ''}: ${this.d.scrub(f.message, op.root)}` }, { text: `${this.sep}${f.setup ?? ''}`, role: 'secondary' }]

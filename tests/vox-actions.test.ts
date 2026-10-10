@@ -48,7 +48,11 @@ describe('each action leaves a record and a vox receipt', () => {
     await settled(ws);
     const r = recordOf(root);
     expect(r).toMatchObject({ schema: 'timmy.vox/1', action: 'inspect', command: '/inspect refs/photo.png', status: 'ok', project: ws.project.name });
-    expect(r.inputs).toEqual([{ path: 'refs/photo.png', sha256: sha(IMG), bytes: IMG.length, kind: 'image', kind_by: 'bytes' }]);
+    // R4 (H61): the input names its frame: the image's pixels, as Look decoded them.
+    expect(r.inputs).toEqual([{
+      path: 'refs/photo.png', sha256: sha(IMG), bytes: IMG.length, kind: 'image', kind_by: 'bytes',
+      frame: { space: 'pixels', unit: 'px', unit_by: 'reported', size: [4, 2], words: "the image's pixel frame: 4 × 2 px, x to the right and y down from its top-left corner" },
+    }]);
     // The kind, size and sha256 by Timmy; Look's facts by Look, each with its method, tier and label.
     expect(r.metrics.map((m) => m.name)).toEqual(['file_kind', 'file_bytes', 'file_sha256', 'width', 'height', 'channels', 'qr_codes_decoded', 'aruco_markers']);
     for (const m of r.metrics) {
@@ -126,7 +130,7 @@ describe('each action leaves a record and a vox receipt', () => {
     expect(sealed.filter((x) => x.kind === 'vox')[0].subject).toBe('vox · compare · refs/photo.png vs refs/photo2.png · ok');
   });
 
-  it('compares two STL meshes made here, a unit cube and the cube scaled by 2: exact deltas, an SVG of both boxes, DOCTRINE §15', async () => {
+  it('compares two STL meshes made here, a unit cube and the cube scaled by 2: exact deltas, estimated (no unit declared), no drawing of both, DOCTRINE §15', async () => {
     const root = kit.temp('vox-stl-');
     put(root, 'models/cube.stl', cubeStl(1));
     put(root, 'models/cube2.stl', cubeStl(2));
@@ -149,13 +153,15 @@ describe('each action leaves a record and a vox receipt', () => {
     expect(r.metrics.find((m) => m.name === 'volume_delta')).toMatchObject({ label: "Timmy's own reading of the STL", tier: 'deterministic computation', measured_by: "timmy-stl-readback/1 (Timmy's TypeScript reader)" });
     expect(r.tools.map((t) => [t.tool, t.ran, t.of])).toEqual([['stl', 'in-process', 'a'], ['stl', 'in-process', 'b']]);
     expect(r.doctrine).toBe(DOCTRINE_15);
-    const svg = r.highlights[0];
-    expect(svg).toMatchObject({ type: 'bbox-svg', path: `results/vox/${r.id}/bbox.svg`, of: 'both', drawn_from: ['bbox_size'] });
-    expect(svg.sha256).toBe(fileSha(root, svg.path));
-    const drawn = readFileSync(join(root, svg.path), 'utf8');
-    expect(drawn).toContain('a: models/cube.stl: 1 × 1 × 1 file units');
-    expect(drawn).toContain('b: models/cube2.stl: 2 × 2 × 2 file units');
-    expect(sealed.find((x) => x.kind === 'vox')!.outputs!.map((o) => o.path)).toEqual([`results/vox/${r.id}.json`, svg.path]);
+    // R4 (H61): an STL declares no unit, so the two are never drawn together and their deltas are estimated, never millimetres.
+    expect(r.metrics.find((m) => m.name === 'volume_delta')).toMatchObject({ status_word: 'estimated', status_note: expect.stringContaining('units not declared') });
+    expect(r.metrics.find((m) => m.name === 'volume' && m.of === 'a')).toMatchObject({ status_word: 'measured' });
+    expect(r.together).toEqual({ drawn: false, words: expect.stringContaining('neither STL declares a unit') });
+    expect(r.highlights).toEqual([]);
+    expect(r.notes.join(' ')).toContain('No bounding-box drawing of both: neither STL declares a unit');
+    expect(lines).toContain('estimated: units not declared');
+    expect(lines).not.toMatch(/\bmm\b/);
+    expect(sealed.find((x) => x.kind === 'vox')!.outputs!.map((o) => o.path)).toEqual([`results/vox/${r.id}.json`]);
   });
 
   it('reads a STEP through the readback job (FAKE OCP) and a .blend through a second pass (FAKE Blender)', async () => {

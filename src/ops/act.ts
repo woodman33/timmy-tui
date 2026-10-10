@@ -59,7 +59,7 @@ export function actHelp(): string {
     '',
     'NEEDS A PERSON (refused, with the line to type in the REPL instead)',
     '  a chat request (its tools may ask for approval), /edit, /watch, /center, /web, /browser, /canvas, /board live, /board off,',
-    '  /model, /new, /exit',
+    '  /model, /new, /exit, /vox view',
     '',
     'OPERATIONS',
     `  With ${OPERATION_ENV} set (a workflow block of a /run), act joins that operation when this project holds it and it still`,
@@ -127,6 +127,8 @@ export function needsPerson(line: string): string | undefined {
     case 'web': case 'browser': return `/${word} opens a page for you`;
     case 'canvas': return '/canvas starts and opens Timmy Canvas for you';
     case 'board': return /^(live|off)$/.test(args) ? '/board live serves the board for you while the REPL runs' : undefined;
+    // R4 (H61): a viewer window on the user's computer is opened only when a person asks for it.
+    case 'vox': return /^view\b/.test(args) ? "/vox view opens Rerun's viewer, a window on your computer" : undefined;
     case 'model': return '/model is the REPL conversation\'s model';
     case 'new': return '/new starts a REPL conversation';
     case 'exit': return '/exit ends the REPL';

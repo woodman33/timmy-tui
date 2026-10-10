@@ -19,8 +19,10 @@ import { nativeCapabilityRows, nativeExercisedAt, type NativeRunIndex } from '..
 import { recipeCapabilityRow } from '../recipes/index.js';
 import type { StudioHealth } from '../studio/health.js';
 import { keySet } from '../utils/keys.js';
+// R4 (H61): VoxVision's tools as a group of their own (its readers, Rerun's viewer, Viser and FiftyOne).
+import { voxCapabilityRows } from '../vox/tools.js';
 
-export type Kind = 'surface' | 'model' | 'tool' | 'harness' | 'adapter';
+export type Kind = 'surface' | 'model' | 'tool' | 'harness' | 'adapter' | 'vox';
 export type Rung = 'reachable' | 'installed' | 'needs setup' | 'not built';
 /** OpenRouter's answer to the key check; `not-asked` when the caller could not read the key itself. */
 export type OpenRouterAnswer = 'accepted' | 'rejected' | 'unreachable' | 'no-key' | 'not-asked';
@@ -94,6 +96,8 @@ export interface ProbeDeps {
   openhands?: () => Promise<{ docker: OpenHandsDocker; worker: boolean; root?: string }>;
   /** Whether the edge host (TIMMY_EDGE_HOST or the private overlay) is set; never the host. */
   edgeSet: () => boolean;
+  /** R4 (H61): the project VoxVision's rows are checked in (its Roboflow venv); absent: this process's folder. */
+  voxRoot?: () => string;
 }
 
 export const KIND_TITLES: Record<Kind, string> = {
@@ -102,6 +106,7 @@ export const KIND_TITLES: Record<Kind, string> = {
   tool: 'AGENT TOOLS',
   harness: 'OTHER AGENTS',
   adapter: 'NATIVE APPS AND ADAPTERS',
+  vox: 'VOXVISION (/inspect, /measure, /detect, /compare, /vox view)',
 };
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
@@ -273,6 +278,11 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
         : { id: `adapter:${a.id}`, kind: 'adapter', name: `  ${a.name}`, rung: 'needs setup', detail: 'its runtime is missing', setup: 'timmy vision integrations list' });
     }
   }
+
+  // ── VoxVision (R4, H61): its readers and its viewer layers, from configuration and the files present (nothing is run)
+  try {
+    for (const r of voxCapabilityRows({ env, onPath: (bin) => (d.onPath(bin) ? bin : null), root: d.voxRoot?.() ?? process.cwd() })) add(r);
+  } catch { /* the VoxVision rows could not be read: the other rows stand */ }
 
   // Exercised: the last sealed, completed use of any of the row's tools; a row keyed by its own record
   // (exercisedBy) is decided by that record alone, never by a tool name it shares (R3, finding 6).

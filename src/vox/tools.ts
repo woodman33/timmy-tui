@@ -27,6 +27,8 @@ import { packagedPath, packageRoot } from '../utils/asset-dirs.js';
 import { LOOK_SCRIPT, lookPython, OPENCV_SETUP, type LookObservation } from '../vision/look.js';
 import type { VoxKind, VoxTool } from './kinds.js';
 import { delta, LABEL, num, ratio, TIER, type VoxAction, type VoxClaim, type VoxMetric } from './record.js';
+// R4 (H61): the viewer layers (Rerun found or needs setup; Viser and FiftyOne need setup) close the tools' list.
+import { layerStatuses } from './layers.js';
 
 export interface ToolEnv { env: NodeJS.ProcessEnv; onPath: (cmd: string) => string | null; root: string }
 export type Readiness = { ready: true; command: string; via: string; extra?: Record<string, string> } | { ready: false; why: string; setup: string };
@@ -125,7 +127,33 @@ export function toolStatuses(t: ToolEnv): ToolStatus[] {
     row('video', 'the video readback (ffprobe, ffmpeg)', 'videos', videoReady(t), 'run when an action reads a video'),
     row('geo', 'the geo lane (voxel_score.py)', 'two PLY point clouds', geoReady(t), 'exit 3 says when numpy or scipy is missing'),
     row('roboflow', 'Roboflow (hosted model)', 'images, as a model\'s prediction', roboflowReady(t), 'a network call to Roboflow, made only when /detect asks for it'),
+    ...layerStatuses(t),
   ];
+}
+
+/**
+ * R4 (H61): VoxVision's tools as /tools rows (a group of their own): built in or found is "installed" (here, not run),
+ * needs setup keeps its step. The detail is the panel's.
+ */
+export function voxCapabilityRows(t: ToolEnv): Array<{ id: string; kind: 'vox'; name: string; rung: 'installed' | 'needs setup'; detail: string; setup?: string }> {
+  // Names that fit /tools' name column (25 characters); the board's panel keeps the longer ones.
+  const SHORT: Partial<Record<VoxTool, string>> = {
+    stl: "Timmy's STL reader", spatial: 'Spatial module (PLY)', look: 'Look (OpenCV)', step: 'STEP readback (OCP)', blend: '.blend readback (Blender)',
+    video: 'Video readback (ffmpeg)', geo: 'Geo lane (voxel_score)', roboflow: 'Roboflow (hosted model)', rerun: 'Rerun viewer (/vox view)', viser: 'Viser', fiftyone: 'FiftyOne',
+  };
+  // A /tools step prints whole after "do: " at 80 columns (69 characters at most): the panel's longer steps, shortened.
+  const STEP = new Map<string, string>([
+    [SETUP.look, OPENCV_SETUP],
+    [SETUP.step, 'set TIMMY_CADQUERY_PYTHON to a Python with CadQuery'],
+    [SETUP.video, 'brew install ffmpeg, or set TIMMY_FFPROBE and TIMMY_FFMPEG'],
+    [SETUP.geoLane, 'run Timmy from a checkout of its repository (the geo lane)'],
+    [SETUP.roboflowVenv, 'python3 -m venv .timmy/venv-roboflow, then its pip install roboflow'],
+    [SETUP.roboflowBridge, 'run Timmy from a checkout of its repository (the bridge)'],
+  ]);
+  return toolStatuses(t).map((s) => ({
+    id: `vox:${s.tool}`, kind: 'vox' as const, name: SHORT[s.tool] ?? s.name, rung: s.state === 'needs setup' ? 'needs setup' as const : 'installed' as const,
+    detail: `${s.state === 'built in' ? 'built in: ' : ''}${s.detail}`, ...(s.setup ? { setup: STEP.get(s.setup) ?? s.setup } : {}),
+  }));
 }
 
 // ── metrics ────────────────────────────────────────────────────────────────────
@@ -243,7 +271,8 @@ export function stepMetrics(m: ReadbackMeasured, action: VoxAction, of?: 'a' | '
     ...facts,
     { name: 'bbox_min', title: 'Bounding box min', value: m.bounds.min, unit, method: bounds, ...base },
     { name: 'bbox_max', title: 'Bounding box max', value: m.bounds.max, unit, method: bounds, ...base },
-    { name: 'volume', title: 'Volume', value: m.volume_mm3, unit: 'mm³', method: m.volume_method ?? 'OpenCascade BRepGProp.VolumeProperties', ...base },
+    // R4 (H61): a volume is in the same unit as the box: assumed when OCP did not report the unit in effect.
+    { name: 'volume', title: 'Volume', value: m.volume_mm3, unit: `mm³${m.unit_in_effect ? '' : ' (the unit in effect was not reported)'}`, method: m.volume_method ?? 'OpenCascade BRepGProp.VolumeProperties', ...base },
   ];
 }
 
