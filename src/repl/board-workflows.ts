@@ -312,7 +312,7 @@ function readRun(j: JobRecord, target: string, w: WorkflowDocInput, c: ConnectCo
   };
 }
 
-const seconds = (ms: number): string => (ms < 100 ? 'under 0.1 s' : ms < 10_000 ? `${(ms / 1000).toFixed(1)} s` : ms < 120_000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60_000)} min`);
+const seconds = (ms: number): string => (ms < 100 ? '<0.1 s' : ms < 10_000 ? `${(ms / 1000).toFixed(1)} s` : ms < 120_000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60_000)} min`);
 
 /** A block's state in a run as a few words: exit code and own time. */
 function detailOf(b: { word: NodeWord; code?: number; ms?: number }): string {

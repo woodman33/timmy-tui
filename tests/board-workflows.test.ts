@@ -119,7 +119,7 @@ describe('each block connected to its runs (FAKE job records and receipts)', () 
     ] as unknown as Receipt[];
     const w = view(root, { jobs: [done], chain, clock });
     const c = w.connected!;
-    expect(c.nodes.map((n) => [n.name, n.word, n.detail])).toEqual([['check', 'completed', 'exit 0 · 0.4 s'], ['build', 'completed', 'exit 0 · 2.0 s'], ['inspect', 'completed', 'exit 0 · under 0.1 s']]);
+    expect(c.nodes.map((n) => [n.name, n.word, n.detail])).toEqual([['check', 'completed', 'exit 0 · 0.4 s'], ['build', 'completed', 'exit 0 · 2.0 s'], ['inspect', 'completed', 'exit 0 · <0.1 s']]);
     expect(c.runs[0]).toMatchObject({ met: true, receipt: 'cafe0002', orderFrom: 'sealed', predicted: 'abcd1234', docSha256: 'f'.repeat(64), outputs: [{ rel: 'out/tray.stl', note: 'as the run wrote it' }, { rel: 'out/gone.txt', note: 'not there now' }] });
     const still = renderWorkflowCard(w, kit({ live: false, base: '../../' }));
     expect(still).toContain('href="../../out/tray.stl"');
