@@ -26,6 +26,9 @@
  *             (workers/unreal/timmy_unreal.py), which runs a project's Python script inside the editor and writes the
  *             result file (levels saved, actors made, files written). A second Unreal process reads each saved level
  *             back. Built and judged in src/native/unreal.ts and src/native/unreal-readback.ts.
+ *   illustrator (R4, H64) Adobe Illustrator scripting through osascript (its window opens): a per-run ExtendScript harness
+ *             makes, edits or reads a document, exports SVG and PDF, and writes its result file; Timmy reads the SVG back
+ *             itself. Built and judged in src/native/illustrator.ts.
  *
  * R3 (an independent review of 40022d9, finding 5): every run has its own folder in the project,
  * .timmy/native/<run>/, holding job.json (written once, at submission: the app, the program, the input's
@@ -68,7 +71,7 @@ import { operationField } from '../ops/context.js';
 
 export type { NativeInventory, OutputChange, SourceCheck } from './provenance.js';
 
-export type NativeApp = 'c4dpy' | 'aerender' | 'blender' | 'afterfx' | 'openscad' | 'freecad' | 'unreal';
+export type NativeApp = 'c4dpy' | 'aerender' | 'blender' | 'afterfx' | 'openscad' | 'freecad' | 'unreal' | 'illustrator';
 type Env = Record<string, string | undefined>;
 
 export interface NativeFound {
@@ -185,6 +188,16 @@ export const NATIVE_APPS: Record<NativeApp, AppInfo> = {
     name: 'Unreal Engine (UnrealEditor-Cmd, Python, headless)',
     // At most 69 characters: `do: ` and the step print whole at 80 columns (tests/capabilities.test.ts).
     setup: 'install Unreal Engine 5 (Epic Games Launcher), or set TIMMY_UNREAL',
+    resultFile: true,
+  },
+  illustrator: {
+    // R4 (H64, src/native/illustrator.ts): Illustrator scripting, run inside the application through osascript (macOS keeps
+    // /Applications/Adobe Illustrator <version>/Adobe Illustrator.app/Contents/MacOS/Adobe Illustrator).
+    envVar: 'TIMMY_ILLUSTRATOR', prefix: 'Adobe Illustrator',
+    inside: ['Adobe Illustrator.app/Contents/MacOS/Adobe Illustrator', '{folder}.app/Contents/MacOS/Adobe Illustrator', 'Contents/MacOS/Adobe Illustrator'],
+    bundleExe: 'Adobe Illustrator', program: 'Adobe Illustrator',
+    name: 'Illustrator (scripting)',
+    setup: 'install Adobe Illustrator; or set TIMMY_ILLUSTRATOR to its .app',
     resultFile: true,
   },
 };
@@ -1524,9 +1537,11 @@ export function nativeCapabilityRows(env: Env = process.env, seams: FinderSeams 
         : app === 'openscad' ? '; exports a .scad model to a binary STL (/scad), read back by Timmy\'s own STL reader'
         : app === 'freecad' ? '; runs a Python script headless (/freecad): an editable .FCStd and a STEP export; /freecad readback reads the STEP back'
           // R4 (H63)
-          : app === 'unreal' ? '; runs a Python script inside the Unreal Editor, headless (/unreal <project.uproject> <script.py>); a second Unreal process reads each saved level back' : '';
-    // R4: After Effects scripting, OpenSCAD, FreeCAD and (H63) Unreal say "implemented; not run" until a sealed run of their own says otherwise.
-    const words = runWords(runs?.get(app)) ?? (app === 'afterfx' || app === 'openscad' || app === 'freecad' || app === 'unreal' ? 'implemented; not run' : undefined);
+          : app === 'unreal' ? '; runs a Python script inside the Unreal Editor, headless (/unreal <project.uproject> <script.py>); a second Unreal process reads each saved level back'
+        // R4 (H64): asked through osascript; macOS's Automation permission is the operator's to give
+          : app === 'illustrator' ? '; makes, edits and reads documents inside the application through osascript (/illustrator author, edit, inspect; its window opens; macOS may ask for Automation), its SVG export read back by Timmy' : '';
+    // R4: After Effects scripting, OpenSCAD, FreeCAD, (H63) Unreal and (H64) Illustrator say "implemented; not run" until a sealed run of their own says otherwise.
+    const words = runWords(runs?.get(app)) ?? (app === 'afterfx' || app === 'openscad' || app === 'freecad' || app === 'unreal' || app === 'illustrator' ? 'implemented; not run' : undefined);
     const base = { id: app, kind: 'adapter' as const, name: info.name, tools: ['run_native'], exercisedBy: `native:${app}` };
     if (found) {
       const where = found.how === 'applications'

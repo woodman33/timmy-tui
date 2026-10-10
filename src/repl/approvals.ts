@@ -115,6 +115,8 @@ function described(parts: Array<[string, string]>, line: string): { summary: str
 
 /** R4 (H63): what Unreal's run_native call does, said in its box (it asks every time: no `a`). */
 const UNREAL_REASON = 'starts Unreal Engine on this machine (UnrealEditor-Cmd, headless): it runs a Python script of your project inside the editor, which may save levels in your project; a second Unreal process then reads them back';
+/** R4 (H64): an Illustrator run is asked every time, with its own reason (its window opens; macOS may ask for Automation). */
+export const ILLUSTRATOR_APPROVAL_REASON = 'starts Adobe Illustrator on this machine through osascript: its window opens, and the script draws in a document it makes or opens (macOS may ask you to allow Automation; that stays yours)';
 
 const DESCRIBE: Record<string, (args: Record<string, unknown>) => { summary: string; detail?: string; reason?: string; session?: false } | undefined> = {
   // R4 (H40): the app, the file the local agent may change, and the instruction it is given (its first key, file, hid the rest)
@@ -135,6 +137,14 @@ const DESCRIBE: Record<string, (args: Record<string, unknown>) => { summary: str
       const args = Array.isArray(a.args) ? a.args.map(cleaned).filter(Boolean).join(' ') : '';
       const line = `unreal${project ? ` ${shortened(project, 50)}` : ''}${script ? ` ${shortened(script, 50)}` : ''}${args ? ` ${shortened(args, 60)}` : ''}`;
       return { ...described([['app', 'unreal'], ['project_file', project], ['script', script], ['args', args]], line), reason: UNREAL_REASON, session: false };
+    }
+    if (a.app === 'illustrator') {
+      // R4 (H64): the mode, the script and the document, each named; never allowed for the whole session
+      const mode = cleaned(a.mode) || 'author';
+      const script = cleaned(a.script);
+      const doc = cleaned(a.project_file);
+      const line = `illustrator ${shortened(mode, 10)}${doc ? ` ${shortened(doc, 60)}` : ''}${script ? ` ${shortened(script, 60)}` : ''}`;
+      return { ...described([['app', 'illustrator'], ['mode', mode], ['project_file', doc], ['script', script]], line), reason: ILLUSTRATOR_APPROVAL_REASON, session: false };
     }
     if (a.app !== 'blender') return undefined;
     const script = cleaned(a.script);
@@ -255,7 +265,9 @@ export function gateTools<T>(tools: readonly T[], ask: (req: ApprovalRequest) =>
     const name = t.function.name;
     const gated = async (args: Record<string, unknown>, ctx: unknown) => {
       const need = approvalNeeded(name, args ?? {});
-      if (need && !allowed.has(name)) {
+      // R4 (H64): a call that asks every time (session: false) is asked even when an earlier call of its tool was allowed
+      // for the session (an Illustrator run after a Blender run allowed with "a").
+      if (need && (need.session === false || !allowed.has(name))) {
         // R4 (H60): the call waits for the operator from here until it is answered (the Control Room's Decisions).
         const id = ++waitSeq;
         const operation = currentOperation();
@@ -264,7 +276,7 @@ export function gateTools<T>(tools: readonly T[], ask: (req: ApprovalRequest) =>
         try {
           // Re-check after waiting: an earlier box may have allowed this tool for the session.
           decision = await inTurn(async () => {
-            if (allowed.has(name)) return 'session';
+            if (need.session !== false && allowed.has(name)) return 'session';
             const w = waiting.get(id);
             if (w) w.shown = true;
             return ask({ tool: name, ...need });

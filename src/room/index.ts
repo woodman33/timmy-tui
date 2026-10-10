@@ -919,7 +919,7 @@ export function findRun(all: readonly RoomRun[], id: string): RoomRun | undefine
 export interface ToolGroup { title: string; rows: Array<CapabilityRow & { missing?: true }>; note?: string; advanced?: true; apart?: true }
 
 /** Which /tools rows go in which panel group. */
-const CREATIVE = ['blender', 'openscad', 'freecad', 'afterfx', 'aerender', 'c4dpy', 'recipe-tray'];
+const CREATIVE = ['blender', 'openscad', 'freecad', 'afterfx', 'aerender', 'illustrator', 'c4dpy', 'recipe-tray'];
 const AGENTS_ROWS = ['claude-code', 'codex', 'codex-local', 'qwen-code', 'opencode'];
 const MODEL_ROWS = ['openrouter', 'ollama'];
 const VISION = (id: string): boolean => id === 'look' || id === 'adapters' || id.startsWith('adapter:') || id === 'spatial-review';

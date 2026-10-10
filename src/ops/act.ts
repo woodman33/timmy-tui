@@ -149,7 +149,7 @@ export function startsWork(line: string): boolean {
   const args = rest.join(' ').trim();
   if (['observe', 'inspect', 'measure', 'detect', 'compare', 'preview', 'scad', 'blender', 'c4d', 'ae'].includes(word)) return true;
   // R4 (H63): /unreal alone answers (usage, the runs); with words it starts a run or a readback.
-  if (word === 'run' || word === 'iterate' || word === 'freecad' || word === 'unreal') return args.length > 0;
+  if (word === 'run' || word === 'iterate' || word === 'freecad' || word === 'unreal' || word === 'illustrator') return args.length > 0;
   if (word === 'agent') return args.length > 0 && args !== 'last';
   if (word === 'recipe') return /^tray\b/.test(args);
   if (word === 'mcp') return /^call\b/.test(args);

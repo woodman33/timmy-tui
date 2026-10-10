@@ -20,6 +20,8 @@ import { isScadJobSpec, judgeScadJob, SCAD_USAGE, scadEndLines, scadJob, scadRec
 import { parseScadWords } from '../native/scad-params.js';
 // R4 (H28): FreeCAD through freecadcmd, judged by its result file; /freecad readback (src/repl/freecad.ts).
 import { freecadEndLines, freecadJob, freecadReceiptFields, freecadStartLines, isFreecadJobSpec, judgeFreecadJob, type FreecadJobSpec } from '../native/freecad.js';
+// R4 (H64): Adobe Illustrator through osascript (src/native/illustrator.ts)
+import { ILLUSTRATOR_JUDGED, ILLUSTRATOR_USAGE, illustratorEndLines, illustratorJob, illustratorReceiptFields, illustratorStartLines, illustratorWhat, isIllustratorJobSpec, judgeIllustratorJob, parseIllustratorArgs, type IllustratorJobSpec } from '../native/illustrator.js';
 import { FreecadReadbacks, readbackReady, type FreecadTestSeams } from './freecad.js';
 // R4 (H63): Unreal Engine through UnrealEditor-Cmd, judged by its harness's result file, then read back by a second Unreal process.
 import { isUnrealJobSpec, judgeUnrealJob, parseUnrealWords, unrealJob, unrealReceiptFields, unrealStartLines, type UnrealJobSpec } from '../native/unreal.js';
@@ -1124,6 +1126,11 @@ export class Workspace {
       for (const l of freecadEndLines(judgeFreecadJob(job, nat), nat, o)) this.d.notify(l);
       return;
     }
+    if (nat && (job.state === 'completed' || job.state === 'failed') && isIllustratorJobSpec(nat)) {
+      // R4 (H64): an Illustrator run says its document and exports (Timmy's sha256), Illustrator's own report and Timmy's own SVG reading.
+      for (const l of illustratorEndLines(judgeIllustratorJob(job, nat), nat, { id: job.id, label: job.label, glyphs: g, sep: this.sep, scrub: (s) => this.scrub(s, job.root), ...(job.receipt ? { receipt: job.receipt } : {}) })) this.d.notify(l);
+      return;
+    }
     if (nat && (job.state === 'completed' || job.state === 'failed') && isAeJobSpec(nat)) {
       // R4: an After Effects script run says its new version (Timmy's sha256), After Effects' own report and the next step.
       for (const l of aeEndLines(judgeAeJob(job, nat), nat, { id: job.id, label: job.label, glyphs: g, sep: this.sep, scrub: (s) => this.scrub(s, job.root), ...(job.receipt ? { receipt: job.receipt } : {}) })) this.d.notify(l);
@@ -1190,6 +1197,7 @@ export class Workspace {
     const judged = nat && job.state !== 'cancelled'
       ? (isScadJobSpec(nat) ? scadReceiptFields(judgeScadJob(job, nat), job.root)
         : isAeJobSpec(nat) ? aeReceiptFields(judgeAeJob(job, nat))
+          : isIllustratorJobSpec(nat) ? illustratorReceiptFields(judgeIllustratorJob(job, nat)) // R4 (H64)
           : isFreecadJobSpec(nat) ? freecadReceiptFields(judgeFreecadJob(job, nat))
             : isUnrealJobSpec(nat) ? unrealReceiptFields(judgeUnrealJob(job, nat)) // R4 (H63)
               : nativeReceiptFields(nat.native.app, judgeNativeJob(job, nat)))
@@ -1517,6 +1525,16 @@ export class Workspace {
       `OpenSCAD exports ${p.model}`, 'judged by its exit, the STL it writes and Timmy\'s own reading of that STL',
     );
     return made.spec ? [...scadStartLines(made.spec, this.sep), ...lines] : lines;
+  }
+
+  /** R4 (H64): /illustrator author|edit|inspect: a script inside Adobe Illustrator through osascript (src/native/illustrator.ts). */
+  async illustrator(args: string): Promise<Line[]> {
+    const p = parseIllustratorArgs(splitCommandLine(args.trim()));
+    if (!p) return [[{ text: '  Usage:', role: 'secondary' }], ...ILLUSTRATOR_USAGE.map((u): Line => [{ text: `    ${u}`, role: 'secondary' }])];
+    if ('error' in p) return this.say(p.error);
+    const made: { spec?: IllustratorJobSpec } = {};
+    const lines = this.startNative(() => (made.spec = illustratorJob({ ...p, root: this.root, project: this.project.name, findEnv: this.d.env })), illustratorWhat(p), ILLUSTRATOR_JUDGED);
+    return made.spec ? [...illustratorStartLines(made.spec, this.sep), ...lines] : lines;
   }
 
   /** R4: an After Effects script run as a job; what happens in After Effects is said before it starts. */

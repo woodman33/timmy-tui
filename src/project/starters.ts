@@ -20,6 +20,8 @@ export const STARTERS: Readonly<Record<string, string>> = {
   // Round R4 (helper H27)
   'scad-starter': 'an OpenSCAD parametric box with a lid gap (/scad box.scad) and its parameter file',
   'freecad-starter': 'a FreeCAD part script (/freecad plate.py): a plate with four holes, an editable .FCStd and a STEP',
+  // Round R4 (helper H64)
+  'illustrator-starter': 'an Adobe Illustrator script (/illustrator author badge.jsx): a labelled badge saved as .ai with SVG, PDF and PNG; edit.jsx relabels it',
   // Round R4 (helper H51)
   'tray-workflow': 'one request as one operation: WORKFLOW.md changes the tray, inspects its STEP, shows the result and keeps a draft lesson (/run WORKFLOW.md lesson)',
   // Round R4 (helper H63)
