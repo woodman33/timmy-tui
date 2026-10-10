@@ -2,12 +2,14 @@
 // report states from real events, keep one private combined log, persist their records, and stop their
 // whole process group. Everything here runs real child processes (sh, node) and real HTTP servers.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import http from 'node:http';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { JobManager, type JobManagerOptions, type JobRecord, type JobSpec } from '../src/jobs/index.js';
+import { groupLive, pidRuns } from '../src/runtime/process-group.js';
 
 const node = process.execPath;
 let dir = '';
@@ -414,5 +416,33 @@ describe('a job that waits for a person', () => {
     const done = await m.done(job.id);
     expect(done).toMatchObject({ state: 'failed', error: 'it asked how to license it and waits for a person' });
     expect(performance.now() - t0).toBeLessThan(5000);
+  });
+});
+
+// The lead (ledger row 164): process.kill(pid, 0) succeeds for a zombie, and an init that reaps orphans late (this
+// container's first process left one unreaped) kept a job whose last process had ended "running", so recovery never
+// settled it. A real zombie here: setsid makes `sleep 0.2` the leader of a group of its own, and its parent is then
+// replaced by `sleep 30` (exec), which never reaps it.
+describe.skipIf(process.platform !== 'linux' || !existsSync('/usr/bin/setsid'))('a job whose process is a zombie (Linux)', () => {
+  it('is stale: a zombie runs nothing, so an earlier session\'s job whose only process is one has ended', async () => {
+    const parent = spawn('sh', ['-c', 'setsid sleep 0.2 & echo $!; exec sleep 30'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    try {
+      const zombie = await new Promise<number>((resolve, reject) => {
+        let out = '';
+        parent.stdout!.on('data', (b: Buffer) => { out += b.toString('utf8'); const m = out.match(/^(\d+)\n/); if (m) resolve(Number(m[1])); });
+        parent.once('exit', () => reject(new Error(`no pid: ${out}`)));
+      });
+      const state = (): string => { try { const s = readFileSync(`/proc/${zombie}/stat`, 'utf8'); return s.slice(s.lastIndexOf(')') + 2).split(' ')[0]; } catch { return 'gone'; } };
+      const end = Date.now() + 10_000;
+      while (state() !== 'Z') { if (Date.now() > end) throw new Error(`no zombie: ${state()}`); await new Promise((r) => setTimeout(r, 50)); }
+      expect(() => process.kill(zombie, 0)).not.toThrow(); // the signal check alone says it is there
+      expect(pidRuns(zombie)).toBe(false);
+      expect(groupLive(zombie)).toBe(false);
+      const earlier = { kind: 'workflow', label: 'WORK.md › after', project: 'jobs-test', root: dir, command: 'upmd', args: [], steps: [], lines: 0, logPath: 'elsewhere' };
+      writeFileSync(path.join(dir, 'j0eee00.json'), JSON.stringify({ ...earlier, id: 'j0eee00', state: 'running', pid: zombie, startedAt: '2001-01-01T00:00:00.000Z' }));
+      expect(manager().get('j0eee00')).toMatchObject({ state: 'running', stale: true });
+    } finally {
+      parent.kill('SIGKILL');
+    }
   });
 });

@@ -342,17 +342,38 @@ describe('a flow\'s agent step left running by a REPL killed with SIGKILL', () =
   }, 120_000);
 });
 
-describe.skipIf(!PYTHON3)('a /run left running by a REPL killed with SIGKILL', () => {
+/** A /run in a REPL session of its own, killed with SIGKILL while `long` runs: its job and pid (python3: the pty route). */
+async function crashedRun(python3: string | null): Promise<{ job: string; pid: number }> {
+  const config = path.join(fixtures, 'crashed-run.json');
+  fs.writeFileSync(config, JSON.stringify({ root, jobsDir, upmd: FAKE_UPMD, python3, doc: 'WORK.md', block: 'after', running: 'long', seals: path.join(fixtures, 'crashed-seals.jsonl') }));
+  const child = spawn(process.execPath, ['--import', 'tsx', RUN_FIXTURE, config], { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, HOME: path.join(fixtures, 'home'), TIMMY_HOME: path.join(fixtures, 'home', 'timmy') } });
+  children.push(child);
+  const ready = await readyLine(child) as { job: string; pid: number };
+  groups.push(ready.pid);
+  await crash(child);
+  return ready;
+}
+
+/** The lines of "Waiting on you" that list workflow run `job`. */
+const listedRun = (out: string, job: string): string[] => out.split('\n').filter((l) => l.startsWith(`    ! workflow run ${job} `));
+
+/** A later run of the same block, which completes, settles it. */
+async function settledByLaterRun(ws: Workspace, job: string): Promise<void> {
+  fs.writeFileSync(path.join(root, 'WORK.md'), DOC.replace('sleep 60', 'echo quick'));
+  const again = text(await ws.run('WORK.md after')).match(/Running\s+(j[0-9a-f]{6})/)![1];
+  await until('the later run to complete', () => ws.jobs.get(again)?.state === 'completed', 30_000);
+  expect(text(await ws.decisions(''))).not.toContain(job);
+}
+
+// The lead (ledger row 164): H68 wrote this case before H67's pty wrapper stopped upmd itself when its REPL ends; with
+// both merged, a run over a pipe is the one an ended REPL leaves running (nothing stops upmd there), and a run on a pty
+// is stopped by its own wrapper: two cases now.
+describe('a /run over a pipe left running by a REPL killed with SIGKILL', () => {
   it('listed as still running; once /recover records it interrupted it stays listed, until a later run of the same block settles it', async () => {
-    const config = path.join(fixtures, 'crashed-run.json');
-    fs.writeFileSync(config, JSON.stringify({ root, jobsDir, upmd: FAKE_UPMD, python3: PYTHON3, doc: 'WORK.md', block: 'after', running: 'long', seals: path.join(fixtures, 'crashed-seals.jsonl') }));
-    const child = spawn(process.execPath, ['--import', 'tsx', RUN_FIXTURE, config], { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, HOME: path.join(fixtures, 'home'), TIMMY_HOME: path.join(fixtures, 'home', 'timmy') } });
-    children.push(child);
-    const ready = await readyLine(child) as { job: string; pid: number };
-    groups.push(ready.pid);
-    await crash(child);
+    const ready = await crashedRun(null);
     expect(new JobManager({ dir: jobsDir }).get(ready.job)).toMatchObject({ state: 'running', pid: ready.pid });
-    const { ws } = make({ python3: PYTHON3 });
+    expect(alive(ready.pid)).toBe(true);
+    const { ws } = make();
 
     // Before /recover: still running in its own process group (not yet interrupted: nothing has ended it).
     const waiting = text(await ws.decisions(''));
@@ -362,21 +383,44 @@ describe.skipIf(!PYTHON3)('a /run left running by a REPL killed with SIGKILL', (
 
     // /recover stops it and records it interrupted: it stays listed, as an interrupted flow does, with its record's words.
     await ws.recover('');
-    const listed = (out: string): string[] => out.split('\n').filter((l) => l.startsWith(`    ! workflow run ${ready.job} `));
+    await until('its group to be gone', () => !alive(ready.pid), 10_000);
     const after = text(await ws.decisions(''));
-    expect(listed(after)).toEqual([`    ! workflow run ${ready.job} (WORK.md › after) was interrupted  interrupted`]);
+    expect(listedRun(after, ready.job)).toEqual([`    ! workflow run ${ready.job} (WORK.md › after) was interrupted  interrupted`]);
     expect(after).toContain('why     its job record says cancelled: interrupted: its REPL ended while long was running; recovery stopped its process group with SIGTERM');
     expect(after).toContain(`type    /run WORK.md after · /jobs ${ready.job}`);
     expect(after).not.toContain('left by a Timmy session that ended');
     // Still there on a later look, and in the Control Room.
-    expect(listed(text(await ws.decisions('')))).toHaveLength(1);
+    expect(listedRun(text(await ws.decisions('')), ready.job)).toHaveLength(1);
     expect(text(await ws.room(''))).toContain(`    ! workflow run ${ready.job} (WORK.md › after) was interrupted  interrupted`);
 
-    // A later run of the same block, which completes, settles it.
-    fs.writeFileSync(path.join(root, 'WORK.md'), DOC.replace('sleep 60', 'echo quick'));
-    const again = text(await ws.run('WORK.md after')).match(/Running\s+(j[0-9a-f]{6})/)![1];
-    await until('the later run to complete', () => ws.jobs.get(again)?.state === 'completed', 30_000);
-    expect(text(await ws.decisions(''))).not.toContain(ready.job);
+    await settledByLaterRun(ws, ready.job);
+  }, 120_000);
+});
+
+describe.skipIf(!PYTHON3)('a /run on a pty whose REPL was killed with SIGKILL: its wrapper stops upmd itself (H67)', () => {
+  it('listed as interrupted once its wrapper has stopped it; /recover records it from the wrapper\'s stop file; a later run settles it', async () => {
+    const ready = await crashedRun(PYTHON3);
+    const jobs = new JobManager({ dir: jobsDir });
+    const args = jobs.get(ready.job)!.args ?? [];
+    const stopFile = args[args.indexOf('--stop-file') + 1];
+    expect(stopFile, 'the run has a stop file').toBeTruthy();
+    // The wrapper sees its REPL end, stops upmd and leaves its stop file; its record still says running, its process gone.
+    await until('the wrapper\'s stop file', () => fs.existsSync(stopFile), 10_000);
+    await until('the run\'s processes to be gone', () => new JobManager({ dir: jobsDir }).get(ready.job)?.stale === true, 10_000);
+    const { ws } = make({ python3: PYTHON3 });
+    const before = text(await ws.decisions(''));
+    expect(listedRun(before, ready.job)).toEqual([`    ! workflow run ${ready.job} (WORK.md › after) was interrupted  interrupted`]);
+    expect(before).toContain('its job record says running and its process is gone: the session that ran it ended while long ran');
+
+    // /recover ends its record with the wrapper's account: cancelled, after not started; it stays listed with those words.
+    await ws.recover('');
+    expect(new JobManager({ dir: jobsDir }).get(ready.job)).toMatchObject({ state: 'cancelled', interrupted: { step: 'long', rest: 'not run' } });
+    const after = text(await ws.decisions(''));
+    expect(listedRun(after, ready.job)).toEqual([`    ! workflow run ${ready.job} (WORK.md › after) was interrupted  interrupted`]);
+    expect(after).toContain('why     its job record says cancelled: interrupted: its REPL ended while long was running; its pty wrapper saw its REPL end and stopped upmd at once (SIGTERM), so after did not start');
+    expect(after).not.toContain('left by a Timmy session that ended');
+
+    await settledByLaterRun(ws, ready.job);
   }, 120_000);
 });
 

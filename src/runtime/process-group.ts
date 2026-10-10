@@ -57,3 +57,19 @@ function pidAlive(pid: number): boolean {
     return (e as NodeJS.ErrnoException).code === 'EPERM';
   }
 }
+
+/**
+ * R4 (the lead, ledger row 164): whether the process `pid` runs. process.kill(pid, 0) succeeds for a zombie too, and an
+ * init that reaps orphans late (some containers' first process never does) kept a job whose last process had ended
+ * "running", so recovery never settled it. On Linux /proc says whether it is a zombie; elsewhere the signal check is the
+ * answer, as for groupLive.
+ */
+export function pidRuns(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 1) return false;
+  if (!pidAlive(pid)) return false;
+  if (process.platform !== 'linux') return true;
+  let stat: string;
+  try { stat = readFileSync(`/proc/${pid}/stat`, 'utf8'); } catch { return true; }
+  const state = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0];
+  return state !== 'Z' && state !== 'X';
+}

@@ -20,7 +20,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
-import { groupLive } from '../runtime/process-group.js';
+import { groupLive, pidRuns } from '../runtime/process-group.js';
 import { killProcessGroup, spawnProcess, type ProcessOutcome } from '../runtime/spawn-runtime.js';
 // Round R4 (H51): each job carries the operation that started it; its callbacks run back inside that operation.
 import { inOperationId, jobEnvironment, operationField, OPERATION_ID } from '../ops/context.js';
@@ -712,11 +712,9 @@ function leaderExited(child: ChildProcessWithoutNullStreams): boolean {
   return child.exitCode !== null || child.signalCode !== null;
 }
 
+/** R4 (the lead, ledger row 164): a zombie does not run (pidRuns, ../runtime/process-group.ts). */
 function pidAlive(pid: unknown): boolean {
-  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1) return false;
-  try { process.kill(pid, 0); return true; } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM';
-  }
+  return typeof pid === 'number' && pidRuns(pid);
 }
 
 function writeAll(fd: number, text: string): void {

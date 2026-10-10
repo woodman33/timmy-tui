@@ -186,7 +186,10 @@ describe.skipIf(!browserPath)('Timmy Canvas: the Project panel in a real browser
       expect(first.lines[1]).toBe(`succeeded, readback matches · verified: receipt ${flowReceipt()} sealed these bytes`);
       // The record changed after its receipt: the card says so, and no longer claims the receipt.
       writeFileSync(file, flowRecord(p.flow, 'failed'));
-      expect(await refreshPlaced(page, /\d+ changed/)).toMatch(/^\d+ placed cards checked: \d+ changed, \d+ unchanged\.$/);
+      // The lead (ledger row 164): how many notes the canvas holds depends on which earlier tests' notes were saved by now
+      // (the full suite once read "2 placed cards checked: 2 changed.", both notes of this flow); "unchanged" is said only
+      // when some note is.
+      expect(await refreshPlaced(page, /\d+ changed/)).toMatch(/^\d+ placed cards? checked: \d+ changed(, \d+ unchanged)?\.$/);
       let now = (await placed(page)).find((x) => x.id === first.id)!;
       expect(now.lines[1]).toBe('failed, readback differs (as the file says) · not verified: the file changed after it was sealed: its sha256 is not the one its flow receipt sealed');
       expect(now.meta).toMatchObject({ receipt: null, state: now.lines[1], placedAt: first.meta.placedAt });

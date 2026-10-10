@@ -244,7 +244,12 @@ async function stopLeftRun(d: WorkflowRecoverDeps, job: JobRecord): Promise<Reco
   if (!LIVE.has(now.state)) return undefined;
   const left = leftBehind(now, (d.table ?? processTable)());
   if (left.kind === 'unproven') return { kind: 'workflow', id: now.id, did: 'left', attention: true, job: now.id, text: unprovenText(d, now, left) };
-  if (left.kind !== 'orphan') return { kind: 'workflow', id: now.id, did: 'left', job: now.id, text: left.kind === 'gone' ? `${w.name}: the processes of its job have just ended: /recover again to record it` : `${w.name} still runs (another session)` };
+  if (left.kind !== 'orphan') {
+    // R4 (the lead, ledger row 164): its pty wrapper stops upmd itself once its REPL has ended (H67), so this pass can
+    // meet the run just as its last process exits: its record is read again for a moment and ended from what it left.
+    if (left.kind === 'gone' && await waitFor(() => d.jobs.get(now.id)?.stale === true, SETTLE_MS)) return endGone(d, now);
+    return { kind: 'workflow', id: now.id, did: 'left', job: now.id, text: left.kind === 'gone' ? `${w.name}: the processes of its job have just ended: /recover again to record it` : `${w.name} still runs (another session)` };
+  }
   const pgid = left.pgid;
   const signals: LeftStop['signals'] = ['SIGTERM'];
   killProcessGroup(pgid, 'SIGTERM', { leaderExited: !left.leader });
