@@ -248,15 +248,16 @@ describe("the connected card's words for live runs (FAKE job records)", () => {
     const gone = run(dir, { id: 'j00b004', state: 'failed', endedAt: t(60), exitCode: null, error: 'interrupted: its REPL ended while second was running; its process is gone', interrupted: { step: 'second' },
       steps: [{ name: 'first', index: 1, state: 'completed', code: 0, startedAt: t(0), endedAt: t(1) }, { name: 'second', index: 2, state: 'interrupted', startedAt: t(1.1) }] });
     const w = view(dir, [gone], { mine: () => false });
-    expect(w.connected!.nodes.map((n) => n.word)).toEqual(['completed', 'interrupted', 'not run']);
+    // R4 (H67, r20): a record ended without its wrapper's account proves nothing of third: not seen, never "not run"
+    expect(w.connected!.nodes.map((n) => n.word)).toEqual(['completed', 'interrupted', 'not seen']);
     expect(w.connected!.runs[0]).toMatchObject({ word: 'interrupted', interruptedAt: 'second', interruptedHow: 'recorded gone', live: true, stoppable: false });
     const html = renderWorkflowCard(w, kit({ live: true, base: '../../' }));
-    expect(html).toContain("The session that ran j00b004 ended while second was running; its process was gone when a later session&#39;s recovery recorded its end, so how it ended is not known. upmd does not resume a run, and Timmy does not either: /run probe.md third runs it again from first.");
+    expect(html).toContain("The session that ran j00b004 ended while second was running; its process was gone when a later session&#39;s recovery recorded its end, so how it ended is not known; third not seen: its REPL had ended, and upmd may have gone on until it ended. upmd does not resume a run, and Timmy does not either: /run probe.md third runs it again from first.");
     expect(html).toContain('data-wf-rerun="3"');
-    expect(text(workflowSummaryLines(w, { sep: ' · ', link: (r) => r, upmd: { version: '0.2.7' } }))).toContain('its session ended while second ran; its process was gone; recovery recorded its end. Nothing resumes it: /run probe.md third runs it again.');
+    expect(text(workflowSummaryLines(w, { sep: ' · ', link: (r) => r, upmd: { version: '0.2.7' } }))).toContain('its session ended while second ran; its process was gone; recovery recorded its end; third not seen: its REPL had ended, and upmd may have gone on until it ended. Nothing resumes it: /run probe.md third runs it again.');
     // its group stopped by recovery
     const cut = run(dir, { ...gone, id: 'j00b005', state: 'cancelled', cleanup: 'complete', error: 'interrupted: its REPL ended while second was running; recovery stopped its process group with SIGTERM' });
-    expect(renderWorkflowCard(view(dir, [cut], { mine: () => false }), kit({ live: true, base: '../../' }))).toContain("ended while second was running; a later session&#39;s recovery stopped its process group, so how the block would have ended is not known.");
+    expect(renderWorkflowCard(view(dir, [cut], { mine: () => false }), kit({ live: true, base: '../../' }))).toContain("ended while second was running; a later session&#39;s recovery stopped its process group, so how the block would have ended is not known; third not seen: its REPL had ended, and upmd may have gone on until it ended.");
     // no block was running (between two): said so, never "a block"
     const between = run(dir, { id: 'j00b006', state: 'failed', endedAt: t(60), interrupted: {}, steps: [{ name: 'first', index: 1, state: 'completed', code: 0, startedAt: t(0), endedAt: t(1) }] });
     expect(renderWorkflowCard(view(dir, [between], { mine: () => false }), kit({ live: true, base: '../../' }))).toContain('ended while no block was running (before upmd started one, or between two)');

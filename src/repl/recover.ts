@@ -981,8 +981,11 @@ function summary(items: RecoveryItem[]): string {
   // R4 (H59): code agent runs an ended REPL left (not a flow's step), each run's own record ended as interrupted.
   const agentRuns = of((i) => i.kind === 'agent-run' && i.did === 'interrupted');
   if (agentRuns.length) parts.push(`${count(agentRuns.length, 'agent run')} left by a REPL that ended ${agentRuns.length === 1 ? 'was' : 'were'} recorded as interrupted: ${agentRuns.map((i) => i.id).join(', ')} (no result written)`);
-  const judged = of((i) => i.did === 'judged');
+  const judged = of((i) => i.did === 'judged' && i.kind !== 'workflow');
   if (judged.length) parts.push(`${count(judged.length, 'native run')} judged from ${judged.length === 1 ? 'its result file' : 'their result files'}`);
+  // R4 (H67): /run jobs upmd ended while their REPL no longer followed them, recorded from what their pty wrapper saw
+  const wfEnded = of((i) => i.did === 'judged' && i.kind === 'workflow');
+  if (wfEnded.length) parts.push(`${count(wfEnded.length, 'workflow run')} ended unseen by ${wfEnded.length === 1 ? 'its' : 'their'} REPL: ${wfEnded.map((i) => i.id).join(', ')} (recorded from ${wfEnded.length === 1 ? 'its' : 'their'} pty wrapper's stop file)`);
   const failed = of((i) => i.did === 'failed');
   if (failed.length) parts.push(`${failed.length} could not be picked up`);
   const incomplete = of((i) => i.did === 'incomplete');

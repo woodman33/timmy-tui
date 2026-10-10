@@ -26,6 +26,10 @@
  * document may have changed since the run started). The wrapper's own lines (stderr, `pty_run: `) say when it was asked
  * to stop: the block running then is stopped. The pipe format (old runs, the fallback, the test double's pipe mode) is
  * read as before (src/workflows/upmd.ts parseUpmdLine, stepsFromEvent).
+ *
+ * Round R4 (helper H67, ledger row 162, r20): the wrapper is told its parent (`--parent`, the REPL's pid) and where to leave
+ * its stop file (`--stop-file`, in the run's own folder: src/workflows/pty-stop.ts). It stops upmd at once when that parent
+ * ends, and writes what it saw before it exits; a REPL's recovery reads that file (src/repl/workflow-recover.ts).
  */
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -82,7 +86,8 @@ export function ptyKnown(python: string | null, script: string = PTY_RUN_SCRIPT)
 
 async function probe(python: string, script: string): Promise<PtyReady> {
   try {
-    const { child, outcome } = spawnProcess(python, ['-I', script, '--', python, '-I', '-c', PROBE], { timeoutMs: 5_000, maxBuffer: 64 * 1024 });
+    // R4 (H67): with --parent, as a run has it: a wrapper that would take this process for ended fails here, not in a run
+    const { child, outcome } = spawnProcess(python, ['-I', script, '--parent', String(process.pid), '--', python, '-I', '-c', PROBE], { timeoutMs: 5_000, maxBuffer: 64 * 1024 });
     child.stdin.on('error', () => { /* it may end before its stdin closes */ });
     child.stdin.end();
     const r = await outcome;
@@ -95,18 +100,32 @@ async function probe(python: string, script: string): Promise<PtyReady> {
   }
 }
 
-/** The job that runs `upmd <upmdArgs>`: through the wrapper on a pty when `pty` is ready, else upmd itself over a pipe. */
+/**
+ * The job that runs `upmd <upmdArgs>`: through the wrapper on a pty when `pty` is ready, else upmd itself over a pipe.
+ * R4 (H67): `parent` is the process that starts the job (the REPL's: the wrapper stops upmd at once when it ends), and
+ * `stopFile` where the wrapper writes what it saw before it exits (in the run's own folder); both are the wrapper's.
+ */
 export type UpmdJob = { command: string; args: string[]; live: true } | { command: string; args: string[]; live: false; why: string };
-export function upmdJob(bin: string, upmdArgs: string[], pty: PtyReady): UpmdJob {
+export function upmdJob(bin: string, upmdArgs: string[], pty: PtyReady, o: { parent?: number; stopFile?: string } = {}): UpmdJob {
+  const options = [...(o.parent ? ['--parent', String(o.parent)] : []), ...(o.stopFile ? ['--stop-file', o.stopFile] : [])];
   return pty.ok
-    ? { command: pty.python, args: ['-I', pty.script, '--', bin, ...upmdArgs], live: true }
+    ? { command: pty.python, args: ['-I', pty.script, ...options, '--', bin, ...upmdArgs], live: true }
     : { command: bin, args: [...upmdArgs], live: false, why: pty.why };
 }
 
-/** Whether a job's arguments run its command through the pty wrapper (a run whose block states came as they happened). */
+/** Whether a job's arguments run its command through the pty wrapper (a run whose block states came as they happened).
+ *  R4 (H67): the wrapper's own options may come between it and its `--`. */
 export function isLiveRun(args: readonly string[]): boolean {
   const at = args.indexOf('--');
-  return at >= 1 && path.basename(args[at - 1]) === WRAPPER;
+  return at >= 1 && args.slice(0, at).some((a) => path.basename(a) === WRAPPER);
+}
+
+/** R4 (H67): the stop file a live run's wrapper was given (`--stop-file`, before its `--`), or undefined. */
+export function wrapperStopFile(args: readonly string[]): string | undefined {
+  if (!isLiveRun(args)) return undefined;
+  const at = args.indexOf('--');
+  const i = args.indexOf('--stop-file');
+  return i >= 0 && i + 1 < at ? args[i + 1] : undefined;
 }
 
 /** The program a live run's wrapper ran (upmd), for whoever names a job by its program; undefined for any other job. */

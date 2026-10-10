@@ -32,7 +32,27 @@ export type JobState = 'queued' | 'running' | 'ready' | 'completed' | 'failed' |
  * stopped, 'interrupted' one that was running when the session following its job ended (written by recovery); startedAt
  * and endedAt are when the step's start and end were seen, set only where they arrive as they happen (upmd on a pty).
  */
-export interface JobStep { name: string; index?: number; state: 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted'; code?: number; startedAt?: string; endedAt?: string }
+export interface JobStep {
+  name: string; index?: number; state: 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted'; code?: number; startedAt?: string; endedAt?: string;
+  /** Round R4 (H67): 'wrapper' when the step's end (its state, code and endedAt) is what the run's pty wrapper saw once the
+   *  REPL that followed the job no longer did (its stop file, read by recovery); Timmy did not see that end itself. */
+  seen?: 'wrapper';
+}
+/** Round R4 (H67): what a run's pty wrapper wrote in its stop file (workers/upmd/pty_run.py) once the REPL that started it
+ *  had ended, as recovery keeps it: why it ended (its own words), when, whether it stopped upmd and with which signals,
+ *  how many process groups were left after SIGKILL, and upmd's exit as it saw it (null: not known). */
+export interface WrapperAccount { why: string; at: string; stopped: boolean; signals: string[]; left: number; exit: number | null }
+/** Round R4 (H58, H67): JobRecord.interrupted. */
+export interface Interrupted {
+  /** the step that was running when the session following the job ended (the wrapper's account, when it has one) */
+  step?: string;
+  /** R4 (H67): the steps after it that have no record: 'not run' when the wrapper's stop file proves upmd was stopped (or
+   *  had ended) before they could start; 'not seen' otherwise (the REPL had ended, and upmd may have gone on until it
+   *  ended). Absent in records written before H67, which prove nothing either: read as 'not seen'. */
+  rest?: 'not run' | 'not seen';
+  /** R4 (H67): the wrapper's account the record was ended with */
+  wrapper?: WrapperAccount;
+}
 export interface JobRecord {
   /** 'j' + 6 hex chars, unique in the jobs dir */
   id: string;
@@ -74,8 +94,11 @@ export interface JobRecord {
    *  TIMMY_OPERATION. Absent in records written before, and for a job no request started. */
   operation?: string;
   /** Round R4 (H58): ended by a later session's recovery because the session following it ended while it ran (endLeft):
-   *  the step that was running then, when its output showed one. */
-  interrupted?: { step?: string };
+   *  the step that was running then, when its output showed one. R4 (H67): and what is known of the rest (Interrupted). */
+  interrupted?: Interrupted;
+  /** Round R4 (H67): the steps the job was to run, in order, as sealed before it started (a /run's prediction: its blocks in
+   *  run order), and the receipt that sealed them. Absent for other jobs and in records written before H67. */
+  expected?: { steps: string[]; receipt?: string };
   /** Round R4 (H62): how a stop of a job with a first part (JobSpec.stopFirst) went: whether that part answered within its
    *  bound, then what the job's process group needed: nothing ('ended by itself', its last output kept), a SIGTERM, or a
    *  SIGKILL too. Absent when no stop ran, and for every other job. */
@@ -118,6 +141,8 @@ export interface JobSpec {
    * signalled (SIGTERM, then SIGKILL after the grace). `run` is told why the job is stopped. Absent: as before.
    */
   stopFirst?: { run: (ending: StopEnding) => Promise<unknown>; answerMs: number; exitMs: number };
+  /** Round R4 (H67): kept in the record as JobRecord.expected (what the job was to run, as sealed before it started). */
+  expected?: { steps: string[]; receipt?: string };
 }
 export interface JobManagerOptions { dir: string; onChange?: (job: JobRecord) => void; seal?: (job: JobRecord) => string | undefined; now?: () => Date }
 
@@ -196,6 +221,8 @@ export class JobManager {
       steps: [], logPath: this.logFile(id), lines: 0, owner: { ...OWNER },
       // Round R4 (H51): the operation this job is started in, if any (and the run noted with it).
       ...operationField('job', id),
+      // Round R4 (H67): what it was to run, as sealed before it started
+      ...(spec.expected ? { expected: { steps: [...spec.expected.steps], ...(spec.expected.receipt ? { receipt: spec.expected.receipt } : {}) } } : {}),
     };
     let resolveDone: (job: JobRecord) => void = () => undefined;
     const done = new Promise<JobRecord>((resolve) => { resolveDone = resolve; });
@@ -290,17 +317,24 @@ export class JobManager {
    * and signal are recorded as null. Returns the record as written, or undefined when nothing was written.
    * Round R4 (H58): `interrupted` records the job as interrupted (its session ended while it ran): each step still
    * running becomes 'interrupted', and the record names the newest of them (the step running when that session ended).
+   * Round R4 (H67): `steps` replaces the record's steps (recovery's reading of a run's pty wrapper's stop file, which saw
+   * what the ended session could not); `interrupted` may then be the record's whole Interrupted (its step named as
+   * given); `completed` and `note` are for a run the wrapper saw end by itself; `error` is optional.
    */
-  endLeft(id: string, end: { state: 'failed' | 'cancelled'; error: string; cleanup?: 'complete' | 'unresolved'; interrupted?: boolean }): JobRecord | undefined {
+  endLeft(id: string, end: { state: 'failed' | 'cancelled' | 'completed'; error?: string; note?: string; cleanup?: 'complete' | 'unresolved'; interrupted?: boolean | Interrupted; steps?: JobStep[] }): JobRecord | undefined {
     if (this.jobs.has(id) || !JOB_ID.test(id)) return undefined;
     const left = this.readPersisted(id);
     if (!left || !LIVE_STATES.has(left.state)) return undefined;
     const { stale: _stale, ...job } = left;
-    const running = end.interrupted ? job.steps.filter((s) => s.state === 'running').at(-1) : undefined;
-    const steps = end.interrupted ? job.steps.map((s) => (s.state === 'running' ? { ...s, state: 'interrupted' as const } : s)) : job.steps;
+    const base = end.steps ?? job.steps;
+    const running = end.interrupted ? base.filter((s) => s.state === 'running').at(-1) : undefined;
+    const steps = end.interrupted ? base.map((s) => (s.state === 'running' ? { ...s, state: 'interrupted' as const } : s)) : base;
+    const given = typeof end.interrupted === 'object' ? end.interrupted : undefined;
+    const interrupted: Interrupted | undefined = given ? { ...(running && given.step === undefined ? { step: running.name } : {}), ...given } : end.interrupted ? (running ? { step: running.name } : {}) : undefined;
     const ended: JobRecord = {
-      ...job, steps, state: end.state, endedAt: this.stamp(), exitCode: null, signal: null, error: end.error, ...(end.cleanup ? { cleanup: end.cleanup } : {}),
-      ...(end.interrupted ? { interrupted: running ? { step: running.name } : {} } : {}),
+      ...job, steps, state: end.state, endedAt: this.stamp(), exitCode: null, signal: null,
+      ...(end.error !== undefined ? { error: end.error } : {}), ...(end.note !== undefined ? { note: end.note } : {}), ...(end.cleanup ? { cleanup: end.cleanup } : {}),
+      ...(interrupted ? { interrupted } : {}),
     };
     return this.persist(ended) ? snapshot(ended) : undefined;
   }
@@ -755,7 +789,17 @@ function parseRecord(raw: unknown, id: string, logPath: string): JobRecord | und
   if (owner && typeof owner.pid === 'number' && Number.isInteger(owner.pid) && owner.pid > 0 && text(owner.startedAt)) job.owner = { pid: owner.pid, startedAt: owner.startedAt };
   if (text(r.operation) && OPERATION_ID.test(r.operation)) job.operation = r.operation;
   const interrupted = r.interrupted && typeof r.interrupted === 'object' ? r.interrupted as Record<string, unknown> : undefined;
-  if (interrupted) job.interrupted = text(interrupted.step) ? { step: interrupted.step } : {};
+  if (interrupted) {
+    job.interrupted = text(interrupted.step) ? { step: interrupted.step } : {};
+    // Round R4 (H67): what is known of the rest of the run, and its wrapper's account
+    if (interrupted.rest === 'not run' || interrupted.rest === 'not seen') job.interrupted.rest = interrupted.rest;
+    const account = parseAccount(interrupted.wrapper);
+    if (account) job.interrupted.wrapper = account;
+  }
+  const expected = r.expected && typeof r.expected === 'object' ? r.expected as Record<string, unknown> : undefined;
+  if (expected && Array.isArray(expected.steps) && expected.steps.length <= 500 && expected.steps.every(text)) {
+    job.expected = { steps: [...expected.steps], ...(text(expected.receipt) ? { receipt: expected.receipt } : {}) };
+  }
   const order = r.stopOrder && typeof r.stopOrder === 'object' ? r.stopOrder as Record<string, unknown> : undefined;
   if (order && (order.first === 'answered' || order.first === 'no answer') && (order.group === 'ended by itself' || order.group === 'SIGTERM' || order.group === 'SIGKILL')) job.stopOrder = { first: order.first, group: order.group };
   return job;
@@ -770,5 +814,17 @@ function parseStep(raw: unknown): JobStep[] {
   if (typeof s.code === 'number') step.code = s.code;
   if (typeof s.startedAt === 'string') step.startedAt = s.startedAt;
   if (typeof s.endedAt === 'string') step.endedAt = s.endedAt;
+  if (s.seen === 'wrapper') step.seen = 'wrapper';
   return [step];
+}
+
+/** Round R4 (H67): a run's wrapper account as a record keeps it (Interrupted.wrapper); anything malformed is not kept. */
+function parseAccount(raw: unknown): WrapperAccount | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const a = raw as Record<string, unknown>;
+  const count = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0;
+  if (typeof a.why !== 'string' || a.why.length > 500 || typeof a.at !== 'string' || typeof a.stopped !== 'boolean' || !count(a.left)) return undefined;
+  if (!Array.isArray(a.signals) || a.signals.length > 4 || !a.signals.every((x) => typeof x === 'string' && /^SIG[A-Z0-9]+$/.test(x))) return undefined;
+  const exit = typeof a.exit === 'number' && Number.isInteger(a.exit) ? a.exit : null;
+  return { why: a.why, at: a.at, stopped: a.stopped, signals: [...a.signals as string[]], left: a.left, exit };
 }

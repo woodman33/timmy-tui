@@ -170,15 +170,16 @@ describe('each block connected to its runs (FAKE job records and receipts)', () 
     expect(view(root, { jobs: [stopped] }).connected!.nodes.map((n) => n.word)).toEqual(['completed', 'stopped', 'not run yet']);
   });
 
-  it("an interrupted run (its job record is stale): interrupted where it was, then not run; /run again, and nothing resumes it", () => {
+  // R4 (H67, r20): a block after the one that ran is not seen (nothing proves upmd stopped), never "not run"
+  it("an interrupted run (its job record is stale): interrupted where it was, then not seen; /run again, and nothing resumes it", () => {
     const root = project();
     const stale = job(root, { id: 'j00a005', target: 'inspect', state: 'running', endedAt: undefined, stale: true, steps: [{ name: 'check', index: 1, state: 'completed', code: 0 }, { name: 'build', index: 2, state: 'running' }] });
     const w = view(root, { jobs: [stale] });
-    expect(w.connected!.nodes.map((n) => n.word)).toEqual(['completed', 'interrupted', 'not run']);
+    expect(w.connected!.nodes.map((n) => n.word)).toEqual(['completed', 'interrupted', 'not seen']);
     expect(w.connected!.runs[0]).toMatchObject({ word: 'interrupted', interruptedAt: 'build', orderFrom: 'document', stoppable: false });
     const live = renderWorkflowCard(w, kit({ live: true, base: '../../' }));
     expect(live).toContain('interrupted run');
-    expect(live).toContain('The session that ran j00a005 ended while build was running; its process is gone, so how it ended is not known. upmd does not resume a run, and Timmy does not either: /run BUILD.md inspect runs it again from check.');
+    expect(live).toContain('The session that ran j00a005 ended while build was running; its process is gone, so how it ended is not known; inspect not seen: its REPL had ended, and upmd may have gone on until it ended. upmd does not resume a run, and Timmy does not either: /run BUILD.md inspect runs it again from check.');
     // Run again presses the block's own Run (the same /run); the command is shown; nothing says resume
     expect(live).toContain('<button type="button" class="act" data-wf-rerun="3">Run inspect again</button>');
     expect(live).toContain('data-cmd="/run BUILD.md inspect"');

@@ -42,7 +42,7 @@ import { gatherResults, paramsCard, type ResultCard } from './board-cards.js';
 import { applyBoardEdit } from './board-edits.js';
 import { workflowForBoard } from './board-nodes.js';
 // R4 (H47): each workflow document connected to its runs, results and parameter files (board and /workflows <file>).
-import { connectWorkflow, liveNodeStates, StepClock, workflowSummaryLines, type ConnectContext } from './board-workflows.js';
+import { connectWorkflow, jobBlockLines, liveNodeStates, StepClock, workflowSummaryLines, type ConnectContext } from './board-workflows.js';
 import { recipeEnded, recipeView, startRecipeJob, type RecipeContext, type RecipeStarted, type RecipeTestSeams } from './recipe.js';
 import { cancelRecipe, cancelSentence, RecipeLaunches, type RecipeCancel } from './recipe-stop.js';
 import { liveRecipeJobFolders } from '../recipes/index.js';
@@ -60,6 +60,7 @@ import { describeRefusal, interpretationSeal, QUALIFIED_PROTOCOL, qualifiedSeal 
 import { keptReader, observationKeeper, wholeNote, type KeepPlaces, type KeptRef, type ObservationKeeper } from '../vision/kept.js';
 import { findUpmd, findWorkflowDocs, parseWorkflow, runOrder, upmdRunArgs, upmdVersion } from '../workflows/upmd.js';
 import { ptyKnown, ptyReady, upmdJob, upmdLineParser } from '../workflows/upmd-live.js'; // R4 (H58)
+import { makeRunFolder, wrapperDid } from '../workflows/pty-stop.js'; // R4 (H67)
 // Round R3 (/agent, helper H13): code agents as jobs; the code is in the "/agent" section below.
 import { spawnSync, execFile } from 'node:child_process';
 import { copyFileSync, writeFileSync } from 'node:fs';
@@ -993,12 +994,16 @@ export class Workspace {
       files: [{ path: r.rel, ...(r.sha256 ? { sha256: r.sha256 } : {}) }],
     });
     // R4 (H58): upmd on a pty of its own (workers/upmd/pty_run.py), so each block's state arrives as it happens; else a pipe.
-    const how = upmdJob(tool.bin, upmdRunArgs(join(this.root, r.rel), target, this.root), await ptyReady(this.d.onPath('python3')));
+    // R4 (H67): the wrapper stops upmd at once when this process ends, and leaves a stop file in the run's own folder.
+    const pty = await ptyReady(this.d.onPath('python3'));
+    const stopFile = pty.ok ? makeRunFolder(this.d.jobsDir) : undefined;
+    const how = upmdJob(tool.bin, upmdRunArgs(join(this.root, r.rel), target, this.root), pty, { parent: process.pid, ...(stopFile ? { stopFile } : {}) });
     const parse = upmdLineParser(blocks, how.live ? 'pty' : 'pipe');
     const job = this.jobs.start({
       kind: 'workflow', label: `${r.rel} › ${target}`, project: this.project.name, root: this.root,
       command: how.command, args: how.args,
       parseLine: (line, j) => parse(line, j.steps),
+      expected: { steps: plan.order, ...(predicted ? { receipt: predicted } : {}) }, // R4 (H67): the order its prediction sealed
     });
     this.mine.add(job.id);
     this.predictions.set(job.id, { doc: r.rel, block: target, order: plan.order, ...(predicted ? { receipt: predicted } : {}) });
@@ -1078,7 +1083,8 @@ export class Workspace {
 
   // ── jobs: notices, /jobs, /stop ─────────────────────────────────────────────
 
-  private expected(j: JobRecord): number | undefined { return this.predictions.get(j.id)?.order.length; }
+  /** R4 (H67): a run of another session counts the blocks its record keeps from its sealed prediction, not the steps seen. */
+  private expected(j: JobRecord): number | undefined { return this.predictions.get(j.id)?.order.length ?? j.expected?.steps.length; }
 
   private changed(job: JobRecord): void {
     if (job.kind === 'workflow') this.stepClock.note(job);
@@ -1221,6 +1227,11 @@ export class Workspace {
     } catch { return undefined; }
   }
 
+  /** R4 (H67): `/jobs <id>` of a /run: every block it was to run, in order, as its card reads them, each with its own time. */
+  private blockLines(j: JobRecord): Line[] {
+    return jobBlockLines(j, this.predictions.get(j.id)?.order ?? j.expected?.steps ?? [], { glyphs: this.d.glyphs, clock: (i) => this.stepClock.ms(j.id, i) });
+  }
+
   private jobLine(j: JobRecord): Line {
     const g = this.d.glyphs;
     const mark = j.state === 'completed' || j.state === 'ready' ? g.ok : j.state === 'failed' ? g.fail : j.state === 'cancelled' ? ' ' : g.bullet;
@@ -1228,7 +1239,7 @@ export class Workspace {
     const where = j.url && j.state === 'ready' ? `${this.sep}${j.url}` : '';
     const stale = j.stale ? `${this.sep}from an earlier session; its process is gone` : '';
     // R4 (H58): ended by a later session's recovery, its session having ended while it ran
-    const interrupted = j.interrupted ? `${this.sep}interrupted: its session ended${j.interrupted.step ? ` while ${j.interrupted.step} ran` : ''}` : '';
+    const interrupted = j.interrupted ? `${this.sep}interrupted: its session ended${j.interrupted.step ? ` while ${j.interrupted.step} ran` : ''}${j.interrupted.wrapper ? `; ${wrapperDid(j.interrupted.wrapper)}` : ''}` : '';
     const note = `${interrupted}${j.note ? `${this.sep}${j.note}` : ''}`;
     return [
       { text: `  ${mark} `, role: j.state === 'failed' ? 'failure' : undefined },
@@ -1253,7 +1264,8 @@ export class Workspace {
       const j = this.jobs.get(id) ?? this.jobs.list().find((x) => x.id === id);
       if (!j) return this.say(`No job ${id}. /jobs lists them.`);
       const lines: Line[] = [this.jobLine(j), ...this.askingLine(j)];
-      for (const s of j.steps) lines.push([{ text: `      ${s.state === 'completed' ? this.d.glyphs.ok : s.state === 'failed' ? this.d.glyphs.fail : this.d.glyphs.bullet} ${s.name}`, role: s.state === 'failed' ? 'failure' : undefined }, { text: `${s.state === 'completed' || s.state === 'failed' ? '' : `  ${s.state}`}${s.code === undefined ? '' : `  exit ${s.code}`}`, role: 'secondary' }]);
+      if (j.kind === 'workflow') lines.push(...this.blockLines(j));
+      else for (const s of j.steps) lines.push([{ text: `      ${s.state === 'completed' ? this.d.glyphs.ok : s.state === 'failed' ? this.d.glyphs.fail : this.d.glyphs.bullet} ${s.name}`, role: s.state === 'failed' ? 'failure' : undefined }, { text: `${s.state === 'completed' || s.state === 'failed' ? '' : `  ${s.state}`}${s.code === undefined ? '' : `  exit ${s.code}`}`, role: 'secondary' }]);
       // Round R3 (/agent): a code agent's job shows its parsed progress, not its raw stream.
       const progress = this.agentProgressLines(j);
       if (progress) return [...lines, ...progress];
