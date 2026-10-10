@@ -119,7 +119,7 @@ const runTask = async (ws: Workspace, line: string): Promise<{ out: string; job:
   const out = text(await ws.agent(line));
   return { out, job: await ws.jobs.done(jobIdOf(out)) };
 };
-/** R4 (H37): the sandbox overrides, each after -c (the keys ASSUMED from Codex's config documentation). */
+/** R4 (H37): the sandbox overrides, each after -c (the keys from Codex's config documentation; confirmed by a real run, ledger row 151). */
 const OVERRIDES = ['-c', 'sandbox_workspace_write.exclude_slash_tmp=true', '-c', 'sandbox_workspace_write.exclude_tmpdir_env_var=true', '-c', 'sandbox_workspace_write.network_access=false'];
 /** The command line the local route plans for `task` in `root` (its run id from the result). */
 const localArgs = (root: string, run: string, task: string, model = 'qwen3:4b'): string[] => [
@@ -169,7 +169,7 @@ describe('the plan: codex exec --oss on this machine\'s Ollama', () => {
     expect(HELP).toMatch(/possible values: read-only, workspace-write, danger-full-access/);
     expect(r.plan.args.join(' ')).not.toMatch(/dangerously|danger-full-access|--full-auto|--yolo|bypass|--add-dir/);
     // R4 (H37): the flags rechecked against codex-cli 0.153.2's help: -c and --ignore-rules are in it; the -c keys are not
-    // (they are ASSUMED from Codex's config documentation, to be confirmed by a real run)
+    // (they come from Codex's config documentation; a real run with codex-cli 0.153.2 confirmed them: ledger row 151)
     expect(CODEX_CLI_CHECKED).toBe('codex-cli 0.153.2');
     expect(HELP).toMatch(/-c, --config <key=value>\s+Override a configuration value that would otherwise be loaded from `~\/\.codex\/config\.toml`/);
     expect(HELP).toMatch(/--ignore-rules\s+Do not load user or project execpolicy `\.rules` files/);
@@ -742,4 +742,19 @@ describe('/iterate tray … --agent codex (FAKE codex, FAKE Ollama, FAKE recipe 
     expect(notes.join('\n')).toContain(`${id}  agent codex ${rec.agent!.run} completed: changed ${PARAMS} · width 140 → 180`);
     expect(text(await ws.iterate(''))).toContain('qwen (Qwen Code), or codex (Codex with a local model: codex exec --oss), on a local endpoint only');
   }, 120000);
+});
+
+describe('R4 (H46): what ledger row 151 confirmed is no longer called assumed', () => {
+  it('the -c sandbox_workspace_write keys and --ignore-rules are described as confirmed by that run (codex-cli 0.153.2), never as assumed', () => {
+    const src = readFileSync(join(process.cwd(), 'src', 'code-agents', 'codex-local.ts'), 'utf8');
+    // What the run showed, said where the overrides and --ignore-rules are described.
+    expect(src).toContain('CONFIRMED by a real run with codex-cli 0.153.2 (ledger row 151): the keys were accepted, a write\n * to /tmp was refused ("operation not permitted") and the network was blocked.');
+    expect(src).toContain('Codex accepted the three -c sandbox_workspace_write keys and --ignore-rules, its sandbox refused a write\n * to /tmp ("operation not permitted"), and the network was blocked.');
+    expect(src).toContain('// Confirmed by a real run with codex-cli 0.153.2 (ledger row 151): accepted, and the run completed.\n    \'--ignore-rules\',');
+    // No sentence about the keys or --ignore-rules calls them assumed (the events not seen in a run still are).
+    for (const sentence of src.split(/(?<=[.;:])\s+/)) {
+      if (/sandbox_workspace_write|the keys|--ignore-rules/.test(sentence)) expect(sentence, sentence).not.toMatch(/assumed|to be confirmed/i);
+    }
+    expect(src).toContain('Still ASSUMED, from codex-rs\'s source and Codex\'s documentation as known, and not confirmed by a run:\n * - the events and item types not seen in that run');
+  });
 });

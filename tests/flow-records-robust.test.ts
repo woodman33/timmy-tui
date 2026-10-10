@@ -22,6 +22,7 @@ import { diffText, DOCTRINE_15, paramDiff, type FlowRecord } from '../src/flows/
 import { scadDiffText, scadFlowSummary, scadParamDiff } from '../src/flows/iterate-scad.js';
 import { freecadFlowSummary } from '../src/flows/iterate-freecad.js';
 import { blenderFlowSummary } from '../src/flows/iterate-blender.js';
+import { aeFlowSummary } from '../src/flows/iterate-ae.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import type { Receipt, ReceiptInput } from '../src/utils/receipts.js';
 
@@ -90,7 +91,23 @@ const freecadOdd = {
   freecad: { state: 'completed', outcome: 'ok', fcstd: [null], checks: [null, { label: 'a hole', passed: true }], step: { path: 'plate.step', sha256: B } },
   readback: { state: 'completed', verdict: 'differs', scope: 'synthetic', checks: [null, 'x'], measured: { valid: true } },
 };
-const RECORDS = [good, trayNullDiff, trayOdd, blenderOdd, scadOdd, freecadOdd] as const;
+/** R4 (H46): an After Effects flow whose lists hold entries Timmy does not write (null, a number, a string for a list). */
+const aeOdd = {
+  ...base('f00000007', 7), target: 'ae', outcome: 'differs', ended_in: 'readback',
+  script: { path: 'author.jsx', before: { sha256: A, bytes: 10, lines: 1 }, after: { sha256: B, bytes: 11, lines: 1 }, change: { added: 1, removed: 1, hunks: [null, { before_line: 3, after_line: 3, removed: ['var x = [240, 540];'], added: ['var x = [480, 540];'] }], hunks_total: 2 }, syntax: 'ok' },
+  agent: { run: 'a00000003', agent: 'qwen', route: 'local endpoint, no charge', others: [null, { path: 'notes.txt', how: 'added' }], compared: { scope: 7 } },
+  author: { state: 'completed', outcome: 'ok', aep: { path: 'out/ae/author-v1.aep', sha256: A, bytes: 3 }, comps: 'Main', failure_files: [null, 'out/ae/author-v1.aep'] },
+  render: { state: 'completed', outcome: 'ok', comp: 'Main', file: { path: 'out/ae/author-v1.mp4', sha256: B, instead: false }, failure_files: 7 },
+  readback: {
+    state: 'completed', verdict: 'differs', label: 'synthetic', reported_by: 'synthetic',
+    probe: { width: 1920, height: 'tall', fps_value: 30, duration: 2, frames: 60 },
+    checks: [null, { name: 'Mover at 1 s', reported: [480, 540], measured: [500, 540], passed: false, difference: [20, 0] }, 'x'],
+    frames: [null, 7, { path: 'out/ae/frames/f1.png', frame: 30, time: 1, sha256: A }],
+    not_compared: [null, 'Title: a text layer'],
+  },
+  before_after: { reported_by: 'synthetic', before: null, before_note: 'no earlier run', after: { name: 'Main', layers: 'none' }, changes: [null] },
+};
+const RECORDS = [good, trayNullDiff, trayOdd, blenderOdd, scadOdd, freecadOdd, aeOdd] as const;
 const flow = (r: Record<string, unknown>): BoardFlow => ({ file: `results/flows/${String(r.id)}.json`, record: r as unknown as FlowRecord, check: { status: 'unverified', reasons: ['no flow receipt names this file'] } });
 const cards = (html: string): string[] => [...html.matchAll(/<article class="card flow[^"]*">([\s\S]*?)<\/article>/g)].map((m) => m[0]);
 const cardOf = (html: string, id: string): string => cards(html).find((c) => c.includes(`<strong>${id}</strong>`)) ?? '';
@@ -98,7 +115,7 @@ const cardOf = (html: string, id: string): string => cards(html).find((c) => c.i
 describe('a flow record whose inner shape Timmy did not write (no processes)', () => {
   it('each kind is drawn with what it holds; what is not in the form Timmy writes is left out and said', () => {
     const html = flowsSection({ list: RECORDS.map(flow), more: 0 }, { live: false, base: '../../' }).html;
-    expect(cards(html)).toHaveLength(6);
+    expect(cards(html)).toHaveLength(7);
     expect(html).not.toContain('unreadable record');
     // Timmy's own record reads as before.
     const ok = cardOf(html, 'f00000001');
@@ -138,9 +155,19 @@ describe('a flow record whose inner shape Timmy did not write (no processes)', (
     expect(freecad).toContain('the script&#39;s own: 1 of 1 passed');
     expect(freecad).toContain('1 entry of the script&#39;s own checks not in the form Timmy writes, so not shown');
     expect(freecad).toContain('2 entries of the readback&#39;s checks not in the form Timmy writes, so not shown');
+    // R4 (H46): After Effects: drawn with the entries it can read (the failing check, the file it also changed, the kept
+    // frame, what was not compared); the others are left out. Unlike the other kinds, its card does not say what it left out.
+    const ae = cardOf(html, 'f00000007');
+    expect(ae).toContain('<article class="card flow ae">');
+    expect(ae).toContain('<td>Mover at 1 s</td>');
+    expect(ae).toContain('href="../../notes.txt"');
+    expect(ae).toContain('href="../../out/ae/frames/f1.png"');
+    expect(ae).toContain('not compared: Title: a text layer');
+    expect(ae).not.toContain('[object Object]');
+    expect(ae).not.toContain('null');
     // The live board draws the same cards, as text.
     const live = flowsSection({ list: RECORDS.map(flow), more: 0 }, { live: true, base: '../../' }).html;
-    expect(cards(live)).toHaveLength(6);
+    expect(cards(live)).toHaveLength(7);
     expect(live).not.toMatch(/<a [^>]*href=|<img /);
   });
 
@@ -177,6 +204,8 @@ describe('a flow record whose inner shape Timmy did not write (no processes)', (
     expect(blenderFlowSummary(blenderOdd)).toBe('blender scene.py +1 −1 lines in 1 place');
     expect(blenderFlowSummary({ ...blenderOdd, script: { path: 'scene.py', change: [] } })).toBe('blender scene.py (its change is not in the form Timmy writes)');
     expect(blenderFlowSummary({ ...blenderOdd, script: { path: 'scene.py' } })).toBe('blender scene.py');
+    expect(aeFlowSummary(aeOdd)).toBe('ae author.jsx +1 −1 lines in 2 places');
+    expect(aeFlowSummary({ ...aeOdd, script: { path: 'author.jsx', change: [] } })).toBe('ae author.jsx');
   });
 
   it("/iterate's row for a record that cannot be listed names its file and why (the row's guard)", () => {
@@ -231,9 +260,9 @@ describe('through the Workspace: the board snapshot, the live board and /iterate
     const ws = make(root);
     const out = text(ws.board(''));
     expect(out).toContain('a read-only snapshot');
-    expect(out).toContain('Flows 6');
+    expect(out).toContain('Flows 7');
     const html = readFileSync(join(root, '.timmy/board/index.html'), 'utf8');
-    expect(cards(html)).toHaveLength(6);
+    expect(cards(html)).toHaveLength(7);
     for (const r of RECORDS) expect(cardOf(html, String(r.id)), String(r.id)).not.toBe('');
     expect(cardOf(html, 'f00000002')).toContain('1 entry of the parameter diff not in the form Timmy writes, so not shown');
     expect(cardOf(html, 'f00000004')).toContain('differs; the record holds no differences in the form Timmy writes');
@@ -248,8 +277,8 @@ describe('through the Workspace: the board snapshot, the live board and /iterate
     const r = await get(lb.port, '/state', token);
     expect(r.status).toBe(200);
     const state = JSON.parse(r.body) as LiveState;
-    expect(state.toc).toContain('Flows <b>6</b>');
-    expect(cards(state.html)).toHaveLength(6);
+    expect(state.toc).toContain('Flows <b>7</b>');
+    expect(cards(state.html)).toHaveLength(7);
     for (const rec of RECORDS) expect(cardOf(state.html, String(rec.id)), String(rec.id)).not.toBe('');
     expect(cardOf(state.html, 'f00000003')).toContain('the parameter diff: not a list, so not shown');
     expect(state.html).not.toContain(root);
@@ -266,7 +295,9 @@ describe('through the Workspace: the board snapshot, the live board and /iterate
     expect(out).toContain(`f00000003  differs   the parameter diff is not a list Timmy can read${SEP}readback differs${SEP}results/flows/f00000003.json`);
     expect(out).toContain(`f00000005  differs   scad box.scad the parameter diff is not a list Timmy can read${SEP}readback differs${SEP}results/flows/f00000005.json`);
     expect(out).toContain(`f00000006  failed    freecad plate.py (its change is not in the form Timmy writes)${SEP}readback differs${SEP}results/flows/f00000006.json`);
+    expect(out).toContain(`f00000007  differs   ae author.jsx +1 −1 lines in 2 places${SEP}readback differs${SEP}results/flows/f00000007.json`);
     // Newest first.
+    expect(out.indexOf('f00000007  ')).toBeLessThan(out.indexOf('f00000006  '));
     expect(out.indexOf('f00000006  ')).toBeLessThan(out.indexOf('f00000001  '));
   });
 });

@@ -1,14 +1,18 @@
 /**
- * Round R4, the review's R4-5: one flow at a time in a project, also while one is being started. The starts of the four
- * flow kinds (tray, blender, scad, freecad) reserve the project before their first await and release it when the start
+ * Round R4, the review's R4-5: one flow at a time in a project, also while one is being started. The starts of the five
+ * flow kinds (tray, blender, scad, freecad and, since H46, ae) reserve the project before their first await and release it when the start
  * ends (src/repl/flow-lock.ts, held by src/repl/iterate.ts around every start), so a second start made while the first
  * is still starting is refused with the existing words, whatever the two kinds; starts in two projects do not hold each
  * other up.
  *
  * FAKE pieces, each labelled: the agent's start (IterateDeps.startAgent) is a FAKE that records each call and holds
- * until the test releases it, then answers that it did not start, so no agent, job or app runs; Blender, OpenSCAD and
- * freecadcmd are stand-in programs that are found and never run; TIMMY_CADQUERY_PYTHON names a FAKE file that is never
+ * until the test releases it, then answers that it did not start, so no agent, job or app runs; Blender, OpenSCAD,
+ * freecadcmd, After Effects and aerender are stand-in programs that are found and never run; TIMMY_CADQUERY_PYTHON names a FAKE file that is never
  * executed; the tray's readback is a test seam that is never reached. Real files, in os.tmpdir().
+ *
+ * R4 (H46, ledger row 153): a flow already running in the project is named before any other check of a start. That case
+ * runs a real Workspace whose tray flow is held in its agent step by tests/fixtures/fake-code-agent.mjs (a TEST DOUBLE:
+ * its SLEEP word makes it wait); each kind's start is given a line that an earlier check would refuse.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
@@ -16,20 +20,23 @@ import os from 'node:os';
 import path from 'node:path';
 import { JobManager } from '../src/jobs/index.js';
 import { IterateFlows, type AgentStart, type IterateDeps } from '../src/repl/iterate.js';
+import { Workspace } from '../src/repl/workspace.js';
+import { folderProject } from '../src/project/index.js';
 import { glyphSet } from '../src/term/glyphs.js';
 
 const REPO = path.resolve(__dirname, '..');
 const FIXTURES = path.join(REPO, 'tests', 'fixtures');
 const TEMPLATES = path.join(REPO, 'templates');
 
-type Kind = 'tray' | 'blender' | 'scad' | 'freecad';
-const KINDS: Kind[] = ['tray', 'blender', 'scad', 'freecad'];
+type Kind = 'tray' | 'blender' | 'scad' | 'freecad' | 'ae';
+const KINDS: Kind[] = ['tray', 'blender', 'scad', 'freecad', 'ae'];
 /** Each kind's /iterate line, on the starter files each project holds. */
 const LINE: Record<Kind, string> = {
   tray: 'tray "make it wider"',
   blender: 'blender scene.py "make the sphere red"',
   scad: 'scad box.scad "make it wider"',
   freecad: 'freecad plate.py "make it longer"',
+  ae: 'ae author.jsx "move it right"',
 };
 /** The existing refusal words of each kind, with the flow that holds the project and its step. */
 const BUSY = (kind: Kind): RegExp => (kind === 'tray'
@@ -50,6 +57,7 @@ function project(): string {
   fs.copyFileSync(path.join(TEMPLATES, 'blender-starter', 'scene.py'), path.join(root, 'scene.py'));
   for (const f of ['box.scad', 'box.params.json']) fs.copyFileSync(path.join(TEMPLATES, 'scad-starter', f), path.join(root, f));
   fs.copyFileSync(path.join(TEMPLATES, 'freecad-starter', 'plate.py'), path.join(root, 'plate.py'));
+  fs.copyFileSync(path.join(TEMPLATES, 'ae-starter', 'author.jsx'), path.join(root, 'author.jsx'));
   return root;
 }
 
@@ -97,7 +105,7 @@ beforeEach(() => {
   env = {
     TIMMY_AGENT_QWEN_BIN: path.join(FIXTURES, 'fake-code-agent.mjs'), TIMMY_AGENT_MODEL: 'qwen3:4b', TIMMY_CADQUERY_PYTHON: fakePython,
     TIMMY_BLENDER: program('blender', path.join(FIXTURES, 'fake-blender.mjs')), TIMMY_OPENSCAD: program('openscad', path.join(FIXTURES, 'fake-openscad.mjs')),
-    TIMMY_FREECADCMD: program('freecadcmd'),
+    TIMMY_FREECADCMD: program('freecadcmd'), TIMMY_AFTERFX: program('AfterFX'), TIMMY_AERENDER: program('aerender'),
   };
 });
 afterEach(() => {
@@ -135,7 +143,7 @@ describe('two starts at once (Promise.all), one project: the second is refused w
 });
 
 describe('two starts at once, two projects: neither holds the other up', () => {
-  for (const [first, second] of [['tray', 'tray'], ['blender', 'scad'], ['freecad', 'tray']] as Array<[Kind, Kind]>) {
+  for (const [first, second] of [['tray', 'tray'], ['blender', 'scad'], ['freecad', 'tray'], ['ae', 'ae']] as Array<[Kind, Kind]>) {
     it(`${first} in one project and ${second} in another: both reach their agent's start`, async () => {
       const one = project();
       const two = project();
@@ -164,4 +172,36 @@ describe('a start that fails still gives the project back', () => {
     expect(failing.calls).toHaveLength(2);
     await raced;
   });
+});
+
+describe('R4 (H46): a flow already running in the project is named before any other check of a start', () => {
+  it('a tray flow in its agent step: a scad, freecad, ae, blender and tray start, each with a line an earlier check refuses, name that flow', async () => {
+    const root = project();
+    const ws = new Workspace({
+      glyphs: glyphSet(true), env, onPath: () => null, notify: () => {}, openWeb: (u) => u, link: (t) => t, seal: () => undefined,
+      jobsDir: path.join(fs.mkdtempSync(path.join(fixtures, 'jobs-')), 'jobs'), chdir: () => {}, receipts: () => [], recoverAtStart: false,
+      // Test seam: the tray's readback worker, never reached here.
+      iterateTest: { readback: () => ({ command: process.execPath, args: ['-e', ''] }) },
+    }, folderProject(root));
+    try {
+      const started = text(await ws.iterate('tray "make it wider SLEEP"'));
+      const id = started.match(/Flow\s+(f[0-9a-f]{8})/)?.[1];
+      expect(id, started).toBeDefined();
+      // What each line meets first otherwise: no such model or script, or (the tray) an agent not on PATH.
+      const lines: Array<[Kind, string, string]> = [
+        ['scad', 'scad missing.scad "make it wider"', 'No model at missing.scad'],
+        ['freecad', 'freecad missing.py "make it longer"', 'No script at missing.py'],
+        ['ae', 'ae missing.jsx "move it right"', 'No script at missing.jsx'],
+        ['blender', 'blender missing.py "make the sphere red"', 'No script at missing.py'],
+        ['tray', 'tray "make it narrower" --agent codex', 'is not on PATH'],
+      ];
+      for (const [kind, line, earlier] of lines) {
+        const out = text(await ws.iterate(line));
+        expect(out, line).toMatch(BUSY(kind).source.includes('prepare') ? new RegExp(BUSY(kind).source.replace('its prepare step', 'its agent step')) : BUSY(kind));
+        expect(out, line).toContain(`Flow ${id} is still running in this project (its agent step)`);
+        expect(out, line).not.toContain(earlier);
+      }
+      expect(text(await ws.stop(id!))).toContain(`${id} cancelled`);
+    } finally { await ws.close(); }
+  }, 60_000);
 });

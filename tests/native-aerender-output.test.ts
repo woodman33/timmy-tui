@@ -8,6 +8,10 @@
  *
  * Everything here runs against TEST DOUBLES: tests/fixtures/fake-aerender.mjs (its modes mp4-for-mov and two-files
  * stand in for the output module; it writes a few bytes, not a movie). No aerender or After Effects runs in this suite.
+ *
+ * R4 (H46, ledger row 153): aerender also writes a folder of its own logs beside the project ("<project>.aep Logs/"). A
+ * run that made one names it after its verdict as aerender's own log folder (not judged); FAKE_AERENDER_LOGS=1 makes the
+ * FAKE aerender write one.
  */
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -15,7 +19,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { JobManager, type JobRecord } from '../src/jobs/index.js';
-import { AERENDER_INSTEAD_NOTE, aerenderJob, judgeNativeJob, nativeReceiptFields, readNativeRecord, reconcileNative, type NativeJobSpec } from '../src/native/index.js';
+import { AERENDER_INSTEAD_NOTE, AERENDER_LOGS_NOTE, aerenderJob, judgeNativeJob, nativeReceiptFields, readNativeRecord, reconcileNative, type NativeJobSpec } from '../src/native/index.js';
 import { AE_RENDER_NOTES, parseAeRenderArgs } from '../src/native/ae-author.js';
 import { folderProject } from '../src/project/index.js';
 import { Workspace } from '../src/repl/workspace.js';
@@ -142,6 +146,48 @@ describe('aerender writes the output\'s name with another extension (FAKE aerend
   });
 });
 
+describe('R4 (H46): aerender\'s own log folder beside the project (FAKE aerender, FAKE_AERENDER_LOGS=1)', () => {
+  it('one this run made is named after the verdict, in its verdict line and its receipt; it decides nothing', async () => {
+    const s = spec('ok', { env: { FAKE_AERENDER_LOGS: '1' } });
+    expect(s.native.logs).toEqual({ folder: 'title.aep Logs', there: false });
+    expect(JSON.parse(readFileSync(path.join(root, '.timmy', 'native', s.native.run, 'job.json'), 'utf8')).logs).toEqual({ folder: 'title.aep Logs', there: false });
+    const j = judgeNativeJob((await run(s)).job, s);
+    expect(j.outcome).toBe('ok');
+    expect(j.why).toBe(`out/title.mov (created) written during the run, from title.aep as submitted; aerender exited 0; title.aep Logs/: ${AERENDER_LOGS_NOTE}`);
+    expect(AERENDER_LOGS_NOTE).toBe('aerender\'s own log folder (not judged)');
+    expect(j.logFolders).toEqual(['title.aep Logs/']);
+    // Not one of the files judged.
+    expect(j.files.map((f) => f.path)).toEqual(['out/title.mov']);
+    expect(readNativeRecord(root, s.native.run)?.verdicts.at(-1)).toMatchObject({ outcome: 'ok', logFolders: ['title.aep Logs/'] });
+    expect(nativeReceiptFields('aerender', j).native.log_folders).toEqual(['title.aep Logs/']);
+    // After a restart, from the run's own record, the same.
+    expect(reconcileNative(root, s.native.run)).toMatchObject({ logFolders: ['title.aep Logs/'] });
+  });
+
+  it('beside a project in a folder (out/ae/promo-v2.aep): "out/ae/promo-v2.aep Logs/"; a folder there before the run is not this run\'s and is not named', async () => {
+    mkdirSync(path.join(root, 'out', 'ae'), { recursive: true });
+    copyFileSync(path.join(root, 'title.aep'), path.join(root, 'out', 'ae', 'promo-v2.aep'));
+    const first = spec('ok', { projectFile: 'out/ae/promo-v2.aep', output: 'out/ae/promo-v2.mov', env: { FAKE_AERENDER_LOGS: '1' } });
+    const j1 = judgeNativeJob((await run(first)).job, first);
+    expect(j1.logFolders).toEqual(['out/ae/promo-v2.aep Logs/']);
+    expect(j1.why).toContain(`; out/ae/promo-v2.aep Logs/: ${AERENDER_LOGS_NOTE}`);
+    // A second run of the same project: the folder was there at its submission, so it is not named for it.
+    const second = spec('ok', { projectFile: 'out/ae/promo-v2.aep', output: 'out/ae/promo-v2-b.mov', env: { FAKE_AERENDER_LOGS: '1' } });
+    expect(second.native.logs).toEqual({ folder: 'out/ae/promo-v2.aep Logs', there: true });
+    const j2 = judgeNativeJob((await run(second)).job, second);
+    expect(j2.outcome).toBe('ok');
+    expect(j2.logFolders).toBeUndefined();
+    expect(j2.why).not.toContain(AERENDER_LOGS_NOTE);
+  });
+
+  it('a run that made none says nothing of one', async () => {
+    const s = spec('ok');
+    const j = judgeNativeJob((await run(s)).job, s);
+    expect(j.logFolders).toBeUndefined();
+    expect(j.why).toBe('out/title.mov (created) written during the run, from title.aep as submitted; aerender exited 0');
+  });
+});
+
 describe('/ae <project> <comp> <output> --om <template> (FAKE aerender)', () => {
   const text = (lines: { text: string }[][]): string => lines.map((l) => l.map((s) => s.text).join('')).join('\n');
   function make() {
@@ -207,6 +253,18 @@ describe('/ae <project> <comp> <output> --om <template> (FAKE aerender)', () => 
       const receipt = sealed.find((r) => r.kind === 'native');
       expect(receipt).toMatchObject({ status: 'ok', native: { app: 'aerender', outcome: 'ok', instead: { requested: 'out/title.mov', written: 'out/title.mp4' } } });
       expect(JSON.stringify(receipt)).not.toContain(root);
+    });
+  });
+
+  it('R4 (H46): the end line and the receipt of a run that made aerender\'s own log folder name it, not judged', async () => {
+    await withEnv({ TIMMY_AERENDER: fake(), FAKE_AERENDER_LOGS: '1' }, async () => {
+      const { ws, notes, sealed } = make();
+      const started = text(await ws.ae('title.aep Main out/title.mov'));
+      const id = /\b(j[0-9a-f]{6})\b/.exec(started)![1];
+      await ws.jobs.done(id);
+      await new Promise((r) => setTimeout(r, 150));
+      expect(notes.join('\n')).toContain(`${id} ok  After Effects · title.aep › Main: out/title.mov (created) written during the run, from title.aep as submitted; aerender exited 0; title.aep Logs/: ${AERENDER_LOGS_NOTE}`);
+      expect(sealed.find((r) => r.kind === 'native')).toMatchObject({ status: 'ok', native: { app: 'aerender', log_folders: ['title.aep Logs/'] } });
     });
   });
 });

@@ -9,7 +9,9 @@
  * log (<dir>/<id>.log: stdout and stderr lines combined) let a later session list what ran.
  *
  * A detached group does not receive the terminal's Ctrl+C: whoever owns the manager (the REPL) calls
- * stopAll() before it exits.
+ * stopAll() before it exits. Round R4 (H46): each record names that owner (its pid and start), so when a REPL
+ * ended without its stop path, a later session's recovery can tell which jobs it left and record their end
+ * (endLeft) once their processes are gone or stopped.
  *
  * What a job covers is its process group. A process that leaves the group (setsid, a daemon that
  * detaches itself) is not tracked, stopped or reported here (independent verification of b1ede23).
@@ -52,10 +54,15 @@ export interface JobRecord {
   stale?: boolean;
   /** what happened beyond the state, in a sentence: its first process ended while what it started kept running */
   note?: string;
-  /** Round R4: after a stop of this manager's (/stop, the time limit, stopWhen, not ready): 'complete' when no
-   *  process of the job's group ran any more, 'unresolved' when some still did after the SIGKILL wait (error
-   *  says so). About the process group only, like the job itself. Absent when no stop ran. */
+  /** Round R4: after a stop of this manager's (/stop, the time limit, stopWhen, not ready), or (H46) of a later
+   *  session's recovery that stopped the group its ended REPL left running (endLeft): 'complete' when no process of
+   *  the job's group ran any more, 'unresolved' when some still did after the SIGKILL wait (error says so). About the
+   *  process group only, like the job itself. Absent when no stop ran. */
   cleanup?: 'complete' | 'unresolved';
+  /** Round R4 (H46): the process whose manager started the job (a REPL's): its pid and when it started. While that
+   *  process runs, the job's first process is its child; a later session's recovery tells by this whether the job was
+   *  left running by a REPL that ended (src/repl/recover.ts). Absent in records written before R4 (H46). */
+  owner?: { pid: number; startedAt: string };
 }
 export interface JobSpec {
   kind: JobKind; label: string; project: string; root: string;
@@ -102,6 +109,10 @@ const MAX_LINE = 64 * 1024;
 /** what a job's error says when its stop could not end every process of its group */
 const NOT_STOPPED = 'some processes it started did not stop';
 const TAIL_LINES = 20;
+/** Round R4 (H46): this process, as the owner of the jobs its managers start: its pid and when it started (from its uptime). */
+const OWNER = { pid: process.pid, startedAt: new Date(Date.now() - Math.round(process.uptime() * 1000)).toISOString() };
+/** The states of a job that has not ended. */
+const LIVE_STATES: ReadonlySet<string> = new Set<JobState>(['queued', 'running', 'ready']);
 
 interface Ending { state: 'cancelled' | 'failed'; error?: string }
 
@@ -147,7 +158,7 @@ export class JobManager {
     const job: JobRecord = {
       id, kind: spec.kind, label: spec.label, project: spec.project, root: path.resolve(spec.root),
       command: spec.command, args: [...spec.args], state: 'queued', startedAt: this.stamp(),
-      steps: [], logPath: this.logFile(id), lines: 0,
+      steps: [], logPath: this.logFile(id), lines: 0, owner: { ...OWNER },
     };
     let resolveDone: (job: JobRecord) => void = () => undefined;
     const done = new Promise<JobRecord>((resolve) => { resolveDone = resolve; });
@@ -220,6 +231,22 @@ export class JobManager {
   /** Stop every job of this manager that is still going (the REPL's exit). */
   async stopAll(): Promise<void> {
     await Promise.all([...this.jobs.values()].filter((entry) => !entry.finished).map((entry) => this.stop(entry.job.id)));
+  }
+
+  /**
+   * Round R4 (H46): records the end of a job another session left in the jobs folder, through this module's own writer:
+   * what a later session's recovery found or did once that session's REPL had ended (src/repl/recover.ts): the job's
+   * process was gone, or recovery stopped its process group. Only a record still in a live state (queued, running,
+   * ready) is changed, never a job of this manager; how the job's process exited is not known here, so the exit code
+   * and signal are recorded as null. Returns the record as written, or undefined when nothing was written.
+   */
+  endLeft(id: string, end: { state: 'failed' | 'cancelled'; error: string; cleanup?: 'complete' | 'unresolved' }): JobRecord | undefined {
+    if (this.jobs.has(id) || !JOB_ID.test(id)) return undefined;
+    const left = this.readPersisted(id);
+    if (!left || !LIVE_STATES.has(left.state)) return undefined;
+    const { stale: _stale, ...job } = left;
+    const ended: JobRecord = { ...job, state: end.state, endedAt: this.stamp(), exitCode: null, signal: null, error: end.error, ...(end.cleanup ? { cleanup: end.cleanup } : {}) };
+    return this.persist(ended) ? snapshot(ended) : undefined;
   }
 
   /** Round R4 (H29): signal a job's process group at once, without waiting (the REPL exiting at once). Only a job of
@@ -446,14 +473,17 @@ export class JobManager {
     throw new Error('no free job id in the jobs dir');
   }
 
-  private persist(job: JobRecord): void {
+  /** Writes the record through a temp file and a rename; whether it was written. */
+  private persist(job: JobRecord): boolean {
     const file = this.recordFile(job.id);
     const temp = `${file}.${randomUUID()}.tmp`;
     try {
       writeFileSync(temp, `${JSON.stringify(job, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
       renameSync(temp, file);
+      return true;
     } catch {
       try { unlinkSync(temp); } catch { /* never written */ }
+      return false;
     }
   }
 
@@ -632,6 +662,8 @@ function parseRecord(raw: unknown, id: string, logPath: string): JobRecord | und
   if (text(r.receipt)) job.receipt = r.receipt;
   if (text(r.note)) job.note = r.note;
   if (r.cleanup === 'complete' || r.cleanup === 'unresolved') job.cleanup = r.cleanup;
+  const owner = r.owner && typeof r.owner === 'object' ? r.owner as Record<string, unknown> : undefined;
+  if (owner && typeof owner.pid === 'number' && Number.isInteger(owner.pid) && owner.pid > 0 && text(owner.startedAt)) job.owner = { pid: owner.pid, startedAt: owner.startedAt };
   return job;
 }
 

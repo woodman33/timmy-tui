@@ -10,8 +10,9 @@
  * FAKE pieces, each labelled: the code agent is tests/fixtures/fake-code-agent.mjs (a TEST DOUBLE: no model, nothing
  * sent; its PARAM and WRITE words change files); the recipe runs through the jobs.ts executor seam with a SYNTHETIC
  * fixture executor (as tests/iterate.test.ts: labelled files and signed receipts, no CadQuery); the readback is
- * tests/fixtures/fake-step-readback.mjs (a TEST DOUBLE); TIMMY_CADQUERY_PYTHON, TIMMY_BLENDER, TIMMY_OPENSCAD and
- * TIMMY_FREECADCMD name FAKE programs, never run here (those flows stop before their app). The folders and files the
+ * tests/fixtures/fake-step-readback.mjs (a TEST DOUBLE); TIMMY_CADQUERY_PYTHON, TIMMY_BLENDER, TIMMY_OPENSCAD,
+ * TIMMY_FREECADCMD, TIMMY_AFTERFX and TIMMY_AERENDER name FAKE programs, never run here (those flows stop before their app;
+ * R4, H46: /iterate ae too). The folders and files the
  * agent "should not" touch are written by the test or by the FAKE agent, labelled where they are.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -113,6 +114,7 @@ beforeEach(() => {
   env = {
     TIMMY_AGENT_QWEN_BIN: FAKE_AGENT, TIMMY_AGENT_MODEL: 'qwen3:4b', TIMMY_CADQUERY_PYTHON: program('python'),
     TIMMY_BLENDER: program('blender'), TIMMY_OPENSCAD: program('openscad'), TIMMY_FREECADCMD: program('freecadcmd'),
+    TIMMY_AFTERFX: program('AfterFX'), TIMMY_AERENDER: program('aerender'),
   };
   supervisors = [];
 });
@@ -173,11 +175,13 @@ describe('the /iterate change check sees .timmy and dist (R4 review, R4-2)', () 
     expect([...result.files.added, ...result.files.changed, ...result.files.deleted].map((c: { path: string }) => c.path)).toEqual([PARAMS]);
   }, 120_000);
 
-  for (const [kind, file, app] of [['scad', 'box.params.json', 'OpenSCAD'], ['freecad', 'plate.py', 'FreeCAD'], ['blender', 'scene.py', 'Blender']] as const) {
+  // R4 (H46): /iterate ae passes the same check (before, its agent was judged by its own snapshot, which skips .timmy and dist).
+  for (const [kind, file, app] of [['scad', 'box.params.json', 'OpenSCAD'], ['freecad', 'plate.py', 'FreeCAD'], ['blender', 'scene.py', 'Blender'], ['ae', 'author.jsx', 'After Effects']] as const) {
     it(`${kind}: the same agent is stopped before ${app} runs, in the same words`, async () => {
       for (const f of ['box.scad', 'box.params.json']) fs.copyFileSync(path.join(TEMPLATES, 'scad-starter', f), path.join(root, f));
       fs.copyFileSync(path.join(TEMPLATES, 'freecad-starter', 'plate.py'), path.join(root, 'plate.py'));
       fs.copyFileSync(path.join(TEMPLATES, 'blender-starter', 'scene.py'), path.join(root, 'scene.py'));
+      fs.copyFileSync(path.join(TEMPLATES, 'ae-starter', 'author.jsx'), path.join(root, 'author.jsx'));
       write('.timmy/agents/a0000beef/result.json', '{"agent_run":1,"run":"a0000beef"}\n');
       const target = kind === 'scad' ? 'box.scad' : file;
       const { ws, sealed } = make();

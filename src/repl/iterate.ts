@@ -229,9 +229,14 @@ type Started = { ok: true; flow: FlowRun; lines: Line[] } | { ok: false; error: 
 
 const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 const TERMINAL_RECIPE = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
-const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms).unref?.(); });
-const within = <T>(p: Promise<T>, ms: number): Promise<T | undefined> =>
-  Promise.race([p, new Promise<undefined>((resolve) => { setTimeout(() => resolve(undefined), ms).unref?.(); })]);
+// R4 (H46, ledger row 153): these timers hold Node's event loop while they are awaited. A typed command (/stop <flow>
+// while the build step polls its recipe) runs with the REPL's input paused, and the recipe's supervisor is detached:
+// unref'd, they let Node exit (code 13) under the command. within's timer is cleared once `p` settles.
+const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
+const within = <T>(p: Promise<T>, ms: number): Promise<T | undefined> => {
+  let t: NodeJS.Timeout | undefined;
+  return Promise.race([p, new Promise<undefined>((resolve) => { t = setTimeout(() => resolve(undefined), ms); })]).finally(() => clearTimeout(t));
+};
 const fmt = (n: number): string => String(Math.round(n * 1000) / 1000);
 
 export class IterateFlows {
@@ -251,18 +256,25 @@ export class IterateFlows {
     this.blender = new BlenderFlows(d, (root) => tray(root) ?? this.scad.runningIn(root) ?? this.freecad.runningIn(root) ?? this.ae.runningIn(root), this.lock);
     this.scad = new ScadFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.freecad.runningIn(root) ?? this.ae.runningIn(root), this.lock);
     this.freecad = new FreecadFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.scad.runningIn(root) ?? this.ae.runningIn(root), this.lock);
-    this.ae = new AeFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.scad.runningIn(root) ?? this.freecad.runningIn(root));
+    this.ae = new AeFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.scad.runningIn(root) ?? this.freecad.runningIn(root), this.lock);
   }
 
   /**
    * R4 review (R4-5): runs a start holding its project (src/repl/flow-lock.ts), taken before the start's first await and
    * given back when it ends, however it ends. A start made while another holds the project is refused with its own kind's
-   * words, naming the flow being started there (its prepare step); a flow already running is found by the start itself.
+   * words, naming the flow being started there (its prepare step); R4 (H46): so is a start while a flow of any kind runs
+   * there, before any other check of the start (each start still checks it too).
    */
   private async exclusive<S>(kind: FlowKind, root: string, start: () => Promise<S>): Promise<S | Refused> {
     const t = this.lock.take(root, kind);
     if (!t.ok) return this.busyRefusal(kind, { ...(t.by.id ? { id: t.by.id } : {}), step: 'prepare' });
-    try { return await start(); } finally { this.lock.release(t.hold); }
+    try {
+      // R4 (H46, ledger row 153): a flow already running in the project is named before any other check of the start (its
+      // file, its route, its app): on the Mac, /iterate scad answered "No model at box.scad" while a tray flow ran there.
+      const busy = [...this.running.values()].find((f) => f.root === root) ?? this.otherIn(root);
+      if (busy) return this.busyRefusal(kind, busy);
+      return await start();
+    } finally { this.lock.release(t.hold); }
   }
 
   /** A start refused because a flow runs, or is being started, in its project: the refused kind's words, nothing written. */

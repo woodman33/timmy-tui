@@ -29,21 +29,35 @@
  *     outcome interrupted, the step it ended in, why, and what to do next; it is sealed as a flow receipt. The state
  *     file stays as its session wrote it. R4 (H33): the OpenSCAD, FreeCAD and Blender flows (their state names a
  *     `target`) are recovered the same way, each with its own steps and words; the app's own run in .timmy/native is
- *     judged by the native part below, as any run is.
+ *     judged by the native part below, as any run is. R4 (H41, H46): /iterate ae's too, its After Effects run (author
+ *     step) and its aerender run (render step) each the step's job, with the render's receipt among the children.
  *   native runs (.timmy/native/<run>; src/native)
  *     A run that started (started.json) and has no judgement is judged from its result file (reconcileNative, or
  *     reconcileAe for an After Effects script run) once its job no longer runs; the judgement goes to the run's
  *     verdicts.jsonl. A run stopped with /stop is not judged, as before.
  *
  * A stale job record is read again after a short wait before anything acts on it: a session that is alive records
- * its job's end well within that time. Nothing here starts a recipe, an agent, a native app or a readback, signals a
- * process or reads a PID; the one process it may start is a recipe watcher, which reads status and copies verified
- * bytes.
+ * its job's end well within that time. Nothing here starts a recipe, an agent, a native app or a readback; the one
+ * process it may start is a recipe watcher, which reads status and copies verified bytes.
+ *
+ *   the step's job (R4, H46; ledger row 153: an agent kept calling its model after its REPL was killed)
+ *     A flow's agent or readback step runs as a job of its REPL (no other part of a pass follows those). When that job's
+ *     record is stale (its process gone), the job's own record is ended through the job module's writer (JobManager
+ *     endLeft: failed, "its REPL ended; its process is gone") as its flow is recorded interrupted. When its process group
+ *     still runs, the group is stopped (SIGTERM, then SIGKILL after 2 s) before the interrupted record is written, and
+ *     the stop is said in the recovery lines, the job's record and the flow's record; only when the process table
+ *     (ps) proves both that the REPL which started the job has ended (the job's first process is no longer that REPL's
+ *     child, or no process has its pid) and that the group is the job's (the recorded pid is the group, and its oldest
+ *     process started when the job did). This reads PIDs from the job's record and the process table, and signals
+ *     only such a group. When it cannot be proven, nothing is stopped: the lines say what still runs and how to stop it.
  */
+import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { JobRecord, JobSpec } from '../jobs/index.js';
+import type { JobManager, JobRecord, JobSpec } from '../jobs/index.js';
+import { groupLive } from '../runtime/process-group.js';
+import { killProcessGroup } from '../runtime/spawn-runtime.js';
 import { jobDirectory, status, type Job, type JobStatus } from '../../lanes/recipes/jobs.js';
 import { checkCopyOf, deliver, DOCTRINE_15, isRecipeJobId, outcomeLines, outDir, RECIPE_ID, short, verifiedResult, watcherSpec } from '../recipes/index.js';
 import { diffText, FLOW_ID, FLOW_SCHEMA, FLOW_WORK_DIR, flowRecordPath, flowWorkDir, type FlowRecord, type FlowStep } from '../flows/iterate.js';
@@ -66,6 +80,18 @@ export const WORKER_SILENT_MS = 30_000;
 export const FLOW_QUIET_MS = 10 * 60_000;
 /** How long a stale job record is given to be recorded by a session that is still alive, before it is believed. */
 export const SETTLE_MS = 1500;
+/** R4 (H46): the steps whose job recovery ends or stops: no other part of a pass follows them (a recipe's watcher and an app's run have their own). */
+const ENDS_JOB: ReadonlySet<string> = new Set(['agent', 'readback']);
+/** R4 (H46): what a step job's record says once recovery has found its process gone. */
+export const GONE_WORDS = 'its REPL ended; its process is gone';
+/** R4 (H46): how long a group recovery stops is given after SIGTERM, then after SIGKILL (the job manager's own times). */
+export const STOP_GRACE_MS = 2000;
+const KILL_WAIT_MS = 3000;
+/** R4 (H46): a group is the job's when its oldest process started this close to the job's start (ps reads whole seconds). */
+const STARTED_BEFORE_MS = 3000;
+const STARTED_AFTER_MS = 10_000;
+/** R4 (H46): a live process is a job's owner when it started this close to the owner's recorded start. */
+const OWNER_SLACK_MS = 3000;
 
 /** The watcher's entry on its command line (src/recipes/watch.ts, or watch.js once built), before the root and the UUID. */
 const WATCH_ENTRY = /[\\/]recipes[\\/]watch\.(?:ts|js)$/;
@@ -75,11 +101,13 @@ const STEPS: ReadonlySet<string> = new Set<FlowStep>(['prepare', 'agent', 'check
  * R4 (H33): the flows with a `target`: their app's name, the step the app's job runs in, and the file the agent was asked
  * to change (where the state keeps it). The tray flow has no target and keeps its own words below.
  */
-const TARGETS: Record<string, { app: string; appStep: string; command: string; file: 'parameters' | 'script' }> = {
+const TARGETS: Record<string, { app: string; appStep: string; command: string; file: 'parameters' | 'script'; render?: { step: string; app: string } }> = {
   scad: { app: 'OpenSCAD', appStep: 'openscad', command: '/scad', file: 'parameters' },
   freecad: { app: 'FreeCAD', appStep: 'freecad', command: '/freecad', file: 'script' },
   blender: { app: 'Blender', appStep: 'blender', command: '/blender', file: 'script' },
-  ae: { app: 'After Effects', appStep: 'author', command: '/ae author', file: 'script' }, // R4 (H41): /iterate ae (its render step: TODO(H39) its job, and its receipt among the children)
+  // R4 (H41): /iterate ae. R4 (H46): its render step runs aerender as a job and a native run too: that job is the step's,
+  // and its receipt is one of an interrupted record's children (agent, author, render, readback, as the flow's own end).
+  ae: { app: 'After Effects', appStep: 'author', command: '/ae author', file: 'script', render: { step: 'render', app: 'aerender' } },
 };
 const TARGET_STEPS: ReadonlySet<string> = new Set(['prepare', 'agent', 'checks', 'openscad', 'freecad', 'blender', 'author', 'render', 'readback', 'record']);
 const APP_WORDS: Record<NativeApp, string> = { c4dpy: 'Cinema 4D', aerender: 'After Effects render', blender: 'Blender', afterfx: 'After Effects script', openscad: 'OpenSCAD', freecad: 'FreeCAD' };
@@ -90,8 +118,9 @@ export interface RecoverDeps {
   /** the project folder looked at, and its name */
   root: string;
   project: string;
-  /** this REPL's jobs: its own and the records earlier sessions left in the same jobs folder (JobManager.list/get) */
-  jobs: { list(): JobRecord[]; get(id: string): JobRecord | undefined };
+  /** this REPL's jobs: its own and the records earlier sessions left in the same jobs folder (JobManager.list/get); R4
+   *  (H46): endLeft records the end of a job an ended session left (absent: no job record is changed) */
+  jobs: { list(): JobRecord[]; get(id: string): JobRecord | undefined; endLeft?: JobManager['endLeft'] };
   seal: (input: ReceiptInput) => string | undefined;
   /** the runs chain: read only when a delivery is checked against earlier recover receipts */
   receipts: () => Receipt[];
@@ -130,8 +159,37 @@ export interface RecoveryItem {
   record?: string;
   receipt?: string;
   next?: string[];
+  /** R4 (H46): the step's job left running by a REPL that ended, whose process group this pass stopped */
+  stopped?: LeftStop;
 }
 export interface RecoveryReport { project: string; items: RecoveryItem[] }
+
+/** R4 (H46): one process in the process table: its parent, its group, its state, when it started, its command line. */
+interface Proc { pid: number; ppid: number; pgid: number; stat: string; startMs: number; args: string }
+
+/** R4 (H46): what the process table says about a live job another session started. */
+type LeftJob =
+  /** that session still runs (the job's first process is still its child), or which session started it cannot be told (why) */
+  | { kind: 'theirs'; why?: string }
+  /** no process of its group runs now (its record turns stale; the next pass ends it) */
+  | { kind: 'gone' }
+  /** the REPL that started it has ended, and the group is the job's: proven, so it may be stopped */
+  | { kind: 'orphan'; pgid: number; members: Proc[]; leader: boolean }
+  /** the REPL that started it has ended, but the group could not be proven the job's (why): nothing is stopped */
+  | { kind: 'unproven'; pgid: number; members: Proc[]; why: string };
+
+/** R4 (H46): a stop of a step's job left running by a REPL that ended, as recovery did it. */
+export interface LeftStop {
+  job: string;
+  /** the process group signalled (the job's recorded pid) and how many of its processes ran */
+  process_group: number;
+  processes: number;
+  signals: Array<'SIGTERM' | 'SIGKILL'>;
+  /** 'complete': no process of the group ran after the stop; 'unresolved': some still did after the SIGKILL wait */
+  cleanup: 'complete' | 'unresolved';
+  /** what the job's own record says now (JobManager endLeft), when it was written */
+  recorded?: { state: string; error: string };
+}
 
 type Phase = 'live' | 'pending' | 'stale' | 'ended';
 /** A job record's phase: stale (no final state and its process gone: its session ended), live, queued, or ended. */
@@ -141,13 +199,19 @@ const phase = (j: JobRecord): Phase => (j.stale ? 'stale' : j.state === 'running
 interface FlowState { value: FlowRecord & { step: FlowStep; target?: string } & Record<string, unknown>; rel: string; sha256: string; mtimeMs: number }
 type Plan =
   | { kind: 'recipe'; key: string; uuid: string; act: 'follow' | 'deliver'; viaStale: boolean }
-  | { kind: 'flow'; key: string; id: string; viaStale: boolean; job?: JobRecord; state: FlowState }
+  /** `orphan` (R4, H46): the step's job still runs and its group was proven left by a REPL that ended: stopped first */
+  | { kind: 'flow'; key: string; id: string; viaStale: boolean; job?: JobRecord; state: FlowState; orphan?: true }
   | { kind: 'native'; key: string; run: string; app: NativeApp; viaStale: boolean; job?: JobRecord };
 interface Survey { plans: Plan[]; left: RecoveryItem[] }
 
 const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms).unref?.(); });
+/**
+ * R4 (H46, ledger row 153): a plain timer, which holds Node's event loop. While a typed command runs the REPL's input is
+ * paused, so /recover's settle wait may be the only thing left; an unref'd timer let Node exit (code 13, an unsettled
+ * top-level await) in the middle of /recover, with nothing written.
+ */
+const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
 const count = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
 const lexists = (abs: string): boolean => { try { fs.lstatSync(abs); return true; } catch { return false; } };
 /** "40 s", "3 min", "2 h": how long ago. */
@@ -218,12 +282,135 @@ function readState(root: string, id: string): FlowState | undefined {
   } catch { return undefined; }
 }
 
-/** The job of the step a flow's state says runs: the agent's, the recipe watcher's, the app's (R4, H33) or the readback's. */
+/** The job of the step a flow's state says runs: the agent's, the recipe watcher's, the app's (R4, H33; H46: aerender's for /iterate ae's render step) or the readback's. */
 function stepJob(v: FlowState['value']): string | undefined {
   const step = String(v.step);
-  const app = v.target !== undefined && TARGETS[String(v.target)]?.appStep === step ? (v[step] as { job?: unknown } | undefined)?.job : undefined;
+  const t = v.target !== undefined ? TARGETS[String(v.target)] : undefined;
+  const app = t && (t.appStep === step || t.render?.step === step) ? (v[step] as { job?: unknown } | undefined)?.job : undefined;
   const id = step === 'agent' ? v.agent?.job : step === 'build' ? v.rebuild?.job : step === 'readback' ? v.readback?.job : app;
   return typeof id === 'string' && JOB_ID.test(id) ? id : undefined;
+}
+
+// ── the step's job left running by a REPL that ended (R4, H46) ──────────────────
+
+/** ps's elapsed time ([[dd-]hh:]mm:ss) in seconds, or undefined. */
+function etimeSeconds(t: string): number | undefined {
+  const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(t);
+  return m ? ((Number(m[1] ?? 0) * 24 + Number(m[2] ?? 0)) * 60 + Number(m[3])) * 60 + Number(m[4]) : undefined;
+}
+
+/**
+ * The process table, read once with ps (POSIX keywords, each -o on its own, as macOS needs; wide, so command lines are
+ * whole), or undefined when it cannot be read. A process's start is now less how long it has run (whole seconds).
+ */
+function processTable(): Proc[] | undefined {
+  let out: string;
+  try {
+    const r = spawnSync('ps', ['-A', '-ww', '-o', 'pid=', '-o', 'ppid=', '-o', 'pgid=', '-o', 'stat=', '-o', 'etime=', '-o', 'args='],
+      { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' }, timeout: 10_000, maxBuffer: 64 * 1024 * 1024 });
+    if (r.status !== 0 || typeof r.stdout !== 'string') return undefined;
+    out = r.stdout;
+  } catch { return undefined; }
+  const now = Date.now();
+  const rows: Proc[] = [];
+  for (const line of out.split('\n')) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s?(.*)$/.exec(line);
+    const secs = m ? etimeSeconds(m[5]) : undefined;
+    if (!m || secs === undefined) continue;
+    rows.push({ pid: Number(m[1]), ppid: Number(m[2]), pgid: Number(m[3]), stat: m[4], startMs: now - secs * 1000, args: m[6] });
+  }
+  return rows.length ? rows : undefined;
+}
+
+const pidAlive = (pid: number): boolean => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; } };
+const iso = (ms: number): string => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+/**
+ * What the process table says about a live job another session started (its record running, its process there): whether
+ * the REPL that started it has ended (its owner, R4 H46: the job's first process is no longer that REPL's child, or, that
+ * process gone, no process has the REPL's pid), and whether the process group is the job's (the recorded pid is the
+ * group's, and its oldest process started when the job did). Both are needed before anything is stopped.
+ */
+function leftBehind(job: JobRecord, table: Proc[] | undefined): LeftJob {
+  const pgid = job.pid;
+  if (typeof pgid !== 'number' || !Number.isInteger(pgid) || pgid <= 1) return { kind: 'theirs', why: 'its record names no process' };
+  const owner = job.owner;
+  if (!table) {
+    // No start time can be compared without the table: only an owner whose pid is gone is known to have ended.
+    if (!owner || pidAlive(owner.pid)) return { kind: 'theirs', why: 'the process table (ps) could not be read' };
+    return { kind: 'unproven', pgid, members: [], why: 'the process table (ps) could not be read, so its group\'s processes could not be checked' };
+  }
+  const members = table.filter((p) => p.pgid === pgid && !p.stat.startsWith('Z')).sort((a, b) => a.startMs - b.startMs || a.pid - b.pid);
+  if (!members.length) return { kind: 'gone' };
+  const leader = members.find((p) => p.pid === pgid);
+  if (!owner) return { kind: 'theirs', why: 'its record does not name the REPL that started it (written before job records did)' };
+  let ended: boolean | undefined;
+  if (leader) ended = leader.ppid !== owner.pid;
+  else {
+    const o = table.find((p) => p.pid === owner.pid);
+    const at = Date.parse(owner.startedAt);
+    ended = !o ? true : Number.isFinite(at) && Math.abs(o.startMs - at) <= OWNER_SLACK_MS ? false : undefined;
+  }
+  if (ended === false) return { kind: 'theirs' };
+  if (ended === undefined) return { kind: 'theirs', why: `a process has the pid of the REPL that started it (${owner.pid}) but did not start when that REPL did, so whether that REPL has ended cannot be told` };
+  const started = Date.parse(job.startedAt);
+  const first = members[0];
+  if (Number.isFinite(started) && first.startMs >= started - STARTED_BEFORE_MS && first.startMs <= started + STARTED_AFTER_MS) return { kind: 'orphan', pgid, members, leader: !!leader };
+  return { kind: 'unproven', pgid, members, why: `the oldest process of its group (pid ${first.pid}) started at ${iso(first.startMs)}, not when the job did (${job.startedAt})` };
+}
+
+/** Waits until `done` holds or `ms` pass, on timers that hold the event loop (the command awaiting it may be all that runs). */
+async function waitFor(done: () => boolean, ms: number): Promise<boolean> {
+  const end = Date.now() + ms;
+  while (!done()) {
+    if (Date.now() >= end) return false;
+    await sleep(Math.min(50, Math.max(1, end - Date.now())));
+  }
+  return true;
+}
+
+/**
+ * Stops a step's job its ended REPL left running: proven again just before (the table read now), SIGTERM to its group,
+ * SIGKILL after STOP_GRACE_MS when some of it still runs, then its end recorded in its own record (JobManager endLeft:
+ * cancelled, saying so). Returns what was done, or the job's state now when nothing was signalled.
+ */
+async function stopLeft(d: RecoverDeps, job: JobRecord): Promise<LeftStop | LeftJob> {
+  const now = d.jobs.get(job.id) ?? job;
+  if (now.stale || (now.state !== 'running' && now.state !== 'ready')) return { kind: 'gone' };
+  const left = leftBehind(now, processTable());
+  if (left.kind !== 'orphan') return left;
+  const pgid = left.pgid;
+  const signals: LeftStop['signals'] = ['SIGTERM'];
+  killProcessGroup(pgid, 'SIGTERM', { leaderExited: !left.leader });
+  let gone = await waitFor(() => !groupLive(pgid), STOP_GRACE_MS);
+  if (!gone) {
+    signals.push('SIGKILL');
+    killProcessGroup(pgid, 'SIGKILL', { leaderExited: !left.leader });
+    gone = await waitFor(() => !groupLive(pgid), KILL_WAIT_MS);
+  }
+  const cleanup = gone ? 'complete' : 'unresolved';
+  const error = `its REPL ended; recovery stopped its process group with ${signals.join(', then ')}${gone ? '' : '; some processes it started did not stop'}`;
+  let recorded: JobRecord | undefined;
+  try { recorded = d.jobs.endLeft?.(job.id, { state: 'cancelled', error, cleanup }); } catch { recorded = undefined; }
+  return { job: job.id, process_group: pgid, processes: left.members.length, signals, cleanup, ...(recorded ? { recorded: { state: recorded.state, error: recorded.error ?? error } } : {}) };
+}
+
+/** The words for a stop: what still ran, what was sent, and what is left when some of it did not stop. */
+function stoppedWords(s: LeftStop): string {
+  const n = `${s.processes} process${s.processes === 1 ? '' : 'es'}`;
+  return `its job ${s.job} was still running after its REPL ended: recovery stopped its process group ${s.process_group} (${n}) with ${s.signals.join(', then ')}`
+    + (s.cleanup === 'unresolved' ? `, and some of it did not stop: kill -KILL -- -${s.process_group}` : '');
+}
+
+/** A live step job left by an ended REPL whose group could not be proven the job's: what runs, why nothing was stopped, how to stop it. */
+function unprovenText(d: RecoverDeps, id: string, step: string, job: JobRecord, left: Extract<LeftJob, { kind: 'unproven' }>): string {
+  const cut = (s: string): string => (s.length > 72 ? `${s.slice(0, 71)}…` : s);
+  const shown = left.members.slice(0, 4).map((p) => `pid ${p.pid} (${cut(d.scrub(p.args))})`).join(', ');
+  const more = left.members.length > 4 ? ` and ${left.members.length - 4} more` : '';
+  const runs = left.members.length
+    ? `${left.members.length} process${left.members.length === 1 ? '' : 'es'} of its process group ${left.pgid} still run${left.members.length === 1 ? 's' : ''}: ${shown}${more}`
+    : `its process group ${left.pgid} may still run`;
+  return `flow ${id} is in its ${step} step, and its job ${job.id} was left running by a REPL that has ended; ${runs}. Nothing was stopped, because ${left.why}: kill -TERM -- -${left.pgid} stops the group (then kill -KILL -- -${left.pgid} if any of it is left), and /recover records the flow once it has ended`;
 }
 
 // ── the survey: what the durable state says (reads only) ───────────────────────
@@ -297,6 +484,9 @@ function surveyFlows(d: RecoverDeps, now: number, plans: Plan[], left: RecoveryI
   let ids: string[] = [];
   try { ids = fs.readdirSync(path.join(d.root, FLOW_WORK_DIR)).filter((n) => FLOW_ID.test(n)).sort(); } catch { return; }
   const here = new Set(d.flowsHere());
+  // R4 (H46): the process table, read at most once a survey, and only when a step's job of another session still runs.
+  let table: Proc[] | undefined | null = null;
+  const tableOnce = (): Proc[] | undefined => (table === null ? (table = processTable()) : table);
   for (const id of ids) {
     if (here.has(id)) continue;
     // A flow with a file at its record's place has ended (its record is the last word); nothing is written over it.
@@ -308,7 +498,13 @@ function surveyFlows(d: RecoverDeps, now: number, plans: Plan[], left: RecoveryI
     const job = jobId ? d.jobs.get(jobId) : undefined;
     const ph = job ? phase(job) : undefined;
     if (job && (ph === 'live' || ph === 'pending')) {
-      left.push({ kind: 'flow', id, did: 'left', job: job.id, text: `flow ${id} is in its ${step} step and its job ${job.id} still runs (${d.mine(job.id) ? 'this REPL' : 'another session'}): /recover again once it has ended` });
+      // R4 (H46): an agent's or readback's job left running by a REPL that ended (proven) is stopped before the record.
+      const lb = ph === 'live' && !d.mine(job.id) && ENDS_JOB.has(String(step)) ? leftBehind(job, tableOnce()) : undefined;
+      if (lb?.kind === 'orphan') { plans.push({ kind: 'flow', key: `flow:${id}`, id, viaStale: true, job, state, orphan: true }); continue; }
+      if (lb?.kind === 'unproven') { left.push({ kind: 'flow', id, did: 'left', attention: true, job: job.id, text: unprovenText(d, id, String(step), job, lb) }); continue; }
+      if (lb?.kind === 'gone') { left.push({ kind: 'flow', id, did: 'left', job: job.id, text: `flow ${id} is in its ${step} step and the processes of its job ${job.id} have just ended: /recover again to record it` }); continue; }
+      const who = d.mine(job.id) ? 'this REPL' : `another session${lb?.kind === 'theirs' && lb.why ? `, as far as Timmy can tell: ${lb.why}` : ''}`;
+      left.push({ kind: 'flow', id, did: 'left', job: job.id, text: `flow ${id} is in its ${step} step and its job ${job.id} still runs (${who}): /recover again once it has ended` });
       continue;
     }
     if (job && ph === 'stale') { plans.push({ kind: 'flow', key: `flow:${id}`, id, viaStale: true, job, state }); continue; }
@@ -373,7 +569,18 @@ export async function recoverProject(d: RecoverDeps): Promise<RecoveryReport> {
   }
   for (const p of s.plans) {
     if (p.kind !== 'flow') continue;
-    const item = act(d, 'flow', p.id, () => actFlow(d, p, recipes));
+    // R4 (H46): a step's job its ended REPL left running is stopped first (proven again just before), then the record.
+    let stop: LeftStop | undefined;
+    if (p.orphan && p.job && d.open()) {
+      let r: LeftStop | LeftJob;
+      try { r = await stopLeft(d, p.job); } catch (e) { done.push({ kind: 'flow', id: p.id, did: 'failed', job: p.job.id, text: `flow ${p.id}: its job ${p.job.id} could not be stopped: ${d.scrub(message(e))}` }); continue; }
+      if ('kind' in r) {
+        // Not stopped: what runs now is said (or, its group gone meanwhile, its record is stale and it is recorded as such).
+        if (r.kind === 'unproven') { done.push({ kind: 'flow', id: p.id, did: 'left', attention: true, job: p.job.id, text: unprovenText(d, p.id, String(p.state.value.step), p.job, r) }); continue; }
+        if (r.kind === 'theirs') { done.push({ kind: 'flow', id: p.id, did: 'left', job: p.job.id, text: `flow ${p.id} is in its ${p.state.value.step} step and its job ${p.job.id} still runs (another session): /recover again once it has ended` }); continue; }
+      } else stop = r;
+    }
+    const item = act(d, 'flow', p.id, () => actFlow(d, p, recipes, stop));
     if (item) done.push(item);
   }
   for (const p of s.plans) {
@@ -490,7 +697,35 @@ function createProjectJson(root: string, rel: string, value: unknown): { ok: tru
   return { ok: true, path: rel, sha256: sha(body), bytes: Buffer.byteLength(body) };
 }
 
-function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Map<string, RecoveryItem>): RecoveryItem | undefined {
+/**
+ * R4 (H46): the step's job as an interrupted flow's record keeps it: as its session left it (the survey's reading), what
+ * recovery stopped, and what its own record says now. A stale agent's or readback's job has its end recorded in its own
+ * record here, before the flow's (JobManager endLeft: failed, GONE_WORDS); a stopped one had it recorded by its stop.
+ */
+function settleJob(d: RecoverDeps, step: string, left: JobRecord | undefined, job: JobRecord | undefined, stop: LeftStop | undefined): Record<string, unknown> | undefined {
+  if (!job) return undefined;
+  const as = left ?? job;
+  const part: Record<string, unknown> = { id: job.id, state: as.state, ...(as.stale ? { stale: true } : {}) };
+  if (stop) {
+    part.stopped = { process_group: stop.process_group, processes: stop.processes, signals: stop.signals, cleanup: stop.cleanup };
+    if (stop.recorded) part.ended = stop.recorded;
+    return part;
+  }
+  if (job.stale && ENDS_JOB.has(step)) {
+    let ended: JobRecord | undefined;
+    try { ended = d.jobs.endLeft?.(job.id, { state: 'failed', error: GONE_WORDS }); } catch { ended = undefined; }
+    if (ended) part.ended = { state: ended.state, error: ended.error ?? GONE_WORDS };
+  }
+  return part;
+}
+
+/** R4 (H46): the end recovery recorded in the step's job record, for the recovery line ('' when none). */
+function endedText(part: Record<string, unknown> | undefined): string {
+  const e = part?.ended as { state?: string; error?: string } | undefined;
+  return e?.state ? `; its job record now says ${e.state}: ${e.error ?? ''}` : '';
+}
+
+function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Map<string, RecoveryItem>, stop?: LeftStop): RecoveryItem | undefined {
   const rel = flowRecordPath(p.id);
   // Read again: the flow's own session may have written its record, or moved on, since the survey.
   if (lexists(path.join(d.root, rel))) return undefined;
@@ -499,12 +734,15 @@ function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Ma
   const v = state.value;
   const step = v.step;
   const job = p.job ? d.jobs.get(p.job.id) ?? p.job : undefined;
-  if (job && (phase(job) === 'live' || phase(job) === 'pending')) return undefined;
-  const jobWords = !job ? (stepJob(v) ? `its job ${stepJob(v)} has no record in this Timmy's jobs folder` : 'no job of that step was recorded')
-    : job.stale ? `its job ${job.id} was left ${job.state} and its process is gone`
-      : `its job ${job.id} ${job.state}, and the flow did not go on for ${ago(FLOW_QUIET_MS)}`;
+  if (job && !stop && (phase(job) === 'live' || phase(job) === 'pending')) return undefined;
+  const jobWords = stop ? stoppedWords(stop)
+    : !job ? (stepJob(v) ? `its job ${stepJob(v)} has no record in this Timmy's jobs folder` : 'no job of that step was recorded')
+      : job.stale ? `its job ${job.id} was left ${job.state} and its process is gone`
+        : `its job ${job.id} ${job.state}, and the flow did not go on for ${ago(FLOW_QUIET_MS)}`;
+  // R4 (H46): the step's job: its end recorded in its own record first, when it is the agent's or the readback's.
+  const jobPart = settleJob(d, String(step), p.job, job, stop);
   // R4 (H33): an OpenSCAD, FreeCAD or Blender flow, with its own steps and words.
-  if (v.target !== undefined) return actTargetFlow(d, p, state, job, jobWords);
+  if (v.target !== undefined) return actTargetFlow(d, p, state, jobPart, jobWords, stop);
   const uuid = typeof v.rebuild?.operation === 'string' && isRecipeJobId(v.rebuild.operation) ? v.rebuild.operation : undefined;
   let rebuild: Record<string, unknown> | undefined;
   if (uuid) {
@@ -552,12 +790,12 @@ function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Ma
     recovered: {
       at: new Date((d.now ?? Date.now)()).toISOString(), step,
       state_file: { path: state.rel, sha256: state.sha256 },
-      ...(job ? { job: { id: job.id, state: job.state, ...(job.stale ? { stale: true } : {}) } } : {}),
+      ...(jobPart ? { job: jobPart } : {}),
       next,
     },
   };
   const w = createProjectJson(d.root, rel, record);
-  if (!w.ok) return { kind: 'flow', id: p.id, did: 'failed', text: `flow ${p.id} was interrupted in its ${step} step, but its record could not be written: ${d.scrub(w.error)}` };
+  if (!w.ok) return { kind: 'flow', id: p.id, did: 'failed', ...(stop ? { stopped: stop } : {}), text: `flow ${p.id} was interrupted in its ${step} step${stop ? ` (${jobWords})` : ''}, but its record could not be written: ${d.scrub(w.error)}` };
   const cost = v.agent?.cost_usd;
   let receipt: string | undefined;
   try {
@@ -575,8 +813,8 @@ function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Ma
   } catch { receipt = undefined; }
   const shortNext = uuid ? `/recipe recover ${uuid}, or /iterate tray again` : '/iterate tray again';
   return {
-    kind: 'flow', id: p.id, did: 'interrupted', state: step, record: w.path, ...(receipt ? { receipt } : {}), next,
-    text: `flow ${p.id} was interrupted in its ${step} step (${jobWords}): record ${w.path}${receipt ? `; receipt ${receipt}` : '; the receipt could not be sealed'}; next: ${shortNext}`,
+    kind: 'flow', id: p.id, did: 'interrupted', state: step, record: w.path, ...(receipt ? { receipt } : {}), next, ...(stop ? { stopped: stop } : {}),
+    text: `flow ${p.id} was interrupted in its ${step} step (${jobWords})${endedText(jobPart)}: record ${w.path}${receipt ? `; receipt ${receipt}` : '; the receipt could not be sealed'}; next: ${shortNext}`,
   };
 }
 
@@ -585,7 +823,7 @@ function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Ma
  * interrupted, the step it ended in, why and what to do next), sealed as a flow receipt. The app's own run, when it
  * started, is judged from its own record by the native part of the pass, as any run is; nothing is run again here.
  */
-function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state: FlowState, job: JobRecord | undefined, jobWords: string): RecoveryItem | undefined {
+function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state: FlowState, jobPart: Record<string, unknown> | undefined, jobWords: string, stop?: LeftStop): RecoveryItem | undefined {
   const v = state.value;
   const target = String(v.target);
   const t = TARGETS[target];
@@ -595,11 +833,15 @@ function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state
   const app = (v[t.appStep] ?? undefined) as { run?: unknown; job?: unknown } | undefined;
   const run8 = typeof app?.run === 'string' ? app.run.slice(0, 8) : undefined;
   const readback = v.readback as { job?: unknown } | undefined;
+  // R4 (H46): /iterate ae's render step: aerender's run, judged from its own record as After Effects' run is.
+  const render = t.render ? (v[t.render.step] ?? undefined) as { run?: unknown } | undefined : undefined;
+  const render8 = typeof render?.run === 'string' ? render.run.slice(0, 8) : undefined;
   const words: Record<string, [string, string]> = {
     prepare: ['before its agent started', 'nothing was run'],
     agent: ['while its agent ran', `${t.app} did not run`],
     checks: ['after its agent ran, before its checks were recorded', `${t.app} did not run`],
     [t.appStep]: [`during its ${t.app} run`, `${run8 ? `${t.app} run ${run8} is judged from its own record (a native run, below)` : `whether ${t.app} started is not recorded`}; nothing was ${target === 'scad' ? 'compared' : 'read back'}`],
+    ...(t.render ? { [t.render.step]: [`during its ${t.render.app} run`, `${render8 ? `${t.render.app} run ${render8} is judged from its own record (a native run, below)` : `whether ${t.render.app} started is not recorded`}; nothing was read back`] as [string, string] } : {}),
     readback: ['during its readback', 'there is no verdict'],
     record: ['as it was being recorded', 'its outcome was not kept'],
   };
@@ -609,6 +851,7 @@ function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state
   const agent = v.agent as { run?: string; progress?: string } | undefined;
   if (step === 'agent' && agent?.progress) next.push(`the agent's run ${agent.run} keeps its progress in ${agent.progress}; ${file} may hold its change (sha256 before it: ${short(fileOf.before.sha256)})`);
   if (step === t.appStep && run8) next.push(`${t.app} run ${run8} keeps its own record in .timmy/native/${String(app?.run)}/; /recover judges it once its job has ended`);
+  if (t.render && step === t.render.step && render8) next.push(`${t.render.app} run ${render8} keeps its own record in .timmy/native/${String(render?.run)}/; /recover judges it once its job has ended`);
   if (step === 'readback' && typeof readback?.job === 'string') next.push(`/jobs ${readback.job} shows the readback's output while this Timmy's jobs folder keeps it`);
   if (step === 'readback' && target === 'freecad' && run8) next.push(`/freecad readback ${run8} reads its STEP back again`);
   const model = (v.model as { path?: unknown } | undefined)?.path;
@@ -618,7 +861,7 @@ function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state
   }
   next.push(`/iterate ${target} ${target === 'scad' && typeof model === 'string' ? model : file} "${v.instruction}" starts a new flow from ${file} as it is now`);
   const receipts = (v.receipts ?? {}) as Record<string, unknown>;
-  const children = ['agent', t.appStep, 'readback'].map((k) => receipts[k]).filter((x): x is string => typeof x === 'string');
+  const children = ['agent', t.appStep, ...(t.render ? [t.render.step] : []), 'readback'].map((k) => receipts[k]).filter((x): x is string => typeof x === 'string');
   const { step: _step, ...kept } = v;
   const record = {
     ...kept,
@@ -630,13 +873,13 @@ function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state
     recovered: {
       at: new Date((d.now ?? Date.now)()).toISOString(), step,
       state_file: { path: state.rel, sha256: state.sha256 },
-      ...(job ? { job: { id: job.id, state: job.state, ...(job.stale ? { stale: true } : {}) } } : {}),
+      ...(jobPart ? { job: jobPart } : {}),
       next,
     },
   };
   const rel = flowRecordPath(p.id);
   const w = createProjectJson(d.root, rel, record);
-  if (!w.ok) return { kind: 'flow', id: p.id, did: 'failed', text: `flow ${p.id} was interrupted in its ${step} step, but its record could not be written: ${d.scrub(w.error)}` };
+  if (!w.ok) return { kind: 'flow', id: p.id, did: 'failed', ...(stop ? { stopped: stop } : {}), text: `flow ${p.id} was interrupted in its ${step} step${stop ? ` (${jobWords})` : ''}, but its record could not be written: ${d.scrub(w.error)}` };
   const cost = (v.agent as { cost_usd?: unknown } | undefined)?.cost_usd;
   let receipt: string | undefined;
   try {
@@ -652,8 +895,8 @@ function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state
     });
   } catch { receipt = undefined; }
   return {
-    kind: 'flow', id: p.id, did: 'interrupted', state: step, record: w.path, ...(receipt ? { receipt } : {}), next,
-    text: `flow ${p.id} was interrupted in its ${step} step (${jobWords}): record ${w.path}${receipt ? `; receipt ${receipt}` : '; the receipt could not be sealed'}; next: /iterate ${target} again`,
+    kind: 'flow', id: p.id, did: 'interrupted', state: step, record: w.path, ...(receipt ? { receipt } : {}), next, ...(stop ? { stopped: stop } : {}),
+    text: `flow ${p.id} was interrupted in its ${step} step (${jobWords})${endedText(jobPart)}: record ${w.path}${receipt ? `; receipt ${receipt}` : '; the receipt could not be sealed'}; next: /iterate ${target} again`,
   };
 }
 
@@ -687,6 +930,9 @@ function summary(items: RecoveryItem[]): string {
   if (followed.length) parts.push(`${count(followed.length, 'recipe job')} still running: following ${followed.length === 1 ? 'it' : 'them'} as ${followed.map((i) => i.job).join(', ')}`);
   const delivered = of((i) => i.did === 'delivered');
   if (delivered.length) parts.push(`${count(delivered.length, 'recipe job')} finished while no REPL followed ${delivered.length === 1 ? 'it' : 'them'}: exports delivered`);
+  // R4 (H46): the step jobs an ended REPL left running, stopped before their flows were recorded.
+  const stopped = of((i) => !!i.stopped);
+  if (stopped.length) parts.push(`${count(stopped.length, 'job')} left running by a REPL that ended ${stopped.length === 1 ? 'was' : 'were'} stopped: ${stopped.map((i) => i.stopped!.job).join(', ')}`);
   const flows = of((i) => i.did === 'interrupted');
   if (flows.length) parts.push(`${count(flows.length, 'flow')} ${flows.length === 1 ? 'was' : 'were'} interrupted: ${flows.map((i) => i.id).join(', ')} (record${flows.length === 1 ? '' : 's'} written)`);
   const judged = of((i) => i.did === 'judged');
@@ -695,8 +941,11 @@ function summary(items: RecoveryItem[]): string {
   if (failed.length) parts.push(`${failed.length} could not be picked up`);
   const incomplete = of((i) => i.did === 'incomplete');
   if (incomplete.length) parts.push(`${incomplete.length} recipe ${incomplete.length === 1 ? 'copy is' : 'copies are'} incomplete: /recipe copy`);
-  const attention = of((i) => i.did === 'left' && i.attention === true);
+  const attention = of((i) => i.kind === 'recipe' && i.did === 'left' && i.attention === true);
   if (attention.length) parts.push(`${count(attention.length, 'recipe job')} ${attention.length === 1 ? 'needs' : 'need'} /recipe recover`);
+  // R4 (H46): a step's job left running by a REPL that ended, not stopped (its group could not be proven the job's).
+  const running = of((i) => i.kind === 'flow' && i.did === 'left' && i.attention === true);
+  if (running.length) parts.push(`${count(running.length, 'job')} left running by a REPL that ended ${running.length === 1 ? 'was' : 'were'} not stopped: what runs, and how to stop it, below`);
   const left = of((i) => i.did === 'left' && !i.attention);
   if (left.length) parts.push(`${left.length} left as ${left.length === 1 ? 'it is' : 'they are'}`);
   return parts.join('; ');
@@ -714,7 +963,7 @@ export function recoveryLines(r: RecoveryReport, o: { glyphs: GlyphSet; mode: 's
   const g = o.glyphs;
   const lines: Line[] = [[{ text: o.mode === 'start' ? '  Recovered  ' : '  Recovery   ', role: 'secondary' }, { text: summary(shown), role: 'strong' }]];
   for (const i of shown) {
-    const bad = i.did === 'failed' || i.did === 'incomplete' || i.attention === true || (i.did === 'judged' && i.outcome === 'failed');
+    const bad = i.did === 'failed' || i.did === 'incomplete' || i.attention === true || (i.did === 'judged' && i.outcome === 'failed') || i.stopped?.cleanup === 'unresolved';
     const mark = bad ? g.fail : i.did === 'left' || (i.did === 'judged' && i.outcome !== 'ok') ? g.bullet : g.ok;
     lines.push([{ text: `    ${mark} `, role: bad ? 'failure' : undefined }, { text: i.text, role: bad ? 'failure' : 'secondary' }]);
     for (const x of i.extra ?? []) lines.push([{ text: `      ${x}`, role: x === DOCTRINE_15 ? 'strong' : 'secondary' }]);

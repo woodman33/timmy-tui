@@ -530,7 +530,7 @@ export const CARDS_CSS = `
 .status-none strong { color: ${HOMEBREW.textSecondary}; }
 .rstatus { font-size: ${TYPE.size.small}px; overflow-wrap: anywhere; }
 .rstatus strong { text-transform: uppercase; letter-spacing: .06em; font-size: 11px; margin-right: 6px; }
-.rstatus-ok strong { color: ${HOMEBREW.accent}; }
+.rstatus-ok strong { color: ${HOMEBREW.text}; } /* R4 (H46, B9): an outcome in the text colour; green is for actions */
 .rstatus-failed strong { color: ${HOMEBREW.failure}; }
 .rstatus-running strong, .rstatus-attention strong { color: ${HOMEBREW.attention}; }
 .rstatus-neutral strong { color: ${HOMEBREW.text}; }

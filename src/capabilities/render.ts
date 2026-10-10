@@ -9,6 +9,26 @@ const RUNG_ROLE: Record<Rung, Role | undefined> = { 'reachable': 'strong', 'inst
 
 const day = (iso: string): string => iso.slice(0, 10);
 
+/**
+ * R4 (H46): the agent tools a row covers (what `--json` lists as its tools), on lines of their own under it, wrapped
+ * between names; a name is never cut (one longer than the room has a line of its own): on the Mac the OpenSCAD and
+ * FreeCAD rows never showed iterate_native, as the table showed no tools at all.
+ */
+function toolLines(tools: string[], columns: number): Segment[][] {
+  const lead = '      tools: ';
+  const indent = ' '.repeat(lead.length);
+  const max = Math.max(lead.length + 1, columns - 1);
+  const out: string[] = [];
+  let line = lead;
+  tools.forEach((t, i) => {
+    const piece = `${t}${i < tools.length - 1 ? ',' : ''}`;
+    if (line !== lead && line !== indent && visibleWidth(line) + 1 + visibleWidth(piece) > max) { out.push(line); line = indent; }
+    line += `${line === lead || line === indent ? '' : ' '}${piece}`;
+  });
+  out.push(line);
+  return out.map((l) => [{ text: l, role: 'secondary' as const }]);
+}
+
 export function capabilityLines(rows: CapabilityRow[], glyphs: GlyphSet, columns: number): Segment[][] {
   const nameWidth = Math.min(27, Math.max(...rows.map((r) => visibleWidth(r.name))) + 2);
   const rungWidth = 13;
@@ -30,11 +50,12 @@ export function capabilityLines(rows: CapabilityRow[], glyphs: GlyphSet, columns
     const rung: Segment = { text: r.rung.padEnd(rungWidth), role: RUNG_ROLE[r.rung] };
     if (visibleWidth(`${main}${extra}${used}`) <= room) {
       lines.push([{ text: head }, rung, { text: `${main}${extra}${used}`, role: r.setup ? undefined : 'secondary' }]);
-      continue;
+    } else {
+      // A step that does not fit goes on its own line, whole where it can be: a cut step cannot be followed.
+      lines.push([{ text: head }, rung, { text: truncate(`${r.detail}${used}`, room, glyphs.ellipsis), role: 'secondary' }]);
+      if (r.setup) lines.push([{ text: truncate(`      do: ${r.setup}`, columns - 1, glyphs.ellipsis) }]);
     }
-    // A step that does not fit goes on its own line, whole where it can be: a cut step cannot be followed.
-    lines.push([{ text: head }, rung, { text: truncate(`${r.detail}${used}`, room, glyphs.ellipsis), role: 'secondary' }]);
-    if (r.setup) lines.push([{ text: truncate(`      do: ${r.setup}`, columns - 1, glyphs.ellipsis) }]);
+    if (r.tools?.length) lines.push(...toolLines(r.tools, columns));
   }
   lines.push([]);
   const legend = `  reachable: answered just now ${glyphs.sep} installed: here, not contacted ${glyphs.sep} needs setup: do the step ${glyphs.sep} not built: planned only`;

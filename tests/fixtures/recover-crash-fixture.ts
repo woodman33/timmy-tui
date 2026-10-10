@@ -2,7 +2,8 @@
  * A REPL session that crashes, for tests/recover.test.ts (a labelled TEST FIXTURE; nobody runs it as a REPL). It builds a
  * real Workspace on the test's project and jobs folder with the test's FAKE pieces (the SYNTHETIC recipe executor held
  * until the test releases it, the FAKE code agent, the FAKE readback, a held FAKE Blender named by TIMMY_BLENDER), runs
- * /recipe tray, /iterate tray and /blender as its config asks, waits until each is under way, prints what it started as
+ * /recipe tray, /iterate tray and /blender as its config asks (R4, H46: also /iterate tray held in its agent step, for
+ * tests/recover-orphan.test.ts), waits until each is under way, prints what it started as
  * one line (READY {...}) and then waits for the SIGKILL the test sends. Workspace.close and killNow never run, so the
  * recipe's own cancel is never asked: what a crash leaves.
  *
@@ -15,7 +16,11 @@ import { folderProject } from '../../src/project/index.js';
 import { glyphSet } from '../../src/term/glyphs.js';
 import { jobDirectory } from '../../lanes/recipes/jobs.js';
 
-interface Config { root: string; jobsDir: string; executor: string; fakePython: string; agent: string; readback: string; seals: string; nativeStarted: string; steps: Array<'recipe' | 'iterate' | 'blender'> }
+/**
+ * R4 (H46): the `agent` step runs `/iterate tray` with the test's agent (cfg.agent, a TEST DOUBLE that waits until it is
+ * stopped) and the words `agentWords` added to its instruction, and is ready once that agent wrote cfg.agentStarted.
+ */
+interface Config { root: string; jobsDir: string; executor: string; fakePython: string; agent: string; readback: string; seals: string; nativeStarted: string; steps: Array<'recipe' | 'iterate' | 'blender' | 'agent'>; agentStarted?: string; agentWords?: string }
 const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8')) as Config;
 const text = (lines: Array<Array<{ text: string }>>): string => lines.map((l) => l.map((s) => s.text).join('')).join('\n');
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -77,6 +82,13 @@ try {
       });
       if (!run) throw new Error('no run folder names the Blender job');
       out.native = { job, run };
+    } else if (step === 'agent') {
+      const said = text(await ws.iterate(`tray "make it 180 mm wide${cfg.agentWords ? ` ${cfg.agentWords}` : ''}"`));
+      const id = said.match(/Flow\s+(f[0-9a-f]{8})/)?.[1];
+      const job = said.match(/Agent\s+(j[0-9a-f]{6})/)?.[1];
+      if (!id || !job) throw new Error(`no flow started: ${said}`);
+      await until('the agent to start', () => !!cfg.agentStarted && fs.existsSync(cfg.agentStarted) && !!ws.jobs.get(job)?.pid);
+      out.agent = { flow: id, job, pid: ws.jobs.get(job)!.pid, started: JSON.parse(fs.readFileSync(cfg.agentStarted!, 'utf8')) };
     }
   }
   process.stdout.write(`READY ${JSON.stringify(out)}\n`);

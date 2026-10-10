@@ -57,8 +57,11 @@ export type Refusal = { ok: false; error: string; role: Segment['role'] };
 
 export const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 export const short = (s: string | null | undefined): string => (s ? s.slice(0, 12) : '?');
-export const within = <T>(p: Promise<T>, ms: number): Promise<T | undefined> =>
-  Promise.race([p, new Promise<undefined>((resolve) => { setTimeout(() => resolve(undefined), ms).unref?.(); })]);
+/** R4 (H46): its timer holds the event loop while awaited (unref'd, Node could exit under a typed command) and is cleared once `p` settles. */
+export const within = <T>(p: Promise<T>, ms: number): Promise<T | undefined> => {
+  let t: NodeJS.Timeout | undefined;
+  return Promise.race([p, new Promise<undefined>((resolve) => { t = setTimeout(() => resolve(undefined), ms); })]).finally(() => clearTimeout(t));
+};
 export const relTo = (root: string, abs: string): string => path.relative(root, abs).split(path.sep).join('/');
 export const exitWords = (j: JobRecord): string => j.error ?? (j.signal ? `ended by ${j.signal}` : `exited ${j.exitCode ?? '?'}`);
 
