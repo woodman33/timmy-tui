@@ -11,6 +11,8 @@ import { appendReceipt, verifyChain, verifySignature, type VerifyResult } from '
 export interface ToolOutcome {
   tool: string;
   outcome: 'completed' | 'failed' | 'unknown';
+  /** R4 (H30): the tool's own receipt, where it sealed what it spent (describe_image's observe receipt). */
+  receipt?: string;
 }
 
 /** Where a cancel came: before any tool started, while one ran, or after the tools, before the answer. */
@@ -20,7 +22,11 @@ export interface TurnFacts {
   prompt: string;
   answer: string;
   steps: number;
-  /** What OpenRouter charged for the turn, in dollars (LIVE-01, ledger row 65). */
+  /**
+   * What OpenRouter charged for the turn's own requests, in dollars (LIVE-01, ledger row 65). R4 (H30): a tool that
+   * asks a model in a request of its own (describe_image) seals that charge on its own receipt, named in `tools`;
+   * it is not added here, so no charge is sealed twice.
+   */
   spend: number;
   /**
    * True when `spend` is the whole charge OpenRouter reported; false when it is a lower bound (a cancel,
@@ -70,7 +76,7 @@ export function sealTurn(
     subject: `repl · ${cancelled ? 'cancelled · ' : ''}${facts.steps} ${facts.steps === 1 ? 'step' : 'steps'}`,
     policy: 'human-gated',
     status: facts.status,
-    ...(facts.tools?.length ? { tool_outcomes: facts.tools.map((t) => ({ name: t.tool, outcome: t.outcome })), outcome_rule: OUTCOME_RULE } : {}),
+    ...(facts.tools?.length ? { tool_outcomes: facts.tools.map((t) => ({ name: t.tool, outcome: t.outcome, ...(t.receipt ? { receipt: t.receipt } : {}) })), outcome_rule: OUTCOME_RULE } : {}),
     // Third order, checkpoint 1: a cancel stops what is left; it never undoes what already ran.
     ...(cancelled ? { cancelled_at: facts.cancelledAt ?? 'before-tools', rollback: 'none' as const } : {}),
     ...(facts.canvas?.length ? { sources: facts.canvas.map((c) => ({ kind: 'timmy-canvas', job: c.job, revision: c.revision, source_revision: c.sourceRevision })) } : {}),

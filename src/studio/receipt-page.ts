@@ -35,18 +35,39 @@ const CANCEL_AT: Record<NonNullable<Receipt['cancelled_at']>, string> = {
   'after-tools': 'after its tools, before the answer',
 };
 
+/** A dollar amount to four places; a nonzero amount is never shown as zero. */
+const usd = (n: number): string => (n > 0 && n < 0.0001 ? `$${n.toPrecision(2)}` : `$${n.toFixed(4)}`);
+
+/**
+ * R4 (H30): what a receipt says was spent. The reported amount; "cost unknown" when a request went out and no cost
+ * came back (`cost_measured: false`, or a null cost), never a number then: the sealed figure is only a placeholder
+ * or a lower bound; nothing when no request went out (neither a cost nor the flag).
+ */
+export function spendText(r: { cost_usd?: number | null; cost_measured?: boolean }): string | undefined {
+  if (r.cost_measured === false || r.cost_usd === null) {
+    return typeof r.cost_usd === 'number' && r.cost_usd > 0
+      ? 'cost unknown (a request went out; its full cost was not reported)'
+      : 'cost unknown (a request went out; no cost was reported)';
+  }
+  if (typeof r.cost_usd !== 'number') return undefined;
+  return Number.isFinite(r.cost_usd) && r.cost_usd >= 0 ? usd(r.cost_usd) : 'cost unknown (the receipt records no usable amount)';
+}
+
 export function receiptFacts(r: Receipt): Array<[string, string]> {
+  // R4 (H30): a tool that spends on its own (describe_image) is sealed on its own receipt, which the turn names.
+  const ownReceipts = r.tool_outcomes?.some((t) => typeof t.receipt === 'string' && t.receipt) === true;
+  const spend = spendText(r as { cost_usd?: number | null; cost_measured?: boolean });
   const facts: Array<[string, string | undefined]> = [
     ['kind', r.kind],
     ['subject', r.subject],
     ['status', r.status],
     // A cancelled turn (third order, checkpoint 1): where the cancel came, each tool as it ended.
     ['cancelled', r.cancelled_at ? CANCEL_AT[r.cancelled_at] : undefined],
-    ['tools', r.tool_outcomes?.length ? r.tool_outcomes.map((t) => `${t.name} ${t.outcome}${t.outcome === 'unknown' ? ' (it may have run in part or in full)' : ''}`).join(', ') : undefined],
+    ['tools', r.tool_outcomes?.length ? r.tool_outcomes.map((t) => `${t.name} ${t.outcome}${t.outcome === 'unknown' ? ' (it may have run in part or in full)' : ''}${typeof t.receipt === 'string' && t.receipt ? ` (receipt ${t.receipt} seals its own cost)` : ''}`).join(', ') : undefined],
     ['rollback', r.rollback === 'none' ? 'none: a cancel stops what is left; it never undoes' : undefined],
     ['sealed', r.ts],
     ['model', r.model_requested],
-    ['spend', typeof r.cost_usd === 'number' ? `$${r.cost_usd.toFixed(3)}` : undefined],
+    ['spend', spend && ownReceipts ? `${spend}; not counting the tools sealed on their own receipts (see tools)` : spend],
     ['time', typeof r.ms === 'number' ? `${(r.ms / 1000).toFixed(1)}s` : undefined],
     ['prompt', r.prompt_hash ? `sha256 ${r.prompt_hash.slice(0, 16)}` : undefined],
     ['answer', r.response_hash ? `sha256 ${r.response_hash.slice(0, 16)}` : undefined],

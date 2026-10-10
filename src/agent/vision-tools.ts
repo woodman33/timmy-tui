@@ -15,7 +15,11 @@ import { readProjectFile, resolveInside } from '../project/index.js';
 import { checkOpenCv, DETERMINISTIC, lookPython, OPENCV_SETUP, runLook, type LookObservation, lookEnv } from '../vision/look.js';
 import { describeImage } from '../vision/route.js';
 
-type Observed = { ok: true; file: string; receipt?: string; tiers: string[]; interpretation?: Record<string, unknown>; qualified?: Record<string, unknown> } | { ok: false; error: string; receipt?: string };
+type Observed = { ok: true; file: string; receipt?: string; tiers: string[]; interpretation?: Record<string, unknown>; qualified?: Record<string, unknown> }
+  /** R4 (H30): `cost_usd` when a model request went out (null: no cost came back) */
+  | { ok: false; error: string; receipt?: string; cost_usd?: number | null };
+/** R4 (H30): a failure says what it cost when a request went out (a number, or null: unknown), so the turn can count it. */
+const costOf = (r: { cost_usd?: number | null }): { cost_usd?: number | null } => ('cost_usd' in r ? { cost_usd: r.cost_usd ?? null } : {});
 
 export interface VisionToolOptions {
   root: () => string;
@@ -93,7 +97,7 @@ export function createVisionTools(o: VisionToolOptions) {
         // R3 (H14): a qualified answer exists only as a recorded observation (its handles, run and receipt).
         if (!o.observe) return { ok: false, error: "a qualified answer is recorded through the REPL's workspace: /observe <file> --qualify" };
         const r = await o.observe(at.rel, question, chosen, { qualify: true });
-        if (!r.ok) return { ok: false, error: r.error, ...(r.receipt ? { receipt: r.receipt } : {}) };
+        if (!r.ok) return { ok: false, error: r.error, ...(r.receipt ? { receipt: r.receipt } : {}), ...costOf(r) };
         const q = r.qualified ?? {};
         const cost = 'cost_usd' in q ? { cost_usd: (q.cost_usd as number | null | undefined) ?? null } : {};
         const where = { observation_file: r.file, ...(r.receipt ? { receipt: r.receipt } : {}) };
@@ -107,7 +111,7 @@ export function createVisionTools(o: VisionToolOptions) {
       }
       if (o.observe) {
         const r = await o.observe(at.rel, question, chosen);
-        if (!r.ok) return { ok: false, error: r.error, ...(r.receipt ? { receipt: r.receipt } : {}) };
+        if (!r.ok) return { ok: false, error: r.error, ...(r.receipt ? { receipt: r.receipt } : {}), ...costOf(r) };
         const i = r.interpretation ?? {};
         // Round R3: a request that went out reports its cost whatever its status (null: not reported, unknown).
         const cost = 'cost_usd' in i ? { cost_usd: (i.cost_usd as number | null | undefined) ?? null } : {};
@@ -115,7 +119,7 @@ export function createVisionTools(o: VisionToolOptions) {
         return { ok: true, tier: i.tier, model: i.model, answer: agentText(i.answer), ...cost, recorded: true, observation_file: r.file, ...(r.receipt ? { receipt: r.receipt } : {}) };
       }
       const r = await describeImage({ model: chosen, imagePath: at.path, question, apiKey: env.OPENROUTER_API_KEY, ...(o.fetch ? { fetch: o.fetch } : {}) });
-      if (!r.ok) return { ok: false, error: r.error, ...(r.alternatives ? { alternatives: r.alternatives } : {}) };
+      if (!r.ok) return { ok: false, error: r.error, ...(r.alternatives ? { alternatives: r.alternatives } : {}), ...(r.sent ? { cost_usd: r.cost_usd ?? null } : {}) };
       return { ok: true, tier: r.tier, model: r.model, answer: agentText(r.answer), cost_usd: r.cost_usd, recorded: false };
     },
   });
