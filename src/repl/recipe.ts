@@ -13,6 +13,7 @@ import {
   checkCopy, deliver, DOCTRINE_15, failureFiles, isRecipeJobId, launchRecipe, listRecipeJobs, nativeRuntime, outcomeLines, outDir,
   PARAMETER_HELP, PARAMETER_NAMES, parseWords, prepareRecipe, PYTHON_SETUP, readCard, RECIPE_ID, short, watcherSpec,
 } from '../recipes/index.js';
+import { paramsPath, readParams } from '../recipes/params-file.js';
 import { cancel, recover, status } from '../../lanes/recipes/jobs.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
@@ -41,12 +42,17 @@ const fmt = (n: number): string => String(Math.round(n * 1000) / 1000);
 
 /** What the agent's run_recipe gets back: data, never a claim of a finished build. */
 export type RecipeStarted =
-  | { ok: true; job: string; operation: string; request_sha256: string; source_sha256: string; predicted: { bounds_mm: number[]; volume_mm3: number }; prediction_receipt: string; outputs_when_succeeded: string; note: string; doctrine: string }
+  | { ok: true; job: string; operation: string; request_sha256: string; source_sha256: string; predicted: { bounds_mm: number[]; volume_mm3: number }; prediction_receipt: string; outputs_when_succeeded: string; note: string; doctrine: string; parameters_file?: { path: string; sha256: string } }
   | { ok: false; stage: 'refused' | 'setup' | 'enqueue' | 'start'; error: string; setup?: string; operation?: string };
 
 /** Validate, seal the prediction, start the durable job and its watcher. Shared by /recipe tray and run_recipe. */
 export async function startRecipeJob(c: RecipeContext, given: Record<string, unknown>): Promise<RecipeStarted> {
-  const p = prepareRecipe(given, { root: c.root, env: c.env, ...(c.test?.executor ? { executor: c.test.executor } : {}) });
+  // Round R4: the project's parameter file (recipes/tray.params.json), when there is one, gives the defaults;
+  // the words given here override it. A file the recipe would refuse stops the start, with the reason.
+  const file = readParams(c.root);
+  if (!file.ok) return { ok: false, stage: 'refused', error: `${file.path} is not a usable parameter file: ${file.error}; fix it or move it aside` };
+  const fromFile = file.exists ? { path: file.path, sha256: file.sha256 } : undefined;
+  const p = prepareRecipe(file.exists ? { ...file.parameters, ...given } : given, { root: c.root, env: c.env, ...(c.test?.executor ? { executor: c.test.executor } : {}) });
   if (!p.ok) return { ok: false, stage: p.stage, error: p.error, ...(p.stage === 'setup' ? { setup: PYTHON_SETUP } : {}) };
   const { id, job, predicted } = p.prepared;
   // The analytic prediction is sealed on the runs chain before any native start, bound to the operation ID,
@@ -55,7 +61,7 @@ export async function startRecipeJob(c: RecipeContext, given: Record<string, unk
   try {
     sealed = c.seal({
       kind: 'predict', subject: `recipe · predict · ${RECIPE_ID} · ${id}`, policy: 'human-gated', status: 'ok', project: c.project, project_id: projectId(c.root),
-      sources: [{ path: `.timmy/recipe-jobs/${id}/job.json`, recipe: RECIPE_ID, operation: id, request_sha256: job.requestHash, source_sha256: job.sourceHash, parameters: p.prepared.parameters, bounds_mm: predicted.bounds, volume_mm3: predicted.volumeMm3, units: 'mm' }],
+      sources: [{ path: `.timmy/recipe-jobs/${id}/job.json`, recipe: RECIPE_ID, operation: id, request_sha256: job.requestHash, source_sha256: job.sourceHash, parameters: p.prepared.parameters, bounds_mm: predicted.bounds, volume_mm3: predicted.volumeMm3, units: 'mm' }, ...(fromFile ? [{ path: fromFile.path, sha256: fromFile.sha256, role: 'parameter file' }] : [])],
       cost_usd: 0,
     });
   } catch { sealed = undefined; }
@@ -75,6 +81,7 @@ export async function startRecipeJob(c: RecipeContext, given: Record<string, unk
     outputs_when_succeeded: `${outDir(id)}/`,
     note: `Started, not finished: the recipe runs as a durable job. /jobs ${watcher.id} follows it; its exports are copied only after the signed result verifies.`,
     doctrine: DOCTRINE_15,
+    ...(fromFile ? { parameters_file: fromFile } : {}),
   };
 }
 
@@ -84,6 +91,12 @@ function usage(c: RecipeContext): Line[] {
   for (const name of PARAMETER_NAMES) {
     lines.push([{ text: `    ${name.padEnd(14)}` }, { text: `${String(card.parameters[name]).padStart(4)} mm`, role: 'strong' }, { text: `  ${PARAMETER_HELP[name]}`, role: 'secondary' }]);
   }
+  const file = readParams(c.root);
+  lines.push(file.ok && file.exists
+    ? [{ text: '  Defaults   ', role: 'secondary' }, { text: file.path, role: 'strong' }, { text: `  ${PARAMETER_NAMES.map((n) => `${n} ${fmt(file.parameters[n])}`).join(', ')}${sep(c)}sha256 ${short(file.sha256)}`, role: 'secondary' }]
+    : file.ok
+      ? [{ text: '  Defaults   ', role: 'secondary' }, { text: `the card's (no ${paramsPath()}; the board's parameter card or /iterate writes one)`, role: 'secondary' }]
+      : [{ text: '  Defaults   ', role: 'secondary' }, { text: `${file.path} is not usable: ${file.error}`, role: 'failure' }]);
   const fixed = Object.entries(card.fixed).map(([k, v]) => `${k} ${v}`).join(', ');
   lines.push(...say(`  fixed (mm): ${fixed}; exports: four feature STLs and a STEP; a 30-check gate`));
   const r = nativeRuntime(c.env);
@@ -108,6 +121,7 @@ async function startView(c: RecipeContext, words: string[]): Promise<Line[]> {
   return [
     [{ text: '  Predicted  ', role: 'secondary' }, { text: `${fmt(x)} x ${fmt(y)} x ${fmt(z)} mm, ${fmt(r.predicted.volume_mm3)} mm3`, role: 'strong' }, { text: `  analytic, sealed before the build${r.prediction_receipt ? `${sep(c)}receipt ${r.prediction_receipt}` : ''}`, role: 'secondary' }],
     [{ text: '  Recipe job ', role: 'secondary' }, { text: r.operation, role: 'strong' }, { text: `  request ${short(r.request_sha256)}${sep(c)}source ${short(r.source_sha256)}`, role: 'secondary' }],
+    ...(r.parameters_file ? [[{ text: '  Parameters ', role: 'secondary' as const }, { text: r.parameters_file.path, role: 'strong' as const }, { text: `  sha256 ${short(r.parameters_file.sha256)}${sep(c)}the words given override it`, role: 'secondary' as const }]] : []),
     [{ text: '  Running    ', role: 'secondary' }, { text: r.job, role: 'strong' }, { text: `  CadQuery builds the tray${sep(c)}/jobs ${r.job}${sep(c)}/stop ${r.job}`, role: 'secondary' }],
   ];
 }

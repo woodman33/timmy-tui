@@ -119,6 +119,37 @@ afterEach(async () => {
   fs.rmSync(fixtures, { recursive: true, force: true });
 });
 
+describe('/recipe with the project parameter file (round R4)', () => {
+  it('takes recipes/tray.params.json as its defaults, words override it, and the sealed prediction names the file', async () => {
+    const { ws, sealed } = make({ mode: 'complete' });
+    fs.mkdirSync(path.join(root, 'recipes'));
+    const file = JSON.stringify({ schema: 'timmy.recipe-params/1', recipe: 'enclosure.tray/1', parameters: { width: 160, wall: 2.5 } });
+    fs.writeFileSync(path.join(root, 'recipes', 'tray.params.json'), file);
+    expect(text(await ws.recipe(''))).toMatch(/Defaults\s+recipes\/tray\.params\.json\s+width 160, wall 2\.5/);
+    const out = text(await ws.recipe('tray wall=3'));
+    expect(out).toMatch(/Predicted\s+160 x 80 x 30 mm/);
+    expect(out).toMatch(/Parameters\s+recipes\/tray\.params\.json\s+sha256 [0-9a-f]{12}/);
+    const predicted = sealed.find((r) => r.kind === 'predict');
+    const sources = (predicted?.sources ?? []) as Array<Record<string, unknown>>;
+    expect(sources[0]).toMatchObject({ parameters: { width: 160, wall: 3, supportOffset: 10, bore: 3 } });
+    expect(sources[1]).toMatchObject({ path: 'recipes/tray.params.json', sha256: sha(Buffer.from(file)), role: 'parameter file' });
+    const id = uuidIn(out);
+    await until(() => status(root, id).state === 'succeeded');
+  });
+
+  it('a parameter file the recipe would refuse stops the start with the reason; the card defaults are not used instead', async () => {
+    const { ws, sealed } = make({ mode: 'complete' });
+    fs.mkdirSync(path.join(root, 'recipes'));
+    fs.writeFileSync(path.join(root, 'recipes', 'tray.params.json'), '{"schema":"timmy.recipe-params/1","recipe":"enclosure.tray/1","parameters":{"width":20}}');
+    const out = text(await ws.recipe('tray'));
+    expect(out).toContain('Refused before any native start');
+    expect(out).toContain('recipes/tray.params.json is not a usable parameter file');
+    expect(out).toContain('Conflicting tray dimensions');
+    expect(recipeJobs()).toEqual([]);
+    expect(sealed).toEqual([]);
+  });
+});
+
 describe('/recipe before any start', () => {
   it('lists the recipe with its parameters in mm, defaults, the runtime state and the DOCTRINE §15 sentence', async () => {
     const { ws } = make();
