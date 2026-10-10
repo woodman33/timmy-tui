@@ -216,6 +216,15 @@ export class JobManager {
     await Promise.all([...this.jobs.values()].filter((entry) => !entry.finished).map((entry) => this.stop(entry.job.id)));
   }
 
+  /** Round R4 (H29): signal a job's process group at once, without waiting (the REPL exiting at once). Only a job of
+   *  this manager that is still going; once its first process has exited, only its group, never that pid alone. */
+  signalNow(id: string, signal: NodeJS.Signals = 'SIGTERM'): boolean {
+    const entry = this.jobs.get(id);
+    const child = entry?.child;
+    if (!entry || entry.finished || child?.pid === undefined) return false;
+    return killProcessGroup(child.pid, signal, { leaderExited: leaderExited(child) });
+  }
+
   private launch(entry: Entry): void {
     const { job, spec } = entry;
     let folder = false;
@@ -285,9 +294,9 @@ export class JobManager {
       const pid = child.pid;
       if (pid === undefined) { await waitFor(() => entry.outcome !== undefined, KILL_WAIT_MS); return; }  // a spawn error on its way
       const gone = () => entry.outcome !== undefined && !groupLive(pid);
-      killProcessGroup(pid, 'SIGTERM');
+      killProcessGroup(pid, 'SIGTERM', { leaderExited: leaderExited(child) });
       if (await waitFor(gone, graceMs)) return;
-      killProcessGroup(pid, 'SIGKILL');
+      killProcessGroup(pid, 'SIGKILL', { leaderExited: leaderExited(child) });
       if (await waitFor(gone, KILL_WAIT_MS)) return;
       if (entry.outcome === undefined && (child.exitCode !== null || child.signalCode !== null)) {
         // the leader is gone but a process that left its group still holds the output pipes: let go of them
@@ -534,6 +543,11 @@ function waitFor(condition: () => boolean, ms: number): Promise<boolean> {
 
 // Whether any process of a job's group still runs: groupLive (../runtime/process-group.ts, moved there in
 // round R4 so spawnProcess asks it the same way).
+
+/** Round R4 (H29): the job's first process has exited and been reaped: its pid may be another process's by now. */
+function leaderExited(child: ChildProcessWithoutNullStreams): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
+}
 
 function pidAlive(pid: unknown): boolean {
   if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1) return false;

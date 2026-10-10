@@ -224,6 +224,8 @@ export function recover(root:string,id:string){
  if(Date.now()-last>5000)terminal(dir,'interrupted','Worker heartbeat lost; native outcome unknown; no replay');
  return status(root,id);
 }
+/** An error in a few words: its code (ENOENT …) when it has one. */
+const why=(error:unknown)=>(error as NodeJS.ErrnoException)?.code??(error instanceof Error?error.message:String(error));
 /** Supervisor stays responsive while the incumbent synchronous build runs in a child. */
 export async function supervise(root:string,id:string,options:{onExecutionClosed?:(code:number|null,signal:NodeJS.Signals|null)=>void}={}){
  const job=loadJob(root,id),dir=jobDirectory(root,id);
@@ -236,11 +238,15 @@ export async function supervise(root:string,id:string,options:{onExecutionClosed
  let child:ReturnType<typeof spawn>|undefined;
  const cancelled=()=>fs.existsSync(path.join(dir,'cancel.json'));
  const kill=()=>{if(child?.pid)try{process.kill(-child.pid,'SIGKILL');}catch{/* owned child already exited */}};
+ // Round R4 (H29): a heartbeat the job folder no longer takes (the folder removed under a running job, say) stops
+ // the native group as a cancellation does. Thrown from the timer, it killed this supervisor and left the group running.
+ let lost:string|undefined;
+ const beat=()=>{if(lost)return;try{atomic(path.join(dir,'heartbeat.json'),{at:Date.now()});}catch(error){lost=why(error);kill();}};
  try{
   await new Promise<void>((resolve,reject)=>{
    child=spawn(process.execPath,nodeArguments(worker,'execute',path.resolve(root),id),{cwd:workspace,detached:true,shell:false,stdio:'inherit',env:{...process.env,TIMMY_STORE:path.join(workspace,'.timmy','receipts'),TIMMY_CADQUERY_PYTHON:job.python??''}});
-   const began=Date.now();atomic(path.join(dir,'heartbeat.json'),{at:began});
-   const timer=setInterval(()=>{atomic(path.join(dir,'heartbeat.json'),{at:Date.now()});if(cancelled()||Date.now()-began>150000)kill();},250);
+   const began=Date.now();beat();
+   const timer=setInterval(()=>{beat();if(lost||cancelled()||Date.now()-began>150000)kill();},250);
    child.once('error',e=>{clearInterval(timer);reject(e);});
    child.once('close',(code,signal)=>{
     clearInterval(timer);
@@ -252,7 +258,13 @@ export async function supervise(root:string,id:string,options:{onExecutionClosed
   });
   if(cancelled())terminalCancellation(root,id,dir);
   else{const result=completion(root,id);terminal(dir,result.state,undefined,result);}
- }catch{cancelled()?terminalCancellation(root,id,dir):terminal(dir,'failed','Worker failed; inspect worker.log');}
+ }catch{
+  try{
+   if(cancelled())terminalCancellation(root,id,dir);
+   else if(lost)terminal(dir,'interrupted',`Heartbeat could not be written (${lost}); native process group stopped; no replay`);
+   else terminal(dir,'failed','Worker failed; inspect worker.log');
+  }catch(error){throw Error(`Job folder could not be written (${lost??why(error)}); native process group stopped; no terminal state recorded`);}
+ }
  finally{kill();}
 }
 export function recordResult(root:string,id:string,result:any){

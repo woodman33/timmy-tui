@@ -364,9 +364,10 @@ describe('the run_native agent tool', () => {
 describe('native jobs on a sandboxed Timmy', () => {
   it('stop when Cinema 4D asks how to license it, and take HOME from TIMMY_NATIVE_HOME', async () => {
     const { mkdtempSync, writeFileSync } = await import('node:fs');
-    const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
-    const root = mkdtempSync(join(tmpdir(), 'c4d-home-'));
+    // R4 (H29): inside this test's own temporary folder, which afterEach removes (it was left in the system temp folder)
+    const root = mkdtempSync(join(tmp, 'c4d-home-'));
+    expect(root.startsWith(tmp + path.sep)).toBe(true);
     writeFileSync(join(root, 'scene.py'), '# a scene\n');
     const spec = c4dpyJob({ script: 'scene.py', root, project: 'p', bin: process.execPath, env: { TIMMY_NATIVE_HOME: join(root, 'native-home') } });
     expect(spec.stopWhen?.pattern.test('Enter the license method:')).toBe(true);

@@ -32,7 +32,6 @@ import { applyBoardEdit } from './board-edits.js';
 import { workflowForBoard } from './board-nodes.js';
 import { recipeEnded, recipeView, startRecipeJob, type RecipeContext, type RecipeStarted, type RecipeTestSeams } from './recipe.js';
 import { cancelRecipe, cancelSentence, RecipeLaunches, type RecipeCancel } from './recipe-stop.js';
-import { killProcessGroup } from '../runtime/spawn-runtime.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
 import { readChain, type Receipt, type ReceiptInput } from '../utils/receipts.js';
@@ -1144,7 +1143,7 @@ export class Workspace {
     this.cancelRecipes();
     for (const id of this.mine) {
       const j = this.jobs.get(id);
-      if (j?.pid && !TERMINAL.has(j.state)) killProcessGroup(j.pid, 'SIGTERM');
+      if (j?.pid && !TERMINAL.has(j.state)) this.jobs.signalNow(id, 'SIGTERM');
     }
   }
 
