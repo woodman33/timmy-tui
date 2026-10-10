@@ -52,9 +52,13 @@ export interface Receipt {
   /** R2: a native app's run (Cinema 4D, After Effects), judged from its own result file; the exit code is recorded, not decisive */
   native?: { app: string; outcome: 'ok' | 'failed' | 'unknown'; why: string; exit_code: number | null; signal: string | null; files: Array<{ path: string; sha256?: string; present?: boolean; match?: boolean; matches?: boolean }>; c4d_version?: unknown; blender_version?: unknown; run?: string; input?: { path: string; sha256: string }; checked?: unknown[] };
   observation?: {
-    tiers: string[]; worker?: string; opencv?: string; measurements?: number; error?: string; interpretation?: { status: string; model?: string; cost_usd?: number | null };
+    tiers: string[]; worker?: string; opencv?: string; measurements?: number; error?: string;
+    /** R4 (H20): with its answer's sha256 (the whole answer's, and the cut part's when the record holds only that); interpretationSeal */
+    interpretation?: { status: string; model?: string; cost_usd?: number | null; answer_sha256?: string; answer_excerpt_sha256?: string };
     /** R3 (H14): /observe --qualify's outcome as sealed (src/evidence/observation-check.ts qualifiedSeal). */
-    qualified?: { status: string; model?: string; run_id?: string; source_revision?: string; cites?: string[]; refusal?: string; raw_output_sha256?: string; answer_sha256?: string; cost_usd?: number | null };
+    qualified?: { status: string; model?: string; run_id?: string; source_revision?: string; cites?: string[]; refusal?: string; raw_output_sha256?: string; raw_output_excerpt_sha256?: string; answer_sha256?: string; answer_excerpt_sha256?: string; cost_usd?: number | null };
+    /** R4 (H20): the observation file could not be written: where its whole record is kept instead (inside the project, or in Timmy's own kept folder), or why it is kept nowhere */
+    kept?: { path: string; sha256: string; bytes: number; store?: 'timmy' } | { error: string };
   };
   /** Round R3 (/agent): a code agent's run in the project: its run id (the operation ID), where its model ran, how it ended, what it changed (the files themselves are in `files`) */
   agent?: { name: string; run: string; version?: string | null; model?: string | null; endpoint: 'local' | 'remote'; outcome: string; why: string; tool_calls: number; added: number; changed: number; deleted: string[]; final_message_sha256?: string; cost_basis: string };

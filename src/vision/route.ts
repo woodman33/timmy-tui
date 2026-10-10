@@ -9,6 +9,7 @@
  */
 import { createHash } from 'node:crypto';
 import { closeSync, openSync, readSync, statSync } from 'node:fs';
+import type { KeptFailure, KeptRef } from './kept.js';
 import { INTERPRETATION } from './look.js';
 
 export const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
@@ -18,7 +19,8 @@ export const MODEL_LIST_TTL_MS = 60 * 60 * 1000;
 /** The largest image sent to a model. */
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 /** Round R3: the most of a model's answer kept (UTF-8 bytes): a hard cap on the record, not a display size.
- *  A longer answer is cut on a character and flagged (answer_truncated, answer_bytes); a view shortens it. */
+ *  A longer answer is cut on a character and flagged (answer_truncated, answer_bytes); a view shortens it.
+ *  R4 (H20): the whole of a longer answer is kept in a file of its own (src/vision/kept.ts), named by the record. */
 export const ANSWER_MAX_BYTES = 64 * 1024;
 /** Offered first when they are on the list and take images. */
 const PREFERRED = ['anthropic/claude-haiku-4.5', 'google/gemini-2.5-flash', 'openai/gpt-4o-mini', 'anthropic/claude-sonnet-4.5'];
@@ -111,6 +113,10 @@ export interface Interpretation {
   /** the answer was longer than ANSWER_MAX_BYTES: `answer` is its start, `answer_bytes` its whole length */
   answer_truncated?: true;
   answer_bytes?: number;
+  /** R4 (H20): the sha256 of the whole answer as it came, cut or not */
+  answer_sha256: string;
+  /** R4 (H20): with `answer_truncated`, where `keepWhole` kept the whole answer, or why it is kept nowhere */
+  answer_full?: KeptRef | KeptFailure;
   /** what the response reports it cost, in USD; null: not reported, so unknown */
   cost_usd: number | null;
   /** sha256 of the exact bytes the model was sent: the claim is about these bytes */
@@ -150,14 +156,25 @@ function reportedCost(usage: unknown): number | null {
   return money(upstream) ? u.cost + upstream : null;
 }
 
-/** The answer as the record keeps it: whole up to ANSWER_MAX_BYTES; past that cut on a character boundary, and flagged. */
-function keptAnswer(text: string): { answer: string; answer_truncated?: true; answer_bytes?: number } {
+/** Keeps a whole answer the record cannot hold (R4, H20): where it is kept, or why it is kept nowhere. */
+export type KeepWhole = (whole: string) => KeptRef | KeptFailure;
+
+/**
+ * The answer as the record keeps it: whole up to ANSWER_MAX_BYTES; past that cut on a character boundary, flagged,
+ * and (R4, H20) the whole answer handed to `keep` to be kept in a file of its own. Its sha256 is given either way.
+ */
+function keptAnswer(text: string, keep?: KeepWhole): { answer: string; answer_sha256: string; answer_truncated?: true; answer_bytes?: number; answer_full?: KeptRef | KeptFailure } {
   const bytes = Buffer.byteLength(text, 'utf8');
-  if (bytes <= ANSWER_MAX_BYTES) return { answer: text };
+  const answer_sha256 = createHash('sha256').update(text, 'utf8').digest('hex');
+  if (bytes <= ANSWER_MAX_BYTES) return { answer: text, answer_sha256 };
   const buf = Buffer.from(text, 'utf8');
   let end = ANSWER_MAX_BYTES;
   while (end > 0 && (buf[end] & 0xc0) === 0x80) end--; // buf[end] is the first byte left out: never inside a character
-  return { answer: buf.subarray(0, end).toString('utf8'), answer_truncated: true, answer_bytes: bytes };
+  let answer_full: KeptRef | KeptFailure;
+  try { answer_full = keep ? keep(text) : { error: 'no place to keep the whole answer was given' }; } catch (e) {
+    answer_full = { error: `the whole answer could not be kept (${e instanceof Error ? e.message : 'error'})` };
+  }
+  return { answer: buf.subarray(0, end).toString('utf8'), answer_truncated: true, answer_bytes: bytes, answer_sha256, answer_full };
 }
 
 /** Settles as `p` does, or rejects once `signal` aborts: a fetch that does not honour its signal cannot hold a stop. */
@@ -181,8 +198,9 @@ function unlessAborted<T>(p: Promise<T>, signal: AbortSignal | undefined): Promi
  * Round R3: `signal` stops it at any point (combined with its own time limit): before the request goes out
  * nothing is sent; after, the result is cancelled with `sent` and an unknown cost, since the request may
  * still be charged. `onRequest` is called as the paid request goes out.
+ * R4 (H20): an answer longer than ANSWER_MAX_BYTES is handed whole to `keepWhole`; the result names where it is.
  */
-export async function describeImage(o: { model: string; imagePath: string; question: string; apiKey: string | undefined; fetch?: typeof fetch; maxBytes?: number; timeoutMs?: number; signal?: AbortSignal; onRequest?: () => void }): Promise<DescribeResult> {
+export async function describeImage(o: { model: string; imagePath: string; question: string; apiKey: string | undefined; fetch?: typeof fetch; maxBytes?: number; timeoutMs?: number; signal?: AbortSignal; onRequest?: () => void; keepWhole?: KeepWhole }): Promise<DescribeResult> {
   const f = o.fetch ?? fetch;
   const notSent = (): DescribeFailure => ({ ok: false, cancelled: true, error: 'stopped before the request was sent: nothing was asked, so nothing was charged' });
   if (!o.apiKey) return { ok: false, refused: true, error: 'no OPENROUTER_API_KEY: a model interpretation needs one' };
@@ -239,7 +257,7 @@ export async function describeImage(o: { model: string; imagePath: string; quest
   if (!answer) return { ok: false, ...reported, error: 'the model returned no answer' };
   return {
     ok: true, tier: INTERPRETATION, model: typeof body.model === 'string' ? body.model : o.model, model_requested: o.model, question,
-    ...keptAnswer(answer), cost_usd: reported.cost_usd,
+    ...keptAnswer(answer, o.keepWhole), cost_usd: reported.cost_usd,
     image_sha256: createHash('sha256').update(bytes).digest('hex'),
     ...(reported.tokens !== undefined ? { tokens: reported.tokens } : {}),
   };
