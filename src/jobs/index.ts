@@ -18,6 +18,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
+import { groupLive } from '../runtime/process-group.js';
 import { killProcessGroup, spawnProcess, type ProcessOutcome } from '../runtime/spawn-runtime.js';
 
 export type JobKind = 'task' | 'workflow' | 'server';
@@ -51,6 +52,10 @@ export interface JobRecord {
   stale?: boolean;
   /** what happened beyond the state, in a sentence: its first process ended while what it started kept running */
   note?: string;
+  /** Round R4: after a stop of this manager's (/stop, the time limit, stopWhen, not ready): 'complete' when no
+   *  process of the job's group ran any more, 'unresolved' when some still did after the SIGKILL wait (error
+   *  says so). About the process group only, like the job itself. Absent when no stop ran. */
+  cleanup?: 'complete' | 'unresolved';
 }
 export interface JobSpec {
   kind: JobKind; label: string; project: string; root: string;
@@ -88,6 +93,8 @@ const LINGER_POLL_MS = 250;
 const MAX_TIMER_MS = 2 ** 31 - 1;
 /** a line longer than this is cut into pieces of this size, so one endless line cannot grow without bound */
 const MAX_LINE = 64 * 1024;
+/** what a job's error says when its stop could not end every process of its group */
+const NOT_STOPPED = 'some processes it started did not stop';
 const TAIL_LINES = 20;
 
 interface Ending { state: 'cancelled' | 'failed'; error?: string }
@@ -292,8 +299,13 @@ export class JobManager {
     entry.stopping = sequence().finally(() => {
       entry.stopping = undefined;
       // A stop that could not end every process of the group says so: the job is not reported as fully stopped.
+      // Round R4 (H16): also when its ending already had a reason (timed out …), and in a structured field.
       const pid = child.pid;
-      if (pid !== undefined && entry.ending && groupLive(pid)) entry.ending = { ...entry.ending, error: entry.ending.error ?? 'some processes it started did not stop' };
+      if (pid !== undefined && entry.ending) {
+        const left = groupLive(pid);
+        entry.job.cleanup = left ? 'unresolved' : 'complete';
+        if (left) entry.ending = { ...entry.ending, error: entry.ending.error ? `${entry.ending.error}; ${NOT_STOPPED}` : NOT_STOPPED };
+      }
       this.settle(entry);
     });
     return entry.stopping;
@@ -520,39 +532,8 @@ function waitFor(condition: () => boolean, ms: number): Promise<boolean> {
   });
 }
 
-/**
- * Whether any process of the group the pid leads still runs. On Linux a zombie (ended, not yet reaped by
- * its new parent) does not count: an init that reaps orphans late must not keep a finished job running.
- */
-function groupLive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 1) return false;
-  if (process.platform === 'win32') return pidAlive(pid);
-  try { process.kill(-pid, 0); } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'EPERM') return false;
-  }
-  if (process.platform !== 'linux') return true;
-  // The scan reads every process's stat: at most once per SCAN_MS per group, the cheap check above every time.
-  const now = performance.now();
-  const memo = scans.get(pid);
-  if (memo && now - memo.at < SCAN_MS) return memo.live;
-  let names: string[];
-  try { names = readdirSync('/proc'); } catch { return true; }
-  let live = false;
-  for (const name of names) {
-    if (!/^\d+$/.test(name)) continue;
-    let stat: string;
-    try { stat = readFileSync(`/proc/${name}/stat`, 'utf8'); } catch { continue; }
-    // pid (comm) state ppid pgrp ...: comm may hold spaces and parentheses, so read after the last ')'
-    const [state, , pgrp] = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-    if (Number(pgrp) === pid && state !== 'Z' && state !== 'X') { live = true; break; }
-  }
-  if (scans.size > 256) scans.clear();
-  scans.set(pid, { at: now, live });
-  return live;
-}
-
-const SCAN_MS = 200;
-const scans = new Map<number, { at: number; live: boolean }>();
+// Whether any process of a job's group still runs: groupLive (../runtime/process-group.ts, moved there in
+// round R4 so spawnProcess asks it the same way).
 
 function pidAlive(pid: unknown): boolean {
   if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1) return false;
@@ -626,6 +607,7 @@ function parseRecord(raw: unknown, id: string, logPath: string): JobRecord | und
   if (text(r.error)) job.error = r.error;
   if (text(r.receipt)) job.receipt = r.receipt;
   if (text(r.note)) job.note = r.note;
+  if (r.cleanup === 'complete' || r.cleanup === 'unresolved') job.cleanup = r.cleanup;
   return job;
 }
 
