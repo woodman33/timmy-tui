@@ -140,15 +140,17 @@ export interface RecoverDeps {
   open: () => boolean;
   now?: () => number;
   settleMs?: number;
+  /** R4 (H52): OpenHands containers an ended session left running (src/repl/openhands-recover.ts), asked after the rest */
+  agents?: () => Promise<RecoveryItem[]>;
 }
 
 /** What one pass did about one operation, or saw and left (did 'left'). */
 export interface RecoveryItem {
-  kind: 'recipe' | 'flow' | 'native';
+  kind: 'recipe' | 'flow' | 'native' | 'agent';
   /** the operation's own ID: a recipe job's UUID, a flow's id, a native run's token */
   id: string;
   /** 'incomplete' (R4-8): a succeeded recipe's copy is in the project but not whole; named with /recipe copy, left as it is */
-  did: 'followed' | 'delivered' | 'interrupted' | 'judged' | 'failed' | 'incomplete' | 'left';
+  did: 'followed' | 'delivered' | 'interrupted' | 'judged' | 'failed' | 'incomplete' | 'left' | 'stopped';
   /** left as it is, but the operator must act (a recipe whose worker stopped answering) */
   attention?: boolean;
   /** one plain sentence: what was found, and what was done */
@@ -167,10 +169,10 @@ export interface RecoveryItem {
 export interface RecoveryReport { project: string; items: RecoveryItem[] }
 
 /** R4 (H46): one process in the process table: its parent, its group, its state, when it started, its command line. */
-interface Proc { pid: number; ppid: number; pgid: number; stat: string; startMs: number; args: string }
+export interface Proc { pid: number; ppid: number; pgid: number; stat: string; startMs: number; args: string }
 
 /** R4 (H46): what the process table says about a live job another session started. */
-type LeftJob =
+export type LeftJob =
   /** that session still runs (the job's first process is still its child), or which session started it cannot be told (why) */
   | { kind: 'theirs'; why?: string }
   /** no process of its group runs now (its record turns stale; the next pass ends it) */
@@ -307,7 +309,7 @@ function etimeSeconds(t: string): number | undefined {
  * The process table, read once with ps (POSIX keywords, each -o on its own, as macOS needs; wide, so command lines are
  * whole), or undefined when it cannot be read. A process's start is now less how long it has run (whole seconds).
  */
-function processTable(): Proc[] | undefined {
+export function processTable(): Proc[] | undefined {
   let out: string;
   try {
     const r = spawnSync('ps', ['-A', '-ww', '-o', 'pid=', '-o', 'ppid=', '-o', 'pgid=', '-o', 'stat=', '-o', 'etime=', '-o', 'args='],
@@ -335,7 +337,7 @@ const iso = (ms: number): string => new Date(ms).toISOString().replace(/\.\d{3}Z
  * process gone, no process has the REPL's pid), and whether the process group is the job's (the recorded pid is the
  * group's, and its oldest process started when the job did). Both are needed before anything is stopped.
  */
-function leftBehind(job: JobRecord, table: Proc[] | undefined): LeftJob {
+export function leftBehind(job: JobRecord, table: Proc[] | undefined): LeftJob {
   const pgid = job.pid;
   if (typeof pgid !== 'number' || !Number.isInteger(pgid) || pgid <= 1) return { kind: 'theirs', why: 'its record names no process' };
   const owner = job.owner;
@@ -591,6 +593,10 @@ export async function recoverProject(d: RecoverDeps): Promise<RecoveryReport> {
     if (p.kind !== 'native') continue;
     const item = act(d, 'native', p.run, () => actNative(d, p));
     if (item) done.push(item);
+  }
+  // R4 (H52): OpenHands containers left running, each found by its labels and its run's record (never by a name alone).
+  if (d.agents && d.open()) {
+    try { done.push(...await d.agents()); } catch (e) { done.push({ kind: 'agent', id: 'openhands', did: 'failed', text: `OpenHands containers could not be checked: ${d.scrub(message(e))}` }); }
   }
   return { project: d.project, items: [...done, ...s.left] };
 }
@@ -954,6 +960,11 @@ function summary(items: RecoveryItem[]): string {
   // R4 (H46): a step's job left running by a REPL that ended, not stopped (its group could not be proven the job's).
   const running = of((i) => i.kind === 'flow' && i.did === 'left' && i.attention === true);
   if (running.length) parts.push(`${count(running.length, 'job')} left running by a REPL that ended ${running.length === 1 ? 'was' : 'were'} not stopped: what runs, and how to stop it, below`);
+  // R4 (H52): OpenHands containers an ended session left running: stopped, or left with what to do.
+  const containers = of((i) => i.kind === 'agent' && i.did === 'stopped');
+  if (containers.length) parts.push(`${count(containers.length, 'OpenHands container')} left running by a REPL that ended ${containers.length === 1 ? 'was' : 'were'} stopped`);
+  const agentsLeft = of((i) => i.kind === 'agent' && i.did === 'left' && i.attention === true);
+  if (agentsLeft.length) parts.push(`${count(agentsLeft.length, 'OpenHands container')} ${agentsLeft.length === 1 ? 'was' : 'were'} not stopped: what runs, and how to stop it, below`);
   const left = of((i) => i.did === 'left' && !i.attention);
   if (left.length) parts.push(`${left.length} left as ${left.length === 1 ? 'it is' : 'they are'}`);
   return parts.join('; ');

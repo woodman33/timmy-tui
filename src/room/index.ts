@@ -25,6 +25,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { AGENTS, AGENTS_DIR, endpointClass, listAgentRuns, readProgressTail, type AgentName, type AgentRunRecord } from '../code-agents/index.js';
+import { openHandsRouteWords } from '../code-agents/openhands.js';
 import type { CapabilityRow, Rung } from '../capabilities/index.js';
 import { cleanText, readMcpCalls } from '../connectors/mcp-records.js';
 import type { JobRecord } from '../jobs/index.js';
@@ -439,7 +440,8 @@ function agentRuns(c: Ctx, flowOfRun: ReadonlyMap<string, string>): RoomRun[] {
     return {
       kind: 'agent', id: r.run, owner: AGENT_OWNER(r.agent),
       harness: `${AGENTS[r.agent]?.bin ?? r.agent} ${r.agent_version ? cleanLine(r.agent_version, c.scrub, 60) : '(version not recorded)'}`,
-      model: r.model ?? 'its default model (none named)', endpoint: r.endpoint === 'local' ? 'local' : 'remote', route: routeWords(r),
+      // R4 (H52): an OpenHands run says what its container isolates, and what it does not.
+      model: r.model ?? 'its default model (none named)', endpoint: r.endpoint === 'local' ? 'local' : 'remote', route: r.agent === 'openhands' ? openHandsRouteWords(r) : routeWords(r),
       state, tone, running,
       ...(flow ? { partOf: `the agent step of flow ${flow}`, step: 'agent step' } : {}),
       ...(start ? { startedAt: r.started_at } : {}), ...(r.ended_at ? { endedAt: r.ended_at } : {}),

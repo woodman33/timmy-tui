@@ -16,9 +16,11 @@ import { appendFileSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, 
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { CODEX_LOCAL_ROUTE, codexProgressLine, planCodexLocal } from './codex-local.js';
+// Round R4 (helper H52): OpenHands, in a container with a local model only (openhands.ts); hooks are marked "R4 (H52)".
+import { judgeOpenHands, openHandsProgressLine, planOpenHands, type OpenHandsContainer, type OpenHandsRecord } from './openhands.js';
 
-export type AgentName = 'qwen' | 'claude' | 'codex' | 'opencode';
-export const AGENT_NAMES: readonly AgentName[] = ['qwen', 'claude', 'codex', 'opencode'];
+export type AgentName = 'qwen' | 'claude' | 'codex' | 'opencode' | 'openhands';
+export const AGENT_NAMES: readonly AgentName[] = ['qwen', 'claude', 'codex', 'opencode', 'openhands'];
 
 export interface AgentInfo {
   /** what it is called */
@@ -32,7 +34,7 @@ export interface AgentInfo {
   /** the environment variable that picks its model, when one may be picked */
   modelEnv: string;
   /** how its output is read */
-  stream: 'claude-stream' | 'codex-json' | 'opencode-json';
+  stream: 'claude-stream' | 'codex-json' | 'opencode-json' | 'openhands-jsonl';
 }
 
 export const AGENTS: Readonly<Record<AgentName, AgentInfo>> = {
@@ -40,6 +42,8 @@ export const AGENTS: Readonly<Record<AgentName, AgentInfo>> = {
   claude: { title: 'Claude Code', bin: 'claude', binEnv: 'TIMMY_AGENT_CLAUDE_BIN', harnessId: 'claude-code', modelEnv: 'TIMMY_AGENT_CLAUDE_MODEL', stream: 'claude-stream' },
   codex: { title: 'Codex', bin: 'codex', binEnv: 'TIMMY_AGENT_CODEX_BIN', harnessId: 'codex', modelEnv: 'TIMMY_AGENT_CODEX_MODEL', stream: 'codex-json' },
   opencode: { title: 'OpenCode', bin: 'opencode', binEnv: 'TIMMY_AGENT_OPENCODE_BIN', harnessId: 'opencode', modelEnv: 'TIMMY_AGENT_OPENCODE_MODEL', stream: 'opencode-json' },
+  // R4 (H52): the program Timmy runs is docker (the SDK runs inside Timmy's container); its model is the local one.
+  openhands: { title: 'OpenHands', bin: 'docker', binEnv: 'TIMMY_AGENT_DOCKER_BIN', harnessId: 'openhands', modelEnv: 'TIMMY_AGENT_MODEL', stream: 'openhands-jsonl' },
 };
 
 /** Qwen Code's endpoint when TIMMY_AGENT_BASE_URL is not set: a local Ollama's OpenAI-compatible API. */
@@ -137,6 +141,10 @@ export interface AgentPlan {
   stdin?: 'closed';
   /** one sentence the operator is told at the start: what the run is given, and what it is not */
   note?: string;
+  /** R4 (H52): written to the job's stdin at its start, which is then ended (OpenHands' worker reads its task there) */
+  stdinText?: string;
+  /** R4 (H52): OpenHands' container: its name, labels and image, the copy and the worker it mounts (openhands.ts) */
+  container?: OpenHandsContainer;
 }
 
 export type PlanResult = { ok: true; plan: AgentPlan } | { ok: false; error: string; refused: 'setup' | 'paid' | 'usage' };
@@ -172,6 +180,8 @@ export function planAgent(name: AgentName, task: string, o: { env: Env; paid: bo
   // TIMMY_AGENT_HOME: the agent runs with this HOME (qwen 0.25.0 was seen writing ~/.qwen even with --bare and no
   // chat recording). For an account agent it also hides its login, so it is for a sandboxed run.
   const home = set(env.TIMMY_AGENT_HOME) ? { env: { HOME: env.TIMMY_AGENT_HOME.trim() } } : {};
+  // R4 (H52): OpenHands has its local route only, in a container; --paid is refused (openhands.ts planOpenHands).
+  if (name === 'openhands') return planOpenHands({ task, env, run: o.run, bin: o.bin, ...(o.root ? { root: o.root } : {}), paid: o.paid, local: o.local === true, wallTime, timeoutMs });
   if (o.local) {
     if (name === 'qwen') return { ok: false, refused: 'usage', error: 'Qwen Code has no --local: it runs free whenever its endpoint is on this machine (/agent qwen <task>). Nothing was started.' };
     if (name !== 'codex') return { ok: false, refused: 'usage', error: `${info.title} has no local route: it runs on your own account (/agent ${name} --paid <task>). Nothing was started.` };
@@ -563,6 +573,7 @@ export function noteFile(state: AgentProgress, root: string, p: unknown): string
  */
 export function progressLine(line: string, state: AgentProgress, root: string, agent?: AgentName): string | undefined {
   if (agent === 'codex') return codexProgressLine(line, state, root);
+  if (agent === 'openhands') return openHandsProgressLine(line, state, root); // R4 (H52): only lines with its run's token
   const text = line.trim();
   if (!text) return undefined;
   let ev: Record<string, unknown>;
@@ -691,6 +702,8 @@ export interface AgentRunRecord {
   cost_basis?: string;
   transcript?: string;
   receipt?: string;
+  /** R4 (H52): an OpenHands run's container, its copy of the project and what was written back from it (openhands.ts) */
+  openhands?: OpenHandsRecord;
   /**
    * Round R4 (the review's R4-2): for an /iterate run, what its check saw: the changes over the whole project (.timmy and
    * dist included) with Timmy's own writes during the run left out, and the entries not looked into. `files` above stays
@@ -706,6 +719,7 @@ export const runDir = (root: string, run: string): string => join(root, AGENTS_D
 
 /** How the run ended, from the job's end and what the agent's stream reported. */
 export function judgeAgentRun(job: { state: string; exitCode?: number | null; signal?: string | null; error?: string }, progress: AgentProgress, agent: AgentName): { outcome: AgentOutcome; why: string } {
+  if (agent === 'openhands') return judgeOpenHands(job, progress); // R4 (H52): its result line, read with its token
   if (job.state === 'cancelled') return { outcome: 'cancelled', why: 'stopped with /stop (or the REPL ended) before it finished' };
   if (job.error === 'timed out') return { outcome: 'timed out', why: 'Timmy\'s time limit ended it (its wall time and a grace period)' };
   if (agent === 'qwen' && job.exitCode === QWEN_BUDGET_EXIT) return { outcome: 'timed out', why: `its own wall-time budget ended it (exit ${QWEN_BUDGET_EXIT})` };

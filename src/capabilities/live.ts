@@ -21,6 +21,9 @@ import { listNativeRuns, nativeRunIndex } from '../native/index.js';
 import { agentExercisedIndex } from '../code-agents/index.js';
 import { OUTCOME_RULE } from '../repl/seal.js';
 import { recipeExercisedAt } from '../recipes/index.js';
+import { homedir } from 'node:os';
+import { packageRoot } from '../utils/asset-dirs.js';
+import { dockerSetup, openHandsWorker } from '../code-agents/openhands-run.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -107,5 +110,12 @@ export function liveDeps(o: LiveOptions): ProbeDeps {
     recipeExercised: () => { try { return recipeExercisedAt(process.cwd()); } catch { return undefined; } },
     // Round R3 (/agent): an agent's row is exercised by a sealed, completed run of that agent alone.
     agentRuns: () => agentExercisedIndex(verify().ok ? receipts() : []),
+    // Round R4 (H52): OpenHands: docker info and docker image inspect (read-only: nothing is built, pulled or started).
+    openhands: async () => {
+      const root = packageRoot(import.meta.url);
+      const home = homedir();
+      const shown = root && home.length > 1 && root.startsWith(home) ? `~${root.slice(home.length)}` : root;
+      return { docker: await dockerSetup(env.TIMMY_AGENT_DOCKER_BIN?.trim() || 'docker', env, 4000), worker: Boolean(openHandsWorker()), ...(shown ? { root: shown } : {}) };
+    },
   };
 }

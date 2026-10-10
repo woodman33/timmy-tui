@@ -94,6 +94,10 @@ import { runOutcome } from '../ops/outcome.js';
 import { annotateRoom, buildIndex, knownOperations, operationCard, recentOperations, type OpIndex } from '../ops/card.js';
 import { cardLines, opsLines } from '../ops/card-text.js';
 import { HOLDS_DIR } from '../ops/flow-hold.js';
+// Round R4 (helper H52): OpenHands in a container with a local model (src/repl/openhands.ts); hooks are marked "R4 (H52)".
+import { OPENHANDS_NO_DOCKER, openHandsSummary, watchOpenHands, writeBackShort } from '../code-agents/openhands.js';
+import { openHandsLastLine, OpenHandsRuns, type OpenHandsRunState } from './openhands.js';
+import { recoverOpenHands } from './openhands-recover.js';
 
 type Line = Segment[];
 
@@ -232,6 +236,8 @@ interface AgentRunState {
   progress: AgentProgress;
   /** R4 review (R4-2), an /iterate run: Timmy's own writes during it (project-relative folders) and the check's snapshot before it */
   judge?: { own: string[]; before: JudgedSnapshot };
+  /** R4 (H52): an OpenHands run's container, its copy of the project and its record (src/repl/openhands.ts) */
+  openhands?: OpenHandsRunState;
 }
 
 /** R3 (H14): what an observation with a qualified answer adds to its reading. */
@@ -287,6 +293,8 @@ export class Workspace {
   private readonly stepClock = new StepClock();
   /** R4 (H51): this REPL's operations, one per request: their runs, their end and their records (.timmy/operations/) */
   readonly ops: OperationLog;
+  /** R4 (H52): this REPL's OpenHands runs: their copies, their containers' stops and their write-backs */
+  private readonly openhands: OpenHandsRuns;
 
   constructor(private readonly d: WorkspaceDeps, start: ActiveProject) {
     this.project = start;
@@ -298,6 +306,7 @@ export class Workspace {
       outcome: (run, root) => runOutcome(run, root, this.jobs),
     });
     this.jobs = new JobManager({ dir: d.jobsDir, onChange: (job) => this.changed(job), seal: (job) => this.sealJob(job) });
+    this.openhands = new OpenHandsRuns({ glyphs: d.glyphs, notify: (l) => this.d.notify(l) });
     this.flows = new IterateFlows({
       glyphs: d.glyphs, env: () => this.d.env, onPath: d.onPath, notify: (l) => this.d.notify(l), seal: (input) => this.d.seal(input), jobs: this.jobs,
       startJob: (spec, o) => { const job = this.jobs.start(spec); this.mine.add(job.id); if (o?.selfSealed) this.selfSealed.add(job.id); return job; },
@@ -1212,9 +1221,10 @@ export class Workspace {
       if (!live.length && !asking.length && !flows.count) return this.say('Nothing this REPL started is running.');
       // Round R4 (H17): each recipe watcher's recipe is cancelled through its own path before any watcher is stopped.
       const recipesAsked = live.flatMap((j) => this.cancelWatched(j) ?? []);
-      const [ended, asked] = await Promise.all([
+      const [ended, asked, containers] = await Promise.all([
         Promise.all(live.map((j) => this.jobs.stop(j.id))),
         Promise.all(asking.map((o) => (o.done ? within(o.done) : Promise.resolve(undefined)))),
+        this.openhands.stopAll('stop'), // R4 (H52): each OpenHands job's container, by its name and labels
       ]);
       const lines: Line[] = [];
       if (live.length) {
@@ -1232,6 +1242,7 @@ export class Workspace {
           : `${rest} model interpretation${rest === 1 ? ' had' : 's had'} already ended when the stop came.`));
       }
       for (const a of recipesAsked) lines.push(...this.say(cancelSentence(a), a.error ? 'failure' : 'secondary'));
+      for (const c of containers) lines.push(...this.openhands.stopLines(c));
       const flowsEnded = await flows.report();
       if (flowsEnded) lines.push(...this.say(flowsEnded));
       return lines;
@@ -1251,11 +1262,15 @@ export class Workspace {
     // the watcher has its handler still reaches the recipe (the live board's Stop comes here too).
     const asked = this.cancelWatched(j);
     const recipeLine = asked ? this.say(cancelSentence(asked), asked.error ? 'failure' : 'secondary') : [];
-    const done = await this.jobs.stop(id);
+    const stopping = this.jobs.stop(id);
+    // R4 (H52): an OpenHands job's container is stopped by its name and labels too (docker stop, then docker kill).
+    const container = this.openhands.stopping(id, 'stop');
+    const done = await stopping;
+    const containerLine = this.openhands.stopLines(container ? await container : undefined);
     if (!done || !TERMINAL.has(done.state) || done.error) {
-      return [[{ text: `  ${id} ${done?.state ?? 'unknown'}`, role: 'failure' }, { text: `  ${j.label}: ${done?.error ?? 'it did not stop'}; /jobs ${id}`, role: 'secondary' }], ...recipeLine];
+      return [[{ text: `  ${id} ${done?.state ?? 'unknown'}`, role: 'failure' }, { text: `  ${j.label}: ${done?.error ?? 'it did not stop'}; /jobs ${id}`, role: 'secondary' }], ...recipeLine, ...containerLine];
     }
-    return [[{ text: `  ${id} ${done.state}`, role: 'strong' }, { text: `  ${j.label}: it and its process group have stopped`, role: 'secondary' }], ...recipeLine];
+    return [[{ text: `  ${id} ${done.state}`, role: 'strong' }, { text: `  ${j.label}: it and its process group have stopped`, role: 'secondary' }], ...recipeLine, ...containerLine];
   }
 
   /** Round R4 (H17): the recipe's own cancel for a live recipe watcher job, asked before the watcher is stopped. */
@@ -1306,7 +1321,8 @@ export class Workspace {
     this.flows.abortAll();
     this.vox.abortAll();
     const pending = [...this.observing.values()].flatMap((o) => { o.abort.abort(); return o.done ? [o.done] : []; });
-    await this.jobs.stopAll();
+    // R4 (H52): each OpenHands job's container is stopped by its name and labels as its job is.
+    await Promise.all([this.jobs.stopAll(), this.openhands.stopAll('the REPL ended')]);
     await within(Promise.allSettled(pending));
     await this.flows.settle(20_000);
     // R4 (H28): a stopped readback still writes its record and receipt (no verdict).
@@ -1322,6 +1338,7 @@ export class Workspace {
   killNow(): void {
     this.flows.abortAll();
     this.vox.abortAll();
+    this.openhands.killNow(); // R4 (H52): each OpenHands container is asked to stop, without waiting
     this.live?.closeNow();
     this.live = undefined;
     for (const o of this.observing.values()) o.abort.abort();
@@ -1465,6 +1482,8 @@ export class Workspace {
           return w;
         },
         open: () => !this.launches.closing,
+        // R4 (H52): OpenHands containers left running, found by their labels and their run's record
+        agents: () => recoverOpenHands({ root, project, jobs: this.jobs, seal: this.d.seal, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing, bin: agentBin('openhands', this.d.env, this.d.onPath), env: this.d.env }),
       });
     });
     this.recoveries = run.catch(() => undefined);
@@ -1499,7 +1518,7 @@ export class Workspace {
     const g = this.d.glyphs;
     return [
       [{ text: '  Agent      ', role: 'secondary' }, { text: job.id, role: 'strong' }, { text: `  ${job.label}`, role: 'secondary' }],
-      [{ text: '  Runs       ', role: 'secondary' }, { text: `${info.title}${version ? ` ${version}` : ''}${plan.model ? `${this.sep}model ${plan.model}` : ''}${plan.agent === 'qwen' || plan.oss ? ` at ${plan.where}` : ''}${this.sep}` },
+      [{ text: '  Runs       ', role: 'secondary' }, { text: `${info.title}${version ? ` ${version}` : ''}${plan.model ? `${this.sep}model ${plan.model}` : ''}${plan.agent === 'qwen' || plan.oss || plan.container ? ` at ${plan.where}` : ''}${this.sep}` },
         { text: plan.endpoint === 'local' ? plan.charge : `${plan.charge}: it uses ${plan.agent === 'qwen' ? 'that endpoint' : 'your account'} and may cost money`, role: plan.endpoint === 'local' ? 'secondary' : 'estimate' },
         { text: `${this.sep}up to ${plan.wallTime}${plan.env?.HOME ? `${this.sep}its own HOME (TIMMY_AGENT_HOME)` : ''}`, role: 'secondary' }],
       // R4 (H25): what the run is given and what it is not (Codex's local route says which codex folder it uses).
@@ -1522,6 +1541,7 @@ export class Workspace {
     const info = AGENTS[name];
     const env = o.env ?? this.d.env;
     const bin = agentBin(name, env, this.d.onPath);
+    if (!bin && name === 'openhands') return { ok: false, refused: 'missing', error: OPENHANDS_NO_DOCKER }; // R4 (H52)
     if (!bin) return { ok: false, refused: 'missing', error: `${info.title} is not on PATH (${info.bin}); /tools says how to install it. Nothing was started.` };
     const run = newRunId();
     const root = o.root ?? this.root;
@@ -1533,8 +1553,12 @@ export class Workspace {
       const ready = await codexLocalPreflight(plan.oss);
       if (!ready.ok) return { ok: false, refused: 'setup', error: ready.error };
     }
+    // R4 (H52): OpenHands needs its worker, docker's daemon, its image and the model in this machine's Ollama: checked
+    // before anything is written ("needs setup" with the exact step otherwise).
+    const oh = plan.container ? await this.openhands.preflight(plan, env, bin) : undefined;
+    if (oh && !oh.ok) return { ok: false, refused: 'setup', error: this.scrub(oh.error, root) };
     const dir = runDir(root, run);
-    const version = await agentVersion(bin);
+    const version = oh?.ok ? oh.version : await agentVersion(bin);
     let before: { files: Snapshot; truncated: boolean };
     const jobsIn = folderInProject(root, this.d.jobsDir);
     // Timmy's own writes during the run: its folder, the flow's, the jobs folder, and the recipe jobs not over (their heartbeats).
@@ -1545,23 +1569,30 @@ export class Workspace {
       ensureDir(dir); for (const d of plan.makeDirs ?? []) ensureDir(d);
       if (o.judge) { judged = judgeSnapshot(root, own); before = { files: regularOf(judged.files), truncated: judged.truncated }; } else before = snapshotProject(root);
     } catch (e) { return { ok: false, refused: 'prepare', error: `The run could not be prepared: ${this.scrub((e as Error).message, root)}` }; }
+    // R4 (H52): OpenHands works on a copy of the project, made now from the snapshot the run is judged by.
+    const copy = oh?.ok ? this.openhands.prepare(plan, root, run, before, oh, bin, env) : undefined;
+    if (copy && !copy.ok) return { ok: false, refused: 'prepare', error: this.scrub(copy.error, root) };
     const record: AgentRunRecord = {
       agent_run: 1, run, agent: name, agent_version: version, model: plan.model, endpoint: plan.endpoint, where: plan.where,
       task, job: '', started_at: new Date().toISOString(), ...(o.lessons ? { lessons: o.lessons } : {}), // R4 (H50)
+      ...(copy?.ok ? { openhands: copy.state.record } : {}), // R4 (H52)
       ...operationField('agent', run), // R4 (H51): the request that started it
     };
     const progress = newProgress();
-    const state: AgentRunState = { record, plan, root, dir, before: before.files, beforeTruncated: before.truncated, gitBefore: isGitDir(root) ? gitStat(root) : null, progress, ...(judged ? { judge: { own, before: judged } } : {}) };
+    if (plan.container) watchOpenHands(progress, plan.container.token); // R4 (H52): only lines with its token are read
+    const state: AgentRunState = { record, plan, root, dir, before: before.files, beforeTruncated: before.truncated, gitBefore: isGitDir(root) ? gitStat(root) : null, progress, ...(judged ? { judge: { own, before: judged } } : {}), ...(copy?.ok ? { openhands: copy.state } : {}) };
     try { writeJson(join(dir, 'snapshot-before.json'), { truncated: before.truncated, files: snapshotJson(before.files) }); } catch { /* kept in memory */ }
     const job = this.jobs.start({
       kind: 'task', label: agentLabel(name, run, task, root), project: o.project ?? this.project.name, root, command: plan.command, args: plan.args, timeoutMs: plan.timeoutMs,
       ...(plan.env ? { env: plan.env } : {}),
       ...(plan.stdin ? { stdin: plan.stdin } : {}),
+      ...(plan.stdinText !== undefined ? { stdinText: plan.stdinText } : {}), // R4 (H52): OpenHands' task, on its worker's stdin
       parseLine: (line) => { const shown = progressLine(line, progress, root, name); if (shown) appendProgress(dir, shown); },
     });
     this.mine.add(job.id);
     this.agentRuns.set(job.id, state);
     record.job = job.id;
+    if (state.openhands) this.openhands.started(job, state.openhands, plan.timeoutMs); // R4 (H52): its container is this REPL's to stop
     try { writeJson(join(dir, 'run.json'), { ...record, state: 'submitted' }); } catch { /* the job still runs; its result is written at its end */ }
     return { ok: true, job, run, plan, info, version, record };
   }
@@ -1596,6 +1627,9 @@ export class Workspace {
           : plan?.ok
             ? { text: `${plan.plan.endpoint === 'local' ? 'local endpoint, no charge' : 'remote endpoint: may cost money (--paid)'}${this.sep}model ${model} at ${plan.plan.where}`, role: plan.plan.endpoint === 'local' ? 'secondary' : 'estimate' }
             : { text: plan ? plan.error : '', role: 'failure' };
+      } else if (n === 'openhands') { // R4 (H52): its local route only, in a container
+        const l = openHandsSummary(env);
+        how = { text: l.text, role: l.ready ? 'secondary' : 'estimate' };
       } else {
         how = { text: `your own account: costs money (--paid)${this.sep}model ${model ?? 'its default'}`, role: 'estimate' };
       }
@@ -1619,6 +1653,8 @@ export class Workspace {
     lines.push([{ text: '  Task       ', role: 'secondary' }, { text: taskWords(r.task, this.root, 160) }]);
     const cost = r.cost_usd === undefined ? '' : r.cost_usd === null ? `${this.sep}cost unknown (the agent reported none)` : `${this.sep}cost $${r.cost_usd.toFixed(4)} (${r.cost_basis ?? ''})`;
     lines.push([{ text: '  Model      ', role: 'secondary' }, { text: `${r.model ?? 'its default'}${this.sep}${r.endpoint === 'local' ? `local endpoint ${r.where}` : r.where}${cost}`, role: r.endpoint === 'local' ? undefined : 'estimate' }]);
+    const container = openHandsLastLine(r, this.sep); // R4 (H52): its container, its copy and what reached the project
+    if (container) lines.push([{ text: '  Container  ', role: 'secondary' }, { text: container }]);
     if (r.files) {
       const f = r.files;
       lines.push([{ text: '  Changed    ', role: 'secondary' }, { text: `${f.added.length} added, ${f.changed.length} changed, ${f.deleted.length} deleted${f.truncated ? ' (the project has more files than were compared)' : ''}` }]);
@@ -1678,7 +1714,7 @@ export class Workspace {
     const ok = r.outcome === 'completed';
     const cost = r.cost_usd === null ? 'cost unknown' : r.cost_usd === undefined ? '' : `cost $${r.cost_usd.toFixed(4)}${r.cost_basis === 'local endpoint' ? ' (local endpoint)' : ''}`;
     return [{ text: `  ${ok ? g.ok : r.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok ? undefined : 'failure' }, { text: `${job.id} ${r.outcome ?? job.state}`, role: ok ? 'strong' : 'failure' },
-      { text: `  agent ${r.agent} ${r.run}${f ? `: ${f.added.length} added, ${f.changed.length} changed, ${f.deleted.length} deleted` : ''}${cost ? `${this.sep}${cost}` : ''}${job.receipt ?? r.receipt ? `${this.sep}receipt ${job.receipt ?? r.receipt}` : ''}${this.sep}/agent last`, role: 'secondary' }];
+      { text: `  agent ${r.agent} ${r.run}${f ? `: ${f.added.length} added, ${f.changed.length} changed, ${f.deleted.length} deleted` : ''}${r.openhands?.writeback ? `${this.sep}${writeBackShort(r.openhands.writeback)}` : ''}${cost ? `${this.sep}${cost}` : ''}${job.receipt ?? r.receipt ? `${this.sep}receipt ${job.receipt ?? r.receipt}` : ''}${this.sep}/agent last`, role: 'secondary' }];
   }
 
   /**
@@ -1689,14 +1725,19 @@ export class Workspace {
   private sealAgent(job: JobRecord, st: AgentRunState): string | undefined {
     const root = st.root;
     const rec = st.record;
-    const judged = judgeAgentRun(job, st.progress, rec.agent);
+    const judgedRun = judgeAgentRun(job, st.progress, rec.agent);
+    // R4 (H52): OpenHands worked on a copy in its container: its changes are written into the project here (only when it
+    // completed and the project did not change meanwhile), before the comparison below; that decides its outcome too.
+    const oh = st.openhands ? this.openhands.finish(job, st.openhands, judgedRun, st.progress, st.before) : undefined;
+    const judged = oh ? oh.judged : judgedRun;
     let after: { files: Snapshot; truncated: boolean };
     // R4 review (R4-2): an /iterate run's check walks the whole project again, before anything below is written or sealed.
     let judgedAfter: JudgedSnapshot | undefined;
     try {
       if (st.judge) { judgedAfter = judgeSnapshot(root, st.judge.own); after = { files: regularOf(judgedAfter.files), truncated: judgedAfter.truncated }; } else after = snapshotProject(root);
     } catch { after = { files: new Map(), truncated: true }; if (st.judge) judgedAfter = { files: new Map(), truncated: true, notCompared: [] }; }
-    const changes = diffSnapshots(st.before, after.files);
+    const compared = diffSnapshots(st.before, after.files);
+    const changes = oh ? oh.only(compared) : compared; // R4 (H52): what Timmy wrote from its copy, never another's change
     const gitAfter = st.gitBefore !== null ? gitStat(root) : null;
     let final = st.progress.finalMessage;
     if (final === undefined && st.plan.lastMessageFile) { try { final = readFileSync(join(root, st.plan.lastMessageFile), 'utf8'); } catch { /* none written */ } }
@@ -1729,6 +1770,7 @@ export class Workspace {
       final_message: finalInfo,
       progress: { tool_calls: st.progress.toolCalls, files_edited: st.progress.filesEdited, tool_errors: st.progress.toolErrors, denied: st.progress.denied, structured_lines: st.progress.structured, raw_lines: st.progress.raw },
       cost_usd: cost, cost_basis: costBasis, transcript: outputs.some((o) => o.path.endsWith('/transcript.log')) ? 'transcript.log' : undefined,
+      ...(oh ? { openhands: oh.record } : {}),
     } satisfies Partial<AgentRunRecord>);
     keep('result.json', () => writeJson(join(st.dir, 'result.json'), rec));
     const ms = job.endedAt ? Date.parse(job.endedAt) - Date.parse(job.startedAt) : undefined;
@@ -1761,6 +1803,7 @@ export class Workspace {
         ...(outputs.length ? { outputs } : {}),
         ...(cost === null ? { cost_measured: false } : { cost_usd: cost }),
         ...(rec.lessons?.length ? { lessons: rec.lessons } : {}), // R4 (H50): the lessons its task was given
+        ...(oh ? { openhands: oh.receipt } : {}),
       });
     } catch { receipt = undefined; }
     if (receipt) rec.receipt = receipt;
