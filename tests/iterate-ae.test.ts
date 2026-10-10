@@ -742,4 +742,58 @@ describe.skipIf(!python)('/stop and recovery for an After Effects flow (FAKE pie
     expect(text(await ws.recover(''))).not.toContain(`flow ${id} was interrupted`);
     expect(text(await ws.iterate(''))).toMatch(new RegExp(`${id}\\s+interrupted ae author\\.jsx \\+1 −1 lines in 1 place`));
   }, 150000);
+
+  it('R4 (H46): its render step\'s job is aerender\'s: while it runs in another session the flow is left; after a restart the record names that job and aerender\'s run', async () => {
+    const jobsDir = path.join(fs.mkdtempSync(path.join(fixtures, 'jobs-')), 'jobs');
+    const first = make({ env: { TIMMY_AERENDER: sleeper('aerender-sleeps') }, jobsDir });
+    const id = flowIdIn(text(await first.ws.iterate(`ae author.jsx "further right ${RIGHTER}"`)));
+    const stateFile = path.join(root, '.timmy', 'flows', id, 'state.json');
+    await until(() => { try { const s = JSON.parse(fs.readFileSync(stateFile, 'utf8')); return s.step === 'render' && s.render?.state === 'running' && !!first.ws.jobs.get(s.render.job)?.pid; } catch { return false; } }, 90000);
+    const left = fs.readFileSync(stateFile);
+    const state = JSON.parse(left.toString('utf8'));
+    // Another session on the same jobs folder: the render's job runs (this session's), so the flow is left as it is.
+    const other = make({ jobsDir });
+    expect(text(await other.ws.recover(''))).toContain(`flow ${id} is in its render step and its job ${state.render.job} still runs (another session): /recover again once it has ended`);
+    expect(fs.existsSync(path.join(root, 'results', 'flows', `${id}.json`))).toBe(false);
+    await first.ws.stop(id);
+    await until(ended(first.sealed, id));
+    // SYNTHETIC: as if that session had ended without its stop path: its record gone, its state as it was, ten minutes old.
+    fs.rmSync(path.join(root, 'results', 'flows', `${id}.json`));
+    fs.writeFileSync(stateFile, left);
+    const old = new Date(Date.now() - FLOW_QUIET_MS - 60_000);
+    fs.utimesSync(stateFile, old, old);
+    const { ws, sealed } = make();
+    const report = (await ws.startRecovery)!;
+    expect(report.items.filter((i) => i.kind === 'flow').map((i) => [i.id, i.did])).toEqual([[id, 'interrupted']]);
+    const rec = JSON.parse(fs.readFileSync(path.join(root, 'results', 'flows', `${id}.json`), 'utf8'));
+    const render8 = String(state.render.run).slice(0, 8);
+    expect(rec).toMatchObject({ id, target: 'ae', outcome: 'interrupted', ended_in: 'render' });
+    expect(rec.why).toBe(`the REPL running it ended during its aerender run (its job ${state.render.job} has no record in this Timmy's jobs folder); aerender run ${render8} is judged from its own record (a native run, below); nothing was read back; recorded after a restart, and nothing was run again`);
+    expect(rec.recovered.next[0]).toBe(`aerender run ${render8} keeps its own record in .timmy/native/${state.render.run}/; /recover judges it once its job has ended`);
+    expect(rec.child_receipts).toEqual([state.receipts.agent, state.receipts.author]);
+    expect(sealed.filter((r) => r.kind === 'flow')).toEqual([expect.objectContaining({ child_receipts: rec.child_receipts })]);
+  }, 150000);
+
+  it('R4 (H46): interrupted during its readback: the render\'s receipt is among the record\'s children (agent, author, render)', async () => {
+    const first = make({ env: { FAKE_FFPROBE_MODE: 'sleep' } });
+    const id = flowIdIn(text(await first.ws.iterate(`ae author.jsx "further right ${RIGHTER}"`)));
+    const stateFile = path.join(root, '.timmy', 'flows', id, 'state.json');
+    await until(() => { try { const s = JSON.parse(fs.readFileSync(stateFile, 'utf8')); return s.step === 'readback' && s.readback?.state === 'running'; } catch { return false; } }, 90000);
+    const left = fs.readFileSync(stateFile);
+    const state = JSON.parse(left.toString('utf8'));
+    expect(typeof state.receipts.render).toBe('string');
+    await first.ws.stop(id);
+    await until(ended(first.sealed, id));
+    // SYNTHETIC: as above.
+    fs.rmSync(path.join(root, 'results', 'flows', `${id}.json`));
+    fs.writeFileSync(stateFile, left);
+    const old = new Date(Date.now() - FLOW_QUIET_MS - 60_000);
+    fs.utimesSync(stateFile, old, old);
+    const { ws, sealed } = make();
+    await ws.startRecovery;
+    const rec = JSON.parse(fs.readFileSync(path.join(root, 'results', 'flows', `${id}.json`), 'utf8'));
+    expect(rec).toMatchObject({ outcome: 'interrupted', ended_in: 'readback' });
+    expect(rec.child_receipts).toEqual([state.receipts.agent, state.receipts.author, state.receipts.render]);
+    expect(sealed.filter((r) => r.kind === 'flow')).toEqual([expect.objectContaining({ child_receipts: [state.receipts.agent, state.receipts.author, state.receipts.render] })]);
+  }, 150000);
 });

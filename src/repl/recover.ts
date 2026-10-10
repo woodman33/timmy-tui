@@ -29,7 +29,8 @@
  *     outcome interrupted, the step it ended in, why, and what to do next; it is sealed as a flow receipt. The state
  *     file stays as its session wrote it. R4 (H33): the OpenSCAD, FreeCAD and Blender flows (their state names a
  *     `target`) are recovered the same way, each with its own steps and words; the app's own run in .timmy/native is
- *     judged by the native part below, as any run is.
+ *     judged by the native part below, as any run is. R4 (H41, H46): /iterate ae's too, its After Effects run (author
+ *     step) and its aerender run (render step) each the step's job, with the render's receipt among the children.
  *   native runs (.timmy/native/<run>; src/native)
  *     A run that started (started.json) and has no judgement is judged from its result file (reconcileNative, or
  *     reconcileAe for an After Effects script run) once its job no longer runs; the judgement goes to the run's
@@ -100,11 +101,13 @@ const STEPS: ReadonlySet<string> = new Set<FlowStep>(['prepare', 'agent', 'check
  * R4 (H33): the flows with a `target`: their app's name, the step the app's job runs in, and the file the agent was asked
  * to change (where the state keeps it). The tray flow has no target and keeps its own words below.
  */
-const TARGETS: Record<string, { app: string; appStep: string; command: string; file: 'parameters' | 'script' }> = {
+const TARGETS: Record<string, { app: string; appStep: string; command: string; file: 'parameters' | 'script'; render?: { step: string; app: string } }> = {
   scad: { app: 'OpenSCAD', appStep: 'openscad', command: '/scad', file: 'parameters' },
   freecad: { app: 'FreeCAD', appStep: 'freecad', command: '/freecad', file: 'script' },
   blender: { app: 'Blender', appStep: 'blender', command: '/blender', file: 'script' },
-  ae: { app: 'After Effects', appStep: 'author', command: '/ae author', file: 'script' }, // R4 (H41): /iterate ae (its render step: TODO(H39) its job, and its receipt among the children)
+  // R4 (H41): /iterate ae. R4 (H46): its render step runs aerender as a job and a native run too: that job is the step's,
+  // and its receipt is one of an interrupted record's children (agent, author, render, readback, as the flow's own end).
+  ae: { app: 'After Effects', appStep: 'author', command: '/ae author', file: 'script', render: { step: 'render', app: 'aerender' } },
 };
 const TARGET_STEPS: ReadonlySet<string> = new Set(['prepare', 'agent', 'checks', 'openscad', 'freecad', 'blender', 'author', 'render', 'readback', 'record']);
 const APP_WORDS: Record<NativeApp, string> = { c4dpy: 'Cinema 4D', aerender: 'After Effects render', blender: 'Blender', afterfx: 'After Effects script', openscad: 'OpenSCAD', freecad: 'FreeCAD' };
@@ -279,10 +282,11 @@ function readState(root: string, id: string): FlowState | undefined {
   } catch { return undefined; }
 }
 
-/** The job of the step a flow's state says runs: the agent's, the recipe watcher's, the app's (R4, H33) or the readback's. */
+/** The job of the step a flow's state says runs: the agent's, the recipe watcher's, the app's (R4, H33; H46: aerender's for /iterate ae's render step) or the readback's. */
 function stepJob(v: FlowState['value']): string | undefined {
   const step = String(v.step);
-  const app = v.target !== undefined && TARGETS[String(v.target)]?.appStep === step ? (v[step] as { job?: unknown } | undefined)?.job : undefined;
+  const t = v.target !== undefined ? TARGETS[String(v.target)] : undefined;
+  const app = t && (t.appStep === step || t.render?.step === step) ? (v[step] as { job?: unknown } | undefined)?.job : undefined;
   const id = step === 'agent' ? v.agent?.job : step === 'build' ? v.rebuild?.job : step === 'readback' ? v.readback?.job : app;
   return typeof id === 'string' && JOB_ID.test(id) ? id : undefined;
 }
@@ -829,11 +833,15 @@ function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state
   const app = (v[t.appStep] ?? undefined) as { run?: unknown; job?: unknown } | undefined;
   const run8 = typeof app?.run === 'string' ? app.run.slice(0, 8) : undefined;
   const readback = v.readback as { job?: unknown } | undefined;
+  // R4 (H46): /iterate ae's render step: aerender's run, judged from its own record as After Effects' run is.
+  const render = t.render ? (v[t.render.step] ?? undefined) as { run?: unknown } | undefined : undefined;
+  const render8 = typeof render?.run === 'string' ? render.run.slice(0, 8) : undefined;
   const words: Record<string, [string, string]> = {
     prepare: ['before its agent started', 'nothing was run'],
     agent: ['while its agent ran', `${t.app} did not run`],
     checks: ['after its agent ran, before its checks were recorded', `${t.app} did not run`],
     [t.appStep]: [`during its ${t.app} run`, `${run8 ? `${t.app} run ${run8} is judged from its own record (a native run, below)` : `whether ${t.app} started is not recorded`}; nothing was ${target === 'scad' ? 'compared' : 'read back'}`],
+    ...(t.render ? { [t.render.step]: [`during its ${t.render.app} run`, `${render8 ? `${t.render.app} run ${render8} is judged from its own record (a native run, below)` : `whether ${t.render.app} started is not recorded`}; nothing was read back`] as [string, string] } : {}),
     readback: ['during its readback', 'there is no verdict'],
     record: ['as it was being recorded', 'its outcome was not kept'],
   };
@@ -843,6 +851,7 @@ function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state
   const agent = v.agent as { run?: string; progress?: string } | undefined;
   if (step === 'agent' && agent?.progress) next.push(`the agent's run ${agent.run} keeps its progress in ${agent.progress}; ${file} may hold its change (sha256 before it: ${short(fileOf.before.sha256)})`);
   if (step === t.appStep && run8) next.push(`${t.app} run ${run8} keeps its own record in .timmy/native/${String(app?.run)}/; /recover judges it once its job has ended`);
+  if (t.render && step === t.render.step && render8) next.push(`${t.render.app} run ${render8} keeps its own record in .timmy/native/${String(render?.run)}/; /recover judges it once its job has ended`);
   if (step === 'readback' && typeof readback?.job === 'string') next.push(`/jobs ${readback.job} shows the readback's output while this Timmy's jobs folder keeps it`);
   if (step === 'readback' && target === 'freecad' && run8) next.push(`/freecad readback ${run8} reads its STEP back again`);
   const model = (v.model as { path?: unknown } | undefined)?.path;
@@ -852,7 +861,7 @@ function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state
   }
   next.push(`/iterate ${target} ${target === 'scad' && typeof model === 'string' ? model : file} "${v.instruction}" starts a new flow from ${file} as it is now`);
   const receipts = (v.receipts ?? {}) as Record<string, unknown>;
-  const children = ['agent', t.appStep, 'readback'].map((k) => receipts[k]).filter((x): x is string => typeof x === 'string');
+  const children = ['agent', t.appStep, ...(t.render ? [t.render.step] : []), 'readback'].map((k) => receipts[k]).filter((x): x is string => typeof x === 'string');
   const { step: _step, ...kept } = v;
   const record = {
     ...kept,
