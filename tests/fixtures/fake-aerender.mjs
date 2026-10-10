@@ -14,6 +14,7 @@
 //   gap          a sequence: writes every frame but the middle one; exits 0
 // R4 (H41), as After Effects 2026 was seen to do (asked for out/promo-v2.mov, it wrote out/promo-v2.mp4, H.264):
 //   mp4-for-mov  asked for <stem>.mov, writes <stem>.mp4 instead (any other name as asked); exits 0
+//   mov-for-mp4  asked for <stem>.mp4, writes <stem>.mov instead (as a QuickTime output module would); exits 0
 //   two-files    writes <stem>.mp4 and <stem>.avi, not the file asked for; exits 0
 // R4 (H41): it prints the -OMtemplate it was given (recorded, never applied: it has no output modules). When the
 // project is a FAKE project saved by tests/fixtures/fake-afterfx.mjs, what it writes is a FAKE video: a first line
@@ -84,6 +85,9 @@ if (mode !== 'no-output' && output) {
   } else if (mode === 'mp4-for-mov' && ext.toLowerCase() === '.mov') {
     writeFileSync(`${stem}.mp4`, body());
     process.stdout.write(`PROGRESS: wrote ${path.basename(stem)}.mp4 (fake-aerender, FAKE_AERENDER_MODE=mp4-for-mov: as an H.264 output module would)\n`);
+  } else if (mode === 'mov-for-mp4' && ext.toLowerCase() === '.mp4') {
+    writeFileSync(`${stem}.mov`, body());
+    process.stdout.write(`PROGRESS: wrote ${path.basename(stem)}.mov (fake-aerender, FAKE_AERENDER_MODE=mov-for-mp4: as a QuickTime output module would)\n`);
   } else if (!seq) writeFileSync(output, body());
   else {
     const width = seq[1].length;

@@ -24,6 +24,8 @@
  * Round R4 (H33): `/iterate scad <model.scad> "<instruction>"` and `/iterate freecad <script.py> "<instruction>"` are
  * parsed here and run by src/repl/iterate-scad.ts and src/repl/iterate-freecad.ts (their shared steps in
  * src/repl/iterate-native.ts); `--agent codex`, Codex's local route, is taken by every target, blender included.
+ * Round R4 (H41): `/iterate ae <script.jsx> "<instruction>" [--comp <name>] [--om <template>]` is parsed here and run by
+ * src/repl/iterate-ae.ts.
  */
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
@@ -51,6 +53,9 @@ import { FreecadFlows, FREECAD_ITERATE_USAGE } from './iterate-freecad.js';
 import type { NativeIterateRequest } from './iterate-native.js';
 import { isScadFlowRecord, scadFlowSummary } from '../flows/iterate-scad.js';
 import { freecadFlowSummary, type FreecadFlowRecord } from '../flows/iterate-freecad.js';
+// R4 (H41): /iterate ae <script.jsx> "<instruction>" (src/repl/iterate-ae.ts).
+import { AE_ITERATE_USAGE, AeFlows, takeAeOptions, type AeIterateRequest } from './iterate-ae.js';
+import { aeFlowSummary } from '../flows/iterate-ae.js';
 import type { FreecadReadbackLine, FreecadReadbackPlan } from '../native/freecad.js';
 import type { NativeJobSpec } from '../native/index.js';
 import type { GlyphSet } from '../term/glyphs.js';
@@ -114,21 +119,28 @@ const LOCAL_AGENTS: readonly AgentName[] = ['qwen', 'codex'];
  * or (R4, H33) `/iterate scad <model.scad> "<instruction>"` and `/iterate freecad <script.py> "<instruction>"`, each with
  * [--agent qwen|codex] [--model <m>]: the request, or why it is refused (nothing started).
  */
-export function parseIterateLine(args: string): { ok: true; request: IterateRequest | BlenderIterateRequest | NativeIterateRequest } | { ok: false; error: string } {
+export function parseIterateLine(args: string): { ok: true; request: IterateRequest | BlenderIterateRequest | NativeIterateRequest | AeIterateRequest } | { ok: false; error: string } {
   const words = splitCommandLine(args.trim());
   const [what, ...rest] = words;
   if (!what) return { ok: false, error: `Usage: ${USAGE}` };
   // R4 (H26): a Blender script's flow names its script first; (H33) an OpenSCAD flow its model, a FreeCAD flow its script.
   let script: string | undefined;
   let file: string | undefined;
-  const fileUsage = what === 'scad' ? SCAD_ITERATE_USAGE : FREECAD_ITERATE_USAGE;
+  let ae: { comp?: string; om?: string } | undefined; // R4 (H41)
+  const fileUsage = what === 'scad' ? SCAD_ITERATE_USAGE : what === 'ae' ? AE_ITERATE_USAGE : FREECAD_ITERATE_USAGE;
   if (what === 'blender') {
     script = rest.shift();
     if (!script || script.startsWith('--')) return { ok: false, error: `Name the script: ${BLENDER_USAGE}` };
   } else if (what === 'scad' || what === 'freecad') {
     file = rest.shift();
     if (!file || file.startsWith('--')) return { ok: false, error: `Name the ${what === 'scad' ? 'model' : 'script'}: ${fileUsage}` };
-  } else if (what !== 'tray' && what !== RECIPE_ID) return { ok: false, error: `No recipe ${what}: /iterate takes tray (${RECIPE_ID}), scad <model.scad>, freecad <script.py> or blender <script.py>. Usage: ${USAGE}` };
+  } else if (what === 'ae') { // R4 (H41): an After Effects flow names its script first, and takes --comp and --om
+    file = rest.shift();
+    if (!file || file.startsWith('--')) return { ok: false, error: `Name the script: ${AE_ITERATE_USAGE}` };
+    const taken = takeAeOptions(rest);
+    if ('error' in taken) return { ok: false, error: taken.error };
+    ae = taken;
+  } else if (what !== 'tray' && what !== RECIPE_ID) return { ok: false, error: `No recipe ${what}: /iterate takes tray (${RECIPE_ID}), scad <model.scad>, freecad <script.py> or blender <script.py> (and, for After Effects, ae <script.jsx>). Usage: ${USAGE}` };
   let agent: string | undefined;
   let model: string | undefined;
   const text: string[] = [];
@@ -155,6 +167,7 @@ export function parseIterateLine(args: string): { ok: true; request: IterateRequ
   // R4 (H33): every target takes the local Codex route (H25) now, under the same rule as /iterate tray: a local
   // endpoint, no cloud model, no --paid, and a model this machine's Ollama already lists (checked before anything runs).
   const chosen = { instruction, agent: name, ...(model?.trim() ? { model: model.trim() } : {}) };
+  if (ae && file) return { ok: true, request: { recipe: 'ae', file, ...chosen, ...ae } }; // R4 (H41)
   if (file) return { ok: true, request: { recipe: what as NativeIterateRequest['recipe'], file, ...chosen } };
   return { ok: true, request: script ? { recipe: 'blender', script, ...chosen } : { recipe: 'tray', ...chosen } };
 }
@@ -194,23 +207,26 @@ export class IterateFlows {
   /** R4 (H33): the OpenSCAD and FreeCAD flows (src/repl/iterate-scad.ts, src/repl/iterate-freecad.ts). */
   private readonly scad: ScadFlows;
   private readonly freecad: FreecadFlows;
+  /** R4 (H41): the After Effects flows (src/repl/iterate-ae.ts). */
+  private readonly ae: AeFlows;
 
   constructor(private readonly d: IterateDeps) {
     const tray = (root: string): { id: string; step: string } | undefined => { const f = [...this.running.values()].find((x) => x.root === root); return f ? { id: f.id, step: f.step } : undefined; };
-    this.blender = new BlenderFlows(d, (root) => tray(root) ?? this.scad.runningIn(root) ?? this.freecad.runningIn(root));
-    this.scad = new ScadFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.freecad.runningIn(root));
-    this.freecad = new FreecadFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.scad.runningIn(root));
+    this.blender = new BlenderFlows(d, (root) => tray(root) ?? this.scad.runningIn(root) ?? this.freecad.runningIn(root) ?? this.ae.runningIn(root));
+    this.scad = new ScadFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.freecad.runningIn(root) ?? this.ae.runningIn(root));
+    this.freecad = new FreecadFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.scad.runningIn(root) ?? this.ae.runningIn(root));
+    this.ae = new AeFlows(d, (root) => tray(root) ?? this.blender.runningIn(root) ?? this.scad.runningIn(root) ?? this.freecad.runningIn(root));
   }
 
   private get sep(): string { return ` ${this.d.glyphs.sep} `; }
   private say(text: string, role: Segment['role'] = 'secondary'): Line[] { return [[{ text: `  ${text}`, role }]]; }
 
   /** The flows this REPL is running (their ids). */
-  get active(): string[] { return [...this.running.keys(), ...this.blender.active, ...this.scad.active, ...this.freecad.active]; }
+  get active(): string[] { return [...this.running.keys(), ...this.blender.active, ...this.scad.active, ...this.freecad.active, ...this.ae.active]; }
 
   /** The flow running (or being started) in a project, of any kind other than the tray's. */
   private otherIn(root: string): { id: string; step: string } | undefined {
-    return this.blender.runningIn(root) ?? this.scad.runningIn(root) ?? this.freecad.runningIn(root);
+    return this.blender.runningIn(root) ?? this.scad.runningIn(root) ?? this.freecad.runningIn(root) ?? this.ae.runningIn(root);
   }
 
   /** `/iterate` (usage and the project's flows), or `/iterate tray "<instruction>" …` (starts one). */
@@ -221,6 +237,7 @@ export class IterateFlows {
     if (!p.ok) return this.say(p.error, /^Usage|^Say what|^Name the (script|model)/.test(p.error) ? 'secondary' : 'failure');
     // R4 (H26): /iterate blender <script.py> "<instruction>"
     if (p.request.recipe === 'blender') return (await this.blender.start(p.request, at)).lines;
+    if (p.request.recipe === 'ae') return (await this.ae.start(p.request, at)).lines; // R4 (H41)
     // R4 (H33): /iterate scad <model.scad> "<instruction>", /iterate freecad <script.py> "<instruction>"
     if ('file' in p.request) return (await (p.request.recipe === 'scad' ? this.scad : this.freecad).start(p.request, at)).lines;
     return (await this.start(p.request, at)).lines;
@@ -284,6 +301,7 @@ export class IterateFlows {
       : [{ text: '  Runtime    ', role: 'secondary' }, { text: rt.why, role: 'estimate' }, { text: `${this.sep}${PYTHON_SETUP}`, role: 'secondary' }]);
     lines.push(...this.blender.usageLines()); // R4 (H26)
     lines.push(...this.scad.usageLines(), ...this.freecad.usageLines()); // R4 (H33)
+    lines.push(...this.ae.usageLines()); // R4 (H41)
     const flows = this.flowRows(at.root);
     lines.push([{ text: '  Flows      ', role: 'secondary' }, { text: flows.length ? 'newest first' : 'none yet in this project', role: 'secondary' }]);
     for (const r of flows.slice(0, 8)) lines.push(r);
@@ -299,11 +317,12 @@ export class IterateFlows {
     for (const f of live) rows.push([{ text: `    ${g.bullet} ` }, { text: f.id, role: 'strong' }, { text: `  running: the ${f.step} step${this.sep}/stop ${f.id}${this.sep}${this.d.scrub(f.record.instruction, root).slice(0, 60)}`, role: 'secondary' }]);
     rows.push(...this.blender.runningRows(root)); // R4 (H26)
     rows.push(...this.scad.runningRows(root), ...this.freecad.runningRows(root)); // R4 (H33)
+    rows.push(...this.ae.runningRows(root)); // R4 (H41)
     for (const { rel, record } of listFlows(root)) {
-      if (live.some((f) => f.id === record.id) || this.blender.has(record.id) || this.scad.has(record.id) || this.freecad.has(record.id)) continue;
+      if (live.some((f) => f.id === record.id) || this.blender.has(record.id) || this.scad.has(record.id) || this.freecad.has(record.id) || this.ae.has(record.id)) continue;
       const ok = record.outcome === 'succeeded';
-      // R4 (H33): an OpenSCAD or FreeCAD flow says its own change (its parameter values are not all numbers).
-      const native = scadFlowSummary(record, g.arrow) || freecadFlowSummary(record);
+      // R4 (H33): an OpenSCAD or FreeCAD flow says its own change (its parameter values are not all numbers); (H41) so does an After Effects flow.
+      const native = scadFlowSummary(record, g.arrow) || freecadFlowSummary(record) || aeFlowSummary(record);
       const diff = native || (record.parameters?.diff ? diffText(record.parameters.diff, g.arrow) : blenderFlowSummary(record));
       const verdict = record.readback?.verdict ? `${this.sep}readback ${record.readback.verdict}` : '';
       rows.push([{ text: `    ${ok ? g.ok : record.outcome === 'cancelled' ? ' ' : g.fail} `, role: ok ? undefined : record.outcome === 'cancelled' ? undefined : 'failure' }, { text: record.id, role: 'strong' },
@@ -702,6 +721,7 @@ export class IterateFlows {
     if (this.blender.has(id)) return this.blender.stop(id); // R4 (H26)
     if (this.scad.has(id)) return this.scad.stop(id); // R4 (H33)
     if (this.freecad.has(id)) return this.freecad.stop(id);
+    if (this.ae.has(id)) return this.ae.stop(id); // R4 (H41)
     const f = this.running.get(id);
     if (!f) {
       const known = FLOW_ID.test(id) ? listFlows(root).find((x) => x.record.id === id) : undefined;
@@ -731,7 +751,7 @@ export class IterateFlows {
     }
     const blender = this.blender.abortAll(); // R4 (H26)
     const natives = [this.scad.abortAll(), this.freecad.abortAll()]; // R4 (H33)
-    const others = [blender, ...natives];
+    const others = [blender, ...natives, this.ae.abortAll()]; // R4 (H41): the After Effects flows too
     const count = live.length + others.reduce((n, o) => n + o.count, 0);
     return {
       count,
@@ -746,6 +766,6 @@ export class IterateFlows {
 
   /** Waits (at most `ms`) for every running flow to write its record. */
   async settle(ms = 30_000): Promise<void> {
-    await within(Promise.allSettled([...[...this.running.values()].map((f) => f.done), ...this.blender.pending(), ...this.scad.pending(), ...this.freecad.pending()]), ms);
+    await within(Promise.allSettled([...[...this.running.values()].map((f) => f.done), ...this.blender.pending(), ...this.scad.pending(), ...this.freecad.pending(), ...this.ae.pending()]), ms);
   }
 }
