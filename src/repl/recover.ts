@@ -147,7 +147,12 @@ interface Survey { plans: Plan[]; left: RecoveryItem[] }
 
 const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms).unref?.(); });
+/**
+ * R4 (H46, ledger row 153): a plain timer, which holds Node's event loop. While a typed command runs the REPL's input is
+ * paused, so /recover's settle wait may be the only thing left; an unref'd timer let Node exit (code 13, an unsettled
+ * top-level await) in the middle of /recover, with nothing written.
+ */
+const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
 const count = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
 const lexists = (abs: string): boolean => { try { fs.lstatSync(abs); return true; } catch { return false; } };
 /** "40 s", "3 min", "2 h": how long ago. */

@@ -161,7 +161,9 @@ export class FreecadReadbacks {
   /** Waits (at most `ms`) for every readback this REPL follows to write its record. */
   async settle(ms = 30_000): Promise<void> {
     const all = Promise.allSettled([...this.running.values()]);
-    await Promise.race([all, new Promise((r) => { setTimeout(r, ms).unref?.(); })]);
+    // R4 (H46): the timer holds the event loop while awaited (the REPL's end awaits it) and is cleared once all have settled.
+    let t: NodeJS.Timeout | undefined;
+    await Promise.race([all, new Promise((r) => { t = setTimeout(r, ms); })]).finally(() => clearTimeout(t));
   }
 
   /** When the readback job ends: parse, check the bytes it read, compare, keep its output, record, seal, say. */

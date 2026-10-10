@@ -214,8 +214,11 @@ const QUALIFIED_READING = ' A qualified answer is admitted only when it cites, t
 const QUALIFY_DEFAULT_QUESTION = 'What do these measurements show about the image?';
 /** How long /stop and the REPL's end wait for a stopped observation to be recorded. */
 const OBSERVE_SETTLE_MS = 10_000;
-const within = <T>(p: Promise<T>, ms = OBSERVE_SETTLE_MS): Promise<T | undefined> =>
-  Promise.race([p, new Promise<undefined>((resolve) => { setTimeout(() => resolve(undefined), ms).unref(); })]);
+/** R4 (H46): its timer holds the event loop while awaited (unref'd, Node could exit under a typed command) and is cleared once `p` settles. */
+const within = <T>(p: Promise<T>, ms = OBSERVE_SETTLE_MS): Promise<T | undefined> => {
+  let t: NodeJS.Timeout | undefined;
+  return Promise.race([p, new Promise<undefined>((resolve) => { t = setTimeout(() => resolve(undefined), ms); })]).finally(() => clearTimeout(t));
+};
 
 export class Workspace {
   project: ActiveProject;

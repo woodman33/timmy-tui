@@ -229,9 +229,14 @@ type Started = { ok: true; flow: FlowRun; lines: Line[] } | { ok: false; error: 
 
 const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 const TERMINAL_RECIPE = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
-const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms).unref?.(); });
-const within = <T>(p: Promise<T>, ms: number): Promise<T | undefined> =>
-  Promise.race([p, new Promise<undefined>((resolve) => { setTimeout(() => resolve(undefined), ms).unref?.(); })]);
+// R4 (H46, ledger row 153): these timers hold Node's event loop while they are awaited. A typed command (/stop <flow>
+// while the build step polls its recipe) runs with the REPL's input paused, and the recipe's supervisor is detached:
+// unref'd, they let Node exit (code 13) under the command. within's timer is cleared once `p` settles.
+const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
+const within = <T>(p: Promise<T>, ms: number): Promise<T | undefined> => {
+  let t: NodeJS.Timeout | undefined;
+  return Promise.race([p, new Promise<undefined>((resolve) => { t = setTimeout(() => resolve(undefined), ms); })]).finally(() => clearTimeout(t));
+};
 const fmt = (n: number): string => String(Math.round(n * 1000) / 1000);
 
 export class IterateFlows {

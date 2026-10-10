@@ -80,8 +80,11 @@ type Started = { ok: true; flow: BlenderRun; lines: Line[] } | { ok: false; erro
 const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 const short = (s: string | null | undefined): string => (s ? s.slice(0, 12) : '?');
 const lineCount = (t: string): number => (t ? t.split('\n').length - (t.endsWith('\n') ? 1 : 0) : 0);
-const within = <T>(p: Promise<T>, ms: number): Promise<T | undefined> =>
-  Promise.race([p, new Promise<undefined>((resolve) => { setTimeout(() => resolve(undefined), ms).unref?.(); })]);
+/** R4 (H46): its timer holds the event loop while awaited (unref'd, Node could exit under a typed command) and is cleared once `p` settles. */
+const within = <T>(p: Promise<T>, ms: number): Promise<T | undefined> => {
+  let t: NodeJS.Timeout | undefined;
+  return Promise.race([p, new Promise<undefined>((resolve) => { t = setTimeout(() => resolve(undefined), ms); })]).finally(() => clearTimeout(t));
+};
 const IMAGE = /\.(png|jpe?g|exr|tiff?|webp|bmp)$/i;
 const BLEND = /\.blend$/i;
 const exitWords = (j: JobRecord): string => j.error ?? (j.signal ? `ended by ${j.signal}` : `exited ${j.exitCode ?? '?'}`);
