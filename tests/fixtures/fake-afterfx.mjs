@@ -7,6 +7,10 @@
 // It runs the harness (plain ES3 JavaScript) in a Node vm against a small stand-in of After Effects' scripting
 // objects (app, app.project, items.addComp, layers.addSolid/addText/addNull, properties and keyframes,
 // TextDocument, File, Folder, $.evalFile), so the harness Timmy generates and the starter scripts really run here.
+// R4 (H41): it also models what the harness now reads per layer: in and out points (outPoint the comp's duration, or the
+// duration given to addSolid/addNull), keyframe interpolation (keyIn/OutInterpolationType, linear for a new key) and, for
+// Position and Anchor Point, spatial tangents (zero for a new key), a solid's source colour, threeDLayer, parent,
+// blendingMode and trackMatteType. These stand-ins follow the scripting guide's names; their defaults are this fake's.
 // A project it saves is a FAKE .aep: a first line naming this fake, then JSON of the stand-in project, which its
 // app.open reads back (and nothing else). On the osascript route it prints the harness's return value, as osascript
 // prints DoScriptFile's result; its own lines start "fake-afterfx (FAKE After Effects)".
@@ -72,6 +76,11 @@ if (mode === 'not-allowed') {
 const PropertyType = Object.freeze({ PROPERTY: 6212, NAMED_GROUP: 6213, INDEXED_GROUP: 6214 });
 const CloseOptions = Object.freeze({ DO_NOT_SAVE_CHANGES: 1, PROMPT_TO_SAVE_CHANGES: 2, SAVE_CHANGES: 3 });
 const ParagraphJustification = Object.freeze({ LEFT_JUSTIFY: 7413, RIGHT_JUSTIFY: 7414, CENTER_JUSTIFY: 7415 });
+// R4 (H41): the enumerations the harness reads keys and layers by. Their numbers are this fake's own: the harness compares
+// with the names (KeyframeInterpolationType.LINEAR...), never with a number.
+const KeyframeInterpolationType = Object.freeze({ LINEAR: 6612, BEZIER: 6613, HOLD: 6614 });
+const BlendingMode = Object.freeze({ NORMAL: 5212, ADD: 5220, MULTIPLY: 5216 });
+const TrackMatteType = Object.freeze({ NO_TRACK_MATTE: 5012, ALPHA: 5013 });
 const aeError = (s) => new Error(`After Effects error: ${s} (FAKE)`);
 
 class TextDocument {
@@ -86,10 +95,17 @@ class TextDocument {
 }
 const copy = (v) => (v instanceof TextDocument ? Object.assign(new TextDocument(v.text), v) : Array.isArray(v) ? [...v] : v);
 
+// R4 (H41): Position and Anchor Point are spatial (their keys have spatial tangents); a new key is linear in time and has
+// zero tangents in this fake (After Effects' own defaults depend on its preferences; this fake does not model those).
+const SPATIAL = new Set(['ADBE Position', 'ADBE Anchor Point']);
+const zeros = (v) => (Array.isArray(v) ? v.map(() => 0) : [0, 0]);
+const keyOf = (k, i) => { if (!k[i - 1]) throw aeError(`no keyframe ${i}`); return k[i - 1]; };
+
 class Property {
-  constructor(name, matchName, value) { this.name = name; this.matchName = matchName; this._value = value; this._keys = []; }
+  constructor(name, matchName, value) { this.name = name; this.matchName = matchName; this._value = value; this._keys = []; this.dimensionsSeparated = false; }
   get propertyType() { return PropertyType.PROPERTY; }
   get numKeys() { return this._keys.length; }
+  get isSpatial() { return SPATIAL.has(this.matchName); }
   get value() { return copy(this._keys.length ? this._keys[0].v : this._value); }
   setValue(v) {
     if (this._keys.length) throw aeError(`can not set a value without a time on ${this.name}, which has keyframes`);
@@ -99,10 +115,19 @@ class Property {
     if (typeof t !== 'number' || !Number.isFinite(t)) throw aeError('a keyframe time must be a number');
     const at = this._keys.findIndex((k) => k.t === t);
     if (at >= 0) this._keys[at].v = copy(v);
-    else { this._keys.push({ t, v: copy(v) }); this._keys.sort((a, b) => a.t - b.t); }
+    else {
+      this._keys.push({ t, v: copy(v), inType: KeyframeInterpolationType.LINEAR, outType: KeyframeInterpolationType.LINEAR, ...(this.isSpatial ? { inTan: zeros(v), outTan: zeros(v) } : {}) });
+      this._keys.sort((a, b) => a.t - b.t);
+    }
   }
-  keyTime(i) { return this._keys[i - 1].t; }
-  keyValue(i) { return copy(this._keys[i - 1].v); }
+  keyTime(i) { return keyOf(this._keys, i).t; }
+  keyValue(i) { return copy(keyOf(this._keys, i).v); }
+  keyInInterpolationType(i) { return keyOf(this._keys, i).inType ?? KeyframeInterpolationType.LINEAR; }
+  keyOutInterpolationType(i) { return keyOf(this._keys, i).outType ?? KeyframeInterpolationType.LINEAR; }
+  setInterpolationTypeAtKey(i, inType, outType) { const k = keyOf(this._keys, i); k.inType = inType; k.outType = outType ?? inType; }
+  keyInSpatialTangent(i) { if (!this.isSpatial) throw aeError(`${this.name} is not spatial`); return copy(keyOf(this._keys, i).inTan ?? zeros(this._value)); }
+  keyOutSpatialTangent(i) { if (!this.isSpatial) throw aeError(`${this.name} is not spatial`); return copy(keyOf(this._keys, i).outTan ?? zeros(this._value)); }
+  setSpatialTangentsAtKey(i, inTan, outTan) { const k = keyOf(this._keys, i); k.inTan = copy(inTan); k.outTan = copy(outTan ?? inTan); }
 }
 
 class Group {
@@ -132,7 +157,12 @@ class FootageItem { constructor(name, w, h, main) { this.name = name; this.width
 class FolderItem { constructor(name) { this.name = name; } }
 
 class Layer extends Group {
-  constructor(comp, name, matchName) { super(name, matchName); this._comp = comp; this.enabled = true; this.nullLayer = false; this.adjustmentLayer = false; this.source = null; }
+  constructor(comp, name, matchName) {
+    super(name, matchName); this._comp = comp; this.enabled = true; this.nullLayer = false; this.adjustmentLayer = false; this.source = null;
+    // R4 (H41): where it starts and ends in the comp, and what decides how it is drawn (this fake draws nothing)
+    this.inPoint = 0; this.outPoint = comp.duration; this.threeDLayer = false; this.parent = null;
+    this.blendingMode = BlendingMode.NORMAL; this.trackMatteType = TrackMatteType.NO_TRACK_MATTE;
+  }
   get index() { return this._comp._layers.indexOf(this) + 1; }
   get containingComp() { return this._comp; }
   get transform() { return this.property('ADBE Transform Group'); }
@@ -157,6 +187,7 @@ class LayerCollection {
     c._project._items.push(src);
     const l = new AVLayer(c, String(name), 'ADBE AV Layer');
     l.source = src;
+    if (duration !== undefined) l.outPoint = duration;
     l._children = [new Group('Masks', 'ADBE Mask Parade'), new Group('Effects', 'ADBE Effect Parade'), transformGroup(w, h, c.width, c.height)];
     c._layers.unshift(l);
     return l;
@@ -174,6 +205,7 @@ class LayerCollection {
     const c = this._comp;
     const l = new AVLayer(c, 'Null 1', 'ADBE AV Layer');
     l.nullLayer = true;
+    if (duration !== undefined) l.outPoint = duration;
     l._children = [new Group('Effects', 'ADBE Effect Parade'), transformGroup(100, 100, c.width, c.height)];
     c._layers.unshift(l);
     return l;
@@ -183,6 +215,7 @@ class LayerCollection {
 class CompItem {
   constructor(project, name, w, h, pixelAspect, duration, frameRate) {
     this._project = project; this.name = name; this.width = w; this.height = h; this.pixelAspect = pixelAspect; this.duration = duration; this.frameRate = frameRate;
+    this.workAreaStart = 0; this.workAreaDuration = duration;
     this._layers = [];
     this.layers = new LayerCollection(this);
   }
@@ -246,6 +279,7 @@ class Project {
       layers: c._layers.map((l) => ({
         kind: l instanceof TextLayer ? 'text' : l.nullLayer ? 'null' : 'solid', name: l.name,
         solid: l.source ? { color: l.source.mainSource.color, width: l.source.width, height: l.source.height } : null,
+        inPoint: l.inPoint, outPoint: l.outPoint,
         props: dumpProps(l, '', []),
       })),
     }));
@@ -268,6 +302,8 @@ function readProject(file) {
     for (const l of [...c.layers].reverse()) {
       const layer = l.kind === 'text' ? comp.layers.addText('') : l.kind === 'null' ? comp.layers.addNull() : comp.layers.addSolid(l.solid.color, l.name, l.solid.width, l.solid.height, 1);
       layer.name = l.name;
+      if (typeof l.inPoint === 'number') layer.inPoint = l.inPoint;
+      if (typeof l.outPoint === 'number') layer.outPoint = l.outPoint;
       for (const saved of l.props) {
         const prop = findProp(layer, saved.at);
         if (!prop) continue;
@@ -364,7 +400,7 @@ const app = {
 };
 
 const context = vm.createContext({
-  app, File, Folder, TextDocument, PropertyType, CloseOptions, ParagraphJustification,
+  app, File, Folder, TextDocument, PropertyType, CloseOptions, ParagraphJustification, KeyframeInterpolationType, BlendingMode, TrackMatteType,
   CompItem, FootageItem, FolderItem, SolidSource, AVLayer, TextLayer, ShapeLayer, CameraLayer, LightLayer,
 });
 const $ = {

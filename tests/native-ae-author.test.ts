@@ -17,7 +17,7 @@ import { createNativeTools } from '../src/agent/native-tools.js';
 import { capabilities, type CapabilityRow, type ProbeDeps } from '../src/capabilities/index.js';
 import { JobManager, type JobRecord } from '../src/jobs/index.js';
 import {
-  AE_LIMITS, AE_PREF_OFF, aeHarness, aeHarnessConfig, aeReceiptFields, aeRouteFor, aeScriptJob, aeStem, appBundleName, isAeJobSpec, judgeAeJob, osascriptArgs,
+  AE_LIMITS, AE_PREF_OFF, aeCompsLine, aeHarness, aeHarnessConfig, aeReceiptFields, aeRouteFor, aeScriptJob, aeStem, appBundleName, isAeJobSpec, judgeAeJob, osascriptArgs,
   parseAeScriptArgs, reconcileAe, type AeJobSpec, type AeScriptJobInput,
 } from '../src/native/ae-author.js';
 import { locateNative, nativeCapabilityRows, nativeRunIndex, noteNativeStarted, readNativeRecord, type NativeJobSpec } from '../src/native/index.js';
@@ -189,13 +189,27 @@ describe('author', () => {
     expect(j.ae.saved).toEqual({ path: 'out/ae/promo-v1.aep', present: true, created: true, sha256: sha(aep), bytes: statSync(aep).size });
     expect(j.ae.harness).toEqual({ path: `.timmy/native/${s.native.run}/harness.jsx`, sha256: s.ae.harness.sha256, unchanged: true, read: s.ae.harness.sha256 });
     expect(j.ae.comps).toMatchObject([{
-      name: 'Main', width: 1920, height: 1080, fps: 30, duration: 10, num_layers: 3,
+      name: 'Main', width: 1920, height: 1080, fps: 30, duration: 10, num_layers: 3, work_area: [0, 10],
       layers: [
         { index: 1, name: 'Mover', kind: 'solid', keyframes: [{ path: 'Transform > Position', match: 'ADBE Transform Group/ADBE Position', keys: 2 }] },
         { index: 2, name: 'Title', kind: 'text', text: 'Title' },
         { index: 3, name: 'Background', kind: 'solid' },
       ],
     }]);
+    // R4 (H41): each layer's in and out points, its transform's keyframes as [time, value] with their interpolation, a
+    // solid's colour: what the FAKE After Effects holds for the starter's layers (its defaults are the fake's own)
+    const [mover, title, background] = j.ae.comps![0].layers;
+    expect(mover).toMatchObject({
+      in_point: 0, out_point: 10, enabled: true, three_d: false, effects: 0, masks: 0, blending: 'normal', track_matte: false, color: [0.2, 0.75, 0.4], size: [160, 160],
+      transform: {
+        position: { num_keys: 2, keys: [[0, [240, 760]], [2, [1680, 760]]], interpolation: [['linear', 'linear'], ['linear', 'linear']], spatial_tangents: [[[0, 0], [0, 0]], [[0, 0], [0, 0]]] },
+        scale: { value: [100, 100, 100] }, opacity: { value: 100 }, rotation: { value: 0 }, anchor: { value: [80, 80, 0] },
+      },
+    });
+    expect(mover.parent).toBeUndefined();
+    expect(title).toMatchObject({ in_point: 0, out_point: 10, transform: { position: { value: [960, 460] } } });
+    expect(title.color).toBeUndefined();
+    expect(background).toMatchObject({ color: [0.07, 0.07, 0.08], size: [1920, 1080], transform: { position: { value: [960, 540, 0] } } });
     const result = JSON.parse(readFileSync(s.native.result!, 'utf8'));
     expect(result).toMatchObject({ timmy_ae: 1, ok: true, run: s.native.run, stage: 'done', saved: true, script_sha256: sha(path.join(root, 'author.jsx')), script_sha256_read: sha(path.join(root, 'author.jsx')), write_preference: 'on', files: {} });
     expect(result.error).toBeUndefined();
@@ -206,6 +220,37 @@ describe('author', () => {
     judgeAeJob(done, s); // the REPL judges twice (its notice, its receipt): one line
     expect(readNativeRecord(root, s.native.run)?.verdicts).toMatchObject([{ outcome: 'ok', job: done.id }]);
     expect(job('author', { script: 'author.jsx', name: 'promo' }).ae.saved?.rel).toBe('out/ae/promo-v2.aep');
+  });
+
+  it('R4 (H41): keys past 50 are counted, not listed; bezier and hold are named; in and out points; a property without keys gives its value', async () => {
+    writeFileSync(path.join(root, 'busy.jsx'), [
+      "var comp = app.project.items.addComp('Busy', 640, 360, 1, 4, 25);",
+      "var red = comp.layers.addSolid([1, 0, 0], 'Red', 40, 40, 1, 2);",
+      "var p = red.property('ADBE Transform Group').property('ADBE Position');",
+      'for (var i = 0; i < 60; i++) p.setValueAtTime(i / 25, [i * 10, 100]);',
+      'p.setInterpolationTypeAtKey(1, KeyframeInterpolationType.BEZIER, KeyframeInterpolationType.HOLD);',
+      'red.inPoint = 0.5;',
+      "var o = red.property('ADBE Transform Group').property('ADBE Opacity');",
+      'o.setValueAtTime(0, 0);',
+      'o.setValueAtTime(1, 100);',
+    ].join('\n'));
+    const s = job('author', { script: 'busy.jsx' });
+    const j = judgeAeJob((await run(s)).job, s);
+    expect(j.outcome).toBe('ok');
+    const red = j.ae.comps![0].layers[0];
+    expect(red).toMatchObject({ name: 'Red', in_point: 0.5, out_point: 2, color: [1, 0, 0], size: [40, 40] });
+    const pos = red.transform!.position!;
+    expect(pos).toMatchObject({ num_keys: 60, keys_truncated: true });
+    expect(pos.keys).toHaveLength(AE_LIMITS.keys_per_prop);
+    expect(pos.keys![49]).toEqual([49 / 25, [490, 100]]);
+    expect(pos.interpolation![0]).toEqual(['bezier', 'hold']);
+    expect(pos.interpolation![1]).toEqual(['linear', 'linear']);
+    expect(pos.spatial_tangents).toHaveLength(50);
+    expect(red.transform!.opacity).toEqual({ num_keys: 2, keys: [[0, 0], [1, 100]], interpolation: [['linear', 'linear'], ['linear', 'linear']] });
+    expect(red.transform!.scale).toEqual({ value: [100, 100, 100] });
+    expect(aeCompsLine(j.ae.comps)).toBe('1 comp: Busy 640x360, 25 fps, 4 s, 1 layer: Red (solid [1, 0, 0], 0.5–2 s; Position 60 keys: 0 s (0, 100) → 0.04 s (10, 100) → 0.08 s (20, 100) → … (60 keys, 50 reported), bezier/hold/linear, Opacity 2 keys: 0 s 0 → 1 s 100, linear)');
+    // the result stays bounded: the 10 keys past 50 are not in it
+    expect(readFileSync(s.native.result!, 'utf8')).not.toContain('[590,100]');
   });
 
   it('on the macOS route: osascript asks the application by name inside a timeout, and the harness\'s line comes back through it', async () => {
@@ -519,7 +564,7 @@ describe('the REPL: /ae author, /ae edit, /ae inspect', () => {
     const ended = notes.join('\n');
     expect(ended).toMatch(new RegExp(`${id} ok  After Effects · author author\\.jsx → out/ae/promo-v1\\.aep: the result file is this run's`));
     expect(ended).toMatch(/saved {4}out\/ae\/promo-v1\.aep · created by this run · sha256 [0-9a-f]{12}… \(Timmy's, after the run\)/);
-    expect(ended).toMatch(/reported 1 comp: Main 1920x1080, 30 fps, 10 s, 3 layers: Mover \(solid; Position 2 keys\), Title \(text "Title"\), Background \(solid\) · as After Effects reported its own project, not an independent reading/);
+    expect(ended).toContain('reported 1 comp: Main 1920x1080, 30 fps, 10 s, 3 layers: Mover (solid [0.2, 0.75, 0.4]; Position 2 keys: 0 s (240, 760) → 2 s (1680, 760), linear), Title (text "Title"), Background (solid [0.07, 0.07, 0.08]) · as After Effects reported its own project, not an independent reading');
     expect(ended).toMatch(/next {5}\/ae out\/ae\/promo-v1\.aep Main out\/promo-v1\.mov renders it with aerender/);
     expect(ended).toMatch(/next {5}\/ae inspect out\/ae\/promo-v1\.aep has After Effects read it back \(the same application reading its own file, not an independent reader\)/);
     const receipt = sealed.find((r) => r.kind === 'native');
@@ -532,7 +577,7 @@ describe('the REPL: /ae author, /ae edit, /ae inspect', () => {
     await ws.jobs.done(jobIdOf(edited.slice(edited.indexOf('Running'))));
     await settle();
     expect(notes.join('\n')).toMatch(/given {4}out\/ae\/promo-v1\.aep · unchanged \(sha256 as at submission\)/);
-    expect(notes.join('\n')).toMatch(/Subtitle \(text "Subtitle"\), Mover \(solid; Position 2 keys\), Title \(text "Title, edited"\)/);
+    expect(notes.join('\n')).toContain('Subtitle (text "Subtitle"), Mover (solid [0.2, 0.75, 0.4]; Position 2 keys: 0 s (240, 760) → 2 s (1680, 760), linear), Title (text "Title, edited")');
 
     notes.length = 0;
     const inspected = text(await ws.ae('inspect out/ae/promo-v2.aep'));

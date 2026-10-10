@@ -19,6 +19,12 @@
  *   ae.json      this module's record of the run: mode, route, the harness's and the inputs' sha256, the new version.
  *   result.json  written by the harness: this run's token, the input's sha256 echoed, ok, the saved project's path,
  *                the comps (name, size, duration, fps, layers, keyframe counts), an error with its stage and line.
+ *                R4 (H41): also each comp's work area, and each layer's in and out points, what decides how it is drawn
+ *                (enabled, 3D, parent, effect and mask counts, blending, track matte), the keyframes of Position, Scale,
+ *                Opacity, Rotation and Anchor Point as [time, value] with each key's interpolation (and spatial tangents),
+ *                or their value when they have none (at most 50 keys per property, 5000 in all), and a solid's colour
+ *                [r, g, b] in 0..1 and size. Read with the scripting guide's names; added after the first real runs, so
+ *                exercised on the stand-in only (see below).
  *
  * Judged first by the native module's own rules (judgeNativeJob: the result is this run's, echoes the input's
  * sha256 as submitted and says ok; the new version was created during this run, not reused), then here: the
@@ -26,8 +32,10 @@
  * the run, never by the script), and a project given to edit or inspect is byte for byte as it was. What the
  * result says of comps and layers is After Effects' own report of its own project, not an independent reading.
  *
- * Nothing here has been run against After Effects: tests/native-ae-author.test.ts runs the generated harness on a
- * stand-in of After Effects' scripting objects (tests/fixtures/fake-afterfx.mjs, a labelled test double).
+ * The operator ran this route on a Mac with After Effects 2026 (round R4): /ae author, /ae inspect and /ae edit of the
+ * starter were judged ok there. The harness's R4 (H41) additions (work areas, in and out points, transform keyframes,
+ * solid colours) came after those runs and have run only here: tests/native-ae-author.test.ts runs the generated harness
+ * on a stand-in of After Effects' scripting objects (tests/fixtures/fake-afterfx.mjs, a labelled test double).
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, closeSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from 'node:fs';
@@ -50,8 +58,11 @@ export type AeRoute = 'osascript' | 'binary';
 export const AE_OUT_DIR = 'out/ae';
 /** The first word of the line the harness returns: osascript prints it, the job's log keeps it. */
 export const AE_MARK = 'TIMMY-AE';
-/** What the harness reads back at most ("where cheap"), and the largest file it hashes inside After Effects. */
-export const AE_LIMITS = { comps: 200, layers: 300, props_per_layer: 400, props_total: 30000, depth: 6, hash_bytes: 4 * 1024 * 1024 } as const;
+/**
+ * What the harness reads back at most ("where cheap"), and the largest file it hashes inside After Effects. R4 (H41): the
+ * keyframes it reports of Position, Scale, Opacity, Rotation and Anchor Point, at most 50 per property and 5000 in all.
+ */
+export const AE_LIMITS = { comps: 200, layers: 300, props_per_layer: 400, props_total: 30000, depth: 6, hash_bytes: 4 * 1024 * 1024, keys_per_prop: 50, keys_total: 5000 } as const;
 
 const SCRIPT_EXT = /\.(jsx|jsxbin|js)$/i;
 const PROJECT_EXT = /\.(aep|aepx)$/i;
@@ -273,7 +284,7 @@ const HARNESS_BODY = String.raw`  var LIM = T.limits;
     var f = null;
     try { f = p.file; } catch (e0) {}
     R.project = { path: f ? String(f.fsName) : null, saved: R.saved === true };
-    var budget = { left: LIM.props_total, truncated: false };
+    var budget = { left: LIM.props_total, truncated: false, keys: LIM.keys_total, keys_truncated: false };
     var comps = [];
     var n = 0;
     try { n = p.numItems; } catch (e1) { n = 0; }
@@ -287,6 +298,7 @@ const HARNESS_BODY = String.raw`  var LIM = T.limits;
     }
     R.comps = comps;
     if (budget.truncated) R.keyframes_truncated = true;
+    if (budget.keys_truncated) R.transform_keys_truncated = true;
   }
 
   function isComp(it) {
@@ -298,6 +310,9 @@ const HARNESS_BODY = String.raw`  var LIM = T.limits;
       name: get(c, 'name'), width: get(c, 'width'), height: get(c, 'height'), pixel_aspect: get(c, 'pixelAspect'),
       duration: get(c, 'duration'), fps: get(c, 'frameRate'), num_layers: get(c, 'numLayers'), layers: []
     };
+    var was = get(c, 'workAreaStart');
+    var wad = get(c, 'workAreaDuration');
+    if (typeof was === 'number' && typeof wad === 'number') info.work_area = [was, wad];
     var n = typeof info.num_layers === 'number' ? info.num_layers : 0;
     for (var i = 1; i <= n; i++) {
       if (i > LIM.layers) { info.layers_truncated = true; break; }
@@ -314,9 +329,126 @@ const HARNESS_BODY = String.raw`  var LIM = T.limits;
         var t = textOf(l);
         if (t !== null) li.text = t;
       }
+      layerFacts(l, li, budget);
       info.layers.push(li);
     }
     return info;
+  }
+
+  // R4 (H41): a layer's in and out points, what decides where it is drawn, its transform's keyframes, a solid's colour.
+  function layerFacts(l, li, budget) {
+    li.in_point = get(l, 'inPoint');
+    li.out_point = get(l, 'outPoint');
+    var en = get(l, 'enabled');
+    if (en !== null) li.enabled = en;
+    var td = get(l, 'threeDLayer');
+    if (td !== null) li.three_d = td;
+    try { if (l.parent) li.parent = String(l.parent.name); } catch (e0) {}
+    var fx = countOf(l, 'ADBE Effect Parade');
+    if (fx !== null) li.effects = fx;
+    var mk = countOf(l, 'ADBE Mask Parade');
+    if (mk !== null) li.masks = mk;
+    try { if (typeof BlendingMode !== 'undefined' && typeof l.blendingMode === 'number') li.blending = l.blendingMode === BlendingMode.NORMAL ? 'normal' : 'other'; } catch (e1) {}
+    try { if (typeof TrackMatteType !== 'undefined' && typeof l.trackMatteType === 'number') li.track_matte = l.trackMatteType !== TrackMatteType.NO_TRACK_MATTE; } catch (e2) {}
+    var tf = transformOf(l, budget);
+    if (tf) li.transform = tf;
+    if (li.kind === 'solid') {
+      try {
+        var col = valueOf(l.source.mainSource.color);
+        if (col && col.length === 3) li.color = col;
+      } catch (e3) {}
+      try {
+        var s = l.source;
+        if (typeof s.width === 'number' && typeof s.height === 'number') li.size = [s.width, s.height];
+      } catch (e4) {}
+    }
+  }
+
+  function countOf(l, match) {
+    try {
+      var g = l.property(match);
+      return g && typeof g.numProperties === 'number' ? g.numProperties : null;
+    } catch (e) { return null; }
+  }
+
+  function transformOf(l, budget) {
+    var g = null;
+    try { g = l.property('ADBE Transform Group'); } catch (e0) { return null; }
+    if (!g) return null;
+    var want = [['position', 'ADBE Position'], ['scale', 'ADBE Scale'], ['opacity', 'ADBE Opacity'], ['rotation', 'ADBE Rotate Z'], ['anchor', 'ADBE Anchor Point']];
+    var out = {};
+    var any = false;
+    for (var i = 0; i < want.length; i++) {
+      var p = null;
+      try { p = g.property(want[i][1]); } catch (e1) { p = null; }
+      if (!p) continue;
+      out[want[i][0]] = keyed(p, budget);
+      any = true;
+    }
+    return any ? out : null;
+  }
+
+  // A property's value (no keyframes), or its keyframes as [time, value], their interpolation and, when spatial, tangents.
+  function keyed(p, budget) {
+    var r = {};
+    var n = 0;
+    try { n = p.numKeys; } catch (e0) { n = 0; }
+    if (typeof n !== 'number' || n < 0) n = 0;
+    try { if (p.dimensionsSeparated === true) r.separated = true; } catch (e1) {}
+    if (n === 0) {
+      try { r.value = valueOf(p.value); } catch (e2) { r.value = null; }
+      return r;
+    }
+    r.num_keys = n;
+    var spatial = false;
+    try { spatial = p.isSpatial === true; } catch (e3) {}
+    var keys = [];
+    var interp = [];
+    var tangents = [];
+    var m = n < LIM.keys_per_prop ? n : LIM.keys_per_prop;
+    for (var k = 1; k <= m; k++) {
+      if (budget.keys <= 0) { budget.keys_truncated = true; break; }
+      budget.keys--;
+      var t = null;
+      var v = null;
+      try { t = p.keyTime(k); } catch (e4) {}
+      try { v = valueOf(p.keyValue(k)); } catch (e5) {}
+      keys.push([typeof t === 'number' && isFinite(t) ? t : null, v]);
+      interp.push([interpOf(p, 'keyInInterpolationType', k), interpOf(p, 'keyOutInterpolationType', k)]);
+      if (spatial) tangents.push([tangentOf(p, 'keyInSpatialTangent', k), tangentOf(p, 'keyOutSpatialTangent', k)]);
+    }
+    r.keys = keys;
+    r.interpolation = interp;
+    if (spatial) r.spatial_tangents = tangents;
+    if (keys.length < n) r.keys_truncated = true;
+    return r;
+  }
+
+  function interpOf(p, fn, k) {
+    try {
+      if (typeof KeyframeInterpolationType === 'undefined') return null;
+      var v = p[fn](k);
+      if (v === KeyframeInterpolationType.LINEAR) return 'linear';
+      if (v === KeyframeInterpolationType.BEZIER) return 'bezier';
+      if (v === KeyframeInterpolationType.HOLD) return 'hold';
+    } catch (e) {}
+    return null;
+  }
+
+  function tangentOf(p, fn, k) {
+    try { return valueOf(p[fn](k)); } catch (e) { return null; }
+  }
+
+  // A number, a boolean, or an array of at most 4 numbers (a point, a size, a colour); anything else is null.
+  function valueOf(v) {
+    if (typeof v === 'number') return isFinite(v) ? v : null;
+    if (typeof v === 'boolean') return v;
+    if (v && typeof v === 'object' && typeof v.length === 'number' && v.length > 0 && v.length <= 4) {
+      var out = [];
+      for (var i = 0; i < v.length; i++) out.push(typeof v[i] === 'number' && isFinite(v[i]) ? v[i] : null);
+      return out;
+    }
+    return null;
   }
 
   function walk(g, prefix, mprefix, depth, out, budget, local) {
@@ -808,8 +940,41 @@ export function aeScriptJob(input: AeScriptJobInput): AeJobSpec {
 
 // ── judging a run ────────────────────────────────────────────────────────────────
 
-export interface AeLayerReport { index: number; name: string | null; kind: string; text?: string; keyframes?: Array<{ path: string; match: string; keys: number }> }
-export interface AeCompReport { name: string | null; width: number | null; height: number | null; duration: number | null; fps: number | null; num_layers: number | null; layers: AeLayerReport[] }
+/** R4 (H41): a key's temporal interpolation, as After Effects reported it; null when it did not say. */
+export type AeInterpolation = 'linear' | 'bezier' | 'hold' | null;
+/** A value as the harness reports it: a number, a boolean, or a point, size or colour (at most 4 numbers). */
+export type AeValue = number | boolean | Array<number | null> | null;
+/**
+ * R4 (H41): a transform property as the harness read it: its value when it has no keyframes; else its keyframes as
+ * [time in seconds, value] (the first 50; `num_keys` is how many it has), each key's [in, out] temporal interpolation and,
+ * for a spatial property (Position, Anchor Point), each key's [in, out] spatial tangent.
+ */
+export interface AeKeyed {
+  value?: AeValue;
+  num_keys?: number;
+  keys?: Array<[number | null, AeValue]>;
+  keys_truncated?: true;
+  interpolation?: Array<[AeInterpolation, AeInterpolation]>;
+  spatial_tangents?: Array<[AeValue, AeValue]>;
+  /** Position's dimensions are separated: X Position and Y Position hold its keys, not Position */
+  separated?: true;
+}
+export interface AeLayerReport {
+  index: number; name: string | null; kind: string; text?: string; keyframes?: Array<{ path: string; match: string; keys: number }>;
+  /** R4 (H41): when the layer starts and ends in the comp, in seconds */
+  in_point?: number | null; out_point?: number | null;
+  /** R4 (H41): what decides where and how it is drawn */
+  enabled?: boolean; three_d?: boolean; parent?: string; effects?: number; masks?: number; blending?: 'normal' | 'other'; track_matte?: boolean;
+  /** R4 (H41): a solid's source colour as [r, g, b] in 0..1, and its size in pixels */
+  color?: Array<number | null>; size?: number[];
+  /** R4 (H41): Position, Scale, Opacity, Rotation (Z) and Anchor Point */
+  transform?: { position?: AeKeyed; scale?: AeKeyed; opacity?: AeKeyed; rotation?: AeKeyed; anchor?: AeKeyed };
+}
+export interface AeCompReport {
+  name: string | null; width: number | null; height: number | null; duration: number | null; fps: number | null; num_layers: number | null; layers: AeLayerReport[];
+  /** R4 (H41): the work area, [start, duration] in seconds (what aerender renders by default) */
+  work_area?: [number, number];
+}
 
 /** What a run left, beside the outcome: the new version (its sha256 Timmy's), the inputs, and After Effects' own report. */
 export interface AeReadback {
@@ -1098,13 +1263,42 @@ export function aeStartLines(spec: AeJobSpec, sep: string): Line[] {
   ];
 }
 
+/** R4 (H41): the transform properties the harness reports keyframes of, by match name. */
+const TRANSFORM_MATCH: Record<string, 'position' | 'scale' | 'opacity' | 'rotation' | 'anchor'> = {
+  'ADBE Position': 'position', 'ADBE Scale': 'scale', 'ADBE Opacity': 'opacity', 'ADBE Rotate Z': 'rotation', 'ADBE Anchor Point': 'anchor',
+};
+const n3 = (v: number): string => String(Math.round(v * 1000) / 1000);
+/** A reported value in words: 12.5, (240, 760), true. */
+export const aeValueText = (v: AeValue | undefined): string => (Array.isArray(v) ? `(${v.map((x) => (x === null ? '?' : n3(x))).join(', ')})` : typeof v === 'number' ? n3(v) : v === undefined || v === null ? '?' : String(v));
+/** R4 (H41): a keyed property in words: "Position 2 keys: 0 s (240, 760) → 2 s (1680, 760), linear". */
+export function aeKeyedText(label: string, k: AeKeyed): string {
+  const n = k.num_keys ?? 0;
+  const keys = k.keys ?? [];
+  const shown = keys.slice(0, 3).map(([t, v]) => `${t === null ? '?' : n3(t)} s ${aeValueText(v)}`).join(' → ');
+  const more = n > 3 ? ` → … (${n} keys${k.keys_truncated ? `, ${keys.length} reported` : ''})` : '';
+  const types = [...new Set((k.interpolation ?? []).flat())];
+  const interp = !types.length ? '' : types.every((t) => t === 'linear') ? ', linear' : `, ${types.map((t) => t ?? 'interpolation not reported').join('/')}`;
+  return `${label} ${n} key${n === 1 ? '' : 's'}: ${shown}${more}${interp}`;
+}
+/** A solid's colour as "[0.2, 0.75, 0.4]". */
+const colourText = (c: Array<number | null> | undefined): string => (Array.isArray(c) ? `[${c.map((x) => (x === null ? '?' : n3(x))).join(', ')}]` : '');
+
 function compWords(c: AeCompReport): string {
   const fps = typeof c.fps === 'number' ? `${Math.round(c.fps * 100) / 100} fps` : 'fps unknown';
   const dur = typeof c.duration === 'number' ? `${Math.round(c.duration * 100) / 100} s` : 'duration unknown';
   const layers = (c.layers ?? []).slice(0, 6).map((l) => {
-    const keys = (l.keyframes ?? []).map((k) => `${k.path.split(' > ').at(-1)} ${k.keys} key${k.keys === 1 ? '' : 's'}`);
+    // R4 (H41): a transform property's keyframes with their times, values and interpolation, when the harness read them
+    const keys = (l.keyframes ?? []).map((k) => {
+      const which = TRANSFORM_MATCH[k.match.split('/').at(-1) ?? ''];
+      const t = which ? l.transform?.[which] : undefined;
+      const label = k.path.split(' > ').at(-1) ?? k.path;
+      return t?.keys?.length ? aeKeyedText(label, t) : `${label} ${k.keys} key${k.keys === 1 ? '' : 's'}`;
+    });
     const text = l.text !== undefined ? ` "${l.text.length > 40 ? `${l.text.slice(0, 40)}…` : l.text}"` : '';
-    return `${l.name ?? '(unnamed)'} (${l.kind}${text}${keys.length ? `; ${keys.join(', ')}` : ''})`;
+    const colour = l.color ? ` ${colourText(l.color)}` : '';
+    const whole = typeof l.in_point === 'number' && typeof l.out_point === 'number' && l.in_point <= 0 && typeof c.duration === 'number' && l.out_point >= c.duration;
+    const span = typeof l.in_point === 'number' && typeof l.out_point === 'number' && !whole ? `, ${n3(l.in_point)}–${n3(l.out_point)} s` : '';
+    return `${l.name ?? '(unnamed)'} (${l.kind}${text}${colour}${span}${keys.length ? `; ${keys.join(', ')}` : ''})`;
   });
   const more = (c.layers?.length ?? 0) > 6 ? `, and ${(c.layers?.length ?? 0) - 6} more` : '';
   return `${c.name ?? '(unnamed)'} ${c.width ?? '?'}x${c.height ?? '?'}, ${fps}, ${dur}, ${c.num_layers ?? 0} layer${c.num_layers === 1 ? '' : 's'}${layers.length ? `: ${layers.join(', ')}${more}` : ''}`;
