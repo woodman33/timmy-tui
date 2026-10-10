@@ -70,8 +70,36 @@ export const AE_USAGE = [
   '/ae author <script.jsx> [--name <project>]   After Effects writes a new project: out/ae/<project>-v<N>.aep',
   '/ae edit <project.aep> <script.jsx>          a new version is saved; the project given is never written',
   '/ae inspect <project.aep>                    After Effects reads a project back (its own reader, not an independent one)',
-  '/ae <project.aep> <comp> <output file>       renders an existing project with aerender',
+  '/ae <project.aep> <comp> <output file> [--om <template>]   renders an existing project with aerender',
 ];
+/**
+ * R4 (H41): what /ae's usage says of --om and of the file aerender writes. Template names are After Effects' own; aerender's
+ * output module decides the container, so a file of the output's name with another extension is judged in its place.
+ */
+export const AE_RENDER_NOTES = [
+  '--om <template> is passed to aerender as -OMtemplate <template>: the names are After Effects\' own output module templates, which differ by version and language; Timmy does not check them',
+  'the output module decides the container: when aerender writes the output\'s name with another extension (asked for .mov, it wrote .mp4), that one file, made by the run, is judged in its place',
+];
+
+/** R4 (H41): `/ae <project.aep> <comp> <output file> [--om <template>]`, read; an error says the usage. */
+export function parseAeRenderArgs(words: string[]): { projectFile: string; comp: string; output: string; omTemplate?: string } | { error: string } {
+  const usage = { error: `Usage: ${AE_USAGE[3].replace(/\s{2,}.*$/, '')}` };
+  const pos: string[] = [];
+  let om: string | undefined;
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    if (w === '--om') {
+      om = words[++i];
+      if (om === undefined || !om.trim()) return { error: `--om needs an output module template's name (After Effects' own name, as its Output Module menu shows it). ${usage.error}` };
+    } else if (w.startsWith('--om=')) {
+      om = w.slice('--om='.length);
+      if (!om.trim()) return { error: `--om needs an output module template's name (After Effects' own name, as its Output Module menu shows it). ${usage.error}` };
+    } else if (/^--\S/.test(w)) return { error: `No option ${w}: the render form takes --om <template>. ${usage.error}` };
+    else pos.push(w);
+  }
+  if (pos.length !== 3) return usage;
+  return { projectFile: pos[0], comp: pos[1], output: pos[2], ...(om !== undefined ? { omTemplate: om } : {}) };
+}
 
 // ── finding After Effects and how to ask it ──────────────────────────────────────
 
