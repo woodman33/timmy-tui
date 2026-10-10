@@ -243,7 +243,11 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
 
   // ── adapters
   const nativeRuns = d.nativeRuns?.();
-  for (const r of nativeCapabilityRows(d.env, {}, nativeRuns)) add(r);
+  // R4 (H40): iterate_native (/iterate scad and /iterate freecad as the agent's tool) runs through OpenSCAD and FreeCAD,
+  // so their rows name it, as the recipe's row names iterate_recipe; exercised is still decided by each app's own
+  // sealed run (exercisedBy native:<app>), never by the tool's name.
+  const ITERATED = new Set(['openscad', 'freecad']);
+  for (const r of nativeCapabilityRows(d.env, {}, nativeRuns)) add(ITERATED.has(r.id) ? { ...r, tools: [...(r.tools ?? []), 'iterate_native'] } : r);
   add(recipeCapabilityRow(env));
   add(missionMap === 200
     ? { id: 'mission-map', kind: 'adapter', name: 'Mission Map (timmy map)', rung: 'reachable', detail: 'http://127.0.0.1:4336/' }
