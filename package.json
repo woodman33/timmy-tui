@@ -32,6 +32,7 @@
     "templates/ae-starter/edit.jsx",
     "workers/readback/step_readback.py",
     "workers/readback/blend_readback.py",
+    "workers/readback/video_readback.py",
     "templates/scad-starter/README.md",
     "templates/scad-starter/box.scad",
     "templates/scad-starter/box.params.json",

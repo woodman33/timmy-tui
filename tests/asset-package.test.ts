@@ -12,8 +12,8 @@ import { buildSync, transformSync, type Metafile } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-/** What the package must carry, file for file, as git tracks it. */
-const SHIPPED = ['templates/web-starter', 'templates/c4d-starter', 'workers/look', 'workers/c4d'];
+/** What the package must carry, file for file, as git tracks it. R4 (H41): the readback workers too (STEP, .blend, video). */
+const SHIPPED = ['templates/web-starter', 'templates/c4d-starter', 'workers/look', 'workers/c4d', 'workers/readback'];
 /**
  * TODO(lead): templates/blender-starter and workers/blender (another helper, round R3) ship the same way: each
  * tracked regular file listed by name in package.json "files" (a folder entry would also carry __pycache__).
