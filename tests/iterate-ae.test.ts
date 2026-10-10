@@ -421,6 +421,18 @@ describe.skipIf(!python)('/iterate ae refuses before anything is written (FAKE A
 // ── the flow ────────────────────────────────────────────────────────────────────
 
 describe.skipIf(!python)('/iterate ae end to end (FAKE agent, FAKE After Effects and aerender, FAKE ffprobe and ffmpeg; the real readback worker)', () => {
+  it('R4 (H46): aerender\'s own log folder beside the project (FAKE_AERENDER_LOGS=1) is named in the record\'s render, not judged', async () => {
+    const { ws, sealed } = make({ env: { FAKE_AERENDER_LOGS: '1' } });
+    const id = flowIdIn(text(await ws.iterate(`ae author.jsx "further right ${RIGHTER}"`)));
+    await until(ended(sealed, id), 90000);
+    const rec = recordOf(id);
+    expect(rec).toMatchObject({ outcome: 'succeeded', ended_in: 'readback', render: { outcome: 'ok', log_folders: ['out/ae/author-v1.aep Logs/'] } });
+    expect(rec.render!.why).toContain('; out/ae/author-v1.aep Logs/: aerender\'s own log folder (not judged)');
+    expect(fs.statSync(path.join(root, 'out', 'ae', 'author-v1.aep Logs')).isDirectory()).toBe(true);
+    // The render's own receipt names it too; nothing else about the flow changes.
+    expect(sealed.find((r) => r.kind === 'native' && (r.native as { app?: string } | undefined)?.app === 'aerender')).toMatchObject({ native: { log_folders: ['out/ae/author-v1.aep Logs/'] } });
+  }, 120000);
+
   it('matches: the agent changes the script, it compiles, After Effects runs it, aerender renders it, the render read back matches After Effects\' report; before and after; record, receipts, list, board', async () => {
     const { ws, notes, sealed } = make();
     // An earlier /ae author run of the same script, judged ok: the "before".

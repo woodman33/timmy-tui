@@ -771,6 +771,8 @@ export interface AeFlowRecord {
     outcome?: 'ok' | 'failed' | 'unknown'; why?: string;
     file?: { path: string; sha256: string; bytes?: number; instead: boolean };
     log?: string; failure_files?: string[]; receipt?: string; error?: string;
+    /** R4 (H46): aerender's own log folders this run made beside the project ("<project file> Logs/"): named, not judged */
+    log_folders?: string[];
   };
   readback?: {
     job?: string;

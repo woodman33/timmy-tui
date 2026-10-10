@@ -23,6 +23,8 @@
 // tests/fixtures/fake-ffprobe.mjs and fake-ffmpeg.mjs read as if it were a movie. Text layers are not drawn.
 // FAKE_AERENDER_SHIFT=<pixels> moves every rectangle that many pixels to the right of where the project puts it
 // (a render that disagrees with its project, for the readback's "differs").
+// R4 (H46): FAKE_AERENDER_LOGS=1 also writes a FAKE log into "<project file name> Logs/" beside the project (making the
+// folder when it is not there), as aerender was seen to on the operator's Mac (ledger row 153).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -44,6 +46,11 @@ if (!project || !existsSync(project)) {
   process.exit(1);
 }
 if (mode === 'error') { process.stderr.write('aerender ERROR: render failed (fake)\n'); process.exit(1); }
+if (process.env.FAKE_AERENDER_LOGS === '1') {
+  const logs = `${project} Logs`;
+  mkdirSync(logs, { recursive: true });
+  writeFileSync(path.join(logs, `${path.basename(project)} RenderLog.txt`), 'FAKE render log (fake-aerender; not aerender)\n');
+}
 
 /** What to write: a FAKE video of the comp when the project is a FAKE project, else a few bytes. */
 function body() {

@@ -547,6 +547,8 @@ export class AeFlows {
     const j = judgeNativeJob(done, spec);
     r.outcome = j.outcome;
     r.why = this.d.scrub(j.why, f.root);
+    // R4 (H46): aerender's own log folder this run made beside the project, named (not judged) rather than left unexplained.
+    if (j.logFolders?.length) r.log_folders = [...j.logFolders];
     const file = j.instead?.written ?? requested;
     const check = j.files.find((x) => x.path === file);
     if (j.outcome !== 'ok' || !check?.sha256) {

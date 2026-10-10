@@ -46,7 +46,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  accessSync, appendFileSync, constants, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync,
+  accessSync, appendFileSync, constants, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
 import { packagedPath } from '../utils/asset-dirs.js';
@@ -275,8 +275,21 @@ export interface NativeMeta {
   submittedMs?: number;
   /** R4 (H41): aerender: its output's folder, listed at submission for files of the same name with other extensions */
   siblings?: OutputSiblings;
+  /** R4 (H46): aerender: its own log folder beside the project ("<project file> Logs"), and whether it was there at submission */
+  logs?: AerenderLogs;
 }
 export interface NativeJobSpec extends JobSpec { native: NativeMeta }
+
+/** R4 (H46): aerender's own log folder: where it writes it (relative to the project) and whether it was there at submission. */
+export interface AerenderLogs { folder: string; there: boolean }
+/** R4 (H46): what such a folder is, said with it wherever it is named. */
+export const AERENDER_LOGS_NOTE = 'aerender\'s own log folder (not judged)';
+/** R4 (H46): aerender writes its logs into "<project file name> Logs" beside the project it renders (seen on the operator's Mac, ledger row 153). */
+export function aerenderLogFolder(projectRel: string): string {
+  const dir = path.posix.dirname(projectRel);
+  const name = `${path.posix.basename(projectRel)} Logs`;
+  return dir === '.' ? name : `${dir}/${name}`;
+}
 
 /**
  * R4 (H41): aerender's output module decides the container, and aerender gives the file that container's extension:
@@ -443,6 +456,8 @@ export interface NativeRunJob {
   frames?: { start?: number; end?: number };
   /** R4 (H41): aerender: its output's folder was listed for files of the same name with other extensions */
   siblings?: OutputSiblings;
+  /** R4 (H46): aerender: its own log folder beside the project, and whether it was there at submission */
+  logs?: AerenderLogs;
   started_at: string;
   timeout_ms: number;
 }
@@ -461,6 +476,8 @@ export interface NativeVerdictLine {
   source?: SourceCheck;
   /** R4 (H41): aerender wrote another file than the one asked for */
   instead?: AerenderInstead;
+  /** R4 (H46): aerender's own log folders this run created (AERENDER_LOGS_NOTE): named, never judged */
+  logFolders?: string[];
 }
 
 const runDir = (root: string, run: string): string => path.join(root, NATIVE_RUNS_DIR, run);
@@ -479,7 +496,7 @@ export function writeSubmission(spec: NativeJobSpec): void {
     ...(m.result ? { result: relTo(m.root, m.result) } : {}),
     ...(m.output ? { output: relTo(m.root, m.output) } : {}),
     expect: m.expect, pre: m.pre ?? {}, ...(m.inventory ? { inventory: m.inventory } : {}), ...(m.frames ? { frames: m.frames } : {}),
-    ...(m.siblings ? { siblings: m.siblings } : {}),
+    ...(m.siblings ? { siblings: m.siblings } : {}), ...(m.logs ? { logs: m.logs } : {}),
     started_at: new Date(m.submittedMs ?? Date.now()).toISOString(), timeout_ms: spec.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   };
   writeFileSync(path.join(dir, 'job.json'), `${JSON.stringify(job, null, 2)}\n`, { flag: 'wx' });
@@ -507,6 +524,7 @@ function appendVerdict(dir: string, j: NativeJudgement, jobId?: string): void {
     const line: NativeVerdictLine = {
       judged_at: new Date().toISOString(), ...(jobId ? { job: jobId } : {}), outcome: j.outcome, why: j.why, exit: j.exit, files: j.files,
       ...(j.checked ? { checked: j.checked } : {}), ...(j.source ? { source: j.source } : {}), ...(j.instead ? { instead: j.instead } : {}),
+      ...(j.logFolders ? { logFolders: j.logFolders } : {}),
     };
     appendFileSync(path.join(dir, 'verdicts.jsonl'), `${JSON.stringify(line)}\n`);
   } catch { /* the judgement stands without its record; a missing folder is not a verdict */ }
@@ -791,6 +809,10 @@ export function aerenderJob(input: AerenderJobInput): NativeJobSpec {
   // R4 (H41): the files of the same name with other extensions there now, recorded with the output's own state.
   const siblings = outputSiblings(output.rel);
   const pre = preStates(root, [output.rel, ...(siblings ? siblingNames(root, siblings, output.rel) : [])]);
+  // R4 (H46): aerender's own log folder beside the project: whether it is there now, so one this run makes is told apart.
+  const logFolder = aerenderLogFolder(project.rel);
+  let logsThere = false;
+  try { lstatSync(path.join(root, ...logFolder.split('/'))); logsThere = true; } catch { /* not there */ }
   const spec: NativeJobSpec = {
     kind: 'task', label: input.label ?? `After Effects · ${project.rel} › ${input.comp}`, project: input.project, root,
     command: bin,
@@ -806,6 +828,7 @@ export function aerenderJob(input: AerenderJobInput): NativeJobSpec {
     native: {
       app: 'aerender', root, run, record: runDir(root, run), output: output.path, expect: [output.rel],
       input: { path: project.rel, sha256: project.sha256 }, pre, ...(frames ? { frames } : {}), ...(siblings ? { siblings } : {}), submittedMs,
+      logs: { folder: logFolder, there: logsThere },
     },
   };
   writeSubmission(spec);
@@ -884,6 +907,8 @@ export interface NativeJudgement {
    * extensions in that folder: `written` when exactly one (it is judged as the output), else `candidates`, all of them.
    */
   instead?: AerenderInstead;
+  /** R4 (H46): aerender's own log folders this run created beside the project, each named (AERENDER_LOGS_NOTE), never judged */
+  logFolders?: string[];
 }
 /** R4 (H41): what aerender wrote in place of the file it was asked for (see NativeJudgement.instead). */
 export interface AerenderInstead {
@@ -1255,13 +1280,33 @@ function siblingsOf(v: unknown, within: (rel: string) => string): OutputSiblings
 
 function judgeMeta(x: ExitInfo, meta: NativeMeta): NativeJudgement {
   const opts = optionsOf(meta);
-  if (meta.result === undefined || x.live) return judgeExit(x, undefined, opts);
+  if (x.live) return judgeExit(x, undefined, opts);
+  if (meta.result === undefined) return withAerenderLogs(judgeExit(x, undefined, opts), meta);
   const read = readNativeResult(meta.result);
   if (read.state === 'unreadable') {
     const base = judgeExit(x, undefined, opts);
     return { ...base, outcome: 'unknown', why: `the result file cannot be read as JSON (${read.error}); ${NATIVE_APPS[meta.app].program} ${x.text}` };
   }
   return judgeExit(x, read.state === 'read' ? read.data : undefined, opts);
+}
+
+/**
+ * R4 (H46): aerender writes its logs into a folder of its own beside the project it renders ("<project file> Logs").
+ * One this run created (not there at submission; in a record from before that was noted, a folder born since the
+ * submission) is named after the judgement, as aerender's own log folder (not judged), instead of being left
+ * unexplained. It decides nothing.
+ */
+function withAerenderLogs(j: NativeJudgement, meta: NativeMeta): NativeJudgement {
+  if (meta.app !== 'aerender' || !meta.input) return j;
+  const folder = meta.logs?.folder ?? aerenderLogFolder(meta.input.path);
+  let st;
+  try { st = lstatSync(path.join(meta.root, ...folder.split('/'))); } catch { return j; }
+  if (!st.isDirectory()) return j;
+  const since = meta.submittedMs ?? Number.NaN;
+  const created = meta.logs ? !meta.logs.there : st.birthtimeMs > 0 && Number.isFinite(since) && st.birthtimeMs >= since - MTIME_SLACK_MS;
+  if (!created) return j;
+  const shown = `${folder}/`;
+  return { ...j, why: `${j.why}; ${shown}: ${AERENDER_LOGS_NOTE}`, logFolders: [shown] };
 }
 
 /**
@@ -1306,11 +1351,13 @@ export function reconcileNative(root: string, run: string, opts: { job?: JobReco
   const inventory = j.inventory && Array.isArray(j.inventory.folders) && j.inventory.folders.every((f) => typeof f === 'string') ? j.inventory : undefined;
   // R4 (H41): aerender's sibling listing, its folder checked to lead inside the project as every other name is
   const siblings = j.app === 'aerender' ? siblingsOf(j.siblings, within) : undefined;
+  // R4 (H46): aerender's log folder as the record noted it, leading inside the project as every other name does
+  const logs = j.app === 'aerender' && j.logs && typeof j.logs.folder === 'string' && typeof j.logs.there === 'boolean' ? (within(j.logs.folder), { folder: j.logs.folder, there: j.logs.there }) : undefined;
   const meta: NativeMeta = {
     app: j.app, root: base, run, record: rec.dir, expect, pre: j.pre ?? {}, submittedMs: started,
     ...(j.result ? { result: within(j.result) } : {}), ...(j.output ? { output: within(j.output) } : {}),
     ...(j.input ? { input: j.input } : {}), ...(copy ? { copy } : {}), ...(inventory ? { inventory } : {}), ...(j.frames ? { frames: j.frames } : {}),
-    ...(siblings ? { siblings } : {}),
+    ...(siblings ? { siblings } : {}), ...(logs ? { logs } : {}),
   };
   const job = opts.job ?? (rec.started && opts.findJob ? opts.findJob(rec.started.job) : undefined);
   const x = job ? exitOf(job) : orphanExit('ended without a recorded exit status (reconciled from its record after a restart)', started);
@@ -1333,6 +1380,8 @@ export function nativeReceiptFields(app: NativeApp, j: NativeJudgement): {
     blender_version?: unknown; run?: string; input?: { path: string; sha256: string }; checked?: SequenceCheck[]; source?: SourceCheck;
     /** R4 (H41): aerender wrote another file than the one asked for (the same name, another extension) */
     instead?: AerenderInstead;
+    /** R4 (H46): aerender's own log folders this run created, named and not judged */
+    log_folders?: string[];
   };
 } {
   return {
@@ -1344,6 +1393,7 @@ export function nativeReceiptFields(app: NativeApp, j: NativeJudgement): {
       ...(j.run ? { run: j.run } : {}), ...(j.input ? { input: { ...j.input } } : {}), ...(j.checked ? { checked: j.checked.map((c) => ({ ...c })) } : {}),
       ...(j.source ? { source: { ...j.source, established_by: [...j.source.established_by] } } : {}),
       ...(j.instead ? { instead: { ...j.instead, ...(j.instead.candidates ? { candidates: [...j.instead.candidates] } : {}) } } : {}),
+      ...(j.logFolders ? { log_folders: [...j.logFolders] } : {}),
     },
   };
 }
