@@ -22,6 +22,15 @@ Knobs for the tests (each a FAKE fault, named so where a test sets it):
                              otherwise than the first pass reported it
   UNREAL_STUB_LOAD_DROP      load_level leaves the last actor (by name) out
   UNREAL_STUB_SAVE_FAIL      save_current_level returns False
+  UNREAL_STUB_COMMANDLET     set by the FAKE UnrealEditor-Cmd when it runs the pythonscript commandlet: then
+                             spawn_actor_from_object gives no actor and logs Unreal's warning, as Unreal Engine 5.8.2's
+                             commandlet did on the operator's Mac (the run r21 and H72's first Mac run), while
+                             spawn_actor_from_class gives one (H72's first Mac run). Reproduced here, not explained.
+
+R4 (H72): EditorActorSubsystem.spawn_actor_from_class(actor_class, location, rotation, transient) spawns a StaticMeshActor
+with no mesh (its label the class's name, as Unreal labels a spawned actor), and its static_mesh_component's
+set_static_mesh(new_mesh) gives it one (True; False for anything but a StaticMesh). An actor with no mesh has bounds of
+zero extent at its location.
 """
 import json
 import math
@@ -104,6 +113,13 @@ class _Component(object):
             return self._actor._mesh
         raise Exception("Failed to find property '%s' on 'StaticMeshComponent' (stand-in unreal)" % name)
 
+    def set_static_mesh(self, new_mesh):
+        """As Epic documents StaticMeshComponent.set_static_mesh: True when the mesh was set."""
+        if not isinstance(new_mesh, StaticMesh):
+            return False
+        self._actor._mesh = new_mesh
+        return True
+
 
 def _rotation_rows(pitch, yaw, roll):
     """Unreal's rotation matrix for a rotator (FRotationMatrix): rows are the rotated X, Y and Z axes."""
@@ -150,6 +166,8 @@ class StaticMeshActor(object):
         self._scale = [float(new_scale3d.x), float(new_scale3d.y), float(new_scale3d.z)]
 
     def get_actor_bounds(self, only_colliding_components, include_from_child_actors=False):
+        if self._mesh is None:
+            return Vector(*self._location), Vector(0.0, 0.0, 0.0)
         lo, hi = self._mesh._box
         rows = _rotation_rows(*self._rotation)
         corners = []
@@ -214,7 +232,7 @@ def _next_name(class_name):
 
 def _write_level(path):
     doc = {"stand_in": _STAND_IN, "asset": _state["asset"], "actors": [
-        {"name": a._name, "label": a._label, "class": a._CLASS.get_path_name(), "mesh": a._mesh.get_path_name(),
+        {"name": a._name, "label": a._label, "class": a._CLASS.get_path_name(), "mesh": a._mesh.get_path_name() if a._mesh is not None else None,
          "location": a._location, "rotation": a._rotation, "scale": a._scale}
         for a in sorted(_state["actors"], key=lambda a: a._name)]}
     folder = os.path.dirname(path)
@@ -251,7 +269,7 @@ class LevelEditorSubsystem(object):
             return False
         actors = []
         for a in doc.get("actors", []):
-            mesh = load_asset(a["mesh"])
+            mesh = load_asset(a["mesh"]) if a.get("mesh") else None
             actors.append(StaticMeshActor(a["name"], mesh, a["location"], a["rotation"], a["scale"], a["label"]))
         actors.sort(key=lambda a: a._name)
         shift = float(os.environ.get("UNREAL_STUB_LOAD_SHIFT_CM") or 0)
@@ -280,9 +298,26 @@ class EditorActorSubsystem(object):
             raise RuntimeError("stand-in unreal: no level is open")
         if not isinstance(object_to_use, StaticMesh):
             raise TypeError("stand-in unreal: spawn_actor_from_object takes a StaticMesh here")
+        if os.environ.get("UNREAL_STUB_COMMANDLET"):
+            # what Unreal Engine 5.8.2's pythonscript commandlet did on the operator's Mac (r21; H72's first Mac run)
+            _say("LogUtils: Warning", "SpawnActorFromObject. No actor was spawned.")
+            return None
         rot = rotation if rotation is not None else Rotator()
         actor = StaticMeshActor(_next_name("StaticMeshActor"), object_to_use, (location.x, location.y, location.z),
                                 (rot.pitch, rot.yaw, rot.roll), (1.0, 1.0, 1.0), object_to_use.get_name())
+        _state["actors"].append(actor)
+        return actor
+
+    def spawn_actor_from_class(self, actor_class, location, rotation=None, transient=False):
+        """As Epic documents EditorActorSubsystem.spawn_actor_from_class: an actor of the class, in the open level. Here
+        only StaticMeshActor, with no mesh until its component's set_static_mesh; labelled with its class's name."""
+        if _state["asset"] is None:
+            raise RuntimeError("stand-in unreal: no level is open")
+        if actor_class is not StaticMeshActor:
+            raise TypeError("stand-in unreal: spawn_actor_from_class takes StaticMeshActor here")
+        rot = rotation if rotation is not None else Rotator()
+        actor = StaticMeshActor(_next_name("StaticMeshActor"), None, (location.x, location.y, location.z),
+                                (rot.pitch, rot.yaw, rot.roll), (1.0, 1.0, 1.0), "StaticMeshActor")
         _state["actors"].append(actor)
         return actor
 

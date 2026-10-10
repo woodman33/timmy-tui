@@ -5,12 +5,34 @@
  * the run and classified after it, and a result file that decides the run, never Unreal's exit status.
  *
  * How it runs. UnrealEditor-Cmd opens the project and its pythonscript commandlet runs Timmy's harness,
- * workers/unreal/timmy_unreal.py (UNREAL_FLAGS below holds the command line, in one place):
- *     UnrealEditor-Cmd <project.uproject> -run=pythonscript -script=<harness> -unattended -nullrhi -nosplash -nopause -stdout -FullStdOutLogOutput
- * The harness runs the copy of the user's script (TIMMY_SCRIPT) inside the same Python, so the script's own path never goes
- * through Unreal's command line. Unreal reads the first word of -script= as the file to run (a path with a space is cut
- * there), so the harness's own folder must hold no space or quote in its path: when it does, nothing starts and the line
- * says so (TIMMY_UNREAL_LIB names another folder, a copy of workers/unreal).
+ * workers/unreal/timmy_unreal.py (unrealArgs builds the command line, for both passes, in one place: UNREAL_FLAGS, then
+ * unrealPlace's flags):
+ *     UnrealEditor-Cmd <project.uproject> -run=pythonscript -script=<harness> -unattended -nullrhi -nosplash -nopause -stdout
+ *       -FullStdOutLogOutput -DDC=InstalledNoZenLocalFallback -LocalDataCachePath=<the .uproject's folder>/Saved/DerivedDataCache
+ *       -abslog=<the .uproject's folder>/Saved/Logs/Timmy-<run>.log
+ * with HOME and CFFIXED_USER_HOME set to Timmy's native home when it has one (TIMMY_NATIVE_HOME). The harness runs the copy
+ * of the user's script (TIMMY_SCRIPT) inside the same Python, so the script's own path never goes through Unreal's command
+ * line. The harness's own folder must hold no space or quote in its path (H63 read that Unreal takes the first word of
+ * -script=): when it does, nothing starts and the line says so (TIMMY_UNREAL_LIB names another folder, a copy of
+ * workers/unreal). The project's own paths may hold spaces: on the Mac, Unreal quoted them itself when it rebuilt its
+ * command line ("<…>/grid 22/TimmyStarter.uproject", -LocalDataCachePath="<…>/grid 22/…") and found the cache folder whole.
+ *
+ * What was observed on the operator's Mac (Unreal Engine 5.8.2-56702186, macOS 26.6.2), through a driver giving Unreal this
+ * module's exact command line and environment, not through Timmy (R4 H72, four runs, evidence kept in the Mac's sandbox
+ * folder): the commandlet route is the one that works headless. EditorActorSubsystem.spawn_actor_from_object gave no
+ * actor in the commandlet ("SpawnActorFromObject. No actor was spawned.", as in the run r21), while
+ * spawn_actor_from_class(StaticMeshActor) and the component's set_static_mesh gave the actor, its mesh and its bounds; so
+ * the harness spawns that way. The starter then built /Game/Timmy/TimmyGrid with its 9 cubes in 15 s (the script's own
+ * checks 9 of 9), a second commandlet process read it back with the same bytes and the same 9 actors (Timmy's comparison:
+ * agrees, every difference 0), and run again it opened the level, replaced its own cubes and saved. The full editor
+ * (-ExecutePythonScript=, which the Python plugin refuses in a commandlet and runs once the editor is ready, then quits)
+ * was not run: it opens the editor and its window, and the commandlet did what was needed. With the flags and environment
+ * above, Unreal kept its derived-data cache in the project ("Local: Found command line override LocalDataCachePath=…",
+ * "Using data cache path …: Writable"), started no Zen, wrote its log where -abslog said, and put its user files (config,
+ * UnrealBuildTool's settings, its project log folder, the trace server's store) in the sandbox home; the operator's
+ * ~/Library/Application Support/Epic and ~/Library/Logs/Unreal Engine changed not at all in any of the four runs. After every
+ * job Timmy checks Unreal's user folders of the account's real home for files changed during it (src/native/unreal-outside.ts)
+ * and says what it found.
  *
  * What the result holds is the harness's report (Unreal's own numbers, in the process that built the level): each level
  * the script saved, with every actor in it as it was saved (class, label, location, rotation, scale and bounds), the
@@ -20,12 +42,16 @@
  * alone is never trusted: a second Unreal process opens each saved level and lists its actors again
  * (src/native/unreal-readback.ts), and an operation's outcome is that readback's (src/ops/outcome.ts).
  *
- * Nothing here has run against Unreal Engine: tests/native-unreal.test.ts runs the job, the harness, the starter and the
- * readback with a FAKE UnrealEditor-Cmd (tests/fixtures/fake-unreal.mjs) and a stand-in `unreal` module
- * (tests/fixtures/unreal-stub). The first real run is the operator's, on the Mac.
+ * A failed run's result still names the files the harness saw written (r21: the level saved before the spawn failed); each
+ * is checked against disk and recorded as written by the failed run (UnrealJudgement.failedWrites), never as an output.
+ *
+ * Tests: tests/native-unreal.test.ts runs the job, the harness, the starter and the readback with a FAKE UnrealEditor-Cmd
+ * (tests/fixtures/fake-unreal.mjs) and a stand-in `unreal` module (tests/fixtures/unreal-stub), which reproduce what the
+ * Mac runs showed (the commandlet's spawn_actor_from_object giving no actor; user files following CFFIXED_USER_HOME, never
+ * HOME). Timmy itself (the REPL, `timmy act`, the receipts) has not run Unreal yet: that is the next run on the Mac.
  */
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { JobRecord } from '../jobs/index.js';
 import { resolveInside } from '../project/index.js';
@@ -35,7 +61,8 @@ import {
   judgeNativeJob, locateNative, NATIVE_APPS, NATIVE_RUNS_DIR, NativeNotFound, nativeReceiptFields, preStates, readNativeRecord, readNativeResult,
   sha256File, writeSubmission, type FinderSeams, type NativeFileCheck, type NativeJobSpec, type NativeJudgement, type NativeMeta, type NativeVerdictLine,
 } from './index.js';
-import { inventoryFolders, keepScript, OUT_FOLDER, readSubmittedScript, scriptEnv } from './provenance.js';
+import { classifyOutput, inventoryFolders, keepScript, OUT_FOLDER, readSubmittedScript, scriptEnv, stateBefore, type OutputChange } from './provenance.js';
+import { checkUnrealOutsideOnce, UNREAL_OUTSIDE_SLACK_MS, unrealOutsideEnv, unrealOutsideScope, unrealOutsideWords, type UnrealOutsideCheck } from './unreal-outside.js';
 
 type Env = Record<string, string | undefined>;
 type Line = Segment[];
@@ -45,23 +72,111 @@ const RUN_DIR = NATIVE_RUNS_DIR.split(path.sep).join('/');
 const LIVE: ReadonlySet<string> = new Set(['queued', 'running', 'ready']);
 
 /**
- * Unreal's command line after the project, in one place. What each word does, and where it was checked (the order asked
- * for a check against Epic's documentation where the tools allow; Epic's own command-line reference page did not answer
- * here, so some are checked only against copies of it and forum use):
+ * Unreal's command line after the project, in one place. What each word does, and where it was checked:
  *   -run=pythonscript     the Python Editor Script Plugin's commandlet: Epic's UE 5.8 release notes show
- *                         `UnrealEditor.exe <project> -run=pythonscript -script="<file>.py"`
- *   -script=<file>        the Python file that commandlet runs (the same release notes)
- *   -unattended           "Set as unattended. Disable anything requiring feedback from user." (Epic's command-line list, as
- *                         a community copy of it quotes it)
- *   -nullrhi              no rendering device, so no display is needed (forum use; not found in Epic's pages reached)
- *   -nosplash             "Disable use of splash image when loading the game." (the same copy of Epic's list)
- *   -nopause              "Close the log window automatically on exit." (the same copy)
- *   -stdout               the log written to standard output (forum use; not found in Epic's pages reached)
- *   -FullStdOutLogOutput  every log line to standard output: NOT CHECKED (not found in any page reached); kept as ordered
+ *                         `UnrealEditor.exe <project> -run=pythonscript -script="<file>.py"`; Epic's "Scripting the Unreal
+ *                         Editor Using Python" (5.8): it "can even run your scripts in headless mode without opening the
+ *                         Editor UI" and "does not automatically load levels"
+ *   -script=<file>        the Python file that commandlet runs (the same; the plugin's own PythonScriptCommandlet.cpp, read in
+ *                         the installed 5.8.2 engine, takes a quoted value or the first token)
+ *   -unattended           "Run in unattended mode." (Epic's UE 5.8 command-line arguments reference)
+ *   -nullrhi              "Use null rendering hardware interface to run UE headless." (the same reference)
+ *   -nosplash             "Disable splash screen." (the same reference)
+ *   -nopause              "Close the log window automatically on exit." (a community copy of Epic's older list; not in the
+ *                         part of the 5.8 reference reached)
+ *   -stdout               "Use stdout for log output." (the 5.8 reference)
+ *   -FullStdOutLogOutput  every log line to standard output: the 5.8 reference lists "fullstdoutlogoutputs" with no
+ *                         description; on the Mac (5.8.2), with -stdout and this spelling, the whole log reached standard
+ *                         output (about as many lines as the -abslog file); which of the two did that was not tested
+ * unrealPlace adds -DDC=, -LocalDataCachePath= and -abslog= (see there, each with its source).
  */
 export const UNREAL_FLAGS: readonly string[] = ['-unattended', '-nullrhi', '-nosplash', '-nopause', '-stdout', '-FullStdOutLogOutput'];
-/** UnrealEditor-Cmd's arguments: the project, the commandlet, the file it runs, the flags. */
-export const unrealArgs = (projectFile: string, script: string): string[] => [projectFile, '-run=pythonscript', `-script=${script}`, ...UNREAL_FLAGS];
+/**
+ * UnrealEditor-Cmd's arguments: the project, the commandlet, the file it runs, the flags, then where Unreal keeps its
+ * cache and its log (`place`: unrealPlace's flags). The one builder of Unreal's command line, for both passes.
+ */
+export const unrealArgs = (projectFile: string, script: string, place: readonly string[] = []): string[] => [projectFile, '-run=pythonscript', `-script=${script}`, ...UNREAL_FLAGS, ...place];
+
+// ── where Unreal writes besides the project's own files (R4, H72) ───────────────
+
+/**
+ * The derived-data cache graph Timmy names (-DDC=): InstalledNoZenLocalFallback, defined by the engine itself in
+ * Engine/Config/BaseEngine.ini [DerivedDataCacheGraphs] (UE 5.8.2, read on the operator's Mac): the installed engine's
+ * graph, (ProjectPak, InstalledProjectPak, EnginePak=InstalledEnginePak, Local=InstalledLocal, ZenShared, Shared, Cloud),
+ * without ZenLocal, so Unreal starts no zenserver and keeps no Zen data. That file's own comment: "A different graph can be
+ * specified on the command line: -DDC=GraphName"; Epic's "Using Derived Data Cache in Unreal Engine" (5.8) runs the editor
+ * with "-ddc=YourDDCSettings". Not overriding Zen's DataPath instead is deliberate: when Zen's default data path changes,
+ * Unreal moves to the new one and deletes the old (a thread on Epic's forum, June 2026, quotes Unreal's log line "Migrating
+ * default data path from '…' to '…'. Old location will be deleted.", and Epic's answer there, 2026-06-12, calls it expected),
+ * which with the operator's own settings could delete the operator's own Zen data.
+ */
+export const UNREAL_DDC_GRAPH = 'InstalledNoZenLocalFallback';
+/**
+ * The derived-data cache, beside the .uproject: -LocalDataCachePath=, the Local store's CommandLineOverride in
+ * BaseEngine.ini [DerivedDataCacheStores] (Local=(Type=FileSystem, ..., CommandLineOverride=LocalDataCachePath)).
+ */
+export const UNREAL_CACHE = 'Saved/DerivedDataCache';
+/** Unreal's log, beside the .uproject: -abslog= ("ABSLOG: Absolute log filename", Epic's 5.8 command-line reference). */
+export const UNREAL_LOGS = 'Saved/Logs';
+
+/** Where one Unreal job keeps what it writes besides the project's own files: its flags, its environment, in words. */
+export interface UnrealPlace {
+  /** after UNREAL_FLAGS: -DDC=<graph> -LocalDataCachePath=<the cache> -abslog=<the log> */
+  flags: string[];
+  /** HOME and CFFIXED_USER_HOME set to Timmy's native home, when Timmy has one (TIMMY_NATIVE_HOME); else nothing */
+  env: Record<string, string>;
+  /** the cache folder and the log file, relative to the project, and their full paths */
+  cache: string;
+  log: string;
+  abs: { cache: string; log: string };
+  /** Unreal's user folders go to Timmy's native home (TIMMY_NATIVE_HOME), not this account's own home */
+  nativeHome: boolean;
+}
+
+/**
+ * Where an Unreal job (the first pass or a readback) keeps its writes, in one place: its derived-data cache in
+ * <the .uproject's folder>/Saved/DerivedDataCache, no Zen (UNREAL_DDC_GRAPH), its log in <…>/Saved/Logs/<logName>, and, when
+ * Timmy has a native home (TIMMY_NATIVE_HOME: a sandboxed Timmy), Unreal's user folders in that home. Unreal on macOS finds
+ * its user folders (~/Library/Application Support/Epic: its user config, and the derived-data cache and Zen data by
+ * default; ~/Library/Logs/Unreal Engine: its project log folder) through CoreFoundation, which ignores HOME: the Mac run
+ * r21 wrote 152 files into the operator's own Library with HOME set to the sandbox. CoreFoundation honours
+ * CFFIXED_USER_HOME instead (_CFCopyHomeDirURLForUser, Apple's CF sources, unless the process is setuid): on the Mac (macOS
+ * 26.6.2) NSHomeDirectory and NSSearchPathForDirectoriesInDomains followed it and not HOME, and with both set (H72's Mac
+ * runs, UE 5.8.2) Unreal's Paths named the sandbox home for its user, engine-user and log folders and the operator's home
+ * folders changed not at all. HOME stays set too: Unreal's trace server keeps its store under HOME.
+ */
+export function unrealPlace(root: string, projectFile: string, logName: string, env: Env = process.env): UnrealPlace {
+  const dir = path.dirname(projectFile);
+  const cache = path.join(dir, ...UNREAL_CACHE.split('/'));
+  const log = path.join(dir, ...UNREAL_LOGS.split('/'), logName);
+  const named = env.TIMMY_NATIVE_HOME?.trim();
+  const home = named ? path.resolve(named) : undefined;
+  return {
+    flags: [`-DDC=${UNREAL_DDC_GRAPH}`, `-LocalDataCachePath=${cache}`, `-abslog=${log}`],
+    env: home ? { HOME: home, CFFIXED_USER_HOME: home } : {},
+    cache: relTo(root, cache), log: relTo(root, log), abs: { cache, log }, nativeHome: Boolean(home),
+  };
+}
+
+/**
+ * Makes the cache's and the log's folders before Unreal starts (the Local store is configured PromptIfMissing=true:
+ * Unreal warns when its folder is missing), each checked to lead inside the project; throws (nothing starts) when not.
+ */
+export function makeUnrealPlace(root: string, place: UnrealPlace): void {
+  for (const rel of [place.cache, path.posix.dirname(place.log)]) {
+    const at = resolveInside(root, rel);
+    if ('error' in at) throw new Error(`Unreal's ${rel === place.cache ? 'cache folder' : 'log folder'} ${rel} does not lead inside the project (${at.error}); nothing started`);
+    mkdirSync(at.path, { recursive: true });
+  }
+}
+
+/** The words for where an Unreal job keeps its writes (said where it starts). */
+export function unrealPlaceWords(place: { cache: string; log: string; nativeHome?: boolean; native_home?: boolean }, sep: string): string {
+  const native = place.nativeHome ?? place.native_home ?? false;
+  return `${place.cache} (derived data; no Zen: its local store is not used)${sep}log ${place.log}${sep}${native
+    ? 'Unreal\'s user folders in Timmy\'s native home (TIMMY_NATIVE_HOME)'
+    : 'Unreal\'s user folders in this account\'s own home (TIMMY_NATIVE_HOME would keep them out of it)'}`;
+}
 
 /** The harness Unreal runs, and the second pass's worker, both in workers/unreal. */
 export const UNREAL_HARNESS = 'timmy_unreal.py';
@@ -148,8 +263,13 @@ export interface UnrealRunMeta {
   harness: { file: string; sha256: string };
   /** the script's own arguments (TIMMY_SCRIPT_ARGS) */
   args: string[];
-  /** Unreal's command line after the -script= argument, as run */
+  /** Unreal's fixed flags after the -script= argument (UNREAL_FLAGS); R4 (H72): `place` says the rest */
   flags: string[];
+  /**
+   * R4 (H72): where this run's Unreal kept its cache and its log (relative to the project), the cache graph it was given,
+   * and whether its user folders went to Timmy's native home (never that home's path). Absent in a record from before.
+   */
+  place?: { cache: string; log: string; ddc: string; native_home: boolean };
 }
 export interface UnrealJobSpec extends NativeJobSpec { unreal: UnrealRunMeta }
 
@@ -165,10 +285,14 @@ function inside(root: string, rel: string): { path: string; rel: string } {
   if ('error' in at) throw new Error(at.error);
   return at;
 }
-/** As for the other native apps: TIMMY_NATIVE_HOME names the home that holds the app's settings (a sandboxed Timmy). */
-function nativeHome(extra?: NodeJS.ProcessEnv): { HOME?: string } {
-  const home = extra?.TIMMY_NATIVE_HOME ?? process.env.TIMMY_NATIVE_HOME;
-  return home ? { HOME: home } : {};
+/**
+ * As for the other native apps, TIMMY_NATIVE_HOME names the home that holds the app's settings (a sandboxed Timmy): from
+ * the job's own environment, then the finder's, then this process's. R4 (H72): HOME alone did not keep Unreal there (r21);
+ * unrealPlace sets CFFIXED_USER_HOME beside it.
+ */
+function homeEnv(input: { env?: NodeJS.ProcessEnv; findEnv?: Env }): Env {
+  const home = input.env?.TIMMY_NATIVE_HOME ?? input.findEnv?.TIMMY_NATIVE_HOME ?? process.env.TIMMY_NATIVE_HOME;
+  return home ? { TIMMY_NATIVE_HOME: home } : {};
 }
 function findProgram(input: UnrealJobInput): string {
   if (input.bin) return input.bin;
@@ -219,18 +343,22 @@ export function unrealJob(input: UnrealJobInput): UnrealJobSpec {
   const expect = (input.expect ?? []).map((rel) => inside(root, rel).rel);
   const content = contentFolder(projectAt.rel);
   const watch = [...new Set([content, OUT_FOLDER])];
+  // R4 (H72): Unreal's cache and log beside the .uproject, no Zen, its user folders in Timmy's native home when it has one
+  const place = unrealPlace(root, projectAt.path, `Timmy-${run.slice(0, 8)}.log`, homeEnv(input));
+  makeUnrealPlace(root, place);
   const submittedMs = Date.now();
   const pre = preStates(root, expect);
   const inventory = inventoryFolders(root, pre, watch);
   const copy = keepScript(root, record, script);
   const unreal: UnrealRunMeta = {
     project: { path: projectAt.rel, sha256: projectSha }, content, watch, harness: { file: UNREAL_HARNESS, sha256: harnessSha }, args, flags: [...UNREAL_FLAGS],
+    place: { cache: place.cache, log: place.log, ddc: UNREAL_DDC_GRAPH, native_home: place.nativeHome },
   };
   const spec: UnrealJobSpec = {
     kind: 'task', label: input.label ?? `Unreal · ${script.rel} in ${projectAt.rel}`, project: input.project, root,
-    command: bin, args: unrealArgs(projectAt.path, workers.harness),
+    command: bin, args: unrealArgs(projectAt.path, workers.harness, place.flags),
     env: {
-      ...input.env, ...nativeHome(input.env), TIMMY_RESULT: result.path, TIMMY_RUN: run, TIMMY_ROOT: root, TIMMY_OUT: path.join(root, OUT_FOLDER),
+      ...input.env, ...place.env, TIMMY_RESULT: result.path, TIMMY_RUN: run, TIMMY_ROOT: root, TIMMY_OUT: path.join(root, OUT_FOLDER),
       ...scriptEnv(script, copy), TIMMY_SCRIPT_ARGS: JSON.stringify(args), TIMMY_UNREAL_PROJECT: projectAt.path,
       TIMMY_UNREAL_CONTENT: path.join(root, ...content.split('/')), TIMMY_UNREAL_WATCH: JSON.stringify(watch), TIMMY_UNREAL_LIB: workers.lib,
     },
@@ -286,7 +414,27 @@ export interface UnrealReport {
   /** from the run's own record */
   args?: string[];
 }
-export interface UnrealJudgement extends NativeJudgement { unreal: UnrealReport }
+/**
+ * R4 (H72): a file the result of a failed run names, checked against disk: what the harness recorded, what is there now,
+ * what the run did to it against the inventory taken before it. Written by a failed run, never an output of a successful one.
+ */
+export interface UnrealFailedWrite {
+  path: string;
+  /** the sha256 the harness recorded */
+  recorded: string;
+  present: boolean;
+  /** Timmy's sha256 of the file now */
+  sha256?: string;
+  matches?: boolean;
+  change?: OutputChange;
+}
+export interface UnrealJudgement extends NativeJudgement {
+  unreal: UnrealReport;
+  /** R4 (H72): the files a failed run's result names (each checked against disk); absent when it named none */
+  failedWrites?: UnrealFailedWrite[];
+  /** R4 (H72): what the job wrote in Unreal's user folders outside the project (unreal-outside.ts); absent while it runs */
+  outside?: UnrealOutsideCheck;
+}
 
 const obj = (v: unknown): Record<string, unknown> | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined);
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -374,23 +522,61 @@ export function unrealReport(r: Record<string, unknown> | undefined, o: { root: 
 
 // ── judging a run ────────────────────────────────────────────────────────────────
 
+/** R4 (H72): a verdict line of an Unreal run, with the files a failed run's result named and the outside check. */
+export interface UnrealVerdictLine extends NativeVerdictLine { failed_writes?: UnrealFailedWrite[]; outside?: UnrealOutsideCheck }
+
+/** The run's verdicts so far (a torn line is skipped, never repaired). */
+function readVerdictLines(dir: string): UnrealVerdictLine[] {
+  try {
+    return readFileSync(path.join(dir, 'verdicts.jsonl'), 'utf8').split('\n').filter((l) => l.trim()).flatMap((l) => {
+      try { return [JSON.parse(l) as UnrealVerdictLine]; } catch { return []; }
+    });
+  } catch { return []; }
+}
+
 /** Appends the final judgement to the run's verdicts.jsonl, unless its last line already says the same. */
-function appendVerdict(dir: string | undefined, j: NativeJudgement, jobId?: string): void {
+function appendVerdict(dir: string | undefined, j: UnrealJudgement, jobId?: string): void {
   if (!dir) return;
   const file = path.join(dir, 'verdicts.jsonl');
   try {
-    let last: NativeVerdictLine | undefined;
-    try {
-      const lines = readFileSync(file, 'utf8').split('\n').filter((l) => l.trim());
-      last = lines.length ? JSON.parse(lines[lines.length - 1]) as NativeVerdictLine : undefined;
-    } catch { /* none yet, or a torn line: a new line follows */ }
+    const last = readVerdictLines(dir).at(-1);
     if (last && last.outcome === j.outcome && last.why === j.why && last.job === jobId) return;
-    const line: NativeVerdictLine = {
+    const line: UnrealVerdictLine = {
       judged_at: new Date().toISOString(), ...(jobId ? { job: jobId } : {}), outcome: j.outcome, why: j.why, exit: j.exit, files: j.files,
       ...(j.checked ? { checked: j.checked } : {}), ...(j.source ? { source: j.source } : {}),
+      ...(j.failedWrites ? { failed_writes: j.failedWrites } : {}), ...(j.outside ? { outside: j.outside } : {}),
     };
     appendFileSync(file, `${JSON.stringify(line)}\n`);
   } catch { /* the judgement stands without its record */ }
+}
+
+/**
+ * R4 (H72): the files a failed run's result names (the harness lists every file created or changed in the watched folders,
+ * whether the script ended well or not), each checked against disk: inside the project, its sha256 now against the one
+ * recorded, and what the run did to it against the inventory taken before it. A name outside the project is not kept.
+ */
+export function unrealFailedWrites(spec: UnrealJobSpec, files: Record<string, unknown>, sinceMs: number): UnrealFailedWrite[] {
+  const out: UnrealFailedWrite[] = [];
+  for (const [name, hash] of Object.entries(files).slice(0, 200)) {
+    if (typeof hash !== 'string' || !SHA.test(hash)) continue;
+    const at = resolveInside(spec.root, name);
+    if ('error' in at) continue;
+    const c = classifyOutput(at.path, stateBefore(at.rel, spec.native.pre, spec.native.inventory), sinceMs);
+    const recorded = hash.toLowerCase();
+    out.push({ path: at.rel, recorded, present: c.present, ...(c.sha256 ? { sha256: c.sha256 } : {}), ...(c.present ? { matches: c.sha256 === recorded } : {}), change: c.change });
+  }
+  return out;
+}
+
+/** "written by this failed run: Content/Timmy/TimmyGrid.umap (created; sha256 881f123e…)", or '' when it named none. */
+export function failedWritesWords(ws: UnrealFailedWrite[] | undefined): string {
+  if (!ws?.length) return '';
+  const one = (f: UnrealFailedWrite): string => {
+    const did = f.change === 'created' || f.change === 'changed' ? `${f.change}; ` : f.change === 'reused' ? 'the same bytes as before this run; ' : '';
+    const now = !f.present ? '; not there now' : f.matches ? '' : `; ${short(f.sha256)} now`;
+    return `${f.path} (${did}sha256 ${short(f.recorded)}${now})`;
+  };
+  return `written by this failed run: ${ws.slice(0, 6).map(one).join(', ')}${ws.length > 6 ? ` and ${ws.length - 6} more` : ''}`;
 }
 
 const short = (sha: string | undefined): string => (sha ? `${sha.slice(0, 12)}…` : 'none');
@@ -438,9 +624,35 @@ export function judgeUnrealJob(job: JobRecord, spec: UnrealJobSpec): UnrealJudge
     if (doubt) { outcome = 'unknown'; why = `${doubt}; ${why}`; }
   }
   if (read.state === 'missing' && outcome !== 'ok') why = `${why}; ${UNREAL_NO_RESULT_HINT.replace('<id>', job.id)}`;
-  const j: UnrealJudgement = { ...base, outcome, why, unreal: report };
+  // R4 (H72): a failed run's result still names what the harness saw written (r21: the level saved before the spawn
+  // failed); each is checked against disk and recorded as written by a failed run, never as an output (base.files stays).
+  const startedMs = Date.parse(job.startedAt);
+  const sinceMs = spec.native.submittedMs ?? startedMs;
+  const named = r?.ok === false && r.run === spec.native.run ? obj(r.files) : undefined;
+  const failedWrites = named && Object.keys(named).length ? unrealFailedWrites(spec, named, Number.isNaN(sinceMs) ? 0 : sinceMs) : undefined;
+  if (failedWrites?.length) why = `${why}; ${failedWritesWords(failedWrites)}`;
+  const outside = unrealOutsideOf(job, spec);
+  if (outside) why = `${why}; ${unrealOutsideWords(outside, { nativeHome: spec.unreal.place?.native_home ?? false })}`;
+  const j: UnrealJudgement = { ...base, outcome, why, unreal: report, ...(failedWrites?.length ? { failedWrites } : {}), ...(outside ? { outside } : {}) };
   appendVerdict(spec.native.record, j, job.id);
   return j;
+}
+
+/**
+ * R4 (H72): the job's outside check (unreal-outside.ts), once per job: in the window from the job's start to its end (+ a
+ * few seconds), when both are known. A job judged again after a restart reuses the check its verdict line kept for the same
+ * job; with no exit recorded (a stale job) and none kept, it is not checked again (a later window would count others' writes).
+ */
+function unrealOutsideOf(job: JobRecord, spec: UnrealJobSpec): UnrealOutsideCheck | undefined {
+  const sinceMs = Date.parse(job.startedAt);
+  if (Number.isNaN(sinceMs)) return undefined;
+  if (spec.native.record) {
+    const kept = readVerdictLines(spec.native.record).filter((l) => l.job === job.id && l.outside).at(-1)?.outside;
+    if (kept) return kept;
+  }
+  const endedMs = job.endedAt ? Date.parse(job.endedAt) : Number.NaN;
+  if (job.stale || Number.isNaN(endedMs)) return undefined;
+  return checkUnrealOutsideOnce(`${spec.native.run}:${job.id}`, { sinceMs, untilMs: endedMs + UNREAL_OUTSIDE_SLACK_MS, env: unrealOutsideEnv(spec.env) });
 }
 
 /** A run's spec rebuilt from its folder (job.json and unreal.json), every name in them checked to lead inside the project. */
@@ -455,9 +667,12 @@ export function unrealSpecFromRecord(root: string, run: string): UnrealJobSpec {
     const h = obj(u.harness);
     if (u.record !== 'timmy-unreal-run' || u.run !== run || !p || typeof p.path !== 'string' || typeof p.sha256 !== 'string' || typeof u.content !== 'string'
       || !h || typeof h.sha256 !== 'string' || !Array.isArray(u.watch) || !Array.isArray(u.args)) throw new Error('malformed');
+    const pl = obj(u.place);
     meta = {
       project: { path: p.path, sha256: p.sha256 }, content: u.content, watch: u.watch.map(String), harness: { file: String(h.file ?? UNREAL_HARNESS), sha256: h.sha256 },
       args: u.args.map(String), flags: Array.isArray(u.flags) ? u.flags.map(String) : [...UNREAL_FLAGS],
+      ...(pl && typeof pl.cache === 'string' && typeof pl.log === 'string' && typeof pl.ddc === 'string' && typeof pl.native_home === 'boolean'
+        ? { place: { cache: pl.cache, log: pl.log, ddc: pl.ddc, native_home: pl.native_home } } : {}),
     };
   } catch { throw new Error(`the record of run ${run} has no Unreal part (${UNREAL_RECORD})`); }
   const within = (rel: string): string => {
@@ -512,6 +727,10 @@ export function unrealReceiptFields(j: UnrealJudgement): ReturnType<typeof nativ
         levels: u.levels.map((l) => ({ asset: l.asset, ...(l.file ? { file: l.file } : {}), ...(l.sha256 ? { sha256: l.sha256 } : {}), actors: l.actors_total })),
         actors_made: u.made.length, removed: u.removed.length, ...(u.deleted.length ? { deleted: u.deleted.slice(0, 50) } : {}), inputs: { ...u.inputs },
         ...(u.checks ? { checks: { passed, of: u.checks.length } } : {}),
+        // R4 (H72): what a failed run's result named, checked against disk: written by a failed run, never its outputs
+        ...(j.failedWrites?.length ? { failed_run_writes: j.failedWrites.map((f) => ({ ...f })) } : {}),
+        // R4 (H72): what the job wrote in Unreal's user folders outside the project (names relative to the account's home)
+        ...(j.outside ? { outside: { ...j.outside, by_folder: { ...j.outside.by_folder }, names: [...j.outside.names], folders: [...j.outside.folders] } } : {}),
         reported_by: UNREAL_REPORTED_BY, units: 'Unreal units (centimetres), degrees', scope: UNREAL_SCOPE,
         // DOCTRINE §15: Unreal's numbers of a generated scene, constructed by the run; only the readback's agreement checks them.
         geometry: { provenance: 'generated', evidence: 'constructed' },
@@ -546,8 +765,31 @@ export function unrealStartLines(spec: UnrealJobSpec, sep: string): Line[] {
   const u = spec.unreal;
   return [
     [{ text: '  App        ', role: 'secondary' }, { text: `UnrealEditor-Cmd, headless${sep}it opens ${u.project.path} and runs Timmy's harness, which runs ${spec.native.copy?.path ?? 'a copy of the script'}, a read-only copy of ${spec.native.input?.path ?? 'the script'}` }],
+    // R4 (H72): where Unreal keeps its cache, its log and its user folders, said before it starts
+    ...(u.place ? [[{ text: '  Caches     ', role: 'secondary' }, { text: unrealPlaceWords(u.place, sep), role: 'secondary' }] as Line] : []),
     [{ text: '  Note       ', role: 'secondary' }, { text: `${UNREAL_FIRST_RUN}${sep}the result file decides the run; then a second Unreal process reads each level it saved back${sep}arguments: ${u.args.length ? `${u.args.length} in TIMMY_SCRIPT_ARGS` : 'none'}`, role: 'secondary' }],
   ];
+}
+
+/** R4 (H72): the lines for the files a failed run left and for what the job wrote outside the project. */
+export function unrealLeftLines(j: { failedWrites?: UnrealFailedWrite[]; outside?: UnrealOutsideCheck }, o: { root: string; sep: string; nativeHome: boolean }): Line[] {
+  const lines: Line[] = [];
+  for (const f of (j.failedWrites ?? []).slice(0, 12)) {
+    let bytes: number | undefined;
+    try { bytes = statSync(path.join(o.root, f.path)).size; } catch { bytes = undefined; }
+    const did = f.change === 'created' || f.change === 'changed' ? `written by this failed run (${f.change})` : f.change === 'reused' ? 'named by the failed run, with the same bytes as before it' : 'named by the failed run';
+    const state = !f.present ? `${o.sep}not there now (the harness recorded sha256 ${short(f.recorded)})`
+      : `${o.sep}sha256 ${short(f.sha256)} (Timmy's, after the run${f.matches ? ', as the harness recorded it' : `; the harness recorded ${short(f.recorded)}`})${bytes !== undefined ? `${o.sep}${size(bytes)}` : ''}`;
+    lines.push([{ text: '      left     ', role: 'secondary' }, { text: f.path }, { text: `${o.sep}${did}${state}${o.sep}not an output: the run failed`, role: 'secondary' }]);
+  }
+  if (j.outside) {
+    const c = j.outside;
+    const scope = unrealOutsideScope(c);
+    lines.push([{ text: '      outside  ', role: 'secondary' }, { text: unrealOutsideWords(c, { nativeHome: o.nativeHome }), role: c.files ? 'estimate' : undefined },
+      { text: `${scope ? `${o.sep}${scope}` : ''}`, role: 'secondary' }]);
+    if (c.files && c.names.length) lines.push([{ text: '               ', role: 'secondary' }, { text: `${c.names.slice(0, 5).join(', ')}${c.files > 5 ? ` and ${c.files - 5} more` : ''}`, role: 'secondary' }]);
+  }
+  return lines;
 }
 
 /**
@@ -589,6 +831,7 @@ export function unrealEndLines(j: UnrealJudgement, spec: UnrealJobSpec, o: {
     lines.push([{ text: '      checks   ', role: 'secondary' }, { text: `the script's own: ${passed} of ${u.checks.length} passed${failing.length ? ` (failed: ${o.scrub(failing.join('; '))})` : ''}${o.sep}Unreal's numbers against the script's own expectations`, role: failing.length ? 'failure' : 'secondary' }]);
   }
   for (const n of u.notes.slice(0, 3)) lines.push([{ text: '      note     ', role: 'secondary' }, { text: o.scrub(n), role: 'secondary' }]);
+  lines.push(...unrealLeftLines(j, { root: spec.root, sep: o.sep, nativeHome: spec.unreal.place?.native_home ?? false }));
   if (u.error) {
     lines.push([{ text: '      error    ', role: 'secondary' }, { text: `${o.scrub(u.error)}${o.sep}${u.result_file}${o.sep}/jobs ${o.id} for Unreal's own log`, role: 'failure' }]);
   } else if (j.outcome !== 'ok') {
@@ -604,5 +847,6 @@ export function unrealToolNote(spec: UnrealJobSpec, jobId: string): string {
     `It is judged when it ends, by the harness's result file (${relTo(spec.root, spec.native.result ?? '')}); ${UNREAL_FIRST_RUN}.`,
     'The script defines main(run): run.new_level or run.load_level, run.load_mesh, run.spawn_mesh, run.save_level (workers/unreal/timmy_unreal.py). Its arguments are in run.args.',
     'Do not claim the level is made until the job is judged ok, and do not trust that alone: what the result lists is Unreal\'s own report. A second Unreal process then reads each saved level back, and its verdict (agrees or differs) is the check.',
+    `Unreal keeps its cache and its log in ${spec.unreal.place ? `${spec.unreal.place.cache} and ${spec.unreal.place.log}` : 'the project\'s Saved folder'}; each verdict says whether it wrote anything in this account's Unreal folders outside the project: report that as said.`,
   ].join(' ');
 }

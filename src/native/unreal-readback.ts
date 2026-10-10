@@ -20,7 +20,8 @@ import path from 'node:path';
 import type { JobRecord, JobSpec } from '../jobs/index.js';
 import { resolveInside } from '../project/index.js';
 import { listNativeRuns, readNativeRecord, sha256File, type NativeVerdictLine } from './index.js';
-import { actorOf, cm, unrealArgs, unrealReport, type UnrealActor } from './unreal.js';
+import { actorOf, cm, makeUnrealPlace, unrealArgs, unrealPlace, unrealReport, UNREAL_DDC_GRAPH, type UnrealActor } from './unreal.js';
+import { checkUnrealOutsideOnce, UNREAL_OUTSIDE_SLACK_MS, unrealOutsideEnv, type UnrealOutsideCheck } from './unreal-outside.js';
 
 /** Each readback of a run, one JSON line each, appended beside its verdicts and never over them. */
 export const UNREAL_READBACKS = 'readbacks.jsonl';
@@ -128,19 +129,26 @@ export function planUnrealReadback(root: string, o: { run?: string } = {}): { ok
   };
 }
 
-/** The readback's job: UnrealEditor-Cmd on the project, running the readback worker; its own token and result file. */
-export function unrealReadbackJob(plan: UnrealReadbackPlan, o: { bin: string; worker: string; lib: string; project: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; label?: string }): { spec: JobSpec; token: string; result: string } {
+/**
+ * The readback's job: UnrealEditor-Cmd on the project, running the readback worker; its own token and result file. R4
+ * (H72): with the first pass's place for its writes (unrealPlace: its cache beside the .uproject, no Zen, its log in
+ * Saved/Logs/Timmy-<run>-readback-<token>.log, its user folders in Timmy's native home when there is one).
+ */
+export function unrealReadbackJob(plan: UnrealReadbackPlan, o: { bin: string; worker: string; lib: string; project: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; label?: string }):
+  { spec: JobSpec; token: string; result: string; place: { cache: string; log: string; ddc: string; native_home: boolean } } {
   const token = randomUUID();
   const result = path.join(plan.dir, `readback-${token.slice(0, 8)}.json`);
   const home = o.env?.TIMMY_NATIVE_HOME ?? process.env.TIMMY_NATIVE_HOME;
+  const place = unrealPlace(plan.root, plan.project.abs, `Timmy-${plan.run.slice(0, 8)}-readback-${token.slice(0, 8)}.log`, home ? { TIMMY_NATIVE_HOME: home } : {});
+  makeUnrealPlace(plan.root, place);
   const assets = plan.levels.map((l) => l.asset).join(', ');
   return {
-    token, result,
+    token, result, place: { cache: place.cache, log: place.log, ddc: UNREAL_DDC_GRAPH, native_home: place.nativeHome },
     spec: {
       kind: 'task', label: o.label ?? `Unreal readback · ${assets} · run ${plan.run.slice(0, 8)}`, project: o.project, root: plan.root,
-      command: o.bin, args: unrealArgs(plan.project.abs, o.worker),
+      command: o.bin, args: unrealArgs(plan.project.abs, o.worker, place.flags),
       env: {
-        ...o.env, ...(home ? { HOME: home } : {}), TIMMY_READBACK_RESULT: result, TIMMY_READBACK_TOKEN: token, TIMMY_RUN: plan.run, TIMMY_ROOT: plan.root,
+        ...o.env, ...place.env, TIMMY_READBACK_RESULT: result, TIMMY_READBACK_TOKEN: token, TIMMY_RUN: plan.run, TIMMY_ROOT: plan.root,
         TIMMY_UNREAL_LEVELS: JSON.stringify(plan.levels.map((l) => ({ asset: l.asset, file: l.abs }))), TIMMY_UNREAL_PROJECT: plan.project.abs, TIMMY_UNREAL_LIB: o.lib,
       },
       timeoutMs: o.timeoutMs ?? UNREAL_READBACK_TIMEOUT_MS,
@@ -310,16 +318,21 @@ export interface UnrealReadbackLine {
   log?: string;
   receipt?: string;
   scope: string;
+  /** R4 (H72): what this readback's Unreal wrote in its user folders outside the project (unreal-outside.ts) */
+  outside?: UnrealOutsideCheck;
 }
 
 /**
  * The readback's record from its job's end and the file it wrote: stopped (no verdict); failed (no result, another
  * readback's, a level not opened, other bytes); else each level's verdict, and agrees only when every level agrees.
  */
-export function judgeUnrealReadback(plan: UnrealReadbackPlan, job: JobRecord, token: string, resultFile: string): UnrealReadbackLine {
+export function judgeUnrealReadback(plan: UnrealReadbackPlan, job: JobRecord, token: string, resultFile: string, o: { env?: NodeJS.ProcessEnv } = {}): UnrealReadbackLine {
+  // R4 (H72): after every Unreal job, what it wrote in Unreal's user folders outside the project (stopped or not)
+  const outside = readbackOutside(job, o.env);
   const line: UnrealReadbackLine = {
     readback: 1, app: 'unreal', at: new Date().toISOString(), job: job.id, run: plan.run, token, state: job.state, levels: [],
     ...(plan.project.changed ? { project_changed: true as const } : {}), tolerance: { ...UNREAL_READBACK_TOLERANCE }, scope: UNREAL_READBACK_SCOPE,
+    ...(outside ? { outside } : {}),
   };
   if (job.state === 'cancelled') return { ...line, reason: 'stopped before it finished: no verdict' };
   const read = readUnrealReadbackFile(resultFile, token, plan.run);
@@ -340,6 +353,14 @@ export function judgeUnrealReadback(plan: UnrealReadbackPlan, job: JobRecord, to
     return { ...line, verdict: 'differs', reason: `${first.slice(0, 3).join('; ')}${first.length > 3 ? `; and ${first.length - 3} more actors differ` : ''}` };
   }
   return { ...line, verdict: 'agrees' };
+}
+
+/** R4 (H72): a readback job's outside check, from its start to its end (+ a few seconds); none while its end is not known. */
+function readbackOutside(job: JobRecord, env?: NodeJS.ProcessEnv): UnrealOutsideCheck | undefined {
+  const sinceMs = Date.parse(job.startedAt);
+  const endedMs = job.endedAt ? Date.parse(job.endedAt) : Number.NaN;
+  if (job.stale || Number.isNaN(sinceMs) || Number.isNaN(endedMs)) return undefined;
+  return checkUnrealOutsideOnce(`readback:${job.id}:${job.startedAt}`, { sinceMs, untilMs: endedMs + UNREAL_OUTSIDE_SLACK_MS, env: unrealOutsideEnv(env) });
 }
 
 /** A run's readbacks so far, oldest first (a torn line is skipped, never repaired). */

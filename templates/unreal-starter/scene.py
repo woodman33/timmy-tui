@@ -8,15 +8,18 @@ and places the grid again.
 
 Timmy runs it through its harness, workers/unreal/timmy_unreal.py (/unreal TimmyStarter.uproject scene.py):
     UnrealEditor-Cmd TimmyStarter.uproject -run=pythonscript -script=<timmy_unreal.py> -unattended -nullrhi -nosplash
-                     -nopause -stdout -FullStdOutLogOutput
+                     -nopause -stdout -FullStdOutLogOutput -DDC=InstalledNoZenLocalFallback
+                     -LocalDataCachePath=<this folder>/Saved/DerivedDataCache -abslog=<this folder>/Saved/Logs/Timmy-<run>.log
 The harness runs a read-only copy of this file kept when the job is submitted (so what runs is what was submitted),
 calls main(run) and writes the run's result file: the level it saved, every actor in it with its class, label,
 location, rotation, scale and bounds (Unreal's own numbers), the actors this script made, and every file written with
 its sha256. Then a second, separate Unreal process opens the saved level and lists its actors again, and Timmy compares
 the two: the first pass alone is never trusted.
 
-NOT YET EXERCISED on a real Unreal Engine: checked only with python3 against the stand-in `unreal` module in Timmy's
-tests (tests/fixtures/unreal-stub). The first real run is the operator's, on the Mac.
+Run on Unreal Engine 5.8.2 on the operator's Mac (helper H72, through a driver with Timmy's exact command line, not yet
+through Timmy itself): it built the grid (9 StaticMeshActors with /Engine/BasicShapes/Cube.Cube, bounds 100 x 100 x 100 cm
+where asked; its checks 9 of 9), a second process read the level back the same, and run again it replaced its cubes. Also
+checked with python3 against the stand-in `unreal` module in Timmy's tests (tests/fixtures/unreal-stub).
 """
 import math
 
