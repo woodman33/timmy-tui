@@ -294,7 +294,7 @@ describe('the /tools rows', () => {
 
   it('says needs setup, with the step, when it is not found', () => {
     const rows = nativeCapabilityRows({}, { platform: 'darwin', applications: path.join(tmp, 'none'), onPath: () => null });
-    expect(rows.map((r) => r.rung)).toEqual(['needs setup', 'needs setup', 'needs setup', 'needs setup', 'needs setup']);
+    expect(rows.map((r) => r.rung)).toEqual(['needs setup', 'needs setup', 'needs setup', 'needs setup', 'needs setup', 'needs setup']);
     expect(rows[0].setup).toMatch(/TIMMY_C4DPY/);
     expect(rows[1].setup).toMatch(/TIMMY_AERENDER/);
     expect(rows[2].setup).toMatch(/TIMMY_BLENDER/);
