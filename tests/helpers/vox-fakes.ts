@@ -203,8 +203,9 @@ export function fakeTools(dir: string): { look: string; step: string; blender: s
  * reads no file; it writes what it was given to $FAKE_RERUN_LOG (each argument on its own line, its working folder and its
  * process group, which a detached start makes its own), then exits.
  * R4 (H70): `rerun --help` prints a short help in clap's form listing `--bind <BIND>` (not when FAKE_RERUN_NO_BIND is set;
- * exit 2 when FAKE_RERUN_HELP_FAIL is set), noting each call in $FAKE_RERUN_HELP_LOG; it never writes the launch log. A
- * launch copies the lines of $FAKE_RERUN_SCREEN (the test's screen: what was printed so far) into its log as it starts.
+ * exit 2 when FAKE_RERUN_HELP_FAIL is set), noting each call in $FAKE_RERUN_HELP_LOG with the last line on the test's
+ * screen ($FAKE_RERUN_SCREEN) then; it never writes the launch log. A launch copies the lines of $FAKE_RERUN_SCREEN (what
+ * was printed so far) into its log as it starts.
  */
 export function fakeRerun(dir: string): string {
   const p = join(dir, 'rerun');
@@ -212,7 +213,10 @@ export function fakeRerun(dir: string): string {
     '#!/bin/sh',
     '# FAKE: a test double of Rerun\'s `rerun` viewer (tests/helpers/vox-fakes.ts): no window, no file read; it logs its arguments.',
     'if [ "$1" = "--help" ]; then',
-    '  if [ -n "${FAKE_RERUN_HELP_LOG:-}" ]; then echo "help" >> "$FAKE_RERUN_HELP_LOG"; fi',
+    '  if [ -n "${FAKE_RERUN_HELP_LOG:-}" ]; then',
+    '    last=""; if [ -n "${FAKE_RERUN_SCREEN:-}" ] && [ -f "$FAKE_RERUN_SCREEN" ]; then last="$(tail -n 1 "$FAKE_RERUN_SCREEN")"; fi',
+    '    echo "help after: $last" >> "$FAKE_RERUN_HELP_LOG"',
+    '  fi',
     '  if [ -n "${FAKE_RERUN_HELP_FAIL:-}" ]; then echo "error: FAKE: --help failed" >&2; exit 2; fi',
     '  echo "The Rerun command-line interface (FAKE)"',
     '  echo ""',

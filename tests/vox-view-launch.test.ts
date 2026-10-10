@@ -100,9 +100,10 @@ describe('/vox view says the window first, then starts Rerun, then says what sta
     ]);
     expect(text(out)).toMatch(new RegExp(`^  started    pid \\d+ · rerun on the PATH · recorded on results/vox/${p.stl}\\.json · receipt r\\d+$`));
     expect(p.screen.slice(n).findIndex((l) => l.startsWith('  started '))).toBe(said.length);
-    // Rerun's command line: told to listen on this computer only, then the file; its --help was read once first.
+    // Rerun's command line: told to listen on this computer only, then the file. Its --help was read once before, with the
+    // warning already the last line on the screen: nothing started before the warning, not even that check.
     expect(got.args).toEqual([...BIND, join(p.root, 'models/cube.stl')]);
-    expect(readFileSync(p.helpLog, 'utf8')).toBe('help\n');
+    expect(readFileSync(p.helpLog, 'utf8')).toBe(`help after: ${WARNING}\n`);
     // Recorded and sealed with the address; the receipt names the record's highlight as it is, after the record.
     const rec = recordAt(p.root, p.stl);
     expect(rec.views![0].bind).toBe('127.0.0.1');
@@ -111,14 +112,14 @@ describe('/vox view says the window first, then starts Rerun, then says what sta
     expect(rc.outputs!.map((o) => o.path)).toEqual([`results/vox/${p.stl}.json`, `results/vox/${p.stl}/bbox.svg`]);
   });
 
-  it('a rerun whose --help lists no --bind, or whose --help fails, is not started, and nothing is said of a window', async () => {
+  it('a rerun whose --help lists no --bind, or whose --help fails, is not started (said after the warning, which comes first)', async () => {
     const p = await viewProject();
     const rel = `results/vox/${p.stl}.json`;
     const s = fileSha(p.root, rel);
     const n = p.sealed.length;
     p.env.FAKE_RERUN_NO_BIND = '1';
     const v = await p.view(`view ${p.stl}`);
-    expect(v.said).toEqual([]);
+    expect(v.said).toEqual([WARNING]);
     expect(text(v.out)).toBe([
       "  not started Rerun's viewer (/vox view), rerun on the PATH: its --help lists no --bind option, so started it would listen on all interfaces · Timmy starts it only told to listen on this computer (--bind 127.0.0.1, as in Rerun 0.37.1's and 0.38.1's --help, and Rerun's current CLI reference) · update Rerun: cargo install rerun-cli --locked, or Rerun's release from its site",
       '  Nothing was started and nothing was written.',
@@ -128,7 +129,7 @@ describe('/vox view says the window first, then starts Rerun, then says what sta
     expect(text((await p.view(`view ${p.stl}`)).out)).toContain('its --help ended with exit 2, so whether it takes --bind is not known');
     expect(await rerunLog(p.log, 300)).toBeNull();
     expect([fileSha(p.root, rel), p.sealed.length]).toEqual([s, n]);
-    expect(readFileSync(p.helpLog, 'utf8')).toBe('help\nhelp\n');
+    expect(readFileSync(p.helpLog, 'utf8')).toBe(`help after: ${WARNING}\nhelp after: ${WARNING}\n`);
   });
 
   it('on the live board, View in Rerun puts the warning in the transcript before Rerun starts, and first in the page\'s answer', async () => {

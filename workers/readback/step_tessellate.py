@@ -200,10 +200,14 @@ def main():
         while explorer.More():
             faces += 1
             poly = BRep_Tool.Triangulation_s(TopoDS.Face_s(explorer.Current()), TopLoc_Location())
-            if poly is None:
+            try:
+                n = 0 if poly is None else int(poly.NbTriangles())
+            except Exception:
+                n = 0
+            if n < 1:
                 without += 1
             else:
-                triangles += poly.NbTriangles()
+                triangles += n
             explorer.Next()
     except SystemExit:
         raise

@@ -15,9 +15,10 @@
  *   - Viser and FiftyOne are named with their install steps: VoxVision has no layer for them yet.
  *
  * Round R4 (helper H70), from what r20 found on the Mac:
- *   - The order: what is said before Rerun starts ("Rerun opens a window on your computer …", where it listens, what
- *     is passed) is printed then, through the REPL's notify, before anything starts; the answer says what started. On
- *     the live board the page gets those lines first too (src/repl/workspace.ts boardCommandNow).
+ *   - The order: "Rerun opens a window on your computer …" is printed through the REPL's notify before anything starts
+ *     (the --help check, a tessellation, Rerun itself), then where it listens and what is passed; then Rerun starts and
+ *     the answer says what started. On the live board the page gets those lines first too (src/repl/workspace.ts
+ *     boardCommandNow). When nothing can be passed, nothing would start, and no window is announced.
  *   - Loopback: Rerun is told to listen on this computer only (`--bind 127.0.0.1`, src/vox/layers.ts RERUN_BIND); a
  *     found rerun whose --help does not list that option is not started.
  *   - A STEP: Rerun has no STEP loader, so a STEP input whose bytes are the record's is given as its tessellation by
@@ -148,6 +149,10 @@ export async function voxCommand(d: VoxViewDeps, args: string, at: { root: strin
     ];
   }
 
+  // Said first, on the screen before anything starts (r20 (5)): a window on the user's computer, apart from Timmy.
+  const print = (l: Line): void => d.notify(l);
+  print([{ text: '  Rerun      ', role: 'secondary' }, { text: "opens a window on your computer: Rerun's own viewer, started apart from Timmy (detached), which Timmy does not stop; close its window when done. It shows the files as they are and measures nothing." }]);
+
   // R4 (H70): told to listen on this computer only; a rerun whose --help does not list the option is not started.
   // The viewer is the user's program, not part of this request: it gets the REPL's environment without the operation.
   const env = { ...d.env() };
@@ -159,10 +164,6 @@ export async function voxCommand(d: VoxViewDeps, args: string, at: { root: strin
       say('Nothing was started and nothing was written.'),
     ];
   }
-
-  // Said first, on the screen before anything starts (r20 (5)): a window on the user's computer, apart from Timmy.
-  const print = (l: Line): void => d.notify(l);
-  print([{ text: '  Rerun      ', role: 'secondary' }, { text: "opens a window on your computer: Rerun's own viewer, started apart from Timmy (detached), which Timmy does not stop; close its window when done. It shows the files as they are and measures nothing." }]);
   print([{ text: '  address    ', role: 'secondary' }, { text: `told to listen on this computer only (${rerunBindArgs().join(' ')})` }, { text: `${sep}a Rerun viewer already listening on its port is given the files instead and keeps its own address`, role: 'secondary' }]);
 
   // R4 (H70): each STEP that can be, as a mesh: its tessellation, checked by Timmy before it is passed.
