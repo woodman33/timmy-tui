@@ -21,7 +21,8 @@
 //    into a new project, its files compared with what "files" lists for it), the OpenSCAD runner
 //    (workers/scad/timmy_scad_run.mjs, src/native/openscad.ts), the FreeCAD worker (workers/freecad/timmy_freecad.py,
 //    src/native/freecad.ts) and the STEP and .blend readback workers (workers/readback/step_readback.py and
-//    blend_readback.py, src/flows/iterate.ts and src/flows/iterate-blender.ts).
+//    blend_readback.py, src/flows/iterate.ts and src/flows/iterate-blender.ts). R4 (H46): and the video readback worker
+//    /iterate ae runs (workers/readback/video_readback.py, src/flows/iterate-ae.ts).
 //
 // It prints a short report: each step with its exit code and first output line. Exit 0 when every check passed,
 // 1 when any failed or did not run, 2 on a usage error.
@@ -131,11 +132,12 @@ if (pkg) {
     const { LOOK_SCRIPT } = await load('dist/src/vision/look.js');
     const { c4dHelperDir, blenderHelperDir } = await load('dist/src/native/index.js');
     const { studioRoot } = await load('dist/src/studio/server.js');
-    // R4: the OpenSCAD runner, the FreeCAD worker and the two readback workers, each found by the module that runs it.
+    // R4: the OpenSCAD runner, the FreeCAD worker and the three readback workers, each found by the module that runs it.
     const { scadRunnerPath } = await load('dist/src/native/openscad.js');
     const { freecadHelperDir } = await load('dist/src/native/freecad.js');
     const { READBACK_SCRIPT } = await load('dist/src/flows/iterate.js');
     const { BLEND_READBACK_SCRIPT } = await load('dist/src/flows/iterate-blender.js');
+    const { VIDEO_READBACK_SCRIPT } = await load('dist/src/flows/iterate-ae.js');
     const dest = join(process.env.PROBE_WORK, 'site');
     const copied = copyStarter('web-starter', dest);
     // R4: each starter of this round copied into a new project of its own; the files the copy holds.
@@ -153,6 +155,7 @@ if (pkg) {
       same: existsSync(join(dest, 'index.html')) && readFileSync(join(dest, 'index.html')).equals(readFileSync(join(root, 'templates/web-starter/index.html'))),
       r4, scad: scadRunnerPath() ?? null, freecad: freecadHelperDir() ?? null,
       step: READBACK_SCRIPT, stepExists: existsSync(READBACK_SCRIPT), blend: BLEND_READBACK_SCRIPT, blendExists: existsSync(BLEND_READBACK_SCRIPT),
+      video: VIDEO_READBACK_SCRIPT, videoExists: existsSync(VIDEO_READBACK_SCRIPT),
     }));`);
   const r = run(process.execPath, [probe], { cwd: work, env: { ...runEnv, PROBE_PKG: pkg, PROBE_WORK: work }, timeout: 120_000 });
   let p = null;
@@ -180,6 +183,8 @@ if (pkg) {
     check('assets', 'FreeCAD worker', p.freecad === join(pkg, 'workers/freecad'), short(p.freecad ?? 'none found'));
     check('assets', 'STEP readback worker', p.step === join(pkg, 'workers/readback/step_readback.py') && p.stepExists, `${short(p.step)}${p.stepExists ? '' : ' (not there)'}`);
     check('assets', '.blend readback worker', p.blend === join(pkg, 'workers/readback/blend_readback.py') && p.blendExists, `${short(p.blend)}${p.blendExists ? '' : ' (not there)'}`);
+    // R4 (H46): the video readback worker /iterate ae runs (in package.json "files", needed by its readback step).
+    check('assets', 'video readback worker', p.video === join(pkg, 'workers/readback/video_readback.py') && p.videoExists, `${short(p.video)}${p.videoExists ? '' : ' (not there)'}`);
   }
 } else {
   check('assets', 'probe', false, 'not run: nothing installed');

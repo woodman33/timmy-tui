@@ -76,8 +76,8 @@ describe('the npm package', () => {
 
 type Probe = {
   starters: string | null; list: string[]; look: string; lookExists: boolean; c4d: string | null; root: string | null; copied: { files: string[] } | { error: string } | null;
-  /** R4 (H40): the OpenSCAD runner and the FreeCAD worker (from src/native/), and the two readback workers (from src/flows/) */
-  scad: string | null; freecad: string | null; step: string | null; blend: string | null;
+  /** R4 (H40): the OpenSCAD runner and the FreeCAD worker (from src/native/), and the readback workers (from src/flows/; R4 H46: the video one too) */
+  scad: string | null; freecad: string | null; step: string | null; blend: string | null; video: string | null;
 };
 
 describe('an installed Timmy finds its starters and workers', () => {
@@ -97,7 +97,7 @@ describe('an installed Timmy finds its starters and workers', () => {
     write(join(base, 'workers/look/look.py'), 'decoy');
     write(join(base, 'workers/c4d/timmy_c4d.py'), 'decoy');
     // R4 (H40): decoys for this round's workers too
-    for (const w of ['workers/scad/timmy_scad_run.mjs', 'workers/freecad/timmy_freecad.py', 'workers/readback/step_readback.py', 'workers/readback/blend_readback.py']) write(join(base, w), 'decoy');
+    for (const w of ['workers/scad/timmy_scad_run.mjs', 'workers/freecad/timmy_freecad.py', 'workers/readback/step_readback.py', 'workers/readback/blend_readback.py', 'workers/readback/video_readback.py']) write(join(base, w), 'decoy');
 
     const probeBody = (load: (m: string) => string): string => `
       const { startersDir, listStarters, copyStarter } = await import(${load('src/project/starters.ts')});
@@ -116,7 +116,8 @@ describe('an installed Timmy finds its starters and workers', () => {
       console.log(JSON.stringify({ starters: startersDir() ?? null, list: listStarters().map((s) => s.name).sort(), look: LOOK_SCRIPT, lookExists: existsSync(LOOK_SCRIPT),
         c4d: found('workers/c4d/timmy_c4d.py', native), root: packageRoot(native) ?? null, copied,
         scad: found('workers/scad/timmy_scad_run.mjs', native), freecad: found('workers/freecad/timmy_freecad.py', native),
-        step: found('workers/readback/step_readback.py', flows), blend: found('workers/readback/blend_readback.py', flows) }));`;
+        step: found('workers/readback/step_readback.py', flows), blend: found('workers/readback/blend_readback.py', flows),
+        video: found('workers/readback/video_readback.py', flows) }));`;
 
     // The TypeScript build's layout: each module compiled on its own to dist/<its path>.js, as tsc emits it.
     const graph = buildSync({ entryPoints: ['src/project/starters.ts', 'src/vision/look.ts', 'src/utils/asset-dirs.ts'], bundle: true, platform: 'node', format: 'esm', write: false, metafile: true, logLevel: 'silent', outdir: join(base, 'unused'), absWorkingDir: root });
@@ -159,7 +160,7 @@ describe('an installed Timmy finds its starters and workers', () => {
       expect(r.lookExists).toBe(true);
       expect(r.c4d).toBe(join(pkg, 'workers/c4d/timmy_c4d.py'));
       // R4 (H40): this round's workers, in the package
-      expect([r.scad, r.freecad, r.step, r.blend]).toEqual(['workers/scad/timmy_scad_run.mjs', 'workers/freecad/timmy_freecad.py', 'workers/readback/step_readback.py', 'workers/readback/blend_readback.py'].map((w) => join(pkg, w)));
+      expect([r.scad, r.freecad, r.step, r.blend, r.video]).toEqual(['workers/scad/timmy_scad_run.mjs', 'workers/freecad/timmy_freecad.py', 'workers/readback/step_readback.py', 'workers/readback/blend_readback.py', 'workers/readback/video_readback.py'].map((w) => join(pkg, w)));
       expect(sortedCopy(r.copied)).toEqual({ files: tracked('templates/web-starter').map((f) => f.slice('templates/web-starter/'.length)).sort() });
       expect(readFileSync(join(dest, 'index.html'))).toEqual(readFileSync(join(root, 'templates/web-starter/index.html')));
     });
@@ -172,6 +173,7 @@ describe('an installed Timmy finds its starters and workers', () => {
     // R4 (H40): one native worker and one readback worker gone; the decoys outside the package are never used
     rmSync(join(pkg, 'workers/scad/timmy_scad_run.mjs'));
     rmSync(join(pkg, 'workers/readback/blend_readback.py'));
+    rmSync(join(pkg, 'workers/readback/video_readback.py'));
     for (const layout of [TSC, BUNDLE]) {
       const dest = join(temp('timmy-asset-project-'), 'site');
       const r = run(layout, dest);
@@ -179,10 +181,23 @@ describe('an installed Timmy finds its starters and workers', () => {
       expect(r.look, layout).toBe(join(pkg, 'workers/look/look.py'));
       expect(r.lookExists, layout).toBe(false);
       expect(r.c4d, layout).toBeNull();
-      expect([r.scad, r.blend], layout).toEqual([null, null]);
+      expect([r.scad, r.blend, r.video], layout).toEqual([null, null, null]);
       expect([r.freecad, r.step], layout).toEqual([join(pkg, 'workers/freecad/timmy_freecad.py'), join(pkg, 'workers/readback/step_readback.py')]);
       expect(r.copied, layout).toEqual({ error: 'the web-starter starter is not in this Timmy (templates/web-starter)' });
       expect(existsSync(dest) ? readdirSync(dest) : [], layout).toEqual([]);
     }
+  });
+});
+
+describe('scripts/packed-install-check.mjs (R4 H46)', () => {
+  it('its probe asks the installed package for every readback worker package.json "files" ships, each found by the module that runs it', () => {
+    const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { files?: string[] };
+    const workers = (manifest.files ?? []).filter((f) => /^workers\/readback\/[^/]+\.py$/.test(f));
+    expect(workers).toEqual(expect.arrayContaining(['workers/readback/step_readback.py', 'workers/readback/blend_readback.py', 'workers/readback/video_readback.py']));
+    const script = readFileSync(join(root, 'scripts', 'packed-install-check.mjs'), 'utf8');
+    // Each is a check of its own: the path the installed module found must be that file, inside the package, and present.
+    for (const w of workers) expect(script, w).toMatch(new RegExp(`check\\('assets', '[^']+', p\\.\\w+ === join\\(pkg, '${w.replace(/[.]/g, '\\.')}'\\) && p\\.\\w+Exists`));
+    // The video worker is found by src/flows/iterate-ae.ts, the module /iterate ae runs it from.
+    expect(script).toContain("const { VIDEO_READBACK_SCRIPT } = await load('dist/src/flows/iterate-ae.js');");
   });
 });
