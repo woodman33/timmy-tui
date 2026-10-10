@@ -11,7 +11,7 @@
  * workspace-write sandbox). So Timmy runs the SDK itself, in a container of its own, on a copy of the project:
  *
  *   docker run --rm -i --pull never --name timmy-oh-<run> --label timmy.run=<run> --label timmy.project=<project id>
- *     --cpus 2 --memory 4g --pids-limit 512 --cap-drop ALL --security-opt no-new-privileges [--user <uid>:<gid>]
+ *     --cpus 2 --memory 4g --memory-swap 4g --pids-limit 512 --cap-drop ALL --security-opt no-new-privileges [--user <uid>:<gid>]
  *     --tmpfs /tmp/timmy-home:... --add-host host.docker.internal:host-gateway
  *     --mount type=bind,source=<project>/.timmy/agents/<run>/work,target=/work
  *     --mount type=bind,source=<project>/.timmy/agents/<run>/worker,target=/timmy,readonly
@@ -68,7 +68,7 @@ export const CONTAINER_WORK = '/work';
 export const CONTAINER_WORKER = '/timmy';
 /** HOME inside the container: a tmpfs of its own (nothing of the host's home is mounted; it is gone with the container) */
 export const CONTAINER_HOME = '/tmp/timmy-home';
-/** The tools the worker gives the agent: the terminal and the file editor, nothing else. */
+/** The tools the worker gives the agent: the terminal and the file editor (the SDK adds its own finish and think tools: ledger row 159). */
 export const OPENHANDS_TOOLS = ['terminal', 'file_editor'] as const;
 /** The copy is refused above this many bytes (the project's files, not .git, node_modules, .timmy or dist). */
 export const OPENHANDS_COPY_MAX_BYTES = 2 * 1024 * 1024 * 1024;
@@ -149,6 +149,7 @@ export function openHandsDockerArgs(c: Pick<OpenHandsContainer, 'name' | 'labels
     ...Object.entries(c.labels).flatMap(([k, v]) => ['--label', `${k}=${v}`]),
     '--cpus', OPENHANDS_LIMITS.cpus,
     '--memory', OPENHANDS_LIMITS.memory,
+    '--memory-swap', OPENHANDS_LIMITS.memory, // the same as --memory: no swap on top (row 159 saw docker allow 4 GiB more)
     '--pids-limit', String(OPENHANDS_LIMITS.pids),
     '--cap-drop', 'ALL',
     '--security-opt', 'no-new-privileges',
@@ -481,7 +482,8 @@ export interface ContainerStop {
   /** stopped: docker stop ended it; killed: docker kill did; gone: it was not running (or not there) by then; unresolved:
    *  still running after both; unchecked: docker could not be asked (detail); asked: under way when the record was written
    *  (container.json in the run's folder gets its end) */
-  result: 'stopped' | 'killed' | 'gone' | 'unresolved' | 'unchecked' | 'asked';
+  /** 'ended': gone after Timmy's stop began, but neither docker stop nor docker kill answered that it ended it (row 159) */
+  result: 'stopped' | 'killed' | 'ended' | 'gone' | 'unresolved' | 'unchecked' | 'asked';
   /** the docker commands run, each with its exit status */
   steps: Array<{ command: string; exit: number | null }>;
   detail?: string;

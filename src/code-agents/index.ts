@@ -12,9 +12,9 @@
  * cost money and runs only when the operator's line says --paid. A cloud-backed model tag remains cloud.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { appendFileSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, writeFileSync } from 'node:fs';
+import { accessSync, appendFileSync, closeSync, constants as fsConstants, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { CODEX_LOCAL_ROUTE, codexProgressLine, planCodexLocal } from './codex-local.js';
 // Round R4 (helper H52): OpenHands, in a container with a local model only (openhands.ts); hooks are marked "R4 (H52)".
 import { judgeOpenHands, openHandsProgressLine, planOpenHands, type OpenHandsContainer, type OpenHandsRecord } from './openhands.js';
@@ -35,6 +35,11 @@ export interface AgentInfo {
   modelEnv: string;
   /** how its output is read */
   stream: 'claude-stream' | 'codex-json' | 'opencode-json' | 'openhands-jsonl';
+  /**
+   * Run by the name the PATH gives it, its links not followed: a multi-call program chooses what it is by the name it is
+   * called (OrbStack's docker is a link to `docker-tools`, which refused to run under that name: ledger row 159).
+   */
+  asNamed?: true;
 }
 
 export const AGENTS: Readonly<Record<AgentName, AgentInfo>> = {
@@ -43,7 +48,7 @@ export const AGENTS: Readonly<Record<AgentName, AgentInfo>> = {
   codex: { title: 'Codex', bin: 'codex', binEnv: 'TIMMY_AGENT_CODEX_BIN', harnessId: 'codex', modelEnv: 'TIMMY_AGENT_CODEX_MODEL', stream: 'codex-json' },
   opencode: { title: 'OpenCode', bin: 'opencode', binEnv: 'TIMMY_AGENT_OPENCODE_BIN', harnessId: 'opencode', modelEnv: 'TIMMY_AGENT_OPENCODE_MODEL', stream: 'opencode-json' },
   // R4 (H52): the program Timmy runs is docker (the SDK runs inside Timmy's container); its model is the local one.
-  openhands: { title: 'OpenHands', bin: 'docker', binEnv: 'TIMMY_AGENT_DOCKER_BIN', harnessId: 'openhands', modelEnv: 'TIMMY_AGENT_MODEL', stream: 'openhands-jsonl' },
+  openhands: { title: 'OpenHands', bin: 'docker', binEnv: 'TIMMY_AGENT_DOCKER_BIN', harnessId: 'openhands', modelEnv: 'TIMMY_AGENT_MODEL', stream: 'openhands-jsonl', asNamed: true },
 };
 
 /** Qwen Code's endpoint when TIMMY_AGENT_BASE_URL is not set: a local Ollama's OpenAI-compatible API. */
@@ -68,7 +73,18 @@ export function agentBin(name: AgentName, env: Env, onPath: (cmd: string) => str
   const info = AGENTS[name];
   const override = env[info.binEnv];
   if (set(override)) return override.trim();
-  return onPath(info.bin);
+  const found = onPath(info.bin);
+  // A program run by its name: the PATH's own entry for it (a link kept as a link), where onPath found it on that PATH.
+  return found && info.asNamed ? pathEntry(info.bin, env) ?? found : found;
+}
+
+/** The first entry of env's PATH that holds an executable `bin`, as that PATH names it: links are not followed. */
+export function pathEntry(bin: string, env: Env): string | null {
+  for (const dir of (env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue;
+    try { accessSync(join(dir, bin), fsConstants.X_OK); return join(dir, bin); } catch { /* not here */ }
+  }
+  return null;
 }
 
 // ── the endpoint rule ──────────────────────────────────────────────────────────

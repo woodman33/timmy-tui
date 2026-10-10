@@ -12,7 +12,7 @@
  * No test runs Docker, OpenHands, a model or the real worker (workers/openhands/timmy_openhands.py is compiled only:
  * `python3 -m py_compile`). What a real run on the operator's Mac must check is in the report of round R4, H52.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -21,13 +21,13 @@ import { delimiter, dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { capabilities, type ProbeDeps } from '../src/capabilities/index.js';
 import { capabilityLines } from '../src/capabilities/render.js';
-import { agentExercisedIndex, AGENTS_DIR, judgeAgentRun, listAgentRuns, newProgress, parseAgentLine, planAgent, progressLine, type AgentRunRecord } from '../src/code-agents/index.js';
+import { agentBin, agentExercisedIndex, AGENTS_DIR, judgeAgentRun, listAgentRuns, newProgress, parseAgentLine, planAgent, progressLine, type AgentRunRecord } from '../src/code-agents/index.js';
 import {
   bindMount, containerOllama, hostUser, judgeOpenHands, OPENHANDS_BUILD, OPENHANDS_BUILD_SHORT, OPENHANDS_IMAGE, OPENHANDS_NO_DOCKER, OPENHANDS_NO_PAID,
   OPENHANDS_NOT_ITERATE, OPENHANDS_NOTE, OPENHANDS_ONLY_LOCAL, openHandsCapabilityRow, openHandsDockerArgs, openHandsProgressLine, openHandsRouteWords, openHandsSaid,
   PLAIN_SHOWN, watchOpenHands, workRel, type OpenHandsDocker,
 } from '../src/code-agents/openhands.js';
-import { dockerSetup } from '../src/code-agents/openhands-run.js';
+import { dockerCall, dockerSetup } from '../src/code-agents/openhands-run.js';
 import { JobManager } from '../src/jobs/index.js';
 import { folderProject, projectId } from '../src/project/index.js';
 import { realOnPath } from '../src/repl/center.js';
@@ -144,7 +144,7 @@ describe('the plan: the SDK in Timmy\'s container, on a copy of the project, wit
     expect(r.plan.args).toEqual([
       'run', '--rm', '-i', '--pull', 'never', '--name', 'timmy-oh-a00000001',
       '--label', 'timmy.run=a00000001', '--label', `timmy.project=${projectId(root)}`,
-      '--cpus', '2', '--memory', '4g', '--pids-limit', '512', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+      '--cpus', '2', '--memory', '4g', '--memory-swap', '4g', '--pids-limit', '512', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
       ...(user ? ['--user', user] : []),
       '--tmpfs', '/tmp/timmy-home:rw,nosuid,nodev,size=512m,mode=1777', '--add-host', 'host.docker.internal:host-gateway',
       '--mount', `type=bind,source=${join(dir, 'work')},target=/work`, '--mount', `type=bind,source=${join(dir, 'worker')},target=/timmy,readonly`,
@@ -635,6 +635,46 @@ describe('/stop and the time limit stop its container by its name and labels (FA
     expect(names.indexOf(`stop --time 10 timmy-oh-${run}`)).toBeLessThan(names.indexOf(`kill timmy-oh-${run}`));
     expect(existsSync(dock.containerFile(`timmy-oh-${run}`))).toBe(false);
   }, 60_000);
+
+  it('a container that ended on the stop\'s own signal is never said to be ended by docker kill (ledger row 159)', async () => {
+    const ollama = await fakeOllama(['qwen3:4b']);
+    const dock = fakeDocker();
+    const root = project();
+    const { ws } = make(root, ohEnv(dock, ollama.url));
+    const { id, run } = await started(ws, dock, 'openhands --local HANG IGNORETERM STOPERR a long task');
+    const reply = text(await ws.stop(id));
+    expect(reply).not.toContain('docker kill ended it');
+    expect(reply).toContain(`its container timmy-oh-${run} ended while Timmy stopped it, not by docker kill (docker stop exited 1; docker kill exited 1)`);
+    const kept = JSON.parse(readFileSync(join(root, AGENTS_DIR, run, 'container.json'), 'utf8')) as { stops: Array<Record<string, unknown>> };
+    expect(kept.stops.at(-1)).toMatchObject({ result: 'ended', steps: [{ command: `docker stop --time 10 timmy-oh-${run}`, exit: 1 }, { command: `docker kill timmy-oh-${run}`, exit: 1 }] });
+    expect(existsSync(dock.containerFile(`timmy-oh-${run}`))).toBe(false);
+  }, 60_000);
+
+  it('a docker command Timmy\'s own timeout ended has no exit code: no answer, even when the program exits 143 on SIGTERM (row 159)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oh-timeout-'));
+    const slow = join(dir, 'docker');
+    writeFileSync(slow, '#!/bin/sh\ntrap \'exit 143\' TERM\nsleep 30 & wait\n', { mode: 0o755 });
+    const r = await dockerCall(slow, ['stop', 'x'], {}, 300);
+    expect(r.code).toBeNull();
+    expect(r.error).toMatch(/^no answer within 0 s \(Timmy ended the docker command\)$/);
+    rmSync(dir, { recursive: true, force: true });
+  }, 20_000);
+
+  it('docker is run by the name the PATH gives it: a multi-call program behind a link (OrbStack\'s) runs (row 159)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oh-multicall-'));
+    // FAKE: a multi-call program that, like OrbStack's docker-tools, refuses to run under any name but its links'.
+    writeFileSync(join(dir, 'docker-tools'), '#!/bin/sh\ncase "$(basename "$0")" in docker) echo "FAKE docker answered"; exit 0;; *) echo "unsupported argv0 \\"$(basename "$0")\\"" >&2; exit 127;; esac\n', { mode: 0o755 });
+    symlinkSync(join(dir, 'docker-tools'), join(dir, 'docker'));
+    const env = { PATH: dir };
+    const resolved = realOnPath('docker', env)!;
+    expect(spawnSync(resolved, ['info'], { encoding: 'utf8' })).toMatchObject({ status: 127 });
+    const bin = agentBin('openhands', env, (c) => realOnPath(c, env));
+    expect(bin).toBe(join(dir, 'docker'));
+    expect(spawnSync(bin!, ['info'], { encoding: 'utf8' })).toMatchObject({ status: 0, stdout: 'FAKE docker answered\n' });
+    // Other agents keep onPath's own answer.
+    expect(agentBin('qwen', { PATH: dir }, () => '/where/onPath/said')).toBe('/where/onPath/said');
+    rmSync(dir, { recursive: true, force: true });
+  });
 
   it('Timmy\'s time limit: the job ends timed out, and its container is stopped by its name (a notice says so)', async () => {
     const ollama = await fakeOllama(['qwen3:4b']);

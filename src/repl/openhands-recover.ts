@@ -158,7 +158,7 @@ export async function recoverOpenHands(d: OpenHandsRecoverDeps): Promise<Recover
     keepStop(p.r.dir, stop);
     if (stop.result === 'gone') { items.push({ kind: 'agent', id: p.r.run, did: 'left', text: `OpenHands run ${p.r.run}: ${stopWords(stop)} when recovery came to stop it` }); continue; }
     const job = p.decision.job;
-    const stopped = stop.result === 'stopped' || stop.result === 'killed';
+    const stopped = stop.result === 'stopped' || stop.result === 'killed' || stop.result === 'ended'; // 'ended': gone after recovery's stop began (row 159)
     // The job's own record: its end, through the job module's writer, once its container (and so its docker client) stopped.
     let recorded: JobRecord | undefined;
     const steps = stop.steps.map((s) => s.command.split(' ').slice(0, 2).join(' ')).join(', then ');

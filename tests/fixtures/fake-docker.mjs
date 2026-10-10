@@ -28,6 +28,8 @@
 //   IGNORETERM    with HANG: SIGTERM does nothing (a worker that does not stop); `docker stop` then kills it
 //   STOPFAILS     `docker stop` fails for its container (and leaves it running); `docker kill` ends it
 //   UNKILLABLE    `docker stop` and `docker kill` both fail for its container
+//   STOPERR       `docker stop` ends the worker (SIGTERM) but exits 1 before docker lists it as gone, as a stop Timmy's own
+//                 time limit cut short did on the Mac (ledger row 159); `docker kill` then finds it not running, exits 1
 // A `run` process killed outright (SIGKILL) leaves its container file "running": an orphan, as a real container
 // outlives a killed docker client. `stop` and `kill` act on a container by its name (or id), as docker's do.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
@@ -92,6 +94,13 @@ if (cmd === 'stop' || cmd === 'kill') {
   if (!c) fail(`Error response from daemon: No such container: ${ref}`);
   const words = c.behaviour ?? [];
   if (words.includes('UNKILLABLE') || (cmd === 'stop' && words.includes('STOPFAILS'))) fail(`Error response from daemon: cannot ${cmd} container: ${ref}: a FAKE refusal`);
+  if (words.includes('STOPERR')) {
+    if (cmd === 'stop') {
+      if (c.state === 'running' && alive(c.pid)) { process.kill(c.pid, 'SIGTERM'); await gone(c.pid); }
+      fail(`FAKE docker: the stop of ${ref} gave no answer in time`); // the container file stays: listed until kill looks
+    }
+    if (!alive(c.pid)) { remove(c.name); fail(`Error response from daemon: cannot kill container: ${ref}: container is not running`); }
+  }
   if (c.state === 'running' && alive(c.pid)) {
     // docker stop: SIGTERM, then SIGKILL after its grace (played at once for a worker that ignores SIGTERM); docker kill: SIGKILL
     process.kill(c.pid, cmd === 'kill' || words.includes('IGNORETERM') ? 'SIGKILL' : 'SIGTERM');
@@ -105,7 +114,7 @@ if (cmd === 'stop' || cmd === 'kill') {
 if (cmd !== 'run') fail(`FAKE docker: a command it does not play: ${cmd}`, 98);
 
 // ── run: the command line Timmy's OpenHands route must give ──
-const FLAGS = new Set(['--name', '--label', '--cpus', '--memory', '--pids-limit', '--cap-drop', '--security-opt', '--user', '--tmpfs', '--add-host', '--mount', '--workdir', '-e', '--pull']);
+const FLAGS = new Set(['--name', '--label', '--cpus', '--memory', '--memory-swap', '--pids-limit', '--cap-drop', '--security-opt', '--user', '--tmpfs', '--add-host', '--mount', '--workdir', '-e', '--pull']);
 const BOOLS = new Set(['--rm', '-i']);
 const given = {}; const multi = { '--label': [], '--mount': [], '-e': [] }; const bools = new Set();
 const problems = [];

@@ -49,8 +49,11 @@ export function dockerCall(bin: string, args: string[], env: Env, timeoutMs = 15
     try {
       const child = execFile(bin, args, { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, ...dockerClientEnv(env) } }, (err, stdout, stderr) => {
         const e = err as (NodeJS.ErrnoException & { code?: number | string; killed?: boolean }) | null;
-        const code = !e ? 0 : typeof e.code === 'number' ? e.code : null;
-        resolve({ code, stdout: String(stdout ?? ''), stderr: String(stderr ?? ''), ...(e && code === null ? { error: e.killed ? `no answer within ${Math.round(timeoutMs / 1000)} s` : String(e.code ?? e.message) } : {}) });
+        // A command Timmy's own timeout ended has no exit code of its own: OrbStack's docker exits 143 on that SIGTERM,
+        // which read as docker's answer on the Mac (ledger row 159). It is recorded as no answer.
+        const timedOut = !!e?.killed;
+        const code = !e ? 0 : timedOut ? null : typeof e.code === 'number' ? e.code : null;
+        resolve({ code, stdout: String(stdout ?? ''), stderr: String(stderr ?? ''), ...(e && code === null ? { error: timedOut ? `no answer within ${Math.round(timeoutMs / 1000)} s (Timmy ended the docker command)` : String(e.code ?? e.message) } : {}) });
       });
       child.stdin?.end();
     } catch (e) {
@@ -162,7 +165,12 @@ export async function stopContainer(bin: string, env: Env, c: { name: string; la
   const kill = await dockerCall(bin, ['kill', c.name], env, 20_000);
   steps.push({ command: `docker kill ${c.name}`, exit: kill.code });
   const third = await look();
-  if (third.ok && !third.running) return { ...base, result: 'killed', steps };
+  // Gone after a docker kill that failed: it ended on the stop's own signal (or by itself), not by the kill (row 159).
+  if (third.ok && !third.running) {
+    if (kill.code === 0) return { ...base, result: 'killed', steps };
+    const said = stop.code === null ? `docker stop gave no answer (${stop.error ?? 'no exit code'}); docker kill exited ${kill.code ?? 'without an exit code'}${firstLine(kill.stderr) ? `: ${firstLine(kill.stderr)}` : ''}` : `docker stop exited ${stop.code}; docker kill exited ${kill.code ?? 'without an exit code'}`;
+    return { ...base, result: 'ended', steps, detail: said };
+  }
   const said = firstLine(kill.stderr) || firstLine(stop.stderr) || (third.ok ? '' : third.error);
   return { ...base, result: third.ok ? 'unresolved' : 'unchecked', steps, ...(said ? { detail: said } : {}) };
 }

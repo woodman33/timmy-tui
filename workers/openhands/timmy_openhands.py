@@ -12,8 +12,8 @@ so changing this file needs no new image. The container is the boundary: nothing
 
 Its stdin: one JSON object, {"v": 1, "task": "<the task>", "token": "<32 hex>"}, read to its end.
 
-What it runs: the SDK's Agent with two tools only, the terminal and the file editor (picked by name from the SDK's
-default tool preset, the browser left out), on a LocalWorkspace at /work, with NeverConfirm, at most
+What it runs: the SDK's Agent with two tools of the SDK's default preset, the terminal and the file editor (picked by
+name, the browser left out; the SDK adds its own finish and think tools to every agent, as the Mac's run showed), on a LocalWorkspace at /work, with NeverConfirm, at most
 TIMMY_OPENHANDS_MAX_ITERATIONS steps (default 40). The model is the one LLM_MODEL names at LLM_BASE_URL, with the key
 LLM_API_KEY (Timmy gives ollama/<model>, this machine's Ollama as host.docker.internal sees it, and the local
 placeholder key). An ollama model is asked without streaming: the older bridge saw a streamed answer lose its tool-call
@@ -59,8 +59,10 @@ sys.stdout = sys.stderr
 TOKEN = None
 
 
-def emit(kind, **fields):
-    line = {"v": PROTOCOL, "type": kind}
+def emit(line_type, /, **fields):
+    # The line's type is positional-only: the action, observation and event lines also carry a field named `kind` (the
+    # SDK's own kind), which a parameter named kind took twice (the Mac's first real run, ledger row 159: TypeError).
+    line = {"v": PROTOCOL, "type": line_type}
     if TOKEN:
         line["token"] = TOKEN
     for key, value in fields.items():

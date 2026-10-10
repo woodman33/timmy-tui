@@ -223,6 +223,7 @@ export function stopWords(r: ContainerStop): string {
   switch (r.result) {
     case 'stopped': return `its container ${r.name} was stopped by its name and labels${when} (docker stop)`;
     case 'killed': return `its container ${r.name} did not stop with docker stop${when}: docker kill ended it`;
+    case 'ended': return `its container ${r.name} ended while Timmy stopped it${when}, not by docker kill${r.detail ? ` (${r.detail})` : ''}`;
     case 'gone': return `its container ${r.name} had already ended`;
     case 'unresolved': return `its container ${r.name} still runs after docker stop and docker kill${when}${r.detail ? ` (${r.detail})` : ''}: docker kill ${r.name}, or your Docker engine's own list of containers`;
     case 'unchecked': return `its container ${r.name} could not be checked${when}${r.detail ? ` (${r.detail})` : ''}: docker stop ${r.name} stops it`;
