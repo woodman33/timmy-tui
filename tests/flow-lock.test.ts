@@ -158,9 +158,10 @@ describe('a start that fails still gives the project back', () => {
     await tick();
     failing.release();
     await expect(started).rejects.toThrow('FAKE: the agent\'s start failed in this test');
-    const raced = failing.f.command(LINE.blender, at);
+    // Its FAKE start throws at once (the hold was already released): the rejection is awaited from the start.
+    const raced = expect(failing.f.command(LINE.blender, at)).rejects.toThrow('FAKE');
     await tick();
     expect(failing.calls).toHaveLength(2);
-    await expect(raced).rejects.toThrow('FAKE');
+    await raced;
   });
 });
