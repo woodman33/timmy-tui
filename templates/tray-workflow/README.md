@@ -5,7 +5,7 @@ it back, inspect its STEP, and see the result.
 
 | File | What it is |
 |---|---|
-| `WORKFLOW.md` | the workflow (upmd): its prose says the request; its blocks are `change`, `inspect` (needs `change`) and `result` (needs `inspect`) |
+| `WORKFLOW.md` | the workflow (upmd): its prose says the request; its blocks are `change`, `inspect` (needs `change`), `result` (needs `inspect`) and `lesson` (needs `result`: a draft lesson with this run's records as its evidence) |
 | `recipes/tray.params.json` | the CadQuery tray recipe's parameters (enclosure.tray/1, millimetres): the recipe card's defaults |
 
 ## Run it
@@ -13,12 +13,13 @@ it back, inspect its STEP, and see the result.
 ```
 /project new mytray --from tray-workflow
 /workflows WORKFLOW.md          the document, its blocks and its last runs
-/run WORKFLOW.md result         change, then inspect, then result
+/run WORKFLOW.md lesson         change, then inspect, then result, then a draft lesson
+/lesson check <id>              the lesson checked against its records and receipts
 /op                             the operation in full; /ops lists the recent ones
 /board live                     the same on the board: the operation's card tops the Control Room
 ```
 
-`/run` predicts the order (change → inspect → result) and seals that prediction before upmd runs a
+`/run` predicts the order (change → inspect → result → lesson) and seals that prediction before upmd runs a
 block. Each block runs `timmy act "<command>" --wait`, which waits for what the command started and
 exits 0 when it succeeded, 1 when it failed or differs, 2 when it was refused (a missing tool, a busy
 project) and 3 when it was stopped; a block that exits otherwise than 0 stops the chain.

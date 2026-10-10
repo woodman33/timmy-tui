@@ -27,7 +27,7 @@ const temp = (prefix: string): string => { const d = fs.realpathSync(fs.mkdtempS
 
 describe('the tray-workflow starter', () => {
   it('is registered with the other starters, and holds its three files', () => {
-    expect(STARTERS['tray-workflow']).toContain('/run WORKFLOW.md result');
+    expect(STARTERS['tray-workflow']).toContain('/run WORKFLOW.md lesson');
     expect(listStarters().map((s) => s.name)).toContain('tray-workflow');
     const dest = path.join(temp('tray-workflow-'), 'mytray');
     const r = copyStarter('tray-workflow', dest);
@@ -40,17 +40,21 @@ describe('the tray-workflow starter', () => {
     expect(parseParams(file)).toEqual({ ok: true, parameters: readCard().parameters });
   });
 
-  it('its WORKFLOW.md parses into change, inspect (needs change) and result (needs inspect); the prose says where a lesson block goes', () => {
+  it('its WORKFLOW.md parses into change, inspect (needs change), result (needs inspect) and lesson (needs result)', () => {
     const doc = fs.readFileSync(path.join(TEMPLATE, 'WORKFLOW.md'), 'utf8');
     const blocks = parseWorkflow(doc);
-    expect(blocks.map((b) => [b.name, b.lang, b.deps])).toEqual([['change', 'bash', []], ['inspect', 'bash', ['change']], ['result', 'bash', ['inspect']]]);
+    expect(blocks.map((b) => [b.name, b.lang, b.deps])).toEqual([['change', 'bash', []], ['inspect', 'bash', ['change']], ['result', 'bash', ['inspect']], ['lesson', 'bash', ['result']]]);
     expect(runOrder(blocks, 'result')).toEqual({ order: ['change', 'inspect', 'result'], missing: [] });
+    expect(runOrder(blocks, 'lesson')).toEqual({ order: ['change', 'inspect', 'result', 'lesson'], missing: [] });
     expect(blocks[0].code).toBe('timmy act \'/iterate tray "make the tray 150 mm wide"\' --wait');
     expect(blocks[1].code).toContain('timmy act "/inspect $step" --wait');
     expect(blocks[2].code).toBe('timmy act \'/op\' --wait');
-    // The prose explains the request, and names the one place the lead adds a lesson block.
+    // The prose explains the request, and the lesson: the user's sentence, a draft, checked only by /lesson check.
     expect(doc).toContain('The instruction in the `change` block is the request');
-    expect(doc.split('\n').filter((l) => /lesson block/i.test(l))).toEqual(['A lesson block comes here, after `result`, once Timmy Memory\'s lessons are merged.']);
+    expect(blocks[3].code).toContain('timmy act "/lesson add \\"');
+    expect(blocks[3].code).toContain('--from $flow --from $vox --applies tray" --wait');
+    expect(doc).toContain('Edit the sentence to say what you learned.');
+    expect(doc).toContain('No model is trained.');
     // Nothing personal, no absolute path.
     for (const f of ['README.md', 'WORKFLOW.md', 'recipes/tray.params.json']) expect(fs.readFileSync(path.join(TEMPLATE, f), 'utf8'), f).not.toMatch(/\/Users\/|\/home\/|@[a-z0-9-]+\.[a-z]/i);
   });
@@ -76,6 +80,33 @@ describe('the tray-workflow starter', () => {
     const newest = await runAsync('sh', ['-c', code], { cwd: dir, env });
     expect(newest.status).toBe(0);
     expect(newest.stdout.trim()).toBe('FAKE timmy: act /inspect out/recipes/5e6f7a8b/console-tray.step --wait');
+  });
+
+  it('its lesson block adds the sentence with the newest flow and VoxVision records as evidence, and fails in words without them', async () => {
+    const code = parseWorkflow(fs.readFileSync(path.join(TEMPLATE, 'WORKFLOW.md'), 'utf8'))[3].code;
+    const dir = temp('tray-lesson-');
+    const bin = path.join(dir, 'bin');
+    fs.mkdirSync(bin);
+    // FAKE timmy: prints how it was called, one argument per line.
+    fs.writeFileSync(path.join(bin, 'timmy'), '#!/bin/sh\nfor a in "$@"; do echo "ARG $a"; done\n', { mode: 0o755 });
+    const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` };
+    const none = await runAsync('sh', ['-c', code], { cwd: dir, env });
+    expect(none.status).toBe(1);
+    expect(none.stdout).toContain('no flow record or VoxVision record yet');
+    for (const [rel, age] of [['results/flows/f00000001.json', 60], ['results/flows/f00000002.json', 0], ['results/vox/v00000001.json', 0]] as const) {
+      const f = path.join(dir, rel);
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f, '{}\n');
+      const t = new Date(Date.now() - age * 1000);
+      fs.utimesSync(f, t, t);
+    }
+    const ok = await runAsync('sh', ['-c', code], { cwd: dir, env });
+    expect(ok.status).toBe(0);
+    expect(ok.stdout.trim().split('\n')).toEqual([
+      'ARG act',
+      'ARG /lesson add "A tray size change by /iterate tray is confirmed by its STEP readback and by a VoxVision inspection of the exported STEP." --from results/flows/f00000002.json --from results/vox/v00000001.json --applies tray',
+      'ARG --wait',
+    ]);
   });
 
   it('/project new --from tray-workflow, then /run WORKFLOW.md result: the three blocks run in order, each calling timmy act with the run\'s operation id', async () => {

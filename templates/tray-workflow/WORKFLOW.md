@@ -4,7 +4,8 @@ One request carried through Timmy: a local code agent changes the tray recipe's 
 rebuilds as a durable job and a separate worker reads its STEP back, VoxVision inspects the STEP the
 rebuild exported, and the operation's card says what happened, each part checked against its receipt.
 
-Run it in the REPL with `/run WORKFLOW.md result` (the board's Run does the same). Each block runs
+Run it in the REPL with `/run WORKFLOW.md lesson` (the board's Run does the same), or `/run WORKFLOW.md result`
+to stop before the lesson. Each block runs
 `timmy act`, which joins the operation of that run (through `TIMMY_OPERATION`), so the flow, the agent's
 run, the rebuild, the readback, the VoxVision record and every receipt carry one operation id, and
 `/op` shows them together.
@@ -41,6 +42,19 @@ steps, the STEP with its sha256, the VoxVision record about it, and the lessons 
 timmy act '/op' --wait
 ```
 
-A lesson block comes here, after `result`, once Timmy Memory's lessons are merged.
+## Keep a lesson
+
+A lesson is a sentence kept with the records that show it. This block adds the sentence below as a draft
+lesson whose evidence is this run's flow record and the VoxVision record of its STEP (the newest of each).
+Edit the sentence to say what you learned. `/lesson check <id>` (or Check on the board) checks it against
+those files and their receipts; only a checked lesson is given to a later `/iterate tray` as context, and
+`/lesson eval <id>` compares runs before and after it. No model is trained.
+
+```bash [name:lesson, deps:result]
+flow=$(ls -t results/flows/*.json 2>/dev/null | head -n 1)
+vox=$(ls -t results/vox/*.json 2>/dev/null | head -n 1)
+if [ -z "$flow" ] || [ -z "$vox" ]; then echo "no flow record or VoxVision record yet: the change and inspect blocks made none"; exit 1; fi
+timmy act "/lesson add \"A tray size change by /iterate tray is confirmed by its STEP readback and by a VoxVision inspection of the exported STEP.\" --from $flow --from $vox --applies tray" --wait
+```
 
 Timmy can compute and verify dimensions of generated CAD. Converting that CAD cannot establish the dimensions or density of a physical object.
