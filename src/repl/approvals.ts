@@ -62,6 +62,8 @@ const ALWAYS: Record<string, { reason: string; keys: string[]; session?: false }
   run_recipe: { reason: 'builds a CAD tray with CadQuery on this machine, as a background job', keys: ['recipe', 'parameters'] },
   // Round R4 (/iterate): a local code agent edits the tray's parameter file, then a rebuild and a readback; asked each time.
   iterate_recipe: { reason: 'starts a local code agent that may change recipes/tray.params.json, then rebuilds the CAD tray and reads it back on this machine', keys: ['instruction'], session: false },
+  // Round R4 (H33): the same for an OpenSCAD model's parameter file or a FreeCAD script (the file named); asked each time.
+  iterate_native: { reason: 'starts a local code agent that may change one file in your project (an OpenSCAD model\'s <model>.params.json, or a FreeCAD script), then runs OpenSCAD or FreeCAD on this machine and reads the result back', keys: ['file', 'instruction'], session: false },
   describe_image: { reason: 'sends an image from your project to a model, and costs money', keys: ['path'], session: false },
 };
 

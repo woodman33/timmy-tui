@@ -5,8 +5,8 @@
  *   1. the script is checked before anything starts: a .py in the project, reached through no link, outside .git,
  *      node_modules, .timmy and dist (the agent's before/after comparison does not look there), at most 256 KB;
  *      Blender and the readback worker must be there too. Its bytes are read and kept in the flow's folder;
- *   2. a local code agent runs through /agent's own start (Qwen Code on a loopback endpoint; nothing else), told to
- *      change only that script;
+ *   2. a local code agent runs through /agent's own start (Qwen Code on a loopback endpoint, or, since R4 H33, Codex's
+ *      local route under the same rule; nothing else), told to change only that script;
  *   3. after it: any other file changed, the script deleted, or changed after the agent ended, no change, or a script
  *      that no longer parses as Python (an AST parse by this machine's python3 when there is one; otherwise not
  *      checked, and said so) stops the flow before Blender runs. Nothing is reverted;
@@ -30,6 +30,7 @@ import { closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, re
 import path from 'node:path';
 import type { JobRecord } from '../jobs/index.js';
 import { AGENTS, AGENTS_DIR, agentBin, planAgent, type AgentName, type AgentRunRecord } from '../code-agents/index.js';
+import { codexLocalPreflight } from '../code-agents/codex-local.js';
 import { blenderJob, judgeNativeJob, locateNative, NATIVE_APPS, NativeNotFound, readNativeResult, sha256File, type NativeJobSpec } from '../native/index.js';
 import { projectId, resolveInside } from '../project/index.js';
 import { DOCTRINE_15, FLOW_SCHEMA, flowRecordPath, flowWorkDir, newFlowId, writeProjectJson } from '../flows/iterate.js';
@@ -43,7 +44,7 @@ import type { Segment } from '../term/theme.js';
 
 type Line = Segment[];
 
-export const BLENDER_USAGE = '/iterate blender <script.py> "<instruction>" [--agent qwen] [--model <local model>]';
+export const BLENDER_USAGE = '/iterate blender <script.py> "<instruction>" [--agent qwen|codex] [--model <local model>]';
 
 /** `/iterate blender <script.py> "<instruction>"`, parsed (src/repl/iterate.ts parseIterateLine). */
 export interface BlenderIterateRequest { recipe: 'blender'; script: string; instruction: string; agent: AgentName; model?: string }
@@ -143,7 +144,9 @@ export class BlenderFlows {
     const bin = agentBin(req.agent, env, this.d.onPath);
     if (!bin) return refuse(`${info.title} is not on PATH (${info.bin}); /tools says how to install it. Nothing was started.`, 'estimate');
     if (!env.TIMMY_AGENT_MODEL?.trim()) return refuse(`Name the local model: ${BLENDER_USAGE.replace('[--model <local model>]', '--model <a model your local endpoint serves, from ollama list>')}, or set TIMMY_AGENT_MODEL. Nothing was started.`);
-    const route = planAgent(req.agent, req.instruction, { env, paid: false, run: 'a00000000', bin });
+    // R4 (H33): --agent codex is Codex's local route (codex exec --oss), under the same rule as /iterate tray's.
+    const local = req.agent === 'codex' ? { local: true as const } : {};
+    const route = planAgent(req.agent, req.instruction, { env, paid: false, run: 'a00000000', bin, ...local, root });
     if (!route.ok) {
       const why = route.error.replace(/\s*To run it anyway:.*$/, '');
       return route.refused === 'paid' ? refuse(`${why} /iterate runs only a local, free route, and has no --paid.`, 'estimate') : refuse(why);
@@ -158,16 +161,24 @@ export class BlenderFlows {
     }
     if (!existsSync(BLEND_READBACK_SCRIPT)) return refuse('Not started: the readback worker (workers/readback/blend_readback.py) is missing from this Timmy.');
     if (!this.d.startNative) return refuse('Not started: this REPL cannot start a native job.');
+    const id = newFlowId();
+    // R4 (H33): Codex's local route needs its model already in the local Ollama; asked before anything is written, the
+    // project held while it is asked (the answer is awaited), so no second flow starts meanwhile.
+    if (route.plan.oss) {
+      this.starting.set(root, id);
+      let ready: Awaited<ReturnType<typeof codexLocalPreflight>>;
+      try { ready = await codexLocalPreflight(route.plan.oss); } finally { this.starting.delete(root); }
+      if (!ready.ok) return refuse(scrub(ready.error), 'estimate');
+    }
     // The script's bytes now: the task quotes them, their sha256 is the "before" every later check compares with.
     let bytes: Buffer;
     try { bytes = readFileSync(at_.path); } catch (e) { return refuse(`${rel} could not be read: ${scrub(e instanceof Error ? e.message : String(e))}. Nothing was started.`); }
     const beforeText = bytes.toString('utf8');
-    const id = newFlowId();
     const task = blenderIterateTask({ instruction: req.instruction, scriptRel: rel, scriptText: beforeText });
     // The project is held from here: the agent's start is awaited, and no second flow may start meanwhile.
     this.starting.set(root, id);
     let s: Awaited<ReturnType<IterateDeps['startAgent']>>;
-    try { s = await this.d.startAgent(req.agent, task, { paid: false, root, project, env }); } finally { this.starting.delete(root); }
+    try { s = await this.d.startAgent(req.agent, task, { paid: false, ...local, root, project, env }); } finally { this.starting.delete(root); }
     if (!s.ok) return refuse(`The agent did not start: ${scrub(s.error)}`, s.refused === 'paid' || s.refused === 'missing' ? 'estimate' : 'failure');
     const kept = keepBytes(root, `${flowWorkDir(id)}/script.before.py`, bytes);
     const record: BlenderFlowRecord = {

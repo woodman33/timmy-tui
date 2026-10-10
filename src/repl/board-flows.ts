@@ -16,6 +16,8 @@ import path from 'node:path';
 import { DOCTRINE_15, FLOW_SCHEMA, mm3Text, mmText, toleranceText, type FlowRecord } from '../flows/iterate.js';
 // R4 (H26): a Blender flow's card (/iterate blender).
 import { BLENDER_FLOW_CSS, blenderFlowCard, isBlenderFlowRecord } from './board-flows-blender.js';
+// R4 (H33): an OpenSCAD or FreeCAD flow's card (/iterate scad, /iterate freecad).
+import { isNativeFlowRecord, NATIVE_FLOW_CSS, nativeFlowCard } from './board-flows-native.js';
 import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { Receipt } from '../utils/receipts.js';
 
@@ -173,6 +175,7 @@ function statusLine(check: BoardFlowCheck): string {
 
 function flowCard(f: BoardFlow, h: ReturnType<typeof helpers>): string {
   if (isBlenderFlowRecord(f.record)) return blenderFlowCard(f, h, statusLine(f.check)); // R4 (H26)
+  if (isNativeFlowRecord(f.record)) return nativeFlowCard(f, h, statusLine(f.check)); // R4 (H33)
   const r = f.record;
   const outcome = String(r.outcome ?? 'unknown');
   const outputs = Array.isArray(r.rebuild?.outputs) ? r.rebuild!.outputs! : [];
@@ -206,7 +209,7 @@ export function flowsSection(flows: BoardFlows, d: Draw): { toc: string; html: s
       `<h2 id="flows">Flows <span class="count">${total}</span></h2>`,
       flows.list.length
         ? `<div class="grid wide">${flows.list.map((f) => flowCard(f, h)).join('')}</div>`
-        : `<p class="empty">${esc('No flows yet: /iterate tray "<instruction>" has a local agent change the parameters, rebuilds the tray and reads it back; /iterate blender <script.py> "<instruction>" does the same for a Blender script.')}</p>`,
+        : `<p class="empty">${esc('No flows yet: /iterate tray "<instruction>" has a local agent change the parameters, rebuilds the tray and reads it back; /iterate blender <script.py> "<instruction>" does the same for a Blender script; /iterate scad <model.scad> and /iterate freecad <script.py> for OpenSCAD and FreeCAD.')}</p>`,
       flows.more > 0 ? `<p class="more">${esc(`and ${flows.more} more: /iterate`)}</p>` : '',
     ].join('\n'),
   };
@@ -225,4 +228,4 @@ export const FLOWS_CSS = `
 .flow .verdict-differs, .flow .verdict-failed { color: ${HOMEBREW.failure}; }
 .state-succeeded { color: ${HOMEBREW.accent}; }
 .state-differs, .state-stopped { color: ${HOMEBREW.attention}; }
-${BLENDER_FLOW_CSS}`;
+${BLENDER_FLOW_CSS}${NATIVE_FLOW_CSS}`;

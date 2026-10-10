@@ -62,6 +62,7 @@ import {
 import { codexLocalPreflight, codexLocalSummary } from '../code-agents/codex-local.js';
 // Round R4 (/iterate, helper H24): the connected flow (src/repl/iterate.ts); hooks are marked "R4 (/iterate)".
 import { IterateFlows, type AgentStart, type IterateTestSeams } from './iterate.js';
+import type { IterateToolRequest } from '../agent/iterate-tools.js';
 import { readBoardFlows } from './board-flows.js';
 import { FLOW_ID, FLOWS_DIR } from '../flows/iterate.js';
 // R4 (H30): observation records kept because their file could not be written, as result cards; their check.
@@ -258,6 +259,11 @@ export class Workspace {
       scrub: (t, root) => this.scrub(t, root),
       // R4 (H26): /iterate blender's Blender run, started and adopted as /blender's (judged and sealed at its end).
       startNative: (spec) => { const job = this.jobs.start(spec); try { noteNativeStarted(spec, job); } catch { /* the record says it was submitted */ } this.adoptNative(job.id, spec); return job; },
+      // R4 (H33): /iterate freecad's STEP readback is /freecad readback's own (the same worker, record and receipt).
+      freecadReadback: {
+        ready: () => readbackReady(this.d.env, this.d.freecadTest),
+        run: (plan, at, o) => this.freecadReadbacks.run(plan, at, o),
+      },
       ...(d.iterateTest ? { test: d.iterateTest } : {}),
     });
     this.freecadReadbacks = new FreecadReadbacks({
@@ -1422,8 +1428,14 @@ export class Workspace {
   /** `/iterate` lists the flows; `/iterate tray "<instruction>" [--agent qwen|codex] [--model <m>]` starts one (src/repl/iterate.ts). */
   async iterate(args: string): Promise<Line[]> { return this.flows.command(args, { root: this.root, project: this.project.name }); }
 
-  /** The agent's iterate_recipe: the same start as /iterate tray "<instruction>", answered as data. */
-  iterateForTool(instruction: string): Promise<Record<string, unknown>> { return this.flows.startForTool(instruction, { root: this.root, project: this.project.name }); }
+  /**
+   * The agent's iterate_recipe: the same start as /iterate tray "<instruction>", answered as data. R4 (H33): its
+   * iterate_native passes the target and file (the same start as /iterate scad or /iterate freecad).
+   */
+  iterateForTool(request: string | IterateToolRequest): Promise<Record<string, unknown>> {
+    const at = { root: this.root, project: this.project.name };
+    return typeof request === 'string' ? this.flows.startForTool(request, at) : request.target === 'tray' ? this.flows.startForTool(request.instruction, at) : this.flows.startNativeForTool(request, at);
+  }
 
   private agentList(): Line[] {
     const env = this.d.env;
