@@ -114,8 +114,8 @@ export interface DecisionContext {
   staleSaves?: readonly StaleSave[];
   /** the /tools rows as the Control Room last checked them */
   tools?: RoomTools;
-  /** VoxVision's tools as checked now */
-  voxTools?: readonly ToolStatus[];
+  /** VoxVision's tools as checked now: asked only when a VoxVision record of the project names a tool */
+  voxTools?: () => readonly ToolStatus[];
   /** the project's folder as "." and the home folder as "~" */
   scrub: (text: string) => string;
   now?: () => number;
@@ -364,9 +364,9 @@ function setupItems(c: DecisionContext, flows: BoardFlows): { items: Decision[];
       });
     }
   }
-  const needing = (c.voxTools ?? []).filter((t) => t.state === 'needs setup');
-  if (needing.length) {
-    const records = voxRecords(c.root, c.scrub);
+  const records = c.voxTools ? voxRecords(c.root, c.scrub) : [];
+  if (records.some((r) => r.used.size || r.needed.size)) {
+    const needing = (c.voxTools?.() ?? []).filter((t) => t.state === 'needs setup');
     for (const t of needing) {
       const rec = records.find((r) => r.needed.has(t.tool) || r.used.has(t.tool));
       if (!rec) continue;

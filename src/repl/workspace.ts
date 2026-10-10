@@ -1981,8 +1981,7 @@ export class Workspace {
   private decisionsOf(o: { jobs: readonly JobRecord[]; chain: readonly Receipt[]; flows?: BoardFlows; max?: number }): DecisionsView {
     const root = this.root;
     try {
-      let voxTools: ToolStatus[] = [];
-      try { voxTools = toolStatuses({ env: this.d.env, onPath: this.d.onPath, root }); } catch { voxTools = []; }
+      const voxTools = (): ToolStatus[] => { try { return toolStatuses({ env: this.d.env, onPath: this.d.onPath, root }); } catch { return []; } };
       return gatherDecisions({
         root, projectId: projectId(root), jobs: o.jobs, chain: o.chain, ...(o.flows ? { flows: o.flows } : {}),
         activeFlows: this.flows.active, approvals: waitingApprovals(), staleSaves: this.staleSaves.list(root),
