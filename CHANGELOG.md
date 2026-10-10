@@ -75,6 +75,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set of shared settings (`src/theme/tokens.ts`). `TIMMY_PALETTE=homebrew`.
 
 ### Fixed
+- Round R4, a `/run` whose REPL ended: its pty wrapper stops upmd at once and leaves a stop file, and recovery records only what is known (a block the wrapper saw end as it saw it; a later block "not seen" without proof); `/jobs` shows each block's own time and counts the blocks the run was to run. The live board's header says live only once it is.
+- Round R4, what an ended REPL left: "Waiting on you" lists every code agent run, flow step and workflow run it left (running or gone, proven by the record's owner), and keeps an interrupted workflow run until a later run settles it; recovery ends the operations it settles with the state "interrupted" (`timmy act` exits 3).
+- Round R4, OpenHands' local model goes through LiteLLM's `ollama_chat` route, registered as calling tools natively; a run that says it finished after 0 steps having changed nothing is judged unknown, never a ✓.
+- Round R4, `/vox view` says it opens a window before anything starts, keeps Rerun to this machine (`--bind 127.0.0.1`), and shows a STEP as an OCP tessellation checked against the STEP's own box.
+- Round R4, found by the Mac run r21: Unreal and OpenHands sit in their groups in the Control Room's tools panel; the package ships the STEP tessellation worker; `/review` names who edited ("by /restore (from …)", "by the live board (parameters)"); OpenHands' time-limit words say the grace as it was; the Automation words of Illustrator and After Effects name the app Timmy runs in; the REPL's lines follow the terminal's current width.
+- Round R4, a job whose last process is a zombie (an init that reaps orphans late, as in some containers) is no longer recorded running for ever, and recovery settles a workflow run whose wrapper has just stopped it.
 - Round R4, OpenHands' stops: `/stop`, the time limit, the REPL's end and `timmy act` now stop the container before its docker client, so the worker's own last line (stopped at step N, with its token counts) reaches the run's record; a stale run whose container is already gone is ended by recovery; `/recover`'s "nothing to pick up" names everything it looked for.
 - Round R4, the Control Room lists VoxVision's tools as a group of their own.
 - Round R4, found by the first connected demonstration on the Mac (r19):
