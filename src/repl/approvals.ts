@@ -250,9 +250,10 @@ export interface WaitingApproval {
   /**
    * R4 (H74): a wait that is not the chat agent's tool call (a workflow run whose blocks include a destructive shell
    * command): the Control Room's "Waiting on you" says it in these words, cleaned there. `keys`: its box is the way to
-   * answer it (else the commands are). Absent for a tool call.
+   * answer it (else the commands are). `kind`: what kind of wait it is, when it is not a box a running request waits on
+   * (the board's refused Run: "blocks a requested run"). Absent for a tool call.
    */
-  words?: { title: string; needed: string; why: string; commands: string[]; keys: boolean };
+  words?: { title: string; needed: string; why: string; commands: string[]; keys: boolean; kind?: string };
 }
 const waiting = new Map<number, WaitingApproval>();
 let waitSeq = 0;

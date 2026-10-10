@@ -669,9 +669,10 @@ function runHtml(w: WorkflowDocInput, n: NodeView, c: ConnectedWorkflow, k: Kit)
   const live = c.runs.find((r) => r.job === c.latest && (r.word === 'running' || r.word === 'starting'));
   const busy = live && k.live ? `<p class="meta">${esc(`${live.job} is running now (${live.target}); another run starts beside it.`)}</p>` : '';
   // R4 (H74): NEEDS YOU before a risky block: asked in the REPL's box, once, before anything runs; the board cannot show it
+  // (wf-needs-you: the block editor's .wf-needs is its row of dependencies, src/repl/board-edits.ts)
   const first = (code: string): string => code.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
   const needs = n.risky.length
-    ? `<p class="wf-needs" data-wf-needs="${esc(n.key)}"><strong>${esc('needs you')}</strong> ${esc(`${n.risky.map((x) => `${x.name} (${first(x.command)})`).join(', ')}: ${RISKY_REASON}. ${cmd} asks first in the REPL's NEEDS YOU box, once, before anything runs (upmd runs a block only after the blocks it needs, with no stop between them).${k.live ? ' The board cannot show that box: its Run is refused and listed in Waiting on you with the command to type in the REPL.' : ''}`)}</p>`
+    ? `<p class="wf-needs-you" data-wf-needs-you="${esc(n.key)}"><strong>${esc('needs you')}</strong> ${esc(`${n.risky.map((x) => `${x.name} (${first(x.command)})`).join(', ')}: ${RISKY_REASON}. ${cmd} asks first in the REPL's NEEDS YOU box, once, before anything runs (upmd runs a block only after the blocks it needs, with no stop between them).${k.live ? ' The board cannot show that box: its Run is refused and listed in Waiting on you with the command to type in the REPL.' : ''}`)}</p>`
     : '';
   return `<section class="wf-runs"><h4>run</h4>${buttons ? `<div class="wf-acts">${buttons}</div>` : ''}<p class="meta">${esc(say)}</p>${needs}${notAlone && k.live ? `<p class="meta">${esc(notAlone)}</p>` : ''}${busy}${k.cmds([cmd])}</section>`;
 }
@@ -1099,8 +1100,8 @@ export const WORKFLOWS_CSS = `
 .wfx-run-label { text-transform: uppercase; letter-spacing: .06em; font-size: 11px; color: ${HOMEBREW.textSecondary}; }
 .wfx-run-say, .wf-say { font-size: ${TYPE.size.small}px; color: ${HOMEBREW.text}; overflow-wrap: anywhere; margin: 0; }
 .wf-note { color: ${HOMEBREW.attention}; font-size: ${TYPE.size.small}px; margin: 0; }
-.wf-needs { color: ${HOMEBREW.text}; font-size: ${TYPE.size.small}px; margin: 0; border-left: 3px solid ${HOMEBREW.attention}; padding-left: 8px; overflow-wrap: anywhere; }
-.wf-needs strong { color: ${HOMEBREW.attention}; text-transform: uppercase; letter-spacing: .05em; font-size: 11px; margin-right: 4px; }
+.wf-needs-you { color: ${HOMEBREW.text}; font-size: ${TYPE.size.small}px; margin: 0; border-left: 3px solid ${HOMEBREW.attention}; padding-left: 8px; overflow-wrap: anywhere; }
+.wf-needs-you strong { color: ${HOMEBREW.attention}; text-transform: uppercase; letter-spacing: .05em; font-size: 11px; margin-right: 4px; }
 .wf-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .wf-acts .act[disabled] { opacity: .5; cursor: not-allowed; }
 .act.act-stop { color: ${HOMEBREW.text}; background: ${HOMEBREW.raised}; border-color: ${HOMEBREW.failure}; }

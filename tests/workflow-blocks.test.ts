@@ -337,7 +337,9 @@ describe('NEEDS YOU before a risky block (the gate the agent\'s tool calls wait 
     expect(ws.jobs.list()).toEqual([]);
     expect(chainOf(root)).toEqual([]);
     const listed = text(await ws.decisions(''));
-    expect(listed).toContain('! NEEDS YOU: /run RISKY.md build from the board (clean: rm -rf dist)  blocks a running request');
+    // nothing runs: it blocks the run that was requested (as a refused save "blocks a requested save"), not a running one
+    expect(listed).toContain('! NEEDS YOU: /run RISKY.md build from the board (clean: rm -rf dist)  blocks a requested run');
+    expect(listed).not.toContain('blocks a running request');
     expect(listed).toContain('needed  type the command below in the REPL and answer its NEEDS YOU box: the board cannot show the box, so its Run was refused and nothing ran');
     expect(listed).toContain('type    /run RISKY.md build');
     // a run of it typed in the REPL (asked, allowed once) settles it

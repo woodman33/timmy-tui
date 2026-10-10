@@ -81,12 +81,20 @@ export function gateWords(rel: string, target: string, order: readonly string[],
   };
 }
 
-/** The prediction's words before the box: what would run, each risky block and why, and how Timmy asks. */
-export function gateLines(p: { order: readonly string[]; risky: readonly RiskyBlock[] }, o: { arrow: string; sep: string; answer: 'box' | 'none' }): Line[] {
-  const lines: Line[] = [[{ text: '  Predicted  ', role: 'secondary' }, { text: p.order.join(` ${o.arrow} `), role: 'strong' }, { text: `, each exits 0${o.answer === 'box' ? `${o.sep}nothing runs or is sealed until you answer` : ''}`, role: 'secondary' }]];
-  p.risky.forEach((b, i) => lines.push([{ text: i ? '             ' : '  Needs you  ', role: 'secondary' }, { text: b.name, role: 'strong' }, { text: `: ${firstLine(b.command)}${b.command.includes('\n') ? ' …' : ''}${o.sep}${b.reason}`, role: 'estimate' }]));
+/** Each risky block (its name, the first line of its command, why) and how Timmy asks; nothing when none is risky. */
+export function riskyLines(risky: readonly RiskyBlock[], o: { sep: string }): Line[] {
+  if (!risky.length) return [];
+  const lines: Line[] = risky.map((b, i) => [{ text: i ? '             ' : '  Needs you  ', role: 'secondary' }, { text: b.name, role: 'strong' }, { text: `: ${firstLine(b.command)}${b.command.includes('\n') ? ' …' : ''}${o.sep}${b.reason}`, role: 'estimate' }]);
   lines.push([{ text: `             ${UPMD_GATE}.`, role: 'secondary' }]);
   return lines;
+}
+
+/** The prediction's words before the box: what would run, each risky block and why, and how Timmy asks. */
+export function gateLines(p: { order: readonly string[]; risky: readonly RiskyBlock[] }, o: { arrow: string; sep: string; answer: 'box' | 'none' }): Line[] {
+  return [
+    [{ text: '  Predicted  ', role: 'secondary' }, { text: p.order.join(` ${o.arrow} `), role: 'strong' }, { text: `, each exits 0${o.answer === 'box' ? `${o.sep}nothing runs or is sealed until you answer` : ''}`, role: 'secondary' }],
+    ...riskyLines(p.risky, o),
+  ];
 }
 
 /**
@@ -158,7 +166,7 @@ export class HeldRuns {
           title: `NEEDS YOU: ${cmd} from the board (${h.risky.map((b) => `${b.name}: ${firstLine(b.command)}`).join('; ')})`,
           needed: 'type the command below in the REPL and answer its NEEDS YOU box: the board cannot show the box, so its Run was refused and nothing ran',
           why: `upmd would run ${h.order.join(' → ')}, and ${h.risky.map((b) => `${b.name} runs ${RISKY_REASON}: ${b.command.replace(/\s+/g, ' ').trim()}`).join('; ')}; ${UPMD_GATE}`,
-          commands: [cmd], keys: false,
+          commands: [cmd], keys: false, kind: 'blocks a requested run',
         },
       });
     }

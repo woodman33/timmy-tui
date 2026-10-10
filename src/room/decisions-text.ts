@@ -28,7 +28,7 @@ export function decisionLines(d: Decision, o: DecisionTextOptions, indent = '   
   const link = o.link ?? ((rel: string) => rel);
   const label = (t: string): Segment => ({ text: `${indent}  ${t.padEnd(8)}`, role: 'secondary' });
   const lines: Line[] = [
-    [{ text: `${indent}! `, role: 'estimate' }, { text: d.title, role: 'strong' }, { text: `  ${KIND_WORDS[d.kind]}`, role: d.blocks ? 'estimate' : 'secondary' }],
+    [{ text: `${indent}! `, role: 'estimate' }, { text: d.title, role: 'strong' }, { text: `  ${d.kindWords ?? KIND_WORDS[d.kind]}`, role: d.blocks ? 'estimate' : 'secondary' }],
     [label('needed'), { text: d.needed }],
     [label('why'), { text: d.why, role: 'secondary' }],
   ];
