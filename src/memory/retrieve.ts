@@ -11,7 +11,7 @@
  */
 import type { Segment } from '../term/theme.js';
 import type { Receipt } from '../utils/receipts.js';
-import { checkLesson, LESSON_TEXT_MAX, listLessons, oneLine, problemsText, projectRelPath, type LessonCheck, type LessonKind, type LessonRead } from './lessons.js';
+import { checkLesson, LESSON_ID, LESSON_TEXT_MAX, listLessons, oneLine, problemsText, projectRelPath, type LessonCheck, type LessonKind, type LessonRead } from './lessons.js';
 import { recordCheck, type LessonSealContext } from './seal.js';
 
 /** The section's first and last lines: the agent sees where the lessons begin and end. */
@@ -126,4 +126,19 @@ export function lessonsStartLine(r: Retrieval): Segment[] {
  */
 export function pickLessons(d: { lessons?: (q: LessonQuery) => Retrieval }, q: LessonQuery): Retrieval | undefined {
   return d.lessons ? d.lessons(q) : undefined;
+}
+
+/**
+ * The lessons a flow's state names (its `lessons`, as its start kept them), for a receipt sealed from that state alone:
+ * src/repl/recover.ts seals an interrupted flow with them. Each entry with a lesson id, a sha256 and a status, nothing
+ * else; `{}` when the state names none.
+ */
+export function lessonsPart(v: unknown): { lessons?: Array<{ id: string; sha256: string; status: string }> } {
+  if (!Array.isArray(v)) return {};
+  const lessons = v.flatMap((l: unknown) => {
+    const o = (l && typeof l === 'object' ? l : {}) as { id?: unknown; sha256?: unknown; status?: unknown };
+    return typeof o.id === 'string' && LESSON_ID.test(o.id) && typeof o.sha256 === 'string' && typeof o.status === 'string'
+      ? [{ id: o.id, sha256: o.sha256, status: o.status }] : [];
+  });
+  return lessons.length ? { lessons } : {};
 }
