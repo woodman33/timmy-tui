@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { copyStarter, listStarters, STARTERS } from '../src/project/starters.js';
+import { groupFiles, listProjectFiles } from '../src/project/index.js';
 import { readCard } from '../src/recipes/index.js';
 import { parseParams, paramsText } from '../src/recipes/params-file.js';
 import { parseWorkflow, runOrder } from '../src/workflows/upmd.js';
@@ -32,6 +33,9 @@ describe('the tray-workflow starter', () => {
     const dest = path.join(temp('tray-workflow-'), 'mytray');
     const r = copyStarter('tray-workflow', dest);
     expect(r).toEqual({ files: ['README.md', 'recipes/tray.params.json', 'WORKFLOW.md'] });
+    // r19 (ledger row 158, F5): one workflow document, as /workflows and the board list it; the parameter file is source.
+    const roles = groupFiles(listProjectFiles(dest).files).map((g) => [g.label, g.files.map((f) => f.rel)]);
+    expect(roles).toEqual([['Source', ['recipes/tray.params.json']], ['References', ['README.md']], ['Workflows', ['WORKFLOW.md']]]);
   });
 
   it('its parameter file is the tray recipe card\'s defaults, written as Timmy writes a parameter file, and the recipe\'s rules take it', () => {

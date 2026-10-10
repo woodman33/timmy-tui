@@ -26,6 +26,15 @@ describe('file roles', () => {
     expect(classify('.sessions/session-1.jsonl')).toBe('history');
     expect(classify('notes.xyz')).toBe('other');
   });
+
+  it('a parameter file is source wherever it sits, as the cards call it; a copy among outputs stays an output (r19 F5)', () => {
+    expect(classify('recipes/tray.params.json')).toBe('source');
+    expect(classify('box.params.json')).toBe('source');
+    expect(classify('workflows/plate.params.json')).toBe('source');
+    expect(classify('recipes/tray.py')).toBe('workflow');
+    expect(classify('out/recipes/j1/tray.params.json')).toBe('output');
+    expect(classify('.timmy/flows/f1/before.params.json')).toBe('history');
+  });
 });
 
 describe('the project listing', () => {

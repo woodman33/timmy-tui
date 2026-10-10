@@ -101,6 +101,8 @@ const SOURCE_EXT = new Set([
   '.html', '.htm', '.css', '.scss', '.sass', '.vue', '.svelte', '.json', '.toml', '.yaml', '.yml', '.sql', '.glsl', '.wgsl', '.hlsl', '.vex', '.scad', '.qml',
 ]);
 const WORKFLOW_BLOCK = /^(?:```|~~~)[\w+-]*[ \t]*\[[^\]\n]*\bname:/m;
+/** A model's or a recipe's parameter file (box.params.json, recipes/tray.params.json). */
+const PARAMS_FILE = /\.params\.json$/i;
 
 /** True when Markdown holds a block upmd can run by name (```bash [name:build]). */
 export const looksLikeWorkflow = (markdown: string): boolean => WORKFLOW_BLOCK.test(markdown);
@@ -113,6 +115,10 @@ export function classify(rel: string, peek?: () => string): FileRole {
   const ext = extname(name).toLowerCase();
   if (HISTORY_TOP.has(top)) return 'history';
   if (OUTPUT_TOP.has(top)) return 'output';
+  // r19 (ledger row 158, F5): a parameter file is the editable source of its model or recipe wherever it sits (the
+  // operation card calls it so). Under recipes/ it counted as a workflow: a new tray-workflow project said "Workflows 2"
+  // while /workflows and the board listed its one workflow document.
+  if (PARAMS_FILE.test(name)) return 'source';
   if (ext === '.intent' || WORKFLOW_TOP.has(top)) return 'workflow';
   if (ext === '.md' || ext === '.markdown') return peek && looksLikeWorkflow(peek()) ? 'workflow' : 'reference';
   if (SCRIPT_TOP.has(top) || SCRIPT_EXT.has(ext) || SCRIPT_NAMES.has(name)) return 'script';
