@@ -47,6 +47,8 @@ import { studioBaseUrl, studioPort } from '../studio/config.js';
 import { ensureStudioServer, type EnsureResult } from '../studio/server.js';
 import { studioHealth } from '../studio/health.js';
 import { canvasView } from './canvas-view.js';
+// Round R4 (H55): the canvas shows this REPL's project (named to it), and /canvas and the board say whether it does.
+import { CanvasProject } from './canvas-project.js';
 import { capabilities } from '../capabilities/index.js';
 import { liveDeps } from '../capabilities/live.js';
 import { capabilityLines } from '../capabilities/render.js';
@@ -307,10 +309,23 @@ export async function runRepl(argv: string[]): Promise<number> {
   // TIMMY_STUDIO_URL is someone else's to serve; only a server this REPL started is kept for reuse.
   const external = Boolean(process.env.TIMMY_STUDIO_URL?.trim());
   let owned: Promise<EnsureResult> | null = null;
+  // R4 (H55): the token of the canvas server this REPL started (it names this REPL's project there), and the link itself.
+  let ownToken: string | null = null;
+  const canvasProject = new CanvasProject({
+    base: () => studioBaseUrl(process.env), env: process.env,
+    project: () => workspace.project, projectId: (root) => projectId(root),
+    jobsDir: join(timmyHome(), 'jobs'), receipts: () => receiptsDir(),
+    board: () => workspace.liveBoard?.address ?? null, ownToken: () => ownToken,
+  });
   const ensureCanvas = (): Promise<EnsureResult> | null => {
     if (external) return null;
-    owned ??= ensureStudioServer(studioPort(process.env), { env: process.env }).then((r) => {
+    owned ??= ensureStudioServer(studioPort(process.env), { env: process.env, projectTokenFile: true }).then((r) => {
       if (r.state !== 'started') owned = null;
+      else {
+        // R4 (H55): this REPL's own canvas, as it starts, shows this REPL's project.
+        ownToken = r.server.projectToken;
+        void canvasProject.handOff().then(() => canvasProject.check());
+      }
       return r;
     });
     return owned;
@@ -350,9 +365,15 @@ export async function runRepl(argv: string[]): Promise<number> {
     // Each project keeps its own conversation (.sessions in the project): switching resumes its latest.
     onSwitch: (p) => {
       const c = agent.useSessions(join(p.root, '.sessions'));
+      // R4 (H55): a canvas that still shows what this REPL named follows it to the new project.
+      if (canvasProject.follows) void canvasProject.handOff();
       return c.resumed ? `resumed this project's last conversation (${c.messages} messages)` : 'a new conversation, kept in this project';
     },
+    // R4 (H55): the board says whether the canvas is open on this project; /board live's address reaches a canvas on it.
+    canvas: () => canvasProject.boardLine(),
+    onBoardLive: () => { if (canvasProject.follows) void canvasProject.handOff(); },
   }, folderProject(process.cwd()));
+  canvasProject.start();
   // A second Ctrl+C exits at once: the jobs this REPL started stop with it.
   session.beforeRestore(() => workspace.killNow());
   // Round R1: /canvas, and where to inspect each turn's result, preview and receipt.
@@ -367,6 +388,8 @@ export async function runRepl(argv: string[]): Promise<number> {
     health: (base) => studioHealth(base),
     open: () => openWeb('studio', false),
     glyphs: theme.glyphs,
+    // R4 (H55): /canvas names the project the canvas shows; /canvas open names this REPL's project to it first.
+    project: { handOff: () => canvasProject.handOff(), check: () => canvasProject.check(), mine: () => ({ name: workspace.project.name, id: projectId(workspace.root) }) },
   });
   // Round R1: /tools, every capability on the ladder, from live checks that write nothing.
   const tools = async (args: string): Promise<Segment[][]> => {
@@ -439,6 +462,7 @@ export async function runRepl(argv: string[]): Promise<number> {
     },
   });
   // The REPL is ending: the jobs it started (preview servers included) stop with it.
+  canvasProject.stop();
   await workspace.close();
   return code;
 }

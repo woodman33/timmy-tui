@@ -55,6 +55,8 @@ const ALWAYS: Record<string, { reason: string; keys: string[]; session?: false }
   browser_click_element: { reason: 'acts on a web page', keys: ['refId'] },
   list_card: { reason: 'posts a listing to a marketplace', keys: ['title', 'name'] },
   canvas_exec: { reason: 'runs code in the canvas page, which can reach the network', keys: ['code'] },
+  // R4 (H55): fixed code; one note on the canvas, saved with it (Undo removes it); without a card it only lists them.
+  canvas_place_project_card: { reason: 'places a card of your project on Timmy Canvas (one note, saved with the canvas)', keys: ['card'] },
   write_project_file: { reason: 'changes a file in your project', keys: ['path'] },
   // Round R2
   list_mcp_command_tools: { reason: 'starts an MCP server to list its tools: a configured server by name, or a program you give, on this machine or at an address', keys: ['server'], session: false },

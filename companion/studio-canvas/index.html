@@ -17,7 +17,9 @@
   /* Left edge, under tldraw's own menu (tldraw holds the corners and the bottom edge): Timmy's status,
      jobs and new-board picker, in one panel, so a long page name in tldraw's menu never runs under it. */
   #side { position: fixed; left: 8px; top: 52px; z-index: 400; width: 280px; max-width: calc(100vw - 16px); box-sizing: border-box;
-    display: grid; gap: 6px; padding: 8px 10px; border-radius: 6px; background: var(--timmy-surface, #121212); border: 1px solid var(--timmy-line, #333333); color: var(--timmy-text, #e8e6e1); }
+    display: grid; gap: 6px; padding: 8px 10px; border-radius: 6px; background: var(--timmy-surface, #121212); border: 1px solid var(--timmy-line, #333333); color: var(--timmy-text, #e8e6e1);
+    /* R4 (H55): never down over tldraw's toolbar, however many cards the panels hold */
+    max-height: calc(100vh - 150px); overflow-y: auto; }
   #status { overflow-wrap: anywhere; padding-left: 8px; border-left: 3px solid var(--timmy-line-strong, #6b6b6b); }
   #status[data-kind="ready"] { border-left-color: var(--timmy-accent, #28fe14); }
   #status[data-kind="error"] { border-left-color: var(--timmy-failure, #ff5f56); }
@@ -47,6 +49,23 @@
   /* The primary action is Homebrew green, with black ink on it. */
   #side #board-open { background: var(--timmy-accent, #28fe14); color: var(--timmy-accent-ink, #000000); border-color: var(--timmy-accent, #28fe14); font-weight: var(--timmy-weight-strong, 600); }
   #side :focus-visible { outline: 2px solid var(--timmy-accent, #28fe14); outline-offset: 2px; }
+  /* R4 (H55): the project the REPL named, as cards: title, state in words, what is behind it, its command, and actions. */
+  #project-name { font-weight: var(--timmy-weight-body, 400); color: var(--timmy-text-secondary, #bdbdb8); overflow-wrap: anywhere; }
+  #project-note, #project-said { margin: 4px 0 0; overflow-wrap: anywhere; }
+  #project-note { color: var(--timmy-text-secondary, #bdbdb8); }
+  #project-said[data-kind="error"] { color: var(--timmy-failure, #ff5f56); }
+  #project-groups { max-height: 34vh; overflow-y: auto; margin-top: 4px; }
+  #side #project-refresh { margin-top: 4px; }
+  #side .pgroup h3 { font-size: inherit; font-weight: var(--timmy-weight-heading, 700); margin: 6px 0 2px; color: var(--timmy-text-secondary, #bdbdb8); }
+  #side ol.plist { max-height: none; overflow: visible; margin: 0; gap: 0; }
+  #side li.pcard { display: grid; gap: 2px; padding: 5px 0; }
+  #side li.pcard + li.pcard { border-top: 1px solid var(--timmy-line, #333333); }
+  #side .pcard-title { font-weight: var(--timmy-weight-strong, 600); }
+  #side .pcard-behind { color: var(--timmy-text-secondary, #bdbdb8); }
+  #side button.pcard-cmd { justify-self: stretch; text-align: left; padding: 1px 4px; background: var(--timmy-ground, #000000); border-color: var(--timmy-line, #333333); color: var(--timmy-accent, #28fe14); overflow-wrap: anywhere; }
+  #side button.pcard-cmd code { font: inherit; }
+  #side .pcard-acts { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+  #side .pcard-empty { margin: 4px 0 0; color: var(--timmy-text-secondary, #bdbdb8); }
   /* While the board is blank: what to do first. Never in the way of the canvas. */
   #guide { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 300; pointer-events: none; max-width: min(520px, calc(100vw - 32px));
     text-align: center; color: var(--timmy-text, #e8e6e1); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
@@ -60,6 +79,12 @@
   <div id="status" role="status" data-kind="loading">Loading the canvas</div>
   <div id="side-ready" hidden>
     <details id="jobs" open><summary>Canvas jobs</summary><ol id="job-list"><li>No jobs yet.</li></ol></details>
+    <details id="project" open><summary>Project <span id="project-name">reading…</span></summary>
+      <p id="project-note" hidden></p>
+      <button id="project-refresh" type="button" hidden>Refresh placed cards</button>
+      <p id="project-said" role="status"></p>
+      <div id="project-groups"></div>
+    </details>
     <div id="boards"><label for="board-pick">New board</label><select id="board-pick"><option value="">Blank board</option></select><button id="board-open" type="button">Open</button></div>
   </div>
 </aside>

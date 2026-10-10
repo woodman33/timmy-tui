@@ -98,6 +98,8 @@ import { HOLDS_DIR } from '../ops/flow-hold.js';
 import { OPENHANDS_NO_DOCKER, openHandsSummary, watchOpenHands, writeBackShort } from '../code-agents/openhands.js';
 import { openHandsLastLine, OpenHandsRuns, type OpenHandsRunState } from './openhands.js';
 import { recoverOpenHands } from './openhands-recover.js';
+// Round R4 (H55): the board's line about Timmy Canvas (src/repl/board-canvas.ts; the REPL checks the canvas).
+import type { BoardCanvas } from './board-canvas.js';
 
 type Line = Segment[];
 
@@ -143,6 +145,10 @@ export interface WorkspaceDeps {
   freecadTest?: FreecadTestSeams;
   /** R4 (H48): the tools check /room runs (the /tools ladder's rows); absent: capabilities() with liveDeps, OpenRouter not contacted. */
   roomTools?: () => Promise<CapabilityRow[]>;
+  /** R4 (H55): what the board says about Timmy Canvas: whether it is open on this same project (src/repl/canvas-project.ts). */
+  canvas?: () => BoardCanvas | undefined;
+  /** R4 (H55): /board live started (its bare address, never its token) or stopped (null), so a canvas on this project links to it. */
+  onBoardLive?: (address: string | null) => void;
 }
 
 /** How an observation ended (round R2, look): its file and receipt, or why there is none. */
@@ -2140,7 +2146,10 @@ export class Workspace {
     // section and the Control Room.
     const flows = readBoardFlows(root, files.filter((f) => inFlows(f) && f.rel.endsWith('.json')).map((f) => f.rel), { receipts: chain, projectId: pid, scrub: (t) => this.scrub(t, root) });
     const room = this.roomOf({ jobs, chain, flows, observations: shownObs });
+    // R4 (H55): whether Timmy Canvas is open on this same project, as the REPL last found it.
+    const canvas = this.d.canvas?.();
     const input: BoardInput = {
+      ...(canvas ? { canvas } : {}),
       project: this.project.name,
       madeAt: utcStamp(new Date()),
       base: BOARD_BASE,
@@ -2202,6 +2211,7 @@ export class Workspace {
     const lb = new LiveBoard({ onAuthorized: () => dropLaunchPages(lb.url), state: () => this.liveState(), execute: (c) => this.boardCommand(c), edit: (body, s) => this.boardEdit(body, s), scrub: (t) => this.scrub(t, this.root), file: (p) => this.voxFile(p) });
     try { await lb.start(); } catch (err) { return this.say(`The live board could not start: ${err instanceof Error ? err.message : 'error'}`, 'failure'); }
     this.live = lb;
+    this.d.onBoardLive?.(lb.address); // R4 (H55)
     const opened = this.d.openWeb(lb.url, { secret: true });
     return [
       [{ text: '  Live board ', role: 'secondary' }, { text: lb.address, role: 'strong' }, { text: `  on 127.0.0.1 only, for this REPL${this.sep}Stop, Run and Observe act as the typed command${this.sep}/board off stops it`, role: 'secondary' }],
@@ -2219,6 +2229,7 @@ export class Workspace {
     this.live = undefined;
     if (lb) dropLaunchPages(lb.url);
     await lb?.close();
+    if (lb) this.d.onBoardLive?.(null); // R4 (H55)
   }
 
   /** The live board's state: the board's sections with buttons, and what its actions are checked against. */
