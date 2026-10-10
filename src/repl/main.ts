@@ -332,6 +332,8 @@ export async function runRepl(argv: string[]): Promise<number> {
     model: () => agent.getModel(),
     edit: editFile,
     tildify,
+    // Round R4 (H32): at a terminal, what an ended session left in the project is picked up as the REPL starts; a pipe never adopts it.
+    recoverAtStart: caps.interactive,
     // Each project keeps its own conversation (.sessions in the project): switching resumes its latest.
     onSwitch: (p) => {
       const c = agent.useSessions(join(p.root, '.sessions'));
