@@ -374,7 +374,8 @@ export class BlenderFlows {
     const log = this.keepLog(f, done, 'blender.log');
     if (log) b.log = log.rel;
     if (this.stopped(f) || done.state === 'cancelled') {
-      return this.end(f, 'cancelled', 'blender', `stopped with /stop during the Blender run (job ${job.id}); whatever it wrote is kept, and nothing was read back${b.log ? `; its output so far: ${b.log}` : ''}`);
+      const when = done.state === 'cancelled' ? `during the Blender run (job ${job.id})` : `as the Blender run ended (job ${job.id} ${done.state}; its own receipt judges it)`;
+      return this.end(f, 'cancelled', 'blender', `stopped with /stop ${when}; whatever it wrote is kept, and nothing was read back${b.log ? `; its output: ${b.log}` : ''}`);
     }
     // The run judged by its own result file (as /blender's end is): ok, failed or unknown, never by its exit alone.
     const j = judgeNativeJob(done, spec);
