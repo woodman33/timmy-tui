@@ -7,7 +7,7 @@ import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { checkVoxAction, readVoxRecord, voxFileFor, voxSection, type BoardVox } from '../src/repl/board-vox.js';
+import { checkVoxAction, readBoardVox, readVoxRecord, voxFileFor, voxSection, type BoardVox } from '../src/repl/board-vox.js';
 import { kit as boardKit } from '../src/repl/board-kit.js';
 import { renderBoard, renderBoardBody } from '../src/repl/board.js';
 import { realOnPath } from '../src/repl/center.js';
@@ -28,6 +28,17 @@ async function stlRecord() {
   const rec = w.sealed[0].outputs![0].path;
   return { root, rec, chain, ...w };
 }
+
+describe('the files a tool reads (r19, ledger row 158)', () => {
+  it('leaves Timmy\'s own working folders out: a recipe\'s internal workspace STL is not offered, its delivered copy is', () => {
+    const root = kit.temp('vox-files-');
+    put(root, '.timmy/recipe-jobs/j1/workspace/.timmy/recipe-runs/r1/native/w170/bores.stl', cubeStl(1));
+    put(root, 'out/recipes/j1/console-tray.stl', cubeStl(1));
+    const file = (rel: string) => ({ rel, role: 'output' as const, bytes: 1, mtimeMs: 1 });
+    const v = readBoardVox({ root, files: [file('.timmy/recipe-jobs/j1/workspace/.timmy/recipe-runs/r1/native/w170/bores.stl'), file('out/recipes/j1/console-tray.stl')], chain: [], scrub: (t) => t, tools: { env: {}, onPath: () => null, root } });
+    expect(v.files).toEqual([{ rel: 'out/recipes/j1/console-tray.stl', kind: 'stl' }]);
+  });
+});
 
 describe('a card is checked against its receipt', () => {
   it('names the receipt by the short id /receipts prints, for the store\'s own sha256_ hashes (r18)', async () => {

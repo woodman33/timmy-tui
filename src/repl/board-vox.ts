@@ -239,7 +239,9 @@ export function readBoardVox(o: { root: string; files: readonly ProjectFile[]; c
   const files: BoardVox['files'] = [];
   let filesMore = 0;
   for (const f of o.files) {
-    if (f.rel.startsWith(`${VOX_DIR}/`) || !OFFERED_EXT.has(extname(f.rel).toLowerCase())) continue;
+    // Timmy's own working folders are not offered: r19 (ledger row 158) saw a recipe's internal workspace STLs listed
+    // (.timmy/recipe-jobs/<job>/workspace/...), while the copies a run delivers sit in the project (out/, results/).
+    if (f.rel.startsWith('.timmy/') || f.rel.startsWith(`${VOX_DIR}/`) || !OFFERED_EXT.has(extname(f.rel).toLowerCase())) continue;
     // Past the cap a file is counted by its name only: its bytes are not read on every poll.
     if (files.length >= VOX_MAX.files) { filesMore++; continue; }
     const k = voxKindOf(f.rel, headBytes(join(o.root, f.rel)));
