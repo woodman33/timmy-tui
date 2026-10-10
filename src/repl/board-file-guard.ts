@@ -7,7 +7,7 @@
  *   GET /state   JSON (application/json, nosniff), only with the token in an Authorization header: a navigation cannot
  *                send one, so a tab opened on /state gets the 401 text, never the project's data.
  *   POST /action, POST /edit, and every refusal: text/plain with nosniff; a browser shows them as text, never as markup.
- *   GET /file    a VoxVision highlight, only with the token: the bytes of a project file (results/vox/<id>/…​.png|svg)
+ *   GET /file    a VoxVision highlight, only with the token: the bytes of a project file (results/vox/<id>/<name>.png|svg)
  *                whose sha256 a vox receipt sealed. Those bytes are a project's (any process that can write the project
  *                and its runs chain can make them), and the page turns them into a blob: URL, which has the board's own
  *                origin: an SVG opened from it (Open image in new tab) is a document on the board's origin, where a script
@@ -42,8 +42,45 @@ export type GuardAnswer = { ok: true; type: 'image/png' | 'image/svg+xml' } | { 
 
 const XML_DECL = /<\?xml\s+version\s*=\s*(["'])1\.[01]\1(?:\s+encoding\s*=\s*(["'])utf-8\2)?(?:\s+standalone\s*=\s*(["'])(?:yes|no)\3)?\s*\?>/iy;
 const END_TAG = /<\/([A-Za-z][A-Za-z0-9]*)\s*>/y;
-const START_TAG = /<([A-Za-z][A-Za-z0-9]*)((?:\s+[A-Za-z][A-Za-z0-9-]*\s*=\s*(?:"[^"<]*"|'[^'<]*'))*)\s*(\/?)>/y;
-const ATTRIBUTE = /\s+([A-Za-z][A-Za-z0-9-]*)\s*=\s*(?:"([^"<]*)"|'([^'<]*)')/g;
+const NAME = /[A-Za-z][A-Za-z0-9]*/y;
+const ATTRIBUTE_NAME = /[A-Za-z][A-Za-z0-9-]*/y;
+const SPACE = /[ \t\r\n]/;
+
+/**
+ * A start tag at `at` read in one pass (no backtracking: the file is a project's, and this runs in the REPL's process):
+ * its name, its attributes as written, whether it closes itself, and where it ends; or null when it is not one plain tag
+ * (a prefix, a character out of place, a value with "<", no closing ">").
+ */
+function startTag(s: string, at: number): { name: string; attrs: Array<[string, string]>; selfClosing: boolean; end: number } | null {
+  NAME.lastIndex = at + 1;
+  const m = NAME.exec(s);
+  if (!m) return null;
+  let i = NAME.lastIndex;
+  const attrs: Array<[string, string]> = [];
+  for (;;) {
+    let spaced = false;
+    while (i < s.length && SPACE.test(s[i])) { i++; spaced = true; }
+    if (s[i] === '>') return { name: m[0], attrs, selfClosing: false, end: i + 1 };
+    if (s[i] === '/' && s[i + 1] === '>') return { name: m[0], attrs, selfClosing: true, end: i + 2 };
+    if (!spaced) return null;
+    ATTRIBUTE_NAME.lastIndex = i;
+    const a = ATTRIBUTE_NAME.exec(s);
+    if (!a) return null;
+    i = ATTRIBUTE_NAME.lastIndex;
+    while (i < s.length && SPACE.test(s[i])) i++;
+    if (s[i] !== '=') return null;
+    i++;
+    while (i < s.length && SPACE.test(s[i])) i++;
+    const quote = s[i];
+    if (quote !== '"' && quote !== "'") return null;
+    const close = s.indexOf(quote, i + 1);
+    if (close < 0) return null;
+    const value = s.slice(i + 1, close);
+    if (value.includes('<')) return null;
+    attrs.push([a[0], value]);
+    i = close + 1;
+  }
+}
 /** In text: the five named entities and character references (they only ever make text). */
 const TEXT_ENTITY = /&(?!(?:amp|lt|gt|quot|apos|#[0-9]{1,7}|#x[0-9A-Fa-f]{1,6});)/;
 /** In an attribute value: the five named entities only (a character reference could hide a word from the checks below). */
@@ -56,7 +93,7 @@ const VALUE_WORDS = /url\s*\(|javascript|data\s*:|expression|@import/i;
  */
 export function inertSvg(src: string): { ok: true } | { ok: false; why: string } {
   const fail = (why: string): { ok: false; why: string } => ({ ok: false, why });
-  const s = src.startsWith('﻿') ? src.slice(1) : src;
+  const s = src.startsWith('\uFEFF') ? src.slice(1) : src;
   let i = 0;
   XML_DECL.lastIndex = 0;
   const decl = XML_DECL.exec(s);
@@ -85,18 +122,14 @@ export function inertSvg(src: string): { ok: true } | { ok: false; why: string }
         i = END_TAG.lastIndex;
         continue;
       }
-      START_TAG.lastIndex = i;
-      const m = START_TAG.exec(s);
-      if (!m) return fail('a malformed or prefixed tag');
-      const name = m[1];
+      const tag = startTag(s, i);
+      if (!tag) return fail('a malformed or prefixed tag');
+      const name = tag.name;
       if (!ELEMENTS.has(name)) return fail(`the element <${name}>`);
       if (ended) return fail('an element after the root element');
       if (!open.length && name !== 'svg') return fail('a root element other than <svg>');
       const seen = new Map<string, string>();
-      ATTRIBUTE.lastIndex = 0;
-      for (let a = ATTRIBUTE.exec(m[2]); a; a = ATTRIBUTE.exec(m[2])) {
-        const an = a[1];
-        const value = a[2] ?? a[3] ?? '';
+      for (const [an, value] of tag.attrs) {
         if (!ATTRIBUTES.has(an)) return fail(`the attribute ${an} on <${name}>`);
         if (seen.has(an)) return fail(`the attribute ${an} given twice`);
         if (VALUE_ENTITY.test(value)) return fail(`a character reference in the attribute ${an}`);
@@ -108,8 +141,8 @@ export function inertSvg(src: string): { ok: true } | { ok: false; why: string }
         if (seen.get('xmlns') !== SVG_NS) return fail('an <svg> root outside the SVG namespace');
         root = true;
       }
-      if (m[3]) { if (!open.length) ended = true; } else open.push(name);
-      i = START_TAG.lastIndex;
+      if (tag.selfClosing) { if (!open.length) ended = true; } else open.push(name);
+      i = tag.end;
       continue;
     }
     const next = s.indexOf('<', i);

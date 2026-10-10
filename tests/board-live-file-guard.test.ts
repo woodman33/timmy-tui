@@ -195,6 +195,14 @@ describe('the guard itself', () => {
     for (const [svg, why] of refused) expect([svg, inertSvg(svg)]).toEqual([svg, { ok: false, why }]);
   });
 
+  it('reads a crafted tag in one pass: a long run of spaces or attributes is refused at once, never backtracked over', () => {
+    const t0 = Date.now();
+    expect(inertSvg(`<svg xmlns="${SVG_NS}"${' '.repeat(300_000)}x`)).toEqual({ ok: false, why: 'a malformed or prefixed tag' });
+    expect(inertSvg(`<svg xmlns="${SVG_NS}"${' width="1"'.repeat(50_000)}`)).toEqual({ ok: false, why: 'a malformed or prefixed tag' });
+    expect(inertSvg(`<svg xmlns="${SVG_NS}">${'<g>'.repeat(20_000)}`)).toEqual({ ok: false, why: '<g> left open' });
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+
   it('refuses bytes that are not what their type says, and every type but PNG and SVG', () => {
     expect(imageOnly('image/png', Buffer.from('<html><script>alert(1)</script></html>'))).toEqual({ ok: false, why: 'it does not start with the PNG signature' });
     expect(imageOnly('image/svg+xml', Buffer.from([0x3c, 0x73, 0x76, 0x67, 0xff, 0xfe]))).toEqual({ ok: false, why: 'it is not UTF-8 text' });
