@@ -85,11 +85,13 @@ describe('Blender jobs: the result file decides, bound to the run and the script
   it('runs blender -b --factory-startup --python <script> -- <args>, the helper folder and the binding in its environment', () => {
     const s = spec('ok', { args: ['--seed', '7'] });
     expect(s.kind).toBe('task');
-    expect(s.args).toEqual(['-b', '--factory-startup', '--python-exit-code', '1', '--python', path.join(root, 'scene.py'), '--', '--seed', '7']);
+    // R4 (finding 5): Blender runs the read-only copy kept in the run's folder at submission, not the script at its own path
+    const copy = path.join(root, '.timmy', 'native', s.native.run, 'source', 'scene.py');
+    expect(s.args).toEqual(['-b', '--factory-startup', '--python-exit-code', '1', '--python', copy, '--', '--seed', '7']);
     expect(s.label).toMatch(/Blender/);
     expect(s.env).toMatchObject({
       TIMMY_RESULT: path.join(root, '.timmy', 'native', s.native.run, 'result.json'), TIMMY_RUN: s.native.run, TIMMY_ROOT: root,
-      TIMMY_SCRIPT: path.join(root, 'scene.py'), TIMMY_SCRIPT_SHA256: sha(path.join(root, 'scene.py')), TIMMY_BLENDER_LIB: path.join(REPO, 'workers', 'blender'),
+      TIMMY_SCRIPT: copy, TIMMY_SCRIPT_ORIGINAL: path.join(root, 'scene.py'), TIMMY_SCRIPT_SHA256: sha(path.join(root, 'scene.py')), TIMMY_BLENDER_LIB: path.join(REPO, 'workers', 'blender'),
     });
     expect(existsSync(path.join(String(s.env?.TIMMY_BLENDER_LIB), 'timmy_blender.py'))).toBe(true);
     expect(s.native).toMatchObject({ app: 'blender', input: { path: 'scene.py' }, expect: ['out/scene.blend', 'out/render.png'] });
@@ -196,6 +198,6 @@ describe('the Blender row and run_native', () => {
     const answer = await call({ app: 'blender', script: 'scene.py', args: ['--seed', '7'] });
     expect(answer).toMatchObject({ ok: true, app: 'blender', result_file: `.timmy/native/${answer.run}/result.json` });
     const job = await m.done(answer.job as string);
-    expect(job.args).toEqual(expect.arrayContaining(['--python', path.join(root, 'scene.py'), '--', '--seed', '7']));
+    expect(job.args).toEqual(expect.arrayContaining(['--python', path.join(root, '.timmy', 'native', String(answer.run), 'source', 'scene.py'), '--', '--seed', '7']));
   });
 });

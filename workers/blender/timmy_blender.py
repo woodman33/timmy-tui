@@ -11,9 +11,14 @@ and sets, in the script's environment:
                        (without it, <root>/out/timmy-result.json, as a run by hand writes)
   TIMMY_RUN            this run's token, written back so a result from an earlier run is never taken for this one
   TIMMY_SCRIPT_SHA256  the script's sha256 when the job was submitted, written back as script_sha256
-  TIMMY_SCRIPT         the script itself: its sha256 as this run reads it goes in as script_sha256_read
+  TIMMY_SCRIPT         the file Blender runs: a read-only copy of the script kept in the run's folder at
+                       submission (<root>/.timmy/native/<run>/source/), so what runs is what was submitted. Its
+                       sha256 as this run reads it goes in as script_sha256_read
+  TIMMY_SCRIPT_ORIGINAL, TIMMY_SCRIPT_DIR   the script and folder it was submitted from: __file__ is the copy,
+                       so files and modules beside the script are found through TIMMY_SCRIPT_DIR
   TIMMY_ROOT           the project folder; file names in the result are relative to it
-  TIMMY_OUT            the folder for outputs (default <root>/out)
+  TIMMY_OUT            the folder for outputs (default <root>/out). Timmy inventories it before the run: a file
+                       named in the result counts as this run's only if the run created it or changed its bytes
   TIMMY_BLENDER_LIB    the folder holding this file (workers/blender). Blender's Python ignores PYTHONPATH
                        unless Blender is started with --python-use-system-env, so a scene script puts this
                        folder on sys.path itself (templates/blender-starter/scene.py does).
