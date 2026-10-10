@@ -25,7 +25,9 @@
  *     that step was left by a session whose process is gone, or when no job of the step runs and nothing about the
  *     flow has changed for 10 minutes. Its final record is written once, never over a file already there, with the
  *     outcome interrupted, the step it ended in, why, and what to do next; it is sealed as a flow receipt. The state
- *     file stays as its session wrote it.
+ *     file stays as its session wrote it. R4 (H33): the OpenSCAD, FreeCAD and Blender flows (their state names a
+ *     `target`) are recovered the same way, each with its own steps and words; the app's own run in .timmy/native is
+ *     judged by the native part below, as any run is.
  *   native runs (.timmy/native/<run>; src/native)
  *     A run that started (started.json) and has no judgement is judged from its result file (reconcileNative, or
  *     reconcileAe for an After Effects script run) once its job no longer runs; the judgement goes to the run's
@@ -43,6 +45,7 @@ import type { JobRecord, JobSpec } from '../jobs/index.js';
 import { jobDirectory, status, type Job, type JobStatus } from '../../lanes/recipes/jobs.js';
 import { deliver, DOCTRINE_15, isRecipeJobId, outcomeLines, outDir, RECIPE_ID, short, watcherSpec } from '../recipes/index.js';
 import { diffText, FLOW_ID, FLOW_SCHEMA, FLOW_WORK_DIR, flowRecordPath, flowWorkDir, type FlowRecord, type FlowStep } from '../flows/iterate.js';
+import { scadDiffText, type ScadParamChange } from '../flows/iterate-scad.js';
 import { listNativeRuns, readNativeRecord, reconcileNative, type NativeApp } from '../native/index.js';
 import { reconcileAe } from '../native/ae-author.js';
 import { reconcileScad } from '../native/openscad.js';
@@ -65,6 +68,16 @@ export const SETTLE_MS = 1500;
 const WATCH_ENTRY = /[\\/]recipes[\\/]watch\.(?:ts|js)$/;
 const JOB_ID = /^j[0-9a-f]{6}$/;
 const STEPS: ReadonlySet<string> = new Set<FlowStep>(['prepare', 'agent', 'checks', 'build', 'readback', 'record']);
+/**
+ * R4 (H33): the flows with a `target`: their app's name, the step the app's job runs in, and the file the agent was asked
+ * to change (where the state keeps it). The tray flow has no target and keeps its own words below.
+ */
+const TARGETS: Record<string, { app: string; appStep: string; command: string; file: 'parameters' | 'script' }> = {
+  scad: { app: 'OpenSCAD', appStep: 'openscad', command: '/scad', file: 'parameters' },
+  freecad: { app: 'FreeCAD', appStep: 'freecad', command: '/freecad', file: 'script' },
+  blender: { app: 'Blender', appStep: 'blender', command: '/blender', file: 'script' },
+};
+const TARGET_STEPS: ReadonlySet<string> = new Set(['prepare', 'agent', 'checks', 'openscad', 'freecad', 'blender', 'readback', 'record']);
 const APP_WORDS: Record<NativeApp, string> = { c4dpy: 'Cinema 4D', aerender: 'After Effects render', blender: 'Blender', afterfx: 'After Effects script', openscad: 'OpenSCAD', freecad: 'FreeCAD' };
 /** A recipe job's state now, as a flow's record says it (lanes/recipes/jobs.ts states, and unreadable). */
 const RECIPE_NOW: Record<string, string> = { running: 'still runs', succeeded: 'has succeeded', failed: 'has failed', cancelled: 'was cancelled', interrupted: 'was interrupted', queued: 'is queued', unreadable: 'could not be read' };
@@ -119,7 +132,8 @@ type Phase = 'live' | 'pending' | 'stale' | 'ended';
 /** A job record's phase: stale (no final state and its process gone: its session ended), live, queued, or ended. */
 const phase = (j: JobRecord): Phase => (j.stale ? 'stale' : j.state === 'running' || j.state === 'ready' ? 'live' : j.state === 'queued' ? 'pending' : 'ended');
 
-interface FlowState { value: FlowRecord & { step: FlowStep }; rel: string; sha256: string; mtimeMs: number }
+/** A flow's state as its session left it; `target` (R4, H33) for an OpenSCAD, FreeCAD or Blender flow, absent for the tray's. */
+interface FlowState { value: FlowRecord & { step: FlowStep; target?: string } & Record<string, unknown>; rel: string; sha256: string; mtimeMs: number }
 type Plan =
   | { kind: 'recipe'; key: string; uuid: string; act: 'follow' | 'deliver'; viaStale: boolean }
   | { kind: 'flow'; key: string; id: string; viaStale: boolean; job?: JobRecord; state: FlowState }
@@ -187,17 +201,23 @@ function readState(root: string, id: string): FlowState | undefined {
     const realRoot = fs.realpathSync(root);
     if (!fs.realpathSync(path.dirname(abs)).startsWith(realRoot + path.sep)) return undefined;
     const buf = fs.readFileSync(abs);
-    const value = JSON.parse(buf.toString('utf8')) as FlowRecord & { step: FlowStep };
-    if (!value || typeof value !== 'object' || value.schema !== FLOW_SCHEMA || value.id !== id || typeof value.instruction !== 'string' || !STEPS.has(value.step)) return undefined;
-    const p = value.parameters as Partial<FlowRecord['parameters']> | undefined;
+    const value = JSON.parse(buf.toString('utf8')) as FlowState['value'];
+    if (!value || typeof value !== 'object' || value.schema !== FLOW_SCHEMA || value.id !== id || typeof value.instruction !== 'string') return undefined;
+    // R4 (H33): a flow with a target keeps the file its agent may change under `parameters` (OpenSCAD) or `script`.
+    const t = value.target === undefined ? undefined : TARGETS[String(value.target)];
+    if (value.target !== undefined && !t) return undefined;
+    if (!(t ? TARGET_STEPS : STEPS).has(value.step)) return undefined;
+    const p = (t ? value[t.file] : value.parameters) as { path?: unknown; before?: { sha256?: unknown } } | undefined;
     if (!p || typeof p.path !== 'string' || typeof p.before?.sha256 !== 'string') return undefined;
     return { value, rel, sha256: sha(buf), mtimeMs: st.mtimeMs };
   } catch { return undefined; }
 }
 
-/** The job of the step a flow's state says runs: the agent's, the recipe watcher's or the readback's. */
+/** The job of the step a flow's state says runs: the agent's, the recipe watcher's, the app's (R4, H33) or the readback's. */
 function stepJob(v: FlowState['value']): string | undefined {
-  const id = v.step === 'agent' ? v.agent?.job : v.step === 'build' ? v.rebuild?.job : v.step === 'readback' ? v.readback?.job : undefined;
+  const step = String(v.step);
+  const app = v.target !== undefined && TARGETS[String(v.target)]?.appStep === step ? (v[step] as { job?: unknown } | undefined)?.job : undefined;
+  const id = step === 'agent' ? v.agent?.job : step === 'build' ? v.rebuild?.job : step === 'readback' ? v.readback?.job : app;
   return typeof id === 'string' && JOB_ID.test(id) ? id : undefined;
 }
 
@@ -444,6 +464,8 @@ function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Ma
   const jobWords = !job ? (stepJob(v) ? `its job ${stepJob(v)} has no record in this Timmy's jobs folder` : 'no job of that step was recorded')
     : job.stale ? `its job ${job.id} was left ${job.state} and its process is gone`
       : `its job ${job.id} ${job.state}, and the flow did not go on for ${ago(FLOW_QUIET_MS)}`;
+  // R4 (H33): an OpenSCAD, FreeCAD or Blender flow, with its own steps and words.
+  if (v.target !== undefined) return actTargetFlow(d, p, state, job, jobWords);
   const uuid = typeof v.rebuild?.operation === 'string' && isRecipeJobId(v.rebuild.operation) ? v.rebuild.operation : undefined;
   let rebuild: Record<string, unknown> | undefined;
   if (uuid) {
@@ -516,6 +538,83 @@ function actFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, recipes: Ma
   return {
     kind: 'flow', id: p.id, did: 'interrupted', state: step, record: w.path, ...(receipt ? { receipt } : {}), next,
     text: `flow ${p.id} was interrupted in its ${step} step (${jobWords}): record ${w.path}${receipt ? `; receipt ${receipt}` : '; the receipt could not be sealed'}; next: ${shortNext}`,
+  };
+}
+
+/**
+ * R4 (H33): an interrupted OpenSCAD, FreeCAD or Blender flow: its record, written once as the tray's is (outcome
+ * interrupted, the step it ended in, why and what to do next), sealed as a flow receipt. The app's own run, when it
+ * started, is judged from its own record by the native part of the pass, as any run is; nothing is run again here.
+ */
+function actTargetFlow(d: RecoverDeps, p: Extract<Plan, { kind: 'flow' }>, state: FlowState, job: JobRecord | undefined, jobWords: string): RecoveryItem | undefined {
+  const v = state.value;
+  const target = String(v.target);
+  const t = TARGETS[target];
+  const step = String(v.step);
+  const fileOf = v[t.file] as { path: string; before: { sha256: string }; after?: { sha256: string }; diff?: unknown } ;
+  const file = fileOf.path;
+  const app = (v[t.appStep] ?? undefined) as { run?: unknown; job?: unknown } | undefined;
+  const run8 = typeof app?.run === 'string' ? app.run.slice(0, 8) : undefined;
+  const readback = v.readback as { job?: unknown } | undefined;
+  const words: Record<string, [string, string]> = {
+    prepare: ['before its agent started', 'nothing was run'],
+    agent: ['while its agent ran', `${t.app} did not run`],
+    checks: ['after its agent ran, before its checks were recorded', `${t.app} did not run`],
+    [t.appStep]: [`during its ${t.app} run`, `${run8 ? `${t.app} run ${run8} is judged from its own record (a native run, below)` : `whether ${t.app} started is not recorded`}; nothing was ${target === 'scad' ? 'compared' : 'read back'}`],
+    readback: ['during its readback', 'there is no verdict'],
+    record: ['as it was being recorded', 'its outcome was not kept'],
+  };
+  const [when, left] = words[step] ?? [`in its ${step} step`, 'nothing more was recorded'];
+  const why = `the REPL running it ended ${when} (${jobWords}); ${left}; recorded after a restart, and nothing was run again`;
+  const next: string[] = [];
+  const agent = v.agent as { run?: string; progress?: string } | undefined;
+  if (step === 'agent' && agent?.progress) next.push(`the agent's run ${agent.run} keeps its progress in ${agent.progress}; ${file} may hold its change (sha256 before it: ${short(fileOf.before.sha256)})`);
+  if (step === t.appStep && run8) next.push(`${t.app} run ${run8} keeps its own record in .timmy/native/${String(app?.run)}/; /recover judges it once its job has ended`);
+  if (step === 'readback' && typeof readback?.job === 'string') next.push(`/jobs ${readback.job} shows the readback's output while this Timmy's jobs folder keeps it`);
+  if (step === 'readback' && target === 'freecad' && run8) next.push(`/freecad readback ${run8} reads its STEP back again`);
+  const model = (v.model as { path?: unknown } | undefined)?.path;
+  if (fileOf.after) {
+    const change = target === 'scad' && Array.isArray(fileOf.diff) ? ` (${scadDiffText(fileOf.diff as ScadParamChange[])})` : '';
+    next.push(`${file} holds the agent's change${change}: ${t.command} ${target === 'scad' && typeof model === 'string' ? model : file} runs it`);
+  }
+  next.push(`/iterate ${target} ${target === 'scad' && typeof model === 'string' ? model : file} "${v.instruction}" starts a new flow from ${file} as it is now`);
+  const receipts = (v.receipts ?? {}) as Record<string, unknown>;
+  const children = ['agent', t.appStep, 'readback'].map((k) => receipts[k]).filter((x): x is string => typeof x === 'string');
+  const { step: _step, ...kept } = v;
+  const record = {
+    ...kept,
+    outcome: 'interrupted',
+    ended_in: step,
+    ended_at: new Date((d.now ?? Date.now)()).toISOString(),
+    why,
+    child_receipts: children,
+    recovered: {
+      at: new Date((d.now ?? Date.now)()).toISOString(), step,
+      state_file: { path: state.rel, sha256: state.sha256 },
+      ...(job ? { job: { id: job.id, state: job.state, ...(job.stale ? { stale: true } : {}) } } : {}),
+      next,
+    },
+  };
+  const rel = flowRecordPath(p.id);
+  const w = createProjectJson(d.root, rel, record);
+  if (!w.ok) return { kind: 'flow', id: p.id, did: 'failed', text: `flow ${p.id} was interrupted in its ${step} step, but its record could not be written: ${d.scrub(w.error)}` };
+  const cost = (v.agent as { cost_usd?: unknown } | undefined)?.cost_usd;
+  let receipt: string | undefined;
+  try {
+    receipt = d.seal({
+      kind: 'flow', subject: `flow · iterate · ${target} · ${p.id} · interrupted`, policy: 'human-gated', status: 'failed',
+      project: typeof v.project === 'string' ? v.project : d.project, project_id: projectId(d.root),
+      prompt_hash: `sha256:${sha(v.instruction)}`,
+      outputs: [{ path: w.path, sha256: w.sha256, bytes: w.bytes }],
+      sources: [{ path: state.rel, sha256: state.sha256, role: 'the flow state its session left' }],
+      ...(children.length ? { child_receipts: children } : {}),
+      discrepancies: [`interrupted: ${why}`],
+      ...(typeof cost === 'number' ? { cost_usd: cost } : cost === null ? { cost_measured: false } : {}),
+    });
+  } catch { receipt = undefined; }
+  return {
+    kind: 'flow', id: p.id, did: 'interrupted', state: step, record: w.path, ...(receipt ? { receipt } : {}), next,
+    text: `flow ${p.id} was interrupted in its ${step} step (${jobWords}): record ${w.path}${receipt ? `; receipt ${receipt}` : '; the receipt could not be sealed'}; next: /iterate ${target} again`,
   };
 }
 

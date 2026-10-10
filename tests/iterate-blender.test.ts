@@ -412,8 +412,9 @@ describe('/iterate blender: the parts that decide (no processes)', () => {
     expect(parseIterateLine('blender')).toMatchObject({ ok: false, error: expect.stringContaining('Name the script: /iterate blender <script.py>') });
     expect(parseIterateLine('blender scene.py')).toMatchObject({ ok: false, error: expect.stringContaining('Say what to change: /iterate blender <script.py>') });
     expect(parseIterateLine('blender scene.py --paid redder')).toMatchObject({ ok: false, error: expect.stringContaining('it has no --paid') });
-    // R4 merge: the local Codex route (H25) runs /iterate tray; the Blender flow plans Qwen Code only.
-    expect(parseIterateLine('blender scene.py redder --agent codex')).toMatchObject({ ok: false, error: expect.stringContaining('/iterate blender runs Qwen Code only for now') });
+    // R4 (H33): the Blender flow takes Codex's local route too (planned as /iterate tray plans it: local endpoint, no cloud
+    // model, no --paid; the model must be listed by the local Ollama). tests/iterate-scad.test.ts runs it with a FAKE codex.
+    expect(parseIterateLine('blender scene.py redder --agent codex')).toEqual({ ok: true, request: { recipe: 'blender', script: 'scene.py', instruction: 'redder', agent: 'codex' } });
     expect(parseIterateLine('blender scene.py redder --agent claude')).toMatchObject({ ok: false, error: expect.stringContaining('runs on your own account and costs money') });
     expect(parseIterateLine('vase "taller"')).toMatchObject({ ok: false, error: expect.stringContaining('or blender <script.py>') });
   });
@@ -589,7 +590,7 @@ describe.skipIf(!python)('/iterate blender refuses before anything is written (F
   it('/iterate shows the Blender flow\'s usage and whether Blender is found (found, not run)', async () => {
     const { ws } = make();
     const out = text(await ws.iterate(''));
-    expect(out).toContain('Blender    /iterate blender <script.py> "<instruction>" [--agent qwen] [--model <local model>]');
+    expect(out).toContain('Blender    /iterate blender <script.py> "<instruction>" [--agent qwen|codex] [--model <local model>]');
     expect(out).toContain('Blender found (set by TIMMY_BLENDER) · it runs when a flow does, not now');
     const none = make({ env: { TIMMY_BLENDER: path.join(fixtures, 'no-blender-here') } });
     expect(text(await none.ws.iterate(''))).toContain('Blender not found (TIMMY_BLENDER is set, but nothing runnable is there) · install Blender; or set TIMMY_BLENDER to its blender program');

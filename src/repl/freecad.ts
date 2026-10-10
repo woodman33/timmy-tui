@@ -77,7 +77,7 @@ const checkWords = (c: FreecadReadbackCheck): string => `${c.name}: FreeCAD repo
 
 export class FreecadReadbacks {
   /** The readbacks this REPL follows, by their job's id: each settles once its record and receipt are made. */
-  private readonly running = new Map<string, Promise<void>>();
+  private readonly running = new Map<string, Promise<unknown>>();
 
   constructor(private readonly d: FreecadDeps) {}
 
@@ -116,24 +116,9 @@ export class FreecadReadbacks {
     const p = planFreecadReadback(at.root, { ...(named[0] ? { run: named[0] } : {}), ...(files[0] ? { step: files[0] } : {}) });
     if (!p.ok) return this.say(`Not started: ${this.d.scrub(p.error, at.root)}`, 'estimate');
     const plan = p.plan;
-    let cmd: { command: string; args: string[] };
-    if (this.d.test?.readback) cmd = this.d.test.readback({ abs: plan.step.abs, rel: plan.step.path });
-    else {
-      const ready = readbackReady(this.d.env());
-      const rt = nativeRuntime(this.d.env());
-      if (!ready.ready || !rt.ok) return this.say(`Not started: ${ready.why ?? READBACK_SETUP}`, 'estimate');
-      cmd = { command: rt.python, args: [READBACK_SCRIPT, plan.step.abs, '--as', plan.step.path] };
-    }
-    let job: JobRecord;
-    try {
-      job = this.d.startJob({ kind: 'task', label: `readback ${plan.step.path} · FreeCAD run ${plan.run.slice(0, 8)}`, project: at.project, root: at.root, command: cmd.command, args: cmd.args, timeoutMs: READBACK_TIMEOUT_MS }, { selfSealed: true });
-    } catch (e) {
-      return this.say(`Not started: the readback job did not start (${this.d.scrub(e instanceof Error ? e.message : String(e), at.root)})`, 'failure');
-    }
-    const done = this.follow(job, plan, at).catch((e) => {
-      this.d.notify(this.say(`${job.id}: the readback could not be recorded (${this.d.scrub(e instanceof Error ? e.message : String(e), at.root)})`, 'failure')[0]);
-    }).finally(() => { this.running.delete(job.id); });
-    this.running.set(job.id, done);
+    const started = this.run(plan, at);
+    if (!started.ok) return this.say(started.error, started.failed ? 'failure' : 'estimate');
+    const job = started.job;
     const r = plan.reported;
     return [
       [{ text: '  Readback   ', role: 'secondary' }, { text: job.id, role: 'strong' }, { text: `  reads ${plan.step.path} (sha256 ${short(plan.step.sha256)}, as FreeCAD run ${plan.run.slice(0, 8)} recorded it) in its own process: OCP's STEP reader${this.sep}/jobs ${job.id}${this.sep}/stop ${job.id}`, role: 'secondary' }],
@@ -143,6 +128,36 @@ export class FreecadReadbacks {
     ];
   }
 
+  /**
+   * Starts the readback of a planned STEP (planFreecadReadback) as its own job and follows it: what `/freecad readback`
+   * runs, and (R4, H33) what `/iterate freecad` runs after its FreeCAD job. The same worker, tolerance, record
+   * (readbacks.jsonl) and receipt either way; `label` names the job. `done` gives the line once it is recorded and
+   * sealed (undefined when it could not be recorded, which is said).
+   */
+  run(plan: FreecadReadbackPlan, at: { root: string; project: string }, o: { label?: string } = {}):
+    { ok: true; job: JobRecord; done: Promise<FreecadReadbackLine | undefined> } | { ok: false; failed?: true; error: string } {
+    let cmd: { command: string; args: string[] };
+    if (this.d.test?.readback) cmd = this.d.test.readback({ abs: plan.step.abs, rel: plan.step.path });
+    else {
+      const ready = readbackReady(this.d.env());
+      const rt = nativeRuntime(this.d.env());
+      if (!ready.ready || !rt.ok) return { ok: false, error: `Not started: ${ready.why ?? READBACK_SETUP}` };
+      cmd = { command: rt.python, args: [READBACK_SCRIPT, plan.step.abs, '--as', plan.step.path] };
+    }
+    let job: JobRecord;
+    try {
+      job = this.d.startJob({ kind: 'task', label: o.label ?? `readback ${plan.step.path} · FreeCAD run ${plan.run.slice(0, 8)}`, project: at.project, root: at.root, command: cmd.command, args: cmd.args, timeoutMs: READBACK_TIMEOUT_MS }, { selfSealed: true });
+    } catch (e) {
+      return { ok: false, failed: true, error: `Not started: the readback job did not start (${this.d.scrub(e instanceof Error ? e.message : String(e), at.root)})` };
+    }
+    const done = this.follow(job, plan, at).catch((e): undefined => {
+      this.d.notify(this.say(`${job.id}: the readback could not be recorded (${this.d.scrub(e instanceof Error ? e.message : String(e), at.root)})`, 'failure')[0]);
+      return undefined;
+    }).finally(() => { this.running.delete(job.id); });
+    this.running.set(job.id, done);
+    return { ok: true, job, done };
+  }
+
   /** Waits (at most `ms`) for every readback this REPL follows to write its record. */
   async settle(ms = 30_000): Promise<void> {
     const all = Promise.allSettled([...this.running.values()]);
@@ -150,7 +165,7 @@ export class FreecadReadbacks {
   }
 
   /** When the readback job ends: parse, check the bytes it read, compare, keep its output, record, seal, say. */
-  private async follow(started: JobRecord, plan: FreecadReadbackPlan, at: { root: string; project: string }): Promise<void> {
+  private async follow(started: JobRecord, plan: FreecadReadbackPlan, at: { root: string; project: string }): Promise<FreecadReadbackLine> {
     const done = await this.d.jobs.done(started.id);
     const logName = `readback-${done.id}.log`;
     const logRel = `.timmy/native/${plan.run}/${logName}`;
@@ -202,6 +217,7 @@ export class FreecadReadbacks {
     line.receipt = this.seal(done, plan, line, log, at);
     const recorded = appendReadback(plan.dir, line);
     for (const l of this.endLines(done, plan, line, parsed && parsed.ok ? parsed : undefined, kept, recorded)) this.d.notify(l);
+    return line;
   }
 
   /** The readback's receipt (kind readback): what it read (in sources: it changed nothing), its job, both sets of numbers and the verdict. */
