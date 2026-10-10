@@ -1319,7 +1319,9 @@ export function aeNextSteps(j: AeJudgement, spec: AeJobSpec): string[] {
   if (j.outcome !== 'ok' || !target) return [];
   const comp = j.ae.comps?.find((c) => typeof c.name === 'string' && c.name)?.name;
   const stem = a.mode === 'inspect' ? path.posix.basename(target).replace(PROJECT_EXT, '') : `${a.name}-v${a.version}`;
-  const steps = [`/ae ${quoteArg(target)} ${comp ? quoteArg(comp) : '<comp>'} out/${stem}.mov renders it with aerender (its frames judged as any render)`];
+  // R4 (H41): .mp4, as After Effects 2026's default output module was seen to write (H.264); its output module decides the
+  // container either way, and the file aerender writes is judged by that rule (src/native/index.ts).
+  const steps = [`/ae ${quoteArg(target)} ${comp ? quoteArg(comp) : '<comp>'} out/${stem}.mp4 renders it with aerender (its output module decides the container; the file it writes is judged, as any render)`];
   if (a.mode !== 'inspect') steps.push(`/ae inspect ${quoteArg(target)} has After Effects read it back (the same application reading its own file, not an independent reader)`);
   return steps;
 }

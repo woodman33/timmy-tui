@@ -565,7 +565,7 @@ describe('the REPL: /ae author, /ae edit, /ae inspect', () => {
     expect(ended).toMatch(new RegExp(`${id} ok  After Effects · author author\\.jsx → out/ae/promo-v1\\.aep: the result file is this run's`));
     expect(ended).toMatch(/saved {4}out\/ae\/promo-v1\.aep · created by this run · sha256 [0-9a-f]{12}… \(Timmy's, after the run\)/);
     expect(ended).toContain('reported 1 comp: Main 1920x1080, 30 fps, 10 s, 3 layers: Mover (solid [0.2, 0.75, 0.4]; Position 2 keys: 0 s (240, 760) → 2 s (1680, 760), linear), Title (text "Title"), Background (solid [0.07, 0.07, 0.08]) · as After Effects reported its own project, not an independent reading');
-    expect(ended).toMatch(/next {5}\/ae out\/ae\/promo-v1\.aep Main out\/promo-v1\.mov renders it with aerender/);
+    expect(ended).toMatch(/next {5}\/ae out\/ae\/promo-v1\.aep Main out\/promo-v1\.mp4 renders it with aerender \(its output module decides the container; the file it writes is judged, as any render\)/);
     expect(ended).toMatch(/next {5}\/ae inspect out\/ae\/promo-v1\.aep has After Effects read it back \(the same application reading its own file, not an independent reader\)/);
     const receipt = sealed.find((r) => r.kind === 'native');
     expect(receipt).toMatchObject({ status: 'ok', native: { app: 'afterfx', outcome: 'ok', ae: { mode: 'author', saved: { path: 'out/ae/promo-v1.aep', sha256: sha(path.join(root, 'out', 'ae', 'promo-v1.aep')) } } } });
@@ -585,7 +585,7 @@ describe('the REPL: /ae author, /ae edit, /ae inspect', () => {
     await ws.jobs.done(jobIdOf(inspected.slice(inspected.indexOf('Running'))));
     await settle();
     expect(notes.join('\n')).toMatch(/ ok  After Effects · inspect out\/ae\/promo-v2\.aep: .*out\/ae\/promo-v2\.aep is unchanged/);
-    expect(notes.join('\n')).toMatch(/next {5}\/ae out\/ae\/promo-v2\.aep Main out\/promo-v2\.mov renders it with aerender/);
+    expect(notes.join('\n')).toMatch(/next {5}\/ae out\/ae\/promo-v2\.aep Main out\/promo-v2\.mp4 renders it with aerender \(its output module decides the container; the file it writes is judged, as any render\)/);
     expect(sealed.filter((r) => r.kind === 'native').map((r) => (r.native as { ae?: { mode?: string } }).ae?.mode)).toEqual(['author', 'edit', 'inspect']);
   });
 
