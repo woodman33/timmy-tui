@@ -142,6 +142,15 @@ describe('reading the terminal format: what is upmd\'s and what is a block\'s', 
     expect(steps[0]).toMatchObject({ state: 'completed', code: 0 });
   });
 
+  it('a header is a number, a count, at most one word and the needs; a progress line shaped like one is not taken for it', () => {
+    // a progress line that reached the start of a line (`[2/3] Building …`, `[2/3] Linking`) while first ran: no start of block 2
+    const steps = run([' [1/3] Bash', '[2/3] Building CXX object x.o', '[2/3] Linking', ' [2/3] Bash  [first]']);
+    expect(steps.map((s) => [s.name, s.index, s.state])).toEqual([['first', 1, 'running'], ['second', 2, 'running']]);
+    // a block with no language: no word between its count and its needs
+    const plain = PROBE.replace(`${F}bash [name:third, deps:second]`, `${F} [name:third, deps:second]`);
+    expect(run([' [3/3]  [second]'], plain).map((s) => [s.name, s.index])).toEqual([['third', 3]]);
+  });
+
   it('a summary whose start was not seen is a step with no start moment (its own time is not made up)', () => {
     const steps = run(['==> first [block 1]', '  first says hello', '  ✔ exited with code 0']);
     expect(steps).toEqual([{ name: 'first', index: 1, state: 'completed', code: 0, endedAt: new Date(0).toISOString() }]);

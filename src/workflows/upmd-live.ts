@@ -128,8 +128,12 @@ export function terminalText(line: string): string {
   return line.replace(OSC, '').replace(CSI, '').replace(CHARSET, '').replace(SHORT, '').replace(CONTROLS, '').replace(/\s+$/, '');
 }
 
-/** ` [2/3] Bash  [first]`: a block starts (or is drawn again). Block output is always indented by two spaces. */
-const HEADER = /^ ?\[(\d+)\/(\d+)\] \S/;
+/**
+ * ` [2/3] Bash  [first]`: a block starts (or is drawn again): its number, the count, at most one word (its language) and
+ * its needs in brackets, nothing else. upmd indents a block's output by two spaces; the shape also keeps a progress line
+ * such as `[2/3] Building CXX object x.o` from being taken for a header, should one reach the start of a line.
+ */
+const HEADER = /^ ?\[(\d+)\/(\d+)\](?: ([^\s[]\S*))?(?:\s+\[([^\]]*)\])?$/;
 const SUMMARY = /^==> (.+) \[block (\d+)\]$/;
 const END = /^\s*[✔✘]\s*exited with code (-?\d+)$/;
 const CHAIN = /^Block (\d+) failed [-–—] stopping dependency chain$/;
@@ -167,8 +171,10 @@ export function upmdLineParser(blocks: readonly WorkflowBlock[], format: LiveFor
       // drawn again (a redraw), or a block this run already ended: no new step
       if (!(n >= 1) || steps.some((s) => s.index === n)) return;
       // the document's block of that number, when upmd counts the same blocks; else named by its number until it ends
-      const mapped = Number(head[2]) === blocks.length ? blocks[n - 1]?.name : undefined;
-      steps.push({ name: mapped ?? `block ${n}`, index: n, state: 'running', startedAt: stamp() });
+      const mapped = Number(head[2]) === blocks.length ? blocks[n - 1] : undefined;
+      // upmd shows a block's needs, and only then, in brackets: a line that disagrees is not that block's header
+      if (mapped && (head[4] !== undefined) !== (mapped.deps.length > 0)) return;
+      steps.push({ name: mapped?.name ?? `block ${n}`, index: n, state: 'running', startedAt: stamp() });
       return;
     }
     const sum = SUMMARY.exec(text);
