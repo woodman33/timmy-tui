@@ -121,7 +121,7 @@ describe('what waits on a person, from real records', () => {
     expect(out).not.toContain(aeOld.id);
     // Left behind: what /recover settles, named by its record.
     // Newest first: the flow's state file was written last.
-    expect(out).toContain(`why     flow ${LEFT} (/iterate scad): its state file says its agent step runs, and that step's job j0dead3 was left running by a session whose process is gone; recipe job ${UUID}: its newest watcher j0dead1 was left running by a session whose process is gone`);
+    expect(out).toContain(`why     flow ${LEFT} (/iterate scad): its state file says its agent step runs, and that step's job j0dead3 was left running by a session that ended: the job's process is gone; recipe job ${UUID}: its newest watcher j0dead1 was left running by a session whose process is gone`);
     expect(out).toContain(`record  .timmy/flows/${LEFT}/state.json`);
     expect(out).toContain('type    /recover');
     // Setup: the step /tools or VoxVision gives, for a tool a run of this project used; the other rows counted, /tools named.

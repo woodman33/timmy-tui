@@ -156,7 +156,8 @@ export function startsWork(line: string): boolean {
   return false;
 }
 
-const EXIT: Readonly<Record<OperationState, number>> = { succeeded: 0, answered: 0, failed: 1, differs: 1, refused: 2, stopped: 3, running: 3 };
+// R4 (H68): interrupted is only written by a later recovery (an act never ends its own operation so): as stopped.
+const EXIT: Readonly<Record<OperationState, number>> = { succeeded: 0, answered: 0, failed: 1, differs: 1, refused: 2, stopped: 3, running: 3, interrupted: 3 };
 const plain = (segs: Segment[]): string => segs.map((s) => s.text).join('');
 const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
 

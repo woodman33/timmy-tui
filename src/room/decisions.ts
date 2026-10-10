@@ -11,14 +11,18 @@
  *   left behind  what a Timmy session that ended left in the project, which /recover settles: a flow whose state file says
  *                a step runs while that step's job is stale (or nothing of it has run for FLOW_QUIET_MS), a recipe whose
  *                newest watcher job is stale, a native run not judged whose job is stale (src/repl/recover.ts's own rules,
- *                read only: its survey is not run here)
+ *                read only: its survey is not run here). R4 (H68; r20, ledger row 162): also a flow whose agent's or
+ *                readback's job still runs in its own process group, a code agent run with no result (a plain /agent run,
+ *                an OpenHands run) whose job still runs, or whose process is gone, and a workflow run still running, each
+ *                left by a REPL whose end is proven by its pid and start, never by age (src/room/left-runs.ts)
  *   setup        the /tools rows that say "needs setup" for a tool a run of this project used or tried (agent runs, native
  *                runs, flows, recipe jobs, MCP calls, observations), as the Control Room last checked /tools; and
  *                VoxVision's tools that need setup for a tool a VoxVision record of this project names. The other rows of
  *                /tools that need setup are counted (/tools lists them)
  *   runs         the newest flow of each target that ended needing a person (interrupted; its readback differs; failed in
  *                its checks or readback step), and the newest run of each workflow block that was interrupted (its job
- *                record stale): a later run of the same target or block settles an earlier one
+ *                record stale, or (R4, H68) recorded interrupted by recovery): a later run of the same target or block
+ *                settles an earlier one
  *   memory       draft lessons (awaiting /lesson check) and stale ones (src/memory/lessons.ts, checked now, read only)
  *
  * Order: what blocks a running or requested operation first (a NEEDS YOU box, a refused save), then what an ended session
@@ -38,10 +42,11 @@ import type { WaitingApproval } from '../repl/approvals.js';
 import { readBoardFlows, type BoardFlow, type BoardFlows } from '../repl/board-flows.js';
 import { flowKind } from '../repl/board-steps.js';
 import { runOf } from '../repl/board-workflows.js';
-import { FLOW_QUIET_MS } from '../repl/recover.js';
+import { ENDS_JOB, FLOW_QUIET_MS } from '../repl/recover.js';
 import type { Receipt } from '../utils/receipts.js';
 import type { ToolStatus } from '../vox/tools.js';
 import { cleanLine, type RoomTools } from './index.js';
+import { leftRuns, starterGone, type LeftRun } from './left-runs.js'; // R4 (H68)
 import type { StaleSave } from './stale-saves.js';
 
 // ── the model ─────────────────────────────────────────────────────────────────
@@ -72,6 +77,8 @@ export interface Decision {
   commands: string[];
   /** the operation (one request) it belongs to, when a record names one */
   operation?: string;
+  /** R4 (H68): every operation an item about several runs names (the runs a session that ended left), each card marked */
+  operations?: string[];
   /** the run it is about (a flow, a job), when there is one */
   run?: string;
   /** when (ms), for the order */
@@ -187,7 +194,8 @@ const APP_WORDS: Readonly<Record<string, string>> = { c4dpy: 'Cinema 4D', aerend
 
 function leftItems(c: DecisionContext, flows: BoardFlows, now: number): Decision[] {
   const jobOf = (id: string | undefined): JobRecord | undefined => (id ? c.jobs.find((j) => j.id === id) : undefined);
-  const found: Array<{ words: string; record?: string; at: number; operation?: string }> = [];
+  // R4 (H68): `how` and `kind` of a run src/room/left-runs.ts found, or of a flow's step job still running (what /recover does differs).
+  const found: Array<{ words: string; record?: string; at: number; operation?: string; how?: LeftRun['how']; kind?: LeftRun['kind'] }> = [];
   // Flows whose state file says a step runs, run by no live job of any session.
   for (const f of flows.running ?? []) {
     const r = f.record as unknown as Obj;
@@ -196,11 +204,19 @@ function leftItems(c: DecisionContext, flows: BoardFlows, now: number): Decision
     const step = String(r.step ?? '?');
     const jobId = str(obj(r[STEP_JOB[step] ?? ''])?.job);
     const job = jobOf(jobId);
-    if (liveJob(job)) continue;
+    if (liveJob(job)) {
+      // R4 (H68): its agent's or readback's job still runs in its own process group, and the REPL that started it has ended
+      // (proven by its pid and start): /recover stops that group when it is proven the job's, then records the flow.
+      if (job && ENDS_JOB.has(step) && job.state !== 'queued' && typeof job.pid === 'number' && starterGone(job)) {
+        found.push({ words: `flow ${id} (/iterate ${flowKind(r) ?? 'flow'}): its state file says its ${step} step runs, and that step's job ${job.id} is still running in its own process group ${job.pid} while the REPL that started it has ended`, record: f.file, at: time(f.live?.written), how: 'running', ...(str(r.operation) ? { operation: String(r.operation) } : {}) });
+      }
+      continue;
+    }
     const kind = flowKind(r) ?? 'flow';
     const written = time(f.live?.written);
     if (job?.stale) {
-      found.push({ words: `flow ${id} (/iterate ${kind}): its state file says its ${step} step runs, and that step's job ${job.id} was left ${job.state} by a session whose process is gone`, record: f.file, at: written, ...(str(r.operation) ? { operation: String(r.operation) } : {}) });
+      // R4 (H68): the words say which: the step's job's own process is gone (its record is stale), not only its session's.
+      found.push({ words: `flow ${id} (/iterate ${kind}): its state file says its ${step} step runs, and that step's job ${job.id} was left ${job.state} by a session that ended: the job's process is gone`, record: f.file, at: written, how: 'gone', ...(str(r.operation) ? { operation: String(r.operation) } : {}) });
       continue;
     }
     const quiet = now - Math.max(written, time(job?.endedAt));
@@ -239,17 +255,32 @@ function leftItems(c: DecisionContext, flows: BoardFlows, now: number): Decision
     const until = time(rec.job.started_at) + (typeof rec.job.timeout_ms === 'number' ? rec.job.timeout_ms : 0) + 60_000;
     if (until && now >= until) found.push({ words: `${name}: not judged yet; its job ${jobId} is not in this Timmy's jobs folder and its time limit has passed`, record: `.timmy/native/${n.run}/job.json`, at: time(n.started_at) });
   }
+  // R4 (H68): code agent runs (a plain /agent run, an OpenHands run) and workflow runs a REPL that ended left (left-runs.ts).
+  for (const l of leftRuns({ root: c.root, jobs: c.jobs, scrub: c.scrub })) {
+    found.push({ words: l.words, ...(l.record ? { record: l.record } : {}), at: l.at, ...(l.operation ? { operation: l.operation } : {}), how: l.how, kind: l.kind });
+  }
   if (!found.length) return [];
   found.sort((a, b) => b.at - a.at);
   const first = found[0];
+  // The Control Room names the first five; /decisions (all of them) names each, up to DECISIONS_ALL.
+  const named = (c.max ?? DECISIONS_SHOWN) > DECISIONS_SHOWN ? DECISIONS_ALL : 5;
+  const has = (k: LeftRun['kind']): boolean => found.some((f) => f.kind === k);
+  // R4 (H68): what /recover does about each kind found, after what it does about flows, recipes and native runs.
+  const more = [
+    has('agent') || has('openhands') ? ', a code agent run\'s record is ended as interrupted, with no result claimed' : '',
+    has('openhands') ? ', an OpenHands run\'s container is stopped by its name and labels' : '',
+    has('workflow') ? ', a workflow run\'s job record is ended as interrupted' : '',
+    found.some((f) => f.how === 'running') ? ', and a process group that still runs is stopped (SIGTERM, then SIGKILL) only when it is proven the job\'s, else /recover says how to stop it' : '',
+  ].join('');
+  const operations = [...new Set(found.map((f) => f.operation).filter((o): o is string => !!o))];
   return [{
     key: 'left', kind: 'left', blocks: false,
     title: `${found.length} ${found.length === 1 ? 'run was' : 'runs were'} left by a Timmy session that ended`,
-    needed: 'type /recover: it reads what each left and settles what verifies (an interrupted flow gets its final record, a recipe job is followed again or its exports delivered, a native run is judged from its own result file); it runs nothing again, and it says what it leaves as it is',
-    why: found.slice(0, 5).map((f) => f.words).join('; ') + (found.length > 5 ? `; and ${found.length - 5} more` : ''),
+    needed: `type /recover: it reads what each left and settles what verifies (an interrupted flow gets its final record, a recipe job is followed again or its exports delivered, a native run is judged from its own result file${more}); it runs nothing again, and it says what it leaves as it is`,
+    why: found.slice(0, named).map((f) => f.words).join('; ') + (found.length > named ? `; and ${found.length - named} more` : ''),
     ...(first.record ? { record: first.record } : {}),
     commands: ['/recover'],
-    ...(first.operation ? { operation: first.operation } : {}), at: first.at,
+    ...(first.operation ? { operation: first.operation } : {}), ...(operations.length ? { operations } : {}), at: first.at,
   }];
 }
 
@@ -456,13 +487,15 @@ function workflowItems(c: DecisionContext): Decision[] {
     const key = `${run.doc}\0${run.target}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    if (!j.stale) continue;
+    // R4 (H68; r20): one recovery recorded interrupted (its job record ended, src/repl/workflow-recover.ts) stays listed too.
+    if (!j.stale && !j.interrupted) continue;
     const block = j.steps.find((s) => s.state === 'running')?.name;
     items.push({
       key: `workflow:${j.id}`, kind: 'interrupted', blocks: false,
       title: `workflow run ${j.id} (${cleanLine(`${run.doc} › ${run.target}`, c.scrub, 120)}) was interrupted`,
       needed: 'decide whether to run it again: upmd does not resume a run, and Timmy does not either',
-      why: `its job record says ${j.state} and its process is gone: the session that ran it ended while ${block ? cleanLine(block, c.scrub, 60) : 'a block'} ran`,
+      why: j.stale ? `its job record says ${j.state} and its process is gone: the session that ran it ended while ${block ? cleanLine(block, c.scrub, 60) : 'a block'} ran`
+        : `its job record says ${j.state}: ${cleanLine(j.error ?? 'interrupted', c.scrub, 220)}`,
       commands: [`/run ${quoteArg(run.doc)} ${quoteArg(run.target)}`, `/jobs ${j.id}`],
       ...(j.operation ? { operation: j.operation } : {}), run: j.id, at: time(j.startedAt),
     });
@@ -547,7 +580,7 @@ export function gatherDecisions(c: DecisionContext): DecisionsView {
   const max = Math.max(1, c.max ?? DECISIONS_SHOWN);
   if (flows.more > 0) notes.push(`${flows.more} older flow records are not read here (the newest are).`);
   const operations: Record<string, string[]> = {};
-  for (const d of all) if (d.operation) (operations[d.operation] ??= []).push(d.title);
+  for (const d of all) for (const op of new Set([d.operation, ...(d.operations ?? [])])) if (op) (operations[op] ??= []).push(d.title);
   return {
     items: all.slice(0, max), more: Math.max(0, all.length - max), total: all.length, otherSetup: setup.other,
     tools: c.tools ? { checkedAt: c.tools.checkedAt, ...(c.tools.note ? { note: c.tools.note } : {}) } : { note: 'the tools are not checked yet in this session: /decisions or /room checks them (OpenRouter is not contacted)' },

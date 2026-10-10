@@ -30,9 +30,12 @@ const MAX_RECORD_BYTES = 256 * 1024;
 const MAX_RUNS = 200;
 
 export type OperationVia = 'repl' | 'board' | 'act';
-/** An operation's state, in words: running, then how it ended. */
-export type OperationState = 'running' | 'succeeded' | 'failed' | 'differs' | 'stopped' | 'refused' | 'answered';
-export const OPERATION_STATES: readonly OperationState[] = ['running', 'succeeded', 'failed', 'differs', 'stopped', 'refused', 'answered'];
+/**
+ * An operation's state, in words: running, then how it ended. R4 (H68): 'interrupted' is written only by a later session's
+ * recovery (endLeftOperation), for an operation whose own process ended before it did; no run's result is claimed by it.
+ */
+export type OperationState = 'running' | 'succeeded' | 'failed' | 'differs' | 'stopped' | 'refused' | 'answered' | 'interrupted';
+export const OPERATION_STATES: readonly OperationState[] = ['running', 'succeeded', 'failed', 'differs', 'stopped', 'refused', 'answered', 'interrupted'];
 
 export interface OperationRun { kind: OperationRunKind; id: string; at: string }
 
@@ -138,6 +141,25 @@ export function readOperationRecord(root: string, id: string): { ok: true; recor
     const code = (e as NodeJS.ErrnoException).code;
     return { ok: false, rel, error: code === 'ENOENT' ? `no record ${rel} in this project` : code ? `${code} reading ${rel}` : e instanceof Error ? e.message : String(e) };
   }
+}
+
+/**
+ * R4 (H68; r20, ledger row 162, finding 3): ends the record of an operation whose own process (the REPL or `timmy act` that
+ * began it, and the only one that writes it) ended before it did, as a later session's recovery records it
+ * (src/ops/recover-operations.ts decides when): state "interrupted", ended now, and why in words. Only a record that still
+ * says it runs, and whose process is proven gone (writerState: no process with its pid, or one that started at another
+ * time), is changed; everything else in it stays as that process wrote it (its request, runs and owner). Written through
+ * writeOperationRecord, never through a link. Operation records are not sealed, and this seals nothing.
+ */
+export function endLeftOperation(root: string, id: string, end: { why: string; at?: string }): { ok: true; record: OperationRecord; rel: string } | { ok: false; rel: string; error: string } {
+  const held = readOperationRecord(root, id);
+  if (!held.ok) return held;
+  if (held.record.ended !== null) return { ok: false, rel: held.rel, error: `its record already says ${held.record.state}` };
+  const writer = writerState(held.record.owner);
+  if (writer !== 'gone') return { ok: false, rel: held.rel, error: writer === 'alive' ? 'the Timmy that began it still runs' : 'whether the Timmy that began it still runs could not be read' };
+  const record: OperationRecord = { ...held.record, ended: end.at ?? new Date().toISOString(), state: 'interrupted', why: end.why.slice(0, 2000) };
+  const w = writeOperationRecord(root, record);
+  return w.ok ? { ok: true, record, rel: w.rel } : { ok: false, rel: held.rel, error: w.error };
 }
 
 /** The project's records, newest first, and the files that could not be read (each named with why). */
