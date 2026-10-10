@@ -3,11 +3,18 @@
  * floating zellij pane or a tmux popup, so the REPL stays where it is. Pages must be on this
  * machine (127.0.0.1, localhost, ::1, *.localhost, file:) unless the operator allows one. With no
  * carbonyl or no multiplexer to draw it in, Timmy gives the link instead.
+ *
+ * Round R4 (review M4): an address that carries a secret (the live board's token, or a parameter named like a
+ * credential) is never an argument of tmux, zellij, sh or carbonyl, which anyone on the machine can read with ps.
+ * The pane opens a private launch page instead (src/utils/launch-page.ts) that sends carbonyl on to the address;
+ * the link given to the operator to open by hand still holds the whole address.
  */
+import { spawn, spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { STUDIO_PORT, studioBaseUrl } from '../studio/config.js';
+import { carriesSecret, writeLaunchPage, type LaunchPage } from '../utils/launch-page.js';
 
 export type WebRoute = 'zellij' | 'tmux' | 'link' | 'refused';
 
@@ -18,6 +25,10 @@ export interface WebPlan {
   url: string;
   /** One line for the operator. */
   note: string;
+  /** The private launch page the pane opens instead of an address that carries a secret (review M4). */
+  page?: LaunchPage;
+  /** A link given only because the launch page could not be written: why. */
+  why?: string;
 }
 
 export interface WebInputs {
@@ -27,6 +38,10 @@ export interface WebInputs {
   locate?: (bin: string) => string | null;
   env: Record<string, string | undefined>;
   allowRemote: boolean;
+  /** The address carries a secret (the live board's token): no command line may hold it. */
+  secret?: boolean;
+  /** Writes the launch page such an address opens through: launch-page.ts's writeLaunchPage unless a test gives one. */
+  launch?: (url: string) => LaunchPage;
 }
 
 /**
@@ -88,26 +103,61 @@ export function planWeb(i: WebInputs): WebPlan {
   if (!local && !i.allowRemote) {
     return { route: 'refused', args: [], url: i.url, note: `Refused: ${host} is not on this machine. Use /web --allow-remote <url> to open it anyway.` };
   }
-  if (i.has('carbonyl') && i.env.ZELLIJ !== undefined) {
+  const route = !i.has('carbonyl') ? 'link' : i.env.ZELLIJ !== undefined ? 'zellij' : i.env.TMUX ? 'tmux' : 'link';
+  const link = (why?: string): WebPlan => ({ route: 'link', args: [], url: i.url, note: `Open ${i.url} in your browser.`, ...(why ? { why } : {}) });
+  if (route === 'link') return link();
+  // Review M4: carbonyl gets the private launch page's address, never one that carries a secret.
+  let page: LaunchPage | undefined;
+  if (i.secret || carriesSecret(i.url)) {
+    try {
+      page = (i.launch ?? writeLaunchPage)(i.url);
+    } catch (err) {
+      return link(`the private page that keeps its secret off command lines could not be written (${err instanceof Error ? err.message : 'error'})`);
+    }
+  }
+  const target = page?.href ?? i.url;
+  if (route === 'zellij') {
     return {
       route: 'zellij',
       command: 'zellij',
       // As big as the tmux popup, centred.
-      args: ['run', '--floating', '--close-on-exit', '--name', 'Web', '--width', '90%', '--height', '85%', '--x', '5%', '--y', '8%', '--', ...webView(i, i.url)],
+      args: ['run', '--floating', '--close-on-exit', '--name', 'Web', '--width', '90%', '--height', '85%', '--x', '5%', '--y', '8%', '--', ...webView(i, target)],
       url: i.url,
       note: 'Opened in a floating zellij pane. Ctrl+C there closes it.',
+      ...(page ? { page } : {}),
     };
   }
-  if (i.has('carbonyl') && i.env.TMUX) {
-    return {
-      route: 'tmux',
-      command: 'tmux',
-      // Separate arguments: tmux runs the pane's sh with no shell of its own in between, and the page's
-      // address reaches carbonyl as an argument, whatever it holds.
-      args: ['display-popup', '-E', '-w', '90%', '-h', '85%', '-T', ' Web ', ...webView(i, tmuxArg(i.url))],
-      url: i.url,
-      note: 'Opened in a tmux popup. Ctrl+C there closes it.',
-    };
+  return {
+    route: 'tmux',
+    command: 'tmux',
+    // Separate arguments: tmux runs the pane's sh with no shell of its own in between, and the page's
+    // address reaches carbonyl as an argument, whatever it holds.
+    args: ['display-popup', '-E', '-w', '90%', '-h', '85%', '-T', ' Web ', ...webView(i, tmuxArg(target))],
+    url: i.url,
+    note: 'Opened in a tmux popup. Ctrl+C there closes it.',
+    ...(page ? { page } : {}),
+  };
+}
+
+/**
+ * Opens a page as planWeb plans it (the REPL's /web, /board live and the other pages it opens) and says how, in
+ * one line. The tmux popup runs beside the REPL, not waited for (display-popup waits until the page closes); the
+ * zellij pane is made at once (zellij run returns when it is). `show` writes the link the operator is given.
+ * A launch page goes when the popup ends or the pane cannot be made (else as launch-page.ts says).
+ */
+export function openWebView(i: WebInputs, o: { show?: (url: string) => string } = {}): string {
+  const plan = planWeb(i);
+  if (plan.route === 'link') return `Open ${(o.show ?? ((u: string) => u))(plan.url)} in your browser.${plan.why ? ` Not opened in a pane: ${plan.why}.` : ''}`;
+  if (plan.route === 'refused' || !plan.command) return plan.note;
+  if (plan.route === 'tmux') {
+    const child = spawn(plan.command, plan.args, { stdio: 'ignore', detached: true, env: i.env });
+    child.on('error', () => plan.page?.remove());
+    child.on('exit', () => plan.page?.remove());
+    child.unref();
+    return plan.note;
   }
-  return { route: 'link', args: [], url: i.url, note: `Open ${i.url} in your browser.` };
+  const r = spawnSync(plan.command, plan.args, { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8', env: i.env });
+  const why = r.error?.message ?? (r.status !== 0 ? (r.stderr?.split('\n').find((l) => l.trim()) ?? `exit ${r.status}`) : '');
+  if (why) plan.page?.remove();
+  return why ? `Could not open the web view (${why}). Open ${plan.url} in your browser.` : plan.note;
 }

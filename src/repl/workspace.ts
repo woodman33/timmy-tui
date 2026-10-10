@@ -24,6 +24,7 @@ import { hashFile, intakeFiles, kindOf, splitArgs } from '../project/intake.js';
 import { copyStarter, listStarters } from '../project/starters.js';
 import { BOARD_BASE, BOARD_FILE, readObservationRecord, renderBoard, renderBoardBody, utcStamp, type BoardFile, type BoardInput, type BoardObservation } from './board.js';
 import { LiveBoard, type BoardCommand, type LiveState } from './board-live.js';
+import { dropLaunchPages } from '../utils/launch-page.js';
 import { recipeEnded, recipeView, startRecipeJob, type RecipeContext, type RecipeStarted, type RecipeTestSeams } from './recipe.js';
 import { killProcessGroup } from '../runtime/spawn-runtime.js';
 import type { GlyphSet } from '../term/glyphs.js';
@@ -53,8 +54,9 @@ export interface WorkspaceDeps {
   onPath: (cmd: string) => string | null;
   /** A notice above the prompt (a step finished, a server is ready): the REPL's own printer. */
   notify: (line: Line) => void;
-  /** Opens a page in Timmy's Browser (/web): carbonyl in a pane, else a link. One line back. */
-  openWeb: (url: string) => string;
+  /** Opens a page in Timmy's Browser (/web): carbonyl in a pane, else a link. One line back. `secret`: the address
+   * carries one (the live board's token), so no command line may hold it (round R4, src/utils/launch-page.ts). */
+  openWeb: (url: string, opts?: { secret?: boolean }) => string;
   /** An OSC 8 link where the terminal supports one, else the text. */
   link: (text: string, url: string) => string;
   /** Seals a receipt on the runs chain; its short id back (or undefined when sealing failed). */
@@ -1494,10 +1496,11 @@ export class Workspace {
         [{ text: '  Open       ', role: 'secondary' }, { text: this.d.link(this.live.url, this.live.url) }, { text: '  the token after # stays in your browser', role: 'secondary' }],
       ];
     }
-    const lb = new LiveBoard({ state: () => this.liveState(), execute: (c) => this.boardCommand(c), scrub: (t) => this.scrub(t, this.root) });
+    // Round R4 (review M4): the pane opens a private launch page, removed once the board has let the page in.
+    const lb = new LiveBoard({ onAuthorized: () => dropLaunchPages(lb.url), state: () => this.liveState(), execute: (c) => this.boardCommand(c), scrub: (t) => this.scrub(t, this.root) });
     try { await lb.start(); } catch (err) { return this.say(`The live board could not start: ${err instanceof Error ? err.message : 'error'}`, 'failure'); }
     this.live = lb;
-    const opened = this.d.openWeb(lb.url);
+    const opened = this.d.openWeb(lb.url, { secret: true });
     return [
       [{ text: '  Live board ', role: 'secondary' }, { text: lb.address, role: 'strong' }, { text: `  on 127.0.0.1 only, for this REPL${this.sep}Stop, Run and Observe act as the typed command${this.sep}/board off stops it`, role: 'secondary' }],
       [{ text: '  Browser    ', role: 'secondary' }, { text: opened }],
@@ -1512,6 +1515,7 @@ export class Workspace {
   private async closeLiveBoard(): Promise<void> {
     const lb = this.live;
     this.live = undefined;
+    if (lb) dropLaunchPages(lb.url);
     await lb?.close();
   }
 

@@ -48,6 +48,8 @@ export interface LiveState {
 }
 
 export interface LiveBoardDeps {
+  /** A request carried the valid token (round R4: the page that opened the board is then no longer needed). */
+  onAuthorized?: () => void;
   /** The board as it is now (read for every request, so a switched project shows at once). */
   state: () => LiveState;
   /** Runs a checked action as its typed command; the lines it printed, as plain text (no ANSI). */
@@ -199,7 +201,9 @@ export class LiveBoard {
     const m = typeof h === 'string' ? h.match(/^Bearer ([0-9a-f]{64})$/) : null;
     // Compared in constant time, as hashes of equal length; a malformed header compares an empty string.
     const given = m && TOKEN_HEX.test(m[1]) ? m[1] : '';
-    return timingSafeEqual(sha(given), sha(this.token)) && given.length === this.token.length;
+    const ok = timingSafeEqual(sha(given), sha(this.token)) && given.length === this.token.length;
+    if (ok) this.d.onAuthorized?.();
+    return ok;
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {

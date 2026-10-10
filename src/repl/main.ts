@@ -6,7 +6,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
 import { emitKeypressEvents, type Key } from 'node:readline';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAgent } from '../agent/core.js';
 import { defaultTools } from '../agent/tools.js';
@@ -33,7 +33,7 @@ import { nearest } from './suggest.js';
 import { runTurn, type TurnAbandon, type TurnAgent, type TurnInspect } from './turn.js';
 import { Transcript, type InspectRow } from './transcript.js';
 import { onPath, packageRoot, realOnPath } from './center.js';
-import { planWeb, RECEIPT_ID, receiptUrl, resolveWebTarget } from './web.js';
+import { openWebView, RECEIPT_ID, receiptUrl, resolveWebTarget } from './web.js';
 import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt, type CanvasJobResult } from '../agent/canvas-tools.js';
 import { createProjectTools, ProjectTurnFiles, type ProjectToolOptions } from '../agent/project-tools.js';
 import { createVisionTools, type VisionToolOptions } from '../agent/vision-tools.js';
@@ -297,22 +297,14 @@ export async function runRepl(argv: string[]): Promise<number> {
     });
     return owned;
   };
-  const openWeb = (target: string, allowRemote: boolean): string => {
+  // Round R4 (review M4): `secret` (the live board's address) keeps the address off every command line.
+  const openWeb = (target: string, allowRemote: boolean, secret = false): string => {
     // Timmy Canvas and the receipt pages (C-13) are served by this REPL unless another Timmy already does.
     if (target.trim() === 'studio' || RECEIPT_ID.test(target.trim())) void ensureCanvas();
-    const plan = planWeb({ url: resolveWebTarget(target), has: (bin) => onPath(bin, process.env), locate: (bin) => realOnPath(bin, process.env), env: process.env, allowRemote });
-    if (plan.route === 'link') return `Open ${caps.cursor ? hyperlink(plan.url, plan.url, true) : plan.url} in your browser.`;
-    if (plan.route === 'refused' || !plan.command) return plan.note;
-    if (plan.route === 'tmux') {
-      // display-popup waits until the page closes; run it beside the REPL so the REPL is not held.
-      const child = spawn(plan.command, plan.args, { stdio: 'ignore', detached: true });
-      child.on('error', () => {});
-      child.unref();
-      return plan.note;
-    }
-    const r = spawnSync(plan.command, plan.args, { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
-    const why = r.error?.message ?? (r.status !== 0 ? (r.stderr?.split('\n').find((l) => l.trim()) ?? `exit ${r.status}`) : '');
-    return why ? `Could not open the web view (${why}). Open ${plan.url} in your browser.` : plan.note;
+    return openWebView(
+      { url: resolveWebTarget(target), has: (bin) => onPath(bin, process.env), locate: (bin) => realOnPath(bin, process.env), env: process.env, allowRemote, secret },
+      { show: (url) => (caps.cursor ? hyperlink(url, url, true) : url) },
+    );
   };
   // R1 workspace direction (2026-10-08): one active project — this folder until /project chooses another —
   // for Files, the agent's file tools, Workflows, jobs, Preview and Results. Job notices print above the
@@ -327,7 +319,7 @@ export async function runRepl(argv: string[]): Promise<number> {
     env: process.env,
     onPath: (cmd) => realOnPath(cmd, process.env),
     notify,
-    openWeb: (url) => openWeb(url, false),
+    openWeb: (url, opts) => openWeb(url, false, opts?.secret === true),
     link: (text, url) => (caps.cursor ? hyperlink(text, url, true) : text),
     seal: (input) => appendReceipt('runs', input).hash.slice(7, 15),
     jobsDir: join(timmyHome(), 'jobs'),
