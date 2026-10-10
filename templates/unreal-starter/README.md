@@ -24,7 +24,9 @@ the readback against a stand-in `unreal` module. The first run through Timmy (`/
   its derived-data cache in `Saved/DerivedDataCache` beside the project file and to start no Zen server
   (`-DDC=InstalledNoZenLocalFallback -LocalDataCachePath=…`), and to write its log to `Saved/Logs/Timmy-<run>.log`
   (`-abslog=…`). Unreal also makes `Intermediate/` and other `Saved/` folders there and may write `Config/DefaultEngine.ini`
-  (it did on the Mac): its caches, logs and settings, not outputs, and Timmy does not judge them.
+  (it did on the Mac): its caches, logs and settings, not outputs, and Timmy does not judge them. It also made two empty
+  folders in `Content/`: `Collections` and `Developers/<your account name>/Collections`, which puts your account name in
+  the project's folders (git keeps no empty folder, but a copy of the project does).
 - **Unreal's own user folders.** On macOS Unreal keeps per-user files (its settings, UnrealBuildTool's, a log folder per
   project, its trace server's store) in `~/Library/Application Support/Epic`, `~/Library/Application Support/Unreal Engine`,
   `~/Library/Logs/Unreal Engine` and `~/UnrealEngine`. A sandboxed Timmy (`TIMMY_NATIVE_HOME`) sends them to its own
