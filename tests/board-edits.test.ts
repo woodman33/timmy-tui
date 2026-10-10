@@ -277,6 +277,31 @@ describe('the workflow node editor, saved through the live board', () => {
   });
 });
 
+describe('where the previous versions go', () => {
+  it('a .timmy folder that is a link out of the project: both edits refuse, and nothing is written there or in the project', async () => {
+    const root = temp('board-keep-');
+    put(root, 'BUILD.md', DOC);
+    const elsewhere = temp('board-elsewhere-');
+    const { ws, sealed } = make(root);
+    const { port, token } = await live(ws);
+    const { sha256, blocks } = cardData((await state(port, token)).html, 'BUILD.md');
+    put(root, 'recipes/tray.params.json', JSON.stringify({ schema: 'timmy.recipe-params/1', recipe: 'enclosure.tray/1', parameters: PARAMS }));
+    const params = readFileSync(join(root, 'recipes/tray.params.json'));
+    symlinkSync(elsewhere, join(root, '.timmy'));
+    const p = await edit(port, token, { action: 'set-params', recipe: 'tray', base: sha(params), parameters: { ...PARAMS, width: 170 } });
+    expect(p.status).toBe(403);
+    expect(p.body).toContain('leads outside the project');
+    expect(p.body).toContain('Nothing was written');
+    const w = await edit(port, token, { action: 'save-workflow', doc: 'BUILD.md', sha256, blocks: blocks.map((b) => ({ from: b.index, name: b.name, lang: b.lang, needs: b.deps, command: `${b.code}\necho more` })) });
+    expect(w.status).toBe(500);
+    expect(w.body).toContain('Nothing was written: the previous version of BUILD.md could not be kept');
+    expect(readdirSync(elsewhere)).toEqual([]);
+    expect(readFileSync(join(root, 'recipes/tray.params.json'))).toEqual(params);
+    expect(readFileSync(join(root, 'BUILD.md'), 'utf8')).toBe(DOC);
+    expect(sealed).toEqual([]);
+  });
+});
+
 describe('who may edit', () => {
   it('refuses a missing or wrong token (401), a foreign Origin or Host (403), an oversized body (413), another type (415) or method (405), before anything is read or written', async () => {
     const root = temp('board-wf-');
