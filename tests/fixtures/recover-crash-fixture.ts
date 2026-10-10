@@ -20,8 +20,10 @@ import { jobDirectory } from '../../lanes/recipes/jobs.js';
  * R4 (H46): the `agent` step runs `/iterate tray` with the test's agent (cfg.agent, a TEST DOUBLE that waits until it is
  * stopped) and the words `agentWords` added to its instruction, and is ready once that agent wrote cfg.agentStarted.
  * R4 (H59): the `plain-agent` step runs that same agent as a plain `/agent qwen <task>` (no flow), ready the same way.
+ * R4 (H68): `operate` runs each step's command as the REPL runs a typed line (Workspace.operate, as src/repl/main.ts does):
+ * inside an operation of its own, so its runs and its record in .timmy/operations name it. Absent: as before (no operation).
  */
-interface Config { root: string; jobsDir: string; executor: string; fakePython: string; agent: string; readback: string; seals: string; nativeStarted: string; steps: Array<'recipe' | 'iterate' | 'blender' | 'agent' | 'plain-agent'>; agentStarted?: string; agentWords?: string }
+interface Config { root: string; jobsDir: string; executor: string; fakePython: string; agent: string; readback: string; seals: string; nativeStarted: string; steps: Array<'recipe' | 'iterate' | 'blender' | 'agent' | 'plain-agent'>; agentStarted?: string; agentWords?: string; operate?: boolean }
 const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8')) as Config;
 const text = (lines: Array<Array<{ text: string }>>): string => lines.map((l) => l.map((s) => s.text).join('')).join('\n');
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -50,17 +52,19 @@ const ws = new Workspace({
 }, folderProject(cfg.root));
 
 const out: Record<string, unknown> = {};
+/** R4 (H68): a step's command, typed: in an operation of its own when the config asks (see Config). */
+const typed = <T>(line: string, run: () => Promise<T>): Promise<T> => (cfg.operate ? ws.operate(line, 'repl', run) : run());
 try {
   for (const step of cfg.steps) {
     if (step === 'recipe') {
-      const said = text(await ws.recipe('tray'));
+      const said = text(await typed('/recipe tray', () => ws.recipe('tray')));
       const uuid = said.match(/Recipe job\s+([0-9a-f-]{36})/)?.[1];
       const watcher = said.match(/Running\s+(j[0-9a-f]{6})/)?.[1];
       if (!uuid || !watcher) throw new Error(`no recipe started: ${said}`);
       await until('the recipe to start', () => executed(uuid) && !!ws.jobs.get(watcher)?.pid);
       out.recipe = { uuid, watcher, watcherPid: ws.jobs.get(watcher)!.pid };
     } else if (step === 'iterate') {
-      const said = text(await ws.iterate('tray "make it 180 mm wide PARAM:width=180"'));
+      const said = text(await typed('/iterate tray "make it 180 mm wide PARAM:width=180"', () => ws.iterate('tray "make it 180 mm wide PARAM:width=180"')));
       const id = said.match(/Flow\s+(f[0-9a-f]{8})/)?.[1];
       if (!id) throw new Error(`no flow started: ${said}`);
       const file = path.join(cfg.root, '.timmy', 'flows', id, 'state.json');
@@ -73,7 +77,7 @@ try {
       });
       out.flow = { id, uuid: state.rebuild!.operation, watcher: state.rebuild!.job, watcherPid: ws.jobs.get(state.rebuild!.job!)!.pid, agentJob: state.agent?.job };
     } else if (step === 'blender') {
-      const said = text(await ws.blender('scene.py'));
+      const said = text(await typed('/blender scene.py', () => ws.blender('scene.py')));
       const job = said.match(/Running\s+(j[0-9a-f]{6})/)?.[1];
       if (!job) throw new Error(`no Blender run started: ${said}`);
       await until('the held FAKE Blender to start', () => fs.existsSync(cfg.nativeStarted));
@@ -84,14 +88,16 @@ try {
       if (!run) throw new Error('no run folder names the Blender job');
       out.native = { job, run };
     } else if (step === 'agent') {
-      const said = text(await ws.iterate(`tray "make it 180 mm wide${cfg.agentWords ? ` ${cfg.agentWords}` : ''}"`));
+      const line = `tray "make it 180 mm wide${cfg.agentWords ? ` ${cfg.agentWords}` : ''}"`;
+      const said = text(await typed(`/iterate ${line}`, () => ws.iterate(line)));
       const id = said.match(/Flow\s+(f[0-9a-f]{8})/)?.[1];
       const job = said.match(/Agent\s+(j[0-9a-f]{6})/)?.[1];
       if (!id || !job) throw new Error(`no flow started: ${said}`);
       await until('the agent to start', () => !!cfg.agentStarted && fs.existsSync(cfg.agentStarted) && !!ws.jobs.get(job)?.pid);
       out.agent = { flow: id, job, pid: ws.jobs.get(job)!.pid, started: JSON.parse(fs.readFileSync(cfg.agentStarted!, 'utf8')) };
     } else if (step === 'plain-agent') {
-      const said = text(await ws.agent(`qwen make it 180 mm wide${cfg.agentWords ? ` ${cfg.agentWords}` : ''}`));
+      const line = `qwen make it 180 mm wide${cfg.agentWords ? ` ${cfg.agentWords}` : ''}`;
+      const said = text(await typed(`/agent ${line}`, () => ws.agent(line)));
       const m = said.match(/Agent\s+(j[0-9a-f]{6})\s+agent qwen (a[0-9a-f]{8})/);
       if (!m) throw new Error(`no agent started: ${said}`);
       const [, job, run] = m;

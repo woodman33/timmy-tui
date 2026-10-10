@@ -113,6 +113,7 @@ import { OPENHANDS_NO_DOCKER, openHandsSummary, watchOpenHands, writeBackShort }
 import { openHandsLastLine, OpenHandsRuns, type OpenHandsRunState } from './openhands.js';
 import { recoverOpenHands } from './openhands-recover.js';
 import { recoverAgentRuns } from './recover-agents.js'; // R4 (H59): code agent runs an ended REPL left (their run records)
+import { recoverOperations } from '../ops/recover-operations.js'; // R4 (H68): the operations an ended REPL left open, once their runs ended
 // Round R4 (H55): the board's line about Timmy Canvas (src/repl/board-canvas.ts; the REPL checks the canvas).
 import type { BoardCanvas } from './board-canvas.js';
 import { REPL_END_REASON, STOPPED_WITH_STOP, stopReason } from '../utils/stop-words.js';
@@ -1602,6 +1603,8 @@ export class Workspace {
           ...await recoverOpenHands({ root, project, jobs: this.jobs, seal: this.d.seal, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing, bin: agentBin('openhands', this.d.env, this.d.onPath), env: this.d.env })
             .catch((e: unknown) => [{ kind: 'agent' as const, id: 'openhands', did: 'failed' as const, text: `OpenHands containers could not be checked: ${this.scrub(e instanceof Error ? e.message : String(e), root)}` }]),
         ],
+        // R4 (H68): last, the operations whose own process ended first and whose runs have all ended: their records ended
+        operations: () => recoverOperations({ root, jobs: this.jobs, scrub: (t) => this.scrub(t, root), open: () => !this.launches.closing }),
       });
     });
     this.recoveries = run.catch(() => undefined);

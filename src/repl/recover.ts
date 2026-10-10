@@ -56,6 +56,10 @@
  *     is ended too, through the code-agent module's writer: interrupted, when, why and the job, never a result
  *     (src/code-agents/run-end.ts); the flow's record (recovered.agent) and its receipt (a source) name it with its sha256.
  *     A plain /agent run an ended REPL left is the Workspace's other part of the pass (src/repl/recover-agents.ts).
+ *
+ *   the operations (R4, H68; ledger row 162, r20 finding 3)
+ *     Last, each operation whose own process (the REPL or `timmy act` that began it) is proven gone and none of whose runs
+ *     runs or waits on recovery has its record ended as interrupted (src/ops/recover-operations.ts); nothing is sealed for it.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -93,7 +97,7 @@ export const FLOW_QUIET_MS = 10 * 60_000;
 /** How long a stale job record is given to be recorded by a session that is still alive, before it is believed. */
 export const SETTLE_MS = 1500;
 /** R4 (H46): the steps whose job recovery ends or stops: no other part of a pass follows them (a recipe's watcher and an app's run have their own). */
-const ENDS_JOB: ReadonlySet<string> = new Set(['agent', 'readback']);
+export const ENDS_JOB: ReadonlySet<string> = new Set(['agent', 'readback']);
 /** R4 (H46): what a step job's record says once recovery has found its process gone. */
 export const GONE_WORDS = 'its REPL ended; its process is gone';
 /** R4 (H46): how long a group recovery stops is given after SIGTERM, then after SIGKILL (the job manager's own times). */
@@ -155,12 +159,14 @@ export interface RecoverDeps {
   agents?: () => Promise<RecoveryItem[]>;
   /** R4 (H58): /run jobs an ended session left running (src/repl/workflow-recover.ts), asked after the native runs */
   workflows?: () => Promise<RecoveryItem[]>;
+  /** R4 (H68): the operations whose own process ended first and whose runs have all ended, asked last (src/ops/recover-operations.ts) */
+  operations?: () => RecoveryItem[];
 }
 
 /** What one pass did about one operation, or saw and left (did 'left'). */
 export interface RecoveryItem {
-  /** R4 (H58): 'workflow' is a /run job (its id the job's); 'agent': an OpenHands container (R4, H52); 'agent-run': a code agent's run and its record (R4, H59: recover-agents.ts) */
-  kind: 'recipe' | 'flow' | 'native' | 'agent' | 'workflow' | 'agent-run';
+  /** R4 (H58): 'workflow' is a /run job (its id the job's); 'agent': an OpenHands container (R4, H52); 'agent-run': a code agent's run and its record (R4, H59: recover-agents.ts); 'operation': an operation's record (R4, H68: src/ops/recover-operations.ts) */
+  kind: 'recipe' | 'flow' | 'native' | 'agent' | 'workflow' | 'agent-run' | 'operation';
   /** the operation's own ID: a recipe job's UUID, a flow's id, a native run's token */
   id: string;
   /** 'incomplete' (R4-8): a succeeded recipe's copy is in the project but not whole; named with /recipe copy, left as it is */
@@ -617,6 +623,10 @@ export async function recoverProject(d: RecoverDeps): Promise<RecoveryReport> {
   if (d.agents && d.open()) {
     try { done.push(...await d.agents()); } catch (e) { done.push({ kind: 'agent', id: 'openhands', did: 'failed', text: `OpenHands containers could not be checked: ${d.scrub(message(e))}` }); }
   }
+  // R4 (H68): last, once the rest has ended what it could: the operations whose process ended first and whose runs have all ended.
+  if (d.operations && d.open()) {
+    try { done.push(...d.operations()); } catch (e) { done.push({ kind: 'operation', id: 'operations', did: 'failed', text: `the operations could not be checked: ${d.scrub(message(e))}` }); }
+  }
   return { project: d.project, items: [...done, ...s.left] };
 }
 
@@ -983,6 +993,9 @@ function summary(items: RecoveryItem[]): string {
   if (agentRuns.length) parts.push(`${count(agentRuns.length, 'agent run')} left by a REPL that ended ${agentRuns.length === 1 ? 'was' : 'were'} recorded as interrupted: ${agentRuns.map((i) => i.id).join(', ')} (no result written)`);
   const judged = of((i) => i.did === 'judged');
   if (judged.length) parts.push(`${count(judged.length, 'native run')} judged from ${judged.length === 1 ? 'its result file' : 'their result files'}`);
+  // R4 (H68): operations whose process ended first, ended in their records once all their runs had ended.
+  const ops = of((i) => i.kind === 'operation' && i.did === 'interrupted');
+  if (ops.length) parts.push(`${count(ops.length, 'operation')} left open by a Timmy that ended ${ops.length === 1 ? 'was' : 'were'} recorded as interrupted: ${ops.map((i) => i.id).join(', ')} (record${ops.length === 1 ? '' : 's'} ended)`);
   const failed = of((i) => i.did === 'failed');
   if (failed.length) parts.push(`${failed.length} could not be picked up`);
   const incomplete = of((i) => i.did === 'incomplete');

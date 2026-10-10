@@ -71,8 +71,8 @@ function readRecord(root: string, run: string): AgentRunRecord | undefined {
   } catch { return undefined; }
 }
 
-/** The agent runs of the flows that have no record yet: recover.ts's to end with their flows. */
-function flowRuns(root: string): Set<string> {
+/** The agent runs of the flows that have no record yet: recover.ts's to end with their flows (R4, H68: decisions.ts lists those flows). */
+export function flowRuns(root: string): Set<string> {
   const out = new Set<string>();
   let ids: string[] = [];
   try { ids = fs.readdirSync(path.join(root, FLOW_WORK_DIR)).filter((n) => FLOW_ID.test(n)); } catch { return out; }
