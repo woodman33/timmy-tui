@@ -96,6 +96,8 @@ export interface WorkspaceViews {
   ae(args: string): Promise<Segment[][]>;
   /** Round R3: Blender's own Python, headless, as a judged job. */
   blender(args: string): Promise<Segment[][]>;
+  /** Round R4 (helper H28): FreeCAD's freecadcmd, headless, as a judged job; /freecad readback reads its STEP back. */
+  freecad?(args: string): Promise<Segment[][]>;
   /** Round R3: the CadQuery enclosure-tray recipe as a durable job (src/repl/recipe.ts). */
   recipe(args: string): Promise<Segment[][]>;
   mcp(args: string): Promise<Segment[][]>;
@@ -161,6 +163,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'ae', group: 'work', description: 'After Effects: author, edit, inspect, render', run: inWorkspace((w, a) => w.ae(a)) },
   { name: 'blender', group: 'work', description: 'Blender Python as a job: /blender <script.py>', run: inWorkspace((w, a) => w.blender(a)) },
   { name: 'scad', group: 'work', description: 'OpenSCAD to STL, read back: /scad <m.scad>', run: inWorkspace((w, a) => (w.scad ? w.scad(a) : [[{ text: '  /scad is not available here.', role: 'secondary' }]])) },
+  { name: 'freecad', group: 'work', description: 'FreeCAD Python as a job: /freecad <script.py>', run: inWorkspace((w, a) => (w.freecad ? w.freecad(a) : [[{ text: '  FreeCAD is not available here.', role: 'secondary' }]])) },
   { name: 'recipe', group: 'work', description: 'CadQuery tray recipe as a job: /recipe tray', run: inWorkspace((w, a) => w.recipe(a)) },
   { name: 'mcp', group: 'setup', description: 'MCP servers and tools: /mcp [tools|call]', run: inWorkspace((w, a) => w.mcp(a)) },
   // Round R3 (helper H13): a code agent as a durable, cancellable job.

@@ -18,6 +18,9 @@ import { AE_USAGE, aeEndLines, aeReceiptFields, aeScriptJob, aeStartLines, isAeJ
 // Round R4 (helper H27): OpenSCAD as a judged native route, its STL read back by Timmy's own reader.
 import { isScadJobSpec, judgeScadJob, SCAD_USAGE, scadEndLines, scadJob, scadReceiptFields, scadStartLines, type ScadJobSpec } from '../native/openscad.js';
 import { parseScadWords } from '../native/scad-params.js';
+// R4 (H28): FreeCAD through freecadcmd, judged by its result file; /freecad readback (src/repl/freecad.ts).
+import { freecadEndLines, freecadJob, freecadReceiptFields, freecadStartLines, isFreecadJobSpec, judgeFreecadJob, type FreecadJobSpec } from '../native/freecad.js';
+import { FreecadReadbacks, readbackReady, type FreecadTestSeams } from './freecad.js';
 import { mcpView, splitCommandLine } from '../connectors/mcp-cli.js';
 import {
   chooseProject, createProject, groupFiles, humanBytes, listProjectFiles, listProjects, projectId, projectsHome, readProjectFile,
@@ -106,6 +109,8 @@ export interface WorkspaceDeps {
   /** Round R4 (H32): whether this REPL picks up, as it starts, what an ended session left in the project (default
    *  true). The REPL passes false when it is not at a terminal (a pipe), so a one-shot run never adopts a recipe. */
   recoverAtStart?: boolean;
+  /** R4 (/freecad readback), test seams only: a FAKE readback worker. */
+  freecadTest?: FreecadTestSeams;
 }
 
 /** How an observation ended (round R2, look): its file and receipt, or why there is none. */
@@ -239,6 +244,8 @@ export class Workspace {
   private recoveries: Promise<unknown> = Promise.resolve();
   /** Round R4 (H32): the pass this REPL ran as it started; undefined when it ran none (recoverAtStart false). */
   readonly startRecovery: Promise<RecoveryReport | undefined>;
+  /** R4 (H28): the STEP readbacks of FreeCAD runs this REPL follows (/freecad readback). */
+  private readonly freecadReadbacks: FreecadReadbacks;
 
   constructor(private readonly d: WorkspaceDeps, start: ActiveProject) {
     this.project = start;
@@ -252,6 +259,12 @@ export class Workspace {
       // R4 (H26): /iterate blender's Blender run, started and adopted as /blender's (judged and sealed at its end).
       startNative: (spec) => { const job = this.jobs.start(spec); try { noteNativeStarted(spec, job); } catch { /* the record says it was submitted */ } this.adoptNative(job.id, spec); return job; },
       ...(d.iterateTest ? { test: d.iterateTest } : {}),
+    });
+    this.freecadReadbacks = new FreecadReadbacks({
+      glyphs: d.glyphs, env: () => this.d.env, notify: (l) => this.d.notify(l), seal: (input) => this.d.seal(input), jobs: this.jobs,
+      startJob: (spec, o) => { const job = this.jobs.start(spec); this.mine.add(job.id); if (o?.selfSealed) this.selfSealed.add(job.id); return job; },
+      scrub: (t, root) => this.scrub(t, root),
+      ...(d.freecadTest ? { test: d.freecadTest } : {}),
     });
     // Round R4 (H32): once this REPL is set up (a microtask later), what an ended session left in the project is picked
     // up; the notice says what was found and done, and nothing is printed when nothing was found.
@@ -925,6 +938,12 @@ export class Workspace {
       for (const l of scadEndLines(judgeScadJob(job, nat), nat, { id: job.id, label: job.label, glyphs: g, sep: this.sep, scrub: (s) => this.scrub(s, job.root), ...(job.receipt ? { receipt: job.receipt } : {}) })) this.d.notify(l);
       return;
     }
+    if (nat && (job.state === 'completed' || job.state === 'failed') && isFreecadJobSpec(nat)) {
+      // R4 (H28): a FreeCAD run says each file with Timmy's sha256, FreeCAD's own report (DOCTRINE §15) and the readback offer.
+      const o = { id: job.id, label: job.label, glyphs: g, sep: this.sep, scrub: (s: string) => this.scrub(s, job.root), readback: readbackReady(this.d.env, this.d.freecadTest), ...(job.receipt ? { receipt: job.receipt } : {}) };
+      for (const l of freecadEndLines(judgeFreecadJob(job, nat), nat, o)) this.d.notify(l);
+      return;
+    }
     if (nat && (job.state === 'completed' || job.state === 'failed') && isAeJobSpec(nat)) {
       // R4: an After Effects script run says its new version (Timmy's sha256), After Effects' own report and the next step.
       for (const l of aeEndLines(judgeAeJob(job, nat), nat, { id: job.id, label: job.label, glyphs: g, sep: this.sep, scrub: (s) => this.scrub(s, job.root), ...(job.receipt ? { receipt: job.receipt } : {}) })) this.d.notify(l);
@@ -989,7 +1008,10 @@ export class Workspace {
     const error = job.error ? this.scrub(job.error, job.root) : undefined;
     const nat = this.natives.get(job.id);
     const judged = nat && job.state !== 'cancelled'
-      ? (isScadJobSpec(nat) ? scadReceiptFields(judgeScadJob(job, nat), job.root) : isAeJobSpec(nat) ? aeReceiptFields(judgeAeJob(job, nat)) : nativeReceiptFields(nat.native.app, judgeNativeJob(job, nat)))
+      ? (isScadJobSpec(nat) ? scadReceiptFields(judgeScadJob(job, nat), job.root)
+        : isAeJobSpec(nat) ? aeReceiptFields(judgeAeJob(job, nat))
+          : isFreecadJobSpec(nat) ? freecadReceiptFields(judgeFreecadJob(job, nat))
+            : nativeReceiptFields(nat.native.app, judgeNativeJob(job, nat)))
       : undefined;
     if (judged) judged.native.why = this.scrub(judged.native.why, job.root);
     const status = job.state === 'cancelled' ? 'cancelled' as const : judged ? judged.status : job.state === 'completed' ? 'ok' as const : 'failed' as const;
@@ -1168,6 +1190,8 @@ export class Workspace {
     await this.jobs.stopAll();
     await within(Promise.allSettled(pending));
     await this.flows.settle(20_000);
+    // R4 (H28): a stopped readback still writes its record and receipt (no verdict).
+    await this.freecadReadbacks.settle(10_000);
   }
 
   /** The process is exiting at once (a second Ctrl+C): signal this REPL's live jobs without waiting. */
@@ -1217,6 +1241,16 @@ export class Workspace {
     const w = splitCommandLine(args.trim());
     if (!w.length) return this.say('Usage: /blender <script.py> [args]   (Blender Python, headless, as a job: an editable .blend and a render)');
     return this.startNative(() => blenderJob({ script: w[0], args: w.slice(1), root: this.root, project: this.project.name }), `Blender runs ${w[0]}`);
+  }
+
+  /** R4 (H28): /freecad <script.py> [args]: FreeCAD's freecadcmd, headless, as a judged job; /freecad readback reads its STEP back. */
+  async freecad(args: string): Promise<Line[]> {
+    const w = splitCommandLine(args.trim());
+    if (!w.length) return this.freecadReadbacks.usage({ root: this.root });
+    if (w[0] === 'readback') return this.freecadReadbacks.start(w.slice(1), { root: this.root, project: this.project.name });
+    const made: { spec?: FreecadJobSpec } = {};
+    const lines = this.startNative(() => (made.spec = freecadJob({ script: w[0], args: w.slice(1), root: this.root, project: this.project.name, findEnv: this.d.env })), `FreeCAD runs ${w[0]}`);
+    return made.spec ? [...freecadStartLines(made.spec, this.sep), ...lines] : lines;
   }
 
   /** /ae <project.aep> <comp> <output>: After Effects renders an existing project's comp (aerender), as a job.

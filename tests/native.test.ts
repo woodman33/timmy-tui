@@ -282,6 +282,8 @@ describe('the /tools rows', () => {
       ['afterfx', 'adapter', 'After Effects (scripting)', 'needs setup'],
       // R4 (H27): OpenSCAD is found by TIMMY_OPENSCAD or on PATH only, never by this scan.
       ['openscad', 'adapter', 'OpenSCAD (command line)', 'needs setup'],
+      // R4 (H28): no FreeCAD.app in this folder either.
+      ['freecad', 'adapter', 'FreeCAD (freecadcmd, headless)', 'needs setup'],
     ]);
     expect(rows[2].detail).toMatch(/Blender\.app/);
     expect(rows[0].detail).toMatch(/Maxon Cinema 4D 2026/);

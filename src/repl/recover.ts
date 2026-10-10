@@ -46,6 +46,7 @@ import { diffText, FLOW_ID, FLOW_SCHEMA, FLOW_WORK_DIR, flowRecordPath, flowWork
 import { listNativeRuns, readNativeRecord, reconcileNative, type NativeApp } from '../native/index.js';
 import { reconcileAe } from '../native/ae-author.js';
 import { reconcileScad } from '../native/openscad.js';
+import { reconcileFreecad } from '../native/freecad.js';
 import { projectId } from '../project/index.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
@@ -64,7 +65,7 @@ export const SETTLE_MS = 1500;
 const WATCH_ENTRY = /[\\/]recipes[\\/]watch\.(?:ts|js)$/;
 const JOB_ID = /^j[0-9a-f]{6}$/;
 const STEPS: ReadonlySet<string> = new Set<FlowStep>(['prepare', 'agent', 'checks', 'build', 'readback', 'record']);
-const APP_WORDS: Record<NativeApp, string> = { c4dpy: 'Cinema 4D', aerender: 'After Effects render', blender: 'Blender', afterfx: 'After Effects script', openscad: 'OpenSCAD' };
+const APP_WORDS: Record<NativeApp, string> = { c4dpy: 'Cinema 4D', aerender: 'After Effects render', blender: 'Blender', afterfx: 'After Effects script', openscad: 'OpenSCAD', freecad: 'FreeCAD' };
 /** A recipe job's state now, as a flow's record says it (lanes/recipes/jobs.ts states, and unreadable). */
 const RECIPE_NOW: Record<string, string> = { running: 'still runs', succeeded: 'has succeeded', failed: 'has failed', cancelled: 'was cancelled', interrupted: 'was interrupted', queued: 'is queued', unreadable: 'could not be read' };
 
@@ -527,9 +528,10 @@ function actNative(d: RecoverDeps, p: Extract<Plan, { kind: 'native' }>): Recove
   const job = p.job ? d.jobs.get(p.job.id) ?? p.job : undefined;
   if (job && (phase(job) === 'live' || phase(job) === 'pending')) return undefined;
   try {
-    // R4 merge: each app's own re-judgement (After Effects scripts and OpenSCAD runs have their own).
+    // R4 merge: each app's own re-judgement (After Effects scripts, OpenSCAD and FreeCAD runs have their own).
     const j = p.app === 'afterfx' ? reconcileAe(d.root, p.run, job ? { job } : {})
       : p.app === 'openscad' ? reconcileScad(d.root, p.run, job ? { job } : {})
+      : p.app === 'freecad' ? reconcileFreecad(d.root, p.run, job ? { job } : {})
         : reconcileNative(d.root, p.run, job ? { job } : {});
     return { kind: 'native', id: p.run, did: 'judged', outcome: j.outcome, ...(job ? { job: job.id } : {}), text: `${name}${job ? ` (job ${job.id})` : ''} judged ${j.outcome} from its result file: ${d.scrub(j.why)}` };
   } catch (e) {
