@@ -76,6 +76,8 @@ export class CanvasProject {
   private listening = false;
   private asking?: AbortController;
   private grant: { code: string; at: number } | null = null;
+  /** R4 (H75): the canvas did not know the holder field (a Timmy Canvas from before card actions) */
+  private older = false;
   /** R4 (H75): what the last ask for actions ended with (for /canvas and the tests) */
   private heard: 'not asked' | 'listening' | 'stopped: another REPL holds the project' | 'stopped: the canvas names no project now' | 'stopped: the canvas did not answer' | 'stopped: the REPL is ending' = 'not asked';
 
@@ -108,18 +110,30 @@ export class CanvasProject {
     if (!token) return { ok: false, why: 'this canvas keeps no token for this REPL (an older Timmy Canvas, or one of another Timmy home): restart it with timmy studio, or let /canvas start one here' };
     const p = this.d.project();
     let res: Response;
-    try {
-      res = await this.http(`${this.base()}/api/project/active`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ root: p.root, name: p.name, jobs: this.d.jobsDir, receipts: this.d.receipts(), board: this.d.board(), ...(this.d.act ? { holder: this.holder } : {}) }),
-        signal: AbortSignal.timeout(SHORT_MS),
-      });
-    } catch {
-      return { ok: false, why: `Timmy Canvas did not answer at ${this.base()}/` };
-    }
     let body: { ok?: unknown; error?: unknown; project?: { name?: unknown; id?: unknown }; board?: unknown } = {};
-    try { body = await res.json() as typeof body; } catch { /* not JSON: an older canvas, or another program */ }
+    // R4 (H75): this REPL names itself as the project's holder, unless the canvas is older and does not know the field.
+    let holder = !!this.d.act && !this.older;
+    for (;;) {
+      try {
+        res = await this.http(`${this.base()}/api/project/active`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ root: p.root, name: p.name, jobs: this.d.jobsDir, receipts: this.d.receipts(), board: this.d.board(), ...(holder ? { holder: this.holder } : {}) }),
+          signal: AbortSignal.timeout(SHORT_MS),
+        });
+      } catch {
+        return { ok: false, why: `Timmy Canvas did not answer at ${this.base()}/` };
+      }
+      body = {};
+      try { body = await res.json() as typeof body; } catch { /* not JSON: an older canvas, or another program */ }
+      // A Timmy Canvas from before R4 (H75) refuses the field it does not know: named again without it, it takes no card actions.
+      if (holder && res.status === 400 && typeof body.error === 'string' && /^Unknown field: "holder"\. The fields are root, name, jobs, receipts and board\.$/.test(body.error)) {
+        this.older = true;
+        holder = false;
+        continue;
+      }
+      break;
+    }
     if (res.status === 404 && body.ok === undefined) return { ok: false, why: 'this Timmy Canvas is older and cannot show projects: restart it' };
     if (!res.ok || body.ok !== true || typeof body.project?.id !== 'string' || typeof body.project?.name !== 'string') {
       return { ok: false, why: `the canvas refused it: ${typeof body.error === 'string' ? body.error : `HTTP ${res.status}`}` };
@@ -127,7 +141,7 @@ export class CanvasProject {
     this.named = body.project.id;
     this.seen = { state: 'running', project: { name: body.project.name, id: body.project.id }, pageConnected: this.seen.state === 'running' ? this.seen.pageConnected : false, board: body.board === true };
     // R4 (H75): this REPL takes the project's card actions, and /canvas open's page gets its grant.
-    if (this.d.act) void this.listen();
+    if (holder) void this.listen();
     if (o.grant) await this.askGrant(token);
     return { ok: true, name: body.project.name };
   }

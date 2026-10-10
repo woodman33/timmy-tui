@@ -350,6 +350,34 @@ describe("Timmy Canvas's card actions: carried to the REPL that holds the projec
   }, 30_000);
 });
 
+describe('a REPL and an older Timmy Canvas (from before card actions)', () => {
+  it('names its project there without the holder field, and takes no actions from it', async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    // FAKE older canvas: answers the handoff as H55's server does, refusing a field it does not know.
+    const older = (async (url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+      sent.push(body);
+      const reply = 'holder' in body
+        ? { status: 400, json: { ok: false, error: 'Unknown field: "holder". The fields are root, name, jobs, receipts and board.' } }
+        : { status: 200, json: { ok: true, project: { name: 'demo', id: 'abcdef0123456789' }, board: false } };
+      expect(String(url)).toMatch(/\/api\/project\/active$/);
+      return new Response(JSON.stringify(reply.json), { status: reply.status, headers: { 'Content-Type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    const root = temp('card-relay-older-');
+    const cp = new CanvasProject({
+      base: () => 'http://127.0.0.1:4999', env: {}, project: () => ({ root, name: 'demo' }), projectId, jobsDir: root, receipts: () => root, board: () => null,
+      ownToken: () => 'e'.repeat(64), fetch: older, act: async () => ({ status: 200, text: 'never called' }),
+    });
+    closers.push(() => cp.stop());
+    expect(await cp.handOff()).toEqual({ ok: true, name: 'demo' });
+    expect(sent.map((b) => 'holder' in b)).toEqual([true, false]);
+    expect(cp.actions).toBe('not asked');
+    // Once known, the field is not sent to it again.
+    expect(await cp.handOff()).toEqual({ ok: true, name: 'demo' });
+    expect(sent.map((b) => 'holder' in b)).toEqual([true, false, false]);
+  });
+});
+
 describe('the relay itself: what a page is told when no REPL takes its action, or none answers', () => {
   const H = 'a'.repeat(32);
   const env = (id = '11111111-2222-4333-8444-555555555555') => ({ id, project: 'p', card: 'workflow:RUN.md', act: { action: 'run', doc: 'RUN.md', block: 'build' } });
