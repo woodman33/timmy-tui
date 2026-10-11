@@ -1,11 +1,19 @@
 # God's Eye View: the project overview
 
-Round R4, helper H78, branch `r4/gods-eye`. **Status of this slice: implemented and tested** in the development
+Round R4, helper H78, branch `r4/gods-eye`. **Status of the first slice: implemented and tested** in the development
 container (Linux, Node 24, a real headless Chromium), with the existing readers and real record writers in temporary
 projects. **Since r23 (CHECKPOINTS row 171, scripted, at `b234164`) its terminal and board views are demonstrated on the operator's
-Mac**; the canvas view and the owner's extension (below) are not built. The words below keep four states
-apart: *planned* (written down, no code), *implemented* (code exists), *tested* (a test exercised it here and passed),
-*demonstrated* (it ran for real on the Mac and a row of [CHECKPOINTS.md](CHECKPOINTS.md) records it).
+Mac**; the canvas view is not built.
+
+**Slice 2** (round R4, helper H93, branch `r4/gods-eye-2`) adds the owner's extension: Devices, Hosting, provider Costs,
+the new kinds in Needs you, the dependency lines, and items that open in place on the board. **Status: implemented and
+tested in the development container; not run on the Mac.** It was tested with real Connect records written by the FAKE
+OpenSSH kit (labelled), a real Timmy Cloud backend process whose provider is the SIMULATED one, the real CLI keeping its
+answer, and a real headless Chromium. What remains is in the table under "The owner's extension".
+
+The words below keep four states apart: *planned* (written down, no code), *implemented* (code exists), *tested* (a test
+exercised it here and passed), *demonstrated* (it ran for real on the Mac and a row of [CHECKPOINTS.md](CHECKPOINTS.md)
+records it).
 
 ## The owner's definition
 
@@ -82,11 +90,17 @@ Control Room beside it and `/overview` show the same records at the same moment.
 | Lessons | Timmy Memory's records | `readBoardMemory` (`src/memory/board.ts`) | Memory, overview (needs, history) |
 | Receipts | the runs chain of the receipts store | `readRunsChain` (`src/studio/project-cards.ts`), `verifyReceiptIn` (`src/utils/receipts.ts`) | `timmy verify`, every card's check, overview (history) |
 | Process proofs | the live process table | `writerState` (`src/ops/process-proof.ts`), `starterGone` (`src/room/left-runs.ts`) | recovery, Waiting on you, Control Room, overview (every "running") |
+| Computers (Timmy Connect; slice 2) | `<TIMMY_HOME>/connect/devices.json` | `readConnect` (`src/connect/read.ts`); a probe's further facts from the same record (`readConnectFor`, `src/overview/sources.ts`) | `/connect`, overview (devices, needs, map) |
+| Remote jobs (Timmy Connect; slice 2) | `<TIMMY_HOME>/jobs/r<8 hex>.json` | `readConnect` | `/connect jobs`, `/connect status`, overview (devices, needs, map) |
+| Timmy Cloud's backend, as its client last read it (slice 2) | `<TIMMY_HOME>/cloud/overview.json` (0600), for the backend named in `cloud/config.json` | `readConfig`, `readCache` (`src/cloud/store.ts`), `parseOverview`, `parseOrders` (`src/cloud/answer.ts`) | `timmy cloud status`, `/cloud`, overview (hosting, costs, needs, map) |
 
-## What this slice adds (implemented and tested)
+The last three are this computer's Timmy home's (`TIMMY_HOME`, or `~/timmy`), not the project's: the same for every
+project, and the sections that show them say so.
 
-- **One model**, `buildOverview(projectRoot, opts)` (`src/overview/build.ts:40`), typed in `src/overview/model.ts`
-  (`timmy.overview/1`): sections `needs`, `agents`, `workflows`, `apps`, `spatial`, `history`, `project`, and `map`. Each
+## What the first slice adds (implemented and tested; demonstrated, row 171)
+
+- **One model**, `buildOverview(projectRoot, opts)` (`src/overview/build.ts:49`), typed in `src/overview/model.ts`
+  (`timmy.overview/1`; `timmy.overview/2` since slice 2): sections `needs`, `agents`, `workflows`, `apps`, `spatial`, `history`, `project`, and `map`. Each
   section has `as_of`, `state` (read, partial or unknown, with `why`), counts that say what they count, its most urgent
   item, and the records of its kind that could not be read. Each item has a `source`: its record (relative to the
   project, or null) and the command that opens it (`/op <id>`, `/jobs <id>`, `/room <id>`, `/decisions`, `/workflows <doc>`,
@@ -114,6 +128,82 @@ Control Room beside it and `/overview` show the same records at the same moment.
   (405 otherwise), as `/state`. It is the route Timmy Canvas can use later. The live page does not redraw for the
   overview's own times (`overviewShape` leaves `as_of` out of the page's shape).
 
+## What slice 2 adds (implemented and tested; not run on the Mac)
+
+- **The model is `timmy.overview/2`** (`src/overview/model.ts:27`), with three new sections: `devices`, `hosting` and
+  `costs`. The order is needs, devices, hosting, agents, workflows, apps, spatial, history, costs, project, map. An item's
+  `source` may also name `home` (its record in this computer's Timmy home) and `detail` (the board element that shows it in
+  full). Words that change as the clock moves ("12 min ago") are only in `ago` fields.
+- **Devices** (`devicesSection`, `src/overview/remote.ts:183`) reads Timmy Connect through `readConnect`, so its words are
+  the ones every Connect surface says. Its scope is this computer's Timmy home, not the project, and the section says so.
+  For each computer:
+  - how it is reached: `user@address:port` over SSH; a tailnet only as its record's address shows it (a `*.ts.net` name,
+    or an address in Tailscale's ranges), with "Tailscale was not asked";
+  - its last probe and when: "answered its last probe, <time> (when it was true, not now)", or "did not connect at its
+    last probe, <time>: <outcome>"; never "online now";
+  - its system and shell; the architecture, OS version and login shell only from a probe that connected;
+  - what was found on its PATH, "not proven supported or working";
+  - its host key: confirmed, fetched and not confirmed, changed, or none fetched;
+  - its remote jobs, in Connect's own states: running only as its status file said when it was read (with that time),
+    unknown, stop asked and not confirmed, ended, stopped.
+- **Hosting** (`hostingSection`, `remote.ts:307`) reads Timmy Cloud's client's kept answer (`cloud/overview.json`). It reads
+  it synchronously; the overview never calls the network.
+  - Each site, domain and VPS is shown with its eight steps (quote, approval, payment, acceptance, provisioning, DNS,
+    certificate, health), each with its own state, time and words.
+  - "simulated" is said on every item from a simulated provider.
+  - The answer's read time is shown. After an hour the answer is said to be old, with `timmy cloud status` to read it
+    again.
+  - With no backend named, Hosting says "not set up", with `timmy cloud use <url> --token-file <file>`.
+  - A kept answer that cannot be read, or one from another backend, is unknown, with why.
+- **Costs** (`costsSection`, `remote.ts:377`) puts the model spend (the Control Room's sums, as in the first slice) beside
+  the provider spend per customer:
+  - approved and paid this month (UTC), against the customer's limits;
+  - the limits in words ("no automatic approval (a threshold of 0: every purchase waits for the operator)");
+  - orders of unknown cost counted, never summed as 0;
+  - with no answer, "not set up" or "not known", with why.
+- **Needs you** gains new kinds (`remoteNeeds`, `mergeNeeds`, `remote.ts:493` and `:527`).
+  - From Timmy Connect:
+    - a host key fetched and not confirmed;
+    - a host key changed;
+    - a computer whose last probe did not connect, with how long ago;
+    - a remote job that is unknown, or whose stop is not confirmed.
+  - From the backend's answer:
+    - an approval, with its quote;
+    - a purchase whose outcome is unknown;
+    - a cancel asked, with "the provider operation was NOT cancelled";
+    - a failed step;
+    - an export, with its retention date;
+    - a domain decision, with the date its registration ends;
+    - a deletion awaiting approval;
+    - the backend's other kinds.
+
+  Each item says where it comes from and since when, and names the command or route that settles it. They are placed
+  among the project's own items by urgency. An item that blocks a request stays first, and the list is still bounded at 8
+  with the rest counted.
+- **Dependency lines** (`dependencyColumns`, `remote.ts:544`) are a second band on the map, "Remote jobs and orders" →
+  "What they depend on": a remote job → its computer, as its record names it; an order waiting on a person → a decision
+  (its step). Each line says why. The map is still labelled "layout, not geometry".
+- **Views**
+  - **Terminal:** `/overview devices`, `/overview hosting`, `/overview costs` (also `spend`), `--all` and `--json`
+    (`src/repl/overview.ts`). The first screen keeps within 80 columns, with Devices, Hosting and Costs one line each.
+  - **The board's Overview** has Devices, Hosting and Costs cards (`src/repl/board-overview.ts`: `devicesHtml` :91,
+    `hostingHtml` :117, `costsHtml` :134). Selecting a computer, a remote job or an order opens its detail in place: its
+    record, when it was last read, its words and its commands to copy. A Needs you item links to the detail it names and
+    opens it.
+  - **The live board** keeps a detail open across redraws, and does not redraw for times alone (`overviewShape` leaves
+    out `as_of` and the `ago` words). Its `GET /overview` serves the model with the board's token, as before.
+- **Actions stay typed commands.** These contact a computer or the backend, so the views show each command or route to
+  copy and say so; none of them is a button in this slice:
+  - probing, reading a job's status, stopping, fetching (`/connect probe|status|stop|fetch`);
+  - approving, reconciling, resolving, deciding (the backend's operator routes).
+- **Timmy Cloud's client** (`src/cloud`; [TIMMY-CLOUD.md](TIMMY-CLOUD.md), "Timmy Cloud's client"): `timmy cloud use`,
+  `timmy cloud status [--json]`, `/cloud`, and the backend's new read-only `GET /v1/operator/orders`.
+- **Tests**:
+  - `tests/overview-remote.test.ts` (15): real Connect records, a real backend process and the CLI keeping its answer;
+    the 80-column first screen; the JSON; unknown, unreadable and old sources; token absence; one item said the same in
+    `/overview`, the board and the JSON; the live board in headless Chromium.
+  - `tests/cloud-client-backend.test.ts` (7).
+
 ## How it stays honest, and where
 
 - **Running is proven, never read off a record.** A job is `running` only when its process runs and the Timmy that
@@ -135,6 +225,9 @@ Control Room beside it and `/overview` show the same records at the same moment.
   as geometry, labelled with its record.
 - **It acts on nothing.** It runs, stops, writes and seals nothing, and starts no process or watcher; its commands are
   for a person to type, and the board's controls stay in the sections that own them.
+- **Computers, remote jobs and the backend are as last read (slice 2).** A probe's time is when it was true; a remote job
+  is running only as its status file said when it was read; the backend's answer carries its read time and is called old
+  after an hour. Building the overview contacts no computer and no backend.
 
 ## Each part of the definition: what exists, what is partial, what remains
 
@@ -156,7 +249,7 @@ through `timmy act`, the live board's first section, `GET /overview`, a lesson l
 | Reuse shared state and controls, no disconnected dashboard | The overview reads through the existing readers and has no controls of its own: it links to the sections and commands that act | | |
 | Record what exists, is partial and remains | This document | | Keep it current with each Mac run |
 
-## The owner's extension (2026-10-10 19:38 and 21:12 PT): planned, not built
+## The owner's extension (2026-10-10 19:38 and 21:12 PT): slice 2 built, what remains
 
 > Include God's Eye View: a useful overview of devices, agents, jobs, sites, VPS resources, dependencies, costs and items
 > needing attention. Selecting an item should open its actual controls, results and history.
@@ -164,18 +257,19 @@ through `timmy act`, the live board's first section, `GET /overview`, a lesson l
 > Extend the God's Eye View already implemented. Keep its first slice and outstanding requirements visible.
 
 These come with the new workstreams (Timmy Connect: the operator's computers over Tailscale or SSH, native Windows through
-Microsoft OpenSSH; Timmy Cloud: hosting for Timmy Pro through Hostinger). Each part reads the records those workstreams will
-keep, through the same readers, as the first slice does.
+Microsoft OpenSSH; Timmy Cloud: hosting for Timmy Pro through Hostinger). Each part reads the records those workstreams
+keep, through their own readers, as the first slice does. Slice 2 (above) built the parts below as **implemented and
+tested here, not run on the Mac**; Hosting and provider costs were tested only against the **simulated** provider.
 
-| Part | Exists | Remains |
+| Part | Now | Remains |
 |---|---|---|
-| Devices: each computer, how it is reached (the tailnet or SSH), whether it answers now, when it was last seen, its operating system, architecture and runtimes, its jobs | – | the device records and probes (Timmy Connect), then a section |
-| Agents and jobs | ✓ the first slice (row 171) | jobs on other computers, with their device |
-| Sites, domains and VPS resources: each with its state in steps (ordered, paid, provisioned, DNS ready, healthy), never one word for all | – | the provisioning records (Timmy Cloud), then a section |
-| Dependencies: which job, site or resource needs which device, resource or decision | partial: a workflow's own blocks and needs (the first slice) | across devices and resources |
-| Costs: model spend (the first slice), and provider spend, renewals and limits, each a reported number, unknown or absent | partial: model spend | provider costs, renewals and spending limits |
-| Items needing attention: decisions, setup, and later a payment that failed, a renewal due, a device asleep, a provisioning step waiting on a person | partial: Needs you (the first slice) | the new kinds |
-| Selecting an item opens its actual controls, results and history | partial: each item names the command or board section that opens it | open it in place, on the board and in Timmy Canvas |
+| Devices: each computer, how it is reached (the tailnet or SSH), whether it answers now, when it was last seen, its operating system, architecture and runtimes, its jobs | **Implemented and tested (slice 2).** Shown for each computer: how it is reached (a tailnet only as its record's address shows it), its last probe and when, its OS, architecture and shell, what was found on its PATH, its host key, and its remote jobs | "Whether it answers now" stays a probe a person runs (`/connect probe`): the overview says when the last probe answered, never "online now". Runtimes are only "found on PATH", never proven working. Not yet run on the Mac with real computers |
+| Agents and jobs | ✓ the first slice (row 171). **Remote jobs with their computer (slice 2, tested)** | the Mac run with a real remote job |
+| Sites, domains and VPS resources: each with its state in steps (ordered, paid, provisioned, DNS ready, healthy), never one word for all | **Implemented and tested against the simulated provider (slice 2):** each order with its eight steps (quote, approval, payment, acceptance, provisioning, DNS, certificate, health), each its own state; "simulated" on every item; the answer's age | a real provider adapter and its approval ([TIMMY-CLOUD.md](TIMMY-CLOUD.md), "Live steps"); the Mac run |
+| Dependencies: which job, site or resource needs which device, resource or decision | a workflow's own blocks and needs (the first slice). **A remote job → its computer; an order's step → a person's decision (slice 2, tested)** | a site or resource that needs a computer, and a job that needs another job across computers: no record names either yet |
+| Costs: model spend (the first slice), and provider spend, renewals and limits, each a reported number, unknown or absent | model spend (the first slice). **Provider spend per customer, approved and paid this month against its limits in words, with unknown cost counted (slice 2, tested, simulated)** | renewals: no record names a renewal price or date yet, apart from a domain's end date in its decision; real provider spend |
+| Items needing attention: decisions, setup, and later a payment that failed, a renewal due, a device asleep, a provisioning step waiting on a person | Needs you (the first slice). **Slice 2, tested:** host keys to confirm or changed, a computer whose last probe did not connect, a remote job unknown or with its stop unconfirmed, and the backend's items (approval, unknown outcome, cancel asked, failed step, export, domain decision, deletion approval and its other kinds) | "a renewal due" as its own kind. A failed payment shows as the backend's failed step, not as a kind of its own. "Asleep" is never said: only that the last probe did not connect |
+| Selecting an item opens its actual controls, results and history | each item names the command or board section that opens it (the first slice). **On the board, each computer, remote job and order opens its detail in place (slice 2, tested in Chromium):** its record, when it was last read, its words, its commands | **The actions as controls:** probing, stopping, approving and resolving stay typed commands, shown to copy, in this slice. Timmy Canvas |
 
 ## What Timmy Canvas still needs
 
@@ -216,6 +310,31 @@ In a fresh sandbox user with the installed package, as rows 158, 162 and 163; no
 8. Make a record unreadable (a copy of an operation record with a wrong schema): the overview names it with its reason.
 9. `timmy act '/overview --json' --json`: exit 0, the model in its `lines`; no absolute path or home folder in it.
 
+**Slice 2 (r24)**, in the same kind of sandbox user, with the packed install; the backend and its provider simulated
+(nothing real bought); a real computer over SSH only as [TIMMY-CONNECT.md](TIMMY-CONNECT.md) plans it.
+
+1. `/overview` with nothing set up: Devices "no computers yet (/connect add)", Hosting "not set up" with
+   `timmy cloud use <url> --token-file <file>`, Costs "provider not set up"; the first screen within 80 columns.
+2. `timmy cloud use` refuses a token file at 0644 (the words name its mode and `chmod 600`), a symbolic link and
+   `http://` to another host, writing nothing; it takes a 0600 file and prints no token.
+3. Start the simulated backend by hand as [TIMMY-CLOUD.md](TIMMY-CLOUD.md) says, make an order that waits for approval,
+   then `timmy cloud status` and `/cloud`: the answer kept in `~/timmy/cloud/overview.json` at 0600; `/overview hosting`
+   shows the order's eight steps, each its own state, and "simulated"; Needs you shows the approval with its quote and its
+   route; `/overview costs` shows the customer's limits in words.
+4. Stop the backend, run `timmy cloud status` again: exit 1, "nothing answered", the earlier answer kept. Move the clock
+   past an hour, or wait: Hosting says the answer is old, with `timmy cloud status`.
+5. `/connect add` a real computer and `/connect scan` it, without confirming: Needs you shows "a host key fetched, not
+   confirmed". Then `/connect trust` and `/connect probe`: Devices says "answered its last probe, <time> (when it was true,
+   not now)", its system and what was found on its PATH. Turn the computer off and probe again: "did not connect at its
+   last probe", with how long ago, in Needs you.
+6. `/connect run` a long job: Devices lists it under its computer as running only as its status file said, with the
+   time; `/connect stop` it with the computer unreachable: "stop asked, not confirmed" in Needs you; the map draws the job
+   → computer line.
+7. On `/board live` in a fresh browser profile: the Overview's Devices, Hosting and Costs cards; select a computer, a
+   remote job and an order (each opens its detail in place); a Needs you link opens the detail it names; a command copies;
+   no button contacts a computer or the backend; `GET /overview` answers 401 without the token.
+8. Search every file and output of the run for the operator's token: only its own file holds it.
+
 ## Open
 
 - Demonstrated, scripted, on the Mac at `b234164` (row 171); r23c (row 173) did not run it again.
@@ -224,3 +343,15 @@ In a fresh sandbox user with the installed package, as rows 158, 162 and 163; no
 - The canvas view (above) is not built.
 - Settled (row 169, H73; row 170, H82): a chat turn whose receipt records no cost is counted unknown in the Control Room and
   here alike, and a chat turn that failed with no cost report is sealed unknown, never a measured $0.
+- **Slice 2: not run on the Mac.** Its Hosting and provider costs were tested only against the simulated provider, and its
+  Devices only with the FAKE OpenSSH kit (r24's real-OpenSSH test is Timmy Connect's).
+- **Slice 2: actions stay typed commands.** On the board, a computer's, job's or order's detail shows its commands and
+  routes to copy, with no button. Making them controls needs the board to contact computers and the backend, which is a
+  decision.
+- **Slice 2: the board's Needs you card** shows its first 4 items with the rest counted, as in the first slice; the full
+  list is `/overview needs`. The new kinds are placed by urgency among the project's own items, so a host key changed
+  comes before a lesson to check.
+- **Slice 2: the backend's `GET /v1/operator/orders`** stamps `generated_at` with the server's clock (`new Date()`), not
+  the engine's own clock, which tests can move.
+- **Slice 2: a probe's architecture, OS version and login shell** come from the device record next to `readConnect`'s
+  view (that view leaves them out). They are taken only when the record's probe is the one the view shows.
