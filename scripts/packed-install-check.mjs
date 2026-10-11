@@ -28,10 +28,11 @@
 //    where Slate 3D would be it answers in words; the log companion answers its pages (/, /chat, /mission, /browser: 200),
 //    /health, and /receipts (401 without its token, 200 with). No answer of either shows a path of the installed package or
 //    a stack. (r23: the companion's GET / was a 404 with ENOENT and the install path; GET /chat crashed `timmy logs`.)
-//    R4 (H92): and every file the companion's page needs answers from the installed package (its own scripts and style
-//    sheet, COMPANION_RUNTIME_FILES of the installed module; Timmy's look; marked from the installed dependency), and the
-//    page is served under its strict Content-Security-Policy (scripts from itself only, no inline script, requests to
-//    itself and its own WebSocket only, never framed).
+//    R4 (H92): and every file the companion's page needs answers from the installed package (its own script and style
+//    sheet, COMPANION_RUNTIME_FILES of the installed module), and the page is served under its strict
+//    Content-Security-Policy (scripts from itself only, no inline script, requests to itself and its own WebSocket only,
+//    never framed). R4 (H97): the files of H92's page that H95's replaced (chat.js, markdown.js, /timmy-theme.css,
+//    /fonts/<name>, /vendor/marked.esm.js) answer 404 from the installed package: no longer shipped or served.
 //    R4 (H95): and the companion's built web code (dist/companion-web: its chat island and chunks, Streamdown's styles, the
 //    page's three fonts) from the installed package, each with its type; the page's policy (scripts from itself only,
 //    inline styles for Mermaid alone, images from itself and data:); every log companion page's policy (scripts by the
@@ -288,10 +289,13 @@ if (pkg) {
     out.companion.files = {};
     // R4 (H95): and the companion's built web code at /web/ (the chat island, Streamdown's styles, the page's fonts)
     const WEB = ['/web/island/companion-chat.js', '/web/island/logs-chat.js', '/web/styles/tailwind.css', '/web/styles/streamdown.css', '/web/fonts/outfit-latin-wght-normal.woff2', '/web/fonts/inter-latin-wght-normal.woff2', '/web/fonts/fira-code-latin-wght-normal.woff2'];
-    for (const f of [...COMPANION_RUNTIME_FILES.map((p) => '/' + p.split('/').pop()).filter((p) => p !== '/index.html'), '/timmy-theme.css', '/vendor/marked.esm.js', ...WEB]) {
+    for (const f of [...COMPANION_RUNTIME_FILES.map((p) => '/' + p.split('/').pop()).filter((p) => p !== '/index.html'), ...WEB]) {
       const a = await ask(cb, f, false);
       out.companion.files[f] = { status: a.status, type: a.type.split(';')[0] };
     }
+    // R4 (H97): what H92's page had and H95's replaced: no longer served
+    out.companion.gone = {};
+    for (const f of ['/chat.js', '/markdown.js', '/timmy-theme.css', '/fonts/monaspace-argon-latin-400-normal.woff2', '/vendor/marked.esm.js']) out.companion.gone[f] = (await ask(cb, f, false)).status;
     out.companion.authWithout = (await ask(cb, '/api/auth', false)).status;
     out.companion.authWith = (await ask(cb, '/api/auth', true)).status;
     out.companion.slate3d = await ask(cb, '/slate3d/?board=ledger', false);
@@ -322,7 +326,10 @@ if (pkg) {
     const files = Object.entries(c.files ?? {});
     const typed = (f, t) => (f.endsWith('.css') ? t === 'text/css' : f.endsWith('.woff2') ? t === 'font/woff2' : /^(text|application)\/javascript$/.test(t));
     const wrongFiles = files.filter(([f, a]) => a.status !== 200 || !typed(f, a.type));
-    check('pages', 'companion page files', files.length >= 13 && wrongFiles.length === 0, wrongFiles.length ? `not served: ${wrongFiles.map(([f, a]) => `${f} ${a.status} ${a.type}`).join(', ')}` : `${files.length} files, each 200 with its type: ${files.map(([f]) => f).join(', ')}`);
+    check('pages', 'companion page files', files.length >= 9 && wrongFiles.length === 0, wrongFiles.length ? `not served: ${wrongFiles.map(([f, a]) => `${f} ${a.status} ${a.type}`).join(', ')}` : `${files.length} files, each 200 with its type: ${files.map(([f]) => f).join(', ')}`);
+    // R4 (H97): the superseded files of H92's page, each 404
+    const gone = Object.entries(c.gone ?? {});
+    check('pages', 'companion superseded files gone', gone.length === 5 && gone.every(([, st]) => st === 404), gone.map(([f, st]) => `${f} ${st}`).join(', ') || 'not asked');
     const policy = new Map(String(c.page.csp ?? '').split(';').map((d) => d.trim()).filter(Boolean).map((d) => { const [k, ...v] = d.split(/\s+/); return [k, v.join(' ')]; }));
     // R4 (H95): scripts from itself only; inline styles for Mermaid alone; images from itself and data: (src/companion/page.ts)
     const strict = strictPolicy(c.page.csp, c.port);
