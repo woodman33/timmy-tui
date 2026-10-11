@@ -168,7 +168,10 @@ export interface RetentionItem {
   opened_at: string;
   /** The retention date: nothing is deleted before it, and nothing after it either without a deletion a person approves. */
   until: string;
-  /** A domain's registration end: a person decides before then; the backend never lets a domain lapse silently. */
+  /**
+   * A domain's registration end. The item stays listed until a person decides; the backend neither renews the domain nor
+   * stops it lapsing (renewing or transferring it is a step a person carries out at the provider).
+   */
   expires_at: string | null;
   decision: { decision: RetentionDecision; at: string; note: string } | null;
   closed: { at: string; words: string } | null;

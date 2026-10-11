@@ -11,7 +11,8 @@
  * found, so it is never applied). Any other line that does not parse as an event is reported the same way and skipped:
  * the state is rebuilt from the events that can be read, and the overview names the lines that could not.
  */
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { closeSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CloudEvent } from './types.js';
 import { isCloudEvent } from './reducer.js';
@@ -25,6 +26,7 @@ export interface LogContents {
 }
 
 export const EVENTS_FILE = 'events.jsonl';
+/** The lock's files: `backend.lock.<n>` (n from 1); `backend.lock` alone is an older backend's (r4/cloud-1) and counts as 0. */
 export const LOCK_FILE = 'backend.lock';
 
 /** Refused at start: another backend holds the data folder, or the folder cannot be used. Words only, no path. */
@@ -76,8 +78,7 @@ export class EventLog {
   /** Opens (or creates) the log in `dir` and reads what is in it. One backend at a time: the folder is locked. */
   static open(dir: string, failpoints: Failpoints | null = null): { log: EventLog; contents: LogContents } {
     try { mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch (e) { throw folderError(e); }
-    const lockPath = join(dir, LOCK_FILE);
-    takeLock(lockPath);
+    const lockPath = takeLock(dir);
     try {
       return EventLog.openLocked(dir, lockPath, failpoints);
     } catch (e) {
@@ -124,26 +125,78 @@ export class EventLog {
   }
 }
 
-/** The lock names the process that holds it; a lock left by a process that is gone (a crash) is taken over. */
-function takeLock(lockPath: string): void {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      writeFileSync(lockPath, `${process.pid}\n`, { flag: 'wx', mode: 0o600 });
-      return;
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw folderError(e);
-      const pid = Number(readFileSync(lockPath, 'utf8').trim());
-      if (Number.isSafeInteger(pid) && pid > 0 && alive(pid)) {
+/**
+ * One backend at a time per data folder, taken without a race.
+ *
+ * The lock is a numbered file, `backend.lock.<n>`, holding the pid of its process; the highest number is the holder.
+ * A file appears whole and at once: its pid is written to a private file first, then linked to the lock's name, and
+ * linking fails when the name exists, so of two processes linking the same number exactly one gets it. A holder that is
+ * gone (its process is dead, or it wrote "released" when it closed) is taken over by linking the next number, and that
+ * number is kept only while it is the highest. The highest file is never removed (a holder removes only lower numbers,
+ * which are spent), so the highest number never goes down, and a process that decided from an older listing can only
+ * create a number that is lower than the holder's, or one that exists: it finds the holder and is refused.
+ */
+function takeLock(dir: string): string {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const before = lockFiles(dir);
+    const top = before[before.length - 1];
+    if (top) {
+      const holder = lockHolder(top.path);
+      if (holder !== null && holder !== process.pid && alive(holder)) {
         throw new DataFolderError('Another backend is running on this data folder (its lock names a live process): one backend at a time writes the event log. Nothing was started.');
       }
-      try { unlinkSync(lockPath); } catch { /* taken by another start: the next attempt says so */ }
     }
+    pauseForTest();
+    const gen = (top?.gen ?? 0) + 1;
+    const mine = join(dir, `${LOCK_FILE}.${gen}`);
+    const tmp = join(dir, `.${LOCK_FILE}.${process.pid}.${randomBytes(6).toString('hex')}`);
+    try {
+      writeFileSync(tmp, `${process.pid}\n`, { flag: 'wx', mode: 0o600 });
+      linkSync(tmp, mine);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'EEXIST') continue; // another process took this number: look again
+      throw folderError(e);
+    } finally {
+      try { unlinkSync(tmp); } catch { /* already gone */ }
+    }
+    const after = lockFiles(dir);
+    if (after[after.length - 1].gen !== gen) { try { unlinkSync(mine); } catch { /* gone */ } continue; } // a higher one exists
+    for (const spent of after) if (spent.gen < gen) { try { unlinkSync(spent.path); } catch { /* gone */ } }
+    return mine;
   }
   throw new DataFolderError('The data folder\'s lock could not be taken. Nothing was started.');
 }
 
+/** The lock's files in the folder, lowest number first. */
+function lockFiles(dir: string): Array<{ gen: number; path: string }> {
+  const out: Array<{ gen: number; path: string }> = [];
+  for (const name of readdirSync(dir)) {
+    if (name === LOCK_FILE) out.push({ gen: 0, path: join(dir, name) });
+    const m = name.match(/^backend\.lock\.([1-9][0-9]{0,11})$/);
+    if (m) out.push({ gen: Number(m[1]), path: join(dir, name) });
+  }
+  return out.sort((a, b) => a.gen - b.gen);
+}
+
+/** The pid a lock file names; null when it names none (released, gone, or not a pid). */
+function lockHolder(path: string): number | null {
+  let text: string;
+  try { text = readFileSync(path, 'utf8').trim(); } catch { return null; }
+  const pid = Number(text);
+  return /^[1-9][0-9]*$/.test(text) && Number.isSafeInteger(pid) ? pid : null;
+}
+
+/** A test hook (TIMMY_CLOUD_TEST_LOCK_PAUSE_MS, off unless set): wait between finding the lock free or stale and taking it. */
+function pauseForTest(): void {
+  const ms = Number(process.env.TIMMY_CLOUD_TEST_LOCK_PAUSE_MS ?? 0);
+  if (Number.isSafeInteger(ms) && ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** On close: the lock file stays (its number must never go down) and says "released", replaced whole by a rename. */
 function releaseLock(lockPath: string): void {
-  try { if (Number(readFileSync(lockPath, 'utf8').trim()) === process.pid) unlinkSync(lockPath); } catch { /* already gone */ }
+  if (lockHolder(lockPath) !== process.pid) return;
+  const tmp = `${lockPath}.released.${process.pid}`;
+  try { writeFileSync(tmp, 'released\n', { mode: 0o600 }); renameSync(tmp, lockPath); } catch { try { unlinkSync(tmp); } catch { /* gone */ } }
 }
 
 function alive(pid: number): boolean {

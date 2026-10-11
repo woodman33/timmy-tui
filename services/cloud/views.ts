@@ -77,8 +77,21 @@ interface Description { summary: string; partial: boolean; needs_person: string 
 
 const RESOLVE = (o: Order): string => `POST /v1/operator/orders/${o.order_id}/resolve`;
 
-/** The words for an order as it stands: what matters now, whether it is partial, and what a person must do. */
+/**
+ * The words for an order as it stands: what matters now, whether it is partial, and what a person must do. A charge the
+ * backend could not take as quoted (above the quote, or past a limit) also needs a person, whatever else the order says.
+ */
 export function describeOrder(state: CloudState, o: Order): Description {
+  const d = describeSteps(state, o);
+  const pay = o.steps.payment;
+  if (pay.state !== 'paid' || !pay.needs_person) return d;
+  const check = `${RESOLVE(o)} with action "charge_reviewed" and a note, once the charge is checked with the provider.`;
+  return d.needs_person
+    ? { ...d, needs_person: `${pay.needs_person} Also: ${d.needs_person}`, next_action: `${check} Also: ${d.next_action}` }
+    : { ...d, needs_person: pay.needs_person, next_action: check };
+}
+
+function describeSteps(state: CloudState, o: Order): Description {
   const s = o.steps;
   const customer = state.customers[o.customer_id];
   const quote = o.quote ? `${usd(o.quote.total_cents)} ${o.quote.currency}` : 'not quoted';
@@ -149,7 +162,7 @@ export function describeOrder(state: CloudState, o: Order): Description {
     const next = step === 'dns'
       ? `Make the domain point to the site, then retry the link: ${RESOLVE(o)} with action "retry" and step "dns".`
       : step === 'certificate'
-        ? `Fix the cause, then retry the certificate: ${RESOLVE(o)} with action "retry" and step "certificate" (the provider allows three certificate setups per domain in seven days).`
+        ? `The provider refuses another certificate setup for this domain while the failed one is recorded (a failed setup counts until it is cleaned up, which its API does not do): ask the provider to clean it up, then retry: ${RESOLVE(o)} with action "retry" and step "certificate" (at most three setups per domain in seven days).`
         : `Look at the site, then check again: POST /v1/operator/orders/${o.order_id}/reconcile.`;
     return { summary: `${parts.join('; ')}.`, partial: true, needs_person: `A ${step === 'dns' ? 'domain link' : step === 'certificate' ? 'certificate' : 'health check'} failed after the ${o.request.kind} was made.`, next_action: next };
   }
@@ -183,10 +196,10 @@ export function describeOrder(state: CloudState, o: Order): Description {
 }
 
 /** Approved spending in the calendar month `month` (YYYY-MM): orders approved then, minus those that bought nothing. */
-export function approvedInMonth(state: CloudState, customerId: string, month: string): number {
+export function approvedInMonth(state: CloudState, customerId: string, month: string, exceptOrderId: string | null = null): number {
   let sum = 0;
   for (const o of Object.values(state.orders)) {
-    if (o.customer_id !== customerId || o.approved_month !== month || !o.quote) continue;
+    if (o.customer_id !== customerId || o.order_id === exceptOrderId || o.approved_month !== month || !o.quote) continue;
     const s = o.steps;
     if (s.approval.state !== 'approved') continue;
     if (['failed', 'cancelled', 'stopped'].includes(s.payment.state) || s.acceptance.state === 'refused') continue;
@@ -195,8 +208,18 @@ export function approvedInMonth(state: CloudState, customerId: string, month: st
   return sum;
 }
 
+/** What the provider charged in the calendar month `month` (YYYY-MM): payments recorded paid then, with an amount. */
+export function paidInMonth(state: CloudState, customerId: string, month: string, exceptOrderId: string | null = null): number {
+  let sum = 0;
+  for (const o of Object.values(state.orders)) {
+    const p = o.steps.payment;
+    if (o.customer_id === customerId && o.order_id !== exceptOrderId && p.state === 'paid' && typeof p.charged_cents === 'number' && monthOf(p.at) === month) sum += p.charged_cents;
+  }
+  return sum;
+}
+
 export interface NeedsPerson {
-  kind: 'approval' | 'unknown_outcome' | 'cancel_asked' | 'stopped_mid_order' | 'purchase_blocked' | 'subscription_canceled' | 'failed_step'
+  kind: 'approval' | 'unknown_outcome' | 'charge_check' | 'cancel_asked' | 'stopped_mid_order' | 'purchase_blocked' | 'subscription_canceled' | 'failed_step'
     | 'export' | 'domain_decision' | 'deletion_approval' | 'deletion_unknown' | 'event_log';
   customer_id: string | null;
   order_id?: string;
@@ -252,11 +275,10 @@ export function buildOverview(state: CloudState, ctx: OverviewContext): Overview
 
   const customers = Object.values(state.customers).map((c) => {
     const own = orders.filter((o) => o.customer_id === c.customer_id);
-    let paid = 0;
+    const paid = paidInMonth(state, c.customer_id, month);
     let unknownCost = 0;
     for (const o of own) {
       const p = o.steps.payment;
-      if (p.state === 'paid' && typeof p.charged_cents === 'number' && monthOf(p.at) === month) paid += p.charged_cents;
       if ('charged_cents' in p && p.charged_cents === null) unknownCost += 1;
     }
     const resources: Record<string, number> = {};
@@ -286,6 +308,7 @@ function needsPerson(state: CloudState, ctx: OverviewContext): NeedsPerson[] {
     const s = o.steps;
     const kind: NeedsPerson['kind'] = s.approval.state === 'waiting' ? 'approval'
       : STEP_NAMES.some((n) => s[n].state === 'unknown') ? 'unknown_outcome'
+        : s.payment.state === 'paid' && s.payment.needs_person ? 'charge_check'
         : o.halted && o.cancel ? 'cancel_asked'
           : o.halted ? 'stopped_mid_order'
             : d.summary.startsWith('Approved, not sent') ? 'purchase_blocked'
@@ -335,7 +358,7 @@ function retentionNeed(state: CloudState, item: RetentionItem, now: Date): Needs
     : 'its registration end is not known';
   return {
     kind: 'domain_decision', customer_id: item.customer_id, item_id: item.item_id, resource_id: item.resource_id, since: item.opened_at,
-    reason: `Timmy Pro was cancelled: decide ${name}: transfer it to the customer, renew it, or let it lapse; ${when}. The backend never lets a domain lapse without a person's decision.`,
+    reason: `Timmy Pro was cancelled: decide ${name}: transfer it to the customer, renew it, or let it lapse; ${when}. It stays listed until a person decides; the backend neither renews it nor stops it lapsing.`,
     next_action: `POST /v1/operator/retention/${item.item_id}/decide with decision "transfer_to_customer", "renew" or "let_lapse".`,
   };
 }

@@ -392,15 +392,22 @@ describe('partial provisioning: each step\'s state and the next action named', (
     expect(states(order)).toMatchObject({ provisioning: 'completed', dns: 'completed', certificate: 'failed', health: 'ok' });
     expect(order.partial).toBe(true);
     expect(order.steps.certificate.provider_words).toMatch(/could not validate the domain/);
-    expect(order.next_action).toMatch(/retry the certificate: .*three certificate setups per domain in seven days/);
-    const retried = await stack.op('POST', `/v1/operator/orders/${order.order_id}/resolve`, { action: 'retry', step: 'certificate', note: 'validation fixed' });
+    expect(order.next_action).toMatch(/^The provider refuses another certificate setup for this domain while the failed one is recorded \(a failed setup counts until it is cleaned up, which its API does not do\): ask the provider to clean it up, then retry: POST .*\/resolve with action "retry" and step "certificate" \(at most three setups per domain in seven days\)\.$/);
+    // Retried at once, the provider refuses: the failed setup is still recorded.
+    const refused = await stack.op('POST', `/v1/operator/orders/${order.order_id}/resolve`, { action: 'retry', step: 'certificate', note: 'validation fixed' });
+    expect(refused.json.order.steps.certificate.state).toBe('failed');
+    expect(refused.json.order.steps.certificate.provider_words).toBe('A certificate process is recorded for this domain (a failed setup counts until it is cleaned up).');
+    // The provider's side cleans it up (its support or panel; the API has no operation for it); then a retry works.
+    stack.sim.cleanUpCertificate('certfail.example');
+    const retried = await stack.op('POST', `/v1/operator/orders/${order.order_id}/resolve`, { action: 'retry', step: 'certificate', note: 'cleaned up by the provider' });
     expect(retried.json.order.steps.certificate.state).toBe('active');
   });
 });
 
 describe('Pro cancelled: everything retained, nothing deleted, every domain decided by a person', () => {
   it('retains each resource with a date, lists the exports and the domain decisions, and deletes only on approval', async () => {
-    stack = await startStack({ retentionDays: 30 });
+    let offsetMs = 0;
+    stack = await startStack({ retentionDays: 30, clock: () => new Date(Date.now() + offsetMs) });
     const a = await newCustomer(stack);
     await ownDomain(stack, a, 'keep.example');
     const site = await a.order({ kind: 'site', item_id: SITE_ITEM, domain: 'keep.example' }, 'site');
@@ -422,7 +429,7 @@ describe('Pro cancelled: everything retained, nothing deleted, every domain deci
     const needs = (await stack.op('GET', '/v1/operator/overview')).json.needs_person.filter((n: any) => n.customer_id === a.id);
     expect(needs.map((n: any) => n.kind).sort()).toEqual(['domain_decision', 'export', 'export']);
     const domainItem = needs.find((n: any) => n.kind === 'domain_decision');
-    expect(domainItem.reason).toMatch(/decide domain keep\.example: transfer it to the customer, renew it, or let it lapse; its registration ends on .* \(36[45] days\)\. The backend never lets a domain lapse without a person's decision\./);
+    expect(domainItem.reason).toMatch(/decide domain keep\.example: transfer it to the customer, renew it, or let it lapse; its registration ends on .* \(36[45] days\)\. It stays listed until a person decides; the backend neither renews it nor stops it lapsing\./);
     expect((await a.order({ kind: 'vps', item_id: VPS_ITEM }, 'after')).status).toBe(403);
 
     // Deleting the site: a separate request, refused while its export is open, then approved by a person.
@@ -437,6 +444,10 @@ describe('Pro cancelled: everything retained, nothing deleted, every domain deci
     expect((await stack.op('POST', `/v1/operator/retention/${exportItem.item_id}/decide`, { decision: 'exported', note: 'archive handed to the customer' })).status).toBe(200);
     const wrongName = await stack.op('POST', `/v1/operator/deletions/${del.json.deletion.deletion_id}/decide`, { decision: 'approve', confirm_resource_id: 'res_other', note: 'ok' });
     expect(wrongName.status).toBe(422);
+    const beforeDate = await stack.op('POST', `/v1/operator/deletions/${del.json.deletion.deletion_id}/decide`, { decision: 'approve', confirm_resource_id: siteRes.resource_id, note: 'export done; customer confirmed' });
+    expect(beforeDate.status).toBe(409);
+    expect(beforeDate.json.error).toMatch(/is retained until .* and nothing of a cancelled customer's is deleted before then/);
+    offsetMs = 31 * 86_400_000; // after the retention date
     const approved = await stack.op('POST', `/v1/operator/deletions/${del.json.deletion.deletion_id}/decide`, { decision: 'approve', confirm_resource_id: siteRes.resource_id, note: 'export done; customer confirmed' });
     expect(approved.status).toBe(200);
     expect(approved.json.deletion.step.state).toBe('completed');
@@ -462,7 +473,8 @@ describe('Pro cancelled, then later', () => {
     await stack.op('POST', '/v1/operator/billing-notices', { notice_id: 'c1', customer_id: a.id, state: 'canceled' });
     offsetMs = 400 * 86_400_000;
     const item = (await stack.op('GET', '/v1/operator/overview')).json.needs_person.find((n: any) => n.kind === 'domain_decision');
-    expect(item.reason).toMatch(/its registration ended on .* with no decision\. The backend never lets a domain lapse without a person's decision\./);
+    expect(item.reason).toMatch(/its registration ended on .* with no decision\. It stays listed until a person decides; the backend neither renews it nor stops it lapsing\./);
+    expect(item.reason).not.toMatch(/never lets a domain lapse/);
     expect((await a.get('/v1/resources')).json.resources[0].state).toBe('retained');
   });
 
