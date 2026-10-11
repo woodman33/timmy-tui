@@ -548,7 +548,9 @@ export function projectSection(s: Sources): ProjectSection {
   else {
     const port = studioPort(s.env);
     let token: string | null = null;
-    try { token = readProjectToken(canvasDir(s.env), port); } catch { token = null; }
+    // R4 (H97): in this overview's Timmy home (s.home: resolved as its Connect and Cloud records are, src/overview/sources.ts),
+    // never ~/timmy for an env that names none while this process's TIMMY_HOME names another (a test read the account's own)
+    try { token = s.home === null ? null : readProjectToken(canvasDir({ TIMMY_HOME: s.home }), port); } catch { token = null; }
     canvas = token
       ? { state: 'running', words: `a Timmy Canvas server of this Timmy home runs on port ${port}; whether it shows this project is checked only by a REPL (/canvas)`, command: '/canvas' }
       // R4 (H88; r23): the REPL's own word for it ("canvas off"); `timmy act` said "canvas not found"

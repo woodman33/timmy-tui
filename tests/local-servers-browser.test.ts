@@ -4,8 +4,8 @@
  * fragment), a page takes the token out of its address at once, keeps it in memory, and sends it in an Authorization header
  * on each request (the log pages' event streams too) and as a WebSocket subprotocol; opened without it, a page asks for
  * nothing and says how to open it from Timmy. The model is a FAKE OpenRouter on 127.0.0.1. Every request a page makes to
- * anywhere but its server is aborted. R4 (H92): the companion page asks nothing of anywhere else (its scripts, style sheet,
- * fonts and markdown parser are its server's: tests/companion-page-browser.test.ts). R4 (H95): nor does the `timmy logs`
+ * anywhere but its server is aborted. R4 (H92): the companion page asks nothing of anywhere else (its script, style sheets
+ * and fonts are its server's: tests/companion-page-browser.test.ts). R4 (H95): nor does the `timmy logs`
  * chat mirror: its Streamdown island is the companion's own build, served by the log companion (/web/), and it draws the
  * session's turns under the page's policy (this test builds it first when it is missing or stale). Skipped, saying so,
  * where no Chromium or Chrome is found.
@@ -124,7 +124,7 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       // the socket's address carries no token (it went as a subprotocol)
       expect(sockets).toHaveLength(1);
       expect(sockets[0]).toBe(`ws://127.0.0.1:${server.port}/`);
-      // a chat answer, streamed through the page's own chat call (the model chat's: src/companion/client/chat.js)
+      // a chat answer, streamed through the page's own chat call (the model chat's: the island, /web/island/companion-chat.js)
       const events = await page.evaluate(async () => {
         const out: Array<[string, unknown]> = [];
         await (window as unknown as { timmyCompanion: { chat: (m: unknown, on: (e: string, d: unknown) => void) => Promise<void> } }).timmyCompanion
@@ -166,10 +166,11 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       expect(await bare.page.textContent('#status-text')).toBe('COMPANION · NEEDS ITS TOKEN');
       await bare.page.waitForTimeout(1500);
       expect(bare.sockets).toEqual([]);
-      // R4 (H92): the page's own files (its code, style sheet, theme, fonts and markdown parser), and nothing that needs the token
+      // R4 (H92): the page's own files (its code and style sheet), and nothing that needs the token
       expect(bare.seen.map((s) => s.path)).toContain('/');
-      // R4 (H95): and the built chat's code, its styles and the page's fonts (/web/)
-      for (const s of bare.seen) expect(s.path).toMatch(/^\/(?:|[\w-]+\.(?:js|css)|vendor\/marked\.esm\.js|fonts\/[\w.-]+\.woff2|web\/(?:island(?:\/chunks)?|styles|fonts)\/[\w.-]+\.(?:js|css|woff2))$/);
+      // R4 (H95): and the built chat's code, its styles and the page's fonts (/web/); R4 (H97): nothing else (no theme, fonts
+      // or marked of H92's page)
+      for (const s of bare.seen) expect(s.path).toMatch(/^\/(?:|[\w-]+\.(?:js|css)|web\/(?:island(?:\/chunks)?|styles|fonts)\/[\w.-]+\.(?:js|css|woff2))$/);
       for (const s of bare.seen) expect(s.auth).toBe('');
     } finally { await bare.context.close(); }
     const wrong = await open(base, `${base}/#t=${OTHER}`);

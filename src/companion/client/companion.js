@@ -82,8 +82,8 @@ const companion = (() => {
   if (!token) c.say('This page has no token from Timmy, so it loads nothing: the companion answers only the address Timmy gives, which carries its token after #. ' + OPEN_FROM_TIMMY);
   return c;
 })();
-// The model chat (chat.js, a module) streams through this call and asks whether the page may ask; the token itself is not
-// put on window.
+// The model chat (the Streamdown island, /web/island/companion-chat.js) streams through this call and asks whether the page
+// may ask; the token itself is not put on window.
 window.timmyCompanion = {
   chat: (messages, on, signal) => companion.chat(messages, on, signal),
   ready: () => Boolean(companion.token) && !companion.refused,

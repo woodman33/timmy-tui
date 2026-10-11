@@ -24,11 +24,10 @@ export const RUNTIME_ASSETS = Object.freeze([
   // src/companion/server.ts, LOGS_RUNTIME_FILES in src/utils/logserver.ts; tests/runtime-pages.test.ts keeps them here).
   // r23: without them the installed companion answered GET / with ENOENT and its path, and GET /chat crashed `timmy logs`.
   'src/companion/client/index.html',
-  // R4 (H92): the companion page's own style sheet and scripts (they were inline, or from public CDNs).
+  // R4 (H92): the companion page's own style sheet and script (they were inline, or from public CDNs). R4 (H97): its
+  // markdown.js and chat.js, which H95's page replaced, are no longer shipped.
   'src/companion/client/companion.css',
   'src/companion/client/companion.js',
-  'src/companion/client/markdown.js',
-  'src/companion/client/chat.js',
   'src/utils/chatpage.html',
 ]);
 const repository = fileURLToPath(new URL('../', import.meta.url));

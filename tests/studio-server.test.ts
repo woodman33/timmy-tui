@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request, type Server } from 'node:http';
@@ -27,6 +27,12 @@ describe('studio config', () => {
 
 describe('the studio server', () => {
   let server: Server | undefined;
+  // R4 (H97): these servers name no Timmy home (env {}), so they keep the canvas under <home>/timmy/canvas and read it
+  // there: each test with a temporary HOME of its own, never the account's (the page still says ~/timmy/canvas)
+  let was: string | undefined;
+  let home = '';
+  beforeEach(() => { was = process.env.HOME; home = mkdtempSync(join(tmpdir(), 'studio-server-home-')); process.env.HOME = home; });
+  afterEach(() => { if (was === undefined) delete process.env.HOME; else process.env.HOME = was; rmSync(home, { recursive: true, force: true }); });
   afterEach(() => new Promise<void>((done) => (server ? server.close(() => done()) : done())));
   const port = (): number => (server!.address() as AddressInfo).port;
   const get = (path: string, host?: string, auth?: string) =>
@@ -212,12 +218,16 @@ describe('the canvas file through the server', () => {
 
 describe('/web studio in the REPL', () => {
   it('starts Timmy Canvas inside the REPL when nothing serves it, and uses the one already running when the port is taken', async () => {
-    const first = await ensureStudioServer(0, { env: {} });
-    expect(first.state).toBe('started');
-    const port = ((first as { server: Server }).server.address() as AddressInfo).port;
-    const second = await ensureStudioServer(port, { env: {} });
-    expect(second).toEqual({ state: 'already-running' });
-    await new Promise<void>((done) => (first as { server: Server }).server.close(() => done()));
+    // R4 (H97): a Timmy home of its own (with env {} it read the account's canvas folder)
+    const home = mkdtempSync(join(tmpdir(), 'studio-web-home-'));
+    try {
+      const first = await ensureStudioServer(0, { env: { TIMMY_HOME: home } });
+      expect(first.state).toBe('started');
+      const port = ((first as { server: Server }).server.address() as AddressInfo).port;
+      const second = await ensureStudioServer(port, { env: { TIMMY_HOME: home } });
+      expect(second).toEqual({ state: 'already-running' });
+      await new Promise<void>((done) => (first as { server: Server }).server.close(() => done()));
+    } finally { rmSync(home, { recursive: true, force: true }); }
   });
 });
 

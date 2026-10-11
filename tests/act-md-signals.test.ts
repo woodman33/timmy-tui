@@ -209,6 +209,8 @@ describe('R4 (H88; r23): a second SIGINT 80 ms after the first, during the stop:
     const jobRec = jobRecord(s, job);
     expect(jobRec).toMatchObject({ state: 'cancelled', endedAt: expect.any(String), exitCode: null, error: expect.stringMatching(/^stopped by timmy md at once \(a second SIGINT\)/), exitedAtOnce: { by: 'timmy md', signal: 'SIGINT', sealed: false } });
     expect((jobRec.steps as Array<{ name: string; state: string }>).map((x) => `${x.name} ${x.state}`)).toEqual(['first completed', 'long stopped']);
+    // R4 (H97; r23c): the cut step has its end time (the record's own, or the stop's line's when that was read first)
+    expect((jobRec.steps as Array<{ endedAt?: string }>)[1].endedAt).toEqual(expect.any(String));
     expect(blocksOf(s, job).map((x) => x.block.name)).toEqual(['first']);
     // /recover (a REPL of the same Timmy) seals the cut block's receipt, as cut by that stop, once
     const { ws } = replOf(kit, s);
@@ -217,7 +219,7 @@ describe('R4 (H88; r23): a second SIGINT 80 ms after the first, during the stop:
     expect(said).toContain('1 workflow run stopped at once by its Timmy');
     const sealed = blocksOf(s, job);
     expect(sealed.map((x) => `${String(x.block.name)} ${String(x.block.outcome)}`)).toEqual(['first completed', 'long interrupted']);
-    expect(sealed[1].block).toMatchObject({ interrupted_by: 'stop', stop_words: expect.stringMatching(/^stopped by timmy md at once \(a second SIGINT\)/) });
+    expect(sealed[1].block).toMatchObject({ interrupted_by: 'stop', stop_words: expect.stringMatching(/^stopped by timmy md at once \(a second SIGINT\)/), ended_at: expect.any(String), ms: expect.any(Number) });
     expect(jobRecord(s, job)).toMatchObject({ exitedAtOnce: { sealed: true } });
     await ws.recover('');
     expect(blocksOf(s, job)).toHaveLength(2);

@@ -15,8 +15,6 @@
  *   route                                  requires                          why
  *   GET /, /index.html, the page's files   nothing more                      the companion page's code (public in the repository);
  *                                                                            without the token it loads nothing and says so
- *   GET /timmy-theme.css, /fonts/<name>,   nothing more                      Timmy's look, Monaspace Argon and the markdown parser
- *       /vendor/marked.esm.js                                                (R4 H92: src/companion/page.ts); no operator content
  *   GET /web/island/*, /web/styles/*,      nothing more                      the page's built chat (Streamdown), its styles and its
  *       /web/fonts/*                                                         fonts (R4 H95: src/companion/web-assets.ts); no content
  *   GET /slate3d/*, /slate3d/boards/*      nothing more                      Slate 3D's built files and the repository's boards
@@ -41,7 +39,8 @@
  * companion says so in words where Slate 3D would be. Every failure answers with words: no path of this computer, no stack.
  *
  * R4 (H92): the page loads nothing from the internet (r23c: about 1,130 requests to public CDNs, whose code ran with the
- * page's token). Its scripts, style sheet, theme, fonts and markdown parser are all this server's (src/companion/page.ts),
+ * page's token). Its scripts, style sheets and fonts are all this server's (src/companion/page.ts; R4 H97: the files of
+ * H92's page that H95's replaced, its chat and markdown scripts, Timmy's theme, Monaspace's files and marked, are gone),
  * and every answer carries the page's Content-Security-Policy: scripts and style sheets only from here, no inline script,
  * handler or style, requests only to here and its own WebSocket, no plugins, no <base>, never framed by another page.
  */
@@ -62,12 +61,12 @@ import { keySet } from '../utils/keys.js';
 import { isLocalRequest, lanAddresses, LocalToken, logsTokenFile, readTokenFile, refuseRequest, refuseUpgrade, TOKEN_IN_ADDRESS } from '../utils/local-request.js';
 import { failRequest } from '../utils/server-failure.js';
 import { packagedPath } from '../utils/asset-dirs.js';
-// R4 (H92): the page's policy and the files it needs beside its own (theme, fonts, marked), all served from here.
-import { companionHeaders, mountPageAssets, mountWebAssets, sendSlateAbsent } from './page.js';
+// R4 (H92): the page's policy; R4 (H95): its built web code (/web/), served from here.
+import { companionHeaders, mountWebAssets, sendSlateAbsent } from './page.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Model used by the /chat streaming proxy (the page's model chat, src/companion/client/chat.js; it was Streamdown's, TMX P3). */
+/** Model used by the /chat streaming proxy (the page's model chat, the Streamdown island /web/island/companion-chat.js, TMX P3). */
 const CHAT_MODEL = 'qwen/qwen3.8-max';
 /** Where /chat sends its completion unless a test gives a FAKE (CompanionOptions.upstream). */
 const OPENROUTER_CHAT = 'https://openrouter.ai/api/v1/chat/completions';
@@ -82,7 +81,7 @@ export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s t
  * tests/runtime-pages.test.ts keeps the lists together, so a new page cannot be left out of the package.
  * R4 (H92): the page and the files it needs (its scripts and style sheet were inline, or from CDNs).
  */
-const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'markdown.js', 'chat.js'] as const;
+const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js'] as const;
 export const COMPANION_RUNTIME_FILES: readonly string[] = Object.freeze(CLIENT_FILES.map((f) => `src/companion/client/${f}`));
 /** R4 (H87): the words a failure answers with (never a path of this computer, never a stack). */
 export const COMPANION_FAILED = 'The browser companion could not read what this request needs, so it answers with nothing and wrote nothing. It is still running.';
@@ -265,8 +264,6 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
 
   // Serve static client files
   const clientDir = options.clientDir ?? path.join(__dirname, 'client');
-  // R4 (H92): Timmy's look, Monaspace Argon and marked, from this computer
-  mountPageAssets(app);
   // R4 (H95): the page's built chat (Streamdown), its styles and its three fonts, from this computer (/web/)
   mountWebAssets(app, options.webDir);
   app.use(express.static(clientDir));

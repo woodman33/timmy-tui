@@ -233,11 +233,23 @@ describe.skipIf(!browserPath)('the connected workflow card in a real browser (he
     for (const key of ['1', '2']) {
       await page.click(`${dup} [data-wf-node="${key}"]`);
       expect(await page.textContent(`${dup} [data-wf-insp="${key}"] .wf-runs .wf-say`)).toBe(`Not runnable as it is: ${said} Nothing runs from here.`);
+      // R4 (H97; r23c): its technical details show no command either (they showed upmd's, as for a block that runs)
+      const tech = await page.$eval(`${dup} [data-wf-insp="${key}"] details.wf-tech`, (d) => d.textContent ?? '');
+      expect(tech).toContain(`upmd runsnothing: ${said}`);
+      expect(tech).not.toMatch(/upmd --ci|\/run DUP\.md/);
     }
+    // the other document's technical details still name the command upmd is given
+    expect(await page.$eval('[data-wfx="BUILD.md"] details.wf-tech', (d) => d.textContent ?? '')).toContain('upmd --ci -b ');
     expect(await page.textContent(`${dup} .wf-graph`)).not.toContain('upmd runs the first');
     // the other document's Run is still there
     expect(await page.$$('[data-wfx="BUILD.md"] button[data-act="run"]')).not.toHaveLength(0);
     expect(notes.filter((n) => /DUP\.md/.test(n) && /Running/.test(n))).toEqual([]);
+    // the snapshot's own technical details, the same
+    ws.board('');
+    await page.goto(pathToFileURL(join(root, '.timmy/board/index.html')).href);
+    const snapTech = await page.$$eval(`${dup} details.wf-tech`, (els) => els.map((d) => d.textContent ?? ''));
+    expect(snapTech).toHaveLength(2);
+    for (const t of snapTech) { expect(t).toContain(`upmd runsnothing: ${said}`); expect(t).not.toMatch(/upmd --ci|\/run DUP\.md/); }
     expect(problems).toEqual([]);
     await context.close();
   }, 60_000);

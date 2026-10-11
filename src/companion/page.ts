@@ -6,13 +6,8 @@
  * cdnjs, Google Fonts and Streamdown's style sheet from unpkg. That code ran with the page's rights, so it could read the
  * page's token and use the companion's routes (POST /chat spends the operator's OpenRouter key).
  *
- * Now every file the page uses is this server's own:
- *   - the page and its scripts and style sheet (src/companion/client, COMPANION_RUNTIME_FILES in server.ts);
- *   - Timmy's look, /timmy-theme.css (src/theme/tokens.ts themeCss), and Monaspace Argon's files at /fonts/<name> for a
- *     computer that does not have the font installed (from @fontsource/monaspace-argon, served unmodified by exact name,
- *     as Timmy Canvas serves them);
- *   - the markdown parser the model chat draws with, `marked`, a dependency of Timmy's: its ES module file from the
- *     installed package, served unmodified at /vendor/marked.esm.js.
+ * Now every file the page uses is this server's own: the page and its script and style sheet (src/companion/client,
+ * COMPANION_RUNTIME_FILES in server.ts) and its built web code (/web/, below).
  * Every answer carries the page's Content-Security-Policy (pagePolicy): scripts and style sheets only from this server, no
  * inline script, event handler or style attribute, requests only to this server and its own WebSocket, no plugins, no
  * <base>, no form posts, and no page may frame it; with nosniff, no referrer and no DNS prefetching (a model's links would
@@ -23,13 +18,13 @@
  * scripts/companion-web-build.mjs): the chat island and its chunks (React, Streamdown, Shiki, Mermaid), Streamdown's
  * style sheet and its Tailwind classes, and the page's three fonts (Outfit, Inter, Fira Code). The policy stays as strict
  * as the page works under (PAGE_STYLE_SRC, PAGE_IMG_SRC say what each relaxation is for).
+ *
+ * R4 (H97): the files of H92's page that H95's replaced and no page asked for any more (its chat and markdown scripts,
+ * src/companion/client/chat.js and markdown.js, and the routes /timmy-theme.css, /fonts/<name> and /vendor/marked.esm.js)
+ * are no longer shipped or served. Timmy Canvas keeps its own /timmy-theme.css and /fonts/<name> (src/studio/server.ts).
  */
 import type { NextFunction, Request, Response } from 'express';
 import type express from 'express';
-import { existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
-import { FONT_FILES, themeCss } from '../theme/tokens.js';
 import { failRequest } from '../utils/server-failure.js';
 import { sendWebFile } from './web-assets.js';
 
@@ -134,42 +129,4 @@ export function mountWebAssets(app: express.Application, webDir?: string): void 
   });
 }
 
-/** A file of an installed package by its path inside the package; null when the package is not installed. */
-function packageFile(pkg: string, rel: string): string | null {
-  try {
-    const file = join(dirname(createRequire(import.meta.url).resolve(`${pkg}/package.json`)), rel);
-    return existsSync(file) ? file : null;
-  } catch { return null; }
-}
-
-/** The only font files served, by exact name (Timmy's theme names them: src/theme/tokens.ts FONT_FILES). */
-const SERVED_FONTS: ReadonlySet<string> = new Set(FONT_FILES.map((f) => f.file));
-
-/** What the page is told when marked is missing from the installation. */
-export const MARKED_ABSENT = 'The markdown parser (marked) is missing from this installation, so the model chat shows answers as plain text. Reinstall Timmy.';
 export const FONT_ABSENT = 'No such font here: the page uses this computer\'s own monospace font instead.';
-
-/**
- * Timmy's look, Monaspace Argon's files and marked, for the companion page. Each answers words when it cannot (never a path
- * of this computer, never a stack). None carries any content of the operator's, so none needs the token.
- */
-export function mountPageAssets(app: express.Application): void {
-  app.get('/timmy-theme.css', (_req, res) => {
-    res.set('Cache-Control', 'no-store').type('text/css').send(themeCss());
-  });
-  app.get('/fonts/:file', (req, res) => {
-    const file = String(req.params.file);
-    const path = SERVED_FONTS.has(file) ? packageFile('@fontsource/monaspace-argon', join('files', file)) : null;
-    if (!path) { failRequest(res, 404, FONT_ABSENT, 'text'); return; }
-    res.set('Cache-Control', 'public, max-age=86400').type('font/woff2').sendFile(path, (err?: Error) => {
-      if (err) failRequest(res, 500, FONT_ABSENT, 'text');
-    });
-  });
-  app.get('/vendor/marked.esm.js', (_req, res) => {
-    const path = packageFile('marked', join('lib', 'marked.esm.js'));
-    if (!path) { failRequest(res, 404, MARKED_ABSENT, 'text'); return; }
-    res.set('Cache-Control', 'no-cache').type('text/javascript; charset=utf-8').sendFile(path, (err?: Error) => {
-      if (err) failRequest(res, 500, MARKED_ABSENT, 'text');
-    });
-  });
-}

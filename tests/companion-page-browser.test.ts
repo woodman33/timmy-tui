@@ -258,6 +258,9 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
         expect(seen.requests, p).toContain(`${base}${p}`);
       }
       expect(seen.requests.some((r) => r.startsWith(`${base}/web/island/chunks/`))).toBe(true);
+      // R4 (H97): nothing of the page H92 made and H95 replaced (its chat and markdown scripts, Timmy's theme, Monaspace's
+      // files, marked): no page of the companion asks for any of them, so they are no longer shipped or served
+      expect(seen.requests.filter((r) => /^\/(?:chat\.js|markdown\.js|timmy-theme\.css|fonts\/|vendor\/)/.test(new URL(r).pathname))).toEqual([]);
       expect(upstream).toEqual([]);
       expect(seen.sockets).toEqual([`ws://127.0.0.1:${server.port}/`]);
       expect(await violations(page)).toEqual([]);
@@ -294,6 +297,12 @@ describe.skipIf(!browserPath)('the browser companion\'s page: its own look and f
     // fetches is the browser checks' business, above and below)
     const named = [...html.matchAll(/\s(?:src|href)="(\/[^"#]+)"/g)].map((m) => m[1]).filter((p) => !p.startsWith('/slate3d'));
     expect(named).toEqual(expect.arrayContaining(['/companion.css', '/web/styles/tailwind.css', '/web/styles/streamdown.css', '/companion.js', '/web/island/companion-chat.js']));
+    // R4 (H97): what H92's page had and H95's replaced is not served any more (no page asks for it: the test above)
+    for (const p of ['/chat.js', '/markdown.js', '/timmy-theme.css', '/fonts/monaspace-argon-latin-400-normal.woff2', '/vendor/marked.esm.js']) {
+      const gone = await fetch(`${base}${p}`);
+      expect(gone.status, p).toBe(404);
+      expect(await gone.text(), p).not.toMatch(/marked|@font-face|--timmy-|function\s*\(/);
+    }
     for (const p of named) {
       const a = await fetch(`${base}${p}`);
       expect(a.status, p).toBe(200);
