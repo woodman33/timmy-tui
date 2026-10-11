@@ -127,10 +127,8 @@ export function useAgent(agent: Agent) {
       agent.on(event as any, handler as any);
     }
 
-    // Reflect provider health immediately on mount instead of sitting at UNTESTED
-    try {
-      (agent as any).runStartupHealthCheck?.();
-    } catch { /* never block mount on a health probe */ }
+    // R4 (H87): no model request on mount (it was one per mount of an agent, paid with a real key): the provider status
+    // stays "not checked" until the operator asks (`/model test`, src/tui/provider-status.ts).
 
     return () => {
       for (const [event, handler] of Object.entries(handlers)) {

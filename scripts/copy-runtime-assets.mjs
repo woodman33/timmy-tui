@@ -20,6 +20,11 @@ export const RUNTIME_ASSETS = Object.freeze([
   'schemas/usd.cue',
   'lanes/recipes/enclosure-tray/recipe.json',
   'lanes/recipes/enclosure-tray/build.py',
+  // R4 (H87): the pages the browser companion and `timmy logs` serve beside their code (COMPANION_RUNTIME_FILES in
+  // src/companion/server.ts, LOGS_RUNTIME_FILES in src/utils/logserver.ts; tests/runtime-pages.test.ts keeps them here).
+  // r23: without them the installed companion answered GET / with ENOENT and its path, and GET /chat crashed `timmy logs`.
+  'src/companion/client/index.html',
+  'src/utils/chatpage.html',
 ]);
 const repository = fileURLToPath(new URL('../', import.meta.url));
 

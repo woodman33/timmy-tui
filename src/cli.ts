@@ -48,7 +48,9 @@ Usage: timmy <command> [options]
 Commands:
   repl            The inline REPL, also plain timmy: chat in your scrollback (timmy repl --demo needs no key)
   watch           The full-screen monitor (the Command Post); its browser companion is on 127.0.0.1 (q on HOME shows its address
-                  with its token); --lan also serves it on your local network for a phone (plain HTTP; only on a network you trust)
+                  with its token); --lan also serves it on your local network for a phone (plain HTTP; only on a network you trust);
+                  --lanes starts the lane programs (opencode, hermes, pi, openhands, jcode, minds) on a tmux server of Timmy's own,
+                  ended with the monitor (off by default; a program's own first run may install its own background helpers)
   receipts        The receipt chain: verify, then the latest (--follow)
   theme           Timmy Homebrew (default), Night and Day, and the font, for your terminal (theme install)
   center          The cockpit: REPL, monitor and events as tabs (zellij, tmux, or the REPL here)
@@ -888,12 +890,13 @@ if (command === 'logs') {
   // the TUI consumes + receipt chain with verify; auto-pops a browser once.
   // R4 (H84): on 127.0.0.1 only, with a token made now: printed here (where the operator started it) and opened through a
   // private launch page, never on a command line or in a log; kept for this user's other programs while it runs.
-  const { startManagedLogServer } = await import('./utils/logserver.js');
+  const { startManagedLogServer, logsStartWords } = await import('./utils/logserver.js');
   const portIdx = args.indexOf('--port');
   const port = portIdx >= 0 ? Number(args[portIdx + 1]) : undefined;
   const logs = await startManagedLogServer({ port, open: true, tokenFile: true });
   console.log(`timmy logs · ${logs.url}`);
-  console.log('This computer only (127.0.0.1). The address carries its token after #: open it from here (it was opened for you); ctrl-c to stop.');
+  // R4 (H87): what opening the page did (TIMMY_LOGS_OPEN=0 opens nothing, and the words say so)
+  console.log(logsStartWords(logs.opened));
   await new Promise(() => {}); // server owns the event loop
 }
 

@@ -23,6 +23,11 @@
 //    src/native/freecad.ts) and the STEP and .blend readback workers (workers/readback/step_readback.py and
 //    blend_readback.py, src/flows/iterate.ts and src/flows/iterate-blender.ts). R4 (H46): and the video readback worker
 //    /iterate ae runs (workers/readback/video_readback.py, src/flows/iterate-ae.ts).
+// 5. R4 (H87): the installed package's two local servers, started from its own modules on 127.0.0.1 (port 0, a token made
+//    here): the browser companion answers its page (GET /, 200) and its token route (/api/auth: 401 without, 200 with), and
+//    where Slate 3D would be it answers in words; the log companion answers its pages (/, /chat, /mission, /browser: 200),
+//    /health, and /receipts (401 without its token, 200 with). No answer of either shows a path of the installed package or
+//    a stack. (r23: the companion's GET / was a 404 with ENOENT and the install path; GET /chat crashed `timmy logs`.)
 //
 // It prints a short report: each step with its exit code and first output line. Exit 0 when every check passed,
 // 1 when any failed or did not run, 2 on a usage error.
@@ -208,6 +213,67 @@ if (pkg) {
   }
 } else {
   check('assets', 'probe', false, 'not run: nothing installed');
+}
+
+// 5. R4 (H87): the installed package's local servers answer their pages.
+if (pkg) {
+  const probe = join(scratch, 'pages.mjs');
+  writeFileSync(probe, `
+    import { pathToFileURL } from 'node:url';
+    import { join } from 'node:path';
+    import { randomBytes } from 'node:crypto';
+    const root = process.env.PROBE_PKG;
+    const load = (rel) => import(pathToFileURL(join(root, rel)).href);
+    const { startCompanionServer } = await load('dist/src/companion/server.js');
+    const { startManagedLogServer } = await load('dist/src/utils/logserver.js');
+    const token = randomBytes(32).toString('hex');
+    const out = { companion: {}, logs: {}, leaks: [] };
+    const ask = async (base, path, withToken) => {
+      try {
+        const r = await fetch(base + path, { headers: withToken ? { Authorization: 'Bearer ' + token } : {}, signal: AbortSignal.timeout(15000) });
+        const body = await r.text();
+        // an answer that names the installed package's folder, or carries a stack or an error code, leaks
+        const stack = body.split(String.fromCharCode(10)).some((l) => l.trimStart().startsWith('at '));
+        if (body.includes(root) || stack || ['ENOENT', 'EISDIR', 'EACCES'].some((code) => body.includes(code))) out.leaks.push(path);
+        return { status: r.status, html: (r.headers.get('content-type') ?? '').startsWith('text/html'), words: body.slice(0, 90).trim() };
+      } catch (e) { return { status: 0, error: String(e && e.message || e) }; }
+    };
+    const companion = await startCompanionServer(0, { token });
+    const cb = 'http://127.0.0.1:' + companion.port;
+    out.companion.page = await ask(cb, '/', false);
+    out.companion.authWithout = (await ask(cb, '/api/auth', false)).status;
+    out.companion.authWith = (await ask(cb, '/api/auth', true)).status;
+    out.companion.slate3d = await ask(cb, '/slate3d/?board=ledger', false);
+    out.companion.nothing = await ask(cb, '/no/such/page', false);
+    await companion.shutdown();
+    const logs = await startManagedLogServer({ port: 0, token, open: false });
+    const lb = 'http://127.0.0.1:' + logs.port;
+    for (const page of ['/', '/chat', '/mission', '/browser']) out.logs[page] = await ask(lb, page, false);
+    out.logs.health = (await ask(lb, '/health', false)).status;
+    out.logs.receiptsWithout = (await ask(lb, '/receipts?stream=runs', false)).status;
+    out.logs.receiptsWith = (await ask(lb, '/receipts?stream=runs', true)).status;
+    await logs.stop();
+    console.log(JSON.stringify(out));
+    process.exit(0);`);
+  const r = run(process.execPath, [probe], { cwd: work, env: { ...runEnv, PROBE_PKG: pkg, TIMMY_LOGS_OPEN: '0' }, timeout: 120_000 });
+  let p = null;
+  try { p = JSON.parse(r.stdout.trim().split('\n').at(-1)); } catch { /* reported below */ }
+  if (!p) {
+    check('pages', 'probe', false, `exit ${r.status ?? r.error?.message} · ${firstLine(r.stderr)}`);
+  } else {
+    const c = p.companion;
+    check('pages', 'companion GET /', c.page.status === 200 && c.page.html, `${c.page.status}${c.page.html ? ' html' : ''} ${c.page.error ?? ''}`.trim());
+    check('pages', 'companion token route', c.authWithout === 401 && c.authWith === 200, `/api/auth ${c.authWithout} without its token, ${c.authWith} with it`);
+    check('pages', 'companion Slate 3D', c.slate3d.status === 200 || (c.slate3d.status === 404 && /Slate 3D is not part of this installation/.test(c.slate3d.words)), `${c.slate3d.status} · ${c.slate3d.words}`);
+    for (const page of ['/', '/chat', '/mission', '/browser']) {
+      const a = p.logs[page];
+      check('pages', `logs GET ${page}`, a.status === 200 && a.html, `${a.status}${a.html ? ' html' : ''} ${a.error ?? ''}`.trim());
+    }
+    check('pages', 'logs /health, /receipts', p.logs.health === 200 && p.logs.receiptsWithout === 401 && p.logs.receiptsWith === 200, `/health ${p.logs.health}; /receipts ${p.logs.receiptsWithout} without its token, ${p.logs.receiptsWith} with it`);
+    check('pages', 'no path or stack shown', p.leaks.length === 0 && c.nothing.status === 404, p.leaks.length ? `leaked on ${p.leaks.join(', ')}` : `none in ${4 + 5} answers (an unknown address: ${c.nothing.status}, words)`);
+  }
+} else {
+  check('pages', 'probe', false, 'not run: nothing installed');
 }
 
 const failed = checks.filter((c) => !c.ok);

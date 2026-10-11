@@ -25,7 +25,7 @@ function Inner({ agent }: { agent: ReturnType<typeof createAgent> }) {
 
 const cfg = loadConfig() as unknown as Record<string, unknown>;
 const agentConfig: AgentConfig = {
-  apiKey: String(cfg.apiKey ?? process.env.OPENROUTER_API_KEY ?? 'setup_placeholder'),
+  apiKey: String(cfg.apiKey || process.env.OPENROUTER_API_KEY || ''), // R4 (H87): never a placeholder key
   model: String(cfg.model ?? process.env.TIMMY_MODEL ?? 'anthropic/claude-3-5-sonnet'),
   instructions: 'You are TIMMY, a terminal coding agent. Answer in concise markdown. Every run seals a receipt.',
 } as AgentConfig;

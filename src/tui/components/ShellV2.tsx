@@ -32,6 +32,8 @@ import { useCompanionSync } from '../hooks/useCompanionSync.js';
 // R4 (H84): the pairing card shows the browser companion's address with its token (and with --lan its network QR code).
 import { companionPairing } from '../../companion/qr.js';
 import type { Agent } from '../../agent/core.js';
+import { laneOptions } from '../../agent/lane-server.js';
+import { NO_MODEL_KEY, providerStatusWords } from '../provider-status.js';
 import { IntegrationStatus } from './IntegrationStatus.js';
 import { integrationCatalog } from '../../vision/integrations/registry.js';
 import { VisualToolsPanel, type VisualToolRunState } from './VisualToolsPanel.js';
@@ -88,6 +90,9 @@ const POLICIES = ['open', 'tailnet', 'closed'];
 
 // SPEC §01/§02 — the sovereign chat drawer. Without a live agent (direct
 // ShellV2 renders in tests) a noop agent keeps the hook contract intact.
+/** R4 (H87): the chat drawer's one explicit model check (one small request; with no key, nothing is sent). */
+const MODEL_TEST = '/model test';
+
 const NOOP_AGENT = {
   on: () => undefined, off: () => undefined, send: async () => null,
   getModel: () => null, clearHistory: () => undefined, setModel: () => undefined,
@@ -98,16 +103,36 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
   const [lazyAgent, setLazyAgent] = useState<Agent | undefined>(undefined);
   const effectiveAgent = agent ?? lazyAgent;
   const firstChatText = useRef<string | null>(null);
+  // R4 (H87): one agent per monitor. It loads on the first chat send, or at once when the monitor was asked for the lanes
+  // (`timmy watch --lanes`): the agent is what runs them (src/agent/lane-server.ts).
+  const agentStarting = useRef(false);
+  const startLazyAgent = (): void => {
+    if (agentStarting.current || !config) return;
+    agentStarting.current = true;
+    void import('../../agent/core.js').then(m => setLazyAgent(m.createAgent(config as never, laneOptions(config))));
+  };
+  useEffect(() => {
+    if (!agent && laneOptions(config).multiplexer !== 'none') startLazyAgent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const chat = useAgent(effectiveAgent ?? NOOP_AGENT);
   // Standalone shells own their mirror; the full App owns its run metadata
   // and opts its nested shell out to avoid duplicate broadcasts/listeners.
   useCompanionSync({ agent: effectiveAgent ?? NOOP_AGENT, messages: chat.mirrorHistory, enabled: companionSync && Boolean(effectiveAgent) });
+  // R4 (H87): the explicit check, when the operator types `/model test` in the chat: never at start
+  const runModelCheck = async (ag: Agent): Promise<void> => {
+    setFlash(ag.hasModelKey?.() === false ? NO_MODEL_KEY : 'Checking the model: one small request to OpenRouter…');
+    const r = await ag.testModelHealth(ag.getModel());
+    setFlash(r.ok ? `Model check: ${r.provider ?? 'it'} answered${typeof r.latency === 'number' ? ` in ${r.latency} ms` : ''}${r.error ? ` (${r.error})` : ''}.` : `Model check failed: ${r.error ?? 'no answer'}.`);
+  };
   useEffect(() => {
     if (!effectiveAgent || firstChatText.current === null) return;
     const text = firstChatText.current;
     firstChatText.current = null;
     // useAgent and companion listeners attach before a lazy agent's first send.
-    void chat.send(text);
+    if (text === MODEL_TEST) void runModelCheck(effectiveAgent);
+    else void chat.send(text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveAgent, chat.send]);
   const [s, setS] = useState<ShellState>(initialShell);
   const sRef = React.useRef<ShellState>(s);
@@ -505,6 +530,11 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
         // token present, the turn runs THERE (think over the ws); the reply
         // seals chat.turn. Without a token the sovereign local path runs.
         const text0 = chatText.trim();
+        if (text0 === MODEL_TEST) {
+          if (effectiveAgent) void runModelCheck(effectiveAgent);
+          else if (config) { firstChatText.current = MODEL_TEST; startLazyAgent(); setFlash('Checking the model…'); }
+          return;
+        }
         const token = edgeToken();
         if (ccRef.current?.online && token) {
           const id = `chat-${Date.now().toString(36)}`;
@@ -519,12 +549,8 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
         if (ccRef.current?.online && !token) setFlash('commander online · no TIMMY_EDGE_TOKEN — local sovereign');
         // BOOT: the agent graph lazy-loads on first chat send
         if (!effectiveAgent && config) {
-          const text = chatText.trim();
-          void import('../../agent/core.js').then(m => {
-            const ag = m.createAgent(config as never);
-            firstChatText.current = text;
-            setLazyAgent(ag);
-          });
+          firstChatText.current = chatText.trim();
+          startLazyAgent();
           setFlash('sovereign chat warming…');
           return;
         }
@@ -1083,6 +1109,12 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
         {s.mode === 'CHAT' && (
           <Box position="absolute" top={2} left={10} width={Math.min(100, width - 20)} backgroundColor={theme.surfaceRaised} paddingX={1} flexDirection="column">
             <Text bold color={theme.textPrimary}>{`SOVEREIGN CHAT · ${chat.model || policy.default || '—'}`}</Text>
+            {/* R4 (H87): what is known of the provider: no key, not checked (and how), or what the operator's check found */}
+            <Text color={theme.textSecondary} wrap="wrap">{providerStatusWords({
+              hasKey: effectiveAgent ? effectiveAgent.hasModelKey?.() : Boolean((config as { apiKey?: string } | undefined)?.apiKey),
+              status: chat.modelHealthStatus,
+              error: (effectiveAgent as unknown as { lastHealthError?: string } | undefined)?.lastHealthError,
+            })}</Text>
             {chat.messages.slice(-6).map((m, i) => (
               <Text key={i} color={m.role === 'user' ? theme.textSecondary : theme.textMuted} wrap="truncate">
                 {`${m.role === 'user' ? 'you:' : 'ai:  '} ${String(m.content).slice(0, 90)}`}

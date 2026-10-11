@@ -9,6 +9,7 @@ import { Card } from './ui/Card.js';
 import { ReceiptDetail, ReceiptOpenContext } from './components/ReceiptDetail.js';
 import { readChain } from '../utils/receipts.js';
 import { createAgent } from '../agent/core.js';
+import { laneOptions } from '../agent/lane-server.js';
 import type { AgentConfig } from '../types/index.js';
 import { Layout } from './layout.js';
 import { ViewStage } from './views.js';
@@ -56,7 +57,8 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
   const [activeRunId, setActiveRunId] = useState<string | undefined>(undefined);
   const [activeReceiptUrl, setActiveReceiptUrl] = useState<string | undefined>(undefined);
 
-  const agent = React.useMemo(() => createAgent(config), [config]);
+  // R4 (H87): lanes only when the monitor was asked for them (`timmy watch --lanes`); otherwise none start
+  const agent = React.useMemo(() => createAgent(config, laneOptions(config)), [config]);
   const agentState = useAgent(agent);
   // BOOT (opentui-u4e9): the first frame is the header with the chain head —
   // capability/graphics/telemetry/companion/mode-config probes start AFTER it.
@@ -195,8 +197,17 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
     enterCommandInput: () => focus.claim('input:command')
   });
 
+  // R4 (H87): leaving from the first-run screen ends the monitor (Ink's exit alone left it running in a canonical, echoing
+  // terminal: r23b); the terminal comes back through the exit handlers (cli.tsx's TerminalSession, startTUI's below)
+  const leave = (code: number): void => {
+    try { if (pipeline) pipeline.cleanup(); } catch { /* guard */ }
+    process.exitCode = code;
+    exit();
+    setTimeout(() => process.exit(code), 250);
+  };
+
   if (showOnboard) {
-    return <Onboarding agent={agent} onDone={() => setShowOnboard(false)} />;
+    return <Onboarding agent={agent} onDone={() => setShowOnboard(false)} onQuit={leave} />;
   }
 
   return (

@@ -36,7 +36,9 @@ export function showCompanionQR(server: CompanionAddresses): void {
   const lan = server.lanUrls[0];
   if (process.env.TIMMY_TUI_ACTIVE === 'true') {
     // The monitor owns the screen; this log never holds the token.
-    writeLog('companion.log', 'info', `[Browser companion] On this computer at ${withoutToken(server.url)} (127.0.0.1 only). Its address carries a token, which is never written to a log: press q on the monitor's HOME to see the address with its token.`);
+    // R4 (H87): where it listens, as it was started: 127.0.0.1 only, or with --lan every network address of this computer
+    const where = server.host === '0.0.0.0' ? 'listening on every network address of this computer (--lan)' : '127.0.0.1 only';
+    writeLog('companion.log', 'info', `[Browser companion] On this computer at ${withoutToken(server.url)} (${where}). Its address carries a token, which is never written to a log: press q on the monitor's HOME to see the address with its token.`);
     if (lan) writeLog('companion.log', 'info', `[Browser companion] Also on your local network at ${withoutToken(lan)} (--lan, plain HTTP). Its QR code, which holds the token, is on the monitor's pairing card (q on HOME). Use it only on a network you trust.`);
     else if (server.host === '0.0.0.0') writeLog('companion.log', 'warn', `[Browser companion] ${NO_NETWORK}`);
     return;
