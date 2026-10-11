@@ -1,7 +1,8 @@
+import { randomBytes } from 'crypto';
 import { mkdtempSync, rmSync, mkdirSync } from 'fs';
 import { homedir, tmpdir } from 'os';
 import { join, resolve } from 'path';
-import { afterAll, beforeEach, afterEach, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { watchPaths } from './helpers/path-watch.js';
 
 // TEST ISOLATION (tui-redesign-p6a3 corr 1): EVERY TEST gets its own temp
@@ -44,7 +45,9 @@ afterEach(() => {
 // there, which this check cannot see.
 const given = process.env.TIMMY_HOME;
 const real = watchPaths([join(homedir(), 'timmy'), ...(given ? [given] : [])].map((p) => resolve(p)), { exempt: ['tests/fixtures/home-guard.ts'] });
-const fileHome = mkdtempSync(join(tmpdir(), 'timmy-home-'));
+// named now (an unguessable name), made before the file's hooks and tests run: a file whose tests are all skipped runs no
+// hook, so it leaves no folder behind (code that reads the home when it loads finds it empty, as a fresh home is)
+const fileHome = join(tmpdir(), `timmy-home-${randomBytes(9).toString('hex')}`);
 const OWN: Readonly<Record<string, string>> = {
   TIMMY_HOME: fileHome,
   TIMMY_DROP_ROOT: join(fileHome, 'drop'),
@@ -54,6 +57,7 @@ const OWN: Readonly<Record<string, string>> = {
 };
 const before = Object.fromEntries(Object.keys(OWN).map((k) => [k, process.env[k]]));
 for (const [k, v] of Object.entries(OWN)) process.env[k] = v;
+beforeAll(() => { mkdirSync(fileHome, { recursive: true, mode: 0o700 }); });
 beforeEach(() => {
   for (const [k, v] of Object.entries(OWN)) if (!process.env[k]) process.env[k] = v;
 });
