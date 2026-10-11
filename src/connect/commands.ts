@@ -129,7 +129,9 @@ function okLine(g: GlyphSet, words: string): Line { return [{ text: `  ${g.ok} `
 function outcomeSaid(r: JobOutcome | { error: string }, verb: string, g: GlyphSet, okCode = 0): Said {
   if ('error' in r) return { code: 1, lines: [failLine(g, r.error)], json: { ok: false, verb, error: scrubShown(r.error) } };
   const view = jobView(r.job);
-  const lines: Line[] = [...jobLines(view, g), [label('    '), { text: scrubShown(r.words) }]];
+  const words = scrubShown(r.words);
+  // the job's line says its state; a second line only when this verb's words say more (not sent, refused, a stop's result)
+  const lines: Line[] = [...jobLines(view, g), ...(words !== view.words ? [[label('    '), { text: words }]] : [])];
   if (r.failure?.ssh) lines.push([label('    ssh: '), { text: r.failure.ssh.split('\n').slice(-3).join(' / ') }]);
   for (const t of r.job.remote?.tail ?? []) lines.push([label('    out| '), { text: t }]);
   if (r.job.state === 'running' || r.job.state === 'stop asked' || r.job.state === 'unknown') lines.push([label('    '), cmd(`timmy connect status ${r.job.id}`), label('  '), cmd(`timmy connect stop ${r.job.id}`)]);

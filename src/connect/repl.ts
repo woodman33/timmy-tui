@@ -8,6 +8,7 @@
 import { askPerson, type ApprovalRequest, type Decision } from '../repl/approvals.js';
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
+import { visibleWidth } from '../term/width.js';
 import { connectDo, connectHelp, connectSummary } from './commands.js';
 
 export interface ConnectReplContext {
@@ -19,6 +20,8 @@ export interface ConnectReplContext {
   cwd?: string;
   /** Timmy home (tests; TIMMY_HOME or ~/timmy otherwise) */
   home?: string;
+  /** the terminal's width (default: stdout's columns, or 100) */
+  columns?: number;
 }
 
 /** A line as words: spaces separate them; '…' and "…" keep theirs; a backslash keeps the next character (outside '…'). */
@@ -46,10 +49,36 @@ export function splitWords(line: string): string[] | { error: string } {
   return words;
 }
 
+/**
+ * A line as rows of at most `width` cells: the REPL cuts a row that is too long, and Connect's words (a probe's facts, a
+ * job's state) must be read whole. Words keep their roles; a continuation row is indented 6 cells.
+ */
+export function wrapLine(line: Segment[], width: number): Segment[][] {
+  const total = line.reduce((n, x) => n + visibleWidth(x.text), 0);
+  if (total <= width) return [line];
+  const rows: Segment[][] = [[]];
+  let used = 0;
+  const indent = 6;
+  for (const seg of line) {
+    let open: Segment | null = null; // this segment's part in the current row: its pieces join it
+    for (const piece of seg.text.split(/(?<= )/)) {
+      const w = visibleWidth(piece);
+      if (used + w > width && used > indent) { rows.push([{ text: ' '.repeat(indent) }]); used = indent; open = null; }
+      const text = used === indent && rows.length > 1 ? piece.replace(/^ +/, '') : piece;
+      if (open) open.text += text;
+      else { open = { text, ...(seg.role ? { role: seg.role } : {}) }; rows[rows.length - 1].push(open); }
+      used += visibleWidth(text);
+    }
+  }
+  return rows;
+}
+
 export async function connectRepl(args: string, c: ConnectReplContext): Promise<void> {
+  const width = Math.max(40, (c.columns ?? process.stdout.columns ?? 100) - 1);
+  const print = (line: Segment[]): void => { for (const row of wrapLine(line, width)) c.print(row); };
   const words = splitWords(args);
   if ('error' in words) { c.print([{ text: `  ${words.error}`, role: 'secondary' }]); return; }
-  if (!words.length) { for (const line of connectSummary({ glyphs: c.glyphs, by: 'repl', ...(c.home ? { home: c.home } : {}) })) c.print(line); return; }
+  if (!words.length) { for (const line of connectSummary({ glyphs: c.glyphs, by: 'repl', ...(c.home ? { home: c.home } : {}) })) print(line); return; }
   if (words[0] === 'help') { for (const t of connectHelp('repl')) c.print([{ text: `  ${t}` }]); return; }
   const said = await connectDo(words, {
     glyphs: c.glyphs, by: 'repl', ...(c.cwd ? { cwd: c.cwd } : {}), ...(c.home ? { home: c.home } : {}),
@@ -58,5 +87,5 @@ export async function connectRepl(args: string, c: ConnectReplContext): Promise<
   });
   const dash = words.indexOf('--');
   if ((dash < 0 ? words : words.slice(0, dash)).includes('--json')) c.print([{ text: JSON.stringify(said.json) }]);
-  else for (const line of said.lines) c.print(line);
+  else for (const line of said.lines) print(line);
 }

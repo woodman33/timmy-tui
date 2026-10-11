@@ -12,7 +12,7 @@ import { addDevice, checkDeviceInput } from '../src/connect/devices.js';
 import { listJobs, parseStatus } from '../src/connect/jobs.js';
 import { probeDevice } from '../src/connect/probe.js';
 import { readConnect } from '../src/connect/read.js';
-import { splitWords } from '../src/connect/repl.js';
+import { splitWords, wrapLine } from '../src/connect/repl.js';
 import { scrubRemote, scrubShown } from '../src/connect/scrub.js';
 import { classifySsh, sshArgs } from '../src/connect/ssh.js';
 import { connectPaths, ensureConnect, readDevices, type ConnectPaths } from '../src/connect/store.js';
@@ -221,5 +221,15 @@ describe('the REPL\'s words', () => {
     expect(splitWords(`run dev -- sh -c 'echo a  b' "x \\"y\\"" z\\ w`)).toEqual(['run', 'dev', '--', 'sh', '-c', 'echo a  b', 'x "y"', 'z w']);
     expect(splitWords(`run dev -- 'open`)).toEqual({ error: 'a single quote is not closed' });
     expect(splitWords('  ')).toEqual([]);
+  });
+
+  it('a long line becomes rows the REPL will not cut (words whole, roles kept, continuation indented)', () => {
+    const rows = wrapLine([{ text: '  ✓ ', role: 'verified' }, { text: 'connected: macOS 15.1 arm64, user op, shell POSIX sh; job folder writable; found on PATH: sh, git (found on PATH only: not proven supported or working)' }], 40);
+    expect(rows.length).toBeGreaterThan(3);
+    for (const r of rows) expect(r.map((x) => x.text).join('').length).toBeLessThanOrEqual(40);
+    expect(rows.map((r) => r.map((x) => x.text).join('').trim()).join(' ')).toBe('✓ connected: macOS 15.1 arm64, user op, shell POSIX sh; job folder writable; found on PATH: sh, git (found on PATH only: not proven supported or working)');
+    expect(rows[0][0]).toEqual({ text: '  ✓ ', role: 'verified' });
+    expect(rows[1][0].text).toBe('      ');
+    expect(wrapLine([{ text: 'short' }], 40)).toEqual([[{ text: 'short' }]]);
   });
 });
