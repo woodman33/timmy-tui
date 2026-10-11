@@ -3,6 +3,29 @@
 // server auto-pops a localhost page that streams the SAME NDJSON event bus
 // the TUI consumes, plus the receipt chain with a verify button.
 // SSE tail of .timmy/runs/timmy-events.jsonl; no dependencies, no secrets.
+//
+// R4 (H84): it is this computer's own. It listens on 127.0.0.1 (no network mode: it is also the controller that stores, arms
+// and launches plans). Every request first passes the local rule of Timmy's servers (src/utils/local-request.ts
+// isLocalRequest: Host 127.0.0.1, localhost or [::1]; Origin, when a browser sends one, a page of this computer). "The token"
+// is 32 random bytes this server makes when it starts: `timmy logs` prints and opens the address with it in the fragment
+// (#t=…); each page keeps it in memory and sends it in an Authorization header (`Bearer <token>`), the event streams too
+// (read with fetch: an EventSource cannot send a header). A token in an address is refused. The CLI also keeps it in
+// <TIMMY_HOME>/state/logs-token-<port> (0600, with its pid) for this user's other programs: the browser companion's
+// controller calls (Slate 3D's compile and store) and ensureLogCompanion, which opens the page. Never in a log.
+//
+//   route                                   requires                              why
+//   GET /, /chat, /mission, /browser        nothing more                          the pages' code; without the token they show
+//                                                                                 nothing and say how to open them from Timmy
+//   GET /health                             nothing more; its folder with the     whether this is the log companion (and its port)
+//                                           token
+//   GET /chat/events, /events               the token                             the session's turns, receipts, the event bus
+//   GET /receipts, /verify, /verify-receipt the token                             the receipt chain
+//   GET /dispatch, /mission/escrows,        the token                             plans, escrows, a folder's theatre state
+//       /mission/theatre
+//   POST /mission/compile, /mission/store,  the token, and a peer on 127.0.0.1    writes plans (compile reads the checkout;
+//        /mission/inspect, /dispatch/action                                       action arms, launches, holds, cancels)
+//
+// A refused request writes nothing (no plan, no companion.pair receipt) and says what to do.
 import { createServer, ServerResponse } from 'http';
 import { existsSync, readFileSync, statSync, openSync, readSync, closeSync, readdirSync } from 'fs';
 import { armPlan, dispatchPlan, dispatchContainerized, getPlan, pauseOrCancelLane, collectRun, createPlan, type DispatchPlan } from './dispatch.js';
@@ -16,8 +39,90 @@ import { readEvents, eventsPath, TimmyEvent } from './eventbus.js';
 import { readChain, verifyChain, verifySignature, hashOf, appendReceipt } from './receipts.js';
 import { listEscrows } from './escrow-engine.js';
 import { theme } from '../tui/theme.js';
+// R4 (H84): the local rule and the token (shared with Timmy Canvas and the browser companion).
+import { dropTokenFile, isLocalRequest, LocalToken, logsTokenFile, readTokenFile, refuseRequest, TOKEN_IN_ADDRESS, writeTokenFile } from './local-request.js';
+import { carriesSecret, writeLaunchPage } from './launch-page.js';
 
 export const LOGS_PORT = (): number => Number(process.env.TIMMY_LOGS_PORT ?? 4310);
+
+/** R4 (H84): what a request without the token is told. */
+export const LOGS_REFUSED = 'Refused: this needs the token of `timmy logs`. Open it from Timmy: `timmy logs` prints and opens its address with its token (after #, which the page keeps in memory and sends in a header).';
+export const LOGS_FOREIGN = 'Refused: the log companion answers only to this computer (127.0.0.1 or localhost), and only from its own pages.';
+
+/**
+ * R4 (H84): the first lines of every page's script. The token comes from the page's fragment (#t=<64 hex>), which a browser
+ * never sends to a server; it is taken out of the address at once and kept in this page's memory only (no storage, no
+ * cookie). timmyFetch sends it in an Authorization header; timmyEvents reads an event stream with fetch (EventSource cannot
+ * send a header) and stops for good once the token is refused; timmyLinks gives the other pages' links the token in their
+ * fragment. Without the token a page fetches nothing and says how to open it from Timmy (#timmy-token-note).
+ */
+const PAGE_TOKEN_JS = `
+var timmyToken = (function () {
+  try {
+    var m = /(?:^#|&)t=([0-9a-f]{64})(?:&|$)/.exec(location.hash);
+    if (!m) return '';
+    history.replaceState(null, '', location.pathname + location.search);
+    return m[1];
+  } catch (e) { return ''; }
+})();
+var timmyStopped = false;
+var TIMMY_OPEN = 'Open it from Timmy: \`timmy logs\` prints and opens its address with its token.';
+function timmySay(words) {
+  var note = document.getElementById('timmy-token-note');
+  if (note) { note.textContent = words; note.hidden = false; }
+}
+function timmyRefused() {
+  timmyStopped = true;
+  timmySay(timmyToken
+    ? 'This page\\u2019s token is not this log companion\\u2019s (it was started again, or the address was copied wrong), so it shows nothing. ' + TIMMY_OPEN
+    : 'This page has no token from Timmy, so it shows nothing: the log companion answers only the address Timmy gives, which carries its token after #. ' + TIMMY_OPEN);
+}
+function timmyFetch(path, init) {
+  if (!timmyToken || timmyStopped) { timmyRefused(); return Promise.reject(new Error('no token')); }
+  var o = Object.assign({}, init || {});
+  o.headers = Object.assign({}, o.headers || {}, { Authorization: 'Bearer ' + timmyToken });
+  o.credentials = 'omit';
+  o.cache = 'no-store';
+  return fetch(path, o).then(function (r) { if (r.status === 401) timmyRefused(); return r; });
+}
+function timmyEvents(path) {
+  var es = { onopen: null, onmessage: null, onerror: null };
+  var wait = 1000;
+  function again() { if (!timmyStopped) { setTimeout(open, wait); wait = Math.min(wait * 2, 15000); } }
+  function open() {
+    timmyFetch(path, { headers: { Accept: 'text/event-stream' } }).then(function (r) {
+      if (!r.ok || !r.body) throw new Error('events ' + r.status);
+      wait = 1000;
+      if (es.onopen) es.onopen();
+      var reader = r.body.getReader(), dec = new TextDecoder(), buf = '';
+      function pump() {
+        return reader.read().then(function (c) {
+          if (c.done) throw new Error('events ended');
+          buf += dec.decode(c.value, { stream: true });
+          var i;
+          while ((i = buf.indexOf('\\n\\n')) >= 0) {
+            var data = buf.slice(0, i).split('\\n').filter(function (l) { return l.indexOf('data:') === 0; }).map(function (l) { return l.slice(5).replace(/^ /, ''); }).join('\\n');
+            buf = buf.slice(i + 2);
+            if (data && es.onmessage) { try { es.onmessage({ data: data }); } catch (e) { /* the page's own handler */ } }
+          }
+          return pump();
+        });
+      }
+      return pump();
+    }).catch(function () { if (es.onerror) es.onerror(); again(); });
+  }
+  open();
+  return es;
+}
+function timmyLinks() {
+  var links = document.querySelectorAll('a[data-timmy-page]');
+  for (var i = 0; i < links.length; i++) links[i].href = links[i].getAttribute('data-timmy-page') + (timmyToken ? '#t=' + timmyToken : '');
+}
+if (!timmyToken) timmyRefused();
+`;
+
+/** R4 (H84): where a page says it has no token, or that its token was refused (theme colours only). */
+const TOKEN_NOTE = `<p id="timmy-token-note" role="alert" hidden style="margin:8px 16px;padding:8px 12px;border:1px solid ${theme.warn};border-radius:6px;color:${theme.textPrimary};background:${theme.surfaceRaised}"></p>`;
 
 const PAGE = `<!doctype html><html><head><meta charset="utf-8">
 <title>TIMMY :: LIVE LOGS</title>
@@ -53,14 +158,16 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8">
   <span class="logo">TIMMY</span><span class="meta">:: LIVE LOGS</span>
   <span class="dot" id="dot"></span><span class="meta" id="conn">connecting…</span>
   <span class="meta" id="cwd"></span>
+  <span class="meta"><a style="color:${theme.accent}" data-timmy-page="/mission">mission studio</a> · <a style="color:${theme.accent}" data-timmy-page="/browser">receipt browser</a> · <a style="color:${theme.accent}" data-timmy-page="/chat">chat mirror</a></span>
   <span class="right"><button id="verify">verify chain</button></span>
 </header>
+${TOKEN_NOTE}
 <div id="verify-out"></div>
 <main>
   <section><h2>EVENT BUS · LIVE</h2><p id="event-note" class="empty" role="status">No events received yet · waiting for this instance.</p><div id="events"></div></section>
   <section><h2>RECEIPT CHAIN · runs</h2><p id="chain-note" class="empty" role="status">Loading this store's receipt history…</p><div id="chain"></div></section>
 </main>
-<script>
+<script>${PAGE_TOKEN_JS}
 const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const eventsEl = document.getElementById('events');
 // Serialize server palette values; the browser has no imported theme module.
@@ -85,7 +192,7 @@ function addEvent(ev, scroll) {
   if (scroll) eventsEl.parentElement.scrollTop = eventsEl.parentElement.scrollHeight;
 }
 function loadChain() {
-  fetch('/receipts?stream=runs').then(r=> { if (!r.ok) throw new Error('receipt request failed'); return r.json(); }).then(list => {
+  timmyFetch('/receipts?stream=runs').then(r=> { if (!r.ok) throw new Error('receipt request failed'); return r.json(); }).then(list => {
     if (!Array.isArray(list)) throw new Error('unreadable receipt history');
     const el = document.getElementById('chain');
     el.innerHTML = list.slice(-25).reverse().map(r =>
@@ -98,22 +205,30 @@ function loadChain() {
       ? 'Showing '+Math.min(list.length,25)+' of '+list.length+' receipts · use verify chain to check integrity.' : 'No receipts in this store yet.';
   }).catch(()=> { document.getElementById('chain-note').textContent = 'Receipt history unavailable · retrying when a receipt arrives.'; });
 }
-const es = new EventSource('/events');
-es.onopen = () => { document.getElementById('dot').className = 'dot on'; document.getElementById('conn').textContent = 'live'; };
-es.onerror = () => { document.getElementById('dot').className = 'dot'; document.getElementById('conn').textContent = 'reconnecting…'; };
-es.onmessage = m => {
-  try { const ev = JSON.parse(m.data); addEvent(ev, true); if (ev.kind === 'receipt.sealed') loadChain(); }
-  catch { document.getElementById('event-note').textContent = 'Skipped an unreadable event · waiting for the next event.'; }
-};
 document.getElementById('verify').onclick = () => {
-  fetch('/verify?stream=runs').then(r=> { if (!r.ok) throw new Error('verification request failed'); return r.json(); }).then(v => {
+  timmyFetch('/verify?stream=runs').then(r=> { if (!r.ok) throw new Error('verification request failed'); return r.json(); }).then(v => {
     document.getElementById('verify-out').textContent = v.ok
       ? '✓ chain intact · '+v.count+' receipts · ed25519 signed · hash-linked'
       : '× chain BROKEN at '+(v.brokenAt||'?');
   }).catch(()=> { document.getElementById('verify-out').textContent = 'Chain verification unavailable · try again.'; });
 };
-fetch('/health').then(r=>r.json()).then(h => { document.getElementById('cwd').textContent = h.cwd; }).catch(()=> { document.getElementById('cwd').textContent = 'workspace unavailable'; });
-loadChain();
+timmyLinks();
+// R4 (H84): with the token only: the event stream (fetch, with the token in a header), the folder and the chain
+if (timmyToken) {
+  const es = timmyEvents('/events');
+  es.onopen = () => { document.getElementById('dot').className = 'dot on'; document.getElementById('conn').textContent = 'live'; };
+  es.onerror = () => { document.getElementById('dot').className = 'dot'; document.getElementById('conn').textContent = timmyStopped ? 'needs its token' : 'reconnecting…'; };
+  es.onmessage = m => {
+    try { const ev = JSON.parse(m.data); addEvent(ev, true); if (ev.kind === 'receipt.sealed') loadChain(); }
+    catch { document.getElementById('event-note').textContent = 'Skipped an unreadable event · waiting for the next event.'; }
+  };
+  timmyFetch('/health').then(r=>r.json()).then(h => { document.getElementById('cwd').textContent = h.cwd; }).catch(()=> { document.getElementById('cwd').textContent = 'workspace unavailable'; });
+  loadChain();
+} else {
+  document.getElementById('conn').textContent = 'needs its token';
+  document.getElementById('event-note').textContent = 'Nothing shown: this page has no token.';
+  document.getElementById('chain-note').textContent = 'Nothing shown: this page has no token.';
+}
 </script></body></html>`;
 
 // ---- Command Post survey column (same controller, allowlisted actions) ----
@@ -163,6 +278,7 @@ const MISSION_HTML = `<!doctype html><html><head><meta charset="utf-8">
   .note { color: ${theme.textMuted}; font-size: 11px; }
 </style></head><body>
 <h1>TIMMY :: MISSION STUDIO · compile + playback</h1>
+${TOKEN_NOTE}
 
 <h2>1 · MISSION MAP → CUE PLANS (timmy_mission_compile)</h2>
 <div class="row"><textarea id="doc" spellcheck="false"></textarea></div>
@@ -215,9 +331,9 @@ const MISSION_HTML = `<!doctype html><html><head><meta charset="utf-8">
 <h2>6 · ESCROW LEDGER (live locks · refunds · slashes)</h2>
 <pre id="escrows" style="max-height:160px;overflow-y:auto;padding:8px;border:1px solid ${theme.line};border-radius:6px;background:${theme.surfaceRaised};color:${theme.textSecondary};font:inherit;white-space:pre-wrap">no escrows yet</pre>
 
-<script>
+<script>${PAGE_TOKEN_JS}
 async function refreshEscrows() {
-  const r = await (await fetch('/mission/escrows')).json();
+  const r = await (await timmyFetch('/mission/escrows')).json();
   const box = document.getElementById('escrows');
   if (!r.ok || !r.escrows.length) { box.textContent = 'no escrows yet — arm one via the escrow engine'; return; }
   box.textContent = r.escrows.map(e =>
@@ -226,18 +342,21 @@ async function refreshEscrows() {
     (e.qa_value != null ? ' · qa ' + e.qa_value : '') +
     (e.merkle_root ? ' · merkle ' + e.merkle_root : '')).join('\\n');
 }
-new EventSource('/events').onmessage = m => {
-  const e = JSON.parse(m.data);
-  if (String(e.kind).startsWith('escrow.')) refreshEscrows();
-};
-refreshEscrows();
+// R4 (H84): with the token only (the stream is read with fetch, the token in a header)
+if (timmyToken) {
+  timmyEvents('/events').onmessage = m => {
+    const e = JSON.parse(m.data);
+    if (String(e.kind).startsWith('escrow.')) refreshEscrows();
+  };
+  refreshEscrows().catch(() => {});
+}
 async function inspectKind(kind) {
   const out = document.getElementById('insp');
   try {
     const body = kind === 'merkle'
       ? { kind, pass: JSON.parse(document.getElementById('passjson').value) }
       : { kind, scene: JSON.parse(document.getElementById('scenejson').value) };
-    const r = await (await fetch('/mission/inspect', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
+    const r = await (await timmyFetch('/mission/inspect', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
     out.textContent = JSON.stringify(r, null, 2);
   } catch (e) { out.textContent = 'parse error: ' + e; }
 }
@@ -267,7 +386,7 @@ async function compile() {
   out.innerHTML = '';
   let r;
   try {
-    const res = await fetch('/mission/compile', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc: JSON.parse(document.getElementById('doc').value) }) });
+    const res = await timmyFetch('/mission/compile', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc: JSON.parse(document.getElementById('doc').value) }) });
     r = await res.json();
   } catch (e) { out.innerHTML = '<div class="err">compile failed: ' + String(e) + '</div>'; return; }
   for (const e of r.errors ?? []) out.innerHTML += '<div class="err">× ' + e + '</div>';
@@ -287,7 +406,7 @@ async function compile() {
 let PLANS = [];
 async function storePlan(i) {
   const el = document.getElementById('gw-' + i);
-  const res = await fetch('/mission/store', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ plan: PLANS[i].plan }) });
+  const res = await timmyFetch('/mission/store', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ plan: PLANS[i].plan }) });
   const r = await res.json();
   if (!r.ok) { el.innerHTML = '<span class="err">× ' + (r.note ?? 'rejected') + '</span>'; return; }
   el.dataset.id = r.id;
@@ -300,10 +419,10 @@ async function armLaunch(i) {
   const out = document.getElementById('al-' + i);
   const id = el.dataset.id;
   const token = (document.getElementById('tok-' + i) || {}).value ?? '';
-  const a = await fetch('/dispatch/action', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, action: 'arm', token }) });
+  const a = await timmyFetch('/dispatch/action', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, action: 'arm', token }) });
   const ar = await a.json();
   if (!ar.ok) { out.innerHTML = '<span class="err">arm denied: ' + (ar.note ?? '?') + '</span>'; return; }
-  const l = await fetch('/dispatch/action', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, action: 'launch' }) });
+  const l = await timmyFetch('/dispatch/action', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, action: 'launch' }) });
   const lr = await l.json();
   out.innerHTML = lr.ok ? '<span class="hash">J-BANG! launched ' + (lr.session ?? id) + '</span>' : '<span class="err">launch refused: ' + (lr.note ?? '?') + '</span>';
   if (lr.ok && lr.container) { streamTelemetry(id); out.innerHTML += ' <span class="note">· containerized · telemetry below</span>'; }
@@ -333,7 +452,7 @@ function streamTelemetry(id) {
   TELE_LINES = [];
   document.getElementById('telelog').textContent = '';
   if (!TELE_ES) {
-    TELE_ES = new EventSource('/events');
+    TELE_ES = timmyEvents('/events');
     TELE_ES.onopen = () => {
       if (TELE_DROP) { TELE_LINES = []; telePush('sse.reconnected · replaying event tail'); TELE_DROP = false; }
     };
@@ -374,7 +493,7 @@ function sampleKfs(kfs, t) {
 let STATE = null, RAF = 0, T0 = 0, LEN = 5;
 async function loadState() {
   const note = document.getElementById('stateNote');
-  const res = await fetch('/mission/theatre?folder=' + encodeURIComponent(document.getElementById('folder').value));
+  const res = await timmyFetch('/mission/theatre?folder=' + encodeURIComponent(document.getElementById('folder').value));
   const s = await res.json();
   if (!s.sheets) { note.textContent = 'no theatre state in that folder (save one via theatre-runtime)'; STATE = null; return; }
   STATE = s;
@@ -416,13 +535,13 @@ const DISPATCH_HTML = `
 async function act(id, action) {
   let token;
   if (action === 'arm') { token = prompt('operator approval token (timmy approve <planHash>):'); if (!token) return; }
-  const r = await fetch('/dispatch/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action, token }) });
+  const r = await timmyFetch('/dispatch/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action, token }) });
   const j = await r.json();
   alert(JSON.stringify(j).slice(0, 300));
   loadPlans();
 }
 async function loadPlans() {
-  const r = await fetch('/dispatch');
+  const r = await timmyFetch('/dispatch');
   const plans = await r.json();
   document.getElementById('plans').innerHTML = plans.length ? plans.map(p =>
     '<div style="border:1px solid ${theme.surfaceRaised};border-radius:6px;padding:6px 10px;background:${theme.ground}">'
@@ -438,7 +557,8 @@ async function loadPlans() {
     + ' <button onclick="act(\\'' + p.id + '\\',\\'collect\\')">collect</button>'
     + '</div>').join('') : '<div style="color:${theme.textMuted}">no plans — prepare one from chat (ctrl+d rail) or timmy_plan_dispatch</div>';
 }
-loadPlans(); setInterval(loadPlans, 3000);
+// R4 (H84): with the token only; a refused token stops the polling
+if (timmyToken) { loadPlans().catch(() => {}); const poll = setInterval(() => { if (timmyStopped) clearInterval(poll); else loadPlans().catch(() => {}); }, 3000); }
 </script>`;
 
 // ---- Receipt browser: timeline over the chain, verify per receipt ----
@@ -469,15 +589,16 @@ const BROWSER_HTML = `<!doctype html><html><head><meta charset="utf-8">
   <button id="verify">verify chain</button>
   <span id="chainstat"></span>
 </header>
+${TOKEN_NOTE}
 <div id="list"></div>
-<script>
+<script>${PAGE_TOKEN_JS}
 const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 let CHAIN = [];
 async function load() {
   const stream = document.getElementById('stream').value;
-  CHAIN = await (await fetch('/receipts?stream=' + stream)).json();
+  CHAIN = await (await timmyFetch('/receipts?stream=' + stream)).json();
   render();
-  const v = await (await fetch('/verify?stream=' + stream)).json();
+  const v = await (await timmyFetch('/verify?stream=' + stream)).json();
   document.getElementById('chainstat').textContent =
     (v.ok ? '✓ chain intact · ' : '× broken @ ' + (v.brokenAt ?? '?') + ' · ') + v.count + ' receipts · epoch ' + v.current_epoch;
 }
@@ -502,13 +623,14 @@ function render() {
 }
 async function vf(id) {
   const stream = document.getElementById('stream').value;
-  const v = await (await fetch('/verify-receipt?stream=' + stream + '&id=' + id)).json();
+  const v = await (await timmyFetch('/verify-receipt?stream=' + stream + '&id=' + id)).json();
   document.getElementById('vf-' + id).textContent = v.ok ? '✓ body+sig' : '× ' + (v.bodyOk ? 'sig' : 'body');
 }
 document.getElementById('q').oninput = render;
 document.getElementById('stream').onchange = load;
 document.getElementById('verify').onclick = load;
-load(); setInterval(load, 5000);
+// R4 (H84): with the token only; a refused token stops the polling
+if (timmyToken) { load().catch(() => {}); const poll = setInterval(() => { if (timmyStopped) clearInterval(poll); else load().catch(() => {}); }, 5000); }
 </script></body></html>`;
 
 // WALNUT /chat mirror (work order p12 OPTIONAL): left column streams the
@@ -536,12 +658,39 @@ function sessionSize(): number {
 
 export interface LogServerHandle {
   port: number;
+  /** R4 (H84): where it listens: 127.0.0.1 unless a caller gave another host. */
+  host: string;
+  /** R4 (H84): the address to open, with the token in its fragment (printed where the operator started it, never logged). */
+  url: string;
   stop(): Promise<void>;
 }
 
+export interface LogServerOptions {
+  port?: number;
+  /** Open the page (with its token, through a private launch page: never on a command line). */
+  open?: boolean;
+  /** Where it listens; 127.0.0.1 unless given (R4 H84: never every network by default). */
+  host?: string;
+  /** R4 (H84): the token (64 hex), a test's; made at random when absent. */
+  token?: string;
+  /**
+   * R4 (H84): keep the token for this user's other programs in <TIMMY_HOME>/state/logs-token-<port> (0600, with this pid;
+   * removed when it stops): the CLI's choice (`timmy logs`, ensureLogCompanion's server); a test's only with a temporary home.
+   */
+  tokenFile?: boolean;
+}
+
+/** R4 (H84): the routes that carry the operator's content (turns, receipts, events, plans) or write: the token. */
+const NEEDS_TOKEN: ReadonlySet<string> = new Set(['/chat/events', '/events', '/receipts', '/verify', '/verify-receipt', '/dispatch', '/dispatch/action', '/mission/compile', '/mission/store', '/mission/inspect', '/mission/escrows', '/mission/theatre']);
+
+/** R4 (H84): a page, with its token script where it asks for it (chatpage.html). */
+const chatPage = (): string => readFileSync(new URL('./chatpage.html', import.meta.url), 'utf8').replace('<script>/*TIMMY-TOKEN*/</script>', () => `<script>${PAGE_TOKEN_JS}</script>`);
+
 /** Own the listener and polling lifecycle; callers may request port 0. */
-export function startManagedLogServer(opts: { port?: number; open?: boolean; host?: string } = {}): Promise<LogServerHandle> {
+export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogServerHandle> {
   let port = opts.port ?? LOGS_PORT();
+  const host = opts.host ?? '127.0.0.1';
+  const key = new LocalToken(opts.token);
   let pairSealed = false;
   interface SseClient { res: ServerResponse }
   let clients: SseClient[] = [];
@@ -570,16 +719,23 @@ export function startManagedLogServer(opts: { port?: number; open?: boolean; hos
     }, 700);
   }
   const server = createServer((req, res) => {
+    // R4 (H84): this computer's, from its own pages; never a token in an address; the operator's content and every
+    // write with the token (checked before anything is read, written or sealed)
+    if (!isLocalRequest(req)) return refuseRequest(res, 403, LOGS_FOREIGN);
+    if (key.inAddress(req.url)) return refuseRequest(res, 401, TOKEN_IN_ADDRESS);
     const url = new URL(req.url ?? '/', `http://localhost:${port}`);
+    const credited = key.bearer(req.headers.authorization);
+    if (NEEDS_TOKEN.has(url.pathname) && !credited) return refuseRequest(res, 401, LOGS_REFUSED);
     if (url.pathname === '/health') {
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ ok: true, cwd: process.cwd(), port }));
+      res.setHeader('Cache-Control', 'no-store');
+      // its folder (a path of this computer's) only with the token
+      res.end(JSON.stringify(credited ? { ok: true, app: 'timmy-logs', port, cwd: process.cwd() } : { ok: true, app: 'timmy-logs', port }));
       return;
     }
     if (url.pathname === '/chat') {
-      const page = new URL('./chatpage.html', import.meta.url);
-      res.setHeader('Content-Type', 'text/html');
-      res.end(readFileSync(page));
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.end(chatPage());
       return;
     }
     if (url.pathname === '/chat/events') {
@@ -786,7 +942,7 @@ export function startManagedLogServer(opts: { port?: number; open?: boolean; hos
   });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, opts.host, () => {
+    server.listen(port, host, () => {
       const address = server.address();
       if (!address || typeof address === 'string') {
         server.close();
@@ -796,10 +952,16 @@ export function startManagedLogServer(opts: { port?: number; open?: boolean; hos
       port = address.port;
       tailOffset = existsSync(eventsPath()) ? statSync(eventsPath()).size : 0;
       const poll = tailLoop();
+      // R4 (H84): the token for this user's other programs, while this server runs
+      const tokenAt = opts.tokenFile && writeTokenFile(logsTokenFile(port), key.value) ? logsTokenFile(port) : null;
+      const drop = (): void => { if (tokenAt) dropTokenFile(tokenAt, key.value); };
+      if (tokenAt) process.once('exit', drop);
       let stopping: Promise<void> | undefined;
       const stop = (): Promise<void> => {
         if (!stopping) {
           clearInterval(poll);
+          drop();
+          if (tokenAt) process.removeListener('exit', drop);
           stopping = new Promise<void>((done, fail) => {
             server.close(error => error ? fail(error) : done());
             // Includes SSE and keep-alive connections owned by this server.
@@ -808,55 +970,79 @@ export function startManagedLogServer(opts: { port?: number; open?: boolean; hos
         }
         return stopping;
       };
-      if (opts.open) openBrowser(`http://localhost:${port}`);
-      resolve({ port, stop });
+      const pageUrl = key.open(`http://127.0.0.1:${port}/`);
+      if (opts.open) openBrowser(pageUrl);
+      resolve({ port, host, url: pageUrl, stop });
     });
   });
 }
 
 /** Compatibility entry point for the long-lived CLI companion. */
-export async function startLogServer(opts: { port?: number; open?: boolean } = {}): Promise<number> {
+export async function startLogServer(opts: LogServerOptions = {}): Promise<number> {
   return (await startManagedLogServer(opts)).port;
 }
 
+/**
+ * Opens an address in the default browser. R4 (H84): an address that carries a token never goes on a command line (ps
+ * shows it to anyone on this computer): a private launch page (src/utils/launch-page.ts, 0600, removed within a minute)
+ * opens it instead; when that page cannot be written, nothing is opened (the address was printed where it was started).
+ */
 export function openBrowser(url: string): void {
   if (process.env.TIMMY_LOGS_OPEN === '0') return;
+  let target = url;
+  if (carriesSecret(url)) {
+    try { target = writeLaunchPage(url).href; } catch { return; }
+  }
   const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-  const child = spawn(cmd, [url], { detached: true, stdio: 'ignore' });
+  const child = spawn(cmd, [target], { detached: true, stdio: 'ignore' });
+  child.on('error', () => { /* no opener on this computer: the address was printed */ });
   child.unref();
 }
 
 // Idempotent: if the companion is already up, reuse it; else spawn detached so
 // it outlives short-lived MCP client processes. First starter auto-pops the
-// browser (TIMMY_LOGS_OPEN=0 opts out).
+// browser (TIMMY_LOGS_OPEN=0 opts out). R4 (H84): the page opens with the token
+// the running log companion keeps for this user's programs; the address returned
+// carries it (callers open it with openBrowser, never on a command line or in a log).
 export async function ensureLogCompanion(): Promise<{ url: string; started: boolean }> {
   const port = LOGS_PORT();
-  const url = `http://localhost:${port}`;
+  const base = `http://127.0.0.1:${port}`;
   const alive = async () => {
     try {
-      const r = await fetch(`${url}/health`, { signal: AbortSignal.timeout(500) });
+      const r = await fetch(`${base}/health`, { signal: AbortSignal.timeout(500) });
       return r.ok;
     } catch { return false; }
   };
-  if (await alive()) return { url, started: false };
+  const withToken = async (): Promise<string> => {
+    for (let i = 0; i < 8; i++) {
+      const t = readTokenFile(logsTokenFile(port));
+      if (t) return `${base}/#t=${t}`;
+      await new Promise(r => setTimeout(r, 125));
+    }
+    return `${base}/`;
+  };
+  if (await alive()) return { url: await withToken(), started: false };
   const tsx = join(process.cwd(), 'node_modules', '.bin', 'tsx');
   const child = spawn(tsx, [join(process.cwd(), 'src', 'utils', 'logserver.ts')], { detached: true, stdio: 'ignore' });
+  child.on('error', () => { /* no tsx here: not started */ });
   child.unref();
   for (let i = 0; i < 20; i++) {
     await new Promise(r => setTimeout(r, 250));
     if (await alive()) {
+      const url = await withToken();
       openBrowser(url);
       return { url, started: true };
     }
   }
-  return { url, started: false };
+  return { url: `${base}/`, started: false };
 }
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   const open = process.argv.includes('--open') || process.env.TIMMY_LOGS_OPEN === '1';
-  startLogServer({ open }).then(port => {
-    console.log(`timmy logs companion · http://localhost:${port} · ctrl-c to stop`);
+  // R4 (H84): it keeps its token for this user's programs (ensureLogCompanion opens the page with it)
+  startManagedLogServer({ open, tokenFile: true }).then(logs => {
+    console.log(`timmy logs companion · ${logs.url} · this computer only · ctrl-c to stop`);
   }).catch(e => {
     console.error(`companion failed: ${(e as Error).message}`);
     process.exit(1);

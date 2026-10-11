@@ -3,7 +3,7 @@
 // pinned root bus, capture the board with Playwright (still + clip), record
 // slate.render.start/done on the bus, and seal slate.render in the ROOT chain.
 //   node lanes/slate/render.mjs [--board ledger] [--design <receipt id>] [--no-seal] [--no-mp4]
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, readdirSync, statSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
@@ -35,8 +35,11 @@ const boardPath = join(ROOT, 'companion', 'boards', `${BOARD}.mission.json`);
 const boardSha = sha(boardPath);
 
 // 2. companion server against the root bus
-const server = spawn('npx', ['tsx', '-e', `import('./src/companion/server.ts').then(m => m.startCompanionServer(${PORT}))`], {
-  cwd: ROOT, env: { ...process.env, TIMMY_REPO: REPO }, stdio: ['ignore', 'pipe', 'pipe'], detached: true,
+// R4 (H84): the companion answers this lane's viewer only with its token: made here, given to the server in its
+// environment (never on a command line), and to the viewer in its address's fragment (never on the bus or in a seal).
+const TOKEN = randomBytes(32).toString('hex');
+const server = spawn('npx', ['tsx', '-e', `import('./src/companion/server.ts').then(m => m.startCompanionServer(${PORT}, { token: process.env.SLATE_COMPANION_TOKEN }))`], {
+  cwd: ROOT, env: { ...process.env, TIMMY_REPO: REPO, SLATE_COMPANION_TOKEN: TOKEN }, stdio: ['ignore', 'pipe', 'pipe'], detached: true,
 });
 const stopServer = () => { try { process.kill(-server.pid, 'SIGTERM'); } catch { try { server.kill('SIGTERM'); } catch { /* gone */ } } };
 let serverLog = '';
@@ -61,7 +64,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto(`${url}&still=1`, { waitUntil: 'load' });
+  await page.goto(`${url}&still=1#t=${TOKEN}`, { waitUntil: 'load' });
   await page.waitForTimeout(WAIT);
   busEvent('slate.render.capture', { board: BOARD, frame: 'still' });
   await page.waitForTimeout(2500);
@@ -85,7 +88,7 @@ try {
     const b2 = await chromium.launch();
     const ctx = await b2.newContext({ viewport: { width: 1600, height: 1000 }, recordVideo: { dir: vdir, size: { width: 1600, height: 1000 } } });
     const p2 = await ctx.newPage();
-    await p2.goto(url, { waitUntil: 'load' });
+    await p2.goto(`${url}#t=${TOKEN}`, { waitUntil: 'load' });
     await p2.waitForTimeout(1500);
     await p2.mouse.move(800, 500);
     await p2.mouse.down();

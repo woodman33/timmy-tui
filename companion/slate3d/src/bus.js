@@ -7,6 +7,24 @@
 //   room  a Durable Object room speaking the runs/events contract
 //         (GET <worker>/runs/<room>/events, polled)
 
+// R4 (H84): the companion's token, from this page's fragment (#t=<64 hex>: the companion page sets it on its Slate 3D
+// frame; a lane opens the page with it). Taken out of the address at once and kept in memory only; sent in an
+// Authorization header on this page's requests to the companion (companionFetch) and as a WebSocket subprotocol on the
+// companion's socket. Never sent anywhere else: not to a room's worker, not to the edge head.
+export const slateToken = (() => {
+  try {
+    const m = /(?:^#|&)t=([0-9a-f]{64})(?:&|$)/.exec(location.hash);
+    if (!m) return '';
+    history.replaceState(null, '', location.pathname + location.search);
+    return m[1];
+  } catch { return ''; }
+})();
+
+/** A request to the companion that serves this page (a relative path), with its token in a header. */
+export function companionFetch(path, init = {}) {
+  return fetch(path, { ...init, headers: { ...(init.headers ?? {}), Authorization: `Bearer ${slateToken}` }, credentials: 'omit', cache: 'no-store' });
+}
+
 const KIND_ALIASES = { comfy: 'comfyui', oapi: 'openapi', roboflow: 'roboflow', openhands: 'openhands', apify: 'apify', hyperframes: 'hyperframes', defold: 'defold', blender: 'blender', godot: 'godot', unity: 'unity' };
 
 export function laneOf(ev, lanes) {
@@ -110,12 +128,16 @@ export function connectBus(opts, onEvent, onStatus) {
     return { close: () => { closed = true; for (const c of closers) c(); } };
   }
 
-  // default: the companion WebSocket on the same origin
+  // default: the companion WebSocket on the same origin. R4 (H84): it takes the page's token as a subprotocol.
+  if (!slateToken) {
+    status(false, 'bus needs the companion\'s token: open Slate 3D from the companion page (its SLATE 3D tab)');
+    return { close: () => { closed = true; } };
+  }
   let ws;
   let backoff = 500;
   const open = () => {
     if (closed) return;
-    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`);
+    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`, ['timmy-companion', `timmy-token.${slateToken}`]);
     ws.onopen = () => { backoff = 500; status(true, 'bus live'); ws.send(JSON.stringify({ type: 'hello', client: 'slate3d' })); };
     ws.onclose = () => { status(false, 'bus reconnecting'); if (!closed) setTimeout(open, (backoff = Math.min(backoff * 2, 8000))); };
     ws.onerror = () => { /* onclose follows */ };

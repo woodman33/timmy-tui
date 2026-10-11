@@ -13,6 +13,10 @@ let server: LogServerHandle;
 let workspace: string;
 const originalCwd = process.cwd();
 const up = async (): Promise<number> => server.port;
+// R4 (H84): the gateway's routes need the token its page carries (from the address it gives)
+const auth = (): Record<string, string> => ({ Authorization: `Bearer ${/#t=([0-9a-f]{64})$/.exec(server.url)?.[1]}` });
+const post = (p: number, path: string, body: unknown): Promise<Response> =>
+  fetch(`http://127.0.0.1:${p}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...auth() }, body: JSON.stringify(body) });
 beforeAll(async () => {
   workspace = mkdtempSync(join(tmpdir(), 'timmy-companion-'));
   process.chdir(workspace);
@@ -48,11 +52,11 @@ describe('mission studio gateway (isolated listener)', () => {
 
   it('compiles docs and stores plans with immutable hashes', async () => {
     const p = await up();
-    const c = await (await fetch(`http://127.0.0.1:${p}/mission/compile`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc: DOC }) })).json();
+    const c = await (await post(p, '/mission/compile', { doc: DOC })).json();
     expect(c.ok).toBe(true);
     expect(c.plans).toHaveLength(1);
     expect(c.plans[0].plan.workspace.kind).toBe('host-ephemeral');
-    const s = await (await fetch(`http://127.0.0.1:${p}/mission/store`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ plan: c.plans[0].plan }) })).json();
+    const s = await (await post(p, '/mission/store', { plan: c.plans[0].plan })).json();
     expect(s.ok).toBe(true);
     expect(s.id).toMatch(/^dp_/);
     expect(s.plan_hash).toMatch(/^[0-9a-f]{16,}$/);
@@ -60,10 +64,10 @@ describe('mission studio gateway (isolated listener)', () => {
 
   it('denies arming without an operator token (J-BANG boundary)', async () => {
     const p = await up();
-    const c = await (await fetch(`http://127.0.0.1:${p}/mission/compile`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc: DOC }) })).json();
-    const s = await (await fetch(`http://127.0.0.1:${p}/mission/store`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ plan: c.plans[0].plan }) })).json();
+    const c = await (await post(p, '/mission/compile', { doc: DOC })).json();
+    const s = await (await post(p, '/mission/store', { plan: c.plans[0].plan })).json();
     expect(s.ok).toBe(true);
-    const a = await (await fetch(`http://127.0.0.1:${p}/dispatch/action`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: s.id, action: 'arm', token: 'garbage' }) })).json();
+    const a = await (await post(p, '/dispatch/action', { id: s.id, action: 'arm', token: 'garbage' })).json();
     expect(a.ok).toBe(false);
     expect(a.note).toBe('unknown approval token');
     expect(getPlan(s.id)?.lifecycle).toBe('needs_approval');
@@ -72,7 +76,7 @@ describe('mission studio gateway (isolated listener)', () => {
 
   it('fails closed on theatre-state path escapes', async () => {
     const p = await up();
-    const r = await (await fetch(`http://127.0.0.1:${p}/mission/theatre?folder=${encodeURIComponent('../../etc')}`)).json();
+    const r = await (await fetch(`http://127.0.0.1:${p}/mission/theatre?folder=${encodeURIComponent('../../etc')}`, { headers: auth() })).json();
     expect(r.sheets).toBeUndefined();
     expect(r.error).toBeTruthy();
   });

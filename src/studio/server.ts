@@ -69,6 +69,8 @@ import { dropProjectToken, HOLDER_ID, mountProjectRoutes, ProjectLink, writeProj
 import { CardRelay, mountCardRoutes, type RelayOptions } from './card-relay.js';
 // Round R4 (H83): who may run code, read and save the canvas, and join the bridge.
 import { bridgeGate, callerOf, DOCUMENT_REFUSED, EXEC_REFUSED, holderMayRun, JOBS_REFUSED, keepOthers, LINK_REFUSED, refuse, replOnly, withholdOthers } from './canvas-auth.js';
+// R4 (H84): the local-request rule, shared with the browser companion and `timmy logs`.
+import { isLocalRequest as isLocal } from '../utils/local-request.js';
 
 export { STUDIO_PORT };
 
@@ -104,16 +106,12 @@ export function studioRoot(): string {
   return candidates.find(existsSync) ?? candidates[0];
 }
 
-/** Host headers this server answers: a page elsewhere cannot rebind its DNS name to 127.0.0.1 and read it. */
-const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i;
-/** Origins allowed to call it: this machine's own pages (a browser always sends Origin on a WebSocket). */
-const LOCAL_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i;
-
-/** Addressed to this machine, and (when a browser says where it comes from) sent by this machine's pages. */
-export function isLocalRequest(req: IncomingMessage): boolean {
-  const origin = req.headers.origin;
-  return LOCAL_HOST.test(req.headers.host ?? '') && (origin === undefined || LOCAL_ORIGIN.test(origin));
-}
+/**
+ * Addressed to this machine, and (when a browser says where it comes from) sent by this machine's pages: Host 127.0.0.1,
+ * localhost or [::1], so a page elsewhere cannot rebind its DNS name to 127.0.0.1 and read it. R4 (H84): the one rule of
+ * Timmy's local servers, kept in src/utils/local-request.ts (the browser companion and `timmy logs` use it too).
+ */
+export const isLocalRequest = (req: IncomingMessage): boolean => isLocal(req);
 
 const JOB_ID = /^[\w.:-]{1,100}$/;
 /** R4 (H83): what an exec call carries, and nothing else (a token never goes in a body). */

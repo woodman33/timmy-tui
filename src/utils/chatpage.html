@@ -15,9 +15,15 @@ main{display:flex;flex:1;min-height:0}
 .sealed{color:#8A8A8A}.sealed b{color:#33FF66;font-weight:600}
 .drop{margin-bottom:8px}.drop .s{color:#8A8A8A}.drop .h{color:#33FF66}.drop .m{color:#8A8A8A}
 #empty{color:#8A8A8A;font-weight:400}
+header a{color:#FFFFFF}
+#timmy-token-note{margin:8px 12px;padding:8px 12px;border:1px solid #FFFFFF;border-radius:6px;color:#FFFFFF}
 </style></head><body>
-<header><b>PROMPT</b> ─ PLAN ─ LANES ─ RECEIPTS ─ PROOF · mirror of the TUI counterflow chat · full inspection at /</header>
+<header><b>PROMPT</b> ─ PLAN ─ LANES ─ RECEIPTS ─ PROOF · mirror of the TUI counterflow chat · full inspection at <a data-timmy-page="/">/</a></header>
+<p id="timmy-token-note" role="alert" hidden></p>
 <main><div id="left"><h1 id="empty">no conversation yet — type a mission in the TUI</h1></div><div id="right"></div></main>
+<!-- R4 (H84): the page's token (from its fragment, kept in memory) and its requests with it; filled in by the server. -->
+<script>/*TIMMY-TOKEN*/</script>
+<script>timmyLinks();</script>
 <script type="module">
 import React from 'https://esm.sh/react@18.3.1';
 import { createRoot } from 'https://esm.sh/react-dom@18.3.1/client';
@@ -51,7 +57,8 @@ function drawRight() {
     right.appendChild(e);
   });
 }
-var es = new EventSource('/chat/events');
+// R4 (H84): read with fetch, the token in a header (an EventSource cannot send one); nothing without the token
+var es = timmyToken ? timmyEvents('/chat/events') : {};
 es.onmessage = function (ev) {
   var o = JSON.parse(ev.data);
   if (o.t === 'turns') { turns = o.turns; drawLeft(); }

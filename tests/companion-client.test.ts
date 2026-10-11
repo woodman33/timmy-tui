@@ -6,8 +6,10 @@ import { runInNewContext } from 'node:vm';
 // Synthetic messages exercise transport/display only; no provider is contacted.
 const html = readFileSync(new URL('../src/companion/client/index.html', import.meta.url), 'utf8');
 const code = html.slice(html.indexOf('    function saveActiveChat()'), html.indexOf('    // GSAP Tab Deck Controller'));
+// R4 (H84): the page's token (a FAKE one here), as the page's own script reads it from its fragment.
+const TOKEN = 'c0'.repeat(32);
 
-function client(protocol = 'http:') {
+function client(protocol = 'http:', token = TOKEN) {
   const statusEl = { textContent: '' };
   const dot = { style: {} as Record<string, string> };
   const consoleLogs = { innerHTML: '', scrollTop: 0, scrollHeight: 0 };
@@ -20,10 +22,12 @@ function client(protocol = 'http:') {
     localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) },
     WebSocket: class {
       url: string;
+      protocols: string[];
       send = vi.fn();
       close = vi.fn();
-      constructor(url: string) { this.url = url; sockets.push(this); }
+      constructor(url: string, protocols: string[] = []) { this.url = url; this.protocols = protocols; sockets.push(this); }
     },
+    companion: { token, refused: false, protocols: () => ['timmy-companion', `timmy-token.${token}`], check: vi.fn(() => Promise.resolve(true)) },
     wsConnection: null, activeChatHistory: [], isViewingSaved: false,
     updateMirrorStatus: vi.fn(),
     exitSavedChatViewer: vi.fn(), setTimeout: vi.fn(), console: { error: vi.fn() },
@@ -51,6 +55,14 @@ describe('companion connection and chat mirror', () => {
     expect(client().socket.url).toBe('ws://127.0.0.1:3001');
   });
 
+  // R4 (H84): the socket carries the token as a subprotocol (never in its address), and without a token none is opened.
+  it('offers the token as a subprotocol beside timmy-companion, and opens no socket without a token', () => {
+    const c = client();
+    expect(c.socket.protocols).toEqual(['timmy-companion', `timmy-token.${TOKEN}`]);
+    expect(c.socket.url).not.toContain(TOKEN);
+    expect(client('http:', '').socket).toBeUndefined();
+  });
+
   it('renders the live server data envelope and the reconnect history envelope', () => {
     const c = client();
     const history = [{ role: 'user', content: 'SYNTHETIC local preview', timestamp: 1 }];
@@ -76,6 +88,8 @@ describe('companion connection and chat mirror', () => {
     expect(c.statusEl.textContent).toBe('COMPANION SOCKET · RECONNECTING');
     expect(c.context.updateMirrorStatus).toHaveBeenLastCalledWith('RECONNECTING');
     expect(c.context.setTimeout).toHaveBeenCalledWith(expect.any(Function), 2000);
+    // R4 (H84): a closed socket asks the companion whether it still takes the token (a refusal stops the retries)
+    expect(c.context.companion.check).toHaveBeenCalled();
   });
 
   it('displays tool arguments and event labels as text, without executing markup', () => {

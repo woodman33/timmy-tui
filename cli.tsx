@@ -85,6 +85,8 @@ program
   .option('--headless', 'Run without TUI (headless agent)')
   .option('--companion-port <port>', 'Companion window port', '3001')
   .option('--no-companion', 'Disable companion window')
+  // R4 (H84): the companion is this computer's only unless the operator asks for the local network, for a phone
+  .option('--lan', 'Also serve the companion on your local network (plain HTTP; its QR code holds its token): only on a network you trust')
   .option('--max-steps <n>', 'Max agentic loop iterations', '10')
   .option('--max-cost <n>', 'Max cost per session in USD', '1.0')
   .option('--debug', 'Enable debug logging')
@@ -191,11 +193,11 @@ if (opts.headless) {
 
     for (const port of candidatePorts) {
       try {
-        const server = await (await import('./src/companion/server.js')).startCompanionServer(port);
+        // R4 (H84): on 127.0.0.1 with a token made now; with --lan, on the local network too
+        const server = await (await import('./src/companion/server.js')).startCompanionServer(port, { lan: opts.lan === true });
         (global as any).companionServer = server;
-        const url = `http://localhost:${server.port}`;
         if (port !== preferredPort) companionNote('info', `Companion port ${preferredPort} busy; using ${server.port}.`);
-        (await import('./src/companion/qr.js')).showCompanionQR(url);
+        (await import('./src/companion/qr.js')).showCompanionQR(server);
         companionStarted = true;
         break;
       } catch (err: any) {

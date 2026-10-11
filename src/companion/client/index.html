@@ -466,6 +466,9 @@
     </div>
   </header>
 
+  <!-- R4 (H84): shown when the page has no token, or its token is not this companion's: what to do, in words. -->
+  <div id="token-note" role="alert" hidden style="font-size: 13px; line-height: 1.5; color: var(--text-main); background: var(--bg-card); border: 1px solid var(--primary-hsl); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; z-index: 10;"></div>
+
   <div class="explainer-bar" style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px; z-index: 10;">
     TIMMY Browser Companion mirrors terminal chat, shows workspace status, displays bounded logs, and previews the latest receipt. The mirror caches chat in this browser; the terminal remains the source of truth.
   </div>
@@ -663,7 +666,8 @@
       <!-- Tab Panel 5: Streamdown Chat (TMX P3) -->
       <div id="tab-slate3d" class="tab-panel">
         <!-- Slate 3D: the mission board as a scene, lane pods lit from the bus (companion/slate3d) -->
-        <iframe id="slate3d-frame" title="Slate 3D" src="/slate3d/?board=ledger" loading="lazy" style="width:100%;height:100%;border:0;background:#0A1628;display:block"></iframe>
+        <!-- R4 (H84): its address is set by the script, with the page's token in its fragment (Slate 3D asks for it too). -->
+        <iframe id="slate3d-frame" title="Slate 3D" data-src="/slate3d/?board=ledger" loading="lazy" style="width:100%;height:100%;border:0;background:#0A1628;display:block"></iframe>
       </div>
       <div id="tab-canvas" class="tab-panel">
         <div class="glass-card" style="flex-grow: 1; padding: 24px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto;">
@@ -691,6 +695,85 @@
   </div>
 
   <script>
+    // R4 (H84): the companion's token. Timmy gives this page's address with it in the fragment (#t=<64 hex>), which a
+    // browser never sends to a server; it is taken out of the address at once and kept in this page's memory only (no
+    // storage, no cookie), and sent in an Authorization header on each request and as a WebSocket subprotocol. Without
+    // it, or when the companion says it is not its token, the page loads nothing more and says how to open it from Timmy.
+    const companion = (() => {
+      let token = '';
+      try {
+        const m = /(?:^#|&)t=([0-9a-f]{64})(?:&|$)/.exec(location.hash);
+        if (m) {
+          token = m[1];
+          history.replaceState(null, '', location.pathname + location.search);
+        }
+      } catch (e) { /* no address to read */ }
+      const OPEN_FROM_TIMMY = 'Open it from Timmy: in `timmy watch`, press q on HOME; it shows the companion’s address with its token.';
+      const c = {
+        token,
+        refused: false,
+        protocols: () => ['timmy-companion', 'timmy-token.' + token],
+        say(words) {
+          const note = document.getElementById('token-note');
+          if (note) { note.textContent = words; note.hidden = false; }
+          const status = document.getElementById('status-text');
+          if (status) status.textContent = 'COMPANION · NEEDS ITS TOKEN';
+        },
+        refuse() {
+          c.refused = true;
+          c.say('This page’s token is not the companion’s (Timmy started it again, or the address was copied wrong), so it loads nothing. ' + OPEN_FROM_TIMMY);
+        },
+        // Every request to the companion: the token in a header, never in the address; a 401 stops the page.
+        fetch(path, init) {
+          const o = Object.assign({}, init || {});
+          o.headers = Object.assign({}, o.headers || {}, { Authorization: 'Bearer ' + token });
+          o.credentials = 'omit';
+          o.cache = 'no-store';
+          return fetch(path, o).then((r) => { if (r.status === 401) c.refuse(); return r; });
+        },
+        // Whether the companion still takes this token (asked when the socket closes); true when it cannot be asked.
+        check: () => c.fetch('/api/auth').then((r) => r.status !== 401, () => true),
+        // POST /chat, streamed: calls on(event, data) for each server-sent event (delta, usage, error, done).
+        async chat(messages, on, signal) {
+          const res = await c.fetch('/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages }), signal });
+          if (!res.ok || !res.body) throw new Error('Companion /chat responded HTTP ' + res.status);
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = '';
+          for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) return;
+            buf += decoder.decode(chunk.value, { stream: true });
+            let sep;
+            while ((sep = buf.indexOf('\n\n')) !== -1) {
+              const raw = buf.slice(0, sep);
+              buf = buf.slice(sep + 2);
+              let event = 'message';
+              const data = [];
+              for (const line of raw.split('\n')) {
+                if (line.startsWith('event:')) event = line.slice(6).trim();
+                else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
+              }
+              if (!data.length) continue;
+              let parsed = data.join('\n');
+              try { parsed = JSON.parse(parsed); } catch (e) { /* raw text */ }
+              on(event, parsed);
+              if (event === 'done') return;
+            }
+          }
+        },
+      };
+      if (!token) c.say('This page has no token from Timmy, so it loads nothing: the companion answers only the address Timmy gives, which carries its token after #. ' + OPEN_FROM_TIMMY);
+      return c;
+    })();
+    // The Streamdown island (a module script) streams its chat through this call; the token itself is not put on window.
+    window.timmyCompanion = { chat: (messages, on, signal) => companion.chat(messages, on, signal) };
+    // Slate 3D's tab: the same token, in its frame's fragment (the frame takes it out of its address too).
+    (() => {
+      const frame = document.getElementById('slate3d-frame');
+      if (frame && companion.token) frame.src = frame.dataset.src + '#t=' + companion.token;
+    })();
+
     const statusEl = document.getElementById('status-text');
     const consoleLogs = document.getElementById('console-logs');
     const logsList = document.getElementById('logs-list');
@@ -977,8 +1060,10 @@
     }
 
     function connect() {
+      // R4 (H84): only with the token (as a subprotocol), and never again once the companion refused it.
+      if (!companion.token || companion.refused) return;
       const socketProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${socketProtocol}//${location.host}`);
+      const ws = new WebSocket(`${socketProtocol}//${location.host}`, companion.protocols());
       wsConnection = ws;
 
       ws.onopen = () => {
@@ -997,6 +1082,11 @@
           
           if (msg.type === 'state' || msg.type === 'welcome') {
             appendToLocalLogs('INFO', `TUI State change: ${msg.state || 'idle'}`);
+          } else if (msg.type === 'bus.tail' && Array.isArray(msg.events)) {
+            // R4 (H84): the event bus, as it reached this page: the tail on connecting, then each event
+            appendToLocalLogs('INFO', `Event bus: ${msg.events.length} recent event${msg.events.length === 1 ? '' : 's'}${msg.events.length ? `, latest ${String(msg.events[msg.events.length - 1].kind)}` : ''}`);
+          } else if (msg.type === 'bus' && msg.event) {
+            appendToLocalLogs('INFO', `Event bus: ${String(msg.event.kind)}`);
           } else if (msg.type === 'sync') {
             // Live broadcasts use data; the hello/reconnect snapshot uses history.
             const history = msg.data ?? msg.history;
@@ -1063,6 +1153,8 @@
         document.querySelector('.status-dot').style.boxShadow = '0 0 10px #ff7b72';
         appendToLocalLogs('ERROR', 'WebSocket connection lost. Retrying in 2s...');
         if (!isViewingSaved) updateMirrorStatus('RECONNECTING');
+        // R4 (H84): a socket refused for its token closes like a lost one; the companion is asked, and a refusal stops the retries
+        companion.check();
         setTimeout(connect, 2000);
       };
 
@@ -1173,11 +1265,14 @@
     async function refreshCanvas() {
       const box = document.getElementById('canvas-summary');
       if (!box) return;
+      // R4 (H84): with the page's token; without it the companion answers nothing
+      if (!companion.token || companion.refused) { box.textContent = 'The canvas is read with the companion’s token, which this page does not have.'; return; }
       try {
-        const s = await (await fetch('/api/canvas', { cache: 'no-store' })).json();
-        box.innerHTML = canvasSummaryHtml(s, location.hostname);
+        const r = await companion.fetch('/api/canvas');
+        if (!r.ok) throw new Error(String(r.status));
+        box.innerHTML = canvasSummaryHtml(await r.json(), location.hostname);
       } catch {
-        box.textContent = 'Timmy could not be reached to read the canvas.';
+        box.textContent = companion.refused ? 'The canvas is read with the companion’s token, which this page does not have.' : 'Timmy could not be reached to read the canvas.';
       }
     }
     // end Timmy Canvas tab
@@ -1431,21 +1526,7 @@
       '```'
     ].join('\n');
 
-    /* ---------- SSE parsing ---------- */
-
-    function parseSseEvent(raw) {
-      let event = 'message';
-      const dataLines = [];
-      for (const line of raw.split('\n')) {
-        if (line.startsWith('event:')) event = line.slice(6).trim();
-        else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
-      }
-      if (dataLines.length === 0) return null;
-      const data = dataLines.join('\n');
-      let json = null;
-      try { json = JSON.parse(data); } catch { /* raw text payload */ }
-      return { event, data, json };
-    }
+    /* R4 (H84): the chat's server-sent events are read by the page's own chat call (window.timmyCompanion.chat). */
 
     /* ---------- App ---------- */
 
@@ -1494,41 +1575,18 @@
         const controller = new AbortController();
         let acc = '';
         try {
-          const res = await fetch('/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages: convo.map((m) => ({ role: m.role, content: m.content })) }),
-            signal: controller.signal
-          });
-          if (!res.ok || !res.body) throw new Error('Companion /chat responded HTTP ' + res.status);
-
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buf = '';
-          for (;;) {
-            const chunk = await reader.read();
-            if (chunk.done) break;
-            buf += decoder.decode(chunk.value, { stream: true });
-            let sep;
-            while ((sep = buf.indexOf('\n\n')) !== -1) {
-              const raw = buf.slice(0, sep);
-              buf = buf.slice(sep + 2);
-              const evt = parseSseEvent(raw);
-              if (!evt) continue;
-              if (evt.event === 'delta') {
-                const piece = typeof evt.json === 'string' ? evt.json : evt.data;
-                acc += piece;
-                replaceLastAssistant(acc);
-                setTokens(Math.max(1, Math.ceil(acc.length / 4))); // live ~4 chars/token estimate
-              } else if (evt.event === 'usage') {
-                setUsage(evt.json);
-              } else if (evt.event === 'error') {
-                setError((evt.json && evt.json.error) || evt.data);
-              } else if (evt.event === 'done') {
-                break;
-              }
+          // R4 (H84): through the page's own chat call, which sends the companion's token in a header
+          await window.timmyCompanion.chat(convo.map((m) => ({ role: m.role, content: m.content })), (event, data) => {
+            if (event === 'delta') {
+              acc += typeof data === 'string' ? data : JSON.stringify(data);
+              replaceLastAssistant(acc);
+              setTokens(Math.max(1, Math.ceil(acc.length / 4))); // live ~4 chars/token estimate
+            } else if (event === 'usage') {
+              setUsage(data);
+            } else if (event === 'error') {
+              setError((data && data.error) || String(data));
             }
-          }
+          }, controller.signal);
         } catch (err) {
           if (!err || err.name !== 'AbortError') setError((err && err.message) || String(err));
         } finally {
