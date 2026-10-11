@@ -23,6 +23,7 @@ import { reviewView, type ReviewView } from '../review/changes.js';
 import type { BoardReview } from '../review/html.js';
 import { gatherDecisions, markWaiting, type DecisionsView } from '../room/decisions.js';
 import { gatherRoom, type RoomRun, type RoomTools, type RoomView } from '../room/index.js';
+import { judgeIndex, type JudgeIndex } from '../room/judge.js';
 import { readProjectJobs, readRunsChain } from '../studio/project-cards.js';
 import type { Receipt } from '../utils/receipts.js';
 import { findWorkflowDocs } from '../workflows/upmd.js';
@@ -153,11 +154,14 @@ export function readSources(projectRoot: string, o: OverviewOptions): Sources {
   const rels = files.ok ? files.value.list.map((f) => f.rel) : [];
   const flows = g.flows ? ok(g.flows) : guard(() => readBoardFlows(root, rels.filter((r) => FLOW_RECORD.test(r)), { receipts, projectId: pid, scrub }));
   const flowsValue = flows.ok ? flows.value : { list: [], more: 0 };
-  const ix = g.ix ? ok(g.ix) : guard(() => buildIndex({ root, projectId: pid, chain: receipts, jobs: jobList, scrub }));
+  // R4 (H82): the project's judgements read once, for the index and the Control Room, as a board build reads them
+  let judged: JudgeIndex | undefined = g.ix?.judged;
+  if (!g.ix && !g.room) { try { judged = judgeIndex({ root, chain: receipts, projectId: pid, scrub, ...(flowsValue.more ? {} : { flows: [...(flowsValue.running ?? []), ...flowsValue.list] }) }); } catch { judged = undefined; } }
+  const ix = g.ix ? ok(g.ix) : guard(() => buildIndex({ root, projectId: pid, chain: receipts, jobs: jobList, scrub, ...(judged ? { judged } : {}) }));
   const activeFlows = g.activeFlows ?? [];
   // The Control Room's view: given by the REPL (with its decisions and operation cards), or read here as the canvas does.
   const room: Part<RoomView> = g.room ? ok(g.room) : guard(() => {
-    const r = gatherRoom({ root, project: name, projectId: pid, jobs: jobList, chain: receipts, flows: flowsValue, mine: () => false, activeFlows, scrub, ...(g.tools ? { tools: g.tools } : {}) });
+    const r = gatherRoom({ root, project: name, projectId: pid, jobs: jobList, chain: receipts, flows: flowsValue, mine: () => false, activeFlows, scrub, ...(g.tools ? { tools: g.tools } : {}), ...(judged ? { judged } : {}) });
     if (ix.ok) {
       annotateRoom(r, ix.value, jobList);
       r.view.operations = recentOperations(ix.value, 6).map((id) => operationCard(ix.value, id));

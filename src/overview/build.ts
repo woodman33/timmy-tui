@@ -9,6 +9,7 @@
  * model is plain JSON; every path in it is relative to the project, and free text has the project's folder as "." and the
  * home folder as "~". Nothing here runs, stops, writes or seals anything.
  */
+import { withProcessTable } from '../ops/process-proof.js';
 import { buildMap } from './map.js';
 import {
   ITEMS_MAX, MAP_LABEL, OVERVIEW_SCHEMA, SECTION_TITLE,
@@ -36,8 +37,15 @@ function guarded<T extends Overview[OverviewSectionId]>(id: OverviewSectionId, s
   try { return build(); } catch (e) { return unknownSection(id, s, `this section could not be built: ${s.scrub(message(e))}`) as T; }
 }
 
-/** God's Eye View of the project at `projectRoot`, now. */
+/**
+ * God's Eye View of the project at `projectRoot`, now. R4 (H82): with one reading of the process table for every run and
+ * operation it checks (src/ops/process-proof.ts withProcessTable), shared with the board build that calls it.
+ */
 export function buildOverview(projectRoot: string, opts: OverviewOptions = {}): Overview {
+  return withProcessTable(() => buildOverviewNow(projectRoot, opts));
+}
+
+function buildOverviewNow(projectRoot: string, opts: OverviewOptions): Overview {
   const s = readSources(projectRoot, opts);
   const project = guarded('project', s, () => projectSection(s));
   const needs = guarded('needs', s, () => needsSection(s));

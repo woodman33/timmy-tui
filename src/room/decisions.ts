@@ -35,6 +35,7 @@ import { CODEX_LOCAL_ROUTE } from '../code-agents/codex-local.js';
 import { readMcpCalls } from '../connectors/mcp-records.js';
 import type { JobRecord } from '../jobs/index.js';
 import type { OperationCard } from '../ops/card.js';
+import { withProcessTable } from '../ops/process-proof.js';
 import { checkLesson, listLessons, oneLine, problemsText } from '../memory/lessons.js';
 import { listNativeRuns, NATIVE_APPS, readNativeRecord, type NativeApp } from '../native/index.js';
 import { RECIPE_ID } from '../recipes/index.js';
@@ -580,7 +581,8 @@ export function gatherDecisions(c: DecisionContext): DecisionsView {
   const all: Decision[] = [
     ...part('The approvals', () => approvalItems(c), []),
     ...part("The board's refused saves", () => staleSaveItems(c), []),
-    ...part('What an ended session left', () => leftItems(c, flows, now), []),
+    // R4 (H82): one reading of the process table for every job's starter (starterGone), not one ps per job
+    ...part('What an ended session left', () => withProcessTable(() => leftItems(c, flows, now)), []),
     ...setup.items,
     ...part('The flows', () => flowItems(c, flows), []),
     ...part('The workflow runs', () => workflowItems(c), []),

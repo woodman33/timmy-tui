@@ -13,7 +13,8 @@ import { runOf } from '../repl/board-workflows.js';
 import type { BoardFlow } from '../repl/board-flows.js';
 import type { Decision } from '../room/decisions.js';
 import { cleanLine, costsLine, type RoomCost, type RoomRun } from '../room/index.js';
-import { verifyReceiptIn, type Receipt } from '../utils/receipts.js';
+import type { Receipt } from '../utils/receipts.js';
+import { checkedAt, headCheck } from './head-check.js'; // R4 (H82)
 import { isGeometry } from '../vox/record.js';
 import { metricText } from '../vox/tools.js';
 import type { VoxKind } from '../vox/kinds.js';
@@ -43,6 +44,8 @@ const VOX_RECORD = /^results\/vox\/v[0-9a-f]{8}\.json$/;
 /** The roles of the files a record names that are about the run itself, not what it made (src/room/index.ts's roles). */
 const SKIP_ROLE = /^(record|transcript|its final message|agent transcript|agent result|raw output|kept record|observation)$|\blog$/;
 const FLOW_RECORD = /^results\/flows\/f[0-9a-f]{8}\.json$/;
+/** R4 (H82): how many operation records that say they run have their writer checked (the newest); older ones are counted. */
+export const OPS_CHECKED = 50;
 
 /** A section's shared fields; `state` read unless said. */
 export function base<T extends OverviewSectionId>(id: T, s: Pick<Sources, 'asOf'>): SectionBase & { id: T } {
@@ -437,10 +440,12 @@ export function historySection(s: Sources): HistorySection {
   const last = chain.at(-1);
   let head: HistorySection['head'] = null;
   if (last) {
-    const v = verifyReceiptIn(chain, last.hash);
+    // R4 (H82): checked once per head (the live board builds this every 2 s), said with the time the check ran
+    const v = headCheck(chain, last);
+    const at = checkedAt(v.at);
     head = {
-      id: shortReceipt(last), kind: String(last.kind), ts: String(last.ts ?? ''), verified: v.ok,
-      words: v.ok ? 'verified: every link of its epoch up to it, each body hash and its signature (verifyReceiptIn; timmy verify checks the whole chain)' : `not verified: ${v.reason}`,
+      id: shortReceipt(last), kind: String(last.kind), ts: String(last.ts ?? ''), verified: v.ok, verified_at: v.at,
+      words: v.ok ? `verified at ${at}: every link of its epoch up to it, each body hash and its signature (verifyReceiptIn; checked again when the chain has a new head; timmy verify checks the whole chain)` : `not verified (checked at ${at}): ${v.reason}`,
       source: { record: null, command: 'timmy verify' },
     };
   }
@@ -454,13 +459,16 @@ export function historySection(s: Sources): HistorySection {
       unknown: { runs: c.unknown, ...(c.atLeastUsd > 0 ? { at_least_usd: c.atLeastUsd } : {}) }, free: { runs: c.free }, words: costsLine(c),
     };
   } else problems.push(`the costs could not be read: ${s.room.ok ? s.room.value.notes[0] ?? 'no runs' : s.room.error}`);
-  // Operations: recorded, running (proven by the process that writes its record), left.
-  const ops = { recorded: 0, running: 0, left: 0 };
+  // Operations: recorded, running (proven by the process that writes its record), left. R4 (H82): the newest OPS_CHECKED
+  // records that say they run are checked (the index holds them newest first); any older ones are counted, not checked.
+  const ops: HistorySection['operations'] = { recorded: 0, running: 0, left: 0 };
   const unreadable: Unreadable[] = [];
   if (s.ix.ok) {
+    let open = 0;
     for (const { record } of s.ix.value.records.values()) {
       ops.recorded++;
       if (record.ended !== null) continue;
+      if (++open > OPS_CHECKED) { ops.unchecked = (ops.unchecked ?? 0) + 1; continue; }
       const l = operationLife(record.owner, false);
       if (l.life === 'running') ops.running++; else if (l.life === 'left') ops.left++;
     }
@@ -492,6 +500,7 @@ export function historySection(s: Sources): HistorySection {
       count(costs.free.runs, 'run free on a local endpoint', 'runs free on a local endpoint'),
       count(ops.recorded, 'operation recorded', 'operations recorded'),
       ...(ops.left ? [count(ops.left, 'operation left by a Timmy that ended', 'operations left by a Timmy that ended')] : []),
+      ...(ops.unchecked ? [count(ops.unchecked, `older operation whose record says it runs, not checked here (the newest ${OPS_CHECKED} were)`, `older operations whose records say they run, not checked here (the newest ${OPS_CHECKED} were)`)] : []),
     ],
     ...(urgent ? { urgent } : {}), unreadable,
   };

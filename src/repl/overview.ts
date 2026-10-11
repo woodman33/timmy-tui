@@ -240,7 +240,9 @@ function historyLines(sec: HistorySection, c: Ctx): Line[] {
   lines.push([{ text: '    Chain head  ', role: 'secondary' }, ...(h ? [{ text: `${h.id} (${h.kind}, ${stamp(h.ts)}) ` }, { text: h.words, ...(h.verified ? {} : { role: 'failure' as Role }) }, { text: `  ${h.source.command}`, role: 'accent' as Role }]
     : sec.receipts.known ? [{ text: 'no receipts yet: nothing to verify', role: 'secondary' as Role }] : [{ text: `unknown: ${sec.receipts.why ?? 'not read'}`, role: 'estimate' as Role }])]);
   lines.push([{ text: '    Costs       ', role: 'secondary' }, { text: sec.costs.words || 'not known' }]);
-  lines.push([{ text: '    Operations  ', role: 'secondary' }, { text: `${sec.operations.recorded} recorded${c.sep}${sec.operations.running} running (proven)${c.sep}${sec.operations.left} left by a Timmy that ended` }]);
+  lines.push([{ text: '    Operations  ', role: 'secondary' }, { text: `${sec.operations.recorded} recorded${c.sep}${sec.operations.running} running (proven)${c.sep}${sec.operations.left} left by a Timmy that ended` },
+    // R4 (H82): only the newest records that say they run are checked; the rest are counted
+    ...(sec.operations.unchecked ? [{ text: `${c.sep}and ${sec.operations.unchecked} older said running, not checked here`, role: 'estimate' as Role }] : [])]);
   const lessons = Object.entries(sec.lessons);
   lines.push([{ text: '    Lessons     ', role: 'secondary' }, { text: lessons.length ? lessons.map(([w, n]) => `${n} ${w}`).join(c.sep) : 'none' }]);
   if (sec.receipts.recent.length) lines.push([{ text: '    Newest receipts of this project', role: 'strong' }]);

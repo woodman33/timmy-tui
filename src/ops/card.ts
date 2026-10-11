@@ -44,7 +44,7 @@ import { blockCount } from '../workflows/block-count.js';
 import { jobJudgement, judgeIndex, judgeWords, outcomeMark, type JobMark, type JudgeIndex } from '../room/judge.js';
 import { runOutcome } from './outcome.js';
 import { OPERATION_ID } from './context.js';
-import { writerState } from './process-proof.js';
+import { withProcessTable, writerState } from './process-proof.js';
 
 export const LESSONS_DIR = '.timmy/memory/lessons';
 export const LESSON_SCHEMA = 'timmy.lesson/1';
@@ -177,9 +177,11 @@ export interface IndexContext {
   /** this project's jobs (the Workspace's list: its own and earlier sessions' records) */
   jobs: readonly JobRecord[];
   scrub: (t: string) => string;
+  /** R4 (H82): the judgements a board build read already (judgeIndex reads every native run and agent run): read here otherwise */
+  judged?: JudgeIndex;
 }
 
-const push = <T>(m: Map<string, T[]>, k: string | undefined, v: T): void => { if (!k || !OPERATION_ID.test(k)) return; const l = m.get(k); if (l) l.push(v); else m.set(k, [v]); };
+const push =<T>(m: Map<string, T[]>, k: string | undefined, v: T): void => { if (!k || !OPERATION_ID.test(k)) return; const l = m.get(k); if (l) l.push(v); else m.set(k, [v]); };
 
 /** Reads the project's records once: each operation's record, and every run record that names an operation. */
 export function buildIndex(c: IndexContext): OpIndex {
@@ -237,8 +239,8 @@ export function buildIndex(c: IndexContext): OpIndex {
   }
   const receipts = new Map<string, Receipt[]>();
   for (const r of c.chain) if (r && r.project_id === c.projectId) push(receipts, str(r.operation_id), r);
-  let judged: JudgeIndex | undefined;
-  try { judged = judgeIndex({ root, chain: c.chain, projectId: c.projectId, scrub: c.scrub }); } catch { judged = undefined; }
+  let judged: JudgeIndex | undefined = c.judged;
+  if (!judged) { try { judged = judgeIndex({ root, chain: c.chain, projectId: c.projectId, scrub: c.scrub }); } catch { judged = undefined; } }
   return { root, chain: c.chain, scrub: c.scrub, records, unreadableRecords: listed.unreadable, jobs, flows, vox, agents, natives, mcps, receipts, ...(judged ? { judged } : {}) };
 }
 
@@ -625,9 +627,12 @@ export function annotateRoom(room: { all: Array<{ kind: string; id: string; job?
   }
 }
 
-/** The operations to show: those running first, then the newest, at most `max`. */
+/**
+ * The operations to show: those running first, then the newest, at most `max`. R4 (H82): each operation's state is read
+ * once, before the sort (its comparator asked the process table twice per comparison: thousands of ps runs per board
+ * build on the Mac, r22), against one reading of the process table (withProcessTable).
+ */
 export function recentOperations(ix: OpIndex, max = 6): string[] {
-  const ids = knownOperations(ix);
   const startOf = (id: string): number => {
     const r = ix.records.get(id)?.record;
     if (r) return Date.parse(r.started) || 0;
@@ -640,5 +645,6 @@ export function recentOperations(ix: OpIndex, max = 6): string[] {
     const r = ix.records.get(id)?.record;
     return !!r && r.ended === null && writerState(r.owner) !== 'gone';
   };
-  return ids.sort((a, b) => Number(running(b)) - Number(running(a)) || startOf(b) - startOf(a)).slice(0, max);
+  const rows = withProcessTable(() => knownOperations(ix).map((id) => ({ id, running: running(id), start: startOf(id) })));
+  return rows.sort((a, b) => Number(b.running) - Number(a.running) || b.start - a.start).slice(0, max).map((r) => r.id);
 }

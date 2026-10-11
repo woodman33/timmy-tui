@@ -51,7 +51,7 @@ import { blockDetail } from '../workflows/run-blocks.js';
 import { blockReceiptsOf } from '../workflows/block-receipts.js';
 import { nativeHandoff } from './native-handoff.js';
 import { unrealRunOutcome } from '../native/unreal-readback.js';
-import { START_SLACK_MS, THIS_PROCESS, writerState } from '../ops/process-proof.js';
+import { START_SLACK_MS, THIS_PROCESS, withProcessTable, writerState } from '../ops/process-proof.js';
 
 // ── the model ─────────────────────────────────────────────────────────────────
 
@@ -223,6 +223,8 @@ export interface RoomContext {
   scrub: (text: string) => string;
   now?: () => number;
   tools?: RoomTools;
+  /** R4 (H82): the judgements the board build read already (one judgeIndex per build); read here otherwise */
+  judged?: JudgeIndex;
 }
 
 // ── small helpers ─────────────────────────────────────────────────────────────
@@ -944,12 +946,19 @@ function readFlows(c: RoomContext): BoardFlows {
  * first and bounded (the rest counted). Each run's cost is its receipt's when a receipt seals it, else its record's.
  */
 export function gatherRoom(context: RoomContext): Room {
+  // R4 (H82): one reading of the process table for every run's check (a job's starter: starterEnded), not one ps per job
+  return withProcessTable(() => gatherRoomNow(context));
+}
+
+function gatherRoomNow(context: RoomContext): Room {
   const receiptOfJob = new Map<string, Receipt>();
   for (const r of context.chain) { const id = r ? str(r.job?.id) : undefined; if (id) receiptOfJob.set(id, r); }
   const flows = context.flows ?? readFlows(context);
   // R4 (H73): what the project's records judged of its jobs, read once (the flows as read here, unless older ones were left out)
+  // R4 (H82): or as the board build read them already (judgeIndex reads every native run's and agent run's record)
   let judged: JudgeIndex;
-  try { judged = judgeIndex({ root: context.root, chain: context.chain, projectId: context.projectId, scrub: context.scrub, ...(flows.more ? {} : { flows: [...(flows.running ?? []), ...flows.list] }) }); } catch { judged = { byJob: new Map(), kindOf: new Map(), byRun: new Map(), scrub: context.scrub }; }
+  if (context.judged) judged = context.judged;
+  else try { judged = judgeIndex({ root: context.root, chain: context.chain, projectId: context.projectId, scrub: context.scrub, ...(flows.more ? {} : { flows: [...(flows.running ?? []), ...flows.list] }) }); } catch { judged = { byJob: new Map(), kindOf: new Map(), byRun: new Map(), scrub: context.scrub }; }
   const c: Ctx = { ...context, nowMs: (context.now ?? Date.now)(), claimed: new Set(), receiptOfJob, judged };
   // Who serves which flow: its agent run, its step jobs, its recipe job (each named by the flow record).
   const flowOfRun = new Map<string, string>();

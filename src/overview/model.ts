@@ -280,8 +280,11 @@ export interface HistorySection extends SectionBase {
   id: 'history';
   /** known: false when no store was named or it could not be read (why says which): then nothing about receipts is known */
   receipts: { known: boolean; why?: string; total: number; project: number; recent: ReceiptItem[]; recent_more: number };
-  /** the chain's newest receipt, verified or not, as the existing verifier says */
-  head: { id: string; kind: string; ts: string; verified: boolean; words: string; source: OverviewSource } | null;
+  /**
+   * the chain's newest receipt, verified or not, as the existing verifier says; R4 (H82): `verified_at`, when that check ran
+   * (once per head: it is checked again when the chain has a new head, not on every build)
+   */
+  head: { id: string; kind: string; ts: string; verified: boolean; verified_at?: string; words: string; source: OverviewSource } | null;
   costs: {
     /** the reported amounts summed, and how many runs reported one; absent when none did */
     reported?: { usd: number; runs: number };
@@ -290,7 +293,8 @@ export interface HistorySection extends SectionBase {
     free: { runs: number };
     words: string;
   };
-  operations: { recorded: number; running: number; left: number };
+  /** R4 (H82): `unchecked`, older records that say they run whose writer was not checked here (only the newest are) */
+  operations: { recorded: number; running: number; left: number; unchecked?: number };
   lessons: Record<string, number>;
 }
 

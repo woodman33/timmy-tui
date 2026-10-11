@@ -114,6 +114,7 @@ import { runOutcome } from '../ops/outcome.js';
 import { annotateRoom, buildIndex, knownOperations, operationCard, recentOperations, type OpIndex } from '../ops/card.js';
 import { cardLines, opsLines } from '../ops/card-text.js';
 import { HOLDS_DIR } from '../ops/flow-hold.js';
+import { withProcessTable } from '../ops/process-proof.js'; // R4 (H82): one reading of the process table per board build
 // Round R4 (H60): what waits on a person (/decisions, and the first of the Control Room), read from what exists; hooks "R4 (H60)".
 import { DECISIONS_ALL, gatherDecisions, markWaiting, type DecisionsView } from '../room/decisions.js';
 import { decisionsLines } from '../room/decisions-text.js';
@@ -2134,12 +2135,13 @@ export class Workspace {
   }
 
   /** The Control Room from what the board has gathered (or, for /room, from the project): never throws; a failure is said. */
-  private roomOf(o: { jobs: JobRecord[]; chain: Receipt[]; flows?: BoardFlows; observations?: BoardObservation[]; ix?: OpIndex }): Room {
+  private roomOf(o: { jobs: JobRecord[]; chain: Receipt[]; flows?: BoardFlows; observations?: BoardObservation[]; ix?: OpIndex; judged?: JudgeIndex }): Room {
     const root = this.root;
     try {
       const room = gatherRoom({
         root, project: this.project.name, projectId: projectId(root), jobs: o.jobs, chain: o.chain,
         ...(o.flows ? { flows: o.flows } : {}), ...(o.observations ? { observations: o.observations } : {}),
+        ...(o.judged ? { judged: o.judged } : {}), // R4 (H82): the board build's one reading of the judgements
         mine: (id) => this.mine.has(id), activeFlows: this.flows.active,
         asking: (id) => this.observing.get(id)?.asking,
         scrub: (t) => this.scrub(t, root),
@@ -2227,11 +2229,11 @@ export class Workspace {
   }
 
   /** The project's records, read once for the operation cards (the board, /op, /ops, /room). */
-  private opIndex(jobs?: readonly JobRecord[], chain?: readonly Receipt[]): OpIndex {
+  private opIndex(jobs?: readonly JobRecord[], chain?: readonly Receipt[], judged?: JudgeIndex): OpIndex {
     const root = this.root;
     let c = chain;
     if (!c) { try { c = (this.d.receipts ?? (() => readChain('runs')))(); } catch { c = []; } }
-    return buildIndex({ root, projectId: projectId(root), chain: c, jobs: jobs ?? this.jobs.list().filter((j) => sameFolder(j.root, root)), scrub: (t) => this.scrub(t, root) });
+    return buildIndex({ root, projectId: projectId(root), chain: c, jobs: jobs ?? this.jobs.list().filter((j) => sameFolder(j.root, root)), scrub: (t) => this.scrub(t, root), ...(judged ? { judged } : {}) });
   }
 
   /**
@@ -2369,8 +2371,15 @@ export class Workspace {
     ];
   }
 
-  /** What a board shows (the snapshot's and the live board's): gathered from the project, its jobs and its receipts. */
-  private boardData(live = false): {
+  /**
+   * What a board shows (the snapshot's and the live board's): gathered from the project, its jobs and its receipts. R4 (H82):
+   * with one reading of the process table for the whole build (the live board builds it on every poll, every 2 s a page).
+   */
+  private boardData(live = false) {
+    return withProcessTable(() => this.boardDataNow(live));
+  }
+
+  private boardDataNow(live: boolean): {
     input: BoardInput; references: number; docs: number; jobs: number; outputs: number; observed: number; verifiedCount: number; truncated: boolean;
     images: Array<{ rel: string; kind: string; bytes: number }>;
   } {
@@ -2461,13 +2470,14 @@ export class Workspace {
     // R4 (/iterate): each flow record, checked against the runs chain like an observation. R4 (H48): read once, for the Flows
     // section and the Control Room.
     const flows = readBoardFlows(root, files.filter((f) => inFlows(f) && f.rel.endsWith('.json')).map((f) => f.rel), { receipts: chain, projectId: pid, scrub: (t) => this.scrub(t, root) });
-    // R4 (H73): the project's judgements of its jobs, read once for the Jobs section (the flows as just read)
+    // R4 (H73): the project's judgements of its jobs, read once for the Jobs section (the flows as just read). R4 (H82): and
+    // once for the whole build: the operation index and the Control Room are given it (each read it again before: 3 a build)
     let judged: JudgeIndex | undefined;
-    try { judged = judgeIndex({ root, chain, projectId: pid, scrub: (t) => this.scrub(t, root), ...(flows.more ? {} : { flows: flows.list }) }); } catch { judged = undefined; }
+    try { judged = judgeIndex({ root, chain, projectId: pid, scrub: (t) => this.scrub(t, root), ...(flows.more ? {} : { flows: [...(flows.running ?? []), ...flows.list] }) }); } catch { judged = undefined; }
     // R4 (H65): the project's records read once, for the Control Room's operation cards and the review beside them.
     let ix: OpIndex | undefined;
-    try { ix = this.opIndex(jobs, chain); } catch { ix = undefined; }
-    const room = this.roomOf({ jobs, chain, flows, observations: shownObs, ...(ix ? { ix } : {}) });
+    try { ix = this.opIndex(jobs, chain, judged); } catch { ix = undefined; }
+    const room = this.roomOf({ jobs, chain, flows, observations: shownObs, ...(ix ? { ix } : {}), ...(judged ? { judged } : {}) });
     const review = this.boardReview(ix);
     // R4 (H55): whether Timmy Canvas is open on this same project, as the REPL last found it.
     const canvas = this.d.canvas?.();
