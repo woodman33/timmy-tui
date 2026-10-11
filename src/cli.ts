@@ -47,7 +47,8 @@ Usage: timmy <command> [options]
 
 Commands:
   repl            The inline REPL, also plain timmy: chat in your scrollback (timmy repl --demo needs no key)
-  watch           The full-screen monitor (the Command Post)
+  watch           The full-screen monitor (the Command Post); its browser companion is on 127.0.0.1 (q on HOME shows its address
+                  with its token); --lan also serves it on your local network for a phone (plain HTTP; only on a network you trust)
   receipts        The receipt chain: verify, then the latest (--follow)
   theme           Timmy Homebrew (default), Night and Day, and the font, for your terminal (theme install)
   center          The cockpit: REPL, monitor and events as tabs (zellij, tmux, or the REPL here)
@@ -74,7 +75,7 @@ Commands:
   runtimes doctor Detect runtime readiness without executing agent tasks
   sceneforge      Use the authenticated Cloudflare control plane via MCPorter
   events          Stream the TUI's event envelope as NDJSON (--follow, --human, --otlp)
-  logs            Live web companion: event bus + receipt chain + verify (auto-pops browser; --port N)
+  logs            Live web companion: event bus + receipt chain + verify, on 127.0.0.1 (prints and opens its address with its token; --port N)
   vision          Roboflow visual templates, inspections, evidence and review (--port N)
   geo score|bench|scale  Voxel bench: score truth vs prediction, run a public-set bench, solve metric scales (receipted; --key value)
   approve <hash>  Mint a single-use, 5-min approval token bound to a gated tool's plan hash
@@ -885,10 +886,14 @@ if (command === 'epoch') {
 if (command === 'logs') {
   // Live companion for headless MCP/CLI sessions: streams the SAME event bus
   // the TUI consumes + receipt chain with verify; auto-pops a browser once.
-  const { startLogServer } = await import('./utils/logserver.js');
+  // R4 (H84): on 127.0.0.1 only, with a token made now: printed here (where the operator started it) and opened through a
+  // private launch page, never on a command line or in a log; kept for this user's other programs while it runs.
+  const { startManagedLogServer } = await import('./utils/logserver.js');
   const portIdx = args.indexOf('--port');
   const port = portIdx >= 0 ? Number(args[portIdx + 1]) : undefined;
-  await startLogServer({ port, open: true });
+  const logs = await startManagedLogServer({ port, open: true, tokenFile: true });
+  console.log(`timmy logs · ${logs.url}`);
+  console.log('This computer only (127.0.0.1). The address carries its token after #: open it from here (it was opened for you); ctrl-c to stop.');
   await new Promise(() => {}); // server owns the event loop
 }
 
