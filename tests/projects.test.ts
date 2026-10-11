@@ -1,18 +1,22 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync, writeFileSync, existsSync, readFileSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, writeFileSync, existsSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   initProject, listProjects, readProject,
   addGenToProject, addRefToProject, renderProjectSite, projectDir,
-  addCastToProject, castPromptBlock, renderBlockingSvg, saveProject, renderRightsLog
+  addCastToProject, castPromptBlock, renderBlockingSvg, saveProject, renderRightsLog,
+  renderCanvasPage, CANVAS_MOVED
 } from '../src/utils/projects.js';
+import { esc } from '../src/repl/board-kit.js';
 
 let dir: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'timmy-proj-'));
 });
+// R4 (H97): each test's folder is removed after it
+afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
 describe('Slate projects', () => {
   it('initializes the visual project folder skeleton', () => {
@@ -86,5 +90,22 @@ describe('Slate projects', () => {
     expect(existsSync(site)).toBe(true);
     expect(existsSync(join(projectDir('launch', dir), 'site', 'mcp.json'))).toBe(false);
     expect(readFileSync(site, 'utf8')).toContain('TIMMY Slate — launch');
+  });
+
+  // R4 (H97): the legacy Slate panel's canvas pane asked unpkg and esm.sh for tldraw and React; now it loads nothing and says
+  // where the canvas is (tests/dash-pages-browser.test.ts opens it in a real browser through the dashboard's server)
+  it('writes the legacy canvas page with no script and no address elsewhere, saying the canvas lives in Timmy Canvas (/canvas open)', () => {
+    initProject('film', {}, dir);
+    const proj = readProject('film', dir)!;
+    proj.beats = [{ at: 0, dur: 3, label: 'OPEN', text: 'The <script>x()</script> wakes' }];
+    saveProject(proj, dir);
+    addCastToProject('film', { id: 'c1', name: 'Keeper', wardrobe: 'yellow coat' }, dir);
+    const html = readFileSync(renderCanvasPage('film', dir)!, 'utf8');
+    expect(html).toContain(esc(CANVAS_MOVED));
+    expect(CANVAS_MOVED).toContain('/canvas open');
+    expect(html).not.toMatch(/<script|https?:\/\/|\bimport\b|tldraw|esm\.sh|unpkg/i);
+    expect(html).toContain('<b>0s–3s [OPEN]</b> The &lt;script&gt;x()&lt;/script&gt; wakes');
+    expect(html).toContain('C1 Keeper');
+    expect(renderCanvasPage('nope', dir)).toBeNull();
   });
 });

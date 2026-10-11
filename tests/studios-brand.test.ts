@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync, existsSync, readFileSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, existsSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { BRAND } from '../src/utils/brand.js';
@@ -12,6 +12,8 @@ let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'timmy-studios-'));
 });
+// R4 (H97): each test's folder is removed after it
+afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
 describe('brand system', () => {
   it('centralizes product names so a rename is one file', () => {

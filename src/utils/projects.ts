@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, readd
 import { join, basename, extname } from 'path';
 import { readChain, verifyChain } from './receipts.js';
 import { theme } from '../tui/theme.js';
+import { HOMEBREW, TYPE } from '../theme/tokens.js';
+import { esc } from '../repl/board-kit.js';
 
 // TIMMY Slate projects — the visual project folder. One schema (slate.json),
 // many targets: HyperFrames comp, Remotion scaffold, Instatic/Paper site,
@@ -256,46 +258,49 @@ export function renderRightsLog(name: string, dir?: string): string | null {
   return join(p, 'RIGHTS-LOG.md');
 }
 
-// tldraw SDK canvas — the Slate visual layer. Polls slate.json every 2s and
-// draws beats as columns + cast as sticky notes. CLI authors on the left;
-// this renders live on the right in a carbonyl pane.
+/** R4 (H97): what the legacy Slate canvas page says first (tests/dash-pages-browser.test.ts reads it). */
+export const CANVAS_MOVED = 'The canvas lives in Timmy Canvas now: in Timmy\'s REPL, type /canvas open.';
+
+// The legacy Slate panel's canvas pane (`v` on a project). R4 (H97): it asked unpkg and esm.sh for tldraw and React,
+// then failed on an import of a file that was never there (../tui/theme.js), so it showed nothing. The canvas lives in
+// Timmy Canvas now (/canvas open). This page loads nothing (no script, no request but itself): it says so, and shows the
+// project's beats and cast as text, from slate.json as it was when the page was written (it does not change by itself).
 export function renderCanvasPage(name: string, dir?: string): string | null {
   const proj = readProject(name, dir);
   if (!proj) return null;
   const p = projectDir(name, dir);
   mkdirSync(join(p, 'site'), { recursive: true });
+  const span = (b: { at: unknown; dur: unknown }): string => {
+    const at = Number(b.at);
+    const dur = Number(b.dur);
+    return Number.isFinite(at) && Number.isFinite(dur) ? `${at}s–${at + dur}s` : `${String(b.at)}s`;
+  };
+  const beats = (proj.beats || []).map((b) => `<li><b>${esc(`${span(b)} [${b.label}]`)}</b> ${esc(b.text ?? '')}</li>`).join('');
+  const cast = (proj.cast || []).map((c) => {
+    const said = [c.wardrobe ? `wardrobe: ${c.wardrobe}` : '', c.emotion ? `emotion: ${c.emotion}` : ''].filter(Boolean).join('; ');
+    return `<li>${esc(`${c.id} ${c.name}`)}${said ? ` <span class="said">${esc(`(${said})`)}</span>` : ''}</li>`;
+  }).join('');
   const html = `<!doctype html>
-<html><head><meta charset="utf-8"><title>TIMMY Slate canvas — ${proj.name}</title>
-<link rel="stylesheet" href="https://unpkg.com/tldraw@3.15.0/tldraw.css" />
-<style>html,body,#root{height:100%;margin:0;background:${theme.ground}}</style>
-</head><body><div id="root"></div>
-<script type="module">
-import React from "https://esm.sh/react@18.3.1?bundle";
-import { createRoot } from "https://esm.sh/react-dom@18.3.1/client?bundle";
-import { Tldraw, createShapeId } from "https://esm.sh/tldraw@3.15.0?bundle&deps=react@18.3.1,react-dom@18.3.1";
-import { theme } from '../tui/theme.js';
-let last = "";
-function sync(editor, slate) {
-  editor.selectAll(); editor.deleteShapes(editor.getSelectedShapeIds());
-  let x = 80;
-  (slate.beats || []).forEach((b, i) => {
-    editor.createShape({ id: createShapeId(), type: "geo", x, y: 80, props: { w: Math.max(120, b.dur * 60), h: 140, fill: "semi", color: theme.accent, text: b.at + "s [" + b.label + "]\\n" + (b.text || "") } });
-    x += Math.max(120, b.dur * 60) + 40;
-  });
-  let y = 300;
-  (slate.cast || []).forEach(c => {
-    editor.createShape({ id: createShapeId(), type: "note", x: 80, y, props: { color: theme.accent, text: c.id + " " + c.name + "\\n" + (c.wardrobe || "") + "\\n" + (c.emotion || "") } });
-    y += 160;
-  });
-}
-createRoot(document.getElementById("root")).render(React.createElement(Tldraw, {
-  onMount: (editor) => {
-    window.editor = editor;
-    const load = () => fetch("../slate.json").then(r => r.ok ? r.json() : null).then(j => { if (!j) return; const s = JSON.stringify(j); if (s !== last) { last = s; sync(editor, j); } }).catch(() => {});
-    load(); setInterval(load, 2000);
-  }
-}));
-</script></body></html>
+<html lang="en"><head><meta charset="utf-8"><title>${esc(`TIMMY Slate: ${proj.name}`)}</title>
+<link rel="icon" href="data:,">
+<style>
+body{margin:0;padding:20px 28px;background:${HOMEBREW.ground};color:${HOMEBREW.text};font:${TYPE.size.body}px/${TYPE.lineHeight} ${TYPE.stack}}
+h1{color:${HOMEBREW.accent};font-size:${TYPE.size.h1}px;margin:0 0 12px}
+h2{color:${HOMEBREW.textSecondary};font-size:${TYPE.size.small}px;letter-spacing:.2em;margin:24px 0 8px}
+.moved{border:1px solid ${HOMEBREW.lineStrong};background:${HOMEBREW.surface};padding:12px 16px;max-width:72ch}
+code{color:${HOMEBREW.accent}}
+b{color:${HOMEBREW.accent};font-weight:${TYPE.weight.strong}}
+.said,.empty,.made{color:${HOMEBREW.textSecondary}}
+.made{font-size:${TYPE.size.small}px;margin-top:28px;max-width:72ch}
+</style></head><body>
+<h1>${esc(`TIMMY Slate: ${proj.name}`)}</h1>
+<p class="moved">${esc(CANVAS_MOVED)}</p>
+<h2>BEATS</h2>
+${beats ? `<ol class="beats">${beats}</ol>` : '<p class="empty">No beats in this project yet.</p>'}
+<h2>CAST</h2>
+${cast ? `<ul class="cast">${cast}</ul>` : '<p class="empty">No cast in this project yet.</p>'}
+<p class="made">${esc(`Written by Timmy's Slate panel from studio/${proj.name}/slate.json at ${now()}; it does not change by itself. This page loads nothing, from here or elsewhere.`)}</p>
+</body></html>
 `;
   writeFileSync(join(p, 'site', 'canvas.html'), html, 'utf8');
   return join(p, 'site', 'canvas.html');
