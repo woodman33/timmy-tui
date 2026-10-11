@@ -121,6 +121,8 @@ export interface WorkspaceViews {
   room?(args: string): Promise<Segment[][]>;
   /** Round R4 (helper H60): what waits on a person in the project: what is needed, why, and the command or step. */
   decisions?(args: string): Promise<Segment[][]>;
+  /** Round R4 (helper H78): God's Eye View, the project at a glance (src/overview, src/repl/overview.ts). */
+  overview?(args: string): Promise<Segment[][]>;
   /** Round R4 (helper H49): Timmy VoxVision's four actions over the supported spatial tools (src/repl/vox.ts). */
   inspect?(args: string): Promise<Segment[][]>;
   measure?(args: string): Promise<Segment[][]>;
@@ -209,6 +211,8 @@ export const COMMANDS: SlashCommand[] = [
   // Round R4 (helper H65): what each operation changed, checked now; a restore only over the file exactly as its run left it.
   { name: 'review', group: 'look', description: 'What operations changed: /review [<id>]', run: inWorkspace((w, a) => (w.review ? w.review(a) : [[{ text: '  The review is not available here.', role: 'secondary' }]])) },
   { name: 'restore', group: 'work', raw: true, description: 'Kept version back: /restore <f> --from <kept>', run: inWorkspace((w, a) => (w.restore ? w.restore(a) : [[{ text: '  /restore is not available here.', role: 'secondary' }]])) },
+  // Round R4 (helper H78): God's Eye View, also the board's first section; it reads, and does nothing itself.
+  { name: 'overview', group: 'look', description: "God's Eye View: the project at a glance", run: inWorkspace((w, a) => (w.overview ? w.overview(a) : [[{ text: '  The overview is not available here.', role: 'secondary' }]])) },
   // Round R4 (helper H48): the Control Room, also a section of the board.
   { name: 'room', group: 'look', description: 'Control Room: runs, costs, tools; /room <id>', run: inWorkspace((w, a) => (w.room ? w.room(a) : [[{ text: '  The Control Room is not available here.', role: 'secondary' }]])) },
   // Round R4 (helper H60): what waits on you (also first in the Control Room); it reads, and does nothing itself.

@@ -263,7 +263,8 @@ describe('the state', () => {
     expect(s.html).toContain('&lt;img src=x onerror=alert(1)&gt;.png');
     expect(s.html).toContain('data-act="observe" data-file="refs/&lt;img src=x onerror=alert(1)&gt;.png"');
     expect(s.html).toContain('data-act="run" data-doc="BUILD.md" data-block="wait"');
-    expect(s.html).not.toMatch(/<a [^>]*href=|<img /);
+    // R4 (H78): a link within the page (the Overview's "Control Room", as the contents' links) leaves it for no file.
+    expect(s.html).not.toMatch(/<a [^>]*href="(?!#)|<img /);
     expect(s.html).not.toMatch(/\sstyle="/);
     // The shell never names it.
     expect((await raw(port)).body).not.toContain('onerror');

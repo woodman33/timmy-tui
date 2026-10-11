@@ -102,6 +102,8 @@ export interface LiveBoardDeps {
   scrub?: (text: string) => string;
   /** R4 (H49): a VoxVision highlight's type and bytes for GET /file, or null (404); absent: /file answers 404. */
   file?: (path: string) => { type: string; body: Buffer } | null;
+  /** R4 (H78): God's Eye View's model (src/overview) for GET /overview, as JSON; absent or undefined: /overview answers 404. */
+  overview?: () => unknown;
 }
 
 /** The largest action body read; a larger one is refused before it is parsed. */
@@ -289,6 +291,14 @@ export class LiveBoard {
         if (!this.authorized(req)) return this.send(res, 401, 'Refused: no valid token. Open the address /board live printed.', undefined, { 'WWW-Authenticate': 'Bearer' });
         return this.send(res, 200, JSON.stringify(this.d.state()), 'application/json; charset=utf-8');
       }
+      // R4 (H78): God's Eye View's model as JSON, for Timmy Canvas later: GET only, with the token, as /state.
+      if (path === '/overview') {
+        if (req.method !== 'GET') return this.send(res, 405, 'GET only.', undefined, { Allow: 'GET' });
+        if (!this.authorized(req)) return this.send(res, 401, 'Refused: no valid token. Open the address /board live printed.', undefined, { 'WWW-Authenticate': 'Bearer' });
+        const model = this.d.overview?.();
+        if (model === undefined) return this.send(res, 404, 'Not here: this board has no overview.');
+        return this.send(res, 200, JSON.stringify(model), 'application/json; charset=utf-8');
+      }
       if (path === '/action') {
         if (req.method !== 'POST') return this.send(res, 405, 'POST only.', undefined, { Allow: 'POST' });
         if (!this.authorized(req)) return this.send(res, 401, 'Refused: no valid token. Open the address /board live printed.', undefined, { 'WWW-Authenticate': 'Bearer' });
@@ -339,7 +349,7 @@ export class LiveBoard {
         res.statusCode = 200;
         return void res.end(f.body);
       }
-      return this.send(res, 404, 'Not here: this board has /, /state, /action, /edit and /file.');
+      return this.send(res, 404, 'Not here: this board has /, /state, /overview, /action, /edit and /file.');
     } catch (err) {
       if (!res.headersSent) this.send(res, 500, `The board could not answer: ${err instanceof Error ? plainText((this.d.scrub ?? ((t: string) => t))(err.message)) : 'error'}`);
       else res.destroy();
