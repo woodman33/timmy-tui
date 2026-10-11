@@ -7,7 +7,12 @@
  * files; 50 workflow documents; the newest flow and VoxVision records).
  */
 import fs from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
+import { cloudPaths, readCache, readConfig, type CacheRead, type ConfigRead } from '../cloud/store.js';
+import { readConnect, type ConnectView } from '../connect/read.js';
+import { connectPaths, readDevices } from '../connect/store.js';
+import type { HostKeyScan, ProbeFacts, UnreachableWhy } from '../connect/types.js';
 import { listAgentRuns, scrubPaths, type AgentRunRecord } from '../code-agents/index.js';
 import type { JobRecord } from '../jobs/index.js';
 import { readBoardMemory, type BoardMemory } from '../memory/board.js';
@@ -71,6 +76,38 @@ export interface OverviewOptions {
   /** the project's folder written as "." and the home folder as "~" (default: scrubPaths) */
   scrub?: (t: string) => string;
   given?: OverviewGiven;
+  /**
+   * R4 (H93): this computer's Timmy home, where Timmy Connect's and Timmy Cloud's client's records are. Absent: `env`'s
+   * TIMMY_HOME, else as the REPL and /connect resolve it (this process's TIMMY_HOME, or ~/timmy); null: none, and those
+   * sections say so.
+   */
+  home?: string | null;
+}
+
+/** R4 (H93): what readConnect's device view leaves out, from the same device record (its probe's facts, why it failed, the keys fetched). */
+export interface DeviceExtra { facts?: ProbeFacts; probe_why?: UnreachableWhy; scan: HostKeyScan | null; refused_words?: string }
+/** R4 (H93): Timmy Connect, read through readConnect (src/connect/read.ts), with each device's extra facts. */
+export interface ConnectRead { view: ConnectView; extra: ReadonlyMap<string, DeviceExtra> }
+/** R4 (H93): Timmy Cloud's client's two files (src/cloud/store.ts): the backend set up, and its last answer. */
+export interface CloudRead { config: ConfigRead; cache: CacheRead }
+
+/**
+ * R4 (H93): Timmy Connect's records of this Timmy home: readConnect's view (the words every surface says), and from the same
+ * device records the facts its view leaves out, taken only when the record's probe is the one the view shows (by its time),
+ * so the two reads never mix two versions. Nothing is contacted or written.
+ */
+export function readConnectFor(home: string): ConnectRead {
+  const view = readConnect(home);
+  const extra = new Map<string, DeviceExtra>();
+  for (const d of readDevices(connectPaths(home)).devices) {
+    const shown = view.devices.find((v) => v.id === d.id);
+    if (!shown || (shown.probe?.at ?? null) !== (d.probe?.at ?? null)) continue;
+    extra.set(d.id, {
+      ...(d.probe?.facts ? { facts: d.probe.facts } : {}), ...(d.probe?.why ? { probe_why: d.probe.why } : {}),
+      scan: d.host_key_scan ?? null, ...(d.host_key_refused?.words ? { refused_words: d.host_key_refused.words } : {}),
+    });
+  }
+  return { view, extra };
 }
 
 /** A part read, or why it could not be. */
@@ -108,6 +145,10 @@ export interface Sources {
   canvas?: BoardCanvas;
   activeFlows: readonly string[];
   notes: string[];
+  /** R4 (H93): this computer's Timmy home (null: none named), Timmy Connect's records there and Timmy Cloud's client's files */
+  home: string | null;
+  connect: Part<ConnectRead>;
+  cloud: Part<CloudRead>;
 }
 
 const FLOW_RECORD = /^results\/flows\/f[0-9a-f]{8}\.json$/;
@@ -187,10 +228,16 @@ export function readSources(projectRoot: string, o: OverviewOptions): Sources {
   const agentRuns = guard(() => new Map(listAgentRuns(root).map((r) => [r.run, r] as const)));
   if (standalone) notes.push('Read outside a REPL: a NEEDS YOU box, a save the board refused and the flows a REPL runs are held by that REPL, so they are not part of this overview.');
   if (!jobs.named) notes.push('No jobs folder was named: whether a run still runs cannot be proven here, so no run is called running.');
+  // R4 (H93): this computer's Timmy home as the REPL resolves it; its Connect records and its Cloud client's files, read here.
+  // (`env` without a TIMMY_HOME: this process's, as timmyHome() in src/utils/init.ts and /connect resolve it)
+  const env = o.env ?? process.env;
+  const home = o.home === null ? null : path.resolve(o.home ?? (env.TIMMY_HOME || process.env.TIMMY_HOME || path.join(homedir(), 'timmy')));
+  const connect: Part<ConnectRead> = home === null ? fail('no Timmy home was named') : guard(() => readConnectFor(home));
+  const cloud: Part<CloudRead> = home === null ? fail('no Timmy home was named') : guard(() => { const p = cloudPaths(home); return { config: readConfig(p), cache: readCache(p) }; });
   return {
-    root, name, pid, now, asOf: g.readAt ?? new Date(now).toISOString(), scrub, env: o.env ?? process.env, standalone,
+    root, name, pid, now, asOf: g.readAt ?? new Date(now).toISOString(), scrub, env, standalone,
     jobs, jobMap: new Map(jobList.map((j) => [j.id, j] as const)), chain, receipts, files, flows, ix, room, decisions, workflows, vox, memory, review, agentRuns,
-    ...(g.canvas ? { canvas: g.canvas } : {}), activeFlows, notes,
+    ...(g.canvas ? { canvas: g.canvas } : {}), activeFlows, notes, home, connect, cloud,
   };
 }
 

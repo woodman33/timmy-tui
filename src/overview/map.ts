@@ -4,7 +4,8 @@
  * the board labels it "layout, not geometry". Every edge is a link a record names (a flow record names its agent's run; a
  * run and a workflow run share an operation; a file is a run's output); nothing is inferred from names or times.
  */
-import { MAP_LABEL, type AgentsSection, type AppsSection, type MapNode, type OverviewMap, type WorkflowsSection } from './model.js';
+import { MAP_LABEL, type AgentsSection, type AppsSection, type DevicesSection, type HostingSection, type MapNode, type OverviewMap, type WorkflowsSection } from './model.js';
+import { dependencyColumns } from './remote.js';
 import type { Sources } from './sources.js';
 import { workflowRunOf } from './sections.js';
 
@@ -13,7 +14,12 @@ export const MAP_MAX = { agents: 5, workflows: 5, artifacts: 6 } as const;
 
 const cut = (s: string, n = 26): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
-export function buildMap(s: Sources, agents: AgentsSection, workflows: WorkflowsSection, apps: AppsSection): OverviewMap {
+/**
+ * R4 (H93): with `devices` and `hosting`, two more columns drawn as a second band: remote jobs and orders, and what they
+ * depend on (a remote job on its device, as its record names it; an order's step on a person's decision, as the backend
+ * says it waits). Still a layout: a node's place says nothing of where a computer or a site is.
+ */
+export function buildMap(s: Sources, agents: AgentsSection, workflows: WorkflowsSection, apps: AppsSection, devices?: DevicesSection, hosting?: HostingSection): OverviewMap {
   const edges: OverviewMap['edges'] = [];
   const add = (from: string, to: string, why: string): void => { if (!edges.some((e) => e.from === from && e.to === to)) edges.push({ from, to, why }); };
   // Agents: the code agent runs and the chat agent (its turns as one node).
@@ -63,10 +69,16 @@ export function buildMap(s: Sources, agents: AgentsSection, workflows: Workflows
     { id: 'workflows', title: 'Workflows and flows', nodes: workflowNodes.slice(0, MAP_MAX.workflows), more: Math.max(0, workflowNodes.length - MAP_MAX.workflows) },
     { id: 'artifacts', title: 'Files they made', nodes: artifactNodes.slice(0, MAP_MAX.artifacts), more: Math.max(0, artifactNodes.length - MAP_MAX.artifacts) },
   ];
+  // R4 (H93): what remote jobs and orders depend on, as their records say
+  if (devices && hosting) {
+    const deps = dependencyColumns(devices, hosting);
+    columns.push(...deps.columns);
+    for (const e of deps.edges) add(e.from, e.to, e.why);
+  }
   const drawn = new Set(columns.flatMap((c) => c.nodes.map((n) => n.id)));
   return {
     label: MAP_LABEL,
-    words: 'An abstract layout of who made what: the agents, the workflows and flows they ran in, and the files those runs made. A position means nothing; each line is a link a record names.',
+    words: 'An abstract layout of who made what and what waits on what: the agents, the workflows and flows they ran in, and the files those runs made; then the remote jobs and orders, and the computers and decisions they depend on. A position means nothing; each line is a link a record names.',
     columns,
     edges: edges.filter((e) => drawn.has(e.from) && drawn.has(e.to)),
   };

@@ -13,9 +13,10 @@ import { withProcessTable } from '../ops/process-proof.js';
 import { buildMap } from './map.js';
 import {
   ITEMS_MAX, MAP_LABEL, OVERVIEW_SCHEMA, SECTION_TITLE,
-  type AgentsSection, type AppsSection, type HistorySection, type NeedsSection, type Overview, type OverviewSectionId,
-  type ProjectSection, type SpatialSection, type WorkflowsSection,
+  type AgentsSection, type AppsSection, type CostsSection, type DevicesSection, type HistorySection, type HostingSection, type NeedsSection,
+  type Overview, type OverviewSectionId, type ProjectSection, type SpatialSection, type WorkflowsSection,
 } from './model.js';
+import { costsSection, devicesSection, hostingSection } from './remote.js'; // R4 (H93)
 import { agentsSection, appsSection, historySection, needsSection, projectSection, spatialSection, workflowsSection } from './sections.js';
 import { message, readSources, type OverviewOptions, type Sources } from './sources.js';
 
@@ -30,6 +31,10 @@ function unknownSection(id: OverviewSectionId, s: Pick<Sources, 'asOf' | 'name' 
     case 'spatial': return { ...b, id, items: [], more: 0 } satisfies SpatialSection;
     case 'history': return { ...b, id, receipts: { known: false, why: 'not read', total: 0, project: 0, recent: [], recent_more: 0 }, head: null, costs: { unknown: { runs: 0 }, free: { runs: 0 }, words: 'not known: the costs could not be read' }, operations: { recorded: 0, running: 0, left: 0 }, lessons: {} } satisfies HistorySection;
     case 'project': return { ...b, id, name: s.name, project_id: s.pid, changed: { at: null, basis: 'not known' }, canvas: { state: 'unknown', words: 'not known' } } satisfies ProjectSection;
+    // R4 (H93)
+    case 'devices': return { ...b, id, scope: 'this computer\'s Timmy home, not the project', items: [], more: 0, jobs: [], jobs_more: 0 } satisfies DevicesSection;
+    case 'hosting': return { ...b, id, backend: { set_up: false, words: 'not known', command: 'timmy cloud status' }, read: { at: null, old: false, words: 'not known', command: 'timmy cloud status' }, provider: null, items: [], more: 0 } satisfies HostingSection;
+    case 'costs': return { ...b, id, model: { unknown: { runs: 0 }, free: { runs: 0 }, words: 'not known', scope: 'this project\'s runs' }, provider: { known: false, why: 'not read', customers: [], more: 0, unknown_cost_orders: 0, words: 'not known' } } satisfies CostsSection;
   }
 }
 
@@ -54,15 +59,20 @@ function buildOverviewNow(projectRoot: string, opts: OverviewOptions): Overview 
   const apps = guarded('apps', s, () => appsSection(s));
   const spatial = guarded('spatial', s, () => spatialSection(s));
   const history = guarded('history', s, () => historySection(s));
+  // R4 (H93): the operator's computers (this Timmy home), hosting (the Cloud backend as last read) and provider costs
+  const devices = guarded('devices', s, () => devicesSection(s));
+  const hosting = guarded('hosting', s, () => hostingSection(s));
+  const costs = guarded('costs', s, () => costsSection(s, history));
   let map: Overview['map'];
-  try { map = buildMap(s, agents, workflows, apps); } catch (e) {
+  try { map = buildMap(s, agents, workflows, apps, devices, hosting); } catch (e) {
     map = { label: MAP_LABEL, words: `The map could not be drawn: ${s.scrub(message(e))}`, columns: [], edges: [] };
   }
   return {
-    schema: OVERVIEW_SCHEMA, as_of: s.asOf, project, needs, agents, workflows, apps, spatial, history, map,
+    schema: OVERVIEW_SCHEMA, as_of: s.asOf, project, needs, devices, hosting, costs, agents, workflows, apps, spatial, history, map,
     notes: [
       'God\'s Eye View reads the records the Control Room, Workflows, VoxVision, Results and Memory read; it runs, stops, writes and seals nothing.',
       `Every list shows at most ${ITEMS_MAX} items (the rest are counted); the board sections and commands named beside each item show it in full.`,
+      'Devices and Hosting are this computer\'s Timmy home\'s, not the project\'s: Timmy Connect\'s records, and Timmy Cloud\'s backend as its client last read it (timmy cloud status). Probing, stopping, reconciling and approving stay typed commands in this slice.',
       ...s.notes,
     ],
   };
