@@ -4,14 +4,16 @@ import { runInNewContext } from 'node:vm';
 
 // Execute the connection and mirror code that the served page actually runs.
 // Synthetic messages exercise transport/display only; no provider is contacted.
+// R4 (H92): the page's script is a file of its own (the page runs under script-src 'self'); its mirror part is marked.
 const html = readFileSync(new URL('../src/companion/client/index.html', import.meta.url), 'utf8');
-const code = html.slice(html.indexOf('    function saveActiveChat()'), html.indexOf('    // GSAP Tab Deck Controller'));
+const script = readFileSync(new URL('../src/companion/client/companion.js', import.meta.url), 'utf8');
+const code = script.slice(script.indexOf('// ── The chat mirror'), script.indexOf('// ── end of the chat mirror ──'));
 // R4 (H84): the page's token (a FAKE one here), as the page's own script reads it from its fragment.
 const TOKEN = 'c0'.repeat(32);
 
 function client(protocol = 'http:', token = TOKEN) {
   const statusEl = { textContent: '' };
-  const dot = { style: {} as Record<string, string> };
+  const dot = { style: {} as Record<string, string>, dataset: {} as Record<string, string> };
   const consoleLogs = { innerHTML: '', scrollTop: 0, scrollHeight: 0 };
   const savedList = { innerHTML: '' };
   const storage = new Map<string, string>();
@@ -44,7 +46,8 @@ describe('companion connection and chat mirror', () => {
     const c = client();
     c.socket.onopen();
     expect(c.statusEl.textContent).toBe('COMPANION SOCKET · CONNECTED');
-    expect(c.dot.style.background).toBe('var(--text-main)');
+    // R4 (H92): the dot's look follows its state (a class of the page's style sheet; the page allows no style attribute)
+    expect(c.dot.dataset.state).toBe('connected');
     expect(c.socket.send).toHaveBeenCalledWith(JSON.stringify({ type: 'hello' }));
     expect(html).toContain('COMPANION SOCKET · CONNECTING');
     expect(html).not.toMatch(/DO ACTIVE|DO SYNCED|Saved to Cloudflare Durable Object/);
@@ -86,6 +89,7 @@ describe('companion connection and chat mirror', () => {
     expect(c.context.console.error).toHaveBeenCalled();
     c.socket.onclose();
     expect(c.statusEl.textContent).toBe('COMPANION SOCKET · RECONNECTING');
+    expect(c.dot.dataset.state).toBe('lost');
     expect(c.context.updateMirrorStatus).toHaveBeenLastCalledWith('RECONNECTING');
     expect(c.context.setTimeout).toHaveBeenCalledWith(expect.any(Function), 2000);
     // R4 (H84): a closed socket asks the companion whether it still takes the token (a refusal stops the retries)
@@ -146,5 +150,27 @@ describe('companion connection and chat mirror', () => {
     c.savedList.innerHTML = '';
     c.context.renderSavedChatsList();
     expect(c.savedList.innerHTML).toContain('&lt;img');
+    // R4 (H92): what the page writes carries no inline handler or style (its policy runs neither); its buttons say what
+    // they do in data attributes, the saved chat's id encoded
+    expect(c.savedList.innerHTML).not.toMatch(/<[^>]*\s(?:on[a-z]+|style)=/);
+    expect(c.savedList.innerHTML).toMatch(/data-action="load-saved" data-chat="chat_\d+"/);
+  });
+
+  it('writes no inline handler or style into the mirror, the log or the saved list (R4 H92: the page\'s policy runs neither)', () => {
+    const c = client();
+    c.socket.onopen();
+    c.receive({ type: 'sync', data: [
+      { role: 'user', content: 'SYNTHETIC `code` and ```block```', timestamp: 1 },
+      { role: 'system', isTool: true, content: 'Swarm Orchestrator Tool Call: synthetic_tool with arguments: {"a":1}', timestamp: 2 },
+      { role: 'assistant', content: '⚙️ **[SYSTEM]** SYNTHETIC', timestamp: 3 },
+    ] });
+    c.context.saveCurrentChat();
+    c.socket.onclose();
+    for (const out of [c.consoleLogs.innerHTML, c.context.logsList.innerHTML, c.savedList.innerHTML]) {
+      expect(out.length).toBeGreaterThan(0);
+      // inside a tag (text is escaped, so every < starts a tag the page wrote)
+      expect(out).not.toMatch(/<[^>]*\s(?:on[a-z]+|style)=|<script/);
+    }
+    expect(c.context.logsList.innerHTML).toContain('class="log-level error"');
   });
 });
