@@ -206,6 +206,42 @@ describe.skipIf(!browserPath)('the connected workflow card in a real browser (he
     await close();
   }, 60_000);
 
+  // R4 (H88; the Mac run r23): a document that gives two blocks one name is refused by /run, timmy md and timmy act, but the
+  // card said "Two blocks are named build: upmd runs the first." and offered an enabled Run this block, and /workflows listed
+  // "Next /run DUP.md build" twice. Every view now says what /run does (it runs none of them), with no Run to press.
+  it('R4 (H88; r23): a document that names two blocks alike: the card says /run runs none of them and draws no Run; /workflows lists no /run', async () => {
+    const { ws, root, notes } = make();
+    put(root, 'DUP.md', ['# Twice', '', `${F}bash [name:build]`, 'echo one', F, '', `${F}bash [name:build]`, 'echo two', F, ''].join('\n'));
+    const said = '/run runs none of the blocks of DUP.md until each block has a name of its own: it names two blocks build (blocks 1 and 2), and Timmy cannot tell which of them upmd would run.';
+    // /workflows DUP.md (the REPL's view): what /run does, and no /run among the next commands (it listed one twice)
+    const lines = (await ws.workflows('DUP.md')).map((l) => l.map((x) => x.text).join(''));
+    expect(lines).toContain(`  Not runnable ${said}`);
+    expect(lines.filter((l) => /\/run DUP\.md/.test(l))).toEqual([]);
+    expect(lines.filter((l) => /^\s+(Next\s+)?\/board live$/.test(l))).toHaveLength(1);
+    // the live board's card, in Chromium: the words, the graph's warning, and no Run button in it at all
+    await ws.boardLive('live');
+    const context = await browser.newContext({ viewport: { width: 1360, height: 1000 } });
+    const page = await context.newPage();
+    const problems: string[] = [];
+    page.on('pageerror', (e) => problems.push(String(e)));
+    await page.goto(ws.liveBoard!.url);
+    const dup = '[data-wfx="DUP.md"]';
+    await page.waitForSelector(`${dup} [data-wf-node="1"]`);
+    expect(await page.$$(`${dup} button[data-act="run"], ${dup} [data-wf-rerun]`)).toHaveLength(0);
+    expect(await page.textContent(`${dup} .wfx-run .wf-twice`)).toBe(said);
+    expect(await page.$$eval(`${dup} .wf-warn`, (els) => els.map((e) => e.textContent))).toEqual(["Two blocks are named build (blocks 1, 2): /run runs none of this document's blocks until each block has a name of its own."]);
+    for (const key of ['1', '2']) {
+      await page.click(`${dup} [data-wf-node="${key}"]`);
+      expect(await page.textContent(`${dup} [data-wf-insp="${key}"] .wf-runs .wf-say`)).toBe(`Not runnable as it is: ${said} Nothing runs from here.`);
+    }
+    expect(await page.textContent(`${dup} .wf-graph`)).not.toContain('upmd runs the first');
+    // the other document's Run is still there
+    expect(await page.$$('[data-wfx="BUILD.md"] button[data-act="run"]')).not.toHaveLength(0);
+    expect(notes.filter((n) => /DUP\.md/.test(n) && /Running/.test(n))).toEqual([]);
+    expect(problems).toEqual([]);
+    await context.close();
+  }, 60_000);
+
   it('the snapshot: a chip or a node opens its block\'s details; the page has its one copying script and no other', async () => {
     const { ws, root } = make();
     ws.board('');

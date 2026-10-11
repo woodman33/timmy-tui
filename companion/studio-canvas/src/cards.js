@@ -637,9 +637,10 @@ export function createCards(deps) {
     const busy = !!(own && own.busy);
     const blocks = d ? d.blocks : [];
     // R4 (H81): each Run button carries its own recorded action (actRef): the block it was drawn for, never one read at the click
+    // R4 (H88): a document that names two blocks alike runs none of them (its notRunnable words say so once, above them)
     const runOf = (b) => (mode.executable && d.runnable && b.runnable
       ? h('button', { type: 'button', className: 'tc-btn', 'data-tc-act': 'run', 'data-tc-block': b.name, disabled: busy, ref: actRef(shape, 'workflow', runAct(d, b.name), !busy), onPointerDown: handled, title: `Sends /run ${d.doc} ${b.name} to Timmy (Run up to here)` }, 'Run up to here')
-      : d.runnable && b.runnable ? cmd(`/run ${d.doc} ${b.name}`) : span('tc-note', '/run cannot name this block as one word'));
+      : d.runnable && b.runnable ? cmd(`/run ${d.doc} ${b.name}`) : one(d.notRunnable) ? null : span('tc-note', '/run cannot name this block as one word'));
     const last = d && d.last;
     return h(Frame, {
       shape, type: 'workflow', mode, follows: mode.follows, answer: own, readAt,
@@ -652,6 +653,7 @@ export function createCards(deps) {
         last && last.more ? words('tc-note', `${last.more} more files`) : null,
       ] : words('tc-note', mode.withheld ? 'Its blocks and their commands are withheld here.' : 'No reading of this document yet.'),
     },
+    d && one(d.notRunnable) ? h('p', { className: 'tc-note tc-warn tc-twice' }, d.notRunnable) : null,
     d ? h('ol', { className: 'tc-blocks' }, ...blocks.map((b) => h('li', { key: b.key, className: `tc-block tc-w-${String(b.word).replace(/[^a-z]/g, '')}` },
       span('tc-glyph', b.glyph, { 'aria-hidden': 'true' }), ' ', span('tc-name', b.name), ' ', span(`tc-word ${b.word === 'failed' || b.word === 'interrupted' ? 'tc-bad' : ''}`, b.word),
       b.detail ? span('tc-note', ` · ${b.detail}`) : null, h('div', { className: 'tc-acts' }, runOf(b))))) : mode.withheld ? withheldBody(p) : words('tc-note', p.command),

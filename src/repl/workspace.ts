@@ -44,7 +44,7 @@ import { applyBoardEdit } from './board-edits.js';
 import { canvasAction, canvasSubject } from './canvas-actions.js';
 import { workflowForBoard } from './board-nodes.js';
 // R4 (H47): each workflow document connected to its runs, results and parameter files (board and /workflows <file>).
-import { connectWorkflow, jobBlockLines, liveNodeStates, StepClock, workflowSummaryLines, type ConnectContext } from './board-workflows.js';
+import { connectWorkflow, jobBlockLines, liveNodeStates, repeatedNames, repeatedWords, StepClock, workflowSummaryLines, type ConnectContext } from './board-workflows.js';
 import { recipeEnded, recipeView, startRecipeJob, type RecipeContext, type RecipeStarted, type RecipeTestSeams } from './recipe.js';
 import { cancelRecipe, cancelSentence, RecipeLaunches, type RecipeCancel } from './recipe-stop.js';
 import { liveRecipeJobFolders } from '../recipes/index.js';
@@ -963,9 +963,13 @@ export class Workspace {
     for (const doc of docs) {
       lines.push([{ text: '  ' }, { text: this.fileLink(doc.rel), role: 'strong' }]);
       const r = readProjectFile(this.root, doc.rel, 1024 * 1024);
-      for (const b of r.ok && r.text ? parseWorkflow(r.text).filter((x) => x.name) : []) {
+      const named = r.ok && r.text ? parseWorkflow(r.text).filter((x): x is typeof x & { name: string } => !!x.name) : [];
+      for (const b of named) {
         lines.push([{ text: `    ${String(b.index).padStart(2)} ${String(b.name).padEnd(16)}` }, { text: b.deps.length ? `needs ${b.deps.join(', ')}` : '', role: 'secondary' }]);
       }
+      // R4 (H88): a document that names two blocks alike: /run runs none of them
+      const twice = repeatedNames(named);
+      if (twice.length) lines.push([{ text: `    ${repeatedWords(doc.rel, twice)}`, role: 'estimate' }]);
     }
     lines.push(...this.say('Run one: /run <file> <block>; follow it: /jobs; stop it: /stop <job>; one document in full: /workflows <file>'));
     return lines;

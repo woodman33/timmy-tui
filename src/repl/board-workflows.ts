@@ -170,6 +170,25 @@ export interface ConnectedWorkflow {
   /** R4 (H58): whether a run's block states can come as they happen here (src/workflows/upmd-live.ts ptyKnown); absent
    *  when not known yet */
   live?: PtyReady;
+  /** R4 (H88; r23): each name more than one block of the document carries, with upmd's numbers for those blocks: /run then
+   *  runs none of its blocks (src/repl/workflow-gate.ts planRun), so no view offers a Run for them */
+  repeated?: Array<{ name: string; indexes: number[] }>;
+}
+
+/**
+ * R4 (H88; r23): what /run does with a document that gives two blocks one name, in the words every view uses (the board's
+ * card, its graph, /workflows, the canvas card): it runs none of them. r23: the card said "upmd runs the first" and offered
+ * Run, and /workflows listed "Next /run DUP.md build" twice.
+ */
+export function repeatedNames(blocks: ReadonlyArray<{ name: string; index?: number }>): Array<{ name: string; indexes: number[] }> {
+  const by = new Map<string, number[]>();
+  for (const b of blocks) by.set(b.name, [...(by.get(b.name) ?? []), b.index ?? 0]);
+  return [...by].filter(([, at]) => at.length > 1).map(([name, indexes]) => ({ name, indexes }));
+}
+const counted = (n: number): string => (n === 2 ? 'two' : n === 3 ? 'three' : String(n));
+export function repeatedWords(rel: string, repeated: ReadonlyArray<{ name: string; indexes: number[] }>): string {
+  const which = listed(repeated.map((t) => `${counted(t.indexes.length)} blocks ${t.name}${t.indexes.every((i) => i > 0) ? ` (blocks ${listed(t.indexes.map(String))})` : ''}`));
+  return `/run runs none of the blocks of ${rel} until each block has a name of its own: it names ${which}, and Timmy cannot tell which of them upmd would run.`;
 }
 
 /**
@@ -424,11 +443,12 @@ export function connectWorkflow(w: WorkflowDocInput, c: ConnectContext): Workflo
   const have = new Set(c.files);
   let files: string[] = [];
   try { files = w.text !== undefined ? markdownLinks(w.text, w.rel).filter((f) => have.has(f)) : []; } catch { files = []; }
+  const repeated = repeatedNames(w.blocks); // R4 (H88)
   return {
     ...w,
     connected: {
       nodes, runs: runs.filter((r) => used.has(r.job)).map((r) => withOutputs(r, c.root)), ...(latest ? { latest } : {}), ...(tray ? { tray } : {}), scad, files, ...(c.upmd !== undefined ? { upmd: c.upmd } : {}),
-      ...(c.live ? { live: c.live } : {}),
+      ...(c.live ? { live: c.live } : {}), ...(repeated.length ? { repeated } : {}),
     },
   };
 }
@@ -464,7 +484,9 @@ export function runBarHtml(w: WorkflowDocInput, k: Kit): string {
     ? `<p class="wf-note">${esc(`Live block states are not available here: ${c.live.why}. upmd then writes to a pipe and prints each block only when it ends, so a block is never shown running and its own time is not measured.${c.live.why === 'no python3 on PATH' ? ' Setup: install Python 3 (brew install python), then start Timmy again.' : ''}`)}</p>`
     : '';
   const r = runOf2(c, c.latest);
-  if (!r) return `<div class="wfx-run wfx-run-none"><p class="meta">${esc(`No run of ${w.rel} yet. Run up to here on a block runs it through upmd as /run ${w.rel} <block>: the prediction is sealed first, the outcome after.`)}</p>${upmd}${noLive}</div>`;
+  // R4 (H88): a document that names two blocks alike runs none of them: said first, and no Run is offered
+  const twice = c.repeated?.length ? `<p class="wf-note wf-twice">${esc(repeatedWords(w.rel, c.repeated))}</p>` : '';
+  if (!r) return `<div class="wfx-run wfx-run-none">${twice || `<p class="meta">${esc(`No run of ${w.rel} yet. Run up to here on a block runs it through upmd as /run ${w.rel} <block>: the prediction is sealed first, the outcome after.`)}</p>`}${upmd}${noLive}</div>`;
   const what = `${r.target}${r.order.length > 1 ? ` (${arrow(r.order)})` : ''}`;
   const steps = r.blocks.map((b) => `${b.name} ${b.word}`).join(', ');
   // R4 (H74): each block's own receipt, sealed as it ended
@@ -496,13 +518,13 @@ export function runBarHtml(w: WorkflowDocInput, k: Kit): string {
   const acts = k.live
     ? [
       ...(r.stoppable ? [`<button type="button" class="act act-stop" data-wf-stop="${esc(r.job)}">Stop</button>`] : []),
-      ...(r.word === 'interrupted' && rerun && !rerun.missing.length && !rerun.cycle ? [`<button type="button" class="act" data-wf-rerun="${esc(rerun.key)}">Run ${esc(r.target)} again</button>`] : []),
+      ...(r.word === 'interrupted' && rerun && !rerun.missing.length && !rerun.cycle && !c.repeated?.length ? [`<button type="button" class="act" data-wf-rerun="${esc(rerun.key)}">Run ${esc(r.target)} again</button>`] : []),
     ].join('')
     : '';
-  const cmds = [...(r.stoppable ? [`/stop ${r.job}`] : []), ...(r.word === 'interrupted' ? [`/run ${w.rel} ${r.target}`] : []), `/jobs ${r.job}`];
+  const cmds = [...(r.stoppable ? [`/stop ${r.job}`] : []), ...(r.word === 'interrupted' && !c.repeated?.length ? [`/run ${w.rel} ${r.target}`] : []), `/jobs ${r.job}`];
   return `<div class="wfx-run${cls}" role="status"><div class="wfx-run-head"><span class="wfx-run-label">${esc(head)}</span> <strong class="wfx-run-job">${esc(r.job)}</strong> <span class="wfx-run-what">${esc(what)}</span> ${wordHtml(r.word)}</div>`
     + `<p class="meta">${esc(`${steps ? `${steps} · ` : ''}${when}`)}</p>${sealedBlocks ? `<p class="meta wfx-run-blocks">${esc(sealedBlocks)}</p>` : ''}${lines.map((l) => `<p class="wfx-run-say">${esc(l)}</p>`).join('')}`
-    + `${facts ? `<p class="meta">${esc(facts)}</p>` : ''}${acts ? `<div class="wf-acts">${acts}</div>` : ''}${k.cmds(cmds)}${upmd}${noLive}</div>`;
+    + `${facts ? `<p class="meta">${esc(facts)}</p>` : ''}${twice}${acts ? `<div class="wf-acts">${acts}</div>` : ''}${k.cmds(cmds)}${upmd}${noLive}</div>`;
 }
 
 /** R4 (H58): what was running when an interrupted run's session ended: the block its output showed running, if any. */
@@ -653,6 +675,8 @@ function lastHtml(w: WorkflowDocInput, n: NodeView, c: ConnectedWorkflow, k: Kit
 /** Run up to here and Run this block for a node, and what each runs, in words. */
 function runHtml(w: WorkflowDocInput, n: NodeView, c: ConnectedWorkflow, k: Kit): string {
   const cmd = `/run ${w.rel} ${n.name}`;
+  // R4 (H88; r23): two blocks named alike: /run runs none of them, so no Run is offered (r23: an enabled Run this block)
+  if (c.repeated?.length) return `<section class="wf-runs"><h4>run</h4><p class="wf-say">${esc(`Not runnable as it is: ${repeatedWords(w.rel, c.repeated)} Nothing runs from here.`)}</p></section>`;
   if (n.missing.length || n.cycle) {
     const why = n.cycle ? `its needs loop (${n.cycle.join(' → ')})` : `it needs ${n.missing.join(', ')}, which ${w.rel} does not define`;
     return `<section class="wf-runs"><h4>run</h4><p class="wf-say">${esc(`Not runnable as it is: ${why}. /run refuses it the same way; nothing runs.`)}</p></section>`;
@@ -797,8 +821,10 @@ export function workflowSummaryLines(w: WorkflowDocInput, o: { sep: string; link
   }
   // R4 (H58): where upmd cannot run on a pty here, the runs to come have no live states either
   if (c.live && !c.live.ok) lines.push([{ text: `  Live      not available here: ${c.live.why}; a run's blocks are seen only as each one ends`, role: 'estimate' }]);
-  // The next commands: each block nothing needs (its run covers what it needs), a stop, the board.
-  const leaves = c.nodes.filter((n) => !n.neededBy.length && !n.missing.length && !n.cycle).slice(0, 4);
+  // R4 (H88; r23): a document that names two blocks alike: what /run does, and no /run among the next commands
+  if (c.repeated?.length) lines.push([{ text: '  Not runnable ', role: 'secondary' }, { text: repeatedWords(w.rel, c.repeated), role: 'estimate' }]);
+  // The next commands: each block nothing needs (its run covers what it needs), a stop, the board; R4 (H88): each name once.
+  const leaves = c.repeated?.length ? [] : c.nodes.filter((n, i) => !n.neededBy.length && !n.missing.length && !n.cycle && c.nodes.findIndex((m) => m.name === n.name) === i).slice(0, 4);
   const next: string[] = [
     ...(r?.stoppable ? [`/stop ${r.job}`] : []),
     ...leaves.map((n) => `/run ${w.rel} ${n.name}${n.order.length > 1 ? `  (${arrow(n.order)})` : ''}`),

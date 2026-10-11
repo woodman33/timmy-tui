@@ -157,7 +157,8 @@ function workflowCards(c: Ctx): ProjectCard[] {
       : run ? `newest run (${run.target}) ${run.word}${run.met === false ? ', its prediction not met' : ''} · ${blocks}`
         : `not run yet · ${blocks}`;
     const last = names[names.length - 1];
-    const runCmd = word(doc.rel) && last && word(last) ? `/run ${doc.rel} ${last}` : `/workflows ${doc.rel}`;
+    // R4 (H88): a document that names two blocks alike runs none of them: its command is /workflows, which says so
+    const runCmd = word(doc.rel) && last && word(last) && new Set(names).size === names.length ? `/run ${doc.rel} ${last}` : `/workflows ${doc.rel}`;
     return {
       id: `workflow:${doc.rel}`, kind: 'workflow', title: c.text(title, 160), state: c.text(state), record: doc.rel,
       receipt: run?.receipt ?? null, command: c.text(runCmd, 400), section: 'workflows',

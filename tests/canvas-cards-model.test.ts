@@ -6,6 +6,9 @@
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error: the page's module is plain JavaScript, bundled for the browser
 import { cardMode, CARD_SHAPES, drawnType, keptDetail, offeredNow, rebuildAct, runAct, saveAct, shapeTypeFor, shownValue, stillRunning, withheldData } from '../companion/studio-canvas/src/cards.js';
+import { workflowForBoard } from '../src/repl/board-nodes.js';
+import { connectWorkflow } from '../src/repl/board-workflows.js';
+import { workflowDetail } from '../src/studio/card-detail.js';
 
 const project = { name: 'demo', id: 'abcdef0123456789' };
 const props = { card: 'workflow:RUN.md', projectId: project.id, project: 'demo' };
@@ -32,6 +35,19 @@ describe("Timmy Canvas's drawn cards", () => {
     expect(cardMode('workflow', props, null, true)).toMatchObject({ executable: false, words: 'Not read from Timmy yet.' });
     // A result card is a diagram of its record, always.
     expect(cardMode('result', { ...props, card: 'workflow:RUN.md' }, answer(), true)).toMatchObject({ executable: false, badge: 'diagram', follows: true });
+  });
+
+  it('R4 (H88; r23): a workflow that names two blocks alike: its card detail runs none of them and says why; no Run action is made for any block', () => {
+    const F = '```';
+    const text = ['# Twice', '', `${F}bash [name:build]`, 'echo one', F, '', `${F}bash [name:build]`, 'echo two', F, ''].join('\n');
+    const d = workflowDetail(connectWorkflow(workflowForBoard('DUP.md', { text, sha256: 'b'.repeat(64) }), { root: '', jobs: [], chain: [], files: [] }), (v: unknown) => String(v));
+    expect(d).toMatchObject({ runnable: false, notRunnable: '/run runs none of the blocks of DUP.md until each block has a name of its own: it names two blocks build (blocks 1 and 2), and Timmy cannot tell which of them upmd would run.' });
+    expect(d.blocks.map((b) => b.runnable)).toEqual([false, false]);
+    expect(runAct(d, 'build')).toBeNull();
+    // a document whose names are its own still runs, and says nothing of it
+    const one = workflowDetail(connectWorkflow(workflowForBoard('ONE.md', { text: text.replace('[name:build]\necho two', '[name:test]\necho two'), sha256: 'c'.repeat(64) }), { root: '', jobs: [], chain: [], files: [] }), (v: unknown) => String(v));
+    expect(one).toMatchObject({ runnable: true, notRunnable: null });
+    expect(runAct(one, 'test')).toEqual({ action: 'run', doc: 'ONE.md', block: 'test' });
   });
 
   it('R4 (H83): a card whose kept detail the server withheld says so (whatever the reading), and a reading refused to the page says why', () => {
