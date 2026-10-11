@@ -16,7 +16,12 @@ export interface CompanionAddresses {
   url: string;
   /** With --lan: on the network, each with the token in its fragment; else none. */
   lanUrls: string[];
+  /** Where it listens: 0.0.0.0 when --lan was asked (even when this computer had no network address then). */
+  host?: string;
 }
+
+/** --lan was asked, but this computer had no network address when the companion started. */
+export const NO_NETWORK = 'Asked for the local network (--lan), but this computer had no network address when the companion started: connect it to a network you trust and start `timmy watch --lan` again.';
 
 /** An address as a log may name it: without its fragment (the token). */
 export const withoutToken = (url: string): string => url.replace(/#.*$/, '');
@@ -33,19 +38,20 @@ export function showCompanionQR(server: CompanionAddresses): void {
     // The monitor owns the screen; this log never holds the token.
     writeLog('companion.log', 'info', `[Browser companion] On this computer at ${withoutToken(server.url)} (127.0.0.1 only). Its address carries a token, which is never written to a log: press q on the monitor's HOME to see the address with its token.`);
     if (lan) writeLog('companion.log', 'info', `[Browser companion] Also on your local network at ${withoutToken(lan)} (--lan, plain HTTP). Its QR code, which holds the token, is on the monitor's pairing card (q on HOME). Use it only on a network you trust.`);
+    else if (server.host === '0.0.0.0') writeLog('companion.log', 'warn', `[Browser companion] ${NO_NETWORK}`);
     return;
   }
   console.error('');
-  console.error('\x1b[36m[Browser companion]\x1b[0m Open this address in a browser on this computer (it carries the companion\'s token):');
-  console.error(`\x1b[36m${server.url}\x1b[0m`);
+  console.error('[Browser companion] Open this address in a browser on this computer (it carries the companion\'s token):');
+  console.error(server.url);
   if (!lan) {
-    console.error('A phone: start with `timmy watch --lan` (plain HTTP on your local network; only on a network you trust).');
+    console.error(server.host === '0.0.0.0' ? NO_NETWORK : 'A phone: start with `timmy watch --lan` (plain HTTP on your local network; only on a network you trust).');
     console.error('');
     return;
   }
   console.error('');
-  console.error('\x1b[36m[Browser companion]\x1b[0m On your local network (--lan):');
-  console.error(`\x1b[36m${lan}\x1b[0m`);
+  console.error('[Browser companion] On your local network (--lan):');
+  console.error(lan);
   for (const line of LAN_WORDS) console.error(line);
   console.error('');
   qrcodeTerminal.generate(lan, { small: true }, (qr: string) => {
@@ -66,7 +72,7 @@ export function companionPairing(server: Partial<CompanionAddresses> | null | un
     qr: null,
     lines: [
       'Browser companion, on this computer:', server.url,
-      'A phone: start with `timmy watch --lan` (plain HTTP on your local network; only on a network you trust).',
+      server.host === '0.0.0.0' ? NO_NETWORK : 'A phone: start with `timmy watch --lan` (plain HTTP on your local network; only on a network you trust).',
       'Log companion: `timmy logs` prints and opens its address with its token.',
     ],
   };

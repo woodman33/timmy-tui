@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
-import { showCompanionQR } from '../src/companion/qr.js';
+import { companionPairing, NO_NETWORK, showCompanionQR } from '../src/companion/qr.js';
 import { startManagedLogServer, type LogServerHandle } from '../src/utils/logserver.js';
 import { isLocalRequest, lanAddresses, LocalToken, logsTokenFile } from '../src/utils/local-request.js';
 import { readChain } from '../src/utils/receipts.js';
@@ -425,7 +425,27 @@ describe('the browser companion with --lan', () => {
       expect(lan).toMatch(/QR code holds the token/);
       expect(lan).toMatch(/only on a network you trust/);
       expect(lan).toMatch(/█|▀|▄/);
+      // --lan asked on a computer with no network address: said plainly, no address, no QR code
+      lines.length = 0;
+      showCompanionQR({ url: `http://127.0.0.1:3001/#t=${OTHER}`, lanUrls: [], host: '0.0.0.0' });
+      expect(lines.join('\n')).toContain(NO_NETWORK);
+      expect(lines.join('\n')).not.toMatch(/█|▀|▄/);
     } finally { console.error = orig; }
+  });
+
+  it('the monitor\'s pairing card: the address with its token; a QR code only for a network address', () => {
+    const url = `http://127.0.0.1:3001/#t=${OTHER}`;
+    const lanUrl = `http://${lanAddresses()[0] ?? 'the-network-address'}:3001/#t=${OTHER}`;
+    expect(companionPairing(undefined)).toBeNull();
+    expect(companionPairing({ lanUrls: [] })).toBeNull();
+    const local = companionPairing({ url, lanUrls: [], host: '127.0.0.1' });
+    expect(local?.qr).toBeNull();
+    expect(local?.lines).toContain(url);
+    expect(local?.lines.join(' ')).toMatch(/timmy watch --lan/);
+    const lan = companionPairing({ url, lanUrls: [lanUrl], host: '0.0.0.0' });
+    expect(lan?.qr).toBe(lanUrl);
+    expect(lan?.lines.join(' ')).toMatch(/plain HTTP on your local network.*QR code holds the token.*only on a network you trust/);
+    expect(companionPairing({ url, lanUrls: [], host: '0.0.0.0' })?.lines).toContain(NO_NETWORK);
   });
 });
 
