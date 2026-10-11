@@ -1117,8 +1117,9 @@ export class Workspace {
     const unrealRead = this.unrealRuns.ended(job);
     if (unrealRead) { for (const l of unrealRead) this.d.notify(l); return; }
     const nat = this.natives.get(job.id);
-    if (nat && (job.state === 'completed' || job.state === 'failed') && isUnrealJobSpec(nat)) {
+    if (nat && (job.state === 'completed' || job.state === 'failed' || job.state === 'cancelled') && isUnrealJobSpec(nat)) {
       // R4 (H63): an Unreal first pass says its files, Unreal's own report, and starts its readback (the first pass alone is never trusted).
+      // R4 u23 (H72): a stopped one too: judged when it ends, with what it left and the outside check (no readback).
       for (const l of this.unrealRuns.firstPassEnded(job, nat)) this.d.notify(l);
       return;
     }
@@ -1201,7 +1202,8 @@ export class Workspace {
     const label = this.scrub(job.label, job.root);
     const error = job.error ? this.scrub(job.error, job.root) : undefined;
     const nat = this.natives.get(job.id);
-    const judged = nat && job.state !== 'cancelled'
+    // R4 u23 (H72): a stopped Unreal run is judged too (what it left, the outside check); its status stays cancelled
+    const judged = nat && (job.state !== 'cancelled' || isUnrealJobSpec(nat))
       ? (isScadJobSpec(nat) ? scadReceiptFields(judgeScadJob(job, nat), job.root)
         : isAeJobSpec(nat) ? aeReceiptFields(judgeAeJob(job, nat))
           : isIllustratorJobSpec(nat) ? illustratorReceiptFields(judgeIllustratorJob(job, nat)) // R4 (H64)
@@ -1213,7 +1215,7 @@ export class Workspace {
     const status = job.state === 'cancelled' ? 'cancelled' as const : judged ? judged.status : job.state === 'completed' ? 'ok' as const : 'failed' as const;
     try {
       return this.d.seal({
-        kind: judged ? 'native' : kind, subject: `${judged ? 'native' : kind} · ${label} · ${judged ? judged.native.outcome : job.state}`, policy: 'human-gated',
+        kind: judged ? 'native' : kind, subject: `${judged ? 'native' : kind} · ${label} · ${judged && job.state !== 'cancelled' ? judged.native.outcome : job.state}`, policy: 'human-gated',
         ...(status ? { status } : {}),
         ...(judged ? { native: judged.native } : {}),
         project: job.project, project_id: projectId(job.root),

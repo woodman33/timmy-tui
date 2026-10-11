@@ -389,6 +389,8 @@ export function unrealRunOutcome(dir: string, last: NativeVerdictLine, result: {
   { state: 'succeeded' | 'failed' | 'differs' | 'stopped' | 'unknown'; words: string; claims: string[] } {
   const readbacks = readUnrealReadbacks(dir);
   const all = [...claims, ...readbacks.flatMap((r) => (r.job && /^j[0-9a-f]{6}$/.test(r.job) ? [`job:${r.job}`] : []))];
+  // R4 u23 (H72): a first pass Timmy stopped is judged when it ends (what it left is recorded), and its operation is stopped
+  if (last.exit?.state === 'cancelled') return { state: 'stopped', words: `stopped; its verdict when it ended: ${last.outcome}`, claims: all };
   if (last.outcome !== 'ok') return { state: 'failed', words: `${last.outcome} (judged by its result file)`, claims: all };
   const newest = readbacks.at(-1);
   if (!newest) {

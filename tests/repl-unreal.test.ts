@@ -16,6 +16,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runSlash, type ReplContext } from '../src/repl/commands.js';
 import { readOperationRecord } from '../src/ops/operations.js';
+import { runOutcome } from '../src/ops/outcome.js';
 import { readUnrealReadbacks } from '../src/native/unreal-readback.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import { readChain, verifyChain } from '../src/utils/receipts.js';
@@ -120,6 +121,44 @@ describe.skipIf(!python)('/unreal in the REPL: a judged first pass, then its rea
     expect(line).toMatchObject({ job: id, state: 'cancelled', reason: 'stopped before it finished: no verdict' });
     expect(line.verdict).toBeUndefined();
     expect(readChain('runs', s.root).map((r) => [r.kind, r.status])).toEqual([['native', 'ok'], ['readback', 'cancelled']]);
+  }, 90_000);
+
+  // R4 u23 (H72): on the Mac (796485a, installed), /stop on a first pass whose script had saved a level left no verdict, a
+  // plain task receipt naming neither the run nor the level, and no outside line.
+  it('/stop on a first pass after its script saved a level: judged as stopped, the level named as changed during the stopped run, never an output; a native receipt, cancelled; the operation stopped', async () => {
+    const s = unrealSandbox('unreal-stop1-');
+    fs.writeFileSync(path.join(s.root, 'stop.py'), [
+      'import time',
+      'def main(run):',
+      '    run.new_level("/Game/Timmy/StopGrid")',
+      '    run.spawn_mesh(run.load_mesh("/Engine/BasicShapes/Cube.Cube"), (0, 0, 50), label="StopCube_0")',
+      '    run.save_level()',
+      '    print("stop.py: saved; sleeping", flush=True)',
+      '    time.sleep(60)',
+      '',
+    ].join('\n'));
+    const account = path.join(s.base, 'account');
+    const { slash, said } = repl(s, { TIMMY_UNREAL_ACCOUNT_HOME: account });
+    const started = await slash('/unreal TimmyStarter.uproject stop.py');
+    const id = /Running {4}(j[0-9a-f]{6})/.exec(started)![1];
+    const level = path.join(s.root, 'Content', 'Timmy', 'StopGrid.umap');
+    await until(() => fs.existsSync(level), 30_000, 'the level to be saved');
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(await slash(`/stop ${id}`)).toMatch(new RegExp(`${id} cancelled`));
+    await until(() => new RegExp(`${id} stopped {2}Unreal · stop\\.py in TimmyStarter\\.uproject: no result file, and UnrealEditor-Cmd was stopped`).test(said()), 20_000, 'the stopped first pass to be judged');
+    const out = said();
+    expect(out).toMatch(/changed in Content\/ and out\/ during this stopped run, found against their inventory at submission \(not named by a result, so which process changed them is not shown; not outputs\): Content\/Timmy\/StopGrid\.umap \(created; sha256 [0-9a-f]{12}…\)/);
+    expect(out).toMatch(/left {5}Content\/Timmy\/StopGrid\.umap · changed during this stopped run \(created\) · sha256 [0-9a-f]{12}… \(Timmy's, after the run; found against the inventory taken at submission, not named by a result\) · [0-9.]+ (B|KB) · not an output: the run was stopped/);
+    expect(out).toMatch(/outside {2}no file changed during the job in the 4 folders Unreal keeps in this account's home \(by their timestamps; no other folder was looked at\)/);
+    expect(out).toMatch(/next {5}no readback: only a run judged ok is read back/);
+    const chain = readChain('runs', s.root);
+    expect(chain.map((r) => [r.kind, r.status])).toEqual([['native', 'cancelled']]);
+    expect(chain[0].native).toMatchObject({ app: 'unreal', files: [], unreal: { failed_run_writes: [{ path: 'Content/Timmy/StopGrid.umap', found: 'inventory', change: 'created' }], outside: { state: 'checked', files: 0 } } });
+    expect(chain[0].outputs).toBeUndefined();
+    expect(verifyChain('runs', s.root).ok).toBe(true);
+    // the run's operation outcome, from its own record: stopped (this harness's slash commands record no operation)
+    const run = /native\/([0-9a-f-]{36})\/source/.exec(started)![1];
+    expect(runOutcome({ kind: 'native', id: run, at: '' }, s.root, { get: () => undefined })).toMatchObject({ state: 'stopped' });
   }, 90_000);
 
   it('a project file in a folder with a space, quoted, reaches Unreal whole (/unreal is raw)', async () => {
