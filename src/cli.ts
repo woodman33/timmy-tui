@@ -86,6 +86,7 @@ Commands:
   models [--json]       Model registry: arch, params, throughput, notes, spend
   do "<phrase>"         jbone resolver: fuzzy CUE template -> confirm -> lane (--yes)
   connect <tool>        Bind a tool binary into the chain (env.lock receipt)
+  connect add|probe|run|status|stop|fetch …  Your own computers over SSH (timmy connect help)
   design list|run       Open Design (MCP) gens: queue in GENS, execute + seal here
   doctor deps|network|hardware  Read-only posture checks (never auto-fixes)
   mcp status|inspect|probe  MCP wire visibility: mcpsnoop + mcp-probe (opt-in)
@@ -152,7 +153,7 @@ if (cleanArgs.length === 0 && !args.includes('--help') && !args.includes('-h')) 
   const { isBlankSlate, runInit } = await import('./utils/init.js');
   if (isBlankSlate()) process.exit(await runInit(args));
 }
-if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop', 'act', 'md'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
+if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop', 'act', 'md', 'connect'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
   printHelp();
   process.exit(0);
 }
@@ -916,6 +917,14 @@ if (command === 'design') {
   }
   console.error('Usage: timmy design list | timmy design run <genId>');
   process.exit(2);
+}
+
+if (command === 'connect') {
+  // Round R4 (H90): Timmy Connect, the operator's own computers over SSH (src/connect/cli.ts), for its verbs and help; the
+  // raw arguments go on, so a remote command's own --json or --out is its own. Any other word stays the env.lock step below.
+  const { connectMain, isConnectVerb } = await import('./connect/cli.js');
+  const rest = args.slice(args.indexOf('connect') + 1);
+  if (isConnectVerb(rest)) process.exit(await connectMain(rest));
 }
 
 if (command === 'connect') {

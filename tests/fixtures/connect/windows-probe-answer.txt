@@ -1,0 +1,24 @@
+FIXTURE (round R4, helper H90): a Windows probe answer written by hand in the shape windowsProbeScript prints; it was NOT captured from a Windows computer (none was available). Its values are illustrative.
+TIMMY-PROBE-BEGIN
+family=powershell
+os_name=Windows
+os_version=10.0.26100.0
+arch=AMD64
+user=timmy-test
+login_shell=powershell 5.1.26100.2161
+job_folder=absent, can be made
+detach=wmi
+sha256=Get-FileHash
+start_time=yes
+found=git
+found=python
+missing=python3
+missing=node
+found=ffmpeg
+missing=blender
+missing=docker
+found=nvidia-smi
+missing=ollama
+found=tailscale
+missing=pwsh
+TIMMY-PROBE-END

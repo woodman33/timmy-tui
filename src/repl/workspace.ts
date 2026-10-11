@@ -413,6 +413,8 @@ export class Workspace {
   }
 
   get root(): string { return this.project.root; }
+  /** R4 (H90): the NEEDS YOU box this REPL was given (askPerson), for a command that asks a person itself (/connect trust). */
+  get askBox(): ((req: ApprovalRequest) => Promise<Decision>) | undefined { return this.d.askPerson; }
   private get sep(): string { return ` ${this.d.glyphs.sep} `; }
   private tilde(p: string): string { return this.d.tildify ? this.d.tildify(p) : p; }
   private fileLink(rel: string): string { return this.d.link(rel, fileUrl(join(this.root, rel))); }

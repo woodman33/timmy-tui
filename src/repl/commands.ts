@@ -4,6 +4,7 @@
  */
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
+import type { ApprovalRequest, Decision } from './approvals.js';
 import { plural } from './steps.js';
 import { nearest } from './suggest.js';
 
@@ -142,6 +143,10 @@ export interface WorkspaceViews {
   /** Round R4 (helper H65): what the newest operations changed (/review [id]), and a checked restore of a kept version. */
   review?(args: string): Segment[][];
   restore?(args: string): Segment[][];
+  /** Round R4 (helper H90): the REPL's NEEDS YOU box, for /connect trust (absent: not at a terminal). */
+  readonly askBox?: (req: ApprovalRequest) => Promise<Decision>;
+  /** the active project's folder (a relative /connect fetch --to lands there) */
+  readonly root?: string;
 }
 
 /** /help's sections, in order: what you work on, what you look at, setup, the session. */
@@ -235,6 +240,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'agent', group: 'work', description: 'A code agent as a job: /agent qwen <task>', run: inWorkspace((w, a) => (w.agent ? w.agent(a) : [[{ text: '  Code agents are not available here.', role: 'secondary' }]])) },
   // Round R4 (helper H24): the connected flow: agent, durable rebuild, independent readback, on the board.
   { name: 'iterate', group: 'work', description: 'Agent edits; tray/Blender rebuilds: /iterate', run: inWorkspace((w, a) => (w.iterate ? w.iterate(a) : [[{ text: '  /iterate is not available here.', role: 'secondary' }]])) },
+  // Round R4 (helper H90): Timmy Connect, the operator's own computers over SSH (src/connect/repl.ts; quotes group words).
+  { name: 'connect', group: 'work', description: 'Your computers over SSH: add, probe, run', run: async (a, ctx) => { const { connectRepl } = await import('../connect/repl.js'); await connectRepl(a, { print: ctx.print, glyphs: ctx.glyphs, ...(ctx.workspace?.askBox ? { ask: ctx.workspace.askBox } : {}), ...(ctx.workspace?.root ? { cwd: ctx.workspace.root } : {}) }); } },
   {
     name: 'web',
     group: 'look',
