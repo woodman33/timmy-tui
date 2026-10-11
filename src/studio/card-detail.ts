@@ -16,11 +16,12 @@
  * project's folder as ".", the home folder as "~", any other absolute path as <path>); paths are project-relative.
  */
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { mm3Text, mmText, toleranceText } from '../flows/iterate.js';
 import type { ScadParamsRead, ScadValue } from '../native/scad-params.js';
 import { DOCTRINE_15, PARAMETER_HELP, PARAMETER_NAMES } from '../recipes/index.js';
+import { resolveInside } from '../project/index.js';
 import type { ParamsCard, ResultCard } from '../repl/board-cards.js';
 import type { BoardFlow } from '../repl/board-flows.js';
 import type { WorkflowDocInput } from '../repl/board-nodes.js';
@@ -151,9 +152,24 @@ export function inProject(p: unknown): string | null {
 }
 
 const hashes = new Map<string, { size: number; mtime: number; sha: string }>();
-/** A project file's sha256 now (kept by size and time), or why not: never through a link, never past 8 MB. */
+/**
+ * A project file's sha256 now (kept by size and time), or why not: never through a link, never past 8 MB. R4 (H81): no link
+ * anywhere on its path (every part is checked, not only the last), and inside the project by its own rules (src/project
+ * resolveInside: never outside it, never a private file) with the very path checked, before anything is read.
+ */
 export function shaNow(root: string, rel: string): { sha: string; bytes: number } | { why: 'gone' | 'large' | 'link' | 'unreadable' } {
-  const abs = join(root, ...rel.split('/'));
+  let base: string;
+  try { base = realpathSync(root); } catch { return { why: 'gone' }; }
+  let abs = base;
+  for (const part of rel.split('/')) {
+    abs = join(abs, part);
+    let at;
+    try { at = lstatSync(abs); } catch { return { why: 'gone' }; }
+    if (at.isSymbolicLink()) return { why: 'link' };
+  }
+  const inside = resolveInside(base, rel);
+  if ('error' in inside) return { why: 'unreadable' };
+  if (inside.path !== abs) return { why: 'link' };
   let st;
   try { st = lstatSync(abs); } catch { return { why: 'gone' }; }
   if (st.isSymbolicLink()) return { why: 'link' };

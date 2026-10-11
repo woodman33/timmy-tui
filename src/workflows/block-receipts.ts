@@ -134,11 +134,15 @@ export function outcomeOf(s: Pick<JobStep, 'state'>): BlockOutcome {
   return s.state === 'completed' ? 'completed' : s.state === 'failed' ? 'failed' : s.state === 'stopped' || s.state === 'interrupted' ? 'interrupted' : 'unknown';
 }
 
-/** A block's receipt as sealed (see the module comment); `project` and `projectId` are the run's. */
+/**
+ * A block's receipt as sealed (see the module comment); `project` and `projectId` are the run's. R4 (H81): a block whose
+ * outcome is unknown (upmd ended while it ran, and nothing stopped it) is sealed with no status: neither ok nor failed is
+ * known of it; its words (the subject and block.outcome) say unknown.
+ */
 export function blockReceiptInput(f: BlockFacts, o: { label: string; project: string; projectId: string; operation?: string }): ReceiptInput {
-  const status = f.outcome === 'completed' ? 'ok' as const : f.outcome === 'failed' ? 'failed' as const : f.outcome === 'interrupted' ? 'cancelled' as const : 'failed' as const;
+  const status = f.outcome === 'completed' ? 'ok' as const : f.outcome === 'failed' ? 'failed' as const : f.outcome === 'interrupted' ? 'cancelled' as const : undefined;
   return {
-    kind: BLOCK_RECEIPT_KIND, subject: `workflow · block · ${o.label} · ${f.name} · ${f.outcome}`, policy: 'human-gated', status,
+    kind: BLOCK_RECEIPT_KIND, subject: `workflow · block · ${o.label} · ${f.name} · ${f.outcome}`, policy: 'human-gated', ...(status ? { status } : {}),
     project: o.project, project_id: o.projectId, block: f,
     // a receipt sealed outside the run's operation (a later REPL's recovery) still names the run's
     ...(o.operation ? { operation_id: o.operation } : {}),
