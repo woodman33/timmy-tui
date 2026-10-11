@@ -2,23 +2,21 @@
 // WebDataset shard (two trimesh boxes with GSO-style metadata) stands in for a GSO tar; the real smoke shard (5 objects,
 // 90 MB, CC-BY-4.0) was run by hand on 2026-10-04 with the same code path. Needs python3 + numpy + scipy + trimesh.
 import { describe, it, expect } from 'vitest';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runAsync } from './helpers/run-async.js';
 
 const ROOT = join(__dirname, '..');
 const loader = join(ROOT, 'lanes', 'geo', 'bench_loader.py');
 const deps = spawnSync('python3', ['-c', 'import numpy, scipy, trimesh'], { encoding: 'utf8' }).status === 0;
-const run = (args: string[]) => spawnSync('python3', [loader, ...args], { encoding: 'utf8', timeout: 180000 });
-// the fetch test hosts its server in this worker: a spawnSync there would block the event loop the server needs (the engine
-// tests hit the same thing), so the loader is spawned asynchronously for it
-const runAsync = (args: string[], env: NodeJS.ProcessEnv) => new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
-  const c = spawn('python3', [loader, ...args], { env }); let out = '', err = '';
-  c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { err += d; });
-  c.on('close', (status) => resolve({ status, stdout: out, stderr: err }));
-});
+// Every python3 run is awaited, never spawnSync: a synchronous run blocks this worker's event loop. The fetch test's
+// server needs that loop (the engine tests hit the same thing), and back-to-back synchronous runs held it for 99 s on
+// a loaded machine, past vitest's 60 s worker RPC timeout ("Timeout calling onTaskUpdate", R4 H31).
+const run = (args: string[], env?: NodeJS.ProcessEnv) => runAsync('python3', [loader, ...args], { env, timeout: 180000 });
+const python = (args: string[], options: { timeout?: number } = {}) => runAsync('python3', args, options);
 
 const FAKE_SHARD = `
 import io, json, sys, tarfile, numpy as np, trimesh
@@ -53,16 +51,16 @@ print('ok')
 `;
 
 describe('geo bench loader', () => {
-  it('has a usage line and documents the steps in the README', () => {
-    const h = run(['--help']);
+  it('has a usage line and documents the steps in the README', async () => {
+    const h = await run(['--help']);
     expect(h.status, h.stderr).toBe(0); expect(h.stdout).toMatch(/fetch,extract,predict,score/);
     expect(readFileSync(join(ROOT, 'lanes', 'geo', 'README.md'), 'utf8')).toContain('bench_loader.py');
   });
 
-  it.skipIf(!deps)('extract writes metric + unit truth per object with a manifest that carries licence, extents and hashes; score ranks a 5 cm miss below an exact box', () => {
+  it.skipIf(!deps)('extract writes metric + unit truth per object with a manifest that carries licence, extents and hashes; score ranks a 5 cm miss below an exact box', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'geo-bench-'));
-    expect(spawnSync('python3', ['-c', FAKE_SHARD, dir], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
-    const ex = run(['extract', '--tar', join(dir, 'fake-00000.tar'), '--out', join(dir, 'bench'), '--samples', '40000']);
+    expect((await python(['-c', FAKE_SHARD, dir])).stdout.trim()).toBe('ok');
+    const ex = await run(['extract', '--tar', join(dir, 'fake-00000.tar'), '--out', join(dir, 'bench'), '--samples', '40000']);
     expect(ex.status, ex.stderr).toBe(0);
     const man = JSON.parse(readFileSync(join(dir, 'bench', 'manifest.json'), 'utf8'));
     expect(man).toMatchObject({ kind: 'geo.bench-manifest', set: 'gso', count: 2, samples_per_object: 40000 });
@@ -74,8 +72,8 @@ describe('geo bench loader', () => {
     expect(a.frames.unit.glb_sha256).toMatch(/^[0-9a-f]{64}$/); expect(a.views).toEqual(['view_0.jpg']);
     for (const f of ['truth_metric.ply', 'truth_unit.glb', 'meta.json', 'view_0.jpg']) expect(existsSync(join(dir, 'bench', 'objects', 'box_a', f)), f).toBe(true);
     // predictions in the metric frame: box_a exact (resampled), box_b moved 5 cm → scored strictly, no fitting
-    expect(spawnSync('python3', ['-c', PREDS, join(dir, 'bench'), join(dir, 'pred')], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
-    const sc = run(['score', '--bench', join(dir, 'bench'), '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.005', '--samples', '40000']);
+    expect((await python(['-c', PREDS, join(dir, 'bench'), join(dir, 'pred')])).stdout.trim()).toBe('ok');
+    const sc = await run(['score', '--bench', join(dir, 'bench'), '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.005', '--samples', '40000']);
     expect(sc.status, sc.stderr).toBe(0);
     const sum = JSON.parse(readFileSync(join(dir, 'bench', 'scores', 'summary.json'), 'utf8'));
     expect(sum).toMatchObject({ kind: 'geo.bench-summary', frame: 'metric', unit: 'm', metric: true, fit: false, scored: 2, missing: [] });
@@ -86,27 +84,27 @@ describe('geo bench loader', () => {
     expect(row('box_b').chamfer_mean_dist).toBeGreaterThan(0.005);
     expect(JSON.parse(readFileSync(join(dir, 'bench', 'scores', 'box_b.json'), 'utf8')).inputs).toMatchObject({ frame: 'metric', pred: 'box_b.ply', normalize_each: false });
     // a fitted run is a shape score and says so; a missing prediction is reported, never silently skipped
-    const fit = run(['score', '--bench', join(dir, 'bench'), '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--fit', '--voxel', '0.01', '--tau', '0.005', '--samples', '40000']);
+    const fit = await run(['score', '--bench', join(dir, 'bench'), '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--fit', '--voxel', '0.01', '--tau', '0.005', '--samples', '40000']);
     expect(fit.status).toBe(0);
     const fsum = JSON.parse(readFileSync(join(dir, 'bench', 'scores', 'summary.json'), 'utf8'));
     expect(fsum.metric).toBe(false); expect(fsum.rows.find((r: any) => r.id === 'box_b').voxel_f1).toBeGreaterThan(0.9);
-    const partial = run(['score', '--bench', join(dir, 'bench'), '--pred-dir', dir, '--frame', 'metric', '--samples', '40000']);
+    const partial = await run(['score', '--bench', join(dir, 'bench'), '--pred-dir', dir, '--frame', 'metric', '--samples', '40000']);
     expect(partial.status).toBe(1);                                                                 // nothing scored
     expect(JSON.parse(partial.stdout.trim()).missing).toBe(2);
     // the Timmy formula: a prediction sealed before scoring is graded by the score — and a wrong one is called falsified
-    const pr = run(['predict', '--bench', join(dir, 'bench'), '--model', 'exact-boxes', '--expect-f1', '0.95', '--expect-fscore', '0.97', '--frame', 'metric', '--basis', 'test']);
+    const pr = await run(['predict', '--bench', join(dir, 'bench'), '--model', 'exact-boxes', '--expect-f1', '0.95', '--expect-fscore', '0.97', '--frame', 'metric', '--basis', 'test']);
     expect(pr.status, pr.stderr).toBe(0);
     const prediction = JSON.parse(readFileSync(join(dir, 'bench', 'scores', 'prediction.json'), 'utf8'));
     expect(prediction).toMatchObject({ kind: 'geo.bench-prediction', model: 'exact-boxes', expected: { median_voxel_f1: 0.95, median_fscore: 0.97 }, tolerance_f1: 0.08 });
     expect(prediction.prediction_sha256).toMatch(/^[0-9a-f]{64}$/); expect(prediction.manifest_sha256).toMatch(/^[0-9a-f]{64}$/);
-    const graded = run(['score', '--bench', join(dir, 'bench'), '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.005', '--samples', '40000']);
+    const graded = await run(['score', '--bench', join(dir, 'bench'), '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.005', '--samples', '40000']);
     expect(graded.status).toBe(0);
     const g = JSON.parse(readFileSync(join(dir, 'bench', 'scores', 'summary.json'), 'utf8')).prediction;
     expect(g).toMatchObject({ model: 'exact-boxes', graded: true, frame_matches: true, prediction_sha256: prediction.prediction_sha256 });
     expect(g.falsified).toBe(g.gap < -0.08);                                                        // the median over {exact, 5 cm off} decides; the rule is the receipt's
     expect(typeof g.observed_median_fscore).toBe('number');
     // Cursor: --normalize-each discards relative scale, so every per-object record must say metric:false, not only the summary
-    const ne = run(['score', '--bench', join(dir, 'bench'), '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--normalize-each', '--voxel', '0.02', '--tau', '0.01', '--samples', '40000']);
+    const ne = await run(['score', '--bench', join(dir, 'bench'), '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--normalize-each', '--voxel', '0.02', '--tau', '0.01', '--samples', '40000']);
     expect(ne.status).toBe(0);
     expect(JSON.parse(readFileSync(join(dir, 'bench', 'scores', 'summary.json'), 'utf8')).metric).toBe(false);
     const perObj = JSON.parse(readFileSync(join(dir, 'bench', 'scores', 'box_a.json'), 'utf8'));
@@ -123,8 +121,8 @@ with tarfile.open(S / 'fake-00001.tar', 'w') as tar:
     add(tar, 'box_c.json', json.dumps({'object_id': 'box_c', 'license_id': 'cc-by-4.0', 'glb_processing': {}}).encode())
 print('ok')
 `;
-    expect(spawnSync('python3', ['-c', SECOND, dir], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
-    const ex2 = run(['extract', '--tar', join(dir, 'fake-00001.tar'), '--out', join(dir, 'bench'), '--samples', '40000']);
+    expect((await python(['-c', SECOND, dir])).stdout.trim()).toBe('ok');
+    const ex2 = await run(['extract', '--tar', join(dir, 'fake-00001.tar'), '--out', join(dir, 'bench'), '--samples', '40000']);
     expect(ex2.status, ex2.stderr).toBe(0);
     const man2 = JSON.parse(readFileSync(join(dir, 'bench', 'manifest.json'), 'utf8'));
     expect(man2.count).toBe(3); expect(man2.objects.map((o: any) => o.id)).toEqual(['box_a', 'box_b', 'box_c']);
@@ -132,30 +130,30 @@ print('ok')
     expect(man2.objects.find((o: any) => o.id === 'box_c').shard).toBe('fake-00001.tar');
     expect(JSON.parse(ex2.stdout.trim())).toMatchObject({ objects_in_shard: 1, objects: 3, shards: 2 });
     // re-extracting the first shard replaces its objects in place, never duplicates them
-    expect(run(['extract', '--tar', join(dir, 'fake-00000.tar'), '--out', join(dir, 'bench'), '--samples', '40000']).status).toBe(0);
+    expect((await run(['extract', '--tar', join(dir, 'fake-00000.tar'), '--out', join(dir, 'bench'), '--samples', '40000'])).status).toBe(0);
     const man3 = JSON.parse(readFileSync(join(dir, 'bench', 'manifest.json'), 'utf8'));
     expect(man3.count).toBe(3); expect(man3.shards).toHaveLength(2);
     // different settings into the same bench are refused instead of silently mixing sample counts
-    expect(run(['extract', '--tar', join(dir, 'fake-00001.tar'), '--out', join(dir, 'bench'), '--samples', '999']).status).toBe(2);
+    expect((await run(['extract', '--tar', join(dir, 'fake-00001.tar'), '--out', join(dir, 'bench'), '--samples', '999'])).status).toBe(2);
   }, 240000);
 
-  it.skipIf(!deps)('card: one self-contained Bench Card per run, hashed, escaped, with the prediction verdict; runs keep their own folders and get an index', () => {
+  it.skipIf(!deps)('card: one self-contained Bench Card per run, hashed, escaped, with the prediction verdict; runs keep their own folders and get an index', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'geo-card-'));
-    expect(spawnSync('python3', ['-c', FAKE_SHARD, dir], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
+    expect((await python(['-c', FAKE_SHARD, dir])).stdout.trim()).toBe('ok');
     const B = join(dir, 'bench');
-    expect(run(['extract', '--tar', join(dir, 'fake-00000.tar'), '--out', B, '--samples', '30000']).status).toBe(0);
-    expect(spawnSync('python3', ['-c', PREDS, B, join(dir, 'pred')], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
+    expect((await run(['extract', '--tar', join(dir, 'fake-00000.tar'), '--out', B, '--samples', '30000'])).status).toBe(0);
+    expect((await python(['-c', PREDS, B, join(dir, 'pred')])).stdout.trim()).toBe('ok');
     // nothing to card before a score exists: refused, exit 2, JSON on stdout
-    const early = run(['card', '--bench', B, '--run', 'm1']);
+    const early = await run(['card', '--bench', B, '--run', 'm1']);
     expect(early.status).toBe(2); expect(JSON.parse(early.stdout.trim()).status).toBe('refused');
     // a run name is a slug, never a path
-    const trav = run(['card', '--bench', B, '--run', '../escape']);
+    const trav = await run(['card', '--bench', B, '--run', '../escape']);
     expect(trav.status).toBe(2); expect(JSON.parse(trav.stdout.trim()).status).toBe('refused');
     // run m1: a model name that is markup must come out as text
     const evil = '<script>alert(1)</script> box-model';
-    expect(run(['predict', '--bench', B, '--run', 'm1', '--model', evil, '--expect-f1', '0.5', '--frame', 'metric', '--basis', 'test']).status).toBe(0);
-    expect(run(['score', '--bench', B, '--run', 'm1', '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.005', '--samples', '30000']).status).toBe(0);
-    const c1 = run(['card', '--bench', B, '--run', 'm1']);
+    expect((await run(['predict', '--bench', B, '--run', 'm1', '--model', evil, '--expect-f1', '0.5', '--frame', 'metric', '--basis', 'test'])).status).toBe(0);
+    expect((await run(['score', '--bench', B, '--run', 'm1', '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.005', '--samples', '30000'])).status).toBe(0);
+    const c1 = await run(['card', '--bench', B, '--run', 'm1']);
     expect(c1.status, c1.stderr).toBe(0);
     expect(JSON.parse(c1.stdout.trim())).toMatchObject({ ok: true, status: 'carded', runs_on_bench: 1 });
     const html = readFileSync(join(B, 'scores', 'm1', 'card.html'), 'utf8');
@@ -170,15 +168,15 @@ print('ok')
     if (card.verdict === 'OUTSIDE TOLERANCE') expect(html).toContain(card.graded.gap > 0 ? 'ABOVE THE PREDICTION' : 'BELOW THE PREDICTION, NOT PAST THE FALSIFIER');
     else expect(card.verdict_detail).toBeNull();
     // the card hash is the hash of its own data, and the summary hash is the summary's bytes: both recomputable by anyone
-    const check = spawnSync('python3', ['-c', `
+    const check = await python(['-c', `
 import hashlib, json, sys
 d = json.load(open(sys.argv[1])); h = d.pop('card_sha256')
 print(hashlib.sha256(json.dumps(d, sort_keys=True, separators=(',', ':')).encode()).hexdigest() == h,
-      hashlib.sha256(open(sys.argv[2], 'rb').read()).hexdigest() == d['summary_sha256'])`, join(B, 'scores', 'm1', 'card.json'), join(B, 'scores', 'm1', 'summary.json')], { encoding: 'utf8' });
+      hashlib.sha256(open(sys.argv[2], 'rb').read()).hexdigest() == d['summary_sha256'])`, join(B, 'scores', 'm1', 'card.json'), join(B, 'scores', 'm1', 'summary.json')]);
     expect(check.stdout.trim()).toBe('True True');
     // run m2 without a prediction: its own folder, an honest NO PREDICTION, and an index of both runs
-    expect(run(['score', '--bench', B, '--run', 'm2', '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--fit', '--voxel', '0.01', '--tau', '0.005', '--samples', '30000']).status).toBe(0);
-    const c2 = run(['card', '--bench', B, '--run', 'm2', '--model', 'fitted boxes']);
+    expect((await run(['score', '--bench', B, '--run', 'm2', '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--fit', '--voxel', '0.01', '--tau', '0.005', '--samples', '30000'])).status).toBe(0);
+    const c2 = await run(['card', '--bench', B, '--run', 'm2', '--model', 'fitted boxes']);
     expect(JSON.parse(c2.stdout.trim())).toMatchObject({ verdict: 'NO PREDICTION', runs_on_bench: 2 });
     expect(readFileSync(join(B, 'scores', 'm2', 'card.html'), 'utf8')).toContain('SHAPE SCORE');
     const index = readFileSync(join(B, 'scores', 'index.html'), 'utf8');
@@ -187,26 +185,26 @@ print(hashlib.sha256(json.dumps(d, sort_keys=True, separators=(',', ':')).encode
     if (card.verdict_detail) expect(index).toContain(card.verdict_detail.split(',')[0].toLowerCase());   // the index says which way a miss went too
     expect(existsSync(join(B, 'scores', 'summary.json'))).toBe(false);                       // named runs never touch the default folder
     // Sourcery: the default run (no --run) keeps its files in scores/ itself, and the index skipped it — it is a run like the others
-    expect(run(['score', '--bench', B, '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.005', '--samples', '30000']).status).toBe(0);
-    const c0 = run(['card', '--bench', B, '--model', 'default boxes']);
+    expect((await run(['score', '--bench', B, '--pred-dir', join(dir, 'pred'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.005', '--samples', '30000'])).status).toBe(0);
+    const c0 = await run(['card', '--bench', B, '--model', 'default boxes']);
     expect(c0.status, c0.stderr).toBe(0); expect(JSON.parse(c0.stdout.trim())).toMatchObject({ status: 'carded', runs_on_bench: 3 });
     const index3 = readFileSync(join(B, 'scores', 'index.html'), 'utf8');
     expect(index3).toContain('3 runs'); expect(index3).toContain('<a href="card.html">default boxes</a>');
     expect(index3).toContain('href="m1/card.html"'); expect(index3).toContain('href="m2/card.html"');
     // a run named like a file the default run writes into scores/ would collide with it: refused, in any letter case
     for (const bad of ['summary.json', 'card.html', 'Index.HTML', 'box_a.json']) {
-      const r = run(['predict', '--bench', B, '--run', bad, '--model', 'x', '--expect-f1', '0.5', '--frame', 'metric', '--basis', 'test']);
+      const r = await run(['predict', '--bench', B, '--run', bad, '--model', 'x', '--expect-f1', '0.5', '--frame', 'metric', '--basis', 'test']);
       expect(r.status, bad).toBe(2); expect(JSON.parse(r.stdout.trim()).status, bad).toBe('refused');
     }
     expect(existsSync(join(B, 'scores', 'summary.json', 'prediction.json'))).toBe(false);
-    expect(run(['predict', '--bench', B, '--run', 'trellis-2.0', '--model', 'x', '--expect-f1', '0.5', '--frame', 'metric', '--basis', 'test']).status).toBe(0);  // a dotted version is still a fine run name
+    expect((await run(['predict', '--bench', B, '--run', 'trellis-2.0', '--model', 'x', '--expect-f1', '0.5', '--frame', 'metric', '--basis', 'test'])).status).toBe(0);  // a dotted version is still a fine run name
   }, 180000);
 
-  it.skipIf(!deps)('generator outputs: --fit-global scores a turned, rescaled box that --fit cannot, a splat PLY is read as its opaque centres, and the card says both', () => {
+  it.skipIf(!deps)('generator outputs: --fit-global scores a turned, rescaled box that --fit cannot, a splat PLY is read as its opaque centres, and the card says both', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'geo-gen-'));
-    expect(spawnSync('python3', ['-c', FAKE_SHARD, dir], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
+    expect((await python(['-c', FAKE_SHARD, dir])).stdout.trim()).toBe('ok');
     const B = join(dir, 'bench');
-    expect(run(['extract', '--tar', join(dir, 'fake-00000.tar'), '--out', B, '--samples', '20000']).status).toBe(0);
+    expect((await run(['extract', '--tar', join(dir, 'fake-00000.tar'), '--out', B, '--samples', '20000'])).status).toBe(0);
     // box_a comes back turned 90° about x and 30° about z, 3× larger and elsewhere (points); box_b the same way as a 3DGS splat with floaters
     const GEN = `
 import sys, json, numpy as np, trimesh
@@ -230,10 +228,10 @@ for o in json.load(open(B / 'manifest.json'))['objects']:
         ply('box_b.ply', allp, [('opacity', np.r_[np.full(len(pts), 3.0), np.full(len(fl), -5.0)]), ('scale_0', z), ('scale_1', z), ('scale_2', z)])
 print('ok')
 `;
-    expect(spawnSync('python3', ['-c', GEN, B, join(dir, 'gen')], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
+    expect((await python(['-c', GEN, B, join(dir, 'gen')])).stdout.trim()).toBe('ok');
     const common = ['--bench', B, '--pred-dir', join(dir, 'gen'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.01', '--samples', '20000'];
-    expect(run(['score', ...common, '--run', 'plain', '--fit']).status).toBe(0);
-    expect(run(['score', ...common, '--run', 'global', '--fit-global', '--save-compared', '500']).status).toBe(0);
+    expect((await run(['score', ...common, '--run', 'plain', '--fit'])).status).toBe(0);
+    expect((await run(['score', ...common, '--run', 'global', '--fit-global', '--save-compared', '500'])).status).toBe(0);
     const plain = JSON.parse(readFileSync(join(B, 'scores', 'plain', 'summary.json'), 'utf8'));
     const glob = JSON.parse(readFileSync(join(B, 'scores', 'global', 'summary.json'), 'utf8'));
     expect(plain).toMatchObject({ metric: false, fit: true, fit_rotations: 'identity' });
@@ -241,38 +239,38 @@ print('ok')
     for (const r of glob.rows) expect(r.voxel_f1, r.id).toBeGreaterThan(0.85);
     expect(plain.median.voxel_f1).toBeLessThan(glob.median.voxel_f1 - 0.3);
     expect(glob.rows.find((r: any) => r.id === 'box_b').pred_from).toBe('splat-centers opacity>=0.1 (20000 of 24000)');
-    expect(run(['card', '--bench', B, '--run', 'global', '--model', 'turned boxes']).status).toBe(0);
+    expect((await run(['card', '--bench', B, '--run', 'global', '--model', 'turned boxes'])).status).toBe(0);
     const html = readFileSync(join(B, 'scores', 'global', 'card.html'), 'utf8');
     expect(html).toContain('global rotation search + similarity fit'); expect(html).toContain('splat-centers (Gaussians at least 0.1 opaque)');
     // --save-compared keeps what was scored: the fitted prediction now sits on the truth (a viewer shows the same thing the numbers saw)
-    const near = spawnSync('python3', ['-c', `
+    const near = await python(['-c', `
 import sys, numpy as np
 sys.path.insert(0, sys.argv[1]); from scale_solver import read_ply_xyz
 from scipy.spatial import cKDTree
 t = read_ply_xyz(__import__('pathlib').Path(sys.argv[2])); p = read_ply_xyz(__import__('pathlib').Path(sys.argv[3]))
-print(len(t), len(p), round(float(cKDTree(t).query(p)[0].mean()), 4))`, join(ROOT, 'lanes', 'geo'), join(B, 'scores', 'global', 'compared', 'box_a.truth.ply'), join(B, 'scores', 'global', 'compared', 'box_a.pred.ply')], { encoding: 'utf8' });
+print(len(t), len(p), round(float(cKDTree(t).query(p)[0].mean()), 4))`, join(ROOT, 'lanes', 'geo'), join(B, 'scores', 'global', 'compared', 'box_a.truth.ply'), join(B, 'scores', 'global', 'compared', 'box_a.pred.ply')]);
     const [nt, np_, d] = near.stdout.trim().split(' ').map(Number);
     expect([nt, np_]).toEqual([500, 500]); expect(d).toBeLessThan(0.02);
     // the FiftyOne scoreboard finds exactly the (object, run) pairs that kept compared points; without fiftyone it says so (exit 3)
     const board = join(ROOT, 'lanes', 'geo', 'fo_scoreboard.py');
-    const hasFo = spawnSync('python3', ['-c', 'import fiftyone'], { encoding: 'utf8' }).status === 0;
-    const fb = spawnSync('python3', [board, '--bench', B, '--name', 'timmy-test-' + Date.now()], { encoding: 'utf8', timeout: 120000 });
+    const hasFo = (await python(['-c', 'import fiftyone'])).status === 0;
+    const fb = await python([board, '--bench', B, '--name', 'timmy-test-' + Date.now()], { timeout: 120000 });
     if (!hasFo) { expect(fb.status).toBe(3); expect(JSON.parse(fb.stdout.trim())).toMatchObject({ status: 'not_configured', entries: 2 }); }
     else { expect(fb.status, fb.stderr).toBe(0); expect(JSON.parse(fb.stdout.trim())).toMatchObject({ status: 'built', samples: 2, runs: ['global'] }); }
-    const pcd = spawnSync('python3', ['-c', `
+    const pcd = await python(['-c', `
 import sys; sys.path.insert(0, sys.argv[1]); from pathlib import Path; import numpy as np
 from fo_scoreboard import write_pcd
 p = Path(sys.argv[2]) / 'x.pcd'; n = write_pcd(np.arange(12).reshape(4, 3), p); b = p.read_bytes()
-head, body = b.split(b'DATA binary\\n'); print(n, b'POINTS 4' in head, np.frombuffer(body, np.float32).tolist() == list(range(12)))`, join(ROOT, 'lanes', 'geo'), dir], { encoding: 'utf8' });
+head, body = b.split(b'DATA binary\\n'); print(n, b'POINTS 4' in head, np.frombuffer(body, np.float32).tolist() == list(range(12)))`, join(ROOT, 'lanes', 'geo'), dir]);
     expect(pcd.stdout.trim(), pcd.stderr).toBe('4 True True');
-    expect(spawnSync('python3', [board, '--bench', join(dir, 'gen')], { encoding: 'utf8' }).status).toBe(2);       // nothing scored there: refused
+    expect((await python([board, '--bench', join(dir, 'gen')])).status).toBe(2);       // nothing scored there: refused
   }, 240000);
 
-  it.skipIf(!deps)('Bugbot: an empty splat is scored 0 and listed, never a traceback; the scoreboard finds the default run in scores/compared', () => {
+  it.skipIf(!deps)('Bugbot: an empty splat is scored 0 and listed, never a traceback; the scoreboard finds the default run in scores/compared', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'geo-empty-'));
-    expect(spawnSync('python3', ['-c', FAKE_SHARD, dir], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
+    expect((await python(['-c', FAKE_SHARD, dir])).stdout.trim()).toBe('ok');
     const B = join(dir, 'bench');
-    expect(run(['extract', '--tar', join(dir, 'fake-00000.tar'), '--out', B, '--samples', '20000']).status).toBe(0);
+    expect((await run(['extract', '--tar', join(dir, 'fake-00000.tar'), '--out', B, '--samples', '20000'])).status).toBe(0);
     // box_a comes back as the box itself (points); box_b as a splat of the box whose every Gaussian is 95 % opaque — under a bar of 1.0
     const MK = `
 import sys, json, numpy as np, trimesh
@@ -291,10 +289,10 @@ for o in json.load(open(B / 'manifest.json'))['objects']:
         ply('box_b.ply', pts, [('opacity', z + 3.0), ('scale_0', z), ('scale_1', z), ('scale_2', z)])
 print('ok')
 `;
-    expect(spawnSync('python3', ['-c', MK, B, join(dir, 'gen')], { encoding: 'utf8' }).stdout.trim()).toBe('ok');
+    expect((await python(['-c', MK, B, join(dir, 'gen')])).stdout.trim()).toBe('ok');
     const common = ['--bench', B, '--pred-dir', join(dir, 'gen'), '--frame', 'metric', '--voxel', '0.01', '--tau', '0.01', '--samples', '20000', '--splat-min-opacity', '1'];
     // the default run (no --run), fitted globally like a generator, keeping its compared points for the scoreboard
-    const s0 = run(['score', ...common, '--fit-global', '--save-compared', '300']);
+    const s0 = await run(['score', ...common, '--fit-global', '--save-compared', '300']);
     expect(s0.status, s0.stderr).toBe(0); expect(s0.stderr).not.toMatch(/Traceback/);
     expect(JSON.parse(s0.stdout.trim())).toMatchObject({ scored: 2, missing: 0, empty_predictions: 1 });
     const sm = JSON.parse(readFileSync(join(B, 'scores', 'summary.json'), 'utf8'));
@@ -306,10 +304,10 @@ print('ok')
     expect(sm.median.chamfer_mean_dist).toBeNull(); expect(sm.median.voxel_f1).toBeCloseTo(a.voxel_f1 / 2, 3);
     expect(JSON.parse(readFileSync(join(B, 'scores', 'box_b.json'), 'utf8')).fit).toMatchObject({ applied: false, skipped: 'empty prediction' });
     // rescaling each shape skips the empty one instead of taking the extent of nothing
-    const ne = run(['score', ...common, '--run', 'ne', '--normalize-each', '--fit', '--save-compared', '200']);
+    const ne = await run(['score', ...common, '--run', 'ne', '--normalize-each', '--fit', '--save-compared', '200']);
     expect(ne.status, ne.stderr).toBe(0); expect(JSON.parse(ne.stdout.trim()).empty_predictions).toBe(1);
     // the card says so, with a dash where there is no Chamfer
-    expect(run(['card', '--bench', B, '--model', 'empty splat']).status).toBe(0);
+    expect((await run(['card', '--bench', B, '--model', 'empty splat'])).status).toBe(0);
     const html = readFileSync(join(B, 'scores', 'card.html'), 'utf8');
     expect(html).toContain('2 objects scored (1 with an empty prediction, scored 0)'); expect(html).toContain('box_b <span class=flag>empty prediction</span>');
     expect(JSON.parse(readFileSync(join(B, 'scores', 'card.json'), 'utf8')).empty_predictions).toEqual(['box_b']);
@@ -319,17 +317,17 @@ import sys, json; sys.path.insert(0, sys.argv[1]); from pathlib import Path
 from fo_scoreboard import collect
 for runs in (None, ['.'], ['ne']):
     print(json.dumps(sorted([e['run'], e['stem'], e['id'], e['empty_prediction']] for e in collect(Path(sys.argv[2]), runs))))`;
-    const col = spawnSync('python3', ['-c', C, join(ROOT, 'lanes', 'geo'), B], { encoding: 'utf8' });
+    const col = await python(['-c', C, join(ROOT, 'lanes', 'geo'), B]);
     expect(col.status, col.stderr).toBe(0);
     const d = [['default run', '_default', 'box_a', false], ['default run', '_default', 'box_b', true]];
     const n = [['ne', 'ne', 'box_a', false], ['ne', 'ne', 'box_b', true]];
     expect(col.stdout.trim().split('\n').map((l) => JSON.parse(l))).toEqual([[...d, ...n], d, n]);
     const board = join(ROOT, 'lanes', 'geo', 'fo_scoreboard.py');
-    const hasFo = spawnSync('python3', ['-c', 'import fiftyone'], { encoding: 'utf8' }).status === 0;
-    const fb = spawnSync('python3', [board, '--bench', B, '--name', 'timmy-test-' + Date.now()], { encoding: 'utf8', timeout: 120000 });
+    const hasFo = (await python(['-c', 'import fiftyone'])).status === 0;
+    const fb = await python([board, '--bench', B, '--name', 'timmy-test-' + Date.now()], { timeout: 120000 });
     if (!hasFo) { expect(fb.status).toBe(3); expect(JSON.parse(fb.stdout.trim())).toMatchObject({ status: 'not_configured', entries: 4 }); }
     else { expect(fb.status, fb.stderr).toBe(0); expect(JSON.parse(fb.stdout.trim())).toMatchObject({ status: 'built', samples: 4, runs: ['default run', 'ne'] }); }
-    const bad = spawnSync('python3', [board, '--bench', B, '--runs', '../escape'], { encoding: 'utf8' });   // a run is a name, never a path
+    const bad = await python([board, '--bench', B, '--runs', '../escape']);   // a run is a name, never a path
     expect(bad.status).toBe(2); expect(JSON.parse(bad.stdout.trim()).status).toBe('refused');
   }, 240000);
 
@@ -347,21 +345,21 @@ for runs in (None, ['.'], ['ne']):
     const port = (srv.address() as any).port;
     // the loopback server must not be routed through the sandbox's HTTP proxy
     const env = { ...process.env, TIMMY_BENCH_BASE_URL: `http://127.0.0.1:${port}`, PYTHONDONTWRITEBYTECODE: '1', NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost' };
-    const fetch1 = await runAsync(['fetch', '--set', 'gso', '--smoke', '--shard', '0', '--out', join(dir, 'bench')], env);
+    const fetch1 = await run(['fetch', '--set', 'gso', '--smoke', '--shard', '0', '--out', join(dir, 'bench')], env);
     expect(fetch1.status).toBe(5);
     expect(JSON.parse(fetch1.stdout.trim())).toMatchObject({ ok: false, status: 'incomplete', expected_bytes: body.length });
     expect(existsSync(join(dir, 'bench', 'shards', 'gso-train-00000.tar'))).toBe(false);
     expect(existsSync(join(dir, 'bench', 'shards', 'gso-train-00000.tar.part'))).toBe(false);
     mode = 'full';
-    const fetch2 = await runAsync(['fetch', '--set', 'gso', '--smoke', '--shard', '0', '--out', join(dir, 'bench')], env);
+    const fetch2 = await run(['fetch', '--set', 'gso', '--smoke', '--shard', '0', '--out', join(dir, 'bench')], env);
     expect(fetch2.status, fetch2.stderr).toBe(0);
     const rec = JSON.parse(fetch2.stdout.trim());
     expect(rec).toMatchObject({ ok: true, status: 'fetched', bytes: body.length, expected_bytes: body.length, license: 'cc-by-4.0' });
     expect(rec.sha256).toMatch(/^[0-9a-f]{64}$/);
-    const again = await runAsync(['fetch', '--set', 'gso', '--smoke', '--shard', '0', '--out', join(dir, 'bench')], env);
+    const again = await run(['fetch', '--set', 'gso', '--smoke', '--shard', '0', '--out', join(dir, 'bench')], env);
     expect(JSON.parse(again.stdout.trim())).toMatchObject({ status: 'present', bytes: body.length, sha256: rec.sha256 });
     writeFileSync(join(dir, 'bench', 'shards', 'gso-train-00000.tar'), body.subarray(0, 1000));           // a leftover stub is not "present"
-    const stub = await runAsync(['fetch', '--set', 'gso', '--smoke', '--shard', '0', '--out', join(dir, 'bench')], env);
+    const stub = await run(['fetch', '--set', 'gso', '--smoke', '--shard', '0', '--out', join(dir, 'bench')], env);
     expect(stub.status).toBe(5); expect(JSON.parse(stub.stdout.trim()).status).toBe('incomplete');
     srv.close();
   }, 90000);

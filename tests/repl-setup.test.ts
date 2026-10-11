@@ -23,7 +23,7 @@ describe('the setup check', () => {
     const out = text(r.lines).join('\n');
     expect(out).toMatch(/identity.*timmy init/);
     expect(out).toMatch(/model key.*OPENROUTER_API_KEY/);
-    expect(out).toMatch(/palette.*Timmy Night or Day/);
+    expect(out).toMatch(/palette.*Timmy Homebrew, Night or Day/);
     // C-10: the offer is the command that installs it (it knows where the files are).
     expect(out).toMatch(/install\s+timmy theme install/);
     const chain = readChain('runs', dir);

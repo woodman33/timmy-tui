@@ -1,8 +1,10 @@
 /**
- * Terminal palettes: the default colors and the 16 ANSI slots. Timmy Night and Day are where the
+ * Terminal palettes: the default colors and the 16 ANSI slots. Timmy Homebrew (the default), Night and Day are where the
  * brand lives (DESIGN.md §10 B2); Timmy itself only emits slot numbers. assets/themes is generated
  * from this file (scripts/ui/themes.ts).
  */
+import { HOMEBREW_TERMINAL } from '../theme/tokens.js';
+
 export const SLOT_NAMES = [
   'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
   'brightBlack', 'brightRed', 'brightGreen', 'brightYellow', 'brightBlue', 'brightMagenta', 'brightCyan', 'brightWhite',
@@ -27,6 +29,13 @@ export const TIMMY_NIGHT: TerminalPalette = {
   brightBlack: '#6C6C6C', brightRed: '#FF6B6B', brightGreen: '#5FFF87', brightYellow: '#FFC857',
   brightBlue: '#9CC2FF', brightMagenta: '#A78BFA', brightCyan: '#8BE9FF', brightWhite: '#FFFFFF',
 };
+
+/**
+ * Timmy Homebrew, the default (round R1, DESIGN.md §10 B9): black ground, off-white text, Homebrew
+ * green for prompts and selection, restrained accents. Its values live in the shared settings
+ * (src/theme/tokens.ts), which the browser pages read too.
+ */
+export const TIMMY_HOMEBREW: TerminalPalette = HOMEBREW_TERMINAL;
 
 /** Timmy Day: the same roles on white, each accent darkened to hold contrast. */
 export const TIMMY_DAY: TerminalPalette = {
@@ -71,7 +80,7 @@ export const measuredFromPalette = (p: TerminalPalette): MeasuredColors => ({
   slots: Object.fromEntries(SLOT_NAMES.map((name, i) => [i, p[name].toUpperCase()])),
 });
 
-/** `TIMMY_PALETTE=night|day`: the operator says which palette is installed, so Timmy need not ask. */
+/** `TIMMY_PALETTE=homebrew|night|day`: the operator says which palette is installed, so Timmy need not ask. */
 export function namedPalette(name: string | undefined): TerminalPalette | undefined {
-  return { night: TIMMY_NIGHT, day: TIMMY_DAY }[(name ?? '').toLowerCase()];
+  return ({ homebrew: TIMMY_HOMEBREW, night: TIMMY_NIGHT, day: TIMMY_DAY } as Record<string, TerminalPalette>)[(name ?? '').toLowerCase()];
 }

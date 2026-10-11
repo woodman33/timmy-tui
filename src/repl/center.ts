@@ -8,6 +8,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { onPath } from '../utils/on-path.js';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -131,8 +132,12 @@ export function planCenter(i: CenterInputs): CenterPlan {
     };
   }
   if (i.has('zellij')) {
-    const theme = i.env.TIMMY_PALETTE === 'day' ? 'timmy-day' : 'timmy-night';
-    const follow = i.zellijVersion && atLeast(i.zellijVersion, [0, 44, 2]) ? ['--theme-dark', 'timmy-night', '--theme-light', 'timmy-day'] : [];
+    // Round R1: TIMMY_PALETTE says which Timmy palette is installed (homebrew, night or day). Homebrew is a
+    // dark look, so it is the dark theme and Day stays the light one; without the variable, Night as before.
+    const palette = (i.env.TIMMY_PALETTE ?? '').toLowerCase();
+    const theme = palette === 'day' ? 'timmy-day' : palette === 'homebrew' ? 'timmy-homebrew' : 'timmy-night';
+    const dark = palette === 'homebrew' ? 'timmy-homebrew' : 'timmy-night';
+    const follow = i.zellijVersion && atLeast(i.zellijVersion, [0, 44, 2]) ? ['--theme-dark', dark, '--theme-light', 'timmy-day'] : [];
     // One named session: attach when it runs (a second run never stacks), create it otherwise.
     if (i.zellijHasSession) return { route: 'zellij', command: 'zellij', args: ['attach', SESSION], note: 'Attaching to the running cockpit.' };
     return {
@@ -184,18 +189,7 @@ export function realOnPath(bin: string, env: Record<string, string | undefined>)
   return null;
 }
 
-export function onPath(bin: string, env: Record<string, string | undefined>): boolean {
-  for (const dir of (env.PATH ?? '').split(delimiter)) {
-    if (!dir) continue;
-    try {
-      accessSync(join(dir, bin), constants.X_OK);
-      return true;
-    } catch {
-      /* not here */
-    }
-  }
-  return false;
-}
+export { onPath };
 
 export function centerHelp(): string {
   return [
@@ -204,6 +198,7 @@ export function centerHelp(): string {
     'Opens the cockpit: the REPL, the monitor and the event feed as tabs.',
     'Uses zellij when installed (Timmy Night or Day, following the terminal),',
     'then tmux, and runs the REPL here when neither is installed.',
+    'TIMMY_PALETTE=homebrew picks the Timmy Homebrew theme in zellij.',
     '',
     'Inside zellij or tmux, the tabs are added to the session you are in.',
   ].join('\n');

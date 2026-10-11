@@ -1,0 +1,22 @@
+# Timmy Homebrew for Ghostty (generated from src/term/palettes.ts by scripts/ui/themes.ts; do not edit)
+background = #000000
+foreground = #e8e6e1
+background-opacity = 1
+cursor-color = #38fe27
+selection-background = #14451b
+palette = 0=#1c1c1c
+palette = 1=#ff5f56
+palette = 2=#28fe14
+palette = 3=#e5b550
+palette = 4=#6ca8ff
+palette = 5=#b58cff
+palette = 6=#5cc8d6
+palette = 7=#bdbdb8
+palette = 8=#6b6b6b
+palette = 9=#ff8a80
+palette = 10=#7dff6e
+palette = 11=#ffd479
+palette = 12=#9cc3ff
+palette = 13=#d0b3ff
+palette = 14=#8ee3ec
+palette = 15=#ffffff

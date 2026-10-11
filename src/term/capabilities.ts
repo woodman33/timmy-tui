@@ -128,6 +128,18 @@ export function detectCapabilities(input: CapabilityInput): TerminalCapabilities
   };
 }
 
+/**
+ * r21 (ledger row 163): the REPL cut its lines at the width the terminal had when it started, so a window made wider
+ * kept the old width. Node keeps a terminal stream's columns and rows current; this reads them at each use, and keeps
+ * the start's size when the stream is not a terminal or reports no size (a pane that reports 0 columns).
+ */
+export function liveSize(out: { isTTY?: boolean; columns?: number; rows?: number }, start: { columns: number; rows: number }): { readonly columns: number; readonly rows: number } {
+  return {
+    get columns(): number { return out.isTTY && out.columns && out.columns > 0 ? out.columns : start.columns; },
+    get rows(): number { return out.isTTY && out.rows && out.rows > 0 ? out.rows : start.rows; },
+  };
+}
+
 /** The capabilities of this process. */
 export function currentCapabilities(flags?: CapabilityFlags): TerminalCapabilities {
   return detectCapabilities({

@@ -4,7 +4,9 @@ on:
   push:
     branches: [ main, master, feature/hermes-gateway-mvp ]
   pull_request:
-    branches: [ main, master, feature/hermes-gateway-mvp ]
+    # R1 (2026-10-08): pull requests into the UI rounds' feat/** integration branches get this
+    # same full gate; before, they ran only the privacy gate.
+    branches: [ main, master, feature/hermes-gateway-mvp, 'feat/**' ]
   # release.yml calls this exact gate before it publishes, so a tag never ships on a
   # weaker test run than a pull request gets.
   workflow_call:
@@ -92,6 +94,7 @@ jobs:
         run: npm run typecheck:native
 
       - name: Test gate (vitest, everything except the named known-WIP)
+        timeout-minutes: 15
         run: |
           args=""
           for t in $KNOWN_WIP_TESTS; do args="$args --exclude $t"; done
@@ -101,14 +104,17 @@ jobs:
       # Node unit/HTTP routing coverage with Cloudflare runtime boundaries mocked.
       # This does not establish native workerd or deployed-worker qualification.
       - name: Test gate (workers/ai-proxy core and HTTP routes)
+        timeout-minutes: 5
         working-directory: workers/ai-proxy
         run: npx vitest run
 
       - name: Test gate (isolated ShellV2 keyboard in a real PTY)
+        timeout-minutes: 5
         env:
           TIMMY_PTY_TESTS: '1'
         run: npx vitest run tests/keyboard-contract.pty.test.ts
 
       - name: Known-WIP tests (named above; visible, non-blocking)
+        timeout-minutes: 5
         continue-on-error: true
         run: npx vitest run $KNOWN_WIP_TESTS

@@ -11,7 +11,7 @@ import { truncate, visibleWidth } from './width.js';
 import type { MeasuredColors } from './palettes.js';
 
 export type Role =
-  | 'primary' | 'secondary' | 'strong' | 'verified' | 'estimate' | 'failure' | 'ai' | 'rule' | 'diffAdd' | 'diffRemove';
+  | 'primary' | 'secondary' | 'strong' | 'accent' | 'verified' | 'estimate' | 'failure' | 'ai' | 'rule' | 'diffAdd' | 'diffRemove';
 
 export interface Segment {
   text: string;
@@ -37,6 +37,9 @@ interface Style {
 // Each colored role: its weight, its slot, and the contrast floor its slot must clear.
 const ROLES: Record<Exclude<Role, 'primary' | 'secondary'>, { bold: boolean; slot: number | null; floor: number }> = {
   strong: { bold: true, slot: null, floor: 0 },
+  // B9 (round R1): Homebrew green for prompts, selection and primary actions. It never stands for an
+  // outcome on its own: verified keeps its word and its bold.
+  accent: { bold: false, slot: 2, floor: FLOOR.text },
   verified: { bold: true, slot: 2, floor: FLOOR.text },
   estimate: { bold: false, slot: 3, floor: FLOOR.text },
   failure: { bold: true, slot: 1, floor: FLOOR.text },

@@ -18,6 +18,7 @@ import { ZellijManager } from './zellij.js';
 import { RmuxManager } from './rmux.js';
 import { DEFAULT_LANE_BINDINGS, LANE_RUNNERS, laneStartupScript } from './lanes.js';
 import { writeLog, tuiLogger } from '../utils/logger.js';
+import { carriesSecret, shownAddress, writeLaunchPage } from '../utils/launch-page.js';
 import { probeOllama, pickOllamaModel, ollamaChatCompletion } from './providers.js';
 
 export interface SendOptions {
@@ -92,12 +93,7 @@ class TmuxManager implements MultiplexerManager {
 
       const runnerKey = DEFAULT_LANE_BINDINGS[id];
 
-      // Generate dynamic AgentPass credentials
-      const jti = `ap_${Math.random().toString(36).substring(2, 8)}${Math.random().toString(36).substring(2, 8)}`;
-      const visa = `visa_${Math.random().toString(36).substring(2, 8)}`;
-      const hash = `hash_${Math.random().toString(36).substring(2, 8)}`;
-
-      const startup = laneStartupScript(runnerKey, jti, visa, hash);
+      const startup = laneStartupScript(runnerKey);
       execFileSync('tmux', ['send-keys', '-t', sName, startup, 'C-m'], { stdio: 'ignore' });
     } catch {
       // Ignore errors
@@ -319,46 +315,22 @@ export class Agent extends EventEmitter<AgentEvents> {
   /** Human-readable reason for the last health-check failure, shown in the UI. */
   public lastHealthError: string | undefined;
 
-  // Persistent workspace chamber contexts (logs)
-  public workspaceContexts: Record<string, string[]> = {
-    'opencode': [
-      '📡 [VM TUNNEL] Established secure link to Daytona Sandbox container...',
-      '⚙️ [opencode] tsx cli.tsx build -> verified 0 compile errors.'
-    ],
-    'hermes': [
-      '📡 [VM TUNNEL] Established secure link to Daytona Sandbox container...',
-      '🧠 [hermes] literature search -> mapped 14 active ontology records.'
-    ],
-    'pi': [
-      '📡 [VM TUNNEL] Established secure link to Daytona Sandbox container...',
-      '👑 [pi-swarm] AgentPass passport claim verified: jti_auth_91a783'
-    ],
-    'openrouter': [
-      '📡 [VM TUNNEL] Established secure link to Daytona Sandbox container...',
-      '⚡ [openrouter] anthropic/claude-3-5-sonnet -> 1.5k context tokens synced.'
-    ]
-  };
+  // Persistent workspace chamber contexts (logs). Round R1: they start empty and hold only what a
+  // pane actually printed; the seeded "verified" lines, which no run wrote, are gone (AGENTS.md §4).
+  public workspaceContexts: Record<string, string[]> = { opencode: [], hermes: [], pi: [], openrouter: [] };
 
-  // Unified active workspace VM thread logs relayed to Proof page
-  public relayedVmLogs: string[] = [
-    '📡 [VM TUNNEL] Established secure link to Daytona Sandbox container...',
-    '⚙️ [opencode] tsx cli.tsx build -> verified 0 compile errors.',
-    '🧠 [hermes] literature search -> mapped 14 active ontology records.',
-    '👑 [pi-swarm] AgentPass passport claim verified: jti_auth_91a783',
-    '⚡ [openrouter] anthropic/claude-3-5-sonnet -> 1.5k context tokens synced.',
-    '☁️ [sqlite-d1] Push evidence transaction completed -> CF Durable Object database.',
-    '🔐 [EMBASSY] Tamper-evident manifest seal armed: sha256_82f1a8c9b20d3f82',
-    '✓ ALL AGENT CHECKS PASSED. CONFORMANCE: 100%'
-  ];
+  // Unified active workspace VM thread logs relayed to Proof page: lines the panes actually printed.
+  public relayedVmLogs: string[] = [];
 
-  // TMUX Cluster & Background Workspace Session Tracker
-  public tmuxSessions = [
-    { id: '1', name: 'OpenCode CLI', model: 'qwen/qwen-2.5-coder-32b', memory: '14.8 MB', cost: 0.0020 },
-    { id: '2', name: 'Hermes CLI', model: 'nousresearch/hermes-3-llama-3.1-405b', memory: '12.1 MB', cost: 0.0034 },
-    { id: '3', name: 'Pi Daemon', model: 'inflection/pi-3', memory: '22.4 MB', cost: 0.0015 },
-    { id: '4', name: 'Systems MCP', model: 'meta/llama-3.3', memory: '8.2 MB', cost: 0.0015 },
-    { id: '5', name: 'jcode', model: 'jcode/default', memory: '0.0 MB', cost: 0.0000 },
-    { id: '6', name: 'Minds CLI', model: 'animoca/builder', memory: '0.0 MB', cost: 0.0000 }
+  // TMUX Cluster & Background Workspace Session Tracker. Round R1 review: no memory or cost figures;
+  // nothing measured them (the old fixed and random numbers were invented, AGENTS.md §4).
+  public tmuxSessions: Array<{ id: string; name: string; model: string }> = [
+    { id: '1', name: 'OpenCode CLI', model: 'qwen/qwen-2.5-coder-32b' },
+    { id: '2', name: 'Hermes CLI', model: 'nousresearch/hermes-3-llama-3.1-405b' },
+    { id: '3', name: 'Pi Daemon', model: 'inflection/pi-3' },
+    { id: '4', name: 'Systems MCP', model: 'meta/llama-3.3' },
+    { id: '5', name: 'jcode', model: 'jcode/default' },
+    { id: '6', name: 'Minds CLI', model: 'animoca/builder' }
   ];
   public showTmuxDropdown = false;
 
@@ -436,13 +408,7 @@ export class Agent extends EventEmitter<AgentEvents> {
 
   addTmuxSession(name: string, model: string): void {
     const id = (this.tmuxSessions.length + 1).toString();
-    this.tmuxSessions.push({
-      id,
-      name,
-      model,
-      memory: `${(Math.random() * 20 + 10).toFixed(1)} MB`,
-      cost: 0.0000
-    });
+    this.tmuxSessions.push({ id, name, model });
     this.tmuxMgr.spawnSession(id);
     if (this.logsEnabled !== false) tuiLogger.info(`[lane.spawned] ${JSON.stringify({ id, name, model })}`);
     this.emit('tmux:update');
@@ -455,16 +421,18 @@ export class Agent extends EventEmitter<AgentEvents> {
    */
   addBrowserPane(url: string = 'https://localhost:3001'): void {
     const id = (this.tmuxSessions.length + 1).toString();
-    this.tmuxSessions.push({
-      id,
-      name: `Browser: ${url}`,
-      model: 'carbonyl/chromium-109',
-      memory: '0.0 MB',
-      cost: 0.0000
-    });
+    // Round R4 (review M4): a link that carries a secret (the live board's token) is typed as a private launch
+    // page, so the token is in neither send-keys' arguments, the pane shell's history, nor this lane's name or log.
+    let page: string | null = url;
+    if (carriesSecret(url)) { try { page = writeLaunchPage(url).href; } catch { page = null; } }
+    const shown = shownAddress(url);
+    const word = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+    this.tmuxSessions.push({ id, name: `Browser: ${shown}`, model: 'carbonyl/chromium-109' });
     this.tmuxMgr.spawnSession(id);
-    this.tmuxMgr.sendCommand(id, `if command -v carbonyl >/dev/null 2>&1; then carbonyl "${url}"; else printf '\\033[31m[Browser]\\033[0m carbonyl not found on PATH. Install from https://github.com/fathyb/carbonyl\\n'; fi`, true);
-    if (this.logsEnabled !== false) tuiLogger.info(`[browser.spawned] ${JSON.stringify({ id, url })}`);
+    this.tmuxMgr.sendCommand(id, page === null
+      ? `printf '[Browser] Not opened: the private page that keeps the token of this link off command lines could not be written.\\n'`
+      : `if command -v carbonyl >/dev/null 2>&1; then carbonyl ${word(page)}; else printf '\\033[31m[Browser]\\033[0m carbonyl not found on PATH. Install from https://github.com/fathyb/carbonyl\\n'; fi`, true);
+    if (this.logsEnabled !== false) tuiLogger.info(`[browser.spawned] ${JSON.stringify({ id, url: shown })}`);
     this.emit('tmux:update');
   }
 
@@ -703,6 +671,22 @@ export class Agent extends EventEmitter<AgentEvents> {
 
   startSession(): string {
     return this.conversation.startNew();
+  }
+
+  /**
+   * R1 workspace direction: keep the conversation in another folder (the active project's .sessions), so
+   * each project carries its own context. Its latest conversation is resumed, else a new one starts.
+   */
+  useSessions(dir: string): { resumed: boolean; messages: number } {
+    this.conversation = new ConversationManager(dir);
+    const sessions = this.conversation.listSessions();
+    if (sessions.length > 0) {
+      try {
+        return { resumed: true, messages: this.conversation.load(sessions[0]).length };
+      } catch { /* an unreadable file: a new conversation instead */ }
+    }
+    this.conversation.startNew();
+    return { resumed: false, messages: 0 };
   }
 
   isRunning(): boolean {

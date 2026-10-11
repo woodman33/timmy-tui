@@ -44,8 +44,11 @@ export type SaveResult =
 
 export interface CanvasJob {
   id: string;
+  /** Whether the job's last call succeeded (round R1: a failed call keeps nothing, so the last call is the job's state). */
   ok: boolean;
   calls: number;
+  /** How many of its calls failed (each undone on the canvas). Absent in ledgers from before round R1. */
+  failed?: number;
   revision: number;
   sourceRevision: string;
   at: string;
@@ -148,11 +151,14 @@ export class CanvasDocuments {
     if (!SHA256.test(call.sourceRevision) || !isRevision(call.revision)) throw new Error('A job call needs its revision and its source revision (a sha256).');
     const list = this.jobs();
     const before = list.find((j) => j.id === id);
+    // A ledger from before round R1 has no count: its job failed at least once if it says failed.
+    const failedBefore = before ? (before.failed ?? (before.ok ? 0 : 1)) : 0;
     const job: CanvasJob = {
       ...before,
       id,
-      ok: (before?.ok ?? true) && call.ok,
+      ok: call.ok,
       calls: (before?.calls ?? 0) + 1,
+      failed: failedBefore + (call.ok ? 0 : 1),
       revision: call.revision,
       sourceRevision: call.sourceRevision,
       at: new Date().toISOString(),

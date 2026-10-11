@@ -9,6 +9,7 @@ import fs from 'fs';
 import { computeReceiptHash, Receipt } from '../receipt/schema.js';
 import { VERSION } from '../version.js';
 import { canvasSummary } from './canvas.js';
+import { keySet } from '../utils/keys.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -466,13 +467,13 @@ export async function startCompanionServer(port = 3001): Promise<CompanionServer
           
           // Send integration status
           const daytonaKey = process.env.DAYTONA_API_KEY;
-          const isDaytonaActive = !!(daytonaKey && !daytonaKey.includes('your') && !daytonaKey.includes('paste_your'));
+          const isDaytonaActive = keySet(daytonaKey);
 
           const triggerKey = process.env.TRIGGER_SECRET_KEY;
-          const isTriggerActive = !!(triggerKey && !triggerKey.includes('your') && !triggerKey.includes('paste_your'));
+          const isTriggerActive = keySet(triggerKey);
 
           const composioKey = process.env.COMPOSIO_API_KEY;
-          const isComposioActive = !!(composioKey && !composioKey.includes('your') && !composioKey.includes('paste_your'));
+          const isComposioActive = keySet(composioKey);
 
           const cfAccount = process.env.CLOUDFLARE_ACCOUNT_ID;
           const isCloudflareActive = !!(cfAccount && cfAccount.trim() !== '');

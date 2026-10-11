@@ -15,6 +15,7 @@ import { subscribe } from '../../bus/index.js';
 import { listLanes } from '../../utils/dispatch.js';
 import { listModelsSync, readNotes, notesPath, type ModelEntry } from '../../models/registry.js';
 import { readPolicy, setModel, ADAPTERS } from '../../harness/policy.js';
+import { loadConfig } from '../../utils/config.js';
 import { dropRoot, SHIPPED_RULES } from '../../drop/index.js';
 import { listEscrows, lockEscrow, cancelEscrow, type Escrow } from '../../utils/escrow-engine.js';
 import { journeyRows, journeyDoneCount } from '../journey.js';
@@ -293,17 +294,9 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
     setDocker(probeDockerServerVersion() !== null);
   }, []);
 
-  // FIX 3 (director): first run seeds a default model policy (pinned model,
-  // else openrouter/auto) and seals model.policy — "policy unset" becomes
-  // unreachable after the first run.
-  useEffect(() => {
-    if (readPolicy().default) return;
-    const seeded = models.find(m => m.pinned)?.id ?? 'openrouter/auto';
-    setModel(seeded, null);
-    appendReceipt('runs', { kind: 'seal', subject: `model.policy · default ${seeded}`, policy: 'auto', status: 'ok' });
-    setModelsTick(t => t + 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // R1 (2026-10-08): opening the monitor only reads. It used to seed a default model policy and
+  // seal model.policy on first open, a write and a receipt the person never asked for; the policy
+  // is set from the MODELS picker or `timmy model set`, and the header below no longer needs it.
 
   useInput((input, key) => {
     // C-11: Ctrl+C ends the monitor with 130 (cancelled), in every mode and overlay; the terminal
@@ -592,7 +585,17 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
     try { return [...new Set([...readdirSync(dropRoot()).filter(f => !f.startsWith('.')), ...Object.keys(SHIPPED_RULES)])].length; }
     catch { return Object.keys(SHIPPED_RULES).length; }
   }, []);
-  const model = readPolicy().default ?? models.find(m => m.pinned)?.id ?? '—';
+  // R1: the header names the model the REPL last ran (its latest turn receipt), else the model the
+  // REPL is set to run (OPENROUTER_MODEL or its settings). The model policy is a separate setting for
+  // harness lanes; the status line names it as the policy and says when it is unset.
+  const replModel = useMemo(() => {
+    for (let i = recs.length - 1; i >= 0; i--) {
+      const r = recs[i] as Receipt & { model_requested?: unknown };
+      if (r.kind === 'turn' && String(r.subject).startsWith('repl') && r.model_requested) return String(r.model_requested);
+    }
+    try { return loadConfig().model || '—'; } catch { return '—'; }
+  }, [recs]);
+  const policyModel = policy.default ?? 'unset';
   const harness = lanes.find(l => l.available)?.id ?? '—';
   const fleet = lanes.filter(l => l.available).length;
   const last = recs[recs.length - 1] ?? null;
@@ -827,7 +830,7 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
           // FIX 1 (warroom fixes): header width budget — the brand never
           // wraps, tabs collapse to digits + active label when width demands,
           // segments drop right-to-left. cmdr+spend live on COMMAND line 2.
-          const headModel = String(model).split('/').pop() ?? '';
+          const headModel = String(replModel).split('/').pop() ?? '';
           const chainSeg = `  chain ${evidenceGlyph(chainEv)} ${chain.count}${head ? ` · ${head.slice(7, 15)}` : ''}`;
           const busSeg = `  bus ${busLive ? LIVE.on : LIVE.off}`;
           const dropsSeg = `  drops ${drops}`;
@@ -872,7 +875,7 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
           {s.tab === 'HOME' && (
             <HomePane
               recs={recs} chain={chain} busLive={busLive} docker={docker}
-              fleet={fleet} costToday={costToday} costTodayUnknown={costTodayUnknown} model={model} harness={harness} flash={flash}
+              fleet={fleet} costToday={costToday} costTodayUnknown={costTodayUnknown} model={policyModel} harness={harness} flash={flash}
               pendingEscrows={pendingEscrows} compact={compact}
             />
           )}

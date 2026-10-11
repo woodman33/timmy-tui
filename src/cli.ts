@@ -49,9 +49,13 @@ Commands:
   repl            The inline REPL, also plain timmy: chat in your scrollback (timmy repl --demo needs no key)
   watch           The full-screen monitor (the Command Post)
   receipts        The receipt chain: verify, then the latest (--follow)
-  theme           Timmy Night and Day for your terminal (theme install)
+  theme           Timmy Homebrew (default), Night and Day, and the font, for your terminal (theme install)
   center          The cockpit: REPL, monitor and events as tabs (zellij, tmux, or the REPL here)
-  studio          Timmy Canvas: the tldraw canvas the agent draws on (127.0.0.1:4337; /web studio)
+  studio          Timmy Canvas: the tldraw canvas the agent draws on (127.0.0.1:4337; /canvas)
+  tools           What works here, checked live: surfaces, models, agent tools, other agents (tools all; --json)
+  drop <file|folder>…  Into the hot-drop lanes: copied, matched by a rule, sealed (--lane; --list [project])
+  act "<slash command>"  One REPL command, headlessly, as one operation (--wait, --json, --project, --timeout)
+  md <workflow.md> [<block>]  Run a upmd workflow's block as /run does: prediction, block receipts, NEEDS YOU (--plan, --json)
   demo            Run a local demo and generate a verifiable receipt
   proof <task>    Record a proof receipt for a simulated task
   version         Print package name and version
@@ -145,12 +149,24 @@ if (cleanArgs.length === 0 && !args.includes('--help') && !args.includes('-h')) 
   const { isBlankSlate, runInit } = await import('./utils/init.js');
   if (isBlankSlate()) process.exit(await runInit(args));
 }
-if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
+if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop', 'act', 'md'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
   printHelp();
   process.exit(0);
 }
 
 const command = cleanArgs[0];
+
+if (command === 'act') {
+  // Round R4 (H51): one REPL command run headlessly in a project, as one operation (src/ops/act.ts).
+  const { actMain } = await import('./ops/act.js');
+  process.exit(await actMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : []), { json: isJson }));
+}
+
+if (command === 'md') {
+  // Round R4 (H74): a upmd workflow's block from the command line, as /run runs it (src/cli-md.ts).
+  const { mdMain } = await import('./cli-md.js');
+  process.exit(await mdMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : []), { json: isJson }));
+}
 
 if (command === 'cockpit' && !['up', 'attach', 'status', 'down', 'hands'].includes(cleanArgs[1] ?? '')) {
   if (cleanArgs[1] === 'shot') {
@@ -427,7 +443,8 @@ if (command === 'center') {
 }
 
 if (command === 'theme') {
-  // C-10: Timmy Night and Day into the terminal's theme folder (new files only; it prints the line to add).
+  // C-10: Timmy's palettes into the terminal's theme folder (new files only; it prints the lines to add);
+  // round R1: Timmy Homebrew by default, a macOS Terminal profile, and the font.
   const { themeMain } = await import('./term/theme-install.js');
   // --json is taken out of cleanArgs for every verb; this one prints its own envelope (C-15).
   process.exit(themeMain(cleanArgs.slice(1).concat(isJson ? ['--json'] : [])));
@@ -437,6 +454,12 @@ if (command === 'receipts') {
   // C-8: the receipt chain, verified, then the latest; --follow prints each new receipt as it is sealed.
   const { receiptsMain } = await import('./repl/follow.js');
   process.exit(await receiptsMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : [], isJson ? ['--json'] : [])));
+}
+
+if (command === 'tools') {
+  // Round R1 (plan F-0): what works here, each on the ladder, from live checks that write nothing.
+  const { toolsMain } = await import('./capabilities/cli.js');
+  process.exit(await toolsMain(cleanArgs.slice(1).concat(args.includes('--help') || args.includes('-h') ? ['--help'] : [], isJson ? ['--json'] : [])));
 }
 
 if (command === 'studio') {
@@ -468,25 +491,10 @@ if (command === 'chat') {
 }
 
 if (command === 'drop') {
-  // warroom-v2-c4m8: `timmy drop --list [project]` — what sits in each project
-  // folder's drop/ shelf, read through Claude Code's harness-menu reader
-  const want = args.find(a => !a.startsWith('--')) ?? null;
-  const hm = await import('../fleet/harness-menu.mjs');
-  const { readdirSync, statSync } = await import('node:fs');
-  const names = (want ? [want] : readdirSync(hm.PROJECTS_ROOT, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)).sort();
-  const rows: { project: string; file: string; bytes: number }[] = [];
-  for (const n of names) {
-    const p = hm.readProject(n, hm.PROJECTS_ROOT);
-    for (const d of p.drop ?? []) {
-      const rel = String(d.path ?? d.name ?? '');
-      try { rows.push({ project: n, file: rel, bytes: statSync(`${p.dir}/drop/${rel}`).size }); }
-      catch { rows.push({ project: n, file: rel, bytes: 0 }); }
-    }
-  }
-  if (args.includes('--json')) console.log(JSON.stringify({ v: 1, count: rows.length, rows }, null, 1));
-  else if (rows.length === 0) console.log('drop shelves empty — timmy drop <project> <file> to feed a run');
-  else for (const r of rows) console.log(`${r.project.padEnd(14)} ${String(r.bytes).padStart(9)}  ${r.file}`);
-  process.exit(0);
+  // R4 H19: `timmy drop <file|folder>… [--lane <lane>]` hands each file to the hot-drop processor (src/drop), the same
+  // one the watched drop folder uses; `--list [project]` (warroom-v2-c4m8) lists each project's drop/ shelf.
+  const { dropMain } = await import('./drop/cli.js');
+  process.exit(await dropMain(cleanArgs.slice(1), { json: isJson }));
 }
 
 if (command === 'profile') {

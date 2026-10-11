@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectCapabilities, type CapabilityInput } from '../src/term/capabilities.js';
+import { detectCapabilities, liveSize, type CapabilityInput } from '../src/term/capabilities.js';
 
 // Env-matrix tests for playbook §16.6–16.7 (color, Unicode, width, CI, TTY, plain), plus the two
 // defects the Cockpit prototype hit: tmux without a UTF-8 locale and a pane that starts at 0 columns.
@@ -86,6 +86,22 @@ describe('size', () => {
     const c = caps({}, { stdout: { isTTY: true, columns: 0, rows: 0 } });
     expect([c.columns, c.rows]).toEqual([80, 24]);
     expect(caps({}, { stdout: PIPE }).columns).toBe(80);
+  });
+});
+
+describe('size after a resize (r21, ledger row 163)', () => {
+  it('reads a terminal\'s size at each use: a window made wider is used at its new width', () => {
+    const tty = { isTTY: true, columns: 80, rows: 24 };
+    const size = liveSize(tty, { columns: 80, rows: 24 });
+    expect([size.columns, size.rows]).toEqual([80, 24]);
+    tty.columns = 132; tty.rows = 40;
+    expect([size.columns, size.rows]).toEqual([132, 40]);
+  });
+  it('keeps the start\'s size for a pipe, and for a terminal that reports none', () => {
+    const pipe = { isTTY: false, columns: 200, rows: 50 };
+    expect([liveSize(pipe, { columns: 80, rows: 24 }).columns, liveSize(pipe, { columns: 80, rows: 24 }).rows]).toEqual([80, 24]);
+    const zero = { isTTY: true, columns: 0, rows: 0 };
+    expect([liveSize(zero, { columns: 90, rows: 30 }).columns, liveSize(zero, { columns: 90, rows: 30 }).rows]).toEqual([90, 30]);
   });
 });
 

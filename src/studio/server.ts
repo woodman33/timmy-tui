@@ -7,12 +7,19 @@ import { mountReceiptPages, type ReceiptSource } from './receipt-page.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
-import { join } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CanvasBridge } from './bridge.js';
-import { STUDIO_PORT, studioConfig } from './config.js';
+import { STUDIO_PORT, TLDRAW_VERSION, studioConfig } from './config.js';
+import { studioHealth } from './health.js';
 import { CanvasDocuments, MAX_CANVAS_BYTES, canvasDir, shownPath } from './document.js';
 import { publicTemplates } from './templates.js';
+import { FONT_FILES, HOMEBREW, TYPE, themeCss } from '../theme/tokens.js';
+// Round R4 (H55): the project the REPL names, and the read-only project API built from the board's readers.
+import { dropProjectToken, mountProjectRoutes, ProjectLink, writeProjectToken } from './project-link.js';
+// Round R4 (H75): the drawn cards' actions, carried to the REPL that holds the project (this server runs none of them).
+import { CardRelay, mountCardRoutes } from './card-relay.js';
 
 export { STUDIO_PORT };
 
@@ -28,7 +35,17 @@ export interface StudioOptions {
   canvasDir?: string;
   /** The largest canvas document Timmy saves (default 25 MB). */
   maxCanvasBytes?: number;
+  /** R4 (H55): the token a REPL names its project with (64 hex); made at random when absent. */
+  projectToken?: string;
+  /** R4 (H55): also keep the token in <canvas folder>/project-token-<port> (0600) for other REPLs of this Timmy home. */
+  projectTokenFile?: boolean;
 }
+
+/** R4 (H55): the server, with the token its REPL names the active project with. */
+export type StudioServer = Server & { projectToken: string };
+
+/** R4 (H75): the card relay a server uses, with the port its page routes check Host and Origin against. */
+export interface CardWiring { relay: CardRelay; port: () => number }
 
 /** companion/studio-canvas, found from the source (src/studio) or the build (dist/src/studio). */
 export function studioRoot(): string {
@@ -49,17 +66,30 @@ export function isLocalRequest(req: IncomingMessage): boolean {
 
 const JOB_ID = /^[\w.:-]{1,100}$/;
 
+/** Monaspace Argon's files, from its package (OFL-1.1, served unmodified); null when it is not installed. */
+export function fontDir(): string | null {
+  try {
+    return join(dirname(createRequire(import.meta.url).resolve('@fontsource/monaspace-argon/package.json')), 'files');
+  } catch {
+    return null;
+  }
+}
+
+/** The only font files this server hands out, by exact name. */
+const SERVED_FONTS: ReadonlySet<string> = new Set(FONT_FILES.map((f) => f.file));
+
 /**
  * What a canvas that is not built yet shows (fourth order, step 5): tldraw is bundled on this machine
  * by scripts/canvas/build.mjs, which `npm run build` runs and a fresh checkout has not run yet.
  */
 const NOT_BUILT = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Timmy Canvas</title>
-<style>body{margin:0;padding:24px;background:#0a0e12;color:#e6edf3;font:14px/1.5 ui-monospace,Menlo,monospace}code{color:#ffffff}</style></head>
+<link rel="stylesheet" href="/timmy-theme.css">
+<style>body{margin:0;padding:24px;background:${HOMEBREW.ground};color:${HOMEBREW.text};font:${TYPE.size.body}px/${TYPE.lineHeight} var(--timmy-font-mono)}code{color:${HOMEBREW.accent}}</style></head>
 <body><h1 style="font-size:16px">Timmy Canvas is not built yet</h1>
 <p>Its tldraw bundle (dist/canvas.js) is missing. In the Timmy checkout, run:</p>
 <p><code>npm run build:canvas</code></p><p>then reload this page.</p></body></html>`;
 
-export function createStudioApp(options: StudioOptions = {}, bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs)): express.Express {
+export function createStudioApp(options: StudioOptions = {}, bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs), link = new ProjectLink(options.projectToken), cardWiring: CardWiring = { relay: new CardRelay(), port: () => STUDIO_PORT }): express.Express {
   const env = options.env ?? process.env;
   const maxCanvasBytes = options.maxCanvasBytes ?? MAX_CANVAS_BYTES;
   const savedIn = options.canvasDir ?? canvasDir(env);
@@ -69,6 +99,41 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   app.use((req, res, next) => {
     if (isLocalRequest(req)) return next();
     res.status(403).type('text/plain').send('Timmy Canvas answers 127.0.0.1 and localhost only.');
+  });
+  const root = options.root ?? studioRoot();
+  // Round R1 (DESIGN.md §10 B9): the shared look, as CSS variables and font faces, for every page this
+  // server shows; and Monaspace Argon's files, by name only, for a machine without the font installed.
+  app.get('/timmy-theme.css', (_req, res) => {
+    res.set('Cache-Control', 'no-store').type('text/css').send(themeCss());
+  });
+  app.get('/fonts/:file', (req, res) => {
+    const file = String(req.params.file);
+    const dir = fontDir();
+    if (!SERVED_FONTS.has(file) || !dir || !existsSync(join(dir, file))) {
+      res.status(404).type('text/plain').send('No such font here.');
+      return;
+    }
+    res.set('Cache-Control', 'public, max-age=86400').type('font/woff2').sendFile(join(dir, file));
+  });
+  // Round R1: what this server is and what state the canvas is in, for the REPL and `timmy tools`.
+  // It runs nothing in the page and never carries the license key.
+  app.get('/api/canvas/health', (_req, res) => {
+    const saved = documents.peek();
+    const jobs = documents.jobs();
+    const latest = jobs[0];
+    res.set('Cache-Control', 'no-store').json({
+      ok: true,
+      app: 'timmy-canvas',
+      tldrawVersion: TLDRAW_VERSION,
+      built: existsSync(join(root, 'dist', 'canvas.js')),
+      pageConnected: bridge.open,
+      revision: saved.revision,
+      sourceRevision: saved.sourceRevision,
+      savedAt: saved.savedAt,
+      ...(saved.unreadable ? { unreadable: true } : {}),
+      jobs: jobs.length,
+      latestJob: latest ? { id: latest.id, ok: latest.ok, revision: latest.revision, at: latest.at, ...(latest.receipt ? { receipt: latest.receipt } : {}) } : null,
+    });
   });
   app.get('/studio-config.json', (_req, res) => {
     // canvasDir: the folder this server saves the canvas in, which the blank board names (the 20:14 order).
@@ -139,9 +204,13 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
     }
     res.status(outcome.status).set('Cache-Control', 'no-store').json(outcome.body);
   });
+  // R4 (H55): the active project, named by the REPL (token), and its cards, read-only. R4 (H75): with whether a REPL takes
+  // the drawn cards' actions, and those actions carried to it.
+  const { relay } = cardWiring;
+  mountProjectRoutes(app, { link, pageOpen: () => bridge.open, holding: (p) => relay.listening(p.holder), named: (p) => relay.heldBy(p.holder) });
+  mountCardRoutes(app, { link, relay, port: cardWiring.port });
   // C-13: the receipt pages, served by the same local server, with a text fallback.
   mountReceiptPages(app, options.receipts);
-  const root = options.root ?? studioRoot();
   // Checked on every request, so building while Timmy runs needs only a reload.
   app.get(['/', '/index.html'], (_req, res, next) => {
     if (existsSync(join(root, 'dist', 'canvas.js'))) return next();
@@ -156,28 +225,50 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   return app;
 }
 
-export async function startStudioServer(port = STUDIO_PORT, options: StudioOptions = {}): Promise<Server> {
+export async function startStudioServer(port = STUDIO_PORT, options: StudioOptions = {}): Promise<StudioServer> {
   const bridge = new CanvasBridge(isLocalRequest, options.execTimeoutMs);
-  const server = createServer(createStudioApp(options, bridge));
+  const link = new ProjectLink(options.projectToken);
+  // R4 (H75): the page routes' Host and Origin rule needs the port this server is bound to.
+  const relay = new CardRelay();
+  let bound = 0;
+  const server = Object.assign(createServer(createStudioApp(options, bridge, link, { relay, port: () => bound })), { projectToken: link.token });
   bridge.attach(server);
+  // R4 (H55): where the token is kept for other REPLs of this Timmy home, once the port is known.
+  const tokenDir = options.canvasDir ?? canvasDir(options.env ?? process.env);
+  let tokenPort = 0;
   // An open canvas holds its WebSocket for good: closing the server closes the bridge first, or
   // server.close() would wait for the page forever.
   const closeServer = server.close.bind(server);
   server.close = ((done?: (err?: Error) => void) => {
     bridge.close();
+    relay.close();
+    if (tokenPort) dropProjectToken(tokenDir, tokenPort, link.token);
     return closeServer(done);
-  }) as Server['close'];
+  }) as StudioServer['close'];
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, '127.0.0.1', () => {
       server.removeListener('error', reject);
+      const at = server.address();
+      bound = typeof at === 'object' && at ? at.port : 0;
       resolve();
     });
   });
+  if (options.projectTokenFile) {
+    const at = server.address();
+    const bound = typeof at === 'object' && at ? at.port : 0;
+    if (bound && writeProjectToken(tokenDir, bound, link.token)) {
+      tokenPort = bound;
+      // A REPL ends without closing its canvas server: the token file goes with the process (a kill leaves it, unused).
+      const drop = (): void => dropProjectToken(tokenDir, bound, link.token);
+      process.once('exit', drop);
+      server.once('close', () => process.removeListener('exit', drop));
+    }
+  }
   return server;
 }
 
-export type EnsureResult = { state: 'started'; server: Server } | { state: 'already-running' } | { state: 'failed'; error: string };
+export type EnsureResult = { state: 'started'; server: StudioServer } | { state: 'already-running' } | { state: 'failed'; error: string };
 
 /**
  * For /web studio: serve Timmy Canvas from this process unless something already listens on the
@@ -188,6 +279,11 @@ export async function ensureStudioServer(port = STUDIO_PORT, options: StudioOpti
     return { state: 'started', server: await startStudioServer(port, options) };
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
-    return err.code === 'EADDRINUSE' ? { state: 'already-running' } : { state: 'failed', error: err.message };
+    if (err.code !== 'EADDRINUSE') return { state: 'failed', error: err.message };
+    // Round R1: whatever holds the port must answer as Timmy Canvas before Timmy relies on it.
+    const health = await studioHealth(`http://127.0.0.1:${port}`);
+    return health.state === 'running'
+      ? { state: 'already-running' }
+      : { state: 'failed', error: `Port ${port} is used by another program, not Timmy Canvas. Set TIMMY_STUDIO_PORT to a free port.` };
   }
 }

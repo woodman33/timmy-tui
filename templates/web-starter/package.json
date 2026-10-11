@@ -1,0 +1,8 @@
+{
+  "name": "web-starter",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs"
+  }
+}

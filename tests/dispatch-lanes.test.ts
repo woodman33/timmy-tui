@@ -41,3 +41,43 @@ describe('no shell with an argument list', () => {
     expect(hits).toEqual([]);
   });
 });
+
+describe('listLanes: a lane is ready only when everything it runs on is here', () => {
+  const withPath = (names: string[], run: () => void): void => {
+    const bin = mkdtempSync(join(tmpdir(), 'lanes-'));
+    dirs.push(bin);
+    for (const n of names) { writeFileSync(join(bin, n), '#!/bin/sh\nexit 0\n'); chmodSync(join(bin, n), 0o755); }
+    const was = process.env.PATH;
+    process.env.PATH = bin;
+    try { run(); } finally { process.env.PATH = was; }
+  };
+
+  it('an API lane needs its key, not only curl, and names the key it needs', () => {
+    withPath(['curl'], () => {
+      const lanes = Object.fromEntries(listLanes({}).map((l) => [l.id, l]));
+      expect(lanes.retool.available).toBe(false);
+      expect(lanes.retool.key).toBe('RETOOL_API_KEY');
+      expect(lanes.webcontainers.available).toBe(false);
+      expect(lanes.webcontainers.key).toBe('WEBCONTAINERS_CLIENT_ID');
+    });
+  });
+
+  it('a set key makes the API lane ready; a placeholder does not; the value never appears', () => {
+    withPath(['curl'], () => {
+      const set = listLanes({ RETOOL_API_KEY: 'sk-test-0000' });
+      expect(set.find((l) => l.id === 'retool')?.available).toBe(true);
+      expect(JSON.stringify(set)).not.toContain('sk-test-0000');
+      const placeholder = listLanes({ RETOOL_API_KEY: 'paste_your_key_here' });
+      expect(placeholder.find((l) => l.id === 'retool')?.available).toBe(false);
+    });
+  });
+
+  it('hyperframes needs its own command; npx alone only means it could be fetched', () => {
+    withPath(['npx'], () => {
+      expect(listLanes({}).find((l) => l.id === 'hyperframes')?.available).toBe(false);
+    });
+    withPath(['npx', 'hyperframes'], () => {
+      expect(listLanes({}).find((l) => l.id === 'hyperframes')?.available).toBe(true);
+    });
+  });
+});

@@ -30,7 +30,8 @@ export async function runStudio(argv: string[], env: Record<string, string | und
   }
   let server: Awaited<ReturnType<typeof startStudioServer>>;
   try {
-    server = await startStudioServer(port, { env });
+    // R4 (H55): its project token is kept for the REPLs of this Timmy home, so /canvas open can name their project here.
+    server = await startStudioServer(port, { env, projectTokenFile: true });
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     process.stderr.write(code === 'EADDRINUSE'

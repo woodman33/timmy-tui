@@ -59,11 +59,7 @@ export class RmuxManager implements MultiplexerManager {
 
       const runnerKey = DEFAULT_LANE_BINDINGS[id];
 
-      const jti = `ap_${Math.random().toString(36).substring(2, 8)}${Math.random().toString(36).substring(2, 8)}`;
-      const visa = `visa_${Math.random().toString(36).substring(2, 8)}`;
-      const hash = `hash_${Math.random().toString(36).substring(2, 8)}`;
-
-      const startup = laneStartupScript(runnerKey, jti, visa, hash);
+      const startup = laneStartupScript(runnerKey);
       execFileSync(this.bin, ['send-keys', '-t', sName, startup, 'C-m'], { stdio: 'ignore' });
     } catch {
       // Ignore errors — capturePane fallback covers the UI state.

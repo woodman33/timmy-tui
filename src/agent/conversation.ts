@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import type { Message } from '../types/index.js';
 
 export class ConversationManager {
@@ -7,11 +7,16 @@ export class ConversationManager {
   private currentSession: string | null = null;
   private messages: Message[] = [];
 
+  /**
+   * The folder is fixed when the conversation is made (an absolute path), so a later change of working
+   * folder (/project) never sends its writes elsewhere; it is created by the first message, not on open.
+   */
   constructor(dir: string = '.sessions') {
-    this.dir = dir;
-    if (!existsSync(this.dir)) {
-      mkdirSync(this.dir, { recursive: true });
-    }
+    this.dir = resolve(dir);
+  }
+
+  get directory(): string {
+    return this.dir;
   }
 
   startNew(): string {
@@ -42,6 +47,7 @@ export class ConversationManager {
         name: message.name,
         timestamp: message.timestamp || Date.now(),
       });
+      mkdirSync(this.dir, { recursive: true });
       writeFileSync(path, line + '\n', { flag: 'a' });
     }
   }

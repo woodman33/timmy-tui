@@ -6,6 +6,8 @@ import { publish as busPublish } from '../bus/index.js';
 import { signBody, verifyBody } from './signing.js';
 import { captureEnvLock, type EnvLock } from './envlock.js';
 import type { Edl } from './edl.js';
+import { stampReceipt } from '../ops/context.js';
+import type { BlockFacts } from '../workflows/block-receipts.js'; // R4 (H74)
 
 // TIMMY receipt chain v1 — the spine. Every effect appends a hash-chained,
 // tamper-evident receipt: plan → policy → effect → artifacts → cost → prev_hash.
@@ -37,6 +39,39 @@ export interface Receipt {
   // ever sealing raw prompts/responses/secrets.
   response_hash?: string;
   model_requested?: string;
+  // R1 workspace direction (2026-10-08): the project a receipt belongs to, the files it wrote or read as
+  // input (hashes, never contents), a background job's lifecycle, and a workflow's prediction before it ran.
+  project?: string;
+  /** review at c7475458: the project's identity (a hash of its real folder), so two folders with one name stay apart */
+  project_id?: string;
+  // Round R2, look: an intake (/add) records each copy's kind, how it was told (its bytes or its name) and,
+  // when the copy was renamed, its source's base name (never its folder).
+  files?: Array<{ path: string; sha256?: string; previous_sha256?: string; created?: boolean; bytes?: number; kind?: string; kind_by?: 'bytes' | 'name'; source_name?: string }>;
+  outputs?: Array<{ path: string; sha256?: string; bytes: number }>;
+  // R4 (H74): a workflow run's step names its block's receipt (`receipt`, a short id)
+  job?: { id: string; kind: string; label: string; state: string; exit_code?: number | null; steps?: Array<{ name: string; state: string; code?: number; receipt?: string }>; log_sha256?: string; url?: string; ms?: number; error?: string };
+  // R4 (H74): the risky blocks of a workflow's prediction (each with why) and how Timmy asked about them (`gate`)
+  prediction?: { doc: string; block: string; order: string[]; expect: string; met?: boolean; receipt?: string; risky?: Array<{ name: string; reason: string; code_sha256: string }>; gate?: string };
+  /** R4 (H74): one workflow block's receipt (kind workflow-block; src/workflows/block-receipts.ts) */
+  block?: BlockFacts;
+  /** round R2, look: an observation's evidence tiers (deterministic computation; model interpretation), never merged */
+  /** R2: a native app's run (Cinema 4D, After Effects), judged from its own result file; the exit code is recorded, not decisive */
+  native?: { app: string; outcome: 'ok' | 'failed' | 'unknown'; why: string; exit_code: number | null; signal: string | null; files: Array<{ path: string; sha256?: string; present?: boolean; match?: boolean; matches?: boolean }>; c4d_version?: unknown; blender_version?: unknown; /** R4 (H63) */ unreal_version?: unknown; run?: string; input?: { path: string; sha256: string }; checked?: unknown[] };
+  observation?: {
+    tiers: string[]; worker?: string; opencv?: string; measurements?: number; error?: string;
+    /** R4 (H20): with its answer's sha256 (the whole answer's, and the cut part's when the record holds only that); interpretationSeal */
+    interpretation?: { status: string; model?: string; cost_usd?: number | null; answer_sha256?: string; answer_excerpt_sha256?: string };
+    /** R3 (H14): /observe --qualify's outcome as sealed (src/evidence/observation-check.ts qualifiedSeal). */
+    qualified?: { status: string; model?: string; run_id?: string; source_revision?: string; cites?: string[]; refusal?: string; raw_output_sha256?: string; raw_output_excerpt_sha256?: string; answer_sha256?: string; answer_excerpt_sha256?: string; cost_usd?: number | null };
+    /** R4 (H20): the observation file could not be written: where its whole record is kept instead (inside the project, or in Timmy's own kept folder), or why it is kept nowhere */
+    kept?: { path: string; sha256: string; bytes: number; store?: 'timmy' } | { error: string };
+  };
+  /** Round R3 (/agent): a code agent's run in the project: its run id (the operation ID), where its model ran, how it ended, what it changed (the files themselves are in `files`) */
+  agent?: { name: string; run: string; version?: string | null; model?: string | null; endpoint: 'local' | 'remote'; outcome: string; why: string; tool_calls: number; added: number; changed: number; deleted: string[]; final_message_sha256?: string; cost_basis: string };
+  /** Round R4 (H50, Timmy Memory): a lesson's own receipt (kind lesson: its add, check or retire; src/memory/lessons.ts) */
+  lesson?: { id: string; action: 'add' | 'check' | 'retire'; status: string; evidence: number; by?: string; operation?: string | null };
+  /** R4 (H50): the checked lessons a flow's or an agent run's task was given, each with its file's sha256 as given */
+  lessons?: Array<{ id: string; sha256: string; status: string }>;
   model_resolved?: string;
   via?: string;
   ms?: number;
@@ -51,6 +86,8 @@ export interface Receipt {
   output_sha256?: string;
   manifest_sha256?: string;
   sources?: unknown[];
+  /** Round R4 (H52): an OpenHands run's container (its image, name and labels), the worker that ran, its copy and what was written back from it */
+  openhands?: { image: string; image_id?: string; container: string; labels: Record<string, string>; worker_sha256: string; sdk_reported: string | null; copy: { files: number; bytes: number; kept: boolean }; writeback: { state: string; written: number; not_written: number }; stop?: { why: string; result: string; by?: string; steps?: Array<{ command: string; exit: number | null }>; client?: string; limit?: string } }; // R4 (H62): stop's by, steps, client, limit
   max_spend?: number;
   tier?: string;
   signer?: string;   // ed25519 public key (SPKI PEM)
@@ -59,7 +96,12 @@ export interface Receipt {
   // A turn's tools, each as it actually ended: completed, failed, or unknown (still running when the
   // turn ended, so it may have run in part or in full). A cancelled turn also says where the cancel
   // came and that nothing was rolled back: a cancel stops what is left, it never undoes.
-  tool_outcomes?: { name: string; outcome: 'completed' | 'failed' | 'unknown' }[];
+  // R4 (H30): `receipt`, the short id of the tool's own receipt where it sealed what it spent (describe_image's observe
+  // receipt), so the turn names that charge instead of sealing it a second time.
+  tool_outcomes?: { name: string; outcome: 'completed' | 'failed' | 'unknown'; receipt?: string }[];
+  // How those outcomes were decided (src/repl/seal.ts OUTCOME_RULE): 2 = the tool's own answer decides.
+  // Absent on turns sealed before round R1, which sealed every finished step completed.
+  outcome_rule?: number;
   cancelled_at?: 'before-tools' | 'during-tool' | 'after-tools';
   rollback?: 'none';
   error_class?: string; // exec|missing_source|schema|env|replay_drift|http_4xx|http_5xx|network|approval|unresolved_model|no_key|…
@@ -70,6 +112,9 @@ export interface Receipt {
   // preserved unchanged as incident evidence; the verifier checks each epoch
   // segment independently so a clean release epoch can start after an incident.
   epoch?: number;
+  /** Round R4 (H51): the operation (one request: a REPL command, a live-board action, a `timmy act`) it was sealed in
+   *  (src/ops/context.ts); absent on receipts sealed outside one, and on every receipt sealed before */
+  operation_id?: string;
   prev_hash: string;
   hash: string;
 }
@@ -232,6 +277,9 @@ export function rotateEpoch(n: number, reason: string, dir?: string): void {
 }
 
 export function appendReceipt(stream: string, input: ReceiptInput, dir?: string): Receipt {
+  // Round R4 (H51): the one place a receipt is written carries the operation it is sealed in (operation_id), unless
+  // the input names one already; outside any operation the input is sealed as it is.
+  input = stampReceipt(input);
   return withChainLock(dir, () => {
     const epoch = currentEpoch(dir);
     const prev = lastReceipt(stream, dir);
@@ -314,4 +362,21 @@ export function verifyChain(stream: string, dir?: string): VerifyResult {
     result.reason = cur.reason;
   }
   return result;
+}
+
+/**
+ * Round R4 (H50, Timmy Memory): whether one receipt of a chain (as readChain gives it) verifies where it stands: every
+ * link of its epoch from that epoch's genesis up to it and every body hash on the way (verifySegment over that part, so
+ * a break after it does not count against it), and its own signature. Why not, when it does not.
+ */
+export function verifyReceiptIn(chain: readonly Receipt[], hash: string): { ok: true; receipt: Receipt } | { ok: false; reason: string } {
+  const at = chain.findIndex((r) => r.hash === hash);
+  if (at < 0) return { ok: false, reason: 'it is not on the chain' };
+  const rec = chain[at];
+  const epoch = rec.epoch ?? 1;
+  const upTo = chain.slice(0, at + 1).filter((r) => (r.epoch ?? 1) === epoch);
+  const seg = verifySegment(upTo, epoch, false);
+  if (!seg.ok) return { ok: false, reason: seg.brokenAt === rec.id ? seg.reason ?? 'its link or body does not verify' : `the chain is broken before it (${seg.reason ?? `at ${seg.brokenAt}`})` };
+  if (!verifySignature(rec)) return { ok: false, reason: 'its signature does not verify' };
+  return { ok: true, receipt: rec };
 }

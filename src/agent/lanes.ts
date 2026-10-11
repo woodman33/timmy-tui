@@ -208,21 +208,24 @@ export const DEFAULT_LANE_BINDINGS: Record<string, string> = {
 };
 
 /**
- * shell preamble used by every backend — AgentPass banner + PATH.
+ * shell preamble used by every backend — what the pane is, and PATH.
+ *
+ * Round R1 (AGENTS.md §4): the banner says only what is true. AgentPass's service lives outside this
+ * repo and issues nothing here, so the pane says it is not connected; there is no storage result or
+ * proof bundle to show until a run produces one (the run's own receipt).
  *
  * The launcher is written to a real file and the pane just runs `bash <file>`:
  * zero shell escaping, zero embedded one-liners. This kills the whole class
  * of nested-quoting mangling that leaked raw printf/ANSI into panes (minds).
  */
-export function laneStartupScript(runnerKey: string | undefined, jti: string, visa: string, hash: string): string {
+export function laneStartupScript(runnerKey: string | undefined): string {
   const script = [
     '#!/usr/bin/env bash',
     'clear',
     `printf '\\033[38;5;81m============================================================\\n\\033[0m'`,
-    `printf '\\033[38;5;81m[TIMMY Core]\\033[0m Cloudflare Durable Storage: SUCCESS (D1/R2)\\n'`,
-    `printf '\\033[38;5;121m[AgentPass]\\033[0m Delivering session passport (JTI: ${jti})\\n'`,
-    `printf '\\033[38;5;121m[AgentPass]\\033[0m Visa stamp: ${visa} | scope: agent.run.governed: VERIFIED\\n'`,
-    `printf '\\033[38;5;215m[Receipt]\\033[0m Shipped local-first proof bundle: ${hash}\\n'`,
+    `printf '\\033[38;5;81m[TIMMY]\\033[0m Lane pane: ${runnerKey ?? 'shell'}\\n'`,
+    `printf '\\033[38;5;121m[TIMMY]\\033[0m AgentPass: not connected (no passport issued here)\\n'`,
+    `printf '\\033[38;5;215m[TIMMY]\\033[0m Receipts: no receipt yet (a run seals its own)\\n'`,
     `printf '\\033[38;5;81m============================================================\\n\\033[0m'`,
     'export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"',
   ];

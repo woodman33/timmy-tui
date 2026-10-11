@@ -1,7 +1,72 @@
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import { execFile } from 'node:child_process';
+import { boundOutput, count, LOG_CAP_BYTES, runLocalCommand, VIEW_HEAD_BYTES, VIEW_TAIL_BYTES } from './command-output.js';
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { spatialModelCatalogTool, spatialModelContextTool, spatialModelReviewTool } from './spatial-model-tools.js';
 import { z } from 'zod/v4';
 import { edgeUrl, operatorLabel } from '../utils/edge-host.js';
+import { timmyHome } from '../utils/init.js';
+import { keyMissing, secretEnvName, secretEnvValue } from '../utils/keys.js';
+import { onPath } from '../utils/on-path.js';
+
+/*
+ * Round R1 (AGENTS.md §4): a tool whose service is missing or failed says so, with the step that sets it
+ * up. It never reports success it did not have, never invents a job, a page or a picture, and never runs
+ * somewhere other than where the operator approved. Programs run with arguments, never through a shell,
+ * except the workspace command, whose whole job is a shell command (and NEEDS YOU asks for each one).
+ */
+
+export { keyMissing };
+
+interface ProgramRun {
+  ok: boolean;
+  /** The program is not installed (not on PATH). */
+  missing: boolean;
+  stdout: string;
+  /** Why it failed: its own error output, or what stopped it. */
+  error?: string;
+}
+
+/** Runs `program` with `args` as separate arguments, never through a shell. */
+function runProgram(program: string, args: string[], timeoutMs: number): Promise<ProgramRun> {
+  if (!onPath(program)) return Promise.resolve({ ok: false, missing: true, stdout: '' });
+  return new Promise((resolve) => {
+    execFile(program, args, { timeout: timeoutMs, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      // What reaches the model is bounded (R2 output limit): the start and the end, with a marker.
+      if (!error) return resolve({ ok: true, missing: false, stdout: boundOutput(stdout ?? '') });
+      const err = error as NodeJS.ErrnoException & { killed?: boolean };
+      if (err.code === 'ENOENT') return resolve({ ok: false, missing: true, stdout: '' });
+      const why = err.killed ? `${program} did not finish within ${Math.round(timeoutMs / 1000)} s` : (String(stderr ?? '').trim() || err.message);
+      resolve({ ok: false, missing: false, stdout: boundOutput(stdout ?? ''), error: why.slice(0, 500) });
+    });
+  });
+}
+
+const reason = (err: unknown): string => {
+  const cause = (err as { cause?: { message?: unknown } })?.cause?.message;
+  const top = err instanceof Error ? err.message : String(err);
+  return typeof cause === 'string' && cause && !top.includes(cause) ? `${top}: ${cause}` : top;
+};
+
+/** Error codes that mean the request never left this machine: no connection, no address, no TLS. */
+const BEFORE_SEND = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH', 'EADDRNOTAVAIL', 'ERR_INVALID_URL', 'UND_ERR_CONNECT_TIMEOUT']);
+
+/**
+ * Whether a failed request certainly never reached the service, so nothing can have run there (round
+ * R1 review). A reset or a timeout after the request went out leaves the outcome unknown, and the tool
+ * says so instead of "not run".
+ */
+export function neverSent(err: unknown): boolean {
+  const codes: string[] = [];
+  let e = err as { code?: unknown; errors?: unknown; cause?: unknown } | undefined;
+  for (let depth = 0; e && depth < 4; depth++) {
+    if (typeof e.code === 'string') codes.push(e.code);
+    if (Array.isArray(e.errors)) for (const x of e.errors as Array<{ code?: unknown }>) if (typeof x?.code === 'string') codes.push(x.code);
+    e = e.cause as typeof e;
+  }
+  return codes.length > 0 && codes.every((c) => BEFORE_SEND.has(c) || /CERT|TLS|SSL/.test(c));
+}
 
 export const currentTimeTool = tool({
   name: 'get_current_time',
@@ -80,50 +145,76 @@ export const envTool = tool({
     value: z.string().nullable(),
   }),
   execute: async ({ name }: { name: string }) => {
-    const BLOCKED = ['OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'AWS_SECRET', 'SSH_PRIVATE_KEY'];
-    if (BLOCKED.some(k => name.toUpperCase().startsWith(k) || name.toUpperCase() === k)) {
-      return { name, value: '[REDACTED]' };
-    }
-    return { name, value: process.env[name] ?? null };
+    // A name that looks like it holds a secret is hidden, and so is a value that is one whatever its
+    // name (a password inside DATABASE_URL, a token in an oddly named variable): round R1 review.
+    if (secretEnvName(name)) return { name, value: '[REDACTED]' };
+    const value = process.env[name];
+    if (value !== undefined && secretEnvValue(value)) return { name, value: '[REDACTED]' };
+    return { name, value: value ?? null };
   },
 } as any);
 
 export const daytonaWorkspaceTool = tool({
   name: 'run_in_daytona_workspace',
-  description: 'Executes a shell command inside a persistent, stateful Daytona developer environment workspace.',
+  description:
+    'Runs a shell command in a Daytona workspace when DAYTONA_API_KEY is set; without it, the command runs on this machine ' +
+    '(the operator approves each command). The answer says where it ran. Long output comes back as its start and its end ' +
+    'with a marker; on this machine the full output is saved in a log under .timmy/runs/ in the working folder, named in the answer.',
   inputSchema: z.object({
     command: z.string().describe('The shell command to run in the workspace (e.g. "git status", "npm run build").'),
     workspaceId: z.string().optional().describe('Optional workspace ID to target. If not provided, targets default TUI sandbox.'),
   }),
   outputSchema: z.object({
     success: z.boolean(),
+    where: z.enum(['this machine', 'daytona']),
     stdout: z.string(),
     stderr: z.string(),
     message: z.string(),
+    /** On this machine: the log of the full output, relative to the working folder ('' when nothing was cut). */
+    log: z.string().optional(),
+    stdoutBytes: z.number().optional(),
+    stderrBytes: z.number().optional(),
   }),
   execute: async ({ command, workspaceId }: { command: string; workspaceId?: string }) => {
     const key = process.env.DAYTONA_API_KEY;
     const url = process.env.DAYTONA_SERVER_URL || 'https://api.daytona.io';
-    
-    if (!key || key.includes('paste_your')) {
-      // Offline fallback: simulate execution locally in an isolated docker or subprocess context to maintain MVP resilience!
-      const { exec } = await import('child_process');
-      return new Promise((resolve) => {
-        exec(command, (error: any, stdout: string, stderr: string) => {
-          resolve({
-            success: !error,
-            stdout: stdout || '',
-            stderr: stderr || (error ? error.message : ''),
-            message: `⚠️ [OFFLINE FALLBACK] Executed locally because DAYTONA_API_KEY is not set.`,
-          });
-        });
-      });
+
+    if (keyMissing(key)) {
+      // No Daytona: the command runs here, which is what the approval box said before the operator agreed.
+      // R1 workspace direction: in its own process group with a time limit, so a command that keeps running
+      // (a dev server) cannot hold the turn open, and a stop takes its process group with it.
+      const limit = Number(process.env.TIMMY_WORKSPACE_TIMEOUT_MS) > 0 ? Number(process.env.TIMMY_WORKSPACE_TIMEOUT_MS) : 120_000;
+      // R2 output limit: the model gets the start and the end of each stream; the full output goes to a log
+      // in the working folder. Large output alone no longer stops a command; the log's hard cap does.
+      const cap = Number(process.env.TIMMY_WORKSPACE_LOG_CAP_BYTES) > 0 ? Number(process.env.TIMMY_WORKSPACE_LOG_CAP_BYTES) : LOG_CAP_BYTES;
+      const r = await runLocalCommand(command, { cwd: process.cwd(), timeoutMs: limit, logCapBytes: cap });
+      const exit = r.timedOut || r.logFull ? '' : r.error ? ` ${r.error}.` : r.status !== 0 ? ` Exit ${r.status ?? r.signal ?? 'error'}.` : '';
+      const kept = r.logError !== null
+        ? ` The output was longer than the result shows (${count(r.stdoutBytes)} bytes of stdout, ${count(r.stderrBytes)} of stderr), and no full copy was kept: ${r.logError}.`
+        : r.log && !r.logFull
+          ? ` Output: ${count(r.stdoutBytes)} bytes of stdout and ${count(r.stderrBytes)} of stderr; the result shows the first ${count(VIEW_HEAD_BYTES)} and the last ${count(VIEW_TAIL_BYTES)} bytes of each, and the full output is in ${r.log}.`
+          : '';
+      return {
+        success: r.status === 0 && !r.timedOut && !r.error && !r.logFull,
+        where: 'this machine',
+        stdout: r.stdout,
+        stderr: r.stderr || r.error || '',
+        message: (r.logFull
+          ? `Stopped on this machine, with its process group: its output reached the ${count(r.logCapBytes)}-byte log limit. The log holds its first ${count(r.logCapBytes)} bytes, in ${r.log}.`
+          : r.timedOut
+            ? `Stopped after ${Math.round(limit / 1000)} s on this machine, with its process group. A command that keeps running, such as a dev server, belongs in /preview, which runs it as a job.`
+            : `Ran on this machine, not in Daytona: DAYTONA_API_KEY is not set.${exit}`) + kept,
+        log: r.log,
+        stdoutBytes: r.stdoutBytes,
+        stderrBytes: r.stderrBytes,
+      };
     }
 
+    const targetWorkspace = workspaceId || 'timmy-tui-sandbox';
+    // When Daytona fails, nothing runs here instead: the operator approved a Daytona run, not a local one.
+    const failed = (why: string) => ({ success: false, where: 'daytona' as const, stdout: '', stderr: '', message: `Not run: ${why}. Nothing ran on this machine.` });
     try {
-      // Connect to Daytona REST API to manage persistent agent workspaces
-      const targetWorkspace = workspaceId || 'timmy-tui-sandbox';
-      const response = await fetch(`${url}/api/v1/workspaces/${targetWorkspace}/exec`, {
+      const response = await fetch(`${url}/api/v1/workspaces/${encodeURIComponent(targetWorkspace)}/exec`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${key}`,
@@ -131,38 +222,28 @@ export const daytonaWorkspaceTool = tool({
         },
         body: JSON.stringify({ command })
       });
-      
-      if (!response.ok) {
-        throw new Error(`Daytona Server returned HTTP ${response.status}: ${response.statusText}`);
+      if (!response.ok) return failed(`Daytona answered HTTP ${response.status} ${response.statusText}`.trim());
+      const data = await response.json().catch(() => null) as any;
+      if (!data || typeof data !== 'object') {
+        return { success: false, where: 'daytona', stdout: '', stderr: '', message: `Outcome unknown: Daytona answered HTTP ${response.status} but its reply could not be read; the command may have run there. Nothing ran on this machine.` };
       }
-
-      const data = await response.json() as any;
       return {
         success: data.exitCode === 0,
-        stdout: data.stdout || '',
-        stderr: data.stderr || '',
-        message: `✓ Successfully executed inside stateful Daytona workspace: "${targetWorkspace}"`,
+        where: 'daytona',
+        stdout: boundOutput(String(data.stdout || '')),
+        stderr: boundOutput(String(data.stderr || '')),
+        message: `Ran in Daytona workspace "${targetWorkspace}" (exit ${data.exitCode ?? 'unknown'}).`,
       };
-    } catch (err: any) {
-      // Resilient local subprocess fallback in case the Daytona server is temporarily unreachable
-      const { exec } = await import('child_process');
-      return new Promise((resolve) => {
-        exec(command, (error: any, stdout: string, stderr: string) => {
-          resolve({
-            success: !error,
-            stdout: stdout || '',
-            stderr: stderr || (error ? error.message : ''),
-            message: `⚠️ [Daytona Server Error: ${err.message}] Fell back to local execution.`,
-          });
-        });
-      });
+    } catch (err) {
+      if (neverSent(err)) return failed(`Daytona could not be reached (${reason(err)})`);
+      return { success: false, where: 'daytona', stdout: '', stderr: '', message: `Outcome unknown: the connection to Daytona failed after the command was sent (${reason(err)}); it may have run there. Nothing ran on this machine.` };
     }
   }
 } as any);
 
 export const triggerJobTool = tool({
   name: 'trigger_background_workflow',
-  description: 'Triggers an asynchronous background task queue worker in Trigger.dev for long-running audits or builds.',
+  description: 'Triggers an asynchronous background task in Trigger.dev for long-running audits or builds. Needs TRIGGER_SECRET_KEY.',
   inputSchema: z.object({
     taskName: z.string().describe('The name/ID of the background task to run (e.g. "code-audit", "test-suite").'),
     payload: z.string().describe('JSON payload to pass to the Trigger.dev background worker task.'),
@@ -175,55 +256,45 @@ export const triggerJobTool = tool({
   execute: async ({ taskName, payload }: { taskName: string; payload: string }) => {
     const key = process.env.TRIGGER_SECRET_KEY;
     const url = process.env.TRIGGER_API_URL || 'https://api.trigger.dev';
+    const notTriggered = (why: string) => ({ success: false, jobId: '', message: `Not triggered: ${why}` });
 
-    if (!key || key.includes('paste_your')) {
-      // Resilient simulate offline queue execution
-      const mockJobId = `job_${Math.random().toString(36).substring(2, 9)}`;
-      return {
-        success: true,
-        jobId: mockJobId,
-        message: `⚠️ [OFFLINE MOCK] Registered mock job ${mockJobId} inside local workflow runner because TRIGGER_SECRET_KEY is not set.`
-      };
-    }
-
+    if (keyMissing(key)) return notTriggered('TRIGGER_SECRET_KEY is not set. Set it to a Trigger.dev secret key to use this tool.');
+    let body: unknown;
     try {
-      // Trigger.dev v3 SDK REST trigger endpoint
-      const response = await fetch(`${url}/api/v1/tasks/${taskName}/trigger`, {
+      body = JSON.parse(payload);
+    } catch {
+      return notTriggered('the payload is not valid JSON.');
+    }
+    try {
+      const response = await fetch(`${url}/api/v1/tasks/${encodeURIComponent(taskName)}/trigger`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${key}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ payload: JSON.parse(payload) })
+        body: JSON.stringify({ payload: body })
       });
-
-      if (!response.ok) {
-        throw new Error(`Trigger.dev returned HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json() as any;
+      if (!response.ok) return notTriggered(`Trigger.dev answered HTTP ${response.status} ${response.statusText}`.trim() + '.');
+      const data = await response.json().catch(() => ({})) as any;
+      const id = typeof data?.id === 'string' ? data.id : '';
       return {
         success: true,
-        jobId: data.id || 'unknown_job',
-        message: `✓ Successfully triggered background task queue job on Trigger.dev: "${taskName}"`,
+        jobId: id,
+        message: id ? `Triggered "${taskName}" on Trigger.dev (run ${id}).` : `Trigger.dev accepted "${taskName}" but returned no run ID to follow.`,
       };
-    } catch (err: any) {
-      const mockJobId = `job_${Math.random().toString(36).substring(2, 9)}`;
-      return {
-        success: false,
-        jobId: mockJobId,
-        message: `✕ Trigger.dev API Error: ${err.message}. Mock job registered.`,
-      };
+    } catch (err) {
+      if (neverSent(err)) return notTriggered(`Trigger.dev could not be reached (${reason(err)}).`);
+      return { success: false, jobId: '', message: `Outcome unknown: the connection to Trigger.dev failed after the request was sent (${reason(err)}); "${taskName}" may have started.` };
     }
   }
 } as any);
 
 export const composioIntegrationTool = tool({
   name: 'manage_composio_integrations',
-  description: 'Connects to Composio API, queries connection statuses, triggers workflows, and checks live integration updates for Apple Kits (StoreKit, LiveKit) or 1000+ apps.',
+  description: 'Lists your Composio connections (list_connections). Needs COMPOSIO_API_KEY. The other actions are not built yet.',
   inputSchema: z.object({
     action: z.enum(['list_connections', 'check_updates', 'trigger_action']).describe('The integration action to perform on Composio.'),
-    appName: z.string().optional().describe('Optional application name (e.g., "github", "livekit", "storekit") to target.'),
+    appName: z.string().optional().describe('Optional application name (e.g., "github", "slack") to look for.'),
   }),
   outputSchema: z.object({
     success: z.boolean(),
@@ -233,56 +304,40 @@ export const composioIntegrationTool = tool({
   }),
   execute: async ({ action, appName }: { action: 'list_connections' | 'check_updates' | 'trigger_action'; appName?: string }) => {
     const apiKey = process.env.COMPOSIO_API_KEY;
-    const orgToken = process.env.COMPOSIO_ORGANIZATION_ACCESS_TOKEN_SECRET;
 
-    if (!apiKey || apiKey.includes('your') || apiKey.includes('paste_your')) {
-      // Offline mock fallback
-      return {
-        success: true,
-        status: 'CONNECTED_MOCK',
-        connections: appName ? [appName] : ['storekit', 'livekit', 'github', 'slack'],
-        message: `⚠️ [OFFLINE MOCK] Composio simulation running locally. Apple Kits (StoreKit, LiveKit) virtual connections initialized in sandbox.`
-      };
+    if (keyMissing(apiKey)) {
+      return { success: false, status: 'NOT_CONFIGURED', connections: [], message: 'Not connected: COMPOSIO_API_KEY is not set. Set it to a Composio API key to list your connections.' };
     }
-
+    if (action !== 'list_connections') {
+      return { success: false, status: 'NOT_BUILT', connections: [], message: `Not built: this tool only lists connections (list_connections); "${action}" does nothing yet.` };
+    }
     try {
-      // Fetch active connections from public Composio API
-      const url = 'https://api.composio.dev/v1/connections';
-      const response = await fetch(url, {
+      const response = await fetch('https://api.composio.dev/v1/connections', {
         method: 'GET',
         headers: {
-          'x-api-key': apiKey,
+          'x-api-key': apiKey!,
           'Content-Type': 'application/json'
         }
       });
-
-      if (!response.ok) {
-        throw new Error(`Composio API returned HTTP ${response.status}`);
-      }
-
+      if (!response.ok) return { success: false, status: 'ERROR', connections: [], message: `Composio answered HTTP ${response.status}.` };
       const data = await response.json() as any;
-      const activeApps = (data.connections || []).map((c: any) => c.name || c.app);
-      
+      const all: string[] = (data.connections || []).map((c: any) => String(c.name || c.app || '')).filter(Boolean);
+      const connections = appName ? all.filter((c) => c.toLowerCase().includes(appName.toLowerCase())) : all;
       return {
         success: true,
         status: 'ACTIVE',
-        connections: activeApps,
-        message: `✓ Successfully synced with Composio cloud workspace! Active connections: ${activeApps.join(', ') || 'none'}. Apple StoreKit & LiveKit edge pipes listening.`
+        connections,
+        message: `Composio lists ${connections.length} ${connections.length === 1 ? 'connection' : 'connections'}${appName ? ` matching "${appName}"` : ''}: ${connections.join(', ') || 'none'}.`,
       };
-    } catch (err: any) {
-      return {
-        success: true,
-        status: 'CONNECTED_FALLBACK',
-        connections: ['storekit', 'livekit'],
-        message: `⚠️ [Composio Server Error: ${err.message}] Fell back to local emulation. LiveKit audio pipeline running.`
-      };
+    } catch (err) {
+      return { success: false, status: 'ERROR', connections: [], message: `Composio could not be reached: ${reason(err)}.` };
     }
   }
 } as any);
 
 export const stressTestTool = tool({
   name: 'stress_test_endpoint',
-  description: 'Stress-tests an HTTP endpoint using local oha utility and compiles statistical analytics.',
+  description: 'Stress-tests an HTTP endpoint with the local oha program and returns its report. Needs oha installed.',
   inputSchema: z.object({
     url: z.string().url().describe('The target URL to stress test.'),
     requests: z.number().int().positive().optional().describe('Total requests to send (default 20).'),
@@ -294,24 +349,20 @@ export const stressTestTool = tool({
     data: z.string(),
   }),
   execute: async ({ url, requests = 20, concurrency = 4 }: { url: string; requests?: number; concurrency?: number }) => {
-    try {
-      const { execSync } = await import('child_process');
-      let stdout = '';
-      try {
-        stdout = execSync(`oha -n ${requests} -c ${concurrency} --no-tui ${url}`, { encoding: 'utf-8', stdio: 'pipe' });
-      } catch (e) {
-        stdout = `✓ oha stress test simulated successfully.\nTarget: ${url}\nRequests: ${requests}\nConcurrency: ${concurrency}`;
-      }
-      return { success: true, message: '✓ Successfully completed stress benchmarking.', data: stdout };
-    } catch (err: any) {
-      return { success: false, message: `✕ Stress test failed: ${err.message}`, data: '' };
-    }
+    const r = await runProgram('oha', ['-n', String(requests), '-c', String(concurrency), '--no-tui', url], 120_000);
+    if (r.missing) return { success: false, message: 'Not run: oha is not installed (macOS: brew install oha).', data: '' };
+    if (!r.ok) return { success: false, message: `oha failed: ${r.error}`, data: r.stdout };
+    return { success: true, message: `oha sent ${requests} requests to ${url}, ${concurrency} at a time.`, data: r.stdout };
   }
 } as any);
 
+/** The browser tools drive agent-browser's `timmy` session; each says plainly when it is not installed. */
+const AGENT_BROWSER_MISSING = 'agent-browser is not installed (not on PATH), so no browser was used.';
+const browser = (args: string[], timeoutMs = 30_000): Promise<ProgramRun> => runProgram('agent-browser', ['--session', 'timmy', ...args], timeoutMs);
+
 export const browserOpenTool = tool({
   name: 'browser_launch_cdp',
-  description: 'Launches a Chrome CDP browser session on the target URL via agent-browser.',
+  description: 'Opens a URL in agent-browser\'s Chrome session (needs agent-browser installed).',
   inputSchema: z.object({
     url: z.string().url().describe('Target URL to load.'),
   }),
@@ -320,45 +371,32 @@ export const browserOpenTool = tool({
     message: z.string(),
   }),
   execute: async ({ url }: { url: string }) => {
-    try {
-      const { execSync } = await import('child_process');
-      try {
-        execSync(`agent-browser --session timmy open ${url}`, { encoding: 'utf-8', timeout: 5000 });
-      } catch (e) {}
-      return { success: true, message: `✓ Browser CDP session spawned and attached to URL: "${url}"` };
-    } catch (err: any) {
-      return { success: false, message: `✕ Browser launch failed: ${err.message}` };
-    }
+    const r = await browser(['open', url]);
+    if (r.missing) return { success: false, message: AGENT_BROWSER_MISSING };
+    if (!r.ok) return { success: false, message: `agent-browser could not open ${url}: ${r.error}` };
+    return { success: true, message: `Opened ${url} in agent-browser (session timmy).` };
   }
 } as any);
 
 export const browserSnapshotTool = tool({
   name: 'browser_get_snapshot',
-  description: 'Returns active interactive elements and Chrome CDP accessibility tree layout.',
+  description: 'Returns the interactive elements and accessibility tree of the page open in agent-browser.',
   inputSchema: z.object({}),
   outputSchema: z.object({
     success: z.boolean(),
     accessibilityTree: z.string(),
   }),
   execute: async () => {
-    try {
-      const { execSync } = await import('child_process');
-      let stdout = '';
-      try {
-        stdout = execSync(`agent-browser --session timmy snapshot`, { encoding: 'utf-8', timeout: 5000 });
-      } catch (e) {
-        stdout = `[0] <div> "Root"\n ├── [1] <button> "Sign In" (clickable)\n └── [2] <a> "Pricing" (link)`;
-      }
-      return { success: true, accessibilityTree: stdout };
-    } catch (err: any) {
-      return { success: false, accessibilityTree: `✕ Failed: ${err.message}` };
-    }
+    const r = await browser(['snapshot']);
+    if (r.missing) return { success: false, accessibilityTree: AGENT_BROWSER_MISSING };
+    if (!r.ok) return { success: false, accessibilityTree: `agent-browser could not take a snapshot: ${r.error}` };
+    return { success: true, accessibilityTree: r.stdout };
   }
 } as any);
 
 export const browserClickTool = tool({
   name: 'browser_click_element',
-  description: 'Simulates direct mouse click interactions using element ref tag numeric IDs.',
+  description: 'Clicks an element of the page open in agent-browser, by the numeric reference from browser_get_snapshot.',
   inputSchema: z.object({
     refId: z.string().describe('Target element numeric ID reference.'),
   }),
@@ -367,21 +405,19 @@ export const browserClickTool = tool({
     message: z.string(),
   }),
   execute: async ({ refId }: { refId: string }) => {
-    try {
-      const { execSync } = await import('child_process');
-      try {
-        execSync(`agent-browser --session timmy click ${refId}`, { encoding: 'utf-8', timeout: 5000 });
-      } catch (e) {}
-      return { success: true, message: `✓ Mouse click dispatched successfully to element ID [${refId}]` };
-    } catch (err: any) {
-      return { success: false, message: `✕ Mouse click failed: ${err.message}` };
-    }
+    // Only a snapshot reference (12, e12 or @e12) reaches agent-browser: a value like --cdp=9222 would
+    // arrive as an option, not an element (round R1 review).
+    if (!/^@?e?\d+$/i.test(refId.trim())) return { success: false, message: `Not clicked: "${refId}" is not an element reference from browser_get_snapshot (like @e3).` };
+    const r = await browser(['click', refId.trim()]);
+    if (r.missing) return { success: false, message: AGENT_BROWSER_MISSING };
+    if (!r.ok) return { success: false, message: `agent-browser could not click [${refId}]: ${r.error}` };
+    return { success: true, message: `Clicked element [${refId}].` };
   }
 } as any);
 
 export const browserScreenshotTool = tool({
   name: 'browser_take_screenshot',
-  description: 'Captures a full viewport visual PNG screenshot of the current page and syncs with companion viewer.',
+  description: 'Saves a PNG screenshot of the page open in agent-browser into Timmy\'s home (screenshots/) and returns its path.',
   inputSchema: z.object({}),
   outputSchema: z.object({
     success: z.boolean(),
@@ -389,33 +425,23 @@ export const browserScreenshotTool = tool({
     message: z.string(),
   }),
   execute: async () => {
-    try {
-      const { execSync } = await import('child_process');
-      const path = `${process.env.HOME}/Desktop/timmy-screenshot.png`;
-      try {
-        execSync(`agent-browser --session timmy screenshot ${path}`, { timeout: 5000 });
-      } catch (e) {}
-
-      // Update companion visual viewer via global WebSocket
-      const globalServer = (global as any).companionServer;
-      if (globalServer) {
-        globalServer.sendUpdate('media', {
-          mediaType: 'image',
-          data: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800',
-          name: 'timmy-screenshot.png'
-        });
-      }
-
-      return { success: true, path, message: `✓ Screenshot captured at ${path}` };
-    } catch (err: any) {
-      return { success: false, path: '', message: `✕ Screenshot failed: ${err.message}` };
-    }
+    if (!onPath('agent-browser')) return { success: false, path: '', message: AGENT_BROWSER_MISSING };
+    // Into Timmy's own home, never the operator's Desktop: this tool runs without asking.
+    const dir = join(timmyHome(), 'screenshots');
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, `screenshot-${new Date().toISOString().replace(/[:.]/g, '-')}.png`);
+    const r = await browser(['screenshot', path]);
+    if (!r.ok || !existsSync(path)) return { success: false, path: '', message: `No screenshot: ${r.error ?? 'agent-browser wrote no file'}.` };
+    // The companion viewer gets this picture, never a stand-in.
+    const companion = (globalThis as any).companionServer;
+    if (companion) companion.sendUpdate('media', { mediaType: 'image', data: `data:image/png;base64,${readFileSync(path).toString('base64')}`, name: basename(path) });
+    return { success: true, path, message: `Screenshot saved: ${path}` };
   }
 } as any);
 
 export const cloudflareGetFeatureFlagTool = tool({
   name: 'cloudflare_get_feature_flag',
-  description: 'Evaluates feature flags live at the edge using your Cloudflare Flagship App ID and OpenFeature SDK.',
+  description: 'Evaluates a Cloudflare Flagship feature flag through OpenFeature. Outside a Worker with a Flagship binding it reports that it could not.',
   inputSchema: z.object({
     flagKey: z.string().describe('The key of the feature flag to evaluate (e.g. "test").'),
     defaultValue: z.boolean().optional().describe('Fallback value if the flag is missing (default false).'),
@@ -428,41 +454,33 @@ export const cloudflareGetFeatureFlagTool = tool({
     message: z.string(),
   }),
   execute: async ({ flagKey, defaultValue = false }: { flagKey: string; defaultValue?: boolean }) => {
-    const appId = process.env.CLOUDFLARE_FLAGSHIP_APP_ID || '4a3b3431-cc30-43a7-b198-aac2e94888d1';
+    // No built-in app ID: a flag is read from the operator's own Flagship app or not at all.
+    const appId = process.env.CLOUDFLARE_FLAGSHIP_APP_ID?.trim() ?? '';
+    const notEvaluated = (why: string) => ({
+      success: false,
+      flagKey,
+      value: defaultValue,
+      appId,
+      message: `Not evaluated: ${why}. ${defaultValue} is only the default you gave, not the flag's value.`,
+    });
+    if (!appId) return notEvaluated('CLOUDFLARE_FLAGSHIP_APP_ID is not set');
     try {
       const { OpenFeature } = await import('@openfeature/server-sdk');
       const { FlagshipServerProvider } = await import('@cloudflare/flagship/server' as any);
-
-      // Initialize provider
-      await OpenFeature.setProviderAndWait(
-        new FlagshipServerProvider({ binding: appId })
-      );
-      const client = OpenFeature.getClient();
-      const value = await client.getBooleanValue(flagKey, defaultValue);
-      
-      return {
-        success: true,
-        flagKey,
-        value,
-        appId,
-        message: `✓ Evaluated feature flag "${flagKey}" via Flagship Server Provider. Value: ${value}`,
-      };
-    } catch (err: any) {
-      // Mock evaluation if offline or missing API configurations to preserve TUI stability!
-      return {
-        success: true,
-        flagKey,
-        value: defaultValue,
-        appId,
-        message: `⚠️ [Flagship Fallback: ${err.message}] Flag "${flagKey}" evaluated to default: ${defaultValue}. Verified connection to App ID: ${appId.slice(0, 8)}...`,
-      };
+      await OpenFeature.setProviderAndWait(new FlagshipServerProvider({ binding: appId }));
+      // OpenFeature hands back the default when evaluation fails; the details say whether it did.
+      const details = await OpenFeature.getClient().getBooleanDetails(flagKey, defaultValue);
+      if (details.errorCode || details.reason === 'ERROR') return notEvaluated(details.errorMessage || String(details.errorCode || 'the provider reported an error'));
+      return { success: true, flagKey, value: details.value, appId, message: `Flag "${flagKey}" is ${details.value} (Flagship, reason ${details.reason ?? 'unknown'}).` };
+    } catch (err) {
+      return notEvaluated(reason(err));
     }
   }
 } as any);
 
 export const cloudflareSendDurablePulseTool = tool({
   name: 'cloudflare_send_durable_pulse',
-  description: 'Sends a dynamic memory pulse payload directly into your live online Durable Object on Cloudflare.',
+  description: 'Sends a metric pulse to your Durable Object on Cloudflare (needs TIMMY_EDGE_HOST).',
   inputSchema: z.object({
     metricName: z.string().describe('The name of the metric to log (e.g. "system_cpu", "active_users").'),
     metricValue: z.number().describe('The numerical value of the metric to pulse.'),
@@ -475,6 +493,7 @@ export const cloudflareSendDurablePulseTool = tool({
   }),
   execute: async ({ metricName, metricValue }: { metricName: string; metricValue: number }) => {
     const workerUrl = edgeUrl(); // throws the inert line when unresolved
+    const missed = (why: string) => ({ success: false, pulseId: '', workerUrl, message: `The pulse did not arrive: ${why}.` });
     try {
       const response = await fetch(`${workerUrl}/pulse`, {
         method: 'POST',
@@ -488,26 +507,18 @@ export const cloudflareSendDurablePulseTool = tool({
           timestamp: Date.now()
         })
       });
-
-      if (!response.ok) {
-        throw new Error(`Cloudflare DO returned HTTP ${response.status}`);
-      }
-
-      const data = await response.json() as any;
+      if (!response.ok) return missed(`the Durable Object answered HTTP ${response.status}`);
+      const data = await response.json().catch(() => ({})) as any;
+      const id = typeof data?.id === 'string' ? data.id : '';
       return {
         success: true,
-        pulseId: data.id || `pulse_${Math.random().toString(36).substring(2, 9)}`,
+        pulseId: id,
         workerUrl,
-        message: `✓ Successfully synced live Durable memory pulse [${metricName}: ${metricValue}] with your online DO!`,
+        message: `Pulse [${metricName}: ${metricValue}] accepted by the Durable Object${id ? ` (ID ${id})` : ', which returned no ID'}.`,
       };
-    } catch (err: any) {
-      const mockPulseId = `pulse_${Math.random().toString(36).substring(2, 9)}`;
-      return {
-        success: true,
-        pulseId: mockPulseId,
-        workerUrl,
-        message: `⚠️ [Worker Emulation: ${err.message}] Simulating offline telemetry backup. Local DO pulsed.`,
-      };
+    } catch (err) {
+      if (neverSent(err)) return missed(`the Durable Object could not be reached (${reason(err)})`);
+      return { success: false, pulseId: '', workerUrl, message: `Outcome unknown: the connection failed after the pulse was sent (${reason(err)}); it may have arrived.` };
     }
   }
 } as any);

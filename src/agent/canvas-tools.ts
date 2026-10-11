@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { z } from 'zod/v4';
-import { STUDIO_PORT } from '../studio/config.js';
+import { studioBaseUrl } from '../studio/config.js';
 
 export interface CanvasToolOptions {
   /** The studio server; default TIMMY_STUDIO_URL, else http://127.0.0.1:4337. */
@@ -21,6 +21,10 @@ export interface CanvasJobResult {
   job: string;
   revision: number;
   sourceRevision: string;
+  /** Whether the job's last call succeeded (round R1); a failed call kept nothing on the canvas. */
+  ok?: boolean;
+  /** Whether any of its calls changed the canvas (round R1); a job of lookups only has nothing to inspect. */
+  changed?: boolean;
 }
 
 const JOB_ID = /^[\w.:-]{1,100}$/;
@@ -48,9 +52,11 @@ export class CanvasTurnJob {
 
   /** A canvas answer: kept for its job when the page saved what it produced. */
   saw(answer: Record<string, unknown>): void {
-    const { jobId, revision, sourceRevision } = answer;
+    const { jobId, revision, sourceRevision, ok, changed } = answer;
     if (typeof jobId === 'string' && JOB_ID.test(jobId) && typeof revision === 'number' && typeof sourceRevision === 'string' && SOURCE_REVISION.test(sourceRevision)) {
-      this.jobs.set(jobId, { revision, sourceRevision });
+      const before = this.jobs.get(jobId);
+      const anyChange = before?.changed === true || changed === true ? true : typeof changed === 'boolean' || before?.changed === false ? false : undefined;
+      this.jobs.set(jobId, { revision, sourceRevision, ...(typeof ok === 'boolean' ? { ok } : {}), ...(anyChange === undefined ? {} : { changed: anyChange }) });
     }
   }
 
@@ -63,8 +69,8 @@ export class CanvasTurnJob {
   }
 }
 
-const studioUrl = (baseUrl?: string): string =>
-  (baseUrl ?? process.env.TIMMY_STUDIO_URL ?? `http://127.0.0.1:${process.env.TIMMY_STUDIO_PORT ?? STUDIO_PORT}`).replace(/\/+$/, '');
+/** The canvas server: the caller's, else the one address every Timmy surface uses (round R1). */
+const studioUrl = (baseUrl?: string): string => (baseUrl ? baseUrl.replace(/\/+$/, '') : studioBaseUrl(process.env));
 
 /** Tell the canvas server which receipt sealed a canvas job; false when it is not running or knows no such job. */
 export async function linkCanvasReceipt(job: string, receipt: string, baseUrl?: string): Promise<boolean> {
@@ -122,7 +128,33 @@ const members = names.slice(0, 80).map((name) => {
 });
 return { query, total: names.length, members, docs: 'https://tldraw.dev/reference/editor/Editor' };`;
 
+/**
+ * Round R4 (H55): places one card of the active project (GET /api/project) through the page's own Project panel, or, with
+ * no card, lists the cards and changes nothing. Fixed code: the model's card id reaches the page only as a JSON string.
+ */
+export const PLACE_PROJECT_CARD = (card: string | undefined): string => `
+const card = ${JSON.stringify(card ?? null)};
+const canvas = window.timmyCanvas;
+if (!canvas || typeof canvas.placeProjectCard !== 'function') throw new Error('This canvas page has no Project panel: rebuild it (npm run build:canvas) and reload the page.');
+return await canvas.placeProjectCard(card, editor);`;
+
 type Answer = Record<string, unknown>;
+
+/**
+ * Round R1 (the Mac run): Haiku 4.5 spent six calls on props.text, a label prop and tldraw 1's arrow
+ * terminals before it gave up. The tool now shows a drawing that works in this tldraw, and a test runs
+ * this exact code in a real browser against the bundled tldraw (tests/studio-canvas-browser.test.ts).
+ */
+export const CANVAS_EXAMPLE = [
+  "const { createShapeId, toRichText } = helpers;",
+  "const box = (x, label) => ({ id: createShapeId(), type: 'geo', x, y: 0, props: { w: 160, h: 80, richText: toRichText(label) } });",
+  "const a = box(0, 'Prompt'), b = box(260, 'Agent');",
+  "editor.createShapes([a, b, { id: createShapeId(), type: 'text', x: 0, y: -60, props: { richText: toRichText('Title') } }]);",
+  "const arrow = createShapeId();",
+  "editor.createShape({ id: arrow, type: 'arrow', x: 0, y: 0, props: { start: { x: 160, y: 40 }, end: { x: 260, y: 40 } } });",
+  "editor.createBindings([{ type: 'arrow', fromId: arrow, toId: a.id, props: { terminal: 'start' } }, { type: 'arrow', fromId: arrow, toId: b.id, props: { terminal: 'end' } }]);",
+  "return [a.id, b.id, arrow];",
+].join(' ');
 
 export function createCanvasTools(options: CanvasToolOptions = {}) {
   const baseUrl = studioUrl(options.baseUrl);
@@ -157,7 +189,10 @@ export function createCanvasTools(options: CanvasToolOptions = {}) {
         'Run JavaScript on Timmy Canvas, the live tldraw canvas (full Editor API). The code is the body of an async ' +
         'function of `editor` (the tldraw Editor) and `helpers` (createShapeId, toRichText, createBindingId, Box, Vec); ' +
         'return a JSON-serializable value to read results back. Text goes in props.richText via helpers.toRichText. ' +
-        'Answers carry the result or the error, the job ID and the canvas revision (document changes so far).',
+        'Answers carry the result or the error, the job ID and the canvas revision (document changes so far). ' +
+        'A call that fails keeps nothing: the canvas goes back to how it was before the call (rolledBack), so retry the whole drawing. ' +
+        'Shapes take text only as props.richText (never props.text or props.label); an arrow is joined to shapes by bindings. ' +
+        `A drawing that works in this tldraw: ${CANVAS_EXAMPLE}`,
       inputSchema: z.object({
         code: z.string().min(1).max(30_000).describe('Body of an async function of (editor, helpers)'),
         jobId: z.string().regex(/^[\w.:-]{1,100}$/).optional().describe('The job this call belongs to'),
@@ -178,6 +213,18 @@ export function createCanvasTools(options: CanvasToolOptions = {}) {
       inputSchema: z.object({ query: z.string().min(1).max(60).describe('Part of a member name') }),
       outputSchema: answer,
       execute: async ({ query }: { query: string }) => exec(API(query)),
+    } as any),
+    // Round R4 (H55): the active project's cards on the canvas, through the page's Project panel (fixed code).
+    tool({
+      name: 'canvas_place_project_card',
+      description:
+        "Place one card of the active project on Timmy Canvas: a note holding the card's title, its state in words and the typed command that acts on it, " +
+        "with the record and receipt behind it kept in the note's meta. The cards are the project's workflow documents, parameter files, /iterate flows, " +
+        'VoxVision records and Control Room runs, read from their records by the board\'s own readers once the REPL has named the project to the canvas (/canvas open). ' +
+        'Call it without a card to list the cards (nothing is placed); then with one card\'s id as listed, for example flow:f1a2b3c4d.',
+      inputSchema: z.object({ card: z.string().min(1).max(400).optional().describe('A card id as the list gives it; leave it out to list the cards') }),
+      outputSchema: answer,
+      execute: async ({ card }: { card?: string }) => exec(PLACE_PROJECT_CARD(card)),
     } as any),
   ];
 }

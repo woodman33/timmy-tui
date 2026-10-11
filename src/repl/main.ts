@@ -2,41 +2,56 @@
  * `timmy repl`: the inline REPL (DESIGN.md §10 B1). One turn, one column: the block input, then the
  * agent's turn rendered inline, then the input again. `--demo` drives the same renderer with a script.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { emitKeypressEvents, type Key } from 'node:readline';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAgent } from '../agent/core.js';
 import { defaultTools } from '../agent/tools.js';
 import { loadConfig } from '../utils/config.js';
-import { readChain, verifyChain } from '../utils/receipts.js';
-import { identityPath } from '../utils/init.js';
+import { appendReceipt, readChain, receiptsDir, verifyChain } from '../utils/receipts.js';
+import { identityPath, timmyHome } from '../utils/init.js';
 import { setupCheck } from './setup.js';
 import { sealTurn, type SealedTurn, type TurnFacts } from './seal.js';
 import { editExternally } from './external-editor.js';
 import { listLanes } from '../utils/dispatch.js';
-import { currentCapabilities, type TerminalCapabilities } from '../term/capabilities.js';
+import { currentCapabilities, liveSize, type TerminalCapabilities } from '../term/capabilities.js';
 import { LiveRegion } from '../term/live-region.js';
-import { measuredFromPalette, namedPalette, TIMMY_DAY, TIMMY_NIGHT, type MeasuredColors } from '../term/palettes.js';
+import { measuredFromPalette, namedPalette, TIMMY_DAY, TIMMY_HOMEBREW, TIMMY_NIGHT, type MeasuredColors } from '../term/palettes.js';
 import { measureTerminal } from '../term/probe.js';
 import { EXIT, TerminalSession } from '../term/session.js';
 import { buildTheme, fitSegments, roleSlots, serialize, type Segment, type Theme } from '../term/theme.js';
 import { DEMO_LOADER, DEMO_TURN, type DemoStep } from './demo.js';
 import { hyperlink, OSC133 } from '../term/marks.js';
-import { gateTools, readDecision } from './approvals.js';
+import { gateTools, readDecision, type ApprovalRequest, type Decision } from './approvals.js';
 import { COMMANDS, runSlash, type ReceiptsView, type ReplContext, type ThemeInfo } from './commands.js';
 import { LineEditor } from './editor.js';
 import { readPrompt } from './input.js';
 import { nearest } from './suggest.js';
-import { runTurn, type TurnAbandon, type TurnAgent } from './turn.js';
-import { Transcript } from './transcript.js';
+import { runTurn, type TurnAbandon, type TurnAgent, type TurnInspect } from './turn.js';
+import { Transcript, type InspectRow } from './transcript.js';
 import { onPath, packageRoot, realOnPath } from './center.js';
-import { planWeb, RECEIPT_ID, receiptUrl, resolveWebTarget } from './web.js';
-import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt } from '../agent/canvas-tools.js';
-import { STUDIO_PORT } from '../studio/config.js';
-import { ensureStudioServer } from '../studio/server.js';
+import { openWebView, RECEIPT_ID, receiptUrl, resolveWebTarget } from './web.js';
+import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt, type CanvasJobResult } from '../agent/canvas-tools.js';
+import { createProjectTools, ProjectTurnFiles, type ProjectToolOptions } from '../agent/project-tools.js';
+import { createVisionTools, type VisionToolOptions } from '../agent/vision-tools.js';
+import { createMcpTools, type McpToolOptions } from '../agent/mcp-tools.js';
+import { createNativeTools, type NativeToolOptions } from '../agent/native-tools.js';
+import { createRecipeTools, type RecipeToolOptions } from '../agent/recipe-tools.js';
+import { createIterateTools, type IterateToolOptions } from '../agent/iterate-tools.js';
+import { folderProject, projectId } from '../project/index.js';
+import { Workspace } from './workspace.js';
+import { studioBaseUrl, studioPort } from '../studio/config.js';
+import { ensureStudioServer, type EnsureResult } from '../studio/server.js';
+import { studioHealth } from '../studio/health.js';
+import { canvasView } from './canvas-view.js';
+// Round R4 (H55): the canvas shows this REPL's project (named to it), and /canvas and the board say whether it does.
+import { CanvasProject } from './canvas-project.js';
+import { capabilities } from '../capabilities/index.js';
+import { liveDeps } from '../capabilities/live.js';
+import { toolsView } from '../capabilities/render.js';
 
 export interface ReplFlags {
   demo?: boolean;
@@ -120,19 +135,58 @@ export const REPL_INSTRUCTIONS = [
   'Verify with tools before you report a result, and say plainly what you could not verify.',
   'Finish the task instead of asking whether to continue.',
   'Never claim a receipt, a signature or a verification that a tool did not return.',
+  'Your working folder is the operator\'s active project: list_project_files, read_project_file and write_project_file work inside it. Read a file before you change it, and write whole files.',
+  'Images in the project (files the operator added with /add are under refs/): observe_image measures them with OpenCV (numbers, not what they show); describe_image asks an image-capable model, costs money and asks first; report its answer as the model\'s claim.',
+  'run_native starts Cinema 4D (c4dpy, a Python script), After Effects (aerender renders an existing project; afterfx runs a .jsx inside After Effects, whose window opens, to author a new project, edit a new version of one or inspect one), Blender (its own Python, headless: an editable .blend and a render), OpenSCAD (openscad: a .scad model exported to a binary STL with -D parameters, the STL read back by Timmy\'s own reader) or FreeCAD (freecadcmd, headless: a part saved as an editable .FCStd and exported as STEP) as a background job and returns its id at once: it is not finished when you get the id; it is judged by its own result file (OpenSCAD: its exit, the STL it writes and that readback), never by its exit code alone.',
+  // R4 (H64): app illustrator (src/native/illustrator.ts), said as carefully as afterfx.
+  'run_native with app illustrator runs a .jsx inside Adobe Illustrator through osascript on macOS (its window opens; macOS may ask the operator to allow Automation, which stays the operator\'s): mode author draws on a new document saved as out/illustrator/<name>-v<N>.ai with SVG and PDF exports, edit saves the next version of one, inspect has Illustrator read one back; it is asked every time, returns a job id at once, and nothing is made until the job is judged; Timmy then reads the SVG export itself and compares it with Illustrator\'s report.',
+  'run_recipe starts the CadQuery enclosure-tray recipe (enclosure.tray/1, millimetres) as a durable background job and returns its job id and UUID at once: it is not built when you get them; its exports reach out/recipes/ only after its signed result verifies.',
+  'iterate_recipe has a local, free code agent change the tray\'s parameter file from an instruction, then rebuilds and reads the STEP back; it returns a flow id at once: nothing is rebuilt or measured when you get it.',
+  // R4 (H40): iterate_native (src/agent/iterate-tools.ts), said with the same care as iterate_recipe.
+  'iterate_native does the same for an OpenSCAD model (app openscad: the agent may change only the values in the model\'s <model>.params.json; OpenSCAD then exports an STL that Timmy reads back) or a FreeCAD script (app freecad: the agent may change only that script; FreeCAD then runs it and its STEP is read back); it returns a flow id at once: nothing is built or measured when you get it.',
+  'MCP servers: list_mcp_tools shows the routes and the servers configured on this machine without starting any; list_mcp_command_tools lists one server\'s tools (a configured one by its exact name, or a command) and asks first; call_mcp_tool calls one tool and asks first.',
 ].join(' ');
 
 const tildify = (path: string): string => {
   const home = homedir();
-  return home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path;
+  if (!home) return path;
+  // The working folder is a real path, so a home reached through a link (macOS /tmp) is matched by its real path too.
+  let real = home;
+  try {
+    real = realpathSync(home);
+  } catch {
+    // An unreadable home: compare with it as given.
+  }
+  const base = [home, real].find((h) => path === h || path.startsWith(`${h}/`));
+  return base ? `~${path.slice(base.length)}` : path;
 };
+
+/**
+ * R4 (H40): the agent's MCP tools in the REPL work in the active project (asked at each call, so /project moves them)
+ * and put its name on each call's record and receipt (src/agent/mcp-tools.ts); their seal is that file's default, the
+ * runs chain through appendReceipt, as the REPL's own.
+ */
+export function replMcpOptions(active: () => { root: string; project: { name: string } }): McpToolOptions {
+  return { cwd: () => active().root, project: () => active().project.name };
+}
 
 /**
  * The agent's tools in the REPL: the defaults and Timmy Canvas (F-4), each under a NEEDS YOU rule. The
  * canvas calls of one turn share that turn's canvas job (fourth order, step 5).
  */
-export function replTools(job?: CanvasTurnJob): typeof defaultTools {
-  return [...defaultTools, ...createCanvasTools({ job })];
+export function replTools(job?: CanvasTurnJob, project?: ProjectToolOptions, more: { vision?: VisionToolOptions; mcp?: McpToolOptions; native?: NativeToolOptions; recipe?: RecipeToolOptions; iterate?: IterateToolOptions } = {}): typeof defaultTools {
+  // The project tools' typed schemas are narrower than the shared tool list's element type.
+  const files = createProjectTools(project ?? { root: () => process.cwd() }) as unknown as typeof defaultTools;
+  // Round R2: images (OpenCV measurements; an image-capable model), MCP servers through two command-line
+  // routes, and native apps (Cinema 4D, After Effects) as background jobs.
+  const looks = createVisionTools(more.vision ?? { root: project?.root ?? (() => process.cwd()) }) as unknown as typeof defaultTools;
+  const mcp = createMcpTools(more.mcp ?? { cwd: project?.root ?? (() => process.cwd()) }) as unknown as typeof defaultTools;
+  const native = more.native ? createNativeTools(more.native) as unknown as typeof defaultTools : [];
+  // Round R3: the CadQuery enclosure-tray recipe as a durable job (run_recipe; the REPL's /recipe tray).
+  const recipe = more.recipe ? createRecipeTools(more.recipe) as unknown as typeof defaultTools : [];
+  // Round R4: /iterate as a tool (iterate_recipe), asked each time.
+  const iterate = more.iterate ? createIterateTools(more.iterate) as unknown as typeof defaultTools : [];
+  return [...defaultTools, ...createCanvasTools({ job }), ...files, ...looks, ...mcp, ...native, ...recipe, ...iterate];
 }
 
 export async function runRepl(argv: string[]): Promise<number> {
@@ -156,7 +210,9 @@ export async function runRepl(argv: string[]): Promise<number> {
   session.beforeRestore(() => region.close());
   // Into a pipe, stdout carries only the answer; steps, footers and errors go to stderr (§16.7).
   const log = process.stdout.isTTY ? undefined : new LiveRegion({ out: process.stderr, err: process.stderr }, { live: false });
-  const transcript = new Transcript(theme, region, { columns: caps.columns, rows: caps.rows, err: process.stderr, log });
+  // r21 (ledger row 163): the width and height as they are now, not as they were at the start.
+  const size = liveSize(process.stdout, caps);
+  const transcript = new Transcript(theme, region, { get columns() { return size.columns; }, get rows() { return size.rows; }, err: process.stderr, log });
   if (flags.demo || flags.demoLoader) {
     if (caps.animate) session.hideCursor();
     await play(transcript, flags.demoLoader ? DEMO_LOADER : DEMO_TURN);
@@ -180,19 +236,34 @@ export async function runRepl(argv: string[]): Promise<number> {
   );
   const approval = { active: false };
   const canvasJob = new CanvasTurnJob();
+  // R1 workspace direction: the files each turn wrote in the project, for its receipt.
+  const projectFiles = new ProjectTurnFiles();
   // NEEDS YOU: risky calls wait for the operator; with no terminal to ask, they are denied (§17.8).
+  // R4 (H74): the same box asks before a /run whose blocks include a risky one (the Workspace's askPerson, at a terminal only).
+  const askNeedsYou = async (req: ApprovalRequest): Promise<Decision> => {
+    if (!interactive) {
+      transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision: 'no-terminal' });
+      return 'deny';
+    }
+    transcript.handle({ type: 'needs-you', ...req });
+    approval.active = true;
+    const decision = await readDecision(process.stdin, session, { session: req.session !== false }).finally(() => { approval.active = false; });
+    transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision });
+    return decision;
+  };
   agent.setTools(
-    gateTools(replTools(canvasJob), async (req) => {
-      if (!interactive) {
-        transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision: 'no-terminal' });
-        return 'deny';
-      }
-      transcript.handle({ type: 'needs-you', ...req });
-      approval.active = true;
-      const decision = await readDecision(process.stdin, session).finally(() => { approval.active = false; });
-      transcript.handle({ type: 'needs-you-answered', tool: req.tool, decision });
-      return decision;
-    }),
+    gateTools(replTools(canvasJob, { root: () => workspace.root, touched: projectFiles }, {
+      vision: {
+        root: () => workspace.root, model: () => agent.getModel(),
+        observe: async (rel, question, model, opts) => { const s = await workspace.observeFile(rel, question, model, opts); return s.ok ? s.done : s; },
+      },
+      // R4 (H40): the active project's name on each call_mcp_tool record (read when the call runs; workspace is made below).
+      mcp: replMcpOptions(() => workspace),
+      native: { root: () => workspace.root, project: () => workspace.project.name, start: (s) => workspace.jobs.start(s), onStarted: (job, spec) => workspace.adoptNative(job.id, spec) },
+      recipe: { start: async (p) => ({ ...(await workspace.runRecipe(p)) }) },
+      // iterate_recipe gives its instruction; iterate_native (R4, H33) its target, file and instruction.
+      iterate: { start: (request) => workspace.iterateForTool(request) },
+    }), askNeedsYou),
   );
   const themeInfo = (): ThemeInfo => {
     const named = namedPalette(process.env.TIMMY_PALETTE);
@@ -240,23 +311,145 @@ export async function runRepl(argv: string[]): Promise<number> {
   };
   // /web studio: Timmy Canvas runs inside this REPL unless another Timmy already serves it. listen()
   // binds at once, so the viewer's first request waits in the socket's queue, never on a closed port.
-  let studio: Promise<unknown> | null = null;
-  const openWeb = (target: string, allowRemote: boolean): string => {
+  // Round R1: one address (TIMMY_STUDIO_URL, else TIMMY_STUDIO_PORT, else 4337). An address set by
+  // TIMMY_STUDIO_URL is someone else's to serve; only a server this REPL started is kept for reuse.
+  const external = Boolean(process.env.TIMMY_STUDIO_URL?.trim());
+  let owned: Promise<EnsureResult> | null = null;
+  // R4 (H55): the token of the canvas server this REPL started (it names this REPL's project there), and the link itself.
+  let ownToken: string | null = null;
+  const canvasProject = new CanvasProject({
+    base: () => studioBaseUrl(process.env), env: process.env,
+    project: () => workspace.project, projectId: (root) => projectId(root),
+    jobsDir: join(timmyHome(), 'jobs'), receipts: () => receiptsDir(),
+    board: () => workspace.liveBoard?.address ?? null, ownToken: () => ownToken,
+    // R4 (H75): the canvas's drawn cards act through this REPL, by the live board's own path.
+    act: (envelope) => workspace.canvasAct(envelope),
+  });
+  const ensureCanvas = (): Promise<EnsureResult> | null => {
+    if (external) return null;
+    owned ??= ensureStudioServer(studioPort(process.env), { env: process.env, projectTokenFile: true }).then((r) => {
+      if (r.state !== 'started') owned = null;
+      else {
+        // R4 (H55): this REPL's own canvas, as it starts, shows this REPL's project.
+        ownToken = r.server.projectToken;
+        void canvasProject.handOff().then(() => canvasProject.check());
+      }
+      return r;
+    });
+    return owned;
+  };
+  // Round R4 (review M4): `secret` (the live board's address) keeps the address off every command line.
+  const openWeb = (target: string, allowRemote: boolean, secret = false): string => {
     // Timmy Canvas and the receipt pages (C-13) are served by this REPL unless another Timmy already does.
-    if (target.trim() === 'studio' || RECEIPT_ID.test(target.trim())) studio ??= ensureStudioServer(STUDIO_PORT, { env: process.env });
-    const plan = planWeb({ url: resolveWebTarget(target), has: (bin) => onPath(bin, process.env), locate: (bin) => realOnPath(bin, process.env), env: process.env, allowRemote });
-    if (plan.route === 'link') return `Open ${caps.cursor ? hyperlink(plan.url, plan.url, true) : plan.url} in your browser.`;
-    if (plan.route === 'refused' || !plan.command) return plan.note;
-    if (plan.route === 'tmux') {
-      // display-popup waits until the page closes; run it beside the REPL so the REPL is not held.
-      const child = spawn(plan.command, plan.args, { stdio: 'ignore', detached: true });
-      child.on('error', () => {});
-      child.unref();
-      return plan.note;
+    if (target.trim() === 'studio' || RECEIPT_ID.test(target.trim())) void ensureCanvas();
+    return openWebView(
+      { url: resolveWebTarget(target), has: (bin) => onPath(bin, process.env), locate: (bin) => realOnPath(bin, process.env), env: process.env, allowRemote, secret },
+      { show: (url) => (caps.cursor ? hyperlink(url, url, true) : url) },
+    );
+  };
+  // R1 workspace direction (2026-10-08): one active project — this folder until /project chooses another —
+  // for Files, the agent's file tools, Workflows, jobs, Preview and Results. Job notices print above the
+  // prompt (the live region redraws what is being typed below them).
+  const notify = (segments: Segment[]): void => void region.commit([serialize(fitSegments(segments, size.columns, theme.glyphs.ellipsis), theme)]);
+  const editFile = (path: string): void => {
+    const command = (process.env.VISUAL || process.env.EDITOR || 'vi').trim();
+    spawnSync('sh', ['-c', `${command} "$1"`, 'timmy-editor', path], { stdio: 'inherit' });
+  };
+  const workspace = new Workspace({
+    glyphs: theme.glyphs,
+    env: process.env,
+    onPath: (cmd) => realOnPath(cmd, process.env),
+    notify,
+    openWeb: (url, opts) => openWeb(url, false, opts?.secret === true),
+    link: (text, url) => (caps.cursor ? hyperlink(text, url, true) : text),
+    seal: (input) => appendReceipt('runs', input).hash.slice(7, 15),
+    jobsDir: join(timmyHome(), 'jobs'),
+    // Round R2: /observe asks the model the REPL is using whether it takes images, and uses it when it does.
+    model: () => agent.getModel(),
+    edit: editFile,
+    tildify,
+    // Round R4 (H32): at a terminal, what an ended session left in the project is picked up as the REPL starts; a pipe never adopts it.
+    recoverAtStart: caps.interactive,
+    // Each project keeps its own conversation (.sessions in the project): switching resumes its latest.
+    onSwitch: (p) => {
+      const c = agent.useSessions(join(p.root, '.sessions'));
+      // R4 (H55): a canvas that still shows what this REPL named follows it to the new project.
+      if (canvasProject.follows) void canvasProject.handOff();
+      return c.resumed ? `resumed this project's last conversation (${c.messages} messages)` : 'a new conversation, kept in this project';
+    },
+    // R4 (H55): the board says whether the canvas is open on this project; /board live's address reaches a canvas on it.
+    canvas: () => canvasProject.boardLine(),
+    onBoardLive: () => { if (canvasProject.follows) void canvasProject.handOff(); },
+    // R4 (H74): a /run whose blocks include a risky one asks in this terminal's NEEDS YOU box; in a pipe it is refused
+    ...(interactive ? { askPerson: askNeedsYou } : {}),
+  }, folderProject(process.cwd()));
+  canvasProject.start();
+  // A second Ctrl+C exits at once: the jobs this REPL started stop with it.
+  session.beforeRestore(() => workspace.killNow());
+  // Round R1: /canvas, and where to inspect each turn's result, preview and receipt.
+  const canvas = (args: string): Promise<Segment[][]> => canvasView(args, {
+    base: studioBaseUrl(process.env),
+    ensure: async () => {
+      const r = ensureCanvas();
+      if (!r) return null;
+      const done = await r;
+      return done.state === 'failed' ? { state: 'failed', error: done.error } : { state: done.state };
+    },
+    health: (base) => studioHealth(base),
+    // R4 (H75): the page opens with this REPL's one-time grant in its fragment (a secret: never on a command line), so its cards can act.
+    open: () => { const t = canvasProject.openTarget(); return openWeb(t.target, false, t.secret); },
+    glyphs: theme.glyphs,
+    // R4 (H55): /canvas names the project the canvas shows; /canvas open names this REPL's project to it first.
+    project: { handOff: () => canvasProject.handOff({ grant: true }), check: () => canvasProject.check(), mine: () => ({ name: workspace.project.name, id: projectId(workspace.root) }) },
+  });
+  // Round R1: /tools, every capability on the ladder, from live checks that write nothing. R4 (H76): /tools <name>, one
+  // row in full (each rung's evidence and its demonstrations on the Mac), looked for among every row.
+  const tools = async (args: string): Promise<Segment[][]> => {
+    const rows = await capabilities(liveDeps({ env: process.env, key: () => config.apiKey ?? null, model: agent.getModel() }), { all: args.trim() !== '' });
+    return toolsView(rows, args, theme.glyphs, size.columns);
+  };
+  let lastCanvas: CanvasJobResult[] = [];
+  let lastLinks: Array<Promise<{ job: string; ok: boolean }>> = [];
+  const inspect: NonNullable<TurnInspect['inspect']> = async (sealed) => {
+    const base = studioBaseUrl(process.env);
+    const started = await (ensureCanvas() ?? Promise.resolve(null));
+    const health = await studioHealth(base, 800);
+    const serving = health.state === 'running';
+    const jobs = lastCanvas;
+    const links = await Promise.all(lastLinks);
+    lastCanvas = [];
+    lastLinks = [];
+    const rows: InspectRow[] = [];
+    for (const c of jobs) {
+      // A job of lookups only changed nothing, so there is nothing of it to inspect (round R1).
+      if (c.changed === false && c.ok !== false) continue;
+      const linked = links.find((l) => l.job === c.job)?.ok;
+      const page = serving && health.pageConnected ? 'open in your browser' : '/canvas open';
+      const failed = c.ok === false ? ', failed: nothing kept' : '';
+      rows.push({ label: 'Canvas', text: `job ${c.job}, rev ${c.revision}${failed}`, url: `${base}/`, hint: linked === false ? 'not linked to its receipt on the board' : page });
     }
-    const r = spawnSync(plan.command, plan.args, { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
-    const why = r.error?.message ?? (r.status !== 0 ? (r.stderr?.split('\n').find((l) => l.trim()) ?? `exit ${r.status}`) : '');
-    return why ? `Could not open the web view (${why}). Open ${plan.url} in your browser.` : plan.note;
+    if (sealed) {
+      const url = receiptUrl(sealed.id);
+      // The link must open this receipt: a Timmy Canvas serving another Timmy home answers, but has no
+      // such page (round R1 review). One local request with a short timeout.
+      const served = serving && (await pageAnswers(url, 800));
+      rows.push(served
+        ? { label: 'Receipt', text: url, url, hint: 'or timmy receipts' }
+        : { label: 'Receipt', text: 'timmy receipts', hint: serving ? 'the canvas here does not serve this receipt' : started?.state === 'failed' ? `no receipt page: ${started.error}` : 'the receipt page is not served' });
+    }
+    return rows;
+  };
+  const where = async (): Promise<Segment[]> => {
+    const base = studioBaseUrl(process.env);
+    const h = await studioHealth(base, 500);
+    const store = receiptsDir();
+    const rel = relative(process.cwd(), store);
+    const shownStore = rel && !rel.startsWith('..') ? rel : tildify(store);
+    const sep = ` ${theme.glyphs.sep} `;
+    const canvasNow = h.state === 'running'
+      ? `canvas ${base}/${h.pageConnected ? ' (page open)' : ''}`
+      : h.state === 'other' ? `canvas port in use by another program (/canvas)` : 'canvas not running (/canvas)';
+    return [{ text: `  project ${workspace.project.name}${sep}${tildify(process.cwd())}${sep}receipts ${shownStore}${sep}${canvasNow}`, role: 'secondary' }];
   };
   const setup = (): Segment[][] => setupCheck({
     operator: readOperator(),
@@ -264,20 +457,37 @@ export async function runRepl(argv: string[]): Promise<number> {
     palette: timmyPalette(measured, process.env),
     themes: join(packageRoot(), 'assets', 'themes'),
   }, theme.glyphs).lines;
-  return replLoop({
+  const code = await replLoop({
     agent, caps, theme, region, transcript, session, stdin: process.stdin, stdout: process.stdout, approval, themeInfo, receipts, openWatch, openWeb,
-    setup, noKey: !config.apiKey, firstRun: readChain('runs').length === 0, lanes: listLanes, openCenter,
+    setup, noKey: !config.apiKey, firstRun: readChain('runs').length === 0, lanes: listLanes, openCenter, canvas, inspect, where, tools, workspace,
     // C-13: the receipt line links to its page; the local server that shows it starts with the first seal.
     seal: (facts) => {
       // Fourth order, step 5: a turn that used the canvas names each job and the saved canvas it left,
       // and the canvas server learns which receipt sealed each job.
-      const canvas = canvasJob.close();
-      const sealed = sealTurn({ ...facts, model: agent.getModel(), ...(canvas.length ? { canvas } : {}) });
-      studio ??= ensureStudioServer(STUDIO_PORT, { env: process.env });
-      for (const c of canvas) void linkCanvasReceipt(c.job, sealed.id);
+      const jobs = canvasJob.close();
+      const sealed = sealTurn({ ...facts, model: agent.getModel(), project: workspace.project.name, projectId: projectId(workspace.root), files: projectFiles.close(), ...(jobs.length ? { canvas: jobs } : {}) });
+      void ensureCanvas();
+      // Round R1: the links' outcomes reach the turn's "where to inspect" rows; a failed link is said.
+      lastCanvas = jobs;
+      lastLinks = jobs.map((c) => linkCanvasReceipt(c.job, sealed.id).then((ok) => ({ job: c.job, ok })));
       return { ...sealed, url: receiptUrl(sealed.id) };
     },
   });
+  // The REPL is ending: the jobs it started (preview servers included) stop with it.
+  canvasProject.stop();
+  await workspace.close();
+  return code;
+}
+
+/** Whether a GET of `url` answers 2xx within `timeoutMs` (a local page, so the wait is short). */
+async function pageAnswers(url: string, timeoutMs: number): Promise<boolean> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    await res.body?.cancel();
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 /** The operator named in identity.json, or null on a blank slate (or an unreadable file). */
@@ -290,11 +500,11 @@ function readOperator(): string | null {
   }
 }
 
-/** Timmy Night or Day when TIMMY_PALETTE names it or the terminal's answers match it; otherwise null. */
-export function timmyPalette(measured: MeasuredColors, env: Record<string, string | undefined>): 'night' | 'day' | null {
+/** Timmy Homebrew, Night or Day when TIMMY_PALETTE names it or the terminal's answers match it; otherwise null. */
+export function timmyPalette(measured: MeasuredColors, env: Record<string, string | undefined>): 'homebrew' | 'night' | 'day' | null {
   const named = (env.TIMMY_PALETTE ?? '').toLowerCase();
-  if (namedPalette(named)) return named as 'night' | 'day';
-  for (const [name, p] of [['night', TIMMY_NIGHT], ['day', TIMMY_DAY]] as const) {
+  if (namedPalette(named)) return named as 'homebrew' | 'night' | 'day';
+  for (const [name, p] of [['homebrew', TIMMY_HOMEBREW], ['night', TIMMY_NIGHT], ['day', TIMMY_DAY]] as const) {
     const ref = measuredFromPalette(p);
     const same = (a: string | null | undefined, b: string | null | undefined): boolean => Boolean(a) && a?.toUpperCase() === b?.toUpperCase();
     if (same(measured.background, ref.background) && [7, 8].every((n) => same(measured.slots[n], ref.slots[n]))) return name;
@@ -334,6 +544,14 @@ export interface ReplDeps {
   /** /lanes and /center (C-10). */
   lanes?: ReplContext['lanes'];
   openCenter?: () => string;
+  /** Round R1: /canvas; where each turn's result, preview and receipt are; where this REPL works. */
+  canvas?: ReplContext['canvas'];
+  inspect?: TurnInspect['inspect'];
+  where?: () => Promise<Segment[]>;
+  /** Round R1: /tools, what works here. */
+  tools?: ReplContext['tools'];
+  /** R1 workspace direction: the active project and its files, workflows, jobs, preview and results. */
+  workspace?: ReplContext['workspace'];
 }
 
 /** During a turn, Ctrl+C arrives as a key in raw mode; it cancels the turn (playbook §16.2). */
@@ -359,10 +577,17 @@ const MENU = COMMANDS.map(({ name, description }) => ({ name, description }));
 export async function replLoop(d: ReplDeps): Promise<number> {
   const { agent, caps, theme, region, transcript, session } = d;
   const interactive = caps.interactive && region.live && !caps.plain;
-  const say = (segments: Segment[]): void => void region.commit([serialize(fitSegments(segments, caps.columns, theme.glyphs.ellipsis), theme)]);
+  // r21 (ledger row 163): its own lines too are cut at the width the terminal has now.
+  const size = liveSize(process.stdout, caps);
+  const say = (segments: Segment[]): void => void region.commit([serialize(fitSegments(segments, size.columns, theme.glyphs.ellipsis), theme)]);
   if (interactive) {
-    say([{ text: 'TIMMY', role: 'strong' }, { text: `  ${agent.getModel()}`, role: 'secondary' }]);
-    say([{ text: 'Type a message to start. /help for commands, /exit to quit.', role: 'secondary' }]);
+    say([{ text: 'TIMMY', role: 'accent' }, { text: `  ${agent.getModel()}`, role: 'secondary' }]);
+    // Round R1: where this REPL works: the folder, where receipts go, and Timmy Canvas's state.
+    if (d.where) {
+      const line = await Promise.race([d.where(), sleep(1500).then(() => null)]).catch(() => null);
+      if (line) say(line);
+    }
+    say([{ text: `Type a message to start. ${d.tools ? '/tools shows what works here, ' : ''}/help for commands, /exit to quit.`, role: 'secondary' }]);
     // A first run offers the setup check and leaves the prompt empty: a prefilled /setup turned a typed
     // /exit into /setup/exit (the 20:14 order).
     if (d.firstRun && d.setup) say([{ text: 'First run: type ', role: 'secondary' }, { text: '/setup', role: 'strong' }, { text: ' to check what Timmy needs.', role: 'secondary' }]);
@@ -385,8 +610,10 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     if (!text) continue;
     if (text === 'exit' || text === 'quit') break;
     if (text.startsWith('/')) {
-      const ctx = { agent, print: say, glyphs: theme.glyphs, themeInfo: d.themeInfo, receipts: d.receipts, openWatch: d.openWatch, openWeb: d.openWeb, setup: d.setup, lanes: d.lanes, openCenter: d.openCenter };
-      if (runSlash(text, ctx) === 'exit') break;
+      const ctx = { agent, print: say, glyphs: theme.glyphs, themeInfo: d.themeInfo, receipts: d.receipts, openWatch: d.openWatch, openWeb: d.openWeb, setup: d.setup, lanes: d.lanes, openCenter: d.openCenter, canvas: d.canvas, tools: d.tools, workspace: d.workspace };
+      // Round R4 (H51): each typed line is one operation (src/ops): what it starts or seals carries its id.
+      const slash = (): ReturnType<typeof runSlash> => runSlash(text, ctx);
+      if ((await (d.workspace?.operate ? d.workspace.operate(text, 'repl', slash) : slash())) === 'exit') break;
       region.commit(['']);
       continue;
     }
@@ -398,7 +625,7 @@ export async function replLoop(d: ReplDeps): Promise<number> {
       region.commit(['']);
       continue;
     }
-    if (interactive) transcript.handle({ type: 'prompt', text, cwd: tildify(process.cwd()), echoed: true });
+    if (interactive) transcript.handle({ type: 'prompt', text, cwd: tildify(process.cwd()), echoed: true, model: agent.getModel() });
     const controller = new AbortController();
     const abandon: TurnAbandon = {};
     // First Ctrl+C cancels the turn; a second, while that cancel has not landed, quits (exit 130),
@@ -417,7 +644,9 @@ export async function replLoop(d: ReplDeps): Promise<number> {
     };
     const stopWatching = interactive ? watchCtrlC(d.stdin, session, onCtrlC) : () => {};
     if (caps.animate) session.hideCursor();
-    const result = await runTurn(agent, transcript, text, Date.now, turnMarks, controller.signal, d.seal, abandon);
+    // Round R4 (H51): a turn is one operation too: the runs its tools start and its receipt carry its id.
+    const turn = (): ReturnType<typeof runTurn> => runTurn(agent, transcript, text, Date.now, turnMarks, controller.signal, d.seal, abandon, { inspect: d.inspect });
+    const result = await (d.workspace?.operate ? d.workspace.operate(text, 'repl', turn) : turn());
     stopWatching();
     if (!interactive && result === 'failed') status = EXIT.failure;
     if (interactive) region.commit(['']);

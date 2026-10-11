@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { glyphSet } from '../src/term/glyphs.js';
-import { COMMANDS, runSlash, type ReplContext, type ThemeInfo } from '../src/repl/commands.js';
+import { COMMANDS, runSlash, type ReplContext, type ThemeInfo, GROUPS, GROUP_LABEL } from '../src/repl/commands.js';
 
 // Slash commands come from one registry, run locally, and never reach the model (playbook §17.7).
 const NIGHT_INFO: ThemeInfo = {
@@ -25,10 +25,11 @@ const ctx = (info: ThemeInfo = NIGHT_INFO) => {
 };
 
 describe('slash commands', () => {
-  it('builds /help from the registry, name then description', () => {
+  it('builds /help from the registry in sections (work, look, setup, session), name then description', () => {
     const { c, printed } = ctx();
     expect(runSlash('/help', c)).toBe('handled');
-    expect(printed).toEqual(COMMANDS.map((cmd) => `  /${cmd.name.padEnd(11)} ${cmd.description}`));
+    expect(printed).toEqual(GROUPS.flatMap((g) => [`  ${GROUP_LABEL[g]}`, ...COMMANDS.filter((cmd) => cmd.group === g).map((cmd) => `  /${cmd.name.padEnd(11)} ${cmd.description}`)]));
+    expect(COMMANDS.every((cmd) => GROUPS.includes(cmd.group))).toBe(true);
   });
   it('answers an unknown command locally and suggests the nearest one', () => {
     const { c, printed } = ctx();
@@ -76,7 +77,7 @@ describe('cockpit commands', () => {
       '  Palette    TIMMY_PALETTE=night',
       '  Measured   ground #000000 - secondary white (37) - input tint 48;2;31;31;31',
       '  Meanings   verified green - estimate yellow - failure red - model violet',
-      '  Themes     /pkg/assets/themes (Ghostty, iTerm2, WezTerm, kitty, Alacritty, zellij)',
+      '  Themes     /pkg/assets/themes (Homebrew, Night, Day: timmy theme install)',
     ]);
   });
   // Fourth order, step 2 (readability): a meaning with no color here is named, with why, and the fallback
@@ -94,7 +95,7 @@ describe('cockpit commands', () => {
     runSlash('/theme', c);
     expect(printed.slice(2, 4)).toEqual([
       '  Meanings   no color: the terminal did not say its background, so marks and words carry them',
-      '  For color  timmy theme install, then TIMMY_PALETTE=night or day',
+      '  For color  timmy theme install, then TIMMY_PALETTE=homebrew (or night, day)',
     ]);
   });
   it('/theme says when color is off altogether', () => {

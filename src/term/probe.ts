@@ -70,7 +70,7 @@ export function probeTerminalColors(io: ProbeStreams, caps: { interactive: boole
 /** Over SSH the terminal's answer makes a round trip; 200ms is too short and a late reply would be typed into the prompt. */
 const PROBE_MS = { local: 200, ssh: 1000 };
 
-/** `TIMMY_PALETTE=night|day` says which palette is installed; otherwise ask the terminal (200ms, 1s over SSH). */
+/** `TIMMY_PALETTE=homebrew|night|day` says which palette is installed; otherwise ask the terminal (200ms, 1s over SSH). */
 export function measureTerminal(
   caps: Pick<TerminalCapabilities, 'interactive'> & Partial<Pick<TerminalCapabilities, 'ssh'>>,
   env: Record<string, string | undefined>,
