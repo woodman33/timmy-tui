@@ -82,7 +82,20 @@ export function dockerCall(bin: string, args: string[], env: Env, timeoutMs = 15
   });
 }
 
-const firstLine = (t: string | undefined): string => (t ?? '').split('\n').map((l) => l.trim()).find(Boolean)?.slice(0, 200) ?? '';
+/** The first line of docker's output with words on it, whole (read for a value: a version, an image's id and label). */
+const firstLine = (t: string | undefined): string => (t ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+
+/**
+ * R4 (H88; the Mac run r23): docker's first line as a reason, at most `max` characters. A longer one keeps its start and
+ * its end, the cut marked with "…": docker puts the cause last ("… dial unix …/no-such.sock: connect: no such file or
+ * directory"), and the first 200 characters alone had cut it off ("…connect: ", with no mark).
+ */
+export function causeLine(t: string | undefined, max = 200): string {
+  const line = firstLine(t);
+  if (line.length <= max) return line;
+  const tail = Math.ceil((max - 1) * 0.6);
+  return `${line.slice(0, max - 1 - tail).trimEnd()}…${line.slice(line.length - tail).trimStart()}`;
+}
 
 /** R4 (H82): how long a docker check waits for each of its commands (/tools, /room, /agent openhands' start). */
 export const DOCKER_PROBE_MS = 8000;
@@ -96,7 +109,7 @@ export const DOCKER_PROBE_MS = 8000;
 export function dockerWords(what: string, a: DockerAnswer, timeoutMs: number): string {
   if (a.timedOut) return `${what} did not finish within ${timeoutMs / 1000} s`;
   if (a.code === null) return `${what} could not ${a.error === 'ENOENT' ? 'start (ENOENT: no such program)' : `run (${a.error ?? 'it gave no exit code'})`}`;
-  const said = firstLine(a.stderr) || firstLine(a.stdout);
+  const said = causeLine(a.stderr) || causeLine(a.stdout);
   if (a.code !== 0) return `${what} exited ${a.code}${said ? `: ${said}` : ''}`;
   return `${what} exited 0 and named no Docker server`;
 }
@@ -158,7 +171,7 @@ const PS_FORMAT = `{{.ID}}\t{{.Names}}\t{{.State}}\t{{.Label "${LABEL_RUN}"}}\t{
 export async function listByLabels(bin: string, env: Env, labels: Record<string, string>, timeoutMs = 15_000): Promise<{ ok: true; listed: Listed[] } | { ok: false; error: string }> {
   const filters = Object.entries(labels).flatMap(([k, v]) => ['--filter', v ? `label=${k}=${v}` : `label=${k}`]);
   const r = await dockerCall(bin, ['ps', '-a', '--no-trunc', ...filters, '--format', PS_FORMAT], env, timeoutMs);
-  if (r.code !== 0) return { ok: false, error: firstLine(r.stderr) || r.error || `docker ps exited ${r.code}` };
+  if (r.code !== 0) return { ok: false, error: causeLine(r.stderr) || r.error || `docker ps exited ${r.code}` };
   const listed: Listed[] = [];
   for (const line of r.stdout.split('\n')) {
     const [id, names, state, run, project] = line.split('\t');
@@ -205,10 +218,10 @@ export async function stopContainer(bin: string, env: Env, c: { name: string; la
   // Gone after a docker kill that failed: it ended on the stop's own signal (or by itself), not by the kill (row 159).
   if (third.ok && !third.running) {
     if (kill.code === 0) return { ...base, result: 'killed', steps };
-    const said = stop.code === null ? `docker stop gave no answer (${stop.error ?? 'no exit code'}); docker kill exited ${kill.code ?? 'without an exit code'}${firstLine(kill.stderr) ? `: ${firstLine(kill.stderr)}` : ''}` : `docker stop exited ${stop.code}; docker kill exited ${kill.code ?? 'without an exit code'}`;
+    const said = stop.code === null ? `docker stop gave no answer (${stop.error ?? 'no exit code'}); docker kill exited ${kill.code ?? 'without an exit code'}${causeLine(kill.stderr) ? `: ${causeLine(kill.stderr)}` : ''}` : `docker stop exited ${stop.code}; docker kill exited ${kill.code ?? 'without an exit code'}`;
     return { ...base, result: 'ended', steps, detail: said };
   }
-  const said = firstLine(kill.stderr) || firstLine(stop.stderr) || (third.ok ? '' : third.error);
+  const said = causeLine(kill.stderr) || causeLine(stop.stderr) || (third.ok ? '' : third.error);
   return { ...base, result: third.ok ? 'unresolved' : 'unchecked', steps, ...(said ? { detail: said } : {}) };
 }
 

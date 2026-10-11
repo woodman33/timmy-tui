@@ -148,6 +148,8 @@ function probed(r: Built, c: LadderContext): { evidence?: ReachableEvidence; why
       const n = o.v.models.length;
       // R4 (H82): what the server answered, its states told apart (src/capabilities/ollama-row.ts)
       if (answered) return { evidence: { asked: tags, at: o.at, answer: o.v.answer ? ollamaAnswerWords(o.v) : `${n} local ${n === 1 ? 'model' : 'models'} answered` } };
+      // R4 (H88; r23): a request fetch refused itself was not sent, so it was not "asked"
+      if (o.v.answer?.state === 'not sent') return { why: `not sent: ${tags.replace(/, then each local model's details$/, '')} (at ${stamp(o.at)}), ${o.v.answer.why}` };
       return { why: `asked ${tags} at ${stamp(o.at)}: ${ollamaAnswerWords(o.v)}` };
     }
     case 'taskforge': {
