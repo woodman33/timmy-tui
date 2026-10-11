@@ -2,7 +2,8 @@
  * Round R4 (helper H93): the client's two reads of Timmy Cloud's backend, with the operator's token: GET
  * /v1/operator/overview and GET /v1/operator/orders. GET only: the client changes nothing on the backend (approving,
  * reconciling, resolving and deciding are the backend's operator routes, sent by a person in this slice). No connection is
- * kept, no redirect is followed, an answer is at most CACHE_MAX_BYTES, and every word of a failure has the token taken out.
+ * kept, no redirect is followed, an answer is at most CACHE_MAX_BYTES and comes whole within the time limit (15 s unless
+ * said), and every word of a failure has the token taken out.
  */
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
@@ -28,7 +29,8 @@ export function getJson(base: string, route: string, token: string, o: { timeout
   const scrub = (s: string): string => redactToken(s, token);
   return new Promise((resolve) => {
     let done = false;
-    const finish = (r: GetJson): void => { if (!done) { done = true; resolve(r.ok ? r : { ...r, why: scrub(r.why) }); } };
+    let deadline: NodeJS.Timeout | undefined;
+    const finish = (r: GetJson): void => { if (!done) { done = true; if (deadline) clearTimeout(deadline); resolve(r.ok ? r : { ...r, why: scrub(r.why) }); } };
     const req = request(url, {
       method: 'GET', agent: false,
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'User-Agent': 'timmy-cloud-client' },
@@ -54,7 +56,8 @@ export function getJson(base: string, route: string, token: string, o: { timeout
         return finish({ ok: true, json });
       });
     });
-    req.setTimeout(timeoutMs, () => { finish({ ok: false, status: null, why: `GET ${route}: no answer within ${Math.round(timeoutMs / 1000)} s` }); req.destroy(); });
+    // the limit is for the whole answer, not for each silence: a backend that sends a byte now and then is not waited on longer
+    deadline = setTimeout(() => { finish({ ok: false, status: null, why: `GET ${route}: no complete answer within ${Math.round(timeoutMs / 1000)} s` }); req.destroy(); }, timeoutMs);
     req.on('error', (e: NodeJS.ErrnoException) => finish({ ok: false, status: null, why: `GET ${route}: ${NET_WORDS[e.code ?? ''] ?? `the request failed (${e.code ?? e.message})`}` }));
     req.end();
   });

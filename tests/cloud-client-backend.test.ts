@@ -12,6 +12,8 @@
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo, Socket } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -19,6 +21,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { agencyCredential, http, newCustomer, spawnBackend, tempDir, type SpawnedBackend } from '../services/cloud/test-support.js';
 import { SimulatedProvider } from '../services/cloud/simulated-provider.js';
 import { newToken } from '../services/cloud/redaction.js';
+import { getJson } from '../src/cloud/read.js';
 import { checkBackendUrl, readTokenFile, redactToken } from '../src/cloud/token.js';
 import { runSlash, type ReplContext } from '../src/repl/commands.js';
 import { glyphSet } from '../src/term/glyphs.js';
@@ -266,4 +269,32 @@ describe('timmy cloud status: the backend read, kept with when it was read; a fa
     expect(redactToken(`a ${operatorToken} b ${encodeURIComponent(operatorToken)}`, operatorToken)).toBe('a [REDACTED_OPERATOR_TOKEN] b [REDACTED_OPERATOR_TOKEN]');
     expect(os.tmpdir()).toBeTruthy();
   });
+});
+
+describe('a backend that answers too slowly: the client waits its limit in all, not longer', () => {
+  it('a real HTTP server on 127.0.0.1 that sends a byte every 100 ms and never ends: given up at the limit, in words', async () => {
+    const token = newToken();
+    const sockets = new Set<Socket>();
+    // never finishes its answer: a limit on silence alone would wait for ever
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.write('{"generated_at":');
+      const tick = setInterval(() => res.write(' '), 100);
+      res.on('close', () => clearInterval(tick));
+    });
+    server.on('connection', (s) => { sockets.add(s); s.on('close', () => sockets.delete(s)); });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const started = Date.now();
+      const r = await getJson(`http://127.0.0.1:${port}`, '/v1/operator/overview', token, { timeoutMs: 1000 });
+      const took = Date.now() - started;
+      expect(r).toEqual({ ok: false, status: null, why: 'GET /v1/operator/overview: no complete answer within 1 s' });
+      expect(took).toBeGreaterThanOrEqual(900);
+      expect(took).toBeLessThan(4000);
+    } finally {
+      for (const s of sockets) s.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }, 15_000);
 });
