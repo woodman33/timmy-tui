@@ -125,7 +125,9 @@ Control Room beside it and `/overview` show the same records at the same moment.
   receipts "not known", never "no receipts yet".
 - **Costs.** A reported amount is summed; a run whose request went out and whose cost did not come back is `unknown` (null),
   counted apart and never summed as 0; a run on a local endpoint is free; a run that sent no request has no cost at all.
-  The totals are the Control Room's own (`gatherRoom`, `costsLine`).
+  The totals are the Control Room's own (`gatherRoom`, `costsLine`). A run whose record holds no cost field at all is
+  shown as the Control Room shows it, "no cost recorded" with its reason, and is not counted, as the Control Room's line
+  says; a chat turn whose receipt records no cost is such a run (see Open).
 - **Counts say what they count** ("receipts of this project", "receipts in the store (every project)", "with a run
   running now (proven)"), and every list stops at 8 items with the rest counted ("and N more").
 - **Geometry and layout are never mixed.** The map is labelled a layout; only a VoxVision record's own highlight is shown
@@ -171,11 +173,12 @@ In a fresh sandbox user with the installed package, as rows 158, 162 and 163; no
 
 1. `/project new <name> --from tray-workflow`, then `/overview`: the first screen fits the terminal at 80 columns, Needs
    you first, every section with counts, the map line saying "layout, not geometry"; the commands green.
-2. `/run` the workflow (Run up to here on the board): while the agent works, `/overview` and the board's Overview say the
-   flow, its agent run and the workflow run are running (proven), with the assignment in the request's words and the
-   route (Qwen Code, the local model, free).
-3. Kill the REPL with SIGKILL during the agent step; in a new REPL, before `/recover`: the overview says the job and its
-   operation are **left** (never running), with `/recover` named; after `/recover`, interrupted and ended.
+2. Run the workflow (Run up to here on `lesson`, as rows 158 and 162): while the agent works, `/overview` and the board's
+   Overview say the workflow run, its flow and the flow's agent run are running (proven), with the assignment in the
+   request's words and the route (Qwen Code with the local model); once it ends, its cost is free.
+3. Type `/iterate tray "make the tray 165 mm wide"` and kill that REPL with SIGKILL during the agent step (as row 157 D);
+   in a new REPL, before `/recover`: the overview says the agent's job and the operation are **left** (never running),
+   with `/recover` named, as Waiting on you does; after `/recover`, the job cancelled and the flow interrupted.
 4. After the run: `apps` lists the parameter file as editable with its application, the STEP or STL as an export, a
    preview where one was made, and the change to review; `spatial` lists the VoxVision record with its values labelled
    as its card labels them and, on the live board, its thumbnail captioned "geometry from results/vox/<id>.json".
@@ -195,3 +198,7 @@ In a fresh sandbox user with the installed package, as rows 158, 162 and 163; no
 - The tools part of Needs you (setup a run needs) is checked once per REPL session, as `/decisions` checks it.
 - `timmy act '/overview' --json` carries the first screen's text lines; the model comes only with `/overview --json`.
 - The canvas view (above) is not built.
+- A chat turn whose receipt records no cost field asked a model, so its cost is not known; the Control Room files it under
+  "runs that record no cost are not counted" (`src/room/index.ts`, `chatRuns` and `receiptCosts`), not under unknown, and
+  the overview follows the Control Room so that both count alike. Counting it as unknown is a change to the Control Room's
+  rule, for its owner to decide.
