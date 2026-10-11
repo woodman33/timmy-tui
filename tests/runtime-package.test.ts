@@ -20,7 +20,8 @@ describe('installed runtime package', () => {
     const output = temp();
     expect(copyRuntimeAssets(root, output)).toEqual(RUNTIME_ASSETS);
     const files = readdirSync(output, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile());
-    expect(files).toHaveLength(15);
+    // R4 (H87): the allowlist grew by the two servers' pages (17); exactly its files, nothing else
+    expect(files).toHaveLength(RUNTIME_ASSETS.length);
     for (const asset of RUNTIME_ASSETS) expect(readFileSync(join(output, asset))).toEqual(readFileSync(join(root, asset)));
   });
 

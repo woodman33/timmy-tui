@@ -26,7 +26,13 @@
 //        /mission/inspect, /dispatch/action                                       action arms, launches, holds, cancels)
 //
 // A refused request writes nothing (no plan, no companion.pair receipt) and says what to do.
-import { createServer, ServerResponse } from 'http';
+//
+// R4 (H87): it never dies on a request. Every route's reads (its page file, the chain, the bus, a plan, a folder's theatre
+// state) are caught: a failure answers 500 with words (src/utils/server-failure.ts), no path of this computer, no stack,
+// nothing logged, and the server keeps answering. The one file it reads beside its code, its chat page, is in
+// LOGS_RUNTIME_FILES, which the build copies (scripts/copy-runtime-assets.mjs; r23: GET /chat crashed `timmy logs` in the
+// installed package, whose dist/ had no chatpage.html).
+import { createServer, ServerResponse, type IncomingMessage } from 'http';
 import { existsSync, readFileSync, statSync, openSync, readSync, closeSync, readdirSync } from 'fs';
 import { armPlan, dispatchPlan, dispatchContainerized, getPlan, pauseOrCancelLane, collectRun, createPlan, type DispatchPlan } from './dispatch.js';
 import { composeUnifiedStage, stageHierarchy } from './usd-compiler.js';
@@ -42,8 +48,19 @@ import { theme } from '../tui/theme.js';
 // R4 (H84): the local rule and the token (shared with Timmy Canvas and the browser companion).
 import { dropTokenFile, isLocalRequest, LocalToken, logsTokenFile, readTokenFile, refuseRequest, TOKEN_IN_ADDRESS, writeTokenFile } from './local-request.js';
 import { carriesSecret, writeLaunchPage } from './launch-page.js';
+import { failRequest } from './server-failure.js';
 
 export const LOGS_PORT = (): number => Number(process.env.TIMMY_LOGS_PORT ?? 4310);
+
+/**
+ * R4 (H87): the files this server reads beside its code at run time, package-relative. The build copies each into dist/
+ * (scripts/copy-runtime-assets.mjs RUNTIME_ASSETS; tests/runtime-pages.test.ts keeps the two lists together).
+ */
+export const LOGS_RUNTIME_FILES: readonly string[] = Object.freeze(['src/utils/chatpage.html']);
+
+/** R4 (H87): what a request is told when what it needs could not be read. */
+export const LOGS_FAILED = 'The log companion could not read what this request needs, so it answers with nothing and wrote nothing. It is still running: its other pages answer.';
+export const LOGS_PAGE_FAILED = 'This page of the log companion could not be read (its file is missing from this installation, or unreadable), so it is not shown, and nothing was written. The log companion is still running: its other pages answer.';
 
 /** R4 (H84): what a request without the token is told. */
 export const LOGS_REFUSED = 'Refused: this needs the token of `timmy logs`. Open it from Timmy: `timmy logs` prints and opens its address with its token (after #, which the page keeps in memory and sends in a header).';
@@ -662,7 +679,25 @@ export interface LogServerHandle {
   host: string;
   /** R4 (H84): the address to open, with the token in its fragment (printed where the operator started it, never logged). */
   url: string;
+  /** R4 (H87): what opening its page did (only when `open` was asked): handed to the browser opener, off, or not opened. */
+  opened?: OpenOutcome;
   stop(): Promise<void>;
+}
+
+/**
+ * R4 (H87): what openBrowser did: 'asked' (this computer's opener, open or xdg-open, started with the page: whether a browser
+ * shows it is that program's), 'off' (TIMMY_LOGS_OPEN=0), or 'failed' (no opener here, or the private launch page could not
+ * be written).
+ */
+export type OpenOutcome = 'asked' | 'off' | 'failed';
+
+/** R4 (H87): what `timmy logs` says after its address, about where it listens and what opening the page did. */
+export function logsStartWords(opened: OpenOutcome | undefined): string {
+  const what = opened === 'asked' ? 'it was handed to your browser (through a private launch page that keeps the token off command lines)'
+    : opened === 'off' ? 'it was not opened (TIMMY_LOGS_OPEN=0): open it yourself'
+      : opened === 'failed' ? 'it could not be opened here (no browser opener, or the private launch page could not be written): open it yourself'
+        : 'open it yourself';
+  return `This computer only (127.0.0.1). The address carries its token after #: ${what}. Ctrl-C stops it.`;
 }
 
 export interface LogServerOptions {
@@ -678,13 +713,15 @@ export interface LogServerOptions {
    * removed when it stops): the CLI's choice (`timmy logs`, ensureLogCompanion's server); a test's only with a temporary home.
    */
   tokenFile?: boolean;
+  /** R4 (H87): the folder its page files are read from (a test's); this module's own folder when absent. */
+  pageDir?: string;
 }
 
 /** R4 (H84): the routes that carry the operator's content (turns, receipts, events, plans) or write: the token. */
 const NEEDS_TOKEN: ReadonlySet<string> = new Set(['/chat/events', '/events', '/receipts', '/verify', '/verify-receipt', '/dispatch', '/dispatch/action', '/mission/compile', '/mission/store', '/mission/inspect', '/mission/escrows', '/mission/theatre']);
 
-/** R4 (H84): a page, with its token script where it asks for it (chatpage.html). */
-const chatPage = (): string => readFileSync(new URL('./chatpage.html', import.meta.url), 'utf8').replace('<script>/*TIMMY-TOKEN*/</script>', () => `<script>${PAGE_TOKEN_JS}</script>`);
+/** R4 (H84): a page, with its token script where it asks for it (chatpage.html). R4 (H87): it throws when the file cannot be read. */
+const chatPage = (dir?: string): string => readFileSync(dir ? join(dir, 'chatpage.html') : new URL('./chatpage.html', import.meta.url), 'utf8').replace('<script>/*TIMMY-TOKEN*/</script>', () => `<script>${PAGE_TOKEN_JS}</script>`);
 
 /** Own the listener and polling lifecycle; callers may request port 0. */
 export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogServerHandle> {
@@ -703,22 +740,32 @@ export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogS
 
   function tailLoop() {
     return setInterval(() => {
-      const p = eventsPath();
-      if (!existsSync(p)) return;
-      const size = statSync(p).size;
-      if (size < tailOffset) tailOffset = 0; // truncated — restart
-      if (size === tailOffset) return;
-      const fd = openSync(p, 'r');
-      const buf = Buffer.alloc(size - tailOffset);
-      readSync(fd, buf, 0, buf.length, tailOffset);
-      closeSync(fd);
-      tailOffset = size;
-      for (const line of buf.toString('utf8').split('\n').filter(Boolean)) {
-        try { broadcast(JSON.parse(line) as TimmyEvent); } catch { /* partial line */ }
-      }
+      // R4 (H87): a bus that cannot be read now is read again on the next tick; it never ends the server
+      try {
+        const p = eventsPath();
+        if (!existsSync(p)) return;
+        const size = statSync(p).size;
+        if (size < tailOffset) tailOffset = 0; // truncated — restart
+        if (size === tailOffset) return;
+        const fd = openSync(p, 'r');
+        const buf = Buffer.alloc(size - tailOffset);
+        try { readSync(fd, buf, 0, buf.length, tailOffset); } finally { closeSync(fd); }
+        tailOffset = size;
+        for (const line of buf.toString('utf8').split('\n').filter(Boolean)) {
+          try { broadcast(JSON.parse(line) as TimmyEvent); } catch { /* partial line, or a client gone */ }
+        }
+      } catch { /* next tick */ }
     }, 700);
   }
+  // R4 (H87): never dies on a request: a throw anywhere in a route answers 500 with words; a request or answer stream's
+  // error (a client gone) is no crash either
   const server = createServer((req, res) => {
+    req.on('error', () => undefined);
+    res.on('error', () => undefined);
+    try { handle(req, res); } catch { failRequest(res, 500, LOGS_FAILED); }
+  });
+  /** The routes; R4 (H87): what throws here becomes a 500 with words (above), and the callbacks below catch their own. */
+  function handle(req: IncomingMessage, res: ServerResponse): void {
     // R4 (H84): this computer's, from its own pages; never a token in an address; the operator's content and every
     // write with the token (checked before anything is read, written or sealed)
     if (!isLocalRequest(req)) return refuseRequest(res, 403, LOGS_FOREIGN);
@@ -734,8 +781,10 @@ export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogS
       return;
     }
     if (url.pathname === '/chat') {
+      let page: string;
+      try { page = chatPage(opts.pageDir); } catch { failRequest(res, 500, LOGS_PAGE_FAILED, 'text'); return; }
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.end(chatPage());
+      res.end(page);
       return;
     }
     if (url.pathname === '/chat/events') {
@@ -750,13 +799,16 @@ export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogS
       for (const r of readChain('runs').slice(-8)) send({ t: 'receipt', hash: String(r.hash).slice(7, 15) + '…', subject: r.subject, kind: r.kind, ts: String(r.ts).slice(11, 19) });
       let sesSize = sessionSize();
       const iv = setInterval(() => {
-        const ns = sessionSize();
-        if (ns !== sesSize) { sesSize = ns; pushTurns(); }
-        const cl = readChain('runs').length;
-        if (cl !== chainLen) {
-          for (const r of readChain('runs').slice(chainLen)) send({ t: 'receipt', hash: String(r.hash).slice(7, 15) + '…', subject: r.subject, kind: r.kind, ts: String(r.ts).slice(11, 19) });
-          chainLen = cl;
-        }
+        // R4 (H87): what cannot be read now is read again on the next tick
+        try {
+          const ns = sessionSize();
+          if (ns !== sesSize) { sesSize = ns; pushTurns(); }
+          const cl = readChain('runs').length;
+          if (cl !== chainLen) {
+            for (const r of readChain('runs').slice(chainLen)) send({ t: 'receipt', hash: String(r.hash).slice(7, 15) + '…', subject: r.subject, kind: r.kind, ts: String(r.ts).slice(11, 19) });
+            chainLen = cl;
+          }
+        } catch { /* next tick */ }
       }, 700);
       res.on('close', () => clearInterval(iv));
       return;
@@ -827,22 +879,25 @@ export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogS
       let body: any = {};
       req.on('data', d => { try { body = JSON.parse(d.toString()); } catch { /* ignore */ } });
       req.on('end', async () => {
-        const { id, action, token } = body;
-        let r: unknown = { ok: false, error: 'unknown action' };
-        if (action === 'arm' && token) r = armPlan(String(id), String(token));
-        else if (action === 'launch') {
-          // openhands+docker plans run through the containerized engine with
-          // live telemetry; every other harness keeps the tmux lane runner
-          const st = getPlan(String(id));
-          r = st && st.plan.harnesses[0] === 'openhands' && st.plan.workspace.kind === 'docker'
-            ? await dispatchContainerized(String(id))
-            : dispatchPlan(String(id));
-        }
-        else if (action === 'hold') r = pauseOrCancelLane(String(id), 'hold');
-        else if (action === 'cancel') r = pauseOrCancelLane(String(id), 'cancel');
-        else if (action === 'collect') r = collectRun(String(id));
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify(r));
+        // R4 (H87): a failure answers with words; the server keeps answering
+        try {
+          const { id, action, token } = body;
+          let r: unknown = { ok: false, error: 'unknown action' };
+          if (action === 'arm' && token) r = armPlan(String(id), String(token));
+          else if (action === 'launch') {
+            // openhands+docker plans run through the containerized engine with
+            // live telemetry; every other harness keeps the tmux lane runner
+            const st = getPlan(String(id));
+            r = st && st.plan.harnesses[0] === 'openhands' && st.plan.workspace.kind === 'docker'
+              ? await dispatchContainerized(String(id))
+              : dispatchPlan(String(id));
+          }
+          else if (action === 'hold') r = pauseOrCancelLane(String(id), 'hold');
+          else if (action === 'cancel') r = pauseOrCancelLane(String(id), 'cancel');
+          else if (action === 'collect') r = collectRun(String(id));
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(r));
+        } catch { failRequest(res, 500, LOGS_FAILED); }
       });
       return;
     }
@@ -863,8 +918,11 @@ export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogS
       let body: any = {};
       req.on('data', d => { try { body = JSON.parse(d.toString()); } catch { /* ignore */ } });
       req.on('end', () => {
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify(compileMissionMap((body?.doc ?? { nodes: [], edges: [] }) as MissionMapDoc, typeof body?.repo_root === 'string' ? { repoRoot: body.repo_root } : {})));
+        try {
+          const out = JSON.stringify(compileMissionMap((body?.doc ?? { nodes: [], edges: [] }) as MissionMapDoc, typeof body?.repo_root === 'string' ? { repoRoot: body.repo_root } : {}));
+          res.setHeader('Content-Type', 'application/json');
+          res.end(out);
+        } catch { failRequest(res, 500, LOGS_FAILED); }
       });
       return;
     }
@@ -881,8 +939,11 @@ export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogS
       let body: any = {};
       req.on('data', d => { try { body = JSON.parse(d.toString()); } catch { /* ignore */ } });
       req.on('end', () => {
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify(createPlan((body?.plan ?? {}) as DispatchPlan)));
+        try {
+          const out = JSON.stringify(createPlan((body?.plan ?? {}) as DispatchPlan));
+          res.setHeader('Content-Type', 'application/json');
+          res.end(out);
+        } catch { failRequest(res, 500, LOGS_FAILED); }
       });
       return;
     }
@@ -898,16 +959,20 @@ export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogS
       let body: any = {};
       req.on('data', d => { try { body = JSON.parse(d.toString()); } catch { /* ignore */ } });
       req.on('end', () => {
-        res.setHeader('Content-Type', 'application/json');
-        if (body?.kind === 'merkle' && body.pass?.leaves) {
-          const tree = merkleProofTree((body.pass.leaves as { hash: string }[]).map(l => l.hash));
-          res.end(JSON.stringify({ ok: true, ...tree, matches: tree.root === body.pass.merkle_root }));
-        } else if (body?.kind === 'stage' && body.scene) {
-          const c = composeUnifiedStage(body.scene, body.hero ? { hero: body.hero } : undefined);
-          res.end(JSON.stringify({ ok: c.ok, sha256: c.sha256, note: c.note, hierarchy: c.ok ? stageHierarchy(body.scene, body.hero) : undefined, usda: c.usda }));
-        } else {
-          res.end(JSON.stringify({ ok: false, note: 'kind must be merkle|stage' }));
-        }
+        try {
+          let out: string;
+          if (body?.kind === 'merkle' && body.pass?.leaves) {
+            const tree = merkleProofTree((body.pass.leaves as { hash: string }[]).map(l => l.hash));
+            out = JSON.stringify({ ok: true, ...tree, matches: tree.root === body.pass.merkle_root });
+          } else if (body?.kind === 'stage' && body.scene) {
+            const c = composeUnifiedStage(body.scene, body.hero ? { hero: body.hero } : undefined);
+            out = JSON.stringify({ ok: c.ok, sha256: c.sha256, note: c.note, hierarchy: c.ok ? stageHierarchy(body.scene, body.hero) : undefined, usda: c.usda });
+          } else {
+            out = JSON.stringify({ ok: false, note: 'kind must be merkle|stage' });
+          }
+          res.setHeader('Content-Type', 'application/json');
+          res.end(out);
+        } catch { failRequest(res, 500, LOGS_FAILED); }
       });
       return;
     }
@@ -934,12 +999,14 @@ export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogS
         res.end(JSON.stringify({ ok: false, error: 'no theatre state in that folder' }));
         return;
       }
-      res.end(readFileSync(join(abs, 'theatre-state.json'), 'utf8'));
+      // R4 (H87): read before answering, so a file that cannot be read becomes a 500 with words (handle's catch)
+      const state = readFileSync(join(abs, 'theatre-state.json'), 'utf8');
+      res.end(state);
       return;
     }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.end(PAGE + DISPATCH_HTML);
-  });
+  }
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, () => {
@@ -971,8 +1038,9 @@ export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogS
         return stopping;
       };
       const pageUrl = key.open(`http://127.0.0.1:${port}/`);
-      if (opts.open) openBrowser(pageUrl);
-      resolve({ port, host, url: pageUrl, stop });
+      // R4 (H87): what opening the page did, so the words say it (TIMMY_LOGS_OPEN=0 opens nothing)
+      if (opts.open) void openBrowser(pageUrl).then((opened) => resolve({ port, host, url: pageUrl, opened, stop }));
+      else resolve({ port, host, url: pageUrl, stop });
     });
   });
 }
@@ -987,16 +1055,21 @@ export async function startLogServer(opts: LogServerOptions = {}): Promise<numbe
  * shows it to anyone on this computer): a private launch page (src/utils/launch-page.ts, 0600, removed within a minute)
  * opens it instead; when that page cannot be written, nothing is opened (the address was printed where it was started).
  */
-export function openBrowser(url: string): void {
-  if (process.env.TIMMY_LOGS_OPEN === '0') return;
+export function openBrowser(url: string): Promise<OpenOutcome> {
+  if (process.env.TIMMY_LOGS_OPEN === '0') return Promise.resolve('off');
   let target = url;
   if (carriesSecret(url)) {
-    try { target = writeLaunchPage(url).href; } catch { return; }
+    try { target = writeLaunchPage(url).href; } catch { return Promise.resolve('failed'); }
   }
   const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-  const child = spawn(cmd, [target], { detached: true, stdio: 'ignore' });
-  child.on('error', () => { /* no opener on this computer: the address was printed */ });
-  child.unref();
+  return new Promise((resolve) => {
+    try {
+      const child = spawn(cmd, [target], { detached: true, stdio: 'ignore' });
+      child.once('spawn', () => resolve('asked'));
+      child.once('error', () => resolve('failed')); // no opener on this computer: the address was printed
+      child.unref();
+    } catch { resolve('failed'); }
+  });
 }
 
 // Idempotent: if the companion is already up, reuse it; else spawn detached so

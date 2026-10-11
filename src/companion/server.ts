@@ -30,6 +30,11 @@
  *
  * The token is never written to a log, a receipt or the bus: it is shown only where the operator started the server, as
  * part of the address to open (src/companion/qr.ts: the monitor's q on HOME, or the terminal), and with --lan in the QR code.
+ *
+ * R4 (H87): the files it serves beside its code are COMPANION_RUNTIME_FILES, which the build copies into dist/
+ * (scripts/copy-runtime-assets.mjs; r23: the installed package's GET / answered 404 with ENOENT and the install path, its
+ * dist/ had no client/index.html). Slate 3D's built bundle ships only in a source checkout that built it; without it the
+ * companion says so in words where Slate 3D would be. Every failure answers with words: no path of this computer, no stack.
  */
 import express from 'express';
 import { createServer, type IncomingMessage } from 'http';
@@ -46,6 +51,8 @@ import { canvasSummary } from './canvas.js';
 import { keySet } from '../utils/keys.js';
 // R4 (H84): the local rule and the token (shared with Timmy Canvas and `timmy logs`).
 import { isLocalRequest, lanAddresses, LocalToken, logsTokenFile, readTokenFile, refuseRequest, refuseUpgrade, TOKEN_IN_ADDRESS } from '../utils/local-request.js';
+import { failRequest } from '../utils/server-failure.js';
+import { packagedPath } from '../utils/asset-dirs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -58,6 +65,18 @@ const OPENROUTER_CHAT = 'https://openrouter.ai/api/v1/chat/completions';
 export const COMPANION_PROTOCOL = 'timmy-companion';
 /** R4 (H84): what a request without the token is told. */
 export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s token. Open the companion from Timmy: in `timmy watch`, press q on HOME; it shows the companion\'s address with its token (after #, which the page keeps in memory and sends in a header).';
+/**
+ * R4 (H87): the files this server serves beside its code at run time, package-relative: every file of its client folder
+ * (served as they are). The build copies each into dist/ (scripts/copy-runtime-assets.mjs RUNTIME_ASSETS);
+ * tests/runtime-pages.test.ts keeps the lists together, so a new page cannot be left out of the package.
+ */
+export const COMPANION_RUNTIME_FILES: readonly string[] = Object.freeze(['src/companion/client/index.html']);
+/** R4 (H87): the words a failure answers with (never a path of this computer, never a stack). */
+export const COMPANION_FAILED = 'The browser companion could not read what this request needs, so it answers with nothing and wrote nothing. It is still running.';
+export const COMPANION_PAGE_ABSENT = 'The browser companion\'s page is missing from this installation (its file was not shipped), so there is nothing to show here. Reinstall Timmy; `timmy logs` has pages of its own.';
+export const COMPANION_NOT_FOUND = 'The browser companion has nothing at this address.';
+export const COMPANION_BAD_REQUEST = 'The browser companion could not read this request (its body is not the JSON it expects, or is too large); nothing was done.';
+export const SLATE3D_ABSENT = 'Slate 3D is not part of this installation: its built bundle (companion/slate3d) ships only in a source checkout that has built it. Everything else in the browser companion works without it.';
 export const COMPANION_FOREIGN = 'Refused: the browser companion answers only to this computer (127.0.0.1 or localhost), or with --lan to this computer\'s own network address, and only from its own pages.';
 
 export interface CompanionOptions {
@@ -67,6 +86,8 @@ export interface CompanionOptions {
   token?: string;
   /** R4 (H84): the chat completions address /chat sends to (a test's FAKE on 127.0.0.1); OpenRouter's when absent. */
   upstream?: string;
+  /** R4 (H87): the folder its page is served from (a test's); its own client folder when absent. */
+  clientDir?: string;
 }
 
 /**
@@ -223,15 +244,20 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   let currentState = 'idle';
 
   // Serve static client files
-  const clientDir = path.join(__dirname, 'client');
+  const clientDir = options.clientDir ?? path.join(__dirname, 'client');
   app.use(express.static(clientDir));
 
   // Slate 3D (companion/slate3d/dist) and the boards it renders, served beside
   // the client. The bus tail below is what lights its lane pods.
-  const slateDist = path.resolve(__dirname, '..', '..', 'companion', 'slate3d', 'dist');
-  const boardsDir = path.resolve(__dirname, '..', '..', 'companion', 'boards');
-  app.use('/slate3d/boards', express.static(boardsDir));
-  app.use('/slate3d', express.static(slateDist));
+  // R4 (H87): found from the package root (a checkout or the installed package; ../../ from dist/src/companion is dist/), and
+  // when its built bundle is not here, its page says so in words.
+  const slateDist = packagedPath('companion/slate3d/dist', import.meta.url, { kind: 'dir' });
+  const boardsDir = packagedPath('companion/boards', import.meta.url, { kind: 'dir' });
+  if (boardsDir) app.use('/slate3d/boards', express.static(boardsDir));
+  if (slateDist) app.use('/slate3d', express.static(slateDist));
+  else {
+    app.get(['/slate3d', '/slate3d/', '/slate3d/index.html'], (_req, res) => { failRequest(res, 404, SLATE3D_ABSENT, 'text'); });
+  }
 
   // Receipts for Slate 3D capsule state: receipt records (never the event
   // envelopes) from the pinned root store, filtered by subject, newest first,
@@ -544,8 +570,20 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   });
 
   // Serve the built client (if using vite)
+  // R4 (H87): a page that cannot be sent answers with words (never ENOENT and the install path)
   app.get('/', (_req, res) => {
-    res.sendFile(path.join(clientDir, 'index.html'));
+    res.sendFile(path.join(clientDir, 'index.html'), (err?: Error) => {
+      if (err) failRequest(res, (err as NodeJS.ErrnoException).code === 'ENOENT' ? 404 : 500, (err as NodeJS.ErrnoException).code === 'ENOENT' ? COMPANION_PAGE_ABSENT : COMPANION_FAILED, 'text');
+    });
+  });
+  // R4 (H87): nothing else here: words, not express's page (which names the request's path); and every failure, words with
+  // no path of this computer and no stack (express's default error page shows the stack outside production)
+  app.use((_req, res) => { failRequest(res, 404, COMPANION_NOT_FOUND, 'text'); });
+  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    // a request express could not read (a body that is not JSON, or too large) keeps its 4xx; anything else is a 500
+    const status = Number((err as { status?: unknown } | null)?.status);
+    if (status >= 400 && status < 500) failRequest(res, status, COMPANION_BAD_REQUEST);
+    else failRequest(res, 500, COMPANION_FAILED);
   });
 
   wss.on('connection', (ws) => {

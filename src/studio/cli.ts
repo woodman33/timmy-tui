@@ -5,14 +5,29 @@
  * one-time grant (/canvas open, or /web studio), so that is the way it names.
  */
 import type { AddressInfo } from 'node:net';
-import { STUDIO_PORT, studioConfig } from './config.js';
+import { studioBaseUrl, studioConfig, studioPort } from './config.js';
 import { startStudioServer } from './server.js';
 
-export function studioHelp(): string {
+type Env = Record<string, string | undefined>;
+
+/**
+ * R4 (H87): the port `timmy studio` listens on without --port: where the rest of Timmy looks for Timmy Canvas
+ * (src/studio/config.ts studioBaseUrl): TIMMY_STUDIO_URL's port when it names this computer, else TIMMY_STUDIO_PORT, else
+ * 4337. Before, it always took 4337, while the REPL and the agent's canvas tools followed TIMMY_STUDIO_PORT.
+ */
+export function studioListenPort(env: Env = process.env): number {
+  try {
+    const url = new URL(studioBaseUrl(env));
+    if (['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) return url.port ? Number(url.port) : url.protocol === 'https:' ? 443 : 80;
+  } catch { /* not an address: the port rule */ }
+  return studioPort(env);
+}
+
+export function studioHelp(env: Env = process.env): string {
   return [
     'Usage: timmy studio [--port N]',
     '',
-    `Serves Timmy Canvas, the tldraw canvas Timmy's agent draws on, at http://127.0.0.1:${STUDIO_PORT}/.`,
+    `Serves Timmy Canvas, the tldraw canvas Timmy's agent draws on, at http://127.0.0.1:${studioListenPort(env)}/ (TIMMY_STUDIO_PORT, or the port of TIMMY_STUDIO_URL on this computer; 4337 by default).`,
     'Open it from Timmy\'s REPL with /canvas open (or /web studio): that page gets a one-time grant from Timmy.',
     'A page opened by its address alone (typed, a bookmark, a reload) loads no canvas and says so. Ctrl+C stops it.',
     'The tldraw license comes from TLDRAW_LICENSE_KEY when it is set (never printed).',
@@ -21,11 +36,11 @@ export function studioHelp(): string {
 
 export async function runStudio(argv: string[], env: Record<string, string | undefined> = process.env): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
-    process.stdout.write(`${studioHelp()}\n`);
+    process.stdout.write(`${studioHelp(env)}\n`);
     return 0;
   }
   const at = argv.indexOf('--port');
-  const port = at < 0 ? STUDIO_PORT : Number(argv[at + 1]);
+  const port = at < 0 ? studioListenPort(env) : Number(argv[at + 1]);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     process.stderr.write('timmy studio: --port needs a number from 0 to 65535.\n');
     return 2;

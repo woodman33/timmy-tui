@@ -890,12 +890,13 @@ if (command === 'logs') {
   // the TUI consumes + receipt chain with verify; auto-pops a browser once.
   // R4 (H84): on 127.0.0.1 only, with a token made now: printed here (where the operator started it) and opened through a
   // private launch page, never on a command line or in a log; kept for this user's other programs while it runs.
-  const { startManagedLogServer } = await import('./utils/logserver.js');
+  const { startManagedLogServer, logsStartWords } = await import('./utils/logserver.js');
   const portIdx = args.indexOf('--port');
   const port = portIdx >= 0 ? Number(args[portIdx + 1]) : undefined;
   const logs = await startManagedLogServer({ port, open: true, tokenFile: true });
   console.log(`timmy logs · ${logs.url}`);
-  console.log('This computer only (127.0.0.1). The address carries its token after #: open it from here (it was opened for you); ctrl-c to stop.');
+  // R4 (H87): what opening the page did (TIMMY_LOGS_OPEN=0 opens nothing, and the words say so)
+  console.log(logsStartWords(logs.opened));
   await new Promise(() => {}); // server owns the event loop
 }
 
