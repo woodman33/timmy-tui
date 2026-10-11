@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
-import { startManagedLogServer } from '../src/utils/logserver.js';
+import { folderWords, startManagedLogServer } from '../src/utils/logserver.js';
 import { publish } from '../src/bus/index.js';
 import { appendReceipt } from '../src/utils/receipts.js';
 
@@ -251,7 +251,9 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       // a new bus event reaches the page through the stream it reads with fetch
       publish('test.browser-live', { note: 'SYNTHETIC live event' });
       await page.waitForFunction(() => /test\.browser-live/.test(document.getElementById('events')?.textContent ?? ''), null, { timeout: 15_000 });
-      expect(await page.textContent('#cwd')).toBe(process.cwd());
+      // R4 (H92): its folder from ~ or by name (r23c: the absolute path), never the whole path
+      expect(await page.textContent('#cwd')).toBe(folderWords(process.cwd()));
+      if (!folderWords(process.cwd()).startsWith('~')) expect(await page.textContent('header')).not.toContain(process.cwd());
       for (const path of ['/events', '/receipts?stream=runs', '/health']) expect(seen.find((s) => s.path === path)?.auth, path).toBe(`Bearer ${token}`);
       for (const s of seen) expect(s.path).not.toContain(token);
       expect(await page.isHidden('#timmy-token-note')).toBe(true);

@@ -18,7 +18,7 @@ import { WebSocket } from 'ws';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
 import { companionPairing, NO_NETWORK, showCompanionQR } from '../src/companion/qr.js';
-import { startManagedLogServer, type LogServerHandle } from '../src/utils/logserver.js';
+import { folderWords, startManagedLogServer, type LogServerHandle } from '../src/utils/logserver.js';
 import { isLocalRequest, lanAddresses, LocalToken, logsTokenFile } from '../src/utils/local-request.js';
 import { readChain } from '../src/utils/receipts.js';
 import { call, type Reply } from './helpers/canvas-auth.js';
@@ -513,7 +513,10 @@ describe('the log companion (timmy logs)', () => {
     expect(events.status).toBe(200);
     expect(readChain('runs').length).toBe(chain + 1);
     const health = await call(logs.port, 'GET', '/health', { headers: auth(ltoken) });
-    expect(health.json).toMatchObject({ ok: true, cwd: process.cwd() });
+    // R4 (H92): its folder from ~ or by name (r23c: the page showed the absolute path), never the whole path
+    expect(health.json).toMatchObject({ ok: true, folder: folderWords(process.cwd()) });
+    expect(health.json).not.toHaveProperty('cwd');
+    if (!String(health.json.folder).startsWith('~')) expect(health.body).not.toContain(process.cwd());
     const c = await call(logs.port, 'POST', '/mission/compile', { headers: { 'Content-Type': 'application/json', ...auth(ltoken) }, body: JSON.stringify({ doc: DOC }) });
     expect(c.json.ok).toBe(true);
     const s = await call(logs.port, 'POST', '/mission/store', { headers: { 'Content-Type': 'application/json', ...auth(ltoken) }, body: JSON.stringify({ plan: (c.json.plans as Array<{ plan: unknown }>)[0].plan }) });
