@@ -178,7 +178,8 @@ In a fresh sandbox user with the installed package, as rows 158, 162 and 163; no
    request's words and the route (Qwen Code with the local model); once it ends, its cost is free.
 3. Type `/iterate tray "make the tray 165 mm wide"` and kill that REPL with SIGKILL during the agent step (as row 157 D);
    in a new REPL, before `/recover`: the overview says the agent's job and the operation are **left** (never running),
-   with `/recover` named, as Waiting on you does; after `/recover`, the job cancelled and the flow interrupted.
+   with `/recover` named (compare Waiting on you, which reads the same proofs); after `/recover`, the job cancelled and
+   the flow interrupted.
 4. After the run: `apps` lists the parameter file as editable with its application, the STEP or STL as an export, a
    preview where one was made, and the change to review; `spatial` lists the VoxVision record with its values labelled
    as its card labels them and, on the live board, its thumbnail captioned "geometry from results/vox/<id>.json".
