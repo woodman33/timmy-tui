@@ -1,7 +1,7 @@
 /**
  * `/canvas` (round R1, gap 4): where Timmy Canvas is, who serves it, whether a page is open, what it
  * saved, and its latest job; starting it inside this REPL when nothing serves it. `/canvas open`
- * opens the page (as `/web studio` does) once it runs.
+ * opens the page (as `/web studio` does) once it runs. R4 (H83): with a one-time grant, the only way a page loads the canvas.
  */
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Segment } from '../term/theme.js';
@@ -28,6 +28,8 @@ export interface CanvasViewDeps {
 
 /** R4 (H55): the Project row: the project the canvas shows, and whether it is this REPL's. */
 function projectRow(seen: CanvasSeen, mine: { name: string; id: string }): Segment[] {
+  // R4 (H83): the canvas names its project only to a REPL with its token
+  if (seen.state === 'running' && seen.hidden) return row('Project', 'not told', 'the canvas names its project only with its token, and this REPL holds none for it');
   if (seen.state === 'running' && !seen.project) return row('Project', 'none named to it yet', `/canvas open shows ${mine.name} there`);
   if (seen.state === 'running' && seen.project) {
     return seen.project.id === mine.id ? row('Project', seen.project.name, 'this REPL\'s project, in its Project panel') : row('Project', seen.project.name, `another project; /canvas open shows ${mine.name} there`);
@@ -62,15 +64,19 @@ export async function canvasView(args: string, d: CanvasViewDeps): Promise<Segme
   }
   const by = start === null ? 'at TIMMY_STUDIO_URL' : start.state === 'started' ? 'served by this REPL' : 'served by another Timmy';
   const lines: Segment[][] = [row('Canvas', page, by)];
+  // R4 (H83): a page counts as open only when its session counts now; a page opened by its address alone loads no canvas.
   lines.push(health.pageConnected === true
     ? row('Page', 'open')
     : health.pageConnected === false
-      ? row('Page', 'not open', '/canvas open, or open the address in a browser')
+      ? row('Page', 'not open', '/canvas open opens one (a page opened by its address alone loads no canvas)')
       : row('Page', 'unknown', 'this Timmy Canvas is older and cannot say'));
   if (d.project) lines.push(projectRow(await d.project.check(), d.project.mine()));
   lines.push(row('Saved', health.revision === null ? 'unknown' : health.revision === 0 ? 'nothing saved yet' : `revision ${health.revision}`));
   const job = health.latestJob;
-  lines.push(job ? row('Latest', `job ${job.id}, rev ${job.revision}`, job.receipt ? `receipt ${job.receipt}` : job.ok ? 'no receipt linked' : 'failed') : row('Latest', 'no canvas jobs yet'));
+  // R4 (H83): the latest job is told only with the canvas's token; without it, how many there are
+  lines.push(job ? row('Latest', `job ${job.id}, rev ${job.revision}`, job.receipt ? `receipt ${job.receipt}` : job.ok ? 'no receipt linked' : 'failed')
+    : health.jobs > 0 ? row('Latest', `${health.jobs} canvas ${health.jobs === 1 ? 'job' : 'jobs'}`, 'which is latest is told only with the canvas\'s token, and this REPL holds none for it')
+      : row('Latest', 'no canvas jobs yet'));
   if (health.built === false) lines.push(row('Build', 'the page is not built: npm run build:canvas'));
   return lines;
 }

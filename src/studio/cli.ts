@@ -1,7 +1,8 @@
 /**
  * `timmy studio` (plan F-4): serves Timmy Canvas on 127.0.0.1 until Ctrl+C. It says whether a
  * tldraw license is set, never what it is. Exit: 130 on Ctrl+C, 143 on SIGTERM, 69 when it cannot
- * listen, 2 on bad usage.
+ * listen, 2 on bad usage. R4 (H83): it opens no page itself; a page loads the canvas only when Timmy's REPL opens it with a
+ * one-time grant (/canvas open, or /web studio), so that is the way it names.
  */
 import type { AddressInfo } from 'node:net';
 import { STUDIO_PORT, studioConfig } from './config.js';
@@ -12,7 +13,8 @@ export function studioHelp(): string {
     'Usage: timmy studio [--port N]',
     '',
     `Serves Timmy Canvas, the tldraw canvas Timmy's agent draws on, at http://127.0.0.1:${STUDIO_PORT}/.`,
-    'Open it with /web studio in the REPL, or in your browser. Ctrl+C stops it.',
+    'Open it from Timmy\'s REPL with /canvas open (or /web studio): that page gets a one-time grant from Timmy.',
+    'A page opened by its address alone (typed, a bookmark, a reload) loads no canvas and says so. Ctrl+C stops it.',
     'The tldraw license comes from TLDRAW_LICENSE_KEY when it is set (never printed).',
   ].join('\n');
 }
@@ -46,7 +48,8 @@ export async function runStudio(argv: string[], env: Record<string, string | und
     licensed
       ? 'License: TLDRAW_LICENSE_KEY is set (tldraw checks it in the page)'
       : 'License: none set; tldraw runs in development mode, which needs none on this machine.',
-    'Open it with /web studio in the REPL, or in your browser. Ctrl+C stops it.',
+    'Open it from Timmy\'s REPL with /canvas open (or /web studio): that page gets a one-time grant from Timmy.',
+    'A page opened by this address alone (typed, a bookmark, a reload) loads no canvas and says so. Ctrl+C stops it.',
     '',
   ].join('\n'));
   return new Promise<number>((resolve) => {

@@ -35,14 +35,18 @@
  *   code on the page can still change what the page shows and move a button under a person's next click. The REPL's own
  *   NEEDS YOU box for canvas_exec, asked before every script (src/repl/approvals.ts), is the barrier for code on the page;
  *   and the REPL checks every action against the live board's state, asks NEEDS YOU before a risky block, and records it.
- *   Not a barrier: the bridge's own route, POST /api/canvas/exec (src/studio/server.ts), takes code from any program on this
- *   machine without a token, and such code is asked about by no one (open).
+ *   R4 (H83): the bridge's own route, POST /api/canvas/exec (src/studio/server.ts), takes code only with this server's token
+ *   (in an Authorization header) and, while a project is named, only from the REPL that holds it (its holder id); and the
+ *   bridge sends code only to a page that joined with a session that counts now (src/studio/bridge.ts). So the code a page
+ *   runs comes from the REPL that holds its project, which asked NEEDS YOU about it.
  * - An action no REPL picked up in PICKUP_MS was not run, and the page is told so; one picked up but not answered in
  *   ANSWER_MS may have run, and the page is told that instead.
  *
  * GET /api/project/image serves the one kind of image the board's highlights are (src/repl/board-vox.ts voxFileFor: a shown
  * highlight of a verified or stale VoxVision record, its bytes still the ones it recorded) through the board's own guard
  * (src/repl/board-file-guard.ts: a PNG by its signature, an SVG only as plain drawing), as a download under a sandboxing policy.
+ * R4 (H83): it is the project's content, so it is served only with the server's token or a page session that counts now (the
+ * page fetches it with its session and shows it from memory: companion/studio-canvas/src/cards.js).
  */
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
@@ -79,6 +83,8 @@ export const ANSWER_MS = 120_000;
 const LISTEN_MS = 15_000;
 
 export const NO_SESSION = 'Refused: this canvas page has no session to act with. A page opened by Timmy\'s /canvas open gets one; a page opened another way, or reloaded, has none. In Timmy: /canvas open.';
+/** R4 (H83): what a reading of a highlight without the server's token or a page session is told. */
+export const IMAGE_REFUSED = 'Refused: a highlight of the project is read with Timmy\'s token or a canvas page\'s session. In Timmy: /canvas open.';
 const FROM_REPL = 'Refused: this route is for Timmy\'s REPL, never a page.';
 
 /** One action on its way to the REPL: what the page sent, checked, with an id of its own. */
@@ -194,16 +200,28 @@ export class CardRelay {
     return !!s && s.until > this.now();
   }
 
+  /** R4 (H83): the key a session is known by here (the sha256 of its token), from an Authorization header; null without one. */
+  static keyOf(header: unknown): string | null {
+    const m = typeof header === 'string' ? SESSION.exec(header) : null;
+    return m ? sha(m[1]) : null;
+  }
+
+  /** R4 (H83): the key of a session token itself (64 hex), as a page sends it in its bridge subprotocol. */
+  static keyOfToken(token: string): string { return sha(token); }
+
   /**
    * R4 (H81): whether a page's session counts now for `named` (the project named to the canvas now, or null): made here, not
    * ended, and given for that project and the REPL holding it now. With no project named, a session that has not ended counts
    * (there is nothing of a project to read or act on). An ended session is let go.
    */
   sessionFor(header: unknown, named: Pick<NamedProject, 'id' | 'holder'> | null): SessionCheck {
+    return this.countsByKey(CardRelay.keyOf(header), named);
+  }
+
+  /** R4 (H83): sessionFor by the session's key (the bridge keeps each page's key, never its token). */
+  countsByKey(key: string | null, named: Pick<NamedProject, 'id' | 'holder'> | null): SessionCheck {
     const no = (why: Exclude<SessionCheck, { ok: true }>['why']): SessionCheck => ({ ok: false, why, words: SESSION_WORDS[why] });
-    const m = typeof header === 'string' ? SESSION.exec(header) : null;
-    if (!m) return no('none');
-    const key = sha(m[1]);
+    if (!key) return no('none');
     const s = this.sessions.get(key);
     if (!s) return no('unknown');
     if (s.until <= this.now()) { this.sessions.delete(key); return no('expired'); }
@@ -432,10 +450,15 @@ export function mountCardRoutes(app: express.Express, o: CardRoutes): void {
     res.json({ ok: true });
   });
 
-  // A highlight the board shows, for a drawn result card (no token: the same reads as GET /api/project, under the board's file guard).
+  // A highlight the board shows, for a drawn result card (the same reads as GET /api/project, under the board's file guard). R4 (H83):
+  // the project's content, so read only with the server's token or a page session that counts now, as GET /api/project is.
   app.get('/api/project/image', (req, res) => {
     res.set('Cache-Control', 'no-store');
     const p: NamedProject | null = o.link.project;
+    if (!o.link.authorized(req.headers.authorization)) {
+      const s = o.relay.sessionFor(req.headers.authorization, p);
+      if (!s.ok) { res.status(401).set('WWW-Authenticate', 'Bearer').type('text/plain').send(s.why === 'none' ? IMAGE_REFUSED : s.words); return; }
+    }
     const rel = inProject(String(req.query.p ?? ''));
     const f = p && rel ? voxFileFor({ root: p.root, path: rel, chain: readRunsChain(p.receipts), projectId: p.id }) : null;
     if (!f) { res.status(404).type('text/plain').send('Not here: no such highlight of a record the board shows.'); return; }

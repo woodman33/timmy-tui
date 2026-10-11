@@ -1,5 +1,4 @@
-import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
-import type { Server } from 'node:http';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { contrastRatio, rgbToHex } from '../src/term/color.js';
-import { startStudioServer } from '../src/studio/server.js';
+import { startStudioServer, type StudioServer } from '../src/studio/server.js';
+import { bearer, grant, nameProject } from './helpers/canvas-auth.js';
 
 // Fourth order, step 5, the acceptance pass: Timmy Canvas in a real browser, against the real
 // server and the real bundle. Every request goes to 127.0.0.1; Timmy's own panel stays on screen and
@@ -29,9 +29,15 @@ const hex = (css: string): string => {
 describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
   let root = '';
   let home = '';
-  let server: Server | undefined;
+  let server: StudioServer | undefined;
   let browser: Browser | undefined;
   let base = '';
+  // R4 (H83): every call here is the REPL's (the server's token); every page is opened as /canvas open opens it (a one-time grant)
+  const port = (): number => (server!.address() as AddressInfo).port;
+  const auth = (): Record<string, string> => bearer(server!.projectToken);
+  const opened = async (): Promise<string> => `${base}/#code=${await grant(port(), server!.projectToken)}`;
+  const post = async (path: string, body: unknown) => (await fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth() }, body: JSON.stringify(body) })).json() as Promise<{ ok: boolean; error?: string }>;
+  const getJson = async <T>(path: string): Promise<T> => (await fetch(`${base}${path}`, { headers: auth() })).json() as Promise<T>;
   beforeAll(async () => {
     root = mkdtempSync(join(tmpdir(), 'timmy-canvas-root-'));
     home = mkdtempSync(join(tmpdir(), 'timmy-canvas-home-'));
@@ -40,6 +46,10 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     await buildCanvas(repo, join(root, 'dist'), { licenses: root });
     server = await startStudioServer(0, { env: { TIMMY_HOME: home }, root });
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    // the project the canvas shows, named as the REPL names it (no holder: no REPL takes card actions here)
+    const project = join(home, 'project');
+    mkdirSync(project);
+    await nameProject(port(), server.projectToken, { root: project, name: 'canvas-browser' });
     browser = await chromium.launch({ headless: true, executablePath: browserPath });
   }, 120_000);
   afterAll(async () => {
@@ -61,7 +71,7 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     const page = await context.newPage();
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
-    await page.goto(`${base}/`);
+    await page.goto(await opened());
     await page.waitForFunction((source) => new RegExp(source).test(document.getElementById('status')?.textContent ?? ''), wait.source, { timeout: 30_000 });
     return { page, context, origins, errors };
   }
@@ -110,7 +120,6 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
 
   // Round R1, assignment 3: the panel names each job in the REPL's words: Canvas (job, revision), Receipt, and the time.
   it("lists each job in the REPL's words: its state, its time, Canvas (job and revision), Receipt (linked, or not yet), readable at phone width", async () => {
-    const post = async (path: string, body: unknown) => (await fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json() as Promise<{ ok: boolean; error?: string }>;
     for (const size of [{ width: 1280, height: 800 }, { width: 390, height: 740 }]) {
       const { page, context } = await open(size);
       try {
@@ -124,7 +133,7 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
         await page.waitForSelector(`#job-list li[data-job="${tag}-a"]`, { state: 'attached', timeout: 10_000 });
         await page.waitForSelector(`#job-list li[data-job="${tag}-b"]`, { state: 'attached', timeout: 10_000 });
         if (!(await page.$eval('#jobs', (d) => (d as HTMLDetailsElement).open))) await page.click('#jobs > summary');
-        const api = (await (await fetch(`${base}/api/canvas/jobs`)).json()) as Array<{ id: string; revision: number; at: string; ok: boolean }>;
+        const api = await getJson<Array<{ id: string; revision: number; at: string; ok: boolean }>>('/api/canvas/jobs');
         const read = (id: string) => page.$eval(`#job-list li[data-job="${id}"]`, (li) => ({
           state: li.querySelector('.job-state')?.textContent,
           time: { text: li.querySelector('time')?.textContent, datetime: li.querySelector('time')?.getAttribute('datetime') },
@@ -171,7 +180,7 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
   it("shows a job's drawing on its Canvas row: the click selects the shapes that job made and marks the job", async () => {
     const { page, context } = await open();
     try {
-      const made = (await (await fetch(`${base}/api/canvas/exec`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: `const id = helpers.createShapeId(); editor.createShape({ id, type: 'geo', x: 350, y: 250, props: { w: 100, h: 50 } }); return id;`, jobId: 'pick-me' }) })).json()) as { ok: boolean; result: string };
+      const made = (await post('/api/canvas/exec', { code: `const id = helpers.createShapeId(); editor.createShape({ id, type: 'geo', x: 350, y: 250, props: { w: 100, h: 50 } }); return id;`, jobId: 'pick-me' })) as { ok: boolean; result: string };
       expect(made.ok).toBe(true);
       await page.waitForSelector('#job-list li[data-job="pick-me"]', { timeout: 10_000 });
       // (A block, so the page does not try to send the editor itself back: selectNone returns it.)
@@ -181,8 +190,7 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
       expect(selected).toEqual([made.result]);
       await page.waitForFunction(() => document.querySelector('#job-list li[data-job="pick-me"]')?.getAttribute('aria-current') === 'true');
       // A job that drew nothing (or whose shapes are gone) says so instead of selecting nothing silently.
-      const none = await fetch(`${base}/api/canvas/exec`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: 'return 1;', jobId: 'draws-nothing' }) });
-      expect((await none.json() as { ok: boolean }).ok).toBe(true);
+      expect((await post('/api/canvas/exec', { code: 'return 1;', jobId: 'draws-nothing' })).ok).toBe(true);
       await page.waitForSelector('#job-list li[data-job="draws-nothing"]', { timeout: 10_000 });
       await page.click('#job-list li[data-job="draws-nothing"] .job-row[data-row="Canvas"] button');
       await page.waitForFunction(() => /draws-nothing[\s\S]*no shapes of this job on this page/i.test(document.getElementById('job-list')!.textContent ?? ''));
@@ -244,7 +252,7 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
   // panel. What a call draws now comes into view beside the panel (or below it on a phone), clear of
   // tldraw's toolbar; a call that draws inside the view leaves the camera where it is.
   it('brings what the agent draws into view beside its panel, never under it, and leaves the camera alone when it already shows', async () => {
-    const exec = async (code: string, jobId: string) => (await fetch(`${base}/api/canvas/exec`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, jobId }) })).json() as Promise<{ ok: boolean; result: string; error?: string }>;
+    const exec = async (code: string, jobId: string) => post('/api/canvas/exec', { code, jobId }) as Promise<{ ok: boolean; result: string; error?: string }>;
     const rect = (x: number, y: number, label: string) => `const id = helpers.createShapeId(); editor.createShape({ id, type: 'geo', x: ${x}, y: ${y}, props: { w: 200, h: 100, richText: helpers.toRichText('${label}') } }); return id;`;
     type Cam = { x: number; y: number; z: number };
     const view = (page: Page, id: string) => page.evaluate((shapeId) => {
@@ -284,7 +292,7 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
   // starts again from the canvas as it was before the call.
   it('keeps nothing from a call that fails, and starts a crashed page again from the canvas before it', async () => {
     type Answer = { ok: boolean; result?: unknown; error?: string; rolledBack?: boolean; restarted?: boolean; changed?: boolean };
-    const exec = async (code: string, jobId: string) => (await fetch(`${base}/api/canvas/exec`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, jobId }) })).json() as Promise<Answer>;
+    const exec = async (code: string, jobId: string) => post('/api/canvas/exec', { code, jobId }) as Promise<Answer>;
     const box = (x: number) => `editor.createShape({ id: helpers.createShapeId(), type: 'geo', x: ${x}, y: 40, props: { w: 60, h: 60 } });`;
     const { page, context } = await open();
     const count = () => page.evaluate(() => (window as never as { timmyCanvas: { editor: { getCurrentPageShapes: () => unknown[] } } }).timmyCanvas.editor.getCurrentPageShapes().length);
@@ -312,11 +320,11 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     expect(await count()).toBe(start + 1);
     // Every page's shapes (earlier tests opened boards of their own): the file and the page agree.
     const total = await page.evaluate(() => (window as never as { timmyCanvas: { editor: { store: { allRecords: () => Array<{ typeName: string }> } } } }).timmyCanvas.editor.store.allRecords().filter((r) => r.typeName === 'shape').length);
-    const saved = (await (await fetch(`${base}/api/canvas/document`)).json()) as { snapshot: { store: Record<string, { typeName: string }> } };
+    const saved = await getJson<{ snapshot: { store: Record<string, { typeName: string }> } }>('/api/canvas/document');
     expect(Object.values(saved.snapshot.store).filter((r) => r.typeName === 'shape')).toHaveLength(total);
 
     // The jobs say what happened: each failed call is marked, and nothing it drew was kept.
-    const jobs = (await (await fetch(`${base}/api/canvas/jobs`)).json()) as Array<{ id: string; ok: boolean; failed?: number }>;
+    const jobs = await getJson<Array<{ id: string; ok: boolean; failed?: number }>>('/api/canvas/jobs');
     expect(jobs.find((j) => j.id === 'rollback-crash')).toMatchObject({ ok: false, failed: 1 });
     expect(jobs.find((j) => j.id === 'after-restart')).toMatchObject({ ok: true, failed: 0 });
     await context.close();
@@ -327,7 +335,7 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
   it("the example drawing in canvas_exec's description works in this tldraw", async () => {
     const { CANVAS_EXAMPLE } = await import('../src/agent/canvas-tools.js');
     const { page, context } = await open();
-    const answer = (await (await fetch(`${base}/api/canvas/exec`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: CANVAS_EXAMPLE, jobId: 'example' }) })).json()) as { ok: boolean; result?: string[]; error?: string; changed?: boolean };
+    const answer = (await post('/api/canvas/exec', { code: CANVAS_EXAMPLE, jobId: 'example' })) as { ok: boolean; result?: string[]; error?: string; changed?: boolean };
     expect(answer.ok, answer.error).toBe(true);
     expect(answer.changed).toBe(true);
     const arrow = answer.result![2];
@@ -343,7 +351,7 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     let release: () => void = () => undefined;
     const held = new Promise<void>((r) => { release = r; });
     await page.route('**/studio-config.json', async (route) => { await held; await route.continue(); });
-    await page.goto(`${base}/`);
+    await page.goto(await opened());
     await page.waitForFunction(() => /^Loading the canvas/.test(document.getElementById('status')?.textContent ?? ''));
     expect(await page.getAttribute('#status', 'data-kind')).toBe('loading');
     release();
@@ -351,13 +359,16 @@ describe.skipIf(!browserPath)('Timmy Canvas in a real browser', () => {
     // A bundle built from another tldraw than the one Timmy pins: it says so, and how to rebuild.
     await page.unroute('**/studio-config.json');
     await page.route('**/studio-config.json', (route) => route.fulfill({ json: { licenseKey: null, tldrawVersion: '9.9.9' } }));
-    await page.reload();
+    // R4 (H83): a page loads only with a fresh grant (a reload has none), so each start here is a new /canvas open
+    await page.goto('about:blank');
+    await page.goto(await opened());
     await page.waitForFunction(() => document.getElementById('status')?.dataset.kind === 'error');
     expect(await page.textContent('#status')).toBe('The canvas could not start: this canvas was built with tldraw 5.5.2, but Timmy pins 9.9.9. Rebuild it: npm run build:canvas');
     // Timmy not answering at all.
     await page.unroute('**/studio-config.json');
     await page.route('**/studio-config.json', (route) => route.abort());
-    await page.reload();
+    await page.goto('about:blank');
+    await page.goto(await opened());
     await page.waitForFunction(() => document.getElementById('status')?.dataset.kind === 'error');
     expect(await page.textContent('#status')).toMatch(/^The canvas could not start: /);
     await context.close();

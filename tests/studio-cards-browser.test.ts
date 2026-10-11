@@ -25,6 +25,7 @@ import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import { appendReceipt } from '../src/utils/receipts.js';
 import { HOSTILE_TITLE, makeCanvasProject, type CanvasProject as Fixture } from './helpers/canvas-project.js';
+import { bearer } from './helpers/canvas-auth.js';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -142,7 +143,7 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
     for (const d of [p?.base, ...dirs]) if (d) rmSync(d, { recursive: true, force: true });
   });
 
-  /** A page as /canvas open opens it (a fresh grant in its fragment), or without one. */
+  /** A page as /canvas open opens it (a fresh grant in its fragment), or without one (R4 H83: it then loads no canvas). */
   async function open(o: { grant?: boolean } = {}): Promise<{ page: Page; context: BrowserContext; origins: Set<string>; errors: string[]; grant: string | null }> {
     let target = `${base}/`;
     let grant: string | null = null;
@@ -166,6 +167,10 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
     await page.goto(target);
+    if (o.grant === false) {
+      await page.waitForFunction(() => document.getElementById('status')?.dataset.kind === 'refused', null, { timeout: 30_000 });
+      return { page, context, origins, errors, grant };
+    }
     await page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
     await page.waitForSelector('#project-groups li.pcard', { state: 'attached', timeout: 15_000 });
     return { page, context, origins, errors, grant };
@@ -206,7 +211,9 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
       expect(await text(page, `${card(result.shape)} .tc-badge`)).toBe('diagram');
       expect(await text(page, `${card(result.shape)} .tc-check`)).toMatch(/^verified · receipt [0-9a-f]{8} sealed it$/);
       await page.waitForFunction((s) => { const i = document.querySelector(`${s} .tc-images img`) as HTMLImageElement | null; return !!i && i.complete && i.naturalWidth > 0; }, card(result.shape));
-      expect(await page.getAttribute(`${card(result.shape)} .tc-images img`, 'src')).toBe(`/api/project/image?p=${encodeURIComponent(`results/vox/${p.voxId}/bbox.svg`)}`);
+      // R4 (H83): read with the page's session and shown from memory (an object URL); the address names no session
+      expect(await page.getAttribute(`${card(result.shape)} .tc-images img`, 'data-tc-image')).toBe(`results/vox/${p.voxId}/bbox.svg`);
+      expect(await page.getAttribute(`${card(result.shape)} .tc-images img`, 'src')).toMatch(new RegExp(`^blob:${base.replace(/[.]/g, '\\.')}/`));
       // Details: the technical part, on demand.
       await show(page, wf);
       expect(await page.locator(`${card(wf)} .tc-details`).count()).toBe(0);
@@ -231,7 +238,7 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
       expect(await page.evaluate(() => [sessionStorage.length, document.cookie])).toEqual([0, '']);
       expect(await page.content()).not.toContain(grant!);
       let saved = '';
-      for (let i = 0; i < 40 && !saved.includes(result.shape); i++) { await new Promise((r) => setTimeout(r, 150)); saved = await (await fetch(`${base}/api/canvas/document`)).text(); }
+      for (let i = 0; i < 40 && !saved.includes(result.shape); i++) { await new Promise((r) => setTimeout(r, 150)); saved = await (await fetch(`${base}/api/canvas/document`, { headers: bearer(server.projectToken) })).text(); }
       expect(saved).toContain(result.shape);
       expect(saved).not.toContain(grant!);
       expect(saved).not.toContain(p.root);
@@ -315,24 +322,24 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
     }
   }, 120_000);
 
-  it('a page opened without the grant reads only the card list and cannot act: the card says why and gives the typed command (R4 H81: the detail needs a session)', async () => {
+  it('a page opened without the grant loads no canvas and cannot act: it says why and what to type (R4 H83; R4 H81: the detail needs a session)', async () => {
     const { page, context, errors } = await open({ grant: false });
     try {
-      expect(await text(page, '#project-acts')).toBe('This page was opened without a grant from Timmy: its cards cannot act.');
-      const wf = await place(page, 'workflow:RUN.md');
-      await page.waitForSelector(`${card(wf.shape)} .tc-mode`);
-      expect(await text(page, `${card(wf.shape)} .tc-badge`)).toBe('diagram');
-      expect(await text(page, `${card(wf.shape)} .tc-mode`)).toMatch(/^This page reads only the project's card list: it has no session from Timmy \(it was not opened by \/canvas open in Timmy, or it was reloaded since\)/);
-      expect(await page.locator(`${card(wf.shape)} button[data-tc-act]`).count()).toBe(0);
-      // no detail was read: no blocks, no block commands; the card's own typed command
-      expect(await page.locator(`${card(wf.shape)} .tc-blocks`).count()).toBe(0);
-      expect(await text(page, `${card(wf.shape)} .tc-note`)).toBe('/run RUN.md build');
-      expect(await text(page, `${card(wf.shape)} .tc-read`)).toBe('never read');
+      // R4 (H83): no canvas, no cards, no project: the page says it needs /canvas open, and starts nothing else
+      expect(await text(page, '#status')).toBe('Not loaded: This page was opened without a grant from Timmy, so it loads no canvas: Timmy opens the canvas page with a one-time grant, and a page opened by its address, a bookmark or a reload has none. In Timmy: /canvas open.');
+      expect(await page.isVisible('#refused')).toBe(true);
+      expect(await page.isHidden('#side-ready')).toBe(true);
+      expect(await page.locator('[data-timmy-card]').count()).toBe(0);
+      expect(await page.evaluate(() => (window as never as { timmyCanvas?: unknown }).timmyCanvas)).toBeUndefined();
       // R4 (H81): the detail itself, asked for by the page without a session: refused, no command in the answer
       const asked = await page.evaluate(async () => { const r = await fetch('/api/project?detail=1', { cache: 'no-store' }); return { status: r.status, body: await r.text() }; });
       expect(asked.status).toBe(401);
       expect(asked.body).not.toContain('mkdir -p dist');
       expect(JSON.parse(asked.body)).toMatchObject({ ok: false, session: 'none' });
+      // R4 (H83): and the card list itself
+      const listed = await page.evaluate(async () => { const r = await fetch('/api/project', { cache: 'no-store' }); return { status: r.status, body: await r.text() }; });
+      expect(listed.status).toBe(401);
+      expect(listed.body).not.toContain('RUN.md');
       expect(errors.filter((e) => !/status of 401/.test(e))).toEqual([]);
     } finally {
       await context.close();
@@ -411,16 +418,25 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
         JSON.stringify = function (v: unknown, ...rest: unknown[]) { look('stringify', v); return (realStringify as (...a: unknown[]) => string)(v, ...rest); } as typeof JSON.stringify;
       });
       const jobsBefore = ws.jobs.list().length;
+      const revisionBefore = (await (await fetch(`${base}/api/canvas/document`, { headers: bearer(server.projectToken) })).json() as { revision: number }).revision;
       await personClick(page, context, run);
       await page.waitForFunction((s) => /^canvas \/run RUN\.md setup/.test(document.querySelector(`${s} .tc-answer`)?.textContent ?? ''), card(wf.shape), { timeout: 20_000 });
       expect(notes).toContain('  canvas  /run RUN.md setup');
       expect(ws.jobs.list().length).toBe(jobsBefore + 1);
-      // A save of the canvas went through the wrapped fetch and the getters meanwhile (so they were live), and none of
-      // them saw the session.
-      await page.waitForFunction(() => (window as unknown as { __fetches: string[] }).__fetches.length > 0, null, { timeout: 15_000 });
+      // R4 (H83): the page's own requests (the action, its readings, the canvas's saves, the bridge) carry the session and go
+      // through what cards.js took at load, never the wrapped fetch. A save went out meanwhile (the card's reading changed, so
+      // the server's revision moved), the wrappers were live (the test's own fetch goes through them), and none saw the session.
+      for (let i = 0; i < 100; i++) {
+        const now = (await (await fetch(`${base}/api/canvas/document`, { headers: bearer(server.projectToken) })).json() as { revision: number }).revision;
+        if (now > revisionBefore) break;
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      expect((await (await fetch(`${base}/api/canvas/document`, { headers: bearer(server.projectToken) })).json() as { revision: number }).revision).toBeGreaterThan(revisionBefore);
+      await page.evaluate(() => fetch('/api/canvas/templates', { cache: 'no-store' }).then((r) => r.text()));
       const seen = await page.evaluate(() => { const w = window as unknown as { __hits: string[]; __calls: number; __fetches: string[] }; return { hits: w.__hits, calls: w.__calls, fetches: w.__fetches }; });
       expect(seen.calls).toBeGreaterThan(0);
-      expect(seen.fetches).not.toContain('/api/project/act');
+      expect(seen.fetches).toContain('/api/canvas/templates');
+      expect(seen.fetches.filter((f) => /\/api\/(project|canvas\/(document|jobs))/.test(f))).toEqual([]);
       expect(seen.hits).toEqual([]);
     } finally {
       await context.close();
@@ -548,11 +564,12 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
       const other = temp('timmy-cards-other-');
       const r = await fetch(`${base}/api/project/active`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${server.projectToken}` }, body: JSON.stringify({ root: other, name: 'other' }) });
       expect(r.status).toBe(200);
-      await page.waitForFunction((s) => /^Not followed now: the canvas shows other, not demo\./.test(document.querySelector(`${s} .tc-mode`)?.textContent ?? ''), at, { timeout: 15_000 });
+      // R4 (H83): the page's session was given for demo, so it is told nothing of the project shown now (not even its name)
+      await page.waitForFunction((s) => /^Not followed now: Refused: this canvas page's session was given for another project than the one the canvas shows now\. In Timmy: \/canvas open, from the REPL that holds this project\. Shown as last read\.$/.test(document.querySelector(`${s} .tc-mode`)?.textContent ?? ''), at, { timeout: 15_000 });
       expect(await page.locator(`${at} [data-tc-param]`).count()).toBe(0);
       expect(await text(page, `${at} .tc-read`)).toMatch(/^as last read at /);
-      // R4 (H81): the page's session was given for demo, so the server refused it the other project's detail (Chromium logs
-      // that 401); the page then reads only the card list, and asks for the detail again in 30 s, or once the project changes
+      // R4 (H81, H83): the page's session was given for demo, so the server refused it the other project (Chromium logs that
+      // 401); the page then asks again in 30 s, not at every reading
       expect(errors.filter((e) => !/status of 401/.test(e))).toEqual([]);
       expect(errors.filter((e) => /status of 401/.test(e)).length).toBeLessThanOrEqual(2);
     } finally {

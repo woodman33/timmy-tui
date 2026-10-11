@@ -22,7 +22,8 @@ describe('/canvas', () => {
   it('starts it when nothing serves it, then says where, the page, the saved revision and the latest job', async () => {
     expect(text(await canvasView('', deps()))).toEqual([
       '  Canvas   http://127.0.0.1:4337/ · served by this REPL',
-      '  Page     not open · /canvas open, or open the address in a browser',
+      // R4 (H83): a page opened by its address alone loads no canvas, so /canvas open is the way named
+      '  Page     not open · /canvas open opens one (a page opened by its address alone loads no canvas)',
       '  Saved    revision 14',
       '  Latest   job turn-ab12cd34, rev 14 · receipt 1a2b3c4d',
     ]);
@@ -49,6 +50,10 @@ describe('/canvas', () => {
     const lines = text(await canvasView('', deps({ base: 'http://127.0.0.1:9999', ensure: async () => { started = true; return null; }, health: async () => ({ state: 'not-running' }) })));
     expect(started).toBe(true); // asked; null means "not this process's to start"
     expect(lines).toEqual(['  ✖ Timmy Canvas is not running at http://127.0.0.1:9999/ (TIMMY_STUDIO_URL). Start it there with timmy studio.']);
+  });
+  it('R4 (H83): without the canvas\'s token the latest job is not told (its id may be a model\'s words); how many jobs there are is', async () => {
+    const lines = text(await canvasView('', deps({ health: async () => running({ jobs: 3, latestJob: null }) })));
+    expect(lines).toContain("  Latest   3 canvas jobs · which is latest is told only with the canvas's token, and this REPL holds none for it");
   });
   it('/canvas open opens it after making sure it runs', async () => {
     expect(text(await canvasView('open', deps()))).toEqual(['  Opened in a zellij pane.']);

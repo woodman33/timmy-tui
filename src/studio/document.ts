@@ -106,6 +106,20 @@ export class CanvasDocuments {
     }
   }
 
+  /**
+   * R4 (H83): the saved snapshot as it is on disk, read without opening it for use (nothing is moved): null when there is none,
+   * or it cannot be read. A save from a page session keeps another project's cards as they are here.
+   */
+  storedSnapshot(): unknown | null {
+    if (!existsSync(this.file)) return null;
+    try {
+      const saved = JSON.parse(readFileSync(this.file, 'utf8')) as Record<string, unknown>;
+      return saved.format === 'timmy-canvas' && typeof saved.snapshot === 'object' && saved.snapshot !== null ? saved.snapshot : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** The revision on disk, without opening the document for use. */
   private savedRevision(): number {
     try {

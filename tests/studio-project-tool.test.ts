@@ -4,7 +4,7 @@
  * the code it gets and answers), as tests/studio-tools.test.ts does; the real page runs the same code in a real Chromium in
  * tests/studio-project-browser.test.ts. Also: its NEEDS YOU rule and its /tools row.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,6 +14,7 @@ import { createCanvasTools, PLACE_PROJECT_CARD } from '../src/agent/canvas-tools
 import { capabilities, type ProbeDeps } from '../src/capabilities/index.js';
 import { approvalNeeded } from '../src/repl/approvals.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
+import { nameProject, pageProtocols, pageSession } from './helpers/canvas-auth.js';
 
 let server: StudioServer | undefined;
 let home = '';
@@ -26,10 +27,14 @@ afterEach(async () => {
   home = '';
 });
 const base = (): string => `http://127.0.0.1:${(server!.address() as AddressInfo).port}`;
-/** FAKE page: records each code it is sent and answers with `answer(code)`. */
+/** FAKE page: records each code it is sent and answers with `answer(code)`; R4 (H83) it joins with a session, as the page does. */
 async function fakePage(answer: (code: string) => unknown): Promise<string[]> {
   const seen: string[] = [];
-  const ws = new WebSocket(`${base().replace('http', 'ws')}/bridge`, { origin: base() });
+  const port = (server!.address() as AddressInfo).port;
+  const root = join(home, 'project');
+  mkdirSync(root, { recursive: true });
+  await nameProject(port, server!.projectToken, { root, name: 'tool' });
+  const ws = new WebSocket(`${base().replace('http', 'ws')}/bridge`, pageProtocols(await pageSession(port, server!.projectToken)), { origin: base() });
   sockets.push(ws);
   await new Promise<void>((resolve, reject) => { ws.once('open', () => resolve()); ws.once('error', reject); });
   ws.on('message', (data) => {
@@ -39,7 +44,7 @@ async function fakePage(answer: (code: string) => unknown): Promise<string[]> {
   });
   return seen;
 }
-const tool = () => createCanvasTools({ baseUrl: base() }).find((t) => (t as { function: { name: string } }).function.name === 'canvas_place_project_card') as unknown as { function: { execute: (a: unknown) => Promise<Record<string, unknown>> } };
+const tool = () => createCanvasTools({ baseUrl: base(), auth: () => ({ token: server!.projectToken, holder: null }) }).find((t) => (t as { function: { name: string } }).function.name === 'canvas_place_project_card') as unknown as { function: { execute: (a: unknown) => Promise<Record<string, unknown>> } };
 
 describe('canvas_place_project_card', () => {
   it('sends fixed code through the bridge: the card id arrives only as a JSON string, and the page answer comes back as it is', async () => {

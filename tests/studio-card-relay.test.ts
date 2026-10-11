@@ -262,11 +262,12 @@ describe("Timmy Canvas's card actions: carried to the REPL that holds the projec
     expect(stranger.status).toBe(401);
     expect(stranger.json.session).toBe('unknown');
     expect(stranger.body).not.toContain('mkdir -p dist');
-    // the plain card list stays open (titles, states, typed commands), without any block's command
+    // R4 (H83): the plain card list too (titles, states, typed commands: the project's content), refused without a credential
     const plain = await w.call('GET', '/api/project');
-    expect(plain.status).toBe(200);
-    expect((plain.json.cards as Array<{ id: string }>).map((c) => c.id)).toContain('workflow:RUN.md');
-    expect(plain.body).not.toContain('mkdir -p dist');
+    expect(plain.status).toBe(401);
+    expect(plain.json).toMatchObject({ ok: false, session: 'none', error: expect.stringMatching(/^Refused: the project's cards are read with Timmy's token or a canvas page's session/) });
+    expect(plain.body).not.toContain('workflow:RUN.md');
+    expect((await w.call('GET', '/api/project', { headers: page_ })).status).toBe(200);
     // the REPL's token, and the page's own session: the detail, block commands included
     for (const headers of [repl(w), page_]) {
       const r = await w.call('GET', '/api/project?detail=1', { headers });

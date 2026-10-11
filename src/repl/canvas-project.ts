@@ -19,6 +19,11 @@
  * another REPL (or none) holds the project, when the canvas goes away, and when the REPL ends. `/canvas open` asks the server
  * for a one-time grant and opens the page with it in the address's fragment (openTarget), so that page, and only a page
  * opened that way, can act; the grant is good once, for two minutes.
+ *
+ * Round R4 (H83): that page is also the only one that loads the canvas at all (src/studio/canvas-auth.ts). The agent's canvas
+ * tools send this REPL's credential (credentials: the token, and the holder id while this REPL names itself holder) and the
+ * receipt link the token (tokenNow); a canvas off this machine is sent neither. Asking the canvas what it shows sends the
+ * token too, since the project's name is told only with it; a canvas that names a project this REPL may not read is said so.
  */
 import { randomBytes } from 'node:crypto';
 import { canvasDir } from '../studio/document.js';
@@ -56,7 +61,8 @@ export type CanvasSeen =
   | { state: 'not-running' }
   | { state: 'other'; detail: string }
   | { state: 'older' }
-  | { state: 'running'; project: { name: string; id: string } | null; pageConnected: boolean; board: boolean };
+  /** R4 (H83): `hidden`: a project is named, but the canvas told this REPL not which (it holds no token for it) */
+  | { state: 'running'; project: { name: string; id: string } | null; pageConnected: boolean; board: boolean; hidden?: boolean };
 
 const LOCAL = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i;
 const SHORT_MS = 2000;
@@ -100,6 +106,21 @@ export class CanvasProject {
     if (own) return own;
     const port = Number(new URL(this.base()).port || 80);
     return readProjectToken(canvasDir(this.d.env), port);
+  }
+
+  /** R4 (H83): the token for the canvas, for the receipt link and the health of /canvas; none for a canvas off this machine. */
+  tokenNow(): string | null {
+    return this.local() ? this.token() : null;
+  }
+
+  /**
+   * R4 (H83): what the agent's canvas tools send: the token, and this REPL's holder id while it names itself the holder of its
+   * project (a REPL that takes the cards' actions, and a canvas that knows the field). Null: no token here (or a canvas off
+   * this machine): the canvas then refuses the call and says why.
+   */
+  credentials(): { token: string; holder: string | null } | null {
+    const token = this.tokenNow();
+    return token ? { token, holder: this.d.act && !this.older ? this.holder : null } : null;
   }
 
   /** Names the active project to the canvas; says why not when it cannot. R4 (H75): `grant`, for /canvas open's page. */
@@ -237,19 +258,21 @@ export class CanvasProject {
   private async ask(): Promise<CanvasSeen> {
     if (!this.local()) return { state: 'remote' };
     let res: Response;
+    // R4 (H83): the project's name is told only with the token
+    const token = this.token();
     try {
-      res = await this.http(`${this.base()}/api/project/active`, { signal: AbortSignal.timeout(SHORT_MS) });
+      res = await this.http(`${this.base()}/api/project/active`, { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(SHORT_MS) });
     } catch (error) {
       const e = error as { name?: string; cause?: { code?: string; errors?: Array<{ code?: string }> } };
       const codes = [e?.cause?.code, ...(e?.cause?.errors ?? []).map((x) => x?.code)].filter((c): c is string => typeof c === 'string');
       if (codes.length && codes.every((c) => c === 'ECONNREFUSED')) return { state: 'not-running' };
       return { state: 'other', detail: e?.name === 'TimeoutError' ? 'it did not answer in time' : 'it does not answer as Timmy Canvas' };
     }
-    let body: { app?: unknown; project?: { name?: unknown; id?: unknown } | null; pageConnected?: unknown; board?: unknown } = {};
+    let body: { app?: unknown; project?: { name?: unknown; id?: unknown } | null; pageConnected?: unknown; board?: unknown; hidden?: unknown } = {};
     try { body = await res.json() as typeof body; } catch { /* not JSON */ }
     if (res.ok && body.app === 'timmy-canvas') {
       const p = body.project && typeof body.project.name === 'string' && typeof body.project.id === 'string' ? { name: body.project.name, id: body.project.id } : null;
-      return { state: 'running', project: p, pageConnected: body.pageConnected === true, board: body.board === true };
+      return { state: 'running', project: p, pageConnected: body.pageConnected === true, board: body.board === true, ...(body.hidden === true && !p ? { hidden: true } : {}) };
     }
     // A Timmy Canvas from before the project routes still has its health route.
     if (res.status === 404) {
@@ -273,6 +296,7 @@ export class CanvasProject {
     if (s.state === 'not-running') return { tone: 'off', words: 'Timmy Canvas is not running.', command: '/canvas open' };
     if (s.state === 'other') return { tone: 'off', words: `Timmy Canvas's port is held by another program (${s.detail}).`, command: '/canvas' };
     if (s.state === 'older') return { tone: 'unknown', words: 'Timmy Canvas runs, but it is older and cannot show projects.', command: '/canvas' };
+    if (s.hidden) return { tone: 'unknown', words: 'Timmy Canvas runs and shows a project, but it told this REPL not which: this REPL holds no token for it (a canvas of another Timmy home?).', command: '/canvas' };
     if (!s.project) return { tone: 'none', words: 'Timmy Canvas runs; no project is named to it yet.', command: '/canvas open' };
     if (s.project.id === this.d.projectId(this.d.project().root)) {
       // R4 (H75): and whether its drawn cards' Run, Save and Rebuild come to this REPL.

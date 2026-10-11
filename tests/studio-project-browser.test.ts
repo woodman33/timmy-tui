@@ -16,6 +16,7 @@ import { createCanvasTools } from '../src/agent/canvas-tools.js';
 import { LiveBoard } from '../src/repl/board-live.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { flowRecord, HOSTILE_TITLE, makeCanvasProject, type CanvasProject } from './helpers/canvas-project.js';
+import { bearer, grant } from './helpers/canvas-auth.js';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -74,7 +75,8 @@ describe.skipIf(!browserPath)('Timmy Canvas: the Project panel in a real browser
     const page = await context.newPage();
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
-    await page.goto(`${base}/`);
+    // R4 (H83): opened as /canvas open opens it, with a one-time grant (a page opened by its address alone loads no canvas)
+    await page.goto(`${base}/#code=${await grant(Number(new URL(base).port), server.projectToken)}`);
     await page.waitForFunction(() => /Timmy connected/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 30_000 });
     await page.waitForSelector('#project-groups li.pcard', { state: 'attached', timeout: 15_000 });
     return { page, context, origins, errors };
@@ -164,7 +166,7 @@ describe.skipIf(!browserPath)('Timmy Canvas: the Project panel in a real browser
       let saved = '';
       for (let i = 0; i < 40 && !saved.includes(note.id); i++) {
         await new Promise((r) => setTimeout(r, 150));
-        saved = await (await fetch(`${base}/api/canvas/document`)).text();
+        saved = await (await fetch(`${base}/api/canvas/document`, { headers: bearer(server.projectToken) })).text();
       }
       expect(saved).toContain(note.id);
       expect(saved).toContain(p.flowFile);
@@ -221,7 +223,8 @@ describe.skipIf(!browserPath)('Timmy Canvas: the Project panel in a real browser
   it('the agent tool canvas_place_project_card lists the cards, places one through the page, and its card id reaches the page only as a JSON string', async () => {
     const { page, context } = await open();
     try {
-      const tools = createCanvasTools({ baseUrl: base });
+      // R4 (H83): with the REPL's credentials (the project is named without a holder here)
+      const tools = createCanvasTools({ baseUrl: base, auth: () => ({ token: server.projectToken, holder: null }) });
       const tool = tools.find((t) => (t as { function: { name: string } }).function.name === 'canvas_place_project_card') as unknown as { function: { execute: (a: unknown) => Promise<Record<string, unknown>> } };
       const listed = await tool.function.execute({});
       expect(listed).toMatchObject({ ok: true, changed: false, result: { project: 'demo' } });

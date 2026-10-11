@@ -20,6 +20,7 @@ import { folderProject, projectId } from '../src/project/index.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import { canvasLineHtml } from '../src/repl/board-canvas.js';
+import { pageProtocols, pageSession } from './helpers/canvas-auth.js';
 
 const temps: string[] = [];
 const temp = (prefix: string): string => { const d = mkdtempSync(join(tmpdir(), prefix)); temps.push(d); return d; };
@@ -50,10 +51,12 @@ describe("the REPL names its project to Timmy Canvas, and says what the canvas s
     jobsDir: join(home, 'jobs'), receipts: () => join(home, 'store'), board: o.board ?? (() => null),
     ownToken: () => (o.own ? server.projectToken : null), ...(o.fetch ? { fetch: o.fetch } : {}),
   });
-  const shown = async (): Promise<Record<string, unknown>> => (await fetch(`${base}/api/project`)).json() as Promise<Record<string, unknown>>;
-  /** FAKE page: a WebSocket on the bridge, so the canvas says a page is open. */
+  // R4 (H83): the cards are read with the server's token (the REPL's credential)
+  const shown = async (): Promise<Record<string, unknown>> => (await fetch(`${base}/api/project`, { headers: { Authorization: `Bearer ${server.projectToken}` } })).json() as Promise<Record<string, unknown>>;
+  /** FAKE page: a WebSocket on the bridge, so the canvas says a page is open; R4 (H83) joined with a session from a grant, as /canvas open gives one. */
   const fakePage = async (): Promise<void> => {
-    const ws = new WebSocket(`${base.replace('http', 'ws')}/bridge`, { origin: base });
+    const port = Number(new URL(base).port);
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/bridge`, pageProtocols(await pageSession(port, server.projectToken)), { origin: base });
     sockets.push(ws);
     await new Promise<void>((resolve, reject) => { ws.once('open', () => resolve()); ws.once('error', reject); });
   };
@@ -81,6 +84,18 @@ describe("the REPL names its project to Timmy Canvas, and says what the canvas s
     expect((await shown()).project).toEqual({ name: 'beta', id: projectId(p.root) });
   });
 
+  it("R4 (H83): a REPL that holds no token for the canvas is told only that a project is named, and says so; one with the token is told which", async () => {
+    const p = projectAt('theta');
+    expect(await client(p, { own: true }).handOff()).toEqual({ ok: true, name: 'theta' });
+    const stranger = client(projectAt('iota'), { home: temp('canvas-repl-no-token-') });
+    expect(await stranger.check()).toEqual({ state: 'running', project: null, pageConnected: false, board: false, hidden: true });
+    expect(stranger.boardLine()).toEqual({ tone: 'unknown', words: 'Timmy Canvas runs and shows a project, but it told this REPL not which: this REPL holds no token for it (a canvas of another Timmy home?).', command: '/canvas' });
+    expect(stranger.credentials()).toBeNull();
+    const own = client(projectAt('kappa'));
+    expect(await own.check()).toMatchObject({ state: 'running', project: { name: 'theta', id: projectId(p.root) } });
+    expect(own.credentials()).toEqual({ token: server.projectToken, holder: null });
+  });
+
   it('never sends a folder to a canvas off this machine (TIMMY_STUDIO_URL elsewhere), nor even asks it', async () => {
     const calls: string[] = [];
     // FAKE fetch: records what would have gone out.
@@ -90,6 +105,9 @@ describe("the REPL names its project to Timmy Canvas, and says what the canvas s
     expect(await c.check()).toEqual({ state: 'remote' });
     expect(calls).toEqual([]);
     expect(c.boardLine()).toEqual({ tone: 'unknown', words: 'Timmy Canvas is at TIMMY_STUDIO_URL, not on this machine; it is not told which project is active.' });
+    // R4 (H83): nor is a token for this Timmy home's canvas ever sent there
+    expect(c.credentials()).toBeNull();
+    expect(c.tokenNow()).toBeNull();
   });
 
   it('another REPL names its project: this one stops following (a switch is not passed on), and its board says the canvas shows another project', async () => {

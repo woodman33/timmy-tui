@@ -3,17 +3,26 @@
  * comes back read from the live canvas: the page's result or its own error, with the job ID and the
  * canvas revision. canvas_read and canvas_api send fixed code; the model's words reach the page
  * only as a JSON string literal.
+ *
+ * R4 (H83): each call carries the REPL's credential for the canvas: the server's token in an Authorization header (never in
+ * the address or the body) and the REPL's holder id in the body, so the canvas runs it only for the REPL that holds the project
+ * named to it (src/studio/canvas-auth.ts). Linking a receipt to a canvas job carries the token too.
  */
 import { randomUUID } from 'node:crypto';
 import { tool } from '@openrouter/sdk/lib/tool.js';
 import { z } from 'zod/v4';
 import { studioBaseUrl } from '../studio/config.js';
 
+/** R4 (H83): what a canvas call is sent with: the canvas server's token, and the holder id this REPL named itself with (or none). */
+export interface CanvasAuth { token: string | null; holder: string | null }
+
 export interface CanvasToolOptions {
   /** The studio server; default TIMMY_STUDIO_URL, else http://127.0.0.1:4337. */
   baseUrl?: string;
   /** The REPL turn's canvas job: calls with no job ID of their own take its ID, and it keeps what they produced. */
   job?: CanvasTurnJob;
+  /** R4 (H83): this REPL's credential for the canvas, asked at each call (src/repl/canvas-project.ts credentials) */
+  auth?: () => CanvasAuth | null;
 }
 
 /** What a turn's canvas job left: the canvas revision and source revision (the sha256 of the saved canvas). */
@@ -72,22 +81,26 @@ export class CanvasTurnJob {
 /** The canvas server: the caller's, else the one address every Timmy surface uses (round R1). */
 const studioUrl = (baseUrl?: string): string => (baseUrl ? baseUrl.replace(/\/+$/, '') : studioBaseUrl(process.env));
 
-/** Tell the canvas server which receipt sealed a canvas job; false when it is not running or knows no such job. */
-export async function linkCanvasReceipt(job: string, receipt: string, baseUrl?: string): Promise<boolean> {
+/**
+ * Tell the canvas server which receipt sealed a canvas job; false when it is not running, knows no such job, or (R4 H83) the
+ * REPL holds no token for it (the link is a write: the server's token, in an Authorization header).
+ */
+export async function linkCanvasReceipt(job: string, receipt: string, baseUrl?: string, token?: string | null): Promise<boolean> {
   try {
     const res = await fetch(`${studioUrl(baseUrl)}/api/canvas/jobs/${encodeURIComponent(job)}/receipt`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify({ receipt }),
       signal: AbortSignal.timeout(2000),
     });
+    await res.body?.cancel();
     return res.ok;
   } catch {
     return false;
   }
 }
 
-const NOT_RUNNING = 'Timmy Canvas is not running. Open it with /web studio in the REPL, or run `timmy studio`.';
+const NOT_RUNNING = 'Timmy Canvas is not running. In Timmy: /canvas open starts it and opens the page.';
 
 /** A page summary: pages, the current page and its shapes (bounds and plain text), capped at 200. */
 const READ = `
@@ -165,12 +178,14 @@ export function createCanvasTools(options: CanvasToolOptions = {}) {
     return answer;
   };
   const send = async (code: string, jobId?: string): Promise<Answer> => {
+    // R4 (H83): the token in a header, the holder id in the body; without a token the canvas says why (401) and runs nothing.
+    const auth = options.auth?.() ?? null;
     let res: Response;
     try {
       res = await fetch(`${baseUrl}/api/canvas/exec`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(jobId ? { code, jobId } : { code }),
+        headers: { 'Content-Type': 'application/json', ...(auth?.token ? { Authorization: `Bearer ${auth.token}` } : {}) },
+        body: JSON.stringify({ code, ...(jobId ? { jobId } : {}), ...(auth?.holder ? { holder: auth.holder } : {}) }),
       });
     } catch {
       return { ok: false, error: NOT_RUNNING };

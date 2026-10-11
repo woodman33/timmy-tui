@@ -245,6 +245,8 @@ export const COMMANDS: SlashCommand[] = [
         ctx.print([{ text: '  Usage: /web map | studio | <receipt> | <local url>', role: 'secondary' }]);
         return void ctx.print([{ text: '         /web --allow-remote <url> for any other page', role: 'secondary' }]);
       }
+      // R4 (H83): Timmy Canvas loads only in a page opened with a one-time grant, which /canvas open asks for: /web studio is it.
+      if (target === 'studio' && ctx.canvas) return printView(ctx.canvas, 'open', ctx, 'Timmy Canvas is not available here.');
       if (!ctx.openWeb) return void ctx.print([{ text: '  Web views are not available here.', role: 'secondary' }]);
       ctx.print([{ text: `  ${ctx.openWeb(target, allow)}` }]);
     },

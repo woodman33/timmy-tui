@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -37,10 +37,16 @@ describe('timmy studio', () => {
     const [, url] = await s.line(/Timmy Canvas: (http:\/\/127\.0\.0\.1:\d+\/)/);
     expect(s.out()).toContain('License: TLDRAW_LICENSE_KEY is set (tldraw checks it in the page)');
     expect(s.out()).not.toContain('tldraw-secret');
-    expect((await (await fetch(`${url}studio-config.json`)).json()).licenseKey).toBe('tldraw-secret/AAAA.BBBB');
     // R4 (H59): its project token is in its own Timmy home while it runs, and removed when it stops.
     const token = join(own.TIMMY_HOME, 'canvas', `project-token-${new URL(url).port}`);
     expect(existsSync(token)).toBe(true);
+    // R4 (H83): the page's license key only with a credential (here the REPL's token, as a REPL of this home reads it)
+    expect((await (await fetch(`${url}studio-config.json`)).json()).licenseKey).toBeNull();
+    const kept = JSON.parse(readFileSync(token, 'utf8')) as { token: string };
+    expect((await (await fetch(`${url}studio-config.json`, { headers: { Authorization: `Bearer ${kept.token}` } })).json()).licenseKey).toBe('tldraw-secret/AAAA.BBBB');
+    // R4 (H83): it names /canvas open as the way to open the page (a page opened by its address alone loads no canvas)
+    expect(s.out()).toContain("Open it from Timmy's REPL with /canvas open (or /web studio): that page gets a one-time grant from Timmy.");
+    expect(s.out()).toContain('A page opened by this address alone (typed, a bookmark, a reload) loads no canvas and says so. Ctrl+C stops it.');
     s.child.kill('SIGTERM');
     expect(await s.exited).toBe(143);
     expect(existsSync(token)).toBe(false);

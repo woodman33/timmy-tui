@@ -42,9 +42,12 @@ function jobOf(v: unknown): CanvasJobSummary | null {
   };
 }
 
-/** What answers at `baseUrl`: Timmy Canvas (and its state), nothing, or another program. */
-export async function studioHealth(baseUrl: string, timeoutMs = 1000): Promise<StudioHealth> {
-  const get = (path: string): Promise<Response> => fetch(`${baseUrl}${path}`, { signal: AbortSignal.timeout(timeoutMs) });
+/**
+ * What answers at `baseUrl`: Timmy Canvas (and its state), nothing, or another program. R4 (H83): with the server's `token`
+ * (the REPL's), its latest job too; without it, latestJob is null (a job's id may be a model's words).
+ */
+export async function studioHealth(baseUrl: string, timeoutMs = 1000, token?: string | null): Promise<StudioHealth> {
+  const get = (path: string): Promise<Response> => fetch(`${baseUrl}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(timeoutMs) });
   let res: Response;
   try {
     res = await get('/api/canvas/health');

@@ -34,7 +34,7 @@ import { runTurn, type TurnAbandon, type TurnAgent, type TurnInspect } from './t
 import { Transcript, type InspectRow } from './transcript.js';
 import { onPath, packageRoot, realOnPath } from './center.js';
 import { openWebView, RECEIPT_ID, receiptUrl, resolveWebTarget } from './web.js';
-import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt, type CanvasJobResult } from '../agent/canvas-tools.js';
+import { CanvasTurnJob, createCanvasTools, linkCanvasReceipt, type CanvasAuth, type CanvasJobResult } from '../agent/canvas-tools.js';
 import { createProjectTools, ProjectTurnFiles, type ProjectToolOptions } from '../agent/project-tools.js';
 import { createVisionTools, type VisionToolOptions } from '../agent/vision-tools.js';
 import { createMcpTools, type McpToolOptions } from '../agent/mcp-tools.js';
@@ -174,7 +174,7 @@ export function replMcpOptions(active: () => { root: string; project: { name: st
  * The agent's tools in the REPL: the defaults and Timmy Canvas (F-4), each under a NEEDS YOU rule. The
  * canvas calls of one turn share that turn's canvas job (fourth order, step 5).
  */
-export function replTools(job?: CanvasTurnJob, project?: ProjectToolOptions, more: { vision?: VisionToolOptions; mcp?: McpToolOptions; native?: NativeToolOptions; recipe?: RecipeToolOptions; iterate?: IterateToolOptions } = {}): typeof defaultTools {
+export function replTools(job?: CanvasTurnJob, project?: ProjectToolOptions, more: { vision?: VisionToolOptions; mcp?: McpToolOptions; native?: NativeToolOptions; recipe?: RecipeToolOptions; iterate?: IterateToolOptions; canvas?: () => CanvasAuth | null } = {}): typeof defaultTools {
   // The project tools' typed schemas are narrower than the shared tool list's element type.
   const files = createProjectTools(project ?? { root: () => process.cwd() }) as unknown as typeof defaultTools;
   // Round R2: images (OpenCV measurements; an image-capable model), MCP servers through two command-line
@@ -186,7 +186,8 @@ export function replTools(job?: CanvasTurnJob, project?: ProjectToolOptions, mor
   const recipe = more.recipe ? createRecipeTools(more.recipe) as unknown as typeof defaultTools : [];
   // Round R4: /iterate as a tool (iterate_recipe), asked each time.
   const iterate = more.iterate ? createIterateTools(more.iterate) as unknown as typeof defaultTools : [];
-  return [...defaultTools, ...createCanvasTools({ job }), ...files, ...looks, ...mcp, ...native, ...recipe, ...iterate];
+  // R4 (H83): the canvas calls carry this REPL's token and holder id (more.canvas), or the canvas refuses them.
+  return [...defaultTools, ...createCanvasTools({ job, ...(more.canvas ? { auth: more.canvas } : {}) }), ...files, ...looks, ...mcp, ...native, ...recipe, ...iterate];
 }
 
 export async function runRepl(argv: string[]): Promise<number> {
@@ -263,6 +264,8 @@ export async function runRepl(argv: string[]): Promise<number> {
       recipe: { start: async (p) => ({ ...(await workspace.runRecipe(p)) }) },
       // iterate_recipe gives its instruction; iterate_native (R4, H33) its target, file and instruction.
       iterate: { start: (request) => workspace.iterateForTool(request) },
+      // R4 (H83): the canvas tools' credential, asked at each call (canvasProject is made below, before any turn runs).
+      canvas: () => canvasProject.credentials(),
     }), askNeedsYou),
   );
   const themeInfo = (): ThemeInfo => {
@@ -395,7 +398,8 @@ export async function runRepl(argv: string[]): Promise<number> {
       const done = await r;
       return done.state === 'failed' ? { state: 'failed', error: done.error } : { state: done.state };
     },
-    health: (base) => studioHealth(base),
+    // R4 (H83): with the token, so the latest job is told
+    health: (base) => studioHealth(base, 1000, canvasProject.tokenNow()),
     // R4 (H75): the page opens with this REPL's one-time grant in its fragment (a secret: never on a command line), so its cards can act.
     open: () => { const t = canvasProject.openTarget(); return openWeb(t.target, false, t.secret); },
     glyphs: theme.glyphs,
@@ -470,7 +474,8 @@ export async function runRepl(argv: string[]): Promise<number> {
       void ensureCanvas();
       // Round R1: the links' outcomes reach the turn's "where to inspect" rows; a failed link is said.
       lastCanvas = jobs;
-      lastLinks = jobs.map((c) => linkCanvasReceipt(c.job, sealed.id).then((ok) => ({ job: c.job, ok })));
+      // R4 (H83): the link is a write, with the canvas server's token
+      lastLinks = jobs.map((c) => linkCanvasReceipt(c.job, sealed.id, undefined, canvasProject.tokenNow()).then((ok) => ({ job: c.job, ok })));
       return { ...sealed, url: receiptUrl(sealed.id) };
     },
   });

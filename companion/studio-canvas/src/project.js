@@ -225,7 +225,8 @@ export function createProjectPanel(deps) {
     if (sig === shown) return;
     shown = sig;
     const focused = document.activeElement && groups.contains(document.activeElement) ? { card: document.activeElement.closest('li')?.dataset.card, cls: document.activeElement.className } : null;
-    name.textContent = now.project ? now.project.name : 'none named';
+    // R4 (H83): a reading refused to this page (its session does not count now) names no project: it says why below
+    name.textContent = now.project ? now.project.name : now.refused ? 'not shown' : 'none named';
     const notes = [now.message, ...(now.notes || [])].filter(Boolean);
     note.textContent = notes.join(' ');
     note.hidden = notes.length === 0;

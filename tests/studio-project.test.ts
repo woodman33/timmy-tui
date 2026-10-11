@@ -44,6 +44,8 @@ describe('the project handoff and the project API', () => {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${server.projectToken}`, ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body),
   });
   const named = () => ({ root: p.root, name: 'demo', jobs: p.jobs, receipts: p.store });
+  /** R4 (H83): the cards and the named project's name are read with the REPL's token (or a page's session) */
+  const repl = (): { headers: Record<string, string> } => ({ headers: { Authorization: `Bearer ${server.projectToken}` } });
 
   beforeAll(async () => {
     p = await makeCanvasProject('studio-project-');
@@ -58,19 +60,26 @@ describe('the project handoff and the project API', () => {
   });
 
   it('before any handoff the API says no project is named, and how to name one', async () => {
-    const r = await call('GET', '/api/project');
+    const r = await call('GET', '/api/project', repl());
     expect(r.status).toBe(200);
     expect(r.json).toMatchObject({ ok: true, project: null, cards: [], message: 'Timmy has not named a project to this canvas yet. In Timmy: /canvas open.' });
-    expect((await call('GET', '/api/project/active')).json).toMatchObject({ ok: true, app: 'timmy-canvas', project: null, board: false, pageConnected: false });
+    // R4 (H83): without the token or a page's session, the cards are not read at all
+    expect((await call('GET', '/api/project')).status).toBe(401);
+    expect((await call('GET', '/api/project/active')).json).toMatchObject({ ok: true, app: 'timmy-canvas', project: null, named: false, board: false, pageConnected: false });
   });
 
   it("accepts the REPL's handoff with the server's token, and answers with the project's name and id only", async () => {
     const r = await handoff(named());
     expect(r.status).toBe(200);
     expect(r.json).toEqual({ ok: true, project: { name: 'demo', id: p.pid }, board: false });
-    const active = await call('GET', '/api/project/active');
-    expect(active.json).toMatchObject({ project: { name: 'demo', id: p.pid }, board: false, pageConnected: false });
+    const active = await call('GET', '/api/project/active', repl());
+    expect(active.json).toMatchObject({ project: { name: 'demo', id: p.pid }, named: true, board: false, pageConnected: false });
     expect(typeof active.json.since).toBe('string');
+    // R4 (H83): to anyone else, only that a project is named
+    const told = await call('GET', '/api/project/active');
+    expect(told.json).toMatchObject({ ok: true, app: 'timmy-canvas', project: null, named: true, hidden: true, pageConnected: false });
+    expect(told.body).not.toContain('demo');
+    expect(told.body).not.toContain(p.pid);
   });
 
   it('refuses a handoff without the token, with another token, from a page, from another host, not as JSON, too large or malformed, and keeps the project named before', async () => {
@@ -104,11 +113,11 @@ describe('the project handoff and the project API', () => {
     expect(gone.status).toBe(404);
     expect(gone.json.error).toBe('The folder named as the project is not a folder on this machine.');
     expect(gone.body).not.toContain('no-such-folder');
-    expect((await call('GET', '/api/project/active')).json.project).toEqual({ name: 'demo', id: p.pid });
+    expect((await call('GET', '/api/project/active', repl())).json.project).toEqual({ name: 'demo', id: p.pid });
   });
 
   it("GET /api/project: the project's cards from the board's own readers, each with its state, record, receipt and command", async () => {
-    const r = await call('GET', '/api/project');
+    const r = await call('GET', '/api/project', repl());
     expect(r.status).toBe(200);
     expect(r.json).toMatchObject({ ok: true, project: { name: 'demo', id: p.pid }, board: null });
     const cards = r.json.cards as Array<Record<string, unknown>>;
@@ -149,19 +158,19 @@ describe('the project handoff and the project API', () => {
     const before = readFileSync(file, 'utf8');
     try {
       writeFileSync(file, flowRecord(p.flow, 'failed'));
-      let cards = (await call('GET', '/api/project')).json.cards as Array<Record<string, unknown>>;
+      let cards = (await call('GET', '/api/project', repl())).json.cards as Array<Record<string, unknown>>;
       const changed = cards.find((c) => c.id === `flow:${p.flow}`)!;
       expect(changed.state).toBe('failed, readback differs (as the file says) · not verified: the file changed after it was sealed: its sha256 is not the one its flow receipt sealed');
       expect(changed.receipt).toBeNull();
       unlinkSync(file);
-      cards = (await call('GET', '/api/project')).json.cards as Array<Record<string, unknown>>;
+      cards = (await call('GET', '/api/project', repl())).json.cards as Array<Record<string, unknown>>;
       expect(cards.find((c) => c.id === `flow:${p.flow}`)).toBeUndefined();
     } finally {
       writeFileSync(file, before);
     }
     // /board live's address (never its token) is named with the project, and the API links to it.
     expect((await handoff({ ...named(), board: 'http://127.0.0.1:40123/' })).json).toEqual({ ok: true, project: { name: 'demo', id: p.pid }, board: true });
-    expect((await call('GET', '/api/project')).json.board).toEqual({ address: 'http://127.0.0.1:40123/' });
+    expect((await call('GET', '/api/project', repl())).json.board).toEqual({ address: 'http://127.0.0.1:40123/' });
     expect((await handoff(named())).json.board).toBe(false);
   });
 
