@@ -26,6 +26,8 @@
 //   sleep      waits 30 s, running nothing, then exits 0 (for /stop and time limits)
 //   exit3      runs nothing and exits 3
 // FAKE_UNREAL_READBACK=sleep makes only a readback (a run whose environment has TIMMY_READBACK_TOKEN) wait 30 s instead.
+// FAKE_UNREAL_AFTER_SCRIPT=sleep (R4 H81) makes a first pass (no TIMMY_READBACK_TOKEN) wait 30 s after its script ran and its
+//   result file was written, before it exits: Unreal shuts down after a script for some seconds, and a stop can come then.
 // FAKE_UNREAL_OUTSIDE_WRITE names a file (absolute) the FAKE also writes, as an Unreal writing outside the project would.
 // A command line other than the one above exits 2, as a mistyped Unreal call would run no script.
 import { spawnSync } from 'node:child_process';
@@ -96,4 +98,5 @@ const py = spawnSync(process.env.FAKE_UNREAL_PYTHON || 'python3', [script], {
 });
 const ok = py.status === 0;
 say(`LogPythonScriptCommandlet: Display: Python script executed ${ok ? 'successfully' : 'with errors'}`);
+if (process.env.FAKE_UNREAL_AFTER_SCRIPT === 'sleep' && !process.env.TIMMY_READBACK_TOKEN) await new Promise((resolve) => setTimeout(resolve, 30_000));
 finish(ok ? 0 : 1);

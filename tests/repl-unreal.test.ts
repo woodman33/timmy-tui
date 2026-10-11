@@ -161,6 +161,35 @@ describe.skipIf(!python)('/unreal in the REPL: a judged first pass, then its rea
     expect(runOutcome({ kind: 'native', id: run, at: '' }, s.root, { get: () => undefined })).toMatchObject({ state: 'stopped' });
   }, 90_000);
 
+  // R4 (H81; review of 6fb765a..4338fdb, finding 3): a stop that came after the first pass's result said ok, while Unreal was
+  // exiting, still started a readback (a second UnrealEditor-Cmd): the native judgement reads the result whatever the stop.
+  it('/stop on a first pass after its result said ok, while Unreal exits (FAKE: it lingers 30 s): judged by its result, said stopped after it, and no readback job starts', async () => {
+    const s = unrealSandbox('unreal-stop2-');
+    const { ws, slash, said } = repl(s, { FAKE_UNREAL_AFTER_SCRIPT: 'sleep' });
+    const started = await slash('/unreal TimmyStarter.uproject scene.py');
+    const id = /Running {4}(j[0-9a-f]{6})/.exec(started)![1];
+    const run = /native\/([0-9a-f-]{36})\/source/.exec(started)![1];
+    const result = path.join(s.root, '.timmy', 'native', run, 'result.json');
+    await until(() => { try { return JSON.parse(fs.readFileSync(result, 'utf8')).ok === true; } catch { return false; } }, 30_000, 'the result to say ok');
+    expect(await slash(`/stop ${id}`)).toMatch(new RegExp(`${id} cancelled`));
+    await until(() => new RegExp(`${id} stopped {2}Unreal · scene\\.py in TimmyStarter\\.uproject: `).test(said()), 20_000, 'the stopped first pass to be judged');
+    // a moment for anything that would start after the judgement
+    await new Promise((r) => setTimeout(r, 1500));
+    const out = said();
+    expect(out).toMatch(/; it was stopped after this result was written \(the stop came after the result\), so it is not read back on its own/);
+    expect(out).toContain(`next     no readback: it was stopped after its result was written, so it is not read back on its own; /unreal readback ${run.slice(0, 8)} reads it back`);
+    expect(out).not.toMatch(/readback j[0-9a-f]{6} {2}a second Unreal process/);
+    expect(ws.jobs.list().map((j) => j.id)).toEqual([id]);
+    expect(readUnrealReadbacks(path.join(s.root, '.timmy', 'native', run))).toEqual([]);
+    const chain = readChain('runs', s.root);
+    expect(chain.map((r) => [r.kind, r.status])).toEqual([['native', 'cancelled']]);
+    expect(chain[0].native).toMatchObject({ app: 'unreal', outcome: 'ok' });
+    // /unreal lists it as stopped, never as waiting for a readback
+    expect(await slash('/unreal')).toMatch(new RegExp(`\\? ${run.slice(0, 8)} {2}stopped after its result \\(judged ok by it\\) · readback none: it was stopped`));
+    // its operation's outcome, from its own record: stopped
+    expect(runOutcome({ kind: 'native', id: run, at: '' }, s.root, { get: () => undefined })).toMatchObject({ state: 'stopped' });
+  }, 90_000);
+
   it('a project file in a folder with a space, quoted, reaches Unreal whole (/unreal is raw)', async () => {
     const s = unrealSandbox('unreal-space-', 'my game');
     fs.renameSync(path.join(s.root, 'my game', 'scene.py'), path.join(s.root, 'scene.py'));

@@ -688,6 +688,9 @@ export function judgeUnrealJob(job: JobRecord, spec: UnrealJobSpec): UnrealJudge
   }
   // R4 u23 (H72): a run Timmy stopped (/stop) or its time limit ended has a known cause: no guess about the harness
   const stopped = job.state === 'cancelled';
+  // R4 (H81): stopped after its harness wrote a result that says ok (Unreal was exiting): judged by that result as written,
+  // and said to have been stopped after it; a stopped run is never read back on its own (src/repl/unreal.ts firstPassEnded)
+  if (stopped && outcome === 'ok') why = `${why}; it was stopped after this result was written (the stop came after the result), so it is not read back on its own`;
   if (read.state === 'missing' && outcome !== 'ok' && !stopped && job.error !== 'timed out') why = `${why}; ${UNREAL_NO_RESULT_HINT.replace('<id>', job.id)}`;
   // R4 (H72): a failed run's result still names what the harness saw written (r21: the level saved before the spawn
   // failed); each is checked against disk and recorded as written by a failed run, never as an output (base.files stays).
