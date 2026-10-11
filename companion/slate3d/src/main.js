@@ -10,7 +10,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { layoutBoard, layoutSheets, sheetsSpan, SLAB, SHEET } from './board.js';
-import { connectBus, laneOf, classOf } from './bus.js';
+import { connectBus, laneOf, classOf, companionFetch } from './bus.js';
 import { capsuleState, frameStatus } from './state.js';
 
 const T = {
@@ -170,7 +170,8 @@ async function build() {
   const [board, laneList, receiptsRes] = await Promise.all([
     fetch(`./boards/${BOARD}.mission.json`).then((r) => r.json()),
     fetch('./lanes.json').then((r) => r.json()).catch(() => []),
-    fetch('./receipts?limit=2000').then((r) => r.json()).catch(() => ({ receipts: [] })),
+    // R4 (H84): the receipt chain's records, with the companion's token
+    companionFetch('./receipts?limit=2000').then((r) => r.json()).catch(() => ({ receipts: [] })),
   ]);
   // blueprint boards the mission cites render as sheets beside the slabs
   // a cited board is <name>.blueprint.json or, for evidence boards written by
@@ -360,7 +361,7 @@ async function build() {
     cpOut.hidden = false;
     cpOut.textContent = `${action} → controller…`;
     try {
-      const r = await fetch('./emit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, capsule: openCapsule?.id, ...extra }) });
+      const r = await companionFetch('./emit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, capsule: openCapsule?.id, ...extra }) });
       const j = await r.json();
       cpOut.textContent = JSON.stringify(j, null, 1).slice(0, 3000);
       return j;

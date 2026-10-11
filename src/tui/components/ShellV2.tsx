@@ -29,6 +29,8 @@ import { CommanderClient, edgeToken, type CommanderEvent } from '../../harness/c
 import { Card } from '../ui/Card.js';
 import { useAgent } from '../hooks/useAgent.js';
 import { useCompanionSync } from '../hooks/useCompanionSync.js';
+// R4 (H84): the pairing card shows the browser companion's address with its token (and with --lan its network QR code).
+import { companionPairing } from '../../companion/qr.js';
 import type { Agent } from '../../agent/core.js';
 import { IntegrationStatus } from './IntegrationStatus.js';
 import { integrationCatalog } from '../../vision/integrations/registry.js';
@@ -151,6 +153,7 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
     finally { visualBusy.current = false; }
   };
   const [qrText, setQrText] = useState('');
+  const [pairLines, setPairLines] = useState<string[]>([]);
   const [statusLines, setStatusLines] = useState<string[]>([]);
   // warroom-t3b1: commander (durable Cloudflare agent) + war room state
   const [profile, setProfile] = useState<warroom.WarProfile>(() => warroom.defaultProfile());
@@ -560,7 +563,12 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
         })();
       }
       if (a === 'open-qr') {
-        qr.generate(`http://localhost:${COMPANION_PORT()}`, { small: true }, t => setQrText(t));
+        // R4 (H84): the companion this process started (its token is shown only here, where the operator started it);
+        // a QR code only for its network address (--lan). Without one here, the log companion's address as before.
+        const pair = companionPairing((global as any).companionServer);
+        setPairLines(pair ? pair.lines : [`http://localhost:${COMPANION_PORT()}`]);
+        if (pair && !pair.qr) setQrText('');
+        else qr.generate(pair?.qr ?? `http://localhost:${COMPANION_PORT()}`, { small: true }, t => setQrText(t));
       }
     }
   });
@@ -1014,8 +1022,8 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
         {s.overlay === 'qr' && (
           <Box position="absolute" top={2} left={20} backgroundColor={theme.surfaceRaised} paddingX={1} flexDirection="column">
             <Text bold color={theme.textPrimary}>COMPANION PAIR</Text>
-            <Text color={theme.textMuted}>{`http://localhost:${COMPANION_PORT()}`}</Text>
-            {qrText.split('\n').map((l, i) => <Text key={i} color={theme.textPrimary}>{l}</Text>)}
+            {pairLines.map((l, i) => <Text key={`p${i}`} color={theme.textPrimary}>{l}</Text>)}
+            {qrText ? qrText.split('\n').map((l, i) => <Text key={i} color={theme.textPrimary}>{l}</Text>) : null}
             <Text color={theme.textMuted}>[Esc] close</Text>
           </Box>
         )}

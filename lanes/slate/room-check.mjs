@@ -4,7 +4,7 @@
 // isolated browser contexts pointed at the same room, posts one fresh event
 // into the room, and confirms both viewers received it. Seals slate.room.
 //   node lanes/slate/room-check.mjs [--room slate:ledger] [--worker <url>] [--no-seal]
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -28,8 +28,11 @@ function token() {
   return '';
 }
 
+// R4 (H84): the companion answers this lane's viewer only with its token: made here, given to the server in its
+// environment (never on a command line), and to the viewer in its address's fragment (never on the bus or in a seal).
+const TOKEN = randomBytes(32).toString('hex');
 buildSlate();
-const server = spawn('npx', ['tsx', '-e', `import('./src/companion/server.ts').then(m => m.startCompanionServer(${PORT}))`], { cwd: ROOT, env: { ...process.env, TIMMY_REPO: REPO }, stdio: 'ignore', detached: true });
+const server = spawn('npx', ['tsx', '-e', `import('./src/companion/server.ts').then(m => m.startCompanionServer(${PORT}, { token: process.env.SLATE_COMPANION_TOKEN }))`], { cwd: ROOT, env: { ...process.env, TIMMY_REPO: REPO, SLATE_COMPANION_TOKEN: TOKEN }, stdio: 'ignore', detached: true });
 const stopServer = () => { try { process.kill(-server.pid, 'SIGTERM'); } catch { try { server.kill('SIGTERM'); } catch { /* gone */ } } };
 const base = `http://127.0.0.1:${PORT}`;
 for (let i = 0; i < 120; i++) { try { if ((await fetch(`${base}/slate3d/manifest.json`)).ok) break; } catch { /* wait */ } await new Promise((r) => setTimeout(r, 500)); }
@@ -41,7 +44,7 @@ try {
   const url = `${base}/slate3d/?board=ledger&still=1&room=${encodeURIComponent(ROOM)}&worker=${encodeURIComponent(WORKER)}`;
   const ctxs = [await browser.newContext({ viewport: { width: 1280, height: 800 } }), await browser.newContext({ viewport: { width: 1280, height: 800 } })];
   const pages = await Promise.all(ctxs.map((c) => c.newPage()));
-  await Promise.all(pages.map((p) => p.goto(url, { waitUntil: 'load' })));
+  await Promise.all(pages.map((p) => p.goto(`${url}#t=${TOKEN}`, { waitUntil: 'load' })));
   await pages[0].waitForTimeout(7000);
   const before = await Promise.all(pages.map((p) => p.evaluate(() => ({ bus: document.getElementById('bus-text')?.textContent, ticker: [...document.querySelectorAll('#ticker li')].map((li) => li.textContent) }))));
 

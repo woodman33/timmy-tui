@@ -1,5 +1,39 @@
+/**
+ * The browser companion: the page `timmy watch`'s monitor serves (src/companion/client), Slate 3D beside it, the event bus
+ * over a WebSocket, and a streaming chat that spends the operator's OpenRouter credits.
+ *
+ * R4 (H84): it is this computer's own. It listens on 127.0.0.1, and on this computer's networks too only when the operator
+ * asks (`timmy watch --lan`, for a phone on the same network). Every request and every WebSocket upgrade first passes the
+ * local rule of Timmy's servers (src/utils/local-request.ts isLocalRequest: Host 127.0.0.1, localhost or [::1], or with
+ * --lan this computer's own network address as the address it gives; Origin, when a browser sends one, a page of this
+ * computer), so no other site, and no name rebound to this computer, reaches it. "The token" is 32 random bytes this server
+ * makes when it starts; the address Timmy gives carries it in the fragment (#t=…), and the page keeps it in memory and sends
+ * it in an Authorization header (`Bearer <token>`) and as a WebSocket subprotocol (`timmy-token.<token>` beside
+ * `timmy-companion`, the one the server selects). A token in an address is refused. A refused request makes no upstream call
+ * and writes nothing, and says what to do: in `timmy watch`, q on HOME shows the address with its token.
+ *
+ *   route                                  requires                          why
+ *   GET /, /index.html, the page's files   nothing more                      the companion page's code (public in the repository);
+ *                                                                            without the token it loads nothing and says so
+ *   GET /slate3d/*, /slate3d/boards/*      nothing more                      Slate 3D's built files and the repository's boards
+ *   GET /api/auth                          the token                         whether the page's token is still this server's
+ *   GET /api/canvas                        the token                         Timmy Canvas's revision and jobs (ids a model may name)
+ *   GET /slate3d/receipts                  the token                         the receipt chain's records
+ *   POST /slate3d/emit                     the token                         writes to the bus; asks the controller (`timmy logs`,
+ *                                                                            with its own token, src/utils/local-request.ts)
+ *   POST /api/workflow/fusion              the token                         writes receipt files
+ *   POST /chat                             the token                         spends: OpenRouter with the operator's key
+ *   GET /api/clerk-config                  the token                         the operator's configuration
+ *   GET /api/cloudflare-workflows          the token                         asks the telemetry endpoint for a run
+ *   WebSocket (any path)                   the token, as a subprotocol       the bus's tail, the state, the chat mirror; its
+ *                                                                            messages add, stop and switch the monitor's panes
+ *
+ * The token is never written to a log, a receipt or the bus: it is shown only where the operator started the server, as
+ * part of the address to open (src/companion/qr.ts: the monitor's q on HOME, or the terminal), and with --lan in the QR code.
+ */
 import express from 'express';
-import { createServer } from 'http';
+import { createServer, type IncomingMessage } from 'http';
+import type { Duplex } from 'stream';
 import { WebSocketServer } from 'ws';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -10,11 +44,30 @@ import { computeReceiptHash, Receipt } from '../receipt/schema.js';
 import { VERSION } from '../version.js';
 import { canvasSummary } from './canvas.js';
 import { keySet } from '../utils/keys.js';
+// R4 (H84): the local rule and the token (shared with Timmy Canvas and `timmy logs`).
+import { isLocalRequest, lanAddresses, LocalToken, logsTokenFile, readTokenFile, refuseRequest, refuseUpgrade, TOKEN_IN_ADDRESS } from '../utils/local-request.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** Model used by the /chat streaming proxy (TMX P3 Streamdown surface). */
 const CHAT_MODEL = 'qwen/qwen3.8-max';
+/** Where /chat sends its completion unless a test gives a FAKE (CompanionOptions.upstream). */
+const OPENROUTER_CHAT = 'https://openrouter.ai/api/v1/chat/completions';
+
+/** R4 (H84): the subprotocol the server selects (a page offers it beside its token). */
+export const COMPANION_PROTOCOL = 'timmy-companion';
+/** R4 (H84): what a request without the token is told. */
+export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s token. Open the companion from Timmy: in `timmy watch`, press q on HOME; it shows the companion\'s address with its token (after #, which the page keeps in memory and sends in a header).';
+export const COMPANION_FOREIGN = 'Refused: the browser companion answers only to this computer (127.0.0.1 or localhost), or with --lan to this computer\'s own network address, and only from its own pages.';
+
+export interface CompanionOptions {
+  /** R4 (H84): also listen on this computer's networks (`timmy watch --lan`): plain HTTP; every route but the page needs the token. */
+  lan?: boolean;
+  /** R4 (H84): the token (64 hex), a test's or a lane's; made at random when absent. */
+  token?: string;
+  /** R4 (H84): the chat completions address /chat sends to (a test's FAKE on 127.0.0.1); OpenRouter's when absent. */
+  upstream?: string;
+}
 
 /**
  * Ensure OPENROUTER_API_KEY is present even when the host entry point did
@@ -58,7 +111,16 @@ export interface CompanionServer {
   httpServer: ReturnType<typeof createServer>;
   wss: WebSocketServer;
   clients: Set<import('ws').WebSocket>;
+  /** The port it is bound to. */
   port: number;
+  /** R4 (H84): where it listens: 127.0.0.1, or 0.0.0.0 with --lan. */
+  host: string;
+  /** R4 (H84): its address on this computer, without the token (what a log may name). */
+  address: string;
+  /** R4 (H84): the address to open on this computer, with the token in its fragment. */
+  url: string;
+  /** R4 (H84): with --lan, the addresses to open from another device on the network, each with the token; else none. */
+  lanUrls: string[];
   currentState: string;
   shutdown: () => Promise<void>;
   setState: (state: string) => void;
@@ -66,15 +128,44 @@ export interface CompanionServer {
   sendUpdate: (type: string, data: any) => void;
 }
 
-export async function startCompanionServer(port = 3001): Promise<CompanionServer> {
+export async function startCompanionServer(port = 3001, options: CompanionOptions = {}): Promise<CompanionServer> {
   const app = express();
+  app.disable('x-powered-by');
   const httpServer = createServer(app);
-  const wss = new WebSocketServer({ server: httpServer });
+  // R4 (H84): upgrades are taken by hand (below), after the local rule and the token
+  const wss = new WebSocketServer({ noServer: true, handleProtocols: (offered) => (offered.has(COMPANION_PROTOCOL) ? COMPANION_PROTOCOL : false) });
   wss.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') return;
     logger.error('WebSocket server error:', err);
   });
   const clients = new Set<import('ws').WebSocket>();
+  // R4 (H84): this computer's own network addresses, answered only with --lan; the token, made now
+  const lan = options.lan ? lanAddresses() : [];
+  const key = new LocalToken(options.token);
+  const chatUrl = options.upstream ?? OPENROUTER_CHAT;
+  const refusedHere = (req: IncomingMessage): { status: 401 | 403; words: string } | null => {
+    if (!isLocalRequest(req, lan)) return { status: 403, words: COMPANION_FOREIGN };
+    if (key.inAddress(req.url)) return { status: 401, words: TOKEN_IN_ADDRESS };
+    return null;
+  };
+  // Every request: this computer's, from its pages; no token in its address.
+  app.use((req, res, next) => {
+    const refused = refusedHere(req);
+    if (refused) { refuseRequest(res, refused.status, refused.words); return; }
+    next();
+  });
+  /** The routes that carry the operator's content, spend or write: the token, in an Authorization header (before a body is read). */
+  const withToken: express.RequestHandler = (req, res, next) => {
+    if (key.bearer(req.headers.authorization)) { next(); return; }
+    refuseRequest(res, 401, COMPANION_REFUSED);
+  };
+  // R4 (H84): every upgrade: the local rule, then the token as a subprotocol beside timmy-companion
+  httpServer.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    const refused = refusedHere(req);
+    if (refused) { refuseUpgrade(socket, refused.status, refused.words); return; }
+    if (key.offered(req.headers['sec-websocket-protocol'], COMPANION_PROTOCOL) !== 'ok') { refuseUpgrade(socket, 401, COMPANION_REFUSED); return; }
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+  });
 
   // Event-bus tail → every client as {type:'bus', event}. The bus lives in the
   // pinned repo root (TIMMY_REPO when set), never in a worktree copy. Two files
@@ -145,7 +236,7 @@ export async function startCompanionServer(port = 3001): Promise<CompanionServer
   // Receipts for Slate 3D capsule state: receipt records (never the event
   // envelopes) from the pinned root store, filtered by subject, newest first,
   // with their sources (the seal metadata, e.g. an order id). Read-only.
-  app.get('/slate3d/receipts', (req, res) => {
+  app.get('/slate3d/receipts', withToken, (req, res) => {
     const subject = String(req.query.subject ?? '');
     const limit = Math.min(2000, Math.max(1, Number(req.query.limit ?? 400)));
     const store = path.join(busRoot, '.timmy', 'receipts', 'runs.jsonl');
@@ -168,18 +259,21 @@ export async function startCompanionServer(port = 3001): Promise<CompanionServer
   // doc into DispatchPlans or to store one plan; arming and launching still
   // require the operator token there. Every emit is published on the bus as
   // slate.emit so the act itself is on record, whatever the controller says.
-  app.post('/slate3d/emit', express.json({ limit: '256kb' }), async (req, res) => {
+  app.post('/slate3d/emit', withToken, express.json({ limit: '256kb' }), async (req, res) => {
     const action = String(req.body?.action ?? '');
     const capsule = String(req.body?.capsule ?? '');
     if (!['compile', 'store'].includes(action)) { res.status(400).json({ ok: false, error: 'action must be compile or store' }); return; }
-    const gateway = `http://127.0.0.1:${process.env.TIMMY_LOGS_PORT ?? 4310}/mission/${action}`;
+    const logsPort = Number(process.env.TIMMY_LOGS_PORT ?? 4310);
+    const gateway = `http://127.0.0.1:${logsPort}/mission/${action}`;
     // artifact paths resolve against the checkout that serves this page (the
     // branch the board describes), while receipts stay in the pinned root
     const checkout = path.resolve(__dirname, '..', '..');
     const payload = action === 'compile' ? { doc: req.body?.doc ?? { nodes: [], edges: [] }, repo_root: checkout } : { plan: req.body?.plan ?? {} };
+    // R4 (H84): the controller asks for its own token, which `timmy logs` keeps for this user's programs (0600)
+    const controllerToken = readTokenFile(logsTokenFile(logsPort, process.env));
     let out: any;
     try {
-      const r = await fetch(gateway, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(8000) });
+      const r = await fetch(gateway, { method: 'POST', headers: { 'content-type': 'application/json', ...(controllerToken ? { Authorization: `Bearer ${controllerToken}` } : {}) }, body: JSON.stringify(payload), signal: AbortSignal.timeout(8000) });
       out = await r.json();
     } catch {
       out = { ok: false, state: 'not_configured', note: `controller not reachable at ${gateway}; run \`timmy logs\` from the repo root` };
@@ -192,19 +286,23 @@ export async function startCompanionServer(port = 3001): Promise<CompanionServer
     res.json({ ok: !!out?.ok, action, capsule, gateway, ...out });
   });
 
+  // R4 (H84): whether the page's token is still this server's (the page asks when its socket closes; a refusal stops its retries).
+  app.get('/api/auth', withToken, (_req, res) => {
+    res.set('Cache-Control', 'no-store').json({ ok: true, lan: lan.length > 0 });
+  });
   // Serve Clerk publishable key dynamically
   // Fourth order, step 5: the CANVAS tab reads Timmy Canvas's revision, source revision and jobs,
-  // read-only, never the drawing (this server can be reached from a phone on the network).
-  app.get('/api/canvas', (_req, res) => {
+  // read-only, never the drawing (with --lan, this server can be reached from a phone on the network).
+  app.get('/api/canvas', withToken, (_req, res) => {
     res.set('Cache-Control', 'no-store').json(canvasSummary(process.env));
   });
-  app.get('/api/clerk-config', (_req, res) => {
+  app.get('/api/clerk-config', withToken, (_req, res) => {
     res.json({
       publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || ""
     });
   });
 
-  app.get('/api/cloudflare-workflows', async (req, res) => {
+  app.get('/api/cloudflare-workflows', withToken, async (req, res) => {
     const endpoint = process.env.TIMMY_TELEMETRY_URL || 'http://127.0.0.1:8787';
     const runId = typeof req.query.runId === 'string' && req.query.runId.trim()
       ? req.query.runId.trim()
@@ -227,7 +325,7 @@ export async function startCompanionServer(port = 3001): Promise<CompanionServer
     }
   });
 
-  app.post('/api/workflow/fusion', express.json(), async (req, res) => {
+  app.post('/api/workflow/fusion', withToken, express.json(), async (req, res) => {
     try {
       const { models = [], plugins = [], riveStateHash = "", prompt = "" } = req.body;
 
@@ -315,8 +413,10 @@ export async function startCompanionServer(port = 3001): Promise<CompanionServer
    *   event: usage  — token usage object (when OpenRouter reports it)
    *   event: error  — { error, details? }
    *   event: done   — { ok: true }
+   * R4 (H84): it spends the operator's credits, so only with the token (checked before the body is read or a key is
+   * looked for); the completion goes to `chatUrl`: OpenRouter, or a test's FAKE (CompanionOptions.upstream).
    */
-  app.post('/chat', express.json(), async (req, res) => {
+  app.post('/chat', withToken, express.json(), async (req, res) => {
     ensureOpenRouterApiKey();
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -374,7 +474,7 @@ export async function startCompanionServer(port = 3001): Promise<CompanionServer
     });
 
     try {
-      const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      const upstream = await fetch(chatUrl, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -528,11 +628,17 @@ export async function startCompanionServer(port = 3001): Promise<CompanionServer
     };
 
     httpServer.once('error', onError);
-    httpServer.listen(port, onListening);
+    // R4 (H84): this computer only, unless the operator asked for the network (--lan)
+    httpServer.listen(port, options.lan ? '0.0.0.0' : '127.0.0.1', onListening);
   });
+  const bound = (httpServer.address() as import('net').AddressInfo).port;
+  const host = options.lan ? '0.0.0.0' : '127.0.0.1';
 
   return {
-    app, httpServer, wss, clients, port, currentState,
+    app, httpServer, wss, clients, port: bound, currentState, host,
+    address: `http://127.0.0.1:${bound}/`,
+    url: key.open(`http://127.0.0.1:${bound}/`),
+    lanUrls: lan.map((a) => key.open(`http://${a}:${bound}/`)),
     shutdown: async () => {
       clearInterval(busTimer);
       for (const c of clients) c.close();
@@ -542,6 +648,8 @@ export async function startCompanionServer(port = 3001): Promise<CompanionServer
       });
       await new Promise<void>((resolve) => {
         httpServer.close(() => resolve());
+        // R4 (H84): a chat still streaming ends with the server
+        httpServer.closeAllConnections();
       });
     },
     setState: (state: string) => {
