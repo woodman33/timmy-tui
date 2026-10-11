@@ -1477,22 +1477,35 @@ export type NativeRunIndex = Map<string, NativeRunSummary>;
 
 const OUTCOMES: ReadonlySet<string> = new Set(['ok', 'failed', 'unknown']);
 
+/** R4 (H81): what decides whether an Unreal run counts as shown working: its outcome as unrealRunOutcome decides it, by run. */
+export interface NativeRunRules {
+  /** the run's state as src/native/unreal-readback.ts unrealRunOutcome decides it (its newest readback), or undefined when unknown */
+  unrealOutcome?: (run: string) => string | undefined;
+}
+const unrealSucceeded = (run: unknown, rules: NativeRunRules): boolean => {
+  if (typeof run !== 'string' || !rules.unrealOutcome) return false;
+  try { return rules.unrealOutcome(run) === 'succeeded'; } catch { return false; }
+};
+
 /**
  * Each app's runs from sealed receipts (kind 'native', carrying native.app and native.outcome) and, when
  * given, a project's run records (listNativeRuns): a submission not judged yet. A turn's shared tool name
- * (run_native) says nothing here: it does not say which app ran, or how the run ended.
+ * (run_native) says nothing here: it does not say which app ran, or how the run ended. R4 (H81): an Unreal run
+ * is shown working (demonstrated) only when its outcome, as unrealRunOutcome decides it, is succeeded (its readback
+ * agreed): a first pass judged ok alone is never trusted, and without `rules.unrealOutcome` none counts.
  */
-export function nativeRunIndex(chain: Array<Record<string, unknown>>, records: Array<{ app: string; run: string; started_at: string; verdicts: unknown[] }> = []): NativeRunIndex {
+export function nativeRunIndex(chain: Array<Record<string, unknown>>, records: Array<{ app: string; run: string; started_at: string; verdicts: unknown[] }> = [], rules: NativeRunRules = {}): NativeRunIndex {
   const index: NativeRunIndex = new Map();
   const get = (app: string): NativeRunSummary => { let s = index.get(app); if (!s) index.set(app, (s = {})); return s; };
   for (const r of chain) {
-    const n = r.native as { app?: unknown; outcome?: unknown; why?: unknown } | undefined;
+    const n = r.native as { app?: unknown; outcome?: unknown; why?: unknown; run?: unknown } | undefined;
     if (r.kind !== 'native' || !n || typeof n.app !== 'string' || typeof n.outcome !== 'string' || !OUTCOMES.has(n.outcome) || typeof r.ts !== 'string') continue;
     const s = get(n.app);
     const receipt = typeof r.hash === 'string' ? r.hash.replace(/^sha256_/, '').slice(0, 8) : undefined;
     const mark = { at: r.ts, ...(receipt ? { receipt } : {}) };
     if (!s.last || s.last.at < r.ts) s.last = { ...mark, outcome: n.outcome as NativeJudgement['outcome'], why: typeof n.why === 'string' ? n.why : '' };
-    if (n.outcome === 'ok' && r.status === 'ok' && (!s.demonstrated || s.demonstrated.at < r.ts)) s.demonstrated = mark;
+    const counts = n.app !== 'unreal' || unrealSucceeded(n.run, rules);
+    if (n.outcome === 'ok' && r.status === 'ok' && counts && (!s.demonstrated || s.demonstrated.at < r.ts)) s.demonstrated = mark;
   }
   for (const rec of records) {
     if (typeof rec.app !== 'string' || typeof rec.started_at !== 'string' || (rec.verdicts?.length ?? 0) > 0) continue;

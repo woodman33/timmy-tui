@@ -159,16 +159,25 @@ describe('the /tools row: installed only when the program is found; exercised on
     expect('exercised' in row).toBe(false);
   });
 
-  it('a sealed native receipt of Unreal judged ok marks it; a readback receipt, another app or the shared tool name never does', () => {
+  it('a sealed native receipt of Unreal judged ok marks it only when its run succeeded as unrealRunOutcome decides it (R4 H81: its readback agreed); a readback receipt, another app or the shared tool name never does', () => {
     const chain = [
       { kind: 'native', ts: '2026-10-10T01:00:00.000Z', status: 'ok', hash: 'sha256_aaaaaaaa1', native: { app: 'blender', outcome: 'ok', why: '' } },
       { kind: 'readback', ts: '2026-10-10T02:00:00.000Z', status: 'ok', hash: 'sha256_bbbbbbbb2' },
       { kind: 'turn', ts: '2026-10-10T03:00:00.000Z', status: 'ok', tools: ['run_native'] },
-      { kind: 'native', ts: '2026-10-10T04:00:00.000Z', status: 'failed', hash: 'sha256_cccccccc3', native: { app: 'unreal', outcome: 'failed', why: 'no result file' } },
+      { kind: 'native', ts: '2026-10-10T04:00:00.000Z', status: 'failed', hash: 'sha256_cccccccc3', native: { app: 'unreal', outcome: 'failed', why: 'no result file', run: 'r-failed' } },
     ];
+    const outcomes: Record<string, string> = { 'r-differs': 'differs', 'r-agrees': 'succeeded', 'r-failed': 'failed' };
+    const rules = { unrealOutcome: (run: string) => outcomes[run] };
+    expect(nativeExercisedAt('native:unreal', nativeRunIndex(chain, [], rules))).toBeUndefined();
+    // judged ok by its result, but its readback differed: not shown working
+    chain.push({ kind: 'native', ts: '2026-10-10T05:00:00.000Z', status: 'ok', hash: 'sha256_dddddddd4', native: { app: 'unreal', outcome: 'ok', why: 'x', run: 'r-differs' } });
+    expect(nativeExercisedAt('native:unreal', nativeRunIndex(chain, [], rules))).toBeUndefined();
+    // its readback agreed: shown working; with no rule to read its outcome, never
+    chain.push({ kind: 'native', ts: '2026-10-10T06:00:00.000Z', status: 'ok', hash: 'sha256_eeeeeeee5', native: { app: 'unreal', outcome: 'ok', why: 'x', run: 'r-agrees' } });
+    expect(nativeExercisedAt('native:unreal', nativeRunIndex(chain, [], rules))).toBe('2026-10-10T06:00:00.000Z');
     expect(nativeExercisedAt('native:unreal', nativeRunIndex(chain))).toBeUndefined();
-    chain.push({ kind: 'native', ts: '2026-10-10T05:00:00.000Z', status: 'ok', hash: 'sha256_dddddddd4', native: { app: 'unreal', outcome: 'ok', why: 'x' } });
-    expect(nativeExercisedAt('native:unreal', nativeRunIndex(chain))).toBe('2026-10-10T05:00:00.000Z');
+    // another app's ok receipt is not decided by Unreal's rule
+    expect(nativeExercisedAt('native:blender', nativeRunIndex(chain))).toBe('2026-10-10T01:00:00.000Z');
   });
 });
 

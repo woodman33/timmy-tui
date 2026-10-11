@@ -6,7 +6,8 @@
  * links and body hashes verify (verifyChain) and its own signature verifies. A chain that does not verify vouches for
  * nothing; a record with no receipt on it is not a run that counts.
  *   tools      a turn sealed under outcome rule 2 in which the tool completed (src/capabilities/live.ts exercisedTools)
- *   native     a receipt of that app judged ok (src/native nativeRunIndex)
+ *   native     a receipt of that app judged ok (src/native nativeRunIndex); R4 (H81): an Unreal run only when its outcome, as
+ *              unrealRunOutcome decides it, is succeeded (its newest readback agreed), read from the project's run records
  *   agents     a completed run of that agent, by its own route (src/code-agents agentExercisedIndex)
  *   VoxVision  a vox action whose record settled ok, for each tool it ran (never a viewer's launch: /vox view)
  *   MCP        a call answered through a command-line route (its mcp.call receipt; an error result does not count)
@@ -25,7 +26,7 @@ import { join } from 'node:path';
 import { agentExercisedIndex } from '../code-agents/index.js';
 import { CODEX_LOCAL_ROUTE } from '../code-agents/codex-local.js';
 import { QUALIFIED_PROTOCOL } from '../evidence/observation-check.js';
-import { nativeRunIndex } from '../native/index.js';
+import { nativeRunIndex, type NativeRunRules } from '../native/index.js';
 import { listRecipeJobs, recipeExercisedAt, verifiedResult } from '../recipes/index.js';
 import { verifySignature, type Receipt, type VerifyResult } from '../utils/receipts.js';
 import { VOX_SCHEMA } from '../vox/record.js';
@@ -70,7 +71,7 @@ const mark = (r: Obj, what: string, record?: string): RunMark => ({
  * the current epoch does not verify, nothing counts (as the rows' "used" dates have always been read). The chain is read
  * newest first, and a receipt's signature is checked only when it would be the run shown, so a long chain stays quick.
  */
-export function chainEvidence(chain: readonly Obj[], verify: VerifyResult): ChainEvidence {
+export function chainEvidence(chain: readonly Obj[], verify: VerifyResult, rules: NativeRunRules = {}): ChainEvidence {
   const runs = new Map<string, RunMark>();
   const qualified = new Map<string, QualifiedEvidence>();
   if (!verify.ok) return { runs, qualified, broken: verify.reason ?? 'the receipts chain does not verify' };
@@ -93,7 +94,8 @@ export function chainEvidence(chain: readonly Obj[], verify: VerifyResult): Chai
   }
 
   // Native apps: the receipt nativeRunIndex chose (judged ok, status ok), found on the chain by its time and short hash.
-  for (const [app, s] of nativeRunIndex(list as Array<Record<string, unknown>>)) {
+  // R4 (H81): an Unreal run only when its outcome, as unrealRunOutcome decides it, is succeeded (its readback agreed).
+  for (const [app, s] of nativeRunIndex(list as Array<Record<string, unknown>>, [], rules)) {
     const d = s.demonstrated;
     if (!d) continue;
     const r = list.find((x) => x.kind === 'native' && x.ts === d.at && typeof x.hash === 'string' && (!d.receipt || short(x.hash) === d.receipt) && obj(x.native)?.app === app);
@@ -101,7 +103,8 @@ export function chainEvidence(chain: readonly Obj[], verify: VerifyResult): Chai
     const n = obj(r.native)!;
     const run = str(n.run);
     const version = [n.blender_version, n.c4d_version, n.unreal_version].map((v) => (typeof v === 'string' || typeof v === 'number' ? String(v) : undefined)).find(Boolean);
-    runs.set(`native:${app}`, mark(r, `a ${app} run judged ok from its own result file${version ? ` (the app said version ${version})` : ''}`, run ? `.timmy/native/${run}/job.json` : undefined));
+    const readBack = app === 'unreal' ? ', and its newest readback by a second Unreal process agreed' : '';
+    runs.set(`native:${app}`, mark(r, `a ${app} run judged ok from its own result file${readBack}${version ? ` (the app said version ${version})` : ''}`, run ? `.timmy/native/${run}/job.json` : undefined));
   }
 
   // Code agents: the run agentExercisedIndex chose for each route.

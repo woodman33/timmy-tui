@@ -2200,7 +2200,8 @@ export class Workspace {
       const rows = this.d.roomTools ? await this.d.roomTools() : await (async () => {
         const { capabilities } = await import('../capabilities/index.js');
         const { liveDeps } = await import('../capabilities/live.js');
-        return capabilities(liveDeps({ env: this.d.env, model: this.d.model?.() ?? 'the configured model' }));
+        // R4 (H81): the project's own records (native runs, recipe jobs) are read in this REPL's project, never process.cwd()
+        return capabilities(liveDeps({ env: this.d.env, model: this.d.model?.() ?? 'the configured model', projectRoot: this.root }));
       })();
       this.roomTools = { checkedAt: new Date().toISOString(), rows: scrubRows(rows, (t) => this.scrub(t, this.root)) };
     } catch (err) {
