@@ -29,6 +29,7 @@ import path from 'node:path';
 import { AGENTS, AGENTS_DIR, endpointClass, listAgentRuns, readProgressTail, type AgentName, type AgentRunRecord } from '../code-agents/index.js';
 import { openHandsRouteWords } from '../code-agents/openhands.js';
 import type { CapabilityRow, Rung } from '../capabilities/index.js';
+import { RUNG_MEANS, RUNG_ORDER } from '../capabilities/ladder.js';
 import { cleanText, readMcpCalls } from '../connectors/mcp-records.js';
 import type { JobRecord } from '../jobs/index.js';
 import { listNativeRuns, NATIVE_APPS, readNativeRecord, type NativeApp } from '../native/index.js';
@@ -912,11 +913,17 @@ export function findRun(all: readonly RoomRun[], id: string): RoomRun | undefine
 
 // ── tools and connections ─────────────────────────────────────────────────────
 
+/** R4 (H76): a panel row's rung: a /tools rung, or "not checked" for a tool /tools has no row for (Houdini's placeholder). */
+export type PanelRung = Rung | 'not checked';
+/** A panel row: a /tools row as /tools gave it, or (`missing`) a placeholder for a tool /tools has no row for. */
+export type PanelRow = Omit<CapabilityRow, 'rung'> & { rung: PanelRung; missing?: true };
+const isRow = (r: PanelRow): r is CapabilityRow => !r.missing && r.rung !== 'not checked';
+
 /**
  * A panel group; `advanced`, the rows outside the named groups (an advanced view: the board folds it away). R4 (H65): `apart`,
  * a group the panel draws on its own whose rows /room's needs-setup line still counts with the other rows (VoxVision's).
  */
-export interface ToolGroup { title: string; rows: Array<CapabilityRow & { missing?: true }>; note?: string; advanced?: true; apart?: true }
+export interface ToolGroup { title: string; rows: PanelRow[]; note?: string; advanced?: true; apart?: true }
 
 /** Which /tools rows go in which panel group. */
 // r21 (ledger row 163): Unreal's row sat under "everything else", and so did OpenHands' (ids from src/native/index.ts and
@@ -941,7 +948,8 @@ export function toolGroups(rows: readonly CapabilityRow[]): ToolGroup[] {
   const used = new Set<string>();
   const take = (list: CapabilityRow[]): CapabilityRow[] => { for (const r of list) used.add(r.id); return list; };
   const creative = take(by(CREATIVE));
-  const houdini: CapabilityRow & { missing: true } = { id: 'houdini', kind: 'adapter', name: 'Houdini', rung: 'not built', detail: '/tools has no row for Houdini, so nothing was checked here', missing: true };
+  // R4 (H76): not "proposed" (the engine shelf runs Houdini: lanes/engines/houdini) and not "needs setup": simply not checked.
+  const houdini: PanelRow = { id: 'houdini', kind: 'adapter', name: 'Houdini', rung: 'not checked', detail: '/tools has no row for Houdini, so nothing was checked here', missing: true };
   const groups: ToolGroup[] = [
     { title: 'Creative apps', rows: [...creative, ...(rows.some((r) => /houdini/i.test(r.id)) ? [] : [houdini])] },
     { title: 'Agents', rows: take(by(AGENTS_ROWS)) },
@@ -957,24 +965,48 @@ export function toolGroups(rows: readonly CapabilityRow[]): ToolGroup[] {
 
 /** The named groups' rows that need setup (the step shown), in the panel's order; /tools' other rows are counted apart. */
 export function needsSetup(rows: readonly CapabilityRow[]): CapabilityRow[] {
-  return toolGroups(rows).filter((g) => !g.advanced && !g.apart).flatMap((g) => g.rows.filter((r) => r.rung === 'needs setup' && !('missing' in r)));
+  return toolGroups(rows).filter((g) => !g.advanced && !g.apart).flatMap((g) => g.rows.filter(isRow).filter((r) => r.rung === 'needs setup'));
 }
 
 /** How many rows the named groups hold (Houdini's placeholder not counted), and how many of /tools' other rows need setup. */
 export function setupCounts(rows: readonly CapabilityRow[]): { named: number; otherNeedSetup: number } {
   const groups = toolGroups(rows);
   return {
-    named: groups.filter((g) => !g.advanced && !g.apart).reduce((n, g) => n + g.rows.filter((r) => !('missing' in r)).length, 0),
+    named: groups.filter((g) => !g.advanced && !g.apart).reduce((n, g) => n + g.rows.filter(isRow).length, 0),
     otherNeedSetup: groups.filter((g) => g.advanced || g.apart).reduce((n, g) => n + g.rows.filter((r) => r.rung === 'needs setup').length, 0),
   };
 }
 
-/** A tools check's rows with the project's and home folders scrubbed from their words (the /tools wording otherwise kept). */
-export function scrubRows(rows: readonly CapabilityRow[], scrub: (t: string) => string): CapabilityRow[] {
-  return rows.map((r) => ({ ...r, name: scrub(r.name), detail: scrub(r.detail), ...(r.setup ? { setup: scrub(r.setup) } : {}) }));
+/** Every string inside a value, passed through `f` (the ladder's evidence and its words). */
+function scrubDeep<T>(v: T, f: (t: string) => string): T {
+  if (typeof v === 'string') return f(v) as T;
+  if (Array.isArray(v)) return v.map((x) => scrubDeep(x, f)) as T;
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrubDeep(x, f)])) as T;
+  return v;
 }
 
-/** A rung as the ladder words it (src/capabilities/render.ts's legend). */
-export const RUNG_WORDS: Readonly<Record<Rung, string>> = {
-  'reachable': 'answered just now', 'installed': 'here, not contacted', 'needs setup': 'do the step', 'not built': 'planned only',
-};
+/**
+ * A tools check's rows with the project's and home folders scrubbed from their words (the /tools wording otherwise kept).
+ * R4 (H76): the ladder's evidence and words too (a program's folder, a record's path).
+ */
+export function scrubRows(rows: readonly CapabilityRow[], scrub: (t: string) => string): CapabilityRow[] {
+  return rows.map((r) => ({
+    ...r, name: scrub(r.name), detail: scrub(r.detail), ...(r.setup ? { setup: scrub(r.setup) } : {}),
+    ...(r.ladder ? { ladder: scrubDeep(r.ladder, scrub) } : {}), ...(r.notReached ? { notReached: scrubDeep(r.notReached, scrub) } : {}),
+  }));
+}
+
+/** A rung as the ladder words it (src/capabilities/ladder.ts RUNG_MEANS, the legend of /tools). */
+export const RUNG_WORDS: Readonly<Record<PanelRung, string>> = { ...RUNG_MEANS, 'not checked': '/tools has no row for it' };
+
+/** R4 (H76): how many rows stand on each rung, and how many rows have a demonstration on the Mac (and with a FAIL). */
+export function ladderCounts(rows: readonly CapabilityRow[]): { rungs: Record<Rung, number>; mac: number; macFailed: number } {
+  const rungs = Object.fromEntries(RUNG_ORDER.map((r) => [r, 0])) as Record<Rung, number>;
+  let mac = 0;
+  let macFailed = 0;
+  for (const r of rows) {
+    if (r.rung in rungs) rungs[r.rung] += 1;
+    if (r.demonstrated?.length) { mac += 1; if (r.demonstrated.some((d) => d.result === 'FAIL')) macFailed += 1; }
+  }
+  return { rungs, mac, macFailed };
+}

@@ -6,7 +6,7 @@
  */
 import type { GlyphSet } from '../term/glyphs.js';
 import type { Role, Segment } from '../term/theme.js';
-import { costsLine, findRun, needsSetup, NOT_OURS, setupCounts, type Room, type RoomRun, type RoomView, type Tone } from './index.js';
+import { costsLine, findRun, ladderCounts, needsSetup, NOT_OURS, setupCounts, type Room, type RoomRun, type RoomView, type Tone } from './index.js';
 import { mark as opMark } from '../ops/card-text.js';
 import type { CardTone } from '../ops/card.js';
 import { roomDecisionLines } from './decisions-text.js';
@@ -86,6 +86,10 @@ export function roomLines(v: RoomView, o: RoomTextOptions): Line[] {
   if (!v.tools) {
     lines.push([{ text: '  TOOLS        ', role: 'strong' }, { text: 'not checked here yet', role: 'secondary' }]);
   } else {
+    // R4 (H76): the ladder at a glance, and what the Mac's demonstrations cover (a separate fact; /tools <name> in full).
+    const lc = ladderCounts(v.tools.rows);
+    const on = (['qualified', 'exercised', 'reachable', 'installed', 'proposed', 'needs setup'] as const).filter((r) => lc.rungs[r]).map((r) => `${lc.rungs[r]} ${r}`).join(sep);
+    lines.push([{ text: '  LADDER       ', role: 'strong' }, { text: `${on || 'no rows'}${sep}on the Mac (scripted): ${lc.mac} ${lc.mac === 1 ? 'row' : 'rows'} demonstrated${lc.macFailed ? `, ${lc.macFailed} with a failed run` : ''}; one in full: /tools <name>`, role: 'secondary' }]);
     const setup = needsSetup(v.tools.rows);
     const counts = setupCounts(v.tools.rows);
     lines.push([{ text: '  NEEDS SETUP  ', role: 'strong' }, { text: `${setup.length} of the ${counts.named} creative, agent, MCP, vision and model tools${sep}checked ${stamp(v.tools.checkedAt)}`, role: 'secondary' }]);

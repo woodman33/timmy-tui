@@ -51,7 +51,7 @@ import { canvasView } from './canvas-view.js';
 import { CanvasProject } from './canvas-project.js';
 import { capabilities } from '../capabilities/index.js';
 import { liveDeps } from '../capabilities/live.js';
-import { capabilityLines } from '../capabilities/render.js';
+import { toolsView } from '../capabilities/render.js';
 
 export interface ReplFlags {
   demo?: boolean;
@@ -395,10 +395,11 @@ export async function runRepl(argv: string[]): Promise<number> {
     // R4 (H55): /canvas names the project the canvas shows; /canvas open names this REPL's project to it first.
     project: { handOff: () => canvasProject.handOff(), check: () => canvasProject.check(), mine: () => ({ name: workspace.project.name, id: projectId(workspace.root) }) },
   });
-  // Round R1: /tools, every capability on the ladder, from live checks that write nothing.
+  // Round R1: /tools, every capability on the ladder, from live checks that write nothing. R4 (H76): /tools <name>, one
+  // row in full (each rung's evidence and its demonstrations on the Mac), looked for among every row.
   const tools = async (args: string): Promise<Segment[][]> => {
-    const rows = await capabilities(liveDeps({ env: process.env, key: () => config.apiKey ?? null, model: agent.getModel() }), { all: args.trim() === 'all' });
-    return capabilityLines(rows, theme.glyphs, size.columns);
+    const rows = await capabilities(liveDeps({ env: process.env, key: () => config.apiKey ?? null, model: agent.getModel() }), { all: args.trim() !== '' });
+    return toolsView(rows, args, theme.glyphs, size.columns);
   };
   let lastCanvas: CanvasJobResult[] = [];
   let lastLinks: Array<Promise<{ job: string; ok: boolean }>> = [];
