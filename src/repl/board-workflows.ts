@@ -53,7 +53,7 @@ import { isCheckedCopy, parseWorkflow, runOrder, type WorkflowBlock } from '../w
 import { isLiveRun, type PtyReady } from '../workflows/upmd-live.js';
 // R4 (H67): one reading of a run's blocks for the card, /workflows and /jobs; the wrapper's account in words
 import { blockDetail, NOT_SEEN_WHY, runBlocks, secondsText, type RunBlockWord } from '../workflows/run-blocks.js';
-import { wrapperDid } from '../workflows/pty-stop.js';
+import { starterIn, wrapperDid } from '../workflows/pty-stop.js';
 // R4 (H74): each block's own receipt, from the chain
 import { blockReceiptsOf, blockReceiptWords, type BlockReceipt } from '../workflows/block-receipts.js';
 import { RISKY_REASON, riskyCode } from './workflow-risk.js'; // R4 (H74): the blocks that need a person before they run
@@ -122,6 +122,8 @@ export interface WorkflowRun {
   interruptedHow?: 'gone' | 'recorded gone' | 'recovery stopped it';
   /** R4 (H67): what its pty wrapper's stop file said, when recovery ended the record with it */
   wrapper?: WrapperAccount;
+  /** R4 (H88): the Timmy its record says started it (its REPL, timmy md, timmy act), for the wrapper's account in words */
+  starter?: string;
   /** R4 (H67): the record's own words beside its state (a run whose end only its wrapper saw says so) */
   note?: string;
   /** the files the run wrote, from its sealed outcome (at most 8 here), each with what it is now */
@@ -364,7 +366,7 @@ function readRun(j: JobRecord, target: string, w: WorkflowDocInput, c: ConnectCo
     ...(j.error ? { error: c.scrub ? c.scrub(j.error) : j.error } : {}), ...(j.receipt ? { receipt: j.receipt } : {}),
     ...(typeof sealed?.met === 'boolean' ? { met: sealed.met } : {}), ...(predId ? { predicted: predId } : {}),
     blocks, ...(interruptedAt ? { interruptedAt } : {}), live: pty, ...(interruptedHow ? { interruptedHow } : {}),
-    ...(wrapper ? { wrapper } : {}), ...(j.note ? { note: c.scrub ? c.scrub(j.note) : j.note } : {}),
+    ...(wrapper ? { wrapper, starter: starterIn(j.error ?? j.note) } : {}), ...(j.note ? { note: c.scrub ? c.scrub(j.note) : j.note } : {}),
     outputs: [], outputsMore: Math.max(0, files.length - OUTPUTS_SHOWN), ...(docSha ? { docSha256: docSha } : {}),
     sealedOutputs: files.slice(0, OUTPUTS_SHOWN),
   };
@@ -536,7 +538,7 @@ function interruptedWhile(r: WorkflowRun): string {
 /** R4 (H58): how its end was found: its process gone, or recorded by a later session's recovery. R4 (H67): or what its pty
  *  wrapper's stop file said (it stops upmd itself once its REPL has ended). */
 function interruptedHowWords(r: WorkflowRun): string {
-  if (r.wrapper) return `${wrapperDid(r.wrapper)}${r.interruptedAt ? `, so how ${r.interruptedAt} would have ended is not known` : ''}`;
+  if (r.wrapper) return `${wrapperDid(r.wrapper, r.starter)}${r.interruptedAt ? `, so how ${r.interruptedAt} would have ended is not known` : ''}`;
   return r.interruptedHow === 'recovery stopped it' ? 'a later session\'s recovery stopped its process group, so how the block would have ended is not known'
     : r.interruptedHow === 'recorded gone' ? 'its process was gone when a later session\'s recovery recorded its end, so how it ended is not known'
       : 'its process is gone, so how it ended is not known';
@@ -652,7 +654,7 @@ function lastHtml(w: WorkflowDocInput, n: NodeView, c: ConnectedWorkflow, k: Kit
   const again = `Nothing resumes it: /run ${w.rel} ${r.target} runs it again.`;
   // R4 (H67): what its pty wrapper saw once its REPL had ended, and what is not known
   const say = at.word === 'interrupted'
-    ? (r.wrapper ? `It was running when the session that ran ${r.job} ended; ${wrapperDid(r.wrapper)}, so how it would have ended is not known. ${again}` : `It was running when the session that ran ${r.job} ended; how it ended is not known. ${again}`)
+    ? (r.wrapper ? `It was running when the session that ran ${r.job} ended; ${wrapperDid(r.wrapper, r.starter)}, so how it would have ended is not known. ${again}` : `It was running when the session that ran ${r.job} ended; how it ended is not known. ${again}`)
     : at.word === 'stopped' ? `It was running when ${r.job} was stopped; upmd did not finish it.`
     : at.word === 'not run' ? `upmd did not reach it in ${r.job}${chain ? ` (the chain stopped at ${chain.name})` : r.word === 'interrupted' && r.wrapper?.stopped ? ` (its pty wrapper stopped upmd before ${n.name} could start, as the REPL that ran it had ended)` : ''}.`
       : at.word === 'not seen' ? `Not seen in ${r.job}: ${NOT_SEEN_WHY}. ${again}`
@@ -811,7 +813,7 @@ export function workflowSummaryLines(w: WorkflowDocInput, o: { sep: string; link
     if (r.word === 'interrupted') {
       // R4 (H58): the block that was running then, and how the run's end was found; R4 (H67): what its wrapper saw
       const what = r.interruptedAt ? `${r.interruptedAt} ran` : r.live ? 'no block ran' : 'it ran (which block is not known)';
-      const how = r.wrapper ? wrapperDid(r.wrapper) : r.interruptedHow === 'recovery stopped it' ? 'recovery stopped its process group' : r.interruptedHow === 'recorded gone' ? 'its process was gone; recovery recorded its end' : 'its process is gone';
+      const how = r.wrapper ? wrapperDid(r.wrapper, r.starter) : r.interruptedHow === 'recovery stopped it' ? 'recovery stopped its process group' : r.interruptedHow === 'recorded gone' ? 'its process was gone; recovery recorded its end' : 'its process is gone';
       lines.push([{ text: `             its session ended while ${what}; ${how}${afterWords(r)}. Nothing resumes it: /run ${w.rel} ${r.target} runs it again.`, role: 'estimate' }]);
     } else if (r.blocks.some((b) => b.seen === 'wrapper')) {
       lines.push([{ text: `             ${r.note ?? 'its REPL did not see it end'}`, role: 'estimate' }]);

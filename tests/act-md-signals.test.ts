@@ -221,6 +221,36 @@ describe('R4 (H88; r23): a second SIGINT 80 ms after the first, during the stop:
     expect(jobRecord(s, job)).toMatchObject({ exitedAtOnce: { sealed: true } });
     await ws.recover('');
     expect(blocksOf(s, job)).toHaveLength(2);
+    // R4 (H88; r23): /op calls the run by its record's own word (cancelled), as /jobs does; it said "stopped"
+    const card = text(ws.op(op));
+    expect(card).toMatch(new RegExp(`${job}[^\\n]*cancelled · `));
+    expect(card).not.toMatch(/\bstopped · /);
+  }, 120_000);
+
+  it('R4 (H88; r23): timmy md killed (SIGKILL) while a block runs: /recover names timmy md as what started it; /jobs says how it ran (no absolute path) and when its end was recorded, not "88 min"', async () => {
+    const s = box('h88-md-killed-');
+    const r = timmy(s, ['md', 'LONG.md', 'long', '--json']);
+    await until(() => fs.existsSync(path.join(s.root, 'long.started')), 60_000, 'the long block');
+    await new Promise((z) => { setTimeout(z, 300); });
+    group(r, 'SIGKILL');
+    await r.done;
+    const job = fs.readdirSync(path.join(s.home, 'timmy', 'jobs')).find((f) => /^j[0-9a-f]{6}\.json$/.test(f))!.slice(0, 7);
+    // its pty wrapper sees its parent gone, stops upmd and writes its stop file; then a REPL's recovery records the run
+    await until(() => { const j = jobRecord(s, job) as { pid?: number }; try { process.kill(-j.pid!, 0); return false; } catch { return true; } }, 30_000, 'the run\'s wrapper to end');
+    const { ws } = replOf(kit, s);
+    await ws.recover('');
+    const rec = jobRecord(s, job) as { error?: string; note?: string; state: string };
+    // before: "interrupted: its REPL ended while long was running; …" for a run timmy md started
+    expect(`${rec.error ?? ''}${rec.note ?? ''}`).toMatch(/^interrupted: its timmy md ended while long was running/);
+    expect(`${rec.error ?? ''}${rec.note ?? ''}`).not.toContain('its REPL');
+    const said = text(ws.jobsView(job));
+    const lines = said.split('\n');
+    expect(lines[0]).toMatch(new RegExp(`${job} .* ended unseen: a later recovery recorded its end at \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} UTC, after the Timmy that ran it had ended`));
+    expect(lines[0]).toMatch(/ ended unseen: a later recovery recorded its end at .+; its blocks' own times: first (<0\.1|\d+\.\d) s, long \d+\.\d s · interrupted: its session ended while long ran; its pty wrapper saw its timmy md end/);
+    expect(lines[0]).not.toMatch(/steps · \d/);
+    const ran = lines.find((l) => l.startsWith('  Ran      '))!;
+    expect(ran).toMatch(/^ {2}Ran {6}\S*python3(\.\d+)? -I \[Timmy\]\/workers\/upmd\/pty_run\.py --parent \d+ --stop-file \[Timmy home\]\/jobs\/runs\/w[0-9a-f]{8}\/\S+ -- \[Timmy\]\/tests\/fixtures\/fake-upmd\.mjs --ci -b long -d \[project project\] \[Timmy home\]\/jobs\/runs\/w[0-9a-f]{8}\/checked\.md$/);
+    expect(said).not.toContain(s.base);
   }, 120_000);
 
   it('timmy act \'/run …\', inside the stop (a block that ignores SIGTERM): its JSON says it exited at once and settled the run\'s job record', async () => {
