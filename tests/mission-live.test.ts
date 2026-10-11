@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'fs';
-import { startLogServer } from '../src/utils/logserver.js';
+import { startManagedLogServer, type LogServerHandle } from '../src/utils/logserver.js';
 import { issueApproval } from '../src/utils/approvals.js';
 import { appendReceipt } from '../src/utils/receipts.js';
 import { buildAgentPass } from '../src/utils/agent-pass.js';
@@ -12,11 +12,15 @@ import { busPath } from '../src/bus/index.js';
 // event bus the studio streams. DRYRUN exercises the mechanics without a
 // real container; approval/isolation gates still apply.
 let port = 0;
+let logs: LogServerHandle;
+// R4 (H84): the gateway's routes need the token the page's address carries
+const auth = (): Record<string, string> => ({ Authorization: `Bearer ${/#t=([0-9a-f]{64})$/.exec(logs.url)?.[1]}` });
 beforeAll(async () => {
   process.env.TIMMY_DISPATCH_DRYRUN = '1';
-  port = await startLogServer({ port: 4397 });
+  logs = await startManagedLogServer({ port: 4397 });
+  port = logs.port;
 });
-afterAll(() => { delete process.env.TIMMY_DISPATCH_DRYRUN; });
+afterAll(async () => { delete process.env.TIMMY_DISPATCH_DRYRUN; await logs?.stop(); });
 
 const DOC = {
   nodes: [
@@ -27,7 +31,7 @@ const DOC = {
 };
 
 const post = async (p: number, path: string, body: unknown) =>
-  (await fetch(`http://127.0.0.1:${p}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
+  (await fetch(`http://127.0.0.1:${p}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...auth() }, body: JSON.stringify(body) })).json();
 
 describe('mission studio live launch (:4310/mission)', () => {
   it('compiles openhands+docker capsules with the container workspace kind', async () => {
@@ -60,7 +64,7 @@ describe('mission studio live launch (:4310/mission)', () => {
       .filter((e: { payload?: { plan_id?: string } }) => e.payload?.plan_id === s.id);
     expect(evs.some((e: { kind: string }) => e.kind === 'dispatch.container_started')).toBe(true);
     expect(evs.some((e: { kind: string }) => e.kind === 'dispatch.container_done')).toBe(true);
-    const plans = await (await fetch(`http://127.0.0.1:${port}/dispatch`)).json();
+    const plans = await (await fetch(`http://127.0.0.1:${port}/dispatch`, { headers: auth() })).json();
     expect(plans.find((p: { id: string }) => p.id === s.id).lifecycle).toBe('judging');
   });
 
@@ -92,7 +96,7 @@ describe('mission studio live launch (:4310/mission)', () => {
     const a = armEscrow({ plan_hash: 'f'.repeat(64), ceiling_usd: 1, qa_threshold: 0.5 });
     expect(a.ok).toBe(true);
     lockEscrow(a.escrow!.escrow_id);
-    const r = await (await fetch(`http://127.0.0.1:${port}/mission/escrows`)).json();
+    const r = await (await fetch(`http://127.0.0.1:${port}/mission/escrows`, { headers: auth() })).json();
     expect(r.ok).toBe(true);
     const row = r.escrows.find((e: { escrow_id: string }) => e.escrow_id === a.escrow!.escrow_id);
     expect(row).toBeTruthy();
