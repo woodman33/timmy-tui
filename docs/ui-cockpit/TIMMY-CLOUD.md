@@ -29,6 +29,7 @@ one; it also type-checks `tests/cloud-*.test.ts`).
 | `redaction.ts` | the agency credential (environment or a 0600 file), redaction, token hashes |
 | `simulated-provider.ts` | the SIMULATED provider: an in-memory HTTP server with scripted outcomes and faults |
 | `simulated-adapter.ts` | the adapter for the simulated provider, over HTTP |
+| `simulated-main.ts` | the simulated provider as a process of its own, for trying the backend by hand |
 | `failpoints.ts` | a test hook that kills the backend's own process at a named point (off unless set) |
 | `main.ts` | the process: `node --import tsx services/cloud/main.ts --data <folder> --provider-url <url>` |
 | `test-support.ts` | helpers for the tests (not part of the backend) |
@@ -230,9 +231,31 @@ without client references; a VPS that waits for a person; links and setups settl
 Retry-After, also across a restart; the planted credential), `tests/cloud-crash.test.ts` (real backend processes killed
 with SIGKILL before and half way through each of an order's writes, after a call was written ahead, after it was
 answered; SIGKILL and SIGTERM during a provider call; one backend per folder), `tests/cloud-redaction.test.ts` (start
-refusals and a planted credential, in a real process) and `tests/cloud-model.test.ts` (the reducer, cut lines, the
-simulated provider's modelled behaviours, redaction, tokens). Type checks: `npx tsc --noEmit -p services/cloud` and
+refusals and a planted credential, in a real process), `tests/cloud-process.test.ts` (the two processes started as below,
+one order) and `tests/cloud-model.test.ts` (the reducer, cut lines, the simulated provider's modelled behaviours,
+redaction, tokens). Type checks: `npx tsc --noEmit -p services/cloud` and
 `npx tsc --noEmit -p .`.
+
+## Trying it by hand (simulated only)
+
+From a clone at this branch, with a made-up credential that the simulated provider and the backend share (never a real
+one), and an operator token given to the backend only as its sha256:
+
+```sh
+export TIMMY_CLOUD_AGENCY_TOKEN="sim-$(openssl rand -hex 24)"
+OPERATOR_TOKEN="tc_$(openssl rand -hex 32)"
+OPERATOR_SHA=$(printf %s "$OPERATOR_TOKEN" | shasum -a 256 | cut -d' ' -f1)
+node --import tsx services/cloud/simulated-main.ts --port 8790 &
+node --import tsx services/cloud/main.ts --data "$(mktemp -d)/cloud" --provider-url http://127.0.0.1:8790 \
+  --operator-token-sha256 "$OPERATOR_SHA" --port 8791 &
+curl -s -X POST http://127.0.0.1:8791/v1/operator/customers -H "Authorization: Bearer $OPERATOR_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"limits":{"per_order_cents":5000,"monthly_cents":9000},"subscription":"active"}'
+```
+
+The answer carries the customer's token once. Then `POST /v1/orders` with that token and an `Idempotency-Key` header
+(`{"kind":"domain","item_id":"sim-domain-com-1y","domain":"by-hand.example"}`), `POST
+/v1/operator/orders/<id>/approve` with the operator's token, and `GET /v1/operator/overview`. Both processes stop on
+SIGTERM; the data folder holds `events.jsonl` and `backend.log`.
 
 ## Open
 

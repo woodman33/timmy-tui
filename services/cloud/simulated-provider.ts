@@ -124,12 +124,12 @@ export class SimulatedProvider {
 
   get url(): string { return `http://127.0.0.1:${this.port}`; }
 
-  start(): Promise<string> {
+  start(port = 0): Promise<string> {
     return new Promise((resolve, reject) => {
       const server = createServer((req, res) => { void this.handle(req, res); });
       server.on('connection', (s) => { this.sockets.add(s); s.on('close', () => this.sockets.delete(s)); });
       server.once('error', reject);
-      server.listen({ host: '127.0.0.1', port: 0 }, () => {
+      server.listen({ host: '127.0.0.1', port }, () => {
         server.off('error', reject);
         this.port = (server.address() as AddressInfo).port;
         this.server = server;
