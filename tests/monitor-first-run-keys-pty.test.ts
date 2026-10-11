@@ -20,7 +20,7 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-async function firstRunAnd(key: 'Enter' | 'q' | 'Escape' | 'C-c') {
+async function firstRunAnd(key: 'Enter' | 'C-j' | 'q' | 'Escape' | 'C-c') {
   const h = monitorHome('first-run', { git: true });
   // as `timmy watch` runs: with its browser companion (whose server alone kept the old monitor alive after q)
   const script = `sleep 0.5; S0=$(stty -g); ${process.execPath} --import ${LOADER} ${MONITOR} --companion-port ${await freePort()}; echo EXIT=$?; [ "$(stty -g)" = "$S0" ] && echo TTY=same || echo TTY=changed; sleep 60`;
@@ -32,7 +32,7 @@ async function firstRunAnd(key: 'Enter' | 'q' | 'Escape' | 'C-c') {
     // while the screen is up, the terminal is in raw mode: a key is the monitor's, never echoed
     const raw = /-icanon/.test(execFileSync('sh', ['-c', `stty -a < '${tty}'`], { encoding: 'utf8' }));
     h.tmux('send-keys', '-t', 't', key);
-    if (key === 'Enter') {
+    if (key === 'Enter' || key === 'C-j') {
       await h.waitFor(/PICK A BRAIN/, 10_000);
       return { key, raw, acted: 'setup began' };
     }
@@ -47,6 +47,11 @@ async function firstRunAnd(key: 'Enter' | 'q' | 'Escape' | 'C-c') {
 describe('the monitor\'s FIRST RUN screen in a PTY (R4 H87)', () => {
   it('Enter begins the setup', async () => {
     expect(await firstRunAnd('Enter')).toEqual({ key: 'Enter', raw: true, acted: 'setup began' });
+  }, 90_000);
+  // Ink reads a newline (Ctrl+J, or an Enter typed while the terminal was still line by line, which turns it into one) as
+  // "enter", not "return": the first page took only "return"
+  it('a newline (Ctrl+J) begins the setup too', async () => {
+    expect(await firstRunAnd('C-j')).toEqual({ key: 'C-j', raw: true, acted: 'setup began' });
   }, 90_000);
   it('q leaves: the monitor ends (0) and the terminal comes back as it was', async () => {
     expect(await firstRunAnd('q')).toEqual({ key: 'q', raw: true, exit: 0, tty: 'same', alternate: '0' });

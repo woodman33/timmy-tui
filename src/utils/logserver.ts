@@ -1017,6 +1017,9 @@ export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogS
         return;
       }
       port = address.port;
+      // R4 (H87): an error of the listening server itself (a connection it could not take) never ends it either
+      server.removeListener('error', reject);
+      server.on('error', () => undefined);
       tailOffset = existsSync(eventsPath()) ? statSync(eventsPath()).size : 0;
       const poll = tailLoop();
       // R4 (H84): the token for this user's other programs, while this server runs

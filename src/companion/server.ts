@@ -587,6 +587,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   });
 
   wss.on('connection', (ws) => {
+    // R4 (H87): a client's broken frame or a dropped socket ends that client, never the monitor
+    ws.on('error', () => { clients.delete(ws); });
     clients.add(ws);
     logger.info(`Companion client connected (total: ${clients.size})`);
     ws.send(JSON.stringify({ type: 'state', state: currentState }));
@@ -669,6 +671,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     // R4 (H84): this computer only, unless the operator asked for the network (--lan)
     httpServer.listen(port, options.lan ? '0.0.0.0' : '127.0.0.1', onListening);
   });
+  // R4 (H87): an error of the listening server itself (a connection it could not take) never ends the monitor
+  httpServer.on('error', () => undefined);
   const bound = (httpServer.address() as import('net').AddressInfo).port;
   const host = options.lan ? '0.0.0.0' : '127.0.0.1';
 
