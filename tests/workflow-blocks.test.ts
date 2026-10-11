@@ -190,7 +190,9 @@ describe('one receipt per block, sealed as it ends (the test-double upmd over a 
     const doc = [
       '# Records', '',
       `${F}bash [name:make]`, writer('f0000000a', 'process.env.TIMMY_OPERATION', 0, 'a'), writer('f0000000b', 'process.env.TIMMY_OPERATION', 3_600_000, 'd'), writer('f0000000c', '"o00000000"', 0, 'e'), F, '',
-      `${F}bash [name:next, deps:make]`, writer('f0000000d', 'process.env.TIMMY_OPERATION', 0, 'f'), F, '',
+      // the lead: a pause first, so the block's start (as the REPL reads it from upmd's output, later under load) comes before
+      // the record's: its run lies inside the block's window, as a real `timmy act` started by a block always does
+      `${F}bash [name:next, deps:make]`, 'sleep 1', writer('f0000000d', 'process.env.TIMMY_OPERATION', 0, 'f'), F, '',
     ].join('\n');
     const root = project({ 'REC.md': doc });
     const { ws } = make(root);

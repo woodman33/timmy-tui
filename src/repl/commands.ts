@@ -302,7 +302,7 @@ export const COMMANDS: SlashCommand[] = [
   {
     name: 'tools',
     group: 'setup',
-    description: 'What works here, checked live; /tools all; /tools <name>',
+    description: 'What works here, checked live; all or <name>',
     run: (args, ctx) => printView(ctx.tools, args, ctx, 'The tool check is not available here.'),
   },
   {
