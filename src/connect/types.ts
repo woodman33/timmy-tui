@@ -86,8 +86,9 @@ export interface RemoteStatus {
   stop_signal?: string;
   /** who wrote the end: the job's supervisor, or a stop that had to end its group with KILL */
   by?: string;
-  /** whether its first process still runs: yes, no, or a different process now has its pid (reused) */
-  alive?: 'yes' | 'no' | 'reused';
+  /** whether its first process still runs: yes (the same start time), no, reused (another process has its pid now), or
+   *  unchecked (it runs, and no start time was recorded there to say it is the same one) */
+  alive?: 'yes' | 'no' | 'reused' | 'unchecked';
   /** the stop the device recorded */
   stop?: { asked_at?: string; signals: string[] };
   /** the last lines of its output (scrubbed before they are stored) */

@@ -40,7 +40,7 @@ export function jobWords(j: RemoteJobRecord): string {
         ? `submitted ${on} ${when(j.submitted_at)}: claimed there, and its supervisor wrote no status (read ${when(s.read_at)}); Timmy will not start it again`
         : `submitted ${on} ${when(j.submitted_at)}, not confirmed by ${j.device}${j.unknown ? `: ${j.unknown.why}` : s ? ` (read ${when(s.read_at)}: ${s.where === 'absent' ? 'no folder for it there' : 'its folder is there, not started'})` : ''}`;
     case 'running':
-      return `running ${on}: its status file said so ${when(s?.read_at)}${s?.started_at ? ` (started ${when(s.started_at)})` : ''}`;
+      return `running ${on}: its status file said so ${when(s?.read_at)}${s?.started_at ? ` (started ${when(s.started_at)})` : ''}${s?.alive === 'unchecked' ? '; ps gave no start time there, so that it is the same process is not checked (a stop will refuse to signal)' : ''}`;
     case 'ended':
       return s?.state === 'ended'
         ? `ended ${on} ${when(s.ended_at)}: ${exitWords(s)}`

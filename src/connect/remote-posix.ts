@@ -11,8 +11,9 @@
  *   and that process's start time as ps says it), then ended (its exit status, the signal a stop sent);
  * - exactly one run per id: the job folder is created exclusively (the answer says whether this call made it), and the
  *   run starts only for the call that creates its `claim` folder; any later call with the same id starts nothing;
- * - a stop signals the job's process group only after checking that its first process still has the recorded start time,
- *   so a reused pid is never signalled; `ps` reads LC_ALL=C TZ=UTC, so the start time reads the same in every session.
+ * - a stop signals the job's process group only after checking that its first process still has the recorded start time
+ *   and still leads the recorded group, so a reused pid is never signalled; `ps` reads LC_ALL=C TZ=UTC, so the start time
+ *   reads the same in every session. Where ps gives no start time, a status says "unchecked" and a stop refuses to signal.
  */
 import { printfChunks, shQuote, wholeOrNothing } from './shells.js';
 
@@ -25,6 +26,15 @@ const HELPERS: readonly string[] = [
   'timmy_live() { ps -A -o pgid=,stat= 2>/dev/null | awk -v g="$1" \'$1 == g && $2 !~ /^Z/ { f = 1 } END { exit !f }\'; }',
   'timmy_nap() { sleep 0.2 2>/dev/null || sleep 1; }',
   'timmy_value() { sed -n "s/^$1=//p" "$2" 2>/dev/null | head -n 1; }',
+  // whether the job's first process (its supervisor) still runs, the same one: yes (its start time is the recorded one), no,
+  // reused (that pid has another start time now), or unchecked (no start time was recorded there: ps gave none)
+  'timmy_alive() {',
+  '  pid=$(timmy_value pid "$job/status"); rec=$(timmy_value pid_start "$job/status")',
+  '  case $pid in \'\'|*[!0-9]*) echo no; return ;; esac',
+  '  if [ -z "$rec" ]; then if kill -0 "$pid" 2>/dev/null; then echo unchecked; else echo no; fi; return; fi',
+  '  now=$(timmy_start_of "$pid")',
+  '  if [ -z "$now" ]; then echo no; elif [ "$now" = "$rec" ]; then echo yes; else echo reused; fi',
+  '}',
   'timmy_sha256() {',
   '  if command -v sha256sum >/dev/null 2>&1; then sha256sum < "$1" | cut -c1-64',
   '  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 < "$1" | cut -c1-64',
@@ -41,12 +51,7 @@ const HELPERS: readonly string[] = [
   '  else',
   '    echo "where=status"',
   '    cat "$job/status"',
-  '    pg=$(timmy_value pgid "$job/status"); rec=$(timmy_value pid_start "$job/status")',
-  '    case $pg in',
-  '      \'\'|*[!0-9]*) echo "alive=no" ;;',
-  '      *) now=$(timmy_start_of "$pg")',
-  '         if [ -z "$now" ]; then echo "alive=no"; elif [ "$now" = "$rec" ]; then echo "alive=yes"; else echo "alive=reused"; fi ;;',
-  '    esac',
+  '    echo "alive=$(timmy_alive)"',
   '    if [ -f "$job/stop" ]; then sed \'s/^/stop./\' "$job/stop"; fi',
   '    if [ -f "$job/out.log" ]; then tail -n 5 "$job/out.log" | cut -c1-300 | sed \'s/^/out|/\'; fi',
   '  fi',
@@ -183,12 +188,14 @@ export function posixStopScript(remoteDir: string, id: string): string {
       '  if [ ! -d "$job" ]; then echo "TIMMY-STOP absent"; timmy_status; return 0; fi',
       '  if [ ! -f "$job/status" ]; then echo "TIMMY-STOP no-status"; timmy_status; return 0; fi',
       '  if [ "$(timmy_value state "$job/status")" = ended ]; then echo "TIMMY-STOP already-ended"; timmy_status; return 0; fi',
-      '  pg=$(timmy_value pgid "$job/status"); rec=$(timmy_value pid_start "$job/status")',
-      '  case $pg in \'\'|*[!0-9]*) echo "TIMMY-STOP unreadable"; timmy_status; return 0 ;; esac',
-      '  if [ "$pg" -le 1 ] || [ -z "$rec" ]; then echo "TIMMY-STOP unreadable"; timmy_status; return 0; fi',
-      '  now=$(timmy_start_of "$pg")',
+      '  pid=$(timmy_value pid "$job/status"); pg=$(timmy_value pgid "$job/status"); rec=$(timmy_value pid_start "$job/status")',
+      '  case $pid$pg in \'\'|*[!0-9]*) echo "TIMMY-STOP unreadable"; timmy_status; return 0 ;; esac',
+      '  if [ "$pg" -le 1 ]; then echo "TIMMY-STOP unreadable"; timmy_status; return 0; fi',
+      '  if [ -z "$rec" ]; then echo "TIMMY-STOP no-start-time"; timmy_status; return 0; fi',
+      '  now=$(timmy_start_of "$pid")',
       '  if [ -z "$now" ]; then echo "TIMMY-STOP gone"; timmy_status; return 0; fi',
       '  if [ "$now" != "$rec" ]; then echo "TIMMY-STOP reused"; timmy_status; return 0; fi',
+      '  if [ "$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d \' \')" != "$pg" ]; then echo "TIMMY-STOP reused"; timmy_status; return 0; fi',
       '  asked=$(timmy_now)',
       '  { echo "asked_at=$asked"; echo "signals=TERM"; } > "$job/stop.tmp.$$" && mv -f "$job/stop.tmp.$$" "$job/stop"',
       '  kill -TERM -"$pg" 2>/dev/null',
@@ -197,7 +204,7 @@ export function posixStopScript(remoteDir: string, id: string): string {
       '  if timmy_live "$pg"; then',
       // its first process has run all along (the same start time), or has ended while the rest of its group ran on, which
       // keeps the group's number from being given to another process: only then is SIGKILL sent
-      '    now=$(timmy_start_of "$pg")',
+      '    now=$(timmy_start_of "$pid")',
       '    if [ -z "$now" ] || [ "$now" = "$rec" ]; then',
       '      kill -KILL -"$pg" 2>/dev/null; sent="TERM KILL"',
       '      { echo "asked_at=$asked"; echo "signals=TERM KILL"; } > "$job/stop.tmp.$$" && mv -f "$job/stop.tmp.$$" "$job/stop"',
@@ -227,10 +234,7 @@ export function posixWaitScript(remoteDir: string, id: string): string {
       '  while [ -d "$job/claim" ]; do',
       '    if [ -f "$job/status" ]; then',
       '      if [ "$(timmy_value state "$job/status")" = ended ]; then break; fi',
-      '      pg=$(timmy_value pgid "$job/status"); rec=$(timmy_value pid_start "$job/status")',
-      '      case $pg in \'\'|*[!0-9]*) break ;; esac',
-      '      now=$(timmy_start_of "$pg")',
-      '      if [ -z "$now" ] || [ "$now" != "$rec" ]; then break; fi',
+      '      case $(timmy_alive) in yes|unchecked) ;; *) break ;; esac',
       '    elif [ "$n" -gt 100 ]; then break',
       '    fi',
       '    if [ $((n % 10)) -eq 0 ]; then echo "TIMMY-WAIT running $(timmy_now)"; fi',

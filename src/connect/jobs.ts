@@ -111,7 +111,7 @@ export function parseStatus(text: string, readAt = new Date().toISOString()): Re
   text1('pid_start'); text1('started_at'); text1('ended_at'); text1('stop_signal'); text1('by');
   if (state === 'ended') { const code = one('exit_status'); s.exit_status = code !== undefined && /^[0-9]+$/.test(code) ? Number(code) : null; }
   const alive = one('alive');
-  if (alive === 'yes' || alive === 'no' || alive === 'reused') s.alive = alive;
+  if (alive === 'yes' || alive === 'no' || alive === 'reused' || alive === 'unchecked') s.alive = alive;
   const asked = one('stop.asked_at');
   const signals = one('stop.signals');
   if (asked || signals) s.stop = { ...(asked ? { asked_at: asked } : {}), signals: (signals ?? '').split(/\s+/).filter((x) => /^[A-Za-z]+$/.test(x)) };
@@ -122,15 +122,20 @@ export function parseStatus(text: string, readAt = new Date().toISOString()): Re
 /** What a status read means for the record: its state, words for a stop, when the device was last seen. */
 function applyStatus(j: RemoteJobRecord, s: RemoteStatus): void {
   const before = j.state;
-  j.remote = s;
   j.last_seen = s.read_at;
+  if ((before === 'ended' || before === 'stopped') && s.where !== 'status') {
+    // a known end stays known: the folder that held its status is gone from the device (removed there since)
+    event(j, `${j.device} has ${s.where === 'absent' ? 'no folder' : 'no status'} for this job any more; its recorded end stands`);
+    return;
+  }
+  j.remote = s;
   delete j.unknown;
   if (s.where === 'absent' || s.where === 'not started' || s.where === 'claimed') {
     if (j.confirmed_at) {
       j.state = 'unknown';
       j.unknown = { since: s.read_at, why: `${j.device} answered, and has ${s.where === 'absent' ? 'no folder' : 'no status'} for this job any more`, not_known: 'what became of the run it confirmed earlier' };
     } else j.state = 'submitted';
-  } else if (s.state === 'running' && s.alive === 'yes') {
+  } else if (s.state === 'running' && (s.alive === 'yes' || s.alive === 'unchecked')) {
     j.confirmed_at ??= s.read_at;
     j.state = j.stop && !j.stop.confirmed_at ? 'stop asked' : 'running';
     if (j.stop && !j.stop.confirmed_at) j.stop.words = s.stop?.asked_at ? `the device recorded the stop (${s.stop.asked_at}, ${s.stop.signals.join(' ') || 'no signal'}) and the job still runs` : 'the stop never reached the device: the job still runs there';
@@ -185,9 +190,12 @@ const familyOf = (d: DeviceRecord): 'posix' | 'powershell' => (d.os === 'windows
 
 /** Reads a job's status on its device (the PowerShell or POSIX status script). */
 async function readRemote(p: ConnectPaths, d: DeviceRecord, j: RemoteJobRecord): Promise<{ status?: RemoteStatus; failure?: SshFailure }> {
-  const r = familyOf(d) === 'posix'
-    ? await callSsh(d, p, POSIX_WORDS, { input: posixStatusScript(d.remote_dir, j.id), timeoutMs: 60_000 })
-    : await callSsh(d, p, powershellWords(windowsStatusScript(d.remote_dir, j.id)), { timeoutMs: 60_000 });
+  let r;
+  try {
+    r = familyOf(d) === 'posix'
+      ? await callSsh(d, p, POSIX_WORDS, { input: posixStatusScript(d.remote_dir, j.id), timeoutMs: 60_000 })
+      : await callSsh(d, p, powershellWords(windowsStatusScript(d.remote_dir, j.id)), { timeoutMs: 60_000 });
+  } catch (e) { return { failure: { outcome: 'error', words: `nothing was sent: ${(e as Error).message}`, ssh: '', notSent: true } }; }
   const f = classifySsh(r, d, 'TIMMY-STATUS-BEGIN');
   if (f) { noteFailure(p, d, f); return { failure: f }; }
   const status = parseStatus(r.stdout.toString('utf8'));
@@ -355,9 +363,12 @@ export async function waitJob(p: ConnectPaths, id: string, o: { signal?: AbortSi
     if (text.length > 1 << 20) text = text.slice(-(1 << 16));
   };
   const script = familyOf(d) === 'posix' ? posixWaitScript(d.remote_dir, id) : undefined;
-  const r = script
-    ? await callSsh(d, p, POSIX_WORDS, { input: script, timeoutMs: WAIT_MS, onStdout, ownGroup: true, ...(o.signal ? { signal: o.signal } : {}), onChild: (c) => o.onChild?.(c.pid) })
-    : await callSsh(d, p, powershellWords(windowsWaitScript(d.remote_dir, id)), { timeoutMs: WAIT_MS, onStdout, ownGroup: true, ...(o.signal ? { signal: o.signal } : {}), onChild: (c) => o.onChild?.(c.pid) });
+  let r;
+  try {
+    r = script
+      ? await callSsh(d, p, POSIX_WORDS, { input: script, timeoutMs: WAIT_MS, onStdout, ownGroup: true, ...(o.signal ? { signal: o.signal } : {}), onChild: (c) => o.onChild?.(c.pid) })
+      : await callSsh(d, p, powershellWords(windowsWaitScript(d.remote_dir, id)), { timeoutMs: WAIT_MS, onStdout, ownGroup: true, ...(o.signal ? { signal: o.signal } : {}), onChild: (c) => o.onChild?.(c.pid) });
+  } catch (e) { return { error: `not waited: nothing was sent: ${(e as Error).message}` }; }
   if (r.aborted || o.signal?.aborted) {
     const job = updateJob(p, id, (x) => { if (seen) x.last_seen = new Date().toISOString(); event(x, 'the local wait was stopped (Ctrl-C): only the local ssh was stopped; the remote job was not'); });
     return { job, end: 'interrupted', answered: Boolean(seen), words: `stopped waiting: only the local ssh was stopped. The remote job ${id} was not stopped${job.state === 'running' ? ` and was running when last read (${seen ?? job.remote?.read_at ?? 'unknown'})` : ''}; to stop it: timmy connect stop ${id}` };
@@ -411,6 +422,7 @@ export async function stopJob(p: ConnectPaths, id: string): Promise<JobOutcome |
     gone: 'its first process was already gone (nothing was signalled)',
     reused: 'its pid now belongs to another process, which was not signalled',
     unreadable: 'its status file could not be read, so nothing was signalled',
+    'no-start-time': 'no start time was recorded for it there (ps gave none), so that its pid is still the same process cannot be checked: nothing was signalled',
     absent: 'the device has no folder for this job: nothing was signalled',
     'no-status': 'the job has no status there yet: nothing was signalled',
     'already-ended': 'it had already ended',

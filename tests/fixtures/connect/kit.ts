@@ -50,7 +50,7 @@ export interface Kit {
   /** a second identity, authorized nowhere (an authentication refusal) */
   otherKey: { file: string; blob: string };
   /** a FAKE device at 127.0.0.1:<port> (or `address`, a documentation address such as 192.0.2.10) */
-  addHost(port: number, o?: Partial<FakeHost> & { user?: string; macLike?: boolean; address?: string }): { address: string; port: number; user: string; home: string; keys: HostKey[] };
+  addHost(port: number, o?: Partial<FakeHost> & { user?: string; macLike?: boolean; noStartTime?: boolean; address?: string }): { address: string; port: number; user: string; home: string; keys: HostKey[] };
   update(port: number, fn: (h: FakeHost) => void, address?: string): void;
   remoteHome(port: number, user?: string): string;
   /** every call the FAKE programs logged: { prog, pid, argv } */
@@ -73,6 +73,15 @@ export function makeKit(prefix = 'h90-connect-'): Kit {
   for (const [name, script] of [['ssh', 'fake-ssh.mjs'], ['ssh-keyscan', 'fake-ssh-keyscan.mjs'], ['ssh-keygen', 'fake-ssh-keygen.mjs'], ['tailscale', 'fake-tailscale.mjs']]) {
     fs.writeFileSync(path.join(bin, name), `#!/bin/sh\n# FAKE ${name} (Timmy Connect's tests)\nexec "${process.execPath}" "${path.join(HERE, script)}" "$@"\n`, { mode: 0o755 });
   }
+  // FAKE ps for a device whose ps gives no start time (as busybox's): asked for lstart it answers nothing
+  const nolstart = path.join(root, 'nolstart-bin');
+  fs.mkdirSync(nolstart);
+  const realPs = spawnSync('sh', ['-c', 'command -v ps'], { encoding: 'utf8' }).stdout.trim();
+  fs.writeFileSync(path.join(nolstart, 'ps'), `#!/bin/sh
+# FAKE ps: no start time (lstart) here
+case "$*" in *lstart*) exit 1 ;; esac
+exec ${realPs} "$@"
+`, { mode: 0o755 });
   for (const p of MAC_PROGRAMS) {
     const found = spawnSync('sh', ['-c', `command -v ${p}`], { encoding: 'utf8' }).stdout.trim();
     if (found.startsWith('/')) { try { fs.symlinkSync(found, path.join(macbin, p)); } catch { /* there */ } }
@@ -112,7 +121,7 @@ export function makeKit(prefix = 'h90-connect-'): Kit {
       net.hosts[`${address}:${port}`] = {
         mode: o.mode ?? 'up', keys, shell: o.shell ?? 'posix',
         users: { [user]: { home: h, authorized: [key.blob] } },
-        path: o.macLike ? macbin : (o.path ?? '/usr/local/bin:/usr/bin:/bin'),
+        path: o.macLike ? macbin : o.noStartTime ? `${nolstart}:/usr/local/bin:/usr/bin:/bin` : (o.path ?? '/usr/local/bin:/usr/bin:/bin'),
         ...(o.corrupt ? { corrupt: true } : {}), ...(o.probeAnswer ? { probeAnswer: o.probeAnswer } : {}),
       };
       save();

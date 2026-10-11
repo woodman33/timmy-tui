@@ -271,6 +271,22 @@ describe('remote jobs', () => {
     expect(groupRuns(pgid)).toBe(true);
   }, 60_000);
 
+  it('where ps gives no start time, a job reads as running "unchecked", and a stop refuses to signal it', async () => {
+    const { id, home } = await ready(2238, { noStartTime: true });
+    const probe = findDevice(p, id).device!.probe!;
+    expect(probe.words).toContain('ps gives no start time there (a stop will refuse to signal)');
+    const r = await runJob(p, id, { command: ['sleep', '60'] });
+    if ('error' in r) throw new Error(r.error);
+    expect(r.job.state).toBe('running');
+    expect(r.job.remote?.alive).toBe('unchecked');
+    expect(r.words).toMatch(/ps gave no start time there, so that it is the same process is not checked/);
+    const pgid = pgidOf(home, r.job.id);
+    const s = await stopJob(p, r.job.id);
+    if ('error' in s) throw new Error(s.error);
+    expect(s.job.stop?.result).toMatch(/^no start time was recorded for it there \(ps gave none\).*nothing was signalled$/);
+    expect(groupRuns(pgid)).toBe(true);
+  }, 60_000);
+
   it('a stop the device does not answer is recorded as asked and not confirmed; once it answers, the stop is confirmed', async () => {
     const { id } = await ready(2235);
     const r = await runJob(p, id, { command: ['sleep', '60'] });
@@ -463,6 +479,10 @@ describe('surfaces', () => {
     printed.length = 0;
     await runSlash(`/connect status ${r.job.id} --json`, ctx);
     expect(JSON.parse(printed.at(-1)!).job).toMatchObject({ state: 'ended', words: cli.job.words });
+    printed.length = 0;
+    await runSlash('/connect', ctx);
+    expect(printed[0]).toMatch(/^  Timmy Connect: 1 computer, 1 remote job/);
+    expect(printed.find((l) => l.includes(r.job.id))).toContain(cli.job.words);
   }, 60_000);
 
   it('the REPL confirms a host key through the approval box; denied, or with no box, nothing is trusted', async () => {

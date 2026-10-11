@@ -94,20 +94,21 @@ export async function probeDevice(p: ConnectPaths, id: string): Promise<ProbeRes
     return { device, probe, failure: f, ...(f.ssh ? { ssh: f.ssh } : {}) };
   };
   let detected: ShellFamily;
+  let r;
   try {
     const first = await callSsh(d, p, DETECT_WORDS, { timeoutMs: 60_000 });
     const failed = classifySsh(first, d, 'TIMMY-PROBE');
     if (failed) return fail(failed);
     detected = detectShell(first.stdout.toString('utf8'));
+    if (detected === 'unknown') {
+      return fail({ outcome: 'error', words: 'connected, but the device\'s shell answered in a way Timmy does not know (neither POSIX, cmd.exe nor PowerShell)', ssh: '', notSent: false });
+    }
+    r = detected === 'posix'
+      ? await callSsh(d, p, POSIX_WORDS, { input: posixProbeScript(d.remote_dir), timeoutMs: 60_000 })
+      : await callSsh(d, p, powershellWords(windowsProbeScript(d.remote_dir)), { timeoutMs: 60_000 });
   } catch (e) {
     return fail({ outcome: 'error', words: (e as Error).message, ssh: '', notSent: true });
   }
-  if (detected === 'unknown') {
-    return fail({ outcome: 'error', words: 'connected, but the device\'s shell answered in a way Timmy does not know (neither POSIX, cmd.exe nor PowerShell)', ssh: '', notSent: false });
-  }
-  const r = detected === 'posix'
-    ? await callSsh(d, p, POSIX_WORDS, { input: posixProbeScript(d.remote_dir), timeoutMs: 60_000 })
-    : await callSsh(d, p, powershellWords(windowsProbeScript(d.remote_dir)), { timeoutMs: 60_000 });
   const failed = classifySsh(r, d, 'TIMMY-PROBE-BEGIN');
   if (failed) return fail(failed);
   const parsed = parseProbe(r.stdout.toString('utf8'));
