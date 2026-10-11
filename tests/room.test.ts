@@ -331,7 +331,7 @@ describe('the Control Room: costs, as recorded', () => {
       receipt(pid, { kind: 'turn' }),
     ], pid);
     const costs = [...sealed.values()].map((e) => e.cost);
-    expect(costs[0]).toEqual({ kind: 'unknown', atLeast: 0.003, words: 'unknown: its receipt marks the cost incomplete (a cancel, or a response that reported no charge) (at least $0.0030 was reported)' });
+    expect(costs[0]).toEqual({ kind: 'unknown', atLeast: 0.003, words: 'unknown: its receipt marks the cost incomplete (a cancel, a failed turn no cost came back for, or a response that reported no charge) (at least $0.0030 was reported)' });
     expect(costs[1]).toEqual({ kind: 'unknown', words: 'unknown: the agent reported no cost' });
     expect(costs[2]).toEqual({ kind: 'none', words: 'no model request went out' });
     // R4 (H73): a turn whose receipt records no cost asked the chat model (every turn does): unknown, counted (H78's note)

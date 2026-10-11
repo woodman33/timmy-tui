@@ -356,7 +356,8 @@ export function receiptCosts(chain: readonly Receipt[], projectId: string): Map<
       // R4 (H73): every chat turn sends its request to the chat model (src/repl/turn.ts), and sealTurn records cost_usd and
       // cost_measured on every turn since LIVE-01 (ledger row 65). A turn receipt with neither field was sealed before that:
       // its request went out and its cost was not recorded, so it is unknown, counted as such, never left out (H78's note).
-      const c = receiptCost(r, { known: 'as its receipt sealed it', unknown: 'its receipt marks the cost incomplete (a cancel, or a response that reported no charge)', none: '' });
+      // R4 (H82): a failed turn with no cost reported is sealed unknown too (src/repl/turn.ts), never a measured $0
+      const c = receiptCost(r, { known: 'as its receipt sealed it', unknown: 'its receipt marks the cost incomplete (a cancel, a failed turn no cost came back for, or a response that reported no charge)', none: '' });
       put(`turn:${String(r.hash)}`, r, c.kind === 'none' ? { kind: 'unknown', words: TURN_NO_COST } : c);
     } else if (r.kind === 'agent' && str(r.agent?.run)) {
       const basis = str(r.agent?.cost_basis);
