@@ -735,7 +735,8 @@ function paramsHtml(n: NodeView, c: ConnectedWorkflow, k: Kit): string {
 function techHtml(w: WorkflowDocInput, b: NodeInput, n: NodeView, c: ConnectedWorkflow): string {
   const r = runOf2(c, n.run);
   const rows: Array<[string, string]> = [
-    ['upmd runs', `upmd --ci -b ${n.name} -d . ${w.rel} (with the project's folder and the document's full path)`],
+    // R4 (H97; r23c): a document that names two blocks alike runs nothing, so no command is shown for it here either
+    ['upmd runs', c.repeated?.length ? `nothing: ${repeatedWords(w.rel, c.repeated)}` : `upmd --ci -b ${n.name} -d . ${w.rel} (with the project's folder and the document's full path)`],
     ['its own time', "from when upmd drew the block's start on its terminal to its end line, as Timmy saw them (kept in the run's job record); not measured for a run whose upmd output was a pipe, where both came when the block ended"],
     ['live states', 'upmd runs on a terminal of its own (workers/upmd/pty_run.py, with python3), so each block reads running while it runs; without python3 it writes to a pipe and each block is seen only when it ends'],
     ['if the REPL ends', "the wrapper stops upmd and its blocks at once when the REPL that started the run ends (a kill, a crash), and writes what it saw to its stop file in the run's folder; the next REPL's recovery records the run from that file. Without such a file, a block after the one that ran reads not seen, never not run"],
