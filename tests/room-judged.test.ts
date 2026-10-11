@@ -20,6 +20,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { JobRecord } from '../src/jobs/index.js';
 import { buildOverview } from '../src/overview/index.js';
 import { buildIndex, operationCard } from '../src/ops/card.js';
+import { inOperationId } from '../src/ops/context.js';
 import { projectId } from '../src/project/index.js';
 import { gatherRoom, LEFT_RUNNING, TURN_NO_COST } from '../src/room/index.js';
 import { JOB_KINDS, jobJudgement, judgeIndex } from '../src/room/judge.js';
@@ -43,13 +44,16 @@ const RUN_FAILED = '0c0ffee0-0000-4000-8000-00000000a173';
 const RUN_STOPPED = '0c0ffee0-0000-4000-8000-00000000b173';
 const RUN_FREECAD = '0c0ffee0-0000-4000-8000-00000000c173';
 const RUN_DIFFERS = '0c0ffee0-0000-4000-8000-00000000d173';
+const RUN_OK = '0c0ffee0-0000-4000-8000-00000000e173';
+const RUN_AGREES = '0c0ffee0-0000-4000-8000-00000000f173';
 /** The words u23's failed run's verdict said (ledger row 166), made up here: no Unreal ran. */
 const FAILED_WHY = 'the script reported ok: false: FAKE: spawn raised; written by this failed run: Content/Timmy/F.umap';
 const OP = 'o0000a173';
 
-/** A real job: a child process that exits with `code`, through the Workspace's own job manager. */
-async function ran(ws: Workspace, s: Sandbox, label: string, code = 0): Promise<JobRecord> {
-  const j = ws.jobs.start({ kind: 'task', label, project: ws.project.name, root: s.root, command: process.execPath, args: ['-e', `process.exit(${code})`] });
+/** A real job: a child process that exits with `code`, through the Workspace's own job manager (inside `operation`, as a
+ *  request's job is started, when one is given). */
+async function ran(ws: Workspace, s: Sandbox, label: string, code = 0, operation?: string): Promise<JobRecord> {
+  const j = inOperationId(operation, () => ws.jobs.start({ kind: 'task', label, project: ws.project.name, root: s.root, command: process.execPath, args: ['-e', `process.exit(${code})`] }));
   return ws.jobs.done(j.id);
 }
 /** A real job that waits until its job manager stops it (a stop's SIGTERM to its process group). */
@@ -277,6 +281,29 @@ describe('item 3: the owner\'s list for every kind of run', () => {
     expect(stop).toMatchObject({ tone: 'stopped', state: 'stopped: stopped; FAKE' });
     expect(stop.handoff!.map((h) => `${h.name}: ${h.state}`)).toEqual(['first pass: stopped', 'readback: not run']);
   });
+
+  it('an Unreal first pass judged ok is never ✓ alone: in /jobs it reads "?" until read back, then as its readback decides it (✓ agrees, ✖ differs), and /op says it once', async () => {
+    const s = sandbox(kit, 'judged-unreal-jobs-');
+    const { ws } = replOf(kit, s);
+    const readback = (run: string, job: string, verdictWord: string, reason: string): Record<string, unknown> => ({ readback: 1, app: 'unreal', at: new Date().toISOString(), job, run, token: 'FAKE', state: 'completed', levels: [], tolerance: {}, verdict: verdictWord, reason, scope: 'FAKE' });
+    const waiting = await ran(ws, s, 'Unreal · scene.py in TimmyStarter.uproject');
+    nativeRun(s.root, RUN_OK, { app: 'unreal', job: waiting.id, label: waiting.label, verdicts: [verdict(waiting.id, 'ok', 'FAKE: the result file says ok')] });
+    const agreed = await ran(ws, s, 'Unreal · lights.py in TimmyStarter.uproject');
+    nativeRun(s.root, RUN_AGREES, { app: 'unreal', job: agreed.id, label: agreed.label, verdicts: [verdict(agreed.id, 'ok', 'FAKE: the result file says ok')], readbacks: [readback(RUN_AGREES, 'j0f0175', 'agrees', 'FAKE: every actor where the first pass put it')] });
+    const differed = await ran(ws, s, 'Unreal · cubes.py in TimmyStarter.uproject', 0, OP);
+    nativeRun(s.root, RUN_DIFFERS, { app: 'unreal', job: differed.id, label: differed.label, operation: OP, verdicts: [verdict(differed.id, 'ok', 'FAKE: the result file says ok')], readbacks: [readback(RUN_DIFFERS, 'j0f0176', 'differs', 'FAKE: TimmyCube_0_0 is 2 cm higher')] });
+    const out = text(ws.jobsView(''));
+    expect(lineOf(out, waiting.id)).toMatch(new RegExp(`^ {2}\\? ${waiting.id} {2}unknown {3}Unreal · scene\\.py in TimmyStarter\\.uproject · its verdict, then its readback: ok \\(judged by its result file\\), but not read back yet`));
+    expect(lineOf(out, agreed.id)).toMatch(new RegExp(`^ {2}✓ ${agreed.id} {2}ok {8}Unreal · lights\\.py in TimmyStarter\\.uproject · its verdict, then its readback: ok \\(judged by its result file\\); readback agrees`));
+    expect(lineOf(out, differed.id)).toMatch(new RegExp(`^ {2}✖ ${differed.id} {2}differs {3}Unreal · cubes\\.py in TimmyStarter\\.uproject · its verdict, then its readback: ok \\(judged by its result file\\); readback differs: FAKE: TimmyCube_0… · `));
+    expect(text(ws.jobsView(waiting.id))).toContain(`Judged   unknown  by its verdict, then its readback (.timmy/native/${RUN_OK}/verdicts.jsonl): ok (judged by its result file), but not read back yet: the first pass alone is not trusted · its process completed (exit 0)`);
+    // /jobs <id>: the judge's words in full (the one-line list cuts them at 100 characters).
+    expect(text(ws.jobsView(differed.id))).toContain(`Judged   differs  by its verdict, then its readback (.timmy/native/${RUN_DIFFERS}/readbacks.jsonl): ok (judged by its result file); readback differs: FAKE: TimmyCube_0_0 is 2 cm higher · its process completed (exit 0)`);
+    // /op: the run's own row says how its operation counts it, once (its first pass's words are not added to the readback's).
+    const card = text(ws.op(OP));
+    expect(card).toContain(`native ${RUN_DIFFERS.slice(0, 8)}  builder  ok (judged by its result file); readback differs: FAKE: TimmyCube_0_0 is 2 cm higher`);
+    expect(card).not.toContain('FAKE: the result file says ok');
+  }, 30_000);
 
   it('a run left running by a Timmy that ended: /recover is what reaches it, said as its Stop would be', async () => {
     const s = sandbox(kit, 'judged-left-');

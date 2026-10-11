@@ -8,7 +8,8 @@
  * 0; r20 and r21 saw the same for OpenHands runs Timmy judged unknown (H69: the views "mark the docker client by its exit 0.
  * This is true for every code agent"). A process that ends with 0 has not been judged. Where Timmy keeps a judgement of a job,
  * that judgement is shown, each kind by its own judge, as the one table below (JOB_KINDS) says; for the kinds whose own end is
- * the judgement, today's reading stays.
+ * the judgement, today's reading stays. An Unreal run whose first pass was judged ok reads as its readback decides it, as its
+ * operation counts it (src/native/unreal-readback.ts unrealRunOutcome): the first pass alone is never trusted.
  *
  * The marks: ✓ only for a judged success; ? for a judgement of unknown, and for a job of a judged kind whose judgement is not
  * there (never ✓ by its exit); ✖ for a judged failure (failed, differs, timed out); a stop's blank for a run that was stopped;
@@ -21,6 +22,8 @@ import { AGENTS_DIR, listAgentRuns } from '../code-agents/index.js';
 import { cleanText } from '../connectors/mcp-records.js';
 import { FLOWS_DIR } from '../flows/iterate.js';
 import type { JobRecord } from '../jobs/index.js';
+import { readNativeRecord } from '../native/index.js';
+import { unrealRunOutcome } from '../native/unreal-readback.js';
 import type { Receipt } from '../utils/receipts.js';
 import { VOX_DIR } from '../vox/record.js';
 
@@ -74,8 +77,13 @@ export interface JobJudgement {
   missing?: true;
 }
 
-/** A judgement a record keeps of a job; `record`, the project file that keeps it (absent: a receipt names no file). */
-interface Kept { kind: JobKind; outcome: string; why?: string; stopped?: boolean; record?: string }
+/** A judgement a record keeps of a job; `record`, the project file that keeps it (absent: a receipt names no file); `judge`,
+ *  who judged it where that is not its kind's judge alone (an Unreal run: its verdict, then its readback). */
+interface Kept { kind: JobKind; outcome: string; why?: string; stopped?: boolean; record?: string; judge?: string }
+
+/** R4 (H73): who decides an Unreal run judged ok: its first pass is never trusted alone (src/native/unreal-readback.ts). */
+export const UNREAL_JUDGE = 'its verdict, then its readback';
+const UNREAL_OUTCOME: Readonly<Record<ReturnType<typeof unrealRunOutcome>['state'], string>> = { succeeded: 'ok', differs: 'differs', failed: 'failed', stopped: 'stopped', unknown: 'unknown' };
 
 export interface JudgeIndex {
   /** each job a record judged, by its id: the newest judgement of it */
@@ -169,7 +177,24 @@ export function judgeIndex(o: { root: string; chain?: readonly Receipt[]; projec
     const startedJob = str(started?.job);
     if (unnamed && startedJob && !ix.byJob.has(startedJob)) judged(startedJob, unnamed);
     const rbRel = `${NATIVE_REL}/${run}/readbacks.jsonl`;
-    for (const l of readLines(path.join(dir, 'readbacks.jsonl'))) {
+    const readbacks = readLines(path.join(dir, 'readbacks.jsonl'));
+    // R4 (H73): an Unreal run whose first pass was judged ok is decided by its readback (unrealRunOutcome, as its operation
+    // counts it): not read back yet, it is unknown, never ✓ by its first pass alone; its job reads so in every view.
+    const newest = ix.byRun.get(run);
+    if (newest?.outcome === 'ok' && !newest.stopped && str(obj(readJson(path.join(dir, 'job.json')))?.app) === 'unreal') {
+      let rec: ReturnType<typeof readNativeRecord>;
+      try { rec = readNativeRecord(o.root, run); } catch { rec = undefined; }
+      const last = rec?.verdicts.at(-1);
+      if (rec && last) {
+        const u = unrealRunOutcome(rec.dir, last, rec.result, []);
+        const k: Kept = { kind: 'native', outcome: UNREAL_OUTCOME[u.state], why: u.words, ...(u.state === 'stopped' ? { stopped: true } : {}), record: readbacks.length ? rbRel : rel, judge: UNREAL_JUDGE };
+        const id = newest.job ?? startedJob;
+        if (id) judged(id, k);
+        // the run's own row (/op) says these words already (runOutcome): its verdict's words are not added to them
+        ix.byRun.set(run, { kind: 'native', outcome: k.outcome, ...(k.stopped ? { stopped: true } : {}), record: k.record, ...(id ? { job: id } : {}) });
+      }
+    }
+    for (const l of readbacks) {
       const verdict = str(l.verdict);
       const stopped = l.state === 'cancelled';
       judged(l.job, { kind: 'readback', outcome: verdict ?? (stopped ? 'stopped' : 'not judged'), ...(str(l.reason) ? { why: str(l.reason) } : {}), ...(stopped ? { stopped } : {}), record: rbRel });
@@ -256,7 +281,7 @@ export function jobJudgement(j: JobRecord, ix?: JudgeIndex, o: { whyMax?: number
   const scrub = ix?.scrub ?? ((t: string) => t);
   if (kept) {
     return {
-      kind, by: 'record', mark: markOf(kept), word: wordOf(kept), judge: row.judge, ...(kept.record ? { record: kept.record } : {}), exit: exitWords(j),
+      kind, by: 'record', mark: markOf(kept), word: wordOf(kept), judge: kept.judge ?? row.judge, ...(kept.record ? { record: kept.record } : {}), exit: exitWords(j),
       ...(kept.why ? { why: judgeWords(kept.why, scrub, o.whyMax) } : {}),
     };
   }
