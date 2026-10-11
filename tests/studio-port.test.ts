@@ -43,7 +43,10 @@ describe('timmy studio\'s port (R4 H87)', () => {
     try {
       for (let i = 0; i < 300 && !/Timmy Canvas: http/.test(out) && child.exitCode === null; i++) await new Promise((r) => setTimeout(r, 50));
       expect(out).toContain(`Timmy Canvas: http://127.0.0.1:${port}/`);
-      expect((await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(10_000) })).status).toBe(200);
+      // the health route answers whether or not the canvas page is built (CI has no build: `/` is then a 503 page in words)
+      const health = await fetch(`http://127.0.0.1:${port}/api/canvas/health`, { signal: AbortSignal.timeout(10_000) });
+      expect(health.status).toBe(200);
+      expect(((await health.json()) as { app?: string }).app).toBe('timmy-canvas');
     } finally {
       child.kill('SIGTERM');
       expect(await exited).toBe(143);
