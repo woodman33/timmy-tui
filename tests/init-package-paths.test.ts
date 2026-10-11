@@ -26,6 +26,12 @@ function installed() {
   const module = join(packageDir, 'dist/src/utils/init.js');
   const source = readFileSync(fileURLToPath(new URL('../src/utils/init.ts', import.meta.url)), 'utf8');
   write(module, transformSync(source, { loader: 'ts', format: 'esm', target: 'es2022' }).code);
+  // R4 (H98): init asks through the one guided setup (src/setup/*.ts, node's own modules only), compiled beside it as the
+  // package build lays them out
+  const setupDir = fileURLToPath(new URL('../src/setup/', import.meta.url));
+  for (const name of readdirSync(setupDir).filter((n) => n.endsWith('.ts'))) {
+    write(join(packageDir, 'dist/src/setup', name.replace(/\.ts$/, '.js')), transformSync(readFileSync(join(setupDir, name), 'utf8'), { loader: 'ts', format: 'esm', target: 'es2022' }).code);
+  }
   const overlay = join(packageDir, 'dist/lanes/privacy/overlay.mjs');
   write(overlay, readFileSync(fileURLToPath(new URL('../lanes/privacy/overlay.mjs', import.meta.url)), 'utf8'));
   write(join(packageDir, 'dist/fleet/nodes.example.json'), '{"bundled":true}');

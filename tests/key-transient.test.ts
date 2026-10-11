@@ -6,7 +6,7 @@
 // already existed with wider permissions. A synthetic key is made at run time and never printed.
 import { describe, expect, it, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -134,17 +134,23 @@ describe("timmy init's private files are private", () => {
   const before = Object.fromEntries(vars.map((v) => [v, process.env[v]]));
   afterEach(() => { for (const v of vars) { if (before[v] === undefined) delete process.env[v]; else process.env[v] = before[v]; } });
 
-  it('rewrites providers.json and identity.seed 0600 when they already existed 0644', () => {
+  // R4 (H98): an identity.seed left without its identity.json is the home's key: kept byte for byte (never replaced) and
+  // narrowed to 0600; providers.json is rewritten 0600 as before. The seed is a key made by this test at run time.
+  it('rewrites providers.json 0600 and narrows a kept identity.seed to 0600 when they already existed 0644', () => {
     const h = home();
     const key = synthetic();
     const timmy = join(h.root, 'home', 'timmy');
     mkdirSync(timmy, { recursive: true });
-    for (const f of ['providers.json', 'identity.seed']) { writeFileSync(join(timmy, f), 'old\n', { mode: 0o644 }); chmodSync(join(timmy, f), 0o644); }
+    const seed = generateKeyPairSync('ed25519').privateKey.export({ format: 'pem', type: 'pkcs8' }) as string;
+    writeFileSync(join(timmy, 'providers.json'), 'old\n', { mode: 0o644 });
+    writeFileSync(join(timmy, 'identity.seed'), seed, { mode: 0o644 });
+    for (const f of ['providers.json', 'identity.seed']) chmodSync(join(timmy, f), 0o644);
     process.env.TIMMY_HOME = timmy;
     process.env.TIMMY_PRIVATE_DIR = join(h.root, 'work', '.timmy', 'private');
     process.env.TIMMY_REPO_ROOT = join(h.root, 'work');
-    applyInit({ operator: 'tester', project: 'p', seed: 'generate', openrouter: key }, join(h.root, 'work'));
+    const r = applyInit({ operator: 'tester', project: 'p', openrouter: key }, join(h.root, 'work'));
     expect(readFileSync(join(timmy, 'providers.json'), 'utf8').includes(key)).toBe(true);
+    expect({ kept: readFileSync(join(timmy, 'identity.seed'), 'utf8') === seed, source: r.identity_source }).toEqual({ kept: true, source: 'kept' });
     expect(['providers.json', 'identity.seed'].map((f) => [f, mode(join(timmy, f))])).toEqual([['providers.json', '600'], ['identity.seed', '600']]);
     expect(existsSync(join(h.root, 'work', '.timmy', 'private', 'config.json'))).toBe(true);
     expect(mode(join(h.root, 'work', '.timmy', 'private', 'config.json'))).toBe('600');
