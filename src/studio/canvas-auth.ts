@@ -139,7 +139,8 @@ export function withheldDetail(project: string): Record<string, unknown> {
 export function withholdOthers(snapshot: unknown, projectId: string | null): { snapshot: unknown; withheld: number } {
   if (!isObject(snapshot) || !isObject(snapshot.store)) return { snapshot, withheld: 0 };
   let withheld = 0;
-  const store: Record<string, unknown> = {};
+  // (a store with no prototype: a record's id, whatever it is, stays a record of its own)
+  const store: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const [id, r] of Object.entries(snapshot.store)) {
     if (isDrawnCard(r) && r.props.projectId !== projectId) {
       withheld += 1;
@@ -161,7 +162,7 @@ export function keepOthers(incoming: unknown, stored: unknown, projectId: string
   if (!isObject(incoming) || !isObject(incoming.store)) return { snapshot: incoming, kept: 0 };
   const before = isObject(stored) && isObject(stored.store) ? stored.store : {};
   let kept = 0;
-  const store: Record<string, unknown> = {};
+  const store: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const [id, r] of Object.entries(incoming.store)) {
     const was = Object.prototype.hasOwnProperty.call(before, id) ? before[id] : undefined;
     if (isDrawnCard(was) && was.props.projectId !== projectId) {

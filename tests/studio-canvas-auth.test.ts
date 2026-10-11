@@ -17,6 +17,7 @@ import { WebSocket } from 'ws';
 import { projectId } from '../src/project/index.js';
 import { runSlash, type ReplContext } from '../src/repl/commands.js';
 import { glyphSet } from '../src/term/glyphs.js';
+import { keepOthers, withholdOthers } from '../src/studio/canvas-auth.js';
 import { CanvasDocuments } from '../src/studio/document.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { bearer, call, exec, fakePage, grant, nameProject, pageProtocols, pageSession, session, type Reply } from './helpers/canvas-auth.js';
@@ -438,5 +439,21 @@ describe('every way Timmy opens the canvas page gives it a grant', () => {
     expect(asked).toEqual(['open', 'open']);
     expect(opened).toEqual(['map']);
     expect(printed).toEqual(['  Opened with a grant (test).', '  Opened with a grant (test).', '  Open map.']);
+  });
+});
+
+describe('the withholding rules themselves', () => {
+  it('a record a page names __proto__ stays a record of its own, through a reading and a save (no store gets a prototype from it)', () => {
+    const page = JSON.parse('{"store":{"__proto__":{"id":"__proto__","typeName":"shape","type":"geo","props":{"w":1}},"shape:b":{"id":"shape:b","typeName":"shape","type":"timmy-params","props":{"projectId":"bbbbbbbbbbbbbbbb","project":"beta","data":{"secret":"b"}}}},"schema":{}}') as { store: Record<string, unknown> };
+    const shown = withholdOthers(page, 'aaaaaaaaaaaaaaaa');
+    const text = JSON.stringify(shown.snapshot);
+    const own = (o: unknown, k: string): { type?: string } | undefined => Object.getOwnPropertyDescriptor(o, k)?.value as { type?: string } | undefined;
+    expect(own(JSON.parse(text).store, '__proto__')?.type).toBe('geo');
+    expect(text).not.toContain('"secret"');
+    const kept = keepOthers(JSON.parse(text), page, 'aaaaaaaaaaaaaaaa');
+    const saved = JSON.parse(JSON.stringify(kept.snapshot)) as { store: Record<string, { props: Record<string, unknown> }> };
+    expect(Object.keys(saved.store).sort()).toEqual(['__proto__', 'shape:b']);
+    expect(saved.store['shape:b'].props.data).toEqual({ secret: 'b' });
+    expect(kept.kept).toBe(1);
   });
 });
