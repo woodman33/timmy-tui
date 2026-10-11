@@ -90,6 +90,9 @@ jobs:
       - name: Type gate (tsc)
         run: npx tsc --noEmit
 
+      - name: Type gate (Timmy Cloud's backend, services/cloud; not in the npm package)
+        run: npx tsc --noEmit -p services/cloud
+
       - name: Type gate (tsgo / TS7 native)
         run: npm run typecheck:native
 
