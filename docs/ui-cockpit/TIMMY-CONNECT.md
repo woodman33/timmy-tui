@@ -119,7 +119,9 @@ assumed. Then the probe of that family.
 | `error` | anything else, in ssh's words |
 
 "Found on PATH" is all that is said of a program. It is not "supported" or "working": a CAD, rendering, GPU or native
-application claim needs a run of its own, with its own evidence.
+application claim needs a run of its own, with its own evidence. It is also the PATH of a non-interactive ssh session
+there, which is often shorter than a terminal's (on a Mac, Homebrew's folders are usually added by a login shell's files,
+which such a session does not read): "not found on PATH" never means not installed.
 
 ## Remote jobs
 

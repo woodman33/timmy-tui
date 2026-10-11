@@ -115,7 +115,8 @@ export function classifySsh(r: Ran, d: DeviceRecord, marker?: string): SshFailur
   }
   if (/Permission denied \(/.test(err)) {
     const how = d.identity === 'agent' ? 'the ssh agent\'s keys' : `the key ${d.identity}`;
-    return { outcome: 'auth-refused', words: `authentication refused: ${where} did not accept ${how} for ${d.user}`, ssh, notSent: true };
+    const agentless = d.identity === 'agent' && !process.env.SSH_AUTH_SOCK ? ' (no ssh agent is reachable here: SSH_AUTH_SOCK is not set)' : '';
+    return { outcome: 'auth-refused', words: `authentication refused: ${where} did not accept ${how} for ${d.user}${agentless}`, ssh, notSent: true };
   }
   const unreachable = (why: UnreachableWhy, words: string): SshFailure => ({ outcome: 'unreachable', why, words: `unreachable: ${words}`, ssh, notSent: true });
   if (/Could not resolve hostname|Name or service not known|nodename nor servname|Temporary failure in name resolution/.test(err)) return unreachable('name not resolved', `the name ${d.address} was not resolved`);
