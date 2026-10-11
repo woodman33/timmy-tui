@@ -138,9 +138,14 @@ describe("createAgent(config, { multiplexer: 'none' })", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   };
-  it('starts no tmux sessions (negative control: the default starts them)', () => {
+  // R4 (H87): the default is none too (lanes start only when the operator asks, `timmy watch --lanes`); the negative control
+  // asks for tmux, and then every call is on Timmy's own server.
+  it('starts no tmux sessions, nor does the default (negative control: tmux asked for starts them, on Timmy\'s own server)', () => {
     expect(run(", { multiplexer: 'none' }")).toBe('');
-    expect(run('')).toContain('new-session');
+    expect(run('')).toBe('');
+    const asked = run(", { multiplexer: 'tmux' }");
+    expect(asked).toContain('new-session');
+    expect(asked.split('\n').filter(Boolean).every((l) => /^-L timmy-lanes-\d+ -f \/dev\/null /.test(l))).toBe(true);
   });
 });
 

@@ -32,6 +32,7 @@ import { useCompanionSync } from '../hooks/useCompanionSync.js';
 // R4 (H84): the pairing card shows the browser companion's address with its token (and with --lan its network QR code).
 import { companionPairing } from '../../companion/qr.js';
 import type { Agent } from '../../agent/core.js';
+import { laneOptions } from '../../agent/lane-server.js';
 import { IntegrationStatus } from './IntegrationStatus.js';
 import { integrationCatalog } from '../../vision/integrations/registry.js';
 import { VisualToolsPanel, type VisualToolRunState } from './VisualToolsPanel.js';
@@ -98,6 +99,18 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
   const [lazyAgent, setLazyAgent] = useState<Agent | undefined>(undefined);
   const effectiveAgent = agent ?? lazyAgent;
   const firstChatText = useRef<string | null>(null);
+  // R4 (H87): one agent per monitor. It loads on the first chat send, or at once when the monitor was asked for the lanes
+  // (`timmy watch --lanes`): the agent is what runs them (src/agent/lane-server.ts).
+  const agentStarting = useRef(false);
+  const startLazyAgent = (): void => {
+    if (agentStarting.current || !config) return;
+    agentStarting.current = true;
+    void import('../../agent/core.js').then(m => setLazyAgent(m.createAgent(config as never, laneOptions(config))));
+  };
+  useEffect(() => {
+    if (!agent && laneOptions(config).multiplexer !== 'none') startLazyAgent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const chat = useAgent(effectiveAgent ?? NOOP_AGENT);
   // Standalone shells own their mirror; the full App owns its run metadata
   // and opts its nested shell out to avoid duplicate broadcasts/listeners.
@@ -519,12 +532,8 @@ export function ShellV2({ width = 120, agent, config, companionSync = true }: { 
         if (ccRef.current?.online && !token) setFlash('commander online · no TIMMY_EDGE_TOKEN — local sovereign');
         // BOOT: the agent graph lazy-loads on first chat send
         if (!effectiveAgent && config) {
-          const text = chatText.trim();
-          void import('../../agent/core.js').then(m => {
-            const ag = m.createAgent(config as never);
-            firstChatText.current = text;
-            setLazyAgent(ag);
-          });
+          firstChatText.current = chatText.trim();
+          startLazyAgent();
           setFlash('sovereign chat warming…');
           return;
         }

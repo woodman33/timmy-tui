@@ -17,6 +17,7 @@ import { MultiplexerManager } from './multiplexer.js';
 import { ZellijManager } from './zellij.js';
 import { RmuxManager } from './rmux.js';
 import { DEFAULT_LANE_BINDINGS, LANE_RUNNERS, laneStartupScript } from './lanes.js';
+import { laneServerArgs, laneWatchdog, lanesWords, type LaneMultiplexer } from './lane-server.js';
 import { writeLog, tuiLogger } from '../utils/logger.js';
 import { carriesSecret, shownAddress, writeLaunchPage } from '../utils/launch-page.js';
 import { probeOllama, pickOllamaModel, ollamaChatCompletion } from './providers.js';
@@ -29,8 +30,11 @@ export interface SendOptions {
 }
 
 export interface AgentOptions {
-  /** Which multiplexer runs background lanes; 'none' starts no sessions (the inline REPL). */
-  multiplexer?: 'tmux' | 'zellij' | 'rmux' | 'none';
+  /**
+   * Which multiplexer runs background lanes. R4 (H87): 'none' unless a caller passes the operator's choice (the monitor's
+   * `--lanes`, src/agent/lane-server.ts): no lane session and no lane program starts for anyone who did not ask.
+   */
+  multiplexer?: LaneMultiplexer;
 }
 
 /** No background lanes: every call is a no-op. */
@@ -58,43 +62,51 @@ class TmuxManager implements MultiplexerManager {
     startedAt: string;
   }> = new Map();
 
+  /** R4 (H87): this process's own tmux server (`-L timmy-lanes-<pid>`, no configuration of the operator's), never the default one. */
+  private readonly server = laneServerArgs();
+  /** R4 (H87): the sessions this process made there: the only ones it ever ends. */
+  private readonly made = new Set<string>();
+  private watched = false;
+
   constructor(agent: Agent) {
     this.agent = agent;
   }
 
   init() {
-    this.cleanupOrphaned();
-    // Pre-spawn standard sessions on startup
+    // Pre-spawn standard sessions on startup (on this process's own server: nothing of anyone else's is there to clean up)
     for (const session of this.agent.tmuxSessions) {
       this.spawnSession(session.id);
     }
+    if (this.made.size > 0 && this.agent.logsEnabled !== false) tuiLogger.info(`[lanes.started] ${lanesWords('tmux')}`);
     // Start non-blocking polling thread
     const pollMs = process.env.TIMMY_TMUX_POLL_MS ? parseInt(process.env.TIMMY_TMUX_POLL_MS, 10) : 500;
     this.pollInterval = setInterval(() => this.poll(), pollMs);
   }
 
+  /** R4 (H87): ends the sessions this process made, on its own server; never another session, never another server. */
   cleanupOrphaned() {
-    try {
-      const list = execFileSync('tmux', ['list-sessions', '-F', '#S'], { encoding: 'utf8', stdio: 'pipe' });
-      const sessions = list.split('\n').map(s => s.trim()).filter(s => s.startsWith('ortui-'));
-      for (const s of sessions) {
-        execFileSync('tmux', ['kill-session', '-t', s], { stdio: 'ignore' });
-      }
-    } catch {
-      // Ignore if no sessions are running or tmux is missing
+    for (const s of [...this.made]) {
+      try { execFileSync('tmux', [...this.server, 'kill-session', '-t', s], { stdio: 'ignore' }); } catch { /* already gone */ }
+      this.made.delete(s);
     }
   }
 
   spawnSession(id: string) {
     const sName = `ortui-${id}`;
     try {
-      execFileSync('tmux', ['new-session', '-d', '-s', sName], { stdio: 'ignore' });
+      execFileSync('tmux', [...this.server, 'new-session', '-d', '-s', sName], { stdio: 'ignore' });
+      this.made.add(sName);
       this.lastOutputs.set(id, []);
+      // R4 (H87): once, a watchdog on the server ends it when this process is gone (a monitor killed with no exit handler)
+      if (!this.watched) {
+        this.watched = true;
+        try { execFileSync('tmux', laneWatchdog('tmux'), { stdio: 'ignore' }); } catch { /* the exit handler still ends them */ }
+      }
 
       const runnerKey = DEFAULT_LANE_BINDINGS[id];
 
       const startup = laneStartupScript(runnerKey);
-      execFileSync('tmux', ['send-keys', '-t', sName, startup, 'C-m'], { stdio: 'ignore' });
+      execFileSync('tmux', [...this.server, 'send-keys', '-t', sName, startup, 'C-m'], { stdio: 'ignore' });
     } catch {
       // Ignore errors
     }
@@ -103,7 +115,8 @@ class TmuxManager implements MultiplexerManager {
   killSession(id: string) {
     const sName = `ortui-${id}`;
     try {
-      execFileSync('tmux', ['kill-session', '-t', sName], { stdio: 'ignore' });
+      execFileSync('tmux', [...this.server, 'kill-session', '-t', sName], { stdio: 'ignore' });
+      this.made.delete(sName);
       this.lastOutputs.delete(id);
     } catch {}
   }
@@ -111,7 +124,7 @@ class TmuxManager implements MultiplexerManager {
   getCwd(id: string): string {
     const sName = `ortui-${id}`;
     try {
-      return execFileSync('tmux', ['display-message', '-p', '-t', sName, '-F', '#{pane_current_path}'], { encoding: 'utf8', stdio: 'pipe' }).trim();
+      return execFileSync('tmux', [...this.server, 'display-message', '-p', '-t', sName, '-F', '#{pane_current_path}'], { encoding: 'utf8', stdio: 'pipe' }).trim();
     } catch {
       return process.cwd();
     }
@@ -120,7 +133,7 @@ class TmuxManager implements MultiplexerManager {
   capturePane(id: string): string[] {
     const sName = `ortui-${id}`;
     try {
-      const output = execFileSync('tmux', ['capture-pane', '-pt', sName], { encoding: 'utf8', stdio: 'pipe' });
+      const output = execFileSync('tmux', [...this.server, 'capture-pane', '-pt', sName], { encoding: 'utf8', stdio: 'pipe' });
       const lines = output.split('\n');
       while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
         lines.pop();
@@ -208,7 +221,7 @@ class TmuxManager implements MultiplexerManager {
       });
 
       // Send to tmux session using exact parameter array argument preservation
-      execFileSync('tmux', ['send-keys', '-t', sName, wrappedCommand, 'C-m'], { stdio: 'ignore' });
+      execFileSync('tmux', [...this.server, 'send-keys', '-t', sName, wrappedCommand, 'C-m'], { stdio: 'ignore' });
       setTimeout(() => this.pollSession(id), 50);
     } catch {}
   }
@@ -304,6 +317,8 @@ export class Agent extends EventEmitter<AgentEvents> {
   private tools: ReturnType<typeof tool>[];
   private running = false;
   private tmuxMgr: MultiplexerManager;
+  /** R4 (H87): which multiplexer runs this agent's lanes; 'none' (the default) runs none. */
+  public readonly multiplexer: LaneMultiplexer;
 
   public currentRunId = 'default-local-run';
   public lastBlockedCommands: Map<string, string> = new Map();
@@ -341,9 +356,10 @@ export class Agent extends EventEmitter<AgentEvents> {
     this.config = config;
     this.tools = [...defaultTools];
 
-    // Initialize multiplexer background manager (tmux, zellij, or rmux). 'none' (the inline REPL)
-    // starts no lane sessions.
-    const mux = options.multiplexer || process.env.TIMMY_MULTIPLEXER || 'tmux';
+    // Initialize multiplexer background manager (tmux, zellij, or rmux). R4 (H87): 'none' unless the caller passes the
+    // operator's choice (`timmy watch --lanes`): no lane session and no lane program for anyone who did not ask.
+    const mux: LaneMultiplexer = options.multiplexer ?? 'none';
+    this.multiplexer = mux;
     if (mux === 'none') {
       this.tmuxMgr = new NoMultiplexer();
     } else if (mux === 'zellij') {

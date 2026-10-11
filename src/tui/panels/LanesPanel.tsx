@@ -9,6 +9,7 @@ import { PaneFocusContext } from '../components/PanelFrame.js';
 import { KeyHintBar } from '../components/KeyHintBar.js';
 import { Card, BudgetList, EmptyState } from '../ui/index.js';
 import { LANE_RUNNERS, DEFAULT_LANE_BINDINGS } from '../../agent/lanes.js';
+import { laneAttachCommand, laneTmux, lanesWords } from '../../agent/lane-server.js';
 import { stripAnsi } from '../utils/text.js';
 import { osc52Copy } from '../../utils/notify.js';
 import { appendReceipt } from '../../utils/receipts.js';
@@ -60,13 +61,16 @@ export function LanesPanel({ agent, zone = 0, setZone, setModalInput, inputLocke
 
   const lanes = agent.tmuxSessions;
   const blocked = (agent as any).lastBlockedCommands as Map<string, string> | undefined;
+  // R4 (H87): the lanes run only when the monitor was asked (`timmy watch --lanes`), on Timmy's own tmux server
+  const lanesOn = (agent.multiplexer ?? 'none') !== 'none';
+  const lanesLine = lanesWords(agent.multiplexer ?? 'none');
 
   useEffect(() => {
     const load = () => {
       const nextAlive: Record<string, boolean> = {};
       const nextInst: Record<string, boolean | null> = {};
       for (const l of lanes) {
-        try { execFileSync('tmux', ['has-session', '-t', `ortui-${l.id}`], { stdio: 'ignore' }); nextAlive[l.id] = true; }
+        try { execFileSync('tmux', laneTmux('has-session', '-t', `ortui-${l.id}`), { stdio: 'ignore' }); nextAlive[l.id] = true; }
         catch { nextAlive[l.id] = false; }
         const runner = LANE_RUNNERS[DEFAULT_LANE_BINDINGS[l.id]];
         if (!runner) nextInst[l.id] = null;
@@ -81,7 +85,7 @@ export function LanesPanel({ agent, zone = 0, setZone, setModalInput, inputLocke
       for (const l of lanes) {
         if (DEFAULT_LANE_BINDINGS[l.id] !== 'openhands' || !nextAlive[l.id]) continue;
         try {
-          const raw = execFileSync('tmux', ['capture-pane', '-pt', `ortui-${l.id}`], { encoding: 'utf8', stdio: 'pipe' }).split('\n').map(stripAnsi);
+          const raw = execFileSync('tmux', laneTmux('capture-pane', '-pt', `ortui-${l.id}`), { encoding: 'utf8', stdio: 'pipe' }).split('\n').map(stripAnsi);
           const starts = raw.filter(x => x.includes(RUN_START)).length;
           const end = parseRunEnd(raw);
           const sealed = sealedRuns.current[l.id] ?? 0;
@@ -105,7 +109,7 @@ export function LanesPanel({ agent, zone = 0, setZone, setModalInput, inputLocke
       const sel = lanes[Math.min(idx, Math.max(0, lanes.length - 1))];
       if (sel && nextAlive[sel.id]) {
         try {
-          const out = execFileSync('tmux', ['capture-pane', '-pt', `ortui-${sel.id}`], { encoding: 'utf8', stdio: 'pipe' });
+          const out = execFileSync('tmux', laneTmux('capture-pane', '-pt', `ortui-${sel.id}`), { encoding: 'utf8', stdio: 'pipe' });
           setCapture(
             out.split('\n').map(stripAnsi)
               // hide launcher plumbing — show the agent's output, not its bootstrap script
@@ -152,36 +156,38 @@ export function LanesPanel({ agent, zone = 0, setZone, setModalInput, inputLocke
     if (key.leftArrow) { setZone?.(Math.max(-1, zone - 1)); return; }
     if (key.rightArrow) { setZone?.(Math.min(1, zone + 1)); return; }
     const c = char.toLowerCase();
+    // R4 (H87): with the lanes off, the keys that start or show them say so, and what starting them runs
+    if (!lanesOn && ['n', 'v', 'g', 'o', 'y'].includes(c)) { setNote(lanesLine); return; }
     if (c === 'n' && sel) { agent.addTmuxSession(sel.name, sel.model); return; }
     if (c === 'k' && sel) { agent.removeTmuxSession(sel.id); setIdx(i => Math.max(0, i - 1)); return; }
     if (c === 'g' && sel && selBlocked) { agent.sendTmuxCommand(sel.id, selBlocked, true); return; }
-    if (c === 'o' && sel) { setNote(`attach in your own terminal: tmux attach -t ortui-${sel.id}  (full control, same session)`); return; }
-    if (c === 'y' && sel) { osc52Copy(`tmux attach -t ortui-${sel.id}`); setNote('attach one-liner copied (OSC-52/pbcopy)'); return; }
+    if (c === 'o' && sel) { setNote(`attach in your own terminal: ${laneAttachCommand(sel.id)}  (full control, same session)`); return; }
+    if (c === 'y' && sel) { osc52Copy(laneAttachCommand(sel.id)); setNote('attach one-liner copied (OSC-52/pbcopy)'); return; }
     if (c === 'v') {
       // tmux tabs over every lane: one watch session with linked windows
       try {
-        execFileSync('tmux', ['new-session', '-d', '-s', 'timmy-watch'], { stdio: 'ignore' });
+        execFileSync('tmux', laneTmux('new-session', '-d', '-s', 'timmy-watch'), { stdio: 'ignore' });
         for (const l of lanes) {
-          try { execFileSync('tmux', ['link-window', '-d', '-s', `ortui-${l.id}:0`, '-t', 'timmy-watch:'], { stdio: 'ignore' }); } catch { /* already linked */ }
+          try { execFileSync('tmux', laneTmux('link-window', '-d', '-s', `ortui-${l.id}:0`, '-t', 'timmy-watch:'), { stdio: 'ignore' }); } catch { /* already linked */ }
         }
-        setNote('timmy-watch built — tmux attach -t timmy-watch · Ctrl-b n/p = next/prev lane tab');
+        setNote(`timmy-watch built on Timmy's lane server — ${laneAttachCommand('x').replace(/ortui-x$/, 'timmy-watch')} · Ctrl-b n/p = next/prev lane tab`);
       } catch { setNote('tmux unavailable — lanes run, but the watch session needs tmux'); }
       return;
     }
     if (char === 'G') {
       // tiled grid: every lane live in one window (nested attaches, tiled)
       try {
-        execFileSync('tmux', ['kill-session', '-t', 'timmy-grid'], { stdio: 'ignore' });
+        execFileSync('tmux', laneTmux('kill-session', '-t', 'timmy-grid'), { stdio: 'ignore' });
       } catch { /* not running */ }
       try {
         const [first, ...restLanes] = lanes;
         if (!first) { setNote('no lanes alive to grid'); return; }
-        execFileSync('tmux', ['new-session', '-d', '-s', 'timmy-grid', '-x', '220', '-y', '60', `tmux attach -t ortui-${first.id}`], { stdio: 'ignore' });
+        execFileSync('tmux', laneTmux('new-session', '-d', '-s', 'timmy-grid', '-x', '220', '-y', '60', laneAttachCommand(first.id)), { stdio: 'ignore' });
         for (const l of restLanes) {
-          try { execFileSync('tmux', ['split-window', '-t', 'timmy-grid:0', `tmux attach -t ortui-${l.id}`], { stdio: 'ignore' }); } catch { /* pane limit */ }
+          try { execFileSync('tmux', laneTmux('split-window', '-t', 'timmy-grid:0', laneAttachCommand(l.id)), { stdio: 'ignore' }); } catch { /* pane limit */ }
         }
-        execFileSync('tmux', ['select-layout', '-t', 'timmy-grid:0', 'tiled'], { stdio: 'ignore' });
-        setNote('timmy-grid built — tmux attach -t timmy-grid · the whole crew, one window');
+        execFileSync('tmux', laneTmux('select-layout', '-t', 'timmy-grid:0', 'tiled'), { stdio: 'ignore' });
+        setNote(`timmy-grid built on Timmy's lane server — ${laneAttachCommand('x').replace(/ortui-x$/, 'timmy-grid')} · the whole crew, one window`);
       } catch { setNote('tmux unavailable — grid needs tmux'); }
       return;
     }
@@ -210,7 +216,9 @@ export function LanesPanel({ agent, zone = 0, setZone, setModalInput, inputLocke
       }}
       flexGrow={1}
     >
-      {note && <Text color={theme.accent} wrap="truncate">{note}</Text>}
+      {/* R4 (H87): what starting the lanes runs (each program by name), where, and what a program's first run may install */}
+      <Text color={theme.textSecondary} wrap="wrap">{lanesLine}</Text>
+      {note && note !== lanesLine && <Text color={theme.accent} wrap="truncate">{note}</Text>}
       <Box flexDirection="row" flexGrow={1}>
         {/* lane roster */}
         <Box flexDirection="column" width="38%" paddingRight={1}>
@@ -270,7 +278,7 @@ export function LanesPanel({ agent, zone = 0, setZone, setModalInput, inputLocke
               )}
             </>
           ) : (
-            <EmptyState line="no lanes yet — the chat home screen boots the default five" />
+            <EmptyState line={lanesOn ? 'no lanes yet — [n] spawns one' : 'lanes are off — `timmy watch --lanes` starts them'} />
           )}
         </Box>
       </Box>

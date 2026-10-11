@@ -48,7 +48,9 @@ Usage: timmy <command> [options]
 Commands:
   repl            The inline REPL, also plain timmy: chat in your scrollback (timmy repl --demo needs no key)
   watch           The full-screen monitor (the Command Post); its browser companion is on 127.0.0.1 (q on HOME shows its address
-                  with its token); --lan also serves it on your local network for a phone (plain HTTP; only on a network you trust)
+                  with its token); --lan also serves it on your local network for a phone (plain HTTP; only on a network you trust);
+                  --lanes starts the lane programs (opencode, hermes, pi, openhands, jcode, minds) on a tmux server of Timmy's own,
+                  ended with the monitor (off by default; a program's own first run may install its own background helpers)
   receipts        The receipt chain: verify, then the latest (--follow)
   theme           Timmy Homebrew (default), Night and Day, and the font, for your terminal (theme install)
   center          The cockpit: REPL, monitor and events as tabs (zellij, tmux, or the REPL here)
