@@ -54,7 +54,10 @@ script saved and every actor in it (class, label, location, rotation, scale and 
 actors the script made, `scene.params.json`'s sha256 as it read it, and every file created or changed under `Content/`
 and `out/`, with its sha256. Timmy judges the run by that file, not by Unreal's exit status: Unreal exits 0 and says
 "Python script executed successfully" even when the script failed. A run that fails still names what it wrote, each
-file checked against its sha256, as written by the failed run, never as its output.
+file checked against its sha256, as written by the failed run, never as its output. A run you stop (`/stop <job>`) has no
+result file; Timmy still judges it when it ends and names what changed in `Content/` and `out/` since you started it,
+found against the list of files it took then (no result names them, so which process changed them is not shown), never
+as outputs.
 
 `run.spawn_mesh` places a mesh by spawning a `StaticMeshActor` by class and giving it the mesh
 (`EditorActorSubsystem.spawn_actor_from_class`, then `set_static_mesh`). In the commandlet of Unreal 5.8.2,

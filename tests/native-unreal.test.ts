@@ -566,6 +566,68 @@ describe('R4 (H72): where Unreal writes, what it wrote outside the project, and 
   });
 });
 
+/**
+ * R4 u23 (H72, the Mac run through the installed Timmy, revision 796485a): a first pass stopped with /stop after its script
+ * saved a level (stop.py saved /Game/Timmy/StopGrid, then slept) was never judged: no verdict line in its run's folder, a
+ * plain task receipt naming neither the run nor the level, no outside check, and nothing said about the file it left.
+ */
+describe.skipIf(!python)('R4 u23 (H72): an Unreal run Timmy stops after its script saved a level', () => {
+  it('is judged when it ends: the level is named as changed during the stopped run (found against the inventory taken at submission), never an output; the outside check runs; the operation counts it stopped', async () => {
+    writeFileSync(path.join(root, 'stop.py'), [
+      'import time',
+      'def main(run):',
+      '    run.new_level("/Game/Timmy/StopGrid")',
+      '    run.spawn_mesh(run.load_mesh("/Engine/BasicShapes/Cube.Cube"), (0, 0, 50), label="StopCube_0")',
+      '    run.save_level()',
+      '    print("stop.py: saved; sleeping", flush=True)',
+      '    time.sleep(60)',
+      '',
+    ].join('\n'));
+    const s = spec({ script: 'stop.py' });
+    const m = new JobManager({ dir: path.join(tmp, 'jobs') });
+    managers.push(m);
+    const id = m.start(s).id;
+    const level = path.join(root, 'Content', 'Timmy', 'StopGrid.umap');
+    for (let i = 0; i < 300 && !m.tail(id, 40).join('\n').includes('stop.py: saved; sleeping'); i++) await new Promise((r) => setTimeout(r, 100));
+    expect(existsSync(level)).toBe(true);
+    const job = (await m.stop(id))!;
+    expect(job.state).toBe('cancelled');
+    const j = judgeUnrealJob(job, s);
+    const made = sha(level);
+    expect(j.files).toEqual([]);
+    expect(j.failedWrites).toEqual([{ path: 'Content/Timmy/StopGrid.umap', found: 'inventory', present: true, sha256: made, change: 'created' }]);
+    expect(j.why).toContain('no result file, and UnrealEditor-Cmd was stopped');
+    expect(j.why).toContain(`changed in Content/ and out/ during this stopped run, found against their inventory at submission (not named by a result, so which process changed them is not shown; not outputs): Content/Timmy/StopGrid.umap (created; sha256 ${made.slice(0, 12)}…)`);
+    // the cause is known: no "Unreal did not run the harness" guess for a run Timmy stopped
+    expect(j.why).not.toContain('a possible cause, not checked');
+    expect(j.outside).toMatchObject({ state: 'checked', files: 0 });
+    expect(readNativeRecord(root, s.native.run)?.verdicts.at(-1)).toMatchObject({ job: job.id, exit: { state: 'cancelled' }, files: [], failed_writes: [{ path: 'Content/Timmy/StopGrid.umap', found: 'inventory', change: 'created' }], outside: { state: 'checked' } });
+    const sealed = unrealReceiptFields(j);
+    expect(sealed.native.files).toEqual([]);
+    expect(sealed.native.unreal).toMatchObject({ failed_run_writes: [{ path: 'Content/Timmy/StopGrid.umap', found: 'inventory', change: 'created', sha256: made }], outside: { state: 'checked' } });
+    const text = endText(j, s, job.id);
+    expect(text).toMatch(new RegExp(`^ {2}${job.id} stopped {2}Unreal: no result file, and UnrealEditor-Cmd was stopped`));
+    expect(text).toMatch(/left {5}Content\/Timmy\/StopGrid\.umap · changed during this stopped run \(created\) · sha256 [0-9a-f]{12}… \(Timmy's, after the run; found against the inventory taken at submission, not named by a result\) · [0-9.]+ (B|KB) · not an output: the run was stopped/);
+    expect(text).toMatch(/outside {2}no file changed during the job in the 4 folders Unreal keeps in this account's home/);
+    // the operation's outcome: stopped, not failed
+    expect(runOutcome({ kind: 'native', id: s.native.run, at: '' }, root, { get: () => job })).toMatchObject({ state: 'stopped' });
+    // a file there before the run and untouched by it is not named; one the run removed is named as gone
+    const kept = path.join(root, 'Content', 'Timmy', 'Kept.umap');
+    writeFileSync(kept, 'kept');
+    writeFileSync(path.join(root, 'stop2.py'), readFileSync(path.join(root, 'stop.py'), 'utf8').replace('/Game/Timmy/StopGrid', '/Game/Timmy/StopGrid2'));
+    const s2 = spec({ script: 'stop2.py' });
+    rmSync(kept);
+    const m2 = new JobManager({ dir: path.join(tmp, 'jobs2') });
+    managers.push(m2);
+    const id2 = m2.start(s2).id;
+    for (let i = 0; i < 300 && !m2.tail(id2, 40).join('\n').includes('stop.py: saved; sleeping'); i++) await new Promise((r) => setTimeout(r, 100));
+    const j2 = judgeUnrealJob((await m2.stop(id2))!, s2);
+    // StopGrid.umap, there at this run's submission and untouched by it, is not named
+    expect(j2.failedWrites?.map((f) => [f.path, f.change])).toEqual([['Content/Timmy/Kept.umap', 'gone'], ['Content/Timmy/StopGrid2.umap', 'created']]);
+    expect(j2.why).toContain('Content/Timmy/Kept.umap (gone), Content/Timmy/StopGrid2.umap (created; sha256 ');
+  }, 60_000);
+});
+
 describe('the comparison itself', () => {
   const actor = (o: Partial<{ name: string; location: number[]; rotation: number[]; scale: number[] }> = {}) => ({
     name: o.name ?? 'A', label: 'A', class: '/Script/Engine.StaticMeshActor', location: o.location ?? [0, 0, 0], rotation: o.rotation ?? [0, 0, 0], scale: o.scale ?? [1, 1, 1],

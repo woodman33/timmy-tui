@@ -44,6 +44,10 @@
  *
  * A failed run's result still names the files the harness saw written (r21: the level saved before the spawn failed); each
  * is checked against disk and recorded as written by the failed run (UnrealJudgement.failedWrites), never as an output.
+ * A run with no result of its own (R4 u23: stopped with /stop after its script saved a level, which the Mac run through the
+ * installed Timmy found named nowhere) is judged when it ends too: the files its watched folders hold that changed since the
+ * submission, against the inventory taken then (unrealChangedFiles), are recorded the same way, said as found against that
+ * inventory (no result names them, so which process changed them is not shown); its operation counts it stopped.
  *
  * Tests: tests/native-unreal.test.ts runs the job, the harness, the starter and the readback with a FAKE UnrealEditor-Cmd
  * (tests/fixtures/fake-unreal.mjs) and a stand-in `unreal` module (tests/fixtures/unreal-stub), which reproduce what the
@@ -51,7 +55,7 @@
  * HOME). Timmy itself (the REPL, `timmy act`, the receipts) has not run Unreal yet: that is the next run on the Mac.
  */
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync, type Dirent } from 'node:fs';
 import path from 'node:path';
 import type { JobRecord } from '../jobs/index.js';
 import { resolveInside } from '../project/index.js';
@@ -420,8 +424,13 @@ export interface UnrealReport {
  */
 export interface UnrealFailedWrite {
   path: string;
-  /** the sha256 the harness recorded */
-  recorded: string;
+  /** the sha256 the harness recorded (absent for a file found against the inventory: no result named it) */
+  recorded?: string;
+  /**
+   * R4 u23 (H72): 'inventory' when no result of this run named it: a file of the watched folders created, changed or gone
+   * since the submission, against the inventory taken then (a run stopped, or ended before its harness wrote a result)
+   */
+  found?: 'inventory';
   present: boolean;
   /** Timmy's sha256 of the file now */
   sha256?: string;
@@ -568,15 +577,69 @@ export function unrealFailedWrites(spec: UnrealJobSpec, files: Record<string, un
   return out;
 }
 
-/** "written by this failed run: Content/Timmy/TimmyGrid.umap (created; sha256 881f123e…)", or '' when it named none. */
-export function failedWritesWords(ws: UnrealFailedWrite[] | undefined): string {
+/** How many entries, and how deep, a walk of the watched folders for a run with no result goes. */
+const CHANGED_WALK_ENTRIES = 20_000;
+const CHANGED_WALK_DEPTH = 16;
+
+/**
+ * R4 u23 (H72): what a run that ended with no result of its own left in its watched folders (the .uproject's Content and
+ * out/), found against the inventory taken at its submission: each regular file created or changed since then (or, not
+ * inventoried, changed during the run), with Timmy's sha256 now, and each inventoried file gone. On the Mac (796485a) a
+ * first pass stopped with /stop after its script had saved a level (Content/Timmy/StopGrid.umap) left no word of that
+ * file anywhere. No result names these files, so which process changed them is not shown; they are never outputs. The
+ * walk follows no link and stops past CHANGED_WALK_ENTRIES entries.
+ */
+export function unrealChangedFiles(spec: UnrealJobSpec, sinceMs: number): UnrealFailedWrite[] {
+  const out: UnrealFailedWrite[] = [];
+  const seen = new Set<string>();
+  let entries = 0;
+  const walk = (abs: string, rel: string, depth: number): void => {
+    let list: Dirent[];
+    try { list = readdirSync(abs, { withFileTypes: true }); } catch { return; }
+    list.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const e of list) {
+      if (++entries > CHANGED_WALK_ENTRIES) return;
+      const childRel = `${rel}/${e.name}`;
+      if (e.isDirectory()) { if (depth < CHANGED_WALK_DEPTH) walk(path.join(abs, e.name), childRel, depth + 1); continue; }
+      if (!e.isFile()) continue; // a link is never followed
+      seen.add(childRel);
+      const c = classifyOutput(path.join(abs, e.name), stateBefore(childRel, spec.native.pre, spec.native.inventory), sinceMs);
+      if (c.change === 'created' || c.change === 'changed' || c.change === 'unrecorded') {
+        out.push({ path: childRel, found: 'inventory', present: c.present, ...(c.sha256 ? { sha256: c.sha256 } : {}), change: c.change });
+      }
+    }
+  };
+  for (const folder of spec.unreal.watch) {
+    const at = resolveInside(spec.root, folder);
+    if (!('error' in at)) walk(at.path, at.rel, 0);
+  }
+  for (const [rel, before] of Object.entries(spec.native.pre ?? {})) {
+    if (before.state !== 'present' || seen.has(rel) || !spec.unreal.watch.some((f) => rel.startsWith(`${f}/`))) continue;
+    if (!existsSync(path.join(spec.root, ...rel.split('/')))) out.push({ path: rel, found: 'inventory', present: false, change: 'gone' });
+  }
+  return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)).slice(0, 200);
+}
+
+/**
+ * "written by this failed run: Content/Timmy/TimmyGrid.umap (created; sha256 881f123e…)" for files a failed run's result
+ * names; for files found against the inventory (R4 u23), "changed in Content/ and out/ during this stopped run, found
+ * against their inventory at submission (…): Content/Timmy/StopGrid.umap (created; sha256 eae98ebe916f…)"; '' for none.
+ */
+export function failedWritesWords(ws: UnrealFailedWrite[] | undefined, o: { stopped?: boolean; watch?: string[] } = {}): string {
   if (!ws?.length) return '';
+  const more = ws.length > 6 ? ` and ${ws.length - 6} more` : '';
+  if (ws[0].found === 'inventory') {
+    const where = (o.watch?.length ? o.watch : ['Content', OUT_FOLDER]).map((f) => `${f}/`).join(' and ');
+    const found = (f: UnrealFailedWrite): string => `${f.path} (${f.change === 'gone' ? 'gone'
+      : f.change === 'unrecorded' ? `changed during the run, not inventoried before; sha256 ${short(f.sha256)}` : `${f.change}; sha256 ${short(f.sha256)}`})`;
+    return `changed in ${where} during this ${o.stopped ? 'stopped ' : ''}run, found against their inventory at submission (not named by a result, so which process changed them is not shown; not outputs): ${ws.slice(0, 6).map(found).join(', ')}${more}`;
+  }
   const one = (f: UnrealFailedWrite): string => {
     const did = f.change === 'created' || f.change === 'changed' ? `${f.change}; ` : f.change === 'reused' ? 'the same bytes as before this run; ' : '';
     const now = !f.present ? '; not there now' : f.matches ? '' : `; ${short(f.sha256)} now`;
     return `${f.path} (${did}sha256 ${short(f.recorded)}${now})`;
   };
-  return `written by this failed run: ${ws.slice(0, 6).map(one).join(', ')}${ws.length > 6 ? ` and ${ws.length - 6} more` : ''}`;
+  return `written by this failed run: ${ws.slice(0, 6).map(one).join(', ')}${more}`;
 }
 
 const short = (sha: string | undefined): string => (sha ? `${sha.slice(0, 12)}…` : 'none');
@@ -623,14 +686,24 @@ export function judgeUnrealJob(job: JobRecord, spec: UnrealJobSpec): UnrealJudge
     const doubt = unrealDoubt(report, spec, base.files, obj(r?.files) ?? {});
     if (doubt) { outcome = 'unknown'; why = `${doubt}; ${why}`; }
   }
-  if (read.state === 'missing' && outcome !== 'ok') why = `${why}; ${UNREAL_NO_RESULT_HINT.replace('<id>', job.id)}`;
+  // R4 u23 (H72): a run Timmy stopped (/stop) or its time limit ended has a known cause: no guess about the harness
+  const stopped = job.state === 'cancelled';
+  if (read.state === 'missing' && outcome !== 'ok' && !stopped && job.error !== 'timed out') why = `${why}; ${UNREAL_NO_RESULT_HINT.replace('<id>', job.id)}`;
   // R4 (H72): a failed run's result still names what the harness saw written (r21: the level saved before the spawn
   // failed); each is checked against disk and recorded as written by a failed run, never as an output (base.files stays).
   const startedMs = Date.parse(job.startedAt);
   const sinceMs = spec.native.submittedMs ?? startedMs;
-  const named = r?.ok === false && r.run === spec.native.run ? obj(r.files) : undefined;
-  const failedWrites = named && Object.keys(named).length ? unrealFailedWrites(spec, named, Number.isNaN(sinceMs) ? 0 : sinceMs) : undefined;
-  if (failedWrites?.length) why = `${why}; ${failedWritesWords(failedWrites)}`;
+  const since = Number.isNaN(sinceMs) ? 0 : sinceMs;
+  const own = r !== undefined && r.run === spec.native.run;
+  const named = own && r?.ok === false ? obj(r.files) : undefined;
+  let failedWrites = named && Object.keys(named).length ? unrealFailedWrites(spec, named, since) : undefined;
+  // R4 u23 (H72): a run with no result of its own (stopped, timed out, or ended before its harness wrote one) is named by
+  // what its watched folders hold now against their inventory at submission (on the Mac a stopped run's level was named nowhere)
+  if (!failedWrites?.length && !own && outcome !== 'ok') {
+    const found = unrealChangedFiles(spec, since);
+    if (found.length) failedWrites = found;
+  }
+  if (failedWrites?.length) why = `${why}; ${failedWritesWords(failedWrites, { stopped, watch: spec.unreal.watch })}`;
   const outside = unrealOutsideOf(job, spec);
   if (outside) why = `${why}; ${unrealOutsideWords(outside, { nativeHome: spec.unreal.place?.native_home ?? false })}`;
   const j: UnrealJudgement = { ...base, outcome, why, unreal: report, ...(failedWrites?.length ? { failedWrites } : {}), ...(outside ? { outside } : {}) };
@@ -772,11 +845,21 @@ export function unrealStartLines(spec: UnrealJobSpec, sep: string): Line[] {
 }
 
 /** R4 (H72): the lines for the files a failed run left and for what the job wrote outside the project. */
-export function unrealLeftLines(j: { failedWrites?: UnrealFailedWrite[]; outside?: UnrealOutsideCheck }, o: { root: string; sep: string; nativeHome: boolean }): Line[] {
+export function unrealLeftLines(j: { failedWrites?: UnrealFailedWrite[]; outside?: UnrealOutsideCheck; outcome?: string; exit?: { state?: string } }, o: { root: string; sep: string; nativeHome: boolean }): Line[] {
   const lines: Line[] = [];
+  const stopped = j.exit?.state === 'cancelled';
   for (const f of (j.failedWrites ?? []).slice(0, 12)) {
     let bytes: number | undefined;
     try { bytes = statSync(path.join(o.root, f.path)).size; } catch { bytes = undefined; }
+    if (f.found === 'inventory') {
+      // R4 u23 (H72): no result named it: found against the inventory taken at submission
+      const run = `this ${stopped ? 'stopped ' : ''}run`;
+      const did = f.change === 'gone' ? `there at submission and gone after ${run}` : `changed during ${run} (${f.change === 'unrecorded' ? 'not inventoried before' : f.change})`;
+      const state = f.present ? `${o.sep}sha256 ${short(f.sha256)} (Timmy's, after the run; found against the inventory taken at submission, not named by a result)${bytes !== undefined ? `${o.sep}${size(bytes)}` : ''}` : '';
+      const why = stopped ? 'the run was stopped' : j.outcome === 'failed' ? 'the run failed' : 'the run was not judged ok';
+      lines.push([{ text: '      left     ', role: 'secondary' }, { text: f.path }, { text: `${o.sep}${did}${state}${o.sep}not an output: ${why}`, role: 'secondary' }]);
+      continue;
+    }
     const did = f.change === 'created' || f.change === 'changed' ? `written by this failed run (${f.change})` : f.change === 'reused' ? 'named by the failed run, with the same bytes as before it' : 'named by the failed run';
     const state = !f.present ? `${o.sep}not there now (the harness recorded sha256 ${short(f.recorded)})`
       : `${o.sep}sha256 ${short(f.sha256)} (Timmy's, after the run${f.matches ? ', as the harness recorded it' : `; the harness recorded ${short(f.recorded)}`})${bytes !== undefined ? `${o.sep}${size(bytes)}` : ''}`;
@@ -801,10 +884,12 @@ export function unrealEndLines(j: UnrealJudgement, spec: UnrealJobSpec, o: {
   id: string; label: string; glyphs: { ok: string; fail: string }; sep: string; scrub: (s: string) => string; receipt?: string;
 }): Line[] {
   const u = j.unreal;
-  const mark = j.outcome === 'ok' ? o.glyphs.ok : j.outcome === 'failed' ? o.glyphs.fail : '?';
+  // R4 u23 (H72): a run Timmy stopped is said stopped, as its job and its operation are (its verdict, in the record, says why)
+  const stopped = j.exit.state === 'cancelled';
+  const mark = stopped ? '' : j.outcome === 'ok' ? o.glyphs.ok : j.outcome === 'failed' ? o.glyphs.fail : '?';
   const lines: Line[] = [[
-    { text: `  ${mark} `, role: j.outcome === 'failed' ? 'failure' : undefined },
-    { text: `${o.id} ${j.outcome}`, role: j.outcome === 'failed' ? 'failure' : 'strong' },
+    { text: stopped ? '  ' : `  ${mark} `, role: j.outcome === 'failed' && !stopped ? 'failure' : undefined },
+    { text: `${o.id} ${stopped ? 'stopped' : j.outcome}`, role: j.outcome === 'failed' && !stopped ? 'failure' : 'strong' },
     { text: `  ${o.label}: ${o.scrub(j.why)}${o.receipt ? `${o.sep}receipt ${o.receipt}` : ''}${o.sep}/results`, role: 'secondary' },
   ]];
   for (const file of j.files.filter((x): x is NativeFileCheck & { recorded: string } => x.recorded !== undefined).slice(0, 12)) {
