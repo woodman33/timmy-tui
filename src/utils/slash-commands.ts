@@ -48,6 +48,7 @@ import { detectHf, hfPushTraining } from './huggingface.js';
 import { ensureProjectTree, appendChatThread, syncLaneLogs, exportTraining, renderProjectIndex, writePromptRecord } from './projecttree.js';
 import { shareFile, demoTerminal } from './share.js';
 import { fetchWx, wxSheetLine, wxLightLine } from './weather.js';
+import { providerStatusWords } from '../tui/provider-status.js';
 
 
 export interface SlashCommand {
@@ -138,7 +139,8 @@ export const SLASH_COMMANDS: SlashCommand[] = [
       const sub = parts[0].toLowerCase();
       
       if (sub === 'current' || !sub) {
-        return `Currently selected model: ${agent.getModel()}\nHealth status: ${agent.modelHealthStatus || 'UNTESTED'}`;
+        // R4 (H87): nothing checks the model at start; the status says so, and how to check it
+        return `Currently selected model: ${agent.getModel()}\n${providerStatusWords({ hasKey: agent.hasModelKey?.(), status: agent.modelHealthStatus, error: agent.lastHealthError })}`;
       } else if (sub === 'test') {
         const currentModel = agent.getModel();
         agent.testModelHealth(currentModel).then((res: any) => {

@@ -6,7 +6,7 @@ import { startShellV2 } from './shell-entry.js';
 
 const config = loadConfig() as { apiKey?: string; model?: string; onboarded?: boolean };
 const agentConfig = {
-  apiKey: config.apiKey || 'setup_placeholder',
+  apiKey: config.apiKey || '', // R4 (H87): never a placeholder key
   model: config.model,
   onboarded: config.onboarded === true,
   instructions: '',

@@ -21,6 +21,7 @@ import { laneServerArgs, laneWatchdog, lanesWords, type LaneMultiplexer } from '
 import { writeLog, tuiLogger } from '../utils/logger.js';
 import { carriesSecret, shownAddress, writeLaunchPage } from '../utils/launch-page.js';
 import { probeOllama, pickOllamaModel, ollamaChatCompletion } from './providers.js';
+import { modelCheckUrl } from './model-check.js';
 
 export interface SendOptions {
   /** Cancels the turn: the stream is cancelled and no fallback model is tried. */
@@ -567,12 +568,13 @@ export class Agent extends EventEmitter<AgentEvents> {
   }> {
     const apiKey = this.config.apiKey;
     if (!apiKey) {
-      // No more silent early-return: surface the missing-key failure in logs + UI
+      // R4 (H87): no key, no request at all (never a placeholder key): the words say there is no model key
+      const error = 'No model key, so nothing was sent: add one with `timmy init --tui` (or OPENROUTER_API_KEY)';
       this.modelHealthStatus = 'ERROR';
-      this.lastHealthError = 'API key is missing (set OPENROUTER_API_KEY in .env)';
+      this.lastHealthError = error;
       this.emit('model:health', 'ERROR');
-      this.logModelEvent('model.test.failed', { modelId, error: 'API key is missing' });
-      return { ok: false, error: 'API key is missing' };
+      this.logModelEvent('model.test.failed', { modelId, error: 'no model key; nothing sent' });
+      return { ok: false, error };
     }
     const start = Date.now();
     try {
@@ -580,7 +582,8 @@ export class Agent extends EventEmitter<AgentEvents> {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 8000);
       
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      // R4 (H87): OpenRouter, or a test's FAKE on 127.0.0.1 (TIMMY_MODEL_CHECK_URL, src/agent/model-check.ts)
+      const response = await fetch(modelCheckUrl(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -645,9 +648,13 @@ export class Agent extends EventEmitter<AgentEvents> {
     }
   }
 
-  /** Run once on TUI mount so Provider Status reflects reality immediately. */
-  public runStartupHealthCheck(): void {
-    void this.testModelHealth(this.config.model);
+  // R4 (H87): no start-up check. runStartupHealthCheck (called on every mount of an agent in the monitor) is gone: a
+  // monitor that starts asks nothing of a model and its provider status says "not checked"; testModelHealth above is the
+  // explicit check, one small request, when the operator asks for it (`/model test`).
+
+  /** R4 (H87): whether this agent has a model key (with none, nothing is sent to a model by a check). */
+  public hasModelKey(): boolean {
+    return Boolean(this.config.apiKey);
   }
 
   /**
