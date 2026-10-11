@@ -17,7 +17,7 @@ import { kit } from '../src/repl/board-kit.js';
 import { roomSection, ROOM_CSS } from '../src/repl/board-room.js';
 import type { BoardObservation } from '../src/repl/board.js';
 import {
-  costsLine, elapsedWords, findRun, flowHandoff, flowOutputs, gatherRoom, needsSetup, receiptCosts, ROOM_KINDS, routeWords, scrubRows, setupCounts, shortReceipt, sumCosts, toolGroups,
+  costsLine, elapsedWords, findRun, flowHandoff, flowOutputs, gatherRoom, needsSetup, receiptCosts, ROOM_KINDS, routeWords, scrubRows, setupCounts, shortReceipt, sumCosts, toolGroups, TURN_NO_COST,
   type RoomContext, type RoomRun,
 } from '../src/room/index.js';
 import { roomItemLines, roomLines } from '../src/room/text.js';
@@ -189,7 +189,8 @@ describe('the Control Room: grouping and ordering', () => {
     expect(mcp).toMatchObject({ owner: `MCP server fake-${EVIL}`, state: 'answered', step: 'tool echo', elapsed: '0.8 s', endpoint: 'local', record: '.timmy/mcp/m00000001/call.json' });
     expect(mcp.receipt).toMatch(/^[0-9a-f]{8}$/);
     const workflow = all.find((r) => r.id === 'j0d0001')!;
-    expect(workflow).toMatchObject({ owner: 'upmd (a workflow run)', harness: 'upmd', progress: '2 of 2 steps; build failed, exit 2', receipt: 'rcptwf01' });
+    // R4 (H73): a record from before H67 (no planned order) says what it saw and that the planned count is not recorded
+    expect(workflow).toMatchObject({ owner: 'upmd (a workflow run)', harness: 'upmd', progress: '2 steps seen (the planned count is not recorded); build failed, exit 2', receipt: 'rcptwf01' });
     const stale = all.find((r) => r.id === 'j0d0003')!;
     expect(stale).toMatchObject({ running: false, state: 'running; its process is gone (from an earlier session)' });
     expect(stale.stop).toBeUndefined();
@@ -282,13 +283,14 @@ describe('the Control Room: costs, as recorded', () => {
     expect(view.costs.known).toBe(3);
     expect(view.costs.knownUsd).toBeCloseTo(0.0186, 10);
     // Unknown: the cancelled turn (at least 0.001), the remote run with no reported cost, the refused qualified answer,
-    // and the observation file no receipt seals (a model was asked).
-    expect(view.costs.unknown).toBe(4);
+    // the observation file no receipt seals (a model was asked), and (R4, H73) the MCP call: a request went out, and MCP
+    // reports no cost.
+    expect(view.costs.unknown).toBe(5);
     expect(view.costs.atLeastUsd).toBeCloseTo(0.001, 10);
     // Free: the local run (its flow receipt restates it: the same charge) and the running local run.
     expect(view.costs.free).toBe(2);
     const line = costsLine(view.costs);
-    expect(line).toBe('$0.0186 known (3 runs) · 4 runs of unknown cost (at least $0.0010 reported on them) · 2 runs free (local endpoint); runs that record no cost are not counted');
+    expect(line).toBe('$0.0186 known (3 runs) · 5 runs of unknown cost (at least $0.0010 reported on them) · 2 runs free (local endpoint); runs for which Timmy sent no request are not counted');
     expect(line).not.toMatch(/remaining|budget|left/i);
     // Per run: the receipt's words when a receipt seals the charge, the record's otherwise; unknown is never 0.
     expect(all.find((r) => r.id === 'a0000a003')!.cost).toEqual({ kind: 'unknown', words: 'unknown: the agent reported no cost' });
@@ -299,7 +301,9 @@ describe('the Control Room: costs, as recorded', () => {
     expect(all.find((r) => r.kind === 'chat' && r.state.startsWith('cancelled'))!.cost).toMatchObject({ kind: 'unknown', atLeast: 0.001 });
     expect(all.find((r) => r.id === 'j0c0001')!.cost).toEqual({ kind: 'known', usd: 0.0021, words: '$0.0021, as the response reported it, sealed on its receipt' });
     expect(all.find((r) => r.id === 'j0c0009')!.cost.kind).toBe('unknown');
-    for (const r of all.filter((x) => x.kind === 'native' || x.kind === 'mcp' || x.kind === 'job')) expect(r.cost.kind).toBe('none');
+    for (const r of all.filter((x) => x.kind === 'native' || x.kind === 'job')) expect(r.cost.kind).toBe('none');
+    // R4 (H73): an MCP call that was sent is a request that went out: unknown, never 0, never left out
+    expect(all.find((r) => r.kind === 'mcp')!.cost).toEqual({ kind: 'unknown', words: 'unknown: a request went out to the MCP server on this machine, and MCP reports no cost' });
     for (const r of all.filter((x) => x.cost.kind === 'unknown')) expect(r.cost.usd).toBeUndefined();
   });
 
@@ -330,10 +334,11 @@ describe('the Control Room: costs, as recorded', () => {
     expect(costs[0]).toEqual({ kind: 'unknown', atLeast: 0.003, words: 'unknown: its receipt marks the cost incomplete (a cancel, or a response that reported no charge) (at least $0.0030 was reported)' });
     expect(costs[1]).toEqual({ kind: 'unknown', words: 'unknown: the agent reported no cost' });
     expect(costs[2]).toEqual({ kind: 'none', words: 'no model request went out' });
-    expect(costs[3]).toEqual({ kind: 'none', words: 'its receipt records no cost' });
+    // R4 (H73): a turn whose receipt records no cost asked the chat model (every turn does): unknown, counted (H78's note)
+    expect(costs[3]).toEqual({ kind: 'unknown', words: TURN_NO_COST });
     const sum = sumCosts(sealed.values());
-    expect(sum).toEqual({ knownUsd: 0, known: 0, unknown: 2, free: 0, atLeastUsd: 0.003 });
-    expect(costsLine(sum)).toBe('no known cost recorded · 2 runs of unknown cost (at least $0.0030 reported on them) · 0 runs free (local endpoint); runs that record no cost are not counted');
+    expect(sum).toEqual({ knownUsd: 0, known: 0, unknown: 3, free: 0, atLeastUsd: 0.003 });
+    expect(costsLine(sum)).toBe('no known cost recorded · 3 runs of unknown cost (at least $0.0030 reported on them) · 0 runs free (local endpoint); runs for which Timmy sent no request are not counted');
     expect(costsLine(sum)).not.toContain('$0.0000');
   });
 });
@@ -420,8 +425,8 @@ describe('the Control Room on the board: escaping, buttons, no paths', () => {
     expect(live).not.toContain('href=');
     // The costs line, never a remaining budget.
     // The costs bar: the same words as the costs line (only the unknown part is drawn in the attention colour).
-    expect(snap.replace(/<[^>]+>/g, '')).toContain('$0.0186 known (3 runs) · 4 runs of unknown cost (at least $0.0010 reported on them) · 2 runs free (local endpoint); runs that record no cost are not counted');
-    expect(snap).toContain('<span class="cost-unknown">4 runs of unknown cost');
+    expect(snap.replace(/<[^>]+>/g, '')).toContain('$0.0186 known (3 runs) · 5 runs of unknown cost (at least $0.0010 reported on them) · 2 runs free (local endpoint); runs for which Timmy sent no request are not counted');
+    expect(snap).toContain('<span class="cost-unknown">5 runs of unknown cost');
     expect(snap).not.toMatch(/\$[0-9.]+\s*(remaining|left)|remaining budget:|budget remaining/i);
     // The handoff chain is an ordered list with each step's owner, state, job and receipt.
     expect(snap).toContain('<ol class="handoff" aria-label="the handoffs of flow f0000a001">');
@@ -536,7 +541,7 @@ describe('the Control Room never throws for a record it cannot read', () => {
     const { view } = gatherRoom(ctx);
     expect(view.running).toEqual([]);
     expect(view.groups.every((g) => g.recent.length === 0)).toBe(true);
-    expect(costsLine(view.costs)).toBe('no known cost recorded · 0 runs of unknown cost · 0 runs free (local endpoint); runs that record no cost are not counted');
+    expect(costsLine(view.costs)).toBe('no known cost recorded · 0 runs of unknown cost · 0 runs free (local endpoint); runs for which Timmy sent no request are not counted');
     put(empty, '.timmy/agents/a0000ffff/result.json', '{ torn');
     put(empty, 'results/flows/f0000ffff.json', '{ torn');
     put(empty, '.timmy/mcp/m0000ffff/call.json', '{ torn');

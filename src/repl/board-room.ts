@@ -50,7 +50,9 @@ export function costsHtml(c: RoomCosts): string {
 /** The handoff chain as an ordered list (it needs no script). */
 export function handoffHtml(r: RoomRun): string {
   if (!r.handoff?.length) return '';
-  const what = r.kind === 'flow' ? `the handoffs of flow ${r.id}` : `the job and result of ${r.id}`;
+  // R4 (H73): a workflow run's blocks (counted once, src/workflows/block-count.ts), a turn's tool calls, a native run's readbacks
+  const what = r.kind === 'flow' ? `the handoffs of flow ${r.id}` : r.kind === 'job' ? `the blocks of workflow run ${r.id}`
+    : r.kind === 'chat' ? `the tools turn ${r.id} called` : r.kind === 'native' ? `the run ${r.id} and what read it back` : `the job and result of ${r.id}`;
   return `<ol class="handoff" aria-label="${esc(what)}">${r.handoff.map(stepHtml).join('')}</ol>`;
 }
 

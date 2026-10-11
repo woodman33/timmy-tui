@@ -180,7 +180,8 @@ describe('/vox view of a STEP: its tessellation by OCP (FAKE worker), never the 
     expect(v.said[2]).toMatch(/^ {2}tessellate cad\/part\.step: OCP meshes it for the viewer, within 0\.1 mm \(linear deflection\) and 0\.5 rad \(angular\) · job j[0-9a-f]{6}$/);
     const job = /job (j[0-9a-f]{6})$/.exec(v.said[2])![1];
     expect(v.said.slice(3)).toEqual([
-      expect.stringMatching(new RegExp(`^ {2}✓ ${job} completed {2}vox view ${p.step} · tessellate cad/part\\.step \\(OCP\\)`)),
+      // R4 (H73): a VoxVision tool's job is judged by its action's record, never ✓ by its exit 0: it hands over to its judge
+      expect.stringMatching(new RegExp(`^ {2}→ ${job} ended {2}vox view ${p.step} · tessellate cad/part\\.step \\(OCP\\) · exit 0 · [0-9.]+ (s|min) · its VoxVision record says how it ended$`)),
       `  passed     ${mesh} (mesh, stl)`,
       `  mesh       ${words}`,
       `  not passed cad/part.step: Rerun's viewer has no STEP loader (a STEP is CAD, not a mesh): its tessellation ${mesh} is passed instead`,

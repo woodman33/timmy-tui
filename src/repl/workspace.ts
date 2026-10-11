@@ -91,6 +91,10 @@ import { recoverWorkflowJobs } from './workflow-recover.js'; // R4 (H58)
 // Round R4 (H48): the Control Room (/room and the board's section): src/room reads the runs; this file only gathers its inputs.
 import { gatherRoom, scrubRows, type Room, type RoomTools } from '../room/index.js';
 import { roomItemLines, roomLines } from '../room/text.js';
+// R4 (H73): each job as Timmy judged it, and a workflow run's blocks counted once, wherever a job is drawn
+import { JOB_KINDS, jobJudgement, jobKind, judgedLine, judgeIndex, type JobJudgement, type JudgeIndex } from '../room/judge.js';
+import { jobLineOf, judgedLines } from './job-lines.js';
+import { blockCount } from '../workflows/block-count.js';
 import type { CapabilityRow } from '../capabilities/index.js';
 import type { BoardFlows } from './board-flows.js';
 // Round R4 (H49): Timmy VoxVision, /inspect /measure /detect /compare (src/repl/vox.ts) and its board section (board-vox.ts).
@@ -1195,6 +1199,10 @@ export class Workspace {
     }
     if (job.state === 'ready') {
       this.d.notify([{ text: `  ${g.ok} ` }, { text: `${job.id} ready`, role: 'strong' }, { text: `  ${job.label} answers at ${job.url ?? ''}${this.sep}serving until /stop ${job.id}`, role: 'secondary' }]);
+    } else if (job.state === 'completed' && JOB_KINDS[jobKind(job)].by === 'record') {
+      // R4 (H73): a job a record judges (a Look measurement, a VoxVision tool, a readback) is never ✓ by its exit 0: its judge,
+      // which follows, says how it ended
+      this.d.notify([{ text: `  ${g.arrow} ` }, { text: `${job.id} ended`, role: 'strong' }, { text: `  ${job.label}${this.sep}exit 0${this.sep}${seconds(job)}${this.sep}${JOB_KINDS[jobKind(job)].judge} says how it ended`, role: 'secondary' }]);
     } else if (job.state === 'completed') {
       const p = this.predictions.get(job.id);
       const met = p ? job.steps.length === p.order.length && job.steps.every((s, i) => s.name === p.order[i] && s.state === 'completed') : undefined;
@@ -1284,20 +1292,27 @@ export class Workspace {
     return jobBlockLines(j, this.predictions.get(j.id)?.order ?? j.expected?.steps ?? [], { glyphs: this.d.glyphs, clock: (i) => this.stepClock.ms(j.id, i), receipts: blockReceiptsOf(this.chainNow(), j.id) });
   }
 
-  private jobLine(j: JobRecord): Line {
-    const g = this.d.glyphs;
-    const mark = j.state === 'completed' || j.state === 'ready' ? g.ok : j.state === 'failed' ? g.fail : j.state === 'cancelled' ? ' ' : g.bullet;
-    const steps = j.kind === 'workflow' ? `${this.sep}${j.steps.filter((s) => s.state !== 'running').length} of ${this.expected(j) ?? j.steps.length} steps` : '';
-    const where = j.url && j.state === 'ready' ? `${this.sep}${j.url}` : '';
+  /** R4 (H73): the project's judgements of its jobs, read once per view (src/room/judge.ts); none when they cannot be read. */
+  private judges(root = this.root): JudgeIndex | undefined {
+    try { return judgeIndex({ root, chain: this.chainNow(), projectId: projectId(root), scrub: (t) => this.scrub(t, root) }); } catch { return undefined; }
+  }
+
+  /** R4 (H73): a job as Timmy judged it; a Look job whose model is being asked is still under way (its receipt follows). */
+  private judgedJob(j: JobRecord, ix?: JudgeIndex, o: { whyMax?: number } = {}): JobJudgement {
+    const r = jobJudgement(j, ix, o);
+    const asking = this.observing.get(j.id)?.asking;
+    return asking && r.missing ? { ...r, mark: 'running', word: 'measured', why: `${asking.sent ? 'asking' : 'about to ask'} ${asking.model}; its observe receipt is sealed when that ends` } : r;
+  }
+
+  private jobLine(j: JobRecord, ix?: JudgeIndex): Line {
     const stale = j.stale ? `${this.sep}from an earlier session; its process is gone` : '';
     // R4 (H58): ended by a later session's recovery, its session having ended while it ran
     const interrupted = j.interrupted ? `${this.sep}interrupted: its session ended${j.interrupted.step ? ` while ${j.interrupted.step} ran` : ''}${j.interrupted.wrapper ? `; ${wrapperDid(j.interrupted.wrapper)}` : ''}` : '';
     const note = `${interrupted}${j.note ? `${this.sep}${j.note}` : ''}`;
-    return [
-      { text: `  ${mark} `, role: j.state === 'failed' ? 'failure' : undefined },
-      { text: j.id, role: 'strong' },
-      { text: `  ${j.state.padEnd(9)} ${j.label}${steps}${where}${this.sep}${seconds(j)}${j.receipt ? `${this.sep}receipt ${j.receipt}` : ''}${stale}${note}`, role: 'secondary' },
-    ];
+    // R4 (H73): the mark and word Timmy judged (a record's judgement, never the exit, where one judges it), and a workflow
+    // run's blocks counted as every view counts them (against its sealed order)
+    const count = j.kind === 'workflow' ? blockCount(j, { order: this.predictions.get(j.id)?.order }) : undefined;
+    return jobLineOf(j, { glyphs: this.d.glyphs, sep: this.sep, seconds: seconds(j), judged: this.judgedJob(j, ix), ...(count ? { count } : {}), after: `${stale}${note}` });
   }
 
   /** Round R3: under a Look job whose measurement is done, the model still being asked (and whether it can charge yet). */
@@ -1315,7 +1330,8 @@ export class Workspace {
     if (id) {
       const j = this.jobs.get(id) ?? this.jobs.list().find((x) => x.id === id);
       if (!j) return this.say(`No job ${id}. /jobs lists them.`);
-      const lines: Line[] = [this.jobLine(j), ...this.askingLine(j)];
+      const ix = this.judges(j.root); // R4 (H73): who judged it, in full, under its line
+      const lines: Line[] = [this.jobLine(j, ix), ...judgedLines(this.judgedJob(j, ix, { whyMax: 600 }), { sep: this.sep }), ...this.askingLine(j)];
       if (j.kind === 'workflow') lines.push(...this.blockLines(j));
       else for (const s of j.steps) lines.push([{ text: `      ${s.state === 'completed' ? this.d.glyphs.ok : s.state === 'failed' ? this.d.glyphs.fail : this.d.glyphs.bullet} ${s.name}`, role: s.state === 'failed' ? 'failure' : undefined }, { text: `${s.state === 'completed' || s.state === 'failed' ? '' : `  ${s.state}`}${s.code === undefined ? '' : `  exit ${s.code}`}`, role: 'secondary' }]);
       // Round R3 (/agent): a code agent's job shows its parsed progress, not its raw stream.
@@ -1328,7 +1344,10 @@ export class Workspace {
     }
     const all = this.jobs.list().slice(0, 12);
     if (!all.length) return this.say('No jobs yet: /run starts a workflow, /preview a preview server.');
-    return [...all.flatMap((j) => [this.jobLine(j), ...this.askingLine(j)]), ...this.say('Details: /jobs <id>; stop one: /stop <id>')];
+    // R4 (H73): each project's judgements read once (a job of another project is judged by that project's records)
+    const read = new Map<string, JudgeIndex | undefined>();
+    const ixOf = (root: string): JudgeIndex | undefined => { if (!read.has(root)) read.set(root, this.judges(root)); return read.get(root); };
+    return [...all.flatMap((j) => [this.jobLine(j, ixOf(j.root)), ...this.askingLine(j)]), ...this.say('Details: /jobs <id>; stop one: /stop <id>')];
   }
 
   /**
@@ -2007,7 +2026,8 @@ export class Workspace {
     const id = projectId(this.root);
     const jobs = this.jobs.list().filter((j) => sameFolder(j.root, this.root)).slice(0, 6);
     lines.push([{ text: '  Jobs', role: 'strong' }]);
-    if (jobs.length) for (const j of jobs) lines.push(this.jobLine(j));
+    const ix = jobs.length ? this.judges() : undefined; // R4 (H73): each job as Timmy judged it
+    if (jobs.length) for (const j of jobs) lines.push(this.jobLine(j, ix));
     else lines.push(...this.say('  none yet: /run, /preview'));
     const projectFiles = listProjectFiles(this.root).files;
     const outputs = projectFiles.filter((f) => f.role === 'output').sort((a, b) => b.mtimeMs - a.mtimeMs);
@@ -2433,6 +2453,9 @@ export class Workspace {
     // R4 (/iterate): each flow record, checked against the runs chain like an observation. R4 (H48): read once, for the Flows
     // section and the Control Room.
     const flows = readBoardFlows(root, files.filter((f) => inFlows(f) && f.rel.endsWith('.json')).map((f) => f.rel), { receipts: chain, projectId: pid, scrub: (t) => this.scrub(t, root) });
+    // R4 (H73): the project's judgements of its jobs, read once for the Jobs section (the flows as just read)
+    let judged: JudgeIndex | undefined;
+    try { judged = judgeIndex({ root, chain, projectId: pid, scrub: (t) => this.scrub(t, root), ...(flows.more ? {} : { flows: flows.list }) }); } catch { judged = undefined; }
     // R4 (H65): the project's records read once, for the Control Room's operation cards and the review beside them.
     let ix: OpIndex | undefined;
     try { ix = this.opIndex(jobs, chain); } catch { ix = undefined; }
@@ -2455,11 +2478,18 @@ export class Workspace {
       workflows: connected,
       ...(params ? { params } : {}),
       results: results.cards,
-      jobs: jobs.slice(0, BOARD_MAX.jobs).map((j) => ({
-        id: j.id, state: j.stale ? `${j.state} (its process is gone)` : j.state, label: this.scrub(j.label, j.root), seconds: seconds(j), kind: j.kind,
-        ...(j.receipt ? { receipt: j.receipt } : {}),
-        ...(live ? { stoppable: this.mine.has(j.id) && !j.stale && !TERMINAL.has(j.state) } : {}),
-      })),
+      jobs: jobs.slice(0, BOARD_MAX.jobs).map((j) => {
+        // R4 (H73): its outcome as Timmy judged it (a record's judgement, never its exit, where a record judges it), and a
+        // workflow run's blocks counted as every view counts them
+        const r = this.judgedJob(j, judged);
+        const count = j.kind === 'workflow' ? blockCount(j, { order: this.predictions.get(j.id)?.order }) : undefined;
+        return {
+          id: j.id, state: r.by === 'record' ? r.word : j.stale ? `${j.state} (its process is gone)` : j.state, label: this.scrub(j.label, j.root), seconds: seconds(j), kind: j.kind,
+          ...(judgedLine(r) ? { judged: judgedLine(r) } : {}), ...(count ? { count: count.words } : {}),
+          ...(j.receipt ? { receipt: j.receipt } : {}),
+          ...(live ? { stoppable: this.mine.has(j.id) && !j.stale && !TERMINAL.has(j.state) } : {}),
+        };
+      }),
       outputs: shownOutputs,
       observations: shownObs,
       more: {
@@ -2536,7 +2566,8 @@ export class Workspace {
     const { input, images } = this.boardData(true);
     const { toc, main } = renderBoardBody(input);
     // The sections are redrawn when this changes: everything but the jobs' states and times.
-    const shape = createHash('sha256').update(JSON.stringify({ ...input, madeAt: '', jobs: input.jobs.map((j) => ({ id: j.id, label: j.label, receipt: j.receipt })), overview: input.overview ? overviewShape(input.overview) : undefined })).digest('hex').slice(0, 16);
+    // R4 (H73): a job's judgement (its judge's words) redraws its card once, when it arrives; its state word updates in place
+    const shape = createHash('sha256').update(JSON.stringify({ ...input, madeAt: '', jobs: input.jobs.map((j) => ({ id: j.id, label: j.label, receipt: j.receipt, judged: j.judged, count: j.count })), overview: input.overview ? overviewShape(input.overview) : undefined })).digest('hex').slice(0, 16);
     // R4 (H48): the Control Room's Stop targets: its running flows (stoppable only when this REPL runs one), and a job of this
     // REPL's it shows running: one the Jobs section left off (it shows the newest only), or a Look job whose measurement ended
     // while its model is asked (/stop <job> reaches the request). Each is checked by checkAction as any stop.

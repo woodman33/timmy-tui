@@ -259,8 +259,9 @@ describe('the Control Room on the live board: a Look whose model is being asked'
     await Promise.race([model.sent, tick(10_000).then(() => { throw new Error(`the FAKE model was never asked: ${notes.join(' | ')}`); })]);
     const { port, token } = await live(ws);
     const s = await until(port, token, (x) => x.html.includes(`data-act="room-stop" data-job="${job}"`));
-    // The job is over (the Jobs section offers no Stop for it), but the room's Stop for it is accepted by the server.
-    expect(s.jobs.find((j) => j.id === job)).toMatchObject({ state: 'completed', stoppable: true });
+    // The job is over (the Jobs section offers no Stop for it), but the room's Stop for it is accepted by the server. R4 (H73):
+    // its observe receipt judges it, and while its model is asked that receipt is not sealed: it reads measured, not ✓ completed.
+    expect(s.jobs.find((j) => j.id === job)).toMatchObject({ state: 'measured', stoppable: true });
     expect(s.html).toContain('<span class="room-state">measured; asking fake/vision-model</span>');
     expect(s.html).toContain('paid: a request sent to the model');
     expect(s.html).toContain('unknown yet: a request is out; its cost is recorded when it ends');

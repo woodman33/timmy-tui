@@ -49,6 +49,11 @@ export interface BoardJob {
   id: string; state: string; label: string; seconds?: string; receipt?: string; kind?: string;
   /** Round R3, live board: a running job this REPL started, which its Stop button may stop. */
   stoppable?: boolean;
+  /** R4 (H73): who judged it and their words ("judged by its verdict: …"), or that no judgement of it is here, where a record
+   *  judges it (`state` is then that judgement's word) */
+  judged?: string;
+  /** R4 (H73): a workflow run's blocks, counted as every view counts them ("2 of 3 steps") */
+  count?: string;
 }
 export interface BoardMeasurement {
   name: string;
@@ -362,9 +367,9 @@ function referenceCard(f: BoardFile, h: ReturnType<typeof render>): string {
 }
 
 function jobCard(j: BoardJob, h: ReturnType<typeof render>): string {
-  const meta = [...(j.seconds ? [j.seconds] : []), ...(j.receipt ? [`receipt ${j.receipt}`] : [])].join(' · ');
+  const meta = [...(j.count ? [j.count] : []), ...(j.seconds ? [j.seconds] : []), ...(j.receipt ? [`receipt ${j.receipt}`] : [])].join(' · ');
   return `<article class="card"${h.live ? ` data-job-card="${esc(j.id)}"` : ''}><div class="jobhead"><strong>${esc(j.id)}</strong> <span class="state state-${esc(j.state.replace(/[^a-z]/gi, ''))}">${esc(j.state)}</span></div>`
-    + `<div class="label">${esc(j.label)}</div>${meta ? `<div class="meta">${esc(meta)}</div>` : ''}${h.live && j.stoppable ? h.act('Stop', { act: 'stop', job: j.id }) : ''}${h.cmds([`/jobs ${j.id}`])}</article>`;
+    + `<div class="label">${esc(j.label)}</div>${j.judged ? `<div class="meta judged">${esc(j.judged)}</div>` : ''}${meta ? `<div class="meta">${esc(meta)}</div>` : ''}${h.live && j.stoppable ? h.act('Stop', { act: 'stop', job: j.id }) : ''}${h.cmds([`/jobs ${j.id}`])}</article>`;
 }
 
 function outputCard(f: BoardFile, h: ReturnType<typeof render>): string {
@@ -593,6 +598,8 @@ a.name:hover, a.name:focus-visible { text-decoration: underline; }
 .state { text-transform: uppercase; letter-spacing: .05em; font-size: 11px; color: ${HOMEBREW.textSecondary}; }
 .state-failed { color: ${HOMEBREW.failure}; }
 .state-running, .state-queued { color: ${HOMEBREW.attention}; }
+.state-differs, .state-timedout { color: ${HOMEBREW.failure}; }
+.state-unknown, .state-notjudged { color: ${HOMEBREW.attention}; }
 section.measured, section.claim, section.unverified, section.qualified { border-left: 3px solid ${HOMEBREW.lineStrong}; padding: 2px 0 2px 10px; }
 section.qualified { border-left-color: ${HOMEBREW.ai}; border-left-style: double; }
 section.qualified h4 { color: ${HOMEBREW.ai}; }

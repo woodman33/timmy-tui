@@ -27,7 +27,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { AGENTS, AGENTS_DIR, endpointClass, listAgentRuns, readProgressTail, type AgentName, type AgentRunRecord } from '../code-agents/index.js';
-import { openHandsRouteWords } from '../code-agents/openhands.js';
+import { openHandsRouteWords, toolCallWords, type OpenHandsToolCalls } from '../code-agents/openhands.js';
 import type { CapabilityRow, Rung } from '../capabilities/index.js';
 import { RUNG_MEANS, RUNG_ORDER } from '../capabilities/ladder.js';
 import { cleanText, readMcpCalls } from '../connectors/mcp-records.js';
@@ -44,6 +44,14 @@ import { liveProgram } from '../workflows/upmd-live.js';
 // R4 (H59): an output only when its file is there; a file a record names that is not there is named as missing, in words
 import { sealedBy, splitOutputs, type RoomMissing } from './outputs.js';
 import type { DecisionsView } from './decisions.js';
+// R4 (H73): each job as Timmy judged it; a workflow run's blocks counted once; a native run's readbacks; a run left running
+import { jobJudgement, judgeIndex, type JobMark, type JudgeIndex } from './judge.js';
+import { blockCount, blockCountLine } from '../workflows/block-count.js';
+import { blockDetail } from '../workflows/run-blocks.js';
+import { blockReceiptsOf } from '../workflows/block-receipts.js';
+import { nativeHandoff } from './native-handoff.js';
+import { unrealRunOutcome } from '../native/unreal-readback.js';
+import { START_SLACK_MS, THIS_PROCESS, writerState } from '../ops/process-proof.js';
 
 // ── the model ─────────────────────────────────────────────────────────────────
 
@@ -62,6 +70,8 @@ export const GROUP_TITLE: Readonly<Record<RoomKind, string>> = {
 };
 /** How many recent runs of each group are shown (running ones are always shown); the rest are counted. */
 export const RECENT_MAX: Readonly<Record<RoomKind, number>> = { chat: 5, agent: 5, flow: 5, native: 4, recipe: 4, mcp: 5, look: 5, job: 6 };
+/** R4 (H73): how many of a chat turn's tool calls its handoff lists (the rest are counted). */
+const CHAT_TOOLS_SHOWN = 8;
 
 /** The colour a state is drawn in: only a colour, the word always says it (never green: an outcome is not an action). */
 export type Tone = 'running' | 'ok' | 'failed' | 'stopped' | 'attention' | 'neutral';
@@ -268,6 +278,24 @@ export function routeWords(o: { endpoint?: unknown; where?: unknown }): string {
   return 'route not recorded';
 }
 
+/**
+ * R4 (H73): a code agent run's route in words. OpenHands' (its container route, openHandsRouteWords) adds its model's route
+ * through LiteLLM and how its tool calls went, as its worker's started line reported them (H69: `ollama_chat`, Ollama's
+ * /api/chat), recorded when the run ends; Codex's local route (`--oss`) names this machine's Ollama; every other run, the
+ * route rule of routeWords.
+ */
+export function agentRoute(r: Pick<AgentRunRecord, 'agent' | 'endpoint' | 'where' | 'openhands' | 'outcome'>, scrub: (t: string) => string = (t) => t): string {
+  if (r.agent === 'openhands') {
+    const said = r.openhands?.reported;
+    const calls = said ? toolCallWords({ ...(said.tool_calls ? { toolCalls: said.tool_calls as OpenHandsToolCalls } : {}), ...(said.sdk_tools ? { sdkTools: said.sdk_tools } : {}) }) : '';
+    const llm = said?.route ? `; its model through LiteLLM's ${cleanLine(said.route, scrub, 40)} route (${calls})`
+      : r.outcome ? '; its worker reported no model route (an older worker, or none before it ended)' : '; its model\'s route is recorded when it ends';
+    return `${openHandsRouteWords(r)}${llm}`;
+  }
+  if (r.agent === 'codex' && r.endpoint === 'local') return `local endpoint, no charge: Codex's local route (--oss) on this machine's Ollama${r.where ? ` at ${cleanLine(r.where, scrub, 60)}` : ''}`;
+  return routeWords(r);
+}
+
 // ── costs ─────────────────────────────────────────────────────────────────────
 
 const none = (words: string): RoomCost => ({ kind: 'none', words });
@@ -305,6 +333,9 @@ function receiptCost(r: Receipt, words: { known: string; unknown: string; none: 
 /** One charge as a key and its cost: entries that share a key are one charge, counted once. */
 export interface CostEntry { key: string; cost: RoomCost }
 
+/** R4 (H73): a chat turn whose receipt records no cost field: its request went out (every turn asks the chat model). */
+export const TURN_NO_COST = 'unknown: a turn asks the chat model, and this receipt records no cost (it was sealed before turns recorded one)';
+
 /**
  * The charges the runs chain records for this project, each under the key of the run it belongs to: a turn's own
  * receipt; an agent run (agent:<run>); an observation (look:<job>); a flow receipt's cost is its agent step's, so it is
@@ -320,7 +351,11 @@ export function receiptCosts(chain: readonly Receipt[], projectId: string): Map<
   for (const r of mine) {
     const hasCost = hasMeasuredCostUsd(r) || declaredUnknownCostUsd(r) === 1;
     if (r.kind === 'turn') {
-      put(`turn:${String(r.hash)}`, r, receiptCost(r, { known: 'as its receipt sealed it', unknown: 'its receipt marks the cost incomplete (a cancel, or a response that reported no charge)', none: 'its receipt records no cost' }));
+      // R4 (H73): every chat turn sends its request to the chat model (src/repl/turn.ts), and sealTurn records cost_usd and
+      // cost_measured on every turn since LIVE-01 (ledger row 65). A turn receipt with neither field was sealed before that:
+      // its request went out and its cost was not recorded, so it is unknown, counted as such, never left out (H78's note).
+      const c = receiptCost(r, { known: 'as its receipt sealed it', unknown: 'its receipt marks the cost incomplete (a cancel, or a response that reported no charge)', none: '' });
+      put(`turn:${String(r.hash)}`, r, c.kind === 'none' ? { kind: 'unknown', words: TURN_NO_COST } : c);
     } else if (r.kind === 'agent' && str(r.agent?.run)) {
       const basis = str(r.agent?.cost_basis);
       const c = receiptCost(r, { known: basis ?? 'as its receipt sealed it', unknown: basis?.replace(/^unknown:\s*/, '') ?? 'no cost was reported', none: 'its receipt records no cost' });
@@ -363,7 +398,8 @@ export function costParts(c: RoomCosts): { known: string; unknown: string; free:
     known: c.known ? `${usd(c.knownUsd)} known (${n(c.known, 'run')})` : 'no known cost recorded',
     unknown: `${n(c.unknown, 'run')} of unknown cost${c.atLeastUsd > 0 ? ` (at least ${usd(c.atLeastUsd)} reported on them)` : ''}`,
     free: `${n(c.free, 'run')} free (local endpoint)`,
-    rest: 'runs that record no cost are not counted',
+    // R4 (H73): a run whose request went out with no cost back is unknown, above; only a run Timmy sent no request for is left out
+    rest: 'runs for which Timmy sent no request are not counted',
   };
 }
 
@@ -386,6 +422,8 @@ interface Ctx extends RoomContext {
   claimed: Set<string>;
   /** each job's newest receipt in the chain */
   receiptOfJob: Map<string, Receipt>;
+  /** R4 (H73): what the project's records judged of its jobs (src/room/judge.ts) */
+  judged: JudgeIndex;
 }
 
 function jobOf(c: Ctx, id: string | undefined): JobRecord | undefined { return id ? c.jobs.find((j) => j.id === id) : undefined; }
@@ -394,6 +432,23 @@ export const NOT_OURS = 'Another Timmy session started it, so this REPL does not
 const liveJob = (j: JobRecord | undefined): boolean => !!j && LIVE.has(j.state) && !j.stale;
 const jobWords = (j: JobRecord): string => (j.stale ? `${j.state}; its process is gone (from an earlier session)` : j.state === 'cancelled' ? 'stopped' : j.state);
 const stopFor = (c: Ctx, j: JobRecord | undefined): RoomRun['stop'] => (j && liveJob(j) && c.mine(j.id) ? { kind: 'job', id: j.id } : undefined);
+
+/**
+ * R4 (H73): the Timmy that started a running job has ended, proven as recovery proves it (src/room/left-runs.ts starterGone:
+ * its record names that REPL's pid and start; no process with that pid runs now, or the one that does started at another
+ * time). Read here through process-proof alone, so the room imports none of the recovery modules.
+ */
+function starterEnded(j: JobRecord): boolean {
+  const o = j.owner;
+  if (!o) return false;
+  if (o.pid === THIS_PROCESS.pid) { const at = Date.parse(o.startedAt); return Number.isFinite(at) && Math.abs(at - Date.parse(THIS_PROCESS.started)) > START_SLACK_MS; }
+  return writerState({ pid: o.pid, started: o.startedAt }) === 'gone';
+}
+/** R4 (H73): a run left running by a Timmy that ended: /recover reaches it (it stops it and records how it ended). */
+export const LEFT_RUNNING = 'The Timmy that started it has ended and it still runs: /recover stops it and records how it ended.';
+const leftHint = (c: Ctx, j: JobRecord | undefined): RoomRun['hint'] | undefined => (j && liveJob(j) && !c.mine(j.id) && starterEnded(j) ? { words: LEFT_RUNNING, command: '/recover' } : undefined);
+/** R4 (H73): a job's judged mark as the room's tone (only a judged success is ok; unknown is attention, never ok). */
+const TONE_OF: Readonly<Record<JobMark, Tone>> = { ok: 'ok', failed: 'failed', stopped: 'stopped', unknown: 'attention', running: 'running' };
 const span = (c: Ctx, start: number, end: number | undefined, running: boolean): string | undefined => (start ? elapsedWords((end ?? c.nowMs) - start, running) : undefined);
 
 /** The chat agent's turns: the model each asked for and how it ended, from its sealed receipt (a turn being answered has none yet). */
@@ -409,6 +464,13 @@ function chatRuns(c: Ctx): RoomRun[] {
     const status = r.status ?? 'ok';
     const state = status === 'ok' ? 'answered' : status === 'cancelled' ? `cancelled${r.cancelled_at ? ` (${r.cancelled_at.replace(/-/g, ' ')})` : ''}` : String(status);
     const said = tools.slice(0, 4).map((t) => `${t.name} ${t.outcome}`).join(', ') + (tools.length > 4 ? ` and ${tools.length - 4} more` : '');
+    // R4 (H73): its handoffs: each tool it called, how the tool ended and the tool's own receipt (describe_image's, which seals
+    // that request's own cost), as its receipt sealed them
+    const handoff: RoomStep[] = tools.slice(0, CHAT_TOOLS_SHOWN).map((t) => ({
+      name: cleanLine(t.name, c.scrub, 60), owner: 'a tool Timmy ran for the chat agent', state: cleanLine(t.outcome, c.scrub, 20),
+      ...(str(t.receipt) ? { receipt: cleanLine(t.receipt, c.scrub, 20) } : {}),
+    }));
+    if (tools.length > CHAT_TOOLS_SHOWN) handoff.push({ name: `and ${tools.length - CHAT_TOOLS_SHOWN} more`, owner: 'tools its receipt names', state: 'not shown here' });
     return {
       kind: 'chat', id: shortReceipt(r), owner: 'Timmy chat agent', harness: 'Timmy REPL (version not recorded)',
       ...(str(r.model_requested) ? { model: r.model_requested } : {}),
@@ -419,7 +481,9 @@ function chatRuns(c: Ctx): RoomRun[] {
       ...(ms !== undefined ? { elapsed: elapsedWords(ms, false) } : {}),
       ...(said ? { progress: cleanLine(said, c.scrub) } : {}),
       receipt: shortReceipt(r),
-      cost: none('its receipt records no cost'), costKey: `turn:${String(r.hash)}`,
+      // R4 (H73): its request went out; what the receipt sealed of its cost replaces this (receiptCosts)
+      cost: { kind: 'unknown', words: TURN_NO_COST }, costKey: `turn:${String(r.hash)}`,
+      ...(handoff.length ? { handoff } : {}),
       outputs: (r.files ?? []).flatMap((f) => { const p = projectPath(f.path); return p ? [{ role: f.created ? 'created' : 'written', path: p }] : []; }).slice(0, 12),
       at: end,
     };
@@ -459,18 +523,20 @@ function agentRuns(c: Ctx, flowOfRun: ReadonlyMap<string, string>): RoomRun[] {
     const start = time(r.started_at);
     const flow = flowOfRun.get(r.run);
     const outcomeWords = r.outcome ? `${r.outcome}${r.why ? `: ${cleanLine(r.why, c.scrub, 120)}` : ''}` : running ? 'not written yet' : 'none written';
+    const left = running ? leftHint(c, job) : undefined; // R4 (H73)
     return {
       kind: 'agent', id: r.run, owner: AGENT_OWNER(r.agent),
       harness: `${AGENTS[r.agent]?.bin ?? r.agent} ${r.agent_version ? cleanLine(r.agent_version, c.scrub, 60) : '(version not recorded)'}`,
-      // R4 (H52): an OpenHands run says what its container isolates, and what it does not.
-      model: r.model ?? 'its default model (none named)', endpoint: r.endpoint === 'local' ? 'local' : 'remote', route: r.agent === 'openhands' ? openHandsRouteWords(r) : routeWords(r),
+      // R4 (H52): an OpenHands run says what its container isolates, and what it does not. R4 (H73): and its model's route
+      // through LiteLLM (ollama_chat, H69) with how its tool calls went, as its worker reported them; Codex's local route its own.
+      model: r.model ?? 'its default model (none named)', endpoint: r.endpoint === 'local' ? 'local' : 'remote', route: agentRoute(r, c.scrub),
       state, tone, running,
       ...(flow ? { partOf: `the agent step of flow ${flow}`, step: 'agent step' } : {}),
       ...(start ? { startedAt: r.started_at } : {}), ...(r.ended_at && !endUnknown ? { endedAt: r.ended_at } : {}),
       ...(start && !endUnknown ? { elapsed: span(c, start, r.ended_at ? time(r.ended_at) : job?.endedAt ? time(job.endedAt) : undefined, running) } : {}),
       ...(tail.length ? { progress: cleanLine(tail.at(-1), c.scrub) } : {}),
       record, ...(receipt ? { receipt } : {}), ...(str(r.job) ? { job: r.job } : {}),
-      ...(stopFor(c, job) ? { stop: stopFor(c, job) } : {}),
+      ...(stopFor(c, job) ? { stop: stopFor(c, job) } : left ? { hint: left } : {}),
       cost: agentRecordCost(r, running), costKey: `agent:${r.run}`,
       outputs, ...(missing.length ? { missing } : {}),
       handoff: [
@@ -621,7 +687,8 @@ function nativeRuns(c: Ctx, flowOfJob: ReadonlyMap<string, string>): RoomRun[] {
     // A run not judged yet is read in full (its job may run); judged ones, the newest few.
     let rec: ReturnType<typeof readNativeRecord>;
     const last = n.verdicts.at(-1);
-    if (!last || i < RECENT_MAX.native) { try { rec = readNativeRecord(c.root, n.run); } catch { rec = undefined; } }
+    // R4 (H73): an Unreal run's readbacks decide it, so its folder is read whatever its age
+    if (!last || i < RECENT_MAX.native || n.app === 'unreal') { try { rec = readNativeRecord(c.root, n.run); } catch { rec = undefined; } }
     const jobId = rec?.started?.job ?? last?.job;
     if (jobId) c.claimed.add(jobId);
     const job = jobOf(c, jobId);
@@ -629,8 +696,21 @@ function nativeRuns(c: Ctx, flowOfJob: ReadonlyMap<string, string>): RoomRun[] {
     const app = NATIVE_APPS[n.app as NativeApp];
     const receipt = sealed.get(n.run);
     const version = str(receipt?.native?.blender_version) ?? str(receipt?.native?.c4d_version) ?? str(receipt?.native?.unreal_version); // R4 (H63)
-    const state = last ? (last.outcome === 'ok' ? 'ok (judged by its result file)' : `${last.outcome}: ${cleanLine(last.why, c.scrub, 120)}`)
-      : running ? 'running' : rec?.started ? (job ? `${jobWords(job)}; not judged yet` : 'not judged yet (its job is not listed here)') : 'submitted; it has not started';
+    // R4 (H73): a run Timmy stopped is judged too (u23, c4da880): it reads stopped, never as its verdict's failure. An Unreal
+    // run judged ok is decided by its readback (unrealRunOutcome: the first pass alone is never trusted); an Illustrator run
+    // whose export Timmy's own reading finds different is "differs" (as its operation counts it).
+    const stopped = last?.exit?.state === 'cancelled';
+    const unreal = n.app === 'unreal' && last?.outcome === 'ok' && !stopped && rec ? unrealRunOutcome(rec.dir, last, rec.result, []) : undefined;
+    const differs = last?.outcome === 'ok' && (last as { readback?: { verdict?: unknown } }).readback?.verdict === 'differs';
+    const state = stopped ? `stopped: ${cleanLine(last!.why, c.scrub, 120)}`
+      : unreal ? cleanLine(unreal.words, c.scrub, 160)
+        : differs ? 'ok (judged by its result file), but Timmy\'s own reading of its export differs'
+          : last ? (last.outcome === 'ok' ? 'ok (judged by its result file)' : `${last.outcome}: ${cleanLine(last.why, c.scrub, 120)}`)
+            : running ? 'running' : rec?.started ? (job ? `${jobWords(job)}; not judged yet` : 'not judged yet (its job is not listed here)') : 'submitted; it has not started';
+    const judgedTone: Tone | undefined = stopped ? 'stopped' : differs ? 'failed'
+      : unreal ? (unreal.state === 'succeeded' ? 'ok' : unreal.state === 'stopped' ? 'stopped' : unreal.state === 'unknown' ? 'attention' : 'failed') : undefined;
+    const handoff = nativeHandoff({ app: n.app, owner: app?.name ?? n.app, dir: rec?.dir ?? path.join(c.root, '.timmy', 'native', n.run), ...(last ? { verdict: last } : {}), ...(jobId ? { job: jobId } : {}), ...(receipt ? { receipt: shortReceipt(receipt) } : {}), running, scrub: c.scrub });
+    const left = running ? leftHint(c, job) : undefined;
     const flow = jobId ? flowOfJob.get(jobId) ?? FLOW_OF_LABEL.exec(job?.label ?? '')?.[1] : undefined;
     const start = time(n.started_at);
     const end = last ? time(last.judged_at) : job?.endedAt ? time(job.endedAt) : undefined;
@@ -641,15 +721,16 @@ function nativeRuns(c: Ctx, flowOfJob: ReadonlyMap<string, string>): RoomRun[] {
     return {
       kind: 'native', id: n.run, owner: app?.name ?? n.app, harness: `${app?.program ?? n.app} ${version ? cleanLine(version, c.scrub, 40) : '(version not recorded)'}`,
       endpoint: 'local', route: 'this machine (a native app); no cost recorded',
-      state, tone: running ? 'running' : !last ? 'attention' : last.outcome === 'ok' ? 'ok' : last.outcome === 'failed' ? 'failed' : 'attention', running,
+      state, tone: running ? 'running' : judgedTone ?? (!last ? 'attention' : last.outcome === 'ok' ? 'ok' : last.outcome === 'failed' ? 'failed' : 'attention'), running,
       ...(rec?.job.label ? { step: cleanLine(rec.job.label, c.scrub, 80) } : {}),
       ...(start ? { startedAt: n.started_at, elapsed: span(c, start, end, running) } : {}),
       record: `.timmy/native/${n.run}/job.json`,
       ...(receipt ? { receipt: shortReceipt(receipt) } : {}), ...(jobId ? { job: jobId } : {}),
-      ...(stopFor(c, job) ? { stop: stopFor(c, job) } : {}),
+      ...(stopFor(c, job) ? { stop: stopFor(c, job) } : left ? { hint: left } : {}),
       ...(flow ? { partOf: `a step of flow ${flow}` } : {}),
       cost: none('no cost recorded: a native app on this machine'), costKey: `native:${n.run}`,
       outputs: [...outputs, { role: 'record', path: `.timmy/native/${n.run}/job.json` }],
+      ...(handoff.length ? { handoff } : {}), // R4 (H73): its first pass, then each readback of it
       at: running ? start : end || start,
     };
   });
@@ -701,7 +782,7 @@ function mcpRuns(c: Ctx): RoomRun[] {
     return {
       kind: 'mcp', id: r.id, owner: `MCP server ${cleanLine(r.server, c.scrub, 60)}`, harness: `${r.route} route (${cleanLine(r.transport, c.scrub, 20)})`,
       ...(endpoint ? { endpoint } : {}),
-      route: `${r.route} over ${cleanLine(r.transport, c.scrub, 20)}${url ? ` to ${cleanLine(url, c.scrub, 80)}` : ''}; no cost recorded`,
+      route: `${r.route} over ${cleanLine(r.transport, c.scrub, 20)}${url ? ` to ${cleanLine(url, c.scrub, 80)}` : ''}; MCP reports no cost`,
       state: r.isError === true ? `${r.outcome} (the server answered with its own error)` : r.outcome,
       tone: r.outcome === 'answered' && r.isError !== true ? 'ok' : r.outcome === 'needs authorization' ? 'attention' : r.outcome === 'stopped' ? 'stopped' : 'failed',
       running: false, step: `tool ${cleanLine(r.tool, c.scrub, 60)}`,
@@ -710,7 +791,11 @@ function mcpRuns(c: Ctx): RoomRun[] {
       ...(r.outcome !== 'answered' && str(r.error) ? { progress: cleanLine(r.error, c.scrub) } : {}),
       record: m.call,
       ...(m.check.status === 'verified' ? { receipt: m.check.receipt } : { recordNote: `not verified: ${m.check.reason}` }),
-      cost: none('no cost recorded on an MCP call'), costKey: `mcp:${r.id}`,
+      // R4 (H73): a call that was sent is a request that went out, and MCP has no field for what it cost: unknown (never 0,
+      // never left out of the count); one Timmy refused or could not start sent nothing
+      cost: r.called === false ? none('no cost: the call was never sent (Timmy refused it, or its route could not start)')
+        : { kind: 'unknown', words: `unknown: a request went out to the MCP server${endpoint === 'local' ? ' on this machine' : ''}, and MCP reports no cost` },
+      costKey: `mcp:${r.id}`,
       outputs: [{ role: 'record', path: m.call }, ...(m.output ? [{ role: 'raw output', path: m.output }] : [])],
       at: start,
     };
@@ -801,26 +886,45 @@ function jobRuns(c: Ctx): RoomRun[] {
   return c.jobs.filter((j) => !c.claimed.has(j.id) && !FLOW_OF_LABEL.test(j.label)).map((j): RoomRun => {
     const running = liveJob(j);
     const rec = j.receipt ? c.receiptOfJob.get(j.id) : undefined;
-    const done = j.steps.filter((s) => s.state !== 'running').length;
-    const runningStep = j.steps.find((s) => s.state === 'running');
-    const failedStep = j.steps.find((s) => s.state === 'failed');
     const start = time(j.startedAt);
-    const owner = j.kind === 'workflow' ? 'upmd (a workflow run)' : j.kind === 'server' ? 'a preview server' : /^readback /.test(j.label) ? 'a readback worker' : 'a task';
+    // R4 (H73): a job a record judges (a readback, a VoxVision tool, a Look measurement) reads as it was judged, never by its
+    // exit; a workflow run, a preview and a plain task read by their own end, as before (src/room/judge.ts JOB_KINDS)
+    const judged = jobJudgement(j, c.judged);
+    const byRecord = judged.by === 'record' && !running;
+    const owner = j.kind === 'workflow' ? 'upmd (a workflow run)' : j.kind === 'server' ? 'a preview server'
+      : judged.kind === 'readback' ? 'a readback worker' : judged.kind === 'vox' ? 'VoxVision (a tool of one of its actions)' : 'a task';
     const program = path.basename(liveProgram(j) ?? j.command); // R4 (H58): a /run on a pty names upmd, not its wrapper's python3
+    // R4 (H73): a workflow run's blocks counted as /jobs counts them, against the order its prediction sealed (r20: after
+    // recovery "2 of 2 steps" for a run of three blocks), each block with its own receipt where the chain has one (H74)
+    const count = j.kind === 'workflow' ? blockCount(j, { receipts: blockReceiptsOf(c.chain, j.id) }) : undefined;
+    const blocks: RoomStep[] | undefined = count?.blocks.map((b) => ({
+      name: b.name, owner: 'a shell block, run by upmd', state: b.word, ...(b.receipt ? { receipt: b.receipt } : {}),
+      ...(blockDetail(b) ? { detail: blockDetail(b) } : {}),
+      ...(b.word === 'running' ? { here: 'running now' } : b.word === 'failed' || b.word === 'interrupted' || b.word === 'stopped' ? { here: `${b.word} here` } : {}),
+    }));
+    // R4 (H73): a request that went out from a job (VoxVision's Roboflow detection: its label says "a network call") and
+    // returned no cost is unknown; any other job sent no request of Timmy's
+    const network = /\(a network call\)$/.test(j.label);
+    const left = running ? leftHint(c, j) : undefined;
     return {
       kind: 'job', id: j.id, owner, harness: program ? cleanLine(program, c.scrub, 40) : 'its program (not named)',
-      endpoint: 'local', route: 'this machine (a job); no cost recorded',
-      state: j.state === 'ready' ? `ready${j.url ? ` at ${cleanLine(j.url, c.scrub, 60)}` : ''}` : jobWords(j),
-      tone: running ? 'running' : j.state === 'completed' ? 'ok' : j.state === 'failed' ? 'failed' : j.state === 'cancelled' ? 'stopped' : 'attention', running,
+      endpoint: network ? 'remote' : 'local', route: network ? 'a request to a hosted service (its label says a network call); the service reports no cost to Timmy' : 'this machine (a job); no cost recorded',
+      state: j.state === 'ready' ? `ready${j.url ? ` at ${cleanLine(j.url, c.scrub, 60)}` : ''}` : byRecord ? `${judged.word}${judged.why ? `: ${judged.why}` : ''}` : jobWords(j),
+      tone: running ? 'running' : byRecord ? TONE_OF[judged.mark] : j.state === 'completed' ? 'ok' : j.state === 'failed' ? 'failed' : j.state === 'cancelled' ? 'stopped' : 'attention', running,
       step: cleanLine(j.label, c.scrub, 80),
       ...(start ? { startedAt: j.startedAt, elapsed: span(c, start, j.endedAt ? time(j.endedAt) : undefined, running) } : {}),
       ...(j.endedAt ? { endedAt: j.endedAt } : {}),
-      ...(j.steps.length ? { progress: cleanLine(`${done} of ${j.steps.length} steps${runningStep ? `; ${runningStep.name} running` : failedStep ? `; ${failedStep.name} failed${failedStep.code !== undefined ? `, exit ${failedStep.code}` : ''}` : ''}`, c.scrub) }
+      ...(count ? { progress: cleanLine(blockCountLine(count), c.scrub) }
         : j.error ? { progress: cleanLine(j.error, c.scrub) } : j.note ? { progress: cleanLine(j.note, c.scrub) } : {}),
       ...(j.receipt ? { receipt: j.receipt } : {}), job: j.id,
-      ...(stopFor(c, j) ? { stop: stopFor(c, j) } : {}),
-      cost: none('no cost recorded: a job on this machine'), costKey: `job:${j.id}`,
+      // R4 (H73): the record that judged it, with the job's own end beside it (an advanced detail: /room <id>, the board's fold)
+      ...(byRecord && judged.record ? { record: judged.record, recordNote: `judged by ${judged.judge}; ${judged.exit}` } : byRecord && judged.exit ? { recordNote: judged.exit } : {}),
+      ...(stopFor(c, j) ? { stop: stopFor(c, j) } : left ? { hint: left } : {}),
+      cost: network ? (running ? { kind: 'unknown', words: 'unknown yet: a request to a hosted service is out' } : { kind: 'unknown', words: 'unknown: a request went out to a hosted service, and no cost came back' })
+        : none('no cost recorded: a job on this machine (what its own commands send is not seen)'),
+      costKey: `job:${j.id}`,
       outputs: (rec?.outputs ?? []).flatMap((o) => { const p = projectPath(o.path); return p ? [{ role: 'written during the job', path: p }] : []; }).slice(0, 12),
+      ...(blocks?.length ? { handoff: blocks } : {}),
       at: running ? start : time(j.endedAt) || start,
     };
   });
@@ -842,8 +946,11 @@ function readFlows(c: RoomContext): BoardFlows {
 export function gatherRoom(context: RoomContext): Room {
   const receiptOfJob = new Map<string, Receipt>();
   for (const r of context.chain) { const id = r ? str(r.job?.id) : undefined; if (id) receiptOfJob.set(id, r); }
-  const c: Ctx = { ...context, nowMs: (context.now ?? Date.now)(), claimed: new Set(), receiptOfJob };
   const flows = context.flows ?? readFlows(context);
+  // R4 (H73): what the project's records judged of its jobs, read once (the flows as read here, unless older ones were left out)
+  let judged: JudgeIndex;
+  try { judged = judgeIndex({ root: context.root, chain: context.chain, projectId: context.projectId, scrub: context.scrub, ...(flows.more ? {} : { flows: [...(flows.running ?? []), ...flows.list] }) }); } catch { judged = { byJob: new Map(), kindOf: new Map(), byRun: new Map(), scrub: context.scrub }; }
+  const c: Ctx = { ...context, nowMs: (context.now ?? Date.now)(), claimed: new Set(), receiptOfJob, judged };
   // Who serves which flow: its agent run, its step jobs, its recipe job (each named by the flow record).
   const flowOfRun = new Map<string, string>();
   const flowOfJob = new Map<string, string>();

@@ -444,7 +444,8 @@ export function historySection(s: Sources): HistorySection {
       source: { record: null, command: 'timmy verify' },
     };
   }
-  // Costs as the Control Room sums them: reported amounts summed, unknown counted apart (never 0), none not counted.
+  // Costs as the Control Room sums them: reported amounts summed, unknown counted apart (never 0), and only a run Timmy sent no
+  // request for left out (R4, H73: a chat turn whose receipt records no cost is unknown, as every room view reads it).
   let costs = out.costs;
   if (s.room.ok && s.room.value.groups.length) {
     const c = s.room.value.costs;
