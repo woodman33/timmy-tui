@@ -6,7 +6,7 @@ import { PanelFrame } from '../components/PanelFrame.js';
 import { EmptyState } from '../ui/EmptyState.js';
 import { listProjects, readProject, initProject, saveProject, renderProjectSite, renderCanvasPage, type SlateProject } from '../../utils/projects.js';
 import { listTemplates, loadTemplate } from '../../utils/templates.js';
-import { ensureDashServer } from '../../utils/dash.js';
+import { ensureDashServer, whenDashNotFine } from '../../utils/dash.js';
 import { seedStarter } from '../../utils/starter.js';
 import { createClipJob, detectClip } from '../../utils/clip.js';
 import { BRAND } from '../../utils/brand.js';
@@ -55,8 +55,11 @@ export function SlatePanel({ agent, zone = 0, setZone, setModalInput, inputLocke
   const proj = sel?.kind === 'project' ? readProject(sel.name) : null;
   const tmpl = sel?.kind === 'template' ? loadTemplate(sel.name, '{brief}') : null;
 
+  // R4 (H97): the pages' server is Timmy's own, on 127.0.0.1 only; what it could not do is said in the panel's note
+  const serve = () => whenDashNotFine(ensureDashServer(), (words) => setNote(`dashboard server: ${words}`));
+
   const openCanvas = (item: SlateItem) => {
-    ensureDashServer();
+    serve();
     if (item.kind === 'project') renderCanvasPage(item.name);
     const url = item.kind === 'project'
       ? `http://127.0.0.1:4273/studio/${item.name}/site/canvas.html`
@@ -65,7 +68,7 @@ export function SlatePanel({ agent, zone = 0, setZone, setModalInput, inputLocke
   };
 
   const openSite = (item: SlateItem) => {
-    ensureDashServer();
+    serve();
     if (item.kind === 'project') renderProjectSite(item.name);
     agent.addBrowserPane(`http://127.0.0.1:4273/studio/${item.name}/site/index.html`);
   };
@@ -146,7 +149,7 @@ export function SlatePanel({ agent, zone = 0, setZone, setModalInput, inputLocke
     if (c === 'n') { setNaming(true); __focus.claim('input:slate'); return; }
     if (char === 'P' && sel?.kind === 'project') {
       const site = renderProjectSite(sel.name);
-      if (site) ensureDashServer();
+      if (site) serve();
       return;
     }
     if (c === 'v' && sel) { openCanvas(sel); return; }

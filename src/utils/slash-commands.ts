@@ -27,7 +27,7 @@ import { locateGenAgent, buildGenAgentArgs, launchDetached } from './genbridge.j
 import { BRAND } from './brand.js';
 import { loadTemplate, listTemplates } from './templates.js';
 import { renderStudioComposition } from './studio-composition.js';
-import { writeDashboard, ensureDashServer, dashUrl, probeUrl } from './dash.js';
+import { writeDashboard, ensureDashServer, dashUrl, probeUrl, whenDashNotFine } from './dash.js';
 import { aggregateGenerations, parseCostFromLog } from './generations.js';
 import { loadOrgConfig, exportSession } from './sessionstore.js';
 import { initProject, listProjects, readProject, saveProject, addGenToProject, addRefToProject, renderProjectSite, addCastToProject, castPromptBlock, renderBlockingSvg, renderRightsLog } from './projects.js';
@@ -859,7 +859,9 @@ export default function DemoDashboard() {
     execute: (_, agent) => {
       const cwd = process.cwd();
       writeDashboard(cwd);
-      const serverUp = ensureDashServer(cwd);
+      // R4 (H97): Timmy's own server, on 127.0.0.1 only; what it could not do is said once it has tried
+      const dash = ensureDashServer(cwd);
+      if (agent?.emit) whenDashNotFine(dash, (words) => agent.emit('message:user' as any, { role: 'assistant', content: `⚙️ **[SYSTEM]** dashboard server: ${words}`, timestamp: Date.now() }));
       const slateUrl = process.env.TIMMY_SLATE_URL || 'http://127.0.0.1:5173/';
       const slateUp = probeUrl(slateUrl);
       let hasCarbonyl = false;
@@ -867,7 +869,7 @@ export default function DemoDashboard() {
       const panes: Array<[string, string]> = [[`${BRAND.studios} dashboard`, dashUrl()]];
       if (slateUp) panes.push([`${BRAND.slate} (tldraw)`, slateUrl]);
       if (!hasCarbonyl || !agent || !agent.addBrowserPane) {
-        return `🖥️  ${BRAND.studios.toUpperCase()} PANES\n• dashboard: ${dashUrl()} (server ${serverUp ? 'up' : 'FAILED'})\n• slate:     ${slateUp ? slateUrl : 'not detected — start your tldraw dev server or set TIMMY_SLATE_URL'}\n• carbonyl not on PATH — open the URLs in any browser`;
+        return `🖥️  ${BRAND.studios.toUpperCase()} PANES\n• dashboard: ${dashUrl()} (server ${dash.words})\n• slate:     ${slateUp ? slateUrl : 'not detected — start your tldraw dev server or set TIMMY_SLATE_URL'}\n• carbonyl not on PATH — open the URLs in any browser`;
       }
       const opened = panes.map(([label, url]) => { agent.addBrowserPane(url); return `${label} → ${url}`; });
       return `🖥️  ${BRAND.studios.toUpperCase()} PANES — ${opened.length} carbonyl lane${opened.length === 1 ? '' : 's'}\n• ${opened.join('\n• ')}\n` +
@@ -1282,10 +1284,12 @@ export default function DemoDashboard() {
       if (!name) return 'Usage: /publish <project>';
       const sitePath = renderProjectSite(name);
       if (!sitePath) return `× no project "${name}" — /project ${name} first`;
-      ensureDashServer();
+      // R4 (H97): Timmy's own server, on 127.0.0.1 only; what it could not do is said once it has tried
+      const dash = ensureDashServer();
+      if (agent?.emit) whenDashNotFine(dash, (words) => agent.emit('message:user' as any, { role: 'assistant', content: `⚙️ **[SYSTEM]** dashboard server: ${words}`, timestamp: Date.now() }));
       const url = `http://127.0.0.1:4273/studio/${name}/site/index.html`;
       if (agent && (agent as any).addBrowserPane) (agent as any).addBrowserPane(url);
-      return `🌐 published → ${url}\n• production: open ${sitePath} with Instatic / Paper\n• page carries the receipt footer — provable by construction`;
+      return `🌐 published → ${url}\n• server: ${dash.words}\n• production: open ${sitePath} with Instatic / Paper\n• page carries the receipt footer — provable by construction`;
     }
   },
   {
