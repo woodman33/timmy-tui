@@ -15,6 +15,11 @@
  *
  * `status` reads the device's status file before it says anything, and so does every retry, so a job is never started
  * twice: on the device, only the call that creates the job's claim starts it (src/connect/remote-posix.ts).
+ *
+ * An id is 32 random bits, and a job's folder on a device outlives its local record, so the record carries a nonce that its
+ * submission writes into the folder it makes (an owner file): a folder that holds another nonce is another job's, the device
+ * answers "id-taken", nothing in that folder changes, and `run` draws a new id and says so. The record also keeps the job's
+ * first process once the device has shown it running this job's supervisor (`process`): a stop signals only that one.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, unlinkSync, writeSync } from 'node:fs';
@@ -103,6 +108,9 @@ export function parseStatus(text: string, readAt = new Date().toISOString()): Re
   const where = one('where');
   if (where !== 'absent' && where !== 'not started' && where !== 'claimed' && where !== 'status') return null;
   const s: RemoteStatus = { read_at: readAt, where };
+  // whose the folder is (only when Timmy passed its nonce): a folder of another job is none of this one's
+  const owner = one('owner');
+  if (owner === 'same' || owner === 'other' || owner === 'none') s.owner = owner;
   if (s.where !== 'status') return s;
   const state = one('state');
   if (state === 'running' || state === 'ended') s.state = state;
@@ -112,31 +120,56 @@ export function parseStatus(text: string, readAt = new Date().toISOString()): Re
   if (state === 'ended') { const code = one('exit_status'); s.exit_status = code !== undefined && /^[0-9]+$/.test(code) ? Number(code) : null; }
   const alive = one('alive');
   if (alive === 'yes' || alive === 'no' || alive === 'reused' || alive === 'unchecked') s.alive = alive;
+  const runner = one('runner');
+  if (runner === 'yes' || runner === 'no') s.runner = runner;
+  const recorded = one('recorded');
+  if (recorded === 'same' || recorded === 'differs') s.recorded = recorded;
+  // a stop's time is kept only when it reads as one (the device wrote it; a job could have)
   const asked = one('stop.asked_at');
+  const askedAt = asked && /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$/.test(asked) ? asked : undefined;
   const signals = one('stop.signals');
-  if (asked || signals) s.stop = { ...(asked ? { asked_at: asked } : {}), signals: (signals ?? '').split(/\s+/).filter((x) => /^[A-Za-z]+$/.test(x)) };
+  if (asked || signals) s.stop = { ...(askedAt ? { asked_at: askedAt } : {}), signals: (signals ?? '').split(/\s+/).filter((x) => /^[A-Za-z]+$/.test(x)) };
   if (tail.length) s.tail = tail;
   return s;
 }
 
+/**
+ * The job's first process, recorded once: the device showed it running (its start time the one it recorded, or none to
+ * check) and ps there showed it running this job's supervisor. Never from a status read that ps did not back.
+ */
+function recordProcess(j: RemoteJobRecord, s: RemoteStatus): void {
+  if (j.process || s.runner !== 'yes' || s.pid === undefined || s.pgid === undefined) return;
+  j.process = { pid: s.pid, pgid: s.pgid, pid_start: s.pid_start ?? '', recorded_at: s.read_at };
+}
+
 /** What a status read means for the record: its state, words for a stop, when the device was last seen. */
-function applyStatus(j: RemoteJobRecord, s: RemoteStatus): void {
+function applyStatus(j: RemoteJobRecord, read: RemoteStatus): void {
   const before = j.state;
-  j.last_seen = s.read_at;
+  j.last_seen = read.read_at;
+  // a folder whose owner file holds another nonce is another job's: nothing in it is this one's (as if it had no folder)
+  const s: RemoteStatus = read.owner === 'other' ? { read_at: read.read_at, where: 'absent', owner: 'other' } : read;
   if ((before === 'ended' || before === 'stopped') && s.where !== 'status') {
     // a known end stays known: the folder that held its status is gone from the device (removed there since)
-    event(j, `${j.device} has ${s.where === 'absent' ? 'no folder' : 'no status'} for this job any more; its recorded end stands`);
+    event(j, `${j.device} has ${s.owner === 'other' ? 'another job\'s folder' : s.where === 'absent' ? 'no folder' : 'no status'} for this job any more; its recorded end stands`);
     return;
   }
+  const was = j.remote;
   j.remote = s;
   delete j.unknown;
+  if (s.where === 'status' && j.process && s.recorded === 'differs' && was?.recorded !== 'differs') {
+    event(j, `its status file on ${j.device} now names another process than the one Timmy recorded when it started (pid ${j.process.pid}): a stop will not signal while they differ`);
+  }
+  if (s.where === 'status' && !j.process && s.runner === 'no' && was?.runner !== 'no') {
+    event(j, `the process its status file names (pid ${s.pid ?? 'none'}) is not this job's supervisor as ps on ${j.device} shows it: Timmy recorded no process for it, and a stop will not signal`);
+  }
   if (s.where === 'absent' || s.where === 'not started' || s.where === 'claimed') {
     if (j.confirmed_at) {
       j.state = 'unknown';
-      j.unknown = { since: s.read_at, why: `${j.device} answered, and has ${s.where === 'absent' ? 'no folder' : 'no status'} for this job any more`, not_known: 'what became of the run it confirmed earlier' };
+      j.unknown = { since: s.read_at, why: `${j.device} answered, and has ${s.owner === 'other' ? 'another job\'s folder' : s.where === 'absent' ? 'no folder' : 'no status'} for this job any more`, not_known: 'what became of the run it confirmed earlier' };
     } else j.state = 'submitted';
   } else if (s.state === 'running' && (s.alive === 'yes' || s.alive === 'unchecked')) {
     j.confirmed_at ??= s.read_at;
+    recordProcess(j, s);
     j.state = j.stop && !j.stop.confirmed_at ? 'stop asked' : 'running';
     if (j.stop && !j.stop.confirmed_at) j.stop.words = s.stop?.asked_at ? `the device recorded the stop (${s.stop.asked_at}, ${s.stop.signals.join(' ') || 'no signal'}) and the job still runs` : 'the stop never reached the device: the job still runs there';
   } else if (s.state === 'running') {
@@ -193,8 +226,8 @@ async function readRemote(p: ConnectPaths, d: DeviceRecord, j: RemoteJobRecord):
   let r;
   try {
     r = familyOf(d) === 'posix'
-      ? await callSsh(d, p, POSIX_WORDS, { input: posixStatusScript(d.remote_dir, j.id), timeoutMs: 60_000 })
-      : await callSsh(d, p, powershellWords(windowsStatusScript(d.remote_dir, j.id)), { timeoutMs: 60_000 });
+      ? await callSsh(d, p, POSIX_WORDS, { input: posixStatusScript(d.remote_dir, j.id, j), timeoutMs: 60_000 })
+      : await callSsh(d, p, powershellWords(windowsStatusScript(d.remote_dir, j.id, j)), { timeoutMs: 60_000 });
   } catch (e) { return { failure: { outcome: 'error', words: `nothing was sent: ${(e as Error).message}`, ssh: '', notSent: true } }; }
   const f = classifySsh(r, d, 'TIMMY-STATUS-BEGIN');
   if (f) { noteFailure(p, d, f); return { failure: f }; }
@@ -206,6 +239,8 @@ export interface JobOutcome {
   job: RemoteJobRecord; words: string; failure?: SshFailure; answered: boolean;
   /** the device answered and did not do what was asked (a job it would not start), in words */
   refused?: string;
+  /** the device answered that the job's id is taken there: its folder holds another job (nothing in it was changed) */
+  taken?: boolean;
 }
 
 /** `timmy connect status <job>`: the device's status file is read before anything is said. */
@@ -240,15 +275,16 @@ async function submit(p: ConnectPaths, d: DeviceRecord, j: RemoteJobRecord, byte
   let answer = '';
   try {
     if (familyOf(d) === 'posix') {
-      r = await callSsh(d, p, POSIX_WORDS, { input: posixSubmitScript(d.remote_dir, j.id, bytes, j.script.sha256), timeoutMs: 120_000 });
+      r = await callSsh(d, p, POSIX_WORDS, { input: posixSubmitScript(d.remote_dir, j.id, bytes, j.script.sha256, j.nonce), timeoutMs: 120_000 });
       failure = classifySsh(r, d, 'TIMMY-SUBMIT') ?? undefined;
       answer = r.stdout.toString('utf8');
       status = failure ? undefined : parseStatus(answer) ?? undefined;
     } else {
-      r = await callSsh(d, p, powershellWords(windowsSubmitScript(d.remote_dir, j.id, j.script.sha256)), { input: windowsSubmitInput(bytes), timeoutMs: 120_000 });
+      r = await callSsh(d, p, powershellWords(windowsSubmitScript(d.remote_dir, j.id, j.script.sha256, j.nonce)), { input: windowsSubmitInput(bytes), timeoutMs: 120_000 });
       failure = classifySsh(r, d, 'TIMMY-SUBMIT') ?? undefined;
       answer = r.stdout.toString('utf8');
-      if (!failure) { const s = await readRemote(p, d, j); status = s.status; failure = s.failure; }
+      const word = /^TIMMY-SUBMIT (\S+)/m.exec(answer)?.[1];
+      if (!failure && (word === 'started' || word === 'already-started')) { const s = await readRemote(p, d, j); status = s.status; failure = s.failure; }
     }
   } catch (e) {
     failure = { outcome: 'error', words: (e as Error).message, ssh: '', notSent: true };
@@ -276,6 +312,7 @@ async function submit(p: ConnectPaths, d: DeviceRecord, j: RemoteJobRecord, byte
         'not-written': 'the script could not be written there',
         'sha256-differs': `the script's sha256 there differs from Timmy's (${said?.[2].trim()}): it was not started`,
         'no-detach': 'there is no way to detach a job there (no setsid, no perl): it was not started',
+        'id-taken': `the id ${x.id} is taken on ${x.device} by another job's folder (made by another Timmy, or before this record; nothing in it was changed): run it again as a new job`,
       };
       x.last_seen = new Date().toISOString();
       refused = `not started: ${why[word] ?? `the device answered ${JSON.stringify(word)}`}`;
@@ -286,7 +323,7 @@ async function submit(p: ConnectPaths, d: DeviceRecord, j: RemoteJobRecord, byte
   const words = failure
     ? (failure.notSent && job.state === 'submitted' ? `not sent: ${failure.words}` : jobWords(job))
     : refused ?? jobWords(job);
-  return { job, words, ...(failure ? { failure } : {}), ...(refused ? { refused } : {}), answered: !failure };
+  return { job, words, ...(failure ? { failure } : {}), ...(refused ? { refused } : {}), ...(!failure && said?.[1] === 'id-taken' ? { taken: true } : {}), answered: !failure };
 }
 
 /** `timmy connect run`: a new job on a device, from command words or a script file. */
@@ -319,14 +356,26 @@ export async function runJob(p: ConnectPaths, deviceId: string, spec: RunSpec): 
     label = scrubShown(spec.command.map((w) => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(w) ? w : shQuote(w))).join(' ')).slice(0, 160);
   } else return { error: 'nothing to run: give -- <command…> or --script <file>' };
   const sha256 = createHash('sha256').update(bytes).digest('hex');
-  const now = new Date().toISOString();
-  const j = claimId(p, (id) => ({
-    id, kind: 'remote', label, device: d.id, remote_dir: `${d.remote_dir}/${id}`,
-    script: { sha256, bytes: bytes.length, from, ...(name ? { name } : {}), shell: family },
-    state: 'submitted', submitted_at: now, events: [{ at: now, what: `submitted to ${d.id}: ${label} (sha256 ${sha256.slice(0, 12)})` }],
-  }));
-  writePrivate(scriptCopy(p, j.id), bytes);
-  return submit(p, d, j, bytes);
+  // an id whose folder on the device holds another job is not this job's: a new one is drawn (three draws at most)
+  const taken: string[] = [];
+  const takenWords = (id: string): string => taken.map((t) => `the id ${t} was taken on ${d.id} by another job's folder (left as it is): this job is ${id}`).join('; ');
+  for (;;) {
+    const now = new Date().toISOString();
+    const j = claimId(p, (id) => ({
+      id, kind: 'remote', label, device: d.id, remote_dir: `${d.remote_dir}/${id}`,
+      script: { sha256, bytes: bytes.length, from, ...(name ? { name } : {}), shell: family },
+      nonce: randomBytes(16).toString('hex'),
+      state: 'submitted', submitted_at: now,
+      events: [...(taken.length ? [{ at: now, what: takenWords(id) }] : []), { at: now, what: `submitted to ${d.id}: ${label} (sha256 ${sha256.slice(0, 12)})` }],
+    }));
+    writePrivate(scriptCopy(p, j.id), bytes);
+    const r = await submit(p, d, j, bytes);
+    if (!r.taken || taken.length >= 2) return taken.length ? { ...r, words: `${takenWords(r.job.id)}; ${r.words}` } : r;
+    // this record never reached the device (the folder there is another job's, and was left as it is): its two files here,
+    // made by this call, go with it
+    taken.push(j.id);
+    for (const f of [jobFile(p, j.id), scriptCopy(p, j.id)]) { try { unlinkSync(f); } catch { /* gone */ } }
+  }
 }
 
 /**
@@ -359,24 +408,32 @@ export async function waitJob(p: ConnectPaths, id: string, o: { signal?: AbortSi
   let seen: string | undefined;
   const onStdout = (chunk: Buffer): void => {
     text += chunk.toString('utf8');
-    for (const m of text.matchAll(/^TIMMY-WAIT running (\S+)$/gm)) { if (m[1] !== seen) { seen = m[1]; o.onRunning?.(seen); } }
+    for (const m of text.matchAll(/^TIMMY-WAIT running (\S+)\r?$/gm)) { if (m[1] !== seen) { seen = m[1]; o.onRunning?.(seen); } }
     if (text.length > 1 << 20) text = text.slice(-(1 << 16));
   };
-  const script = familyOf(d) === 'posix' ? posixWaitScript(d.remote_dir, id) : undefined;
+  const script = familyOf(d) === 'posix' ? posixWaitScript(d.remote_dir, id, j) : undefined;
   let r;
   try {
     r = script
       ? await callSsh(d, p, POSIX_WORDS, { input: script, timeoutMs: WAIT_MS, onStdout, ownGroup: true, ...(o.signal ? { signal: o.signal } : {}), onChild: (c) => o.onChild?.(c.pid) })
-      : await callSsh(d, p, powershellWords(windowsWaitScript(d.remote_dir, id)), { timeoutMs: WAIT_MS, onStdout, ownGroup: true, ...(o.signal ? { signal: o.signal } : {}), onChild: (c) => o.onChild?.(c.pid) });
+      : await callSsh(d, p, powershellWords(windowsWaitScript(d.remote_dir, id, j)), { timeoutMs: WAIT_MS, onStdout, ownGroup: true, ...(o.signal ? { signal: o.signal } : {}), onChild: (c) => o.onChild?.(c.pid) });
   } catch (e) { return { error: `not waited: nothing was sent: ${(e as Error).message}` }; }
   if (r.aborted || o.signal?.aborted) {
     const job = updateJob(p, id, (x) => { if (seen) x.last_seen = new Date().toISOString(); event(x, 'the local wait was stopped (Ctrl-C): only the local ssh was stopped; the remote job was not'); });
     return { job, end: 'interrupted', answered: Boolean(seen), words: `stopped waiting: only the local ssh was stopped. The remote job ${id} was not stopped${job.state === 'running' ? ` and was running when last read (${seen ?? job.remote?.read_at ?? 'unknown'})` : ''}; to stop it: timmy connect stop ${id}` };
   }
   const end = r.stdout.length ? r.stdout.toString('utf8') : text;
-  const status = /^TIMMY-WAIT end$/m.test(end) ? parseStatus(end) : null;
+  const waited = /^TIMMY-WAIT end\r?$/m.test(end);
+  let status = waited && script ? parseStatus(end) : null;
+  let later: SshFailure | undefined;
+  if (waited && !script) {
+    // Windows: the wait's answer has no status lines (cmd.exe's line limit); a call of its own reads it
+    const s = await readRemote(p, d, j);
+    status = s.status ?? null;
+    later = s.failure;
+  }
   if (!status) {
-    const f = classifySsh(r, d, 'TIMMY-WAIT end') ?? { outcome: 'unreachable' as const, why: 'closed' as const, words: 'the connection ended while Timmy waited', ssh: '', notSent: false };
+    const f = later ?? classifySsh(r, d, 'TIMMY-WAIT end') ?? { outcome: 'unreachable' as const, why: 'closed' as const, words: 'the connection ended while Timmy waited', ssh: '', notSent: false };
     noteFailure(p, d, f);
     const job = updateJob(p, id, (x) => { if (seen) x.last_seen = new Date().toISOString(); applyFailure(x, f, 'wait'); });
     return { job, end: 'dropped', failure: f, answered: false, words: `the wait ended without the job's end: ${f.words}. The remote job was not stopped by Timmy. ${jobWords(job)}; timmy connect status ${id} reads it again` };
@@ -388,9 +445,10 @@ export async function waitJob(p: ConnectPaths, id: string, o: { signal?: AbortSi
 }
 
 /**
- * `timmy connect stop <job>`: the device signals the job's process group after checking its first process's start time
- * (a reused pid is never signalled), then reads its status back. When the device does not answer, the record says the
- * stop was asked and not confirmed.
+ * `timmy connect stop <job>`: the device signals the job's process group only after checking that its status file still
+ * names the first process Timmy recorded, that this process has the recorded start time (a reused pid is never signalled)
+ * and leads the recorded group, and that ps shows it running this job's supervisor; then it reads its status back. When
+ * the device does not answer, the record says the stop was asked and not confirmed.
  */
 export async function stopJob(p: ConnectPaths, id: string): Promise<JobOutcome | { error: string }> {
   const j0 = readJob(p, id);
@@ -404,13 +462,15 @@ export async function stopJob(p: ConnectPaths, id: string): Promise<JobOutcome |
   let failure: SshFailure | undefined;
   let status: RemoteStatus | undefined;
   try {
+    // the device gets the process Timmy recorded as literals: it signals only that one's group, and only while its status
+    // file still names it and ps there agrees (its start time, its group, its command line: this job's supervisor)
     if (familyOf(d) === 'posix') {
-      const r = await callSsh(d, p, POSIX_WORDS, { input: posixStopScript(d.remote_dir, id), timeoutMs: 120_000 });
+      const r = await callSsh(d, p, POSIX_WORDS, { input: posixStopScript(d.remote_dir, id, j0), timeoutMs: 120_000 });
       failure = classifySsh(r, d, 'TIMMY-STOP') ?? undefined;
       answer = r.stdout.toString('utf8');
       if (!failure) status = parseStatus(answer) ?? undefined;
     } else {
-      const r = await callSsh(d, p, powershellWords(windowsStopScript(d.remote_dir, id)), { timeoutMs: 120_000 });
+      const r = await callSsh(d, p, powershellWords(windowsStopScript(d.remote_dir, id, j0)), { timeoutMs: 120_000 });
       failure = classifySsh(r, d, 'TIMMY-STOP') ?? undefined;
       answer = r.stdout.toString('utf8');
       if (!failure) { const s = await readRemote(p, d, j0); status = s.status; failure = s.failure; }
@@ -421,6 +481,9 @@ export async function stopJob(p: ConnectPaths, id: string): Promise<JobOutcome |
   const NOT_SIGNALLED: Record<string, string> = {
     gone: 'its first process was already gone (nothing was signalled)',
     reused: 'its pid now belongs to another process, which was not signalled',
+    'status-differs': 'its status file there no longer names the process Timmy recorded when the job started (its supervisor), so nothing was signalled',
+    'not-runner': 'the process its status file names is not this job\'s supervisor as ps shows it there (sh <its folder>/run.sh; on Windows run.ps1), so nothing was signalled',
+    'not-leader': 'its first process does not lead its own process group there (it was not detached as Timmy starts a job), so nothing was signalled',
     unreadable: 'its status file could not be read, so nothing was signalled',
     'no-start-time': 'no start time was recorded for it there (ps gave none), so that its pid is still the same process cannot be checked: nothing was signalled',
     absent: 'the device has no folder for this job: nothing was signalled',
@@ -523,6 +586,7 @@ export async function fetchFile(p: ConnectPaths, id: string, rel: string, o: { t
       link: `${rel} is or passes through a symbolic link on ${d.id}: refused`,
       'not-a-file': `${rel} is not a regular file in the job's folder`,
       'not-readable': `${rel} cannot be read there`,
+      'no-copy': `${rel} could not be copied inside the job's folder on ${d.id} to be sent (a fetch sends one copy, so the file needs room for a copy there): refused`,
       'no-sha256': `${d.id} has no sha256 program (sha256sum, shasum, openssl), so its bytes could not be checked: refused`,
     };
     const why = refusal ? (REFUSED[refusal] ?? `the device said ${JSON.stringify(refusal)}`) : f?.words ?? 'the device sent no answer';

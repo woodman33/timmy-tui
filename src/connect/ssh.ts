@@ -13,12 +13,19 @@
  *   -o ConnectTimeout=<s>, ServerAliveInterval/CountMax   a dead connection is noticed
  *   -o ControlMaster=no -o ControlPath=none               no shared connection (it would skip the host key check)
  *   -o ForwardAgent=no -o ClearAllForwardings=yes -o ForwardX11=no -o PermitLocalCommand=no -T
+ *   -o VerifyHostKeyDNS=no                 a host key is never accepted from DNS (SSHFP) in place of the pin
+ *   -o KnownHostsCommand=none              no command adds host keys (only where ssh knows the option: OpenSSH 8.5 on, read
+ *                                          from `ssh -V`; an older ssh refuses unknown options, and has no such command)
  *   -i <key file> -o IdentitiesOnly=yes    a key named by its file (ssh reads it; Timmy never does), or
  *   -o IdentityFile=none                   "agent": only the ssh agent's keys
  *   -p <port> -l <user> -- <address> <remote command>
  *
- * A remote command is a fixed word list (`sh -s`, or `powershell.exe … -EncodedCommand <base64>`); what it runs comes on
- * stdin, so no script, path or secret of the operator's is ever in an argument list on either computer.
+ * A remote command is a fixed word list. On macOS and Linux it is `sh -s`, and every script comes on stdin: no script, path
+ * or secret of the operator's is in an argument list on either computer. On Windows it is `powershell.exe … -EncodedCommand
+ * <base64>`, and that base64 IS each control script (probe, status, stop, wait, fetch, submit), with the job folder's name
+ * and, for a fetch, the file's path: they are in the command line there, which that computer's process list shows while
+ * they run; only a job's own script bytes go on stdin. Here, ssh's argument list holds the address, port, user, the key
+ * file's path and Timmy's own files' paths, and no script.
  */
 import { devNull } from 'node:os';
 import { scrubShown } from './scrub.js';
@@ -31,6 +38,38 @@ export const CONNECT_TIMEOUT_S = 10;
 export const ALIVE_INTERVAL_S = 15;
 export const ALIVE_COUNT = 3;
 
+/** An OpenSSH version as `ssh -V` says it (OpenSSH_9.6p1, OpenSSH_for_Windows_9.5p1), or null for any other answer. */
+export interface SshVersion { major: number; minor: number; words: string }
+
+export function parseSshVersion(text: string): SshVersion | null {
+  const m = /OpenSSH(?:_for_Windows)?_(\d+)\.(\d+)/.exec(text);
+  return m ? { major: Number(m[1]), minor: Number(m[2]), words: `OpenSSH ${m[1]}.${m[2]}` } : null;
+}
+
+/** Whether this ssh knows KnownHostsCommand (OpenSSH 8.5 and later). */
+export const knowsKnownHostsCommand = (v: SshVersion | null): boolean => Boolean(v && (v.major > 8 || (v.major === 8 && v.minor >= 5)));
+
+const versions = new Map<string, Promise<SshVersion | null>>();
+/** The ssh on PATH's version (`ssh -V`, which answers on stderr), read once per PATH; null when it cannot be read. */
+export function sshVersion(): Promise<SshVersion | null> {
+  const key = process.env.PATH ?? '';
+  let v = versions.get(key);
+  if (!v) {
+    v = runProgram('ssh', ['-V'], { timeoutMs: 10_000 }).then((r) => (r.spawnError ? null : parseSshVersion(`${r.stderr}\n${r.stdout.toString('utf8')}`))).catch(() => null);
+    versions.set(key, v);
+  }
+  return v;
+}
+
+/** What Timmy's settings override in an account's own ssh config, in words (for a device that opted into it). */
+export function overrideWords(v: SshVersion | null): string {
+  const base = 'Timmy\'s own settings still win over it (they come first): its known_hosts, StrictHostKeyChecking=yes, BatchMode';
+  if (knowsKnownHostsCommand(v)) return `${base}, VerifyHostKeyDNS=no and KnownHostsCommand=none; a ProxyCommand or ProxyJump there is used`;
+  return v
+    ? `${base} and VerifyHostKeyDNS=no; ${v.words} has no KnownHostsCommand (it came in 8.5), so none can add a key; a ProxyCommand or ProxyJump there is used`
+    : `${base} and VerifyHostKeyDNS=no; KnownHostsCommand is NOT overridden: this ssh's version could not be read (ssh -V), so a KnownHostsCommand in that config would be used; a ProxyCommand or ProxyJump there is used`;
+}
+
 /** A path inside an ssh -o value: % doubled (ssh expands %-tokens there), quoted when it holds a space. */
 function optionPath(file: string): string {
   if (file.includes('"') || file.includes('${')) throw new Error(`a path ssh would misread: ${JSON.stringify(file)}`);
@@ -38,8 +77,11 @@ function optionPath(file: string): string {
   return /\s/.test(escaped) ? `"${escaped}"` : escaped;
 }
 
+/** How one call's options are made: its connect timeout, and whether this ssh knows KnownHostsCommand (sshVersion). */
+export interface SshArgOptions { connectTimeoutS?: number; knownHostsCommand?: boolean }
+
 /** ssh's options for one device, before `--`, the address and the remote command. */
-export function sshOptions(d: DeviceRecord, p: ConnectPaths, o: { connectTimeoutS?: number } = {}): string[] {
+export function sshOptions(d: DeviceRecord, p: ConnectPaths, o: SshArgOptions = {}): string[] {
   const args: string[] = [];
   if (d.ssh_config !== 'account') args.push('-F', p.sshConfig);
   args.push(
@@ -58,8 +100,10 @@ export function sshOptions(d: DeviceRecord, p: ConnectPaths, o: { connectTimeout
     '-o', 'ClearAllForwardings=yes',
     '-o', 'ForwardX11=no',
     '-o', 'PermitLocalCommand=no',
+    '-o', 'VerifyHostKeyDNS=no',
     '-T',
   );
+  if (o.knownHostsCommand) args.push('-o', 'KnownHostsCommand=none');
   if (d.identity === 'agent') args.push('-o', 'IdentityFile=none');
   else args.push('-i', expandHome(d.identity), '-o', 'IdentitiesOnly=yes');
   args.push('-p', String(d.port), '-l', d.user);
@@ -67,7 +111,7 @@ export function sshOptions(d: DeviceRecord, p: ConnectPaths, o: { connectTimeout
 }
 
 /** The whole argument list: options, `--`, the address, and the remote command's fixed words. */
-export function sshArgs(d: DeviceRecord, p: ConnectPaths, remote: readonly string[], o: { connectTimeoutS?: number } = {}): string[] {
+export function sshArgs(d: DeviceRecord, p: ConnectPaths, remote: readonly string[], o: SshArgOptions = {}): string[] {
   return [...sshOptions(d, p, o), '--', d.address, ...remote];
 }
 
@@ -118,20 +162,28 @@ export function classifySsh(r: Ran, d: DeviceRecord, marker?: string): SshFailur
     const agentless = d.identity === 'agent' && !process.env.SSH_AUTH_SOCK ? ' (no ssh agent is reachable here: SSH_AUTH_SOCK is not set)' : '';
     return { outcome: 'auth-refused', words: `authentication refused: ${where} did not accept ${how} for ${d.user}${agentless}`, ssh, notSent: true };
   }
+  // nothing was sent only when ssh failed before any session: a name it could not resolve, or a connection it could not make
+  // ("ssh: connect to host <h> port <p>: <reason>"), or one closed before the login
   const unreachable = (why: UnreachableWhy, words: string): SshFailure => ({ outcome: 'unreachable', why, words: `unreachable: ${words}`, ssh, notSent: true });
   if (/Could not resolve hostname|Name or service not known|nodename nor servname|Temporary failure in name resolution/.test(err)) return unreachable('name not resolved', `the name ${d.address} was not resolved`);
-  if (/Connection refused/.test(err)) return unreachable('refused', `${where} refused the connection (nothing listens there, or a firewall refuses it)`);
-  if (/No route to host/.test(err)) return unreachable('no route', `no route to ${d.address}`);
-  if (/Network is unreachable/.test(err)) return unreachable('network unreachable', `the network of ${d.address} is unreachable from here`);
-  if (/Connection timed out|Operation timed out|timed out during banner exchange/.test(err)) return unreachable('timed out', `no answer from ${where} (timed out)`);
+  const connect = /ssh: connect to host \S+ port \d+: ([^\n]*)/.exec(err)?.[1] ?? '';
+  if (/Connection refused/.test(connect)) return unreachable('refused', `${where} refused the connection (nothing listens there, or a firewall refuses it)`);
+  if (/No route to host|Host is down/.test(connect)) return unreachable('no route', `no route to ${d.address}`);
+  if (/Network is unreachable/.test(connect)) return unreachable('network unreachable', `the network of ${d.address} is unreachable from here`);
+  if (/timed out/i.test(connect) || /timed out during banner exchange/.test(err)) return unreachable('timed out', `no answer from ${where} (timed out)`);
   if (r.timedOut) {
     return { outcome: 'unreachable', why: 'timed out', words: `unreachable: ssh had not finished when Timmy's time limit (${Math.round(r.ms / 1000)} s) ended it`, ssh, notSent: false };
   }
-  if (/kex_exchange_identification/.test(err)) {
+  if (/(?:kex|ssh)_exchange_identification/.test(err)) {
     return { outcome: 'unreachable', why: 'closed', words: `unreachable: ${where} closed the connection before ssh could log in`, ssh, notSent: true };
   }
-  if (/Connection closed by|Connection reset by|closed by remote host|Broken pipe|client_loop/.test(err)) {
-    return { outcome: 'unreachable', why: 'closed', words: `the connection to ${where} ended before Timmy got an answer`, ssh, notSent: false };
+  // the same reasons once a session was up (a read or a write that failed, the server's keepalive unanswered, a closed or
+  // reset connection): what was sent may have run there, so whether it was received is not known
+  const lost = /Read from remote host [^:\n]*: ([^\n]*)|Write failed: ([^\n]*)|(Timeout, server [^\n]* not responding)|client_loop: ([^\n]*)|(Connection to [^\n]* closed by remote host)|(Connection closed by [^\n]*)|(Connection reset by [^\n]*)|(Broken pipe)/.exec(err);
+  if (lost) {
+    const reason = (lost.slice(1).find((x) => x !== undefined) ?? '').trim().replace(/\.$/, '');
+    const said = /closed by remote host/.test(reason) ? '' : ` (${reason})`;
+    return { outcome: 'unreachable', why: 'closed', words: `the connection to ${where} ended before Timmy got an answer${said}`, ssh, notSent: false };
   }
   if (r.aborted) return { outcome: 'error', words: 'stopped here before it finished', ssh, notSent: false };
   if (r.code === 255 || r.code === null) return { outcome: 'error', words: `ssh failed${r.code === null ? ` (${r.signal ?? 'no exit code'})` : ' (exit 255)'}${ssh ? `: ${ssh.split('\n').at(-1)}` : ''}`, ssh, notSent: false };
@@ -147,5 +199,6 @@ export async function callSsh(d: DeviceRecord, p: ConnectPaths, remote: readonly
     const problem = sshConfigProblem(p);
     if (problem) throw new Error(problem);
   }
-  return runProgram('ssh', sshArgs(d, p, remote, { connectTimeoutS: o.connectTimeoutS }), { ...o, timeoutMs: o.timeoutMs ?? 120_000 });
+  const knownHostsCommand = knowsKnownHostsCommand(await sshVersion());
+  return runProgram('ssh', sshArgs(d, p, remote, { connectTimeoutS: o.connectTimeoutS, knownHostsCommand }), { ...o, timeoutMs: o.timeoutMs ?? 120_000 });
 }

@@ -10,6 +10,11 @@
  * files (for zsh, ~/.zshenv). Nothing is written outside the sandbox: the test compares the account's ~/.ssh/known_hosts
  * and ~/.ssh/config (their bytes) before and after, and checks that no ~/.timmy-connect folder appeared; after it, no sshd
  * of its own is left and every job's process group is ended.
+ *
+ * Two cases were added on r4/connect-2 for the independent review's fixes, where macOS differs from the container they were
+ * written in: a stop signals only the supervisor Timmy recorded (ps -ww -o args= read on this system), and a fetch sends one
+ * copy and never follows a link swapped in while it is fetched (cp -RP on this system). They mirror tests that pass against
+ * the FAKE ssh (tests/connect-ssh.test.ts); like the rest of this file, they have NOT RUN anywhere yet.
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -170,6 +175,50 @@ describe.skipIf(!ENABLED)('Timmy Connect with the real ssh against a real sshd o
     expect(stop.job.state).toBe('stopped');
     expect(groupRuns(running.remote!.pgid!)).toBe(false);
   }, 120_000);
+
+  it('a stop signals only the supervisor Timmy recorded: a status file rewritten to name an unrelated process is refused; the real stop is then confirmed', async () => {
+    const r = await runJob(p, 'self', { command: ['sleep', '60'] });
+    if ('error' in r) throw new Error(r.error);
+    expect(r.job.state, r.words).toBe('running');
+    expect(r.job.process, 'the supervisor was recorded: ps -ww -o args= there showed it running <its folder>/run.sh').toBeDefined();
+    const file = path.join(remoteJobs(), r.job.id, 'status');
+    const original = fs.readFileSync(file, 'utf8');
+    // another program of this account, in a session of its own; the job's status file rewritten to name it
+    const other = spawn('sleep', ['300'], { detached: true, stdio: 'ignore' });
+    try {
+      const start = await until(() => (spawnSync('ps', ['-o', 'lstart=', '-p', String(other.pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' } }).stdout ?? '').trim(), 10_000, 'the other process in ps');
+      fs.writeFileSync(file, `state=running\npid=${other.pid}\npgid=${other.pid}\npid_start=${start}\nalive=yes\nrunner=yes\n`);
+      const refused = await stopJob(p, r.job.id);
+      if ('error' in refused) throw new Error(refused.error);
+      expect(refused.job.stop?.result, refused.words).toMatch(/nothing was signalled$/);
+      expect(groupRuns(other.pid!), 'the unrelated process was not signalled').toBe(true);
+      expect(groupRuns(r.job.process!.pgid), 'nor was the job').toBe(true);
+    } finally {
+      try { process.kill(-other.pid!, 'SIGKILL'); } catch { /* ended */ }
+    }
+    fs.writeFileSync(file, original);
+    const stop = await stopJob(p, r.job.id);
+    if ('error' in stop) throw new Error(stop.error);
+    expect(stop.job.state, stop.words).toBe('stopped');
+    expect(groupRuns(r.job.process!.pgid)).toBe(false);
+  }, 120_000);
+
+  it('a fetch sends one copy and never follows a link swapped in while it is fetched', async () => {
+    const outside = path.join(box, 'outside.txt');
+    fs.writeFileSync(outside, 'OUTSIDE-THE-JOB-FOLDER\n');
+    const r = await runJob(p, 'self', { command: ['sh', '-c', `echo inside > in.txt; while :; do ln -s '${outside}' l.tmp; mv -f l.tmp x; cp in.txt f.tmp; mv -f f.tmp x; done`] });
+    if ('error' in r) throw new Error(r.error);
+    expect(r.job.state, r.words).toBe('running');
+    const to = path.join(box, 'race');
+    const outcomes: string[] = [];
+    for (let i = 0; i < 20; i++) outcomes.push((await fetchFile(p, r.job.id, 'work/x', { to: path.join(to, `x${i}`) })).words);
+    const stop = await stopJob(p, r.job.id);
+    expect('error' in stop ? stop.error : stop.job.state).toBe('stopped');
+    const received = fs.existsSync(to) ? fs.readdirSync(to).map((n) => fs.readFileSync(path.join(to, n), 'utf8')) : [];
+    expect(received.join(''), outcomes.join('\n')).not.toContain('OUTSIDE');
+    expect(received.length, outcomes.join('\n')).toBeGreaterThan(0);
+    for (const text of received) expect(text).toBe('inside\n');
+  }, 180_000);
 
   it('a changed host key is refused by ssh itself and recorded; an unreachable device and a refused key are told apart', async () => {
     await stopSshd();

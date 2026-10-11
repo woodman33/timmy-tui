@@ -17,9 +17,13 @@ export function shQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
-/** A string as a PowerShell single-quoted literal (each ' doubled). */
+/**
+ * A string as a PowerShell single-quoted (verbatim) literal. PowerShell takes any of five characters as a single quote:
+ * ' and the typographic ‘ ’ ‚ ‛ (U+2018, U+2019, U+201A, U+201B; its language specification's single-quote-character).
+ * Any of them would end the literal, so each is doubled: two in a row are one quote of that kind in the value.
+ */
 export function psQuote(s: string): string {
-  return `'${s.replace(/'/g, "''")}'`;
+  return `'${s.replace(/['‘’‚‛]/g, (q) => q + q)}'`;
 }
 
 /** Bytes as printf format text: every byte an octal escape (no %, no quote, no newline in it). */

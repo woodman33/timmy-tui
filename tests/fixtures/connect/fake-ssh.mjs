@@ -14,7 +14,8 @@
  * It also enforces Timmy's own rules, so a test fails loudly if Timmy forgets one: BatchMode=yes, StrictHostKeyChecking=yes,
  * a UserKnownHostsFile of Timmy's (never the account's ~/.ssh/known_hosts), GlobalKnownHostsFile=/dev/null. It never reads
  * a private key (only its permissions and the .pub beside it, as a stand-in for what ssh proves with it). Each call's
- * argument list is appended to $TIMMY_FAKE_SSH_LOG (one JSON line) for the tests to check.
+ * argument list is appended to $TIMMY_FAKE_SSH_LOG (one JSON line) for the tests to check. `ssh -V` prints the version it
+ * plays ($TIMMY_FAKE_SSH_VERSION, default a 9.6), logged as "ssh-version"; it knows KnownHostsCommand only from 8.5 on.
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -24,13 +25,22 @@ import path from 'node:path';
 const argv = process.argv.slice(2);
 const err = (s) => process.stderr.write(`${s}\n`);
 const die = (s, code = 255) => { if (s) err(s); process.exit(code); };
+// the version this stand-in plays ($TIMMY_FAKE_SSH_VERSION, as `ssh -V` prints it): an ssh older than 8.5 has no
+// KnownHostsCommand, and refuses it as OpenSSH does (an unknown option)
+const VERSION = process.env.TIMMY_FAKE_SSH_VERSION || 'OpenSSH_9.6p1 FAKE, OpenSSL 3.0.13 30 Jan 2024';
+if (argv.length === 1 && argv[0] === '-V') {
+  if (process.env.TIMMY_FAKE_SSH_LOG) fs.appendFileSync(process.env.TIMMY_FAKE_SSH_LOG, `${JSON.stringify({ prog: 'ssh-version', pid: process.pid, argv })}\n`);
+  die(VERSION, 0);
+}
 if (process.env.TIMMY_FAKE_SSH_LOG) fs.appendFileSync(process.env.TIMMY_FAKE_SSH_LOG, `${JSON.stringify({ prog: 'ssh', pid: process.pid, argv })}\n`);
+const [major, minor] = (/OpenSSH_(\d+)\.(\d+)/.exec(VERSION) ?? ['', '0', '0']).slice(1).map(Number);
 
 // ssh's own getopt string: "1246ab:c:e:fgi:kl:m:no:p:qstvxAB:CD:E:F:GI:J:KL:MNO:P:Q:R:S:TVw:W:XYy"
 const WITH_ARG = new Set('bceilmopBDEFIJLOPQRSwW'.split(''));
 const FLAG = new Set('1246afgknqstvxACGKMNTVXYy'.split(''));
 const USAGE = 'usage: ssh [-46AaCfGgKkMNnqsTtVvXxYy] [-B bind_interface] [-b bind_address]\n           [-c cipher_spec] [-D [bind_address:]port] [-E log_file]\n           [-e escape_char] [-F configfile] [-I pkcs11] [-i identity_file]\n           [-J destination] [-L address] [-l login_name] [-m mac_spec]\n           [-O ctl_cmd] [-o option] [-P tag] [-p port] [-R address]\n           [-S ctl_path] [-W host:port] [-w local_tun[:remote_tun]]\n           destination [command [argument ...]]';
-const KNOWN_OPTIONS = new Set(['batchmode', 'stricthostkeychecking', 'userknownhostsfile', 'globalknownhostsfile', 'updatehostkeys', 'hostkeyalias', 'connecttimeout', 'serveraliveinterval', 'serveralivecountmax', 'controlmaster', 'controlpath', 'forwardagent', 'clearallforwardings', 'forwardx11', 'permitlocalcommand', 'identityfile', 'identitiesonly', 'requesttty', 'loglevel', 'port', 'user']);
+const KNOWN_OPTIONS = new Set(['batchmode', 'stricthostkeychecking', 'userknownhostsfile', 'globalknownhostsfile', 'updatehostkeys', 'hostkeyalias', 'connecttimeout', 'serveraliveinterval', 'serveralivecountmax', 'controlmaster', 'controlpath', 'forwardagent', 'clearallforwardings', 'forwardx11', 'permitlocalcommand', 'identityfile', 'identitiesonly', 'requesttty', 'loglevel', 'port', 'user', 'verifyhostkeydns']);
+if (major > 8 || (major === 8 && minor >= 5)) KNOWN_OPTIONS.add('knownhostscommand');
 
 const o = { opt: new Map(), identity: [], user: null, port: null, F: null, flags: new Set(), dest: null, cmd: [] };
 function option(text) {
@@ -196,7 +206,7 @@ child.stdout.on('data', (chunk) => {
 child.stderr.on('data', (chunk) => { if (!drop) process.stderr.write(chunk); });
 child.on('close', (code, signal) => {
   if (held) { const b = Buffer.from(held); b[0] ^= 0xff; process.stdout.write(b); }
-  if (drop) die(`Connection to ${host} closed by remote host.`);
+  if (drop) die(entry.dropWords || `Connection to ${host} closed by remote host.`);
   // ssh exits with the remote command's status; a remote command ended by a signal gives 255
   process.stdout.write('', () => process.exit(signal ? 255 : (code ?? 255)));
 });

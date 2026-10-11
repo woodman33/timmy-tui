@@ -23,7 +23,9 @@ const LOADER = createRequire(import.meta.url).resolve('tsx');
 
 export type Mode = 'up' | 'refused' | 'timeout' | 'noroute' | 'banner-close' | 'drop-after-run' | 'drop-before-run';
 export interface HostKey { type: string; blob: string }
-export interface FakeHost { mode: Mode; keys: HostKey[]; users: Record<string, { home: string; authorized: string[] }>; shell: 'posix' | 'cmd' | 'powershell'; path?: string; corrupt?: boolean; probeAnswer?: string }
+/** `dropWords`: what the FAKE ssh says on stderr when a 'drop-after-run' connection is lost (default: OpenSSH's "Connection
+ *  to <host> closed by remote host."; e.g. "Read from remote host <host>: Connection timed out", a loss in mid-session) */
+export interface FakeHost { mode: Mode; keys: HostKey[]; users: Record<string, { home: string; authorized: string[] }>; shell: 'posix' | 'cmd' | 'powershell'; path?: string; corrupt?: boolean; probeAnswer?: string; dropWords?: string }
 interface Net { label: string; hosts: Record<string, FakeHost>; unresolvable: string[] }
 
 /** An ed25519 public key as OpenSSH writes its blob (base64 of "ssh-ed25519" and the 32-byte key, each length-prefixed). */
@@ -59,7 +61,46 @@ export interface Kit {
   stub(set: (k: string, v: string | undefined) => void): void;
   /** `timmy connect …` through the CLI (src/cli.ts, as the dev path runs it), in its own process group */
   cli(args: string[], o?: { env?: NodeJS.ProcessEnv; onChild?: (c: ChildProcess) => void }): Promise<{ code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }>;
+  /**
+   * `timmy connect …` with a terminal on its stdin, stdout and stderr: a pseudo-terminal that python3's pty module makes (a
+   * program driving a terminal, as a person's terminal would be). Its output comes back as the terminal showed it (\r\n).
+   * Null where python3 is not on PATH.
+   */
+  cliInTerminal(args: string[], o?: { env?: NodeJS.ProcessEnv }): Promise<{ code: number | null; output: string } | null>;
   cleanup(): void;
+}
+
+/** A pseudo-terminal for one program (python3's pty module): its output, then its exit code as this script's. */
+const PTY_RUNNER = [
+  'import os, pty, select, sys',
+  'pid, fd = pty.fork()',
+  'if pid == 0:',
+  '    os.execvp(sys.argv[1], sys.argv[1:])',
+  'out = bytearray()',
+  'while True:',
+  '    try:',
+  '        ready, _, _ = select.select([fd], [], [], 120)',
+  '    except InterruptedError:',
+  '        continue',
+  '    if not ready:',
+  '        break',
+  '    try:',
+  '        data = os.read(fd, 65536)',
+  '    except OSError:',
+  '        break',
+  '    if not data:',
+  '        break',
+  '    out += data',
+  '_, status = os.waitpid(pid, 0)',
+  'sys.stdout.buffer.write(bytes(out))',
+  'sys.stdout.flush()',
+  'code = os.waitstatus_to_exitcode(status)',
+  'sys.exit(code if code >= 0 else 128 - code)',
+].join('\n');
+
+/** A process's start time as Timmy's scripts read it on a POSIX device (`ps -o lstart=`, LC_ALL=C TZ=UTC). */
+export function startOf(pid: number): string {
+  return (spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' } }).stdout ?? '').trim();
 }
 
 export function makeKit(prefix = 'h90-connect-'): Kit {
@@ -148,6 +189,18 @@ exec ${realPs} "$@"
         child.stdout!.setEncoding('utf8').on('data', (c: string) => { stdout += c; });
         child.stderr!.setEncoding('utf8').on('data', (c: string) => { stderr += c; });
         child.on('close', (code, signal) => resolve({ code, signal, stdout, stderr }));
+      });
+    },
+    cliInTerminal(args, o = {}) {
+      const python = spawnSync('sh', ['-c', 'command -v python3'], { encoding: 'utf8' }).stdout.trim();
+      if (!python.startsWith('/')) return Promise.resolve(null);
+      return new Promise((resolve) => {
+        const child = spawn(python, ['-I', '-c', PTY_RUNNER, process.execPath, '--import', LOADER, path.join(REPO, 'src', 'cli.ts'), 'connect', ...args], { cwd: root, env: { ...env, TIMMY_STORE: process.env.TIMMY_STORE, ...o.env }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+        kids.push(child);
+        let output = '';
+        child.stdout!.setEncoding('utf8').on('data', (c: string) => { output += c; });
+        child.stderr!.setEncoding('utf8').on('data', (c: string) => { output += c; });
+        child.on('close', (code) => resolve({ code, output }));
       });
     },
     cleanup() {

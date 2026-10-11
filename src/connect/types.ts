@@ -87,13 +87,25 @@ export interface RemoteStatus {
   /** who wrote the end: the job's supervisor, or a stop that had to end its group with KILL */
   by?: string;
   /** whether its first process still runs: yes (the same start time), no, reused (another process has its pid now), or
-   *  unchecked (it runs, and no start time was recorded there to say it is the same one) */
+   *  unchecked (it runs, and no start time was recorded there to say it is the same one). The process checked is the one
+   *  Timmy recorded (RemoteJobRecord.process) when it has one, else the one the status file names. */
   alive?: 'yes' | 'no' | 'reused' | 'unchecked';
+  /** while that process runs: whether ps there shows it running this job's supervisor (`sh <its folder>/run.sh <its folder>`;
+   *  on Windows its command line, run.ps1). Read by the device's ps, never from the status file */
+  runner?: 'yes' | 'no';
+  /** when Timmy recorded the job's first process: whether the status file still names that one (same) or another (differs) */
+  recorded?: 'same' | 'differs';
+  /** when the record has a nonce: whether the job's folder there is this record's (its owner file holds the nonce: same),
+   *  another job's (other), or has no owner file (none: a folder from before owner files) */
+  owner?: 'same' | 'other' | 'none';
   /** the stop the device recorded */
   stop?: { asked_at?: string; signals: string[] };
   /** the last lines of its output (scrubbed before they are stored) */
   tail?: string[];
 }
+
+/** A job's first process (its supervisor) as Timmy recorded it: the only process a stop signals (its process group). */
+export interface RecordedProcess { pid: number; pgid: number; pid_start: string; recorded_at: string }
 
 export interface RemoteJobEvent { at: string; what: string }
 
@@ -107,6 +119,18 @@ export interface RemoteJobRecord {
   /** the remote job folder: <remote_dir>/<id> */
   remote_dir: string;
   script: { sha256: string; bytes: number; from: 'command' | 'file'; name?: string; shell: 'posix' | 'powershell' };
+  /**
+   * 32 random hex digits that this record's submission writes into the job's folder on the device when it makes it (its
+   * owner file): an id drawn again later finds another value there, and that folder is never taken for this job. Not a
+   * secret. Absent in records made before it was kept (a folder's script sha256 decides for those).
+   */
+  nonce?: string;
+  /**
+   * The job's first process, recorded once: as the device first showed it running, with ps showing it running this job's
+   * supervisor. A stop signals its process group only while the status file still names it and ps there agrees (its start
+   * time, its group, its command line). Absent until then (or in records made before it was kept).
+   */
+  process?: RecordedProcess;
   state: RemoteJobState;
   submitted_at: string;
   /** when the device first confirmed the run had started */

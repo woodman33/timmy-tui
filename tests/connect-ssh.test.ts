@@ -7,14 +7,14 @@
  * own code: the records, the scripts it sends, the receipts chain. A test with the real ssh and sshd is
  * tests/connect-real-ssh.test.ts (it runs only where both exist and TIMMY_TEST_REAL_SSH=1).
  */
-import { spawnSync, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { addDevice } from '../src/connect/devices.js';
 import { fingerprintOf, scanDevice, trustKey } from '../src/connect/hostkeys.js';
-import { fetchFile, readJob, reconcileJob, retryJob, runJob, stopJob } from '../src/connect/jobs.js';
+import { fetchFile, jobFile, readJob, reconcileJob, retryJob, runJob, stopJob } from '../src/connect/jobs.js';
 import { probeDevice } from '../src/connect/probe.js';
 import { readConnect } from '../src/connect/read.js';
 import { connectPaths, findDevice, type ConnectPaths } from '../src/connect/store.js';
@@ -23,7 +23,7 @@ import { waitingApprovals, type ApprovalRequest, type Decision } from '../src/re
 import { runSlash, type ReplContext } from '../src/repl/commands.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import { readChain, verifyChain } from '../src/utils/receipts.js';
-import { groupRuns, makeKit, newHostKey, until, type Kit } from './fixtures/connect/kit.js';
+import { groupRuns, makeKit, newHostKey, startOf, until, type Kit } from './fixtures/connect/kit.js';
 
 let kit: Kit;
 let p: ConnectPaths;
@@ -54,10 +54,16 @@ const pgidOf = (home: string, id: string): number => Number(/^pgid=(\d+)$/m.exec
 async function ended(id: string): Promise<RemoteJobRecord> {
   return until(async () => { const r = await reconcileJob(p, id); return !('error' in r) && (r.job.state === 'ended' || r.job.state === 'stopped') ? r.job : undefined; }, 30_000, `job ${id} to end`);
 }
-const lastJson = (stdout: string): Record<string, any> => JSON.parse(stdout.trim().split('\n').at(-1)!) as Record<string, any>;
+const lastJson = (stdout: string): Record<string, any> => JSON.parse(stdout.replace(/\r/g, '').trim().split('\n').at(-1)!) as Record<string, any>;
+/** A job's local record written by hand (a job folder made here by hand, or a record changed as a test needs). */
+const writeRecord = (j: RemoteJobRecord): void => {
+  fs.mkdirSync(p.jobs, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(jobFile(p, j.id), `${JSON.stringify(j, null, 2)}\n`, { mode: 0o600 });
+};
+const hasPython = spawnSync('sh', ['-c', 'command -v python3'], { encoding: 'utf8' }).stdout.trim().startsWith('/');
 
 describe('host keys: fetched, shown, trusted only when a person confirms the exact fingerprint', () => {
-  it('adding fetches the keys and trusts none; a wrong fingerprint is refused; the exact one is pinned under the device\'s own name, with a receipt', async () => {
+  it.skipIf(!hasPython)('adding fetches the keys and trusts none; a wrong fingerprint is refused; the exact one, typed at a terminal, is pinned under the device\'s own name, with a receipt', async () => {
     const h = kit.addHost(2201);
     const add = await kit.cli(['add', 'dev', `${h.user}@${h.address}`, '--port', '2201', '--key', kit.key.file, '--json']);
     expect(add.code, add.stdout + add.stderr).toBe(0);
@@ -66,18 +72,20 @@ describe('host keys: fetched, shown, trusted only when a person confirms the exa
     expect(j.scan.keys).toEqual([{ type: 'ED25519', fingerprint: fp }]);
     expect(j.device.host_key).toBeNull();
     expect(fs.readFileSync(p.knownHosts, 'utf8')).toBe('');
+    // the CLI's trust, at a terminal (a pseudo-terminal here, as a person's terminal is one)
+    const trust = async (args: string[]): Promise<{ code: number | null; output: string }> => (await kit.cliInTerminal(['trust', ...args]))!;
     // a well-formed fingerprint that is not the fetched one: refused, nothing written
     const other = fingerprintOf(newHostKey().blob);
-    const wrong = await kit.cli(['trust', 'dev', other, '--json']);
-    expect(wrong.code).toBe(1);
-    expect(lastJson(wrong.stdout).words).toMatch(/is not among the keys fetched from 127\.0\.0\.1:2201 .*nothing was trusted/);
+    const wrong = await trust(['dev', other, '--json']);
+    expect(wrong.code, wrong.output).toBe(1);
+    expect(lastJson(wrong.output).words).toMatch(/is not among the keys fetched from 127\.0\.0\.1:2201 .*nothing was trusted/);
     expect(fs.readFileSync(p.knownHosts, 'utf8')).toBe('');
     // a malformed one, and none at all from the CLI
-    expect((await kit.cli(['trust', 'dev', 'SHA256:short', '--json'])).code).toBe(1);
-    expect((await kit.cli(['trust', 'dev'])).code).toBe(2);
-    const right = await kit.cli(['trust', 'dev', fp, '--json']);
-    expect(right.code, right.stdout + right.stderr).toBe(0);
-    expect(lastJson(right.stdout).device.host_key).toMatchObject({ type: 'ED25519', fingerprint: fp });
+    expect((await trust(['dev', 'SHA256:short', '--json'])).code).toBe(1);
+    expect((await trust(['dev'])).code).toBe(2);
+    const right = await trust(['dev', fp, '--json']);
+    expect(right.code, right.output).toBe(0);
+    expect(lastJson(right.output).device.host_key).toMatchObject({ type: 'ED25519', fingerprint: fp });
     expect(fs.readFileSync(p.knownHosts, 'utf8')).toBe(`timmy-dev ssh-ed25519 ${h.keys[0].blob}\n`);
     expect(fs.statSync(p.knownHosts).mode & 0o777).toBe(0o600);
     expect(fs.statSync(p.dir).mode & 0o777).toBe(0o700);
@@ -85,6 +93,25 @@ describe('host keys: fetched, shown, trusted only when a person confirms the exa
     const sealed = readChain('runs').filter((r) => r.kind === 'remote-trust');
     expect(sealed.map((r) => r.subject)).toEqual([`remote-trust · dev · ED25519 ${fp}`]);
     expect(verifyChain('runs').ok).toBe(true);
+  }, 60_000);
+
+  it('the CLI\'s trust needs a person at a terminal: from a pipe (a script, an agent\'s command) nothing is pinned; add hands out no fingerprint to paste', async () => {
+    const h = kit.addHost(2203);
+    const add = await kit.cli(['add', 'dev', `${h.user}@${h.address}`, '--port', '2203', '--key', kit.key.file]);
+    expect(add.code, add.stdout + add.stderr).toBe(0);
+    const fp = fingerprintOf(h.keys[0].blob);
+    expect(add.stdout).toContain(fp);
+    // the next step asks the person to read the fingerprint on the computer itself: no ready command holds the fetched one
+    const next = add.stdout.split('\n').filter((l) => l.includes('timmy connect trust dev'));
+    expect(next).toHaveLength(1);
+    expect(next[0]).not.toContain(fp);
+    expect(next[0]).toMatch(/on the computer itself/);
+    const piped = await kit.cli(['trust', 'dev', fp, '--json']);
+    expect(piped.code, piped.stdout + piped.stderr).toBe(1);
+    expect(lastJson(piped.stdout)).toMatchObject({ ok: false, error: expect.stringMatching(/needs a person at a terminal .*nothing was trusted/) });
+    expect(fs.readFileSync(p.knownHosts, 'utf8')).toBe('');
+    expect(findDevice(p, 'dev').device!.host_key).toBeNull();
+    expect(readChain('runs').filter((r) => r.kind === 'remote-trust')).toEqual([]);
   }, 60_000);
 
   it('a host key that changes is refused by ssh, recorded as needing a person, and never re-pinned by Timmy', async () => {
@@ -257,18 +284,114 @@ describe('remote jobs', () => {
     expect(groupRuns(pgid)).toBe(false);
   }, 60_000);
 
-  it('a stop never signals a pid whose start time is not the recorded one', async () => {
+  it('a stop never signals a pid whose start time is not the recorded one, nor a process its status file names in place of the recorded one', async () => {
     const { id, home } = await ready(2234);
     const r = await runJob(p, id, { command: ['sleep', '60'] });
     if ('error' in r) throw new Error(r.error);
     const pgid = pgidOf(home, r.job.id);
-    // the record names another start time (as if the pid had been given to another process since)
+    // Timmy recorded the job's first process when the device first showed it running this job's run.sh
+    expect(r.job.process).toMatchObject({ pid: pgid, pgid, pid_start: expect.stringMatching(/ \d{4}$/) });
     const file = path.join(jobDir(home, r.job.id), 'status');
+    // the status file alone names another start time: it no longer names the process Timmy recorded
     fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^pid_start=.*$/m, 'pid_start=Thu Jan  1 00:00:00 1970'));
     const s = await stopJob(p, r.job.id);
     if ('error' in s) throw new Error(s.error);
-    expect(s.job.stop?.result).toBe('its pid now belongs to another process, which was not signalled');
+    expect(s.job.stop?.result).toMatch(/^its status file there no longer names the process Timmy recorded .*nothing was signalled$/);
     expect(groupRuns(pgid)).toBe(true);
+    // the record and the status file agree on a start time ps does not show for that pid (as if the pid had been given to
+    // another process since): never signalled
+    writeRecord({ ...readJob(p, r.job.id)!, process: { ...r.job.process!, pid_start: 'Thu Jan  1 00:00:00 1970' } });
+    const s2 = await stopJob(p, r.job.id);
+    if ('error' in s2) throw new Error(s2.error);
+    expect(s2.job.stop?.result).toBe('its pid now belongs to another process, which was not signalled');
+    expect(groupRuns(pgid)).toBe(true);
+  }, 60_000);
+
+  it('a stop never signals what a rewritten status file names: an unrelated process in its own session goes untouched, and so does the job', async () => {
+    const { id, home } = await ready(2245);
+    const r = await runJob(p, id, { command: ['sleep', '60'] });
+    if ('error' in r) throw new Error(r.error);
+    expect(r.job.state).toBe('running');
+    const jobPgid = pgidOf(home, r.job.id);
+    // another program of the same account, in a session and a process group of its own
+    const other = spawn('sleep', ['300'], { detached: true, stdio: 'ignore' });
+    try {
+      const start = await until(() => startOf(other.pid!), 5000, 'the other process to show in ps');
+      // the job rewrites its status file (it can: it runs as the same account) to name that process, with lines in the shape
+      // of what Timmy's own scripts compute there (they are never taken from the file)
+      const file = path.join(jobDir(home, r.job.id), 'status');
+      fs.writeFileSync(file, `state=running\npid=${other.pid}\npgid=${other.pid}\npid_start=${start}\nchild=${other.pid}\nstarted_at=2026-10-11T00:00:00Z\nalive=yes\nrunner=yes\nrecorded=same\n`);
+      const s = await stopJob(p, r.job.id);
+      if ('error' in s) throw new Error(s.error);
+      expect(groupRuns(other.pid!), 'the unrelated process was not signalled').toBe(true);
+      expect(groupRuns(jobPgid), 'nor was the job').toBe(true);
+      expect(s.job.state).toBe('stop asked');
+      expect(s.job.stop?.result).toMatch(/^its status file there no longer names the process Timmy recorded .*nothing was signalled$/);
+      // with no process recorded (a record from before one was kept), ps decides: that process does not run this job's run.sh
+      const rec = readJob(p, r.job.id)!;
+      delete rec.process;
+      writeRecord(rec);
+      const s2 = await stopJob(p, r.job.id);
+      if ('error' in s2) throw new Error(s2.error);
+      expect(groupRuns(other.pid!)).toBe(true);
+      expect(groupRuns(jobPgid)).toBe(true);
+      expect(s2.job.stop?.result).toMatch(/^the process its status file names is not this job's supervisor .*nothing was signalled$/);
+      expect(readJob(p, r.job.id)!.process, 'a rewritten status file never becomes the recorded process').toBeUndefined();
+    } finally {
+      try { process.kill(-other.pid!, 'SIGKILL'); } catch { /* ended */ }
+    }
+  }, 60_000);
+
+  it('a stop that ends a job\'s group itself records the signal it sent (SIGTERM alone: TERM, never KILL)', async () => {
+    const { home } = await ready(2246);
+    // a job folder made here by hand: its supervisor (of the same shape, sh <folder>/run.sh <folder>) ends at SIGTERM without
+    // writing its end, as one stopped before its trap was set would; and a local record for it
+    const jobId = 'r5eed0001';
+    const dir = jobDir(home, jobId);
+    fs.mkdirSync(path.join(dir, 'work'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'claim'));
+    fs.writeFileSync(path.join(dir, 'run.sh'), 'sleep 300\n');
+    const sup = spawn('sh', [path.join(dir, 'run.sh'), dir], { cwd: dir, detached: true, stdio: 'ignore' });
+    const start = await until(() => startOf(sup.pid!), 5000, 'the supervisor to show in ps');
+    fs.writeFileSync(path.join(dir, 'status'), `state=running\npid=${sup.pid}\npgid=${sup.pid}\npid_start=${start}\nchild=\nstarted_at=2026-10-11T00:00:00Z\n`);
+    const now = new Date().toISOString();
+    writeRecord({ id: jobId, kind: 'remote', label: 'sleep 300', device: 'dev', remote_dir: `.timmy-connect/jobs/${jobId}`, script: { sha256: 'a'.repeat(64), bytes: 10, from: 'command', shell: 'posix' }, state: 'running', submitted_at: now, confirmed_at: now, events: [] });
+    const s = await stopJob(p, jobId);
+    if ('error' in s) throw new Error(s.error);
+    expect(groupRuns(sup.pid!)).toBe(false);
+    expect(s.job.state).toBe('stopped');
+    expect(s.job.remote).toMatchObject({ state: 'ended', by: 'stop', stop_signal: 'TERM' });
+    expect(s.words).toMatch(/SIGTERM/);
+    expect(s.words).not.toMatch(/SIGKILL/);
+  }, 60_000);
+
+  it('a connection lost in mid-session, after the device took the script, leaves the job unknown: never "not sent"', async () => {
+    const { id } = await ready(2243);
+    kit.update(2243, (h) => { h.mode = 'drop-after-run'; h.dropWords = 'Read from remote host 127.0.0.1: Connection timed out'; });
+    const r = await runJob(p, id, { command: ['sleep', '2'] });
+    if ('error' in r) throw new Error(r.error);
+    expect(r.words).not.toMatch(/not sent/);
+    expect(r.failure).toMatchObject({ notSent: false });
+    expect(r.job.state).toBe('unknown');
+    expect(r.job.unknown).toMatchObject({ not_known: 'whether the device received it and started it' });
+    kit.update(2243, (h) => { h.mode = 'up'; delete h.dropWords; });
+    const s = await reconcileJob(p, r.job.id);
+    if ('error' in s) throw new Error(s.error);
+    expect(s.job.confirmed_at, 'the device had started it').toBeTruthy();
+  }, 60_000);
+
+  it('a job\'s output reaches no terminal raw: escape sequences (an OSC 52 clipboard write, cursor moves) are taken out of what is stored and printed', async () => {
+    const { id } = await ready(2244);
+    const r = await runJob(p, id, { command: ['sh', '-c', String.raw`printf 'a\033]52;c;ZXZpbA==\007b\n\033[1A\033[2K\342\234\223 fake line\n'`] });
+    if ('error' in r) throw new Error(r.error);
+    await ended(r.job.id);
+    const cli = await kit.cli(['status', r.job.id]);
+    expect(cli.code, cli.stdout + cli.stderr).toBe(0);
+    expect(cli.stdout).toContain('out| ab');
+    expect(cli.stdout).toContain('✓ fake line');
+    for (const raw of ['\x1b]', '\x07', '\x1b[1A', '\x1b[2K']) expect(cli.stdout.includes(raw), JSON.stringify(raw)).toBe(false);
+    const stored = JSON.stringify(readJob(p, r.job.id));
+    expect(stored).not.toMatch(/\\u001b|\\u0007/);
   }, 60_000);
 
   it('where ps gives no start time, a job reads as running "unchecked", and a stop refuses to signal it', async () => {
@@ -368,6 +491,25 @@ describe('fetch: only the job\'s own files, sha256 checked on both computers', (
     expect(fs.existsSync(`${to}.partial`)).toBe(true);
     expect(readChain('runs').filter((x) => x.kind === 'remote-fetch').map((x) => x.status)).toEqual(['ok', 'failed']);
   }, 90_000);
+
+  it('a file swapped for a link while it is fetched is never followed out of the job\'s folder (what is hashed and sent is one copy)', async () => {
+    const { id, home } = await ready(2247);
+    fs.writeFileSync(path.join(home, 'outside.txt'), 'OUTSIDE-THE-JOB-FOLDER\n');
+    // the job swaps work/x between a regular file and a link to a file outside its folder, as fast as it can
+    const r = await runJob(p, id, { command: ['sh', '-c', 'echo inside > in.txt; while :; do ln -s "$HOME/outside.txt" l.tmp; mv -f l.tmp x; cp in.txt f.tmp; mv -f f.tmp x; done'] });
+    if ('error' in r) throw new Error(r.error);
+    expect(r.job.state).toBe('running');
+    const to = path.join(kit.root, 'race');
+    const outcomes: string[] = [];
+    for (let i = 0; i < 30; i++) outcomes.push((await fetchFile(p, r.job.id, 'work/x', { to: path.join(to, `x${i}`) })).words);
+    await stopJob(p, r.job.id);
+    // whatever reached this computer (a saved file, or a .partial kept after a failed check) came from inside the job's folder
+    const received = fs.existsSync(to) ? fs.readdirSync(to).map((n) => fs.readFileSync(path.join(to, n), 'utf8')) : [];
+    expect(received.join(''), outcomes.join('\n')).not.toContain('OUTSIDE');
+    expect(received.length, outcomes.join('\n')).toBeGreaterThan(0);
+    for (const text of received) expect(text).toBe('inside\n');
+    for (const words of outcomes) expect(words).toMatch(/^(fetched work\/x from dev: 7 bytes|not fetched: work\/x is or passes through a symbolic link on dev: refused)/);
+  }, 90_000);
 });
 
 describe('secrets and words', () => {
@@ -432,11 +574,13 @@ describe('secrets and words', () => {
     await ready(2252);
     const calls = kit.calls('ssh');
     expect(calls.length).toBeGreaterThan(1);
+    // the version is read once (ssh -V), so an option ssh would refuse is never given
+    expect(kit.calls('ssh-version').map((c) => c.argv)).toContainEqual(['-V']);
     for (const c of calls) {
       const a = c.argv;
       const opts = a.flatMap((x, i) => (a[i - 1] === '-o' ? [x] : []));
       expect(a.slice(0, 2)).toEqual(['-F', p.sshConfig]);
-      expect(opts).toEqual(expect.arrayContaining(['BatchMode=yes', 'StrictHostKeyChecking=yes', `UserKnownHostsFile=${p.knownHosts}`, 'GlobalKnownHostsFile=/dev/null', 'UpdateHostKeys=no', 'HostKeyAlias=timmy-dev', 'ControlPath=none', 'ForwardAgent=no', 'IdentitiesOnly=yes']));
+      expect(opts).toEqual(expect.arrayContaining(['BatchMode=yes', 'StrictHostKeyChecking=yes', `UserKnownHostsFile=${p.knownHosts}`, 'GlobalKnownHostsFile=/dev/null', 'UpdateHostKeys=no', 'HostKeyAlias=timmy-dev', 'ControlPath=none', 'ForwardAgent=no', 'IdentitiesOnly=yes', 'VerifyHostKeyDNS=no', 'KnownHostsCommand=none']));
       expect(opts.some((x) => /^ConnectTimeout=\d+$/.test(x)) && opts.some((x) => /^ServerAliveInterval=\d+$/.test(x))).toBe(true);
       const dash = a.indexOf('--');
       expect(a.slice(dash, dash + 2)).toEqual(['--', '127.0.0.1']);
@@ -444,7 +588,7 @@ describe('secrets and words', () => {
     }
   }, 60_000);
 
-  it('a device that opts into the account\'s own ssh config: ssh gets no -F, and the words say so', async () => {
+  it('a device that opts into the account\'s own ssh config: ssh gets no -F, Timmy\'s settings still win over it, and the words say so', async () => {
     const h = kit.addHost(2253);
     expect(addDevice(p, { id: 'own', address: h.address, port: h.port, user: h.user, identity: kit.key.file, accountConfig: true }).problems).toEqual([]);
     const scan = await scanDevice(p, 'own');
@@ -453,8 +597,19 @@ describe('secrets and words', () => {
     const cli = await kit.cli(['probe', 'own'], { env: { TIMMY_FAKE_ALLOW_ACCOUNT_CONFIG: '1' } });
     expect(cli.code, cli.stdout + cli.stderr).toBe(0);
     expect(cli.stdout).toContain('ssh used your own ssh config (~/.ssh/config), as this device asks');
-    expect(kit.calls('ssh').at(-1)!.argv).not.toContain('-F');
+    // a KnownHostsCommand or VerifyHostKeyDNS there would accept a key Timmy never pinned: Timmy's -o settings come first
+    expect(cli.stdout).toMatch(/VerifyHostKeyDNS=no and KnownHostsCommand=none/);
+    const last = kit.calls('ssh').at(-1)!.argv;
+    expect(last).not.toContain('-F');
+    expect(last).toEqual(expect.arrayContaining(['VerifyHostKeyDNS=no', 'KnownHostsCommand=none']));
     expect(readConnect(kit.home).devices[0].words).toContain('ssh uses your own ssh config (~/.ssh/config)');
+    // an ssh older than 8.5 has no KnownHostsCommand (it would refuse the option): none is given, and the words say why
+    const old = await kit.cli(['probe', 'own'], { env: { TIMMY_FAKE_ALLOW_ACCOUNT_CONFIG: '1', TIMMY_FAKE_SSH_VERSION: 'OpenSSH_8.4p1 FAKE, OpenSSL 1.1.1' } });
+    expect(old.code, old.stdout + old.stderr).toBe(0);
+    expect(old.stdout).toMatch(/OpenSSH 8\.4 has no KnownHostsCommand/);
+    const oldArgs = kit.calls('ssh').at(-1)!.argv;
+    expect(oldArgs).toContain('VerifyHostKeyDNS=no');
+    expect(oldArgs.some((x) => x.startsWith('KnownHostsCommand'))).toBe(false);
   }, 60_000);
 });
 
@@ -515,13 +670,18 @@ describe('surfaces', () => {
   it('timmy connect tailnet lists what tailscale status says, read only, and adds nothing', async () => {
     // FAKE tailscale's answer, made at run time (CGNAT-range addresses are built here, never committed)
     const ip = (n: number): string => [100, 64, 0, n].join('.');
-    fs.writeFileSync(kit.env.TIMMY_FAKE_TAILSCALE_JSON!, JSON.stringify({ BackendState: 'Running', Self: { HostName: 'this-box', DNSName: 'this-box.example.ts.net.', TailscaleIPs: [ip(1)], OS: 'linux', Online: true }, Peer: { k1: { HostName: 'studio', DNSName: 'studio.example.ts.net.', TailscaleIPs: [ip(2)], OS: 'macOS', Online: true } } }));
+    // a peer's own names are other computers' words: one here carries escape sequences (a clipboard write, a screen clear)
+    fs.writeFileSync(kit.env.TIMMY_FAKE_TAILSCALE_JSON!, JSON.stringify({ BackendState: 'Running', Self: { HostName: 'this-box', DNSName: 'this-box.example.ts.net.', TailscaleIPs: [ip(1)], OS: 'linux', Online: true }, Peer: { k1: { HostName: 'studio', DNSName: 'studio.example.ts.net.', TailscaleIPs: [ip(2)], OS: 'macOS', Online: true }, k2: { HostName: 'odd', DNSName: 'odd\u001b]52;c;ZXZpbA==\u0007.example.ts.net.', TailscaleIPs: [ip(3), 'not-an-address\u001b[2J'], OS: 'linux\u001b[2J', Online: false } } }));
     const r = await kit.cli(['tailnet', '--json']);
     expect(r.code, r.stdout + r.stderr).toBe(0);
     const j = lastJson(r.stdout);
-    expect(j.peers.map((x: { name: string }) => x.name)).toEqual(['this-box', 'studio']);
+    expect(j.peers.map((x: { name: string }) => x.name)).toEqual(['this-box', 'studio', 'odd']);
+    expect(j.peers[2]).toMatchObject({ dns_name: 'odd.example.ts.net', os: 'linux', addresses: [ip(3)] });
     expect(j.words).toMatch(/none is added as a device by this/);
     expect(readConnect(kit.home).devices).toEqual([]);
+    const shown = await kit.cli(['tailnet']);
+    expect(shown.stdout).toContain('odd.example.ts.net');
+    for (const raw of ['\x1b]', '\x07', '\x1b[2J']) expect(shown.stdout.includes(raw), JSON.stringify(raw)).toBe(false);
   }, 30_000);
 
   it('`timmy connect <tool>` stays the journey\'s env.lock step; Timmy Connect\'s verbs and help go to Timmy Connect', async () => {

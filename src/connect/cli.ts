@@ -6,6 +6,7 @@
  */
 import { currentCapabilities } from '../term/capabilities.js';
 import { measuredFromPalette, namedPalette } from '../term/palettes.js';
+import { sanitize } from '../term/sanitize.js';
 import { buildTheme, serialize } from '../term/theme.js';
 import { connectDo, isConnectVerb, type Line } from './commands.js';
 
@@ -17,7 +18,9 @@ export async function connectMain(args: readonly string[], env: Record<string, s
   const caps = currentCapabilities();
   const named = namedPalette(env.TIMMY_PALETTE);
   const theme = buildTheme(caps, named ? measuredFromPalette(named) : undefined);
-  const write = (stream: NodeJS.WriteStream, line: Line): void => { stream.write(`${serialize(line, theme)}\n`); };
+  // every line's words as plain text (a device's words are cleaned when they are read; a record from before is cleaned here):
+  // the theme's own colours are the only escape sequences written
+  const write = (stream: NodeJS.WriteStream, line: Line): void => { stream.write(`${serialize(line.map((s) => ({ ...s, text: sanitize(s.text) })), theme)}\n`); };
   const controller = new AbortController();
   let signalled: NodeJS.Signals | null = null;
   const onSignal = (sig: NodeJS.Signals) => (): void => { signalled ??= sig; controller.abort(); };
@@ -33,6 +36,8 @@ export async function connectMain(args: readonly string[], env: Record<string, s
   try {
     const said = await connectDo(args, {
       glyphs: theme.glyphs, by: 'cli', cwd: process.cwd(), signal: controller.signal,
+      // `trust` pins a host key only for a person at a terminal (stdin a TTY)
+      terminal: Boolean(process.stdin.isTTY),
       // while a wait runs, its progress goes to stderr (stdout keeps the one JSON object)
       progress: (line) => write(process.stderr, line),
     });
