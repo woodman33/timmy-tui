@@ -248,9 +248,16 @@ export async function actMain(argv: string[], o: { json?: boolean } = {}): Promi
     return stopping;
   };
   let signals = 0;
+  // R4 (H82; the review of 6fb765a..4338fdb, finding 3): the handlers stay until the process exits. They were removed before
+  // the end's JSON was printed and the process exited, so a second signal then killed it by default: its JSON said exit_code
+  // 3 while what ran it saw a signal's death (and a wrapper that reads none as 0, boot.cjs, said 0). Once the operation has
+  // ended and the Workspace is closed (`closed`), a first signal finds nothing to stop and the exit code stands; a second
+  // one, as before, exits at once with 3.
+  let closed = false;
   const onSignal = (sig: NodeJS.Signals): void => {
     signals += 1;
-    if (signals > 1) { ws.killNow(actStopReason(`a second ${sig}: it exits at once`)); process.exit(3); }
+    if (signals > 1) { if (!closed) ws.killNow(actStopReason(`a second ${sig}: it exits at once`)); process.exit(3); }
+    if (closed) return;
     void stop(`${sig} received`);
   };
   process.on('SIGINT', onSignal);
@@ -291,8 +298,7 @@ export async function actMain(argv: string[], o: { json?: boolean } = {}): Promi
   for (let i = 0; i < 100 && !h.ended; i++) { ws.ops.check(); if (!h.ended) await sleep(50); }
   if (!h.ended) ws.ops.end(h, failedToRun ? 'failed' : 'stopped', failedToRun ? `the command failed: ${failedToRun}` : 'it did not end within the time act waits');
   await ws.close({ by: actStopReason('it is exiting') });
-  process.off('SIGINT', onSignal);
-  process.off('SIGTERM', onSignal);
+  closed = true; // R4 (H82): the signal handlers stay until the process exits (see onSignal)
 
   const end = h.ended!;
   // A stop overrides: a run already ended stays as it ended in its own record.
