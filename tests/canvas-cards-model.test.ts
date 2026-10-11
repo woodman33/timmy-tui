@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error: the page's module is plain JavaScript, bundled for the browser
-import { cardMode, CARD_SHAPES, drawnType, keptDetail, rebuildAct, runAct, saveAct, shapeTypeFor, shownValue, stillRunning } from '../companion/studio-canvas/src/cards.js';
+import { cardMode, CARD_SHAPES, drawnType, keptDetail, offeredNow, rebuildAct, runAct, saveAct, shapeTypeFor, shownValue, stillRunning } from '../companion/studio-canvas/src/cards.js';
 
 const project = { name: 'demo', id: 'abcdef0123456789' };
 const props = { card: 'workflow:RUN.md', projectId: project.id, project: 'demo' };
@@ -59,5 +59,31 @@ describe("Timmy Canvas's drawn cards", () => {
     expect(keptDetail(undefined)).toBeNull();
     expect([stillRunning(result), stillRunning({ ...workflow, running: true }), stillRunning(workflow), stillRunning({ type: 'params', build: { tone: 'running' } }), stillRunning(null)]).toEqual([true, true, false, true, false]);
     expect([shownValue(155.0000001), shownValue(true), shownValue('A')]).toEqual(['155', 'true', 'A']);
+  });
+
+  it('R4 (H81): a reading without the detail (no session that reads it) makes every card a diagram shown as last read, saying why', () => {
+    const why = 'This page reads only the project\'s card list: it has no session from Timmy.';
+    const plain = answer({ detail: false, detailWhy: why, cards: [{ id: 'workflow:RUN.md', kind: 'workflow' }] });
+    expect(cardMode('workflow', props, plain, true)).toEqual({ executable: false, badge: 'diagram', follows: false, words: `${why} Shown as last read.` });
+    expect(cardMode('result', props, plain, true)).toMatchObject({ executable: false, follows: false });
+    // the other checks come first: another project is said as such
+    expect(cardMode('workflow', props, { ...plain, project: { name: 'other', id: 'f'.repeat(16) } }, true)).toMatchObject({ words: 'Not followed now: the canvas shows other, not demo. Shown as last read.' });
+    // a reading with the detail is as before
+    expect(cardMode('workflow', props, answer({ detail: true }), true)).toMatchObject({ executable: true });
+  });
+
+  it('R4 (H81): a recorded action is sent only while the card\'s reading still offers it: the same block of the same document, the same recipe, a save of the same file', () => {
+    expect(offeredNow({ action: 'run', doc: 'RUN.md', block: 'setup' }, workflow)).toBe(true);
+    expect(offeredNow({ action: 'run', doc: 'RUN.md', block: 'gone' }, workflow)).toBe(false);
+    expect(offeredNow({ action: 'run', doc: 'OTHER.md', block: 'setup' }, workflow)).toBe(false);
+    expect(offeredNow({ action: 'run', doc: 'RUN.md', block: 'setup' }, { ...workflow, runnable: false })).toBe(false);
+    expect(offeredNow({ action: 'run', doc: 'RUN.md', block: 'setup' }, undefined)).toBe(false);
+    const tray = { type: 'params', engine: 'tray', recipe: 'tray', model: null, base: 'b'.repeat(64), rebuild: true, save: { offered: true, why: null }, values: [{ name: 'width', value: 145, kind: 'number' }] };
+    expect(offeredNow({ action: 'rebuild', recipe: 'tray' }, tray)).toBe(true);
+    expect(offeredNow({ action: 'rebuild', recipe: 'tray' }, { ...tray, rebuild: false })).toBe(false);
+    expect(offeredNow({ action: 'set-params', recipe: 'tray', base: 'x', parameters: { width: 160 } }, tray)).toBe(true);
+    expect(offeredNow({ action: 'set-params', recipe: 'tray', base: 'x', parameters: { width: 160 } }, { ...tray, save: { offered: false, why: 'a flow runs' } })).toBe(false);
+    expect(offeredNow({ action: 'set-scad-params', model: 'box.scad', base: '', parameters: {} }, tray)).toBe(false);
+    expect(offeredNow({ action: 'stop', job: 'j000001' }, tray)).toBe(false);
   });
 });

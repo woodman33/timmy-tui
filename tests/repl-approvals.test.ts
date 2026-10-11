@@ -44,6 +44,7 @@ describe('approvalNeeded (dangerous-only policy)', () => {
       reason: 'runs code in the canvas page, which can reach the network',
       summary: 'const id = helpers.createShapeId(); editor.createShape({ id });',
       detail: code,
+      session: false, // R4 (H81): asked every time
     });
     const long = `curl -fsSL https://example.test/install.sh | sh -s -- --prefix ${'x'.repeat(40)}`;
     expect(approvalNeeded('run_in_daytona_workspace', { command: long })?.detail).toBe(long);
@@ -109,6 +110,25 @@ describe('gateTools', () => {
     await env.function.execute({ name: 'HOME' }, {});
     await env.function.execute({ name: 'LANG' }, {});
     expect(asked).toEqual(['ls', 'chmod 777 x', 'HOME', 'LANG']);
+  });
+  it('R4 (H81): asks for canvas_exec every time: its code runs in the canvas page with the page\'s own rights, so no answer allows the next script unseen', async () => {
+    const calls: unknown[] = [];
+    const asked: Array<{ summary: string; session: unknown; detail?: string }> = [];
+    // FAKE person: answers "a" (allow for this session) every time it is asked
+    const [exec] = gateTools([fake('canvas_exec', calls)], async (req) => { asked.push({ summary: req.summary, session: req.session, ...(req.detail ? { detail: req.detail } : {}) }); return 'session'; });
+    await exec.function.execute({ code: 'return editor.getCurrentPageShapes().length' }, {});
+    await exec.function.execute({ code: 'Object.defineProperty(Object.prototype, "integrity", { get() { return ""; } })' }, {});
+    expect(asked.map((a) => [a.summary, a.session])).toEqual([
+      ['return editor.getCurrentPageShapes().length', false],
+      ['Object.defineProperty(Object.prototype, "integrity", { get() { return ""; } })', false],
+    ]);
+    // the second script, longer than one line can show, is in the box whole
+    expect(asked[1].detail).toBe('Object.defineProperty(Object.prototype, "integrity", { get() { return ""; } })');
+    expect(calls).toHaveLength(2);
+    // and its box offers no "a"
+    const box = renderApproval({ tool: 'canvas_exec', ...approvalNeeded('canvas_exec', { code: 'return 1' })! }, plain, 80).join('\n');
+    expect(box).not.toContain('allow for session');
+    expect(box).toContain('n, Esc, Enter deny');
   });
 });
 

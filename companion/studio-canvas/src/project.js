@@ -111,7 +111,8 @@ const short = (text, max = 90) => { const chars = Array.from(String(text)); retu
  * The panel, attached to its elements in index.html. `deps`: editor() (the live editor), toRichText, createShapeId,
  * place(editor) → where a new card goes ({ x, y }, page coordinates), reveal(editor, ids). R4 (H75), each optional: detail
  * (read the drawn cards' detail too), onAnswer(now) (every reading), fast() (read again in 1.5 s, not 5 s), drawable(kind)
- * and placeCard(id, now) (Place card).
+ * and placeCard(id, now) (Place card). R4 (H81): read() (the reading to use instead of this panel's own: the drawn cards'
+ * reader, which reads the detail only with this page's session).
  */
 export function createProjectPanel(deps) {
   const root = document.getElementById('project');
@@ -124,6 +125,8 @@ export function createProjectPanel(deps) {
   let shown = '';
 
   async function read() {
+    // R4 (H81): the drawn cards' own reader when given (./cards.js read: the cards' detail only through this page's session)
+    if (deps.read) return deps.read();
     const response = await fetch(deps.detail ? '/api/project?detail=1' : '/api/project', { cache: 'no-store' });
     if (!response.ok) throw new Error(`Timmy answered ${response.status} for the project`);
     return response.json();

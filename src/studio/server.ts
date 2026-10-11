@@ -207,7 +207,11 @@ export function createStudioApp(options: StudioOptions = {}, bridge = new Canvas
   // R4 (H55): the active project, named by the REPL (token), and its cards, read-only. R4 (H75): with whether a REPL takes
   // the drawn cards' actions, and those actions carried to it.
   const { relay } = cardWiring;
-  mountProjectRoutes(app, { link, pageOpen: () => bridge.open, holding: (p) => relay.listening(p.holder), named: (p) => relay.heldBy(p.holder) });
+  mountProjectRoutes(app, {
+    link, pageOpen: () => bridge.open, holding: (p) => relay.listening(p.holder), named: (p) => relay.heldBy(p.holder),
+    // R4 (H81): the cards' detail is read with this server's token or a page session that counts for the project now
+    pageSession: (authorization, p) => relay.sessionFor(authorization, p),
+  });
   mountCardRoutes(app, { link, relay, port: cardWiring.port });
   // C-13: the receipt pages, served by the same local server, with a text fallback.
   mountReceiptPages(app, options.receipts);
