@@ -104,7 +104,7 @@ export function chainEvidence(chain: readonly Obj[], verify: VerifyResult, rules
     const run = str(n.run);
     const version = [n.blender_version, n.c4d_version, n.unreal_version].map((v) => (typeof v === 'string' || typeof v === 'number' ? String(v) : undefined)).find(Boolean);
     const readBack = app === 'unreal' ? ', and its newest readback by a second Unreal process agreed' : '';
-    runs.set(`native:${app}`, mark(r, `a ${app} run judged ok from its own result file${readBack}${version ? ` (the app said version ${version})` : ''}`, run ? `.timmy/native/${run}/job.json` : undefined));
+    runs.set(`native:${app}`, mark(r, `${/^[aeiou]/i.test(app) ? 'an' : 'a'} ${app} run judged ok from its own result file${readBack}${version ? ` (the app said version ${version})` : ''}`, run ? `.timmy/native/${run}/job.json` : undefined));
   }
 
   // Code agents: the run agentExercisedIndex chose for each route.

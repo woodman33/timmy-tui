@@ -64,7 +64,7 @@ export function actHelp(): string {
     '',
     'NEEDS A PERSON (refused, with the line to type in the REPL instead)',
     '  a chat request (its tools may ask for approval), /edit, /watch, /center, /web, /browser, /canvas, /board live, /board off,',
-    '  /model, /new, /exit, /vox view, /restore, and a /run whose blocks include a destructive shell command',
+    '  /model, /new, /exit (or /quit), /vox view, /restore, and a /run whose blocks include a destructive shell command',
     '',
     'OPERATIONS',
     `  With ${OPERATION_ENV} set (a workflow block of a /run), act joins that operation when this project holds it and it still`,
@@ -138,7 +138,7 @@ export function needsPerson(line: string): string | undefined {
     case 'restore': return '/restore writes a kept previous version over a project file, an edit a person makes (human-gated)';
     case 'model': return '/model is the REPL conversation\'s model';
     case 'new': return '/new starts a REPL conversation';
-    case 'exit': return '/exit ends the REPL';
+    case 'exit': case 'quit': return `/${word} ends the REPL`; // R4 (H88): /quit is /exit
     default: return undefined;
   }
 }

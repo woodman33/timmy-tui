@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { glyphSet } from '../src/term/glyphs.js';
 import { COMMANDS, runSlash, type ReplContext, type ThemeInfo, GROUPS, GROUP_LABEL } from '../src/repl/commands.js';
+import { needsPerson } from '../src/ops/act.js';
 
 // Slash commands come from one registry, run locally, and never reach the model (playbook §17.7).
 const NIGHT_INFO: ThemeInfo = {
@@ -66,6 +67,15 @@ describe('slash commands', () => {
     expect(printed).toEqual(['  Model: anthropic/claude-sonnet-4.5', '  Model: anthropic/claude-sonnet-4.5 -> openai/gpt-5.5', '  New conversation.']);
     expect([state.model, state.sessions]).toEqual(['openai/gpt-5.5', 1]);
     expect(runSlash('/exit', c)).toBe('exit');
+  });
+  it('R4 (H88; r23): /quit is /exit, and /help says so (it was unknown, and suggested /edit)', () => {
+    const { c, printed } = ctx();
+    expect(runSlash('/quit', c)).toBe('exit');
+    expect(printed).toEqual([]);
+    const help: string[] = [];
+    runSlash('/help', { ...c, print: (seg) => help.push(seg.map((x) => x.text).join('')) });
+    expect(help).toContain('  /exit        Quit Timmy (/quit does the same)');
+    expect(needsPerson('/quit')).toBe('/quit ends the REPL');
   });
 });
 

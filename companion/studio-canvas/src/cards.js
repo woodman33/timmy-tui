@@ -166,6 +166,8 @@ export function withheldData(data) {
 export const NO_GRANT = 'This page was opened without a grant from Timmy, so it loads no canvas: Timmy opens the canvas page with a one-time grant, and a page opened by its address, a bookmark or a reload has none.';
 /** R4 (H83): what a page whose session ended says. */
 export const ENDED = 'This page\'s session with Timmy has ended, so it loads, saves and acts no more.';
+/** R4 (H88): what the panel says while this page's session counts for the project shown. */
+export const CAN_ACT = 'This page was opened by Timmy: its executable cards can act.';
 
 /** The shape type of each drawn card, and which project card kinds each one draws. */
 export const CARD_SHAPES = { workflow: 'timmy-workflow', params: 'timmy-params', result: 'timmy-result' };
@@ -290,7 +292,7 @@ function clock(iso) {
 
 /**
  * The three shape utils and the runtime that feeds and acts for them. `deps`: React, BaseBoxShapeUtil, HTMLContainer, T,
- * atom, useValue, resizeBox (from tldraw); createShapeId; editor() (the live editor); place(editor) → where a new card goes;
+ * atom, useValue, resizeBox (from tldraw); createShapeId; editor() (the live editor); place(editor, size) → where a new card goes;
  * reveal(editor, ids); grant (the one-time code this page was opened with, or null).
  */
 export function createCards(deps) {
@@ -326,7 +328,7 @@ export function createCards(deps) {
       const body = r.body || {};
       if (r.ok && body.ok === true && typeof body.token === 'string' && /^[0-9a-f]{64}$/.test(body.token)) {
         token = body.token;
-        session.set({ state: 'ok', words: 'This page was opened by Timmy: its executable cards can act.' });
+        session.set({ state: 'ok', words: CAN_ACT });
       } else {
         session.set({ state: 'refused', words: one(body.error) || `Timmy answered ${r.status} for this page's grant.` });
       }
@@ -338,6 +340,23 @@ export function createCards(deps) {
 
   /** R4 (H81): a session the server said does not count for the project shown (until when not to ask again, and why). */
   const notFor = { until: 0, why: '' };
+  /** R4 (H88): told when the session's state changes (the panel's line under it follows it: canvas.js showSession). */
+  let onSession = () => {};
+  /**
+   * R4 (H88; the Mac run r23): the session as it counts now. One the server says does not count for the project shown now
+   * (another project, or another REPL, holds the canvas) is kept, and said so: its cards are diagrams until it counts again
+   * (the panel had kept saying they "can act"); once a reading counts again, they can act again.
+   */
+  function notNow(why) {
+    if (!token) return;
+    session.set({ state: 'paused', words: `${why} Until it counts again, this page's cards are diagrams: nothing on them acts.` });
+    onSession();
+  }
+  function countsAgain() {
+    if (!token || session.get().state !== 'paused') return;
+    session.set({ state: 'ok', words: CAN_ACT });
+    onSession();
+  }
 
   /**
    * R4 (H83): a refusal the server gave this page's session. One that ended (or that the server never made, or no longer keeps)
@@ -349,7 +368,8 @@ export function createCards(deps) {
     if (r && r.status === 401 && (said.session === 'expired' || said.session === 'unknown' || said.session === 'none')) {
       token = null;
       session.set({ state: 'refused', words: why });
-    }
+      onSession();
+    } else if (r && r.status === 401 && (said.session === 'project' || said.session === 'holder')) notNow(why); // R4 (H88)
     return why;
   }
 
@@ -365,7 +385,7 @@ export function createCards(deps) {
     if (!token) return refusedReading(session.get().words);
     if (Date.now() < notFor.until) return refusedReading(notFor.why);
     const r = await request('/api/project?detail=1', 'GET', token);
-    if (r.ok && r.body && r.body.ok === true) { notFor.until = 0; return { ...r.body, detail: true }; }
+    if (r.ok && r.body && r.body.ok === true) { notFor.until = 0; countsAgain(); return { ...r.body, detail: true }; }
     if (r.status !== 401) throw new Error(`Timmy answered ${r.status} for the project`);
     const why = noted(r, 'Timmy did not let this page read the project.');
     if (token) {
@@ -422,6 +442,7 @@ export function createCards(deps) {
   function sessionEnded(words) {
     token = null;
     session.set({ state: 'refused', words: one(words) || ENDED });
+    onSession();
   }
 
   /** One action of one card, sent to the REPL that holds the project; the answer is kept on the card. */
@@ -527,7 +548,7 @@ export function createCards(deps) {
     // each other; the first goes where the panel's notes go.
     const others = editor.getCurrentPageShapes().filter(isDrawnCard).map((s) => editor.getShapePageBounds(s.id)).filter(Boolean);
     const right = others.reduce((a, b) => (!a || b.maxX > a.maxX ? b : a), null);
-    const at = right ? { x: Math.round(right.maxX + 32), y: Math.round(right.minY) } : deps.place(editor);
+    const at = right ? { x: Math.round(right.maxX + 32), y: Math.round(right.minY) } : deps.place(editor, { w: WIDTH[type], h: 160 });
     const shapeId = deps.createShapeId();
     editor.createShape({
       id: shapeId, type: CARD_SHAPES[type], x: at.x, y: at.y,
@@ -769,6 +790,8 @@ export function createCards(deps) {
     // R4 (H83): the canvas, its settings, its jobs and the bridge, each with this page's session (never handed out)
     hasSession, config, loadDocument, saveDocument, jobs, bridgeSocket, sessionEnded,
     setPoll: (f) => { poll = f; },
+    /** R4 (H88): told when the session's state changes (the panel's line follows it). */
+    setSessionListener: (f) => { onSession = typeof f === 'function' ? f : () => {}; },
     /** For the tests and the status line: the session in words (never the token). */
     session: () => session.get(),
   };

@@ -161,6 +161,8 @@ export interface SlashCommand {
    * Without it a command gets its words joined by one space, as before.
    */
   raw?: true;
+  /** R4 (H88): other names it answers to (/quit for /exit); /help says them in its description. */
+  aliases?: readonly string[];
   /** A command may wait (a live check); the REPL waits for it before the next prompt. */
   run(args: string, ctx: ReplContext): CommandResult | Promise<CommandResult>;
 }
@@ -378,16 +380,17 @@ export const COMMANDS: SlashCommand[] = [
       }
     },
   },
-  { name: 'exit', group: 'session', description: 'Quit Timmy', run: () => 'exit' },
+  // R4 (H88; r23): /quit is /exit (it was unknown, and suggested /edit)
+  { name: 'exit', group: 'session', description: 'Quit Timmy (/quit does the same)', aliases: ['quit'], run: () => 'exit' },
 ];
 
 /** Runs a command: at once for most, or a promise for one that waits on a live check (round R1). */
 export function runSlash(input: string, ctx: ReplContext): 'exit' | 'handled' | Promise<'exit' | 'handled'> {
   const line = input.trim().slice(1);
   const [word, ...rest] = line.split(/\s+/);
-  const command = COMMANDS.find((c) => c.name === word);
+  const command = COMMANDS.find((c) => c.name === word || c.aliases?.includes(word));
   if (!command) {
-    const near = nearest(word, COMMANDS.map((c) => c.name));
+    const near = nearest(word, COMMANDS.flatMap((c) => [c.name, ...(c.aliases ?? [])]));
     ctx.print([{ text: `  Unknown command: /${word}.${near ? ` Did you mean /${near}?` : ''} Type /help for available commands.`, role: 'secondary' }]);
     return 'handled';
   }

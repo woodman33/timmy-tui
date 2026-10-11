@@ -184,6 +184,27 @@ describe('showing it', () => {
     const json = capabilityJson(await capabilities(none));
     for (const id of ['openscad', 'freecad']) expect((json.rows as CapabilityRow[]).find((r) => r.id === id)?.tools).toEqual(['run_native', 'iterate_native']);
   });
+  it('R4 (H88; r23): a row\'s words too long for its line are shortened between words, never inside one (r23: "no page ope…")', async () => {
+    const studio: ProbeDeps['studio'] = async () => ({ state: 'running', pageConnected: false, built: true, revision: 3, jobs: 0, latestJob: null, tldrawVersion: '5.5.2' });
+    for (const deps of [none, all, { ...all, studio }]) {
+      const rows = await capabilities(deps);
+      for (const columns of [80, 60]) {
+        const lines = capabilityLines(rows, glyphSet(true), columns).map((l) => l.map((x) => x.text));
+        for (const r of rows) {
+          const line = lines.find((l) => l.length === 3 && l[0].startsWith(`  ${r.name.length > 25 ? r.name.slice(0, 24) : r.name}`));
+          const said = line?.[2] ?? '';
+          if (!said.endsWith('…')) continue;
+          // what is shown is the row's own words up to the end of a whole word, then " …"
+          if (said === '…') continue; // its first word alone does not fit: no part of it is shown
+          const kept = said.slice(0, -2);
+          expect(said.endsWith(' …'), `${r.id}: ${said}`).toBe(true);
+          expect(r.detail.startsWith(kept), `${r.id}: ${said}`).toBe(true);
+          expect([' ', ',', ';', ':', '('].includes(r.detail[kept.length] ?? ' '), `${r.id} cut inside a word: ${said}`).toBe(true);
+        }
+      }
+    }
+  });
+
   it('the JSON carries every row and the time of the check', async () => {
     const json = capabilityJson(await capabilities(all), new Date('2026-10-08T21:30:00Z'));
     expect(json).toMatchObject({ checkedAt: '2026-10-08T21:30:00.000Z' });

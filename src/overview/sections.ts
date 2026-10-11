@@ -534,7 +534,8 @@ export function projectSection(s: Sources): ProjectSection {
     try { token = readProjectToken(canvasDir(s.env), port); } catch { token = null; }
     canvas = token
       ? { state: 'running', words: `a Timmy Canvas server of this Timmy home runs on port ${port}; whether it shows this project is checked only by a REPL (/canvas)`, command: '/canvas' }
-      : { state: 'not found', words: `no Timmy Canvas server of this Timmy home was found on port ${port} (no token file whose process runs): /canvas open starts one and names this project to it`, command: '/canvas open' };
+      // R4 (H88; r23): the REPL's own word for it ("canvas off"); `timmy act` said "canvas not found"
+      : { state: 'off', words: `no Timmy Canvas server of this Timmy home was found on port ${port} (no token file whose process runs): /canvas open starts one and names this project to it`, command: '/canvas open' };
   }
   return {
     ...out, ...(s.files.ok ? {} : { state: 'partial' as const, why: `the project's files could not be listed: ${s.files.error}` }),

@@ -292,8 +292,8 @@ describe('GET and PUT /api/canvas/document: the token, or a session that counts 
     expect(shown.store['shape:a1'].props.data).toEqual(A_DETAIL);
     expect(shown.store['shape:b1'].props.data).toEqual({
       type: 'withheld', project: 'beta',
-      words: 'Withheld: this card\'s kept detail (its commands and values) belongs to beta, and this page\'s session is for another project. To read it, in Timmy, in beta (/project beta switches to it): /canvas open.',
-      commands: ['/project beta', '/canvas open'],
+      words: 'Withheld: this card\'s kept detail (its commands and values) belongs to beta, and this page\'s session is for another project. To read it, open Timmy in beta\'s folder and type /canvas open there; in a Timmy REPL open elsewhere, /project followed by the path of beta\'s folder opens it first.',
+      commands: ['/canvas open', "/project <the path of beta's folder>"],
     });
     expect(shown.store['shape:b1'].props.readAt).toBe('');
     expect(shown.store['shape:b1'].props.title).toBe('params:b.params.json title');
