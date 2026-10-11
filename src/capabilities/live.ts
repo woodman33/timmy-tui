@@ -4,6 +4,7 @@
  * which costs nothing. Nothing here writes a file or a receipt, starts a server, or prints a key.
  */
 import { accessSync, constants, existsSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { getLocalOllamaBaseUrl, probeOllama } from '../agent/providers.js';
 import { studioBaseUrl } from '../studio/config.js';
@@ -117,7 +118,9 @@ export function liveDeps(o: LiveOptions): ProbeDeps {
     studioBase: studioBaseUrl(env),
     ollama: () => probeOllama(1500),
     openrouter: () => (o.key ? openRouterProbe(o.key()) : Promise.resolve<OpenRouterAnswer>('not-asked')),
-    modelKeySource: () => modelKeySource(env),
+    // R4 (H97): the key's sources as this environment's own homes have them: its TIMMY_HOME and HOME, this process's where it
+    // names none (as the overview resolves Timmy's home: src/overview/sources.ts), never ~/timmy behind a TIMMY_HOME
+    modelKeySource: () => modelKeySource({ ...env, TIMMY_HOME: env.TIMMY_HOME || process.env.TIMMY_HOME }, process.cwd(), env.HOME || homedir()),
     model: o.model,
     http: httpStatus,
     lanes: () => listLanes().map((l) => ({ ...l, key: (l as { key?: string }).key ?? LANE_RUNNERS[l.id]?.key })),
