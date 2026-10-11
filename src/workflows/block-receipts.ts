@@ -19,9 +19,10 @@
  *                                where that came from in words; null when the document has no such block (or, after an
  *                                ended REPL, when the document changed since the run started)
  *   doc_sha256, doc_at_end       the document's sha256 then (its prediction's), and the document checked again when the
- *                                block ended: 'unchanged', 'changed', 'gone' or 'unreadable'. upmd reads the document
- *                                itself and Timmy does not see what it read, so the code hashed is the code run only while
- *                                the document stayed those bytes
+ *                                block ended: 'unchanged', 'changed', 'gone' or 'unreadable'. R4 (H81): upmd reads a
+ *                                private, read-only copy of exactly those bytes (src/repl/workflow-gate.ts keepCheckedCopy),
+ *                                so the code hashed is the code upmd was given; doc_at_end says whether the project's
+ *                                document still holds them
  *   state, outcome               the step's state as Timmy read it (completed, failed, stopped, interrupted, running) and
  *                                the block's outcome: completed, failed, interrupted, unknown
  *   interrupted_by, stop_words   what cut it, and the stop's own words when they are known

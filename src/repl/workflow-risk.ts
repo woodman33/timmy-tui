@@ -37,7 +37,10 @@ export const RISKY_REASON = 'a destructive shell command on this machine';
 /** Whether a block's code is risky (the destructive-command rule of the agent's shell tool). */
 export const riskyCode = (code: string): boolean => destructiveCommand(code);
 
-/** The blocks of `order` (the target and what it needs, as runOrder gives them) whose code the destructive-command rule matches. */
+/**
+ * The blocks of `order` (the target and what it needs, as runOrder gives them) whose code the destructive-command rule
+ * matches. R4 (H81): each name is one block's: /run refuses a document that repeats a name before this is asked (planRun).
+ */
 export function riskyBlocks(blocks: readonly WorkflowBlock[], order: readonly string[]): RiskyBlock[] {
   const out: RiskyBlock[] = [];
   for (const name of order) {

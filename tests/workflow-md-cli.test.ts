@@ -179,6 +179,26 @@ describe('timmy md, a real child process: the same run as /run', () => {
     expect(fs.existsSync(path.join(b.root, '.timmy', 'operations'))).toBe(false);
   }, 120_000);
 
+  it('R4 (H81): a document that gives two blocks one name: timmy md and timmy act say which name repeats, exit 2, and run nothing', async () => {
+    const twice = ['# Twice', '', `${F}bash [name:setup]`, 'echo one > one.txt', F, '', `${F}bash [name:build, deps:setup]`, 'echo built > built.txt', F, '', `${F}bash [name:build]`, 'touch second.ran', F, ''].join('\n');
+    const b = sandbox({ 'TWICE.md': twice });
+    const why = 'TWICE.md names two blocks build (blocks 2 and 3): Timmy cannot tell which of them upmd would run, so nothing ran. Give each block a name of its own.';
+    const md = await timmy(b, ['md', 'TWICE.md', 'build', '--json']).done;
+    expect(md.code, md.stdout + md.stderr).toBe(2);
+    expect(lastJson(md.stdout)).toMatchObject({ schema: 'timmy.md/1', operation: null, doc: 'TWICE.md', outcome: 'refused', exit_code: 2, why });
+    const plain = await timmy(b, ['md', 'TWICE.md', 'build']).done;
+    expect(plain.code).toBe(2);
+    expect(plain.stdout).toContain(why);
+    const act = await timmy(b, ['act', '/run TWICE.md build', '--wait', '--json']).done;
+    expect(act.code, act.stdout + act.stderr).toBe(2);
+    expect(lastJson(act.stdout)).toMatchObject({ schema: 'timmy.act/1', outcome: 'refused', exit_code: 2 });
+    expect(act.stdout).toContain(why);
+    // nothing ran, was sealed or recorded
+    for (const f of ['one.txt', 'built.txt', 'second.ran']) expect(fs.existsSync(path.join(b.root, f)), f).toBe(false);
+    expect(chain(b)).toEqual([]);
+    expect(jobsIn(b)).toEqual([]);
+  }, 120_000);
+
   it('SIGTERM while a block runs: exit 3; that block\'s receipt says interrupted, by a stop, in timmy md\'s words', async () => {
     const b = sandbox({ 'LONG.md': LONG });
     const run = timmy(b, ['md', 'LONG.md', 'long', '--json']);

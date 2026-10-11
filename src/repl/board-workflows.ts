@@ -49,7 +49,7 @@ import { HOMEBREW, TYPE } from '../theme/tokens.js';
 import type { Segment } from '../term/theme.js';
 import type { Receipt } from '../utils/receipts.js';
 import { markdownLinks, renderMarkdown } from '../workflows/markdown.js';
-import { parseWorkflow, runOrder, type WorkflowBlock } from '../workflows/upmd.js';
+import { isCheckedCopy, parseWorkflow, runOrder, type WorkflowBlock } from '../workflows/upmd.js';
 import { isLiveRun, type PtyReady } from '../workflows/upmd-live.js';
 // R4 (H67): one reading of a run's blocks for the card, /workflows and /jobs; the wrapper's account in words
 import { blockDetail, NOT_SEEN_WHY, runBlocks, secondsText, type RunBlockWord } from '../workflows/run-blocks.js';
@@ -260,12 +260,16 @@ export function paramRefs(code: string, scadModels: readonly string[]): ParamRef
   return refs;
 }
 
-/** A /run job's document and block, from its upmd arguments (`--ci -b <block> -d <dir> <file>`), else its label. */
+/**
+ * A /run job's document and block, from its upmd arguments (`--ci -b <block> -d <dir> <file>`), else its label. R4 (H81): a
+ * run's file is the private copy upmd read (isCheckedCopy), never a document of the project, so such a run is named by its
+ * label (`<doc> › <block>`), even when the copy's folder lies inside the project.
+ */
 export function runOf(j: Pick<JobRecord, 'kind' | 'args' | 'root' | 'label'>): { doc: string; target: string } | undefined {
   if (j.kind !== 'workflow') return undefined;
   const b = j.args.indexOf('-b');
   const file = j.args[j.args.length - 1];
-  if (b >= 0 && j.args[b + 1] && file && isAbsolute(file)) {
+  if (b >= 0 && j.args[b + 1] && file && isAbsolute(file) && !isCheckedCopy(file)) {
     const rel = relative(j.root, file).split(sep).join('/');
     if (rel && !rel.startsWith('../') && rel !== '..' && !isAbsolute(rel)) return { doc: rel, target: j.args[b + 1] };
   }

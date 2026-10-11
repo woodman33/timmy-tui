@@ -24,9 +24,15 @@
  * (the prediction shown before the run) → spawnProcess(bin, upmdRunArgs(file, block, dir)) with each
  * stdout and stderr line passed through parseUpmdLine into stepsFromEvent (upmd-live.ts: upmdJob and
  * upmdLineParser for a job of either kind).
+ *
+ * R4 (H81): `file` is never the project's document itself: it is a private, read-only copy of the exact bytes /run read
+ * and checked (src/repl/workflow-gate.ts keepCheckedCopy: CHECKED_COPY in the run's own folder), so a writer that changes
+ * the document after the check (an agent's file write, a code agent, the board's editor) changes nothing that runs. `dir`
+ * is the project, and the job's own working directory is the project too, so the blocks run there whichever of the two
+ * upmd uses. A document that gives two blocks one name is refused before anything runs (workflow-gate.ts planRun).
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { JobStep } from '../jobs/index.js';
 import { spawnProcess } from '../runtime/spawn-runtime.js';
 
@@ -183,7 +189,8 @@ export function isWorkflowDoc(markdown: string): boolean {
  * The prediction shown before a run: `target` and its dependency closure in run order, dependencies
  * first, each name once. Names no block carries are listed in `missing`; the first dependency cycle
  * met is reported as a path that returns to its start (`['a', 'b', 'a']`) and its closing edge is
- * skipped. Nothing throws. When two blocks share a name, the first one counts.
+ * skipped. Nothing throws. When two blocks share a name, the first one counts here; which one upmd runs is
+ * not known, so /run refuses such a document before anything runs (R4 H81: repeatedNames).
  */
 export function runOrder(blocks: WorkflowBlock[], target: string): { order: string[]; missing: string[]; cycle?: string[] } {
   const byName = new Map<string, WorkflowBlock>();
@@ -220,6 +227,22 @@ export function runOrder(blocks: WorkflowBlock[], target: string): { order: stri
   }
   return cycle ? { order, missing, cycle } : { order, missing };
 }
+
+/**
+ * R4 (H81): each name that more than one block of a document carries, with upmd's numbers for those blocks, in the order
+ * the name first appears. upmd 0.2.7 was not observed with such a document, so which of them it would run is not known.
+ */
+export function repeatedNames(blocks: readonly WorkflowBlock[]): Array<{ name: string; indexes: number[] }> {
+  const by = new Map<string, number[]>();
+  for (const b of blocks) if (b.name !== undefined) by.set(b.name, [...(by.get(b.name) ?? []), b.index]);
+  return [...by].filter(([, at]) => at.length > 1).map(([name, indexes]) => ({ name, indexes }));
+}
+
+/** R4 (H81): the name of the private copy of the checked document that a run's upmd reads, in the run's own folder. */
+export const CHECKED_COPY = 'checked.md';
+/** R4 (H81): whether a file is such a copy (<jobs folder>/runs/w<8 hex>/checked.md), never a document of the project. */
+export const isCheckedCopy = (file: string): boolean =>
+  basename(file) === CHECKED_COPY && /^w[0-9a-f]{8}$/.test(basename(dirname(file))) && basename(dirname(dirname(file))) === 'runs';
 
 /** The upmd to run: `UPMD_BIN` when set (used as given, PATH is not consulted), else `upmd` on PATH. */
 export function findUpmd(env: NodeJS.ProcessEnv, onPath: (cmd: string) => string | null): { bin: string } | null {
