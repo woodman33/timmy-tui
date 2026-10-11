@@ -30,7 +30,9 @@ export function toolsHelp(): string {
     'A rung above installed stands only while the tool is here; a past run never raises a missing tool.',
     'On the Mac: a recorded, scripted demonstration in the ledger (docs/ui-cockpit/CHECKPOINTS.md); never a rung.',
     'OpenRouter is checked only when OPENROUTER_API_KEY is set here; /tools in the REPL checks the key it uses.',
-    'Nothing is written, no server is started, no program is run, and no key is printed.',
+    // R4 (H82; the review of 6fb765a..4338fdb, finding 2): it said no program is run, and docker's checks run two
+    'Nothing is written, no server is started, and no key is printed. The one program run is docker, when it is',
+    'on PATH: docker info and docker image inspect, for OpenHands\' row (read-only; nothing is built or pulled).',
     '',
     'Exit codes: 0 the check ran (whatever it found), 1 no row has that name, 2 usage.',
   ].join('\n');

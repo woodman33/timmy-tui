@@ -112,6 +112,8 @@ describe('probeOllama', () => {
     expect(result.ok).toBe(true);
     expect(result.models).toEqual(['ornith:latest', 'granite4.2:latest']);
     expect(fetch.mock.calls.some(([, init]) => String(init?.body).includes('qwen:cloud'))).toBe(false);
+    // R4 (H82): what the server answered, told apart: 4 listed, 1 cloud, 2 checked, 1 that did not pass its check
+    expect(result.answer).toEqual({ state: 'listed', listed: 4, cloud: 1, checked: 2, failed: 1, late: 0, deadlineMs: 1500 });
   });
 
   it('does not report an unchecked alias as ready when its model lookup fails', async () => {
@@ -122,13 +124,14 @@ describe('probeOllama', () => {
 
   it('reports not-ready for an unavailable, failed, malformed or empty catalog', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('ECONNREFUSED'); }));
-    expect(await probeOllama()).toEqual({ ok: false, models: [] });
+    // R4 (H82): ok: false, with what came back: no answer here
+    expect(await probeOllama()).toMatchObject({ ok: false, models: [], answer: { state: 'no answer', why: 'the request failed' } });
     for (const data of [{ models: [] }, { models: 'wrong' }, { models: Array(257).fill({ name: 'a' }) }]) {
       vi.stubGlobal('fetch', vi.fn(async () => response(data)));
       expect((await probeOllama()).ok).toBe(false);
     }
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503 })));
-    expect((await probeOllama()).ok).toBe(false);
+    expect(await probeOllama()).toMatchObject({ ok: false, answer: { state: 'unreadable', why: 'HTTP 503' } });
   });
 });
 

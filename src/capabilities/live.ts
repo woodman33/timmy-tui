@@ -24,7 +24,7 @@ import { OUTCOME_RULE } from '../repl/seal.js';
 import { recipeExercisedAt } from '../recipes/index.js';
 import { homedir } from 'node:os';
 import { packageRoot } from '../utils/asset-dirs.js';
-import { dockerSetup, openHandsWorker } from '../code-agents/openhands-run.js';
+import { DOCKER_PROBE_MS, dockerSetup, openHandsWorker } from '../code-agents/openhands-run.js';
 // R4 (H76): the ladder's evidence: where a program is, the runs that count on the verified chain, the recipe's own, and
 // the repository's qualification records.
 import { chainEvidence, recipeMark } from './evidence.js';
@@ -136,6 +136,9 @@ export function liveDeps(o: LiveOptions): ProbeDeps {
       return nativeRunIndex(verify().ok ? receipts() : [], runs, rules);
     },
     edgeSet: () => edgeUrlOrNull() !== null,
+    // R4 (H82; the review's finding 4, left open by H81): VoxVision's rows (its Roboflow venv) are read in the project Timmy
+    // works in, as the native runs and recipe jobs are; without one named, in this process's folder (as before)
+    ...(o.projectRoot ? { voxRoot: () => o.projectRoot! } : {}),
     // R3 (/recipe): the project's own durable recipe jobs, each read back through its signed result.
     recipeExercised: () => { try { return recipeExercisedAt(project()); } catch { return undefined; } },
     // R4 (H76): the ladder's evidence (src/capabilities/evidence.ts): nothing here runs a program or contacts anything.
@@ -148,11 +151,12 @@ export function liveDeps(o: LiveOptions): ProbeDeps {
     // Round R3 (/agent): an agent's row is exercised by a sealed, completed run of that agent alone.
     agentRuns: () => agentExercisedIndex(verify().ok ? receipts() : []),
     // Round R4 (H52): OpenHands: docker info and docker image inspect (read-only: nothing is built, pulled or started).
+    // R4 (H82): each within 8 s (DOCKER_PROBE_MS; it was 4 s), its words saying what docker did (dockerWords)
     openhands: async () => {
       const root = packageRoot(import.meta.url);
       const home = homedir();
       const shown = root && home.length > 1 && root.startsWith(home) ? `~${root.slice(home.length)}` : root;
-      return { docker: await dockerSetup(env.TIMMY_AGENT_DOCKER_BIN?.trim() || 'docker', env, 4000), worker: Boolean(openHandsWorker()), ...(shown ? { root: shown } : {}) };
+      return { docker: await dockerSetup(env.TIMMY_AGENT_DOCKER_BIN?.trim() || 'docker', env, DOCKER_PROBE_MS), worker: Boolean(openHandsWorker()), ...(shown ? { root: shown } : {}) };
     },
   };
 }

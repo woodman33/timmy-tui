@@ -347,7 +347,8 @@ describe('needs setup: without docker, its daemon, the image or the model, nothi
     const ollama = await fakeOllama(['qwen3:4b']);
     const cases: Array<[Dock | 'none', RegExp]> = [
       ['none', /^ {2}docker is not on PATH: OpenHands runs in a container \(a Docker engine such as OrbStack, Docker Desktop or Rancher Desktop provides docker\)\. Nothing was started\.$/],
-      [fakeDocker({ down: true }), /Needs setup: the Docker daemon did not answer \(Cannot connect to the Docker daemon at unix:\/\/\/var\/run\/docker\.sock\. Is the docker daemon running\?\): start your Docker engine \(OrbStack, Docker Desktop or Rancher Desktop\), then \/agent openhands --local again\. Nothing was started\./],
+      // R4 (H82): what docker info did, in its own words (it was "the Docker daemon did not answer" for every failure)
+      [fakeDocker({ down: true }), /Needs setup \(docker info exited 1: Cannot connect to the Docker daemon at unix:\/\/\/var\/run\/docker\.sock\. Is the docker daemon running\?\): start your Docker engine \(OrbStack, Docker Desktop or Rancher Desktop\), then \/agent openhands --local again\. Nothing was started\./],
       [fakeDocker({ image: 'missing' }), new RegExp(`Needs setup: the image timmy-openhands:1\\.21\\.0 is not built\\. Build it once, in .+: ${OPENHANDS_BUILD.replace(/[.]/g, '\\.')} \\(Timmy never builds or pulls it by itself\\)\\. Nothing was started\\.`)],
       [fakeDocker({ image: 'other' }), /Needs setup: the image timmy-openhands:1\.21\.0 here was not built from workers\/openhands\/Dockerfile \(its timmy\.openhands\.sdk label is <no value>\)\. Build it again/],
     ];
@@ -1126,7 +1127,9 @@ describe('/tools: OpenHands\' own row; exercised only by a sealed, completed run
 
   it('needs setup with the exact step, installed only when docker, its daemon, the image and a local model are there', async () => {
     expect(await row({})).toMatchObject({ rung: 'needs setup', detail: 'docker is not on PATH; implemented; not run', setup: 'install a Docker engine (OrbStack, Docker or Rancher Desktop)', exercisedBy: 'agent:openhands' });
-    expect(await row({ ...ready, openhands: probe({ state: 'no daemon' }) })).toMatchObject({ rung: 'needs setup', setup: 'start your Docker engine (OrbStack, Docker or Rancher Desktop)' });
+    expect(await row({ ...ready, openhands: probe({ state: 'no daemon' }) })).toMatchObject({ rung: 'needs setup', detail: 'docker info named no Docker server; implemented; not run', setup: 'start your Docker engine (OrbStack, Docker or Rancher Desktop)' });
+    // R4 (H82): the row says what docker info did (it said "the Docker daemon did not answer", and dropped docker's own words)
+    expect(await row({ ...ready, openhands: probe({ state: 'no daemon', detail: 'docker info did not finish within 8 s' }) })).toMatchObject({ rung: 'needs setup', detail: 'docker info did not finish within 8 s; implemented; not run' });
     expect(await row({ ...ready, openhands: probe({ state: 'no image' }) })).toMatchObject({ rung: 'needs setup', detail: 'image timmy-openhands:1.21.0 not built: run the step in ~/timmy-tui; implemented; not run', setup: OPENHANDS_BUILD_SHORT });
     expect(await row({ ...ready, openhands: probe({ state: 'other image', detail: 'x' }) })).toMatchObject({ rung: 'needs setup', setup: OPENHANDS_BUILD_SHORT });
     expect(await row({ ...ready, openhands: probe({ state: 'ready', server: '29.4.0', imageId: IMAGE_ID }, false) })).toMatchObject({ rung: 'needs setup', detail: expect.stringContaining('workers/openhands/timmy_openhands.py is not in this Timmy') });
@@ -1155,7 +1158,7 @@ describe('/tools: OpenHands\' own row; exercised only by a sealed, completed run
     expect(await dockerSetup(FAKE_DOCKER, env(fakeDocker({ image: 'missing' })))).toEqual({ state: 'no image' });
     expect(await dockerSetup(FAKE_DOCKER, env(fakeDocker({ image: 'other' })))).toEqual({ state: 'other image', detail: 'its timmy.openhands.sdk label is <no value>' });
     const down = fakeDocker({ down: true });
-    expect(await dockerSetup(FAKE_DOCKER, env(down))).toMatchObject({ state: 'no daemon', detail: expect.stringContaining('Cannot connect to the Docker daemon') });
+    expect(await dockerSetup(FAKE_DOCKER, env(down))).toEqual({ state: 'no daemon', detail: 'docker info exited 1: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?' });
     expect(commands(down)).toEqual(['info']);
   });
 });

@@ -13,6 +13,7 @@ import { demonstrationsOf, type Demonstration } from './demonstrations.js';
 import { exercisedOf, QUALIFICATION_RECORDS, checkQualificationRecord, type ChainEvidence, type RunMark } from './evidence.js';
 import { emptyLadder, NOT_REACHED, standingRung, type InstalledEvidence, type Ladder, type NotReached, type ReachableEvidence, type Rung } from './ladder.js';
 import { PROPOSED } from './plans.js';
+import { ollamaAnswerWords, type OllamaProbe } from './ollama-row.js'; // R4 (H82)
 
 /** A probe's answer and when it came. */
 export interface Timed<T> { v: T; at: string }
@@ -22,7 +23,7 @@ export interface Probes {
   studioBase: string;
   studio?: Timed<{ state: string; pageConnected?: boolean | null; detail?: string; tldrawVersion?: string | null }>;
   ollamaBase?: string;
-  ollama?: Timed<{ ok: boolean; models: string[] }>;
+  ollama?: Timed<OllamaProbe>;
   openrouter?: Timed<string>;
   taskforge?: Timed<number | null>;
   missionMap?: Timed<number | null>;
@@ -145,8 +146,9 @@ function probed(r: Built, c: LadderContext): { evidence?: ReachableEvidence; why
       const o = p.ollama;
       if (!o) return {};
       const n = o.v.models.length;
-      if (answered) return { evidence: { asked: tags, at: o.at, answer: `${n} local ${n === 1 ? 'model' : 'models'} answered` } };
-      return { why: `asked ${tags} at ${stamp(o.at)}: no answer, or no local model` };
+      // R4 (H82): what the server answered, its states told apart (src/capabilities/ollama-row.ts)
+      if (answered) return { evidence: { asked: tags, at: o.at, answer: o.v.answer ? ollamaAnswerWords(o.v) : `${n} local ${n === 1 ? 'model' : 'models'} answered` } };
+      return { why: `asked ${tags} at ${stamp(o.at)}: ${ollamaAnswerWords(o.v)}` };
     }
     case 'taskforge': {
       const t = p.taskforge;
@@ -154,6 +156,11 @@ function probed(r: Built, c: LadderContext): { evidence?: ReachableEvidence; why
       const asked = 'GET TASKFORGE_API_URL/runtime/health';
       if (answered) return { evidence: { asked, at: t.at, answer: `HTTP ${t.v}` } };
       return { why: t.v === null ? `asked ${asked} at ${stamp(t.at)}: no answer came (refused, or none within its time)` : `asked ${asked} at ${stamp(t.at)}: HTTP ${t.v}, not a healthy answer` };
+    }
+    case 'openhands': {
+      // R4 (H82; the review's finding 2): its check runs docker when docker is on PATH, so it never "runs no program"
+      if (/^docker is not on PATH|were not checked here/.test(r.detail)) return { why: 'no probe asked: docker was not run for it here, and nothing asks OpenHands itself before a run' };
+      return { why: 'docker info (then, when it named a server, docker image inspect) ran for it, read-only: they show the Docker engine and its image, not OpenHands working; a run of its own exercises it' };
     }
     case 'mission-map': {
       const m = p.missionMap;

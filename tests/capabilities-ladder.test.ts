@@ -310,6 +310,29 @@ describe('R4 (H81): the Control Room\'s tools check reads the ladder\'s evidence
   }, 60_000);
 });
 
+describe('R4 (H82; the review\'s finding 4, left open by H81): VoxVision\'s rows are read in the REPL\'s project, never this process\'s folder', () => {
+  it('a Workspace on a project elsewhere: its /room tools check finds that project\'s Roboflow venv; another project\'s REPL does not', async () => {
+    const root = temp('ladder-vox-project-');
+    expect(root).not.toBe(realpathSync(process.cwd()));
+    // the project's own venv (a FAKE: an empty file where its python would be; nothing runs it here)
+    put(root, '.timmy/venv-roboflow/bin/python', '');
+    const repl = async (project: string): Promise<CapabilityRow | undefined> => {
+      const ws = new Workspace({
+        // FAKE: a key that is no key (the check only asks whether it is set; nothing contacts Roboflow)
+        glyphs: glyphSet(true), env: { ...process.env, ROBOFLOW_API_KEY: 'FAKE-not-a-key', PATH: temp('ladder-bin-'), TIMMY_STUDIO_URL: `http://127.0.0.1:${await closedPort()}`, TASKFORGE_API_URL: '' },
+        onPath: () => null, notify: () => {}, openWeb: (u) => u, link: (t) => t,
+        seal: (input) => appendReceipt('runs', input).hash.slice(7, 15), jobsDir: join(temp('ladder-vox-jobs-'), 'jobs'), chdir: () => {}, recoverAtStart: false,
+      }, folderProject(project));
+      try {
+        await ws.room('');
+        return ((ws as unknown as { roomTools?: { rows: CapabilityRow[] } }).roomTools?.rows ?? []).find((x) => x.id === 'vox:roboflow');
+      } finally { await ws.close(); }
+    };
+    expect(await repl(root)).toMatchObject({ rung: 'installed', detail: "the project's venv; a network call to Roboflow, made only when /detect asks for it" });
+    expect(await repl(temp('ladder-vox-other-'))).toMatchObject({ rung: 'needs setup', detail: "the project's Roboflow venv is missing (.timmy/venv-roboflow)" });
+  }, 60_000);
+});
+
 describe('qualified: a formal qualification record only', () => {
   const observe = (path: string, qualified: Record<string, unknown>, status: 'ok' | 'failed' = 'ok'): Partial<ReceiptInput> & { kind: string } => ({
     kind: 'observe', status, outputs: [{ path, sha256: 'a'.repeat(64), bytes: 10 }],

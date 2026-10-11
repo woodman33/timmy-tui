@@ -41,20 +41,40 @@ type Env = Record<string, string | undefined>;
 
 // ── docker ──────────────────────────────────────────────────────────────────────
 
-export interface DockerAnswer { code: number | null; stdout: string; stderr: string; error?: string }
+/** `timedOut`: Timmy's own time limit ended the command (R4, H82: so a check says so, apart from a refusal or an error). */
+export interface DockerAnswer { code: number | null; stdout: string; stderr: string; error?: string; timedOut?: true }
 
 /** One docker command, its environment Timmy's own with its keys blank (dockerClientEnv); it never reads a stdin. */
 export function dockerCall(bin: string, args: string[], env: Env, timeoutMs = 15_000): Promise<DockerAnswer> {
   return new Promise((resolve) => {
     try {
-      const child = execFile(bin, args, { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, ...dockerClientEnv(env) } }, (err, stdout, stderr) => {
+      // R4 (H82): Timmy's own timer, not execFile's: at its time limit execFile also discards the command's output, so a
+      // docker that had answered while this process was busy read as "exited 0" with nothing said (the docker check then
+      // said the daemon did not answer). Its answer, once there, is read; only a command still running is ended.
+      let limit = false;
+      let timer: NodeJS.Timeout | undefined;
+      let grace: NodeJS.Timeout | undefined;
+      const child = execFile(bin, args, { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, env: { ...process.env, ...dockerClientEnv(env) } }, (err, stdout, stderr) => {
+        if (timer) clearTimeout(timer);
+        if (grace) clearTimeout(grace);
         const e = err as (NodeJS.ErrnoException & { code?: number | string; killed?: boolean }) | null;
         // A command Timmy's own timeout ended has no exit code of its own: OrbStack's docker exits 143 on that SIGTERM,
         // which read as docker's answer on the Mac (ledger row 159). It is recorded as no answer.
-        const timedOut = !!e?.killed;
+        const timedOut = limit && !!e;
         const code = !e ? 0 : timedOut ? null : typeof e.code === 'number' ? e.code : null;
-        resolve({ code, stdout: String(stdout ?? ''), stderr: String(stderr ?? ''), ...(e && code === null ? { error: timedOut ? `no answer within ${Math.round(timeoutMs / 1000)} s (Timmy ended the docker command)` : String(e.code ?? e.message) } : {}) });
+        resolve({
+          code, stdout: String(stdout ?? ''), stderr: String(stderr ?? ''),
+          ...(e && code === null ? { error: timedOut ? `no answer within ${Math.round(timeoutMs / 1000)} s (Timmy ended the docker command)` : String(e.code ?? e.message) } : {}),
+          ...(timedOut ? { timedOut: true as const } : {}),
+        });
       });
+      timer = setTimeout(() => {
+        limit = true;
+        try { child.kill('SIGTERM'); } catch { /* it has ended */ }
+        // A process it started may hold its output open, and it may not end on SIGTERM: half a second later neither is
+        // waited for (its output is no longer read, and it is sent SIGKILL), as execFile's own timer did at once.
+        grace = setTimeout(() => { child.stdout?.destroy(); child.stderr?.destroy(); try { child.kill('SIGKILL'); } catch { /* it has ended */ } }, 500);
+      }, timeoutMs);
       child.stdin?.end();
     } catch (e) {
       resolve({ code: null, stdout: '', stderr: '', error: (e as Error).message });
@@ -64,16 +84,33 @@ export function dockerCall(bin: string, args: string[], env: Env, timeoutMs = 15
 
 const firstLine = (t: string | undefined): string => (t ?? '').split('\n').map((l) => l.trim()).find(Boolean)?.slice(0, 200) ?? '';
 
+/** R4 (H82): how long a docker check waits for each of its commands (/tools, /room, /agent openhands' start). */
+export const DOCKER_PROBE_MS = 8000;
+
+/**
+ * R4 (H82; the review of 6fb765a..4338fdb, finding 2): what a docker command did, in words, when a check did not get the
+ * answer it needed. A time limit, an exit and an error each say so ("docker info did not finish within 8 s", "docker info
+ * exited 1: Cannot connect to …", "docker info could not start (ENOENT)"); before, all were "the Docker daemon did not
+ * answer", and the first line of docker's own error was dropped from the /tools row.
+ */
+export function dockerWords(what: string, a: DockerAnswer, timeoutMs: number): string {
+  if (a.timedOut) return `${what} did not finish within ${timeoutMs / 1000} s`;
+  if (a.code === null) return `${what} could not ${a.error === 'ENOENT' ? 'start (ENOENT: no such program)' : `run (${a.error ?? 'it gave no exit code'})`}`;
+  const said = firstLine(a.stderr) || firstLine(a.stdout);
+  if (a.code !== 0) return `${what} exited ${a.code}${said ? `: ${said}` : ''}`;
+  return `${what} exited 0 and named no Docker server`;
+}
+
 /**
  * Whether a run could start here: the daemon answers (docker info) and the image is there, built from Timmy's Dockerfile
  * (its label). Read-only: nothing is built, pulled or started.
  */
-export async function dockerSetup(bin: string, env: Env, timeoutMs = 8000): Promise<OpenHandsDocker> {
+export async function dockerSetup(bin: string, env: Env, timeoutMs = DOCKER_PROBE_MS): Promise<OpenHandsDocker> {
   const info = await dockerCall(bin, ['info', '--format', '{{.ServerVersion}}'], env, timeoutMs);
   const server = firstLine(info.stdout);
-  if (info.code !== 0 || !server) return { state: 'no daemon', detail: firstLine(info.stderr) || info.error || `docker info exited ${info.code}` };
+  if (info.code !== 0 || !server) return { state: 'no daemon', detail: dockerWords('docker info', info, timeoutMs) };
   const img = await dockerCall(bin, ['image', 'inspect', '--format', `{{.Id}}|{{index .Config.Labels "${OPENHANDS_IMAGE_LABEL}"}}`, OPENHANDS_IMAGE], env, timeoutMs);
-  if (img.code !== 0) return /no such image/i.test(`${img.stderr}${img.stdout}`) ? { state: 'no image' } : { state: 'docker failed', detail: firstLine(img.stderr) || img.error || `docker image inspect exited ${img.code}` };
+  if (img.code !== 0) return /no such image/i.test(`${img.stderr}${img.stdout}`) ? { state: 'no image' } : { state: 'docker failed', detail: dockerWords('docker image inspect', img, timeoutMs) };
   const [id, label] = firstLine(img.stdout).split('|').map((x) => x.trim());
   if (label !== OPENHANDS_SDK) return { state: 'other image', detail: `its ${OPENHANDS_IMAGE_LABEL} label is ${label || 'missing'}` };
   if (!id) return { state: 'docker failed', detail: 'docker image inspect gave no image id' };

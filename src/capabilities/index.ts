@@ -25,6 +25,7 @@ import type { Demonstration } from './demonstrations.js';
 import type { ChainEvidence, RunMark } from './evidence.js';
 import type { Ladder, NotReached, Rung } from './ladder.js';
 import { ladderFor, type Probes, type Timed } from './ladder-rows.js';
+import { ollamaRow, type OllamaProbe } from './ollama-row.js'; // R4 (H82)
 
 export type { Rung } from './ladder.js';
 export type Kind = 'surface' | 'model' | 'tool' | 'harness' | 'adapter' | 'vox';
@@ -69,7 +70,8 @@ export interface ProbeDeps {
   canvasBuilt: () => boolean;
   studio: () => Promise<StudioHealth>;
   studioBase: string;
-  ollama: () => Promise<{ ok: boolean; models: string[] }>;
+  /** R4 (H82): with the address asked and what it answered (src/agent/providers.ts OllamaProbeResult), when the probe says so */
+  ollama: () => Promise<OllamaProbe>;
   openrouter: () => Promise<OpenRouterAnswer>;
   /** Where the REPL finds its model key ('environment', 'settings', ...), never the key. */
   modelKeySource: () => string | null;
@@ -136,17 +138,20 @@ type Row = Omit<CapabilityRow, 'exercised'>;
 
 export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): Promise<CapabilityRow[]> {
   const env = d.env;
-  // R4 (H52): OpenHands' docker checks, under way with the slow checks below (only when docker is on PATH).
-  const ohProbe = d.onPath('docker') && d.openhands ? d.openhands().catch(() => undefined) : undefined;
+  // R4 (H52): OpenHands' docker checks, under way with the slow checks below (only when docker is on PATH). R4 (H82): awaited
+  // with them, before any of the synchronous work below (the chain's verification, the runs' indexes): a docker command's
+  // own time limit ran while that work held the event loop, and docker's answer, read only after it, was taken for none.
+  const ohProbe = d.onPath('docker') && d.openhands ? d.openhands().catch(() => undefined) : Promise.resolve(undefined);
   // The slow checks run together; each has its own short timeout. R4 (H76): each answer keeps the time it came (the
   // reachable rung's evidence says what was asked, when, and the answer's gist).
   const timed = <T>(p: Promise<T>): Promise<Timed<T>> => p.then((v) => ({ v, at: new Date().toISOString() }));
-  const [studioT, ollamaT, openrouterT, taskforgeT, missionMapT] = await Promise.all([
+  const [studioT, ollamaT, openrouterT, taskforgeT, missionMapT, oh] = await Promise.all([
     timed(d.studio()),
     timed(d.ollama()),
     timed(d.modelKeySource() ? d.openrouter() : Promise.resolve<OpenRouterAnswer>('no-key')),
     timed(keySet(env.TASKFORGE_API_URL) ? d.http(`${env.TASKFORGE_API_URL!.replace(/\/+$/, '')}/runtime/health`, 800) : Promise.resolve(null)),
     timed(d.http('http://127.0.0.1:4336/api/vision/status', 600)),
+    ohProbe,
   ]);
   const [studio, ollama, openrouter, taskforge, missionMap] = [studioT.v, ollamaT.v, openrouterT.v, taskforgeT.v, missionMapT.v];
   const page = `${d.studioBase}/`;
@@ -195,11 +200,8 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
     'not-asked': { id: 'openrouter', kind: 'model', name: 'OpenRouter', rung: 'installed', detail: 'key set; not contacted' },
   };
   add(or[openrouter]);
-  add(ollama.ok
-    ? { id: 'ollama', kind: 'model', name: 'Ollama (local models)', rung: 'reachable', detail: plural(ollama.models.length, 'local model') }
-    : d.onPath('ollama')
-      ? { id: 'ollama', kind: 'model', name: 'Ollama (local models)', rung: 'installed', detail: 'no answer, or no local model: ollama serve' }
-      : { id: 'ollama', kind: 'model', name: 'Ollama (local models)', rung: 'needs setup', detail: 'not installed', setup: 'brew install ollama; brew services start ollama; ollama pull <model>' });
+  // R4 (H82): from the server's own answer; the command's absence said on its own (src/capabilities/ollama-row.ts)
+  add(ollamaRow(ollama, { cli: d.onPath('ollama'), ...(d.ollamaBase ? { base: d.ollamaBase } : {}) }));
 
   // ── agent tools (what the REPL's agent can call; NEEDS YOU asks before the risky ones)
   add({ id: 'builtin', kind: 'tool', name: 'Built-in tools', rung: 'installed', detail: 'time, math, system, env (asks), spatial files', tools: ['get_current_time', 'calculate', 'get_system_info', 'get_env', 'read_spatial_model_context'] });
@@ -246,7 +248,6 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   // Round R4 (H25): Codex with a local model is a route of its own: "implemented; not run" until a run of its own.
   add(codexLocalCapabilityRow({ env, onPath: (b) => d.onPath(b), exercisedAt: agentExercisedAt(`agent:${CODEX_LOCAL_ROUTE}`, agentRuns) }));
   // Round R4 (H52): OpenHands in a container with a local model: "implemented; not run" until a sealed run of its own.
-  const oh = ohProbe ? await ohProbe : undefined;
   add(openHandsCapabilityRow({ env, onPath: (b) => d.onPath(b), docker: oh?.docker ?? { state: 'unchecked' }, worker: oh?.worker ?? true, ...(oh?.root ? { packageRoot: oh.root } : {}), exercisedAt: agentExercisedAt(`agent:${OPENHANDS_ROUTE}`, agentRuns) }));
   add(d.onPath('qwen') || d.onPath('qwen-code')
     ? { id: 'qwen-code', kind: 'harness', name: 'Qwen Code', rung: 'installed', detail: '/agent qwen <task>: a job; free on a local endpoint' }
