@@ -197,8 +197,17 @@ function Shell({ config, graphicsType = 'auto' }: AppProps) {
     enterCommandInput: () => focus.claim('input:command')
   });
 
+  // R4 (H87): leaving from the first-run screen ends the monitor (Ink's exit alone left it running in a canonical, echoing
+  // terminal: r23b); the terminal comes back through the exit handlers (cli.tsx's TerminalSession, startTUI's below)
+  const leave = (code: number): void => {
+    try { if (pipeline) pipeline.cleanup(); } catch { /* guard */ }
+    process.exitCode = code;
+    exit();
+    setTimeout(() => process.exit(code), 250);
+  };
+
   if (showOnboard) {
-    return <Onboarding agent={agent} onDone={() => setShowOnboard(false)} />;
+    return <Onboarding agent={agent} onDone={() => setShowOnboard(false)} onQuit={leave} />;
   }
 
   return (

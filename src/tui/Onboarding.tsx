@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
 import { Card } from './ui/Card.js';
-import { checkDocker, checkComfyCli } from '../utils/doctor.js';
 import { useFocus } from './hooks/useKeyDispatcher.js';
 import { appendFileSync, existsSync } from 'fs';
+import { execFile } from 'child_process';
+import { homedir } from 'os';
 import { join } from 'path';
 import type { Agent } from '../agent/core.js';
 import { saveApiKey, saveConfig } from '../utils/config.js';
@@ -14,6 +15,32 @@ import { theme } from './theme.js';
 interface OnboardingProps {
   agent: Agent;
   onDone: () => void;
+  /**
+   * R4 (H87): leave the monitor from this screen (q or Esc on the first page: 0; Ctrl+C anywhere: 130). The caller ends the
+   * process; Ink's exit alone ended only the screen and left the monitor running in a canonical, echoing terminal (r23b).
+   */
+  onQuit?: (code: number) => void;
+}
+
+/** R4 (H87): a command's exit, without blocking the screen (the setup's checks used to run in its first render). */
+const succeeds = (cmd: string, args: string[], ms: number, ok: (stdout: string) => boolean = () => true): Promise<boolean> =>
+  new Promise((resolve) => {
+    try {
+      execFile(cmd, args, { encoding: 'utf8', timeout: ms, killSignal: 'SIGKILL', maxBuffer: 64 * 1024 }, (err, stdout) => {
+        try { resolve(!err && ok(String(stdout))); } catch { resolve(false); }
+      });
+    } catch { resolve(false); }
+  });
+
+/** The same facts as src/utils/doctor.ts checkDocker and checkComfyCli, asked without blocking the keys. */
+async function degradedDeps(): Promise<string> {
+  const [docker, comfy] = await Promise.all([
+    // Older Docker clients can exit 0 after an API error with --format: a server version is the answer
+    succeeds('docker', ['info', '--format', '{{json .ServerVersion}}'], 5000, (out) => { const v: unknown = JSON.parse(out); return typeof v === 'string' && v.trim().length > 0; }),
+    succeeds('comfy', ['--json', 'env'], 15000).then((ok) => ok || existsSync(join(homedir(), '.local', 'bin', 'comfy'))),
+  ]);
+  const bad = [...(docker ? [] : ['docker down']), ...(comfy ? [] : ['comfy-cli missing'])];
+  return bad.length ? `degraded deps: ${bad.join(' · ')} — TIMMY still runs; lanes fail closed honestly` : '';
 }
 
 type Step = 'splash' | 'provider' | 'key' | 'cloud' | 'cloudUrl' | 'logs' | 'teachMission' | 'teachPalette' | 'teachBack' | 'done';
@@ -35,8 +62,9 @@ const MARK_COLORS = [theme.accent, theme.accent, theme.textPrimary, theme.textSe
  * optionally wire Cloudflare log sync, then drop into the unified screen.
  * Local-first by design — TIMMY must work with zero accounts.
  */
-export function Onboarding({ agent, onDone }: OnboardingProps) {
+export function Onboarding({ agent, onDone, onQuit }: OnboardingProps) {
   const { exit } = useApp();
+  const quit = (code: number): void => { if (onQuit) onQuit(code); else exit(); };
   const focus = useFocus();
   // sovereign permitted leaf: hold the stack while mounted; pop is structural
   useEffect(() => {
@@ -45,14 +73,13 @@ export function Onboarding({ agent, onDone }: OnboardingProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [step, setStep] = useState<Step>('splash');
-  const [envNote] = useState(() => {
-    try {
-      const bad: string[] = [];
-      if (checkDocker().state !== 'ok') bad.push('docker down');
-      if (checkComfyCli().state !== 'ok') bad.push('comfy-cli missing');
-      return bad.length ? `degraded deps: ${bad.join(' · ')} — TIMMY still runs; lanes fail closed honestly` : '';
-    } catch { return ''; }
-  });
+  // R4 (H87): checked after the screen is up, without blocking it (they took up to 20 s in its first render)
+  const [envNote, setEnvNote] = useState('');
+  useEffect(() => {
+    let live = true;
+    void degradedDeps().then((note) => { if (live) setEnvNote(note); }, () => undefined);
+    return () => { live = false; };
+  }, []);
   const [ollama, setOllama] = useState<{ ok: boolean; models: string[] } | null>(null);
   const [keyInput, setKeyInput] = useState('');
   const [urlInput, setUrlInput] = useState('');
@@ -83,9 +110,12 @@ export function Onboarding({ agent, onDone }: OnboardingProps) {
   };
 
   useInput((char, key) => {
+    // R4 (H87): Ctrl+C ends the monitor from any step of the setup (130), as everywhere else in it
+    if (key.ctrl && char === 'c') { quit(130); return; }
     if (step === 'splash') {
-      if (key.return) setStep('provider');
-      if (char === 'q') exit();
+      // Enter begins; a '\n' (Ctrl+J, or Enter typed while the terminal was still line by line) too
+      if (key.return || char === '\n') { setStep('provider'); return; }
+      if (char === 'q' || key.escape) quit(0);
       return;
     }
     if (step === 'teachMission') {
@@ -104,6 +134,7 @@ export function Onboarding({ agent, onDone }: OnboardingProps) {
       return;
     }
     if (step === 'provider') {
+      if (key.escape) { setStep('splash'); return; }
       if (char === 'o') { setChoice('ollama'); setStep('cloud'); }
       if (char === 'k') { setChoice('key'); setStep('key'); }
       if (char === 'b' || key.return) { setChoice('both'); setStep('key'); }
@@ -180,7 +211,7 @@ export function Onboarding({ agent, onDone }: OnboardingProps) {
             <Text bold color={theme.accent}>Terminal-first Agent Trust OS — Flight Recorder for AI Agent Runs</Text>
             <Text color={theme.textSecondary}>Every action seals a cryptographic receipt. Targets are not receipts.</Text>
             {envNote && <Text color={theme.warn}>{envNote}</Text>}
-            <Text color={theme.textMuted}>[Enter] Begin setup · [q] Quit</Text>
+            <Text color={theme.textMuted}>[Enter] Begin setup · [q] or [Esc] Quit</Text>
           </Box>
         )}
         {step === 'teachMission' && (
