@@ -46,9 +46,10 @@ describe('canvasSummary', () => {
   });
 });
 
-// The tab's own rendering, as the served page runs it.
+// The tab's own rendering, as the served page runs it (R4 H92: the page's script is a file of its own).
 const html = readFileSync(new URL('../src/companion/client/index.html', import.meta.url), 'utf8');
-const code = html.slice(html.indexOf('    // Timmy Canvas tab'), html.indexOf('    // end Timmy Canvas tab'));
+const script = readFileSync(new URL('../src/companion/client/companion.js', import.meta.url), 'utf8');
+const code = script.slice(script.indexOf('// Timmy Canvas tab'), script.indexOf('// end Timmy Canvas tab'));
 const render = (summary: unknown, hostname: string): string => runInNewContext(`${code}\ncanvasSummaryHtml(summary, hostname);`, { summary, hostname });
 
 describe('the CANVAS tab', () => {
@@ -80,7 +81,14 @@ describe('the CANVAS tab', () => {
     expect(render({ ...summary, revision: null, sourceRevision: null, unreadable: true, jobs: [] }, '127.0.0.1')).toContain('The saved canvas could not be read');
   });
   it('the tab is in the deck, with its panel', () => {
-    expect(html).toContain(`id="btn-canvas" onclick="switchTab('canvas')"`);
+    // R4 (H92): wired by the page's script (data-tab), not an inline handler, which the page's policy would not run
+    expect(html).toMatch(/id="btn-canvas" data-tab="canvas"/);
     expect(html).toContain('id="tab-canvas"');
+    expect(html).not.toMatch(/\sonclick=/);
+  });
+  it('writes no style attribute and opens its links apart from the page, with no referrer (R4 H92)', () => {
+    const out = render(summary, '127.0.0.1');
+    expect(out).not.toMatch(/\sstyle=|\son[a-z]+=/);
+    for (const a of out.match(/<a [^>]*>/g) ?? []) expect(a).toMatch(/target="_blank" rel="noopener noreferrer"/);
   });
 });

@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
-import { isLocalIp, startManagedLogServer } from '../src/utils/logserver.js';
+import { folderWords, isLocalIp, startManagedLogServer } from '../src/utils/logserver.js';
 import { theme } from '../src/tui/theme.js';
 
 describe('companion back-event authorization', () => {
@@ -66,7 +69,7 @@ async function pageScript(receipts: unknown = [], failRequests = false, token = 
       asked.push({ url, auth: init?.headers?.Authorization ?? '' });
       if (failRequests) throw new Error('offline fixture');
       if (url === '/events') return { ok: true, status: 200, body: { getReader: () => ({ read: () => new Promise((resolve, reject) => reads.push({ resolve, reject })) }) } };
-      return { ok: true, status: 200, json: async () => url.startsWith('/receipts') ? receipts : { cwd: 'isolated review', ok: true, count: 0 } };
+      return { ok: true, status: 200, json: async () => url.startsWith('/receipts') ? receipts : { folder: '~/isolated review', ok: true, count: 0 } };
     },
   });
   // Drain fetch -> json -> render promise callbacks in the executable page.
@@ -115,6 +118,8 @@ describe('live-log browser script', () => {
   it('shows an honest empty receipt state and refuses malformed receipt responses', async () => {
     const empty = await pageScript();
     expect(empty.get('chain-note').textContent).toBe('No receipts in this store yet.');
+    // R4 (H92): its folder as /health words it (from ~, or by name), never a path of its own making
+    expect(empty.get('cwd').textContent).toBe('~/isolated review');
     const invalid = await pageScript({ error: 'unavailable' });
     expect(invalid.get('chain-note').textContent).toBe('Receipt history unavailable · retrying when a receipt arrives.');
   });
@@ -140,5 +145,23 @@ describe('live-log browser script', () => {
     expect(none.get('timmy-token-note').hidden).toBe(false);
     expect(none.get('timmy-token-note').textContent).toMatch(/timmy logs/);
     expect(none.get('conn').textContent).toBe('needs its token');
+  });
+});
+
+// R4 (H92; r23c, row 173: the page showed its working folder as an absolute path): the words /health gives the page.
+describe('the folder `timmy logs` shows (R4 H92)', () => {
+  it('from ~ under a home folder, else by its name; never the whole path', () => {
+    const home = mkdtempSync(join(tmpdir(), 'h92-logs-home-'));
+    try {
+      const env = { HOME: home };
+      expect(folderWords(home, env)).toBe('~');
+      expect(folderWords(join(home, 'code', 'proj'), env)).toBe('~/code/proj');
+      expect(folderWords(join(home, 'code', 'proj') + '/', env)).toBe('~/code/proj/');
+      // a folder that only starts like the home folder is not under it
+      expect(folderWords(`${home}x/proj`, env)).toBe('proj');
+      expect(folderWords('/srv/work/proj', env)).toBe('proj');
+      expect(folderWords('/srv/work/proj/', env)).toBe('proj');
+      expect(folderWords('/', env)).toBe('/');
+    } finally { rmSync(home, { recursive: true, force: true }); }
   });
 });

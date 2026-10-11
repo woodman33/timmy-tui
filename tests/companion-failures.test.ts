@@ -56,8 +56,15 @@ describe('the browser companion\'s failures are words (R4 H87)', () => {
       expect(slate.status).toBe(200);
       return;
     }
-    expect({ status: slate.status, words: slate.body.trim() }).toEqual({ status: 404, words: SLATE3D_ABSENT });
+    // R4 (H92): the words as a page of Timmy's look (in the companion's dark frame they were plain text, drawn black), with
+    // no script, framed by this origin only
+    expect({ status: slate.status, html: /^text\/html/.test(slate.type) }).toEqual({ status: 404, html: true });
+    expect(slate.body).toContain(`<p>${SLATE3D_ABSENT}</p>`);
+    expect(slate.body).not.toMatch(/<script|\sstyle=|\son[a-z]+=/);
     expect(wordsOnly(slate.body)).toBe(true);
+    const headers = (await fetch(`${c.base}/slate3d/?board=ledger`)).headers;
+    expect(headers.get('content-security-policy')).toBe("default-src 'none'; style-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'");
+    expect(headers.get('x-frame-options')).toBe('SAMEORIGIN');
   });
 
   it('an address with nothing, and a body that is not JSON: words with no path or stack (express\'s own pages are not shown)', async () => {

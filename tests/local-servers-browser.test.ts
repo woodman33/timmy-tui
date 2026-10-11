@@ -4,9 +4,10 @@
  * fragment), a page takes the token out of its address at once, keeps it in memory, and sends it in an Authorization header
  * on each request (the log pages' event streams too) and as a WebSocket subprotocol; opened without it, a page asks for
  * nothing and says how to open it from Timmy. The model is a FAKE OpenRouter on 127.0.0.1. Every request a page makes to
- * anywhere but its server is aborted (the companion page's CDN scripts, fonts and its Streamdown island from esm.sh, which
- * therefore does not load here: the chat is driven through the page's own chat call, the one the island uses). Skipped,
- * saying so, where no Chromium or Chrome is found.
+ * anywhere but its server is aborted. R4 (H92): the companion page asks nothing of anywhere else (its scripts, style sheet,
+ * fonts and markdown parser are its server's: tests/companion-page-browser.test.ts); the `timmy logs` chat mirror still
+ * imports Streamdown from esm.sh, aborted here, so only its own script runs. Skipped, saying so, where no Chromium or
+ * Chrome is found.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -16,7 +17,7 @@ import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startCompanionServer, type CompanionServer } from '../src/companion/server.js';
-import { startManagedLogServer } from '../src/utils/logserver.js';
+import { folderWords, startManagedLogServer } from '../src/utils/logserver.js';
 import { publish } from '../src/bus/index.js';
 import { appendReceipt } from '../src/utils/receipts.js';
 
@@ -119,7 +120,7 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       // the socket's address carries no token (it went as a subprotocol)
       expect(sockets).toHaveLength(1);
       expect(sockets[0]).toBe(`ws://127.0.0.1:${server.port}/`);
-      // a chat answer, streamed through the page's own chat call (the Streamdown island's)
+      // a chat answer, streamed through the page's own chat call (the model chat's: src/companion/client/chat.js)
       const events = await page.evaluate(async () => {
         const out: Array<[string, unknown]> = [];
         await (window as unknown as { timmyCompanion: { chat: (m: unknown, on: (e: string, d: unknown) => void) => Promise<void> } }).timmyCompanion
@@ -135,11 +136,13 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       // every request the page made with the token carried it in a header, never in its address
       for (const s of seen) expect(s.path).not.toContain(token);
       expect(seen.find((s) => s.path === '/chat')?.auth).toBe(`Bearer ${token}`);
-      // the canvas tab reads through the token too (its own refresh: switching tabs animates with gsap, a CDN script aborted here)
-      await page.evaluate(() => (window as unknown as { refreshCanvas: () => Promise<void> }).refreshCanvas());
+      // the canvas tab reads through the token too (R4 H92: opened as a person opens it; its fade is the browser's own)
+      await page.click('[data-tab="canvas"]');
       await page.waitForFunction(() => /Revision 0|No canvas jobs yet/.test(document.getElementById('canvas-summary')?.textContent ?? ''), null, { timeout: 15_000 });
       expect(seen.find((s) => s.path === '/api/canvas')?.auth).toBe(`Bearer ${token}`);
-      // Slate 3D's frame is given the token in its fragment, never in its address's query
+      // Slate 3D's frame is given the token in its fragment, never in its address's query (R4 H92: when its tab is opened)
+      expect(await page.evaluate(() => document.getElementById('slate3d-frame')?.getAttribute('src') ?? null)).toBeNull();
+      await page.click('[data-tab="slate3d"]');
       const frame = await page.evaluate(() => (document.getElementById('slate3d-frame') as HTMLIFrameElement).getAttribute('src') ?? '');
       expect(frame).toBe(`/slate3d/?board=ledger#t=${token}`);
     } finally {
@@ -159,7 +162,10 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       expect(await bare.page.textContent('#status-text')).toBe('COMPANION · NEEDS ITS TOKEN');
       await bare.page.waitForTimeout(1500);
       expect(bare.sockets).toEqual([]);
-      expect(bare.seen.map((s) => s.path)).toEqual(['/']);
+      // R4 (H92): the page's own files (its code, style sheet, theme, fonts and markdown parser), and nothing that needs the token
+      expect(bare.seen.map((s) => s.path)).toContain('/');
+      for (const s of bare.seen) expect(s.path).toMatch(/^\/(?:|[\w-]+\.(?:js|css)|vendor\/marked\.esm\.js|fonts\/[\w.-]+\.woff2)$/);
+      for (const s of bare.seen) expect(s.auth).toBe('');
     } finally { await bare.context.close(); }
     const wrong = await open(base, `${base}/#t=${OTHER}`);
     try {
@@ -182,20 +188,26 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
     const base = `http://127.0.0.1:${server.port}`;
     const token = tokenOf(server.url);
     // Slate 3D's own module from the repository (its three.js scene is not built here), loaded into a page this server
-    // served (a page answered by the test itself would be held to Chromium's local network checks, which a served page is not)
-    const serve = { '/slate3d/bus.js': { type: 'text/javascript', body: readFileSync(new URL('../companion/slate3d/src/bus.js', import.meta.url), 'utf8') } };
+    // served (a page answered by the test itself would be held to Chromium's local network checks, which a served page is not).
+    // R4 (H92): the test's own module is a file too, answered on the server's origin: the page's policy (script-src 'self')
+    // refuses an inline script.
+    const harness = [
+      "import { connectBus, companionFetch, slateToken } from '/slate3d/bus.js';",
+      'const result = { has: slateToken.length > 0, href: location.href, statuses: [], events: [], receipts: null };',
+      'window.result = result;',
+      "connectBus({ source: 'ws' }, (ev) => result.events.push(ev.kind), (st) => result.statuses.push(st.text));",
+      "companionFetch('/slate3d/receipts?limit=5').then((r) => r.json(), () => 'failed').then((j) => { result.receipts = j; });",
+    ].join('\n');
+    const serve = {
+      '/slate3d/bus.js': { type: 'text/javascript', body: readFileSync(new URL('../companion/slate3d/src/bus.js', import.meta.url), 'utf8') },
+      '/slate3d/bus-test.js': { type: 'text/javascript', body: harness },
+    };
     type Result = { has: boolean; href: string; statuses: string[]; events: string[]; receipts: unknown };
     const run = async (page: Page, fragment: string): Promise<void> => {
       // the address as Slate 3D's frame gets it: this server's page, with the token (or none) in its fragment
       await page.evaluate((frag) => history.replaceState(null, '', `/slate3d/?board=ledger${frag}`), fragment);
       // the module as Slate 3D's page imports it (a module script of the page's own)
-      await page.addScriptTag({ type: 'module', content: [
-        "import { connectBus, companionFetch, slateToken } from '/slate3d/bus.js';",
-        'const result = { has: slateToken.length > 0, href: location.href, statuses: [], events: [], receipts: null };',
-        'window.result = result;',
-        "connectBus({ source: 'ws' }, (ev) => result.events.push(ev.kind), (st) => result.statuses.push(st.text));",
-        "companionFetch('/slate3d/receipts?limit=5').then((r) => r.json(), () => 'failed').then((j) => { result.receipts = j; });",
-      ].join('\n') });
+      await page.addScriptTag({ type: 'module', url: '/slate3d/bus-test.js' });
       await page.waitForFunction(() => { const r = (window as unknown as { result?: Result }).result; return !!r && r.receipts !== null; }, null, { timeout: 20_000 });
     };
     const withToken = await open(base, `${base}/`, serve);
@@ -239,7 +251,9 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       // a new bus event reaches the page through the stream it reads with fetch
       publish('test.browser-live', { note: 'SYNTHETIC live event' });
       await page.waitForFunction(() => /test\.browser-live/.test(document.getElementById('events')?.textContent ?? ''), null, { timeout: 15_000 });
-      expect(await page.textContent('#cwd')).toBe(process.cwd());
+      // R4 (H92): its folder from ~ or by name (r23c: the absolute path), never the whole path
+      expect(await page.textContent('#cwd')).toBe(folderWords(process.cwd()));
+      if (!folderWords(process.cwd()).startsWith('~')) expect(await page.textContent('header')).not.toContain(process.cwd());
       for (const path of ['/events', '/receipts?stream=runs', '/health']) expect(seen.find((s) => s.path === path)?.auth, path).toBe(`Bearer ${token}`);
       for (const s of seen) expect(s.path).not.toContain(token);
       expect(await page.isHidden('#timmy-token-note')).toBe(true);

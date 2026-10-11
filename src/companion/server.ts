@@ -15,6 +15,8 @@
  *   route                                  requires                          why
  *   GET /, /index.html, the page's files   nothing more                      the companion page's code (public in the repository);
  *                                                                            without the token it loads nothing and says so
+ *   GET /timmy-theme.css, /fonts/<name>,   nothing more                      Timmy's look, Monaspace Argon and the markdown parser
+ *       /vendor/marked.esm.js                                                (R4 H92: src/companion/page.ts); no operator content
  *   GET /slate3d/*, /slate3d/boards/*      nothing more                      Slate 3D's built files and the repository's boards
  *   GET /api/auth                          the token                         whether the page's token is still this server's
  *   GET /api/canvas                        the token                         Timmy Canvas's revision and jobs (ids a model may name)
@@ -35,6 +37,11 @@
  * (scripts/copy-runtime-assets.mjs; r23: the installed package's GET / answered 404 with ENOENT and the install path, its
  * dist/ had no client/index.html). Slate 3D's built bundle ships only in a source checkout that built it; without it the
  * companion says so in words where Slate 3D would be. Every failure answers with words: no path of this computer, no stack.
+ *
+ * R4 (H92): the page loads nothing from the internet (r23c: about 1,130 requests to public CDNs, whose code ran with the
+ * page's token). Its scripts, style sheet, theme, fonts and markdown parser are all this server's (src/companion/page.ts),
+ * and every answer carries the page's Content-Security-Policy: scripts and style sheets only from here, no inline script,
+ * handler or style, requests only to here and its own WebSocket, no plugins, no <base>, never framed by another page.
  */
 import express from 'express';
 import { createServer, type IncomingMessage } from 'http';
@@ -53,10 +60,12 @@ import { keySet } from '../utils/keys.js';
 import { isLocalRequest, lanAddresses, LocalToken, logsTokenFile, readTokenFile, refuseRequest, refuseUpgrade, TOKEN_IN_ADDRESS } from '../utils/local-request.js';
 import { failRequest } from '../utils/server-failure.js';
 import { packagedPath } from '../utils/asset-dirs.js';
+// R4 (H92): the page's policy and the files it needs beside its own (theme, fonts, marked), all served from here.
+import { companionHeaders, mountPageAssets, sendSlateAbsent } from './page.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Model used by the /chat streaming proxy (TMX P3 Streamdown surface). */
+/** Model used by the /chat streaming proxy (the page's model chat, src/companion/client/chat.js; it was Streamdown's, TMX P3). */
 const CHAT_MODEL = 'qwen/qwen3.8-max';
 /** Where /chat sends its completion unless a test gives a FAKE (CompanionOptions.upstream). */
 const OPENROUTER_CHAT = 'https://openrouter.ai/api/v1/chat/completions';
@@ -69,8 +78,10 @@ export const COMPANION_REFUSED = 'Refused: this needs the browser companion\'s t
  * R4 (H87): the files this server serves beside its code at run time, package-relative: every file of its client folder
  * (served as they are). The build copies each into dist/ (scripts/copy-runtime-assets.mjs RUNTIME_ASSETS);
  * tests/runtime-pages.test.ts keeps the lists together, so a new page cannot be left out of the package.
+ * R4 (H92): the page and the files it needs (its scripts and style sheet were inline, or from CDNs).
  */
-export const COMPANION_RUNTIME_FILES: readonly string[] = Object.freeze(['src/companion/client/index.html']);
+const CLIENT_FILES = ['index.html', 'companion.css', 'companion.js', 'markdown.js', 'chat.js'] as const;
+export const COMPANION_RUNTIME_FILES: readonly string[] = Object.freeze(CLIENT_FILES.map((f) => `src/companion/client/${f}`));
 /** R4 (H87): the words a failure answers with (never a path of this computer, never a stack). */
 export const COMPANION_FAILED = 'The browser companion could not read what this request needs, so it answers with nothing and wrote nothing. It is still running.';
 export const COMPANION_PAGE_ABSENT = 'The browser companion\'s page is missing from this installation (its file was not shipped), so there is nothing to show here. Reinstall Timmy; `timmy logs` has pages of its own.';
@@ -175,6 +186,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
     if (refused) { refuseRequest(res, refused.status, refused.words); return; }
     next();
   });
+  // R4 (H92): every answer with the page's Content-Security-Policy (Slate 3D's paths with their own; src/companion/page.ts)
+  app.use(companionHeaders);
   /** The routes that carry the operator's content, spend or write: the token, in an Authorization header (before a body is read). */
   const withToken: express.RequestHandler = (req, res, next) => {
     if (key.bearer(req.headers.authorization)) { next(); return; }
@@ -245,6 +258,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
 
   // Serve static client files
   const clientDir = options.clientDir ?? path.join(__dirname, 'client');
+  // R4 (H92): Timmy's look, Monaspace Argon and marked, from this computer
+  mountPageAssets(app);
   app.use(express.static(clientDir));
 
   // Slate 3D (companion/slate3d/dist) and the boards it renders, served beside
@@ -256,7 +271,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   if (boardsDir) app.use('/slate3d/boards', express.static(boardsDir));
   if (slateDist) app.use('/slate3d', express.static(slateDist));
   else {
-    app.get(['/slate3d', '/slate3d/', '/slate3d/index.html'], (_req, res) => { failRequest(res, 404, SLATE3D_ABSENT, 'text'); });
+    // R4 (H92): the words as a page in Timmy's look (they were plain text, drawn black on the companion's dark frame)
+    app.get(['/slate3d', '/slate3d/', '/slate3d/index.html'], (_req, res) => { sendSlateAbsent(res, SLATE3D_ABSENT); });
   }
 
   // Receipts for Slate 3D capsule state: receipt records (never the event

@@ -17,7 +17,7 @@
 //   GET /, /chat, /mission, /browser        nothing more                          the pages' code; without the token they show
 //                                                                                 nothing and say how to open them from Timmy
 //   GET /health                             nothing more; its folder with the     whether this is the log companion (and its port)
-//                                           token
+//                                           token (R4 H92: from ~, or by name)
 //   GET /chat/events, /events               the token                             the session's turns, receipts, the event bus
 //   GET /receipts, /verify, /verify-receipt the token                             the receipt chain
 //   GET /dispatch, /mission/escrows,        the token                             plans, escrows, a folder's theatre state
@@ -49,6 +49,7 @@ import { theme } from '../tui/theme.js';
 import { dropTokenFile, isLocalRequest, LocalToken, logsTokenFile, readTokenFile, refuseRequest, TOKEN_IN_ADDRESS, writeTokenFile } from './local-request.js';
 import { carriesSecret, writeLaunchPage } from './launch-page.js';
 import { failRequest } from './server-failure.js';
+import { tildePath } from './home-scrub.js';
 
 export const LOGS_PORT = (): number => Number(process.env.TIMMY_LOGS_PORT ?? 4310);
 
@@ -57,6 +58,18 @@ export const LOGS_PORT = (): number => Number(process.env.TIMMY_LOGS_PORT ?? 431
  * (scripts/copy-runtime-assets.mjs RUNTIME_ASSETS; tests/runtime-pages.test.ts keeps the two lists together).
  */
 export const LOGS_RUNTIME_FILES: readonly string[] = Object.freeze(['src/utils/chatpage.html']);
+
+/**
+ * R4 (H92; r23c, row 173: the page showed its working folder as an absolute path): the folder `timmy logs` works in, as its
+ * page shows it: from ~ when it is a home folder or under one (src/utils/home-scrub.ts, as the board and /tools write
+ * paths), else by its name. Never the whole path.
+ */
+export function folderWords(dir: string, env: NodeJS.ProcessEnv = process.env): string {
+  const shown = tildePath(dir, env);
+  if (shown.startsWith('~')) return shown;
+  const name = dir.replace(/\/+$/, '').split('/').pop();
+  return name || dir;
+}
 
 /** R4 (H87): what a request is told when what it needs could not be read. */
 export const LOGS_FAILED = 'The log companion could not read what this request needs, so it answers with nothing and wrote nothing. It is still running: its other pages answer.';
@@ -239,7 +252,7 @@ if (timmyToken) {
     try { const ev = JSON.parse(m.data); addEvent(ev, true); if (ev.kind === 'receipt.sealed') loadChain(); }
     catch { document.getElementById('event-note').textContent = 'Skipped an unreadable event · waiting for the next event.'; }
   };
-  timmyFetch('/health').then(r=>r.json()).then(h => { document.getElementById('cwd').textContent = h.cwd; }).catch(()=> { document.getElementById('cwd').textContent = 'workspace unavailable'; });
+  timmyFetch('/health').then(r=>r.json()).then(h => { document.getElementById('cwd').textContent = typeof h.folder === 'string' ? h.folder : 'workspace unavailable'; }).catch(()=> { document.getElementById('cwd').textContent = 'workspace unavailable'; });
   loadChain();
 } else {
   document.getElementById('conn').textContent = 'needs its token';
@@ -777,7 +790,7 @@ export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogS
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Cache-Control', 'no-store');
       // its folder (a path of this computer's) only with the token
-      res.end(JSON.stringify(credited ? { ok: true, app: 'timmy-logs', port, cwd: process.cwd() } : { ok: true, app: 'timmy-logs', port }));
+      res.end(JSON.stringify(credited ? { ok: true, app: 'timmy-logs', port, folder: folderWords(process.cwd()) } : { ok: true, app: 'timmy-logs', port }));
       return;
     }
     if (url.pathname === '/chat') {
