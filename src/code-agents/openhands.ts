@@ -705,7 +705,9 @@ export function openHandsCapabilityRow(o: { env: Env; onPath: (bin: string) => b
   if (!o.worker) return { ...base, rung: 'needs setup', detail: `${OPENHANDS_WORKER} is not in this Timmy; ${ran}`, setup: 'reinstall Timmy (its package lacks the OpenHands worker)' };
   if (!o.onPath('docker')) return { ...base, rung: 'needs setup', detail: `docker is not on PATH; ${ran}`, setup: DOCKER_INSTALL };
   const d = o.docker;
-  if (d.state === 'no daemon') return { ...base, rung: 'needs setup', detail: `the Docker daemon did not answer; ${ran}`, setup: 'start your Docker engine (OrbStack, Docker or Rancher Desktop)' };
+  // R4 (H82): what docker info did (it did not finish in time, it exited with its own error, it could not start), never
+  // "the daemon did not answer" for all of them, and with docker's own first error line
+  if (d.state === 'no daemon') return { ...base, rung: 'needs setup', detail: `${d.detail ?? 'docker info named no Docker server'}; ${ran}`, setup: 'start your Docker engine (OrbStack, Docker or Rancher Desktop)' };
   const where = o.packageRoot ? ` in ${o.packageRoot}` : ' in Timmy\'s package root';
   if (d.state === 'no image') return { ...base, rung: 'needs setup', detail: `image ${OPENHANDS_IMAGE} not built: run the step${where}; ${ran}`, setup: OPENHANDS_BUILD_SHORT };
   if (d.state === 'other image') return { ...base, rung: 'needs setup', detail: `${OPENHANDS_IMAGE} here was not built from ${OPENHANDS_DOCKERFILE}: build it${where}; ${ran}`, setup: OPENHANDS_BUILD_SHORT };

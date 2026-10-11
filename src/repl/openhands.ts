@@ -98,7 +98,8 @@ export class OpenHandsRuns {
     if (!worker) return { ok: false, error: `Needs setup: ${OPENHANDS_WORKER} is not in this Timmy, so OpenHands cannot run here (reinstall Timmy). Nothing was started.` };
     const where = packageRoot(import.meta.url) ?? 'Timmy\'s package root';
     const d = await dockerSetup(bin, env);
-    if (d.state === 'no daemon') return { ok: false, error: `Needs setup: the Docker daemon did not answer${d.detail ? ` (${d.detail})` : ''}: start your Docker engine (OrbStack, Docker Desktop or Rancher Desktop), then /agent openhands --local again. Nothing was started.` };
+    // R4 (H82): what docker info did, in its own words (src/code-agents/openhands-run.ts dockerWords)
+    if (d.state === 'no daemon') return { ok: false, error: `Needs setup (${d.detail ?? 'docker info named no Docker server'}): start your Docker engine (OrbStack, Docker Desktop or Rancher Desktop), then /agent openhands --local again. Nothing was started.` };
     if (d.state === 'no image') return { ok: false, error: `Needs setup: the image ${OPENHANDS_IMAGE} is not built. Build it once, in ${where}: ${OPENHANDS_BUILD} (Timmy never builds or pulls it by itself). Nothing was started.` };
     if (d.state === 'other image') return { ok: false, error: `Needs setup: the image ${OPENHANDS_IMAGE} here was not built from ${OPENHANDS_DOCKERFILE} (${d.detail ?? 'its label differs'}). Build it again, in ${where}: ${OPENHANDS_BUILD}. Nothing was started.` };
     if (d.state !== 'ready') return { ok: false, error: `docker did not answer as expected${'detail' in d && d.detail ? ` (${d.detail})` : ''}: docker info shows what is wrong. Nothing was started.` };

@@ -204,9 +204,14 @@ export async function mdMain(argv: string[], o: { json?: boolean } = {}): Promis
     return stopping;
   };
   let signals = 0;
+  // R4 (H82; the review of 6fb765a..4338fdb, finding 3): the handlers stay until the process exits, as timmy act's do (see
+  // src/ops/act.ts): removed before the end, a second signal there killed the process by default. Once the run has ended
+  // and the Workspace is closed, a first signal finds nothing to stop and the exit code stands; a second exits at once with 3.
+  let closed = false;
   const onSignal = (sig: NodeJS.Signals): void => {
     signals += 1;
-    if (signals > 1) { ws.killNow(stopReason(`by timmy md (a second ${sig}: it exits at once)`)); box?.restore(); process.exit(3); }
+    if (signals > 1) { if (!closed) ws.killNow(stopReason(`by timmy md (a second ${sig}: it exits at once)`)); box?.restore(); process.exit(3); }
+    if (closed) return;
     void stop(`${sig} received`);
   };
   process.on('SIGINT', onSignal);
@@ -232,8 +237,7 @@ export async function mdMain(argv: string[], o: { json?: boolean } = {}): Promis
   for (let i = 0; i < 100 && !h.ended; i++) { ws.ops.check(); if (!h.ended) await sleep(50); }
   if (!h.ended) ws.ops.end(h, failedToRun ? 'failed' : 'stopped', failedToRun ? `the run failed to start: ${failedToRun}` : 'it did not end within the time timmy md waits');
   await ws.close({ by: stopReason('by timmy md (it is exiting)') });
-  process.off('SIGINT', onSignal);
-  process.off('SIGTERM', onSignal);
+  closed = true; // R4 (H82): the signal handlers stay until the process exits (see onSignal)
 
   const ended = h.ended!;
   const state = stopping ? 'stopped' : failedToRun ? 'failed' : ended.state;

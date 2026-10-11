@@ -20,4 +20,8 @@ const fast = existsSync('dist/fast-entry.js') && process.argv.length === 2;
 const args = fast ? ['dist/fast-entry.js'] : existsSync('dist/cli.js') ? ['dist/cli.js', ...process.argv.slice(2)] : ['tsx', 'cli.tsx', ...process.argv.slice(2)];
 const cmd = fast || existsSync('dist/cli.js') ? process.execPath : 'npx';
 const r = spawnSync(cmd, args, { stdio: 'inherit' });
-process.exit(r.status ?? 0);
+// R4 (H82; the review of 6fb765a..4338fdb, finding 3): a CLI killed by a signal has no status, and `r.status ?? 0` made
+// that exit 0. It exits 128 plus the signal's number, as the installed bin (timmy.ts) does; a CLI that did not start, 69.
+if (r.error) { process.stderr.write(`timmy: could not start the CLI (${r.error.message}).\n`); process.exit(69); }
+if (r.status === null && r.signal) process.exit(128 + (require('os').constants.signals[r.signal] || 0));
+process.exit(r.status ?? 1);

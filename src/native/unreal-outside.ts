@@ -48,9 +48,17 @@ export const UNREAL_OUTSIDE_NAMES = 20;
 export const UNREAL_OUTSIDE_SLACK_MS = 5000;
 /** How the check finds what it counts, said with it. */
 export const UNREAL_OUTSIDE_METHOD = 'regular files created or modified (birth or modification time) at or after the job\'s start and before its end + 5 s, found by walking each folder without following links; metadata only, no file was opened';
-/** A walk stops past this many entries or this long, and says so (an incomplete check is never "nothing"). */
+/**
+ * A walk stops past this many entries or this long, and says so (an incomplete check is never "nothing"). R4 (H82; the
+ * review of 6fb765a..4338fdb, finding 1): the walk runs when the job is judged, synchronously, as its lines, record and
+ * receipt are written at once: it held the REPL (its live board, its keys) for up to 20 s. It is bounded to a few seconds;
+ * a walk cut there says so in its own words ("whether files changed … is not known (an incomplete check: the walk stopped
+ * after 3 s)", or "at least N files …"), never "no file changed".
+ */
 const MAX_ENTRIES = 300_000;
-const MAX_MS = 20_000;
+export const UNREAL_OUTSIDE_MAX_MS = 3000;
+/** How many entries the walk reads between two looks at the clock. */
+const CLOCK_EVERY = 128;
 /** Files are counted by the folder at most this many levels below a watched folder. */
 const GROUP_DEPTH = 3;
 /** Names gathered before the first UNREAL_OUTSIDE_NAMES (sorted) are kept. */
@@ -113,13 +121,14 @@ const iso = (ms: number): string => new Date(ms).toISOString();
 /**
  * Walks each watched folder for regular files born or modified in the window [sinceMs, untilMs] (no upper bound when
  * untilMs is undefined): metadata only. A folder that is not there holds nothing; one that cannot be read is counted as
- * unreadable. Past MAX_ENTRIES entries or MAX_MS the walk stops and the check says it is incomplete.
+ * unreadable. Past MAX_ENTRIES entries or UNREAL_OUTSIDE_MAX_MS (`maxMs`) the walk stops and the check says it is incomplete.
  */
-export function checkUnrealOutside(o: { sinceMs: number; untilMs?: number; env?: Env; platform?: NodeJS.Platform; home?: string }): UnrealOutsideCheck {
+export function checkUnrealOutside(o: { sinceMs: number; untilMs?: number; env?: Env; platform?: NodeJS.Platform; home?: string; maxMs?: number }): UnrealOutsideCheck {
   const home = o.home ?? accountHome();
   const where = unrealOutsideFolders(o.env ?? process.env, o.platform ?? process.platform, home);
   const window = { since: iso(o.sinceMs), ...(o.untilMs !== undefined ? { until: iso(o.untilMs) } : {}) };
   if ('none' in where) return { state: 'not applicable', folders: [], ...window, files: 0, by_folder: {}, names: [], why: where.none, method: UNREAL_OUTSIDE_METHOD };
+  const maxMs = o.maxMs ?? UNREAL_OUTSIDE_MAX_MS;
   const started = Date.now();
   const counts = new Map<string, number>();
   const gathered: string[] = [];
@@ -141,7 +150,7 @@ export function checkUnrealOutside(o: { sinceMs: number; untilMs?: number; env?:
       list.sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0)); // popped in name order
       for (const e of list) {
         if (++entries > MAX_ENTRIES) { stopped = `the walk stopped after ${MAX_ENTRIES.toLocaleString('en-US')} entries`; break; }
-        if ((entries & 1023) === 0 && Date.now() - started > MAX_MS) { stopped = `the walk stopped after ${MAX_MS / 1000} s`; break; }
+        if (entries % CLOCK_EVERY === 0 && Date.now() - started >= maxMs) { stopped = `the walk stopped after ${maxMs / 1000} s`; break; }
         if (e.isDirectory()) { stack.push([...rel, e.name]); continue; }
         if (!e.isFile()) continue; // a link, a socket: never followed, never counted
         let born: number;

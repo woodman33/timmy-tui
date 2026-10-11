@@ -36,7 +36,7 @@ import { checkFlowRecord } from '../repl/board-flows.js';
 import { flowOutputs, recentOperations, shaNow, type CardCheck, type CardTone, type OpIndex } from '../ops/card.js';
 import { flowClaims } from '../ops/outcome.js';
 import { readOperationRecord } from '../ops/operations.js';
-import { writerState } from '../ops/process-proof.js';
+import { withProcessTable, writerState } from '../ops/process-proof.js';
 
 /** Where /restore keeps the version it replaces (each file under its own path, as the board's saves keep theirs). */
 export const RESTORE_HISTORY_DIR = '.timmy/restore-history';
@@ -619,6 +619,11 @@ export function operationReview(ix: OpIndex, id: string, o: { max?: number } = {
  * first); `quiet` and `looked` count only the operations read before the `max`-th was found.
  */
 export function reviewView(ix: OpIndex, o: { max?: number; look?: number } = {}): ReviewView {
+  // R4 (H82): one reading of the process table for every operation it looks at (a board build shares its own)
+  return withProcessTable(() => reviewViewNow(ix, o));
+}
+
+function reviewViewNow(ix: OpIndex, o: { max?: number; look?: number }): ReviewView {
   const ids = recentOperations(ix, o.look ?? 24);
   const max = o.max ?? 6;
   const operations: ReviewOperation[] = [];

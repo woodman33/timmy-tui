@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  checkUnrealOutside, shownFolder, UNREAL_ACCOUNT_HOME_ENV, UNREAL_MAC_USER_FOLDERS, UNREAL_OUTSIDE_ENV, UNREAL_OUTSIDE_NAMES, unrealOutsideFolders,
+  checkUnrealOutside, shownFolder, UNREAL_ACCOUNT_HOME_ENV, UNREAL_MAC_USER_FOLDERS, UNREAL_OUTSIDE_ENV, UNREAL_OUTSIDE_MAX_MS, UNREAL_OUTSIDE_NAMES, unrealOutsideFolders,
   unrealOutsideWords, type UnrealOutsideCheck,
 } from '../src/native/unreal-outside.js';
 
@@ -129,8 +129,27 @@ describe('what is counted', () => {
   });
 });
 
+describe('bounded to a few seconds (R4, H82: the review of 6fb765a..4338fdb, finding 1)', () => {
+  it('the walk, run when the job is judged (synchronously), stops after 3 s at most, and one cut there says so: never "no file", its count "at least"', () => {
+    expect(UNREAL_OUTSIDE_MAX_MS).toBe(3000);
+    const sinceMs = Date.now() - 1000;
+    for (let i = 0; i < 600; i++) put(`Library/Application Support/Epic/Zen/d${i % 6}/f${String(i).padStart(3, '0')}.bin`);
+    const env = { [UNREAL_ACCOUNT_HOME_ENV]: home };
+    // A bound of 0 s stands for a folder too large for the bound: the walk stops at its first look at the clock.
+    const t0 = performance.now();
+    const cut = checkUnrealOutside({ sinceMs, env, platform: 'linux', maxMs: 0 });
+    expect(performance.now() - t0).toBeLessThan(2000);
+    expect(cut).toMatchObject({ state: 'incomplete', why: 'the walk stopped after 0 s' });
+    expect(cut.files).toBeGreaterThan(0);
+    expect(cut.files).toBeLessThan(600);
+    expect(unrealOutsideWords(cut)).toBe(`at least ${cut.files} files changed during the job in the 4 folders Unreal keeps in this account's home (by their timestamps; which process changed them is not known, and no other folder was looked at): ${Object.entries(cut.by_folder).map(([f, n]) => `${f} (${n})`).join(', ')} (an incomplete check: the walk stopped after 0 s)`);
+    // Under the default bound the same folders are walked whole.
+    expect(checkUnrealOutside({ sinceMs, env, platform: 'linux' })).toMatchObject({ state: 'checked', files: 600 });
+  });
+});
+
 describe('in words', () => {
-  const base: UnrealOutsideCheck = { state: 'checked', folders: ['~/Library/Application Support/Epic'], since: '', files: 0, by_folder: {}, names: [], method: '' };
+  const base: UnrealOutsideCheck ={ state: 'checked', folders: ['~/Library/Application Support/Epic'], since: '', files: 0, by_folder: {}, names: [], method: '' };
   it('off macOS: not checked, and why; an incomplete walk or a folder that could not be read never says nothing, and its count is "at least"', () => {
     expect(unrealOutsideWords(checkUnrealOutside({ sinceMs: 0, env: {}, platform: 'linux', home }), { nativeHome: true }))
       .toBe('Unreal\'s user folders outside the project were not checked: the check applies on macOS, where Unreal\'s user folders are known; this is linux');

@@ -123,7 +123,10 @@ export async function runTurn(
     if (e.type === 'error') { failed = true; sawError = true; }
     transcript.handle(e);
   });
+  // R4 (H82; H73's open item): how many cost reports came back (cost:update), so a failed turn with none is not a measured $0.
+  let costReports = 0;
   const onCost = (cost: number, _total?: number, info?: { complete?: boolean }): void => {
+    costReports++;
     if (Number.isFinite(cost)) spend += cost;
     if (info?.complete === false) costMeasured = false;
   };
@@ -209,6 +212,11 @@ export async function runTurn(
   // step that looks done; the receipt keeps their outcome unknown.
   const open = cancelled ? 0 : outcomesNow().filter((t) => t.outcome === 'unknown').length;
   if (open) transcript.handle({ type: 'unfinished', count: open });
+  // R4 (H82; H73's open item): a turn that failed before any cost came back is sealed unknown (cost_measured: false), never a
+  // measured $0. Timmy's agent (src/agent/core.ts) ends each request to OpenRouter with one cost:update, complete: false when
+  // it failed or was cancelled, so a failed request is unknown already; a turn failed with no report at all went wrong where
+  // no cost could come back (before its request, or at the local fallback), and whether a request went out is not known here.
+  if (!cancelled && failed && costReports === 0) costMeasured = false;
   if (cancelled) sealCancelled(ms);
   else if (seal) {
     receipt(seal({ prompt: text, answer: typeof answer === 'string' ? answer : '', steps, spend, costMeasured, ms, status: failed ? 'failed' : 'ok', tools: outcomesNow() }), ms, false);
