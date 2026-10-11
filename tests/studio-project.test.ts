@@ -125,16 +125,18 @@ describe('the project handoff and the project API', () => {
     const receipts = readFileSync(join(p.store, 'runs.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { kind: string; hash: string });
     const short = (kind: string): string => receipts.find((x) => x.kind === kind)!.hash.slice(7, 15);
     // A workflow document: its title as written (the page escapes it), its blocks, and the typed /run of its last block.
-    expect(byId['workflow:BUILD.md']).toEqual({ id: 'workflow:BUILD.md', kind: 'workflow', title: HOSTILE_TITLE, state: 'not run yet · 2 blocks: build, render', record: 'BUILD.md', receipt: null, command: '/run BUILD.md render', section: 'workflows' });
+    // R4 (H100): every card names its operation as its record does, or says why none (tests/studio-operations.test.ts has more)
+    expect(byId['workflow:BUILD.md']).toEqual({ id: 'workflow:BUILD.md', kind: 'workflow', title: HOSTILE_TITLE, state: 'not run yet · 2 blocks: build, render', record: 'BUILD.md', receipt: null, command: '/run BUILD.md render', section: 'workflows', operation: null, operationFrom: 'not run yet', at: null });
     // The tray recipe's parameter file, checked by its own rules, with the edit receipt that names it.
     expect(byId['params:recipes/tray.params.json']).toMatchObject({ kind: 'params', record: 'recipes/tray.params.json', receipt: short('edit'), command: '/recipe tray', section: 'parameters' });
     expect(byId['params:recipes/tray.params.json'].state).toMatch(/^saved: width \d+, wall [\d.]+, supportOffset [\d.]+, bore [\d.]+ \(mm\)$/);
     // An OpenSCAD model's parameter file: no receipt names it, so none is claimed.
-    expect(byId['params:box.params.json']).toEqual({ id: 'params:box.params.json', kind: 'params', title: 'OpenSCAD parameters of box.scad (box.params.json)', state: 'saved: width 90, depth 40, height 30', record: 'box.params.json', receipt: null, command: '/scad box.scad', section: 'workflows' });
+    expect(byId['params:box.params.json']).toEqual({ id: 'params:box.params.json', kind: 'params', title: 'OpenSCAD parameters of box.scad (box.params.json)', state: 'saved: width 90, depth 40, height 30', record: 'box.params.json', receipt: null, command: '/scad box.scad', section: 'workflows', operation: null, operationFrom: 'no receipt names box.params.json', at: null });
     // A flow record with its verdict, verified against the flow receipt that sealed exactly its bytes.
     expect(byId[`flow:${p.flow}`]).toEqual({
       id: `flow:${p.flow}`, kind: 'flow', title: `/iterate tray · ${p.flow}: ${HOSTILE_INSTRUCTION}`,
       state: `succeeded, readback matches · verified: receipt ${short('flow')} sealed these bytes`, record: p.flowFile, receipt: short('flow'), command: `/room ${p.flow}`, section: 'flows',
+      operation: null, operationFrom: 'its flow record names none', at: '2026-10-10T05:00:00.000Z',
     });
     // A record that cannot be read as one is named, with why.
     expect(byId['unreadable:results/flows/f0badbad0.json']).toMatchObject({ kind: 'unreadable', record: 'results/flows/f0badbad0.json', receipt: null, command: '/open results/flows/f0badbad0.json', section: 'flows' });
@@ -143,6 +145,7 @@ describe('the project handoff and the project API', () => {
     expect(byId[`vox:${p.voxId}`]).toEqual({
       id: `vox:${p.voxId}`, kind: 'vox', title: 'measure part.stl', state: `ok · verified: receipt ${short('vox')} sealed it · 1 highlight shown`,
       record: p.voxFile, receipt: short('vox'), command: '/measure part.stl', section: 'voxvision', highlights: [`results/vox/${p.voxId}/bbox.svg`],
+      operation: null, operationFrom: 'its VoxVision record names none', at: '2026-10-10T05:03:00.000Z',
     });
     // The Control Room's runs: the chat turn its receipt names, and the job the real JobManager ran.
     expect(cards.find((c) => c.id === `run:chat:${short('turn')}`)).toMatchObject({ kind: 'run', state: 'answered · 0 tool calls', receipt: short('turn'), command: `/room ${short('turn')}`, section: 'room' });

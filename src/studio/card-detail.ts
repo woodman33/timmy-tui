@@ -35,6 +35,20 @@ export type Text = (v: unknown, max?: number) => string;
 /** A colour for the outcome words: they stay in the text colour unless they failed or need attention (R4 H46). */
 export type Tone = 'ok' | 'failed' | 'running' | 'attention' | 'neutral';
 
+/**
+ * R4 (H100): the operation (one request) a drawn card's record names, read from Timmy's records at this reading
+ * (src/studio/project-cards.ts sets it on every detail): its id, or null when the record names none; where it was read, or
+ * why there is none, in words; and the request and state its own record (.timmy/operations/<id>.json) gives, null when this
+ * project holds no record of it. A card keeps it with the rest of its detail, so a card no longer followed shows it as last
+ * read, said as such.
+ */
+export interface DetailOperation {
+  id: string | null;
+  from: string;
+  request: string | null;
+  state: string | null;
+}
+
 export interface DetailBlock {
   name: string;
   /** upmd's block number in the document (unique) */
@@ -69,6 +83,8 @@ export interface WorkflowDetail {
   };
   /** the newest run is still going */
   running: boolean;
+  /** R4 (H100): the operation of its newest run, as its job record names it */
+  operation?: DetailOperation;
 }
 
 export interface DetailValue {
@@ -117,6 +133,8 @@ export interface ParamsDetail {
   /** the tray recipe's newest build, as the board's recipe result card says it */
   build: BoardResult | null;
   notice: string | null;
+  /** R4 (H100): the operation the newest receipt naming the file names */
+  operation?: DetailOperation;
 }
 
 export interface ResultDetail {
@@ -134,6 +152,8 @@ export interface ResultDetail {
   started: string | null;
   ended: string | null;
   notice: string | null;
+  /** R4 (H100): the operation its record (or receipt) names */
+  operation?: DetailOperation;
 }
 
 export type CardDetail = WorkflowDetail | ParamsDetail | ResultDetail;
