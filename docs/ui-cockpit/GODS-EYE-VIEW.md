@@ -2,7 +2,8 @@
 
 Round R4, helper H78, branch `r4/gods-eye`. **Status of this slice: implemented and tested** in the development
 container (Linux, Node 24, a real headless Chromium), with the existing readers and real record writers in temporary
-projects. **It has not run on the operator's Mac, so nothing of it is demonstrated.** The words below keep four states
+projects. **Since r23 (CHECKPOINTS row 171, scripted, at `b234164`) its terminal and board views are demonstrated on the operator's
+Mac**; the canvas view and the owner's extension (below) are not built. The words below keep four states
 apart: *planned* (written down, no code), *implemented* (code exists), *tested* (a test exercised it here and passed),
 *demonstrated* (it ran for real on the Mac and a row of [CHECKPOINTS.md](CHECKPOINTS.md) records it).
 
@@ -138,7 +139,8 @@ Control Room beside it and `/overview` show the same records at the same moment.
 ## Each part of the definition: what exists, what is partial, what remains
 
 "Exists" names code, its tests and the Mac run that demonstrated it (a CHECKPOINTS row). Everything this slice added is
-implemented and tested only: its Mac run remains for every row.
+implemented and tested, and its terminal and board views ran on the Mac, scripted (row 171: `/overview`, its sections and `--json`
+through `timmy act`, the live board's first section, `GET /overview`, a lesson leaving Needs you); the canvas view remains.
 
 | Part of the definition | Exists | Partial | Remains |
 |---|---|---|---|
@@ -153,6 +155,27 @@ implemented and tested only: its Mac run remains for every row.
 | Unknown and stale shown honestly | left, stale and unknown by process proofs; unreadable records with their reasons; unknown costs never summed (tested with real child processes, signals, records and receipt chains) | | Mac run |
 | Reuse shared state and controls, no disconnected dashboard | The overview reads through the existing readers and has no controls of its own: it links to the sections and commands that act | | |
 | Record what exists, is partial and remains | This document | | Keep it current with each Mac run |
+
+## The owner's extension (2026-10-10 19:38 and 21:12 PT): planned, not built
+
+> Include God's Eye View: a useful overview of devices, agents, jobs, sites, VPS resources, dependencies, costs and items
+> needing attention. Selecting an item should open its actual controls, results and history.
+
+> Extend the God's Eye View already implemented. Keep its first slice and outstanding requirements visible.
+
+These come with the new workstreams (Timmy Connect: the operator's computers over Tailscale or SSH, native Windows through
+Microsoft OpenSSH; Timmy Cloud: hosting for Timmy Pro through Hostinger). Each part reads the records those workstreams will
+keep, through the same readers, as the first slice does.
+
+| Part | Exists | Remains |
+|---|---|---|
+| Devices: each computer, how it is reached (the tailnet or SSH), whether it answers now, when it was last seen, its operating system, architecture and runtimes, its jobs | – | the device records and probes (Timmy Connect), then a section |
+| Agents and jobs | ✓ the first slice (row 171) | jobs on other computers, with their device |
+| Sites, domains and VPS resources: each with its state in steps (ordered, paid, provisioned, DNS ready, healthy), never one word for all | – | the provisioning records (Timmy Cloud), then a section |
+| Dependencies: which job, site or resource needs which device, resource or decision | partial: a workflow's own blocks and needs (the first slice) | across devices and resources |
+| Costs: model spend (the first slice), and provider spend, renewals and limits, each a reported number, unknown or absent | partial: model spend | provider costs, renewals and spending limits |
+| Items needing attention: decisions, setup, and later a payment that failed, a renewal due, a device asleep, a provisioning step waiting on a person | partial: Needs you (the first slice) | the new kinds |
+| Selecting an item opens its actual controls, results and history | partial: each item names the command or board section that opens it | open it in place, on the board and in Timmy Canvas |
 
 ## What Timmy Canvas still needs
 
@@ -195,11 +218,9 @@ In a fresh sandbox user with the installed package, as rows 158, 162 and 163; no
 
 ## Open
 
-- Not demonstrated: nothing of this slice has run on the Mac.
+- Demonstrated, scripted, on the Mac at `b234164` (row 171); r23c (row 173) did not run it again.
 - The tools part of Needs you (setup a run needs) is checked once per REPL session, as `/decisions` checks it.
 - `timmy act '/overview' --json` carries the first screen's text lines; the model comes only with `/overview --json`.
 - The canvas view (above) is not built.
-- A chat turn whose receipt records no cost field asked a model, so its cost is not known; the Control Room files it under
-  "runs that record no cost are not counted" (`src/room/index.ts`, `chatRuns` and `receiptCosts`), not under unknown, and
-  the overview follows the Control Room so that both count alike. Counting it as unknown is a change to the Control Room's
-  rule, for its owner to decide.
+- Settled (row 169, H73; row 170, H82): a chat turn whose receipt records no cost is counted unknown in the Control Room and
+  here alike, and a chat turn that failed with no cost report is sealed unknown, never a measured $0.
