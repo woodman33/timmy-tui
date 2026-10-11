@@ -490,11 +490,16 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
         fake.style.cssText = 'position:relative;z-index:10;padding:6px';
         root.querySelector('.tc-head')!.append(fake);
       }, card(wf.shape));
+      const acts: string[] = [];
+      page.on('request', (r) => { if (new URL(r.url()).pathname === '/api/project/act') acts.push(r.method()); });
       const before = { jobs: ws.jobs.list().length, notes: notes.length };
       await personClick(page, context, '#not-cards-own');
       await page.waitForTimeout(1500);
+      // Nothing went to the REPL: no request to the act route, no action noted, no job. (Other notes, from runs the earlier
+      // tests started, may still arrive meanwhile, so only the REPL's note of a canvas action is looked for.)
+      expect(acts).toEqual([]);
+      expect(notes.slice(before.notes).filter((n) => /^\s+canvas\s/.test(n))).toEqual([]);
       expect(ws.jobs.list().length).toBe(before.jobs);
-      expect(notes.length).toBe(before.notes);
     } finally {
       await context.close();
     }
