@@ -17,6 +17,12 @@
  * inline script, event handler or style attribute, requests only to this server and its own WebSocket, no plugins, no
  * <base>, no form posts, and no page may frame it; with nosniff, no referrer and no DNS prefetching (a model's links would
  * otherwise have the browser look up their names). Slate 3D, which the page frames, may be framed by this origin only.
+ *
+ * R4 (H95): the page has its own design again (companion.css, as at b69ab12) and its STREAMDOWN CHAT tab is Streamdown
+ * again, both from this computer: the companion's built web code at /web/ (src/companion/web-assets.ts; built by
+ * scripts/companion-web-build.mjs): the chat island and its chunks (React, Streamdown, Shiki, Mermaid), Streamdown's
+ * style sheet and its Tailwind classes, and the page's three fonts (Outfit, Inter, Fira Code). The policy stays as strict
+ * as the page works under (PAGE_STYLE_SRC, PAGE_IMG_SRC say what each relaxation is for).
  */
 import type { NextFunction, Request, Response } from 'express';
 import type express from 'express';
@@ -25,12 +31,32 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { FONT_FILES, themeCss } from '../theme/tokens.js';
 import { failRequest } from '../utils/server-failure.js';
+import { sendWebFile } from './web-assets.js';
 
 /**
  * A Host header as the local rule lets it through (src/utils/local-request.ts), as a policy can name it: a name or an IPv4
  * address, and a port. ([::1] cannot be written in a policy's source list; there 'self' alone covers the page's socket.)
  */
 const HOST = /^[a-z0-9.-]+(?::\d{1,5})?$/i;
+
+/**
+ * R4 (H95): the page's style sheets are its own; inline styles are allowed for Mermaid alone. Measured in a real Chromium
+ * (tests/companion-page-browser.test.ts): drawing one flowchart, Mermaid writes a <style> element into the diagram's SVG and
+ * sets style attributes on its parts (with d3 and DOMPurify), and Streamdown inserts that SVG as markup; under
+ * style-src 'self' every one of them was refused and the diagram lost its look. Shiki's colours and Streamdown's own
+ * styles are set through the DOM (React's style objects), which a policy does not govern, and needed nothing. Scripts stay
+ * 'self' only (no 'unsafe-inline', no 'unsafe-eval'); a style can fetch nothing here, since fonts, images and requests are
+ * held to this server ('self').
+ */
+export const PAGE_STYLE_SRC = "style-src 'self' 'unsafe-inline'";
+
+/**
+ * R4 (H95): images from this server and data: images. Measured in a real Chromium: Streamdown's "Download diagram → PNG"
+ * paints the drawn diagram's own SVG onto a canvas by loading it as a data:image/svg+xml image, which img-src 'self'
+ * refused (no download). A data: image is made in the page from bytes it already holds: it fetches nothing from anywhere,
+ * and an image runs no script. Images from any other site stay refused.
+ */
+export const PAGE_IMG_SRC = "img-src 'self' data:";
 
 /**
  * The companion page's policy. `host`: the request's Host, which the local rule has already checked; the page's own
@@ -41,9 +67,9 @@ export function pagePolicy(host: string | undefined): string {
   return [
     "default-src 'none'",
     "script-src 'self'",
-    "style-src 'self'",
+    PAGE_STYLE_SRC,
     "font-src 'self'",
-    "img-src 'self'",
+    PAGE_IMG_SRC,
     `connect-src 'self'${socket}`,
     "frame-src 'self'",
     "object-src 'none'",
@@ -87,17 +113,25 @@ const escHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => ({ '&': '&am
 
 /**
  * Where Slate 3D's bundle is not built: its words as a page of Timmy's look (r23c, row 173: they were plain text, drawn black
- * on the companion's dark frame). Status 404, as before; no script, no path of this computer.
+ * on the companion's dark frame). Status 404, as before; no script, no path of this computer. R4 (H95): in the companion's
+ * own look (its text colour on the frame's ground, Inter), as the page around it.
  */
 export function sendSlateAbsent(res: Response, words: string): void {
   if (res.headersSent) { res.destroy(); return; }
   safetyHeaders(res, SLATE_ABSENT_POLICY, 'SAMEORIGIN');
   res.status(404).set('Cache-Control', 'no-store').type('text/html; charset=utf-8').send([
     '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Slate 3D</title>',
-    '<link rel="stylesheet" href="/timmy-theme.css"><link rel="stylesheet" href="/companion.css"></head>',
+    '<link rel="stylesheet" href="/companion.css"></head>',
     `<body class="slate-absent"><p>${escHtml(words)}</p></body></html>`,
     '',
   ].join('\n'));
+}
+
+/** The page's own files at /web/ (the built chat, its styles, its fonts), from `webDir` when a test gives one. */
+export function mountWebAssets(app: express.Application, webDir?: string): void {
+  app.get(/^\/web\//, (req, res, next) => {
+    sendWebFile(req.path, res, webDir).then((handled) => { if (!handled) next(); }, () => failRequest(res, 500, FONT_ABSENT, 'text'));
+  });
 }
 
 /** A file of an installed package by its path inside the package; null when the package is not installed. */

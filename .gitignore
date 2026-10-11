@@ -87,3 +87,9 @@ tests/fixtures/probe-*.mp4
 
 # HarnessKit plugin writes a per-session log at stop time; local tooling residue, never product
 .harnesskit/session-logs/
+
+# R4 (H95): the companion's web code (scripts/companion-web-build.mjs) is built on this machine, by `npm run build` or on
+# demand, and never committed: its folder, the lock one builder holds and a build in progress (dist/ ignores them too)
+dist/companion-web/
+dist/companion-web.lock/
+dist/companion-web.tmp-*/
