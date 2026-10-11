@@ -38,6 +38,9 @@ import { MEMORY_CSS, memorySection, type BoardMemory } from '../memory/board.js'
 import { CANVAS_LINE_CSS, canvasLineHtml, type BoardCanvas } from './board-canvas.js';
 // Round R4 (H65): Results and review, next to the Control Room (src/review/html.ts).
 import { REVIEW_CSS, reviewSection, type BoardReview } from '../review/html.js';
+// Round R4 (H78): God's Eye View, the Overview at the top of the board (src/repl/board-overview.ts, drawn from src/overview).
+import { OVERVIEW_CSS, overviewSection } from './board-overview.js';
+import type { Overview } from '../overview/model.js';
 
 export interface BoardFile { rel: string; bytes: number; sha256?: string; kind?: string }
 /** A workflow document: its named blocks (R4: with language and command), its sha256 and whether the live board edits it. */
@@ -154,6 +157,8 @@ export interface BoardInput {
   canvas?: BoardCanvas;
   /** R4 (H65): what the newest operations changed (src/review), drawn after the Control Room; absent: no section. */
   review?: BoardReview;
+  /** R4 (H78): God's Eye View (src/overview), drawn first; absent: no section. */
+  overview?: Overview;
 }
 
 /** Where `/board` writes the page, relative to the project, and the way back from there. */
@@ -662,10 +667,12 @@ export function renderBoardBody(input: BoardInput): { toc: string; main: string 
   const vox = input.vox ? voxSection(input.vox, { kit: k, base: input.base }) : undefined;
   const memory = input.memory ? memorySection(input.memory, k) : undefined; // R4 (H50)
   const review = input.review ? reviewSection(input.review, k) : undefined; // R4 (H65)
+  const overview = input.overview ? overviewSection(input.overview, k, input.base, { canvasLine: !!input.canvas }) : undefined; // R4 (H78)
   return {
-    toc: `<nav class="toc">${room?.toc ?? ''}${review?.toc ?? ''}${counts.slice(0, 2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${params}${counts.slice(2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${flows?.toc ?? ''}${vox?.toc ?? ''}${memory?.toc ?? ''}</nav>`,
+    toc: `<nav class="toc">${overview?.toc ?? ''}${room?.toc ?? ''}${review?.toc ?? ''}${counts.slice(0, 2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${params}${counts.slice(2).map(([id, label, c]) => `<a href="#${id}">${esc(label)} <b>${c}</b></a>`).join('')}${flows?.toc ?? ''}${vox?.toc ?? ''}${memory?.toc ?? ''}</nav>`,
     main: [
       ...(input.canvas ? [canvasLineHtml(input.canvas, k)] : []),
+      ...(overview ? [overview.html] : []),
       ...(room ? [room.html] : []),
       ...(review ? [review.html] : []),
       heading('references', 'References', n.references),
@@ -698,7 +705,7 @@ export function renderBoardBody(input: BoardInput): { toc: string; main: string 
 }
 
 /** The board's stylesheet, shared by the snapshot and the live board's page (R4: with the new cards' rules). */
-export const BOARD_CSS = CSS + CARDS_CSS + NODES_CSS + ROOM_CSS + VOX_CSS + MEMORY_CSS + CANVAS_LINE_CSS + REVIEW_CSS;
+export const BOARD_CSS = CSS + CARDS_CSS + NODES_CSS + ROOM_CSS + VOX_CSS + MEMORY_CSS + CANVAS_LINE_CSS + REVIEW_CSS + OVERVIEW_CSS;
 
 /** The board as one self-contained HTML page. */
 export function renderBoard(input: BoardInput): string {

@@ -117,6 +117,10 @@ import { recoverAgentRuns } from './recover-agents.js'; // R4 (H59): code agent 
 import { recoverOperations } from '../ops/recover-operations.js'; // R4 (H68): the operations an ended REPL left open, once their runs ended
 // Round R4 (H55): the board's line about Timmy Canvas (src/repl/board-canvas.ts; the REPL checks the canvas).
 import type { BoardCanvas } from './board-canvas.js';
+// Round R4 (H78): God's Eye View, the project overview (src/overview; /overview and the board's first section); hooks "R4 (H78)".
+import { buildOverview, type Overview } from '../overview/index.js';
+import { overviewLines } from './overview.js';
+import { overviewShape } from './board-overview.js';
 import { REPL_END_REASON, STOPPED_WITH_STOP, stopReason } from '../utils/stop-words.js';
 // Round R4 (H65): Results and review (/review, /restore, the board's section); hooks are marked "R4 (H65)".
 import { MAX_CHANGES_ONE, operationReview, reviewView, visible } from '../review/changes.js';
@@ -2229,6 +2233,35 @@ export class Workspace {
     try { return reviewView(ix, { max: 6 }); } catch (err) { return { error: this.scrub(err instanceof Error ? err.message : String(err), this.root) }; }
   }
 
+  // ── /overview (round R4, helper H78: God's Eye View; src/overview builds it, src/repl/overview.ts prints it) ──
+
+  /**
+   * `/overview [<section>|--all|--json]`: the project at a glance, from what the board reads (the Control Room, Workflows,
+   * VoxVision, Results and Memory): what needs you first. The tools are checked once in the session, as /decisions checks
+   * them, so the setup a run needs is part of what waits on you. Nothing is run, sealed or written.
+   */
+  async overview(args: string): Promise<Line[]> {
+    if (!this.roomTools) await this.checkRoomTools();
+    const o = this.boardData().input.overview;
+    if (!o) return this.say('The overview could not be built: the board says why (/board).', 'failure');
+    return overviewLines(o, args, { glyphs: this.d.glyphs, link: (rel) => this.fileLink(rel) });
+  }
+
+  /** R4 (H78): God's Eye View from what the board read; never throws (undefined only when even that fails). */
+  private overviewOf(root: string, g: { jobs: JobRecord[]; chain: Receipt[]; chainError?: string; files: ProjectFile[]; truncated: boolean; workflows: BoardInput['workflows']; workflowsMore: number; flows: BoardFlows; room: Room; ix?: OpIndex; vox: BoardInput['vox']; memory: BoardMemory; review: BoardInput['review']; canvas?: BoardCanvas }): Overview | undefined {
+    try {
+      return buildOverview(root, {
+        name: this.project.name, env: this.d.env, scrub: (t) => this.scrub(t, root),
+        given: {
+          jobs: g.jobs, chain: g.chain, ...(g.chainError ? { chainError: g.chainError } : {}), files: g.files, filesTruncated: g.truncated,
+          workflows: g.workflows, workflowsMore: g.workflowsMore, flows: g.flows, room: g.room.view, ...(g.ix ? { ix: g.ix } : {}),
+          ...(g.vox ? { vox: g.vox } : {}), memory: g.memory, ...(g.review ? { review: g.review } : {}), ...(g.canvas ? { canvas: g.canvas } : {}),
+          activeFlows: this.flows.active, ...(this.roomTools ? { tools: this.roomTools } : {}),
+        },
+      });
+    } catch { return undefined; }
+  }
+
   // ── /board (round R2: a reference board linked to the actual files, jobs and results) ──
 
   /**
@@ -2289,7 +2322,8 @@ export class Workspace {
     // The review of 40022d9: an observation file is editable. Each is checked against the runs chain (a
     // sealed observe receipt for exactly its bytes) and against its image as it is now (checkObservation).
     let chain: Receipt[] = [];
-    try { chain = (this.d.receipts ?? (() => readChain('runs')))(); } catch { chain = []; }
+    let chainError: string | undefined; // R4 (H78): God's Eye View says why the receipts are not known
+    try { chain = (this.d.receipts ?? (() => readChain('runs')))(); } catch (err) { chain = []; chainError = this.scrub(err instanceof Error ? err.message : String(err), root); }
     const pid = projectId(root);
     // R4 (H47): each workflow document connected to its runs, its blocks' last results and the parameter files they name.
     const wfContext = this.workflowContext(root, jobs, chain, files.map((f) => f.rel));
@@ -2358,8 +2392,14 @@ export class Workspace {
     const review = this.boardReview(ix);
     // R4 (H55): whether Timmy Canvas is open on this same project, as the REPL last found it.
     const canvas = this.d.canvas?.();
+    // R4 (H49, H50): read once, for their sections and God's Eye View.
+    const vox = readBoardVox({ root, files, chain, projectId: pid, scrub: (t) => this.scrub(t, root), tools: { env: this.d.env, onPath: this.d.onPath, root } });
+    const memory = this.boardMemory(root, chain, pid);
+    // R4 (H78): God's Eye View, from what this board has read (nothing is read again); a failure is said in the section.
+    const overview = this.overviewOf(root, { jobs, chain, chainError, files, truncated, workflows: connected, workflowsMore: Math.max(0, docs.length - BOARD_MAX.workflows), flows, room, ix, vox, memory, review, canvas });
     const input: BoardInput = {
       ...(canvas ? { canvas } : {}),
+      ...(overview ? { overview } : {}),
       project: this.project.name,
       madeAt: utcStamp(new Date()),
       base: BOARD_BASE,
@@ -2387,9 +2427,9 @@ export class Workspace {
       room: room.view,
       review, // R4 (H65): what the newest operations changed, each file checked now, with a restore where one is exact
       // R4 (H49): VoxVision's tools, the files they read, and its records, each checked against the runs chain.
-      vox: readBoardVox({ root, files, chain, projectId: pid, scrub: (t) => this.scrub(t, root), tools: { env: this.d.env, onPath: this.d.onPath, root } }),
+      vox,
       // R4 (H50): Timmy Memory's lessons, each checked now against its evidence (read only), with how many runs used each.
-      memory: this.boardMemory(root, chain, pid),
+      memory,
     };
     return {
       input, references: references.length, docs: docs.length, jobs: jobs.length, outputs: outputs.length, observed: observed.length, verifiedCount, truncated, images,
@@ -2419,7 +2459,7 @@ export class Workspace {
       ];
     }
     // Round R4 (review M4): the pane opens a private launch page, removed once the board has let the page in.
-    const lb = new LiveBoard({ onAuthorized: () => dropLaunchPages(lb.url), state: () => this.liveState(), execute: (c) => this.boardCommand(c), edit: (body, s) => this.boardEdit(body, s), scrub: (t) => this.scrub(t, this.root), file: (p) => this.voxFile(p) });
+    const lb = new LiveBoard({ onAuthorized: () => dropLaunchPages(lb.url), state: () => this.liveState(), execute: (c) => this.boardCommand(c), edit: (body, s) => this.boardEdit(body, s), scrub: (t) => this.scrub(t, this.root), file: (p) => this.voxFile(p), overview: () => this.boardData(true).input.overview });
     try { await lb.start(); } catch (err) { return this.say(`The live board could not start: ${err instanceof Error ? err.message : 'error'}`, 'failure'); }
     this.live = lb;
     this.d.onBoardLive?.(lb.address); // R4 (H55)
@@ -2448,7 +2488,7 @@ export class Workspace {
     const { input, images } = this.boardData(true);
     const { toc, main } = renderBoardBody(input);
     // The sections are redrawn when this changes: everything but the jobs' states and times.
-    const shape = createHash('sha256').update(JSON.stringify({ ...input, madeAt: '', jobs: input.jobs.map((j) => ({ id: j.id, label: j.label, receipt: j.receipt })) })).digest('hex').slice(0, 16);
+    const shape = createHash('sha256').update(JSON.stringify({ ...input, madeAt: '', jobs: input.jobs.map((j) => ({ id: j.id, label: j.label, receipt: j.receipt })), overview: input.overview ? overviewShape(input.overview) : undefined })).digest('hex').slice(0, 16);
     // R4 (H48): the Control Room's Stop targets: its running flows (stoppable only when this REPL runs one), and a job of this
     // REPL's it shows running: one the Jobs section left off (it shows the newest only), or a Look job whose measurement ended
     // while its model is asked (/stop <job> reaches the request). Each is checked by checkAction as any stop.
