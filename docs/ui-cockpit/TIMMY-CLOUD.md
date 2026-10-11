@@ -257,6 +257,48 @@ The answer carries the customer's token once. Then `POST /v1/orders` with that t
 /v1/operator/orders/<id>/approve` with the operator's token, and `GET /v1/operator/overview`. Both processes stop on
 SIGTERM; the data folder holds `events.jsonl` and `backend.log`.
 
+## Timmy Cloud's client (R4, helper H93)
+
+**Status: implemented and tested in the development container, against the simulated provider only; not run on the
+Mac.** The operator's Timmy reads the backend. It holds no agency credential and changes nothing on the backend.
+
+- **`timmy cloud use <url> --token-file <file>`** (`src/cloud/commands.ts`, `cloudDo`) records the backend's address and
+  the *path* of the operator's token file in `<Timmy home>/cloud/config.json` (0600, in a 0700 folder). Nothing is
+  contacted. The file must be a regular file of the operator's own that only its owner can read (0600 or 0400). A looser
+  file is refused, with its mode and `chmod 600 <file>` in the words. So are a symbolic link, another account's file, an
+  empty file and one over 4096 bytes; nothing is written. `http://` is accepted only to 127.0.0.1, [::1] or localhost;
+  `https://` to any host; never a user name, password, query or fragment in the address.
+- **The token** is read from that file at each read, kept in memory for that read only, never copied into a file of
+  Timmy's and never printed. It is taken out of every word kept or shown, in every form it could take (as is,
+  JSON-escaped, URL-encoded, base64) (`src/cloud/token.ts`).
+- **`timmy cloud status [--json]`**, and **`/cloud`** in the REPL, read `GET /v1/operator/overview` and
+  `GET /v1/operator/orders` with the token. Each read waits 15 s at most, takes 8 MB at most and follows no redirect. The
+  answer is kept in `<Timmy home>/cloud/overview.json` (0600), with when it was read.
+  - A read that does not happen (the token file refused, a 401, the backend gone) keeps the previous answer of the same
+    backend, records the attempt (`failed: {at, why}`) and exits 1.
+  - A backend older than this client, with no orders route, is read in part, says so, and exits 1.
+- **`GET /v1/operator/orders`** (new; operator's token; GET only; `operatorOrdersView` in `services/cloud/views.ts`) is a
+  read-only route. It returns every customer's orders and resources, newest first, each with its customer id, as the
+  views the customer routes answer (`orderView`, `resourceView`).
+- **God's Eye View** (`/overview hosting`, `/overview costs`, Needs you, the board's Overview) reads the kept file and
+  never calls the network ([GODS-EYE-VIEW.md](GODS-EYE-VIEW.md), slice 2). An answer older than an hour is said to be old,
+  with `timmy cloud status`.
+- **Settling stays with a person.** Approving, reconciling, resolving and deciding remain the operator routes above, sent
+  by a person. The overview names each route, to copy.
+
+Tests: `tests/cloud-client-backend.test.ts` (a real backend process with its simulated provider on 127.0.0.1, the CLI as
+a child process) and `tests/overview-remote.test.ts` (God's Eye View from what the CLI kept).
+
+To try it by hand after the steps above (simulated only; these commands were not run by hand here):
+
+```sh
+mkdir -p ~/.config/timmy-cloud && (umask 077 && printf %s "$OPERATOR_TOKEN" > ~/.config/timmy-cloud/operator.token)
+timmy cloud use http://127.0.0.1:8791 --token-file ~/.config/timmy-cloud/operator.token
+timmy cloud status          # then, in the REPL: /cloud, /overview hosting, /overview costs
+```
+
+From a clone, `node --import tsx timmy.ts cloud …` runs the same command.
+
 ## Open
 
 - God's Eye View does not read the overview yet (its slice 2).

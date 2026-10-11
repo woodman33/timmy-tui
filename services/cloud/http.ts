@@ -12,6 +12,7 @@
  *   POST /v1/orders/:id/cancel                  cancel (before submission) or ask to cancel (after)
  *
  *   GET  /v1/operator/overview                  counts by step and state, spend against limits, what needs a person
+ *   GET  /v1/operator/orders                    every customer's orders and resources, read only (R4, H93)
  *   GET  /v1/operator/orders/:id                any order
  *   POST /v1/operator/orders/:id/approve        approve an order waiting for the operator
  *   POST /v1/operator/orders/:id/reconcile      read the provider for one order now
@@ -29,6 +30,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { CloudError, NO_SUCH_ORDER, type CloudEngine } from './engine.js';
 import type { Redactor } from './redaction.js';
+import { operatorOrdersView } from './views.js';
 
 const BODY_LIMIT = 64 * 1024;
 const ID = /^[A-Za-z0-9_-]{1,100}$/;
@@ -130,6 +132,8 @@ export class CloudHttpServer {
     const b = (body && typeof body === 'object' && !Array.isArray(body) ? body : {}) as Record<string, unknown>;
     switch (name) {
       case 'overview': return ok(this.engine.overview());
+      // R4 (H93): read only, the same views the customer routes answer, for every customer
+      case 'orders': return ok(operatorOrdersView(this.engine.state, new Date()));
       case 'order': return ok({ order: this.engine.operatorOrder(id!) });
       case 'approve': return ok(await this.engine.approve(id!));
       case 'reconcile-order': return ok({ order: await this.engine.reconcileOrder(id!) });
@@ -199,6 +203,7 @@ function operatorRoute(method: string, p: string[]): { name: string; id: string 
   const is = (m: string, name: string, id: string | null = null, body = true): { name: string; id: string | null; body: boolean } | 'method' => (method === m ? { name, id, body } : 'method');
   const id = (raw: string): string => { if (!ID.test(raw)) throw new CloudError(404, 'No such item.'); return raw; };
   if (p.length === 1 && p[0] === 'overview') return is('GET', 'overview', null, false);
+  if (p.length === 1 && p[0] === 'orders') return is('GET', 'orders', null, false); // R4 (H93)
   if (p.length === 1 && p[0] === 'reconcile') return is('POST', 'reconcile', null, false);
   if (p.length === 1 && p[0] === 'customers') return is('POST', 'customers');
   if (p.length === 1 && p[0] === 'billing-notices') return is('POST', 'billing');

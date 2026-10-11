@@ -31,6 +31,7 @@ import {
   type SpatialHighlight, type SpatialItem, type SpatialSection, type Tone, type Unreadable, type WorkflowItem, type WorkflowsSection,
 } from './model.js';
 import { flowLife, jobLife, LIVE_STATES, operationLife } from './proof.js';
+import { mergeNeeds, remoteNeeds } from './remote.js'; // R4 (H93)
 import { roomRuns, unreadableWhy, type Sources } from './sources.js';
 
 type Obj = Record<string, unknown>;
@@ -74,29 +75,45 @@ export function needsSource(d: Decision): OverviewSource {
 
 export function needsSection(s: Sources): NeedsSection {
   const out: NeedsSection = { ...base('needs', s), total: 0, items: [], more: 0, tools: {} };
-  if (!s.decisions.ok) return { ...out, state: 'unknown', summary: 'not known', why: `what waits on you could not be read: ${s.decisions.error}` };
-  const v = s.decisions.value;
-  const failed = v.notes.find((n) => /^What waits on you could not be read/.test(n));
-  if (failed && !v.items.length) return { ...out, state: 'unknown', summary: 'not known', why: failed };
-  const items: NeedsItem[] = v.items.map((d) => ({
+  // R4 (H93): the new kinds, from this computer's Timmy home (Timmy Connect) and Timmy Cloud's backend (as last read)
+  const extra = remoteNeeds(s);
+  let unknownWhy: string | undefined;
+  if (!s.decisions.ok) unknownWhy = `what waits on you could not be read: ${s.decisions.error}`;
+  const v = s.decisions.ok ? s.decisions.value : undefined;
+  const failed = v?.notes.find((n) => /^What waits on you could not be read/.test(n));
+  if (v && failed && !v.items.length) unknownWhy = failed;
+  if (unknownWhy && !extra.items.length) return { ...out, state: 'unknown', summary: 'not known', why: unknownWhy, notes: extra.notes };
+  const own: NeedsItem[] = unknownWhy || !v ? [] : v.items.map((d) => ({
     title: d.title, kind: d.kind, blocks: d.blocks, needed: d.needed, why: d.why, commands: [...d.commands],
     ...(d.keys?.length ? { keys: [...d.keys] } : {}), ...(d.steps?.length ? { steps: [...d.steps] } : {}),
     ...(d.operation ? { operation: d.operation } : {}), source: needsSource(d),
   }));
+  const ownTotal = unknownWhy || !v ? 0 : v.total;
+  const all = mergeNeeds(own, extra.items);
+  const items = all.slice(0, ITEMS_MAX);
+  const total = ownTotal + extra.items.length;
   const blocking = items.filter((i) => i.blocks).length;
   const first = items[0];
-  const partial = v.notes.filter((n) => /could not be read/.test(n));
+  const partial = [...(unknownWhy ? [unknownWhy] : []), ...(unknownWhy || !v ? [] : v.notes.filter((n) => /could not be read/.test(n)))];
+  const fromConnect = extra.items.filter((i) => i.from === 'connect').length;
+  const fromCloud = extra.items.filter((i) => i.from === 'cloud').length;
   return {
     ...out, state: partial.length ? 'partial' : 'read', ...(partial.length ? { why: partial.join('; ') } : {}),
-    total: v.total, items, more: v.more,
-    summary: v.total ? `${v.total} waiting${blocking ? `, ${blocking} blocking` : ''}` : 'nothing waits on you',
-    counts: [count(v.total, v.total === 1 ? 'thing waits on you' : 'things wait on you'), ...(blocking ? [count(blocking, `of the first ${items.length} ${blocking === 1 ? 'blocks' : 'block'} a running or requested request`)] : [])],
-    ...(first ? { urgent: { text: first.title, tone: first.blocks || first.kind === 'failed' || first.kind === 'differs' ? 'failed' : 'attention', source: first.source } } : {}),
-    tools: { ...(v.tools.checkedAt ? { checked_at: v.tools.checkedAt } : {}), ...(v.tools.note ? { note: v.tools.note } : {}) },
+    total, items, more: Math.max(0, total - items.length),
+    summary: total ? `${total} waiting${blocking ? `, ${blocking} blocking` : ''}` : 'nothing waits on you',
+    counts: [
+      count(total, total === 1 ? 'thing waits on you' : 'things wait on you'),
+      ...(blocking ? [count(blocking, `of the first ${items.length} ${blocking === 1 ? 'blocks' : 'block'} a running or requested request`)] : []),
+      ...(fromConnect ? [count(fromConnect, 'of them from Timmy Connect (this computer\'s Timmy home)')] : []),
+      ...(fromCloud ? [count(fromCloud, 'of them from Timmy Cloud\'s backend, as last read')] : []),
+    ],
+    ...(first ? { urgent: { text: first.title, tone: first.blocks || first.kind === 'failed' || first.kind === 'differs' || first.kind === 'host-key-changed' ? 'failed' : 'attention', source: first.source, ...(first.ago ? { ago: first.ago } : {}) } } : {}),
+    tools: v ? { ...(v.tools.checkedAt ? { checked_at: v.tools.checkedAt } : {}), ...(v.tools.note ? { note: v.tools.note } : {}) } : {},
     notes: [
-      ...v.notes.filter((n) => !partial.includes(n)),
-      ...(v.otherSetup ? [`${plural(v.otherSetup, 'other row')} of /tools need setup for a tool no run of this project used or tried: /tools lists them.`] : []),
+      ...(v ? v.notes.filter((n) => !partial.includes(n)) : []),
+      ...(v?.otherSetup ? [`${plural(v.otherSetup, 'other row')} of /tools need setup for a tool no run of this project used or tried: /tools lists them.`] : []),
       ...(s.standalone ? ['A NEEDS YOU box and a save the board refused are held by the REPL that has them: not read here.'] : []),
+      ...extra.notes,
     ],
   };
 }

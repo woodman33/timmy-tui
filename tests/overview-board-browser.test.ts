@@ -107,7 +107,8 @@ describe.skipIf(!browserPath)('the Overview section on the live board (headless 
     expect(await page.evaluate(() => document.querySelector('#main h2')?.id)).toBe('overview');
     expect(await page.evaluate(() => document.querySelector('#toc a')?.getAttribute('href'))).toBe('#overview');
     // What needs you comes first among its cards.
-    expect(await page.$$eval('.ov-grid > article', (els) => els.map((e) => e.getAttribute('data-ov')))).toEqual(['needs', 'agents', 'workflows', 'apps', 'spatial', 'history', 'project']);
+    // R4 (H93): with Devices, Hosting and Costs (God's Eye View, slice 2)
+    expect(await page.$$eval('.ov-grid > article', (els) => els.map((e) => e.getAttribute('data-ov')))).toEqual(['needs', 'devices', 'hosting', 'agents', 'workflows', 'apps', 'spatial', 'history', 'costs', 'project']);
     // The map: an SVG, labelled as a layout, with the flow and its agent as nodes.
     expect(await page.textContent('.ov-map figcaption strong')).toBe(MAP_LABEL);
     expect(await page.getAttribute('.ov-map svg', 'aria-label')).toMatch(/^layout, not geometry: /);

@@ -242,6 +242,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'iterate', group: 'work', description: 'Agent edits; tray/Blender rebuilds: /iterate', run: inWorkspace((w, a) => (w.iterate ? w.iterate(a) : [[{ text: '  /iterate is not available here.', role: 'secondary' }]])) },
   // Round R4 (helper H90): Timmy Connect, the operator's own computers over SSH (src/connect/repl.ts; quotes group words).
   { name: 'connect', group: 'work', description: 'Your computers over SSH: add, probe, run', run: async (a, ctx) => { const { connectRepl } = await import('../connect/repl.js'); await connectRepl(a, { print: ctx.print, glyphs: ctx.glyphs, ...(ctx.workspace?.askBox ? { ask: ctx.workspace.askBox } : {}), ...(ctx.workspace?.root ? { cwd: ctx.workspace.root } : {}) }); } },
+  // Round R4 (helper H93): Timmy Cloud's client: reads the backend's overview and orders (src/cloud/repl.ts; quotes group words, as /connect's).
+  { name: 'cloud', group: 'look', description: "Timmy Cloud's backend, read: status, use", run: async (a, ctx) => { const { cloudRepl } = await import('../cloud/repl.js'); await cloudRepl(a, { print: ctx.print, glyphs: ctx.glyphs, ...(ctx.workspace?.root ? { cwd: ctx.workspace.root } : {}) }); } },
   {
     name: 'web',
     group: 'look',

@@ -344,4 +344,24 @@ function latestAt(o: Order): string {
   return STEP_NAMES.map((n) => o.steps[n].at).sort().pop() ?? o.created_at;
 }
 
+/**
+ * R4 (H93): GET /v1/operator/orders, read only: every customer's orders and resources, newest first, as the same views the
+ * customer routes answer (orderView, resourceView), each with its customer. Timmy's client keeps it beside the overview, so
+ * God's Eye View can show each site, domain and VPS with its own steps.
+ */
+export interface OperatorOrders {
+  generated_at: string;
+  orders: Array<{ customer_id: string } & OrderView>;
+  resources: Array<{ customer_id: string } & ResourceView>;
+}
+
+export function operatorOrdersView(state: CloudState, now: Date): OperatorOrders {
+  const newest = <T extends { created_at: string }>(a: T, b: T): number => b.created_at.localeCompare(a.created_at);
+  return {
+    generated_at: now.toISOString(),
+    orders: Object.values(state.orders).sort(newest).map((o) => ({ customer_id: o.customer_id, ...orderView(state, o) })),
+    resources: Object.values(state.resources).sort(newest).map((r) => ({ customer_id: r.customer_id, ...resourceView(r) })),
+  };
+}
+
 export function deletionView(d: DeletionRequest): DeletionRequest { return d; }

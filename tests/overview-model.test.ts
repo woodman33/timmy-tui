@@ -190,7 +190,8 @@ describe("God's Eye View from the records the real writers made (FAKE agent, Ope
     expect(first.length).toBeLessThanOrEqual(25);
     for (const l of first) expect(Array.from(l).length, l).toBeLessThanOrEqual(80);
     expect(first[1]).toMatch(/^ {2}Needs you {3}/);
-    expect(first.slice(1).map((l) => l.slice(2, 13).trim())).toEqual(['Needs you', '', 'Agents', 'Workflows', 'Apps', 'Spatial', 'History', 'Project', 'Map', 'In full']);
+    // R4 (H93): Devices, Hosting and Costs, a line each (God's Eye View, slice 2)
+    expect(first.slice(1).map((l) => l.slice(2, 13).trim())).toEqual(['Needs you', '', 'Devices', 'Hosting', 'Agents', 'Workflows', 'Apps', 'Spatial', 'History', 'Costs', 'Project', 'Map', 'In full']);
     expect(first[2].trim()).toBe(o.needs.urgent!.source.command);
     // Narrower: still within the width.
     for (const l of plain(overviewFirstLines(o, { glyphs: g, width: 60 }))) expect(Array.from(l).length, l).toBeLessThanOrEqual(60);
@@ -198,9 +199,9 @@ describe("God's Eye View from the records the real writers made (FAKE agent, Ope
     expect(agents).toContain(`asked   make it 100 wide`);
     expect(agents).toContain(`/room ${flow}`);
     const all = plain(overviewLines(o, '--all', { glyphs: g })).join('\n');
-    for (const t of ['NEEDS YOU', 'AGENTS', 'WORKFLOWS', 'APPS', 'SPATIAL', 'HISTORY', 'PROJECT', 'MAP']) expect(all).toContain(`  ${t}`);
+    for (const t of ['NEEDS YOU', 'DEVICES', 'HOSTING', 'AGENTS', 'WORKFLOWS', 'APPS', 'SPATIAL', 'HISTORY', 'COSTS', 'PROJECT', 'MAP']) expect(all).toContain(`  ${t}`);
     expect(all).toContain(MAP_LABEL);
-    expect(plain(overviewLines(o, 'nonsense', { glyphs: g }))).toEqual(['  Usage: /overview [needs|agents|workflows|apps|spatial|history|project|map] [--all] [--json]']);
+    expect(plain(overviewLines(o, 'nonsense', { glyphs: g }))).toEqual(['  Usage: /overview [needs|devices|hosting|agents|workflows|apps|spatial|history|costs|project|map] [--all] [--json]']);
     // --json prints the model itself.
     expect(JSON.parse(plain(overviewLines(o, '--json', { glyphs: g })).join('\n'))).toEqual(o);
   });

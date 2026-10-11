@@ -87,6 +87,7 @@ Commands:
   do "<phrase>"         jbone resolver: fuzzy CUE template -> confirm -> lane (--yes)
   connect <tool>        Bind a tool binary into the chain (env.lock receipt)
   connect add|probe|run|status|stop|fetch …  Your own computers over SSH (timmy connect help)
+  cloud use|status      Timmy Cloud's backend, read by its operator (timmy cloud help)
   design list|run       Open Design (MCP) gens: queue in GENS, execute + seal here
   doctor deps|network|hardware  Read-only posture checks (never auto-fixes)
   mcp status|inspect|probe  MCP wire visibility: mcpsnoop + mcp-probe (opt-in)
@@ -153,7 +154,7 @@ if (cleanArgs.length === 0 && !args.includes('--help') && !args.includes('-h')) 
   const { isBlankSlate, runInit } = await import('./utils/init.js');
   if (isBlankSlate()) process.exit(await runInit(args));
 }
-if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop', 'act', 'md', 'connect'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
+if (cleanArgs.length === 0 || ((args.includes('--help') || args.includes('-h')) && !['vision', 'repl', 'center', 'studio', 'receipts', 'tools', 'drop', 'act', 'md', 'connect', 'cloud'].includes(cleanArgs[0])) || cleanArgs[0] === 'help') {
   printHelp();
   process.exit(0);
 }
@@ -917,6 +918,12 @@ if (command === 'design') {
   }
   console.error('Usage: timmy design list | timmy design run <genId>');
   process.exit(2);
+}
+
+if (command === 'cloud') {
+  // Round R4 (H93): Timmy Cloud's client, the operator's reads of the backend (src/cloud/cli.ts): use, status, help.
+  const { cloudMain } = await import('./cloud/cli.js');
+  process.exit(await cloudMain(args.slice(args.indexOf('cloud') + 1)));
 }
 
 if (command === 'connect') {
