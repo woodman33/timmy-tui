@@ -78,7 +78,7 @@ export interface Stack {
   close(): Promise<void>;
 }
 
-export interface StackOptions { sim?: Partial<SimOptions>; timeoutMs?: number; retentionDays?: number; clock?: () => Date }
+export interface StackOptions { sim?: Partial<SimOptions>; timeoutMs?: number; retentionDays?: number; clock?: () => Date; clockMarginMs?: number }
 
 /** The simulated provider and the backend, in this process, over real HTTP, on a fresh data folder. */
 export async function startStack(o: StackOptions = {}): Promise<Stack> {
@@ -89,7 +89,7 @@ export async function startStack(o: StackOptions = {}): Promise<Stack> {
   const operatorToken = newToken();
   const redactor = new Redactor([credential]);
   const open = async (): Promise<{ engine: CloudEngine; server: CloudHttpServer; url: string }> => {
-    const adapter = new SimulatedAdapter({ baseUrl: sim.url, credential, provesAbsence: !!o.sim?.provesAbsence, timeoutMs: o.timeoutMs ?? 1500, redactor });
+    const adapter = new SimulatedAdapter({ baseUrl: sim.url, credential, provesAbsence: !!o.sim?.provesAbsence, timeoutMs: o.timeoutMs ?? 1500, redactor, clockMarginMs: o.clockMarginMs });
     const engine = CloudEngine.open({ dataDir, provider: adapter, redactor, operatorTokenSha256: sha256Hex(operatorToken), pollIntervalMs: 0, retentionDays: o.retentionDays, clock: o.clock });
     const server = new CloudHttpServer(engine, redactor);
     const url = await server.start();

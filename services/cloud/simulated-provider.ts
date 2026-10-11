@@ -14,7 +14,9 @@
  * - a certificate setup is limited per domain (three per seven days; again within a minute is refused with 429);
  * - there is no operation that cancels a purchase or a setup, none that shares account access and none that makes a
  *   sub-account: those paths answer 404 like any path that does not exist;
- * - the API has a shared rate limit: 429 with Retry-After.
+ * - rate limits per endpoint, 429 above them (the documentation shows a Retry-After only on 409 answers, such as a setup for
+ *   the same domain still running). To test the backend's pause, this simulator can put one limit on every route and send
+ *   a Retry-After with its 429s (`rateLimit`), which the documentation does not say the provider does.
  *
  * By default it keeps no client reference for lookups, like the documented provider (a purchase takes items and a
  * payment method only), so a purchase whose answer was lost can be found by what it bought but never proven absent.
@@ -73,6 +75,8 @@ export interface Received {
 
 interface SimPurchase {
   id: string; client_reference: string | null; item: SimCatalogItem; domain: string | null;
+  /** What it charges: the catalog's price when the order was placed, or a scripted amount (taxes the catalog does not show). */
+  total_cents: number;
   status: 'payment_initiated' | 'completed' | 'failed'; message: string | null;
   processing_reads: number; then: 'paid' | 'failed'; created_at: string;
 }
@@ -87,7 +91,7 @@ export interface SimOptions {
   credential: string;
   /** Keep client references and find purchases and setups by them (the documented provider does not). */
   provesAbsence?: boolean;
-  /** The shared rate limit: at most `max` requests per `windowMs`; beyond it, 429 with Retry-After. Off by default. */
+  /** One rate limit on every route (a test device): at most `max` requests per `windowMs`; beyond it, 429 with Retry-After. Off by default. */
   rateLimit?: { max: number; windowMs: number } | null;
   /** Reads of a running setup, a registering domain, an installing certificate or VPS before it settles. Default 1. */
   settleAfterReads?: number;
@@ -102,6 +106,10 @@ export class SimulatedProvider {
   readonly linkOutcomes: Array<'ok' | 'fail'> = [];
   readonly certificateOutcomes: Array<'active' | 'fail'> = [];
   readonly healthOutcomes: Array<'answers' | 'fails'> = [];
+  /** This provider's catalog: a copy of SIM_CATALOG that a test may change (a price that moves after a quote). */
+  readonly catalog: SimCatalogItem[] = SIM_CATALOG.map((c) => ({ ...c }));
+  /** Scripted charges, one per purchase, in cents: what the provider charges instead of the catalog's price. */
+  readonly charges: number[] = [];
   readonly received: Received[] = [];
 
   readonly purchases = new Map<string, SimPurchase>();
@@ -148,6 +156,14 @@ export class SimulatedProvider {
 
   /** Requests of `op` that the simulator carried out (its state changed, or a read answered). */
   done(op: SimOp): Received[] { return this.received.filter((r) => r.op === op && r.result === 'done'); }
+
+  /**
+   * The provider's own clean-up of a failed certificate setup, which its API does not offer (a person asks its support or
+   * uses its panel): the failed process stops counting, and a new setup may start.
+   */
+  cleanUpCertificate(domain: string): void {
+    for (const [key, c] of [...this.certificates]) if (key.endsWith(`|${domain}`) && c.status === 'failed') this.certificates.delete(key);
+  }
 
   /** Resolves at the next request of `op` the simulator receives (after it has acted on it). */
   nextRequest(op: SimOp): Promise<Received> {
@@ -217,7 +233,7 @@ export class SimulatedProvider {
     send(res, answer.status, answer.body, answer.headers);
   }
 
-  /** The shared rate limit, if set: null when this request is inside it, else the seconds to wait. */
+  /** The one limit on every route, if set: null when this request is inside it, else the seconds to wait. */
   private sharedLimit(): number | null {
     const limit = this.opts.rateLimit;
     if (!limit) return null;
@@ -234,10 +250,10 @@ export class SimulatedProvider {
     const now = new Date().toISOString();
     switch (route.op) {
       case 'catalog':
-        return ok({ items: SIM_CATALOG });
+        return ok({ items: this.catalog });
       case 'purchase': {
         const items = Array.isArray(body?.items) ? body.items as Array<{ item_id?: unknown }> : [];
-        const item = SIM_CATALOG.find((c) => c.id === items[0]?.item_id);
+        const item = this.catalog.find((c) => c.id === items[0]?.item_id);
         if (items.length !== 1 || !item) return refuse(422, 'The order must name exactly one catalog item that exists.');
         if (item.category === 'HOSTING') return refuse(422, 'A website on the agency plan is set up, not bought.');
         const domain = typeof body?.domain === 'string' ? body.domain : null;
@@ -249,7 +265,7 @@ export class SimulatedProvider {
         const id = `sim-order-${this.nextOrder++}`;
         const p: SimPurchase = {
           id, client_reference: this.opts.provesAbsence ? (typeof body?.client_reference === 'string' ? body.client_reference : null) : null,
-          item, domain, status: 'completed', message: null, processing_reads: 0, then: 'paid', created_at: now,
+          item: { ...item }, domain, total_cents: this.charges.shift() ?? item.price_cents, status: 'completed', message: null, processing_reads: 0, then: 'paid', created_at: now,
         };
         if (script === 'declined') { p.status = 'failed'; p.message = 'The payment was declined by the payment method on file (simulated).'; }
         else if (typeof script === 'object') { p.status = 'payment_initiated'; p.processing_reads = script.processing; p.then = script.then; p.message = 'Payment is being processed. The order will complete automatically once payment is confirmed.'; }
@@ -354,8 +370,12 @@ export class SimulatedProvider {
         const last = times[times.length - 1];
         const cooldown = this.opts.certificateCooldownMs ?? 60_000;
         if (last !== undefined && Date.now() - last < cooldown) return { status: 429, body: { error: 'The same domain was requested less than a minute ago.' }, headers: { 'Retry-After': String(Math.ceil(cooldown / 1000)) } };
+        // As documented: 422 while a certificate process is recorded (a failed setup counts until it is cleaned up, which the
+        // API offers no operation for), or while the domain has a platform certificate that is not expired.
         const current = this.certificates.get(key);
-        if (current && current.status !== 'failed') return refuse(422, 'A certificate process is already recorded for this domain.');
+        if (current?.status === 'failed') return refuse(422, 'A certificate process is recorded for this domain (a failed setup counts until it is cleaned up).');
+        if (current?.status === 'installing') return refuse(422, 'A certificate process is recorded for this domain.');
+        if (current?.status === 'active') return refuse(422, 'The domain already has a platform certificate that is not expired.');
         if (times.length >= 3) return refuse(422, 'This domain has had three certificate setups in the last seven days.');
         times.push(Date.now());
         this.certSetups.set(domain, times);
@@ -434,7 +454,8 @@ export class SimulatedProvider {
   private purchaseBody(p: SimPurchase): Record<string, unknown> {
     return {
       id: p.id, status: p.status, currency: p.item.currency,
-      ...(p.status === 'completed' ? { total_cents: p.item.price_cents } : {}),
+      created_at: p.created_at,
+      ...(p.status === 'completed' ? { total_cents: p.total_cents } : {}),
       ...(p.message ? { message: p.message } : {}),
       ...(p.item.category === 'DOMAIN' ? { domain: p.domain, registered: this.domains.get(p.domain ?? '')?.state === 'registered' } : {}),
     };

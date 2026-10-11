@@ -11,7 +11,9 @@
  * - a site setup runs in the background: it answers with a setup id, read until it completes (then a site id);
  * - deploying an archive overwrites a site's contents and cannot be undone, and deleting a site is immediate: both are
  *   IRREVERSIBLE_OPS, called only after a person approves (deletion) or not at all in this slice (deployment is on HOLD);
- * - the provider's API has a shared rate limit (429 with Retry-After), honoured for every call and read.
+ * - the documentation gives rate limits per endpoint (90 requests a minute to check domains' availability; 10 or 5 calls a
+ *   minute to some hosting endpoints; 429 above them) and shows a Retry-After only on 409 answers; this backend pauses every
+ *   call and read after any 429, for its Retry-After when one is sent and 5 s when none is.
  *
  * Adapters never throw for a provider's answer: every call ends in a `CallOutcome`, every read in a `ReadOutcome`.
  * Adapters never put the agency credential in an outcome's words (the backend redacts again before anything is kept).
@@ -61,6 +63,8 @@ export interface PurchaseView {
   words: string | null;
   /** A domain purchase: whether the domain is registered now (a purchase answered "processing" registers nothing yet). */
   registered: boolean | null;
+  /** When the provider says the order was placed; null when it does not say. */
+  created_at: string | null;
 }
 
 export interface DomainView {
@@ -101,7 +105,7 @@ export type CallOutcome =
   | { kind: 'answered'; http_status: number; answer: CallAnswer }
   /** The provider refused (a 4xx other than a busy 409 and 429): it did nothing. */
   | { kind: 'refused'; http_status: number; words: string }
-  /** The provider's shared rate limit (429): it did nothing; nothing is sent to it before retry_after_ms. */
+  /** A rate limit (429): it did nothing; nothing is sent to it before retry_after_ms (its Retry-After, or 5 s). */
   | { kind: 'rate_limited'; http_status: number; retry_after_ms: number; words: string }
   /** The provider is busy with the same thing (409 with Retry-After): it did nothing new; try again later. */
   | { kind: 'busy'; http_status: number; retry_after_ms: number; words: string }

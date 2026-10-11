@@ -169,7 +169,7 @@ describe('the simulated provider models the documented behaviour (and is labelle
     expect(stack.engine.overview().provider).toMatchObject({ name: 'simulated provider', simulated: true });
   });
 
-  it('its API has a shared rate limit: 429 with Retry-After; a certificate again within a minute is 429 too, and three per seven days', async () => {
+  it('it can apply one rate limit to every route (429 with Retry-After), to test the backend\'s pause; a certificate again within a minute is a 429', async () => {
     stack = await startStack({ sim: { rateLimit: { max: 2, windowMs: 60_000 } } });
     const s = stack.sim;
     expect((await raw(s, 'GET', '/sim/v1/catalog')).status).toBe(200);
@@ -183,12 +183,33 @@ describe('the simulated provider models the documented behaviour (and is labelle
       const setup = await raw(c, 'POST', '/sim/v1/sites/setups', {});
       const site = (await raw(c, 'GET', `/sim/v1/sites/setups/${setup.json.setup_uuid}`)).json.website_uid;
       await raw(c, 'POST', `/sim/v1/sites/${site}/domains`, { domain: 'cert.example' });
-      c.certificateOutcomes.push('fail');
       expect((await raw(c, 'POST', `/sim/v1/sites/${site}/domains/cert.example/certificate`, {})).status).toBe(202);
       const again = await raw(c, 'POST', `/sim/v1/sites/${site}/domains/cert.example/certificate`, {});
       expect(again.status).toBe(429);
       expect(again.headers['retry-after']).toBe('60');
     } finally { await c.close(); }
+  });
+
+  it('a certificate: a failed setup stays recorded until the provider cleans it up, and three setups per domain in seven days at most', async () => {
+    stack = await startStack({ sim: { certificateCooldownMs: 0 } });
+    const s = stack.sim;
+    const setup = await raw(s, 'POST', '/sim/v1/sites/setups', {});
+    const site = (await raw(s, 'GET', `/sim/v1/sites/setups/${setup.json.setup_uuid}`)).json.website_uid;
+    await raw(s, 'POST', `/sim/v1/sites/${site}/domains`, { domain: 'thrice.example' });
+    const start = () => raw(s, 'POST', `/sim/v1/sites/${site}/domains/thrice.example/certificate`, {});
+    const read = () => raw(s, 'GET', `/sim/v1/sites/${site}/domains/thrice.example/certificate`);
+    for (let n = 1; n <= 3; n += 1) {
+      s.certificateOutcomes.push('fail');
+      expect((await start()).status, `setup ${n}`).toBe(202);
+      expect((await read()).json.status).toBe('failed');
+      const blocked = await start();
+      expect(blocked.status).toBe(422);
+      expect(blocked.json.error).toBe('A certificate process is recorded for this domain (a failed setup counts until it is cleaned up).');
+      s.cleanUpCertificate('thrice.example');
+    }
+    const fourth = await start();
+    expect(fourth.status).toBe(422);
+    expect(fourth.json.error).toBe('This domain has had three certificate setups in the last seven days.');
   });
 
   it('it refuses a wrong credential and records only request bodies, never the Authorization header', async () => {

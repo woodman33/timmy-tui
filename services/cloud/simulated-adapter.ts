@@ -7,7 +7,8 @@
  *
  * - a connection refused before a byte was written: not sent (the provider did nothing);
  * - no answer (a timeout, a reset connection), an answer that cannot be read, or a 5xx: unknown (it may have acted);
- * - 429: the shared rate limit, with its Retry-After; a 409 with Retry-After: busy with the same thing; another 4xx: refused.
+ * - 429: a rate limit, with its Retry-After (5 s when none comes); a 409 with Retry-After: busy with the same thing; another
+ *   4xx: refused.
  *
  * Reconcile (`findEffect`) reads by what a call asked for. What that can prove is stated per operation: with no client
  * references (the documented provider's purchases take none), a purchase can be found by its domain but never proven
@@ -33,6 +34,11 @@ export interface SimulatedAdapterOptions {
   provesAbsence: boolean;
   timeoutMs: number;
   redactor: Redactor;
+  /**
+   * How far the provider's clock may be behind this backend's when a purchase found by its domain is matched to a call:
+   * placed earlier than the call was written ahead, by more than this, it is not that call's. Default 2000 ms.
+   */
+  clockMarginMs?: number;
 }
 
 const DEFAULT_RETRY_AFTER_MS = 5000;
@@ -101,6 +107,10 @@ export class SimulatedAdapter implements CloudProvider {
           if (p.kind !== 'answered') return p;
           const purchase = (p.value as Extract<ReadAnswer, { read: 'purchase' }>).purchase;
           if (!purchase) return answered({ found: false, proven: false, how: `the domain ${c.domain} is in the account, but its order ${domain.purchase_reference} could not be read: a person checks` });
+          // A purchase placed before this call was written ahead is not this call's (review H1): someone else's, or older.
+          const placed = purchase.created_at ? Date.parse(purchase.created_at) : NaN;
+          if (!Number.isFinite(placed)) return answered({ found: false, proven: false, how: `the domain ${c.domain} is in the account, but when its purchase was placed is not known, so it may not be this call's` });
+          if (placed < Date.parse(since) - (this.o.clockMarginMs ?? 2000)) return answered({ found: false, proven: false, how: `the domain ${c.domain} is in the account, but its purchase was placed before this call was sent, so it is not this call's` });
           return answered({ found: true, answer: { op: 'purchase', purchase }, how: `the domain ${c.domain} is in the account, bought by order ${purchase.reference}` });
         }
         const l = await this.listRead('/sim/v1/subscriptions', 'subscriptions');
@@ -295,6 +305,7 @@ function parsePurchase(j: Record<string, unknown>): PurchaseView | null {
     charged_cents: typeof j.total_cents === 'number' ? j.total_cents : null,
     currency: str(j.currency), words: str(j.message),
     registered: typeof j.registered === 'boolean' ? j.registered : null,
+    created_at: str(j.created_at),
   };
 }
 

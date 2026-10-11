@@ -22,7 +22,7 @@ import { randomUUID } from 'node:crypto';
 import { closeSync, fsyncSync, openSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
-  CallAnswer, CallOutcome, CloudProvider, Finding, ProviderCall,
+  CallAnswer, CallOutcome, CloudProvider, Finding, ProviderCall, PurchaseView,
 } from './provider.js';
 import type {
   CallRecord, CloudEvent, CloudEventBody, CloudState, Customer, DeletionRequest, Limits, Order, OrderKind, OrderRequest,
@@ -33,7 +33,7 @@ import { applyEvent, rebuild } from './reducer.js';
 import { DataFolderError, EventLog, type UnreadableLine } from './event-log.js';
 import type { Failpoints } from './failpoints.js';
 import { newToken, sha256Hex, tokenMatches, type Redactor } from './redaction.js';
-import { approvedInMonth, buildOverview, monthOf, orderView, resourceView, usd, type Overview, type OrderView, type ResourceView } from './views.js';
+import { approvedInMonth, buildOverview, monthOf, orderView, paidInMonth, resourceView, usd, type Overview, type OrderView, type ResourceView } from './views.js';
 
 /** A refusal or an error, in words, with an HTTP status. Never a path or a stack. */
 export class CloudError extends Error {
@@ -71,7 +71,7 @@ export class CloudEngine {
   private readonly retentionDays: number;
   private readonly logFd: number;
   private queue: Promise<unknown> = Promise.resolve();
-  /** The provider's shared rate limit: nothing is sent or read before this (ms since the epoch). */
+  /** After any 429 from the provider: nothing is sent or read before this (ms since the epoch); its Retry-After, or 5 s. */
   private pausedUntil = 0;
   /** Reads that failed recently, by order and step: not read again before this. */
   private readonly readBackoff = new Map<string, number>();
@@ -158,7 +158,7 @@ export class CloudEngine {
   idle(): Promise<void> { return this.queue.then(() => undefined); }
 
   // ---------------------------------------------------------------------------------------------------------------
-  // The shared rate limit
+  // A 429 pauses everything: the documentation gives per-endpoint limits, and this backend waits on any of them
   // ---------------------------------------------------------------------------------------------------------------
 
   private paused(): boolean { return Date.now() < this.pausedUntil; }
@@ -349,6 +349,10 @@ export class CloudEngine {
         const owned = Object.values(this.state.resources).some((r) => r.customer_id === customerId && r.kind === 'domain' && r.provider_ref === request.domain && r.state === 'active');
         if (!owned) throw new CloudError(422, 'No such domain among your resources: a site links only a domain registered for you through Timmy Cloud. Nothing was created.');
       }
+      // One domain, one order: a purchase found by the domain's name can then only ever be that order's (review H1).
+      if (request.kind === 'domain' && this.domainTaken(request.domain!, null, true)) {
+        throw new CloudError(422, 'This domain is not available to order (it is registered, or an order for it is open). Nothing was created.');
+      }
       const at = this.nowIso();
       const order = newOrder(customerId, request, requestSha, keySha, at);
       this.emit({ type: 'order.created', order }, `order.created:${sha256Hex(`${customerId}:${keySha}`)}`);
@@ -401,12 +405,28 @@ export class CloudEngine {
       if (o.steps.approval.state === 'approved') return { order: orderView(this.state, o), words: 'Already approved: nothing changed.' };
       if (o.steps.approval.state !== 'waiting') throw new CloudError(409, `Nothing to approve: the approval step is ${o.steps.approval.state.replace('_', ' ')}.`);
       const c = this.state.customers[o.customer_id];
+      const taken = this.availabilityProblem(o);
+      if (taken) {
+        this.refuseApproval(o, `Refused: ${taken}`);
+        throw new CloudError(409, `Not approved: ${taken} The order was refused; nothing was sent to the provider.`);
+      }
       const problem = this.limitProblem(c, o);
       if (problem) throw new CloudError(409, `Not approved: ${problem} The order still waits; raise the customer's limits, or the customer cancels.`);
+      // The price is read again before the money is committed (review M1): here, and right before the purchase. When the
+      // catalog cannot be read now, the approval stands on the quote: the read before the purchase holds a changed price.
+      const rq = await this.requote(o, 'approval');
+      if (rq.result === 'changed') {
+        throw new CloudError(409, rq.to === null
+          ? `Not approved: ${rq.refused} Nothing was sent to the provider.`
+          : rq.refused === null
+            ? `Not approved: the provider's price changed since the quote (${rq.from}, now ${rq.to}). The order was quoted again and waits for the operator's approval at the new price.`
+            : `Not approved: the provider's price changed since the quote (${rq.from}, now ${rq.to}). Quoted again, it is refused by the customer's limits: ${rq.refused}`);
+      }
       const at = this.nowIso();
+      const unread = rq.result === 'unread' ? ' The price could not be read again now; it is read again right before the purchase.' : '';
       this.emit({
         type: 'order.approval', order_id: o.order_id, approved_month: monthOf(at),
-        steps: [change(o, 'approval', { state: 'approved', at, words: `Approved by the operator (quote ${usd(o.quote!.total_cents)}).` })],
+        steps: [change(o, 'approval', { state: 'approved', at, words: `Approved by the operator (quote ${usd(o.quote!.total_cents)}).${unread}` })],
       });
       this.logLine(`order ${o.order_id} approved by the operator`);
       await this.advance(o.order_id, false);
@@ -483,12 +503,24 @@ export class CloudEngine {
         await this.advance(o.order_id, true);
         return orderView(this.state, this.state.orders[o.order_id]);
       }
-      throw new CloudError(422, 'The action is one of: happened, did_not_happen, continue, stop, retry.');
+      if (action === 'charge_reviewed') {
+        const p = o.steps.payment;
+        if (p.state !== 'paid' || !p.needs_person) throw new CloudError(409, 'No charge of this order waits for a check.');
+        const { needs_person: _checked, ...rest } = p;
+        this.emit({ type: 'person.decided', order_id: o.order_id, action, step: 'payment', note, halt: null, steps: [change(o, 'payment', { ...rest, at, words: `${p.words} A person checked the charge: ${note.replace(/[.]+$/, '')}.` })] });
+        return orderView(this.state, this.state.orders[o.order_id]);
+      }
+      throw new CloudError(422, 'The action is one of: happened, did_not_happen, continue, stop, retry, charge_reviewed.');
     });
   }
 
   /** What a person found: the call took effect, with the provider's reference where the next step needs one. */
   private happened(o: Order, call: CallRecord, reference: string | null, note: string, at: string): StepChange[] {
+    if (reference && this.referenceHolder(o, reference)) {
+      throw new CloudError(409, call.call.op === 'purchase'
+        ? 'That reference is already another order\'s purchase: one purchase is never given to two orders. Nothing changed.'
+        : 'That reference is already another order\'s: one provider operation is never given to two orders. Nothing changed.');
+    }
     const words = `A person checked the provider: the call took effect (${note}).`;
     const need = (what: string): string => { if (!reference) throw new CloudError(422, `Give the provider's reference (${what}) in "reference".`); return reference; };
     const c = call.call;
@@ -573,6 +605,10 @@ export class CloudEngine {
       if (input.confirm_resource_id !== d.resource_id) throw new CloudError(422, 'Name the resource being deleted again, exactly, in confirm_resource_id: nothing was deleted.');
       const openExport = Object.values(this.state.retention).find((i) => i.resource_id === d.resource_id && i.kind === 'export' && !i.closed);
       if (openExport) throw new CloudError(409, `Not approved: the customer's export of this site is still open (${openExport.item_id}). Record the export first; nothing was deleted.`);
+      const r = this.state.resources[d.resource_id];
+      if (r?.state === 'retained' && r.retained && this.clock().getTime() < Date.parse(r.retained.until)) {
+        throw new CloudError(409, `Not approved: ${r.kind} ${r.name} is retained until ${r.retained.until} (Timmy Pro was cancelled), and nothing of a cancelled customer's is deleted before then. Nothing was deleted.`);
+      }
       this.emit({ type: 'deletion.decided', deletion_id: deletionId, decision: 'approved', note, steps: [{ deletion_id: deletionId, to: { state: 'not_started', at, words: `Approved by a person (${note}); the provider is asked next.` } }] });
       await this.advanceDeletion(deletionId, true);
       return { deletion: this.state.deletions[deletionId], words: this.state.deletions[deletionId].step.words };
@@ -634,6 +670,18 @@ export class CloudEngine {
       if (s.payment.state === 'not_started') {
         if (c.subscription.state !== 'active') return false; // no purchase while past_due
         if (this.waiting(s.payment)) return false;
+        const taken = this.availabilityProblem(o);
+        if (taken) { this.refuseApproval(o, `Refused: ${taken}`); return false; }
+        // The price, read again right before the purchase (review M1); nothing is bought until it is.
+        const key = `${o.order_id}:requote`;
+        if (this.backedOff(key) && !explicit) return false;
+        const rq = await this.requote(o, 'purchase');
+        if (rq.result === 'unread') {
+          this.backOff(key);
+          this.logLine(`order ${o.order_id}: the price could not be read again before the purchase (${rq.words}); nothing is bought until it is`);
+          return false;
+        }
+        if (rq.result !== 'same') return false;
         return this.callPurchase(o);
       }
       if (s.payment.state !== 'paid') return false;
@@ -699,14 +747,110 @@ export class CloudEngine {
     const total = o.quote.total_cents;
     if (total > c.limits.per_order_cents) return `the quote (${usd(total)}) is over the per-order limit (${usd(c.limits.per_order_cents)}).`;
     const month = monthOf(this.nowIso());
-    const used = approvedInMonth(this.state, c.customer_id, month);
+    const used = approvedInMonth(this.state, c.customer_id, month, o.order_id);
     if (used + total > c.limits.monthly_cents) return `with ${usd(used)} already approved in ${month}, the quote (${usd(total)}) would pass the monthly limit (${usd(c.limits.monthly_cents)}).`;
     return null;
+  }
+
+  /** A domain order whose domain is already registered here for another order (review H1). */
+  private availabilityProblem(o: Order): string | null {
+    if (o.request.kind !== 'domain' || !o.request.domain) return null;
+    return this.domainTaken(o.request.domain, o.order_id, false) ? 'the domain is not available (it is registered).' : null;
+  }
+
+  /**
+   * Whether a domain is already this backend's: a domain resource (not deleted) of an order other than `except`, or, with
+   * `openOrders`, an open order of any customer for the same name. One domain, one order.
+   */
+  private domainTaken(domain: string, except: string | null, openOrders: boolean): boolean {
+    for (const r of Object.values(this.state.resources)) {
+      if (r.kind === 'domain' && r.provider_ref === domain && r.state !== 'deleted' && r.order_id !== except) return true;
+    }
+    if (!openOrders) return false;
+    return Object.values(this.state.orders).some((x) => x.order_id !== except && x.request.kind === 'domain' && x.request.domain === domain
+      && !x.cancel?.before_submission && STEP_NAMES.some((n) => !TERMINAL.has(x.steps[n].state)));
+  }
+
+  /** The approval refused by rule: the order ends, and every step not started is stopped. */
+  private refuseApproval(o: Order, words: string): void {
+    const at = this.nowIso();
+    this.emit({ type: 'order.approval', order_id: o.order_id, approved_month: null, steps: [change(o, 'approval', { state: 'refused', at, words }), ...this.stopNotStarted(o, at, 'Not started: the order was not approved.', ['approval'])] });
+    this.logLine(`order ${o.order_id}: ${words}`);
+  }
+
+  /**
+   * The provider's catalog read again for an order whose quote may be old (at approval, and right before the purchase).
+   * 'same': the price stands. 'changed': a new quote is recorded, and the approval waits for the operator again, or is
+   * refused by the customer's limits at the new price (or the item is gone: `to` null). 'unread': nothing changed.
+   */
+  private async requote(o: Order, when: 'approval' | 'purchase'): Promise<{ result: 'same' } | { result: 'unread'; words: string } | { result: 'changed'; from: string; to: string | null; refused: string | null }> {
+    if (this.paused()) return { result: 'unread', words: `the provider asked for a pause until ${this.pausedUntilIso} (a 429)` };
+    const r = await this.o.provider.read({ read: 'catalog' });
+    if (r.kind === 'rate_limited') { this.pauseFor(r.retry_after_ms); return { result: 'unread', words: r.words }; }
+    if (r.kind === 'failed') return { result: 'unread', words: r.words };
+    const old = o.quote!;
+    const was = `${usd(old.total_cents)} ${old.currency}`;
+    const at = this.nowIso();
+    const item = r.value.items.find((i) => i.item_id === o.request.item_id && i.kind === o.request.kind);
+    if (!item || (o.request.kind === 'site' && item.price_cents !== 0)) {
+      const gone = !item ? `The provider's catalog no longer has the ${o.request.kind} item "${o.request.item_id}".` : 'The provider now prices a website; this backend sets sites up only on the operator\'s agency plan, with no purchase.';
+      this.emit({ type: 'order.quoted', order_id: o.order_id, quote: null, steps: [change(o, 'quote', { state: 'failed', at, words: gone }), change(o, 'approval', { state: 'refused', at, words: `Refused: ${gone}` }), ...this.stopNotStarted(o, at, 'Not started: the order could not be quoted again.', ['quote', 'approval'])] });
+      return { result: 'changed', from: was, to: null, refused: gone };
+    }
+    if (item.price_cents === old.total_cents && item.currency === old.currency) return { result: 'same' };
+    const quote: Quote = {
+      items: [{ item_id: item.item_id, name: item.name, unit_cents: item.price_cents, quantity: 1, period: item.period }],
+      total_cents: item.price_cents, currency: item.currency, source: r.value.source, quoted_at: at,
+    };
+    const now = `${usd(quote.total_cents)} ${quote.currency}`;
+    const problem = this.limitProblem(this.state.customers[o.customer_id], { ...o, quote });
+    const lead = when === 'approval'
+      ? `The provider's price changed since the quote (${was}, now ${now}).`
+      : `The provider's price changed after the approval (${was}, now ${now}): nothing was bought.`;
+    const approval: Step = problem
+      ? { state: 'refused', at, words: `${lead} Quoted again, it is refused by the customer's limits: ${problem}` }
+      : { state: 'waiting', at, words: `${lead} Quoted again, it waits for the operator's approval at the new price.` };
+    this.emit({
+      type: 'order.quoted', order_id: o.order_id, quote,
+      steps: [
+        change(o, 'quote', { state: 'quoted', at, words: `Quoted again: ${now} for ${item.name}, from ${quote.source} (it was ${was}).` }),
+        change(o, 'approval', approval),
+        ...(problem ? this.stopNotStarted(o, at, 'Not started: the order was not approved.', ['quote', 'approval']) : []),
+      ],
+    });
+    this.logLine(`order ${o.order_id}: the price changed (${was} → ${now}) ${when === 'approval' ? 'before its approval' : 'before its purchase'}`);
+    return { result: 'changed', from: was, to: now, refused: problem };
+  }
+
+  /**
+   * What a charge needs from a person: one above the quote (or in another currency), over the per-order limit, or that
+   * takes the month's charges past the monthly limit (review M1). null when none.
+   */
+  private chargeCheck(o: Order, p: PurchaseView): string | null {
+    if (p.charged_cents === null || !o.quote) return null;
+    const c = this.state.customers[o.customer_id];
+    const currency = p.currency ?? o.quote.currency;
+    const charged = `${usd(p.charged_cents)} ${currency}`;
+    const quoted = `${usd(o.quote.total_cents)} ${o.quote.currency}`;
+    const head = currency !== o.quote.currency
+      ? `The provider charged ${charged}, in another currency than the quote (${quoted}).`
+      : p.charged_cents > o.quote.total_cents
+        ? `The provider charged ${charged}, more than the quote (${quoted}): taxes the catalog does not show, or a price change.`
+        : null;
+    const caps: string[] = [];
+    if (p.charged_cents > c.limits.per_order_cents) caps.push(`It is over the per-order limit (${usd(c.limits.per_order_cents)}).`);
+    const month = monthOf(this.nowIso());
+    const total = paidInMonth(this.state, o.customer_id, month, o.order_id) + p.charged_cents;
+    if (total > c.limits.monthly_cents) caps.push(`With it, this month's charges (${usd(total)}) pass the monthly limit (${usd(c.limits.monthly_cents)}).`);
+    if (!head && !caps.length) return null;
+    return [head ?? `The provider charged ${charged}.`, ...caps, 'A person checks the charge.'].join(' ');
   }
 
   private decideApproval(o: Order): boolean {
     const c = this.state.customers[o.customer_id];
     const at = this.nowIso();
+    const taken = this.availabilityProblem(o);
+    if (taken) { this.refuseApproval(o, `Refused: ${taken}`); return false; }
     const problem = this.limitProblem(c, o);
     if (problem) {
       const words = `Refused by the customer's limits: ${problem}`;
@@ -767,7 +911,7 @@ export class CloudEngine {
       case 'refused': changes = refused(outcome.words, done); break;
       case 'rate_limited':
         this.pauseFor(outcome.retry_after_ms);
-        changes = toAll(wait(outcome.retry_after_ms, `(${outcome.words})`, `The provider's rate limit answered 429: nothing was done; nothing is sent to it again before its Retry-After.`));
+        changes = toAll(wait(outcome.retry_after_ms, `(${outcome.words})`, `The provider's rate limit answered 429: nothing was done; nothing is sent to it again before its Retry-After (5 s when it gives none).`));
         break;
       case 'busy':
         changes = toAll(wait(outcome.retry_after_ms, `(${outcome.words})`, 'The provider is busy with the same thing (409): nothing new was done; sent again after its Retry-After.'));
@@ -865,7 +1009,8 @@ export class CloudEngine {
           steps.push(change(o, 'payment', { state: 'pending', at, words: w('The provider is still processing the payment (it answered 202); its outcome is read from the provider.'), provider_words: p.words ?? undefined, reference: p.reference, call_id: id, charged_cents: null }));
           return { steps, resources: [] };
         }
-        steps.push(change(o, 'payment', { state: 'paid', at, words: w(p.charged_cents === null ? 'Paid; the provider reported no amount.' : `Paid: ${usd(p.charged_cents)} ${p.currency ?? ''}.`.trim()), reference: p.reference, call_id: id, charged_cents: p.charged_cents }));
+        const check = this.chargeCheck(o, p);
+        steps.push(change(o, 'payment', { state: 'paid', at, words: w(p.charged_cents === null ? 'Paid; the provider reported no amount.' : `Paid: ${usd(p.charged_cents)} ${p.currency ?? ''}.`.trim()), reference: p.reference, call_id: id, charged_cents: p.charged_cents, ...(check ? { needs_person: check } : {}) }));
         if (o.request.kind === 'domain' && p.registered) {
           const r = this.resource(o, 'domain', o.request.domain!, o.request.domain!, at, null, null);
           steps.push(change(o, 'provisioning', { state: 'completed', at, words: w(`Registered ${o.request.domain}.`), reference: o.request.domain!, call_id: id }));
@@ -1049,7 +1194,11 @@ export class CloudEngine {
     const r = await this.o.provider.findEffect(call.call, call.intent_at);
     if (r.kind === 'rate_limited') { this.pauseFor(r.retry_after_ms); return false; }
     if (r.kind === 'failed') { this.backOff(key); this.logLine(`order ${o.order_id}: reconcile could not read the provider (${r.words})`); return false; }
-    const f: Finding = r.value;
+    let f: Finding = r.value;
+    if (f.found) {
+      const elsewhere = this.heldElsewhere(o, f.answer);
+      if (elsewhere) f = { found: false, proven: false, how: elsewhere };
+    }
     const at = this.nowIso();
     if (f.found) {
       const effects = this.onAnswer(o, call.call, f.answer, at, `Reconcile found it (${f.how}): `);
@@ -1071,6 +1220,28 @@ export class CloudEngine {
     });
     this.logLine(`order ${o.order_id}: reconcile could not settle the ${call.call.op}; waits for a person`);
     return false;
+  }
+
+  /**
+   * Whether what reconcile found is already another order's in this backend: a provider reference another order holds,
+   * or (a domain order) a domain registered here for another order (review H1). The words, or null.
+   */
+  private heldElsewhere(o: Order, answer: CallAnswer): string | null {
+    const refs = answer.op === 'purchase' ? [answer.purchase.reference] : answer.op === 'start_site_setup' ? [answer.setup.setup_id, answer.setup.site_id] : answer.op === 'start_vps_setup' ? [answer.vps.vps_id] : [];
+    const held = refs.some((ref) => ref && this.referenceHolder(o, ref));
+    const domain = o.request.kind === 'domain' && answer.op === 'purchase' && o.request.domain && this.domainTaken(o.request.domain, o.order_id, false);
+    if (!held && !domain) return null;
+    if (answer.op === 'purchase' && o.request.kind === 'domain') return `the domain ${o.request.domain} is in the account, but that purchase is already another order's in this backend, so it is not this call's`;
+    return `what the provider shows for it is already another order's in this backend, so it is not this call's`;
+  }
+
+  /** Another order that holds this provider reference (its acceptance, payment or provisioning step), if any. */
+  private referenceHolder(o: Order, reference: string): Order | null {
+    for (const x of Object.values(this.state.orders)) {
+      if (x.order_id === o.order_id) continue;
+      if ((['acceptance', 'payment', 'provisioning'] as StepName[]).some((n) => x.steps[n].reference === reference)) return x;
+    }
+    return null;
   }
 
   // ---- deletions

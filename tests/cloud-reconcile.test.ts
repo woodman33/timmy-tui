@@ -165,7 +165,7 @@ describe('other calls whose answer was lost are settled by reading the provider'
   });
 });
 
-describe('the provider\'s shared rate limit: Retry-After is honoured', () => {
+describe('a 429 from the provider: nothing at all is sent before its Retry-After', () => {
   it('after a 429, nothing at all is sent before Retry-After; then the call is sent once', async () => {
     stack = await startStack();
     const a = await newCustomer(stack);
@@ -189,7 +189,7 @@ describe('the provider\'s shared rate limit: Retry-After is honoured', () => {
     expect(stack.sim.done('purchase')).toHaveLength(1);
   });
 
-  it('the shared window limit: the orders finish, and no request is sent inside a Retry-After', async () => {
+  it('the simulator\'s one limit on every route: the orders finish, and no request is sent inside a Retry-After', async () => {
     stack = await startStack({ sim: { rateLimit: { max: 4, windowMs: 1000 } } });
     const a = await newCustomer(stack);
     const ids = [await domainOrder(stack, a, 'w1.example'), await domainOrder(stack, a, 'w2.example')];
