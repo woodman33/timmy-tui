@@ -32,12 +32,20 @@
 //    sheet, COMPANION_RUNTIME_FILES of the installed module; Timmy's look; marked from the installed dependency), and the
 //    page is served under its strict Content-Security-Policy (scripts from itself only, no inline script, requests to
 //    itself and its own WebSocket only, never framed).
-// 6. R4 (H92): the companion's page from the installed package in a real headless Chromium or Chrome (the installed
-//    package's own playwright; the browser found as the tests find one, or TIMMY_UI_CHROMIUM): scripts/companion-page-probe
-//    .mjs opens it with its token, records every request of every frame and aborts any to another origin, and passes when
-//    the page connected, asked nothing of anywhere else, reported no violation of its policy and no error, and drew the
-//    model chat's sample (the page's own text; no model is asked). With no browser to drive, this check did not run, and
-//    is counted as not passed. (r23c: the page made about 1,130 requests to public CDNs.)
+//    R4 (H95): and the companion's built web code (dist/companion-web: its chat island and chunks, Streamdown's styles, the
+//    page's three fonts) from the installed package, each with its type; the page's policy (scripts from itself only,
+//    inline styles for Mermaid alone, images from itself and data:); every log companion page's policy (scripts by the
+//    answer's nonce, or from itself), its chat mirror's token script and island. Step 4 also asks the installed package for
+//    that build: whole, its fonts each with its OFL-1.1 licence, its third-party notices.
+// 6. R4 (H92, H95): the companion's page and the log companion's pages from the installed package in a real headless
+//    Chromium or Chrome (the installed package's own playwright; the browser found as the tests find one, or
+//    TIMMY_UI_CHROMIUM): scripts/companion-page-probe.mjs opens them with their tokens, records every request of every frame
+//    and aborts any to another origin, and goes through the workflows a person uses, each counted and printed on its own
+//    row (load; every tab; the live mirror receiving the check's own events; the chat's sample: streaming, highlighted code,
+//    a drawn Mermaid diagram, a receipt card and an approval card, Copy; a send to a FAKE upstream on 127.0.0.1, never a
+//    model; Slate 3D; Proof and Workspace; the canvas; the log companion's /, /mission, /browser and its chat mirror). Each
+//    passes with zero requests to any other origin, no violation of its policy and no page error. With no browser to
+//    drive, this check did not run, and is counted as not passed. (r23c: the page made about 1,130 requests to public CDNs.)
 //
 // It prints a short report: each step with its exit code and first output line. Exit 0 when every check passed,
 // 1 when any failed or did not run, 2 on a usage error.
@@ -47,6 +55,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+// R4 (H95): the policies the pages must be served with (the browser step's probe judges them the same way)
+import { logsPolicyOk, strictPolicy } from './companion-page-probe.mjs';
 
 const args = process.argv.slice(2);
 const unknown = args.filter((a) => a !== '--keep' && a !== '--ignore-scripts');
@@ -183,6 +193,19 @@ if (pkg) {
       pty: PTY_RUN_SCRIPT, ptyExists: existsSync(PTY_RUN_SCRIPT),
       unreal: (() => { const w = unrealWorkers({}); return w.ok ? { harness: w.harness, readback: w.readback } : { why: w.why }; })(),
       tessellate: TESSELLATE_SCRIPT, tessellateExists: existsSync(TESSELLATE_SCRIPT),
+      // R4 (H95): the companion's built web code, as the installed module finds it, and its record, fonts and licences
+      web: await (async () => {
+        const { webDir } = await load('dist/src/companion/web-assets.js');
+        const found = await webDir();
+        if (!found.dir) return { dir: null, why: found.why };
+        const record = JSON.parse(readFileSync(join(found.dir, 'versions.json'), 'utf8'));
+        return {
+          dir: found.dir, distributable: record.distributable, missing: record.missing, versions: record.versions, files: record.files,
+          entries: record.entries.map((e) => [e, existsSync(join(found.dir, e))]),
+          fonts: record.fonts.map((f) => ({ file: f.file, font: existsSync(join(found.dir, 'fonts', f.file)), licence: f.licence, ofl: existsSync(join(found.dir, 'fonts', f.licence)) && /SIL Open Font License/.test(readFileSync(join(found.dir, 'fonts', f.licence), 'utf8')) })),
+          notices: existsSync(join(found.dir, 'THIRD-PARTY-NOTICES.md')),
+        };
+      })(),
     }));`);
   const r = run(process.execPath, [probe], { cwd: work, env: { ...runEnv, PROBE_PKG: pkg, PROBE_WORK: work }, timeout: 120_000 });
   let p = null;
@@ -219,6 +242,12 @@ if (pkg) {
     // R4 batch 8 (H63): Unreal's harness and readback worker, as unrealWorkers gives them to Unreal.
     // R4 batch 9 (H70): the STEP tessellation worker, found by the module that runs it.
     check('assets', 'STEP tessellation worker', p.tessellate === join(pkg, 'workers/readback/step_tessellate.py') && p.tessellateExists, `${short(p.tessellate)}${p.tessellateExists ? '' : ' (not there)'}`);
+    // R4 (H95): the companion's built web code, inside the installed package: whole, each font with its OFL-1.1 licence
+    const w = p.web ?? {};
+    check('assets', 'companion web code (built)', inside(w.dir) && w.distributable === true && (w.entries ?? []).every(([, ok]) => ok) && w.notices === true,
+      w.dir ? `${short(w.dir)}: streamdown ${w.versions?.streamdown}, react ${w.versions?.react}, mermaid ${w.versions?.mermaid}, shiki ${w.versions?.shiki}; ${w.files} files; ${(w.entries ?? []).map(([e, ok]) => `${e}${ok ? '' : ' (missing)'}`).join(', ')}${w.distributable ? '' : `; not distributable: ${(w.missing ?? []).join('; ')}`}` : `none found (${w.why ?? 'unknown'})`);
+    check('assets', 'its fonts and licences', Array.isArray(w.fonts) && w.fonts.length === 3 && w.fonts.every((f) => f.font && f.ofl),
+      Array.isArray(w.fonts) ? w.fonts.map((f) => `${f.file}${f.font ? '' : ' (missing)'} + ${f.licence}${f.ofl ? ' (OFL-1.1)' : ' (missing or not OFL)'}`).join('; ') : 'none');
     check('assets', 'Unreal harness and readback worker', p.unreal?.harness === join(pkg, 'workers/unreal/timmy_unreal.py') && p.unreal?.readback === join(pkg, 'workers/unreal/unreal_readback.py'), p.unreal?.harness ? `${short(p.unreal.harness)}, ${short(p.unreal.readback)}` : String(p.unreal?.why ?? 'none found'));
   }
 } else {
@@ -257,7 +286,9 @@ if (pkg) {
     // R4 (H92): the files the page needs, each from the installed package, and its policy
     out.companion.port = companion.port;
     out.companion.files = {};
-    for (const f of [...COMPANION_RUNTIME_FILES.map((p) => '/' + p.split('/').pop()).filter((p) => p !== '/index.html'), '/timmy-theme.css', '/vendor/marked.esm.js']) {
+    // R4 (H95): and the companion's built web code at /web/ (the chat island, Streamdown's styles, the page's fonts)
+    const WEB = ['/web/island/companion-chat.js', '/web/island/logs-chat.js', '/web/styles/tailwind.css', '/web/styles/streamdown.css', '/web/fonts/outfit-latin-wght-normal.woff2', '/web/fonts/inter-latin-wght-normal.woff2', '/web/fonts/fira-code-latin-wght-normal.woff2'];
+    for (const f of [...COMPANION_RUNTIME_FILES.map((p) => '/' + p.split('/').pop()).filter((p) => p !== '/index.html'), '/timmy-theme.css', '/vendor/marked.esm.js', ...WEB]) {
       const a = await ask(cb, f, false);
       out.companion.files[f] = { status: a.status, type: a.type.split(';')[0] };
     }
@@ -269,6 +300,9 @@ if (pkg) {
     const logs = await startManagedLogServer({ port: 0, token, open: false });
     const lb = 'http://127.0.0.1:' + logs.port;
     for (const page of ['/', '/chat', '/mission', '/browser']) out.logs[page] = await ask(lb, page, false);
+    // R4 (H95): the chat mirror's token script and its island, from the log companion
+    out.logs.chatFiles = {};
+    for (const f of ['/chat/page.js', '/web/island/logs-chat.js']) { const a = await ask(lb, f, false); out.logs.chatFiles[f] = { status: a.status, type: (a.type ?? '').split(';')[0] }; }
     out.logs.health = (await ask(lb, '/health', false)).status;
     out.logs.receiptsWithout = (await ask(lb, '/receipts?stream=runs', false)).status;
     out.logs.receiptsWith = (await ask(lb, '/receipts?stream=runs', true)).status;
@@ -286,18 +320,22 @@ if (pkg) {
     check('pages', 'companion token route', c.authWithout === 401 && c.authWith === 200, `/api/auth ${c.authWithout} without its token, ${c.authWith} with it`);
     // R4 (H92): every file the page needs, from the installed package, with its type; the page's policy
     const files = Object.entries(c.files ?? {});
-    const typed = (f, t) => (f.endsWith('.css') ? t === 'text/css' : /^(text|application)\/javascript$/.test(t));
+    const typed = (f, t) => (f.endsWith('.css') ? t === 'text/css' : f.endsWith('.woff2') ? t === 'font/woff2' : /^(text|application)\/javascript$/.test(t));
     const wrongFiles = files.filter(([f, a]) => a.status !== 200 || !typed(f, a.type));
-    check('pages', 'companion page files', files.length >= 6 && wrongFiles.length === 0, wrongFiles.length ? `not served: ${wrongFiles.map(([f, a]) => `${f} ${a.status} ${a.type}`).join(', ')}` : `${files.length} files, each 200 with its type: ${files.map(([f]) => f).join(', ')}`);
+    check('pages', 'companion page files', files.length >= 13 && wrongFiles.length === 0, wrongFiles.length ? `not served: ${wrongFiles.map(([f, a]) => `${f} ${a.status} ${a.type}`).join(', ')}` : `${files.length} files, each 200 with its type: ${files.map(([f]) => f).join(', ')}`);
     const policy = new Map(String(c.page.csp ?? '').split(';').map((d) => d.trim()).filter(Boolean).map((d) => { const [k, ...v] = d.split(/\s+/); return [k, v.join(' ')]; }));
-    const strict = policy.get('script-src') === "'self'" && policy.get('default-src') === "'none'" && policy.get('object-src') === "'none'" && policy.get('frame-ancestors') === "'none'" && policy.get('base-uri') === "'none'"
-      && policy.get('connect-src') === `'self' ws://127.0.0.1:${c.port}` && !/unsafe-inline|unsafe-eval|\*|https?:/.test(String(c.page.csp));
-    check('pages', 'companion page policy', strict, c.page.csp ? `script-src ${policy.get('script-src')}; connect-src ${policy.get('connect-src')}; frame-ancestors ${policy.get('frame-ancestors')}${strict ? '' : ' (not the strict policy)'}` : 'no Content-Security-Policy');
+    // R4 (H95): scripts from itself only; inline styles for Mermaid alone; images from itself and data: (src/companion/page.ts)
+    const strict = strictPolicy(c.page.csp, c.port);
+    check('pages', 'companion page policy', strict, c.page.csp ? `script-src ${policy.get('script-src')}; style-src ${policy.get('style-src')}; img-src ${policy.get('img-src')}; connect-src ${policy.get('connect-src')}; frame-ancestors ${policy.get('frame-ancestors')}${strict ? '' : ' (not the strict policy)'}` : 'no Content-Security-Policy');
     check('pages', 'companion Slate 3D', c.slate3d.status === 200 || (c.slate3d.status === 404 && /Slate 3D is not part of this installation/.test(c.slate3d.words)), `${c.slate3d.status} · ${c.slate3d.words}`);
     for (const page of ['/', '/chat', '/mission', '/browser']) {
       const a = p.logs[page];
-      check('pages', `logs GET ${page}`, a.status === 200 && a.html, `${a.status}${a.html ? ' html' : ''} ${a.error ?? ''}`.trim());
+      // R4 (H95): each with its policy: scripts by the answer's nonce only, or (the chat mirror) from itself only
+      const ok = logsPolicyOk(a.csp, page);
+      check('pages', `logs GET ${page}`, a.status === 200 && a.html && ok, `${a.status}${a.html ? ' html' : ''} ${a.error ?? ''} · script-src ${/script-src ([^;]+)/.exec(a.csp ?? '')?.[1]?.replace(/'nonce-[^']+'/, "'nonce-…'") ?? 'none'}${ok ? '' : ' (not its strict policy)'}`.trim());
     }
+    const cf = Object.entries(p.logs.chatFiles ?? {});
+    check('pages', 'logs chat mirror files', cf.length === 2 && cf.every(([, a]) => a.status === 200 && /^(text|application)\/javascript$/.test(a.type)), cf.map(([f, a]) => `${f} ${a.status} ${a.type}`).join(', ') || 'not asked');
     check('pages', 'logs /health, /receipts', p.logs.health === 200 && p.logs.receiptsWithout === 401 && p.logs.receiptsWith === 200, `/health ${p.logs.health}; /receipts ${p.logs.receiptsWithout} without its token, ${p.logs.receiptsWith} with it`);
     check('pages', 'no path or stack shown', p.leaks.length === 0 && c.nothing.status === 404, p.leaks.length ? `leaked on ${p.leaks.join(', ')}` : `none in ${p.asked} answers (an unknown address: ${c.nothing.status}, words)`);
   }
@@ -322,23 +360,31 @@ if (pkg) {
       import { pathToFileURL } from 'node:url';
       const root = process.env.PROBE_PKG;
       const { startCompanionServer } = await import(pathToFileURL(join(root, 'dist/src/companion/server.js')).href);
+      const { startManagedLogServer } = await import(pathToFileURL(join(root, 'dist/src/utils/logserver.js')).href);
       // the installed package's own playwright (a dependency of Timmy's)
       const pw = await import(pathToFileURL(createRequire(join(root, 'package.json')).resolve('playwright')).href);
       const chromium = pw.chromium ?? pw.default?.chromium;
       const { probeCompanionPage } = await import(process.env.PROBE_MODULE);
-      const result = await probeCompanionPage({ startCompanionServer, chromium, executablePath: process.env.PROBE_CHROMIUM });
+      const result = await probeCompanionPage({ startCompanionServer, startManagedLogServer, chromium, executablePath: process.env.PROBE_CHROMIUM, workDir: process.env.PROBE_WORK });
       console.log(JSON.stringify(result));
       process.exit(0);`);
-    const r = run(process.execPath, [probe], { cwd: work, env: { ...runEnv, PROBE_PKG: pkg, PROBE_CHROMIUM: browser, PROBE_MODULE: pathToFileURL(join(repo, 'scripts', 'companion-page-probe.mjs')).href }, timeout: 240_000 });
+    const pageWork = join(scratch, 'page-work');
+    mkdirSync(pageWork, { recursive: true });
+    const r = run(process.execPath, [probe], { cwd: work, env: { ...runEnv, PROBE_PKG: pkg, PROBE_CHROMIUM: browser, PROBE_WORK: pageWork, TIMMY_LOGS_OPEN: '0', PROBE_MODULE: pathToFileURL(join(repo, 'scripts', 'companion-page-probe.mjs')).href }, timeout: 300_000 });
     let b = null;
     try { b = JSON.parse(r.stdout.trim().split('\n').at(-1)); } catch { /* reported below */ }
     if (!b) {
       check('browser', 'companion page in a browser', false, `exit ${r.status ?? r.error?.message} · ${firstLine(r.stderr)}`);
     } else {
+      // R4 (H95): each workflow on a row of its own, with its counts
+      for (const w of b.workflows ?? []) {
+        const detail = w.why ? `: ${w.why}` : w.name === 'chat sample' && w.detail ? ` · ${w.detail.highlighted} highlighted spans, diagram ${w.detail.diagram ? 'drawn' : 'NOT drawn'}, receipt card ${w.detail.receipt}, ${w.detail.copy}` : w.name === 'slate 3d' && w.detail ? ` · "${String(w.detail.words).slice(0, 30)}…" at contrast ${w.detail.contrast}` : w.name === 'logs /chat' && w.detail?.drawn ? ` · drew "${w.detail.drawn}"` : '';
+        check('browser', w.name, w.ok === true, `${w.requests} requests, ${w.own} to its own servers, ${w.outside.length} elsewhere${w.outside.length ? ` (${[...new Set(w.outside)].join(', ')})` : ''}; ${w.violations.length} violations; ${w.errors.length} errors${detail}`);
+      }
       const outside = [...new Set(b.outside)];
       const words = b.error
         ? `not finished: ${b.error}`
-        : `${b.own} of ${b.requests} requests to its own server, ${b.outside.length} elsewhere${outside.length ? ` (${outside.join(', ')})` : ''}; ${b.violations.length} policy violations; ${b.errors.length} page errors; ${b.connected ? 'connected' : 'NOT connected'}; sample ${b.sample ? `drawn (${b.sample.items} list items, code with ${b.sample.copy}, ${b.sample.diagram})` : 'NOT drawn'}${b.slate ? `; Slate 3D: "${b.slate.words.slice(0, 40)}…" at contrast ${b.slate.contrast}` : ''}`;
+        : `${b.own} of ${b.requests} requests to its own servers, ${b.outside.length} elsewhere${outside.length ? ` (${outside.join(', ')})` : ''}; ${b.violations.length} policy violations; ${b.errors.length} page errors; ${b.connected ? 'connected' : 'NOT connected'}; ${(b.workflows ?? []).filter((w) => w.ok).length} of ${(b.workflows ?? []).length} workflows passed`;
       check('browser', 'companion page in a browser', b.ok === true, words);
       report.push(`browser  ${short(browser)}`);
     }

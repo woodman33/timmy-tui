@@ -6,195 +6,232 @@
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="x-dns-prefetch-control" content="off">
   <title>TIMMY Browser Companion</title>
-  <!-- R4 (H92): everything this page uses is served by the companion on this computer (src/companion/page.ts): its
-       style sheet and Timmy's look; its scripts below; no inline script, style or handler (the page's
-       Content-Security-Policy allows none), and nothing from any other site. -->
-  <link rel="stylesheet" href="/timmy-theme.css">
+  <!-- R4 (H92, H95): everything this page uses is served by the companion on this computer (src/companion/page.ts): its own
+       style sheet with its own design (as it was at b69ab12) and its three fonts; Streamdown's style sheet and the Tailwind
+       classes it emits, precompiled; its scripts below. No inline script, style or handler (the page's
+       Content-Security-Policy allows none), and nothing from any other site. In b69ab12's order: the Tailwind classes first
+       (its Play CDN script stood before the page's style block), the page's own sheet, then Streamdown's (linked last). -->
+  <link rel="stylesheet" href="/web/styles/tailwind.css">
   <link rel="stylesheet" href="/companion.css">
+  <link rel="stylesheet" href="/web/styles/streamdown.css">
 </head>
 <body>
-  <header class="top">
-    <h1>TIMMY Browser Companion</h1>
-    <div id="status" class="status" role="status" aria-live="polite">
-      <span class="status-dot" data-state="connecting"></span>
-      <span id="status-text">COMPANION SOCKET · CONNECTING</span>
+  <header>
+    <h1>🛡️ TIMMY OS Companion</h1>
+    <div class="header-right">
+      <div id="status" role="status" aria-live="polite">
+        <span class="status-dot" data-state="connecting"></span>
+        <span id="status-text">COMPANION SOCKET · CONNECTING</span>
+      </div>
     </div>
   </header>
 
   <!-- R4 (H84): shown when the page has no token, or its token is not this companion's: what to do, in words. -->
   <div id="token-note" class="token-note" role="alert" hidden></div>
 
-  <p class="explainer">
+  <div class="explainer-bar">
     TIMMY Browser Companion mirrors terminal chat, shows workspace status, displays bounded logs, and previews the latest receipt. The mirror caches chat in this browser; the terminal remains the source of truth.
-  </p>
+  </div>
 
-  <nav class="tab-bar" role="tablist" aria-label="Companion views">
-    <button type="button" class="tab-btn active" id="btn-chat" data-tab="chat" role="tab" aria-selected="true" aria-controls="tab-chat">CHAT MIRROR</button>
-    <button type="button" class="tab-btn" id="btn-workspace" data-tab="workspace" role="tab" aria-selected="false" aria-controls="tab-workspace">WORKSPACE</button>
-    <button type="button" class="tab-btn" id="btn-logs" data-tab="logs" role="tab" aria-selected="false" aria-controls="tab-logs">LOGS</button>
-    <button type="button" class="tab-btn" id="btn-proof" data-tab="proof" role="tab" aria-selected="false" aria-controls="tab-proof">PROOF</button>
-    <button type="button" class="tab-btn" id="btn-model" data-tab="model" role="tab" aria-selected="false" aria-controls="tab-model">MODEL CHAT</button>
-    <button type="button" class="tab-btn" id="btn-canvas" data-tab="canvas" role="tab" aria-selected="false" aria-controls="tab-canvas">CANVAS</button>
-    <button type="button" class="tab-btn" id="btn-slate3d" data-tab="slate3d" role="tab" aria-selected="false" aria-controls="tab-slate3d">SLATE 3D</button>
-  </nav>
-
-  <main class="panels">
-    <!-- Chat Mirror: the terminal's chat, as Timmy sends it over the socket -->
-    <section id="tab-chat" class="tab-panel active" role="tabpanel" aria-labelledby="btn-chat">
-      <div id="console-card" class="card mirror-card">
-        <div class="card-head">
-          <div class="card-title-row">
-            <h2 class="card-title">Chat Mirror</h2>
-            <span id="mirror-status" class="chip" data-state="waiting">Local chat mirror: WAITING</span>
-          </div>
-          <div class="card-actions">
-            <button type="button" class="btn act" data-action="save-chat">Save Chat</button>
-            <button type="button" class="btn" data-action="download-chat">Download</button>
-            <button type="button" class="btn danger" data-action="delete-chat">Delete Local</button>
-            <span class="chip">Cloudflare Backup: PLANNED</span>
-          </div>
-        </div>
-        <div id="console-logs" class="scroll">
-          <div class="empty">Waiting for session chat streams...</div>
-        </div>
+  <div class="main-grid">
+    <div class="right-col">
+      <!-- Tab Deck Navigation (wired by the page's script: data-tab) -->
+      <div class="tab-bar" role="tablist" aria-label="Companion views">
+        <button type="button" class="tab-btn active" id="btn-chat" data-tab="chat" role="tab" aria-selected="true" aria-controls="tab-chat">💬 CHAT MIRROR</button>
+        <button type="button" class="tab-btn" id="btn-workspace" data-tab="workspace" role="tab" aria-selected="false" aria-controls="tab-workspace">⚡ WORKSPACE</button>
+        <button type="button" class="tab-btn" id="btn-logs" data-tab="logs" role="tab" aria-selected="false" aria-controls="tab-logs">📊 LOGS</button>
+        <button type="button" class="tab-btn" id="btn-proof" data-tab="proof" role="tab" aria-selected="false" aria-controls="tab-proof">🧾 PROOF</button>
+        <button type="button" class="tab-btn" id="btn-streamdown" data-tab="streamdown" role="tab" aria-selected="false" aria-controls="tab-streamdown">⚡ STREAMDOWN CHAT</button>
+        <button type="button" class="tab-btn" id="btn-canvas" data-tab="canvas" role="tab" aria-selected="false" aria-controls="tab-canvas">🎨 CANVAS</button>
+        <button type="button" class="tab-btn" id="btn-slate3d" data-tab="slate3d" role="tab" aria-selected="false" aria-controls="tab-slate3d">◈ SLATE 3D</button>
       </div>
 
-      <aside id="saved-chats-card" class="card saved-card">
-        <div class="card-head">
-          <h2 class="card-title">Saved Sessions</h2>
-        </div>
-        <div id="saved-chats-list" class="scroll">
-          <div class="empty">Saved chats will appear here after you press Save Chat.</div>
-        </div>
-      </aside>
-    </section>
+      <!-- Tab Panel 1: Chat Mirror -->
+      <div id="tab-chat" class="tab-panel active" role="tabpanel" aria-labelledby="btn-chat">
 
-    <!-- Workspace: where work happens; this page checks none of it -->
-    <section id="tab-workspace" class="tab-panel" role="tabpanel" aria-labelledby="btn-workspace">
-      <div id="workspace-card" class="card">
-        <div class="card-head">
-          <h2 class="card-title">TIMMY Workspace</h2>
+        <!-- Left Side: Chat Card -->
+        <div id="console-card" class="glass-card">
+          <div class="card-header wrap">
+            <div class="row-10">
+              <div class="card-title c-secondary">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--secondary-hsl)" stroke-width="2.5" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                Chat Mirror
+              </div>
+              <span id="mirror-status" data-state="waiting">Local chat mirror: WAITING</span>
+            </div>
+
+            <!-- Chat controls bar -->
+            <div class="row-8">
+              <button type="button" class="btn-action success" data-action="save-chat">💾 Save Chat</button>
+              <button type="button" class="btn-action" data-action="download-chat">📥 Download</button>
+              <button type="button" class="btn-action danger" data-action="delete-chat">🗑️ Delete Local</button>
+              <span class="badge-planned soft">Cloudflare Backup: PLANNED</span>
+            </div>
+          </div>
+
+          <!-- Bounded scroll container -->
+          <div id="console-logs">
+            <div class="mirror-empty">Waiting for session chat streams...</div>
+          </div>
         </div>
-        <div class="card-body">
-          <p class="hint">Choose where work happens. Carbonyl renders a real browser in a terminal pane. Browser Companion mirrors TIMMY. tmux is fallback persistence. This page checks none of them: each card says what it is and gives its command.</p>
+
+        <!-- Right Side: Saved Sessions Drawer -->
+        <div id="saved-chats-card" class="glass-card">
+          <div class="card-header">
+            <div class="card-title c-primary">
+              📂 Saved Sessions
+            </div>
+          </div>
+
+          <div id="saved-chats-list">
+            <div class="saved-empty">Saved chats will appear here after you press Save Chat.</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Tab Panel 2: Workspace (where work happens; this page checks none of it) -->
+      <div id="tab-workspace" class="tab-panel" role="tabpanel" aria-labelledby="btn-workspace">
+        <div id="workspace-card" class="glass-card">
+          <div class="row-between">
+            <h3 class="panel-title c-secondary">📟 TIMMY Workspace</h3>
+            <span class="status-badge unchecked">NOT CHECKED FROM THIS PAGE</span>
+          </div>
+
+          <p class="ws-intro">
+            Choose where work happens. Carbonyl renders a real browser in a terminal pane. Browser Companion mirrors TIMMY. tmux is fallback persistence. This page checks none of them: each card says what it is and gives its command.
+          </p>
+
           <div class="ws-grid">
+            <!-- Card 1: Carbonyl In-Pane Browser -->
             <div class="ws-card">
               <div>
-                <h3>Carbonyl Browser</h3>
-                <p class="ws-state">not checked from this page</p>
-                <p>In-pane Chromium browser lane: renders this companion (real Chromium: JS, WebGL, video) inside a multiplexer pane. The command opens this page's address without its token, so the page shows nothing until it has one: open the address with its token from <code>timmy watch</code> (q on HOME) instead.</p>
+                <div class="row-between">
+                  <strong class="ws-name c-violet">Carbonyl Browser</strong>
+                  <span class="ws-state">[ NOT CHECKED HERE ]</span>
+                </div>
+                <div class="ws-purpose">Purpose: In-pane Chromium browser lane</div>
+                <p class="ws-desc">Renders this companion UI (real Chromium: JS, WebGL, video) headlessly inside a multiplexer pane. The command opens this page's address without its token, so the page shows nothing until it has one: open the address with its token from <code>timmy watch</code> (q on HOME) instead.</p>
               </div>
-              <button type="button" class="btn" data-copy-carbonyl>Copy launch command</button>
+              <div class="ws-actions">
+                <button type="button" class="btn-action wide violet" data-copy-carbonyl>Copy Launch Command</button>
+              </div>
             </div>
+
+            <!-- Card 2: Browser Companion -->
             <div class="ws-card">
               <div>
-                <h3>Browser Companion</h3>
-                <p class="ws-state">this page</p>
-                <p>Mirrors chat, logs, workspace status, and receipts.</p>
+                <div class="row-between">
+                  <strong class="ws-name c-secondary">Browser Companion</strong>
+                  <span class="ws-state">[ THIS PAGE ]</span>
+                </div>
+                <div class="ws-purpose">Purpose: Browser mirror</div>
+                <p class="ws-desc">Mirrors chat, logs, workspace status, and receipts.</p>
+              </div>
+              <div class="ws-actions">
+                <button type="button" class="btn-action wide secondary" disabled>Open Browser (Active)</button>
               </div>
             </div>
+
+            <!-- Card 3: tmux Fallback -->
             <div class="ws-card">
               <div>
-                <h3>tmux Fallback</h3>
-                <p class="ws-state">not checked from this page</p>
-                <p>tmux keeps a recoverable terminal session alive. It may not open a visual UI.</p>
+                <div class="row-between">
+                  <strong class="ws-name c-primary">tmux Fallback</strong>
+                  <span class="ws-state">[ NOT CHECKED HERE ]</span>
+                </div>
+                <div class="ws-purpose">Purpose: terminal persistence</div>
+                <p class="ws-desc">tmux keeps a recoverable terminal session alive. It may not open a visual UI.</p>
               </div>
-              <button type="button" class="btn" data-copy="tmux attach -t timmy-run">Copy attach command</button>
+              <div class="ws-actions">
+                <button type="button" class="btn-action wide primary" data-copy="tmux attach -t timmy-run">Copy Attach Command</button>
+              </div>
             </div>
           </div>
-          <div class="ws-attach">
-            <p>To attach to the persistent fallback tmux session, run:</p>
-            <code class="cmd-line">tmux attach -t timmy-run</code>
-            <p class="hint">Use carbonyl for in-pane browsing, tmux for fallback terminal persistence.</p>
+
+          <div class="ws-spec">
+            <div class="ws-spec-title">📟 Fallback persistence attach specifications:</div>
+            <div>• To attach to the persistent fallback tmux session, run:</div>
+            <div class="ws-cmd">tmux attach -t timmy-run</div>
+            <div class="ws-foot">Use carbonyl for in-pane browsing, tmux for fallback terminal persistence.</div>
           </div>
         </div>
       </div>
-    </section>
 
-    <!-- Logs: what reached this page over its socket -->
-    <section id="tab-logs" class="tab-panel" role="tabpanel" aria-labelledby="btn-logs">
-      <div id="logs-card" class="card">
-        <div class="card-head">
-          <h2 class="card-title">Live Telemetry Log Event Tail</h2>
-          <span class="chip">STREAMING</span>
-        </div>
-        <div id="logs-list" class="scroll">
-          <div class="log-line">[companion-client] Initialized socket telemetry logger. Waiting for active events...</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Proof: the latest receipt as it reached this page; the page checks nothing -->
-    <section id="tab-proof" class="tab-panel" role="tabpanel" aria-labelledby="btn-proof">
-      <div id="proof-card" class="card">
-        <div class="card-head">
-          <h2 class="card-title">Latest receipt this page received</h2>
-          <span class="chip">AS RECEIVED · NOT CHECKED HERE</span>
-        </div>
-        <div class="card-body">
-          <dl class="proof-rows">
-            <dt>Run ID:</dt><dd id="proof-run-id">none received yet</dd>
-            <dt>Prompt:</dt><dd id="proof-prompt">none received yet</dd>
-            <dt>Agent:</dt><dd id="proof-agent">none received yet</dd>
-            <dt>Tools:</dt><dd id="proof-tools">none received yet</dd>
-            <dt>What changed:</dt><dd id="proof-changed">none received yet</dd>
-            <dt>Manifest hash:</dt><dd id="proof-hash">none received yet</dd>
-            <dt>Receipt file:</dt><dd id="proof-path">none received yet</dd>
-          </dl>
-          <p class="hint">This page shows a receipt as Timmy's terminal sent it, or a run id and a sha256 the chat mirror named; it checks nothing itself. Timmy seals receipts on this computer, and <code>timmy verify</code> checks their chain.</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- Model chat: POST /chat, streamed; drawn by the page's own markdown renderer (chat.js, markdown.js) -->
-    <section id="tab-model" class="tab-panel" role="tabpanel" aria-labelledby="btn-model">
-      <div class="card model-card">
-        <div class="card-head">
-          <h2 class="card-title">Model Chat</h2>
-          <span class="hint">POST /chat → OpenRouter, with this computer's key: each message spends its credits</span>
-        </div>
-        <div id="model-chat" class="model-chat">
-          <div class="model-meta">
-            <div class="chips">
-              <span class="chip" id="model-name">qwen/qwen3.8-max</span>
-              <span class="chip" id="model-status" data-state="idle" role="status" aria-live="polite">IDLE</span>
+      <!-- Tab Panel 3: Logs (what reached this page over its socket) -->
+      <div id="tab-logs" class="tab-panel" role="tabpanel" aria-labelledby="btn-logs">
+        <div id="logs-card" class="glass-card">
+          <div class="card-header">
+            <div class="card-title c-primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary-hsl)" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+              Live Telemetry Log Event Tail
             </div>
-            <span class="tokens" id="model-tokens"></span>
+            <span class="status-badge amber">STREAMING</span>
           </div>
-          <div id="model-note" class="model-note" role="status" hidden></div>
-          <div id="model-messages" class="model-messages">
-            <p class="empty" id="model-empty">Send a message to ask qwen/qwen3.8-max (through OpenRouter, with this computer's key: it spends credits), or press Show a sample to see what this page draws without asking any model.</p>
-          </div>
-          <div id="model-error" class="model-error" role="alert" hidden></div>
-          <div class="model-input-bar">
-            <input id="model-input" type="text" autocomplete="off" placeholder="Message qwen/qwen3.8-max … (streams back as it is written)" aria-label="Message to the model">
-            <button type="button" id="model-sample" class="btn">Show a sample</button>
-            <button type="button" id="model-send" class="btn act" disabled>Send</button>
+          <div id="logs-list">
+            <div class="log-line muted">[companion-client] Initialized socket telemetry logger. Waiting for active events...</div>
           </div>
         </div>
       </div>
-    </section>
 
-    <!-- Canvas: Timmy Canvas's revision and jobs, read with the token -->
-    <section id="tab-canvas" class="tab-panel" role="tabpanel" aria-labelledby="btn-canvas">
-      <div class="card">
-        <div class="card-head">
-          <h2 class="card-title">Timmy Canvas</h2>
-        </div>
-        <div class="card-body">
-          <div id="canvas-summary" class="canvas-summary">Reading the canvas…</div>
+      <!-- Tab Panel 4: Proof (the latest receipt as it reached this page; the page checks nothing) -->
+      <div id="tab-proof" class="tab-panel" role="tabpanel" aria-labelledby="btn-proof">
+        <div id="proof-card" class="glass-card">
+          <div class="row-between">
+            <h3 class="panel-title c-blue">🧾 Latest receipt this page received</h3>
+            <span class="status-badge blue">AS RECEIVED · NOT CHECKED HERE</span>
+          </div>
+
+          <div class="proof-box">
+            <div class="proof-row"><span class="proof-label">Run ID:</span><strong id="proof-run-id">none received yet</strong></div>
+            <div class="proof-row"><span class="proof-label">Prompt:</span><span id="proof-prompt">none received yet</span></div>
+            <div class="proof-row"><span class="proof-label">Agent:</span><span id="proof-agent">none received yet</span></div>
+            <div class="proof-row"><span class="proof-label">Tools:</span><span id="proof-tools">none received yet</span></div>
+            <div class="proof-row"><span class="proof-label">What changed:</span><span id="proof-changed">none received yet</span></div>
+            <div class="proof-row"><span class="proof-label">Manifest hash:</span><strong id="proof-hash">none received yet</strong></div>
+            <div class="proof-row"><span class="proof-label">Receipt file:</span><span id="proof-path">none received yet</span></div>
+          </div>
+
+          <div class="proof-note">
+            This page shows a receipt as Timmy's terminal sent it, or a run id and a sha256 the chat mirror named; it checks nothing itself. Timmy seals receipts on this computer, and <code>timmy verify</code> checks their chain.
+          </div>
         </div>
       </div>
-    </section>
 
-    <!-- Slate 3D: the mission board as a scene, lane pods lit from the bus (companion/slate3d). R4 (H84): its address is set
-         by the script when the tab is first opened, with the page's token in its fragment (Slate 3D asks for it too). -->
-    <section id="tab-slate3d" class="tab-panel" role="tabpanel" aria-labelledby="btn-slate3d">
-      <iframe id="slate3d-frame" class="slate-frame" title="Slate 3D" data-src="/slate3d/?board=ledger"></iframe>
-    </section>
-  </main>
+      <!-- Slate 3D: the mission board as a scene, lane pods lit from the bus (companion/slate3d). R4 (H84, H92): its address
+           is set by the script when the tab is first opened, with the page's token in its fragment (Slate 3D asks for it too). -->
+      <div id="tab-slate3d" class="tab-panel" role="tabpanel" aria-labelledby="btn-slate3d">
+        <iframe id="slate3d-frame" title="Slate 3D" data-src="/slate3d/?board=ledger"></iframe>
+      </div>
+
+      <!-- Canvas: Timmy Canvas's revision and jobs, read with the token -->
+      <div id="tab-canvas" class="tab-panel" role="tabpanel" aria-labelledby="btn-canvas">
+        <div class="glass-card canvas-card">
+          <h3 class="panel-title c-main">🎨 Timmy Canvas</h3>
+          <div id="canvas-summary">Reading the canvas…</div>
+        </div>
+      </div>
+
+      <!-- Tab Panel 5: Streamdown Chat (TMX P3): POST /chat, streamed, drawn by Streamdown (the island: /web/island/companion-chat.js) -->
+      <div id="tab-streamdown" class="tab-panel" role="tabpanel" aria-labelledby="btn-streamdown">
+        <div class="glass-card sd-card">
+          <div class="card-header">
+            <div class="card-title c-violet">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a98bff" stroke-width="2.5" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              Streamdown Chat
+              <span class="badge-planned violet">TMX P3</span>
+            </div>
+            <span class="sd-route">POST /chat → OpenRouter with this computer's key (each message spends credits) → SSE → live React components</span>
+          </div>
+          <!-- React island mount point (built on this computer by scripts/companion-web-build.mjs; served from /web/) -->
+          <div id="streamdown-root" class="dark"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
 
   <script src="/companion.js"></script>
-  <script type="module" src="/chat.js"></script>
+  <script type="module" src="/web/island/companion-chat.js"></script>
 </body>
 </html>

@@ -48,7 +48,8 @@ async function pageScript(receipts: unknown = [], failRequests = false, token = 
   let html: string;
   try { html = await (await fetch(`http://127.0.0.1:${server.port}/`)).text(); }
   finally { await server.stop(); }
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+  // R4 (H95): the page's scripts carry the answer's nonce (its policy runs no other inline script)
+  const script = html.match(/<script nonce="[A-Za-z0-9+/=]+">([\s\S]*?)<\/script>/)?.[1];
   expect(script).toBeTruthy();
   const elements = new Map<string, PageElement>();
   const get = (id: string) => {

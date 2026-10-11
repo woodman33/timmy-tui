@@ -17,6 +17,8 @@
  *                                                                            without the token it loads nothing and says so
  *   GET /timmy-theme.css, /fonts/<name>,   nothing more                      Timmy's look, Monaspace Argon and the markdown parser
  *       /vendor/marked.esm.js                                                (R4 H92: src/companion/page.ts); no operator content
+ *   GET /web/island/*, /web/styles/*,      nothing more                      the page's built chat (Streamdown), its styles and its
+ *       /web/fonts/*                                                         fonts (R4 H95: src/companion/web-assets.ts); no content
  *   GET /slate3d/*, /slate3d/boards/*      nothing more                      Slate 3D's built files and the repository's boards
  *   GET /api/auth                          the token                         whether the page's token is still this server's
  *   GET /api/canvas                        the token                         Timmy Canvas's revision and jobs (ids a model may name)
@@ -61,7 +63,7 @@ import { isLocalRequest, lanAddresses, LocalToken, logsTokenFile, readTokenFile,
 import { failRequest } from '../utils/server-failure.js';
 import { packagedPath } from '../utils/asset-dirs.js';
 // R4 (H92): the page's policy and the files it needs beside its own (theme, fonts, marked), all served from here.
-import { companionHeaders, mountPageAssets, sendSlateAbsent } from './page.js';
+import { companionHeaders, mountPageAssets, mountWebAssets, sendSlateAbsent } from './page.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -99,6 +101,11 @@ export interface CompanionOptions {
   upstream?: string;
   /** R4 (H87): the folder its page is served from (a test's); its own client folder when absent. */
   clientDir?: string;
+  /**
+   * R4 (H95): the folder of the built web code its page serves at /web/ (a test's); the package's own build when absent
+   * (dist/companion-web; a source checkout builds it on the first request: src/companion/web-assets.ts).
+   */
+  webDir?: string;
 }
 
 /**
@@ -260,6 +267,8 @@ export async function startCompanionServer(port = 3001, options: CompanionOption
   const clientDir = options.clientDir ?? path.join(__dirname, 'client');
   // R4 (H92): Timmy's look, Monaspace Argon and marked, from this computer
   mountPageAssets(app);
+  // R4 (H95): the page's built chat (Streamdown), its styles and its three fonts, from this computer (/web/)
+  mountWebAssets(app, options.webDir);
   app.use(express.static(clientDir));
 
   // Slate 3D (companion/slate3d/dist) and the boards it renders, served beside

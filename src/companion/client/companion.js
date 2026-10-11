@@ -4,8 +4,11 @@
  * R4 (H92): it was inline in the page; it is a file the companion serves, so the page runs under its
  * Content-Security-Policy (script-src 'self': no inline script and no inline handler). The page's buttons are wired here
  * (data-tab, data-action, data-copy), its looks are classes of companion.css (no style attribute), and the tab transitions
- * use the browser's own Web Animations (they were GSAP's, from a CDN). Nothing here comes from another site. The model
- * chat is a module of its own (chat.js), which asks through this script's chat call.
+ * use the browser's own Web Animations (they were GSAP's, from a CDN). Nothing here comes from another site.
+ * R4 (H95): the page's own design is back (companion.css, as at b69ab12): the markup this script writes carries the classes
+ * that hold the values its style attributes had, and the tab fades have GSAP's durations and easing. The STREAMDOWN CHAT
+ * tab is the Streamdown island (/web/island/companion-chat.js, built by scripts/companion-web-build.mjs), which asks
+ * through this script's chat call.
  */
 
 // R4 (H84): the companion's token. Timmy gives this page's address with it in the fragment (#t=<64 hex>), which a
@@ -247,10 +250,10 @@ function loadSavedChat(chatId) {
   const label = document.createElement('span');
   const when = document.createElement('strong');
   when.textContent = String(chat.timestamp);
-  label.append('Viewing Saved Session from ', when);
+  label.append('📂 Viewing Saved Session from ', when);
   const back = document.createElement('button');
   back.type = 'button';
-  back.className = 'btn act';
+  back.className = 'btn-action success';
   back.dataset.action = 'exit-saved';
   back.textContent = 'Back to Live Mirror';
   banner.append(label, back);
@@ -312,7 +315,7 @@ function renderSavedChatsList() {
   const chats = getSavedChats();
 
   if (chats.length === 0) {
-    listEl.innerHTML = '<div class="empty">Saved chats will appear here after you press Save Chat.</div>';
+    listEl.innerHTML = '<div class="saved-empty">Saved chats will appear here after you press Save Chat.</div>';
     return;
   }
 
@@ -324,13 +327,13 @@ function renderSavedChatsList() {
       <div class="saved-chat">
         <div class="saved-chat-meta">
           <span>${escapeMirrorText(c.timestamp)}</span>
-          <span>${escapeMirrorText(c.messagesCount)} msgs</span>
+          <span class="saved-chat-count">${escapeMirrorText(c.messagesCount)} msgs</span>
         </div>
         <div class="saved-chat-prompt">"${escapeMirrorText(c.firstPrompt)}"</div>
         <div class="saved-chat-actions">
-          <button type="button" class="btn act small" data-action="load-saved" data-chat="${id}">Load</button>
-          <button type="button" class="btn small" data-action="download-saved" data-chat="${id}">Download</button>
-          <button type="button" class="btn danger small" data-action="delete-saved" data-chat="${id}">Delete</button>
+          <button type="button" class="btn-action success tiny" data-action="load-saved" data-chat="${id}">Load</button>
+          <button type="button" class="btn-action tiny" data-action="download-saved" data-chat="${id}">Download</button>
+          <button type="button" class="btn-action danger tiny" data-action="delete-saved" data-chat="${id}">Delete</button>
         </div>
       </div>
     `;
@@ -350,7 +353,7 @@ function appendToLocalLogs(level, msg) {
 
   logsList.innerHTML += `
     <div class="log-line">
-      <span class="log-time">[${escapeMirrorText(timeStr)}]</span>
+      <span class="log-stamp">[${escapeMirrorText(timeStr)}]</span>
       <span class="log-level ${cls}">[${escapeMirrorText(lvl)}]</span>
       <span>${escapeMirrorText(msg)}</span>
     </div>
@@ -468,7 +471,7 @@ function connect() {
 
 function renderConsoleLogs(history) {
   if (history.length === 0) {
-    consoleLogs.innerHTML = '<div class="empty">Waiting for session chat streams...</div>';
+    consoleLogs.innerHTML = '<div class="mirror-empty">Waiting for session chat streams...</div>';
     return;
   }
 
@@ -502,7 +505,7 @@ function renderConsoleLogs(history) {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
 
-    formatted = formatted.replace(/`(.*?)`/g, '<code class="mirror-code">$1</code>');
+    formatted = formatted.replace(/`(.*?)`/g, '<span class="mirror-code">$1</span>');
     formatted = formatted.replace(/```([\s\S]*?)```/g, '<div class="code-box">$1</div>');
 
     let msgClass = msg.role === 'user' ? 'user' : 'assistant';
@@ -555,7 +558,7 @@ function canvasSummaryHtml(s, hostname) {
   const head = s.unreadable
     ? '<p>The saved canvas could not be read. Open the canvas on the computer that runs Timmy: it keeps the file aside and starts blank.</p>'
     : `<p><strong>Revision ${canvasEsc(s.revision)}</strong>${s.sourceRevision ? ` · source ${canvasEsc(String(s.sourceRevision).slice(0, 12))}` : ' · not saved yet'}${s.savedAt ? ` · saved ${canvasEsc(new Date(s.savedAt).toLocaleString())}` : ''}</p>`;
-  const jobs = (s.jobs || []).map((j) => `<li>${j.ok ? '<span class="ok">✓ done</span>' : '<span class="fail">✖ failed</span>'} ${canvasEsc(j.id)} · revision ${canvasEsc(j.revision)} · ${j.receipt ? link(`${base.replace(/\/$/, '')}/receipts/${encodeURIComponent(j.receipt)}`, `receipt ${j.receipt}`) : 'no receipt yet'}</li>`).join('');
+  const jobs = (s.jobs || []).map((j) => `<li>${j.ok ? '<span class="canvas-ok">✓ done</span>' : '<span class="canvas-fail">✖ failed</span>'} ${canvasEsc(j.id)} · revision ${canvasEsc(j.revision)} · ${j.receipt ? link(`${base.replace(/\/$/, '')}/receipts/${encodeURIComponent(j.receipt)}`, `receipt ${j.receipt}`) : 'no receipt yet'}</li>`).join('');
   const open = here ? `<p>${link(base, 'Open Timmy Canvas')}</p>` : `<p>Open ${canvasEsc(base)} on the computer that runs Timmy.</p>`;
   return head + (jobs ? `<ol class="canvas-jobs">${jobs}</ol>` : '<p>No canvas jobs yet.</p>') + open;
 }
@@ -584,7 +587,11 @@ function openSlate() {
 }
 
 // The tab deck. R4 (H92): the panels fade with the browser's own Web Animations (GSAP's three transitions, from a CDN,
-// before): out in 0.15 s, in in 0.25 s; at once where the person asks for reduced motion.
+// before); at once where the person asks for reduced motion. R4 (H95): with GSAP's own timing, as the page had it: the
+// panel shown fades out in 0.15 s with power2.in, then the next fades in from 0 in 0.25 s with power2.out (also when no
+// panel was shown); no delay. GSAP's power2 is the cubic curve; these are its CSS forms (in: t³; out: 1 - (1 - t)³).
+const GSAP_POWER2_IN = 'cubic-bezier(0.32, 0, 0.67, 0)';
+const GSAP_POWER2_OUT = 'cubic-bezier(0.33, 1, 0.68, 1)';
 let tabSwitch = 0;
 function fade(el, from, to, ms, easing) {
   let still = false;
@@ -613,9 +620,9 @@ function switchTab(tabId) {
     if (mine !== tabSwitch) return;
     document.querySelectorAll('.tab-panel.active').forEach((p) => p.classList.remove('active'));
     targetPanel.classList.add('active');
-    fade(targetPanel, 0, 1, 250, 'ease-out').catch(() => undefined);
+    fade(targetPanel, 0, 1, 250, GSAP_POWER2_OUT).catch(() => undefined);
   };
-  if (activePanel) fade(activePanel, 1, 0, 150, 'ease-in').then(show, () => undefined);
+  if (activePanel) fade(activePanel, 1, 0, 150, GSAP_POWER2_IN).then(show, () => undefined);
   else show();
 }
 

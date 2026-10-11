@@ -5,9 +5,10 @@
  * on each request (the log pages' event streams too) and as a WebSocket subprotocol; opened without it, a page asks for
  * nothing and says how to open it from Timmy. The model is a FAKE OpenRouter on 127.0.0.1. Every request a page makes to
  * anywhere but its server is aborted. R4 (H92): the companion page asks nothing of anywhere else (its scripts, style sheet,
- * fonts and markdown parser are its server's: tests/companion-page-browser.test.ts); the `timmy logs` chat mirror still
- * imports Streamdown from esm.sh, aborted here, so only its own script runs. Skipped, saying so, where no Chromium or
- * Chrome is found.
+ * fonts and markdown parser are its server's: tests/companion-page-browser.test.ts). R4 (H95): nor does the `timmy logs`
+ * chat mirror: its Streamdown island is the companion's own build, served by the log companion (/web/), and it draws the
+ * session's turns under the page's policy (this test builds it first when it is missing or stale). Skipped, saying so,
+ * where no Chromium or Chrome is found.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -20,6 +21,7 @@ import { startCompanionServer, type CompanionServer } from '../src/companion/ser
 import { folderWords, startManagedLogServer } from '../src/utils/logserver.js';
 import { publish } from '../src/bus/index.js';
 import { appendReceipt } from '../src/utils/receipts.js';
+import { ensureCompanionWeb } from '../scripts/companion-web-build.mjs';
 
 const browserPath = [process.env.TIMMY_UI_CHROMIUM, chromium.executablePath(), '/opt/pw-browsers/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
   .find((p): p is string => Boolean(p) && existsSync(p!));
@@ -44,6 +46,8 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
   const upstream: Array<{ auth: string; body: string }> = [];
 
   beforeAll(async () => {
+    // R4 (H95): the pages' built chat (Streamdown), built first when it is missing or stale (CI has no build)
+    await ensureCompanionWeb();
     for (const k of ENV) saved[k] = process.env[k];
     const root = temp('h84b-root-');
     mkdirSync(join(root, '.timmy', 'runs'), { recursive: true });
@@ -68,7 +72,7 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
     await new Promise<void>((r) => fake.listen(0, '127.0.0.1', () => r()));
     fakeUrl = `http://127.0.0.1:${(fake.address() as AddressInfo).port}/chat/completions`;
     browser = await chromium.launch({ headless: true, executablePath: browserPath });
-  }, 120_000);
+  }, 600_000);
 
   afterAll(async () => {
     await browser?.close();
@@ -164,7 +168,8 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       expect(bare.sockets).toEqual([]);
       // R4 (H92): the page's own files (its code, style sheet, theme, fonts and markdown parser), and nothing that needs the token
       expect(bare.seen.map((s) => s.path)).toContain('/');
-      for (const s of bare.seen) expect(s.path).toMatch(/^\/(?:|[\w-]+\.(?:js|css)|vendor\/marked\.esm\.js|fonts\/[\w.-]+\.woff2)$/);
+      // R4 (H95): and the built chat's code, its styles and the page's fonts (/web/)
+      for (const s of bare.seen) expect(s.path).toMatch(/^\/(?:|[\w-]+\.(?:js|css)|vendor\/marked\.esm\.js|fonts\/[\w.-]+\.woff2|web\/(?:island(?:\/chunks)?|styles|fonts)\/[\w.-]+\.(?:js|css|woff2))$/);
       for (const s of bare.seen) expect(s.auth).toBe('');
     } finally { await bare.context.close(); }
     const wrong = await open(base, `${base}/#t=${OTHER}`);
@@ -263,12 +268,17 @@ describe.skipIf(!browserPath)('the browser companion and the log companion under
       await page.waitForFunction(() => /arm one via the escrow engine/.test(document.getElementById('escrows')?.textContent ?? ''), null, { timeout: 15_000 });
       expect(await page.evaluate(() => location.href)).toBe(`${base}/mission`);
       expect(seen.find((s) => s.path === '/mission/escrows')?.auth).toBe(`Bearer ${token}`);
-      // the chat mirror (its Streamdown module comes from esm.sh, aborted here: only its own script runs) takes the token
-      // out of its address too, and its link back to the full inspection carries it
+      // the chat mirror takes the token out of its address too, and its link back to the full inspection carries it; R4 (H95):
+      // its Streamdown island is this server's own (/web/), and it draws the session's turns (read with the token)
+      mkdirSync(join(process.cwd(), '.sessions'), { recursive: true });
+      writeFileSync(join(process.cwd(), '.sessions', 'h95.jsonl'), [{ role: 'user', content: 'SYNTHETIC question' }, { role: 'assistant', content: '## SYNTHETIC heading\n\nan **answer**' }].map((m) => JSON.stringify(m)).join('\n') + '\n');
       await page.goto(`${base}/chat#t=${token}`);
       expect(await page.evaluate(() => location.href)).toBe(`${base}/chat`);
       expect(await page.getAttribute('a[data-timmy-page="/"]', 'href')).toBe(`/#t=${token}`);
       expect(await page.isHidden('#timmy-token-note')).toBe(true);
+      await page.waitForFunction(() => document.querySelector('#left [data-streamdown="heading-2"]')?.textContent === 'SYNTHETIC heading', null, { timeout: 15_000 });
+      expect(seen.find((s) => s.path === '/chat/events')?.auth).toBe(`Bearer ${token}`);
+      expect(seen.map((s) => s.path)).toEqual(expect.arrayContaining(['/chat/page.js', '/web/island/logs-chat.js']));
     } finally {
       await context.close();
       await logs.stop();

@@ -18,6 +18,8 @@
 //                                                                                 nothing and say how to open them from Timmy
 //   GET /health                             nothing more; its folder with the     whether this is the log companion (and its port)
 //                                           token (R4 H92: from ~, or by name)
+//   GET /chat/page.js, /web/*               nothing more                          the chat mirror's token script and the companion's
+//                                                                                 built web code (R4 H95; no content)
 //   GET /chat/events, /events               the token                             the session's turns, receipts, the event bus
 //   GET /receipts, /verify, /verify-receipt the token                             the receipt chain
 //   GET /dispatch, /mission/escrows,        the token                             plans, escrows, a folder's theatre state
@@ -32,7 +34,13 @@
 // nothing logged, and the server keeps answering. The one file it reads beside its code, its chat page, is in
 // LOGS_RUNTIME_FILES, which the build copies (scripts/copy-runtime-assets.mjs; r23: GET /chat crashed `timmy logs` in the
 // installed package, whose dist/ had no chatpage.html).
+//
+// R4 (H95): every page it serves carries the strictest Content-Security-Policy it works under (logsPagePolicy): scripts
+// only by this answer's nonce or from this server, no inline handler (the pages' buttons are wired by their own scripts),
+// requests only to this server, no plugins, no <base>, no form posts, never framed; nosniff and no referrer. The chat
+// mirror (/chat) draws with the companion's own Streamdown build (/web/, src/companion/web-assets.ts), not esm.sh.
 import { createServer, ServerResponse, type IncomingMessage } from 'http';
+import { randomBytes } from 'crypto';
 import { existsSync, readFileSync, statSync, openSync, readSync, closeSync, readdirSync } from 'fs';
 import { armPlan, dispatchPlan, dispatchContainerized, getPlan, pauseOrCancelLane, collectRun, createPlan, type DispatchPlan } from './dispatch.js';
 import { composeUnifiedStage, stageHierarchy } from './usd-compiler.js';
@@ -50,6 +58,7 @@ import { dropTokenFile, isLocalRequest, LocalToken, logsTokenFile, readTokenFile
 import { carriesSecret, writeLaunchPage } from './launch-page.js';
 import { failRequest } from './server-failure.js';
 import { tildePath } from './home-scrub.js';
+import { sendWebFile } from '../companion/web-assets.js';
 
 export const LOGS_PORT = (): number => Number(process.env.TIMMY_LOGS_PORT ?? 4310);
 
@@ -151,6 +160,36 @@ function timmyLinks() {
 if (!timmyToken) timmyRefused();
 `;
 
+/** R4 (H95): where each page's inline scripts carry this answer's nonce (replaced in every answer: sendPage). */
+const NONCE = '__TIMMY_NONCE__';
+
+/**
+ * R4 (H95): each page's policy, as strict as it works under. `nonce`: this answer's (16 random bytes).
+ *   /, /browser   their inline scripts by this nonce only (no inline handler: their buttons are wired by their scripts);
+ *                 inline styles, for the theme colours their markup and the rows they write carry as style attributes (a
+ *                 style can fetch nothing here: no image, font or request is allowed elsewhere); requests to this server.
+ *   /mission      the same, and media from http(s) addresses: its video stem plays the address a person types there.
+ *   /chat         scripts from this server only (its token script, /chat/page.js, and the Streamdown island, /web/), its
+ *                 style block by this nonce (no inline style: Streamdown sets its styles through the DOM), images from
+ *                 this server only.
+ */
+export function logsPagePolicy(nonce: string, page: '/' | '/mission' | '/browser' | '/chat'): string {
+  const common = ["object-src 'none'", "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'"];
+  if (page === '/chat') return ["default-src 'none'", "script-src 'self'", `style-src 'nonce-${nonce}'`, "img-src 'self'", "connect-src 'self'", ...common].join('; ');
+  return ["default-src 'none'", `script-src 'nonce-${nonce}'`, "style-src 'unsafe-inline'", "connect-src 'self'", ...(page === '/mission' ? ['media-src http: https:'] : []), ...common].join('; ');
+}
+
+/** R4 (H95): a page with this answer's nonce in its inline scripts (and style block) and its policy. */
+function sendPage(res: ServerResponse, html: string, page: '/' | '/mission' | '/browser' | '/chat'): void {
+  const nonce = randomBytes(16).toString('base64');
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Security-Policy', logsPagePolicy(nonce, page));
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.end(html.split(NONCE).join(nonce));
+}
+
 /** R4 (H84): where a page says it has no token, or that its token was refused (theme colours only). */
 const TOKEN_NOTE = `<p id="timmy-token-note" role="alert" hidden style="margin:8px 16px;padding:8px 12px;border:1px solid ${theme.warn};border-radius:6px;color:${theme.textPrimary};background:${theme.surfaceRaised}"></p>`;
 
@@ -197,7 +236,7 @@ ${TOKEN_NOTE}
   <section><h2>EVENT BUS · LIVE</h2><p id="event-note" class="empty" role="status">No events received yet · waiting for this instance.</p><div id="events"></div></section>
   <section><h2>RECEIPT CHAIN · runs</h2><p id="chain-note" class="empty" role="status">Loading this store's receipt history…</p><div id="chain"></div></section>
 </main>
-<script>${PAGE_TOKEN_JS}
+<script nonce="${NONCE}">${PAGE_TOKEN_JS}
 const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const eventsEl = document.getElementById('events');
 // Serialize server palette values; the browser has no imported theme module.
@@ -313,7 +352,7 @@ ${TOKEN_NOTE}
 <h2>1 · MISSION MAP → CUE PLANS (timmy_mission_compile)</h2>
 <div class="row"><textarea id="doc" spellcheck="false"></textarea></div>
 <div class="row" style="margin-top:8px">
-  <button onclick="compile()">compile</button>
+  <button data-run="compile">compile</button>
   <span class="note">compiles only — launch stays with the controller: timmy_plan_dispatch → timmy approve → timmy_dispatch_plan</span>
 </div>
 <div id="plans"></div>
@@ -321,9 +360,9 @@ ${TOKEN_NOTE}
 <h2>2 · THEATRE PLAYBACK (frame-accurate · 30fps timebase)</h2>
 <div class="row">
   <input id="folder" value="studio/timmy-sting-5s" size="34">
-  <button onclick="loadState()">load state</button>
-  <button onclick="play()">play</button>
-  <button onclick="stop()">stop</button>
+  <button data-run="loadState">load state</button>
+  <button data-run="play">play</button>
+  <button data-run="stop">stop</button>
 </div>
 <div id="stage"><div id="actor"></div></div>
 <div id="clock">t=0.000</div>
@@ -334,7 +373,7 @@ ${TOKEN_NOTE}
   <input id="vsrc" placeholder="media url" size="40">
   <input id="vin" type="number" value="0" step="0.1" style="width:70px">
   <input id="vout" type="number" value="5" step="0.1" style="width:70px">
-  <button onclick="playVid()">play fragment</button>
+  <button data-run="playVid">play fragment</button>
 </div>
 <video id="vid" controls style="max-width:480px;width:100%;margin-top:8px;border:1px solid ${theme.line}"></video>
 
@@ -361,7 +400,7 @@ ${TOKEN_NOTE}
 <h2>6 · ESCROW LEDGER (live locks · refunds · slashes)</h2>
 <pre id="escrows" style="max-height:160px;overflow-y:auto;padding:8px;border:1px solid ${theme.line};border-radius:6px;background:${theme.surfaceRaised};color:${theme.textSecondary};font:inherit;white-space:pre-wrap">no escrows yet</pre>
 
-<script>${PAGE_TOKEN_JS}
+<script nonce="${NONCE}">${PAGE_TOKEN_JS}
 async function refreshEscrows() {
   const r = await (await timmyFetch('/mission/escrows')).json();
   const box = document.getElementById('escrows');
@@ -392,6 +431,15 @@ async function inspectKind(kind) {
 }
 document.getElementById('btnmerkle').onclick = () => inspectKind('merkle');
 document.getElementById('btnstage').onclick = () => inspectKind('stage');
+// R4 (H95): the page's buttons, wired here (its policy runs no inline handler)
+document.addEventListener('click', (e) => {
+  const b = e.target instanceof Element ? e.target.closest('button') : null;
+  if (!b) return;
+  const run = { compile, loadState, play, stop, playVid }[b.dataset.run];
+  if (run) run();
+  else if (b.dataset.store !== undefined) storePlan(Number(b.dataset.store));
+  else if (b.dataset.arm !== undefined) armLaunch(Number(b.dataset.arm));
+});
 const DEFAULT_DOC = {
   nodes: [
     { id: 'sting', kind: 'capsule', objective: 'render the 5s sting', copies: 1 },
@@ -426,7 +474,7 @@ async function compile() {
       + '<div class="meta">node ' + p.node_id + ' · harness ' + p.plan.harnesses[0] + ' · workspace ' + p.plan.workspace.kind
       + ' · depends_on [' + (p.plan.cadence.depends_on || []).join(', ') + '] · approval ' + p.plan.approval.mode
       + ' · manifest ' + (p.plan.context_manifest || []).map(m => m.path + '@' + m.sha256.slice(0, 8) + '…').join(' ') + '</div>'
-      + '<div class="meta" style="margin-top:6px"><button onclick="storePlan(' + i + ')">send to controller</button> <span id="gw-' + i + '"></span></div></div>';
+      + '<div class="meta" style="margin-top:6px"><button data-store="' + i + '">send to controller</button> <span id="gw-' + i + '"></span></div></div>';
   });
   if (!PLANS.length && !(r.errors ?? []).length) out.innerHTML = '<div class="err">no capsules in doc</div>';
 }
@@ -442,7 +490,7 @@ async function storePlan(i) {
   el.dataset.id = r.id;
   el.innerHTML = 'stored ' + r.id + ' · hash <span class="hash">' + r.plan_hash + '</span> '
     + '<input id="tok-' + i + '" placeholder="operator token (timmy approve …)" size="26"> '
-    + '<button onclick="armLaunch(' + i + ')">arm + launch</button> <span id="al-' + i + '"></span>';
+    + '<button data-arm="' + i + '">arm + launch</button> <span id="al-' + i + '"></span>';
 }
 async function armLaunch(i) {
   const el = document.getElementById('gw-' + i);
@@ -561,7 +609,13 @@ const DISPATCH_HTML = `
   <h2>DISPATCH · COMMAND POST</h2>
   <div id="plans" style="display:flex;flex-direction:column;gap:6px"></div>
 </div>
-<script>
+<script nonce="${NONCE}">
+// R4 (H95): a plan's id in an attribute; its buttons wired here (the page's policy runs no inline handler)
+const planAttr = (v) => String(v).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';');
+document.addEventListener('click', (e) => {
+  const b = e.target instanceof Element ? e.target.closest('button[data-act][data-plan]') : null;
+  if (b) act(b.dataset.plan, b.dataset.act);
+});
 async function act(id, action) {
   let token;
   if (action === 'arm') { token = prompt('operator approval token (timmy approve <planHash>):'); if (!token) return; }
@@ -580,11 +634,11 @@ async function loadPlans() {
     + '<span style="color:${theme.textSecondary}">' + p.harness + ' · ' + p.objective + '</span> '
     + '<span style="color:${theme.textMuted}">hash ' + (p.plan_hash || '').slice(0, 12) + '…</span>'
     + (p.blocked ? ' <span style="color:${theme.danger}">' + p.blocked.state + ': ' + p.blocked.note + '</span>' : '')
-    + ' <button onclick="act(\\'' + p.id + '\\',\\'arm\\')">arm</button>'
-    + ' <button onclick="act(\\'' + p.id + '\\',\\'launch\\')">launch</button>'
-    + ' <button onclick="act(\\'' + p.id + '\\',\\'hold\\')">hold</button>'
-    + ' <button onclick="act(\\'' + p.id + '\\',\\'cancel\\')">cancel</button>'
-    + ' <button onclick="act(\\'' + p.id + '\\',\\'collect\\')">collect</button>'
+    + ' <button data-act="arm" data-plan="' + planAttr(p.id) + '">arm</button>'
+    + ' <button data-act="launch" data-plan="' + planAttr(p.id) + '">launch</button>'
+    + ' <button data-act="hold" data-plan="' + planAttr(p.id) + '">hold</button>'
+    + ' <button data-act="cancel" data-plan="' + planAttr(p.id) + '">cancel</button>'
+    + ' <button data-act="collect" data-plan="' + planAttr(p.id) + '">collect</button>'
     + '</div>').join('') : '<div style="color:${theme.textMuted}">no plans — prepare one from chat (ctrl+d rail) or timmy_plan_dispatch</div>';
 }
 // R4 (H84): with the token only; a refused token stops the polling
@@ -621,8 +675,14 @@ const BROWSER_HTML = `<!doctype html><html><head><meta charset="utf-8">
 </header>
 ${TOKEN_NOTE}
 <div id="list"></div>
-<script>${PAGE_TOKEN_JS}
+<script nonce="${NONCE}">${PAGE_TOKEN_JS}
 const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+// R4 (H95): a receipt's id in an attribute; the verify buttons wired here (the page's policy runs no inline handler)
+const attr = s => String(s ?? '').replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
+document.addEventListener('click', (e) => {
+  const b = e.target instanceof Element ? e.target.closest('button[data-vf]') : null;
+  if (b) vf(b.dataset.vf);
+});
 let CHAIN = [];
 async function load() {
   const stream = document.getElementById('stream').value;
@@ -644,7 +704,7 @@ function render() {
       + '<span class="sub">' + esc(r.subject ?? r.kind) + '</span>'
       + '<span class="st-' + esc(r.status ?? 'ok') + '">' + esc(r.status ?? 'ok') + '</span>'
       + '<span class="meta">' + esc(r.ts ?? '').slice(11, 19) + ' · ' + esc(r.kind) + (r.cost_measured === false ? ' · cost declared-unknown' : (r.cost_usd ? ' · $' + r.cost_usd : '')) + (r.tokens ? ' · ' + r.tokens + 'tok' : '') + '</span>'
-      + '<button onclick="vf(\\'' + esc(r.id) + '\\')">verify</button><span class="vf" id="vf-' + esc(r.id) + '"></span></div>'
+      + '<button data-vf="' + attr(r.id) + '">verify</button><span class="vf" id="vf-' + attr(r.id) + '"></span></div>'
       + '<div><span class="hash">hash ' + esc(String(r.hash ?? '').slice(0, 20)) + '…</span> <span class="prev">prev ' + esc(String(r.prev_hash ?? '').slice(0, 20)) + '…</span></div>'
       + (r.error_class ? '<div class="meta">error_class: ' + esc(r.error_class) + '</div>' : '')
       + '</div>';
@@ -728,13 +788,21 @@ export interface LogServerOptions {
   tokenFile?: boolean;
   /** R4 (H87): the folder its page files are read from (a test's); this module's own folder when absent. */
   pageDir?: string;
+  /** R4 (H95): the folder of the companion's built web code it serves at /web/ (a test's); the package's own when absent. */
+  webDir?: string;
 }
 
 /** R4 (H84): the routes that carry the operator's content (turns, receipts, events, plans) or write: the token. */
 const NEEDS_TOKEN: ReadonlySet<string> = new Set(['/chat/events', '/events', '/receipts', '/verify', '/verify-receipt', '/dispatch', '/dispatch/action', '/mission/compile', '/mission/store', '/mission/inspect', '/mission/escrows', '/mission/theatre']);
 
-/** R4 (H84): a page, with its token script where it asks for it (chatpage.html). R4 (H87): it throws when the file cannot be read. */
-const chatPage = (dir?: string): string => readFileSync(dir ? join(dir, 'chatpage.html') : new URL('./chatpage.html', import.meta.url), 'utf8').replace('<script>/*TIMMY-TOKEN*/</script>', () => `<script>${PAGE_TOKEN_JS}</script>`);
+/**
+ * R4 (H84): the chat mirror's page (chatpage.html). R4 (H87): it throws when the file cannot be read. R4 (H95): its token
+ * script is a file of this server's (/chat/page.js: CHAT_PAGE_JS), so the page runs under script-src 'self'; its style
+ * block carries the answer's nonce (sendPage).
+ */
+const chatPage = (dir?: string): string => readFileSync(dir ? join(dir, 'chatpage.html') : new URL('./chatpage.html', import.meta.url), 'utf8');
+/** R4 (H95): the chat mirror's token script, served at /chat/page.js: the pages' token lines, then its links. */
+export const CHAT_PAGE_JS = `${PAGE_TOKEN_JS}\ntimmyLinks();\n`;
 
 /** Own the listener and polling lifecycle; callers may request port 0. */
 export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogServerHandle> {
@@ -796,8 +864,19 @@ export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogS
     if (url.pathname === '/chat') {
       let page: string;
       try { page = chatPage(opts.pageDir); } catch { failRequest(res, 500, LOGS_PAGE_FAILED, 'text'); return; }
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.end(page);
+      sendPage(res, page, '/chat');
+      return;
+    }
+    // R4 (H95): the chat mirror's token script, and the companion's built web code (its Streamdown island)
+    if (url.pathname === '/chat/page.js') {
+      res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.end(CHAT_PAGE_JS);
+      return;
+    }
+    if (url.pathname.startsWith('/web/')) {
+      void sendWebFile(url.pathname, res, opts.webDir).catch(() => failRequest(res, 500, LOGS_FAILED, 'text'));
       return;
     }
     if (url.pathname === '/chat/events') {
@@ -871,8 +950,7 @@ export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogS
       return;
     }
     if (url.pathname === '/browser') {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.end(BROWSER_HTML);
+      sendPage(res, BROWSER_HTML, '/browser');
       return;
     }
     // Command Post survey surface: same controller, same allowlist. Browser
@@ -917,8 +995,7 @@ export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogS
     // Mission Studio: survey surface for the compiler + playback. Compiles
     // only — every mutation still goes through the controller.
     if (url.pathname === '/mission') {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.end(MISSION_HTML);
+      sendPage(res, MISSION_HTML, '/mission');
       return;
     }
     if (url.pathname === '/mission/compile' && req.method === 'POST') {
@@ -1017,8 +1094,7 @@ export function startManagedLogServer(opts: LogServerOptions = {}): Promise<LogS
       res.end(state);
       return;
     }
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.end(PAGE + DISPATCH_HTML);
+    sendPage(res, PAGE + DISPATCH_HTML, '/');
   }
   return new Promise((resolve, reject) => {
     server.once('error', reject);
