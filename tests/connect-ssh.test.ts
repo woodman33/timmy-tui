@@ -230,6 +230,18 @@ describe('remote jobs', () => {
     expect(events).toMatch(/already started on dev: this submission started nothing|started on dev/);
   }, 60_000);
 
+  it('a device that cannot detach a job answers so: nothing starts, the record says why, and the CLI exits 1', async () => {
+    const mac = await ready(2237, { macLike: true }, 'mac');
+    // perl goes away after the probe (the FAKE device's PATH loses it): the device itself refuses to start the job
+    fs.unlinkSync(path.join(kit.root, 'mac-bin', 'perl'));
+    const cli = await kit.cli(['run', 'mac', '--json', '--', 'sleep', '1']);
+    expect(cli.code, cli.stdout + cli.stderr).toBe(1);
+    const j = lastJson(cli.stdout);
+    expect(j.words).toBe('not started: there is no way to detach a job there (no setsid, no perl): it was not started');
+    expect(j.job.state).toBe('submitted');
+    expect(fs.existsSync(path.join(jobDir(mac.home, j.job.id), 'claim'))).toBe(false);
+  }, 60_000);
+
   it('a stop is confirmed by the device\'s status file, and the job\'s process group is gone', async () => {
     const { id, home } = await ready(2233);
     const r = await runJob(p, id, { command: ['sh', '-c', 'sleep 60 & sleep 60'] });

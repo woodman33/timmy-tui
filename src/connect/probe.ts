@@ -18,13 +18,14 @@ import { scrubShown } from './scrub.js';
 import { ensureConnect, findDevice, patchDevice, type ConnectPaths } from './store.js';
 import type { DeviceOs, DeviceProbe, DeviceRecord, ProbeFacts, ShellFamily } from './types.js';
 
-/** The key=value lines between a script's BEGIN and END markers. */
+/** The key=value lines between a script's BEGIN and END markers; null unless both came (an answer cut off is not read). */
 export function keyValues(text: string, begin: string, end: string): Array<[string, string]> | null {
   const lines = text.replace(/\r/g, '').split('\n');
   const from = lines.findIndex((l) => l.trim() === begin);
   if (from < 0) return null;
   const to = lines.findIndex((l, i) => i > from && l.trim() === end);
-  return lines.slice(from + 1, to < 0 ? undefined : to).flatMap((l) => {
+  if (to < 0) return null;
+  return lines.slice(from + 1, to).flatMap((l) => {
     const at = l.indexOf('=');
     return at > 0 ? [[l.slice(0, at).trim(), l.slice(at + 1).trim()] as [string, string]] : [];
   });

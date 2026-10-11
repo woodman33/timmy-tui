@@ -72,7 +72,8 @@ export function connectHelp(surface: 'cli' | 'repl' = 'cli'): string[] {
     `  ${c} tailnet                  peers tailscale status lists (read only; adds nothing)`,
     ...(surface === 'cli' ? [`  ${c} <tool>                   any other word: the journey's env.lock step, as before`] : []),
     '',
-    '  --json on each: one JSON object. Exit: 0 done, 1 refused or no answer, 2 usage, 130 Ctrl-C during a wait.',
+    '  --json on each: one JSON object. Exit: 0 done, 1 refused or no answer, 2 usage, 130 Ctrl-C during a wait;',
+    '  a wait exits 0 only when the job ended with exit 0 there.',
     "  ssh runs with Timmy's own empty config and known_hosts, BatchMode and StrictHostKeyChecking=yes; a key is named",
     '  by its file, never read by Timmy. A connection proves no CAD, rendering, GPU or app support.',
   ];
@@ -132,7 +133,7 @@ function outcomeSaid(r: JobOutcome | { error: string }, verb: string, g: GlyphSe
   if (r.failure?.ssh) lines.push([label('    ssh: '), { text: r.failure.ssh.split('\n').slice(-3).join(' / ') }]);
   for (const t of r.job.remote?.tail ?? []) lines.push([label('    out| '), { text: t }]);
   if (r.job.state === 'running' || r.job.state === 'stop asked' || r.job.state === 'unknown') lines.push([label('    '), cmd(`timmy connect status ${r.job.id}`), label('  '), cmd(`timmy connect stop ${r.job.id}`)]);
-  const code = r.failure && !r.answered ? 1 : okCode;
+  const code = (r.failure && !r.answered) || r.refused ? 1 : okCode;
   return { code, lines, json: { ok: code === 0, verb, job: view, words: scrubShown(r.words), ...(r.failure ? { failure: { outcome: r.failure.outcome, ...(r.failure.why ? { why: r.failure.why } : {}), words: r.failure.words, ssh: r.failure.ssh } } : {}), ...(r.job.remote?.tail ? { tail: r.job.remote.tail } : {}) } };
 }
 
@@ -315,7 +316,9 @@ async function waited(p: ConnectPaths, id: string, c: ConnectContext, before: Li
   if (r.end === 'interrupted') {
     return { code: 130, lines: [...before, [{ text: `  ${g.warn} `, role: 'estimate' }, { text: r.words }], [label('    '), cmd(`timmy connect stop ${id}`)]], json: { ...said.json, ok: false, end: 'interrupted', words: r.words } };
   }
-  return { ...said, code: r.end === 'ended' ? 0 : 1, lines: [...before, ...said.lines], json: { ...said.json, end: r.end } };
+  // a wait exits 0 only when the job ended with exit 0 there; any other end (an exit, a stop, unknown) is 1
+  const clean = r.end === 'ended' && r.job.state === 'ended' && r.job.remote?.exit_status === 0;
+  return { ...said, code: clean ? 0 : 1, lines: [...before, ...said.lines], json: { ...said.json, ok: clean, end: r.end } };
 }
 
 /** The devices and jobs in brief, for `/connect` with nothing after it. */

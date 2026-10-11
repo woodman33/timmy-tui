@@ -101,7 +101,8 @@ export function parseStatus(text: string, readAt = new Date().toISOString()): Re
   const one = (k: string): string | undefined => kv.find(([key]) => key === k)?.[1];
   const int = (k: string): number | undefined => { const v = one(k); return v !== undefined && /^[0-9]+$/.test(v) ? Number(v) : undefined; };
   const where = one('where');
-  const s: RemoteStatus = { read_at: readAt, where: where === 'absent' || where === 'not started' || where === 'claimed' ? where : 'status' };
+  if (where !== 'absent' && where !== 'not started' && where !== 'claimed' && where !== 'status') return null;
+  const s: RemoteStatus = { read_at: readAt, where };
   if (s.where !== 'status') return s;
   const state = one('state');
   if (state === 'running' || state === 'ended') s.state = state;
@@ -193,7 +194,11 @@ async function readRemote(p: ConnectPaths, d: DeviceRecord, j: RemoteJobRecord):
   return status ? { status } : { failure: { outcome: 'error', words: 'the device answered without a status block', ssh: '', notSent: false } };
 }
 
-export interface JobOutcome { job: RemoteJobRecord; words: string; failure?: SshFailure; answered: boolean }
+export interface JobOutcome {
+  job: RemoteJobRecord; words: string; failure?: SshFailure; answered: boolean;
+  /** the device answered and did not do what was asked (a job it would not start), in words */
+  refused?: string;
+}
 
 /** `timmy connect status <job>`: the device's status file is read before anything is said. */
 export async function reconcileJob(p: ConnectPaths, id: string): Promise<JobOutcome | { error: string }> {
@@ -240,8 +245,13 @@ async function submit(p: ConnectPaths, d: DeviceRecord, j: RemoteJobRecord, byte
   } catch (e) {
     failure = { outcome: 'error', words: (e as Error).message, ssh: '', notSent: true };
   }
-  if (failure) noteFailure(p, d, failure);
   const said = /^TIMMY-SUBMIT (\S+)(.*)$/m.exec(answer);
+  if (!failure && (said?.[1] === 'started' || said?.[1] === 'already-started') && !status) {
+    // the device said so, and its answer was cut off before the status came: unknown until a status read
+    failure = { outcome: 'unreachable', why: 'closed', words: `${d.id} said the run ${said[1] === 'started' ? 'started' : 'had started'}, and its answer ended before its status came`, ssh: '', notSent: false };
+  }
+  if (failure) noteFailure(p, d, failure);
+  let refused: string | undefined;
   const job = updateJob(p, j.id, (x) => {
     if (failure) {
       applyFailure(x, failure, 'submission');
@@ -260,15 +270,15 @@ async function submit(p: ConnectPaths, d: DeviceRecord, j: RemoteJobRecord, byte
         'no-detach': 'there is no way to detach a job there (no setsid, no perl): it was not started',
       };
       x.last_seen = new Date().toISOString();
-      event(x, `not started: ${why[word] ?? `the device answered ${JSON.stringify(word)}`}`);
+      refused = `not started: ${why[word] ?? `the device answered ${JSON.stringify(word)}`}`;
+      event(x, refused);
     }
   });
   forgetCopy(p, job);
-  const lastEvent = job.events.at(-1)?.what ?? '';
   const words = failure
     ? (failure.notSent && job.state === 'submitted' ? `not sent: ${failure.words}` : jobWords(job))
-    : said && (said[1] === 'started' || said[1] === 'already-started') ? jobWords(job) : lastEvent;
-  return { job, words, ...(failure ? { failure } : {}), answered: !failure };
+    : refused ?? jobWords(job);
+  return { job, words, ...(failure ? { failure } : {}), ...(refused ? { refused } : {}), answered: !failure };
 }
 
 /** `timmy connect run`: a new job on a device, from command words or a script file. */
@@ -332,7 +342,7 @@ export async function retryJob(p: ConnectPaths, id: string): Promise<JobOutcome 
  * the job is not touched, and the words say so with the command that stops it. A dropped connection leaves it unknown.
  * The local ssh runs in a process group of its own, so a terminal's Ctrl-C reaches Timmy alone, which then stops it.
  */
-export async function waitJob(p: ConnectPaths, id: string, o: { signal?: AbortSignal; onRunning?: (at: string) => void; onChild?: (pid: number | undefined) => void } = {}): Promise<JobOutcome & { end: 'ended' | 'interrupted' | 'dropped' } | { error: string }> {
+export async function waitJob(p: ConnectPaths, id: string, o: { signal?: AbortSignal; onRunning?: (at: string) => void; onChild?: (pid: number | undefined) => void } = {}): Promise<JobOutcome & { end: 'ended' | 'not running' | 'interrupted' | 'dropped' } | { error: string }> {
   const j = readJob(p, id);
   if (!j) return { error: `no remote job ${JSON.stringify(id)}` };
   let d: DeviceRecord;
@@ -362,7 +372,8 @@ export async function waitJob(p: ConnectPaths, id: string, o: { signal?: AbortSi
   }
   const job = updateJob(p, id, (x) => applyStatus(x, status));
   forgetCopy(p, job);
-  return { job, end: 'ended', answered: true, words: jobWords(job) };
+  // the wait ends when the job has ended, or when it was never running there (no claim: nothing to wait for)
+  return { job, end: job.state === 'ended' || job.state === 'stopped' ? 'ended' : 'not running', answered: true, words: jobWords(job) };
 }
 
 /**
