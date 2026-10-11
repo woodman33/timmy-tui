@@ -43,9 +43,11 @@ const LICENSE = {
  * The canvas document as Timmy holds it. `revision` counts document changes (shapes, bindings,
  * pages, assets, by Timmy or by hand) and continues from the saved one; `savedRevision` is what the
  * file in Timmy's home holds, `sourceRevision` the sha256 of it. `conflict` is set when another
- * window saved first: this one then stops saving rather than overwrite it.
+ * window saved first: this one then stops saving rather than overwrite it. R4 (H83): `refused` is set when Timmy refused a
+ * save to this page's session (it no longer counts: another project or REPL holds the canvas, or it ended); the page's changes
+ * stay in it, unsaved, and the next change tries again.
  */
-const canvas = { revision: 0, savedRevision: 0, sourceRevision: null, conflict: null, notice: null, linked: false, timer: null };
+const canvas = { revision: 0, savedRevision: 0, sourceRevision: null, conflict: null, refused: null, notice: null, linked: false, timer: null };
 
 /**
  * The live editor. A canvas call that crashes tldraw gets a fresh editor (round R1: see `restore`), so
@@ -67,6 +69,11 @@ function showStatus(editor) {
     say(`Not saved: ${canvas.conflict}`, 'error');
     return;
   }
+  // R4 (H83): Timmy refused this page's save, in its own words (which say what to do).
+  if (canvas.refused) {
+    say(`Not saved: ${canvas.refused}`, 'refused');
+    return;
+  }
   const saved = canvas.revision === canvas.savedRevision ? `revision ${canvas.revision}, saved` : `revision ${canvas.revision}, saving`;
   const text = `Canvas ready · tldraw ${BUILT_WITH} · ${LICENSE[state] ?? `license state: ${state}`} · ${canvas.linked ? 'Timmy connected' : 'Timmy not connected'} · ${saved}`;
   say(canvas.notice ? `${canvas.notice} ${text}` : text, canvas.linked ? 'ready' : 'waiting');
@@ -83,13 +90,10 @@ async function saveNow() {
   let status = 0;
   let saved;
   try {
-    const response = await fetch('/api/canvas/document', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ snapshot: getSnapshot(editor.store).document, revision, baseRevision: canvas.savedRevision }),
-    });
+    // R4 (H83): saved with this page's session (./cards.js holds it; this file never sees it)
+    const response = await cards.saveDocument(JSON.stringify({ snapshot: getSnapshot(editor.store).document, revision, baseRevision: canvas.savedRevision }));
     status = response.status;
-    saved = await response.json();
+    saved = response.body || { ok: false, error: `Timmy answered ${status} for the save.` };
   } catch (error) {
     saved = { ok: false, error: `Timmy could not be reached to save the canvas (${error instanceof Error ? error.message : String(error)}).` };
   }
@@ -97,8 +101,11 @@ async function saveNow() {
     canvas.savedRevision = saved.revision;
     canvas.sourceRevision = saved.sourceRevision;
     canvas.notice = null;
+    canvas.refused = null;
   } else if (status === 409) {
     canvas.conflict = saved.error;
+  } else if (status === 401 || status === 0) {
+    canvas.refused = saved.error || 'Timmy refused this page\'s save. In Timmy: /canvas open.';
   }
   showStatus(editor);
   return saved;
@@ -119,10 +126,10 @@ const saveSoon = () => {
  * an ordinary one, which the browser may cut off: then the last 400 ms of changes can be lost.
  */
 function saveOnLeave() {
-  if (!current || canvas.conflict || canvas.revision === canvas.savedRevision) return;
+  if (!current || canvas.conflict || canvas.revision === canvas.savedRevision || !cards.hasSession()) return;
   clearTimeout(canvas.timer);
   const body = JSON.stringify({ snapshot: getSnapshot(current.store).document, revision: canvas.revision, baseRevision: canvas.savedRevision });
-  fetch('/api/canvas/document', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body, keepalive: body.length < 60_000 }).catch(() => undefined);
+  cards.saveDocument(body, body.length < 60_000).catch(() => undefined);
 }
 
 // The agent bridge (F-4, slice 2): Timmy sends Editor API code; it runs here against the live editor
@@ -218,10 +225,22 @@ async function restore(editor, before, mark, crashed) {
 
 function connectBridge() {
   const helpers = { Box, Vec, createBindingId, createShapeId, toRichText };
+  // R4 (H83): the page joins with its session (./cards.js makes the socket; this file never sees the session). A page Timmy
+  // refuses (its session does not count now) asks again, less and less often; one whose session ended is told so (4401) and
+  // asks no more.
+  let wait = 2000;
   const open = () => {
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/bridge`);
-    ws.onopen = () => { canvas.linked = true; if (current) showStatus(current); };
-    ws.onclose = () => { canvas.linked = false; if (current) showStatus(current); setTimeout(open, 2000); };
+    const ws = cards.bridgeSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/bridge`);
+    if (!ws) { canvas.linked = false; if (current) showStatus(current); return; }
+    ws.onopen = () => { wait = 2000; canvas.linked = true; if (current) showStatus(current); };
+    ws.onclose = (event) => {
+      canvas.linked = false;
+      if (event.code === 4401) cards.sessionEnded('This page\'s session with Timmy has ended, so Timmy sends it no more code. In Timmy: /canvas open gives a new page one.');
+      if (current) showStatus(current);
+      if (!cards.hasSession()) return;
+      setTimeout(open, wait);
+      wait = Math.min(wait * 2, 15_000);
+    };
     const run = async (message) => {
       const editor = current;
       const before = getSnapshot(editor.store);
@@ -356,8 +375,9 @@ function showJobs(editor) {
 }
 async function refreshJobs() {
   try {
-    const response = await fetch('/api/canvas/jobs', { cache: 'no-store' });
-    if (response.ok) jobs = await response.json();
+    // R4 (H83): read with this page's session; none read keeps the last list
+    const listed = await cards.jobs();
+    if (listed) jobs = listed;
   } catch {
     // The status line already says when Timmy cannot be reached.
   }
@@ -440,8 +460,8 @@ function placeAt(editor) {
 async function placeProjectCard(id, editor = current) {
   if (!projectPanel) throw new Error('The project panel is not ready yet: reload the canvas page.');
   if (id === undefined || id === null || id === '') {
-    const response = await fetch('/api/project', { cache: 'no-store' });
-    const now = await response.json();
+    // R4 (H83): the cards are read with this page's session (the drawn cards' own reader)
+    const now = await cards.read();
     return { project: now.project ? now.project.name : null, ...(now.message ? { message: now.message } : {}), cards: (now.cards || []).map((c) => ({ id: c.id, kind: c.kind, title: c.title, state: c.state })) };
   }
   return projectPanel.place(String(id), editor);
@@ -496,28 +516,41 @@ function mount(snapshot) {
   });
 }
 
+/**
+ * R4 (H83): a page without a session that counts (opened by its address, a bookmark or a reload, or its grant refused) loads no
+ * canvas: it says so plainly, in the status and in the middle of the page, with the command that opens one; nothing else starts.
+ */
+function refuseToLoad(words) {
+  say(`Not loaded: ${words}${/\/canvas open/.test(words) ? '' : ' In Timmy: /canvas open.'}`, 'refused');
+  document.getElementById('refused-words').textContent = words;
+  document.getElementById('refused').hidden = false;
+}
+
 async function start() {
+  // R4 (H75): this page's grant becomes its session before anything else (before tldraw starts and before the agent's bridge
+  // connects). R4 (H83): the canvas, its settings' license and its jobs are read only with it, so without one nothing loads.
+  say(GRANT_AT_LOAD ? 'Loading the canvas: opening this page\'s session with Timmy' : 'Loading the canvas', 'loading');
+  const session = await cards.startSession();
+  if (session.state !== 'ok') { refuseToLoad(session.words); return; }
   say('Loading the canvas: reading its settings from Timmy', 'loading');
-  const response = await fetch('/studio-config.json', { cache: 'no-store' });
-  if (!response.ok) throw new Error(`Timmy answered ${response.status} for the canvas settings`);
-  const config = await response.json();
+  const settings = await cards.config();
+  if (!settings.ok || !settings.body) throw new Error(`Timmy answered ${settings.status} for the canvas settings`);
+  const config = settings.body;
   if (config.tldrawVersion !== BUILT_WITH) {
     throw new Error(`this canvas was built with tldraw ${BUILT_WITH}, but Timmy pins ${config.tldrawVersion}. Rebuild it: npm run build:canvas`);
   }
   // The folder this server saves the canvas in, TIMMY_HOME included; the blank board names it.
   if (typeof config.canvasDir === 'string' && config.canvasDir) document.getElementById('guide-dir').textContent = config.canvasDir;
   say('Loading the canvas: opening the saved canvas', 'loading');
-  const opened = await fetch('/api/canvas/document', { cache: 'no-store' });
-  if (!opened.ok) throw new Error(`Timmy answered ${opened.status} for the saved canvas`);
-  const saved = await opened.json();
+  const opened = await cards.loadDocument();
+  if (opened.status === 401 || opened.status === 0) { refuseToLoad(opened.why || 'Timmy refused this page the canvas.'); return; }
+  if (!opened.ok || !opened.body) throw new Error(`Timmy answered ${opened.status} for the saved canvas`);
+  const saved = opened.body;
   canvas.revision = saved.revision;
   canvas.savedRevision = saved.revision;
   canvas.sourceRevision = saved.sourceRevision;
   canvas.notice = saved.notice ?? null;
   say('Loading the canvas: starting tldraw', 'loading');
-  // R4 (H75): this page's grant becomes its session before tldraw starts (and before the agent's bridge connects).
-  if (GRANT_AT_LOAD) say('Loading the canvas: opening this page\'s session with Timmy', 'loading');
-  await cards.startSession();
   tldrawProps = {
     // R4 (H75): Timmy's drawn cards beside tldraw's own shapes
     shapeUtils: cards.utils,

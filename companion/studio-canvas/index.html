@@ -23,7 +23,11 @@
   #status { overflow-wrap: anywhere; padding-left: 8px; border-left: 3px solid var(--timmy-line-strong, #6b6b6b); }
   #status[data-kind="ready"] { border-left-color: var(--timmy-accent, #28fe14); }
   #status[data-kind="error"] { border-left-color: var(--timmy-failure, #ff5f56); }
+  /* R4 (H83): Timmy refused this page (no session that counts now): what to do, in words. */
+  #status[data-kind="refused"] { border-left-color: var(--timmy-attention, #e5b550); }
   #side-ready { display: grid; gap: 6px; }
+  /* R4 (H83): hidden until the canvas loads (a page Timmy refused shows no jobs, project or boards it cannot use) */
+  #side-ready[hidden] { display: none; }
   #side summary { cursor: pointer; font-weight: var(--timmy-weight-heading, 700); }
   #side ol { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; max-height: 40vh; overflow-y: auto; }
   #side li { overflow-wrap: anywhere; }
@@ -121,6 +125,13 @@
     text-align: center; color: var(--timmy-text, #e8e6e1); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
   #guide strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); color: var(--timmy-accent, #28fe14); margin-bottom: 6px; }
   #guide code { font-size: 0.95em; overflow-wrap: anywhere; }
+  /* R4 (H83): a page that loads no canvas (no session from Timmy) says why and what to type, in the middle of the page. */
+  #refused { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 300; box-sizing: border-box; max-width: min(560px, calc(100vw - 32px));
+    padding: 16px 18px; border-radius: 6px; background: var(--timmy-surface, #121212); border: 1px solid var(--timmy-line, #333333); border-left: 3px solid var(--timmy-attention, #e5b550);
+    color: var(--timmy-text, #e8e6e1); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
+  #refused strong { display: block; font-size: var(--timmy-size-h1, 18px); font-weight: var(--timmy-weight-heading, 700); margin-bottom: 6px; }
+  #refused p { margin: 6px 0 0; overflow-wrap: anywhere; }
+  #refused code { color: var(--timmy-accent, #28fe14); }
 </style>
 </head>
 <body>
@@ -139,6 +150,7 @@
     <div id="boards"><label for="board-pick">New board</label><select id="board-pick"><option value="">Blank board</option></select><button id="board-open" type="button">Open</button></div>
   </div>
 </aside>
+<div id="refused" role="alert" hidden><strong>This page loads no canvas.</strong><p id="refused-words"></p><p>In Timmy: <code>/canvas open</code> opens the canvas with its project's cards.</p></div>
 <div id="guide" hidden><strong>This board is blank.</strong>Draw with the tools below, or ask Timmy in the REPL, for example: "draw the plan on the canvas". Timmy saves it in <code id="guide-dir">its canvas folder</code>, so it reopens where you left it. A template from New board starts blank too.</div>
 <script type="module" src="dist/canvas.js" onerror="var s=document.getElementById('status');s.dataset.kind='error';s.textContent='The canvas code did not load (dist/canvas.js). In the Timmy checkout run: npm run build:canvas, then reload.'"></script>
 </body>

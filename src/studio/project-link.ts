@@ -15,10 +15,12 @@
  *
  * The server reads only what the REPL named: the project's folder, its jobs folder and its receipts store. It never answers
  * with a path it was given: the project's name, its id (a hash of its folder, as receipts name it) and project-relative
- * paths only. R4 (H81): the card list (GET /api/project) is open to this machine; the cards' detail (?detail=1: every
- * block's command, every parameter file's values) only with the server's token or a canvas page's session that counts now
- * (src/studio/card-relay.ts), else 401. The live board's address may be named (http://127.0.0.1:<port>/ exactly, so never its token); the canvas
- * links to it and keeps it nowhere.
+ * paths only. R4 (H81): the cards' detail (?detail=1: every block's command, every parameter file's values) only with the
+ * server's token or a canvas page's session that counts now (src/studio/card-relay.ts), else 401. R4 (H83): the card list
+ * (GET /api/project) and the named project's name and id (GET /api/project/active) likewise: they are the project's content;
+ * without a credential, /api/project/active says only whether a project is named and whether a page is open. The live
+ * board's address may be named (http://127.0.0.1:<port>/ exactly, so never its token); the canvas links to it and keeps it
+ * nowhere.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { lstatSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -182,7 +184,9 @@ export interface ProjectRoutes {
 }
 
 /** R4 (H81): what a reading of the cards' detail without the server's token or a page session is told. */
-export const DETAIL_REFUSED = 'Refused: the cards\' detail (their commands and values) is read with Timmy\'s token or a canvas page\'s session. The card list is at /api/project. In Timmy: /canvas open.';
+export const DETAIL_REFUSED = 'Refused: the cards\' detail (their commands and values) is read with Timmy\'s token or a canvas page\'s session. In Timmy: /canvas open.';
+/** R4 (H83): what a reading of the card list without the server's token or a page session is told (the list is the project's content too). */
+export const CARDS_REFUSED = 'Refused: the project\'s cards are read with Timmy\'s token or a canvas page\'s session. In Timmy: /canvas open.';
 
 /** POST /api/project/active (the handoff), GET /api/project/active (what is named) and GET /api/project (its cards). */
 export function mountProjectRoutes(app: express.Express, o: ProjectRoutes): void {
@@ -217,10 +221,22 @@ export function mountProjectRoutes(app: express.Express, o: ProjectRoutes): void
     o.named?.(named.project);
     res.json({ ok: true, project: { name: named.project.name, id: named.project.id }, board: named.project.board !== null });
   });
-  app.get('/api/project/active', (_req, res) => {
+  // R4 (H83): which project is named (its name and id) only with the server's token or a page session that counts now: a project's
+  // name is its content. Without either: whether one is named, and whether a page is open, nothing more.
+  const credited = (req: express.Request, p: NamedProject | null): { ok: true } | { ok: false; why: string; words: string } => {
+    if (o.link.authorized(req.headers.authorization)) return { ok: true };
+    return o.pageSession?.(req.headers.authorization, p) ?? { ok: false, why: 'none', words: CARDS_REFUSED };
+  };
+  app.get('/api/project/active', (req, res) => {
     const p = o.link.project;
-    res.set('Cache-Control', 'no-store').json({
-      ok: true, app: 'timmy-canvas', project: p ? { name: p.name, id: p.id } : null, since: p?.since ?? null, board: Boolean(p?.board), pageConnected: o.pageOpen(),
+    res.set('Cache-Control', 'no-store');
+    if (p && !credited(req, p).ok) {
+      res.json({ ok: true, app: 'timmy-canvas', project: null, named: true, hidden: true, since: null, board: false, pageConnected: o.pageOpen(),
+        words: 'A project is named to this canvas; which one is said only with Timmy\'s token or a canvas page\'s session. In Timmy: /canvas.' });
+      return;
+    }
+    res.json({
+      ok: true, app: 'timmy-canvas', project: p ? { name: p.name, id: p.id } : null, named: Boolean(p), since: p?.since ?? null, board: Boolean(p?.board), pageConnected: o.pageOpen(),
     });
   });
   app.get('/api/project', (req, res) => {
@@ -230,14 +246,13 @@ export function mountProjectRoutes(app: express.Express, o: ProjectRoutes): void
     // R4 (H75): ?detail=1 adds each card's drawn-card detail and whether a REPL takes the project's card actions now.
     const detail = req.query.detail === '1';
     // R4 (H81): the detail holds each block's whole command and each parameter file's values: never to any local process
-    // without a credential. The REPL reads it with this server's token, a canvas page with a session that counts now; the
-    // plain list (titles, states, typed commands) stays open, as the panel lists it before any session.
-    if (detail && !o.link.authorized(req.headers.authorization)) {
-      const s = o.pageSession?.(req.headers.authorization, p) ?? { ok: false as const, why: 'none', words: DETAIL_REFUSED };
-      if (!s.ok) {
-        res.status(401).set('WWW-Authenticate', 'Bearer').json({ ok: false, error: s.why === 'none' ? DETAIL_REFUSED : s.words, session: s.why });
-        return;
-      }
+    // without a credential. The REPL reads it with this server's token, a canvas page with a session that counts now. R4 (H83):
+    // the plain list too (titles, states, typed commands, records): it is the project's content.
+    const s = credited(req, p);
+    if (!s.ok) {
+      const refused = detail ? DETAIL_REFUSED : CARDS_REFUSED;
+      res.status(401).set('WWW-Authenticate', 'Bearer').json({ ok: false, error: s.why === 'none' ? refused : s.words, session: s.why });
+      return;
     }
     if (!p) {
       res.json({ ok: true, project: null, madeAt, board: null, cards: [], notes: [], message: NOT_NAMED, ...(detail ? { actions: { holder: false, words: 'No project is named to this canvas: in Timmy, /canvas open.' } } : {}) });

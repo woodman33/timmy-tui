@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error: the page's module is plain JavaScript, bundled for the browser
-import { cardMode, CARD_SHAPES, drawnType, keptDetail, offeredNow, rebuildAct, runAct, saveAct, shapeTypeFor, shownValue, stillRunning } from '../companion/studio-canvas/src/cards.js';
+import { cardMode, CARD_SHAPES, drawnType, keptDetail, offeredNow, rebuildAct, runAct, saveAct, shapeTypeFor, shownValue, stillRunning, withheldData } from '../companion/studio-canvas/src/cards.js';
 
 const project = { name: 'demo', id: 'abcdef0123456789' };
 const props = { card: 'workflow:RUN.md', projectId: project.id, project: 'demo' };
@@ -32,6 +32,18 @@ describe("Timmy Canvas's drawn cards", () => {
     expect(cardMode('workflow', props, null, true)).toMatchObject({ executable: false, words: 'Not read from Timmy yet.' });
     // A result card is a diagram of its record, always.
     expect(cardMode('result', { ...props, card: 'workflow:RUN.md' }, answer(), true)).toMatchObject({ executable: false, badge: 'diagram', follows: true });
+  });
+
+  it('R4 (H83): a card whose kept detail the server withheld says so (whatever the reading), and a reading refused to the page says why', () => {
+    const withheld = { type: 'withheld', project: 'beta', words: 'Withheld: this card\'s kept detail (its commands and values) belongs to beta, and this page\'s session is for another project. To read it, in Timmy, in beta (/project beta switches to it): /canvas open.', commands: ['/project beta', '/canvas open'] };
+    expect(withheldData(withheld)).toBe(withheld);
+    expect(withheldData({ type: 'workflow' })).toBeNull();
+    expect(withheldData(null)).toBeNull();
+    for (const reading of [answer(), null, answer({ project: null })]) {
+      expect(cardMode('params', { ...props, data: withheld }, reading, true)).toEqual({ executable: false, badge: 'diagram', words: withheld.words, follows: false, withheld: true });
+    }
+    const refused = 'Refused: this canvas page\'s session was given for another project than the one the canvas shows now. In Timmy: /canvas open, from the REPL that holds this project.';
+    expect(cardMode('workflow', props, answer({ project: null, refused }), true)).toEqual({ executable: false, badge: 'diagram', follows: false, words: `Not followed now: ${refused} Shown as last read.` });
   });
 
   it("sends exactly the live board's actions: run (only a block /run can name), rebuild, and the saves with the base the card was drawn from", () => {

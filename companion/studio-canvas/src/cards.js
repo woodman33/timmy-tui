@@ -31,6 +31,12 @@
 //
 // Nothing here imports anything: canvas.js hands in React and tldraw's classes, so the rules below run in Node's tests too.
 
+// R4 (H83): the same session is what loads and saves the canvas, reads its jobs and a project's highlights, and joins the
+// agent's bridge (canvas.js asks this module for each, so the token never leaves it): a page without one loads no canvas and
+// says so. The bridge's WebSocket is made with the constructor taken at load, its session sent as a subprotocol from an
+// iterable with no prototype (so no iterator page script could replace sees it), and the server selects the other protocol,
+// timmy-canvas, so the socket never names the session back.
+
 // ── R4 (H81): what actions and readings rely on, taken as this module is evaluated ─────────────────────────────────────
 const G = globalThis;
 const descriptor = (o, k) => (o ? G.Object.getOwnPropertyDescriptor(o, k) : undefined);
@@ -52,7 +58,17 @@ const SAFE = G.Object.freeze({
   ok: descriptor(G.Response && G.Response.prototype, 'ok')?.get ?? null,
   status: descriptor(G.Response && G.Response.prototype, 'status')?.get ?? null,
   target: descriptor(G.Event && G.Event.prototype, 'target')?.get ?? null,
+  // R4 (H83): the bridge, and the highlights shown from memory
+  WebSocket: typeof G.WebSocket === 'function' ? G.WebSocket : null,
+  iterator: G.Symbol.iterator,
+  blob: G.Response ? G.Response.prototype.blob : null,
+  objectURL: G.URL && typeof G.URL.createObjectURL === 'function' ? G.URL.createObjectURL : null,
+  revokeURL: G.URL && typeof G.URL.revokeObjectURL === 'function' ? G.URL.revokeObjectURL : null,
+  URL: G.URL,
+  encode: G.encodeURIComponent,
 });
+/** R4 (H83): the bridge protocol the server selects (the session goes beside it, never back). */
+export const CANVAS_PROTOCOL = 'timmy-canvas';
 
 /**
  * A JSON value copied into objects (and arrays) with no prototype, so JSON.stringify finds no toJSON or getter through
@@ -77,16 +93,18 @@ function bare(v) {
 /**
  * One request's init, with no prototype and every member this module relies on set on it; its headers likewise (a record
  * with no prototype: no getter on Object.prototype, and no iterator on any prototype, is ever asked for them). `token`: the
- * session to send, or null; `json`: the body, or undefined for none.
+ * session to send, or null; `json`: the body, or undefined for none. R4 (H83): `o.raw`, a body already written as text (the
+ * canvas document, which is the page's own drawing, never the session), and `o.keepalive` (a save as the page closes).
  */
-function requestInit(method, token, json) {
+function requestInit(method, token, json, o = {}) {
   const headers = SAFE.create(null);
-  if (json !== undefined) headers['Content-Type'] = 'application/json';
+  if (json !== undefined || typeof o.raw === 'string') headers['Content-Type'] = 'application/json';
   if (typeof token === 'string' && token) headers.Authorization = `Bearer ${token}`;
   const init = SAFE.create(null);
   init.method = method;
   init.headers = headers;
-  if (json !== undefined) init.body = SAFE.stringify(bare(json));
+  if (typeof o.raw === 'string') init.body = o.raw;
+  else if (json !== undefined) init.body = SAFE.stringify(bare(json));
   init.mode = 'same-origin';
   init.credentials = 'omit';
   init.cache = 'no-store';
@@ -94,7 +112,7 @@ function requestInit(method, token, json) {
   init.referrer = '';
   init.referrerPolicy = 'no-referrer';
   init.integrity = '';
-  init.keepalive = false;
+  init.keepalive = o.keepalive === true;
   init.signal = null;
   init.window = null;
   return init;
@@ -103,17 +121,51 @@ function requestInit(method, token, json) {
 /**
  * A request to the canvas server through the fetch taken at load: its status and its body as JSON (null when it is not).
  * Only startSession's answer holds a session token, and it is read before tldraw starts and before the bridge connects
- * (canvas.js start()), so no code of the agent's is on the page while it is.
+ * (canvas.js start()), so no code of the agent's is on the page while it is. R4 (H83): `o.array` keeps a list body (the jobs).
  */
-async function request(path, method, token, json) {
+async function request(path, method, token, json, o = {}) {
   if (!SAFE.fetch || !SAFE.text) throw new Error('this page cannot make requests');
-  const r = await SAFE.fetch(path, requestInit(method, token, json));
+  const r = await SAFE.fetch(path, requestInit(method, token, json, o));
   const status = SAFE.status ? SAFE.apply(SAFE.status, r, []) : 0;
   const ok = SAFE.ok ? SAFE.apply(SAFE.ok, r, []) === true : false;
   let body = null;
   try { body = SAFE.parse(await SAFE.apply(SAFE.text, r, [])); } catch { body = null; }
-  return { status, ok, body: body && typeof body === 'object' && !SAFE.isArray(body) ? body : null };
+  return { status, ok, body: body && typeof body === 'object' && (o.array || !SAFE.isArray(body)) ? body : null };
 }
+
+/**
+ * R4 (H83): the subprotocols a page joins the bridge with: timmy-canvas, then its session. An iterable with no prototype whose
+ * iterator and every step have none either, so no Array.prototype, iterator prototype or Object.prototype member page script
+ * could replace is asked for while the WebSocket constructor reads it.
+ */
+function bridgeProtocols(session) {
+  const first = CANVAS_PROTOCOL;
+  const second = `timmy-session.${session}`;
+  const list = SAFE.create(null);
+  list[SAFE.iterator] = function protocols() {
+    let i = 0;
+    const it = SAFE.create(null);
+    it.next = function next() {
+      const step = SAFE.create(null);
+      step.done = i >= 2;
+      step.value = i === 0 ? first : i === 1 ? second : undefined;
+      i += 1;
+      return step;
+    };
+    return it;
+  };
+  return list;
+}
+
+/** R4 (H83): what a card of another project holds in place of its kept detail, as the server withheld it (or null). */
+export function withheldData(data) {
+  return data && typeof data === 'object' && data.type === 'withheld' && typeof data.words === 'string' ? data : null;
+}
+
+/** R4 (H83): what a page opened without a grant says (it loads no canvas). */
+export const NO_GRANT = 'This page was opened without a grant from Timmy, so it loads no canvas: Timmy opens the canvas page with a one-time grant, and a page opened by its address, a bookmark or a reload has none.';
+/** R4 (H83): what a page whose session ended says. */
+export const ENDED = 'This page\'s session with Timmy has ended, so it loads, saves and acts no more.';
 
 /** The shape type of each drawn card, and which project card kinds each one draws. */
 export const CARD_SHAPES = { workflow: 'timmy-workflow', params: 'timmy-params', result: 'timmy-result' };
@@ -141,7 +193,12 @@ const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
 export function cardMode(type, props, answer, session) {
   const diagram = (words, follows = false) => ({ executable: false, badge: 'diagram', words, follows });
   const name = props.project || 'its project';
+  // R4 (H83): a card of another project, its kept detail withheld from this page: it says so, and how to read it
+  const withheld = withheldData(props.data);
+  if (withheld) return { ...diagram(one(withheld.words)), withheld: true };
   if (!answer) return diagram('Not read from Timmy yet.');
+  // R4 (H83): the project was not read: this page's session does not count now (it ended, or the canvas shows another project)
+  if (answer.refused) return diagram(`Not followed now: ${one(answer.refused)} Shown as last read.`);
   if (!answer.project) return diagram(`Not followed now: no project is named to this canvas (in Timmy: /canvas open). Shown as last read.`);
   if (answer.project.id !== props.projectId) return diagram(`Not followed now: the canvas shows ${answer.project.name}, not ${name}. Shown as last read.`);
   const card = (answer.cards || []).find((c) => c.id === props.card);
@@ -245,7 +302,7 @@ export function createCards(deps) {
   const acts = atom('timmy cards: actions', {});
   // The session: this closure only.
   let token = null;
-  const session = atom('timmy cards: session', { state: 'none', words: 'This page was opened without a grant from Timmy: its cards cannot act.' });
+  const session = atom('timmy cards: session', { state: 'none', words: NO_GRANT });
   let poll = async () => {};
   let fastUntil = 0;
   /**
@@ -279,40 +336,92 @@ export function createCards(deps) {
     return session.get();
   }
 
-  /** What a page without a session that reads the detail is told: the plain card list only. */
-  const NO_DETAIL = 'This page reads only the project\'s card list: it has no session from Timmy (it was not opened by /canvas open in Timmy, or it was reloaded since), and a card\'s blocks, values and checks are read with one. Type the command in Timmy, or /canvas open there.';
-  /** R4 (H81): a session the server said does not count for the project shown (until when not to ask again, why, for which). */
-  const notFor = { until: 0, why: NO_DETAIL, project: undefined };
+  /** R4 (H81): a session the server said does not count for the project shown (until when not to ask again, and why). */
+  const notFor = { until: 0, why: '' };
 
   /**
-   * R4 (H81): one reading of the project for the panel and the cards: with this page's session, GET /api/project?detail=1
-   * (each card's detail); without one, or when the server says the session does not read this project now, the plain card
-   * list, marked `detail: false` with why. A session that has ended is let go (the panel then says so).
+   * R4 (H83): a refusal the server gave this page's session. One that ended (or that the server never made, or no longer keeps)
+   * is let go for good: the page then loads, saves and acts no more, and says so. Returns the words.
+   */
+  function noted(r, fallback) {
+    const said = (r && r.body) || {};
+    const why = one(said.error) || fallback;
+    if (r && r.status === 401 && (said.session === 'expired' || said.session === 'unknown' || said.session === 'none')) {
+      token = null;
+      session.set({ state: 'refused', words: why });
+    }
+    return why;
+  }
+
+  /** R4 (H83): a reading this page was refused: no project, the refusal in words (the panel and the cards say it). */
+  const refusedReading = (why) => ({ ok: false, refused: why, message: why, project: null, board: null, cards: [], notes: [], detail: false, detailWhy: why, madeAt: new Date().toISOString() });
+
+  /**
+   * R4 (H81): one reading of the project for the panel and the cards: GET /api/project?detail=1 (each card's detail) with this
+   * page's session. R4 (H83): the card list is read with a session too, so without one that counts now there is no reading:
+   * the answer says why (`refused`). A session given for another project, or by another REPL, is asked again in 30 s.
    */
   async function read() {
-    let why = NO_DETAIL;
-    if (token && Date.now() >= notFor.until) {
-      const r = await request('/api/project?detail=1', 'GET', token);
-      if (r.ok && r.body && r.body.ok === true) { notFor.until = 0; return { ...r.body, detail: true }; }
-      if (r.status !== 401) throw new Error(`Timmy answered ${r.status} for the project`);
-      const said = r.body || {};
-      why = one(said.error) || 'Timmy did not let this page\'s session read the cards\' detail.';
-      if (said.session === 'expired' || said.session === 'unknown' || said.session === 'none') {
-        token = null;
-        session.set({ state: 'refused', words: why });
-      } else {
-        // given for another project, or by another REPL: asked again in 30 s, or as soon as the canvas shows another project
-        notFor.until = Date.now() + 30_000;
-        notFor.why = why;
-        notFor.project = undefined;
-      }
-    } else if (token) why = notFor.why;
-    const plain = await request('/api/project', 'GET', null);
-    if (!plain.ok || !plain.body) throw new Error(`Timmy answered ${plain.status} for the project`);
-    const shows = plain.body.project ? plain.body.project.id : null;
-    if (notFor.until && notFor.project === undefined) notFor.project = shows;
-    else if (notFor.until && notFor.project !== shows) notFor.until = 0;
-    return { ...plain.body, detail: false, detailWhy: why };
+    if (!token) return refusedReading(session.get().words);
+    if (Date.now() < notFor.until) return refusedReading(notFor.why);
+    const r = await request('/api/project?detail=1', 'GET', token);
+    if (r.ok && r.body && r.body.ok === true) { notFor.until = 0; return { ...r.body, detail: true }; }
+    if (r.status !== 401) throw new Error(`Timmy answered ${r.status} for the project`);
+    const why = noted(r, 'Timmy did not let this page read the project.');
+    if (token) {
+      // given for another project, or by another REPL: asked again in 30 s
+      notFor.until = Date.now() + 30_000;
+      notFor.why = why;
+    }
+    return refusedReading(why);
+  }
+
+  // ── R4 (H83): the canvas itself, its settings, its jobs, a highlight and the bridge: each with this page's session ──
+  /** Whether this page holds a session (it may still not count now: the server then refuses and says why). */
+  const hasSession = () => token !== null;
+  /** The page's settings: the license key comes only with the session. */
+  async function config() { return request('/studio-config.json', 'GET', token); }
+  /** The canvas as saved, every card of another project with its kept detail withheld (the server's part). */
+  async function loadDocument() {
+    if (!token) return { status: 0, ok: false, body: null, why: session.get().words };
+    const r = await request('/api/canvas/document', 'GET', token);
+    return r.ok ? r : { ...r, why: noted(r, `Timmy answered ${r.status} for the saved canvas.`) };
+  }
+  /** Saves the canvas (`text`: the document as JSON text, written by canvas.js); as the page closes, `keepalive`. */
+  async function saveDocument(text, keepalive = false) {
+    if (!token) return { status: 0, ok: false, body: { ok: false, error: session.get().words } };
+    const r = await request('/api/canvas/document', 'PUT', token, undefined, { raw: text, keepalive });
+    if (r.status === 401) noted(r, 'Timmy refused this page\'s save.');
+    return r;
+  }
+  /** The canvas jobs, newest first; null when they cannot be read now (a session that does not count is asked again in 30 s). */
+  async function jobs() {
+    if (!token || Date.now() < notFor.until) return null;
+    const r = await request('/api/canvas/jobs', 'GET', token, undefined, { array: true });
+    if (r.status === 401) {
+      const why = noted(r, 'Timmy did not let this page read the canvas jobs.');
+      if (token) { notFor.until = Date.now() + 30_000; notFor.why = why; }
+    }
+    return r.ok && SAFE.isArray(r.body) ? r.body : null;
+  }
+  /** A highlight of the project, read with the session and shown from memory (an object URL); null when it is not read. */
+  async function image(path) {
+    if (!token || !SAFE.fetch || !SAFE.blob || !SAFE.objectURL) return null;
+    const r = await SAFE.fetch(`/api/project/image?p=${SAFE.apply(SAFE.encode, G, [String(path)])}`, requestInit('GET', token));
+    if (!(SAFE.ok && SAFE.apply(SAFE.ok, r, []) === true)) return null;
+    const b = await SAFE.apply(SAFE.blob, r, []);
+    return SAFE.apply(SAFE.objectURL, SAFE.URL, [b]);
+  }
+  const forget = (url) => { if (url && SAFE.revokeURL) { try { SAFE.apply(SAFE.revokeURL, SAFE.URL, [url]); } catch { /* gone */ } } };
+  /** The agent's bridge: a WebSocket joined with this page's session (null without one). */
+  function bridgeSocket(url) {
+    if (!token || !SAFE.WebSocket) return null;
+    return new SAFE.WebSocket(url, bridgeProtocols(token));
+  }
+  /** The bridge closed this page for good (its session ended): it is let go, and the page says so. */
+  function sessionEnded(words) {
+    token = null;
+    session.set({ state: 'refused', words: one(words) || ENDED });
   }
 
   /** One action of one card, sent to the REPL that holds the project; the answer is kept on the card. */
@@ -474,7 +583,7 @@ export function createCards(deps) {
         said ? h('pre', { className: `tc-answer${said.ok ? '' : ' tc-bad'}`, role: 'status' }, shown) : null,
         h('div', { className: 'tc-foot' },
           h('button', { type: 'button', className: 'tc-toggle', 'aria-expanded': String(!!p.open), onPointerDown: handled, onClick: toggle }, p.open ? 'Hide details' : 'Details'),
-          span('tc-read', follows ? `read from Timmy's records at ${clock(readAt)}` : p.readAt ? `as last read at ${clock(p.readAt)}` : 'never read', { title: follows ? readAt : p.readAt })),
+          span('tc-read', mode.withheld ? 'its detail withheld here' : follows ? `read from Timmy's records at ${clock(readAt)}` : p.readAt ? `as last read at ${clock(p.readAt)}` : 'never read', { title: follows ? readAt : p.readAt })),
         p.open ? h('div', { className: 'tc-details' }, ...React.Children.toArray([details].flat()), said && lines.length > 8 ? h('pre', { className: 'tc-answer' }, said.text) : null) : null));
   }
 
@@ -488,8 +597,37 @@ export function createCards(deps) {
     const p = shape.props;
     const mode = cardMode(type, p, now, sess.state === 'ok' && token !== null);
     const card = mode.follows ? (now.cards || []).find((c) => c.id === p.card) : null;
-    const detail = (card && card.detail) || p.data;
+    // R4 (H83): a withheld card has no detail here (only the words and commands its marker holds)
+    const detail = mode.withheld ? null : (card && card.detail) || p.data;
     return { now, own, mode, card, detail, readAt: now ? now.madeAt : p.readAt };
+  }
+
+  /** R4 (H83): the body of a card whose kept detail is withheld here: the commands that read it, typed in Timmy. */
+  function withheldBody(p) {
+    const w = withheldData(p.data);
+    const commands = w && SAFE.isArray(w.commands) ? w.commands.filter((c) => typeof c === 'string').slice(0, 3) : ['/canvas open'];
+    return h('div', { className: 'tc-acts tc-withheld' }, ...commands.map((c, i) => h('code', { key: `w${i}`, className: 'tc-cmd', title: 'Type this in Timmy' }, c)));
+  }
+
+  /**
+   * R4 (H83): a highlight of the project, fetched with this page's session and shown from memory; the object URL is let go when
+   * the card stops showing it.
+   */
+  function Highlight({ path }) {
+    const [src, setSrc] = React.useState(null);
+    const [failed, setFailed] = React.useState(false);
+    React.useEffect(() => {
+      let made = null;
+      let gone = false;
+      image(path).then((url) => {
+        if (gone) { forget(url); return; }
+        made = url;
+        if (url) setSrc(url); else setFailed(true);
+      }, () => { if (!gone) setFailed(true); });
+      return () => { gone = true; forget(made); };
+    }, [path]);
+    if (src) return h('img', { src, alt: `highlight ${path}`, title: path, draggable: false, 'data-tc-image': path });
+    return span('tc-note', failed ? `highlight ${path}: not read now` : `highlight ${path}: reading…`);
   }
 
   function WorkflowCard({ shape }) {
@@ -512,11 +650,11 @@ export function createCards(deps) {
         ...blocks.map((b) => h('div', { key: `c${b.key}`, className: 'tc-block-cmd' }, span('tc-k', `${b.name}${b.needs.length ? ` (needs ${b.needs.join(', ')})` : ''}`), ...b.command.map((l, i) => h('code', { key: i }, l)))),
         ...(last ? last.outputs.map((o) => h('div', { key: `o${o.path}`, className: 'tc-out' }, span('tc-path', o.path), ' ', span('tc-note', o.now))) : []),
         last && last.more ? words('tc-note', `${last.more} more files`) : null,
-      ] : words('tc-note', 'No reading of this document yet.'),
+      ] : words('tc-note', mode.withheld ? 'Its blocks and their commands are withheld here.' : 'No reading of this document yet.'),
     },
     d ? h('ol', { className: 'tc-blocks' }, ...blocks.map((b) => h('li', { key: b.key, className: `tc-block tc-w-${String(b.word).replace(/[^a-z]/g, '')}` },
       span('tc-glyph', b.glyph, { 'aria-hidden': 'true' }), ' ', span('tc-name', b.name), ' ', span(`tc-word ${b.word === 'failed' || b.word === 'interrupted' ? 'tc-bad' : ''}`, b.word),
-      b.detail ? span('tc-note', ` · ${b.detail}`) : null, h('div', { className: 'tc-acts' }, runOf(b))))) : words('tc-note', p.command),
+      b.detail ? span('tc-note', ` · ${b.detail}`) : null, h('div', { className: 'tc-acts' }, runOf(b))))) : mode.withheld ? withheldBody(p) : words('tc-note', p.command),
     last ? h('p', { className: 'tc-last' }, `Newest run (${last.target}): `, span(last.word === 'failed' || last.word === 'interrupted' ? 'tc-bad' : '', last.word),
       `${last.met === true ? ', its prediction met' : last.met === false ? ', its prediction not met' : ''}${last.took ? ` · ${last.took}` : ''}${last.receipt ? ` · receipt ${last.receipt}` : ''}`) : d ? words('tc-note', 'Not run yet.') : null);
   }
@@ -556,9 +694,9 @@ export function createCards(deps) {
         d.fixed ? ['fixed', `${d.fixed}${d.units ? ` (${d.units})` : ''}`] : null, ['run it', d.run], ['saving', d.save.offered ? 'through the live board\'s save path: checked by the recipe\'s rules, refused while a flow runs here, the previous version kept, an edit receipt' : d.save.why],
         over ? ['editing over', `sha256 ${String(over.base).slice(0, 12)}: a save is refused if the file changed since`] : null]),
       ...(build ? [dl([['newest build', `${build.title} · ${build.word}`], ...build.facts.map((f) => [f.label, `${f.value} (${f.how})`]), ...build.receipts.map((r) => ['receipt', r]), ...build.files.map((f) => [f.note || 'file', f.path])])] : []),
-      ] : words('tc-note', 'No reading of this file yet.'),
+      ] : words('tc-note', mode.withheld ? 'Its values are withheld here.' : 'No reading of this file yet.'),
     },
-    words('tc-state', stateWords),
+    mode.withheld ? withheldBody(p) : words('tc-state', stateWords),
     view ? h('form', { className: 'tc-form', onSubmit: (e) => e.preventDefault() },
       h('table', { className: 'tc-table' }, h('tbody', null, ...rows)),
       d && d.more ? words('tc-note', `${d.more} more values: /open ${d.file}`) : null) : null,
@@ -587,13 +725,14 @@ export function createCards(deps) {
         d.started ? ['started', d.started] : null, d.ended ? ['ended', d.ended] : null, ['command', p.command]]),
       ...d.outputs.map((o) => h('div', { key: `s${o.path}`, className: 'tc-out' }, span('tc-path', o.path), ' ', span('tc-note', `${o.sha256 ? `sha256 ${o.sha256}` : 'no sha256 recorded'}${o.bytes !== null ? ` · ${o.bytes} bytes` : ''}`))),
       ...d.lines.map((l, i) => h('p', { key: `l${i}`, className: 'tc-note' }, l)),
-      ] : words('tc-note', 'No reading of this record yet.'),
+      ] : words('tc-note', mode.withheld ? 'Its record\'s facts are withheld here.' : 'No reading of this record yet.'),
     },
-    d ? h('p', { className: 'tc-verdict' }, span(toneClass(d.verdict.tone), d.verdict.words)) : words('tc-note', p.command),
+    d ? h('p', { className: 'tc-verdict' }, span(toneClass(d.verdict.tone), d.verdict.words)) : mode.withheld ? withheldBody(p) : words('tc-note', p.command),
     d ? h('p', { className: `tc-check tc-check-${d.check.status}` }, span('tc-k', CHECK_WORD[d.check.status] ?? d.check.status), ` · ${d.check.words}`) : null,
     d && d.facts.length ? h('dl', { className: 'tc-dl' }, ...d.facts.flatMap((f, i) => [h('dt', { key: `k${i}` }, f.label), h('dd', { key: `v${i}` }, f.value, ' ', span('tc-note', f.how))])) : null,
+    // R4 (H83): a highlight is read with this page's session and shown from memory (Highlight), only while the card is followed
     d && d.images.length ? h('div', { className: 'tc-images' }, ...d.images.map((im) => (mode.follows
-      ? h('img', { key: im.path, src: `/api/project/image?p=${encodeURIComponent(im.path)}`, alt: `highlight ${im.path}`, title: im.path, draggable: false })
+      ? h(Highlight, { key: im.path, path: im.path })
       : span('tc-note', `highlight ${im.path}: shown while the canvas follows ${p.project}`, { key: im.path })))) : null,
     d && d.outputs.length ? h('ul', { className: 'tc-outs' }, ...d.outputs.map((o) => h('li', { key: o.path }, span('tc-path', o.path), ' ', span('tc-note', `${o.sha256 ? `sha256 ${o.sha256.slice(0, 12)} · ` : ''}${o.now}`)))) : null,
     d && d.notice ? h('p', { className: 'tc-notice' }, d.notice) : null,
@@ -625,6 +764,8 @@ export function createCards(deps) {
     utils, startSession, onAnswer, wantsFast, place,
     // R4 (H81): the panel's reading of the project (with the detail only through this page's session)
     read,
+    // R4 (H83): the canvas, its settings, its jobs and the bridge, each with this page's session (never handed out)
+    hasSession, config, loadDocument, saveDocument, jobs, bridgeSocket, sessionEnded,
     setPoll: (f) => { poll = f; },
     /** For the tests and the status line: the session in words (never the token). */
     session: () => session.get(),
