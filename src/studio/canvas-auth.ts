@@ -122,13 +122,19 @@ export function isDrawnCard(r: unknown): r is Card {
   return isObject(r) && r.typeName === 'shape' && typeof r.type === 'string' && DRAWN_CARD_TYPES.has(r.type) && isObject(r.props);
 }
 
-/** What a withheld card holds in place of its kept detail: what it is, and the command to read it (cards.js shows it). */
+/**
+ * What a withheld card holds in place of its kept detail: what it is, and the commands to read it (cards.js shows them).
+ * R4 (H88; the Mac run r23): they said `/project <name>`, which in another REPL answered "no project named tray; /project new
+ * tray makes one" (a bare name is a project under Timmy's home, or a folder where that REPL runs). They now name what works:
+ * Timmy opened in that project's folder, and /canvas open there; or /project with the path of its folder (a path opens a
+ * project by its folder). No path of the other project is on the card: the page has none to give.
+ */
 export function withheldDetail(project: string): Record<string, unknown> {
   return {
     type: 'withheld',
     project,
-    words: `Withheld: this card's kept detail (its commands and values) belongs to ${project}, and this page's session is for another project. To read it, in Timmy, in ${project} (/project ${project} switches to it): /canvas open.`,
-    commands: [`/project ${project}`, '/canvas open'],
+    words: `Withheld: this card's kept detail (its commands and values) belongs to ${project}, and this page's session is for another project. To read it, open Timmy in ${project}'s folder and type /canvas open there; in a Timmy REPL open elsewhere, /project followed by the path of ${project}'s folder opens it first.`,
+    commands: ['/canvas open', `/project <the path of ${project}'s folder>`],
   };
 }
 

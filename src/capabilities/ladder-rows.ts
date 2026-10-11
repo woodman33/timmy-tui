@@ -14,6 +14,7 @@ import { exercisedOf, QUALIFICATION_RECORDS, checkQualificationRecord, type Chai
 import { emptyLadder, NOT_REACHED, standingRung, type InstalledEvidence, type Ladder, type NotReached, type ReachableEvidence, type Rung } from './ladder.js';
 import { PROPOSED } from './plans.js';
 import { ollamaAnswerWords, type OllamaProbe } from './ollama-row.js'; // R4 (H82)
+import { tildePath } from '../utils/home-scrub.js'; // R4 (H88)
 
 /** A probe's answer and when it came. */
 export interface Timed<T> { v: T; at: string }
@@ -74,7 +75,8 @@ const SETTINGS: Readonly<Record<string, string>> = {
   'agentpass': 'AGENTPASS_REPO_PATH, set to a checkout that is there',
 };
 
-const tilde = (p: string, home: string | undefined): string => (home && home.length > 1 && (p === home || p.startsWith(`${home}/`)) ? `~${p.slice(home.length)}` : p);
+// R4 (H88; r23): from "~" under $HOME and under the account's own home too (in a sandbox HOME is not the account's own home)
+const tilde = (p: string, env: Record<string, string | undefined>): string => tildePath(p, env);
 
 /** Where and how a row was found, from what its check knows (the check's own words are always kept as `found`). */
 function foundHow(r: Built, c: LadderContext): Omit<InstalledEvidence, 'found'> {
@@ -97,7 +99,7 @@ function foundHow(r: Built, c: LadderContext): Omit<InstalledEvidence, 'found'> 
   if (app && Object.hasOwn(NATIVE_APPS, app)) {
     try {
       const { found } = locateNative(app as NativeApp, c.env);
-      if (found) return { where: tilde(found.path, c.env.HOME), how: found.how === 'env' ? NATIVE_APPS[app as NativeApp].envVar : found.how === 'path' ? `the PATH (${NATIVE_APPS[app as NativeApp].program})` : 'a scan of its install folder' };
+      if (found) return { where: tilde(found.path, c.env), how: found.how === 'env' ? NATIVE_APPS[app as NativeApp].envVar : found.how === 'path' ? `the PATH (${NATIVE_APPS[app as NativeApp].program})` : 'a scan of its install folder' };
     } catch { /* the check's own words stand */ }
     return {};
   }
@@ -105,7 +107,7 @@ function foundHow(r: Built, c: LadderContext): Omit<InstalledEvidence, 'found'> 
   if (bins && c.which) {
     for (const b of bins) {
       const at = c.which(b);
-      if (at) return { where: tilde(at, c.env.HOME), how: `the PATH (${b})` };
+      if (at) return { where: tilde(at, c.env), how: `the PATH (${b})` };
     }
   }
   return {};
@@ -148,6 +150,8 @@ function probed(r: Built, c: LadderContext): { evidence?: ReachableEvidence; why
       const n = o.v.models.length;
       // R4 (H82): what the server answered, its states told apart (src/capabilities/ollama-row.ts)
       if (answered) return { evidence: { asked: tags, at: o.at, answer: o.v.answer ? ollamaAnswerWords(o.v) : `${n} local ${n === 1 ? 'model' : 'models'} answered` } };
+      // R4 (H88; r23): a request fetch refused itself was not sent, so it was not "asked"
+      if (o.v.answer?.state === 'not sent') return { why: `not sent: ${tags.replace(/, then each local model's details$/, '')} (at ${stamp(o.at)}), ${o.v.answer.why}` };
       return { why: `asked ${tags} at ${stamp(o.at)}: ${ollamaAnswerWords(o.v)}` };
     }
     case 'taskforge': {

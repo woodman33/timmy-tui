@@ -9,7 +9,6 @@
  */
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { JobManager, type JobRecord } from '../jobs/index.js';
@@ -44,7 +43,7 @@ import { applyBoardEdit } from './board-edits.js';
 import { canvasAction, canvasSubject } from './canvas-actions.js';
 import { workflowForBoard } from './board-nodes.js';
 // R4 (H47): each workflow document connected to its runs, results and parameter files (board and /workflows <file>).
-import { connectWorkflow, jobBlockLines, liveNodeStates, StepClock, workflowSummaryLines, type ConnectContext } from './board-workflows.js';
+import { connectWorkflow, jobBlockLines, liveNodeStates, repeatedNames, repeatedWords, StepClock, workflowSummaryLines, type ConnectContext } from './board-workflows.js';
 import { recipeEnded, recipeView, startRecipeJob, type RecipeContext, type RecipeStarted, type RecipeTestSeams } from './recipe.js';
 import { cancelRecipe, cancelSentence, RecipeLaunches, type RecipeCancel } from './recipe-stop.js';
 import { liveRecipeJobFolders } from '../recipes/index.js';
@@ -62,7 +61,7 @@ import { describeRefusal, interpretationSeal, QUALIFIED_PROTOCOL, qualifiedSeal 
 import { keptReader, observationKeeper, wholeNote, type KeepPlaces, type KeptRef, type ObservationKeeper } from '../vision/kept.js';
 import { findUpmd, findWorkflowDocs, parseWorkflow, upmdRunArgs, upmdVersion } from '../workflows/upmd.js';
 import { ptyKnown, ptyReady, upmdJob, upmdLineParser } from '../workflows/upmd-live.js'; // R4 (H58)
-import { makeRunFolder, wrapperDid } from '../workflows/pty-stop.js'; // R4 (H67)
+import { makeRunFolder, starterIn, wrapperDid } from '../workflows/pty-stop.js'; // R4 (H67); R4 (H88): starterIn
 // R4 (H74): one receipt per block, and NEEDS YOU before a risky block (src/repl/workflow-blocks.ts, workflow-gate.ts)
 import { BlockSealer, sealLeftBlocks } from './workflow-blocks.js';
 import { askRun, gateLines, HeldRuns, keepCheckedCopy, needsPersonText, planRun, UPMD_GATE } from './workflow-gate.js';
@@ -115,6 +114,9 @@ import { annotateRoom, buildIndex, knownOperations, operationCard, recentOperati
 import { cardLines, opsLines } from '../ops/card-text.js';
 import { HOLDS_DIR } from '../ops/flow-hold.js';
 import { withProcessTable } from '../ops/process-proof.js'; // R4 (H82): one reading of the process table per board build
+import { jobCommandWords, ranWords } from './job-command.js'; // R4 (H88)
+import { timmyHome } from '../utils/init.js';
+import { scrubHomes } from '../utils/home-scrub.js'; // R4 (H88)
 // Round R4 (H60): what waits on a person (/decisions, and the first of the Control Room), read from what exists; hooks "R4 (H60)".
 import { DECISIONS_ALL, gatherDecisions, markWaiting, type DecisionsView } from '../room/decisions.js';
 import { decisionsLines } from '../room/decisions-text.js';
@@ -963,9 +965,13 @@ export class Workspace {
     for (const doc of docs) {
       lines.push([{ text: '  ' }, { text: this.fileLink(doc.rel), role: 'strong' }]);
       const r = readProjectFile(this.root, doc.rel, 1024 * 1024);
-      for (const b of r.ok && r.text ? parseWorkflow(r.text).filter((x) => x.name) : []) {
+      const named = r.ok && r.text ? parseWorkflow(r.text).filter((x): x is typeof x & { name: string } => !!x.name) : [];
+      for (const b of named) {
         lines.push([{ text: `    ${String(b.index).padStart(2)} ${String(b.name).padEnd(16)}` }, { text: b.deps.length ? `needs ${b.deps.join(', ')}` : '', role: 'secondary' }]);
       }
+      // R4 (H88): a document that names two blocks alike: /run runs none of them
+      const twice = repeatedNames(named);
+      if (twice.length) lines.push([{ text: `    ${repeatedWords(doc.rel, twice)}`, role: 'estimate' }]);
     }
     lines.push(...this.say('Run one: /run <file> <block>; follow it: /jobs; stop it: /stop <job>; one document in full: /workflows <file>'));
     return lines;
@@ -1239,9 +1245,9 @@ export class Workspace {
     const roots = [root];
     try { roots.push(realpathSync(root)); } catch { /* gone */ }
     for (const r of [...new Set(roots)].sort((a, b) => b.length - a.length)) if (r.length > 1) out = out.split(r).join('.');
-    const home = homedir();
-    if (home.length > 1) out = out.split(home).join('~');
-    return out;
+    // R4 (H88; r23): every home folder from "~": $HOME and the account's own (in a sandbox HOME is not the account's home, and
+    // a tool found on PATH under the account's home kept its absolute path in the board's tools folds)
+    return scrubHomes(out, this.d.env);
   }
 
   private sealJob(job: JobRecord): string | undefined {
@@ -1315,12 +1321,13 @@ export class Workspace {
   private jobLine(j: JobRecord, ix?: JudgeIndex): Line {
     const stale = j.stale ? `${this.sep}from an earlier session; its process is gone` : '';
     // R4 (H58): ended by a later session's recovery, its session having ended while it ran
-    const interrupted = j.interrupted ? `${this.sep}interrupted: its session ended${j.interrupted.step ? ` while ${j.interrupted.step} ran` : ''}${j.interrupted.wrapper ? `; ${wrapperDid(j.interrupted.wrapper)}` : ''}` : '';
+    const interrupted = j.interrupted ? `${this.sep}interrupted: its session ended${j.interrupted.step ? ` while ${j.interrupted.step} ran` : ''}${j.interrupted.wrapper ? `; ${wrapperDid(j.interrupted.wrapper, starterIn(j.error ?? j.note))}` : ''}` : '';
     const note = `${interrupted}${j.note ? `${this.sep}${j.note}` : ''}`;
     // R4 (H73): the mark and word Timmy judged (a record's judgement, never the exit, where one judges it), and a workflow
     // run's blocks counted as every view counts them (against its sealed order)
     const count = j.kind === 'workflow' ? blockCount(j, { order: this.predictions.get(j.id)?.order }) : undefined;
-    return jobLineOf(j, { glyphs: this.d.glyphs, sep: this.sep, seconds: seconds(j), judged: this.judgedJob(j, ix), ...(count ? { count } : {}), after: `${stale}${note}` });
+    // R4 (H88; r23): a job whose end a later recovery recorded says so, not the time until that recovery ("88 min")
+    return jobLineOf(j, { glyphs: this.d.glyphs, sep: this.sep, seconds: ranWords(j, seconds(j)), judged: this.judgedJob(j, ix), ...(count ? { count } : {}), after: `${stale}${note}` });
   }
 
   /** Round R3: under a Look job whose measurement is done, the model still being asked (and whether it can charge yet). */
@@ -1342,6 +1349,8 @@ export class Workspace {
       const lines: Line[] = [this.jobLine(j, ix), ...judgedLines(this.judgedJob(j, ix, { whyMax: 600 }), { sep: this.sep }), ...this.askingLine(j)];
       if (j.kind === 'workflow') lines.push(...this.blockLines(j));
       else for (const s of j.steps) lines.push([{ text: `      ${s.state === 'completed' ? this.d.glyphs.ok : s.state === 'failed' ? this.d.glyphs.fail : this.d.glyphs.bullet} ${s.name}`, role: s.state === 'failed' ? 'failure' : undefined }, { text: `${s.state === 'completed' || s.state === 'failed' ? '' : `  ${s.state}`}${s.code === undefined ? '' : `  exit ${s.code}`}`, role: 'secondary' }]);
+      // R4 (H88; r23): how it ran: its program and arguments as its record keeps them, the project and Timmy's home by name
+      lines.push([{ text: '  Ran      ', role: 'secondary' }, { text: jobCommandWords(j, { timmyHome: timmyHome(), env: this.d.env }), role: 'secondary' }]);
       // Round R3 (/agent): a code agent's job shows its parsed progress, not its raw stream.
       const progress = this.agentProgressLines(j);
       if (progress) return [...lines, ...progress];
@@ -1505,6 +1514,9 @@ export class Workspace {
     this.ops.check();
     this.ops.closeAll();
   }
+
+  /** R4 (H88): the block receipt this Workspace sealed for a step of one of its /run jobs (by the step's place), if any. */
+  blockReceiptOf(job: string, step: number): string | undefined { return this.blockSeals.receiptOf(job, step); }
 
   /** The process is exiting at once (a second Ctrl+C): signal this REPL's live jobs without waiting. */
   killNow(by: string = REPL_END_REASON): void {
@@ -1686,7 +1698,7 @@ export class Workspace {
         open: () => !this.launches.closing,
         // R4 (H58): /run jobs an ended REPL left running: ended in their own records as interrupted
         // R4 (H74): with what seals the block receipts its runs still need (a block interrupted, or ended unseen)
-        workflows: () => recoverWorkflowJobs({ root, jobs: this.jobs, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing, blocks: (job) => sealLeftBlocks({ seal: this.d.seal, chain: () => this.chainNow(), scrub: (t) => this.scrub(t, root), project: job.project, projectId: projectId(root) }, job) }),
+        workflows: () => recoverWorkflowJobs({ root, jobs: this.jobs, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing, blocks: (job, cut) => sealLeftBlocks({ seal: this.d.seal, chain: () => this.chainNow(), scrub: (t) => this.scrub(t, root), project: job.project, projectId: projectId(root) }, job, cut) }), // R4 (H88): cut
         // R4 (H59): code agent runs an ended REPL left, each run's own record ended (src/repl/recover-agents.ts); then
         // R4 (H52): OpenHands containers left running, found by their labels and their run's record
         agents: async () => [
@@ -2126,12 +2138,15 @@ export class Workspace {
   async room(args: string): Promise<Line[]> {
     const id = args.trim();
     if (!id) await this.checkRoomTools();
-    const jobs = this.jobs.list().filter((j) => sameFolder(j.root, this.root));
-    let chain: Receipt[] = [];
-    try { chain = (this.d.receipts ?? (() => readChain('runs')))(); } catch { chain = []; }
-    const room = this.roomOf({ jobs, chain });
-    const o = { glyphs: this.d.glyphs, link: (rel: string) => this.fileLink(rel) };
-    return id ? roomItemLines(room, id, o) : roomLines(room.view, o);
+    // R4 (H88; r23): one reading of the process table for the whole view (its operation cards read it once each before)
+    return withProcessTable(() => {
+      const jobs = this.jobs.list().filter((j) => sameFolder(j.root, this.root));
+      let chain: Receipt[] = [];
+      try { chain = (this.d.receipts ?? (() => readChain('runs')))(); } catch { chain = []; }
+      const room = this.roomOf({ jobs, chain });
+      const o = { glyphs: this.d.glyphs, link: (rel: string) => this.fileLink(rel) };
+      return id ? roomItemLines(room, id, o) : roomLines(room.view, o);
+    });
   }
 
   /** The Control Room from what the board has gathered (or, for /room, from the project): never throws; a failure is said. */
@@ -2243,6 +2258,10 @@ export class Workspace {
    * newest of the project other than this request's own.
    */
   op(args: string): Line[] {
+    return withProcessTable(() => this.opNow(args)); // R4 (H88; r23): one reading of the process table for the view
+  }
+
+  private opNow(args: string): Line[] {
     const want = args.trim();
     const ix = this.opIndex();
     const { here, joined } = this.requestOperation();
@@ -2262,8 +2281,10 @@ export class Workspace {
     return { ...(here ? { here } : {}), joined: h?.joined === true };
   }
 
-  /** `/ops`: the project's recent operations, running first. */
-  opsView(_args: string): Line[] {
+  /** `/ops`: the project's recent operations, running first. R4 (H88; r23): one reading of the process table for the view. */
+  opsView(args: string): Line[] { return withProcessTable(() => this.opsNow(args)); }
+
+  private opsNow(_args: string): Line[] {
     const ix = this.opIndex();
     // This request's own operation is not listed, unless it joined one (a `timmy act` in a workflow block): that one is.
     const { here, joined } = this.requestOperation();

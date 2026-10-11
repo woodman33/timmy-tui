@@ -15,6 +15,8 @@
  * - Exit codes as `timmy act`'s: 0 succeeded (the run completed: upmd ran every block of it and each exited 0) or answered
  *   (--plan); 1 failed; 2 refused, needs a person, or a usage error; 3 stopped or interrupted (SIGINT, SIGTERM).
  * - --json prints one JSON object at the end (stdout; the progress lines go to stderr).
+ * - R4 (H88): a second signal while the first one's stop runs exits at once with 3, after settling the operation's end and the
+ *   run's job record and printing the end (its JSON's at_once says what was not sealed and what /recover does).
  */
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -26,6 +28,7 @@ import { planRun, riskyLines, runCommand, UPMD_GATE, workflowNeedsPerson, type R
 import { glyphSet } from './term/glyphs.js';
 import type { Segment } from './term/theme.js';
 import { OPERATION_ENV, OPERATION_ID } from './ops/context.js';
+import { exitAtOnce, writeNow } from './ops/exit-at-once.js'; // R4 (H88)
 import { operationRel } from './ops/operations.js';
 import { timmyHome } from './utils/init.js';
 import { appendReceipt, readChain } from './utils/receipts.js';
@@ -206,13 +209,49 @@ export async function mdMain(argv: string[], o: { json?: boolean } = {}): Promis
   let signals = 0;
   // R4 (H82; the review of 6fb765a..4338fdb, finding 3): the handlers stay until the process exits, as timmy act's do (see
   // src/ops/act.ts): removed before the end, a second signal there killed the process by default. Once the run has ended
-  // and the Workspace is closed, a first signal finds nothing to stop and the exit code stands; a second exits at once with 3.
+  // and the Workspace is closed, a first signal finds nothing to stop and the exit code stands.
   let closed = false;
+  // R4 (H88; r23): the exit code the end printed, once printed (a second signal after that exits with it, as printed)
+  let printedCode: number | undefined;
   const onSignal = (sig: NodeJS.Signals): void => {
     signals += 1;
-    if (signals > 1) { if (!closed) ws.killNow(stopReason(`by timmy md (a second ${sig}: it exits at once)`)); box?.restore(); process.exit(3); }
+    if (signals > 1) {
+      if (printedCode !== undefined) { box?.restore(); process.exit(printedCode); }
+      exitNow(sig);
+    }
     if (closed) return;
     void stop(`${sig} received`);
+  };
+  /**
+   * R4 (H88; the Mac run r23): a second signal exits at once with 3, nothing awaited; before it does, what can be settled at
+   * once is settled (the operation's end, the run's job record) and the end is printed, saying what was not sealed and what
+   * /recover does (src/ops/exit-at-once.ts). r23: it exited with 0 bytes on stdout, its job and operation left "running".
+   */
+  const exitNow = (sig: NodeJS.Signals): never => {
+    const at = exitAtOnce(ws, h, { signal: sig, who: 'timmy md', first: stopWhy, closed, stopWords: stopReason(`by timmy md (a second ${sig}: it exits at once)`) });
+    box?.restore();
+    const jobId = h.runs.find((r) => r.kind === 'job')?.id;
+    const job = at.jobs.find((j) => j.id === jobId) ?? (jobId ? ws.jobs.get(jobId) : undefined);
+    const told = { signal: sig, settled: at.settled, not_sealed: at.not_sealed, left_for_recover: at.left_for_recover, receipts: `not read: timmy md exited at once, without reading the receipts chain; /op ${h.id} lists them` };
+    if (a.json) {
+      writeNow(1, `${JSON.stringify({
+        schema: 'timmy.md/1', operation: h.id, joined: h.joined, parent: h.parent, request, project: ws.project.name, ...facts,
+        outcome: 'stopped', exit_code: 3, why: at.why,
+        job: job ? { id: job.id, state: job.state, exit_code: job.exitCode ?? null } : null,
+        prediction: job?.expected?.receipt ?? null, receipt: job?.receipt ?? null,
+        blocks: (job?.steps ?? []).map((s, i) => ({ name: s.name, state: s.state, exit_code: s.code ?? null, receipt: ws.blockReceiptOf(job!.id, i) ?? null })),
+        receipts: null, lines: printed, at_once: told,
+      })}\n`);
+    } else {
+      writeNow(1, `${[
+        `  stopped at once: a second ${sig}; timmy md exited before what it started had ended`,
+        ...(at.settled.length ? [`  ended now   ${at.settled.join(sep)}`] : []),
+        ...(at.not_sealed.length ? [`  not sealed  ${at.not_sealed.join(sep)}`] : []),
+        ...at.left_for_recover.map((l) => `  /recover    ${l}`),
+        `  /op ${h.id} shows it in full (in the REPL, or timmy act "/op ${h.id}")`,
+      ].join('\n')}\n`);
+    }
+    process.exit(3);
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
@@ -264,5 +303,6 @@ export async function mdMain(argv: string[], o: { json?: boolean } = {}): Promis
     out(`  ${state === 'succeeded' || state === 'answered' ? glyphs.ok : state === 'stopped' || state === 'refused' ? ' ' : glyphs.fail} ${who} ${state}: ${ended.why}`);
     out(`  /op ${h.id} shows it in full (in the REPL, or timmy act "/op ${h.id}")`);
   }
+  printedCode = code; // R4 (H88)
   return code;
 }

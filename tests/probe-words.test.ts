@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getLocalOllamaBaseUrl, probeOllama } from '../src/agent/providers.js';
 import { capabilities, type CapabilityRow, type ProbeDeps } from '../src/capabilities/index.js';
 import { liveDeps } from '../src/capabilities/live.js';
-import { DOCKER_PROBE_MS, dockerSetup } from '../src/code-agents/openhands-run.js';
+import { causeLine, DOCKER_PROBE_MS, dockerSetup } from '../src/code-agents/openhands-run.js';
 import { OPENHANDS_SDK } from '../src/code-agents/openhands.js';
 
 const dirs: string[] = [];
@@ -36,15 +36,21 @@ const byId = (rows: CapabilityRow[]): Record<string, CapabilityRow> => Object.fr
 const script = (dir: string, name: string, body: string): string => { const f = join(dir, name); writeFileSync(f, `#!/bin/sh\n${body}\n`); chmodSync(f, 0o755); return f; };
 const LOCAL = { capabilities: ['completion'], details: { format: 'gguf', family: 'fake' }, model_info: { 'fake.context_length': 4096 } };
 
-/** A FAKE Ollama on 127.0.0.1: /api/tags lists `models`; /api/show answers as a local completion model, or never (`show: 'hang'`). */
-async function fakeOllama(o: { models?: string[]; show?: 'ok' | 'hang'; status?: number }): Promise<number> {
+/** A FAKE Ollama on 127.0.0.1: /api/tags lists `models`; /api/show answers as a local completion model, or never (`show: 'hang'`);
+ *  R4 (H88): a model named in `broken` answers /api/show without the completion capability (it does not pass the check). */
+async function fakeOllama(o: { models?: string[]; show?: 'ok' | 'hang'; status?: number; broken?: string[] }): Promise<number> {
   const s = createServer((req, res) => {
     if (o.status) { res.writeHead(o.status); res.end('not here'); return; }
     if (req.url === '/api/tags') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ models: (o.models ?? []).map((name) => ({ name })) })); return; }
     if (req.url === '/api/show') {
       if (o.show === 'hang') return; // never answers: the probe's time runs out
-      req.resume();
-      req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(LOCAL)); });
+      let body = '';
+      req.setEncoding('utf8').on('data', (c: string) => { body += c; });
+      req.on('end', () => {
+        const model = (() => { try { return String((JSON.parse(body) as { model?: unknown }).model); } catch { return ''; } })();
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(o.broken?.includes(model) ? { ...LOCAL, capabilities: ['embedding'] } : LOCAL));
+      });
       return;
     }
     res.writeHead(404); res.end();
@@ -110,6 +116,30 @@ describe('Ollama: the probe\'s states told apart; the row says what the server a
     expect((await tools(bin)).ollama).toMatchObject({ rung: 'installed', detail: `nothing answered at 127.0.0.1:${port} (the connection failed (ECONNREFUSED)): ollama serve` });
   });
 
+  it('R4 (H88; r23): OLLAMA_HOST=127.0.0.1:9: fetch refuses that port itself, so the request was not sent: said so (never "nothing answered"); a closed port still says nothing answered', async () => {
+    vi.stubEnv('OLLAMA_HOST', '127.0.0.1:9');
+    // before: { state: 'no answer', why: 'the request failed' }, and the row "asked GET …/api/tags … nothing answered at 127.0.0.1:9"
+    expect(await probeOllama()).toMatchObject({ ok: false, models: [], base: 'http://127.0.0.1:9', answer: { state: 'not sent', why: "Node's fetch refused it before it left this computer (bad port)" } });
+    const r = (await tools(temp('h88-bin-'))).ollama;
+    expect(r).toMatchObject({ rung: 'needs setup', detail: "the request to 127.0.0.1:9 was not sent: Node's fetch refused it before it left this computer (bad port); the ollama command is not on PATH", setup: 'set OLLAMA_HOST to the address Ollama listens on, such as 127.0.0.1:11434' });
+    expect(r.notReached!.reachable).toMatch(/^not sent: GET http:\/\/127\.0\.0\.1:9\/api\/tags \(at \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\), Node's fetch refused it before it left this computer \(bad port\)$/);
+    expect(`${r.detail} ${r.notReached!.reachable}`).not.toMatch(/nothing answered|asked GET/);
+    // a real closed port: the connection was tried and refused: nothing answered, as before
+    const port = await closedPort();
+    vi.stubEnv('OLLAMA_HOST', `127.0.0.1:${port}`);
+    expect(await probeOllama()).toMatchObject({ answer: { state: 'no answer', why: 'the connection failed (ECONNREFUSED)' } });
+    expect((await tools(temp('h88-bin-'))).ollama.notReached!.reachable).toMatch(new RegExp(`^asked GET http://127\\.0\\.0\\.1:${port}/api/tags, then each local model's details at .+: nothing answered \\(the connection failed \\(ECONNREFUSED\\)\\)$`));
+  });
+
+  it('R4 (H88; r23): a local model that did not pass its /api/show check is counted in the row (r23: 9 listed, 8 passed, the 9th unmentioned)', async () => {
+    const port = await fakeOllama({ models: ['qwen3:4b', 'gemma3:1b', 'broken:1b'], broken: ['broken:1b'] });
+    vi.stubEnv('OLLAMA_HOST', `127.0.0.1:${port}`);
+    expect(await probeOllama()).toMatchObject({ ok: true, models: ['qwen3:4b', 'gemma3:1b'], answer: { state: 'listed', listed: 3, checked: 2, failed: 1, late: 0 } });
+    const r = (await tools(temp('h88-bin-'))).ollama;
+    expect(r).toMatchObject({ rung: 'reachable', detail: '2 local models; 1 more did not pass the /api/show check that establishes local completion weights; the ollama command is not on PATH' });
+    expect(r.ladder!.reachable).toMatchObject({ answer: '2 local models passed their /api/show check; 1 more did not pass it (it lists 3 models)' });
+  });
+
   it('something else answers (HTTP 404): not Ollama, said so', async () => {
     const port = await fakeOllama({ status: 404 });
     vi.stubEnv('OLLAMA_HOST', `127.0.0.1:${port}`);
@@ -135,6 +165,23 @@ describe('docker: what docker info did, within 8 s, never "the Docker daemon did
     expect(await dockerSetup(join(temp('h82-docker-'), 'docker'), {}, 5000)).toEqual({ state: 'no daemon', detail: 'docker info could not start (ENOENT: no such program)' });
     const empty = ready(temp('h82-docker-'), 'exit 0');
     expect(await dockerSetup(empty, {}, 5000)).toEqual({ state: 'no daemon', detail: 'docker info exited 0 and named no Docker server' });
+  }, 30_000);
+
+  it('R4 (H88; r23): a line longer than 200 characters keeps its cause (its end) and marks the cut; a shorter one stays whole', async () => {
+    // r23's shape (here with a socket path of no one's): the first 200 characters alone had ended at "…connect: ", unmarked
+    const sock = '/var/folders/sandbox-for-timmy-tests/docker/run/no-such.sock';
+    const line = `error during connect: Get "http://${encodeURIComponent(sock)}/v1.47/info": dial unix ${sock}: connect: no such file or directory`;
+    expect(line.length).toBeGreaterThan(200);
+    const down = script(temp('h88-docker-'), 'docker', `echo '${line}' >&2; exit 1`);
+    const d = await dockerSetup(down, {}, 5000);
+    expect(d.state).toBe('no daemon');
+    const said = (d as { detail: string }).detail.replace(/^docker info exited 1: /, '');
+    expect(said.length).toBe(200);
+    expect(said).toContain('…');
+    expect(said.endsWith(`dial unix ${sock}: connect: no such file or directory`)).toBe(true);
+    expect(said.startsWith('error during connect: Get "http://')).toBe(true);
+    expect(causeLine(`  ${'x'.repeat(199)}  \nsecond line`)).toBe('x'.repeat(199));
+    expect(causeLine('')).toBe('');
   }, 30_000);
 
   it('/tools waits 8 s for docker info (it waited 4): a docker that answers after 4.5 s is checked; the row names what docker info did otherwise', async () => {

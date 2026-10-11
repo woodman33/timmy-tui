@@ -59,7 +59,7 @@ let current = null;
 // Round R4 (H75): Timmy Canvas's own drawn cards (workflow, parameter and result), and the session their actions go with.
 const cards = createCards({
   React, BaseBoxShapeUtil, HTMLContainer, T, atom, useValue, resizeBox, createShapeId, grant: GRANT_AT_LOAD,
-  editor: () => current, place: (editor) => placeAt(editor), reveal: (editor, ids) => reveal(editor, ids),
+  editor: () => current, place: (editor, size) => placeAt(editor, size), reveal: (editor, ids) => reveal(editor, ids),
 });
 
 function showStatus(editor) {
@@ -146,6 +146,10 @@ let drawnInCall = null;
 // What a call draws comes into view beside Timmy's panel, or below it when that leaves more room (a
 // phone), above tldraw's toolbar (LIVE-01, ledger row 65: a rectangle drawn at (100, 100) sat hidden
 // under the panel). A call that draws inside that area leaves the camera where it is.
+// R4 (H88; the Mac run r23): the area beside the panel is taken whenever it is wide enough for a card (BESIDE_MIN), and below
+// it only on a narrower screen: the panel's width is fixed but its height grows as its lists fill or a fold opens, and a card
+// placed below a short panel sat partly under it once the panel grew (seen at 760 x 1600 and 700 x 1400).
+const BESIDE_MIN = 240;
 function freeArea() {
   const margin = 16;
   const top = 56;
@@ -155,6 +159,7 @@ function freeArea() {
   if (!side || side.width === 0) return { x: margin, y: top, w: innerWidth - 2 * margin, h: bottom - top };
   const right = { x: side.right + margin, y: top, w: innerWidth - side.right - 2 * margin, h: bottom - top };
   const below = { x: margin, y: side.bottom + margin, w: innerWidth - 2 * margin, h: bottom - side.bottom - margin };
+  if (right.w >= BESIDE_MIN && right.h > 0) return right;
   return right.w * right.h >= below.w * below.h ? right : below;
 }
 function reveal(editor, ids) {
@@ -441,17 +446,24 @@ function connectPanel() {
     drawable: (kind) => drawnType(kind) !== null, placeCard: (id, now) => cards.place(id, now),
   });
   cards.setPoll(() => projectPanel.poll());
+  // R4 (H88; r23): the line follows the session as soon as it changes (a refused save, a refused reading, a session ended)
+  cards.setSessionListener(showSession);
   showSession();
 }
 
 // Round R4 (H55): where a placed project card goes: the middle of the area beside Timmy's panel, each next one a step
-// lower and to the right, so cards placed one after another do not cover each other.
+// lower and to the right, so cards placed one after another do not cover each other. R4 (H88; the Mac run r23): the card's
+// own size (`size`, in page units: a note's 200 x 200 by default, a drawn card's width) is kept inside that area at the
+// camera's zoom, its left and top edges never before the area's (it had been placed by a 200-wide note's middle).
 let projectPanel = null;
-function placeAt(editor) {
+function placeAt(editor, size = { w: 200, h: 200 }) {
   const area = freeArea();
-  const middle = editor.screenToPage({ x: area.x + area.w / 2, y: area.y + area.h / 2 });
+  const z = editor.getCamera().z || 1;
+  const x = area.x + Math.max(0, (area.w - size.w * z) / 2);
+  const y = area.y + Math.max(0, (area.h - size.h * z) / 2);
+  const at = editor.screenToPage({ x, y });
   const placed = editor.getCurrentPageShapes().filter((shape) => shape.meta?.timmyProjectCard).length % 6;
-  return { x: Math.round(middle.x - 100 + placed * 24), y: Math.round(middle.y - 100 + placed * 24) };
+  return { x: Math.round(at.x + placed * 24), y: Math.round(at.y + placed * 24) };
 }
 /**
  * The agent's canvas_place_project_card (src/agent/canvas-tools.ts) calls this with the card's id, which reached the page

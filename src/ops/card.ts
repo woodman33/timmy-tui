@@ -358,7 +358,8 @@ function workflowParts(ix: OpIndex, id: string): CardWorkflow[] {
     const order = j.expected?.steps?.length ? j.expected.steps : p?.prediction?.order;
     const count = blockCount(j, { ...(order ? { order } : {}), receipts: blockReceiptsOf(ix.chain, j.id) });
     const steps: CardStep[] = count.blocks.map((b) => ({ name: b.name, state: b.word, ...(b.code !== undefined ? { code: b.code } : {}), ...(b.receipt ? { receipt: b.receipt } : {}) }));
-    const state = `${j.stale ? `${j.state}; its process is gone` : j.state === 'cancelled' ? 'stopped' : j.state} · ${count.words}`;
+    // R4 (H88; r23): the record's own word for its state ("cancelled"), as /jobs says it: one word per state
+    const state = `${j.stale ? `${j.state}; its process is gone` : j.state} · ${count.words}`;
     return {
       doc, block, job: j.id, state, tone: toneOf(state), steps, check,
       commands: [...(block ? [`/run ${doc} ${block}`] : []), `/workflows ${doc}`, `/jobs ${j.id}`],
@@ -546,7 +547,7 @@ function runParts(ix: OpIndex, id: string, rec: OperationRecord | undefined, flo
       add({ kind: 'job', id: j.id, role: roleOf('job', j.label), state: `${judged.word}${judged.why ? `: ${cutWords(judged.why, 120)}` : ''}`, tone: MARK_TONE[judged.mark] });
       continue;
     }
-    const state = j.stale ? `${j.state}; its process is gone` : j.state === 'cancelled' ? 'stopped' : j.state;
+    const state = j.stale ? `${j.state}; its process is gone` : j.state; // R4 (H88; r23): the record's own word ("cancelled")
     add({ kind: j.kind === 'workflow' ? 'workflow run' : 'job', id: j.id, role: j.kind === 'workflow' ? 'role not recorded (a workflow run: its blocks act)' : roleOf('job', j.label), state, tone: toneOf(state) });
   }
   for (const m of ix.mcps.get(id) ?? []) add({ kind: 'mcp', id: m, role: roleOf('mcp'), state: 'MCP call', tone: 'neutral' });

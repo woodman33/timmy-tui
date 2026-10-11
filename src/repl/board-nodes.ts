@@ -315,10 +315,12 @@ export function graphSvg(doc: string, blocks: NodeInput[], draw: GraphDraw = {})
 /** What the graph found that will stop a run, in plain words. */
 function graphWarnings(blocks: NodeInput[]): string[] {
   const g = layoutGraph(blocks);
+  // R4 (H88; r23): two blocks named alike: /run runs none of the document's blocks (it said "upmd runs the first")
+  const alike = (d: string): string => { const at = blocks.filter((b) => b.name === d).map((b) => b.index); return `${at.length === 2 ? 'Two' : at.length === 3 ? 'Three' : at.length} blocks are named ${d}${at.every((i) => i !== undefined) ? ` (blocks ${at.join(', ')})` : ''}`; };
   return [
     ...(g.cycle ? [`These blocks need each other in a loop: ${g.cycle.join(' → ')}. A loop cannot run.`] : []),
     ...g.missing.map((m) => `${m.block} needs ${m.need}, but no block is named ${m.need}.`),
-    ...g.duplicates.map((d) => `Two blocks are named ${d}: upmd runs the first.`),
+    ...g.duplicates.map((d) => `${alike(d)}: /run runs none of this document's blocks until each block has a name of its own.`),
     ...(g.hidden ? [`The graph shows the first ${GRAPH_MAX} blocks; the list names all ${blocks.length}.`] : []),
   ];
 }

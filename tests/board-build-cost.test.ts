@@ -180,6 +180,19 @@ describe('a live-board build of a project with many records (real ps, real HTTP)
     } finally { verdictReads.mockRestore(); }
   }, 120_000);
 
+  // R4 (H88; the Mac run r23, a FAKE load of 250 open operations there): REPL /room read the process table once per
+  // operation card it drew, outside the view's one reading (6 `ps -o etime= -p` runs); /op and /ops the same way.
+  it('R4 (H88; r23): REPL /room, /op and /ops: one reading of the process table each (one -A, no -p)', async () => {
+    const views: Array<[string, () => Promise<unknown[]>]> = [['/room', () => ws.room('')], ['/op', async () => ws.op('')], ['/ops', async () => ws.opsView('')]];
+    for (const [name, view] of views) {
+      const before = { ...c.calls };
+      const logged = psRuns();
+      expect((await view()).length, name).toBeGreaterThan(0);
+      expect({ all: c.calls.all - before.all, one: c.calls.one - before.one }, name).toEqual({ all: 1, one: 0 });
+      expect(fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).slice(logged).filter((l) => /(^|\s)-p(\s|$)/.test(l)), name).toEqual([]);
+    }
+  }, 120_000);
+
   it("GET /overview: the same; the newest 50 open operations checked and the rest counted; the chain head verified once, again only when it changes", async () => {
     const a = await build('/overview');
     expect(a.status, a.body).toBe(200);

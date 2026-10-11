@@ -51,7 +51,7 @@ const MAX_RECORDS = 400;
 const RECORD_MAX = 4 * 1024 * 1024;
 const LIVE: ReadonlySet<string> = new Set(['queued', 'running', 'ready']);
 /** The words every end a recovery writes in a job's record begins with (recover.ts, workflow-recover.ts, openhands-recover.ts). */
-const BY_RECOVERY = /^(?:interrupted: )?its REPL ended\b/;
+const BY_RECOVERY = /^(?:interrupted: )?its (?:REPL|timmy md|timmy act) ended\b/; // R4 (H88): the Timmy that started it named
 const JOB_ID = /^j[0-9a-f]{6}$/;
 const NATIVE_RUN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The id of each kind of run an operation names (a record's runs are only looked up by an id of their kind). */

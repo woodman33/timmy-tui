@@ -22,8 +22,8 @@ import { unrealRunOutcome } from '../native/unreal-readback.js';
 import { agentExercisedIndex } from '../code-agents/index.js';
 import { OUTCOME_RULE } from '../repl/seal.js';
 import { recipeExercisedAt } from '../recipes/index.js';
-import { homedir } from 'node:os';
 import { packageRoot } from '../utils/asset-dirs.js';
+import { tildePath } from '../utils/home-scrub.js'; // R4 (H88)
 import { DOCKER_PROBE_MS, dockerSetup, openHandsWorker } from '../code-agents/openhands-run.js';
 // R4 (H76): the ladder's evidence: where a program is, the runs that count on the verified chain, the recipe's own, and
 // the repository's qualification records.
@@ -154,8 +154,8 @@ export function liveDeps(o: LiveOptions): ProbeDeps {
     // R4 (H82): each within 8 s (DOCKER_PROBE_MS; it was 4 s), its words saying what docker did (dockerWords)
     openhands: async () => {
       const root = packageRoot(import.meta.url);
-      const home = homedir();
-      const shown = root && home.length > 1 && root.startsWith(home) ? `~${root.slice(home.length)}` : root;
+      // R4 (H88; r23): from "~" under $HOME and under the account's own home
+      const shown = root ? tildePath(root, env) : root;
       return { docker: await dockerSetup(env.TIMMY_AGENT_DOCKER_BIN?.trim() || 'docker', env, DOCKER_PROBE_MS), worker: Boolean(openHandsWorker()), ...(shown ? { root: shown } : {}) };
     },
   };

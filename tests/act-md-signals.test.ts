@@ -20,7 +20,8 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { FAKE_UPMD, opsKit, REPO, sandbox, until, type Sandbox } from './helpers/ops-sandbox.js';
+import { FAKE_UPMD, opsKit, replOf, REPO, sandbox, text, until, type Sandbox } from './helpers/ops-sandbox.js';
+import { readChain } from '../src/utils/receipts.js';
 
 const kit = opsKit();
 /** Each run's process group, ended with SIGKILL after its test (the kit kills only the bin itself). */
@@ -119,6 +120,154 @@ describe('timmy md: the same', () => {
     const d = await r.done;
     expect(d.code, d.stdout + d.stderr).toBe(3);
     expect(lastJson(d.stdout)).toMatchObject({ outcome: 'stopped', exit_code: 3 });
+  }, 120_000);
+});
+
+/**
+ * R4 (H88; the Mac run r23, scripted): a Ctrl-C and a second one about 80 ms later, while the first one's stop still runs.
+ * `timmy md LONG.md long --json` and `timmy act '/run LONG.md long' --wait --json` exited 3 at once with no JSON on stdout
+ * (0 bytes), and md left its job (endedAt null, no receipt) and its operation ("running", its owner gone) for /recover. The
+ * second signal still exits at once with 3, nothing awaited; before it does, it settles the operation's end and the run's job
+ * record (words naming the second signal) and prints the end JSON, saying what it could not seal and what /recover does.
+ *
+ * Two shapes: r23's own (a plain `sleep 30` block: here its stop may end within the 80 ms, so the second signal may land in
+ * the stop or just after it, and either way the JSON is printed and no record is left running), and a block that ignores
+ * SIGTERM (`trap '' TERM`, a real block slow to stop: its stop then takes the pty wrapper's grace, 0.8 s, so the second signal
+ * lands inside the stop every time, and what was settled at once is checked).
+ */
+describe('R4 (H88; r23): a second SIGINT 80 ms after the first, during the stop: exit 3 at once, the end JSON printed, the records settled', () => {
+  const SLOW = ['# Slow to stop', '', `${F}bash [name:first]`, 'echo ready', F, '', `${F}bash [name:long, deps:first]`, "trap '' TERM", 'touch long.started', 'sleep 30', F, ''].join('\n');
+  const box = (prefix: string, doc = LONG): Sandbox => {
+    const s = sandbox(kit, prefix);
+    fs.writeFileSync(path.join(s.root, 'LONG.md'), doc);
+    s.env.UPMD_BIN = FAKE_UPMD;
+    return s;
+  };
+  const twice = async (r: Run): Promise<void> => {
+    group(r, 'SIGINT');
+    await new Promise((z) => { setTimeout(z, 80); });
+    group(r, 'SIGINT');
+  };
+  const record = (file: string): Record<string, unknown> => JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+  const jobRecord = (s: Sandbox, id: string): Record<string, unknown> => record(path.join(s.home, 'timmy', 'jobs', `${id}.json`));
+  const opRecord = (s: Sandbox, id: string): Record<string, unknown> => record(path.join(s.root, '.timmy', 'operations', `${id}.json`));
+  const blocksOf = (s: Sandbox, job: string): Array<{ block: Record<string, unknown> }> =>
+    readChain('runs', s.root).filter((x) => x.kind === 'workflow-block' && (x as { block?: { run?: string } }).block?.run === job) as unknown as Array<{ block: Record<string, unknown> }>;
+
+  it('r23\'s shape, timmy md (a plain sleep 30): exit 3, a JSON with exit_code 3, and no job or operation record says running', async () => {
+    const s = box('h88-md-r23-');
+    const r = timmy(s, ['md', 'LONG.md', 'long', '--json']);
+    await until(() => fs.existsSync(path.join(s.root, 'long.started')), 60_000, 'the long block');
+    await twice(r);
+    const d = await r.done;
+    // before: exit 3 with 0 bytes on stdout (no JSON), the job and the operation left "running"
+    expect(d.code, d.stdout + d.stderr).toBe(3);
+    const j = lastJson(d.stdout);
+    expect(j).toMatchObject({ schema: 'timmy.md/1', outcome: 'stopped', exit_code: 3 });
+    const job = (j.job as { id: string }).id;
+    expect(jobRecord(s, job)).toMatchObject({ state: 'cancelled', endedAt: expect.any(String) });
+    expect(opRecord(s, String(j.operation))).toMatchObject({ state: 'stopped', ended: expect.any(String) });
+  }, 120_000);
+
+  it('r23\'s shape, timmy act \'/run LONG.md long\' --wait: exit 3 and a JSON with exit_code 3 (r23: 0 bytes on stdout); no record says running', async () => {
+    const s = box('h88-act-r23-');
+    const r = timmy(s, ['act', '/run LONG.md long', '--wait', '--json']);
+    await until(() => fs.existsSync(path.join(s.root, 'long.started')), 60_000, 'the long block');
+    await twice(r);
+    const d = await r.done;
+    expect(d.code, d.stdout + d.stderr).toBe(3);
+    const j = lastJson(d.stdout);
+    expect(j).toMatchObject({ schema: 'timmy.act/1', outcome: 'stopped', exit_code: 3 });
+    const job = (j.runs as Array<{ kind: string; id: string }>).find((x) => x.kind === 'job')!.id;
+    expect(jobRecord(s, job)).toMatchObject({ state: 'cancelled', endedAt: expect.any(String) });
+    expect(opRecord(s, String(j.operation))).toMatchObject({ state: 'stopped', ended: expect.any(String) });
+  }, 120_000);
+
+  it('timmy md, inside the stop (a block that ignores SIGTERM): the JSON says it exited at once, what it settled, what it did not seal and what /recover does; the records say so; /recover then seals the cut block, once', async () => {
+    const s = box('h88-md-held-', SLOW);
+    const r = timmy(s, ['md', 'LONG.md', 'long', '--json']);
+    await until(() => fs.existsSync(path.join(s.root, 'long.started')), 60_000, 'the long block');
+    await twice(r);
+    const d = await r.done;
+    expect(d.code, d.stdout + d.stderr).toBe(3);
+    const j = lastJson(d.stdout);
+    expect(j).toMatchObject({ schema: 'timmy.md/1', outcome: 'stopped', exit_code: 3, why: expect.stringMatching(/^SIGINT received; a second SIGINT: timmy md exited at once, before what it started had ended; ended now: job j[0-9a-f]{6}: cancelled; not sealed: /), receipts: null });
+    const op = String(j.operation);
+    const job = (j.job as { id: string }).id;
+    expect(j.job).toMatchObject({ id: expect.stringMatching(/^j[0-9a-f]{6}$/), state: 'cancelled', exit_code: null });
+    expect(j.at_once).toEqual({
+      signal: 'SIGINT',
+      settled: [`operation ${op}: stopped`, `job ${job}: cancelled`],
+      not_sealed: [`block long of run ${job} (cut by the stop)`, `the run's own receipt (run ${job})`],
+      left_for_recover: [`/recover seals the receipt of block long of run ${job}, as cut by this stop`, `nothing seals run ${job}'s own receipt later: its job record and its block receipts say how it ended`],
+      receipts: `not read: timmy md exited at once, without reading the receipts chain; /op ${op} lists them`,
+    });
+    // the first block's receipt was sealed as it ended; the cut one's was not
+    expect(j.blocks).toEqual([{ name: 'first', state: 'completed', exit_code: 0, receipt: expect.stringMatching(/^[0-9a-f]{8}$/) }, { name: 'long', state: 'stopped', exit_code: null, receipt: null }]);
+    // what it settled at once, on disk: neither record says running
+    expect(opRecord(s, op)).toMatchObject({ state: 'stopped', ended: expect.any(String), why: expect.stringContaining('a second SIGINT: timmy md exited at once') });
+    const jobRec = jobRecord(s, job);
+    expect(jobRec).toMatchObject({ state: 'cancelled', endedAt: expect.any(String), exitCode: null, error: expect.stringMatching(/^stopped by timmy md at once \(a second SIGINT\)/), exitedAtOnce: { by: 'timmy md', signal: 'SIGINT', sealed: false } });
+    expect((jobRec.steps as Array<{ name: string; state: string }>).map((x) => `${x.name} ${x.state}`)).toEqual(['first completed', 'long stopped']);
+    expect(blocksOf(s, job).map((x) => x.block.name)).toEqual(['first']);
+    // /recover (a REPL of the same Timmy) seals the cut block's receipt, as cut by that stop, once
+    const { ws } = replOf(kit, s);
+    const said = text(await ws.recover('')).replace(/\s+/g, ' ');
+    expect(said).toContain(`run ${job} of LONG.md › long was stopped at once by its timmy md (a second SIGINT), which ended its record then and sealed nothing for it; sealed now, as cut by that stop: block long: receipt `);
+    expect(said).toContain('1 workflow run stopped at once by its Timmy');
+    const sealed = blocksOf(s, job);
+    expect(sealed.map((x) => `${String(x.block.name)} ${String(x.block.outcome)}`)).toEqual(['first completed', 'long interrupted']);
+    expect(sealed[1].block).toMatchObject({ interrupted_by: 'stop', stop_words: expect.stringMatching(/^stopped by timmy md at once \(a second SIGINT\)/) });
+    expect(jobRecord(s, job)).toMatchObject({ exitedAtOnce: { sealed: true } });
+    await ws.recover('');
+    expect(blocksOf(s, job)).toHaveLength(2);
+    // R4 (H88; r23): /op calls the run by its record's own word (cancelled), as /jobs does; it said "stopped"
+    const card = text(ws.op(op));
+    expect(card).toMatch(new RegExp(`${job}[^\\n]*cancelled · `));
+    expect(card).not.toMatch(/\bstopped · /);
+  }, 120_000);
+
+  it('R4 (H88; r23): timmy md killed (SIGKILL) while a block runs: /recover names timmy md as what started it; /jobs says how it ran (no absolute path) and when its end was recorded, not "88 min"', async () => {
+    const s = box('h88-md-killed-');
+    const r = timmy(s, ['md', 'LONG.md', 'long', '--json']);
+    await until(() => fs.existsSync(path.join(s.root, 'long.started')), 60_000, 'the long block');
+    await new Promise((z) => { setTimeout(z, 300); });
+    group(r, 'SIGKILL');
+    await r.done;
+    const job = fs.readdirSync(path.join(s.home, 'timmy', 'jobs')).find((f) => /^j[0-9a-f]{6}\.json$/.test(f))!.slice(0, 7);
+    // its pty wrapper sees its parent gone, stops upmd and writes its stop file; then a REPL's recovery records the run
+    await until(() => { const j = jobRecord(s, job) as { pid?: number }; try { process.kill(-j.pid!, 0); return false; } catch { return true; } }, 30_000, 'the run\'s wrapper to end');
+    const { ws } = replOf(kit, s);
+    await ws.recover('');
+    const rec = jobRecord(s, job) as { error?: string; note?: string; state: string };
+    // before: "interrupted: its REPL ended while long was running; …" for a run timmy md started
+    expect(`${rec.error ?? ''}${rec.note ?? ''}`).toMatch(/^interrupted: its timmy md ended while long was running/);
+    expect(`${rec.error ?? ''}${rec.note ?? ''}`).not.toContain('its REPL');
+    const said = text(ws.jobsView(job));
+    const lines = said.split('\n');
+    expect(lines[0]).toMatch(new RegExp(`${job} .* ended unseen: a later recovery recorded its end at \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} UTC, after the Timmy that ran it had ended`));
+    expect(lines[0]).toMatch(/ ended unseen: a later recovery recorded its end at .+; its blocks' own times: first (<0\.1|\d+\.\d) s, long \d+\.\d s · interrupted: its session ended while long ran; its pty wrapper saw its timmy md end/);
+    expect(lines[0]).not.toMatch(/steps · \d/);
+    const ran = lines.find((l) => l.startsWith('  Ran      '))!;
+    expect(ran).toMatch(/^ {2}Ran {6}\S*python3(\.\d+)? -I \[Timmy\]\/workers\/upmd\/pty_run\.py --parent \d+ --stop-file \[Timmy home\]\/jobs\/runs\/w[0-9a-f]{8}\/\S+ -- \[Timmy\]\/tests\/fixtures\/fake-upmd\.mjs --ci -b long -d \[project project\] \[Timmy home\]\/jobs\/runs\/w[0-9a-f]{8}\/checked\.md$/);
+    expect(said).not.toContain(s.base);
+  }, 120_000);
+
+  it('timmy act \'/run …\', inside the stop (a block that ignores SIGTERM): its JSON says it exited at once and settled the run\'s job record', async () => {
+    const s = box('h88-act-held-', SLOW);
+    const r = timmy(s, ['act', '/run LONG.md long', '--wait', '--json']);
+    await until(() => fs.existsSync(path.join(s.root, 'long.started')), 60_000, 'the long block');
+    await twice(r);
+    const d = await r.done;
+    expect(d.code, d.stdout + d.stderr).toBe(3);
+    const j = lastJson(d.stdout);
+    const job = (j.runs as Array<{ kind: string; id: string }>).find((x) => x.kind === 'job')!.id;
+    expect(j).toMatchObject({
+      schema: 'timmy.act/1', outcome: 'stopped', exit_code: 3, receipts: null, why: expect.stringMatching(/a second SIGINT: timmy act exited at once/),
+      at_once: { signal: 'SIGINT', settled: [`operation ${String(j.operation)}: stopped`, `job ${job}: cancelled`], not_sealed: [`block long of run ${job} (cut by the stop)`, `the run's own receipt (run ${job})`] },
+    });
+    expect(jobRecord(s, job)).toMatchObject({ state: 'cancelled', endedAt: expect.any(String), error: expect.stringMatching(/^stopped by timmy act at once \(a second SIGINT\)/), exitedAtOnce: { by: 'timmy act', sealed: false } });
+    expect(opRecord(s, String(j.operation))).toMatchObject({ state: 'stopped', ended: expect.any(String) });
   }, 120_000);
 });
 

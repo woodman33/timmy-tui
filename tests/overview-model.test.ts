@@ -84,6 +84,11 @@ describe("God's Eye View from the records the real writers made (FAKE agent, Ope
     for (const p of new Set([s.base, s.root, s.home, os.tmpdir(), os.homedir()])) expect(json).not.toContain(p);
     expect(o.project.project_id).toBe(projectId(s.root));
     expect(o.project.changed.at).toMatch(ISO);
+    // R4 (H88; r23): headless (as `timmy act` builds it), no canvas server of this Timmy home is "off", the REPL's own word
+    // for it (it said "canvas not found" where the REPL said "canvas off")
+    expect(o.project.canvas).toMatchObject({ state: 'off', command: '/canvas open' });
+    expect(o.project.summary).toMatch(/, canvas off$/);
+    expect(repl.project.canvas.state).toBe('off');
   });
 
   it('lists what needs you, the same list as Waiting on you: the draft lesson, with its record and the command that checks it', () => {

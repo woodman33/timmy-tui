@@ -20,6 +20,12 @@ export type OllamaAnswer =
   | { state: 'not asked'; why: string }
   /** nothing answered within the probe's time, or the connection was refused */
   | { state: 'no answer'; why: string }
+  /**
+   * R4 (H88; the Mac run r23): the request never left this computer: Node's fetch refused it itself, before any connection
+   * (`why`: its own words, such as "bad port" for OLLAMA_HOST=127.0.0.1:9, a port fetch never asks). Nothing was asked, so
+   * nothing can have answered.
+   */
+  | { state: 'not sent'; why: string }
   /** something answered, and its answer is not Ollama's list of models (an HTTP error, another body, too long a list) */
   | { state: 'unreadable'; why: string }
   /**
@@ -122,6 +128,18 @@ function noAnswerWhy(err: unknown, signal: AbortSignal, timeoutMs: number): stri
   return typeof code === 'string' && /^[A-Z_]{3,40}$/.test(code) ? `the connection failed (${code})` : 'the request failed';
 }
 
+/**
+ * R4 (H88; r23): why a request that failed never left this computer, or undefined when it may have: fetch's own refusal has a
+ * cause with no error code and no system call (undici's "bad port"); a connection that was tried has both (ECONNREFUSED).
+ */
+function notSentWhy(err: unknown, signal: AbortSignal): string | undefined {
+  if (signal.aborted) return undefined;
+  const cause = (err as { cause?: { code?: unknown; syscall?: unknown; message?: unknown } } | undefined)?.cause;
+  if (!cause || typeof cause !== 'object' || cause.code !== undefined || cause.syscall !== undefined) return undefined;
+  const said = typeof cause.message === 'string' ? cause.message.trim().slice(0, 120) : '';
+  return said ? `Node's fetch refused it before it left this computer (${said})` : undefined;
+}
+
 /** Only verified local completion models are reported as fallback candidates. */
 export async function probeOllama(timeoutMs = 1500): Promise<OllamaProbeResult> {
   let base: string;
@@ -132,7 +150,9 @@ export async function probeOllama(timeoutMs = 1500): Promise<OllamaProbeResult> 
   const start = Date.now();
   let response: Response;
   try { response = await fetch(`${base}/api/tags`, { signal, redirect: 'error' }); } catch (err) {
-    return { ok: false, models: [], base, answer: { state: 'no answer', why: noAnswerWhy(err, signal, timeoutMs) } };
+    // R4 (H88; r23): a request fetch refused itself was never sent: said so, never "nothing answered"
+    const unsent = notSentWhy(err, signal);
+    return { ok: false, models: [], base, answer: unsent ? { state: 'not sent', why: unsent } : { state: 'no answer', why: noAnswerWhy(err, signal, timeoutMs) } };
   }
   const unreadable = (why: string): OllamaProbeResult => ({ ok: false, models: [], base, answer: { state: 'unreadable', why } });
   if (!response.ok) { try { await response.body?.cancel(); } catch { /* nothing to read */ } return unreadable(`HTTP ${response.status}`); }

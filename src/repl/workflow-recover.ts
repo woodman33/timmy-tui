@@ -31,6 +31,10 @@
  * Workspace's src/repl/workflow-blocks.ts sealLeftBlocks): the block that was running is sealed interrupted (its REPL ended),
  * and each block whose end only its pty wrapper saw is sealed as the wrapper saw it; a block the REPL sealed before it ended
  * is not sealed again, and a block that never started gets none. Each names the run's operation.
+ *
+ * Round R4 (helper H88, the Mac run r23): a run whose own Timmy (`timmy md`, `timmy act`) ended its record at once as it
+ * exited on a second Ctrl-C (JobRecord.exitedAtOnce; src/ops/exit-at-once.ts) is not left running: its record says how it
+ * ended. Its blocks' receipts that Timmy could not seal then are sealed here, as cut by that stop, once its process is gone.
  */
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
@@ -43,6 +47,9 @@ import { parseWorkflow, type WorkflowBlock } from '../workflows/upmd.js';
 import { isLiveRun, wrapperStopFile } from '../workflows/upmd-live.js';
 import { runOf } from './board-workflows.js';
 import { leftBehind, processTable, SETTLE_MS, STOP_GRACE_MS, type LeftJob, type LeftStop, type Proc, type RecoverDeps, type RecoveryItem } from './recover.js';
+import type { LeftCut } from './workflow-blocks.js';
+import { writerState } from '../ops/process-proof.js';
+import { readOperationRecord } from '../ops/operations.js';
 
 export interface WorkflowRecoverDeps {
   /** the project folder looked at */
@@ -58,8 +65,9 @@ export interface WorkflowRecoverDeps {
   settleMs?: number;
   /** test seam: the process table (recover.ts processTable) */
   table?: () => Proc[] | undefined;
-  /** R4 (H74): seals the block receipts a run ended here still needs, from its record as written; the receipts sealed */
-  blocks?: (job: JobRecord) => Array<{ name: string; receipt: string }>;
+  /** R4 (H74): seals the block receipts a run ended here still needs, from its record as written; the receipts sealed.
+   *  R4 (H88): `cut`, what cut the run when it was not its REPL's end (a stop by its own Timmy as it exited at once). */
+  blocks?: (job: JobRecord, cut?: LeftCut) => Array<{ name: string; receipt: string }>;
 }
 
 /** R4 (H74): the block receipts a run ended here still needs, sealed from its record as recovery wrote it, in words. */
@@ -82,6 +90,16 @@ const listed = (names: readonly string[]): string => (names.length < 2 ? names.j
 function what(j: JobRecord): { name: string; again: string } {
   const r = runOf(j);
   return r ? { name: `run ${j.id} of ${r.doc} › ${r.target}`, again: `/run ${r.doc} ${r.target}` } : { name: `run ${j.id} (${j.label})`, again: '/run again' };
+}
+
+/**
+ * R4 (H88; the Mac run r23): what started the run, by its operation's record: `timmy md`, `timmy act`, or its REPL (a live
+ * board's Run is its REPL's). r23: a run `timmy md` started was recorded as "interrupted: its REPL ended …".
+ */
+function starterOf(d: WorkflowRecoverDeps, j: JobRecord): string {
+  if (!j.operation) return 'REPL';
+  const r = readOperationRecord(d.root, j.operation);
+  return !r.ok ? 'REPL' : r.record.via === 'md' ? 'timmy md' : r.record.via === 'act' ? 'timmy act' : 'REPL';
 }
 
 /** What its output showed running when its session ended: the block, or why none can be named. */
@@ -141,15 +159,44 @@ function unprovenText(d: WorkflowRecoverDeps, j: JobRecord, left: Extract<LeftJo
 
 type Plan = { act: 'gone'; job: JobRecord } | { act: 'stop'; job: JobRecord };
 
+/**
+ * R4 (H88; the Mac run r23): a run whose own Timmy (`timmy md`, `timmy act`) ended its record at once as it exited, on a
+ * second Ctrl-C (JobRecord.exitedAtOnce): the receipts of its blocks it could not seal then are sealed now, as cut by that
+ * stop (in its record's words), and its record notes it. Its own receipt is not sealed (a left run's never is). A process of
+ * its group that still runs is named, with how to stop it; nothing is stopped or run again.
+ */
+function sealAtOnce(d: WorkflowRecoverDeps, j: JobRecord): RecoveryItem {
+  const w = what(j);
+  const once = j.exitedAtOnce!;
+  let sealed: Array<{ name: string; receipt: string }> = [];
+  try { sealed = d.blocks?.(j, { by: 'stop', ...(j.error ? { words: j.error } : {}), at: once.at }) ?? []; } catch { sealed = []; }
+  let noted = false;
+  try { noted = d.jobs.noteAtOnceSealed?.(j.id) ?? false; } catch { noted = false; }
+  const runs = j.pid !== undefined && groupLive(j.pid);
+  const blocks = sealed.length ? sealed.map((b) => `block ${b.name}: receipt ${b.receipt}`).join(', ') : 'it had no block left to seal';
+  return {
+    kind: 'workflow', id: j.id, did: 'sealed', job: j.id, state: j.state, ...(runs ? { attention: true } : {}),
+    text: `${w.name} was stopped at once by its ${once.by} (a second ${once.signal}), which ended its record then and sealed nothing for it; sealed now, as cut by that stop: ${blocks}${noted ? '' : '; its job record could not be noted as sealed'}`
+      + `${runs ? `; a process of its process group ${j.pid} still runs: kill -TERM -- -${j.pid} stops it` : ''}; its own receipt is not sealed; nothing was run again: ${w.again} runs it again`,
+  };
+}
+
 /** Finds and ends the `/run` jobs an ended session left in this project; see the module comment. Never throws for one job. */
 export async function recoverWorkflowJobs(d: WorkflowRecoverDeps): Promise<RecoveryItem[]> {
   let all: JobRecord[] = [];
   try { all = d.jobs.list(); } catch { return []; }
+  // R4 (H88): the runs a Timmy ended at once as it exited, their blocks not sealed yet (its process proven gone)
+  const atOnce: RecoveryItem[] = [];
+  for (const j of all.filter((x) => x.kind === 'workflow' && x.exitedAtOnce && !x.exitedAtOnce.sealed && !d.mine(x.id) && sameFolder(x.root, d.root))) {
+    if (!d.open()) break;
+    if (j.owner && writerState({ pid: j.owner.pid, started: j.owner.startedAt }) !== 'gone') continue;
+    atOnce.push(sealAtOnce(d, j));
+  }
   const runs = all.filter((j) => j.kind === 'workflow' && !d.mine(j.id) && (LIVE.has(j.state) || j.stale) && sameFolder(j.root, d.root));
-  if (!runs.length) return [];
+  if (!runs.length) return atOnce;
   let table: Proc[] | undefined | null = null;
   const tableOnce = (): Proc[] | undefined => (table === null ? (table = (d.table ?? processTable)()) : table);
-  const items: RecoveryItem[] = [];
+  const items: RecoveryItem[] = [...atOnce];
   const plans: Plan[] = [];
   for (const j of runs) {
     const w = what(j);
@@ -186,14 +233,14 @@ function endGone(d: WorkflowRecoverDeps, job: JobRecord): RecoveryItem | undefin
   const at = whileWords(now);
   // R4 (H67): what came after the block it showed running is not known
   const unseen = unrecorded(now, now.steps);
-  const error = `interrupted: its REPL ended ${at.words}; its process is gone${notSeen(told.why, unseen)}`;
+  const error = `interrupted: its ${starterOf(d, job)} ended ${at.words}; its process is gone${notSeen(told.why, unseen)}`;
   let recorded: JobRecord | undefined;
   try { recorded = d.jobs.endLeft?.(now.id, { state: 'failed', error, interrupted: { rest: 'not seen' } }); } catch { recorded = undefined; }
-  if (!recorded) return { kind: 'workflow', id: now.id, did: 'failed', job: now.id, text: `${w.name} was interrupted ${at.words} (its REPL ended; its process is gone), but its job record could not be written: /jobs ${now.id} still shows it as it was left` };
+  if (!recorded) return { kind: 'workflow', id: now.id, did: 'failed', job: now.id, text: `${w.name} was interrupted ${at.words} (its ${starterOf(d, job)} ended; its process is gone), but its job record could not be written: /jobs ${now.id} still shows it as it was left` };
   const sealed = sealBlocks(d, recorded); // R4 (H74)
   return {
     kind: 'workflow', id: now.id, did: 'interrupted', job: now.id, state: recorded.state,
-    text: `${w.name} was interrupted ${at.words}: its REPL ended and its process is gone; its job record now says ${recorded.state}: ${d.scrub(error)}${sealed}; nothing was run again: ${w.again} runs it again`,
+    text: `${w.name} was interrupted ${at.words}: its ${starterOf(d, job)} ended and its process is gone; its job record now says ${recorded.state}: ${d.scrub(error)}${sealed}; nothing was run again: ${w.again} runs it again`,
   };
 }
 
@@ -210,7 +257,7 @@ function notSeen(why: string | undefined, unseen: readonly string[]): string {
 function endFromWrapper(d: WorkflowRecoverDeps, job: JobRecord, stop: PtyStop, recovery?: Omit<LeftStop, 'recorded'>): RecoveryItem {
   const w = what(job);
   const m = mergePtyStop(job.steps, stop, blockNamer(job));
-  const did = wrapperDid(m.account);
+  const did = wrapperDid(m.account, starterOf(d, job)); // R4 (H88)
   const seen = m.ended.length ? `; it saw ${listed(m.ended.map((name) => `${name} ${m.steps.find((s) => s.name === name)?.state ?? 'end'}`))}, which Timmy did not see itself` : '';
   const also = recovery ? `; this recovery also stopped its process group ${recovery.process_group} with ${recovery.signals.join(', then ')}` : '';
   const unknown = m.steps.some((s) => s.state === 'running');
@@ -220,16 +267,16 @@ function endFromWrapper(d: WorkflowRecoverDeps, job: JobRecord, stop: PtyStop, r
     // upmd ended by itself, its REPL not following it any more: what the wrapper saw is the run's end
     const ok = stop.exit === 0 && m.steps.every((s) => s.state === 'completed');
     const state = ok ? 'completed' as const : 'failed' as const;
-    const note = `its REPL did not see it end: ${did}${seen} (its wrapper's stop file)${also}`;
-    const error = ok ? undefined : `upmd exited ${stop.exit} (seen by its pty wrapper, not by its REPL)`;
+    const note = `its ${starterOf(d, job)} did not see it end: ${did}${seen} (its wrapper's stop file)${also}`;
+    const error = ok ? undefined : `upmd exited ${stop.exit} (seen by its pty wrapper, not by its ${starterOf(d, job)})`;
     try { recorded = d.jobs.endLeft?.(job.id, { state, note, steps: m.steps, ...(error ? { error } : {}) }); } catch { recorded = undefined; }
-    item = { did: 'judged', outcome: ok ? 'ok' : 'failed', text: `${w.name} ended unseen by its REPL: ${did}${seen}; ${recorded ? `its job record now says ${recorded.state}, from its wrapper's stop file${sealBlocks(d, recorded)}` : 'its job record could not be written'}; nothing was run again` };
+    item = { did: 'judged', outcome: ok ? 'ok' : 'failed', text: `${w.name} ended unseen by its ${starterOf(d, job)}: ${did}${seen}; ${recorded ? `its job record now says ${recorded.state}, from its wrapper's stop file${sealBlocks(d, recorded)}` : 'its job record could not be written'}; nothing was run again` };
   } else {
     const at = m.running ? `while ${m.running} was running` : 'while no block was running';
     const after = unrecorded(job, m.steps);
     const started = stop.command_pid !== null;
     const rest = !started ? '' : m.rest === 'not run' ? (after.length ? `, so ${listed(after)} did not start` : '') : notSeen(m.account.left ? `${m.account.left} process group${m.account.left === 1 ? '' : 's'} of upmd's still ran after its SIGKILL` : undefined, after);
-    const error = `interrupted: its REPL ended ${at}; ${did}${seen}${rest}${also}`;
+    const error = `interrupted: its ${starterOf(d, job)} ended ${at}; ${did}${seen}${rest}${also}`;
     const cleanup = recovery ? recovery.cleanup : stop.stopped ? (stop.left.length ? 'unresolved' as const : 'complete' as const) : undefined;
     try {
       recorded = d.jobs.endLeft?.(job.id, {
@@ -280,14 +327,14 @@ async function stopLeftRun(d: WorkflowRecoverDeps, job: JobRecord): Promise<Reco
   if ('stop' in told) return endFromWrapper(d, now, told.stop, { job: now.id, process_group: pgid, processes: left.members.length, signals, cleanup });
   const at = whileWords(now);
   const unseen = unrecorded(now, now.steps);
-  const error = `interrupted: its REPL ended ${at.words}; recovery stopped its process group with ${signals.join(', then ')}${gone ? '' : '; some processes it started did not stop'}${notSeen(told.why, unseen)}`;
+  const error = `interrupted: its ${starterOf(d, job)} ended ${at.words}; recovery stopped its process group with ${signals.join(', then ')}${gone ? '' : '; some processes it started did not stop'}${notSeen(told.why, unseen)}`;
   let recorded: JobRecord | undefined;
   try { recorded = d.jobs.endLeft?.(now.id, { state: 'cancelled', error, cleanup, interrupted: { rest: 'not seen' } }); } catch { recorded = undefined; }
   const stopped: LeftStop = { job: now.id, process_group: pgid, processes: left.members.length, signals, cleanup, ...(recorded ? { recorded: { state: recorded.state, error: recorded.error ?? error } } : {}) };
   const n = `${left.members.length} process${left.members.length === 1 ? '' : 'es'}`;
   return {
     kind: 'workflow', id: now.id, did: 'interrupted', job: now.id, stopped, ...(recorded ? { state: recorded.state } : {}), ...(gone ? {} : { attention: true }),
-    text: `${w.name} was interrupted ${at.words}: its REPL ended and it still ran, so recovery stopped its process group ${pgid} (${n}) with ${signals.join(', then ')}`
+    text: `${w.name} was interrupted ${at.words}: its ${starterOf(d, job)} ended and it still ran, so recovery stopped its process group ${pgid} (${n}) with ${signals.join(', then ')}`
       + `${gone ? '' : `, and some of it did not stop: kill -KILL -- -${pgid}`}; ${recorded ? `its job record now says ${recorded.state}: ${d.scrub(error)}${sealBlocks(d, recorded)}` : 'its job record could not be written'}; nothing was run again: ${w.again} runs it again`,
   };
 }

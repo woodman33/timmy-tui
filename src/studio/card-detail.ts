@@ -26,7 +26,7 @@ import type { ParamsCard, ResultCard } from '../repl/board-cards.js';
 import type { BoardFlow } from '../repl/board-flows.js';
 import type { WorkflowDocInput } from '../repl/board-nodes.js';
 import type { VoxCard } from '../repl/board-vox.js';
-import { NODE_GLYPH, type NodeWord } from '../repl/board-workflows.js';
+import { NODE_GLYPH, repeatedNames, repeatedWords, type NodeWord } from '../repl/board-workflows.js';
 import type { RoomRun } from '../room/index.js';
 import { blockDetail } from '../workflows/run-blocks.js';
 
@@ -55,8 +55,10 @@ export interface WorkflowDetail {
   doc: string;
   /** the document's sha256 as the server read it now */
   sha256: string | null;
-  /** the document can be written as /run's first argument */
+  /** the document can be written as /run's first argument, and /run runs its blocks (R4, H88: none when two blocks share a name) */
   runnable: boolean;
+  /** R4 (H88; r23): why /run runs none of its blocks (two blocks named alike), in the words every view uses; null otherwise */
+  notRunnable: string | null;
   blocks: DetailBlock[];
   /** the newest run of the document */
   last: null | {
@@ -209,7 +211,9 @@ const seconds = (ms: number | undefined): string | null => (num(ms) ? `${(ms / 1
 /** A workflow document as the board connects it (connectWorkflow): its blocks with their states and its newest run. */
 export function workflowDetail(w: WorkflowDocInput, t: Text): WorkflowDetail {
   const c = w.connected;
-  const docOk = oneWord(w.rel);
+  // R4 (H88; r23): a document that gives two blocks one name runs none of them: no block of it is offered to /run
+  const twice = repeatedNames(w.blocks);
+  const docOk = oneWord(w.rel) && !twice.length;
   const byName = new Map(w.blocks.map((b) => [b.name, b]));
   const nodes = c?.nodes ?? w.blocks.map((b, i) => ({ key: String(b.index ?? `p${i + 1}`), name: b.name, word: 'not run yet' as NodeWord, detail: '', command: b.code }));
   const blocks: DetailBlock[] = nodes.slice(0, 64).map((n) => ({
@@ -228,7 +232,7 @@ export function workflowDetail(w: WorkflowDocInput, t: Text): WorkflowDetail {
     outputs: run.outputs.slice(0, OUTPUTS).map((o) => ({ path: t(o.rel, 300), now: t(o.note, 120) })), more: run.outputsMore,
   } : null;
   return {
-    type: 'workflow', doc: t(w.rel, 300), sha256: w.sha256 ?? null, runnable: docOk, blocks, last,
+    type: 'workflow', doc: t(w.rel, 300), sha256: w.sha256 ?? null, runnable: docOk, notRunnable: twice.length ? t(repeatedWords(w.rel, twice), 400) : null, blocks, last,
     running: !!run && (run.word === 'running' || run.word === 'starting'),
   };
 }

@@ -37,6 +37,21 @@ function toolLines(tools: string[], columns: number): Segment[][] {
   return out.map((l) => [{ text: l, role: 'secondary' as const }]);
 }
 
+/**
+ * R4 (H88; the Mac run r23): words that do not fit in `room` columns, shortened at the end of a whole word with " …" after it;
+ * a word is never cut ("no page ope…"): when the first word alone does not fit, only "…" is shown. The row in full: /tools <name>.
+ */
+export function fitWords(text: string, room: number, ellipsis: string): string {
+  if (visibleWidth(text) <= room) return text;
+  let out = '';
+  for (const word of text.split(' ')) {
+    const next = out ? `${out} ${word}` : word;
+    if (visibleWidth(`${next} ${ellipsis}`) > room) break;
+    out = next;
+  }
+  return out ? `${out.replace(/[,;:(]+$/, '')} ${ellipsis}` : ellipsis;
+}
+
 export function capabilityLines(rows: CapabilityRow[], glyphs: GlyphSet, columns: number): Segment[][] {
   const nameWidth = Math.min(27, Math.max(...rows.map((r) => visibleWidth(r.name))) + 2);
   const rungWidth = 13;
@@ -60,7 +75,8 @@ export function capabilityLines(rows: CapabilityRow[], glyphs: GlyphSet, columns
       lines.push([{ text: head }, rung, { text: `${main}${extra}${used}`, role: r.setup ? undefined : 'secondary' }]);
     } else {
       // A step that does not fit goes on its own line, whole where it can be: a cut step cannot be followed.
-      lines.push([{ text: head }, rung, { text: truncate(`${r.detail}${used}`, room, glyphs.ellipsis), role: 'secondary' }]);
+      // R4 (H88; r23): the words are shortened between words, never inside one ("no page ope…"); /tools <name> has them whole.
+      lines.push([{ text: head }, rung, { text: fitWords(`${r.detail}${used}`, room, glyphs.ellipsis), role: 'secondary' }]);
       if (r.setup) lines.push([{ text: truncate(`      do: ${r.setup}`, columns - 1, glyphs.ellipsis) }]);
     }
     if (r.tools?.length) lines.push(...toolLines(r.tools, columns));

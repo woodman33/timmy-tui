@@ -84,13 +84,13 @@ describe.skipIf(!browserPath)('Timmy Canvas under its credentials, in a real bro
   });
 
   /** A page as /canvas open opens it (a fresh grant in its fragment), or by its bare address. */
-  async function open(o: { grant?: boolean; wait?: RegExp } = {}): Promise<{ page: Page; context: BrowserContext; origins: Set<string>; errors: string[]; asked: string[] }> {
+  async function open(o: { grant?: boolean; wait?: RegExp; viewport?: { width: number; height: number } } = {}): Promise<{ page: Page; context: BrowserContext; origins: Set<string>; errors: string[]; asked: string[] }> {
     let target = `${base}/`;
     if (o.grant !== false) {
       expect(await cp.handOff({ grant: true })).toEqual({ ok: true, name: 'demo' });
       target = cp.openTarget().target;
     }
-    const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+    const context = await browser.newContext({ viewport: o.viewport ?? { width: 1400, height: 900 } });
     const origins = new Set<string>();
     const asked: string[] = [];
     await context.route('**/*', (route) => {
@@ -130,6 +130,13 @@ describe.skipIf(!browserPath)('Timmy Canvas under its credentials, in a real bro
       const wf = await page.evaluate(() => (window as never as Win).timmyCanvas.placeDrawnCard('workflow:RUN.md'));
       const run = `[data-timmy-card="${wf.shape}"] button[data-tc-act="run"][data-tc-block="setup"]`;
       await page.waitForSelector(run);
+      // R4 (H88; the Mac run r23): the first card placed sits clear of Timmy's side panel, whole (it sat partly under it)
+      await page.waitForTimeout(400);
+      const sideBox = await page.locator('#side').boundingBox();
+      const cardBox = await page.locator(`[data-timmy-card="${wf.shape}"]`).boundingBox();
+      expect(sideBox && cardBox, 'the panel and the card are on screen').toBeTruthy();
+      const apart = cardBox!.x >= sideBox!.x + sideBox!.width || cardBox!.y >= sideBox!.y + sideBox!.height;
+      expect(apart, `the card ${JSON.stringify(cardBox)} overlaps the panel ${JSON.stringify(sideBox)}`).toBe(true);
       await page.evaluate((id) => { const e = (window as never as Win).timmyCanvas.editor; const b = e.getShapePageBounds(id); if (b) e.centerOnPoint(b.center, { animation: { duration: 0 } }); }, wf.shape);
       await page.waitForTimeout(100);
       await personClick(page, context, run);
@@ -208,8 +215,8 @@ describe.skipIf(!browserPath)('Timmy Canvas under its credentials, in a real bro
       await page.evaluate(() => { const e = (window as never as Win).timmyCanvas.editor; const b = e.getShapePageBounds('shape:betacard'); if (b) e.centerOnPoint(b.center, { animation: { duration: 0 } }); });
       await page.waitForSelector(`${at} .tc-mode`);
       expect(await page.textContent(`${at} .tc-badge`)).toBe('diagram');
-      expect(await page.textContent(`${at} .tc-mode`)).toBe('Withheld: this card\'s kept detail (its commands and values) belongs to beta, and this page\'s session is for another project. To read it, in Timmy, in beta (/project beta switches to it): /canvas open.');
-      expect(await page.$$eval(`${at} .tc-withheld .tc-cmd`, (n) => n.map((x) => x.textContent))).toEqual(['/project beta', '/canvas open']);
+      expect(await page.textContent(`${at} .tc-mode`)).toBe('Withheld: this card\'s kept detail (its commands and values) belongs to beta, and this page\'s session is for another project. To read it, open Timmy in beta\'s folder and type /canvas open there; in a Timmy REPL open elsewhere, /project followed by the path of beta\'s folder opens it first.');
+      expect(await page.$$eval(`${at} .tc-withheld .tc-cmd`, (n) => n.map((x) => x.textContent))).toEqual(['/canvas open', "/project <the path of beta's folder>"]);
       expect(await page.textContent(`${at} .tc-read`)).toBe('its detail withheld here');
       expect(await page.locator(`${at} [data-tc-param]`).count()).toBe(0);
       expect(await page.content()).not.toContain('beta-kept-detail');
@@ -223,6 +230,10 @@ describe.skipIf(!browserPath)('Timmy Canvas under its credentials, in a real bro
       await page.evaluate(() => { (window as never as Win).timmyCanvas.editor.createShape({ type: 'geo', x: 150, y: 700, props: { w: 40, h: 40 } }); });
       await page.waitForFunction(() => document.getElementById('status')?.dataset.kind === 'refused', null, { timeout: 15_000 });
       expect(await page.textContent('#status')).toBe('Not saved: Refused: this canvas page\'s session was given for another project than the one the canvas shows now. In Timmy: /canvas open, from the REPL that holds this project.');
+      // R4 (H88; the Mac run r23): the project panel's line follows the session: its cards are diagrams now (it kept "can act")
+      await page.waitForFunction(() => document.getElementById('project-acts')?.dataset.kind === 'paused', null, { timeout: 15_000 });
+      expect(await page.textContent('#project-acts')).toBe('Refused: this canvas page\'s session was given for another project than the one the canvas shows now. In Timmy: /canvas open, from the REPL that holds this project. Until it counts again, this page\'s cards are diagrams: nothing on them acts.');
+      expect(await page.textContent('#project-acts')).not.toContain('can act');
       expect(errors.filter((e) => !/status of 401/.test(e))).toEqual([]);
     } finally {
       await context.close();
@@ -230,4 +241,30 @@ describe.skipIf(!browserPath)('Timmy Canvas under its credentials, in a real bro
       await cp.handOff();
     }
   }, 150_000);
+
+  // R4 (H88; the Mac run r23): the first card placed on the canvas sat partly under Timmy's side panel. Seen here: on a
+  // narrow, tall window (760 x 1600) a card placed while the panel was short (its lists folded) went below it, and the panel,
+  // once its folds opened, covered part of it. The area beside the panel is now used whenever it can hold a card.
+  it('R4 (H88; r23): the first card placed sits beside the panel, clear of it, also once the panel grows', async () => {
+    const { page, context, errors } = await open({ viewport: { width: 760, height: 1600 } });
+    try {
+      // this page's drawn cards removed (earlier tests placed some), so the card placed next is the first
+      await page.evaluate(() => { const e = (window as never as { timmyCanvas: { editor: { getCurrentPageShapes: () => Array<{ id: string; type: string }>; deleteShapes: (ids: string[]) => void } } }).timmyCanvas.editor; e.deleteShapes(e.getCurrentPageShapes().filter((x) => x.type.startsWith('timmy-')).map((x) => x.id)); });
+      await page.evaluate(() => { for (const id of ['project', 'jobs']) (document.getElementById(id) as HTMLDetailsElement).open = false; });
+      await page.waitForTimeout(100);
+      const wf = await page.evaluate(() => (window as never as Win).timmyCanvas.placeDrawnCard('workflow:RUN.md'));
+      await page.waitForSelector(`[data-timmy-card="${wf.shape}"] .tc-title`);
+      await page.evaluate(() => { for (const id of ['project', 'jobs']) (document.getElementById(id) as HTMLDetailsElement).open = true; });
+      await page.waitForTimeout(400);
+      const side = (await page.locator('#side').boundingBox())!;
+      const card = (await page.locator(`[data-timmy-card="${wf.shape}"]`).boundingBox())!;
+      // the panel grew past where the card sits (so a card below it would be covered), and the card is beside it, whole
+      expect(side.y + side.height).toBeGreaterThan(card.y);
+      expect(card.x, `the card ${JSON.stringify(card)} beside the panel ${JSON.stringify(side)}`).toBeGreaterThanOrEqual(side.x + side.width);
+      expect(card.x + card.width).toBeLessThanOrEqual(760);
+      expect(errors.filter((e) => !/status of 401/.test(e))).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  }, 90_000);
 });

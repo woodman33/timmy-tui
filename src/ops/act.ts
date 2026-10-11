@@ -16,7 +16,9 @@
  * - Exit: 0 succeeded (a flow that succeeded, a completed job, an ok VoxVision record) or answered (it started nothing and
  *   said so); 1 failed or differs; 2 refused or a usage error; 3 stopped or interrupted (--timeout, SIGINT, SIGTERM, or
  *   stopped because --wait was not given). SIGINT and SIGTERM stop what it started through the normal stop path, record it,
- *   and exit 3.
+ *   and exit 3. R4 (H88): a second signal while that stop runs exits at once with 3, after settling the operation's end and
+ *   the record of each /run job it started and printing the end (its JSON's at_once says what was not sealed and what
+ *   /recover does: src/ops/exit-at-once.ts).
  * - --json prints one JSON object at the end (stdout; the progress lines go to stderr): the operation's id, its outcome,
  *   its exit code, the records it made and the receipts sealed under it.
  */
@@ -39,6 +41,7 @@ import { AGENTS_DIR } from '../code-agents/index.js';
 import { actStopReason } from '../utils/stop-words.js';
 import { MCP_CALLS_DIR } from '../connectors/mcp-records.js';
 import { workflowNeedsPerson } from '../repl/workflow-gate.js'; // R4 (H74)
+import { exitAtOnce, writeNow } from './exit-at-once.js'; // R4 (H88)
 
 export const ACT_USAGE = 'timmy act "<slash command>" [--wait] [--json] [--project <dir>] [--timeout <dur>]';
 
@@ -61,7 +64,7 @@ export function actHelp(): string {
     '',
     'NEEDS A PERSON (refused, with the line to type in the REPL instead)',
     '  a chat request (its tools may ask for approval), /edit, /watch, /center, /web, /browser, /canvas, /board live, /board off,',
-    '  /model, /new, /exit, /vox view, /restore, and a /run whose blocks include a destructive shell command',
+    '  /model, /new, /exit (or /quit), /vox view, /restore, and a /run whose blocks include a destructive shell command',
     '',
     'OPERATIONS',
     `  With ${OPERATION_ENV} set (a workflow block of a /run), act joins that operation when this project holds it and it still`,
@@ -135,7 +138,7 @@ export function needsPerson(line: string): string | undefined {
     case 'restore': return '/restore writes a kept previous version over a project file, an edit a person makes (human-gated)';
     case 'model': return '/model is the REPL conversation\'s model';
     case 'new': return '/new starts a REPL conversation';
-    case 'exit': return '/exit ends the REPL';
+    case 'exit': case 'quit': return `/${word} ends the REPL`; // R4 (H88): /quit is /exit
     default: return undefined;
   }
 }
@@ -254,11 +257,43 @@ export async function actMain(argv: string[], o: { json?: boolean } = {}): Promi
   // ended and the Workspace is closed (`closed`), a first signal finds nothing to stop and the exit code stands; a second
   // one, as before, exits at once with 3.
   let closed = false;
+  // R4 (H88; r23): the exit code the end printed, once printed (a second signal after that exits with it, as printed)
+  let printedCode: number | undefined;
   const onSignal = (sig: NodeJS.Signals): void => {
     signals += 1;
-    if (signals > 1) { if (!closed) ws.killNow(actStopReason(`a second ${sig}: it exits at once`)); process.exit(3); }
+    if (signals > 1) {
+      if (printedCode !== undefined) process.exit(printedCode);
+      exitNow(sig);
+    }
     if (closed) return;
     void stop(`${sig} received`);
+  };
+  /**
+   * R4 (H88; the Mac run r23): a second signal exits at once with 3, nothing awaited; before it does, what can be settled at
+   * once is settled (the operation's end, the record of each /run job it started) and the end is printed, saying what was not
+   * sealed and what /recover does (src/ops/exit-at-once.ts). r23: `timmy act '/run …' --wait --json` printed 0 bytes.
+   */
+  const exitNow = (sig: NodeJS.Signals): never => {
+    const at = exitAtOnce(ws, h, { signal: sig, who: 'timmy act', first: stopWhy, closed, stopWords: actStopReason(`a second ${sig}: it exits at once`) });
+    const told = { signal: sig, settled: at.settled, not_sealed: at.not_sealed, left_for_recover: at.left_for_recover, receipts: `not read: timmy act exited at once, without reading the receipts chain; /op ${h.id} lists them` };
+    if (a.json) {
+      writeNow(1, `${JSON.stringify({
+        schema: 'timmy.act/1', operation: h.id, joined: h.joined, parent: h.parent, request: h.request, project: ws.project.name,
+        outcome: 'stopped', exit_code: 3, why: at.why,
+        runs: h.runs.map((r) => ({ kind: r.kind, id: r.id })), records: recordsOf(root, h), receipts: null,
+        lines: printed.map(plain), at_once: told,
+      })}\n`);
+    } else {
+      const sep = ` ${glyphs.sep} `;
+      writeNow(1, `${[
+        `  stopped at once: a second ${sig}; timmy act exited before what it started had ended`,
+        ...(at.settled.length ? [`  ended now   ${at.settled.join(sep)}`] : []),
+        ...(at.not_sealed.length ? [`  not sealed  ${at.not_sealed.join(sep)}`] : []),
+        ...at.left_for_recover.map((l) => `  /recover    ${l}`),
+        `  /op ${h.id} shows it in full (in the REPL, or timmy act "/op ${h.id}")`,
+      ].join('\n')}\n`);
+    }
+    process.exit(3);
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
@@ -318,5 +353,6 @@ export async function actMain(argv: string[], o: { json?: boolean } = {}): Promi
     out(`  ${state === 'succeeded' || state === 'answered' ? glyphs.ok : state === 'stopped' ? ' ' : glyphs.fail} ${who} ${state}: ${end.why}`);
     out(`  /op ${h.id} shows it in full (in the REPL, or timmy act "/op ${h.id}")`);
   }
+  printedCode = code; // R4 (H88)
   return code;
 }

@@ -306,7 +306,7 @@ export interface ProjectSection extends SectionBase {
   /** a hash of the project's folder, as its receipts name it (never the path) */
   project_id: string;
   changed: { at: string | null; basis: string };
-  canvas: { state: 'same' | 'other' | 'none' | 'off' | 'unknown' | 'running' | 'not found'; words: string; command?: string };
+  canvas: { state: 'same' | 'other' | 'none' | 'off' | 'unknown' | 'running'; words: string; command?: string };
 }
 
 // ── the abstract map ─────────────────────────────────────────────────────────

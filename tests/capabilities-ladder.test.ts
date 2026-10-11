@@ -194,7 +194,7 @@ describe('exercised: Timmy\'s own run here, judged and sealed on a chain that ve
     const short = (x: Receipt): string => x.hash.slice(7, 15);
     expect(r.stress).toMatchObject({ rung: 'exercised', exercised: turn.ts, ladder: { exercised: { at: turn.ts, receipt: short(turn), hash: turn.hash, what: 'stress_test_endpoint completed in a sealed turn (outcome rule 2: the tool\'s own answer decided)' } } });
     expect(r.stress.ladder!.exercised!.chain).toBe('on the runs chain, which verifies here (its links and body hashes), with its own signature');
-    expect(r.openscad).toMatchObject({ rung: 'exercised', exercised: native.ts, ladder: { exercised: { receipt: short(native), record: `.timmy/native/${run}/job.json`, what: 'a openscad run judged ok from its own result file' } } });
+    expect(r.openscad).toMatchObject({ rung: 'exercised', exercised: native.ts, ladder: { exercised: { receipt: short(native), record: `.timmy/native/${run}/job.json`, what: 'an openscad run judged ok from its own result file' } } });
     expect(r['qwen-code']).toMatchObject({ rung: 'exercised', ladder: { exercised: { receipt: short(agent), record: '.timmy/agents/a0000a001/result.json', what: 'a completed run of qwen (version 0.22.2 as it reported, model qwen3:4b, a local endpoint)' } } });
     expect(r['vox:stl']).toMatchObject({ rung: 'exercised', ladder: { exercised: { receipt: short(vox), record: '.timmy/vox/v0000001.json', what: '/inspect: stl ran (Timmy\'s STL reader 1, as it reported) and its record settled ok' } } });
     // The paid Codex row is not Qwen Code's; a development run qualifies nothing.
@@ -265,7 +265,7 @@ describe('R4 (H81): an Unreal run is exercised only as unrealRunOutcome decides 
     r = byId(await capabilities((await machine({ path: bin, root })).deps));
     expect(r.unreal).toMatchObject({
       rung: 'exercised', exercised: native.ts,
-      ladder: { exercised: { receipt: native.hash.slice(7, 15), record: `.timmy/native/${run}/job.json`, what: 'a unreal run judged ok from its own result file, and its newest readback by a second Unreal process agreed (the app said version 5.8.2 (FAKE))' } },
+      ladder: { exercised: { receipt: native.hash.slice(7, 15), record: `.timmy/native/${run}/job.json`, what: 'an unreal run judged ok from its own result file, and its newest readback by a second Unreal process agreed (the app said version 5.8.2 (FAKE))' } },
     });
     // a newer readback that differs takes it back
     addReadbacks(root, run, ['differs']);
@@ -514,7 +514,7 @@ describe('the Control Room\'s tools panel', () => {
     expect(html).toContain(`used ${native.ts.slice(0, 10)} (a run&#39;s own sealed record)`);
     expect(html).toContain('<div class="tl-mac">on the Mac (scripted): r21 PASS</div>');
     expect(html).toContain('<details class="more tl-ladder" data-keep="room:tool:openscad"><summary>the ladder and the Mac runs</summary>');
-    expect(html).toContain(`<dt class="lr-on">exercised</dt><dd class="lr-on">a openscad run judged ok from its own result file · ${native.ts.slice(0, 16).replace('T', ' ')} UTC · receipt ${native.hash.slice(7, 15)}`);
+    expect(html).toContain(`<dt class="lr-on">exercised</dt><dd class="lr-on">an openscad run judged ok from its own result file · ${native.ts.slice(0, 16).replace('T', ' ')} UTC · receipt ${native.hash.slice(7, 15)}`);
     expect(html).toContain('<dt class="lr-off">qualified</dt><dd class="lr-off">not reached: no qualification record</dd>');
     expect(html).toContain('<dt class="lr-on">installed</dt><dd class="lr-on">openscad on PATH at &lt;bin&gt;/openscad');
     expect(html).toContain('<span class="demo demo-fail">FAIL</span> r19o (ledger row 159, 2026-10-10, c8a0cf7, scripted)');

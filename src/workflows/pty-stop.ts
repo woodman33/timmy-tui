@@ -193,14 +193,21 @@ const PARENT_GONE_FIRST = /^its parent \(process \d+\) had ended before /;
 const RECEIVED = /^(SIG[A-Z0-9]+) received$/;
 
 /** What the wrapper did, in words (its account as a record keeps it). */
-export function wrapperDid(a: WrapperAccount): string {
+/** R4 (H88; r23): the Timmy a run's record says started it, from the words a recovery wrote ("interrupted: its timmy md ended
+ *  …"); its REPL when they name none. */
+export function starterIn(words: string | undefined): string {
+  return /^(?:interrupted: )?its (REPL|timmy md|timmy act) (?:ended|did not see it end)\b/.exec(words ?? '')?.[1] ?? 'REPL';
+}
+
+export function wrapperDid(a: WrapperAccount, starter = 'REPL'): string {
   const left = a.left ? `; ${a.left} process group${a.left === 1 ? '' : 's'} of it still ran after SIGKILL` : '';
   const signals = a.signals.join(', then ');
-  if (a.stopped && PARENT_ENDED.test(a.why)) return `its pty wrapper saw its REPL end and stopped upmd at once (${signals})${left}`;
+  // R4 (H88; r23): `starter`, the Timmy that started the run (its REPL, timmy md, timmy act): its parent, whose end it saw
+  if (a.stopped && PARENT_ENDED.test(a.why)) return `its pty wrapper saw its ${starter} end and stopped upmd at once (${signals})${left}`;
   const got = RECEIVED.exec(a.why);
   if (a.stopped && got) return `its pty wrapper received ${got[1]} and stopped upmd (${signals})${left}`;
   if (a.stopped) return `its pty wrapper stopped upmd (${signals}): ${a.why}${left}`;
-  if (PARENT_GONE_FIRST.test(a.why)) return 'its REPL had ended before upmd started, so its pty wrapper did not start upmd';
+  if (PARENT_GONE_FIRST.test(a.why)) return `its ${starter} had ended before upmd started, so its pty wrapper did not start upmd`;
   if (a.exit !== null) return `its pty wrapper saw upmd end by itself (exit ${a.exit})`;
   return `its pty wrapper said: ${a.why}`;
 }
