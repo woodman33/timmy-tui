@@ -624,7 +624,8 @@ describe('delivery consumes one verified snapshot (the review of 07f37ec, M3)', 
     expect(d.files.find((f) => f.path.endsWith('/outer.stl'))?.sha256).toBe(sha(verifiedOuter));
     const said = outcomeLines(d.v, d.dir).join('\n');
     expect(said).toContain('Bounds 140 x 80 x 30 mm measured');
-    expect(said).not.toContain('999');
+    // the forged bounds would read "999 x 999 x 999"; a bare '999' can also occur by chance in the job's random id or a hash
+    expect(said).not.toContain('999 x 999');
     // The copy check (what the REPL's notice and /recipe status show) reads the same way and finds the copy whole.
     if (!copy.ok) throw Error(`the copy check failed: ${copy.error}`);
     expect(outcomeLines(copy.v, copy.dir).join('\n')).toContain('Bounds 140 x 80 x 30 mm measured');
