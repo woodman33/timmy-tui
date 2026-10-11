@@ -11,6 +11,7 @@
  * was demonstrated on the operator's Mac is a separate fact (`demonstrated`), never a rung.
  */
 import { agentExercisedAt } from '../code-agents/index.js';
+import { scrubHomes, scrubStrings } from '../utils/home-scrub.js'; // R4 (H88)
 import { CODEX_LOCAL_ROUTE, codexLocalCapabilityRow } from '../code-agents/codex-local.js';
 import { OPENHANDS_ROUTE, openHandsCapabilityRow, type OpenHandsDocker } from '../code-agents/openhands.js';
 import { mcpCapabilityRows } from '../connectors/mcp-cli.js';
@@ -344,13 +345,16 @@ export async function capabilities(d: ProbeDeps, opts: { all?: boolean } = {}): 
   let qualificationRoot: string | undefined;
   try { qualificationRoot = d.qualificationRoot?.(); } catch { qualificationRoot = undefined; }
   const ctx = { env, probes, ...(d.which ? { which: d.which } : {}), ...(evidence ? { chain: evidence } : {}), ...(recipe ? { recipe } : {}), recipeRead: Boolean(d.recipeMark), ...(qualificationRoot ? { qualificationRoot } : {}) };
+  // R4 (H88; the Mac run r23): no row shows a path under a home folder, $HOME's or the account's own, as absolute (in a sandbox
+  // HOME was not the account's home, and a tool found on PATH under it kept its absolute path on the board and in /tools)
+  const homes = (t: string): string => scrubHomes(t, env as NodeJS.ProcessEnv);
   return legacy.map((r) => {
     const l = ladderFor(r, ctx);
     const { setup: _setup, exercised: _exercised, ...rest } = r;
-    return {
+    return scrubStrings({
       ...rest, rung: l.rung, ...(l.setup ? { setup: l.setup } : {}),
       ...('exercised' in l ? (l.exercised ? { exercised: l.exercised } : {}) : r.exercised ? { exercised: r.exercised } : {}),
       ladder: l.ladder, notReached: l.notReached, demonstrated: l.demonstrated,
-    };
+    }, homes);
   });
 }

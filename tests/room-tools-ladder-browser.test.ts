@@ -12,11 +12,11 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type Browser } from 'playwright';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { capabilities, type CapabilityRow } from '../src/capabilities/index.js';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { capabilities, type CapabilityRow, type ProbeDeps } from '../src/capabilities/index.js';
 import { liveDeps } from '../src/capabilities/live.js';
 import { folderProject } from '../src/project/index.js';
 import { Workspace } from '../src/repl/workspace.js';
@@ -32,6 +32,7 @@ const dirs: string[] = [];
 const spaces: Workspace[] = [];
 const temp = (prefix: string): string => { const d = realpathSync(mkdtempSync(join(tmpdir(), prefix))); dirs.push(d); return d; };
 afterEach(async () => {
+  vi.unstubAllEnvs();
   for (const w of spaces.splice(0)) await w.close();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
@@ -134,6 +135,48 @@ describe.skipIf(!browserPath)('the tools panel\'s ladder in a real browser (head
     expect(await page.evaluate(() => document.body.innerText)).not.toContain(root);
     expect(await page.evaluate(() => [localStorage.length, sessionStorage.length, document.cookie])).toEqual([0, 0, '']);
     expect(problems).toEqual([]);
+    await context.close();
+  }, 60_000);
+
+  // R4 (H88; the Mac run r23, in the operator's sandbox): HOME was not the account's own home, and the HTML of the board's
+  // closed tools folds held absolute paths under the account's real home (a tool found on PATH there): only $HOME was scrubbed.
+  it('R4 (H88; r23): with HOME set apart from the account\'s home, a path under the account\'s home is shown from ~ in the closed tools folds and in /tools', async () => {
+    const account = userInfo().homedir;
+    expect(account.length).toBeGreaterThan(1);
+    const home = temp('h88-sandbox-home-');
+    vi.stubEnv('HOME', home);
+    expect(homedir()).toBe(home);
+    const root = temp('h88-tools-home-');
+    const found = `${account}/.local/bin/oha`;
+    // /tools' own rows: a check whose `which` finds oha under the account's home (a path only: nothing is written there)
+    const deps: ProbeDeps = {
+      env: { HOME: home }, onPath: (b) => b === 'oha', canvasBuilt: () => false, studio: async () => ({ state: 'not-running' }), studioBase: 'http://127.0.0.1:4337',
+      ollama: async () => ({ ok: false, models: [] }), openrouter: async () => 'no-key', modelKeySource: () => null, model: 'm', http: async () => null,
+      lanes: () => [], adapters: () => [], receipts: () => ({ ok: true, count: 0 }), exercised: () => new Map(), edgeSet: () => false, exists: () => false,
+      which: (b) => (b === 'oha' ? found : null),
+    };
+    const rows = (await capabilities(deps)).filter((r) => r.id === 'stress');
+    expect(rows[0].ladder!.installed).toMatchObject({ where: '~/.local/bin/oha', how: 'the PATH (oha)' });
+    expect(JSON.stringify(rows)).not.toContain(account + '/');
+    // the board: a row as a check could hand it (SYNTHETIC: its words and ladder carry the absolute path), scrubbed there too
+    const raw: CapabilityRow = { ...rows[0], detail: `oha on PATH at ${found} (asks first)`, ladder: { ...rows[0].ladder!, installed: { found: `oha is on PATH at ${found}`, where: found, how: 'the PATH (oha)' } } };
+    const ws = new Workspace({
+      glyphs: glyphSet(true), env: { ...process.env, HOME: home }, onPath: () => null, notify: () => {}, openWeb: (url) => url, link: (t) => t,
+      seal: () => undefined, jobsDir: join(temp('h88-tools-jobs-'), 'jobs'), chdir: () => {}, receipts: () => [],
+      recoverAtStart: false, roomTools: async () => [raw],
+    }, folderProject(root));
+    spaces.push(ws);
+    await ws.room('');
+    await ws.boardLive('live');
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(ws.liveBoard!.url);
+    const tool = page.locator('li.tl[data-tool="stress"]');
+    await tool.waitFor({ state: 'attached', timeout: 8000 });
+    const html = await page.content();
+    expect(html).not.toContain(account + '/');
+    expect(await tool.locator('details.tl-ladder').evaluate((d) => (d as HTMLDetailsElement).open)).toBe(false);
+    expect(await tool.locator('details.tl-ladder').innerHTML()).toContain('~/.local/bin/oha');
     await context.close();
   }, 60_000);
 });

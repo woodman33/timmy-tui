@@ -9,7 +9,6 @@
  */
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { JobManager, type JobRecord } from '../jobs/index.js';
@@ -117,6 +116,7 @@ import { HOLDS_DIR } from '../ops/flow-hold.js';
 import { withProcessTable } from '../ops/process-proof.js'; // R4 (H82): one reading of the process table per board build
 import { jobCommandWords, ranWords } from './job-command.js'; // R4 (H88)
 import { timmyHome } from '../utils/init.js';
+import { scrubHomes } from '../utils/home-scrub.js'; // R4 (H88)
 // Round R4 (H60): what waits on a person (/decisions, and the first of the Control Room), read from what exists; hooks "R4 (H60)".
 import { DECISIONS_ALL, gatherDecisions, markWaiting, type DecisionsView } from '../room/decisions.js';
 import { decisionsLines } from '../room/decisions-text.js';
@@ -1245,9 +1245,9 @@ export class Workspace {
     const roots = [root];
     try { roots.push(realpathSync(root)); } catch { /* gone */ }
     for (const r of [...new Set(roots)].sort((a, b) => b.length - a.length)) if (r.length > 1) out = out.split(r).join('.');
-    const home = homedir();
-    if (home.length > 1) out = out.split(home).join('~');
-    return out;
+    // R4 (H88; r23): every home folder from "~": $HOME and the account's own (in a sandbox HOME is not the account's home, and
+    // a tool found on PATH under the account's home kept its absolute path in the board's tools folds)
+    return scrubHomes(out, this.d.env);
   }
 
   private sealJob(job: JobRecord): string | undefined {

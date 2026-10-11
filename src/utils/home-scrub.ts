@@ -38,3 +38,11 @@ export function tildePath(p: string, env?: NodeJS.ProcessEnv): string {
   for (const home of homeFolders(env)) if (p === home || p.startsWith(`${home}/`)) return `~${p.slice(home.length)}`;
   return p;
 }
+
+/** Every string in `v` (objects and arrays walked, nothing else changed) through `f`: a row's words, its ladder, its evidence. */
+export function scrubStrings<T>(v: T, f: (t: string) => string): T {
+  if (typeof v === 'string') return f(v) as unknown as T;
+  if (Array.isArray(v)) return v.map((x) => scrubStrings(x, f)) as unknown as T;
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, scrubStrings(x, f)])) as T;
+  return v;
+}
