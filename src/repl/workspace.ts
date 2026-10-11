@@ -40,6 +40,8 @@ import { dropLaunchPages } from '../utils/launch-page.js';
 // Round R4 (H22): the board's parameter, workflow-graph and result cards, and the live board's edits.
 import { gatherResults, paramsCard, type ResultCard } from './board-cards.js';
 import { applyBoardEdit } from './board-edits.js';
+// R4 (H75): the actions of Timmy Canvas's drawn cards, run through the live board's own path.
+import { canvasAction, canvasSubject } from './canvas-actions.js';
 import { workflowForBoard } from './board-nodes.js';
 // R4 (H47): each workflow document connected to its runs, results and parameter files (board and /workflows <file>).
 import { connectWorkflow, jobBlockLines, liveNodeStates, StepClock, workflowSummaryLines, type ConnectContext } from './board-workflows.js';
@@ -2588,18 +2590,34 @@ export class Workspace {
     return this.operate(`board edit: ${action}`, 'board', () => this.boardEditNow(body, state));
   }
 
-  private async boardEditNow(body: unknown, state: LiveState): Promise<{ status: number; text: string }> {
+  private async boardEditNow(body: unknown, state: LiveState, from: 'board' | 'canvas' = 'board'): Promise<{ status: number; text: string }> {
     const root = this.root;
+    // R4 (H75): a save from a canvas card goes the same way; its edit receipt says it came from Timmy Canvas.
+    const seal = from === 'canvas' ? (input: ReceiptInput) => this.d.seal({ ...input, subject: canvasSubject(input.subject) }) : this.d.seal;
     const out = applyBoardEdit(body, {
-      root, project: this.project.name, projectId: projectId(root), workflows: state.workflows.map((w) => w.rel), recipes: state.recipes ?? [], seal: this.d.seal, scadModels: state.scadModels ?? [],
+      root, project: this.project.name, projectId: projectId(root), workflows: state.workflows.map((w) => w.rel), recipes: state.recipes ?? [], seal, scadModels: state.scadModels ?? [],
       // R4 review (R4-3): a parameter save waits for the end of a flow running (or being started) in this project.
       flowIn: () => this.flows.runningIn(root),
     });
     // R4 (H60): a save refused because its file changed on disk since the board showed it waits on the operator (Decisions).
     const operation = currentOperation();
     this.staleSaves.note(root, body, out, operation ? { operation } : {});
-    this.d.notify([{ text: '  board  ', role: 'secondary' }, { text: this.scrub(out.line, root), role: out.status === 200 ? 'strong' : 'failure' }]);
+    this.d.notify([{ text: `  ${from}  `, role: 'secondary' }, { text: this.scrub(out.line, root), role: out.status === 200 ? 'strong' : 'failure' }]);
     return { status: out.status, text: this.scrub(out.text, root) };
+  }
+
+  /**
+   * R4 (H75): an action from a drawn card on Timmy Canvas, handed to this REPL by the canvas server (src/repl/canvas-actions.ts):
+   * Run and Rebuild as the live board's run and rebuild actions (checked against its state, run as the typed command), a
+   * parameter save as its set-params or set-scad-params edit. Each is an operation of its own, through the board's path; the
+   * transcript says it came from the canvas.
+   */
+  canvasAct(envelope: unknown): Promise<{ status: number; text: string }> {
+    return canvasAction(envelope, {
+      projectId: () => projectId(this.root), state: () => this.liveState(),
+      command: (c) => this.operate(c.line, 'board', () => this.boardCommandNow(c, 'canvas')),
+      edit: (body, s) => this.operate(`canvas edit: ${String(body.action).slice(0, 40)}`, 'board', () => this.boardEditNow(body, s, 'canvas')),
+    });
   }
 
   /**
@@ -2612,9 +2630,9 @@ export class Workspace {
     return this.operate(c.line, 'board', () => this.boardCommandNow(c));
   }
 
-  private async boardCommandNow(c: BoardCommand): Promise<string[]> {
+  private async boardCommandNow(c: BoardCommand, from: 'board' | 'canvas' = 'board'): Promise<string[]> {
     const root = this.root;
-    this.d.notify([{ text: '  board  ', role: 'secondary' }, { text: c.line, role: 'strong' }]);
+    this.d.notify([{ text: `  ${from}  `, role: 'secondary' }, { text: c.line, role: 'strong' }]);
     // R4 (H70): View in Rerun prints its window warning before Rerun starts (notified then); the page gets those lines first.
     const early: Line[] = [];
     const lines = c.name === 'stop' ? await this.stop(c.args) : c.name === 'run' ? await this.run(c.args, { from: 'board' }) // R4 (H74): no NEEDS YOU box there

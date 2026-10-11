@@ -6,6 +6,10 @@
 // "Open on the board" is a link to /board live's address while it runs: the board's token never reaches this page, the
 // canvas or its saved document. Every text is set as text (textContent), never as markup.
 //
+// Round R4 (H75): "Place card" makes the card's drawn card (./cards.js: a workflow, parameter or result card that follows its
+// record and, where Timmy allows, acts through the REPL). With `detail` the panel reads the project with each card's drawn
+// detail and hands every reading to the drawn cards (`onAnswer`); it reads again sooner while `fast()` says a card's job runs.
+//
 // Nothing here imports anything: canvas.js hands in tldraw's helpers, so this file's pure part runs in Node's tests too.
 
 /** The kinds of card, in the order the panel shows them (the editable artifacts first), with the heading of each. */
@@ -105,7 +109,9 @@ const short = (text, max = 90) => { const chars = Array.from(String(text)); retu
 
 /**
  * The panel, attached to its elements in index.html. `deps`: editor() (the live editor), toRichText, createShapeId,
- * place(editor) → where a new card goes ({ x, y }, page coordinates), reveal(editor, ids).
+ * place(editor) → where a new card goes ({ x, y }, page coordinates), reveal(editor, ids). R4 (H75), each optional: detail
+ * (read the drawn cards' detail too), onAnswer(now) (every reading), fast() (read again in 1.5 s, not 5 s), drawable(kind)
+ * and placeCard(id, now) (Place card).
  */
 export function createProjectPanel(deps) {
   const root = document.getElementById('project');
@@ -118,7 +124,7 @@ export function createProjectPanel(deps) {
   let shown = '';
 
   async function read() {
-    const response = await fetch('/api/project', { cache: 'no-store' });
+    const response = await fetch(deps.detail ? '/api/project?detail=1' : '/api/project', { cache: 'no-store' });
     if (!response.ok) throw new Error(`Timmy answered ${response.status} for the project`);
     return response.json();
   }
@@ -184,6 +190,15 @@ export function createProjectPanel(deps) {
       place(card.id).then((r) => say(`Placed: ${short(r.card.title)}`), (e) => say(`Not placed: ${short(e instanceof Error ? e.message : String(e), 300)}`, true)).finally(() => { put.disabled = false; });
     });
     acts.append(put);
+    // R4 (H75): its drawn card, which follows its record and says whether it is a diagram or executable.
+    if (deps.placeCard && deps.drawable && deps.drawable(card.kind)) {
+      const drawn = el('button', 'Place card', { type: 'button', className: 'pcard-drawn', title: 'A drawn card that follows its record; its buttons act through Timmy\'s REPL when Timmy allows it, and it says so' });
+      drawn.addEventListener('click', () => {
+        drawn.disabled = true;
+        placeCard(card.id).then((r) => say(`Placed card: ${short(r.card.title)}`), (e) => say(`Not placed: ${short(e instanceof Error ? e.message : String(e), 300)}`, true)).finally(() => { drawn.disabled = false; });
+      });
+      acts.append(drawn);
+    }
     const href = boardHref(board, card);
     // R4 (H60): the new tab asks a board tab already open for the token (the board's own handoff); this page never holds it.
     if (href) acts.append(el('a', 'Open on the board', { className: 'pcard-board', href, target: '_blank', rel: 'noopener noreferrer', title: 'The live board on this machine (/board live); a tab of it you already have open gives the new tab its token' }));
@@ -191,9 +206,18 @@ export function createProjectPanel(deps) {
     return li;
   }
 
+  /** R4 (H75): places card `id`'s drawn card from the project as it is now. */
+  async function placeCard(id) {
+    const now = await read();
+    show(now);
+    return deps.placeCard(id, now);
+  }
+
   /** Draws the panel from an API answer; only when it changed, keeping the focus on the button it was on. */
   function show(now) {
     api = now;
+    // R4 (H75): every reading reaches the drawn cards, changed or not (they say when they were read).
+    try { deps.onAnswer?.(now); } catch { /* a card that cannot follow says so itself */ }
     const sig = JSON.stringify([now.project, now.board, now.cards, now.notes, now.message]);
     if (sig === shown) return;
     shown = sig;
@@ -234,7 +258,11 @@ export function createProjectPanel(deps) {
   });
   // On a narrow or short screen the panel starts folded, so the canvas keeps its room.
   if (window.innerWidth < 600 || window.innerHeight < 640) root.open = false;
-  void poll();
-  setInterval(() => { if (document.visibilityState === 'visible') void poll(); }, 5000);
-  return { place, refreshAll, poll, get api() { return api; } };
+  // Every 5 s while the page is shown; R4 (H75): every 1.5 s while a drawn card's job runs or an action was just sent.
+  const next = () => setTimeout(() => {
+    const go = document.visibilityState === 'visible' ? poll() : Promise.resolve();
+    go.finally(next);
+  }, deps.fast && deps.fast() ? 1500 : 5000);
+  void poll().finally(next);
+  return { place, placeCard, refreshAll, poll, get api() { return api; } };
 }

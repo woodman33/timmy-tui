@@ -66,6 +66,56 @@
   #side button.pcard-cmd code { font: inherit; }
   #side .pcard-acts { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
   #side .pcard-empty { margin: 4px 0 0; color: var(--timmy-text-secondary, #bdbdb8); }
+  /* R4 (H75): whether this page's drawn cards can act (it was opened by Timmy's /canvas open), and Place card. */
+  #project-acts { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--timmy-text-secondary); }
+  #project-acts[data-kind="ok"] { color: var(--timmy-text); }
+  #project-acts[data-kind="refused"] { color: var(--timmy-attention); }
+  /* R4 (H75): Timmy's drawn cards on the canvas, in Timmy Homebrew from the theme's variables (src/theme/tokens.ts). Outcome
+     words stay in the text colour; green is for commands and actions; red and amber only for failed and needs-attention. */
+  .tc { box-sizing: border-box; overflow: hidden; border-radius: 8px; background: var(--timmy-surface); border: 1px solid var(--timmy-line-strong); color: var(--timmy-text);
+    font: var(--timmy-weight-body) var(--timmy-size-small)/1.45 var(--timmy-font-mono); }
+  .tc-inner { box-sizing: border-box; padding: 10px 12px; display: grid; gap: 6px; }
+  .tc p, .tc ol, .tc ul, .tc dl, .tc table, .tc pre, .tc form { margin: 0; }
+  .tc-head { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+  .tc-title { font-weight: var(--timmy-weight-heading); overflow-wrap: anywhere; }
+  .tc-badge { flex: none; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--timmy-line-strong); color: var(--timmy-text-secondary); }
+  .tc-badge.tc-executable { border-color: var(--timmy-accent); color: var(--timmy-accent); }
+  .tc-mode { color: var(--timmy-text-secondary); overflow-wrap: anywhere; }
+  .tc-mode-on { color: var(--timmy-text); }
+  .tc-note, .tc-help, .tc-read, .tc-k { color: var(--timmy-text-secondary); }
+  .tc-bad { color: var(--timmy-failure); }
+  .tc-warn { color: var(--timmy-attention); }
+  .tc-path { overflow-wrap: anywhere; }
+  .tc-blocks, .tc-outs { list-style: none; padding: 0; display: grid; gap: 4px; }
+  .tc-block { padding: 3px 0 3px 8px; border-left: 3px solid var(--timmy-line-strong); overflow-wrap: anywhere; }
+  .tc-w-running { border-left-color: var(--timmy-accent); }
+  .tc-w-failed, .tc-w-interrupted { border-left-color: var(--timmy-failure); }
+  .tc-name { font-weight: var(--timmy-weight-strong); }
+  .tc-acts { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; margin-top: 2px; }
+  .tc-btn { font: inherit; font-weight: var(--timmy-weight-strong); background: var(--timmy-accent); color: var(--timmy-accent-ink); border: 1px solid var(--timmy-accent); border-radius: 4px; padding: 0 8px; cursor: pointer; }
+  .tc-btn[disabled] { opacity: .55; cursor: default; }
+  .tc-btn.tc-quiet { background: var(--timmy-raised); color: var(--timmy-text); border-color: var(--timmy-line-strong); font-weight: var(--timmy-weight-body); }
+  .tc-cmd { font: inherit; color: var(--timmy-accent); background: var(--timmy-ground); border: 1px solid var(--timmy-line); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; user-select: text; }
+  .tc-table { border-collapse: collapse; width: 100%; }
+  .tc-table th { text-align: left; font-weight: var(--timmy-weight-strong); padding: 2px 8px 2px 0; vertical-align: top; }
+  .tc-table td { padding: 2px 8px 2px 0; vertical-align: top; overflow-wrap: anywhere; }
+  .tc-table .tc-help-row td { padding-top: 0; padding-bottom: 4px; }
+  .tc-input { font: inherit; width: 7em; color: var(--timmy-text); background: var(--timmy-ground); border: 1px solid var(--timmy-line-strong); border-radius: 4px; padding: 0 4px; }
+  .tc-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 1px 8px; }
+  .tc-dl dt { color: var(--timmy-text-secondary); }
+  .tc-dl dd { margin: 0; overflow-wrap: anywhere; }
+  .tc-check-verified .tc-k { color: var(--timmy-text); font-weight: var(--timmy-weight-strong); }
+  .tc-check-stale .tc-k, .tc-check-unverified .tc-k { color: var(--timmy-attention); font-weight: var(--timmy-weight-strong); }
+  .tc-images { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tc-images img { width: 100%; height: auto; max-height: 220px; object-fit: contain; background: var(--timmy-ground); border: 1px solid var(--timmy-line); }
+  .tc-answer { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; padding: 4px 6px; border-radius: 4px; background: var(--timmy-ground); border: 1px solid var(--timmy-line); }
+  .tc-answer.tc-bad { border-color: var(--timmy-failure); }
+  .tc-notice { padding-left: 8px; border-left: 3px solid var(--timmy-attention); }
+  .tc-foot { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; justify-content: space-between; }
+  .tc-toggle { font: inherit; padding: 0; border: 0; background: none; color: var(--timmy-link); text-decoration: underline; cursor: pointer; }
+  .tc-details { display: grid; gap: 4px; padding-top: 6px; border-top: 1px solid var(--timmy-line); }
+  .tc-block-cmd code { display: block; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--timmy-text-secondary); }
+  .tc :focus-visible { outline: 2px solid var(--timmy-accent); outline-offset: 1px; }
   /* While the board is blank: what to do first. Never in the way of the canvas. */
   #guide { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 300; pointer-events: none; max-width: min(520px, calc(100vw - 32px));
     text-align: center; color: var(--timmy-text, #e8e6e1); font: var(--timmy-size-body, 14px)/var(--timmy-line-height, 1.55) var(--timmy-font-mono, ui-monospace, Menlo, monospace); }
@@ -81,6 +131,7 @@
     <details id="jobs" open><summary>Canvas jobs</summary><ol id="job-list"><li>No jobs yet.</li></ol></details>
     <details id="project" open><summary>Project <span id="project-name">reading…</span></summary>
       <p id="project-note" hidden></p>
+      <p id="project-acts" role="note">This page has not opened a session with Timmy yet.</p>
       <button id="project-refresh" type="button" hidden>Refresh placed cards</button>
       <p id="project-said" role="status"></p>
       <div id="project-groups"></div>
