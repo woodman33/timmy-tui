@@ -353,6 +353,8 @@ export class JobManager {
    * signal); a step still running is recorded stopped. Nothing is signalled here (the caller signalled its group first:
    * signalNow), awaited, read or sealed: exitedAtOnce says so, and a later recovery seals the block receipts it can. Only a
    * job of this manager that is still going; synchronous. Returns the record as written, or undefined.
+   * R4 (H97; r23c): the step it records stopped ends then, as a stop's own line ends one (src/workflows/upmd-live.ts); it
+   * had no end time, so its block's receipt had none either, while a run whose wrapper's line was read first had one.
    */
   endAtOnce(id: string, end: { error: string; by: string; signal: string }): JobRecord | undefined {
     const entry = this.jobs.get(id);
@@ -372,7 +374,7 @@ export class JobManager {
     job.exitCode = null;
     job.signal = null;
     job.error = end.error;
-    job.steps = job.steps.map((s) => (s.state === 'running' ? { ...s, state: 'stopped' as const } : s));
+    job.steps = job.steps.map((s) => (s.state === 'running' ? { ...s, state: 'stopped' as const, endedAt: s.endedAt ?? at } : s));
     job.exitedAtOnce = { at, by: end.by, signal: end.signal, sealed: false };
     this.persist(job);
     for (const resolve of entry.readyWaiters.splice(0)) resolve(snapshot(job));
