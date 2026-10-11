@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { createServer } from 'node:net';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { JobManager, type JobRecord } from '../jobs/index.js';
 import { aerenderJob, blenderJob, c4dpyJob, judgeNativeJob, nativeReceiptFields, NativeNotFound, noteNativeStarted, type NativeJobSpec } from '../native/index.js';
 import { AE_RENDER_NOTES, AE_USAGE, aeEndLines, aeReceiptFields, aeScriptJob, aeStartLines, isAeJobSpec, judgeAeJob, parseAeRenderArgs, parseAeScriptArgs, type AeJobSpec, type AeMode } from '../native/ae-author.js';
@@ -65,7 +65,7 @@ import { ptyKnown, ptyReady, upmdJob, upmdLineParser } from '../workflows/upmd-l
 import { makeRunFolder, wrapperDid } from '../workflows/pty-stop.js'; // R4 (H67)
 // R4 (H74): one receipt per block, and NEEDS YOU before a risky block (src/repl/workflow-blocks.ts, workflow-gate.ts)
 import { BlockSealer, sealLeftBlocks } from './workflow-blocks.js';
-import { askRun, gateLines, HeldRuns, needsPersonText, planRun, UPMD_GATE } from './workflow-gate.js';
+import { askRun, gateLines, HeldRuns, keepCheckedCopy, needsPersonText, planRun, UPMD_GATE } from './workflow-gate.js';
 import { blockReceiptsOf } from '../workflows/block-receipts.js';
 import type { ApprovalRequest, Decision } from './approvals.js';
 // Round R3 (/agent, helper H13): code agents as jobs; the code is in the "/agent" section below.
@@ -1021,6 +1021,13 @@ export class Workspace {
       if (!answer.ok) return this.say(answer.why, answer.denied ? 'secondary' : 'estimate');
       approved = answer.decision;
     }
+    // R4 (H81): upmd reads a private, read-only copy of the exact bytes planRun read and NEEDS YOU asked about, kept in the
+    // run's own folder (src/repl/workflow-gate.ts keepCheckedCopy): a writer that changes the document from here on changes
+    // nothing that runs. Its sha256 is the document's as read; the records name the document by its path in the project.
+    const stop = makeRunFolder(this.d.jobsDir);
+    const copy = stop ? keepCheckedCopy(dirname(stop), p) : { ok: false as const, why: 'its run folder could not be made' };
+    if (!copy.ok) return this.say(`Not run: ${r.rel} › ${target}: ${copy.why}. Nothing ran, and nothing was sealed.`, 'estimate');
+    r.sha256 = copy.sha256;
     // F-3: the prediction is sealed before anything runs, with the document's hash as its input identity.
     const predicted = this.d.seal({
       kind: 'predict', subject: `workflow · predict · ${r.rel} › ${target}`, policy: 'human-gated', status: 'ok', project: this.project.name, project_id: projectId(this.root),
@@ -1035,8 +1042,8 @@ export class Workspace {
     // R4 (H58): upmd on a pty of its own (workers/upmd/pty_run.py), so each block's state arrives as it happens; else a pipe.
     // R4 (H67): the wrapper stops upmd at once when this process ends, and leaves a stop file in the run's own folder.
     const pty = await ptyReady(this.d.onPath('python3'));
-    const stopFile = pty.ok ? makeRunFolder(this.d.jobsDir) : undefined;
-    const how = upmdJob(tool.bin, upmdRunArgs(join(this.root, r.rel), target, this.root), pty, { parent: process.pid, ...(stopFile ? { stopFile } : {}) });
+    const stopFile = pty.ok ? stop : undefined;
+    const how = upmdJob(tool.bin, upmdRunArgs(copy.path, target, this.root), pty, { parent: process.pid, ...(stopFile ? { stopFile } : {}) });
     const parse = upmdLineParser(blocks, how.live ? 'pty' : 'pipe');
     const job = this.jobs.start({
       kind: 'workflow', label: `${r.rel} › ${target}`, project: this.project.name, root: this.root,
@@ -2193,7 +2200,8 @@ export class Workspace {
       const rows = this.d.roomTools ? await this.d.roomTools() : await (async () => {
         const { capabilities } = await import('../capabilities/index.js');
         const { liveDeps } = await import('../capabilities/live.js');
-        return capabilities(liveDeps({ env: this.d.env, model: this.d.model?.() ?? 'the configured model' }));
+        // R4 (H81): the project's own records (native runs, recipe jobs) are read in this REPL's project, never process.cwd()
+        return capabilities(liveDeps({ env: this.d.env, model: this.d.model?.() ?? 'the configured model', projectRoot: this.root }));
       })();
       this.roomTools = { checkedAt: new Date().toISOString(), rows: scrubRows(rows, (t) => this.scrub(t, this.root)) };
     } catch (err) {

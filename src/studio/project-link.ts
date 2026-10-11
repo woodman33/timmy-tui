@@ -15,7 +15,9 @@
  *
  * The server reads only what the REPL named: the project's folder, its jobs folder and its receipts store. It never answers
  * with a path it was given: the project's name, its id (a hash of its folder, as receipts name it) and project-relative
- * paths only. The live board's address may be named (http://127.0.0.1:<port>/ exactly, so never its token); the canvas
+ * paths only. R4 (H81): the card list (GET /api/project) is open to this machine; the cards' detail (?detail=1: every
+ * block's command, every parameter file's values) only with the server's token or a canvas page's session that counts now
+ * (src/studio/card-relay.ts), else 401. The live board's address may be named (http://127.0.0.1:<port>/ exactly, so never its token); the canvas
  * links to it and keeps it nowhere.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -171,7 +173,16 @@ export interface ProjectRoutes {
   holding?: (p: NamedProject) => boolean;
   /** R4 (H75): a project was named (by a REPL; another holder, or none, may hold it now) */
   named?: (p: NamedProject) => void;
+  /**
+   * R4 (H81): who may read the cards' detail (?detail=1: each block's command, each parameter file's values) besides the REPL
+   * with this server's token: a canvas page whose session counts now for `p` (src/studio/card-relay.ts sessionFor). Absent:
+   * the server's token only.
+   */
+  pageSession?: (authorization: unknown, p: NamedProject | null) => { ok: true } | { ok: false; why: string; words: string };
 }
+
+/** R4 (H81): what a reading of the cards' detail without the server's token or a page session is told. */
+export const DETAIL_REFUSED = 'Refused: the cards\' detail (their commands and values) is read with Timmy\'s token or a canvas page\'s session. The card list is at /api/project. In Timmy: /canvas open.';
 
 /** POST /api/project/active (the handoff), GET /api/project/active (what is named) and GET /api/project (its cards). */
 export function mountProjectRoutes(app: express.Express, o: ProjectRoutes): void {
@@ -218,6 +229,16 @@ export function mountProjectRoutes(app: express.Express, o: ProjectRoutes): void
     const madeAt = new Date().toISOString();
     // R4 (H75): ?detail=1 adds each card's drawn-card detail and whether a REPL takes the project's card actions now.
     const detail = req.query.detail === '1';
+    // R4 (H81): the detail holds each block's whole command and each parameter file's values: never to any local process
+    // without a credential. The REPL reads it with this server's token, a canvas page with a session that counts now; the
+    // plain list (titles, states, typed commands) stays open, as the panel lists it before any session.
+    if (detail && !o.link.authorized(req.headers.authorization)) {
+      const s = o.pageSession?.(req.headers.authorization, p) ?? { ok: false as const, why: 'none', words: DETAIL_REFUSED };
+      if (!s.ok) {
+        res.status(401).set('WWW-Authenticate', 'Bearer').json({ ok: false, error: s.why === 'none' ? DETAIL_REFUSED : s.words, session: s.why });
+        return;
+      }
+    }
     if (!p) {
       res.json({ ok: true, project: null, madeAt, board: null, cards: [], notes: [], message: NOT_NAMED, ...(detail ? { actions: { holder: false, words: 'No project is named to this canvas: in Timmy, /canvas open.' } } : {}) });
       return;

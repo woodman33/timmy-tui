@@ -13,12 +13,21 @@
  *   - `timmy act`, and `timmy md` with no terminal or with --json: refused before anything runs (exit 2), with the command
  *     to type in the REPL.
  * A run whose document changed while the person was asked is refused: what they approved is not what would run.
+ *
+ * R4 (H81): and what upmd reads is never the document itself. planRun reads the document's bytes whole and holds them;
+ * NEEDS YOU asks about those bytes; then /run keeps a private copy of exactly those bytes in the run's own folder
+ * (keepCheckedCopy: written once, mode 0600, then read-only, its sha256 checked) and hands upmd the copy, with the project
+ * as the blocks' working directory. A writer that changes the document after the check changes nothing that runs. A
+ * document that gives two blocks one name is refused: which of them upmd would run is not known.
  */
-import { readProjectFile } from '../project/index.js';
+import { createHash } from 'node:crypto';
+import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { readProjectFile, resolveInside } from '../project/index.js';
 import { quoteArg } from '../room/decisions.js';
 import type { Segment } from '../term/theme.js';
 import { docAtEnd } from '../workflows/block-receipts.js';
-import { parseWorkflow, runOrder, type WorkflowBlock } from '../workflows/upmd.js';
+import { CHECKED_COPY, parseWorkflow, repeatedNames, runOrder, type WorkflowBlock } from '../workflows/upmd.js';
 import { askPerson, type ApprovalRequest, type Decision, type WaitingApproval } from './approvals.js';
 import { RISKY_REASON, riskyBlocks, UPMD_GATE, type RiskyBlock } from './workflow-risk.js';
 
@@ -26,30 +35,72 @@ export { RISKY_REASON, riskyBlocks, UPMD_GATE, type RiskyBlock };
 
 type Line = Segment[];
 
-/** A run as /run (and `timmy md`) reads it before anything runs, or why it cannot run. */
+/**
+ * A run as /run (and `timmy md`) reads it before anything runs, or why it cannot run. R4 (H81): `bytes` are the document's
+ * exact bytes as read (their sha256 is `sha256`), the bytes upmd will be given (keepCheckedCopy).
+ */
 export type RunPlan =
-  | { ok: true; rel: string; text: string; sha256?: string; blocks: WorkflowBlock[]; target: string; order: string[]; risky: RiskyBlock[] }
+  | { ok: true; rel: string; text: string; sha256: string; bytes: Buffer; blocks: WorkflowBlock[]; target: string; order: string[]; risky: RiskyBlock[] }
   | { ok: false; why: string; failure?: boolean; rel?: string; which?: string[] };
+
+const sha = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
+const counted = (n: number): string => (n === 2 ? 'two' : n === 3 ? 'three' : String(n));
+
+/** R4 (H81): the document's bytes, read again whole (through the project's own path rules), or null. */
+function bytesOf(root: string, rel: string): Buffer | null {
+  const at = resolveInside(root, rel);
+  if ('error' in at) return null;
+  try { return readFileSync(at.path); } catch { return null; }
+}
 
 /**
  * The run of `blockArg` in the document `docArg` of the project at `root`, read as /run reads it (one reading for /run and
- * `timmy md`): the document (at most 1 MB), its blocks, the target (the only named block when none is given), its run
- * order and the risky blocks of it. `which`: the names to choose from when no block was given and there are several.
+ * `timmy md`): the document (at most 1 MB, read whole), its blocks, the target (the only named block when none is given), its
+ * run order and the risky blocks of it. `which`: the names to choose from when no block was given and there are several.
  */
 export function planRun(root: string, docArg: string, blockArg?: string): RunPlan {
   const r = readProjectFile(root, docArg, 1024 * 1024);
   if (!r.ok) return { ok: false, why: r.error };
   if (r.binary || r.text === undefined) return { ok: false, why: `${r.rel} is not a Markdown workflow.`, rel: r.rel };
+  // R4 (H81): upmd is given these very bytes (a copy of them), so they are read whole: a part of a document is never checked
+  // for a run of all of it, and the bytes held are the ones the text below was read from (the same sha256)
+  if (r.truncated || !r.sha256) return { ok: false, why: `${r.rel} is larger than 1 MB: Timmy reads a workflow whole before it runs any of it, so nothing ran.`, rel: r.rel };
+  const bytes = bytesOf(root, r.rel);
+  if (!bytes || sha(bytes) !== r.sha256) return { ok: false, why: `${r.rel} changed while Timmy read it, so nothing ran: run it again.`, rel: r.rel };
   const blocks = parseWorkflow(r.text);
   const named = blocks.filter((b) => b.name).map((b) => b.name as string);
   if (!named.length) return { ok: false, why: `${r.rel} has no named blocks. upmd runs blocks named like \`\`\`bash [name:build]`, rel: r.rel };
+  // R4 (H81): a name two blocks carry: Timmy's reading takes the first, and which one upmd would run is not known, so
+  // what is checked (and asked about) might not be what runs. Nothing runs; the person names each block once.
+  const twice = repeatedNames(blocks);
+  if (twice.length) {
+    const which = listed(twice.map((t) => `${counted(t.indexes.length)} blocks ${t.name} (blocks ${listed(t.indexes.map(String))})`));
+    return { ok: false, why: `${r.rel} names ${which}: Timmy cannot tell which of them upmd would run, so nothing ran. Give each block a name of its own.`, failure: true, rel: r.rel };
+  }
   const target = blockArg ?? (named.length === 1 ? named[0] : undefined);
   if (!target) return { ok: false, why: `Which block? /run ${r.rel} <${named.join(' | ')}>`, rel: r.rel, which: named };
   if (!named.includes(target)) return { ok: false, why: `No block named ${target} in ${r.rel}: ${named.join(', ')}`, rel: r.rel };
   const plan = runOrder(blocks, target);
   if (plan.missing.length) return { ok: false, why: `${target} needs ${plan.missing.join(', ')}, which ${r.rel} does not define. Nothing ran.`, failure: true, rel: r.rel };
   if (plan.cycle) return { ok: false, why: `${target}'s dependencies loop (${plan.cycle.join(' -> ')}). Nothing ran.`, failure: true, rel: r.rel };
-  return { ok: true, rel: r.rel, text: r.text, ...(r.sha256 ? { sha256: r.sha256 } : {}), blocks, target, order: plan.order, risky: riskyBlocks(blocks, plan.order) };
+  return { ok: true, rel: r.rel, text: r.text, sha256: r.sha256, bytes, blocks, target, order: plan.order, risky: riskyBlocks(blocks, plan.order) };
+}
+
+/**
+ * R4 (H81): the private copy upmd reads: exactly the bytes planRun read and checked, written once into the run's own folder
+ * (a folder of its own, mode 0700: src/workflows/pty-stop.ts makeRunFolder) as CHECKED_COPY with mode 0600, then made
+ * read-only (0400), and read back to check its sha256. Its path, or why it could not be kept (the run then does not start).
+ */
+export function keepCheckedCopy(folder: string, p: { bytes: Buffer; sha256: string }): { ok: true; path: string; sha256: string } | { ok: false; why: string } {
+  const file = join(folder, CHECKED_COPY);
+  try {
+    writeFileSync(file, p.bytes, { mode: 0o600, flag: 'wx' });
+    chmodSync(file, 0o400);
+    if (sha(readFileSync(file)) !== p.sha256) return { ok: false, why: 'the copy kept for upmd does not hold the bytes Timmy checked' };
+    return { ok: true, path: file, sha256: p.sha256 };
+  } catch (e) {
+    return { ok: false, why: `the copy of it that upmd reads could not be kept (${(e as NodeJS.ErrnoException).code ?? 'error'})` };
+  }
 }
 
 /** The REPL command that runs it (each argument as Timmy's command lines read it). */

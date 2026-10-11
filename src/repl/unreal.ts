@@ -88,9 +88,13 @@ export class UnrealRuns {
     for (const r of runs.slice(0, 6)) {
       const v = r.verdict;
       const rb = r.readbacks.at(-1);
+      // R4 (H81): a first pass that was stopped is said stopped (its verdict by its result beside it), never as one whose
+      // readback is still to come
+      const stopped = v?.exit?.state === 'cancelled';
       const mark = v?.outcome === 'ok' && rb?.verdict === 'agrees' ? g.ok : v?.outcome === 'failed' || rb?.verdict === 'differs' || rb?.verdict === 'failed' ? g.fail : v ? '?' : ' ';
+      const judged = !v ? 'not judged yet' : stopped && v.outcome === 'ok' ? 'stopped after its result (judged ok by it)' : stopped ? `stopped (judged ${v.outcome})` : v.outcome;
       lines.push([{ text: `    ${mark} `, role: mark === g.fail ? 'failure' : undefined }, { text: r.run.slice(0, 8), role: 'strong' },
-        { text: `  ${v ? v.outcome : 'not judged yet'}${v?.outcome === 'ok' ? `${this.sep}readback ${rb ? rb.verdict ?? rb.state : 'none yet'}` : ''}${this.sep}${this.d.scrub(r.label, at.root)}${this.sep}${r.started_at}`, role: 'secondary' }]);
+        { text: `  ${judged}${v?.outcome === 'ok' ? `${this.sep}readback ${rb ? rb.verdict ?? rb.state : stopped ? 'none: it was stopped' : 'none yet'}` : ''}${this.sep}${this.d.scrub(r.label, at.root)}${this.sep}${r.started_at}`, role: 'secondary' }]);
     }
     return lines;
   }
@@ -106,8 +110,8 @@ export class UnrealRuns {
   }
 
   /**
-   * A first pass ended (completed or failed): its judgement and lines, then its readback started when it was judged ok and
-   * saved a level, or why there is none. Synchronous (see the module's notes).
+   * A first pass ended (completed, failed or stopped): its judgement and lines, then its readback started when it was judged
+   * ok, saved a level and was not stopped, or why there is none. Synchronous (see the module's notes).
    */
   firstPassEnded(job: JobRecord, spec: UnrealJobSpec): Line[] {
     const j = judgeUnrealJob(job, spec);
@@ -116,6 +120,9 @@ export class UnrealRuns {
     const next = (text: string, role: Segment['role'] = 'secondary'): Line => [{ text: '      next     ', role: 'secondary' }, { text, role }];
     const run8 = spec.native.run.slice(0, 8);
     if (j.outcome !== 'ok') return [...lines, next('no readback: only a run judged ok is read back, and the first pass alone is never trusted')];
+    // R4 (H81): a first pass that was stopped starts no second Unreal, even when its result said ok before the stop came (its
+    // views say stopped: unrealRunOutcome); reading it back is the person's own step
+    if (job.state === 'cancelled') return [...lines, next(`no readback: it was stopped after its result was written, so it is not read back on its own; /unreal readback ${run8} reads it back`, 'estimate')];
     if (!j.unreal.levels.length) return [...lines, next('it saved no level, so there is nothing to read back: nothing about a scene was checked', 'estimate')];
     if (this.closing) return [...lines, next(`the readback was not started: this REPL is ending; /unreal readback ${run8} starts it`, 'estimate')];
     const p = planUnrealReadback(spec.root, { run: spec.native.run });

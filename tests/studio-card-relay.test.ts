@@ -24,7 +24,7 @@ import { EXPORTS } from '../src/recipes/index.js';
 import { folderProject, projectId } from '../src/project/index.js';
 import { CanvasProject } from '../src/repl/canvas-project.js';
 import { Workspace } from '../src/repl/workspace.js';
-import { CardRelay } from '../src/studio/card-relay.js';
+import { CardRelay, SESSION_MS } from '../src/studio/card-relay.js';
 import { startStudioServer, type StudioServer } from '../src/studio/server.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import { appendReceipt } from '../src/utils/receipts.js';
@@ -158,6 +158,8 @@ async function world(o: { listen?: boolean } = {}): Promise<World> {
 }
 
 const page = (w: World, extra: Record<string, string> = {}): Record<string, string> => ({ Origin: `http://127.0.0.1:${w.port}`, 'Content-Type': 'application/json', ...extra });
+/** R4 (H81): the REPL's own credential (the server's token), as it reads the cards' detail. */
+const repl = (w: World): Record<string, string> => ({ Authorization: `Bearer ${w.server.projectToken}` });
 async function session(w: World): Promise<string> {
   const told = await w.cp.handOff({ grant: true });
   expect(told).toEqual({ ok: true, name: 'demo' });
@@ -221,6 +223,11 @@ describe("Timmy Canvas's card actions: carried to the REPL that holds the projec
     const w = await world({ listen: false });
     expect((await w.call('POST', '/api/project/grant')).status).toBe(401);
     expect((await w.call('POST', '/api/project/grant', { headers: { Authorization: `Bearer ${w.server.projectToken}`, Origin: `http://127.0.0.1:${w.port}` } })).status).toBe(403);
+    // R4 (H81): a grant is for the project named (and the REPL holding it): none while no project is named
+    const none = await w.call('POST', '/api/project/grant', { headers: { Authorization: `Bearer ${w.server.projectToken}` } });
+    expect(none.status).toBe(409);
+    expect(none.json.error).toMatch(/^No project is named to this canvas: a grant is for the project named/);
+    expect(await w.cp.handOff()).toEqual({ ok: true, name: 'demo' });
     const ok = await w.call('POST', '/api/project/grant', { headers: { Authorization: `Bearer ${w.server.projectToken}` } });
     expect(ok.status).toBe(200);
     // A grant this server never made, a malformed one, and one sent from another page: no session.
@@ -236,10 +243,65 @@ describe("Timmy Canvas's card actions: carried to the REPL that holds the projec
     // This REPL took no actions (no act): the project has no holder, so no one is given its actions.
     expect((await w.call('GET', `/api/project/inbox?holder=${holder}`, { headers: { Authorization: `Bearer ${w.server.projectToken}` } })).status).toBe(409);
     expect((await w.call('POST', `/api/project/inbox/${'0'.repeat(8)}-0000-4000-8000-000000000000`, { headers: { Authorization: `Bearer ${w.server.projectToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ holder, status: 200, text: 'x' }) })).status).toBe(404);
-    // The project's reading says no REPL takes its actions, in words.
-    const read = await w.call('GET', '/api/project?detail=1');
+    // The project's reading says no REPL takes its actions, in words (R4 H81: the detail is read with the REPL's token).
+    const read = await w.call('GET', '/api/project?detail=1', { headers: repl(w) });
     expect(read.json.actions).toMatchObject({ holder: false });
     expect(String((read.json.actions as { words: string }).words)).toMatch(/does not take card actions/);
+  }, 60_000);
+
+  it("R4 (H81): the cards' detail needs the REPL's token or a session that counts now; a session counts only for the project and the REPL it was given by", async () => {
+    const w = await world();
+    const token = await session(w);
+    const page_ = { Authorization: `Bearer ${token}` };
+    // no credential, a session this server never made: refused, and no block command in the answer
+    const bare = await w.call('GET', '/api/project?detail=1');
+    expect(bare.status).toBe(401);
+    expect(bare.json).toMatchObject({ ok: false, session: 'none', error: expect.stringMatching(/^Refused: the cards' detail \(their commands and values\) is read with Timmy's token or a canvas page's session/) });
+    expect(bare.body).not.toContain('mkdir -p dist');
+    const stranger = await w.call('GET', '/api/project?detail=1', { headers: { Authorization: `Bearer ${'f'.repeat(64)}` } });
+    expect(stranger.status).toBe(401);
+    expect(stranger.json.session).toBe('unknown');
+    expect(stranger.body).not.toContain('mkdir -p dist');
+    // the plain card list stays open (titles, states, typed commands), without any block's command
+    const plain = await w.call('GET', '/api/project');
+    expect(plain.status).toBe(200);
+    expect((plain.json.cards as Array<{ id: string }>).map((c) => c.id)).toContain('workflow:RUN.md');
+    expect(plain.body).not.toContain('mkdir -p dist');
+    // the REPL's token, and the page's own session: the detail, block commands included
+    for (const headers of [repl(w), page_]) {
+      const r = await w.call('GET', '/api/project?detail=1', { headers });
+      expect(r.status).toBe(200);
+      expect(r.body).toContain('mkdir -p dist');
+    }
+    // Another REPL names the same project and takes its actions: the page's session was given by the first, so it neither
+    // reads the detail nor acts now, and nothing runs.
+    const other = new CanvasProject({
+      base: () => w.base, env: {}, project: () => w.ws.project, projectId, jobsDir: w.jobs, receipts: () => w.store, board: () => null,
+      ownToken: () => w.server.projectToken, act: async () => ({ status: 200, text: 'FAKE second REPL: never asked here' }), pollMs: 30_000,
+    });
+    closers.push(() => other.stop());
+    expect(await other.handOff()).toEqual({ ok: true, name: 'demo' });
+    const byOther = await w.call('GET', '/api/project?detail=1', { headers: page_ });
+    expect(byOther.status).toBe(401);
+    expect(byOther.json).toMatchObject({ session: 'holder', error: expect.stringMatching(/given by another Timmy REPL/) });
+    const jobsBefore = jobFiles(w);
+    const refused = await act(w, token, { project: w.p.pid, card: 'workflow:RUN.md', act: { action: 'run', doc: 'RUN.md', block: 'setup' } });
+    expect(refused.status).toBe(401);
+    expect(refused.json.error).toMatch(/given by another Timmy REPL/);
+    expect(jobFiles(w)).toEqual(jobsBefore);
+    expect(w.notes).toEqual([]);
+    // Another project named to the canvas: the session was given for demo
+    const elsewhere = temp('card-relay-elsewhere-');
+    const named = await w.call('POST', '/api/project/active', { headers: { ...repl(w), 'Content-Type': 'application/json' }, body: JSON.stringify({ root: elsewhere, name: 'elsewhere' }) });
+    expect(named.status).toBe(200);
+    const forOther = await w.call('GET', '/api/project?detail=1', { headers: page_ });
+    expect(forOther.status).toBe(401);
+    expect(forOther.json).toMatchObject({ session: 'project', error: expect.stringMatching(/given for another project/) });
+    // The first REPL names demo again: its page's session counts again
+    expect(await w.cp.handOff()).toEqual({ ok: true, name: 'demo' });
+    const back = await w.call('GET', '/api/project?detail=1', { headers: page_ });
+    expect(back.status).toBe(200);
+    expect(back.body).toContain('mkdir -p dist');
   }, 60_000);
 
   it('with no REPL taking the actions, a page action is refused with what to type, and nothing changes', async () => {
@@ -284,8 +346,8 @@ describe("Timmy Canvas's card actions: carried to the REPL that holds the projec
     expect(readFileSync(join(w.p.root, kept))).toEqual(was);
     // The transcript says the canvas sent it.
     expect(w.notes.some((n) => n.startsWith('  canvas  saved recipes/tray.params.json: width 145 → 150'))).toBe(true);
-    // The card shows the saved file.
-    const read = await w.call('GET', '/api/project?detail=1');
+    // The card shows the saved file (read with the page's own session, R4 H81).
+    const read = await w.call('GET', '/api/project?detail=1', { headers: { Authorization: `Bearer ${token}` } });
     const card = (read.json.cards as Array<{ id: string; detail: Record<string, unknown> }>).find((c) => c.id === `params:${TRAY}`)!;
     expect(card.detail).toMatchObject({ type: 'params', engine: 'tray', state: 'ok', base: sha(trayFile(w)), rebuild: true, save: { offered: true } });
     expect(read.body).not.toContain(w.p.root);
@@ -306,7 +368,7 @@ describe("Timmy Canvas's card actions: carried to the REPL that holds the projec
     const outcome = await until(() => w.receipts().find((x) => x.kind === 'workflow' && (x.job as { id?: string } | undefined)?.id === job!.id), (x) => !!x, 10_000);
     const short = String(outcome!.hash).slice(7, 15);
     // The project's card follows the records: its newest run, each block's state, its receipt.
-    const read = await until(() => w.call('GET', '/api/project?detail=1'), (x) => {
+    const read = await until(() => w.call('GET', '/api/project?detail=1', { headers: repl(w) }), (x) => {
       const c = (x.json.cards as Array<{ id: string; detail?: { last?: { receipt?: string } } }> | undefined)?.find((y) => y.id === 'workflow:RUN.md');
       return c?.detail?.last?.receipt === short;
     }, 10_000);
@@ -326,7 +388,7 @@ describe("Timmy Canvas's card actions: carried to the REPL that holds the projec
     expect(String(r.json.text).split('\n')[0]).toBe('canvas /recipe tray');
     const id = /Recipe job\s+([0-9a-f-]{36})/.exec(String(r.json.text))![1];
     await until(() => recipeStatus(w.p.root, id).state, (s) => s === 'succeeded', 30_000);
-    const read = await until(() => w.call('GET', '/api/project?detail=1'), (x) => {
+    const read = await until(() => w.call('GET', '/api/project?detail=1', { headers: repl(w) }), (x) => {
       const c = (x.json.cards as Array<{ id: string; detail?: { build?: { word?: string } } }> | undefined)?.find((y) => y.id === `params:${TRAY}`);
       return c?.detail?.build?.word === 'succeeded';
     }, 15_000);
@@ -381,19 +443,46 @@ describe('a REPL and an older Timmy Canvas (from before card actions)', () => {
 describe('the relay itself: what a page is told when no REPL takes its action, or none answers', () => {
   const H = 'a'.repeat(32);
   const env = (id = '11111111-2222-4333-8444-555555555555') => ({ id, project: 'p', card: 'workflow:RUN.md', act: { action: 'run', doc: 'RUN.md', block: 'build' } });
+  const FOR = { project: 'abcdef0123456789', holder: H };
   it('a grant is good once and only until it expires; a session is known by its token only', () => {
     let now = 1_000_000;
     const r = new CardRelay({ now: () => now, grantMs: 1000 });
-    const a = r.grant().grant;
+    const a = r.grant(FOR).grant;
     const token = r.exchange(a)!;
     expect(token).toMatch(/^[0-9a-f]{64}$/);
     expect(r.exchange(a)).toBeNull();
     expect(r.session(`Bearer ${token}`)).toBe(true);
     expect(r.session(`Bearer ${'0'.repeat(64)}`)).toBe(false);
     expect(r.session(token)).toBe(false);
-    const b = r.grant().grant;
+    const b = r.grant(FOR).grant;
     now += 1001;
     expect(r.exchange(b)).toBeNull();
+  });
+  it('R4 (H81): a session lasts 12 hours from its making (use does not renew it), and counts only for the project and the REPL its grant was made for', () => {
+    let now = 5_000_000;
+    const r = new CardRelay({ now: () => now });
+    const token = r.exchange(r.grant(FOR).grant)!;
+    const header = `Bearer ${token}`;
+    const named = { id: FOR.project, holder: H };
+    expect(SESSION_MS).toBe(12 * 60 * 60 * 1000);
+    expect(r.sessionFor(header, named)).toEqual({ ok: true });
+    // given for this project and this REPL only
+    expect(r.sessionFor(header, { id: 'ffffffffffffffff', holder: H })).toMatchObject({ ok: false, why: 'project', words: expect.stringMatching(/given for another project/) });
+    expect(r.sessionFor(header, { id: FOR.project, holder: 'b'.repeat(32) })).toMatchObject({ ok: false, why: 'holder', words: expect.stringMatching(/given by another Timmy REPL/) });
+    expect(r.sessionFor(header, { id: FOR.project, holder: null })).toMatchObject({ ok: false, why: 'holder' });
+    // no project named: nothing of a project to read or act on, so a session that has not ended counts
+    expect(r.sessionFor(header, null)).toEqual({ ok: true });
+    expect(r.sessionFor(undefined, named)).toMatchObject({ ok: false, why: 'none' });
+    expect(r.sessionFor(`Bearer ${'0'.repeat(64)}`, named)).toMatchObject({ ok: false, why: 'unknown' });
+    // used again and again until just before its end: not renewed
+    now += SESSION_MS - 1;
+    expect(r.sessionFor(header, named)).toEqual({ ok: true });
+    expect(r.session(header)).toBe(true);
+    now += 1;
+    expect(r.session(header)).toBe(false);
+    expect(r.sessionFor(header, named)).toMatchObject({ ok: false, why: 'expired', words: expect.stringMatching(/has ended \(a session lasts 12 hours\)/) });
+    // an ended session is let go: it is not known afterwards
+    expect(r.sessionFor(header, named)).toMatchObject({ ok: false, why: 'unknown' });
   });
   it('an action no REPL picks up was not run; one picked up but not answered may have run; an answer comes back', async () => {
     const r = new CardRelay({ pickupMs: 50, answerMs: 80, pollMs: 2000 });

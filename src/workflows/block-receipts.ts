@@ -19,9 +19,10 @@
  *                                where that came from in words; null when the document has no such block (or, after an
  *                                ended REPL, when the document changed since the run started)
  *   doc_sha256, doc_at_end       the document's sha256 then (its prediction's), and the document checked again when the
- *                                block ended: 'unchanged', 'changed', 'gone' or 'unreadable'. upmd reads the document
- *                                itself and Timmy does not see what it read, so the code hashed is the code run only while
- *                                the document stayed those bytes
+ *                                block ended: 'unchanged', 'changed', 'gone' or 'unreadable'. R4 (H81): upmd reads a
+ *                                private, read-only copy of exactly those bytes (src/repl/workflow-gate.ts keepCheckedCopy),
+ *                                so the code hashed is the code upmd was given; doc_at_end says whether the project's
+ *                                document still holds them
  *   state, outcome               the step's state as Timmy read it (completed, failed, stopped, interrupted, running) and
  *                                the block's outcome: completed, failed, interrupted, unknown
  *   interrupted_by, stop_words   what cut it, and the stop's own words when they are known
@@ -133,11 +134,15 @@ export function outcomeOf(s: Pick<JobStep, 'state'>): BlockOutcome {
   return s.state === 'completed' ? 'completed' : s.state === 'failed' ? 'failed' : s.state === 'stopped' || s.state === 'interrupted' ? 'interrupted' : 'unknown';
 }
 
-/** A block's receipt as sealed (see the module comment); `project` and `projectId` are the run's. */
+/**
+ * A block's receipt as sealed (see the module comment); `project` and `projectId` are the run's. R4 (H81): a block whose
+ * outcome is unknown (upmd ended while it ran, and nothing stopped it) is sealed with no status: neither ok nor failed is
+ * known of it; its words (the subject and block.outcome) say unknown.
+ */
 export function blockReceiptInput(f: BlockFacts, o: { label: string; project: string; projectId: string; operation?: string }): ReceiptInput {
-  const status = f.outcome === 'completed' ? 'ok' as const : f.outcome === 'failed' ? 'failed' as const : f.outcome === 'interrupted' ? 'cancelled' as const : 'failed' as const;
+  const status = f.outcome === 'completed' ? 'ok' as const : f.outcome === 'failed' ? 'failed' as const : f.outcome === 'interrupted' ? 'cancelled' as const : undefined;
   return {
-    kind: BLOCK_RECEIPT_KIND, subject: `workflow · block · ${o.label} · ${f.name} · ${f.outcome}`, policy: 'human-gated', status,
+    kind: BLOCK_RECEIPT_KIND, subject: `workflow · block · ${o.label} · ${f.name} · ${f.outcome}`, policy: 'human-gated', ...(status ? { status } : {}),
     project: o.project, project_id: o.projectId, block: f,
     // a receipt sealed outside the run's operation (a later REPL's recovery) still names the run's
     ...(o.operation ? { operation_id: o.operation } : {}),

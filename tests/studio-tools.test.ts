@@ -86,6 +86,7 @@ describe('the canvas tools under NEEDS YOU', () => {
     expect(approvalNeeded('canvas_exec', { code: 'editor.createShape({ type: "geo" })' })).toEqual({
       reason: 'runs code in the canvas page, which can reach the network',
       summary: 'editor.createShape({ type: "geo" })',
+      session: false, // R4 (H81): asked every time, never allowed for the session
     });
   });
 });

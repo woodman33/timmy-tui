@@ -231,6 +231,10 @@ function connectBridge() {
       runningJob = typeof message.jobId === 'string' ? message.jobId : null;
       drawnInCall = new Set();
       try {
+        // R4 (H81): this code runs in this page's own realm, with the page's own rights: it can reach the network, replace
+        // the page's globals and rewrite what the page and its cards show. It cannot read the cards' session or turn a
+        // person's click on one card button into another's (./cards.js says how), but it can put a card's button under a
+        // person's next click. The REPL's NEEDS YOU box for canvas_exec, asked before every script, is the barrier.
         const result = await new AsyncFunction('editor', 'helpers', message.code)(editor, helpers);
         const json = JSON.stringify(result === undefined ? null : result);
         answer = json.length > MAX_ANSWER
@@ -407,16 +411,17 @@ function connectPanel() {
   setInterval(() => { if (document.visibilityState === 'visible') void refreshJobs(); }, 5000);
   // Round R4 (H55): the project the REPL named, as cards to place on the canvas (./project.js). R4 (H75): read with each card's
   // drawn detail, which the drawn cards follow; Place card makes one; the reading comes faster while a card's job runs.
+  // R4 (H81): read through the drawn cards' own reader: the cards' detail only with this page's session (./cards.js read), and
+  // the line under the panel follows the session (a session that ended is said so).
+  const acts = document.getElementById('project-acts');
+  const showSession = () => { const s = cards.session(); acts.textContent = s.words; acts.dataset.kind = s.state; };
   projectPanel = createProjectPanel({
     editor: () => current, toRichText, createShapeId, place: placeAt, reveal,
-    detail: true, onAnswer: (now) => cards.onAnswer(now), fast: () => cards.wantsFast(),
+    read: () => cards.read(), onAnswer: (now) => { cards.onAnswer(now); showSession(); }, fast: () => cards.wantsFast(),
     drawable: (kind) => drawnType(kind) !== null, placeCard: (id, now) => cards.place(id, now),
   });
   cards.setPoll(() => projectPanel.poll());
-  const s = cards.session();
-  const acts = document.getElementById('project-acts');
-  acts.textContent = s.words;
-  acts.dataset.kind = s.state;
+  showSession();
 }
 
 // Round R4 (H55): where a placed project card goes: the middle of the area beside Timmy's panel, each next one a step
@@ -478,7 +483,7 @@ function mount(snapshot) {
           window.timmyCanvas = {
             editor, tldrawVersion: BUILT_WITH, licenseState: window.timmyCanvas?.licenseState ?? 'pending', document: canvas, mounts,
             placeProjectCard, refreshProjectCards: () => (projectPanel ? projectPanel.refreshAll() : Promise.reject(new Error('The project panel is not ready yet.'))),
-            // R4 (H75): a drawn card of the project (it places a shape; acting needs a person's click on it)
+            // R4 (H75): a drawn card of the project (it places a shape; its buttons act only for a person's click on them, R4 H81)
             placeDrawnCard: (id) => (projectPanel ? projectPanel.placeCard(String(id)) : Promise.reject(new Error('The project panel is not ready yet.'))),
           };
           attachEditor(editor);

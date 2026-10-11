@@ -35,6 +35,8 @@ import { kit } from '../src/repl/board-kit.js';
 import { toolsPanel } from '../src/repl/board-room.js';
 import { glyphSet } from '../src/term/glyphs.js';
 import { appendReceipt, type Receipt, type ReceiptInput } from '../src/utils/receipts.js';
+import { folderProject } from '../src/project/index.js';
+import { Workspace } from '../src/repl/workspace.js';
 import { LATER_LAYERS } from '../src/vox/layers.js';
 
 const ROOT = resolve('.');
@@ -229,6 +231,83 @@ describe('exercised: Timmy\'s own run here, judged and sealed on a chain that ve
     const r = byId(await capabilities((await machine({ path: temp('ladder-bin-'), root })).deps));
     expect(r.stress).toMatchObject({ rung: 'needs setup', setup: 'brew install oha', exercised: turn.ts, ladder: { installed: null, exercised: { receipt: turn.hash.slice(7, 15) } } });
   });
+});
+
+/**
+ * R4 (H81): an Unreal run's records as the runner writes them (job.json, its first pass's verdict judged ok, and its
+ * readbacks), its words made up: a FAKE run. `readbacks`: each readback's verdict, oldest first.
+ */
+function unrealRecord(root: string, run: string, readbacks: Array<'agrees' | 'differs'>): void {
+  put(root, `.timmy/native/${run}/job.json`, JSON.stringify({ record: 'timmy-native-run', v: 1, app: 'unreal', run, program: 'UnrealEditor-Cmd', label: 'FAKE Unreal run', project: 'ladder', started_at: '2026-10-10T09:00:00.000Z', expect: [] }));
+  put(root, `.timmy/native/${run}/verdicts.jsonl`, `${JSON.stringify({ judged_at: '2026-10-10T09:01:00.000Z', outcome: 'ok', why: 'FAKE: written by the test', exit: { code: 0, signal: null, state: 'completed' }, files: [] })}\n`);
+  addReadbacks(root, run, readbacks);
+}
+function addReadbacks(root: string, run: string, verdicts: Array<'agrees' | 'differs'>): void {
+  const lines = verdicts.map((verdict, i) => JSON.stringify({ readback: 1, app: 'unreal', at: `2026-10-10T09:0${2 + i}:00.000Z`, job: `j0000a${i}`, run, token: 'f'.repeat(8), state: 'completed', levels: [], tolerance: { location_cm: 0.5, rotation_matrix: 0.001, scale: 0.001, bounds_cm: 0.5 }, verdict, reason: 'FAKE: written by the test', scope: 'FAKE' }));
+  const file = join(root, '.timmy', 'native', run, 'readbacks.jsonl');
+  writeFileSync(file, `${existsSync(file) ? readFileSync(file, 'utf8') : ''}${lines.map((l) => `${l}\n`).join('')}`);
+}
+
+describe('R4 (H81): an Unreal run is exercised only as unrealRunOutcome decides it (a REAL chain, FAKE run records)', () => {
+  it('a first pass sealed ok whose newest readback differed is not exercised, and says why; once its newest readback agrees, it is', async () => {
+    const bin = temp('ladder-bin-');
+    program(bin, 'UnrealEditor-Cmd');
+    const root = temp('ladder-project-');
+    const run = '0a1b2c3d-0000-4000-8000-0000000000a1';
+    unrealRecord(root, run, ['differs']);
+    const native = seal(root, { kind: 'native', native: { app: 'unreal', outcome: 'ok', why: 'FAKE: a run made up for this test', exit_code: 0, signal: null, files: [], run, unreal_version: '5.8.2 (FAKE)' } });
+    let r = byId(await capabilities((await machine({ path: bin, root })).deps));
+    expect(r.unreal.ladder!.exercised).toBeNull();
+    expect(r.unreal.exercised).toBeUndefined();
+    expect(r.unreal.notReached!.exercised).toBe('no Unreal run here whose newest readback agreed with its first pass (the first pass alone is never trusted), sealed on a chain that verifies; its records are read in the project Timmy works in');
+    // the newest readback agrees: its first pass's receipt counts, said with its readback
+    addReadbacks(root, run, ['agrees']);
+    r = byId(await capabilities((await machine({ path: bin, root })).deps));
+    expect(r.unreal).toMatchObject({
+      rung: 'exercised', exercised: native.ts,
+      ladder: { exercised: { receipt: native.hash.slice(7, 15), record: `.timmy/native/${run}/job.json`, what: 'a unreal run judged ok from its own result file, and its newest readback by a second Unreal process agreed (the app said version 5.8.2 (FAKE))' } },
+    });
+    // a newer readback that differs takes it back
+    addReadbacks(root, run, ['differs']);
+    r = byId(await capabilities((await machine({ path: bin, root })).deps));
+    expect(r.unreal.ladder!.exercised).toBeNull();
+  });
+
+  it('the run\'s records are read in the project the checks are given: elsewhere, the same receipt counts for nothing', async () => {
+    const bin = temp('ladder-bin-');
+    program(bin, 'UnrealEditor-Cmd');
+    const root = temp('ladder-project-');
+    const run = '0a1b2c3d-0000-4000-8000-0000000000a2';
+    unrealRecord(root, run, ['agrees']);
+    seal(root, { kind: 'native', native: { app: 'unreal', outcome: 'ok', why: 'FAKE', exit_code: 0, signal: null, files: [], run } });
+    const env = { PATH: bin, HOME: temp('ladder-home-'), TIMMY_STUDIO_URL: `http://127.0.0.1:${await closedPort()}` };
+    const here = byId(await capabilities(liveDeps({ env, model: 'fake/chat-model (FAKE)', storeDir: root, projectRoot: root })));
+    expect(here.unreal.ladder!.exercised).not.toBeNull();
+    const elsewhere = byId(await capabilities(liveDeps({ env, model: 'fake/chat-model (FAKE)', storeDir: root, projectRoot: temp('ladder-other-') })));
+    expect(elsewhere.unreal.ladder!.exercised).toBeNull();
+  });
+});
+
+describe('R4 (H81): the Control Room\'s tools check reads the ladder\'s evidence in the REPL\'s project, never this process\'s folder', () => {
+  it('a Workspace on a project elsewhere: its /room tools check finds that project\'s Unreal run (its records and the default store\'s receipt)', async () => {
+    const root = temp('ladder-repl-project-');
+    expect(root).not.toBe(realpathSync(process.cwd()));
+    const run = '0a1b2c3d-0000-4000-8000-0000000000a3';
+    unrealRecord(root, run, ['agrees']);
+    // the receipt goes where the REPL's own checks read: the store this process seals to (a store of this test file's own)
+    const native = appendReceipt('runs', { kind: 'native', subject: 'native · the ladder tests', policy: 'human-gated', status: 'ok', project: 'ladder', native: { app: 'unreal', outcome: 'ok', why: 'FAKE', exit_code: 0, signal: null, files: [], run } } as ReceiptInput);
+    const jobs = temp('ladder-repl-jobs-');
+    const ws = new Workspace({
+      glyphs: glyphSet(true), env: { ...process.env, PATH: temp('ladder-bin-'), TIMMY_STUDIO_URL: `http://127.0.0.1:${await closedPort()}`, TASKFORGE_API_URL: '' },
+      onPath: () => null, notify: () => {}, openWeb: (u) => u, link: (t) => t,
+      seal: (input) => appendReceipt('runs', input).hash.slice(7, 15), jobsDir: join(jobs, 'jobs'), chdir: () => {}, recoverAtStart: false,
+    }, folderProject(root));
+    try {
+      await ws.room('');
+      const rows = (ws as unknown as { roomTools?: { rows: CapabilityRow[] } }).roomTools?.rows ?? [];
+      expect(rows.find((x) => x.id === 'unreal')?.ladder?.exercised).toMatchObject({ receipt: native.hash.slice(7, 15) });
+    } finally { await ws.close(); }
+  }, 60_000);
 });
 
 describe('qualified: a formal qualification record only', () => {

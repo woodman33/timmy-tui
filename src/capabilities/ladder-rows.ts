@@ -182,6 +182,9 @@ function exercisedMark(r: Built, c: LadderContext): RunMark | undefined {
   return marks.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))[0];
 }
 
+/** R4 (H81): why the Unreal row is not exercised: its run must be read back by a second Unreal process, which agreed. */
+const UNREAL_NOT_EXERCISED = 'no Unreal run here whose newest readback agreed with its first pass (the first pass alone is never trusted), sealed on a chain that verifies; its records are read in the project Timmy works in';
+
 /** Whether Timmy seals a run that could exercise this row at all. */
 const hasExerciseSource = (r: Built): boolean => Boolean(r.exercisedBy || r.tools?.length || r.id.startsWith('vox:') || r.id.startsWith('mcp-cli') || r.id === 'openrouter');
 
@@ -220,7 +223,8 @@ export function ladderFor(r: Built, c: LadderContext): LadderFields {
   else if (!hasExerciseSource(r)) notReached.exercised = 'not recorded: Timmy seals no run of this row on its own';
   else if (!read) notReached.exercised = recipe ? 'not read: the project\'s recipe jobs were not checked here' : 'not read: the receipts were not checked here';
   else if (!recipe && c.chain?.broken) notReached.exercised = `${NOT_REACHED.brokenChain} (${c.chain.broken})`;
-  else notReached.exercised = NOT_REACHED.exercised;
+  // R4 (H81): an Unreal first pass judged ok counts only once its newest readback agreed (unrealRunOutcome: succeeded)
+  else notReached.exercised = r.exercisedBy === 'native:unreal' ? UNREAL_NOT_EXERCISED : NOT_REACHED.exercised;
 
   // qualified: a formal qualification record only
   const qualifiedNow = r.id === 'openrouter' ? c.chain?.qualified.get('model:openrouter') : undefined;

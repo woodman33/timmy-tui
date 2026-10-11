@@ -405,7 +405,8 @@ export async function runRepl(argv: string[]): Promise<number> {
   // Round R1: /tools, every capability on the ladder, from live checks that write nothing. R4 (H76): /tools <name>, one
   // row in full (each rung's evidence and its demonstrations on the Mac), looked for among every row.
   const tools = async (args: string): Promise<Segment[][]> => {
-    const rows = await capabilities(liveDeps({ env: process.env, key: () => config.apiKey ?? null, model: agent.getModel() }), { all: args.trim() !== '' });
+    // R4 (H81): the project's own records are read in the REPL's project now (it follows /project), never process.cwd()
+    const rows = await capabilities(liveDeps({ env: process.env, key: () => config.apiKey ?? null, model: agent.getModel(), projectRoot: workspace.root }), { all: args.trim() !== '' });
     return toolsView(rows, args, theme.glyphs, size.columns);
   };
   let lastCanvas: CanvasJobResult[] = [];

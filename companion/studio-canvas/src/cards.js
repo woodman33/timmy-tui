@@ -11,11 +11,109 @@
 // actions now, and this page has a session (it was opened by /canvas open, whose one-time grant it traded for one). Else the
 // card says which is missing and gives the typed command instead of a button.
 //
-// The session token lives only in this module's closure (never on window, in storage, in the page's text or the canvas), and
-// an action goes out only from a click the browser marks as the person's own (event.isTrusted): code run on the page through
-// the agent's canvas bridge cannot press a card's buttons. Every text is set as text (React escapes it); nothing is markup.
+// R4 (H81): what code on this page can and cannot do. The agent's canvas bridge runs code on this page (canvas.js, as an
+// async function, after the REPL's NEEDS YOU box for canvas_exec asked about it), in this page's own realm: such code can
+// replace any global (fetch, JSON, Object.create, Event.prototype.target, WeakMap.prototype.get), define getters on
+// Object.prototype (which the browser consults for every member a request's init leaves out), add listeners that run before
+// this module's, and rewrite the page. So:
+//   - everything an action and a reading of the cards rely on is taken as this module is evaluated (SAFE, below), before
+//     tldraw starts and before the bridge connects; each request's init and headers are objects with no prototype, every
+//     member this module relies on set on them, so the session token is never handed to code through a prototype;
+//   - the session token lives only in this module's closure (never on window, in storage, in the page's text or the canvas);
+//   - an action goes out only for a click the browser marks as the person's own (event.isTrusted), on a button this module
+//     drew, and it is the action this module recorded for that button when it drew it (never an attribute, a field or the
+//     focus read when the click comes), checked again against the card's record and the reading now.
+// What code on the page can still do: change what the page and its cards show, block a click, and move or cover a card's
+// button so that a person's next click lands on it. It cannot read the session or turn a click on one button into another
+// button's action. The barrier for code on the page is the REPL's own NEEDS YOU box for canvas_exec, asked before every
+// script (src/repl/approvals.ts); the REPL then checks each action against the live board's state, asks NEEDS YOU before a
+// risky block, and records it. Every text is set as text (React escapes it); nothing is markup.
 //
 // Nothing here imports anything: canvas.js hands in React and tldraw's classes, so the rules below run in Node's tests too.
+
+// ── R4 (H81): what actions and readings rely on, taken as this module is evaluated ─────────────────────────────────────
+const G = globalThis;
+const descriptor = (o, k) => (o ? G.Object.getOwnPropertyDescriptor(o, k) : undefined);
+const SAFE = G.Object.freeze({
+  apply: G.Reflect.apply,
+  create: G.Object.create,
+  keys: G.Object.keys,
+  setPrototypeOf: G.Object.setPrototypeOf,
+  isArray: G.Array.isArray,
+  stringify: G.JSON.stringify,
+  parse: G.JSON.parse,
+  isFinite: G.Number.isFinite,
+  WeakMap: G.WeakMap,
+  weakGet: G.WeakMap.prototype.get,
+  weakSet: G.WeakMap.prototype.set,
+  weakDelete: G.WeakMap.prototype.delete,
+  fetch: typeof G.fetch === 'function' ? G.Function.prototype.bind.call(G.fetch, G) : null,
+  text: G.Response ? G.Response.prototype.text : null,
+  ok: descriptor(G.Response && G.Response.prototype, 'ok')?.get ?? null,
+  status: descriptor(G.Response && G.Response.prototype, 'status')?.get ?? null,
+  target: descriptor(G.Event && G.Event.prototype, 'target')?.get ?? null,
+});
+
+/**
+ * A JSON value copied into objects (and arrays) with no prototype, so JSON.stringify finds no toJSON or getter through
+ * Object.prototype or Array.prototype while it writes an action. Only plain JSON values are kept.
+ */
+function bare(v) {
+  if (v === null || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (typeof v === 'number') return SAFE.isFinite(v) ? v : null;
+  if (typeof v !== 'object') return null;
+  if (SAFE.isArray(v)) {
+    // its prototype goes first, so no setter on Array.prototype or Object.prototype sees (or keeps) an element
+    const a = SAFE.setPrototypeOf([], null);
+    for (let i = 0; i < v.length; i++) a[i] = bare(v[i]);
+    return a;
+  }
+  const o = SAFE.create(null);
+  const keys = SAFE.keys(v);
+  for (let i = 0; i < keys.length; i++) o[keys[i]] = bare(v[keys[i]]);
+  return o;
+}
+
+/**
+ * One request's init, with no prototype and every member this module relies on set on it; its headers likewise (a record
+ * with no prototype: no getter on Object.prototype, and no iterator on any prototype, is ever asked for them). `token`: the
+ * session to send, or null; `json`: the body, or undefined for none.
+ */
+function requestInit(method, token, json) {
+  const headers = SAFE.create(null);
+  if (json !== undefined) headers['Content-Type'] = 'application/json';
+  if (typeof token === 'string' && token) headers.Authorization = `Bearer ${token}`;
+  const init = SAFE.create(null);
+  init.method = method;
+  init.headers = headers;
+  if (json !== undefined) init.body = SAFE.stringify(bare(json));
+  init.mode = 'same-origin';
+  init.credentials = 'omit';
+  init.cache = 'no-store';
+  init.redirect = 'error';
+  init.referrer = '';
+  init.referrerPolicy = 'no-referrer';
+  init.integrity = '';
+  init.keepalive = false;
+  init.signal = null;
+  init.window = null;
+  return init;
+}
+
+/**
+ * A request to the canvas server through the fetch taken at load: its status and its body as JSON (null when it is not).
+ * Only startSession's answer holds a session token, and it is read before tldraw starts and before the bridge connects
+ * (canvas.js start()), so no code of the agent's is on the page while it is.
+ */
+async function request(path, method, token, json) {
+  if (!SAFE.fetch || !SAFE.text) throw new Error('this page cannot make requests');
+  const r = await SAFE.fetch(path, requestInit(method, token, json));
+  const status = SAFE.status ? SAFE.apply(SAFE.status, r, []) : 0;
+  const ok = SAFE.ok ? SAFE.apply(SAFE.ok, r, []) === true : false;
+  let body = null;
+  try { body = SAFE.parse(await SAFE.apply(SAFE.text, r, [])); } catch { body = null; }
+  return { status, ok, body: body && typeof body === 'object' && !SAFE.isArray(body) ? body : null };
+}
 
 /** The shape type of each drawn card, and which project card kinds each one draws. */
 export const CARD_SHAPES = { workflow: 'timmy-workflow', params: 'timmy-params', result: 'timmy-result' };
@@ -36,8 +134,9 @@ const CHECK_WORD = { verified: 'verified', stale: 'stale', unverified: 'not veri
 const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
 
 /**
- * What a card can do now, in words. `answer` is the last GET /api/project?detail=1 (null before the first), `session` whether
- * this page holds one. A result card is always a diagram of its record.
+ * What a card can do now, in words. `answer` is the last reading of the project (null before the first): GET
+ * /api/project?detail=1 with this page's session, or (R4 H81) the plain card list with `detail: false` and `detailWhy` when
+ * the page has no session that reads the detail. `session` whether this page holds one. A result card is always a diagram.
  */
 export function cardMode(type, props, answer, session) {
   const diagram = (words, follows = false) => ({ executable: false, badge: 'diagram', words, follows });
@@ -47,6 +146,9 @@ export function cardMode(type, props, answer, session) {
   if (answer.project.id !== props.projectId) return diagram(`Not followed now: the canvas shows ${answer.project.name}, not ${name}. Shown as last read.`);
   const card = (answer.cards || []).find((c) => c.id === props.card);
   if (!card) return diagram(`Its record is not in ${name} now: shown as last read.`);
+  // R4 (H81): the detail (each block's command, each value) is read only with a session that counts: without one the card
+  // is shown as last read, and says why
+  if (answer.detail === false) return diagram(`${one(answer.detailWhy) || 'Its detail was not read: this page has no session that reads it.'} Shown as last read.`);
   if (type === 'result') return diagram('A diagram of its record, read from Timmy now: nothing runs from this card.', true);
   if (!answer.actions || answer.actions.holder !== true) return diagram(one(answer.actions?.words) || `No Timmy REPL takes ${name}'s actions now.`, true);
   if (!session) return diagram('Read from Timmy now, but this page cannot act: it was not opened by /canvas open in Timmy, or it was reloaded since. Type the command in Timmy, or /canvas open there.', true);
@@ -85,6 +187,22 @@ export function saveAct(detail, typed, base) {
     : { action: 'set-scad-params', model: detail.model, base: base ?? '', parameters };
 }
 
+/**
+ * R4 (H81): whether the card's detail read now still offers the action a button was drawn with (`act`, as recorded when it was
+ * drawn): the same block of the same document, the same recipe's rebuild, a save of the same file by the same path. A click
+ * on a button whose card no longer offers its action sends nothing.
+ */
+export function offeredNow(act, detail) {
+  if (!act || !detail) return false;
+  if (act.action === 'run') { const a = runAct(detail, act.block); return !!a && a.doc === act.doc && a.block === act.block; }
+  if (act.action === 'rebuild') { const a = rebuildAct(detail); return !!a && a.recipe === act.recipe; }
+  if (act.action === 'set-params' || act.action === 'set-scad-params') {
+    const a = saveAct(detail, {}, null);
+    return !!a && a.action === act.action && (a.recipe ?? null) === (act.recipe ?? null) && (a.model ?? null) === (act.model ?? null);
+  }
+  return false;
+}
+
 /** A value as the card's field shows it. */
 export const shownValue = (v) => (typeof v === 'number' ? String(Math.round(v * 1e6) / 1e6) : String(v));
 
@@ -121,9 +239,6 @@ function clock(iso) {
 export function createCards(deps) {
   const { React, BaseBoxShapeUtil, HTMLContainer, T, atom, useValue, resizeBox } = deps;
   const h = React.createElement;
-  // The fetch this module uses, taken as the page loads: code run on the page later (the agent's canvas bridge) cannot
-  // wrap it to see the session's header.
-  const send = window.fetch.bind(window);
   /** The last reading of the project, for every card. */
   const live = atom('timmy cards: the project as read', { answer: null, error: null });
   /** Each card's action in flight and its last answer, by shape id. */
@@ -133,16 +248,25 @@ export function createCards(deps) {
   const session = atom('timmy cards: session', { state: 'none', words: 'This page was opened without a grant from Timmy: its cards cannot act.' });
   let poll = async () => {};
   let fastUntil = 0;
+  /**
+   * R4 (H81): each button this module drew, by its element, with the action it sends and the card it belongs to, recorded
+   * as it was drawn (actRef, below). A click sends only what is recorded here for the very element clicked.
+   */
+  const drawn = new SAFE.WeakMap();
+  const recorded = (el) => SAFE.apply(SAFE.weakGet, drawn, [el]);
 
   const setAct = (id, v) => acts.update((all) => ({ ...all, [id]: { ...(all[id] || {}), ...v } }));
 
-  /** Trades the grant this page was opened with for a session, once; says how it went. */
+  /**
+   * Trades the grant this page was opened with for a session, once; says how it went. It runs before tldraw starts and before
+   * the agent's bridge connects (canvas.js start()), so no code of the agent's is on the page while the token is read.
+   */
   async function startSession() {
     const grant = deps.grant;
     if (!grant) return session.get();
     try {
-      const r = await send('/api/project/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ grant }), cache: 'no-store', credentials: 'omit' });
-      const body = await r.json();
+      const r = await request('/api/project/session', 'POST', null, { grant });
+      const body = r.body || {};
       if (r.ok && body.ok === true && typeof body.token === 'string' && /^[0-9a-f]{64}$/.test(body.token)) {
         token = body.token;
         session.set({ state: 'ok', words: 'This page was opened by Timmy: its executable cards can act.' });
@@ -155,16 +279,51 @@ export function createCards(deps) {
     return session.get();
   }
 
+  /** What a page without a session that reads the detail is told: the plain card list only. */
+  const NO_DETAIL = 'This page reads only the project\'s card list: it has no session from Timmy (it was not opened by /canvas open in Timmy, or it was reloaded since), and a card\'s blocks, values and checks are read with one. Type the command in Timmy, or /canvas open there.';
+  /** R4 (H81): a session the server said does not count for the project shown (until when not to ask again, why, for which). */
+  const notFor = { until: 0, why: NO_DETAIL, project: undefined };
+
+  /**
+   * R4 (H81): one reading of the project for the panel and the cards: with this page's session, GET /api/project?detail=1
+   * (each card's detail); without one, or when the server says the session does not read this project now, the plain card
+   * list, marked `detail: false` with why. A session that has ended is let go (the panel then says so).
+   */
+  async function read() {
+    let why = NO_DETAIL;
+    if (token && Date.now() >= notFor.until) {
+      const r = await request('/api/project?detail=1', 'GET', token);
+      if (r.ok && r.body && r.body.ok === true) { notFor.until = 0; return { ...r.body, detail: true }; }
+      if (r.status !== 401) throw new Error(`Timmy answered ${r.status} for the project`);
+      const said = r.body || {};
+      why = one(said.error) || 'Timmy did not let this page\'s session read the cards\' detail.';
+      if (said.session === 'expired' || said.session === 'unknown' || said.session === 'none') {
+        token = null;
+        session.set({ state: 'refused', words: why });
+      } else {
+        // given for another project, or by another REPL: asked again in 30 s, or as soon as the canvas shows another project
+        notFor.until = Date.now() + 30_000;
+        notFor.why = why;
+        notFor.project = undefined;
+      }
+    } else if (token) why = notFor.why;
+    const plain = await request('/api/project', 'GET', null);
+    if (!plain.ok || !plain.body) throw new Error(`Timmy answered ${plain.status} for the project`);
+    const shows = plain.body.project ? plain.body.project.id : null;
+    if (notFor.until && notFor.project === undefined) notFor.project = shows;
+    else if (notFor.until && notFor.project !== shows) notFor.until = 0;
+    return { ...plain.body, detail: false, detailWhy: why };
+  }
+
   /** One action of one card, sent to the REPL that holds the project; the answer is kept on the card. */
   async function act(shapeId, body) {
     if (!token) { setAct(shapeId, { busy: false, answer: { ok: false, text: 'This page has no session: /canvas open in Timmy opens one that has.' } }); return; }
     setAct(shapeId, { busy: true, answer: null });
     let answer;
     try {
-      const r = await send('/api/project/act', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body), cache: 'no-store', credentials: 'omit',
-      });
-      const got = await r.json().catch(() => ({}));
+      // the request's init and headers have no prototype, and its body is written from objects with none (requestInit)
+      const r = await request('/api/project/act', 'POST', token, body);
+      const got = r.body || {};
       answer = { ok: r.ok && got.ok === true, status: r.status, text: one(got.text) ? String(got.text) : one(got.error) || `Timmy answered ${r.status}.`, act: body.act.action };
     } catch (e) {
       answer = { ok: false, status: 0, text: `The action did not reach Timmy Canvas: ${e instanceof Error ? e.message : String(e)}`, act: body.act.action };
@@ -175,39 +334,46 @@ export function createCards(deps) {
   }
 
   /**
-   * Every button that acts goes through here, from the browser's own click event: only a click the browser marks as the
-   * person's (a pointer, or Enter or Space on the focused button) acts; one made by script (element.click(), a dispatched
-   * event) is ignored.
+   * R4 (H81): a ref for a button this module draws, recording the action it sends as it is drawn: the card's shape, its type,
+   * card and project, the action (from the reading the card was drawn from, and for a save the values typed in this card's own
+   * state), and whether the button is enabled. React calls it again on every drawing, so the record is always the drawing's.
+   */
+  const actRef = (shape, type, act, enabled) => (el) => {
+    if (!el || !act) return undefined;
+    const rec = { shapeId: shape.id, type, card: shape.props.card, projectId: shape.props.projectId, act, enabled: enabled === true };
+    SAFE.apply(SAFE.weakSet, drawn, [el, rec]);
+    return () => { if (recorded(el) === rec) SAFE.apply(SAFE.weakDelete, drawn, [el]); };
+  };
+
+  /**
+   * Every button that acts goes through here, from the browser's own click event. R4 (H81): it acts only for a click the
+   * browser marks as the person's (isTrusted: a pointer, or Enter or Space on the focused button; never element.click() or a
+   * dispatched event), whose target (read with the getter taken at load) is a button this module drew and recorded, enabled
+   * when drawn, on a card whose shape, project and card are still the ones recorded, while the card is executable and its
+   * reading still offers that action. What it sends is the recorded action: no attribute, field or focus of the page is read.
    */
   function onClick(e) {
-    if (!(e instanceof MouseEvent) || e.isTrusted !== true) return;
-    const b = e.target instanceof Element ? e.target.closest('button[data-tc-act]') : null;
-    if (!b || b.disabled) return;
-    const root = b.closest('[data-timmy-card]');
+    if (e.isTrusted !== true || !SAFE.target) return;
+    const target = SAFE.apply(SAFE.target, e, []);
+    const rec = target ? recorded(target) : undefined;
+    if (!rec || !rec.enabled) return;
+    if ((acts.get()[rec.shapeId] || {}).busy) return;
     const editor = deps.editor();
-    const shape = root && editor ? editor.getShape(root.getAttribute('data-timmy-card')) : null;
-    if (!shape || !isDrawnCard(shape)) return;
-    const type = TYPE_OF_SHAPE[shape.type];
+    const shape = editor ? editor.getShape(rec.shapeId) : null;
+    if (!shape || !isDrawnCard(shape) || TYPE_OF_SHAPE[shape.type] !== rec.type || shape.props.card !== rec.card || shape.props.projectId !== rec.projectId) return;
     const now = live.get().answer;
-    const mode = cardMode(type, shape.props, now, token !== null);
+    const mode = cardMode(rec.type, shape.props, now, token !== null);
     if (!mode.executable) return;
-    const card = (now.cards || []).find((c) => c.id === shape.props.card);
-    const detail = card && card.detail;
-    const what = b.getAttribute('data-tc-act');
-    let a = null;
-    if (what === 'run') a = runAct(detail, b.getAttribute('data-tc-block'));
-    else if (what === 'rebuild') a = rebuildAct(detail);
-    else if (what === 'save') {
-      const typed = {};
-      for (const f of root.querySelectorAll('[data-tc-param]')) typed[f.getAttribute('data-tc-param')] = f.value;
-      const form = root.querySelector('[data-tc-base]');
-      a = saveAct(detail, typed, form ? form.getAttribute('data-tc-base') || null : detail && detail.base);
-    }
-    if (a) void act(shape.id, { project: shape.props.projectId, card: shape.props.card, act: a });
+    const card = (now.cards || []).find((c) => c.id === rec.card);
+    if (!offeredNow(rec.act, card && card.detail)) return;
+    void act(rec.shapeId, { project: rec.projectId, card: rec.card, act: rec.act });
   }
   if (typeof document !== 'undefined') document.addEventListener('click', onClick, true);
 
-  /** A reading of the project: every card follows it, and each placed card keeps it (only what changed is written). */
+  /**
+   * A reading of the project: every card follows it, and each placed card keeps it (only what changed is written). R4 (H81):
+   * a reading without the detail keeps each card's last detail as it was.
+   */
   function onAnswer(answer) {
     live.set({ answer, error: null });
     const editor = deps.editor();
@@ -218,6 +384,10 @@ export function createCards(deps) {
       const card = (answer.cards || []).find((c) => c.id === r.props.card);
       if (!card) {
         if (!r.props.gone) updates.push({ id: r.id, type: r.type, props: { gone: true, readAt: answer.madeAt } });
+        continue;
+      }
+      if (answer.detail === false) {
+        if (r.props.gone || r.props.title !== card.title || r.props.command !== card.command) updates.push({ id: r.id, type: r.type, props: { gone: false, title: card.title, command: card.command } });
         continue;
       }
       const kept = keptDetail(card.detail);
@@ -252,7 +422,8 @@ export function createCards(deps) {
     const shapeId = deps.createShapeId();
     editor.createShape({
       id: shapeId, type: CARD_SHAPES[type], x: at.x, y: at.y,
-      props: { w: WIDTH[type], h: 160, card: card.id, kind: card.kind, projectId: answer.project.id, project: answer.project.name, title: card.title, command: card.command, data: keptDetail(card.detail), readAt: answer.madeAt, open: false, gone: false },
+      // R4 (H81): a reading without the detail places the card with none (it says why, and "never read")
+      props: { w: WIDTH[type], h: 160, card: card.id, kind: card.kind, projectId: answer.project.id, project: answer.project.name, title: card.title, command: card.command, data: answer.detail === false ? null : keptDetail(card.detail), readAt: answer.detail === false ? '' : answer.madeAt, open: false, gone: false },
     });
     editor.select(shapeId);
     try { deps.reveal(editor, [shapeId]); } catch { /* showing it is a courtesy */ }
@@ -327,8 +498,9 @@ export function createCards(deps) {
     const d = detail && detail.type === 'workflow' ? detail : null;
     const busy = !!(own && own.busy);
     const blocks = d ? d.blocks : [];
+    // R4 (H81): each Run button carries its own recorded action (actRef): the block it was drawn for, never one read at the click
     const runOf = (b) => (mode.executable && d.runnable && b.runnable
-      ? h('button', { type: 'button', className: 'tc-btn', 'data-tc-act': 'run', 'data-tc-block': b.name, disabled: busy, onPointerDown: handled, title: `Sends /run ${d.doc} ${b.name} to Timmy (Run up to here)` }, 'Run up to here')
+      ? h('button', { type: 'button', className: 'tc-btn', 'data-tc-act': 'run', 'data-tc-block': b.name, disabled: busy, ref: actRef(shape, 'workflow', runAct(d, b.name), !busy), onPointerDown: handled, title: `Sends /run ${d.doc} ${b.name} to Timmy (Run up to here)` }, 'Run up to here')
       : d.runnable && b.runnable ? cmd(`/run ${d.doc} ${b.name}`) : span('tc-note', '/run cannot name this block as one word'));
     const last = d && d.last;
     return h(Frame, {
@@ -387,13 +559,15 @@ export function createCards(deps) {
       ] : words('tc-note', 'No reading of this file yet.'),
     },
     words('tc-state', stateWords),
-    view ? h('form', { className: 'tc-form', 'data-tc-base': over ? over.base ?? '' : d.base ?? '', onSubmit: (e) => e.preventDefault() },
+    view ? h('form', { className: 'tc-form', onSubmit: (e) => e.preventDefault() },
       h('table', { className: 'tc-table' }, h('tbody', null, ...rows)),
       d && d.more ? words('tc-note', `${d.more} more values: /open ${d.file}`) : null) : null,
     d ? h('div', { className: 'tc-acts' },
-      editable ? h('button', { type: 'button', className: 'tc-btn', 'data-tc-act': 'save', disabled: busy || !(dirty || d.state === 'unusable'), onPointerDown: handled, title: 'Sends the live board\'s parameter save to Timmy' }, 'Save') : null,
+      // R4 (H81): Save sends the values typed into this card's own state and the sha256 of the reading they were typed over,
+      // recorded as the button is drawn (actRef): the fields' text on the page is never read when the click comes
+      editable ? h('button', { type: 'button', className: 'tc-btn', 'data-tc-act': 'save', disabled: busy || !(dirty || d.state === 'unusable'), ref: actRef(shape, 'params', saveAct(view, typed, (over ? over.base : d.base) ?? null), !(busy || !(dirty || d.state === 'unusable'))), onPointerDown: handled, title: 'Sends the live board\'s parameter save to Timmy' }, 'Save') : null,
       editable && dirty ? h('button', { type: 'button', className: 'tc-btn tc-quiet', onPointerDown: handled, onClick: () => { setTyped({}); setOver(null); } }, 'Discard') : null,
-      mode.executable && d.rebuild ? h('button', { type: 'button', className: 'tc-btn', 'data-tc-act': 'rebuild', disabled: busy || dirty, onPointerDown: handled, title: dirty ? 'Save first: Rebuild uses the saved file' : `Sends Rebuild (${d.run}) to Timmy` }, 'Rebuild') : null,
+      mode.executable && d.rebuild ? h('button', { type: 'button', className: 'tc-btn', 'data-tc-act': 'rebuild', disabled: busy || dirty, ref: actRef(shape, 'params', rebuildAct(d), !(busy || dirty)), onPointerDown: handled, title: dirty ? 'Save first: Rebuild uses the saved file' : `Sends Rebuild (${d.run}) to Timmy` }, 'Rebuild') : null,
       !mode.executable || !d.save.offered ? cmd(d.run) : null,
       !editable && d.state !== 'none' ? cmd(`/open ${d.file}`) : null,
       mode.executable && !d.save.offered ? words('tc-note', d.save.why) : null) : null,
@@ -449,6 +623,8 @@ export function createCards(deps) {
   const utils = [make('workflow', WorkflowCard), make('params', ParamsCard), make('result', ResultCard)];
   return {
     utils, startSession, onAnswer, wantsFast, place,
+    // R4 (H81): the panel's reading of the project (with the detail only through this page's session)
+    read,
     setPoll: (f) => { poll = f; },
     /** For the tests and the status line: the session in words (never the token). */
     session: () => session.get(),

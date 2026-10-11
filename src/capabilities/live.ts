@@ -17,7 +17,8 @@ import { readChain, verifyChain } from '../utils/receipts.js';
 import { integrationCatalog } from '../vision/integrations/registry.js';
 import type { OpenRouterAnswer, ProbeDeps } from './index.js';
 import { LANE_RUNNERS } from '../agent/lanes.js';
-import { listNativeRuns, nativeRunIndex } from '../native/index.js';
+import { listNativeRuns, nativeRunIndex, readNativeRecord, type NativeRunRules } from '../native/index.js';
+import { unrealRunOutcome } from '../native/unreal-readback.js';
 import { agentExercisedIndex } from '../code-agents/index.js';
 import { OUTCOME_RULE } from '../repl/seal.js';
 import { recipeExercisedAt } from '../recipes/index.js';
@@ -96,6 +97,17 @@ export function liveDeps(o: LiveOptions): ProbeDeps {
   let verified: ReturnType<typeof verifyChain> | null = null;
   const verify = (): ReturnType<typeof verifyChain> => (verified ??= verifyChain('runs', o.storeDir));
   const project = (): string => o.projectRoot ?? process.cwd();
+  // R4 (H81): an Unreal run counts as shown working only by its outcome as unrealRunOutcome decides it (its newest readback),
+  // read from its records in the project Timmy works in; a run whose records are not there is not known to have succeeded.
+  const rules: NativeRunRules = {
+    unrealOutcome: (run) => {
+      try {
+        const rec = readNativeRecord(project(), run);
+        const last = rec?.verdicts.at(-1);
+        return rec && last && rec.job.app === 'unreal' ? unrealRunOutcome(rec.dir, last, rec.result, []).state : undefined;
+      } catch { return undefined; }
+    },
+  };
   return {
     env,
     onPath: (bin) => onPath(bin, env),
@@ -121,14 +133,14 @@ export function liveDeps(o: LiveOptions): ProbeDeps {
     nativeRuns: () => {
       let runs: ReturnType<typeof listNativeRuns> = [];
       try { runs = listNativeRuns(project()); } catch { /* no project runs here */ }
-      return nativeRunIndex(verify().ok ? receipts() : [], runs);
+      return nativeRunIndex(verify().ok ? receipts() : [], runs, rules);
     },
     edgeSet: () => edgeUrlOrNull() !== null,
     // R3 (/recipe): the project's own durable recipe jobs, each read back through its signed result.
     recipeExercised: () => { try { return recipeExercisedAt(project()); } catch { return undefined; } },
     // R4 (H76): the ladder's evidence (src/capabilities/evidence.ts): nothing here runs a program or contacts anything.
     which: (bin) => whichOnPath(bin, env),
-    chainEvidence: () => chainEvidence(receipts(), verify()),
+    chainEvidence: () => chainEvidence(receipts(), verify(), rules),
     recipeMark: () => recipeMark(project()),
     // Its qualification records live in Timmy's repository (docs/orders), which the npm package does not carry.
     qualificationRoot: () => packageRoot(import.meta.url),

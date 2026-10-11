@@ -315,21 +315,222 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
     }
   }, 120_000);
 
-  it('a page opened without the grant is read but cannot act: the card says why and gives the typed command', async () => {
+  it('a page opened without the grant reads only the card list and cannot act: the card says why and gives the typed command (R4 H81: the detail needs a session)', async () => {
     const { page, context, errors } = await open({ grant: false });
     try {
       expect(await text(page, '#project-acts')).toBe('This page was opened without a grant from Timmy: its cards cannot act.');
       const wf = await place(page, 'workflow:RUN.md');
-      await page.waitForSelector(`${card(wf.shape)} .tc-blocks`);
+      await page.waitForSelector(`${card(wf.shape)} .tc-mode`);
       expect(await text(page, `${card(wf.shape)} .tc-badge`)).toBe('diagram');
-      expect(await text(page, `${card(wf.shape)} .tc-mode`)).toMatch(/^Read from Timmy now, but this page cannot act: it was not opened by \/canvas open in Timmy/);
+      expect(await text(page, `${card(wf.shape)} .tc-mode`)).toMatch(/^This page reads only the project's card list: it has no session from Timmy \(it was not opened by \/canvas open in Timmy, or it was reloaded since\)/);
       expect(await page.locator(`${card(wf.shape)} button[data-tc-act]`).count()).toBe(0);
-      expect(await page.$$eval(`${card(wf.shape)} .tc-block .tc-cmd`, (n) => n.map((x) => x.textContent))).toEqual(['/run RUN.md setup', '/run RUN.md build']);
-      expect(errors).toEqual([]);
+      // no detail was read: no blocks, no block commands; the card's own typed command
+      expect(await page.locator(`${card(wf.shape)} .tc-blocks`).count()).toBe(0);
+      expect(await text(page, `${card(wf.shape)} .tc-note`)).toBe('/run RUN.md build');
+      expect(await text(page, `${card(wf.shape)} .tc-read`)).toBe('never read');
+      // R4 (H81): the detail itself, asked for by the page without a session: refused, no command in the answer
+      const asked = await page.evaluate(async () => { const r = await fetch('/api/project?detail=1', { cache: 'no-store' }); return { status: r.status, body: await r.text() }; });
+      expect(asked.status).toBe(401);
+      expect(asked.body).not.toContain('mkdir -p dist');
+      expect(JSON.parse(asked.body)).toMatchObject({ ok: false, session: 'none' });
+      expect(errors.filter((e) => !/status of 401/.test(e))).toEqual([]);
     } finally {
       await context.close();
     }
   }, 90_000);
+
+  /** A person's click through Chromium's own input (CDP Input.dispatchMouseEvent): a trusted click, at the element's middle. */
+  async function personClick(page: Page, context: BrowserContext, sel: string): Promise<void> {
+    const box = await page.locator(sel).boundingBox();
+    if (!box) throw new Error(`${sel} is not on screen`);
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    const cdp = await context.newCDPSession(page);
+    try {
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 });
+    } finally { await cdp.detach(); }
+  }
+
+  it('R4 (H81): getters page script puts on Object.prototype (and a wrapped fetch and JSON.stringify) never see the session, and a person\'s click still acts', async () => {
+    const { page, context } = await open();
+    try {
+      const wf = await place(page, 'workflow:RUN.md');
+      const run = `${card(wf.shape)} button[data-tc-act="run"][data-tc-block="setup"]`;
+      await page.waitForSelector(run);
+      await show(page, wf.shape);
+      // Page script, as code the agent's canvas bridge runs on the page could install it: a getter (and a setter that keeps
+      // the value) on Object.prototype for every member a request's init or headers might leave out, an iterator getter, and
+      // fetch and JSON.stringify wrapped. Each records whatever it sees that holds a session's header (Bearer and 64 hex digits).
+      await page.evaluate(() => {
+        const w = window as unknown as { __hits: string[]; __calls: number; __fetches: string[] };
+        w.__hits = [];
+        w.__calls = 0;
+        w.__fetches = [];
+        const own = Object.getOwnPropertyNames;
+        const desc = Object.getOwnPropertyDescriptor;
+        // what an object holds as its own data (never through a getter), two levels deep: a request's init and its headers
+        const scan = (o: unknown, depth: number): string => {
+          if (!o || typeof o !== 'object' || depth > 2 || Array.isArray(o) || o instanceof Node) return '';
+          let s = '';
+          let keys: string[] = [];
+          try { keys = own(o).slice(0, 200); } catch { return ''; }
+          for (const k of keys) {
+            const d = desc(o, k);
+            if (!d || !('value' in d)) continue;
+            if (typeof d.value === 'string') s += `${k}=${d.value.slice(0, 200)};`;
+            else s += scan(d.value, depth + 1);
+          }
+          return s;
+        };
+        let inside = false;
+        const look = (where: string, v: unknown): void => {
+          if (inside) return;
+          inside = true;
+          try {
+            w.__calls += 1;
+            const s = typeof v === 'string' ? v : scan(v, 0);
+            if (/Bearer [0-9a-f]{64}/.test(s)) w.__hits.push(`${where}: ${s.slice(0, 300)}`);
+          } finally { inside = false; }
+        };
+        const names = ['integrity', 'keepalive', 'mode', 'redirect', 'referrer', 'referrerPolicy', 'signal', 'window', 'priority', 'duplex', 'cache', 'credentials',
+          'method', 'headers', 'body', 'attributionReporting', 'browsingTopics', 'privateToken', 'adAuctionHeaders', 'sharedStorageWritable', 'targetAddressSpace',
+          'Authorization', 'authorization', 'Content-Type'];
+        for (const n of names) {
+          Object.defineProperty(Object.prototype, n, {
+            configurable: true,
+            get(this: unknown) { look(`get ${n}`, this); return undefined; },
+            set(this: object, v: unknown) { look(`set ${n}`, v); Object.defineProperty(this, n, { value: v, writable: true, enumerable: true, configurable: true }); },
+          });
+        }
+        Object.defineProperty(Object.prototype, Symbol.iterator, { configurable: true, get(this: unknown) { look('iterator', this); return undefined; } });
+        const realFetch = window.fetch;
+        window.fetch = function (input: RequestInfo | URL, init?: RequestInit) { look('fetch', init); w.__fetches.push(String(input)); return realFetch.call(window, input, init); } as typeof fetch;
+        const realStringify = JSON.stringify;
+        JSON.stringify = function (v: unknown, ...rest: unknown[]) { look('stringify', v); return (realStringify as (...a: unknown[]) => string)(v, ...rest); } as typeof JSON.stringify;
+      });
+      const jobsBefore = ws.jobs.list().length;
+      await personClick(page, context, run);
+      await page.waitForFunction((s) => /^canvas \/run RUN\.md setup/.test(document.querySelector(`${s} .tc-answer`)?.textContent ?? ''), card(wf.shape), { timeout: 20_000 });
+      expect(notes).toContain('  canvas  /run RUN.md setup');
+      expect(ws.jobs.list().length).toBe(jobsBefore + 1);
+      // A save of the canvas went through the wrapped fetch and the getters meanwhile (so they were live), and none of
+      // them saw the session.
+      await page.waitForFunction(() => (window as unknown as { __fetches: string[] }).__fetches.length > 0, null, { timeout: 15_000 });
+      const seen = await page.evaluate(() => { const w = window as unknown as { __hits: string[]; __calls: number; __fetches: string[] }; return { hits: w.__hits, calls: w.__calls, fetches: w.__fetches }; });
+      expect(seen.calls).toBeGreaterThan(0);
+      expect(seen.fetches).not.toContain('/api/project/act');
+      expect(seen.hits).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  }, 120_000);
+
+  it('R4 (H81): a window capture listener that rewrites the clicked button (and a replaced Event.prototype.target and WeakMap.prototype.get) does not change what is sent; a button the page made itself sends nothing', async () => {
+    const { page, context } = await open();
+    try {
+      const wf = await place(page, 'workflow:RUN.md');
+      const setupSel = `${card(wf.shape)} button[data-tc-act="run"][data-tc-block="setup"]`;
+      await page.waitForSelector(setupSel);
+      await show(page, wf.shape);
+      // each button by an id of the test's own (React leaves an id it did not set alone): the page script below rewrites the
+      // attributes a selector would use
+      await page.evaluate((c) => {
+        document.querySelector(`${c} button[data-tc-act="run"][data-tc-block="setup"]`)!.id = 'h81-setup';
+        document.querySelector(`${c} button[data-tc-act="run"][data-tc-block="build"]`)!.id = 'h81-build';
+      }, card(wf.shape));
+      const setup = '#h81-setup';
+      const notesFrom = notes.length;
+      const buildsBefore = ws.jobs.list().filter((j) => j.label === 'RUN.md › build').length;
+      const ran = (): string[] => notes.slice(notesFrom).filter((n) => n.startsWith('  canvas  /run RUN.md')).map((n) => n.trim());
+      /** A person's click on the setup button; what the REPL was sent for it (it answers once the run has started). */
+      const clickSetup = async (): Promise<string | undefined> => {
+        const before = ran().length;
+        await page.waitForFunction((s) => !(document.querySelector(s) as HTMLButtonElement | null)?.disabled, setup);
+        await personClick(page, context, setup);
+        for (let i = 0; i < 100 && ran().length === before; i++) await new Promise((r) => setTimeout(r, 100));
+        await page.waitForFunction((s) => !(document.querySelector(s) as HTMLButtonElement | null)?.disabled, setup);
+        return ran()[before];
+      };
+      // 1. Page script: a window capture listener (it runs before cards.js's own, on document) rewrites the setup button to
+      //    name the build block, as the click comes.
+      await page.evaluate(() => {
+        const b = document.getElementById('h81-setup')!;
+        window.addEventListener('click', () => { b.setAttribute('data-tc-block', 'build'); b.setAttribute('title', 'Sends /run RUN.md build to Timmy (Run up to here)'); }, true);
+      });
+      expect(await clickSetup()).toBe('canvas  /run RUN.md setup');
+      // 2. ... and every event's target is said to be the build button
+      await page.evaluate(() => {
+        const build = document.getElementById('h81-build')!;
+        (window as unknown as { __target?: PropertyDescriptor }).__target = Object.getOwnPropertyDescriptor(Event.prototype, 'target');
+        Object.defineProperty(Event.prototype, 'target', { configurable: true, get() { return build; } });
+      });
+      expect(await clickSetup()).toBe('canvas  /run RUN.md setup');
+      // 3. ... and every WeakMap lookup of a button answers for the build button
+      await page.evaluate(() => {
+        const build = document.getElementById('h81-build')!;
+        const get = WeakMap.prototype.get;
+        WeakMap.prototype.get = function (this: WeakMap<object, unknown>, k: object) { return get.call(this, k instanceof HTMLButtonElement ? build : k); };
+      });
+      expect(await clickSetup()).toBe('canvas  /run RUN.md setup');
+      expect(ran()).toEqual(['canvas  /run RUN.md setup', 'canvas  /run RUN.md setup', 'canvas  /run RUN.md setup']);
+      expect(ws.jobs.list().filter((j) => j.label === 'RUN.md › build').length).toBe(buildsBefore);
+      // A button the page made itself, inside the card, with the attributes cards.js's own buttons carry: a person's click on
+      // it sends nothing (it is not a button cards.js drew).
+      await page.evaluate((c) => {
+        Object.defineProperty(Event.prototype, 'target', (window as unknown as { __target: PropertyDescriptor }).__target);
+        const root = document.querySelector(c)!;
+        const fake = document.createElement('button');
+        fake.type = 'button';
+        fake.textContent = 'Run up to here';
+        fake.setAttribute('data-tc-act', 'run');
+        fake.setAttribute('data-tc-block', 'build');
+        fake.id = 'not-cards-own';
+        fake.style.cssText = 'position:relative;z-index:10;padding:6px';
+        root.querySelector('.tc-head')!.append(fake);
+      }, card(wf.shape));
+      const acts: string[] = [];
+      page.on('request', (r) => { if (new URL(r.url()).pathname === '/api/project/act') acts.push(r.method()); });
+      const before = { jobs: ws.jobs.list().length, notes: notes.length };
+      await personClick(page, context, '#not-cards-own');
+      await page.waitForTimeout(1500);
+      // Nothing went to the REPL: no request to the act route, no action noted, no job. (Other notes, from runs the earlier
+      // tests started, may still arrive meanwhile, so only the REPL's note of a canvas action is looked for.)
+      expect(acts).toEqual([]);
+      expect(notes.slice(before.notes).filter((n) => /^\s+canvas\s/.test(n))).toEqual([]);
+      expect(ws.jobs.list().length).toBe(before.jobs);
+    } finally {
+      await context.close();
+    }
+  }, 120_000);
+
+  it("R4 (H81): Save sends the values typed into the card, not what page script writes into its fields at the click", async () => {
+    const { page, context } = await open();
+    try {
+      const pc = await place(page, `params:${TRAY}`);
+      const at = card(pc.shape);
+      await page.waitForSelector(`${at} [data-tc-param="width"]`);
+      await show(page, pc.shape);
+      const was = JSON.parse(readFileSync(join(p.root, TRAY), 'utf8')).parameters.width as number;
+      const typedWidth = was === 150 ? 151 : 150;
+      await page.click(`${at} [data-tc-param="width"]`);
+      await page.fill(`${at} [data-tc-param="width"]`, String(typedWidth));
+      await page.waitForFunction((s) => !(document.querySelector(`${s} button[data-tc-act="save"]`) as HTMLButtonElement).disabled, at);
+      // Page script: as the click comes, before cards.js's listener, write another width into the field (no input event)
+      await page.evaluate((s) => {
+        window.addEventListener('click', () => {
+          const f = document.querySelector(`${s} [data-tc-param="width"]`) as HTMLInputElement | null;
+          if (f) f.value = '199';
+        }, true);
+      }, at);
+      await personClick(page, context, `${at} button[data-tc-act="save"]`);
+      await page.waitForFunction((s) => /^Saved recipes\/tray\.params\.json: width /.test(document.querySelector(`${s} .tc-answer`)?.textContent ?? ''), at, { timeout: 20_000 });
+      expect(JSON.parse(readFileSync(join(p.root, TRAY), 'utf8')).parameters.width).toBe(typedWidth);
+    } finally {
+      await context.close();
+    }
+  }, 120_000);
 
   it('when no REPL takes the actions, or the canvas shows another project, an executable card turns into a diagram that says so', async () => {
     const { page, context, errors } = await open();
@@ -350,7 +551,10 @@ describe.skipIf(!browserPath)("Timmy Canvas's own drawn cards in a real browser"
       await page.waitForFunction((s) => /^Not followed now: the canvas shows other, not demo\./.test(document.querySelector(`${s} .tc-mode`)?.textContent ?? ''), at, { timeout: 15_000 });
       expect(await page.locator(`${at} [data-tc-param]`).count()).toBe(0);
       expect(await text(page, `${at} .tc-read`)).toMatch(/^as last read at /);
-      expect(errors).toEqual([]);
+      // R4 (H81): the page's session was given for demo, so the server refused it the other project's detail (Chromium logs
+      // that 401); the page then reads only the card list, and asks for the detail again in 30 s, or once the project changes
+      expect(errors.filter((e) => !/status of 401/.test(e))).toEqual([]);
+      expect(errors.filter((e) => /status of 401/.test(e)).length).toBeLessThanOrEqual(2);
     } finally {
       await context.close();
     }

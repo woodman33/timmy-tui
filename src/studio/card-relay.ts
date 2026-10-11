@@ -11,16 +11,32 @@
  *   and answers at POST /api/project/inbox/<id>. Both carry the server's token and no Origin (they come from the REPL, never
  *   a page), and only the holder of the project named now is given its actions.
  * - The page gets the right to act from the REPL, never from this server alone: `/canvas open` asks for a grant (POST
- *   /api/project/grant: the server's token, no Origin; 128 random bits, one use, 2 minutes) and opens the page with it in the
- *   address's fragment, which a browser never sends; the page removes it from the address at once and trades it, in a JSON
- *   body, for a session (POST /api/project/session): 32 random bytes kept only in the page's memory and only their sha256
- *   here. A page opened any other way, or reloaded, has none, and its cards say so and give the typed command.
+ *   /api/project/grant: the server's token, no Origin; 128 random bits, one use, 2 minutes; R4 H81: for the project named
+ *   then and the REPL holding it, so it is refused while no project is named) and opens the page with it in the address's
+ *   fragment, which a browser never sends; the page removes it from the address at once and trades it, in a JSON body, for
+ *   a session (POST /api/project/session): 32 random bytes kept only in the page's memory and only their sha256 here. A
+ *   page opened any other way, or reloaded, has none, and its cards say so and give the typed command.
+ * - R4 (H81): a session lasts SESSION_MS (12 hours) from its making, not renewed by use, and counts only for the project and
+ *   the holder its grant was made for: once another project (or another REPL, or none) holds the canvas, it neither reads
+ *   the cards' detail nor acts until the canvas shows that project from that REPL again. /canvas open gives a new one.
+ * - R4 (H81): the cards' detail (GET /api/project?detail=1: each block's command, each parameter file's values) is read with
+ *   the server's token (the REPL) or a page session that counts now (src/studio/project-link.ts); the plain card list (GET
+ *   /api/project) needs neither.
  * - A page's action (POST /api/project/act) passes the live board's own rules for actions: Host is exactly this server's
- *   address (127.0.0.1 or localhost with its own port) and Origin is exactly that page's; `Authorization: Bearer <session>`;
- *   JSON only, at most ACT_LIMIT bytes, exactly {project, card, act}; the act one of run, rebuild, set-params and
- *   set-scad-params, and the one its card offers (a workflow card runs its own document, a parameter card saves and rebuilds
- *   its own file); the card's project the one named now; and a REPL holding it now. Nothing else is relayed; the token goes
- *   in a header, never in an address or a log.
+ *   address (127.0.0.1 or localhost with its own port) and Origin is exactly that page's; `Authorization: Bearer <session>`,
+ *   a session that counts now; JSON only, at most ACT_LIMIT bytes, exactly {project, card, act}; the act one of run,
+ *   rebuild, set-params and set-scad-params, and the one its card offers (a workflow card runs its own document, a
+ *   parameter card saves and rebuilds its own file); the card's project the one named now; and a REPL holding it now.
+ *   Nothing else is relayed; the token goes in a header, never in an address or a log.
+ * - What these rules prove, and what they do not (R4 H81): a request that passes them came from this canvas page, which
+ *   holds a session. They cannot tell the page's own code from other code running in it: the agent's canvas_exec runs its
+ *   code in the page (companion/studio-canvas/src/canvas.js). The page's own code sends an action only for a person's click
+ *   on a button it drew, and keeps the session where such code cannot read it (companion/studio-canvas/src/cards.js), but
+ *   code on the page can still change what the page shows and move a button under a person's next click. The REPL's own
+ *   NEEDS YOU box for canvas_exec, asked before every script (src/repl/approvals.ts), is the barrier for code on the page;
+ *   and the REPL checks every action against the live board's state, asks NEEDS YOU before a risky block, and records it.
+ *   Not a barrier: the bridge's own route, POST /api/canvas/exec (src/studio/server.ts), takes code from any program on this
+ *   machine without a token, and such code is asked about by no one (open).
  * - An action no REPL picked up in PICKUP_MS was not run, and the page is told so; one picked up but not answered in
  *   ANSWER_MS may have run, and the page is told that instead.
  *
@@ -50,6 +66,8 @@ const ANSWER_LIMIT = 64 * 1024;
 const SESSIONS_MAX = 32;
 const GRANTS_MAX = 64;
 export const GRANT_MS = 120_000;
+/** R4 (H81): how long a page's session lasts from its making (use does not renew it; /canvas open gives a new one). */
+export const SESSION_MS = 12 * 60 * 60 * 1000;
 export const POLL_MS = 25_000;
 export const PICKUP_MS = 10_000;
 export const ANSWER_MS = 120_000;
@@ -100,13 +118,31 @@ export function actFits(card: string, act: Record<string, unknown>): string | nu
   return `A canvas card sends ${CARD_ACTS.join(', ')}; nothing else.`;
 }
 
-export interface RelayOptions { now?: () => number; pollMs?: number; pickupMs?: number; answerMs?: number; grantMs?: number }
+export interface RelayOptions { now?: () => number; pollMs?: number; pickupMs?: number; answerMs?: number; grantMs?: number; sessionMs?: number }
+
+/** R4 (H81): what a grant, and the session traded for it, was made for: the project named then (its id) and its holder. */
+export interface SessionFor { project: string; holder: string | null }
+
+/** R4 (H81): whether a page's session counts now, and why not in words (`why`: none, unknown, expired, project, holder). */
+export type SessionCheck = { ok: true } | { ok: false; why: 'none' | 'unknown' | 'expired' | 'project' | 'holder'; words: string };
+
+const SESSION_WORDS = {
+  none: NO_SESSION,
+  unknown: 'Refused: this canvas page\'s session is not one this canvas server made (it restarted since, or the session was let go). In Timmy: /canvas open.',
+  expired: 'Refused: this canvas page\'s session has ended (a session lasts 12 hours). In Timmy: /canvas open gives the page a new one.',
+  project: 'Refused: this canvas page\'s session was given for another project than the one the canvas shows now. In Timmy: /canvas open, from the REPL that holds this project.',
+  holder: 'Refused: this canvas page\'s session was given by another Timmy REPL than the one that holds the project now. In Timmy: /canvas open, from the REPL that holds it.',
+} as const;
 
 /** The grants, the page sessions, and the actions waiting for (or handed to) the REPL that holds the project. */
 export class CardRelay {
-  private readonly grants = new Map<string, number>();
-  /** sha256 of each page session token, with when it was made: the tokens themselves are kept only by the pages */
-  private readonly sessions = new Map<string, number>();
+  /** R4 (H81): each grant with when it ends and what it was made for */
+  private readonly grants = new Map<string, { until: number; for: SessionFor }>();
+  /**
+   * sha256 of each page session token, with when it ends and what it was given for (R4 H81): the tokens themselves are kept
+   * only by the pages
+   */
+  private readonly sessions = new Map<string, { until: number; for: SessionFor }>();
   private readonly queue: Pending[] = [];
   private readonly handed = new Map<string, Pending>();
   private poller: { holder: string; give: (e: CardEnvelope | null) => void } | null = null;
@@ -120,33 +156,61 @@ export class CardRelay {
   /** The server is stopping: no more polls are held. */
   get stopping(): boolean { return this.closed; }
 
-  /** A one-time grant for a page the REPL opens (its fragment carries it). */
-  grant(): { grant: string; expires: string } {
+  /**
+   * A one-time grant for a page the REPL opens (its fragment carries it). R4 (H81): for the project named now and the REPL
+   * holding it (`forWhat`); the session traded for it counts only for them.
+   */
+  grant(forWhat: SessionFor): { grant: string; expires: string } {
     const now = this.now();
-    for (const [g, until] of this.grants) if (until <= now) this.grants.delete(g);
+    for (const [g, x] of this.grants) if (x.until <= now) this.grants.delete(g);
     while (this.grants.size >= GRANTS_MAX) this.grants.delete(this.grants.keys().next().value!);
     const grant = randomBytes(16).toString('hex');
     const until = now + (this.o.grantMs ?? GRANT_MS);
-    this.grants.set(grant, until);
+    this.grants.set(grant, { until, for: { project: forWhat.project, holder: forWhat.holder } });
     return { grant, expires: new Date(until).toISOString() };
   }
 
-  /** A page's session for a grant, once: null when the grant was never made here, was used, or has expired. */
+  /**
+   * A page's session for a grant, once: null when the grant was never made here, was used, or has expired. R4 (H81): it
+   * lasts SESSION_MS from now and counts for what its grant was made for.
+   */
   exchange(grant: string): string | null {
-    const until = this.grants.get(grant);
-    if (until === undefined) return null;
+    const g = this.grants.get(grant);
+    if (g === undefined) return null;
     this.grants.delete(grant);
-    if (until <= this.now()) return null;
+    const now = this.now();
+    if (g.until <= now) return null;
     const token = randomBytes(32).toString('hex');
-    this.sessions.set(sha(token), this.now());
+    for (const [h, s] of this.sessions) if (s.until <= now) this.sessions.delete(h);
+    this.sessions.set(sha(token), { until: now + (this.o.sessionMs ?? SESSION_MS), for: g.for });
     while (this.sessions.size > SESSIONS_MAX) this.sessions.delete(this.sessions.keys().next().value!);
     return token;
   }
 
-  /** Whether an Authorization header carries a page session made here (by the sha256 of its token). */
+  /** Whether an Authorization header carries a page session made here that has not ended (by the sha256 of its token). */
   session(header: unknown): boolean {
     const m = typeof header === 'string' ? SESSION.exec(header) : null;
-    return !!m && this.sessions.has(sha(m[1]));
+    const s = m ? this.sessions.get(sha(m[1])) : undefined;
+    return !!s && s.until > this.now();
+  }
+
+  /**
+   * R4 (H81): whether a page's session counts now for `named` (the project named to the canvas now, or null): made here, not
+   * ended, and given for that project and the REPL holding it now. With no project named, a session that has not ended counts
+   * (there is nothing of a project to read or act on). An ended session is let go.
+   */
+  sessionFor(header: unknown, named: Pick<NamedProject, 'id' | 'holder'> | null): SessionCheck {
+    const no = (why: Exclude<SessionCheck, { ok: true }>['why']): SessionCheck => ({ ok: false, why, words: SESSION_WORDS[why] });
+    const m = typeof header === 'string' ? SESSION.exec(header) : null;
+    if (!m) return no('none');
+    const key = sha(m[1]);
+    const s = this.sessions.get(key);
+    if (!s) return no('unknown');
+    if (s.until <= this.now()) { this.sessions.delete(key); return no('expired'); }
+    if (!named) return { ok: true };
+    if (s.for.project !== named.id) return no('project');
+    if (s.for.holder !== named.holder) return no('holder');
+    return { ok: true };
   }
 
   /** Whether the holder asks for actions: it waits in a poll now, or asked moments ago. */
@@ -282,10 +346,13 @@ export function mountCardRoutes(app: express.Express, o: CardRoutes): void {
     try { return JSON.parse(raw) as unknown; } catch { res.status(400).json({ ok: false, error: 'Send valid JSON.' }); return undefined; }
   };
 
-  // The REPL: a grant for the page it opens.
+  // The REPL: a grant for the page it opens. R4 (H81): for the project named now and the REPL holding it, so none while no
+  // project is named (the REPL names its project first, then asks).
   app.post('/api/project/grant', (req, res) => {
     if (!fromRepl(req, res)) return;
-    res.json({ ok: true, ...o.relay.grant() });
+    const p = o.link.project;
+    if (!p) { res.status(409).json({ ok: false, error: 'No project is named to this canvas: a grant is for the project named, so name one first (POST /api/project/active).' }); return; }
+    res.json({ ok: true, ...o.relay.grant({ project: p.id, holder: p.holder }) });
   });
 
   // The page: its grant, once, for a session kept in its memory.
@@ -301,12 +368,16 @@ export function mountCardRoutes(app: express.Express, o: CardRoutes): void {
     res.json({ ok: true, token });
   });
 
-  // The page: one card's action, carried to the REPL that holds the project, and its answer back.
+  // The page: one card's action, carried to the REPL that holds the project, and its answer back. What passing these checks
+  // proves, and what it does not, is said in this module's comment (R4 H81): a request from this page with a session that
+  // counts now; never, by itself, a person's click.
   app.post('/api/project/act', async (req, res) => {
     res.set('Cache-Control', 'no-store');
     const refused = fromOwnPage(req, o.port());
     if (refused) { res.status(403).json({ ok: false, error: refused }); return; }
-    if (!o.relay.session(req.headers.authorization)) { res.status(401).set('WWW-Authenticate', 'Bearer').json({ ok: false, error: NO_SESSION }); return; }
+    // R4 (H81): a session that has not ended, given for the project named now and the REPL that holds it
+    const counts = o.relay.sessionFor(req.headers.authorization, o.link.project);
+    if (!counts.ok) { res.status(401).set('WWW-Authenticate', 'Bearer').json({ ok: false, error: counts.words }); return; }
     const body = await jsonBody(req, res, ACT_LIMIT);
     if (body === undefined) return;
     if (!isObject(body) || !keysAre(body, ['act', 'card', 'project']) || typeof body.project !== 'string' || typeof body.card !== 'string' || body.card.length > 600
@@ -316,6 +387,9 @@ export function mountCardRoutes(app: express.Express, o: CardRoutes): void {
     }
     const p = o.link.project;
     if (!p) { res.status(409).json({ ok: false, error: 'No project is named to this canvas; nothing was run. In Timmy: /canvas open.' }); return; }
+    // the project named may have changed while the body was read: the session must still count for the one named now
+    const still = o.relay.sessionFor(req.headers.authorization, p);
+    if (!still.ok) { res.status(401).set('WWW-Authenticate', 'Bearer').json({ ok: false, error: still.words }); return; }
     if (body.project !== p.id) { res.status(409).json({ ok: false, error: `The canvas shows ${p.name} now, not this card's project; nothing was run.` }); return; }
     const fit = actFits(body.card, body.act);
     if (fit) { res.status(400).json({ ok: false, error: `${fit} Nothing was run.` }); return; }

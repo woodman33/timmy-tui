@@ -2,8 +2,8 @@
  * NEEDS YOU (plan C-7, playbook §17.8). A dangerous-only policy decides which tool calls wait for the
  * operator: read-only tools never ask; calls that send data or actions off the machine always ask;
  * every workspace shell command asks; unknown tools ask. The box offers y (once), a (this session),
- * n, Esc or Enter (deny, the default); a shell command and get_env ask every time, so their box has
- * no a. Without a terminal: deny.
+ * n, Esc or Enter (deny, the default); a shell command, get_env and (R4 H81) canvas_exec, among others,
+ * ask every time, so their box has no a. Without a terminal: deny.
  */
 import { emitKeypressEvents, type Key } from 'node:readline';
 import { currentOperation } from '../ops/context.js';
@@ -55,7 +55,10 @@ const ALWAYS: Record<string, { reason: string; keys: string[]; session?: false }
   browser_launch_cdp: { reason: 'opens a browser', keys: ['url'] },
   browser_click_element: { reason: 'acts on a web page', keys: ['refId'] },
   list_card: { reason: 'posts a listing to a marketplace', keys: ['title', 'name'] },
-  canvas_exec: { reason: 'runs code in the canvas page, which can reach the network', keys: ['code'] },
+  // R4 (H81): asked every time. The code runs in the canvas page's own realm, with the page's own rights: it can reach the
+  // network, change what the page and its cards show, and put a card's button where your next click lands. This box is
+  // the barrier for code on the page, so each script is shown before it runs and no answer lets the next one run unseen.
+  canvas_exec: { reason: 'runs code in the canvas page, which can reach the network', keys: ['code'], session: false },
   // R4 (H55): fixed code; one note on the canvas, saved with it (Undo removes it); without a card it only lists them.
   canvas_place_project_card: { reason: 'places a card of your project on Timmy Canvas (one note, saved with the canvas)', keys: ['card'] },
   write_project_file: { reason: 'changes a file in your project', keys: ['path'] },

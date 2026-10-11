@@ -168,6 +168,29 @@ describe('one receipt per block, sealed as it ends (the test-double upmd over a 
     expect(text(ws.jobsView(job.id)).split('\n')[3]).toBe(`      ${G.bullet} after  not run`);
   }, 60_000);
 
+  it('R4 (H81): upmd ends while a block it started has not (it was killed, not by Timmy): that block\'s receipt says unknown and carries no status, neither ok nor failed', async () => {
+    // the block kills its parent, the test-double upmd, with SIGKILL: upmd prints no end line for it
+    const doc = ['# Dies', '', `${F}bash [name:first]`, 'echo first', F, '', `${F}bash [name:cut, deps:first]`, 'kill -9 $PPID; sleep 0.2', F, ''].join('\n');
+    const root = project({ 'DIES.md': doc });
+    const { ws } = make(root);
+    await typed(ws, 'DIES.md cut');
+    const job = await jobOf(ws, 'DIES.md › cut');
+    const done = await ws.jobs.done(job.id);
+    await sleep(80);
+    expect(done.state).toBe('failed');
+    const chain = chainOf(root);
+    expect(chain.map((r) => [r.kind, r.block?.name ?? null])).toEqual([['predict', null], [BLOCK_RECEIPT_KIND, 'first'], [BLOCK_RECEIPT_KIND, 'cut'], ['workflow', null]]);
+    const [, first, cut, run] = chain;
+    expect(first).toMatchObject({ status: 'ok', block: { outcome: 'completed' } });
+    expect(cut).toMatchObject({ subject: 'workflow · block · DIES.md › cut · cut · unknown', block: { name: 'cut', state: 'running', outcome: 'unknown', exit_code: null } });
+    expect(Object.hasOwn(cut, 'status')).toBe(false);
+    expect(cut.block!.interrupted_by).toBeUndefined();
+    expect(run).toMatchObject({ status: 'failed', child_receipts: [short(first), short(cut)] });
+    expect(verifyChain('runs', root).ok).toBe(true);
+    // the views keep their word for it
+    expect(blockReceiptsOf(chain, job.id).get('cut')).toMatchObject({ outcome: 'unknown', receipt: short(cut) });
+  }, 60_000);
+
   it('the document changed while the run ran: the block\'s receipt says so, and its code hash is the code /run read', async () => {
     const doc = ['# Slow', '', `${F}bash [name:slow]`, 'sleep 1', 'echo slept', F, ''].join('\n');
     const root = project({ 'SLOW.md': doc });
