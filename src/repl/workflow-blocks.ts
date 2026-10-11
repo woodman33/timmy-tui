@@ -148,6 +148,9 @@ export class BlockSealer {
 
 // ── a run whose REPL ended: sealed by the next REPL's recovery ───────────────
 
+/** R4 (H88): what cut a left run's blocks, when it was not its REPL's end: a stop (its words), at that time. */
+export interface LeftCut { by: BlockCut; words?: string; at?: string }
+
 export interface LeftBlocksDeps {
   seal: (input: ReceiptInput) => string | undefined;
   chain: () => readonly Receipt[];
@@ -178,9 +181,10 @@ function docThen(job: JobRecord, chain: readonly Receipt[]): { doc?: string; doc
  * The block receipts a run whose REPL ended still needs, sealed by recovery from its job record as recovery wrote it: each
  * step that ended (seen by its pty wrapper) or was interrupted, that no block receipt of the run names yet (the REPL may
  * have sealed some before it ended). Each names the run's operation. A step still running in the record (recovery could
- * not end it) and a block that never started get none. Returns the receipts sealed, in step order.
+ * not end it) and a block that never started get none. Returns the receipts sealed, in step order. R4 (H88): `cut`, a run
+ * its own Timmy ended at once (a second Ctrl-C): its cut block is sealed as interrupted by that stop, with its words.
  */
-export function sealLeftBlocks(d: LeftBlocksDeps, job: JobRecord): Array<{ name: string; receipt: string }> {
+export function sealLeftBlocks(d: LeftBlocksDeps, job: JobRecord, cut?: LeftCut): Array<{ name: string; receipt: string }> {
   let chain: readonly Receipt[] = [];
   try { chain = d.chain(); } catch { chain = []; }
   const have = blockReceiptsOf(chain, job.id);
@@ -193,7 +197,7 @@ export function sealLeftBlocks(d: LeftBlocksDeps, job: JobRecord): Array<{ name:
     const block = then.blocks ? blockOf(then.blocks, s) : undefined;
     const before = i > 0 ? job.steps[i - 1] : undefined;
     const fromAt = before?.endedAt ? Date.parse(before.endedAt) : Date.parse(job.startedAt);
-    const toAt = s.endedAt ? Date.parse(s.endedAt) : job.interrupted?.wrapper?.at ? Date.parse(job.interrupted.wrapper.at) : now;
+    const toAt = s.endedAt ? Date.parse(s.endedAt) : job.interrupted?.wrapper?.at ? Date.parse(job.interrupted.wrapper.at) : cut?.at ? Date.parse(cut.at) : now;
     let found: ReturnType<typeof provenFiles>;
     try { found = provenFiles(job.root, job.operation, { from: fromAt, to: Number.isFinite(toAt) ? toAt : now }, chain); } catch { found = { files: [], more: 0, checked: 'the records of Timmy\'s own runs could not be read' }; }
     const outcome = outcomeOf(s);
@@ -204,7 +208,8 @@ export function sealLeftBlocks(d: LeftBlocksDeps, job: JobRecord): Array<{ name:
       doc_sha256: then.docSha256 ?? null,
       doc_at_end: then.doc && then.docSha256 ? docAtEnd(job.root, then.doc, then.docSha256) : 'unreadable',
       state: s.state, outcome,
-      ...(outcome === 'interrupted' ? { interrupted_by: 'repl ended' as const } : {}),
+      // R4 (H88): a run its own Timmy ended at once (a second Ctrl-C) was cut by that stop, in its words
+      ...(outcome === 'interrupted' ? (cut ? { interrupted_by: cut.by, ...(cut.words ? { stop_words: d.scrub(cut.words).slice(0, 200) } : {}) } : { interrupted_by: 'repl ended' as const }) : {}),
       exit_code: s.code ?? null, started_at: s.startedAt ?? null, ended_at: s.endedAt ?? null, ms: stepMs(s) ?? null,
       seen: s.seen === 'wrapper' ? 'wrapper' : 'timmy',
       prediction: job.expected?.receipt ?? null,

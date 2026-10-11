@@ -1506,6 +1506,9 @@ export class Workspace {
     this.ops.closeAll();
   }
 
+  /** R4 (H88): the block receipt this Workspace sealed for a step of one of its /run jobs (by the step's place), if any. */
+  blockReceiptOf(job: string, step: number): string | undefined { return this.blockSeals.receiptOf(job, step); }
+
   /** The process is exiting at once (a second Ctrl+C): signal this REPL's live jobs without waiting. */
   killNow(by: string = REPL_END_REASON): void {
     this.unrealRuns.close(); // R4 (H63): no readback starts once the process exits at once
@@ -1686,7 +1689,7 @@ export class Workspace {
         open: () => !this.launches.closing,
         // R4 (H58): /run jobs an ended REPL left running: ended in their own records as interrupted
         // R4 (H74): with what seals the block receipts its runs still need (a block interrupted, or ended unseen)
-        workflows: () => recoverWorkflowJobs({ root, jobs: this.jobs, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing, blocks: (job) => sealLeftBlocks({ seal: this.d.seal, chain: () => this.chainNow(), scrub: (t) => this.scrub(t, root), project: job.project, projectId: projectId(root) }, job) }),
+        workflows: () => recoverWorkflowJobs({ root, jobs: this.jobs, scrub: (t) => this.scrub(t, root), mine: (id) => this.mine.has(id), open: () => !this.launches.closing, blocks: (job, cut) => sealLeftBlocks({ seal: this.d.seal, chain: () => this.chainNow(), scrub: (t) => this.scrub(t, root), project: job.project, projectId: projectId(root) }, job, cut) }), // R4 (H88): cut
         // R4 (H59): code agent runs an ended REPL left, each run's own record ended (src/repl/recover-agents.ts); then
         // R4 (H52): OpenHands containers left running, found by their labels and their run's record
         agents: async () => [

@@ -136,7 +136,7 @@ export interface RecoverDeps {
   project: string;
   /** this REPL's jobs: its own and the records earlier sessions left in the same jobs folder (JobManager.list/get); R4
    *  (H46): endLeft records the end of a job an ended session left (absent: no job record is changed) */
-  jobs: { list(): JobRecord[]; get(id: string): JobRecord | undefined; endLeft?: JobManager['endLeft'] };
+  jobs: { list(): JobRecord[]; get(id: string): JobRecord | undefined; endLeft?: JobManager['endLeft']; noteAtOnceSealed?: JobManager['noteAtOnceSealed'] }; // R4 (H88): noteAtOnceSealed
   seal: (input: ReceiptInput) => string | undefined;
   /** the runs chain: read only when a delivery is checked against earlier recover receipts */
   receipts: () => Receipt[];
@@ -170,7 +170,7 @@ export interface RecoveryItem {
   /** the operation's own ID: a recipe job's UUID, a flow's id, a native run's token */
   id: string;
   /** 'incomplete' (R4-8): a succeeded recipe's copy is in the project but not whole; named with /recipe copy, left as it is */
-  did: 'followed' | 'delivered' | 'interrupted' | 'judged' | 'failed' | 'incomplete' | 'left' | 'stopped';
+  did: 'followed' | 'delivered' | 'interrupted' | 'judged' | 'failed' | 'incomplete' | 'left' | 'stopped' | 'sealed'; // R4 (H88): 'sealed', a /run its Timmy ended at once
   /** left as it is, but the operator must act (a recipe whose worker stopped answering) */
   attention?: boolean;
   /** one plain sentence: what was found, and what was done */
@@ -996,6 +996,9 @@ function summary(items: RecoveryItem[]): string {
   // R4 (H67): /run jobs upmd ended while their REPL no longer followed them, recorded from what their pty wrapper saw
   const wfEnded = of((i) => i.did === 'judged' && i.kind === 'workflow');
   if (wfEnded.length) parts.push(`${count(wfEnded.length, 'workflow run')} ended unseen by ${wfEnded.length === 1 ? 'its' : 'their'} REPL: ${wfEnded.map((i) => i.id).join(', ')} (recorded from ${wfEnded.length === 1 ? 'its' : 'their'} pty wrapper's stop file)`);
+  // R4 (H88): /run jobs their own Timmy ended at once as it exited (a second Ctrl-C), the receipts of their cut blocks sealed now
+  const atOnce = of((i) => i.did === 'sealed' && i.kind === 'workflow');
+  if (atOnce.length) parts.push(`${count(atOnce.length, 'workflow run')} stopped at once by ${atOnce.length === 1 ? 'its' : 'their'} Timmy: ${atOnce.map((i) => i.id).join(', ')} (block receipts sealed)`);
   // R4 (H68): operations whose process ended first, ended in their records once all their runs had ended.
   const ops = of((i) => i.kind === 'operation' && i.did === 'interrupted');
   if (ops.length) parts.push(`${count(ops.length, 'operation')} left open by a Timmy that ended ${ops.length === 1 ? 'was' : 'were'} recorded as interrupted: ${ops.map((i) => i.id).join(', ')} (record${ops.length === 1 ? '' : 's'} ended)`);

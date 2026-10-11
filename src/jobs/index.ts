@@ -103,7 +103,15 @@ export interface JobRecord {
    *  bound, then what the job's process group needed: nothing ('ended by itself', its last output kept), a SIGTERM, or a
    *  SIGKILL too. Absent when no stop ran, and for every other job. */
   stopOrder?: StopOrder;
+  /** Round R4 (H88; the Mac run r23): the record was ended at once by the Timmy that ran the job, as it exited (endAtOnce). */
+  exitedAtOnce?: ExitedAtOnce;
 }
+/**
+ * Round R4 (H88): JobRecord.exitedAtOnce. `by` (`timmy act`, `timmy md`) exited at once on a second `signal` (a second
+ * Ctrl-C) at `at`: its record was ended then, its process group sent SIGTERM and not waited for, and nothing was sealed for
+ * it then (`sealed` false), until a later recovery sealed the block receipts it could (`sealed` true).
+ */
+export interface ExitedAtOnce { at: string; by: string; signal: string; sealed: boolean }
 /** Round R4 (H62): JobRecord.stopOrder. */
 export interface StopOrder { first: 'answered' | 'no answer'; group: 'ended by itself' | 'SIGTERM' | 'SIGKILL' }
 /** Round R4 (H62): why a job is being stopped, as its stop's first part is told (JobSpec.stopFirst). */
@@ -337,6 +345,51 @@ export class JobManager {
       ...(interrupted ? { interrupted } : {}),
     };
     return this.persist(ended) ? snapshot(ended) : undefined;
+  }
+
+  /**
+   * Round R4 (H88; the Mac run r23): ends a job of this manager in its record at once, as the process that runs it exits
+   * without waiting (a second Ctrl-C to `timmy act` or `timmy md`): cancelled, now, with `error` (words naming the second
+   * signal); a step still running is recorded stopped. Nothing is signalled here (the caller signalled its group first:
+   * signalNow), awaited, read or sealed: exitedAtOnce says so, and a later recovery seals the block receipts it can. Only a
+   * job of this manager that is still going; synchronous. Returns the record as written, or undefined.
+   */
+  endAtOnce(id: string, end: { error: string; by: string; signal: string }): JobRecord | undefined {
+    const entry = this.jobs.get(id);
+    if (!entry || entry.finished) return undefined;
+    entry.finished = true;
+    for (const timer of entry.timers) clearTimeout(timer);
+    entry.timers.clear();
+    // (its last unterminated output is not read now: reading it would parse it, and a parsed step may seal a receipt)
+    if (entry.fd !== undefined) {
+      try { closeSync(entry.fd); } catch { /* already closed */ }
+      entry.fd = undefined;
+    }
+    const { job } = entry;
+    const at = this.stamp();
+    job.state = 'cancelled';
+    job.endedAt = at;
+    job.exitCode = null;
+    job.signal = null;
+    job.error = end.error;
+    job.steps = job.steps.map((s) => (s.state === 'running' ? { ...s, state: 'stopped' as const } : s));
+    job.exitedAtOnce = { at, by: end.by, signal: end.signal, sealed: false };
+    this.persist(job);
+    for (const resolve of entry.readyWaiters.splice(0)) resolve(snapshot(job));
+    entry.resolveDone(snapshot(job));
+    return snapshot(job);
+  }
+
+  /**
+   * Round R4 (H88): records that a later recovery sealed what a job ended at once (endAtOnce) could not seal itself: only a
+   * record another process left, ended so and not noted yet. Whether it was written.
+   */
+  noteAtOnceSealed(id: string): boolean {
+    if (this.jobs.has(id) || !JOB_ID.test(id)) return false;
+    const left = this.readPersisted(id);
+    if (!left?.exitedAtOnce || left.exitedAtOnce.sealed) return false;
+    const { stale: _stale, ...job } = left;
+    return this.persist({ ...job, exitedAtOnce: { ...left.exitedAtOnce, sealed: true } });
   }
 
   /** Round R4 (H29): signal a job's process group at once, without waiting (the REPL exiting at once). Only a job of
@@ -800,6 +853,9 @@ function parseRecord(raw: unknown, id: string, logPath: string): JobRecord | und
   }
   const order = r.stopOrder && typeof r.stopOrder === 'object' ? r.stopOrder as Record<string, unknown> : undefined;
   if (order && (order.first === 'answered' || order.first === 'no answer') && (order.group === 'ended by itself' || order.group === 'SIGTERM' || order.group === 'SIGKILL')) job.stopOrder = { first: order.first, group: order.group };
+  // Round R4 (H88): ended at once by the Timmy that ran it
+  const once = r.exitedAtOnce && typeof r.exitedAtOnce === 'object' ? r.exitedAtOnce as Record<string, unknown> : undefined;
+  if (once && text(once.at) && text(once.by) && text(once.signal) && typeof once.sealed === 'boolean') job.exitedAtOnce = { at: once.at, by: once.by, signal: once.signal, sealed: once.sealed };
   return job;
 }
 
